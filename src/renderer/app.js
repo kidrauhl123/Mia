@@ -21,6 +21,7 @@ const platformModelCatalog = { loaded: false, loading: false, entries: [] };
 let socialBootstrapInFlight = null;
 let personaSearchTimer = 0;
 let personaSearchSerial = 0;
+let shellLayoutTransitionTimer = 0;
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
 const rendererPlatform = String(window.mia?.platform || "unknown");
 document.body.classList.toggle("platform-win32", rendererPlatform === "win32");
@@ -889,6 +890,18 @@ function syncNarrowLayout() {
   if (els.appShell) {
     els.appShell.setAttribute("data-narrow-pane", pane);
   }
+}
+
+function triggerResponsiveShellTransition(direction) {
+  if (!direction || !els.appShell || !viewHasIndexPane(state.activeView)) return;
+  els.appShell.setAttribute("data-responsive-transition", direction);
+  if (shellLayoutTransitionTimer) window.clearTimeout(shellLayoutTransitionTimer);
+  shellLayoutTransitionTimer = window.setTimeout(() => {
+    if (els.appShell?.getAttribute("data-responsive-transition") === direction) {
+      els.appShell.removeAttribute("data-responsive-transition");
+    }
+    shellLayoutTransitionTimer = 0;
+  }, 240);
 }
 
 function sidebarCollapseSupported(view = state.activeView) {
@@ -4573,7 +4586,9 @@ window.addEventListener("resize", () => {
   const overlayTarget = window.miaScrollbarOverlay.getScrollbarOverlayTarget();
   if (overlayTarget) window.miaScrollbarOverlay.updateScrollbarOverlay(overlayTarget);
   const isNarrow = window.innerWidth <= SHELL_SINGLE_MAX_WIDTH;
-  if (!state.isNarrowWindow && isNarrow) {
+  const wasNarrow = state.isNarrowWindow;
+  const transitionDirection = wasNarrow === isNarrow ? "" : isNarrow ? "collapse" : "expand";
+  if (!wasNarrow && isNarrow) {
     state.narrowPane = activeViewHasDetail(state.activeView) ? "content" : "sidebar";
   }
   state.isNarrowWindow = isNarrow;
@@ -4583,6 +4598,7 @@ window.addEventListener("resize", () => {
   syncNarrowLayout();
   syncSidebarCollapseState();
   if (els.appShell) els.appShell.setAttribute("data-shell-layout", state.shellLayout);
+  triggerResponsiveShellTransition(transitionDirection);
 });
 
 document.querySelectorAll("[data-settings-tab]").forEach((button) => {

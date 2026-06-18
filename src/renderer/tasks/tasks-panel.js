@@ -34,6 +34,7 @@
   ];
   let modeToggleIndicatorHost = null;
   let modeToggleIndicatorResizeBound = false;
+  let pageTurnDirection = 0;
 
   function syncModeToggleIndicator(host) {
     modeToggleIndicatorHost = host || modeToggleIndicatorHost;
@@ -200,6 +201,10 @@
     host.querySelectorAll("[data-mode]").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (state.taskMode === btn.dataset.mode) return;
+        const fromIndex = Math.max(0, MODES.findIndex((item) => item.key === state.taskMode));
+        const toIndex = Math.max(0, MODES.findIndex((item) => item.key === btn.dataset.mode));
+        pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
+        window.miaMasonryGrid?.capture(els.tasksContent, pageTurnDirection);
         state.taskMode = btn.dataset.mode;
         renderTaskView();
       });
@@ -229,6 +234,7 @@
       els.tasksContent.innerHTML = renderActiveEmpty();
       els.tasksContent.querySelector("[data-action='new-task']")
         ?.addEventListener("click", openTaskCreate);
+      layoutTaskCards();
       return;
     }
     els.tasksContent.innerHTML = tasks.map(cardHtml).join("");
@@ -241,6 +247,13 @@
         renderTaskView();
       });
     });
+    layoutTaskCards();
+  }
+
+  function layoutTaskCards() {
+    const direction = pageTurnDirection;
+    pageTurnDirection = 0;
+    window.miaMasonryGrid?.layout(els.tasksContent, ".task-card", { animate: direction });
   }
 
   function renderHistoryView() {
@@ -259,7 +272,13 @@
       `).join("");
       chipRow.querySelectorAll("[data-history-filter]").forEach((btn) => {
         btn.addEventListener("click", () => {
-          state.taskHistoryFilter = btn.dataset.historyFilter;
+          const next = btn.dataset.historyFilter || "all";
+          if ((state.taskHistoryFilter || "all") === next) return;
+          const fromIndex = Math.max(0, HISTORY_FILTERS.findIndex((item) => item.key === (state.taskHistoryFilter || "all")));
+          const toIndex = Math.max(0, HISTORY_FILTERS.findIndex((item) => item.key === next));
+          pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
+          window.miaMasonryGrid?.capture(els.tasksContent, pageTurnDirection);
+          state.taskHistoryFilter = next;
           renderTaskView();
         });
       });
@@ -268,6 +287,7 @@
     const visible = allEntries.filter((e) => match(e.run));
     if (visible.length === 0) {
       els.tasksContent.innerHTML = `<div class="tasks-empty"><p>当前筛选下没有运行记录</p></div>`;
+      layoutTaskCards();
       return;
     }
     els.tasksContent.innerHTML = visible.map(runCardHtml).join("");
@@ -280,6 +300,7 @@
         renderTaskView();
       });
     });
+    layoutTaskCards();
   }
 
   function cardHtml(task) {

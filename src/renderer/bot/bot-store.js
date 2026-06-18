@@ -6,6 +6,7 @@
   let state, els, mia, escapeHtml, loadSkills, openBotConversation, render;
   let lastCategoryKey = "";
   let activeCat = "全部";
+  let pageTurnDirection = 0;
   let adding = false;
   let libraryRequested = false;
   let runtimeDevicesLoading = false;
@@ -478,6 +479,11 @@
       b.textContent = c;
       if (c === activeCat) b.classList.add("active");
       b.addEventListener("click", () => {
+        if (activeCat === c) return;
+        const fromIndex = Math.max(0, cats.indexOf(activeCat));
+        const toIndex = Math.max(0, cats.indexOf(c));
+        pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
+        window.miaMasonryGrid?.capture(els.botStoreGrid, pageTurnDirection);
         activeCat = c;
         cap.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
         b.classList.add("active");
@@ -504,6 +510,12 @@
   function avatarHtml(f, extraClass) {
     const cls = extraClass ? ` ${extraClass}` : "";
     return `<div class="bot-store-avatar${cls}" style="background:${f.c1};color:${f.c2}">${f.emoji}</div>`;
+  }
+
+  function cardStyle(f) {
+    const c1 = safeColor(f.c1, "#ecebfc");
+    const c2 = safeColor(f.c2, "#5e5ce6");
+    return `--bot-card-bg:${c1};--bot-card-fg:${c2}`;
   }
 
   function textWithLineBreaks(value) {
@@ -584,18 +596,24 @@
     const list = presets().filter((f) => activeCat === "全部" || (f.cat || f.category) === activeCat);
     if (!list.length) {
       grid.innerHTML = `<div class="bot-store-empty">这个分类暂时还没有 AI 助手</div>`;
+      window.miaMasonryGrid?.layout(grid, ".bot-store-card", { animate: pageTurnDirection });
+      pageTurnDirection = 0;
       return;
     }
-    grid.innerHTML = list.map((f, i) => `
-      <div class="bot-store-card" data-key="${escapeHtml(f.key)}" style="animation-delay:${(i * 0.05).toFixed(2)}s">
-        <div class="bot-store-card-head">
-          ${avatarHtml(f)}
-          <div class="meta">
+    grid.innerHTML = list.map((f) => `
+      <div class="bot-store-card" data-key="${escapeHtml(f.key)}" style="${cardStyle(f)}">
+        <div class="bot-store-card-cover">
+          <span class="bot-store-card-category">${escapeHtml(f.cat || f.category || "推荐")}</span>
+          ${avatarHtml(f, "bot-store-cover-avatar")}
+        </div>
+        <div class="bot-store-card-body">
+          <div class="bot-store-card-head">
             <strong>${escapeHtml(f.name)}</strong>
             <div class="tag">${escapeHtml(f.tagline)}</div>
           </div>
+          <p class="line">${escapeHtml(f.line)}</p>
+          <div class="bot-store-card-foot">${escapeHtml(skillSummary(f))}</div>
         </div>
-        <p class="line">${escapeHtml(f.line)}</p>
       </div>`).join("");
     grid.querySelectorAll(".bot-store-card").forEach((card) => {
       card.addEventListener("click", () => {
@@ -603,6 +621,8 @@
         if (f) openSheet(f);
       });
     });
+    window.miaMasonryGrid?.layout(grid, ".bot-store-card", { animate: pageTurnDirection });
+    pageTurnDirection = 0;
   }
 
   function openSheet(f) {

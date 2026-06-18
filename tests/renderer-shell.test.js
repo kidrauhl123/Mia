@@ -163,6 +163,10 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(appSource, /setAttribute\("data-shell-layout", state\.shellLayout\)/);
   assert.match(appSource, /function syncSidebarCollapseState\(\)/);
   assert.match(appSource, /function sidebarCollapseSupported\(view = state\.activeView\)\s*\{\s*return !state\.isNarrowWindow && view === "chat";\s*\}/);
+  assert.match(appSource, /let shellLayoutTransitionTimer = 0;/);
+  assert.match(appSource, /function triggerResponsiveShellTransition\(direction\)/);
+  assert.match(appSource, /setAttribute\("data-responsive-transition", direction\)/);
+  assert.match(appSource, /const transitionDirection = wasNarrow === isNarrow \? "" : isNarrow \? "collapse" : "expand";/);
   assert.match(appSource, /setAttribute\("data-sidebar-state", collapsed \? "collapsed" : "expanded"\)/);
   assert.match(appSource, /localStorage\.setItem\("mia\.sidebarCollapsed\.v1", state\.sidebarCollapsed \? "1" : "0"\)/);
   assert.match(appSource, /if \(state\.isNarrowWindow && viewHasIndexPane\(state\.activeView\)\) \{\s*showNarrowSidebar\(\);/);
@@ -214,22 +218,30 @@ test("narrow desktop shell collapses the expanded rail into one content column",
 
   assert.match(
     css,
-    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell,\s*\.app-shell\[data-layout="index-workspace"\],\s*\.app-shell\[data-layout="workspace"\],\s*\.app-shell\[data-shell-layout="single"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) minmax\(0,\s*1fr\);/,
-    "narrow layout must override the higher-specificity data-layout desktop grid"
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell,\s*\.app-shell\[data-layout="index-workspace"\],\s*\.app-shell\[data-layout="workspace"\],\s*\.app-shell\[data-shell-layout="single"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) 0 0 minmax\(0,\s*1fr\);/,
+    "narrow layout must keep the desktop track count so the middle pane can animate closed"
   );
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.sidebar,\s*\.workspace\s*\{[\s\S]*?grid-column:\s*4 \/ -1;/);
   assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.sidebar\s*\{[\s\S]*?display:\s*none !important;/);
   assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="index"\] \.workspace\s*\{[\s\S]*?display:\s*none !important;/);
   assert.match(css, /@keyframes\s+miaPanePushIn\s*\{[\s\S]*?translateX\(26px\)/);
   assert.match(css, /@keyframes\s+miaPanePopIn\s*\{[\s\S]*?translateX\(-22px\)/);
+  assert.match(css, /@keyframes\s+miaSidebarCollapseOut\s*\{[\s\S]*?translateX\(-10px\)/);
+  assert.match(css, /\.app-shell\[data-responsive-transition="collapse"\] \.sidebar:not\(\.hidden\)\s*\{[\s\S]*?animation:\s*miaSidebarCollapseOut 190ms/);
+  assert.match(css, /\.app-shell\[data-responsive-transition="expand"\] \.sidebar:not\(\.hidden\)\s*\{[\s\S]*?animation:\s*miaPanePopIn 190ms/);
+  assert.match(css, /\.app-shell\[data-responsive-transition="collapse"\]\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.sidebar:not\(\.hidden\)\s*\{[\s\S]*?grid-column:\s*2;[\s\S]*?display:\s*grid !important;/);
   assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.workspace:not\(\.hidden\)\s*\{[\s\S]*?animation:\s*miaPanePushIn 190ms/);
   assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="index"\] \.sidebar:not\(\.hidden\)\s*\{[\s\S]*?animation:\s*miaPanePopIn 190ms/);
   assert.match(css, /\.app-shell\[data-shell-layout="single"\] \.persona\.active,[\s\S]*?\.app-shell\[data-shell-layout="single"\] \.contact-row\.active\s*\{[\s\S]*?background:\s*transparent;/);
-  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView\.workspace\s*\{[\s\S]*?margin:\s*0;[\s\S]*?border-radius:\s*0;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView\.workspace\s*\{[\s\S]*?grid-column:\s*4 \/ -1;[\s\S]*?margin:\s*0;[\s\S]*?border-radius:\s*0;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.session-menu-wrap\s*\{[\s\S]*?display:\s*block;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.top-actions\s*\{[\s\S]*?display:\s*flex;[\s\S]*?min-height:\s*40px;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.composer\s*\{[\s\S]*?padding:\s*8px 12px 14px;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.model-switcher\s*\{[\s\S]*?max-width:\s*112px;/);
-  assert.match(chatCss, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.bubble,\s*\.message-stack\s*\{[\s\S]*?max-width:\s*min\(100%, 560px\);/);
+  assert.match(chatCss, /\.bubble\s*\{[\s\S]*?max-width:\s*min\(calc\(100% - 32px\), 450px\);/);
+  assert.match(chatCss, /\.message-stack\s*\{[\s\S]*?max-width:\s*min\(calc\(100% - 32px\), 450px\);/);
+  assert.match(chatCss, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.bubble,\s*\.message-stack\s*\{[\s\S]*?max-width:\s*min\(calc\(100% - 24px\), 450px\);/);
+  assert.match(chatCss, /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?\.bubble,\s*\.message-stack\s*\{[\s\S]*?max-width:\s*min\(calc\(100% - 20px\), 450px\);/);
   assert.match(chatCss, /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?\.message:not\(\.group-message\)\s+\.avatar\s*\{[\s\S]*?display:\s*none;/);
 });
 

@@ -25,6 +25,7 @@
   const marketRefreshKeys = new Set();
   let modeToggleIndicatorHost = null;
   let modeToggleIndicatorResizeBound = false;
+  let pageTurnDirection = 0;
 
   function syncModeToggleIndicator(host) {
     modeToggleIndicatorHost = host || modeToggleIndicatorHost;
@@ -166,6 +167,7 @@
   }
 
   function renderChips(entries) {
+    const chipKeys = ["", ...entries.slice(0, 12).map(([category]) => category)];
     els.skillChipRow.innerHTML = [
       `<button class="${state.skillCategoryFilter ? "" : "active"}" type="button" data-skill-filter="">全部</button>`,
       ...entries.slice(0, 12).map(([category, count]) => `
@@ -176,7 +178,13 @@
     ].join("");
     els.skillChipRow.querySelectorAll("[data-skill-filter]").forEach((button) => {
       button.addEventListener("click", () => {
-        state.skillCategoryFilter = button.dataset.skillFilter || "";
+        const next = button.dataset.skillFilter || "";
+        if (state.skillCategoryFilter === next) return;
+        const fromIndex = Math.max(0, chipKeys.indexOf(state.skillCategoryFilter || ""));
+        const toIndex = Math.max(0, chipKeys.indexOf(next));
+        pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
+        window.miaMasonryGrid?.capture(els.skillCardGrid, pageTurnDirection);
+        state.skillCategoryFilter = next;
         closeSkillContextMenu();
         renderSkillLibrary();
       });
@@ -198,6 +206,8 @@
 
   function switchSkillMode(toMarket) {
     if (!!state.skillMarketMode === !!toMarket) return;
+    pageTurnDirection = toMarket ? 1 : -1;
+    window.miaMasonryGrid?.capture(els.skillCardGrid, pageTurnDirection);
     state.skillMarketMode = !!toMarket;
     state.skillCategoryFilter = "";
     closeSkillContextMenu();
@@ -211,6 +221,12 @@
     if (state.skillMarketMode) renderMarketView();
     else renderLocalView();
     renderSkillContextMenu();
+  }
+
+  function layoutSkillCards() {
+    const direction = pageTurnDirection;
+    pageTurnDirection = 0;
+    window.miaMasonryGrid?.layout(els.skillCardGrid, ".skill-card", { animate: direction });
   }
 
   function renderLocalView() {
@@ -227,6 +243,7 @@
         openSkillContextMenu(card.dataset.skillSelect, event.clientX, event.clientY);
       });
     });
+    layoutSkillCards();
   }
 
   // 「使用」: attach the skill to the conversation the user is currently viewing
@@ -475,10 +492,12 @@
     }
     if (state.skillMarket.loading && !state.skillMarket.loaded) {
       els.skillCardGrid.innerHTML = `<div class="skill-empty-state">正在加载技能市场...</div>`;
+      layoutSkillCards();
       return;
     }
     if (state.skillMarket.error && !(state.skillMarket.skills || []).length) {
       els.skillCardGrid.innerHTML = `<div class="skill-empty-state">技能市场加载失败，请稍后重试。</div>`;
+      layoutSkillCards();
       return;
     }
     const shown = visibleMarketSkills();
@@ -492,6 +511,7 @@
         reportMarketSkill(card.dataset.marketId);
       });
     });
+    layoutSkillCards();
   }
 
   async function loadMarketSkills(params = marketRequestParams(), options = {}) {

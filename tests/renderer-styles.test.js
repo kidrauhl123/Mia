@@ -425,8 +425,8 @@ test("discover, skill, and task controls float over one continuous workspace flo
   );
   assert.match(
     botStoreCss,
-    /\.bot-store-layout\s*\{[^}]*overflow:\s*auto;/,
-    "bot store should scroll the whole workspace floor, not an inner list window"
+    /\.bot-store-layout\s*\{[^}]*grid-template-rows:\s*none;[^}]*grid-auto-rows:\s*max-content;[^}]*align-content:\s*start;[^}]*align-items:\s*start;[^}]*overflow:\s*auto;/,
+    "bot store should scroll the whole workspace floor from the top-left rather than stretch or center sparse rows"
   );
   assert.match(
     botStoreCss,
@@ -455,8 +455,8 @@ test("discover, skill, and task controls float over one continuous workspace flo
     );
     assert.match(
       css,
-      new RegExp(`\\.${contentSelector}\\s*\\{[^}]*grid-template-rows:\\s*none;[^}]*overflow:\\s*auto;`),
-      `${name} content should scroll as one floor rather than a row-limited panel`
+      new RegExp(`\\.${contentSelector}\\s*\\{[^}]*grid-template-rows:\\s*none;[^}]*grid-auto-rows:\\s*max-content;[^}]*align-content:\\s*start;[^}]*align-items:\\s*start;[^}]*overflow:\\s*auto;`),
+      `${name} content should scroll as one floor from the top-left rather than a row-limited or centered panel`
     );
   }
 });
@@ -492,6 +492,112 @@ test("floating-floor pages remove the workspace frame even in narrow layouts", (
       `${name} workspace should override the narrow workspace margin and rounded frame`
     );
   }
+});
+
+test("discover, skill, and task cards start from the fixed left edge", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const masonryHelper = fs.readFileSync(path.join(root, "src/renderer/helpers/masonry-grid.js"), "utf8");
+  const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
+  const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
+  const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
+  const botStoreJs = fs.readFileSync(path.join(root, "src/renderer/bot/bot-store.js"), "utf8");
+  const skillJs = fs.readFileSync(path.join(root, "src/renderer/skills/skill-library.js"), "utf8");
+  const taskJs = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");
+
+  assert.match(
+    html,
+    /helpers\/masonry-grid\.js[\s\S]*skills\/skill-library\.js[\s\S]*bot\/bot-store\.js[\s\S]*tasks\/tasks-panel\.js/,
+    "masonry helper should load before the card renderers that call it"
+  );
+  assert.match(masonryHelper, /gridRowEnd\s*=\s*`span \$\{span\}`/);
+  assert.match(masonryHelper, /classList\.add\("masonry-grid"\)/);
+  assert.match(masonryHelper, /function capture\(grid,\s*direction/);
+  assert.match(masonryHelper, /cloneNode\(true\)/);
+  assert.match(masonryHelper, /snapshot\.classList\.remove\("page-enter-forward",\s*"page-enter-back",\s*"page-leave-forward",\s*"page-leave-back"\)/);
+  assert.match(masonryHelper, /masonry-page-shadow/);
+  assert.match(masonryHelper, /page-enter-forward/);
+  assert.match(masonryHelper, /options\.animate/);
+  assert.doesNotMatch(masonryHelper, /page-turn-distance/);
+  assert.match(baseCss, /\.masonry-grid-stage\s*\{[^}]*position:\s*relative;/);
+  assert.match(baseCss, /\.masonry-page-shadow\s*\{[^}]*position:\s*absolute;[^}]*z-index:\s*2;[^}]*opacity:\s*1;[^}]*will-change:\s*transform;/);
+  assert.match(baseCss, /\.masonry-grid\.page-enter-forward\s*\{[^}]*animation:\s*cardGridEnterForward\s+300ms/);
+  assert.match(baseCss, /\.masonry-page-shadow\.page-leave-forward\s*\{[^}]*animation:\s*cardGridLeaveForward\s+300ms/);
+  assert.match(baseCss, /@keyframes cardGridEnterForward\s*\{\s*from\s*\{\s*transform:\s*translate3d\(100%,\s*0,\s*0\);/);
+  assert.match(baseCss, /@keyframes cardGridLeaveForward\s*\{[\s\S]*?to\s*\{\s*transform:\s*translate3d\(-100%,\s*0,\s*0\);/);
+  assert.doesNotMatch(cssRuleBody(baseCss, "@keyframes cardGridEnterForward"), /opacity:/);
+  assert.doesNotMatch(cssRuleBody(baseCss, "@keyframes cardGridLeaveForward"), /opacity:/);
+  assert.match(botStoreCss, /\.bot-store-grid-scroll\.masonry-grid-stage\s*\{[^}]*overflow-x:\s*clip;[^}]*overflow-y:\s*visible;/);
+  assert.match(skillCss, /\.skills-layout\.masonry-grid-stage\s*\{[^}]*overflow-x:\s*clip;[^}]*overflow-y:\s*auto;/);
+  assert.match(taskCss, /\.tasks-layout\.masonry-grid-stage\s*\{[^}]*overflow-x:\s*clip;[^}]*overflow-y:\s*auto;/);
+
+  for (const [name, css, gridSelector, cardSelector] of [
+    ["discover", botStoreCss, "bot-store-grid", "bot-store-card"],
+    ["skills", skillCss, "skill-card-grid", "skill-card"],
+    ["tasks", taskCss, "task-card-grid", "task-card"]
+  ]) {
+    assert.match(
+      css,
+      new RegExp(`\\.${gridSelector}\\s*\\{[^}]*display:\\s*grid;[^}]*grid-template-columns:\\s*repeat\\(4,\\s*minmax\\(0,\\s*1fr\\)\\);[^}]*justify-content:\\s*start;[^}]*gap:\\s*12px;`),
+      `${name} page should use a stable left-aligned grid instead of centering sparse cards`
+    );
+    assert.match(
+      css,
+      new RegExp(`\\.${cardSelector}\\s*\\{[^}]*min-width:\\s*0;[^}]*border:\\s*1px solid rgba\\(17,\\s*24,\\s*39,\\s*0\\.05\\);[^}]*border-radius:\\s*10px;`),
+      `${name} cards should stay compact inside fixed left-start columns`
+    );
+    assert.match(
+      css,
+      new RegExp(`@media\\s*\\(max-width:\\s*500px\\)\\s*\\{[\\s\\S]*?\\.${gridSelector}\\s*\\{[^}]*grid-template-columns:\\s*repeat\\(2,\\s*minmax\\(0,\\s*1fr\\)\\);`),
+      `extra narrow ${name} layout should keep two columns`
+    );
+    assert.doesNotMatch(
+      cssRuleBody(css, `.${gridSelector}`),
+      /justify-content:\s*center|column-width|column-count|auto-fill|auto-fit/,
+      `${name} page should not center cards, auto-fit sparse rows, or use column balancing`
+    );
+    assert.match(
+      css,
+      new RegExp(`\\.${gridSelector}\\.masonry-grid\\s*\\{[^}]*--masonry-row-size:\\s*4px;[^}]*grid-auto-flow:\\s*row\\s+dense;[^}]*grid-auto-rows:\\s*var\\(--masonry-row-size\\);`),
+      `${name} page should use masonry row spans so shorter cards pack upward instead of aligning full rows`
+    );
+    assert.match(
+      css,
+      new RegExp(`@media\\s*\\(min-width:\\s*501px\\)\\s*and\\s*\\(max-width:\\s*980px\\)\\s*\\{[\\s\\S]*?\\.${gridSelector}\\s*\\{[^}]*grid-template-columns:\\s*repeat\\(3,\\s*minmax\\(0,\\s*1fr\\)\\);`),
+      `${name} page should use three columns from 501px through 980px`
+    );
+    assert.doesNotMatch(
+      css,
+      new RegExp(`@media\\s*\\(min-width:\\s*981px\\)[\\s\\S]*?\\.${gridSelector}\\s*\\{[^}]*grid-template-columns:\\s*repeat\\(3,`),
+      `${name} page should not keep a three-column override above 980px`
+    );
+    assert.doesNotMatch(
+      cssRuleBody(css, `.${cardSelector}`),
+      /animation:/,
+      `${name} cards should not flash or re-run entry animation while data refreshes`
+    );
+    assert.doesNotMatch(
+      cssRuleBody(css, `.${cardSelector}`),
+      /transition:[^;]*transform|transform:/,
+      `${name} cards should not animate a hover float`
+    );
+    assert.doesNotMatch(
+      cssRuleBody(css, `.${cardSelector}:hover`),
+      /transform:/,
+      `${name} card hover should not move the card`
+    );
+  }
+
+  assert.match(botStoreJs, /bot-store-card-cover/);
+  assert.match(botStoreJs, /bot-store-card-category/);
+  assert.match(botStoreJs, /bot-store-card-foot/);
+  assert.match(botStoreJs, /miaMasonryGrid\?\.capture\(els\.botStoreGrid,\s*pageTurnDirection\)/);
+  assert.match(skillJs, /miaMasonryGrid\?\.capture\(els\.skillCardGrid,\s*pageTurnDirection\)/);
+  assert.match(taskJs, /miaMasonryGrid\?\.capture\(els\.tasksContent,\s*pageTurnDirection\)/);
+  assert.match(botStoreJs, /miaMasonryGrid\?\.layout\(grid,\s*"\.bot-store-card",\s*\{\s*animate:\s*pageTurnDirection\s*\}\)/);
+  assert.match(skillJs, /miaMasonryGrid\?\.layout\(els\.skillCardGrid,\s*"\.skill-card",\s*\{\s*animate:\s*direction\s*\}\)/);
+  assert.match(taskJs, /miaMasonryGrid\?\.layout\(els\.tasksContent,\s*"\.task-card",\s*\{\s*animate:\s*direction\s*\}\)/);
+  assert.doesNotMatch(botStoreJs, /animation-delay/);
 });
 
 test("contacts detail narrow header keeps back control separate from the mode capsule", () => {
@@ -530,38 +636,38 @@ test("contacts detail narrow header keeps back control separate from the mode ca
   );
 });
 
-test("skill and task category filters are redesigned as individual floating chips", () => {
+test("skill and task category filters stay as stable individual chips", () => {
   const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
   const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
 
   for (const [name, selector, css] of [
-    ["skills", "skill-chip-row", skillCss],
-    ["tasks", "task-chip-row", taskCss]
+    ["skill", "skill-chip-row", skillCss],
+    ["task", "task-chip-row", taskCss]
   ]) {
     assert.match(
       css,
       new RegExp(`\\.${selector}\\s*\\{[^}]*padding:\\s*0;[^}]*border-radius:\\s*0;[^}]*background:\\s*transparent;[^}]*box-shadow:\\s*none;[^}]*flex-wrap:\\s*wrap;`),
-      `${name} category row should not be one oversized floating card`
+      `${name} filters should remain individual floating chips, not one clipped capsule`
     );
     assert.match(
       css,
-      new RegExp(`\\.${selector}\\s+button\\s*\\{[^}]*background:\\s*var\\(--floating-control-bg\\);[^}]*box-shadow:\\s*var\\(--floating-control-shadow\\);[^}]*backdrop-filter:\\s*blur\\(18px\\) saturate\\(1\\.08\\);[^}]*color:\\s*var\\(--muted\\);`),
-      `${name} inactive category chips should each be their own floating chip`
+      new RegExp(`\\.${selector}\\s+button\\s*\\{[^}]*background:\\s*var\\(--floating-control-bg\\);[^}]*box-shadow:\\s*var\\(--floating-control-shadow\\);[^}]*font-weight:\\s*\\d+;`),
+      `${name} inactive filters should each keep their own stable chip`
+    );
+  }
+  for (const [name, selector, css] of [
+    ["skill", "skill-chip-row", skillCss],
+    ["task", "task-chip-row", taskCss]
+  ]) {
+    assert.match(
+      css,
+      new RegExp(`\\.${selector}\\s+button\\s*\\{[^}]*font-weight:\\s*560;[^}]*font-variant-numeric:\\s*tabular-nums;[^}]*white-space:\\s*nowrap;`),
+      `${name} category buttons should keep one width model so active state does not shift positions`
     );
     assert.match(
       css,
-      new RegExp(`\\.${selector}\\s+button\\s+span\\s*\\{[^}]*color:\\s*var\\(--faint\\);`),
-      `${name} inactive category chip counts should use the normal floating card palette`
-    );
-    assert.match(
-      css,
-      new RegExp(`\\.${selector}\\s+button\\.active\\s*\\{[^}]*background:\\s*var\\(--surface\\);[^}]*color:\\s*var\\(--text\\);[^}]*box-shadow:\\s*var\\(--floating-control-shadow\\);`),
-      `${name} active category chip should stay independent instead of relying on a parent card`
-    );
-    assert.match(
-      css,
-      new RegExp(`\\.${selector}\\s+button(?::hover|\\.active)\\s+span\\s*\\{[^}]*color:\\s*var\\(--faint\\);`),
-      `${name} counts should return to the normal surface palette on white chips`
+      new RegExp(`\\.${selector}\\s+button\\.active\\s*\\{[^}]*font-weight:\\s*560;`),
+      `${name} active category buttons should not change text weight`
     );
   }
 });
