@@ -59,7 +59,7 @@ test("respond runs the local engine and posts the reply as the bot", async () =>
     ],
     group: true,
     utility: true,
-    persistAgentSession: true,
+    persistAgentSession: false,
     allowSlashCommands: false
   });
   assert.deepEqual(calls.post, [{

@@ -344,7 +344,9 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         ],
         group: isGroupConversation(conversationId, conversationType),
         utility: true,
-        persistAgentSession: true,
+        // App conversation history is the source of truth here. Resuming a native
+        // agent session can replay stale pending tool calls from a previous turn.
+        persistAgentSession: false,
         allowSlashCommands: false
       };
       if (botSnapshot && typeof botSnapshot === "object") chatArgs.botSnapshot = botSnapshot;
