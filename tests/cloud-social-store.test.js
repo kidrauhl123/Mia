@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 const { createBotsStore } = require("../src/cloud/bots-store.js");
+const { createMessagesStore } = require("../src/cloud/messages-store.js");
 const { createSocialStore } = require("../src/cloud/social-store.js");
 const { createCloudUser } = require("./helpers/cloud-auth.js");
 
@@ -315,6 +316,24 @@ test("listConversationsForUser returns conversations where user is a member", ()
     assert.deepEqual(aliceConversations, ["r-3"]);
     const bobConversations = ctx.social.listConversationsForUser(ctx.bob.id).map((r) => r.id).sort();
     assert.deepEqual(bobConversations, ["r-3", "r-4"]);
+  } finally { cleanup(ctx); }
+});
+
+test("listConversationsForUser includes last message sender metadata", () => {
+  const ctx = makeStores();
+  try {
+    const messages = createMessagesStore(ctx.cloudStore.getDb());
+    ctx.social.createConversation({ id: "r-sender", name: "Sender", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-sender", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    ctx.social.addConversationMember({ conversationId: "r-sender", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
+    messages.appendMessage({ conversationId: "r-sender", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "from alice" });
+
+    const row = ctx.social.listConversationsForUser(ctx.bob.id).find((item) => item.id === "r-sender");
+
+    assert.equal(row.last_message_sender_kind, "user");
+    assert.equal(row.lastMessageSenderKind, "user");
+    assert.equal(row.last_message_sender_ref, ctx.alice.id);
+    assert.equal(row.lastMessageSenderRef, ctx.alice.id);
   } finally { cleanup(ctx); }
 });
 

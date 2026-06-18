@@ -174,6 +174,8 @@ function createSocialStore(db) {
       r.*,
       lm.body_md AS last_message_text,
       lm.seq AS last_message_seq,
+      lm.sender_kind AS last_message_sender_kind,
+      lm.sender_ref AS last_message_sender_ref,
       lm.created_at AS last_message_created_at,
       lm.attachments_json AS last_message_attachments_json
     FROM conversations r
@@ -200,6 +202,8 @@ function createSocialStore(db) {
   function parseConversationRow(row) {
     if (!row) return null;
     const lastMessageSeq = Number(row.last_message_seq) || 0;
+    const lastMessageSenderKind = row.last_message_sender_kind || "";
+    const lastMessageSenderRef = row.last_message_sender_ref || "";
     const lastMessageCreatedAt = row.last_message_created_at || "";
     const lastMessageAttachments = parseJsonOr(row.last_message_attachments_json, []);
     const lastMessageHasAttachments = Array.isArray(lastMessageAttachments) && lastMessageAttachments.length > 0;
@@ -222,6 +226,10 @@ function createSocialStore(db) {
       last_message_text: row.last_message_text || "",
       lastMessageSeq,
       last_message_seq: lastMessageSeq,
+      lastMessageSenderKind,
+      last_message_sender_kind: lastMessageSenderKind,
+      lastMessageSenderRef,
+      last_message_sender_ref: lastMessageSenderRef,
       lastMessageCreatedAt,
       last_message_created_at: lastMessageCreatedAt,
       lastActivityAt,

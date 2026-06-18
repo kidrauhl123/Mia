@@ -1,17 +1,21 @@
 import type { Conversation, FriendRequest, UserSettings } from "../api/types";
 import { unreadCountsFromConversations } from "./conversationList";
+import { sidebarConversations } from "./sessionHistory";
 
 export interface MobileTabBadgeDeps {
   conversations?: Conversation[];
   settings?: UserSettings;
   incomingRequests?: FriendRequest[];
+  selfId?: string;
 }
 
-export function mobileTabBadges({ conversations = [], settings, incomingRequests = [] }: MobileTabBadgeDeps) {
+export function mobileTabBadges({ conversations = [], settings, incomingRequests = [], selfId }: MobileTabBadgeDeps) {
+  const visibleConversations = sidebarConversations(conversations);
   const unreadByConversation = unreadCountsFromConversations(
-    conversations,
+    visibleConversations,
     settings?.readMarks || {},
-    settings?.unreadOverrides || {}
+    settings?.unreadOverrides || {},
+    selfId
   );
   const muted = new Set(settings?.mutedConversations || []);
   const messages = Object.entries(unreadByConversation).reduce((sum, [conversationId, count]) => {

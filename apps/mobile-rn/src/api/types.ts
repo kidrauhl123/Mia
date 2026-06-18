@@ -33,6 +33,10 @@ export interface Conversation {
   last_message_text?: string;
   lastMessageSeq?: number;
   last_message_seq?: number;
+  lastMessageSenderKind?: SenderKind | string;
+  last_message_sender_kind?: SenderKind | string;
+  lastMessageSenderRef?: string;
+  last_message_sender_ref?: string;
   lastMessageCreatedAt?: string;
   last_message_created_at?: string;
   lastActivityAt?: string;

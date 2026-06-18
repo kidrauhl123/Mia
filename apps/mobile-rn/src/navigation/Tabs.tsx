@@ -14,7 +14,10 @@ import BotSessionsScreen from "../screens/BotSessionsScreen";
 import AnimatedTabBar from "./AnimatedTabBar";
 import { mobileTabBadges } from "../logic/tabBadges";
 import { useConversations, useFriendRequests, useUserSettings } from "../state/queries";
+import { useAuth } from "../state/auth";
 import { color } from "../theme";
+import { conversationHomeChrome } from "../logic/conversationHomeChrome";
+import { mobileTabBarChrome } from "../logic/mobileTabBarChrome";
 import type {
   AgentsStackParamList,
   ContactsStackParamList,
@@ -40,6 +43,11 @@ const headerOptions = {
   contentStyle: { backgroundColor: color.bg },
 };
 
+const tabScreenOptions = {
+  ...headerOptions,
+  tabBarStyle: mobileTabBarChrome.reservedLayoutStyle,
+};
+
 function activeChildName(route: Route<string> & { state?: NavigationState | PartialState<NavigationState> }) {
   const state = route.state;
   if (!state || !Array.isArray(state.routes) || !state.routes.length) return "";
@@ -55,7 +63,11 @@ function shouldHideTabBar(state: NavigationState) {
 function MessagesStack() {
   return (
     <MessagesStackNav.Navigator screenOptions={headerOptions}>
-      <MessagesStackNav.Screen name="Conversations" component={ConversationListScreen} options={{ title: "消息" }} />
+      <MessagesStackNav.Screen
+        name="Conversations"
+        component={ConversationListScreen}
+        options={{ title: "消息", headerShown: conversationHomeChrome.nativeHeaderShown }}
+      />
       <MessagesStackNav.Screen
         name="Chat"
         component={ChatScreen}
@@ -113,15 +125,17 @@ function SettingsStack() {
 }
 
 export default function Tabs() {
+  const { session } = useAuth();
   const { data: conversations = [] } = useConversations();
   const { data: settings } = useUserSettings();
   const { data: incomingRequests = [] } = useFriendRequests("incoming");
+  const selfId = session?.user?.id || "";
   const badges = useMemo(
-    () => mobileTabBadges({ conversations, settings, incomingRequests }),
-    [conversations, settings, incomingRequests]
+    () => mobileTabBadges({ conversations, settings, incomingRequests, selfId }),
+    [conversations, settings, incomingRequests, selfId]
   );
   return (
-    <Tab.Navigator screenOptions={headerOptions} tabBar={(props) => shouldHideTabBar(props.state) ? null : <AnimatedTabBar {...props} badges={badges} />}>
+    <Tab.Navigator screenOptions={tabScreenOptions} tabBar={(props) => shouldHideTabBar(props.state) ? null : <AnimatedTabBar {...props} badges={badges} />}>
       <Tab.Screen name="Messages" component={MessagesStack} options={{ headerShown: false, title: "消息" }} />
       <Tab.Screen name="Contacts" component={ContactsStack} options={{ headerShown: false, title: "联系人" }} />
       <Tab.Screen name="Agents" component={AgentsStack} options={{ headerShown: false, title: "运行" }} />

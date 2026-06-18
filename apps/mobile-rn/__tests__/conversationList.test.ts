@@ -123,6 +123,30 @@ test("会话摘要未读支持手动未读覆盖", () => {
   });
 });
 
+test("会话摘要未读不把自己发出的最后一条消息算作未读", () => {
+  const conversations = [
+    {
+      id: "own-last",
+      last_message_seq: 12,
+      last_message_sender_kind: "user",
+      last_message_sender_ref: "u1",
+    },
+    {
+      id: "other-last",
+      last_message_seq: 9,
+      last_message_sender_kind: "user",
+      last_message_sender_ref: "u2",
+    },
+  ];
+
+  expect(unreadCountsFromConversations(conversations as any, { "own-last": 11, "other-last": 6 }, {}, "u1")).toEqual({
+    "other-last": 3,
+  });
+  expect(unreadCountsFromConversations([{ id: "manual", last_message_seq: 5, last_message_sender_kind: "user", last_message_sender_ref: "u1" }] as any, { manual: 4 }, { manual: true }, "u1")).toEqual({
+    manual: 1,
+  });
+});
+
 test("置顶会话排在普通会话前", () => {
   const items = buildConversationListItems({
     conversations: [

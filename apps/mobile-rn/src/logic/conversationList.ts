@@ -119,6 +119,13 @@ function conversationLastSeq(c: Conversation): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+function isLastMessageFromSelf(c: Conversation, selfId?: string): boolean {
+  if (!selfId) return false;
+  const kind = String(c.lastMessageSenderKind || c.last_message_sender_kind || "");
+  const ref = String(c.lastMessageSenderRef || c.last_message_sender_ref || "");
+  return kind === "user" && ref === selfId;
+}
+
 export function formatConversationTime(value: string | number | Date | undefined): string {
   if (!value) return "";
   const date = value instanceof Date ? value : new Date(value);
@@ -149,13 +156,14 @@ export function unreadCountsFromMessages(
 export function unreadCountsFromConversations(
   conversations: Conversation[] = [],
   readMarks: Record<string, number> = {},
-  unreadOverrides: Record<string, boolean> = {}
+  unreadOverrides: Record<string, boolean> = {},
+  selfId?: string
 ): Record<string, number> {
   const unread: Record<string, number> = {};
   conversations.forEach((conversation) => {
     const readSeq = Number(readMarks[conversation.id]) || 0;
     const lastSeq = conversationLastSeq(conversation);
-    const count = lastSeq > readSeq ? lastSeq - readSeq : 0;
+    const count = !isLastMessageFromSelf(conversation, selfId) && lastSeq > readSeq ? lastSeq - readSeq : 0;
     if (count > 0 || unreadOverrides[conversation.id] === true) {
       unread[conversation.id] = Math.max(count, 1);
     }

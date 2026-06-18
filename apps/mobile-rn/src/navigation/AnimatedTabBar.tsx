@@ -4,7 +4,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import LottieIcon, { type LottieIconName } from "../ui/LottieIcon";
-import { color, hairlineWidth } from "../theme";
+import { color } from "../theme";
+import { mobileTabBarChrome } from "../logic/mobileTabBarChrome";
 
 const LABELS: Record<string, string> = {
   Messages: "消息",
@@ -84,25 +85,80 @@ function TabItem({ routeName, focused, badge, onPress }: { routeName: string; fo
 export default function AnimatedTabBar({ state, navigation, badges = {} }: BottomTabBarProps & { badges?: Record<string, number> }) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.bar, { paddingBottom: insets.bottom }]}>
-      {state.routes.map((route, index) => {
-        const focused = state.index === index;
-        const onPress = () => {
-          const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
-          if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
-        };
-        return <TabItem key={route.key} routeName={route.name} focused={focused} badge={badges[route.name]} onPress={onPress} />;
-      })}
+    <View pointerEvents="box-none" style={[styles.bar, { paddingBottom: Math.max(insets.bottom + mobileTabBarChrome.bottomGap, 14) }]}>
+      <View pointerEvents="auto" style={styles.card}>
+        <View pointerEvents="none" style={styles.glassClip}>
+          <View style={styles.frostedVeil} />
+          <View style={styles.innerHighlight} />
+        </View>
+        <View style={styles.items}>
+          {state.routes.map((route, index) => {
+            const focused = state.index === index;
+            const onPress = () => {
+              const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
+              if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
+            };
+            return <TabItem key={route.key} routeName={route.name} focused={focused} badge={badges[route.name]} onPress={onPress} />;
+          })}
+        </View>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   bar: {
+    position: mobileTabBarChrome.overlay.position,
+    left: mobileTabBarChrome.overlay.left,
+    right: mobileTabBarChrome.overlay.right,
+    bottom: mobileTabBarChrome.overlay.bottom,
+    zIndex: 20,
+    backgroundColor: "transparent",
+    paddingHorizontal: mobileTabBarChrome.horizontalMargin,
+    paddingTop: mobileTabBarChrome.topGap,
+  },
+  card: {
+    minHeight: 62,
+    borderRadius: mobileTabBarChrome.cardRadius,
+    backgroundColor: mobileTabBarChrome.cardBackgroundColor,
+    borderColor: mobileTabBarChrome.cardBorderColor,
+    borderWidth: mobileTabBarChrome.cardBorderWidth,
+    shadowColor: "#111827",
+    shadowOpacity: mobileTabBarChrome.shadowOpacity,
+    shadowRadius: mobileTabBarChrome.shadowRadius,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: mobileTabBarChrome.elevation,
+  },
+  glassClip: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: mobileTabBarChrome.cardRadius,
+    overflow: "hidden",
+  },
+  frostedVeil: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: mobileTabBarChrome.frostedVeilColor,
+  },
+  innerHighlight: {
+    position: "absolute",
+    top: 1,
+    left: 14,
+    right: 14,
+    height: 18,
+    borderRadius: 12,
+    backgroundColor: mobileTabBarChrome.innerHighlightColor,
+  },
+  items: {
     flexDirection: "row",
-    backgroundColor: color.bg,
-    borderTopWidth: hairlineWidth,
-    borderTopColor: color.line,
+    minHeight: 62,
+    zIndex: 1,
   },
   item: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 8, paddingBottom: 6, gap: 3 },
   iconWrap: { width: 28, height: 24, alignItems: "center", justifyContent: "center" },
