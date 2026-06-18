@@ -1076,6 +1076,8 @@ function migrate(db) {
       trigger_json        TEXT NOT NULL DEFAULT '{}',
       timezone            TEXT NOT NULL DEFAULT 'UTC',
       prompt              TEXT NOT NULL DEFAULT '',
+      fire_mode           TEXT NOT NULL DEFAULT 'agent',
+      delivery_text       TEXT NOT NULL DEFAULT '',
       status              TEXT NOT NULL DEFAULT 'active',
       runtime_kind        TEXT NOT NULL DEFAULT '',
       runtime_config_json TEXT NOT NULL DEFAULT '{}',
@@ -1114,6 +1116,12 @@ function migrate(db) {
   if (!hasColumn(db, "scheduled_tasks", "next_fire_at")) {
     db.exec("ALTER TABLE scheduled_tasks ADD COLUMN next_fire_at INTEGER");
     db.exec("CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due ON scheduled_tasks(status, next_fire_at)");
+  }
+  if (!hasColumn(db, "scheduled_tasks", "fire_mode")) {
+    db.exec("ALTER TABLE scheduled_tasks ADD COLUMN fire_mode TEXT NOT NULL DEFAULT 'agent'");
+  }
+  if (!hasColumn(db, "scheduled_tasks", "delivery_text")) {
+    db.exec("ALTER TABLE scheduled_tasks ADD COLUMN delivery_text TEXT NOT NULL DEFAULT ''");
   }
   // Profile avatar columns added in v3 so friends + the user themself can
   // surface their display avatar on every device.
@@ -1241,6 +1249,10 @@ function migrate(db) {
     .run(nowIso());
   // v18: conversation mute + manual unread overrides live in user_settings.
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (18, ?)")
+    .run(nowIso());
+  // v19: simple reminder tasks store final delivery text and do not rerun an
+  // agent at fire time.
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (19, ?)")
     .run(nowIso());
 }
 

@@ -276,3 +276,66 @@ test("cloud task fire does not append a visible user trigger message", async () 
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test("direct delivery tasks append a bot message without running Hermes", async () => {
+  const dataDir = tempDataDir();
+  const hermesCalls = [];
+  const server = createMiaCloudServer({
+    dataDir,
+    cloudAgentWorkerManager: {
+      async ensureWorker(userId) {
+        return { userId, baseUrl: "http://worker", apiKey: "worker-key" };
+      }
+    },
+    cloudAgentHermesClient: {
+      async runChat(args) {
+        hermesCalls.push(args);
+        return { runId: "hr_should_not_run", content: "wrong", events: [] };
+      }
+    }
+  });
+  const baseUrl = await listen(server);
+  try {
+    const account = loginCloudUser(server.mia.cloudStore, "task_direct_user");
+    const { conversation } = setupTaskOwner(server, account);
+    const created = await jsonFetch(baseUrl, "/api/tasks", account.token, {
+      method: "POST",
+      body: {
+        title: "发布新版本提醒",
+        botId: "bot_tasker",
+        conversationId: conversation.id,
+        fireMode: "deliver",
+        deliveryText: "该发布新版本了",
+        prompt: "提醒我发布新版本",
+        trigger: { type: "oneshot", at: new Date(Date.now() + 60_000).toISOString() },
+        timezone: "Asia/Shanghai"
+      }
+    });
+
+    const run = await jsonFetch(baseUrl, `/api/tasks/${created.task.id}/run-now`, account.token, {
+      method: "POST",
+      body: {}
+    });
+
+    assert.match(run.runId, /^r-/);
+    assert.equal(hermesCalls.length, 0);
+    const messages = server.mia.messagesStore.listMessagesSince(conversation.id, 0, 20);
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].sender_kind, "bot");
+    assert.equal(messages[0].sender_ref, "bot_tasker");
+    assert.equal(messages[0].body_md, "该发布新版本了");
+    const after = await jsonFetch(baseUrl, `/api/tasks/${created.task.id}`, account.token);
+    assert.equal(after.task.runs.length, 1);
+    assert.equal(after.task.runs[0].status, "ok");
+    assert.equal(after.task.runs[0].outputMessageId, messages[0].id);
+    assert.equal(after.task.runs[0].outputText, "该发布新版本了");
+    const events = server.mia.eventLog.listEventsSince(account.user.id, 0, 20);
+    assert.equal(
+      events.some((event) => event.kind === "conversation.message_appended" && event.payload?.message?.id === messages[0].id),
+      true
+    );
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});

@@ -3,6 +3,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { taskConversationFields } = require("./task-conversation.js");
+const {
+  assertValidFireMode,
+  deliveryTextForTask,
+  normalizeFireMode,
+  taskPromptForStorage
+} = require("../shared/scheduled-task-mode.js");
 
 function atomicWrite(filePath, content) {
   const tmp = filePath + ".tmp." + crypto.randomBytes(6).toString("hex");
@@ -32,7 +38,12 @@ function validateInput(input) {
   // prompted the task). It is stored but never consumed for delivery or
   // orphaning, so a missing message id must not block task creation — engines
   // legitimately pass "" when the originating message has no id.
-  if (!input.prompt) throw new Error("prompt is required");
+  assertValidFireMode(input);
+  const fireMode = normalizeFireMode(input);
+  const prompt = taskPromptForStorage(input);
+  const deliveryText = deliveryTextForTask(input);
+  if (fireMode === "deliver" && !deliveryText) throw new Error("deliveryText is required for fireMode=deliver");
+  if (fireMode === "agent" && !prompt) throw new Error("prompt is required");
   if (!input.trigger || !input.trigger.type) throw new Error("trigger.type is required");
   if (input.trigger.type === "event") {
     throw new Error("event-triggered tasks are not supported in v1");
@@ -60,6 +71,16 @@ function validateInput(input) {
       throw new Error(`invalid timezone: ${input.timezone}`);
     }
   }
+}
+
+function taskDeliveryFields(input = {}) {
+  const fireMode = normalizeFireMode(input);
+  const deliveryText = deliveryTextForTask(input);
+  return {
+    fireMode,
+    deliveryText,
+    prompt: taskPromptForStorage(input)
+  };
 }
 
 function createTasksStore(filePath) {
@@ -95,6 +116,7 @@ function createTasksStore(filePath) {
     validateInput(input);
     const now = Date.now();
     const { conversationId, sessionId } = taskConversationFields(input);
+    const delivery = taskDeliveryFields(input);
     const task = {
       id: "t-" + crypto.randomBytes(8).toString("hex"),
       title: String(input.title || "未命名任务"),
@@ -104,7 +126,9 @@ function createTasksStore(filePath) {
       originMessageId: String(input.originMessageId || ""),
       trigger: { ...input.trigger },
       timezone: String(input.timezone || "UTC"),
-      prompt: String(input.prompt),
+      prompt: delivery.prompt,
+      fireMode: delivery.fireMode,
+      deliveryText: delivery.deliveryText,
       status: "active",
       runs: [],
       createdAt: now,
@@ -135,8 +159,12 @@ function createTasksStore(filePath) {
       merged.trigger = partial.trigger.type && partial.trigger.type !== oldTrigger.type
         ? { ...partial.trigger }
         : { ...oldTrigger, ...partial.trigger };
-      validateInput(merged);
     }
+    const delivery = taskDeliveryFields(merged);
+    merged.prompt = delivery.prompt;
+    merged.fireMode = delivery.fireMode;
+    merged.deliveryText = delivery.deliveryText;
+    validateInput(merged);
     state.tasks[idx] = merged;
     save(state);
     return merged;

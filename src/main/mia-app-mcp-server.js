@@ -166,6 +166,8 @@ async function callTool(name, args = {}) {
         originMessageId: ctx.originMessageId || args.originMessageId || "",
         trigger: args.trigger,
         timezone: args.timezone || "Asia/Shanghai",
+        fireMode: args.fireMode,
+        deliveryText: args.deliveryText,
         prompt: args.prompt
       });
       const created = assertOk(status, body);

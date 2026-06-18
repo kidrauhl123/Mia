@@ -1042,6 +1042,23 @@ function initSchedulerSubsystem() {
   const fireRunner = createFireRunner({
     store: tasksStore,
     runRemoteChatRequest,
+    deliverTaskMessage: async ({ task, runId, conversationId, text }) => {
+      const { bot } = resolveRemoteChatBot({ botKey: task.botId });
+      if (!bot) throw new Error("Bot not found.");
+      const cloud = settingsStore.cloudSettings();
+      const fallbackConversationId = cloud?.user?.id ? botConversationId(`${cloud.user.id}_${bot.key}`) : "";
+      return deliverTaskReplyToConversation({
+        socialApi,
+        settingsStore,
+        bot,
+        conversationId,
+        fallbackConversationId,
+        assistantText: text,
+        assistantTracePayload: {},
+        taskRunId: runId,
+        fallbackMessageId: `task_${task.id}_${runId}`
+      });
+    },
     emit: (type, payload) => tasksEvents.emit(type, payload)
   });
   scheduler = createScheduler({

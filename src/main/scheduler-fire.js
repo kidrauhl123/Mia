@@ -1,6 +1,10 @@
 // src/main/scheduler-fire.js
 const crypto = require("node:crypto");
 const { taskAgentSessionId, taskCloudConversationId } = require("./task-conversation.js");
+const {
+  deliveryTextForTask,
+  isDirectDeliveryTask
+} = require("../shared/scheduled-task-mode.js");
 
 function safeRecordRun(store, taskId, run) {
   try {
@@ -11,7 +15,7 @@ function safeRecordRun(store, taskId, run) {
   }
 }
 
-function createFireRunner({ store, runRemoteChatRequest, emit, logger = console }) {
+function createFireRunner({ store, runRemoteChatRequest, deliverTaskMessage = null, emit, logger = console }) {
   const inflight = new Set();
 
   async function fire(task) {
@@ -32,6 +36,40 @@ function createFireRunner({ store, runRemoteChatRequest, emit, logger = console 
     const botId = task.botId;
     emit("started", { taskId: task.id, runId, conversationId });
     try {
+      if (isDirectDeliveryTask(task)) {
+        if (typeof deliverTaskMessage !== "function") {
+          throw new Error("direct task delivery is not configured");
+        }
+        const outputText = deliveryTextForTask(task);
+        const delivery = await deliverTaskMessage({
+          task,
+          runId,
+          firedAt,
+          conversationId,
+          botId,
+          text: outputText
+        });
+        const outputMessageId = delivery?.messageId || null;
+        const run = safeRecordRun(store, task.id, {
+          id: runId,
+          firedAt,
+          finishedAt: Date.now(),
+          status: "ok",
+          outputMessageId,
+          outputText
+        });
+        emit("finished", {
+          taskId: task.id,
+          runId: run?.id || runId,
+          conversationId,
+          botId,
+          messageId: outputMessageId,
+          outputText,
+          createdAt: new Date(firedAt).toISOString(),
+          status: "ok"
+        });
+        return run;
+      }
       const result = await runRemoteChatRequest({
         botKey: botId,
         botId,

@@ -31,6 +31,8 @@ test("pluginFiles exposes the Mia gateway wrapper and bot overlay plugin", (t) =
   assert.match(files["bot_overlay.py"], /ephemeral_system_prompt/);
   assert.match(files["scheduler_mcp.py"], /schedule_create/);
   assert.match(files["scheduler_mcp.py"], /MIA_CLOUD_TASKS_URL/);
+  assert.match(files["scheduler_mcp.py"], /fireMode/);
+  assert.match(files["scheduler_mcp.py"], /deliveryText/);
 });
 
 test("ensureInstalled writes plugin files under runtime plugins and removes legacy engine copy", (t) => {

@@ -2,6 +2,12 @@
 
 const crypto = require("node:crypto");
 const cronParser = require("cron-parser");
+const {
+  assertValidFireMode,
+  deliveryTextForTask,
+  normalizeFireMode,
+  taskPromptForStorage
+} = require("../shared/scheduled-task-mode.js");
 
 function nowMs() {
   return Date.now();
@@ -24,7 +30,12 @@ function validateTaskInput(input) {
   if (!input || typeof input !== "object") throw new Error("task input must be an object");
   if (!input.botId) throw new Error("botId is required");
   if (!input.conversationId && !input.sessionId) throw new Error("conversationId is required");
-  if (!input.prompt) throw new Error("prompt is required");
+  assertValidFireMode(input);
+  const fireMode = normalizeFireMode(input);
+  const prompt = taskPromptForStorage(input);
+  const deliveryText = deliveryTextForTask(input);
+  if (fireMode === "deliver" && !deliveryText) throw new Error("deliveryText is required for fireMode=deliver");
+  if (fireMode === "agent" && !prompt) throw new Error("prompt is required");
   if (!input.trigger || !input.trigger.type) throw new Error("trigger.type is required");
   if (input.trigger.type === "event") throw new Error("event-triggered tasks are not supported in v1");
   if (input.trigger.type === "cron") {
@@ -62,6 +73,16 @@ function taskConversationFields(input = {}) {
   return {
     conversationId: normalizeConversationId(source),
     sessionId: rawSessionId || source
+  };
+}
+
+function taskDeliveryFields(input = {}) {
+  const fireMode = normalizeFireMode(input);
+  const deliveryText = deliveryTextForTask(input);
+  return {
+    fireMode,
+    deliveryText,
+    prompt: taskPromptForStorage(input)
   };
 }
 
@@ -119,6 +140,8 @@ function rowToTask(row, runs = [], nextFireNow = nowMs()) {
     trigger,
     timezone,
     prompt: row.prompt || "",
+    fireMode: row.fire_mode || "agent",
+    deliveryText: row.delivery_text || "",
     status: row.status || "active",
     runtimeKind: row.runtime_kind || "",
     runtimeConfig: parseJson(row.runtime_config_json, {}),
@@ -136,7 +159,7 @@ function createCloudTasksStore(db, options = {}) {
 
   const taskColumns = `
     id, user_id, title, bot_id, conversation_id, session_id, origin_message_id,
-    trigger_json, timezone, prompt, status, runtime_kind, runtime_config_json,
+    trigger_json, timezone, prompt, fire_mode, delivery_text, status, runtime_kind, runtime_config_json,
     target_device_id, next_fire_at, created_at, updated_at
   `;
   const runColumns = `
@@ -151,12 +174,12 @@ function createCloudTasksStore(db, options = {}) {
   const insertTask = db.prepare(`
     INSERT INTO scheduled_tasks (
       ${taskColumns}
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateTask = db.prepare(`
     UPDATE scheduled_tasks SET
       title = ?, bot_id = ?, conversation_id = ?, session_id = ?, origin_message_id = ?,
-      trigger_json = ?, timezone = ?, prompt = ?, status = ?, runtime_kind = ?,
+      trigger_json = ?, timezone = ?, prompt = ?, fire_mode = ?, delivery_text = ?, status = ?, runtime_kind = ?,
       runtime_config_json = ?, target_device_id = ?, next_fire_at = ?, updated_at = ?
     WHERE user_id = ? AND id = ?
   `);
@@ -196,6 +219,7 @@ function createCloudTasksStore(db, options = {}) {
     validateTaskInput(input);
     const timestamp = now();
     const { conversationId, sessionId } = taskConversationFields(input);
+    const delivery = taskDeliveryFields(input);
     const task = {
       id: idFactory("t"),
       userId: String(userId),
@@ -206,7 +230,9 @@ function createCloudTasksStore(db, options = {}) {
       originMessageId: String(input.originMessageId || ""),
       trigger: { ...input.trigger },
       timezone: String(input.timezone || "UTC"),
-      prompt: String(input.prompt),
+      prompt: delivery.prompt,
+      fireMode: delivery.fireMode,
+      deliveryText: delivery.deliveryText,
       status: "active",
       runtimeKind: String(runtime.runtimeKind || ""),
       runtimeConfig: runtime.config && typeof runtime.config === "object" ? runtime.config : {},
@@ -227,6 +253,8 @@ function createCloudTasksStore(db, options = {}) {
       JSON.stringify(task.trigger),
       task.timezone,
       task.prompt,
+      task.fireMode,
+      task.deliveryText,
       task.status,
       task.runtimeKind,
       JSON.stringify(task.runtimeConfig),
@@ -261,6 +289,10 @@ function createCloudTasksStore(db, options = {}) {
       merged.runtimeConfig = runtime.config && typeof runtime.config === "object" ? runtime.config : {};
       merged.targetDeviceId = String(runtime.targetDeviceId || "");
     }
+    const delivery = taskDeliveryFields(merged);
+    merged.prompt = delivery.prompt;
+    merged.fireMode = delivery.fireMode;
+    merged.deliveryText = delivery.deliveryText;
     validateTaskInput(merged);
     const fields = taskConversationFields(merged);
     merged.conversationId = fields.conversationId;
@@ -275,6 +307,8 @@ function createCloudTasksStore(db, options = {}) {
       JSON.stringify(merged.trigger || {}),
       String(merged.timezone || "UTC"),
       String(merged.prompt || ""),
+      String(merged.fireMode || "agent"),
+      String(merged.deliveryText || ""),
       String(merged.status || "active"),
       String(merged.runtimeKind || ""),
       JSON.stringify(merged.runtimeConfig || {}),

@@ -111,8 +111,10 @@ const TOOLS = [
     name: "schedule_create",
     description: [
       "Create and activate a scheduled task in Mia. The task is created immediately when this tool returns — there is no separate UI step the user needs to take, and you should not describe one to them.",
-      "You (the currently-replying bot) are always the executor: do NOT ask the user which engine/agent should run the task. botId, conversationId, and originMessageId are injected by the runtime and you cannot set them. The task fires by sending `prompt` back into this same conversation as a new user turn, so the bot's reply lands here as a normal assistant message.",
-      "Features that DO exist: title, trigger (oneshot with ISO timestamp OR cron expression — both fully supported), IANA timezone, and the prompt text. Features that do NOT exist and must not be asked about: per-task engine choice, retry/backoff policy, alternate delivery channels (popups, logs, other rooms), notification settings. If user asks for any of those, say they are not currently available.",
+      "You (the currently-replying bot) are always the executor: do NOT ask the user which engine/agent should run the task. botId, conversationId, and originMessageId are injected by the runtime and you cannot set them.",
+      "For simple reminders, alarms, and countdowns where the expected result is just a reminder message, set fireMode='deliver' and put the exact future bot message in deliveryText. Mia will post deliveryText directly as the bot at fire time; the agent will not run again.",
+      "For tasks that require fresh reasoning, tool use, or changing outside state at fire time, set fireMode='agent' and put the full self-contained instruction in prompt. Agent tasks may run tools when they fire.",
+      "Features that DO exist: title, trigger (oneshot with ISO timestamp OR cron expression — both fully supported), IANA timezone, fireMode, deliveryText, and prompt. Features that do NOT exist and must not be asked about: per-task engine choice, retry/backoff policy, alternate delivery channels (popups, logs, other rooms), notification settings. If user asks for any of those, say they are not currently available.",
       "Returns the new task id."
     ].join(" "),
     inputSchema: {
@@ -130,9 +132,11 @@ const TOOLS = [
           required: ["type"]
         },
         timezone: { type: "string", description: "IANA timezone name, e.g. 'Asia/Shanghai'. Defaults to Asia/Shanghai if you omit it; only ask the user if their request is ambiguous about local time." },
-        prompt: { type: "string", description: "The instruction the bot will receive at each fire time. Write it in the user's voice as if they were asking you the task — the bot's reply will be this turn's task output." }
+        fireMode: { type: "string", enum: ["deliver", "agent"], description: "Use 'deliver' for simple reminders that should post deliveryText directly; use 'agent' only when the task needs fresh reasoning or tool use at fire time. Defaults to 'deliver' when deliveryText is provided, otherwise 'agent'." },
+        deliveryText: { type: "string", description: "For fireMode='deliver': the exact message Mia should post as this bot at fire time, e.g. '该吃饭了。'. Keep it concise and do not include scheduling instructions." },
+        prompt: { type: "string", description: "For fireMode='agent': the self-contained instruction the bot should execute at fire time. Optional for fireMode='deliver' and kept only as provenance." }
       },
-      required: ["title", "trigger", "prompt"]
+      required: ["title", "trigger"]
     }
   },
   {
@@ -161,6 +165,8 @@ const TOOLS = [
           }
         },
         timezone: { type: "string" },
+        fireMode: { type: "string", enum: ["deliver", "agent"] },
+        deliveryText: { type: "string" },
         prompt: { type: "string" }
       },
       required: ["id"]
@@ -216,6 +222,8 @@ async function callTool(name, args) {
         originMessageId,
         trigger: args.trigger,
         timezone: args.timezone || "Asia/Shanghai",
+        fireMode: args.fireMode,
+        deliveryText: args.deliveryText,
         prompt: args.prompt
       };
       const { status, body } = await daemonFetch("POST", "/api/tasks", payload);

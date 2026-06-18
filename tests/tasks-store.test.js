@@ -61,6 +61,44 @@ test("createTasksStore: create assigns id and persists", () => {
   assert.equal(store2.list().length, 1);
 });
 
+test("createTasksStore: persists direct delivery metadata", () => {
+  const file = tmpFile();
+  const store = createTasksStore(file);
+  const task = store.create({
+    title: "吃饭提醒",
+    botId: "f1",
+    sessionId: "conversation:botc_u1_f1",
+    originMessageId: "m1",
+    trigger: { type: "oneshot", at: "2026-05-25T21:04:45+08:00" },
+    timezone: "Asia/Shanghai",
+    prompt: "提醒我吃饭",
+    fireMode: "deliver",
+    deliveryText: "该吃饭了"
+  });
+
+  assert.equal(task.fireMode, "deliver");
+  assert.equal(task.deliveryText, "该吃饭了");
+  const store2 = createTasksStore(file);
+  assert.equal(store2.get(task.id).fireMode, "deliver");
+  assert.equal(store2.get(task.id).deliveryText, "该吃饭了");
+});
+
+test("createTasksStore: direct delivery tasks can use deliveryText as prompt fallback", () => {
+  const store = createTasksStore(tmpFile());
+  const task = store.create({
+    title: "吃饭提醒",
+    botId: "f1",
+    sessionId: "conversation:botc_u1_f1",
+    trigger: { type: "oneshot", at: "2026-05-25T21:04:45+08:00" },
+    timezone: "Asia/Shanghai",
+    fireMode: "deliver",
+    deliveryText: "该吃饭了"
+  });
+
+  assert.equal(task.prompt, "该吃饭了");
+  assert.equal(task.fireMode, "deliver");
+});
+
 test("createTasksStore: drops persisted legacy bot-id-only tasks on load", () => {
   const file = tmpFile();
   fs.writeFileSync(file, JSON.stringify({

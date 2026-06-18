@@ -95,6 +95,51 @@ test("createFireRunner.fire suppresses the task prompt as a visible user message
   assert.equal(calls[0].suppressUserMessage, true);
 });
 
+test("createFireRunner.fire directly delivers reminder text without remote chat", async () => {
+  const store = tmpStore();
+  const t = store.create({
+    title: "发布新版本提醒",
+    botId: "f",
+    sessionId: "conversation:botc_u1_f",
+    originMessageId: "m",
+    trigger: { type: "oneshot", at: new Date(Date.now() + 60_000).toISOString() },
+    timezone: "Asia/Shanghai",
+    prompt: "提醒我发布新版本",
+    fireMode: "deliver",
+    deliveryText: "该发布新版本了"
+  });
+  const calls = [];
+  const deliveries = [];
+  const emits = [];
+  const runner = createFireRunner({
+    store,
+    runRemoteChatRequest: async (body) => {
+      calls.push(body);
+      throw new Error("remote chat should not run");
+    },
+    deliverTaskMessage: async (payload) => {
+      deliveries.push(payload);
+      return { messageId: "msg-direct" };
+    },
+    emit: (type, payload) => emits.push({ type, payload })
+  });
+
+  await runner.fire(store.get(t.id));
+
+  assert.equal(calls.length, 0);
+  assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0].task.id, t.id);
+  assert.equal(deliveries[0].text, "该发布新版本了");
+  const after = store.get(t.id);
+  assert.equal(after.runs.length, 1);
+  assert.equal(after.runs[0].status, "ok");
+  assert.equal(after.runs[0].outputMessageId, "msg-direct");
+  assert.equal(after.runs[0].outputText, "该发布新版本了");
+  const finished = emits.find((event) => event.type === "finished");
+  assert.equal(finished.payload.messageId, "msg-direct");
+  assert.equal(finished.payload.outputText, "该发布新版本了");
+});
+
 test("createFireRunner.fire: error path records run with status=failed", async () => {
   const store = tmpStore();
   const t = store.create({

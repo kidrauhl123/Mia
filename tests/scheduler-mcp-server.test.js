@@ -96,3 +96,60 @@ test("schedule_create injects botId from scheduler context", async (t) => {
   assert.match(payload.nextFireAtLocal, /2026/);
   assert.match(payload.nextFireAtLocal, /09:00/);
 });
+
+test("schedule_create forwards direct delivery fields", async (t) => {
+  const calls = [];
+  const daemon = await startDaemon((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      calls.push({ method: req.method, url: req.url, body: JSON.parse(body || "{}") });
+      res.writeHead(201, { "content-type": "application/json" });
+      res.end(JSON.stringify({ task: { id: "task_deliver", ...calls[0].body } }));
+    });
+  });
+  t.after(() => new Promise((resolve) => daemon.server.close(resolve)));
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-scheduler-mcp-direct-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const contextPath = path.join(dir, "ctx.json");
+  fs.writeFileSync(contextPath, JSON.stringify({
+    botId: "bot_1",
+    sessionId: "conversation:botc_u1_bot_1",
+    originMessageId: "msg_1"
+  }), "utf8");
+
+  const child = spawn(process.execPath, [path.join(__dirname, "../src/main/scheduler-mcp-server.js")], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      MIA_DAEMON_URL: daemon.url,
+      MIA_DAEMON_TOKEN: "token",
+      MIA_SCHEDULER_CONTEXT_FILE: contextPath
+    }
+  });
+  t.after(() => child.kill());
+
+  const result = await send(child, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: {
+      name: "schedule_create",
+      arguments: {
+        title: "吃饭提醒",
+        trigger: { type: "oneshot", at: "2026-06-06T09:00:00+08:00" },
+        fireMode: "deliver",
+        deliveryText: "该吃饭了",
+        prompt: "提醒我吃饭"
+      }
+    }
+  });
+
+  assert.equal(result.result.isError, false);
+  assert.equal(calls[0].body.fireMode, "deliver");
+  assert.equal(calls[0].body.deliveryText, "该吃饭了");
+  const payload = JSON.parse(result.result.content[0].text);
+  assert.equal(payload.task.fireMode, "deliver");
+  assert.equal(payload.task.deliveryText, "该吃饭了");
+});

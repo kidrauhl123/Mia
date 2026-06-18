@@ -285,8 +285,10 @@ test("schema v2 creates social tables and indexes", () => {
     assert.ok(conversationColumns.includes("public_id"), "missing conversations column: public_id");
     const taskColumns = db.prepare("PRAGMA table_info(scheduled_tasks)").all().map((r) => r.name);
     assert.ok(taskColumns.includes("next_fire_at"), "missing scheduled_tasks column: next_fire_at");
+    assert.ok(taskColumns.includes("fire_mode"), "missing scheduled_tasks column: fire_mode");
+    assert.ok(taskColumns.includes("delivery_text"), "missing scheduled_tasks column: delivery_text");
     const version = db.prepare("SELECT MAX(version) AS v FROM schema_migrations").get().v;
-    assert.ok(version >= 17, `schema_migrations max version should be >= 17, got ${version}`);
+    assert.ok(version >= 19, `schema_migrations max version should be >= 19, got ${version}`);
   } finally {
     store.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });

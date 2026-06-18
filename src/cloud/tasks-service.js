@@ -1,6 +1,11 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { MemberKind } = require("../shared/conversation-kinds.js");
+const {
+  deliveryTextForTask,
+  isDirectDeliveryTask
+} = require("../shared/scheduled-task-mode.js");
 
 function parseJson(value, fallback) {
   try {
@@ -158,6 +163,40 @@ function createCloudTasksService(context, options = {}) {
     return saved;
   }
 
+  function broadcastConversationMessage(conversationId, message) {
+    for (const member of context.socialStore.listConversationMembers(conversationId)) {
+      if (member.member_kind === MemberKind.User || member.memberKind === MemberKind.User) {
+        context.broadcastPersistedEvent(member.member_ref || member.memberRef, {
+          type: "conversation.message_appended",
+          conversationId,
+          message
+        });
+      }
+    }
+  }
+
+  function appendDirectDeliveryMessage(task) {
+    const bot = context.botsStore.getBot(task.botId);
+    if (!bot) throw new Error("bot not found");
+    if (String(bot.ownerUserId || "") !== String(task.userId || "")) {
+      throw new Error("you can only run your own bots");
+    }
+    const text = deliveryTextForTask(task);
+    if (!text) throw new Error("deliveryText is required for fireMode=deliver");
+    const reply = context.messagesStore.appendMessage({
+      conversationId: task.conversationId,
+      senderKind: "bot",
+      senderRef: task.botId,
+      senderOwnerId: task.userId,
+      bodyMd: text,
+      attachments: null,
+      trace: null,
+      status: "complete"
+    });
+    broadcastConversationMessage(task.conversationId, reply);
+    return reply;
+  }
+
   async function fire(task, options = {}) {
     if (!task?.id || inflight.has(task.id)) {
       if (task?.id) {
@@ -179,6 +218,20 @@ function createCloudTasksService(context, options = {}) {
       if (!conversation) throw new Error("conversation not found");
       if (!userIsMemberOfConversation(context.socialStore, task.conversationId, task.userId)) {
         throw new Error("not a member of this conversation");
+      }
+      if (isDirectDeliveryTask(task)) {
+        const reply = appendDirectDeliveryMessage(task);
+        const outputText = deliveryTextForTask(task);
+        const run = finalizeTaskRun(task, {
+          id: runId,
+          firedAt,
+          finishedAt: nowMs(),
+          status: "ok",
+          outputMessageId: reply?.id || null,
+          outputText
+        }, "finished", { advanceSchedule: options.advanceSchedule });
+        if (options.rescan !== false) rescan();
+        return run;
       }
       const message = {
         id: `task:${task.id}:${runId}`,

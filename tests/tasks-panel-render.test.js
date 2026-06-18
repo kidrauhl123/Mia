@@ -75,7 +75,10 @@ function loadTasksPanel() {
   const context = vm.createContext({
     window: mockWindow,
     globalThis: mockWindow,
-    document: { getElementById: (id) => elements.get(id) || null },
+    document: {
+      getElementById: (id) => elements.get(id) || null,
+      addEventListener() {}
+    },
     require,
     console,
     Date,
@@ -87,6 +90,7 @@ function loadTasksPanel() {
     Array,
     Object,
     RegExp,
+    AbortController,
     requestAnimationFrame: (fn) => fn()
   });
   vm.runInContext(source, context, { filename: "src/renderer/tasks/tasks-panel.js" });
@@ -133,4 +137,48 @@ test("tasks history unread appears on the history tab and unread run cards", () 
   state.taskMode = "history";
   panel.renderTaskView();
   assert.match(tasksContent.innerHTML, /task-run-card[\s\S]*task-card-unread/);
+});
+
+test("direct delivery task detail shows delivery text instead of scheduling prompt", () => {
+  const { panel, elements } = loadTasksPanel();
+  const state = {
+    runtime: { bots: [{ id: "nhnh", key: "nhnh", name: "nhnh" }] },
+    tasks: [{
+      id: "task_1",
+      title: "发布提醒",
+      botId: "nhnh",
+      status: "active",
+      fireMode: "deliver",
+      deliveryText: "该发布新版本了",
+      prompt: "提醒我发布新版本",
+      trigger: { type: "oneshot", at: Date.now() + 60_000 },
+      nextFireAt: Date.now() + 60_000,
+      runs: []
+    }],
+    taskFilter: "",
+    taskMode: "active",
+    taskHistoryFilter: "all",
+    selectedTaskId: "task_1",
+    selectedRunId: "",
+    tasksUnread: new Map()
+  };
+  const tasksContent = new MockElement("tasksContent");
+  const tasksUnreadBadge = new MockElement("tasksUnreadBadge");
+
+  panel.initTasksPanel({
+    state,
+    els: { tasksContent, tasksUnreadBadge },
+    escapeHtml: (value) => String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;"),
+    setText: (el, value) => { if (el) el.textContent = value; },
+    formatRunTime: () => "06/02 18:20",
+    render() {},
+    renderView() {},
+    renderChat() {}
+  });
+
+  panel.renderTaskView();
+
+  const detailHtml = elements.get("taskPreviewBody").innerHTML;
+  assert.match(detailHtml, /该发布新版本了/);
+  assert.doesNotMatch(detailHtml, /提醒我发布新版本/);
 });

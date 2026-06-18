@@ -157,13 +157,13 @@
   function filterTasks(tasks, needle) {
     const q = (needle || "").trim().toLowerCase();
     if (!q) return tasks;
-    return tasks.filter((t) => `${t.title} ${t.prompt}`.toLowerCase().includes(q));
+    return tasks.filter((t) => `${t.title} ${taskInstructionText(t)}`.toLowerCase().includes(q));
   }
   function filterRuns(entries, needle) {
     const q = (needle || "").trim().toLowerCase();
     if (!q) return entries;
     return entries.filter(({ task, run }) =>
-      `${task.title} ${task.prompt} ${run.outputText || ""}`.toLowerCase().includes(q));
+      `${task.title} ${taskInstructionText(task)} ${run.outputText || ""}`.toLowerCase().includes(q));
   }
 
   // ── Main render: chip row + card grid + preview dialog ────────────────────
@@ -461,7 +461,7 @@
             <div class="task-section-head">
               <h3>要求说明</h3>
             </div>
-            <p>${escapeHtml(task.prompt)}</p>
+            <p>${escapeHtml(taskInstructionText(task))}</p>
           </section>
 
           <section class="task-section">
@@ -543,7 +543,7 @@
             <details class="task-prompt-details accordion-details">
               <summary>原始指令</summary>
               <div class="accordion-body">
-                <pre>${escapeHtml(task.prompt)}</pre>
+                <pre>${escapeHtml(taskInstructionText(task))}</pre>
               </div>
             </details>
           </section>
@@ -634,6 +634,13 @@
       return t.cron;
     }
     return "—";
+  }
+
+  function taskInstructionText(task) {
+    if (String(task?.fireMode || "") === "deliver" && task?.deliveryText) {
+      return String(task.deliveryText);
+    }
+    return String(task?.prompt || task?.deliveryText || "");
   }
 
   // ── Topbar create controls: split button + chevron dropdown ─────────────
