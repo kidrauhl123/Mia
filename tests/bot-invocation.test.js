@@ -70,6 +70,37 @@ test("buildBotInvocation treats bot conversations as private chats", () => {
   ]);
 });
 
+test("buildBotInvocation uses internal scheduled task prompts without visible user message text", () => {
+  const args = buildBotInvocation({
+    type: "conversation.bot_invocation_requested",
+    conversationId: "botc_review",
+    conversationType: "bot",
+    botId: "reviewer",
+    triggeringMessage: {
+      id: "task:t-1:r-1",
+      turn_id: "task:t-1:r-1",
+      sender_kind: "system",
+      sender_ref: "mia.scheduler",
+      body_md: "",
+      task_prompt: "提醒我吃饭"
+    },
+    members: [
+      { member_kind: "user", member_ref: "u_alice", username: "alice" },
+      { member_kind: "bot", member_ref: "reviewer", bot_name: "Reviewer" }
+    ],
+    recentMessages: [
+      { id: "m_prev_user", sender_kind: "user", sender_ref: "u_alice", body_md: "前面我问过开题" }
+    ]
+  }, []);
+
+  assert.equal(args.userPrompt, "提醒我吃饭");
+  assert.equal(args.triggerMessageId, "task:t-1:r-1");
+  assert.equal(args.turnId, "task:t-1:r-1");
+  assert.deepEqual(args.historyMessages, [
+    { role: "user", content: "前面我问过开题" }
+  ]);
+});
+
 test("buildBotInvocation returns null for missing trigger, conversation, or bot id", () => {
   const bots = [{ key: "codex", name: "Codex" }];
   const base = {

@@ -86,6 +86,10 @@ function isScheduledFireMessage(message = {}) {
   return String(message.turn_id || message.turnId || "").startsWith("task:");
 }
 
+function messageInputText(message = {}) {
+  return String(message.task_prompt || message.taskPrompt || message.body_md || "").trim();
+}
+
 function cloudRuntimeInstructions(bot, message = {}) {
   return [
     miaRuntimeSystemPrompt({ scheduledFire: isScheduledFireMessage(message) }),
@@ -440,15 +444,16 @@ function createCloudAgentDispatcher(deps = {}) {
       } catch (error) {
         log(`[cloud-agent] failed to write scheduler context: ${error?.message || error}`);
       }
+      const inputText = messageInputText(message);
       const materialized = attachmentMaterializer
         ? attachmentMaterializer.materialize({
           userId: ownerId,
           workerPaths: worker.paths || {},
           runId: run.id,
-          text: message.body_md || "",
+          text: inputText,
           attachments: parseAttachmentsFromMessage(message)
         })
-        : { attachments: [], input: message.body_md || "" };
+        : { attachments: [], input: inputText };
       const result = await hermesRunsClient.runChat({
         baseUrl: worker.baseUrl,
         apiKey: worker.apiKey,
@@ -461,7 +466,7 @@ function createCloudAgentDispatcher(deps = {}) {
         permissionMode: runtimeConfig.permissionMode || "ask",
         input: [
           selectedSkillContext(message, skillsCatalog),
-          inputWithConversationContext(materialized.input || message.body_md || "", {
+          inputWithConversationContext(materialized.input || inputText, {
             conversationType,
             members: rosterMembers,
             bots: rosterBots,
@@ -621,7 +626,8 @@ function createCloudAgentDispatcher(deps = {}) {
     const runtimeBinding = runtimeOverrideBinding(args.runtimeBinding);
     const message = args.message || {};
     if (!userId || !conversationId || !message.id) return null;
-    if (message.sender_kind && message.sender_kind !== "user") return null;
+    const scheduledFire = isScheduledFireMessage(message);
+    if (message.sender_kind && message.sender_kind !== "user" && !scheduledFire) return null;
 
     const conversation = socialStore.getConversation(conversationId);
     if (!conversation) return null;

@@ -196,13 +196,16 @@ test("cloud-hermes scheduled fires use the delivery context instead of recreatin
         }
       }
     });
-    const message = ctx.messagesStore.appendMessage({
-      conversationId: ctx.conversation.id,
-      senderKind: "user",
-      senderRef: ctx.user.id,
-      bodyMd: "提醒我吃饭",
-      turnId: "task:t-1:r-1"
-    });
+    const message = {
+      id: "task:t-1:r-1",
+      conversation_id: ctx.conversation.id,
+      sender_kind: "system",
+      sender_ref: "mia.scheduler",
+      body_md: "",
+      task_prompt: "提醒我吃饭",
+      turn_id: "task:t-1:r-1",
+      status: "complete"
+    };
 
     await dispatcher.invokeBot({
       userId: ctx.user.id,
@@ -212,9 +215,58 @@ test("cloud-hermes scheduled fires use the delivery context instead of recreatin
     });
 
     assert.equal(hermesCalls.length, 1);
+    assert.match(hermesCalls[0].input, /提醒我吃饭/);
     assert.match(hermesCalls[0].instructions, /Mia Runtime Context/);
     assert.doesNotMatch(hermesCalls[0].instructions, /schedule_create/);
     assert.match(hermesCalls[0].instructions, /You are Alice Bot\./);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("desktop scheduled fires broadcast an internal task prompt instead of a visible user message", async () => {
+  const ctx = setup();
+  const broadcasts = [];
+  try {
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "desktop-local",
+      enabled: true,
+      activate: true,
+      config: { deviceId: "device_mac", agentEngine: "claude-code" }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      broadcastPersistedEvent(userId, event) {
+        broadcasts.push({ userId, event });
+      }
+    });
+    const message = {
+      id: "task:t-1:r-1",
+      conversation_id: ctx.conversation.id,
+      sender_kind: "system",
+      sender_ref: "mia.scheduler",
+      body_md: "",
+      task_prompt: "提醒我吃饭",
+      turn_id: "task:t-1:r-1",
+      status: "complete"
+    };
+
+    const reply = await dispatcher.invokeBot({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(reply, null);
+    const invocation = broadcasts.find((entry) => entry.event.type === "conversation.bot_invocation_requested");
+    assert.ok(invocation, "expected desktop invocation broadcast");
+    assert.equal(invocation.event.triggeringMessage.sender_kind, "system");
+    assert.equal(invocation.event.triggeringMessage.sender_ref, "mia.scheduler");
+    assert.equal(invocation.event.triggeringMessage.body_md, "");
+    assert.equal(invocation.event.triggeringMessage.task_prompt, "提醒我吃饭");
+    assert.deepEqual(ctx.messagesStore.listMessagesSince(ctx.conversation.id, 0, 20), []);
   } finally {
     ctx.cleanup();
   }

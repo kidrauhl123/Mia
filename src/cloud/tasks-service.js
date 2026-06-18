@@ -183,9 +183,10 @@ function createCloudTasksService(context, options = {}) {
       const message = {
         id: `task:${task.id}:${runId}`,
         conversation_id: task.conversationId,
-        sender_kind: "user",
-        sender_ref: task.userId,
-        body_md: task.prompt,
+        sender_kind: "system",
+        sender_ref: "mia.scheduler",
+        body_md: "",
+        task_prompt: task.prompt,
         turn_id: `task:${task.id}:${runId}`,
         status: "complete"
       };

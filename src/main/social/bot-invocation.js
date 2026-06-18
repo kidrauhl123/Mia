@@ -67,6 +67,10 @@ function historyMessageContent(message, groupConversation) {
   return groupConversation ? `[${senderTag(message)}] ${body}` : body;
 }
 
+function triggerPrompt(message) {
+  return String(message?.task_prompt || message?.taskPrompt || message?.body_md || message?.bodyMd || "").trim();
+}
+
 function buildHistoryMessages({ recentMessages, triggeringMessage, groupConversation }) {
   const triggerId = String(triggeringMessage?.id || "");
   const rows = (Array.isArray(recentMessages) ? recentMessages : [])
@@ -149,7 +153,7 @@ function buildBotInvocation(payload, bots) {
       "请用自然的口吻接话，简短直接。"
     ].filter(Boolean).join("\n\n"),
     historyMessages,
-    userPrompt: triggeringMessage.body_md || "",
+    userPrompt: triggerPrompt(triggeringMessage),
     runtimeConfig: nextRuntimeConfig,
     turnId: triggeringMessage.turn_id || null,
     activeSkillIds: activeSkillIdsFromMessage(triggeringMessage)
