@@ -273,7 +273,7 @@ test("desktop update publisher injects versioned release notes into mac feed", (
   const stagedFeed = yaml.load(fs.readFileSync(path.join(stageDir, "latest-mac.yml"), "utf8"));
   assert.equal(stagedFeed.version, version);
   assert.match(stagedFeed.releaseNotes, new RegExp(`# Mia ${version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
-  assert.match(stagedFeed.releaseNotes, /修复更新过程中的全局等待光标/);
+  assert.match(stagedFeed.releaseNotes, /修复窄屏和重启后的聊天首屏定位/);
   assert.match(readScript("scripts/publish-win-update.js"), /attachDesktopReleaseNotes/);
 });
 
