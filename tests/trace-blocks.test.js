@@ -114,7 +114,7 @@ test("renderAssistantContentBlocks renders file edit blocks as expandable diff t
         path: "src/web/app.js",
         action: "update",
         title: "Edited src/web/app.js (+5 -1)",
-        diff: "@@ -1,2 +1,2 @@\n-old\n+new\n same",
+        diff: "diff --git a/src/web/app.js b/src/web/app.js\n--- a/src/web/app.js\n+++ b/src/web/app.js\n@@ -1,2 +1,2 @@\n-old\n+new\n same",
         additions: 5,
         deletions: 1,
         status: "completed"
@@ -131,10 +131,15 @@ test("renderAssistantContentBlocks renders file edit blocks as expandable diff t
   assert.ok(html.indexOf("Edited src/web/app.js") < html.indexOf("改完了。"));
   assert.match(html, /class="trace-row file-edit/);
   assert.match(html, /data-trace-key="msg:m2::block::1::file_edit::edit_1"/);
+  assert.doesNotMatch(html, /Edited src\/web\/app\.js \(\+5 -1\)/);
   assert.match(html, /<span class="trace-meta diff-stats"><span class="diff-stat diff-stat-add">\+5<\/span><span class="diff-stat diff-stat-del">-1<\/span><\/span>/);
+  assert.doesNotMatch(html, /diff --git/);
+  assert.doesNotMatch(html, /--- a\/src\/web\/app\.js/);
+  assert.doesNotMatch(html, /\+\+\+ b\/src\/web\/app\.js/);
+  assert.doesNotMatch(html, /@@ -1,2 \+1,2 @@/);
   assert.match(html, /<pre class="trace-body diff-body">/);
   assert.doesNotMatch(html, /<\/span>\n<span class="diff-line/);
-  assert.match(html, /<span class="diff-line diff-meta diff-hunk"><span class="diff-ln diff-ln-old">···<\/span><span class="diff-ln diff-ln-new">···<\/span><span class="diff-code">@@ -1,2 \+1,2 @@<\/span><\/span>/);
+  assert.match(html, /<span class="diff-line diff-meta diff-hunk"><span class="diff-ln diff-ln-old">···<\/span><span class="diff-ln diff-ln-new">···<\/span><span class="diff-code"><\/span><\/span>/);
   assert.match(html, /<span class="diff-line diff-del"><span class="diff-ln diff-ln-old">1<\/span><span class="diff-ln diff-ln-new"><\/span><span class="diff-code">-old<\/span><\/span>/);
   assert.match(html, /<span class="diff-line diff-add"><span class="diff-ln diff-ln-old"><\/span><span class="diff-ln diff-ln-new">1<\/span><span class="diff-code">\+new<\/span><\/span>/);
   assert.match(html, /<span class="diff-line diff-context"><span class="diff-ln diff-ln-old">2<\/span><span class="diff-ln diff-ln-new">2<\/span><span class="diff-code"> same<\/span><\/span>/);

@@ -164,9 +164,9 @@
     const status = block.status === "completed" ? "ok" : (block.error || block.status === "error" || block.status === "failed") ? "err" : "run";
     const glyph = status === "ok" ? "✓" : status === "err" ? "✗" : "●";
     const meta = fileEditMetaHtml(block);
-    const title = String(block.title || `${block.action || "edit"} ${block.path || ""}`).trim() || "file edit";
+    const title = fileEditTitleText(block);
     const diff = String(block.diff || "");
-    const previewInline = diff.replace(/\s+/g, " ").slice(0, 120);
+    const previewInline = diffPreviewLines(diff).join(" ").replace(/\s+/g, " ").slice(0, 120);
     const stateForKey = traceOpenState(scopeKey, expanded);
     return `<div class="trace">` +
       `<details class="trace-row file-edit${traceAnimClass(scopeKey)}" data-status="${status}"${traceRowAttrs(scopeKey, rowIndex, stateForKey)}>` +
@@ -180,6 +180,12 @@
         (diff ? renderDiffBody(diff) : "") +
       `</details>` +
     `</div>`;
+  }
+
+  function fileEditTitleText(block) {
+    const rawTitle = String(block.title || `${block.action || "edit"} ${block.path || ""}`).trim();
+    const title = rawTitle.replace(/\s*\(\+\d+\s+-\d+\)\s*$/, "").trim();
+    return title || "file edit";
   }
 
   function fileEditMetaHtml(block) {
@@ -200,6 +206,20 @@
     return "diff-context";
   }
 
+  function isDiffHeaderLine(line) {
+    return /^(diff --git|index |\+\+\+|---)/.test(String(line || ""));
+  }
+
+  function visibleDiffLines(diff) {
+    const lines = String(diff || "").split("\n");
+    if (lines[lines.length - 1] === "") lines.pop();
+    return lines.filter((line) => !isDiffHeaderLine(line));
+  }
+
+  function diffPreviewLines(diff) {
+    return visibleDiffLines(diff).filter((line) => !String(line || "").startsWith("@@"));
+  }
+
   function parseHunkHeader(line) {
     const match = String(line || "").match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?/);
     if (!match) return null;
@@ -218,8 +238,7 @@
   }
 
   function renderDiffBody(diff) {
-    const lines = String(diff || "").split("\n");
-    if (lines[lines.length - 1] === "") lines.pop();
+    const lines = visibleDiffLines(diff);
     let oldLine = 1;
     let newLine = 1;
     const html = lines.map((line) => {
@@ -230,10 +249,7 @@
           oldLine = hunk.oldLine;
           newLine = hunk.newLine;
         }
-        return renderDiffLine(line, cls, "···", "···");
-      }
-      if (/^(diff --git|index |\+\+\+|---)/.test(line)) {
-        return renderDiffLine(line, cls, "", "");
+        return renderDiffLine("", cls, "···", "···");
       }
       if (line.startsWith("-")) {
         const label = oldLine > 0 ? oldLine : "";
