@@ -121,6 +121,10 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(baseCss, /\.persona-tag-input\s*\{[\s\S]*?font-size:\s*10px;/);
   assert.match(baseCss, /\.persona-tag-input-wrap\s*\{[\s\S]*?animation:\s*tagInputOpen/);
   assert.match(baseCss, /\.persona-tag-chip\.removing\s*\{[\s\S]*?animation:\s*tagChipRemove/);
+  const updateLockedRule = baseCss.match(/body\.update-locked\s*\{([\s\S]*?)\}/)?.[1] || "";
+  assert.match(updateLockedRule, /cursor:\s*default;/);
+  assert.match(updateLockedRule, /user-select:\s*none;/);
+  assert.doesNotMatch(updateLockedRule, /cursor:\s*wait;/);
   assert.match(baseCss, /\.sidebar-tag-filter\s*\{[\s\S]*?height:\s*16px;[\s\S]*?font-size:\s*10px;/);
   assert.match(baseCss, /\.sidebar-tag-filter\s*\{[\s\S]*?border-radius:\s*5px;/);
   assert.match(baseCss, /\.sidebar-tag-filter\s*\{[\s\S]*?background:\s*rgba\(142,\s*142,\s*147,\s*0\.14\);[\s\S]*?color:\s*rgba\(60,\s*60,\s*67,\s*0\.56\);/);

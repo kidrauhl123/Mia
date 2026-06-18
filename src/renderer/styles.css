@@ -688,7 +688,7 @@ body.platform-win32 .topbar {
 }
 
 body.update-locked {
-  cursor: wait;
+  cursor: default;
   user-select: none;
 }
 
