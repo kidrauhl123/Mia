@@ -407,17 +407,7 @@ function appUpdateOverlayCopy(payload = {}) {
   };
 }
 
-function setAppShellUpdateLocked(locked) {
-  document.body.classList.toggle("update-locked", locked);
-  const shell = document.querySelector(".app-shell");
-  if (!shell) return;
-  if ("inert" in shell) shell.inert = locked;
-  if (locked) shell.setAttribute("aria-hidden", "true");
-  else shell.removeAttribute("aria-hidden");
-}
-
 function renderAppUpdateOverlay(payload = {}, visible = true) {
-  setAppShellUpdateLocked(visible);
   els.appUpdateOverlay?.classList.toggle("hidden", !visible);
   if (!visible) return;
   const copy = appUpdateOverlayCopy(payload);
@@ -428,8 +418,6 @@ function renderAppUpdateOverlay(payload = {}, visible = true) {
   if (els.appUpdateProgressFill) els.appUpdateProgressFill.style.width = `${percent}%`;
   if (els.appUpdateProgressBar) els.appUpdateProgressBar.setAttribute("aria-valuenow", String(Math.round(percent)));
   setText(els.appUpdateProgressText, `${Math.round(percent)}%`);
-  try { document.activeElement?.blur?.(); } catch { /* ignore */ }
-  els.appUpdateOverlay?.focus?.();
 }
 
 function handleAppUpdateEvent(payload = {}) {

@@ -687,11 +687,6 @@ body.platform-win32 .topbar {
   to { transform: translateY(0); opacity: 1; }
 }
 
-body.update-locked {
-  cursor: default;
-  user-select: none;
-}
-
 .app-update-overlay {
   position: fixed;
   inset: 0;
@@ -699,10 +694,10 @@ body.update-locked {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgb(18 20 28 / 0.38);
-  -webkit-backdrop-filter: blur(18px) saturate(1.05);
-  backdrop-filter: blur(18px) saturate(1.05);
-  pointer-events: auto;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  pointer-events: none;
 }
 
 .app-update-panel {
@@ -716,6 +711,7 @@ body.update-locked {
   border-radius: 16px;
   background: var(--surface);
   box-shadow: 0 16px 46px rgb(0 0 0 / 0.2);
+  pointer-events: auto;
 }
 
 .app-update-mark {

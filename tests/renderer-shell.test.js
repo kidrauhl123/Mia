@@ -59,6 +59,7 @@ test("settings exposes manual update checks through the preload bridge", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const appUpdateOverlayTag = htmlSource.match(/<section id="appUpdateOverlay"[^>]*>/)?.[0] || "";
 
   assert.match(htmlSource, /id="checkUpdates"/);
   assert.match(htmlSource, /id="appUpdateHint"/);
@@ -70,7 +71,11 @@ test("settings exposes manual update checks through the preload bridge", () => {
   assert.match(appSource, /function appUpdateReleaseNoteLines\(payload = \{\}\)/);
   assert.match(appSource, /function renderAppUpdateReleaseNotes\(payload = \{\}\)/);
   assert.match(appSource, /item\.textContent = note/);
-  assert.match(appSource, /setAppShellUpdateLocked\(visible\)/);
+  assert.doesNotMatch(appSource, /setAppShellUpdateLocked/);
+  assert.doesNotMatch(appSource, /\.inert\s*=/);
+  assert.doesNotMatch(appUpdateOverlayTag, /aria-modal="true"/);
+  assert.match(appUpdateOverlayTag, /role="status"/);
+  assert.match(appUpdateOverlayTag, /aria-live="polite"/);
   assert.match(htmlSource, /class="app-update-notes" hidden/);
   assert.match(preloadSource, /checkForUpdates:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.UpdateCheck\)/);
   assert.match(preloadSource, /onUpdateEvent:\s*\(callback\) => \{/);
