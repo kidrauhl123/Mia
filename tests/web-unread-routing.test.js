@@ -515,6 +515,11 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   );
   assert.match(
     build,
+    /copyFile\(["']src\/shared\/scheduled-task-mode\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']scheduled-task-mode\.js["']\)\)/,
+    "build-cloud-release must copy scheduled-task-mode.js because cloud tasks-store imports it"
+  );
+  assert.match(
+    build,
     /copyFile\(["']src\/shared\/avatar-resolve\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']avatar-resolve\.js["']\)\)/,
     "build-cloud-release must copy the avatar-resolve compatibility entry because api/server.js resolves member identities"
   );
@@ -568,6 +573,7 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   assert.doesNotMatch(build, /api\/src\/cloud-agent\/default-bot\.js/);
   assert.doesNotMatch(build, /api\/src\/cloud-agent\/default-fellow\.js/);
   assert.match(build, /api\/src\/shared\/skill-safety\.js/);
+  assert.match(build, /api\/src\/shared\/scheduled-task-mode\.js/);
   assert.match(build, /api\/src\/shared\/avatar-resolve\.js/);
 });
 
