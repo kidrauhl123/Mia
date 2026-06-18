@@ -195,7 +195,7 @@ test("available updates lock the app, report progress, and force install", async
   assert.equal(scheduled[0].ms, 25);
   assert.equal(updater.quitCalled, false);
 
-  scheduled[0].fn();
+  await scheduled[0].fn();
   assert.equal(events.at(-1).status, "installing");
   assert.equal(updater.quitCalled, true);
   assert.deepEqual(updater.quitArgs, [true, true]);
@@ -238,12 +238,74 @@ test("update install watchdog stops after before-quit-for-update", async () => {
 
   await service.checkForUpdates();
   updater.emit("update-downloaded", { version: "0.1.12" });
-  scheduled[0].fn();
+  await scheduled[0].fn();
   updater.emit("before-quit-for-update");
 
   scheduled[1].fn();
   scheduled[2].fn();
   assert.equal(quitFallbackCalled, false);
+});
+
+test("update install stops the daemon before quitting into Squirrel", async () => {
+  const calls = [];
+  const scheduled = [];
+  let updater;
+  updater = new FakeUpdater(() => {
+    updater.emit("update-available", { version: "0.1.19" });
+    return Promise.resolve({
+      updateInfo: { version: "0.1.19" },
+      downloadPromise: Promise.resolve(),
+    });
+  });
+  const service = createService(updater, {
+    forceInstallDelayMs: 1,
+    installRetryDelayMs: 2,
+    installQuitFallbackDelayMs: 3,
+    prepareForInstall: async ({ version }) => calls.push(["prepare", version]),
+    setTimeoutFn: (fn, ms) => {
+      scheduled.push({ fn, ms });
+      return scheduled.length;
+    },
+  });
+
+  await service.checkForUpdates();
+  updater.emit("update-downloaded", { version: "0.1.19" });
+  await scheduled[0].fn();
+
+  assert.deepEqual(calls, [["prepare", "0.1.19"]]);
+  assert.equal(updater.quitCalled, true);
+});
+
+test("update install does not quit when daemon stop preparation fails", async () => {
+  const events = [];
+  const scheduled = [];
+  let updater;
+  updater = new FakeUpdater(() => {
+    updater.emit("update-available", { version: "0.1.19" });
+    return Promise.resolve({
+      updateInfo: { version: "0.1.19" },
+      downloadPromise: Promise.resolve(),
+    });
+  });
+  const service = createService(updater, {
+    sendUpdateEvent: (payload) => events.push(payload),
+    forceInstallDelayMs: 1,
+    prepareForInstall: async () => {
+      throw Object.assign(new Error("daemon still running"), { code: "EDAEMON" });
+    },
+    setTimeoutFn: (fn, ms) => {
+      scheduled.push({ fn, ms });
+      return scheduled.length;
+    },
+  });
+
+  await service.checkForUpdates();
+  updater.emit("update-downloaded", { version: "0.1.19" });
+  await scheduled[0].fn();
+
+  assert.equal(updater.quitCalled, false);
+  assert.equal(events.at(-1).status, "error");
+  assert.deepEqual(events.at(-1).error, { message: "daemon still running", code: "EDAEMON" });
 });
 
 test("update errors unlock the app and notify the renderer", async () => {

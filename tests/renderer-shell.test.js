@@ -82,6 +82,7 @@ test("settings exposes manual update checks through the preload bridge", () => {
   assert.match(preloadSource, /ipcRenderer\.on\(IpcChannel\.UpdateEvent, handler\)/);
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.UpdateCheck,\s*\(\)\s*=>\s*autoUpdateService\.checkForUpdates\(\)\)/);
   assert.match(mainSource, /sendUpdateEvent:\s*\(payload\) => broadcastRendererEvent\(IpcChannel\.UpdateEvent, payload\)/);
+  assert.match(mainSource, /prepareForInstall:\s*\(\)\s*=>\s*stopDaemonService\(\)/);
 });
 
 test("cloud conversation send and render do not depend on activeKey being empty", () => {
@@ -243,12 +244,15 @@ test("chat composer floats on the chat floor instead of owning a bottom panel", 
 });
 
 test("chat header is a floating card layer rather than a layout topbar", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
+  assert.match(html, /<div class="group-title">[\s\S]*?<button class="narrow-back-button"[\s\S]*?data-narrow-back[\s\S]*?<\/button>[\s\S]*?<div id="activeChatAvatar"/);
   assert.match(styleSource, /#chatView\s*\{[\s\S]*?position:\s*relative;[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);/);
   assert.match(styleSource, /#chatView \.topbar\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*16px;[\s\S]*?background:\s*transparent;[\s\S]*?pointer-events:\s*none;/);
   assert.match(styleSource, /#chatView \.topbar > \*\s*\{[\s\S]*?pointer-events:\s*auto;/);
   assert.match(styleSource, /#chatView \.group-title\s*\{[\s\S]*?min-height:\s*40px;[\s\S]*?padding:\s*4px 12px 4px 5px;[\s\S]*?border-radius:\s*20px;[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface\) 96%, transparent\);/);
+  assert.match(styleSource, /#chatView \.group-title \.narrow-back-button\s*\{[\s\S]*?width:\s*32px;[\s\S]*?height:\s*32px;[\s\S]*?border-radius:\s*16px;/);
   assert.match(styleSource, /#chatView #activeChatAvatar\s*\{[\s\S]*?width:\s*32px;[\s\S]*?height:\s*32px;/);
   assert.match(styleSource, /#chatView \.group-title h1\s*\{[\s\S]*?font-size:\s*14px;[\s\S]*?line-height:\s*17px;/);
   assert.match(styleSource, /#chatView \.topbar p\s*\{[\s\S]*?font-size:\s*11px;[\s\S]*?line-height:\s*15px;/);
@@ -257,7 +261,7 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   assert.match(styleSource, /\.session-trigger-icon\s*\{[\s\S]*?width:\s*16px;[\s\S]*?height:\s*16px;/);
   assert.match(styleSource, /\.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);[\s\S]*?-webkit-backdrop-filter:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(styleSource, /:root\[data-theme="dark"\] \.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);/);
-  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.topbar\s*\{[\s\S]*?grid-template-columns:\s*36px minmax\(0,\s*1fr\) auto;[\s\S]*?min-height:\s*40px;[\s\S]*?padding:\s*0;[\s\S]*?background:\s*transparent;[\s\S]*?pointer-events:\s*none;/);
+  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.topbar\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) auto;[\s\S]*?min-height:\s*40px;[\s\S]*?padding:\s*0;[\s\S]*?background:\s*transparent;[\s\S]*?pointer-events:\s*none;/);
   assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.group-title\s*\{[\s\S]*?min-height:\s*40px;[\s\S]*?border-radius:\s*20px;[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface\) 96%, transparent\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.14\);/);
   assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.session-trigger\s*\{[\s\S]*?grid-template-columns:\s*16px minmax\(0,\s*82px\);[\s\S]*?height:\s*40px;[\s\S]*?max-width:\s*118px;[\s\S]*?border-radius:\s*20px;/);
   assert.match(styleSource, /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?#chatView \.session-trigger\s*\{[\s\S]*?grid-template-columns:\s*16px;[\s\S]*?width:\s*40px;[\s\S]*?#chatView \.session-trigger \.current-session-title\s*\{[\s\S]*?display:\s*none;/);

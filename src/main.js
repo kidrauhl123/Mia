@@ -2826,6 +2826,7 @@ const autoUpdateService = createAutoUpdateService({
   getMainWindow: () => BrowserWindow.getAllWindows()[0] || null,
   getMainWindows: () => BrowserWindow.getAllWindows(),
   sendUpdateEvent: (payload) => broadcastRendererEvent(IpcChannel.UpdateEvent, payload),
+  prepareForInstall: () => stopDaemonService(),
   quitApp: () => app.quit(),
 });
 
