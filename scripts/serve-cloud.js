@@ -4117,6 +4117,7 @@ function createMiaCloudServer(options = {}) {
         includeOffline: options.includeOffline,
         cloudStore: context.cloudStore
       }),
+      createScheduledTask: (userId, input) => context.cloudTasksService.create(userId, input),
       skillsCatalog
     });
   }

@@ -137,6 +137,66 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
   }
 });
 
+test("cloud-hermes explicit relative reminders create cloud tasks without running Hermes", async () => {
+  const ctx = setup();
+  const hermesCalls = [];
+  const taskCalls = [];
+  const broadcasts = [];
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      nowMs: () => Date.parse("2026-06-18T05:37:00.000Z"),
+      createScheduledTask(userId, input) {
+        taskCalls.push({ userId, input });
+        return { id: "t_cloud_1", ...input, nextFireAt: new Date(input.trigger.at).getTime() };
+      },
+      broadcastPersistedEvent(userId, event) {
+        broadcasts.push({ userId, event });
+      },
+      hermesRunsClient: {
+        async runChat(args) {
+          hermesCalls.push(args);
+          return { runId: "hr_should_not_run", content: "wrong", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "1分钟后提醒我睡觉"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(hermesCalls.length, 0);
+    assert.equal(taskCalls.length, 1);
+    assert.deepEqual(taskCalls[0], {
+      userId: ctx.user.id,
+      input: {
+        title: "提醒：睡觉",
+        botId: BOT_ID,
+        conversationId: ctx.conversation.id,
+        sessionId: `conversation:${ctx.conversation.id}`,
+        originMessageId: message.id,
+        trigger: { type: "oneshot", at: "2026-06-18T05:38:00.000Z" },
+        timezone: "Asia/Shanghai",
+        prompt: "请在 Mia 会话里提醒用户：睡觉"
+      }
+    });
+    assert.equal(reply.sender_ref, BOT_ID);
+    assert.match(reply.body_md, /1 分钟后/);
+    assert.match(reply.body_md, /睡觉/);
+    assert.equal(reply.trace_json && JSON.parse(reply.trace_json).tools[0].name, "schedule_create");
+    assert.equal(broadcasts.some((entry) => entry.event.type === "conversation.message_appended" && entry.event.message.id === reply.id), true);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("cloud-hermes scheduled fires use the delivery context instead of recreating tasks", async () => {
   const ctx = setup();
   const hermesCalls = [];

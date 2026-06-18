@@ -266,6 +266,64 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
   }
 });
 
+test("POST bot reminder message creates a cloud task without Hermes cron", async () => {
+  const dataDir = tempDir("mia-cloud-agent-reminder-");
+  const hermesCalls = [];
+  const server = createMiaCloudServer({
+    dataDir,
+    cloudAgentWorkerManager: {
+      async ensureWorker(userId) {
+        return { userId, baseUrl: "http://worker", apiKey: "k" };
+      }
+    },
+    cloudAgentHermesClient: {
+      async runChat(args) {
+        hermesCalls.push(args);
+        return { runId: "hr_should_not_run", content: "wrong", events: [] };
+      }
+    }
+  });
+  const baseUrl = await listen(server);
+  try {
+    const account = createAccount(server, "reminder_alice");
+    const authHeaders = { authorization: `Bearer ${account.token}` };
+    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
+    const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
+      method: "PUT",
+      headers: authHeaders,
+      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-hermes" }
+    });
+    const conversationId = ensured.conversation.id;
+
+    await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
+      method: "POST",
+      headers: authHeaders,
+      body: {
+        bodyMd: "1分钟后提醒我睡觉",
+        clientOpId: "op_cloud_reminder_1"
+      }
+    });
+    await server.mia.cloudAgentDispatcher.idle();
+
+    assert.equal(hermesCalls.length, 0);
+    const tasks = await jsonFetch(baseUrl, "/api/tasks", { headers: authHeaders });
+    assert.equal(tasks.tasks.length, 1);
+    assert.equal(tasks.tasks[0].botId, "mia");
+    assert.equal(tasks.tasks[0].conversationId, conversationId);
+    assert.equal(tasks.tasks[0].title, "提醒：睡觉");
+    assert.equal(tasks.tasks[0].runtimeKind, "cloud-hermes");
+    const listed = await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
+      headers: authHeaders
+    });
+    assert.deepEqual(listed.messages.map((m) => m.sender_kind), ["user", "bot"]);
+    assert.match(listed.messages[1].body_md, /睡觉/);
+    assert.equal(JSON.parse(listed.messages[1].trace_json).tools[0].name, "schedule_create");
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("POST group mention invokes cloud-hermes bot without desktop-local event fallback", async () => {
   const dataDir = tempDir("mia-cloud-agent-group-");
   const hermesCalls = [];
