@@ -721,6 +721,20 @@ test("daemon task HTTP client and task event stream live behind a main daemon Mo
   assert.doesNotMatch(mainSource, /\/api\/tasks\/events/, "main must not own the daemon task event stream route");
 });
 
+test("foreground permission IPC routes through the daemon-owned permission proxy", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const proxySource = fs.readFileSync(path.join(root, "src/main/agent-permission-proxy.js"), "utf8");
+  const respondHandler = mainSource.match(/ipcMain\.handle\(IpcChannel\.ChatPermissionRespond[\s\S]*?\);/)?.[0] || "";
+  const listHandler = mainSource.match(/ipcMain\.handle\(IpcChannel\.ChatPermissionList[\s\S]*?\);/)?.[0] || "";
+
+  assert.match(proxySource, /createAgentPermissionProxy/, "permission proxy Module should exist");
+  assert.match(mainSource, /createAgentPermissionProxy/, "main should instantiate the permission proxy");
+  assert.match(respondHandler, /agentPermissionProxy\.respond/, "permission response IPC should route through the daemon-owned proxy");
+  assert.match(listHandler, /agentPermissionProxy\.list/, "permission list IPC should route through the daemon-owned proxy");
+  assert.doesNotMatch(respondHandler, /agentPermissionCoordinator/, "foreground permission response IPC must not resolve local coordinator state");
+  assert.doesNotMatch(listHandler, /agentPermissionCoordinator/, "foreground permission list IPC must not read local coordinator state");
+});
+
 test("foreground chat routes reminders through scheduler skill prompting", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const sendStart = mainSource.indexOf("async function sendChat");

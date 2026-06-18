@@ -99,6 +99,44 @@ test("start serves health, protects remote routes, and delegates authorized remo
   server.stop();
 });
 
+test("daemon permission routes resolve and list coordinator-owned requests", async (t) => {
+  const port = await freePort();
+  const permissionCalls = [];
+  const { server } = setup(t, {
+    agentPermissionCoordinator: {
+      resolvePermission: (payload) => {
+        permissionCalls.push({ type: "resolve", payload });
+        return { ok: true };
+      },
+      listPending: (filter) => {
+        permissionCalls.push({ type: "list", filter });
+        return [{ requestId: "perm_1", sessionId: filter.sessionId }];
+      }
+    }
+  });
+  t.after(() => server.stop());
+  const status = await server.start({ host: "127.0.0.1", port });
+
+  const respond = await fetch(`${status.baseUrl}/api/chat/permissions/respond`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer secret-token",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ requestId: "perm_1", decision: "allow_once" })
+  });
+  assert.deepEqual(await respond.json(), { ok: true });
+
+  const list = await fetch(`${status.baseUrl}/api/chat/permissions?sessionId=s1`, {
+    headers: { Authorization: "Bearer secret-token" }
+  });
+  assert.deepEqual(await list.json(), { requests: [{ requestId: "perm_1", sessionId: "s1" }] });
+  assert.deepEqual(permissionCalls, [
+    { type: "resolve", payload: { requestId: "perm_1", decision: "allow_once" } },
+    { type: "list", filter: { sessionId: "s1" } }
+  ]);
+});
+
 test("cloud task proxy forwards daemon task calls without starting local scheduler", async (t) => {
   const port = await freePort();
   const upstream = [];

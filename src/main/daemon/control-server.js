@@ -19,6 +19,7 @@ function createDaemonControlServer({
   normalizeDaemonPort,
   runtimePaths,
   remoteRouter,
+  agentPermissionCoordinator = null,
   initSchedulerSubsystem,
   tasksRoutes,
   getCloudSettings = null,
@@ -338,6 +339,24 @@ function createDaemonControlServer({
       return;
     }
     try {
+      if (url.pathname === "/api/chat/permissions/respond" && req.method === "POST") {
+        if (!agentPermissionCoordinator || typeof agentPermissionCoordinator.resolvePermission !== "function") {
+          writeJson(res, 501, { ok: false, error: "permission coordinator unavailable" });
+          return;
+        }
+        const body = await readBody(req);
+        writeJson(res, 200, agentPermissionCoordinator.resolvePermission(body || {}));
+        return;
+      }
+      if (url.pathname === "/api/chat/permissions" && req.method === "GET") {
+        if (!agentPermissionCoordinator || typeof agentPermissionCoordinator.listPending !== "function") {
+          writeJson(res, 501, { requests: [], error: "permission coordinator unavailable" });
+          return;
+        }
+        const sessionId = url.searchParams.get("sessionId") || "";
+        writeJson(res, 200, { requests: agentPermissionCoordinator.listPending({ sessionId }) });
+        return;
+      }
       const routePath = `${url.pathname}${url.search || ""}`;
       const router = remoteRouter();
       if (router?.matches({ method: req.method, path: routePath })) {

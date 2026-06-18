@@ -88,6 +88,7 @@ const { createEnginePluginsService } = require("./main/engine-plugins-service.js
 const { createLocalAgentEngineService } = require("./main/local-agent-engine-service.js");
 const { createAgentSessionStore } = require("./main/agent-session-store.js");
 const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
+const { createAgentPermissionProxy } = require("./main/agent-permission-proxy.js");
 const {
   createCodexAppServerConnection,
   runCodexAppServerTurn
@@ -549,6 +550,7 @@ let codexSdkModule = null;
 let remoteControlRouter = null;
 let daemonControlServer = null;
 let daemonTasksClient = null;
+let agentPermissionProxy = null;
 let activeChatAbortController = null;
 let cloudEventSocketRuntime = null;
 let cloudBridgeRuntime = null;
@@ -2369,6 +2371,7 @@ daemonControlServer = createDaemonControlServer({
   normalizeDaemonPort: (port) => settingsStore.normalizeDaemonPort(port),
   runtimePaths,
   remoteRouter: () => remoteControlRouter,
+  agentPermissionCoordinator,
   initSchedulerSubsystem,
   tasksRoutes: () => tasksRoutes,
   getCloudSettings: () => settingsStore.cloudSettings(),
@@ -2391,6 +2394,14 @@ daemonTasksClient = createDaemonTasksClient({
         // Window closed during task-event broadcast.
       }
     }
+  }
+});
+
+agentPermissionProxy = createAgentPermissionProxy({
+  isDaemonProcess: IS_DAEMON_PROCESS,
+  coordinator: agentPermissionCoordinator,
+  daemonClient: {
+    call: (...args) => daemonTasksClient.call(...args)
   }
 });
 
@@ -2756,8 +2767,8 @@ ipcMain.handle(IpcChannel.AuthProviderCancel, () => authService.cancelProviderOA
 ipcMain.handle(IpcChannel.ChatSend, (event, payload) => sendChat({ ...payload, webContents: event.sender }));
 ipcMain.handle(IpcChannel.ChatSendStateless, (_event, payload) => sendChatStateless(payload));
 ipcMain.handle(IpcChannel.ChatStop, () => stopChat());
-ipcMain.handle(IpcChannel.ChatPermissionRespond, (_event, payload) => agentPermissionCoordinator.resolvePermission(payload || {}));
-ipcMain.handle(IpcChannel.ChatPermissionList, (_event, payload) => agentPermissionCoordinator.listPending(payload || {}));
+ipcMain.handle(IpcChannel.ChatPermissionRespond, (_event, payload) => agentPermissionProxy.respond(payload || {}));
+ipcMain.handle(IpcChannel.ChatPermissionList, (_event, payload) => agentPermissionProxy.list(payload || {}));
 ipcMain.handle(IpcChannel.ChatAttachmentSave, (_event, payload) => saveChatAttachment(payload));
 ipcMain.handle(IpcChannel.ChatFileFetch, (_event, payload) => safeFetchFileAttachment(payload));
 ipcMain.handle(IpcChannel.CommandsSlash, () => engineCatalogService.loadHermesSlashCommands());
