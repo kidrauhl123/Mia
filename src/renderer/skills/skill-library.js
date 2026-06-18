@@ -215,12 +215,35 @@
     if (toMarket && !state.skillMarket.loaded && !state.skillMarket.loading) loadMarketSkills();
   }
 
-  function renderSkillLibrary() {
+  function skillScrollContainer() {
+    return els?.skillCardGrid?.closest?.(".skills-layout") || null;
+  }
+
+  function preserveSkillScroll(fn) {
+    const scroller = skillScrollContainer();
+    const top = scroller ? scroller.scrollTop : 0;
+    const left = scroller ? scroller.scrollLeft : 0;
+    const restore = () => {
+      if (!scroller || scroller.isConnected === false) return;
+      const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      scroller.scrollTop = Math.min(top, maxTop);
+      scroller.scrollLeft = left;
+    };
+    fn();
+    restore();
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(restore);
+  }
+
+  function renderSkillLibrary(options = {}) {
     if (!state || !els || !els.skillChipRow || !els.skillCardGrid) return;
-    renderModeToggle();
-    if (state.skillMarketMode) renderMarketView();
-    else renderLocalView();
-    renderSkillContextMenu();
+    const render = () => {
+      renderModeToggle();
+      if (state.skillMarketMode) renderMarketView();
+      else renderLocalView();
+      renderSkillContextMenu();
+    };
+    if (options.preserveScroll) preserveSkillScroll(render);
+    else render();
   }
 
   function layoutSkillCards() {
@@ -530,7 +553,8 @@
     }
     state.skillMarket.error = "";
     state.skillMarket.queryKey = queryKey;
-    renderSkillLibrary();
+    const preserveExistingScroll = background || hasCurrentPage;
+    if (!preserveExistingScroll) renderSkillLibrary();
     let shouldRefresh = false;
     try {
       const data = forceRefresh
@@ -556,7 +580,7 @@
       if (state.skillMarket.queryKey === queryKey) {
         state.skillMarket.loading = false;
         state.skillMarket.refreshing = false;
-        renderSkillLibrary();
+        renderSkillLibrary({ preserveScroll: preserveExistingScroll });
       }
       if (shouldRefresh) loadMarketSkills(params, { forceRefresh: true, background: true });
     }

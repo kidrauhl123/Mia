@@ -510,7 +510,12 @@ test("discover, skill, and task cards start from the fixed left edge", () => {
     /helpers\/masonry-grid\.js[\s\S]*skills\/skill-library\.js[\s\S]*bot\/bot-store\.js[\s\S]*tasks\/tasks-panel\.js/,
     "masonry helper should load before the card renderers that call it"
   );
-  assert.match(masonryHelper, /gridRowEnd\s*=\s*`span \$\{span\}`/);
+  assert.match(masonryHelper, /const columnHeights = Array\(columnCount\)\.fill\(0\)/);
+  assert.match(masonryHelper, /item\.style\.position = "absolute"/);
+  assert.match(masonryHelper, /item\.style\.width = `\$\{columnWidth\}px`/);
+  assert.match(masonryHelper, /item\.style\.transform = `translate3d\(\$\{x\}px, \$\{y\}px, 0\)`/);
+  assert.match(masonryHelper, /grid\.style\.height = `\$\{Math\.ceil\(Math\.max\(0, height\)\)\}px`/);
+  assert.doesNotMatch(masonryHelper, /gridRowEnd\s*=\s*`span/);
   assert.match(masonryHelper, /classList\.add\("masonry-grid"\)/);
   assert.match(masonryHelper, /function capture\(grid,\s*direction/);
   assert.match(masonryHelper, /cloneNode\(true\)/);
@@ -558,8 +563,13 @@ test("discover, skill, and task cards start from the fixed left edge", () => {
     );
     assert.match(
       css,
-      new RegExp(`\\.${gridSelector}\\.masonry-grid\\s*\\{[^}]*--masonry-row-size:\\s*4px;[^}]*grid-auto-flow:\\s*row\\s+dense;[^}]*grid-auto-rows:\\s*var\\(--masonry-row-size\\);`),
-      `${name} page should use masonry row spans so shorter cards pack upward instead of aligning full rows`
+      new RegExp(`\\.${gridSelector}\\.masonry-grid\\s*\\{[^}]*position:\\s*relative;`),
+      `${name} page should use the JS shortest-column masonry stage instead of row-span grid packing`
+    );
+    assert.doesNotMatch(
+      cssRuleBody(css, `.${gridSelector}.masonry-grid`),
+      /grid-auto-flow|grid-auto-rows|--masonry-row-size/,
+      `${name} page should not use CSS row spans because they leave row-aligned gaps`
     );
     assert.match(
       css,

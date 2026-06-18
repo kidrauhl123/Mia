@@ -17,6 +17,26 @@
     return Number.isFinite(n) ? n : fallback;
   }
 
+  function gridColumns(styles) {
+    const columns = String(styles.gridTemplateColumns || "")
+      .trim()
+      .split(/\s+/)
+      .filter((track) => track && track !== "none");
+    return Math.max(1, columns.length);
+  }
+
+  function resetLayout(grid, items = [...grid.children]) {
+    grid.style.height = "";
+    grid.style.position = "";
+    for (const item of items) {
+      item.style.position = "";
+      item.style.width = "";
+      item.style.transform = "";
+      item.style.left = "";
+      item.style.top = "";
+    }
+  }
+
   function liveGrids() {
     for (const grid of [...grids]) {
       if (!grid || !grid.isConnected) grids.delete(grid);
@@ -91,9 +111,11 @@
   function applyLayout(grid, itemSelector, animate) {
     if (!grid || !grid.isConnected || !itemSelector) return;
     const entry = state.get(grid) || {};
+    const children = [...grid.children];
 
-    const items = [...grid.children].filter((item) => item.matches(itemSelector) && !item.hidden);
+    const items = children.filter((item) => item.matches(itemSelector) && !item.hidden);
     if (!items.length) {
+      resetLayout(grid, children);
       grid.classList.remove("masonry-grid");
       if (animate) turnPage(grid, animate);
       else clearSnapshot(entry);
@@ -102,16 +124,43 @@
 
     grid.classList.add("masonry-grid");
     const styles = globalObj.getComputedStyle(grid);
-    const rowSize = Math.max(1, px(styles.getPropertyValue("--masonry-row-size"), 4));
-    const gap = Math.max(0, px(styles.rowGap || styles.gap, 0));
+    const columnCount = gridColumns(styles);
+    const columnGap = Math.max(0, px(styles.columnGap || styles.gap, 0));
+    const rowGap = Math.max(0, px(styles.rowGap || styles.gap, 0));
+    const gridWidth = grid.clientWidth || grid.getBoundingClientRect().width;
+    const columnWidth = (gridWidth - (columnCount - 1) * columnGap) / columnCount;
+    if (!Number.isFinite(columnWidth) || columnWidth <= 0) return;
 
-    for (const item of items) item.style.gridRowEnd = "auto";
-
-    for (const item of items) {
-      const height = item.getBoundingClientRect().height;
-      const span = Math.max(1, Math.ceil((height + gap) / (rowSize + gap)));
-      item.style.gridRowEnd = `span ${span}`;
+    grid.style.position = "relative";
+    for (const item of children) {
+      if (!items.includes(item)) {
+        item.style.position = "";
+        item.style.width = "";
+        item.style.transform = "";
+        item.style.left = "";
+        item.style.top = "";
+      }
     }
+    for (const item of items) {
+      item.style.position = "absolute";
+      item.style.width = `${columnWidth}px`;
+      item.style.left = "0";
+      item.style.top = "0";
+      item.style.transform = "translate3d(0, 0, 0)";
+    }
+
+    const columnHeights = Array(columnCount).fill(0);
+    for (const item of items) {
+      const column = columnHeights.indexOf(Math.min(...columnHeights));
+      const x = column * (columnWidth + columnGap);
+      const y = columnHeights[column];
+      const height = item.getBoundingClientRect().height;
+      item.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+      columnHeights[column] += height + rowGap;
+    }
+
+    const height = Math.max(0, ...columnHeights) - rowGap;
+    grid.style.height = `${Math.ceil(Math.max(0, height))}px`;
 
     if (animate) turnPage(grid, animate);
   }

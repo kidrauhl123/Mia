@@ -345,6 +345,104 @@ test("market category and search filters are local only after the catalog loads"
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /正在加载技能市场/);
 });
 
+test("background market refresh preserves the skill market scroll position", async () => {
+  const src = read("src/renderer/skills/skill-library.js");
+  const scroller = {
+    scrollTop: 420,
+    scrollLeft: 0,
+    scrollHeight: 1600,
+    clientHeight: 600,
+    isConnected: true
+  };
+  const fakeEl = () => ({
+    innerHTML: "",
+    textContent: "",
+    style: { setProperty: () => {} },
+    classList: { toggle: () => {}, add: () => {}, remove: () => {} },
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+    closest: (selector) => selector === ".skills-layout" ? scroller : null,
+    getBoundingClientRect: () => ({ left: 0, width: 0, height: 0 })
+  });
+  const state = {
+    skillFilter: "",
+    skillCategoryFilter: "",
+    skillMarketMode: true,
+    skillMarket: {
+      skills: [{ id: "old", name: "old", name_zh: "旧技能", category: "办公", description: "old", sourceLabel: "旧来源" }],
+      categories: [{ category: "办公", count: 1 }],
+      loading: false,
+      refreshing: false,
+      loaded: true,
+      queryKey: JSON.stringify({ limit: 72 }),
+      error: ""
+    },
+    skillLibrary: { skills: [] },
+    installingSkillIds: new Set(),
+    selectedSkillId: "",
+    skillContextMenu: { open: false, skillId: "" }
+  };
+  const els = {
+    skillModeToggle: fakeEl(),
+    skillChipRow: fakeEl(),
+    skillCardGrid: fakeEl(),
+    skillPageTitle: fakeEl(),
+    skillContextMenu: fakeEl()
+  };
+  const context = {
+    console,
+    requestAnimationFrame: (fn) => { fn(); return 1; },
+    window: {
+      addEventListener: () => {},
+      innerWidth: 1024,
+      mia: {
+        marketSkills: () => Promise.resolve({
+          skills: [{ id: "fresh", name: "fresh", name_zh: "新技能", category: "办公", description: "fresh", sourceLabel: "新来源" }],
+          categories: [{ category: "办公", count: 1 }],
+          cached: false,
+          stale: false
+        })
+      },
+      miaMasonryGrid: { layout: () => {} },
+      miaSkillHelpers: {
+        skillDisplayName: (skill) => skill.name_zh || skill.marketNameZh || skill.name,
+        skillSummaryZh: (skill) => skill.description || "",
+        skillDisplayCategory: (skill) => skill.category || skill.marketCategoryZh || "",
+        skillAuthorLabel: (skill) => skill.pluginLabel || skill.sourceLabel || "Local",
+        skillTone: () => "blue",
+        skillInitials: () => "SK",
+        renderSkillMarkdownSource: (body) => body
+      }
+    }
+  };
+  vm.createContext(context);
+  vm.runInContext(src, context, { filename: "skill-library.js" });
+  context.window.miaSkillLibrary.initSkillLibrary({
+    state,
+    els,
+    mia: null,
+    escapeHtml: (value) => String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;"),
+    setText: (el, value) => { el.textContent = String(value || ""); },
+    menuItemHtml: () => "",
+    syncTopbarClickCapture: () => {},
+    closeGroupContextMenu: () => {},
+    showNarrowContent: () => {},
+    deleteSkill: () => {},
+    openSkillDirectory: () => {}
+  });
+
+  await context.window.miaSkillLibrary.loadMarketSkills(undefined, { forceRefresh: true, background: true });
+
+  assert.equal(scroller.scrollTop, 420);
+  assert.equal(state.skillMarket.refreshing, false);
+  assert.match(els.skillCardGrid.innerHTML, /data-market-id="fresh"/);
+});
+
 test("topbar has the mine/market toggle and market styles exist", () => {
   const html = read("src/renderer/index.html");
   assert.match(html, /id="skillModeToggle"/);

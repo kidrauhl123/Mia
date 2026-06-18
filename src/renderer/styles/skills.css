@@ -151,9 +151,7 @@
   min-width: 0;
 }
 .skill-card-grid.masonry-grid {
-  --masonry-row-size: 4px;
-  grid-auto-flow: row dense;
-  grid-auto-rows: var(--masonry-row-size);
+  position: relative;
 }
 
 .skill-card {

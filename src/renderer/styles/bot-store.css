@@ -202,9 +202,7 @@
   min-width: 0;
 }
 .bot-store-grid.masonry-grid {
-  --masonry-row-size: 4px;
-  grid-auto-flow: row dense;
-  grid-auto-rows: var(--masonry-row-size);
+  position: relative;
 }
 
 .bot-store-card {
