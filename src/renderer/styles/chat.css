@@ -13,7 +13,7 @@
   align-content: start;
   gap: 4px;
   overflow: auto;
-  padding: calc(var(--chat-header-overlay-height) + 12px) 18px calc(var(--composer-overlay-height) + 18px);
+  padding: calc(var(--chat-header-overlay-height) + 12px) 10px calc(var(--composer-overlay-height) + 18px);
 }
 
 .app-shell[data-auth-state="signed-out"] .chat-layout {
@@ -33,7 +33,7 @@
   align-items: flex-end;
   width: 100%;
   min-width: 0;
-  padding: 3px 6px;
+  padding: 3px 2px;
 }
 
 .message.assistant {

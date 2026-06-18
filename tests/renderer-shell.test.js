@@ -235,7 +235,8 @@ test("chat composer floats on the chat floor instead of owning a bottom panel", 
   assert.match(chatStyleSource, /\.chat-layout\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);[\s\S]*?position:\s*relative;/);
   assert.match(chatStyleSource, /--chat-header-overlay-height:\s*70px;/);
   assert.match(chatStyleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.chat-layout\s*\{[\s\S]*?--chat-header-overlay-height:\s*48px;/);
-  assert.match(chatStyleSource, /\.chat\s*\{[\s\S]*?padding:\s*calc\(var\(--chat-header-overlay-height\) \+ 12px\) 18px calc\(var\(--composer-overlay-height\) \+ 18px\);/);
+  assert.match(chatStyleSource, /\.chat\s*\{[\s\S]*?padding:\s*calc\(var\(--chat-header-overlay-height\) \+ 12px\) 10px calc\(var\(--composer-overlay-height\) \+ 18px\);/);
+  assert.match(chatStyleSource, /\.message\s*\{[\s\S]*?padding:\s*3px 2px;/);
   assert.match(styleSource, /\.composer\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?bottom:\s*0;[\s\S]*?background:\s*transparent;/);
   assert.match(appSource, /function syncComposerOverlayHeight\(\)/);
   assert.match(appSource, /new ResizeObserver\(schedule\)/);
@@ -1130,7 +1131,7 @@ test("chat code blocks use a right-aligned language copy button without code fra
   }
 });
 
-test("agent permission banner blends into the composer and keeps allow buttons compact", () => {
+test("agent permission banner uses a glass card and keeps allow buttons compact", () => {
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const cssBlock = (selector) => {
     const start = css.indexOf(`${selector} {`);
@@ -1142,12 +1143,13 @@ test("agent permission banner blends into the composer and keeps allow buttons c
   const allowButtons = cssBlock(".agent-permission-allow-actions .agent-permission-button");
   const primary = cssBlock(".agent-permission-button.primary");
 
-  assert.doesNotMatch(block, /border:/);
-  assert.doesNotMatch(block, /border-radius:/);
-  assert.doesNotMatch(block, /background:/);
-  assert.doesNotMatch(block, /box-shadow:/);
-  assert.match(block, /gap:\s*6px;/);
-  assert.match(block, /padding:\s*4px 0 2px;/);
+  assert.match(block, /border:\s*1px solid color-mix\(in srgb, var\(--line\) 64%, transparent\);/);
+  assert.match(block, /border-radius:\s*14px;/);
+  assert.match(block, /background:\s*color-mix\(in srgb, var\(--surface-soft\) 76%, transparent\);/);
+  assert.match(block, /box-shadow:\s*0 1px 2px rgba\(16,\s*20,\s*39,\s*0\.05\),\s*0 12px 28px rgba\(16,\s*20,\s*39,\s*0\.08\);/);
+  assert.match(block, /backdrop-filter:\s*blur\(22px\) saturate\(1\.14\);/);
+  assert.match(block, /gap:\s*8px;/);
+  assert.match(block, /padding:\s*10px 12px 12px;/);
   assert.match(allowButtons, /width:\s*64px;/);
   assert.match(allowButtons, /min-height:\s*26px;/);
   assert.doesNotMatch(primary, /min-width:/);
