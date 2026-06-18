@@ -837,6 +837,20 @@
     return chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < SCROLL_STICK_THRESHOLD_PX;
   }
 
+  function scheduleChatBottomStick(chatEl, expectedScrollTop) {
+    if (!chatEl) return;
+    const schedule = typeof global.requestAnimationFrame === "function"
+      ? global.requestAnimationFrame.bind(global)
+      : (fn) => setTimeout(fn, 16);
+    schedule(() => {
+      if (!chatEl) return;
+      const currentTop = Number(chatEl.scrollTop) || 0;
+      const expectedTop = Number(expectedScrollTop) || 0;
+      if (Math.abs(currentTop - expectedTop) > 1 && !isChatNearBottom(chatEl)) return;
+      chatEl.scrollTop = chatEl.scrollHeight;
+    });
+  }
+
   function stickChatToBottomAfterPermissionLayout(chatEl, shouldStick) {
     if (!chatEl || !shouldStick) return;
     const schedule = typeof global.requestAnimationFrame === "function"
@@ -1788,7 +1802,12 @@
     _lastRenderedConversationId = conversationId;
     const applyScroll = () => {
       if (focusPendingMessage(containerEl)) return;
-      containerEl.scrollTop = stickToBottom ? containerEl.scrollHeight : prevScrollTop;
+      if (stickToBottom) {
+        containerEl.scrollTop = containerEl.scrollHeight;
+        scheduleChatBottomStick(containerEl, containerEl.scrollTop);
+      } else {
+        containerEl.scrollTop = prevScrollTop;
+      }
     };
 
     if (!isConversationSwitch && containerEl.dataset?.conversationRenderSignature === renderSignature) {
