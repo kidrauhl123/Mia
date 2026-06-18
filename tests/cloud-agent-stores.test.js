@@ -7,6 +7,7 @@ const path = require("node:path");
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 const { createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindings-store.js");
 const { createCloudAgentRunsStore } = require("../src/cloud-agent/cloud-agent-runs-store.js");
+const { createCloudTasksStore } = require("../src/cloud/tasks-store.js");
 const { DatabaseSync } = require("node:sqlite");
 
 function freshStore() {
@@ -169,6 +170,39 @@ test("cloud agent run lifecycle records hermes run id and completion", () => {
     const failed = runs.markError(errored.id, new Error("boom"));
     assert.equal(failed.status, "error");
     assert.deepEqual(failed.error, { message: "boom" });
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud tasks store normalizes schedule expressions before persistence", () => {
+  const ctx = freshStore();
+  try {
+    insertUser(ctx.db, "u1");
+    insertBot(ctx.db, "bot_mia", "u1");
+    insertConversation(ctx.db, "botc_u1_bot_mia");
+    const now = new Date("2026-06-18T08:22:34.000Z").getTime();
+    const tasks = createCloudTasksStore(ctx.db, {
+      nowMs: () => now,
+      idFactory: () => "task_schedule_1"
+    });
+
+    const task = tasks.create("u1", {
+      title: "睡觉提醒",
+      botId: "bot_mia",
+      conversationId: "botc_u1_bot_mia",
+      schedule: "1m",
+      timezone: "Asia/Shanghai",
+      fireMode: "deliver",
+      deliveryText: "该睡觉了"
+    });
+
+    assert.deepEqual(task.trigger, {
+      type: "oneshot",
+      at: "2026-06-18T08:23:34.000Z"
+    });
+    assert.equal(task.nextFireAt, now + 60_000);
+    assert.equal(Object.prototype.hasOwnProperty.call(task, "schedule"), false);
   } finally {
     ctx.cleanup();
   }

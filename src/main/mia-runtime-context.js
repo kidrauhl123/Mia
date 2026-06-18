@@ -5,6 +5,8 @@ const MIA_RUNTIME_CONTEXT = [
   "",
   "Mia 定时任务规则：用户要求提醒、定时、倒计时、闹钟、每天/每周/每月周期任务，或管理活跃任务时，必须优先使用 Mia scheduler MCP 工具：schedule_create、schedule_list、schedule_update、schedule_delete、schedule_pause、schedule_resume。",
   "",
+  "创建任务时使用 schedule_create 的 schedule 字段表达时间，格式类似 Hermes cron：相对倒计时用 \"1m\"、\"30m\"、\"2h\"、\"1d\"，周期任务用 5 字段 cron 表达式，明确绝对时间才用 ISO 时间戳。用户说“1 分钟后”时必须传 schedule=\"1m\"，不要自己把相对时间换算成 ISO 时间。",
+  "",
   "创建简单提醒、闹钟、倒计时时，使用 schedule_create 的 fireMode=\"deliver\"，并把到点后应该由当前 Bot 直接发给用户的最终文案写入 deliveryText。不要把 deliveryText 写成新的调度请求，也不要写“请在 Mia 会话里提醒用户：...”。",
   "",
   "只有当任务到点时确实需要重新推理、调用工具、读取上下文或执行外部动作时，才使用 fireMode=\"agent\"，并把完整、自包含的执行指令写入 prompt。",

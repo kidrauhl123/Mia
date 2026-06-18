@@ -99,6 +99,30 @@ test("createTasksStore: direct delivery tasks can use deliveryText as prompt fal
   assert.equal(task.fireMode, "deliver");
 });
 
+test("createTasksStore: schedule expression is normalized before persistence", (t) => {
+  const realNow = Date.now;
+  const now = new Date("2026-06-18T08:22:34.000Z").getTime();
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+
+  const store = createTasksStore(tmpFile());
+  const task = store.create({
+    title: "睡觉提醒",
+    botId: "f1",
+    sessionId: "conversation:botc_u1_f1",
+    schedule: "1m",
+    timezone: "Asia/Shanghai",
+    fireMode: "deliver",
+    deliveryText: "该睡觉了"
+  });
+
+  assert.deepEqual(task.trigger, {
+    type: "oneshot",
+    at: "2026-06-18T08:23:34.000Z"
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(task, "schedule"), false);
+});
+
 test("createTasksStore: drops persisted legacy bot-id-only tasks on load", () => {
   const file = tmpFile();
   fs.writeFileSync(file, JSON.stringify({

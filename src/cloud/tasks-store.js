@@ -8,6 +8,7 @@ const {
   normalizeFireMode,
   taskPromptForStorage
 } = require("../shared/scheduled-task-mode.js");
+const { normalizeScheduledTaskInput } = require("../shared/schedule-expression.js");
 
 function nowMs() {
   return Date.now();
@@ -216,20 +217,21 @@ function createCloudTasksStore(db, options = {}) {
   }
 
   function create(userId, input = {}, runtime = {}) {
-    validateTaskInput(input);
     const timestamp = now();
-    const { conversationId, sessionId } = taskConversationFields(input);
-    const delivery = taskDeliveryFields(input);
+    const normalizedInput = normalizeScheduledTaskInput(input, { nowMs: timestamp });
+    validateTaskInput(normalizedInput);
+    const { conversationId, sessionId } = taskConversationFields(normalizedInput);
+    const delivery = taskDeliveryFields(normalizedInput);
     const task = {
       id: idFactory("t"),
       userId: String(userId),
-      title: String(input.title || "未命名任务"),
-      botId: String(input.botId),
+      title: String(normalizedInput.title || "未命名任务"),
+      botId: String(normalizedInput.botId),
       conversationId,
       sessionId,
-      originMessageId: String(input.originMessageId || ""),
-      trigger: { ...input.trigger },
-      timezone: String(input.timezone || "UTC"),
+      originMessageId: String(normalizedInput.originMessageId || ""),
+      trigger: { ...normalizedInput.trigger },
+      timezone: String(normalizedInput.timezone || "UTC"),
       prompt: delivery.prompt,
       fireMode: delivery.fireMode,
       deliveryText: delivery.deliveryText,
@@ -269,20 +271,22 @@ function createCloudTasksStore(db, options = {}) {
   function update(userId, taskId, partial = {}, runtime = null) {
     const current = get(userId, taskId);
     if (!current) throw new Error("task not found");
+    const timestamp = now();
+    const normalizedPartial = normalizeScheduledTaskInput(partial || {}, { nowMs: timestamp });
     const merged = {
       ...current,
-      ...partial,
+      ...normalizedPartial,
       id: current.id,
       userId: current.userId,
       runs: current.runs,
       createdAt: current.createdAt,
-      updatedAt: now()
+      updatedAt: timestamp
     };
-    if (partial.trigger) {
+    if (normalizedPartial.trigger) {
       const oldTrigger = current.trigger || {};
-      merged.trigger = partial.trigger.type && partial.trigger.type !== oldTrigger.type
-        ? { ...partial.trigger }
-        : { ...oldTrigger, ...partial.trigger };
+      merged.trigger = normalizedPartial.trigger.type && normalizedPartial.trigger.type !== oldTrigger.type
+        ? { ...normalizedPartial.trigger }
+        : { ...oldTrigger, ...normalizedPartial.trigger };
     }
     if (runtime && typeof runtime === "object") {
       merged.runtimeKind = String(runtime.runtimeKind || merged.runtimeKind || "");

@@ -563,6 +563,7 @@ function verifyRelease() {
     "api/packages/shared/session-history.js",
     "api/src/shared/skill-safety.js",
     "api/src/shared/scheduled-task-mode.js",
+    "api/src/shared/schedule-expression.js",
     "api/src/shared/agent-permissions.js",
     "api/src/main/mia-runtime-context.js",
     "api/src/permission-modes.js",
@@ -653,6 +654,7 @@ function verifyRelease() {
     "api/packages/shared/session-history.js",
     "api/src/shared/skill-safety.js",
     "api/src/shared/scheduled-task-mode.js",
+    "api/src/shared/schedule-expression.js",
     "api/src/shared/agent-permissions.js",
     "api/src/main/mia-runtime-context.js",
     "api/src/permission-modes.js",
@@ -854,6 +856,7 @@ function main() {
   copyFile("packages/shared/session-history.js", path.join(apiDir, "packages", "shared", "session-history.js"));
   copyFile("src/shared/skill-safety.js", path.join(apiDir, "src", "shared", "skill-safety.js"));
   copyFile("src/shared/scheduled-task-mode.js", path.join(apiDir, "src", "shared", "scheduled-task-mode.js"));
+  copyFile("src/shared/schedule-expression.js", path.join(apiDir, "src", "shared", "schedule-expression.js"));
   copyFile("src/shared/agent-permissions.js", path.join(apiDir, "src", "shared", "agent-permissions.js"));
   copyFile("src/main/mia-runtime-context.js", path.join(apiDir, "src", "main", "mia-runtime-context.js"));
   copyFile("src/permission-modes.js", path.join(apiDir, "src", "permission-modes.js"));

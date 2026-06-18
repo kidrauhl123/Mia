@@ -112,18 +112,20 @@ const TOOLS = [
     description: [
       "Create and activate a scheduled task in Mia. The task is created immediately when this tool returns — there is no separate UI step the user needs to take, and you should not describe one to them.",
       "You (the currently-replying bot) are always the executor: do NOT ask the user which engine/agent should run the task. botId, conversationId, and originMessageId are injected by the runtime and you cannot set them.",
+      "Use the `schedule` string for timing, Hermes-style. For relative times like '1 minute later', pass schedule='1m' and let Mia compute the absolute fire time; do NOT calculate an ISO timestamp yourself. For recurring tasks, pass a cron expression such as '0 9 * * *'. Absolute ISO timestamps are also accepted.",
       "For simple reminders, alarms, and countdowns where the expected result is just a reminder message, set fireMode='deliver' and put the exact future bot message in deliveryText. Mia will post deliveryText directly as the bot at fire time; the agent will not run again.",
       "For tasks that require fresh reasoning, tool use, or changing outside state at fire time, set fireMode='agent' and put the full self-contained instruction in prompt. Agent tasks may run tools when they fire.",
-      "Features that DO exist: title, trigger (oneshot with ISO timestamp OR cron expression — both fully supported), IANA timezone, fireMode, deliveryText, and prompt. Features that do NOT exist and must not be asked about: per-task engine choice, retry/backoff policy, alternate delivery channels (popups, logs, other rooms), notification settings. If user asks for any of those, say they are not currently available.",
+      "Features that DO exist: title, schedule, IANA timezone, fireMode, deliveryText, and prompt. Features that do NOT exist and must not be asked about: per-task engine choice, retry/backoff policy, alternate delivery channels (popups, logs, other rooms), notification settings. If user asks for any of those, say they are not currently available.",
       "Returns the new task id."
     ].join(" "),
     inputSchema: {
       type: "object",
       properties: {
         title: { type: "string", description: "Short human-readable label, e.g. '每天晨间简报'." },
+        schedule: { type: "string", description: "Hermes-style schedule string. Use relative one-shot delays like '1m', '30m', '2h', '1d'; 5-field cron expressions like '0 9 * * *'; or ISO-8601 timestamps. For user requests like '1分钟后', pass '1m' instead of computing a timestamp." },
         trigger: {
           type: "object",
-          description: "When to fire. type='oneshot' (one future time, supply `at`) or type='cron' (recurring, supply `cron`). Cron is a real supported trigger, not an advanced fallback.",
+          description: "Legacy structured trigger. Prefer schedule for new calls, especially for relative times.",
           properties: {
             type: { type: "string", enum: ["cron", "oneshot"] },
             cron: { type: "string", description: "Standard 5-field cron expression, e.g. '30 9 * * *' for 09:30 every day." },
@@ -136,7 +138,7 @@ const TOOLS = [
         deliveryText: { type: "string", description: "For fireMode='deliver': the exact message Mia should post as this bot at fire time, e.g. '该吃饭了。'. Keep it concise and do not include scheduling instructions." },
         prompt: { type: "string", description: "For fireMode='agent': the self-contained instruction the bot should execute at fire time. Optional for fireMode='deliver' and kept only as provenance." }
       },
-      required: ["title", "trigger"]
+      required: ["title", "schedule"]
     }
   },
   {
@@ -156,6 +158,7 @@ const TOOLS = [
       properties: {
         id: { type: "string", description: "Task id (from schedule_list or schedule_create)" },
         title: { type: "string" },
+        schedule: { type: "string", description: "Hermes-style schedule string; prefer this over trigger." },
         trigger: {
           type: "object",
           properties: {
@@ -220,12 +223,13 @@ async function callTool(name, args) {
         botId,
         sessionId,
         originMessageId,
-        trigger: args.trigger,
         timezone: args.timezone || "Asia/Shanghai",
         fireMode: args.fireMode,
         deliveryText: args.deliveryText,
         prompt: args.prompt
       };
+      if (args.schedule) payload.schedule = args.schedule;
+      else if (args.trigger) payload.trigger = args.trigger;
       const { status, body } = await daemonFetch("POST", "/api/tasks", payload);
       if (status !== 201) throw new Error(body?.error || `Daemon returned ${status}`);
       return { taskId: body.task?.id, ...taskToolPayload(body.task) };

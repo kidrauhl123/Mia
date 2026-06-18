@@ -153,3 +153,67 @@ test("schedule_create forwards direct delivery fields", async (t) => {
   assert.equal(payload.task.fireMode, "deliver");
   assert.equal(payload.task.deliveryText, "该吃饭了");
 });
+
+test("schedule_create forwards Hermes-style schedule strings for Mia-side time parsing", async (t) => {
+  const calls = [];
+  const at = "2026-06-18T08:23:34.000Z";
+  const daemon = await startDaemon((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      calls.push({ method: req.method, url: req.url, body: JSON.parse(body || "{}") });
+      res.writeHead(201, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        task: {
+          id: "task_schedule",
+          ...calls[0].body,
+          trigger: { type: "oneshot", at },
+          nextFireAt: new Date(at).getTime()
+        }
+      }));
+    });
+  });
+  t.after(() => new Promise((resolve) => daemon.server.close(resolve)));
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-scheduler-mcp-schedule-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const contextPath = path.join(dir, "ctx.json");
+  fs.writeFileSync(contextPath, JSON.stringify({
+    botId: "bot_1",
+    sessionId: "conversation:botc_u1_bot_1",
+    originMessageId: "msg_1"
+  }), "utf8");
+
+  const child = spawn(process.execPath, [path.join(__dirname, "../src/main/scheduler-mcp-server.js")], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      MIA_DAEMON_URL: daemon.url,
+      MIA_DAEMON_TOKEN: "token",
+      MIA_SCHEDULER_CONTEXT_FILE: contextPath
+    }
+  });
+  t.after(() => child.kill());
+
+  const result = await send(child, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: {
+      name: "schedule_create",
+      arguments: {
+        title: "睡觉提醒",
+        schedule: "1m",
+        fireMode: "deliver",
+        deliveryText: "该睡觉了"
+      }
+    }
+  });
+
+  assert.equal(result.result.isError, false);
+  assert.equal(calls[0].body.schedule, "1m");
+  assert.equal(Object.prototype.hasOwnProperty.call(calls[0].body, "trigger"), false);
+  const payload = JSON.parse(result.result.content[0].text);
+  assert.equal(payload.taskId, "task_schedule");
+  assert.equal(payload.nextFireAt, new Date(at).getTime());
+});

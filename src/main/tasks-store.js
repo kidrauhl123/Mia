@@ -9,6 +9,7 @@ const {
   normalizeFireMode,
   taskPromptForStorage
 } = require("../shared/scheduled-task-mode.js");
+const { normalizeScheduledTaskInput } = require("../shared/schedule-expression.js");
 
 function atomicWrite(filePath, content) {
   const tmp = filePath + ".tmp." + crypto.randomBytes(6).toString("hex");
@@ -113,19 +114,20 @@ function createTasksStore(filePath) {
   }
 
   function create(input) {
-    validateInput(input);
     const now = Date.now();
-    const { conversationId, sessionId } = taskConversationFields(input);
-    const delivery = taskDeliveryFields(input);
+    const normalizedInput = normalizeScheduledTaskInput(input, { nowMs: now });
+    validateInput(normalizedInput);
+    const { conversationId, sessionId } = taskConversationFields(normalizedInput);
+    const delivery = taskDeliveryFields(normalizedInput);
     const task = {
       id: "t-" + crypto.randomBytes(8).toString("hex"),
-      title: String(input.title || "未命名任务"),
-      botId: String(input.botId),
+      title: String(normalizedInput.title || "未命名任务"),
+      botId: String(normalizedInput.botId),
       conversationId,
       sessionId,
-      originMessageId: String(input.originMessageId || ""),
-      trigger: { ...input.trigger },
-      timezone: String(input.timezone || "UTC"),
+      originMessageId: String(normalizedInput.originMessageId || ""),
+      trigger: { ...normalizedInput.trigger },
+      timezone: String(normalizedInput.timezone || "UTC"),
       prompt: delivery.prompt,
       fireMode: delivery.fireMode,
       deliveryText: delivery.deliveryText,
@@ -144,21 +146,23 @@ function createTasksStore(filePath) {
     const state = load();
     const idx = state.tasks.findIndex((t) => t.id === id);
     if (idx === -1) throw new Error("task not found: " + id);
+    const timestamp = Date.now();
+    const normalizedPartial = normalizeScheduledTaskInput(partial || {}, { nowMs: timestamp });
     const merged = {
       ...state.tasks[idx],
-      ...partial,
+      ...normalizedPartial,
       id: state.tasks[idx].id,
       runs: state.tasks[idx].runs,
       createdAt: state.tasks[idx].createdAt,
-      updatedAt: Date.now()
+      updatedAt: timestamp
     };
-    if (partial.trigger) {
+    if (normalizedPartial.trigger) {
       const oldTrigger = state.tasks[idx].trigger;
       // When type changes, replace wholesale so stale fields (e.g. cron) don't
       // linger on a now-oneshot trigger and pollute exports/migrations.
-      merged.trigger = partial.trigger.type && partial.trigger.type !== oldTrigger.type
-        ? { ...partial.trigger }
-        : { ...oldTrigger, ...partial.trigger };
+      merged.trigger = normalizedPartial.trigger.type && normalizedPartial.trigger.type !== oldTrigger.type
+        ? { ...normalizedPartial.trigger }
+        : { ...oldTrigger, ...normalizedPartial.trigger };
     }
     const delivery = taskDeliveryFields(merged);
     merged.prompt = delivery.prompt;

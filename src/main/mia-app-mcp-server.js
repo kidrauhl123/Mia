@@ -159,17 +159,19 @@ async function callTool(name, args = {}) {
   const ctx = readContext();
   switch (name) {
     case "schedule_create": {
-      const { status, body } = await daemonFetch("POST", "/api/tasks", {
+      const payload = {
         title: args.title,
         botId: ctx.botId || args.botId || "",
         sessionId: ctx.sessionId || args.sessionId || "",
         originMessageId: ctx.originMessageId || args.originMessageId || "",
-        trigger: args.trigger,
         timezone: args.timezone || "Asia/Shanghai",
         fireMode: args.fireMode,
         deliveryText: args.deliveryText,
         prompt: args.prompt
-      });
+      };
+      if (args.schedule) payload.schedule = args.schedule;
+      else if (args.trigger) payload.trigger = args.trigger;
+      const { status, body } = await daemonFetch("POST", "/api/tasks", payload);
       const created = assertOk(status, body);
       return { ...created, ...taskToolPayload(created.task) };
     }
