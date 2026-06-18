@@ -266,7 +266,7 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
   }
 });
 
-test("POST bot reminder message creates a cloud task without Hermes cron", async () => {
+test("POST bot reminder message routes through cloud Hermes scheduler tools", async () => {
   const dataDir = tempDir("mia-cloud-agent-reminder-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -279,7 +279,7 @@ test("POST bot reminder message creates a cloud task without Hermes cron", async
     cloudAgentHermesClient: {
       async runChat(args) {
         hermesCalls.push(args);
-        return { runId: "hr_should_not_run", content: "wrong", events: [] };
+        return { runId: "hr_scheduler", content: "我会通过 schedule_create 设置这个提醒。", events: [] };
       }
     }
   });
@@ -305,19 +305,17 @@ test("POST bot reminder message creates a cloud task without Hermes cron", async
     });
     await server.mia.cloudAgentDispatcher.idle();
 
-    assert.equal(hermesCalls.length, 0);
+    assert.equal(hermesCalls.length, 1);
+    assert.match(hermesCalls[0].input, /1分钟后提醒我睡觉/);
+    assert.match(hermesCalls[0].instructions, /schedule_create/);
     const tasks = await jsonFetch(baseUrl, "/api/tasks", { headers: authHeaders });
-    assert.equal(tasks.tasks.length, 1);
-    assert.equal(tasks.tasks[0].botId, "mia");
-    assert.equal(tasks.tasks[0].conversationId, conversationId);
-    assert.equal(tasks.tasks[0].title, "提醒：睡觉");
-    assert.equal(tasks.tasks[0].runtimeKind, "cloud-hermes");
+    assert.equal(tasks.tasks.length, 0);
     const listed = await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
       headers: authHeaders
     });
     assert.deepEqual(listed.messages.map((m) => m.sender_kind), ["user", "bot"]);
-    assert.match(listed.messages[1].body_md, /睡觉/);
-    assert.equal(JSON.parse(listed.messages[1].trace_json).tools[0].name, "schedule_create");
+    assert.equal(listed.messages[1].body_md, "我会通过 schedule_create 设置这个提醒。");
+    assert.equal(listed.messages[1].trace_json, null);
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });

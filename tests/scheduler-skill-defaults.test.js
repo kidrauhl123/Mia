@@ -4,9 +4,9 @@ const assert = require("node:assert/strict");
 const {
   MIA_SCHEDULER_SKILL_ID,
   schedulerSkillIdsForTurn
-} = require("../src/main/scheduler-skill-detector.js");
+} = require("../src/main/scheduler-skill-defaults.js");
 
-test("schedulerSkillIdsForTurn activates Mia scheduler for reminder requests", () => {
+test("schedulerSkillIdsForTurn makes Mia scheduler available without parsing user text", () => {
   assert.deepEqual(
     schedulerSkillIdsForTurn({
       messages: [{ role: "user", content: "5分钟后提醒我吃饭" }]
@@ -15,7 +15,7 @@ test("schedulerSkillIdsForTurn activates Mia scheduler for reminder requests", (
   );
   assert.deepEqual(
     schedulerSkillIdsForTurn({
-      messages: [{ role: "user", content: "每天早上9点提醒我写日报" }]
+      messages: [{ role: "user", content: "你知道啥是 Mia 吗" }]
     }),
     [MIA_SCHEDULER_SKILL_ID]
   );
@@ -31,25 +31,18 @@ test("schedulerSkillIdsForTurn preserves explicit skill ids and dedupes schedule
   );
 });
 
-test("schedulerSkillIdsForTurn ignores non-scheduler questions and unsafe utility turns", () => {
-  assert.deepEqual(
-    schedulerSkillIdsForTurn({
-      messages: [{ role: "user", content: "你知道啥是 Mia 吗" }]
-    }),
-    []
-  );
-  assert.deepEqual(
-    schedulerSkillIdsForTurn({
-      messages: [{ role: "user", content: "请把下面这条消息翻译成简体中文。\n\n5分钟后提醒我吃饭" }],
-      utility: true,
-      group: false
-    }),
-    []
-  );
+test("schedulerSkillIdsForTurn skips background and scheduled fire turns", () => {
   assert.deepEqual(
     schedulerSkillIdsForTurn({
       messages: [{ role: "user", content: "提醒你吃饭" }],
       background: true
+    }),
+    []
+  );
+  assert.deepEqual(
+    schedulerSkillIdsForTurn({
+      messages: [{ role: "user", content: "请在 Mia 会话里提醒用户：睡觉" }],
+      scheduledFire: true
     }),
     []
   );

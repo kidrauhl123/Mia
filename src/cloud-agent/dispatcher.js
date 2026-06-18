@@ -6,12 +6,6 @@ const { MemberKind } = require("../shared/conversation-kinds.js");
 const { CloudEvent } = require("../shared/cloud-events.js");
 const { decisionToHermesChoice } = require("../shared/agent-permissions.js");
 const { miaRuntimeSystemPrompt } = require("../main/mia-runtime-context.js");
-const { confirmationForReminder } = require("../main/reminder-intent.js");
-const {
-  createScheduledReminderFromTurn,
-  reminderToolEvent,
-  schedulerFailureContent
-} = require("../main/app-scheduler-reminder.js");
 
 const BOT_MEMBER_KIND = "bot";
 const BOT_SENDER_KIND = "bot";
@@ -218,8 +212,6 @@ function createCloudAgentDispatcher(deps = {}) {
   const getUserPublic = typeof deps.getUserPublic === "function" ? deps.getUserPublic : () => null;
   const skillsCatalog = Array.isArray(deps.skillsCatalog) ? deps.skillsCatalog : [];
   const listBridgeDevices = typeof deps.listBridgeDevices === "function" ? deps.listBridgeDevices : null;
-  const createScheduledTask = typeof deps.createScheduledTask === "function" ? deps.createScheduledTask : null;
-  const nowMs = typeof deps.nowMs === "function" ? deps.nowMs : () => Date.now();
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const pending = new Set();
   const groupOrchestrator = createGroupOrchestrator({
@@ -358,59 +350,6 @@ function createCloudAgentDispatcher(deps = {}) {
       }
     }
     return reply;
-  }
-
-  function appendReminderReply({ ownerId, bot, conversationId, content, toolError = false, errorJson = null }) {
-    const reply = messagesStore.appendMessage({
-      conversationId,
-      senderKind: BOT_SENDER_KIND,
-      senderRef: bot.id,
-      senderOwnerId: ownerId,
-      bodyMd: content,
-      attachments: null,
-      trace: { tools: [reminderToolEvent(toolError)] },
-      status: "complete",
-      ...(errorJson ? { errorJson } : {})
-    });
-    for (const member of socialStore.listConversationMembers(conversationId)) {
-      if (member.member_kind === MemberKind.User) {
-        broadcastPersistedEvent(member.member_ref, { type: "conversation.message_appended", conversationId, message: reply });
-      }
-    }
-    return reply;
-  }
-
-  async function handleExplicitCloudReminder({ ownerId, botId, bot, conversationId, message }) {
-    if (!createScheduledTask || isScheduledFireMessage(message)) return null;
-    try {
-      const scheduled = await createScheduledReminderFromTurn({
-        userPrompt: message.body_md || "",
-        botId,
-        conversationId,
-        sessionId: `conversation:${conversationId}`,
-        originMessageId: message.id,
-        createScheduledTask: (input) => createScheduledTask(ownerId, input),
-        nowMs,
-        timezone: "Asia/Shanghai"
-      });
-      if (!scheduled) return null;
-      return appendReminderReply({
-        ownerId,
-        bot,
-        conversationId,
-        content: confirmationForReminder(scheduled.intent)
-      });
-    } catch (error) {
-      log(`[cloud-agent] scheduler create failed: ${error?.message || error}`);
-      return appendReminderReply({
-        ownerId,
-        bot,
-        conversationId,
-        content: schedulerFailureContent(error),
-        toolError: true,
-        errorJson: { stage: "scheduler", message: String(error?.message || error || "unknown error") }
-      });
-    }
   }
 
   function invocationSender(message, fallbackUserId) {
@@ -638,8 +577,6 @@ function createCloudAgentDispatcher(deps = {}) {
       ? activeBinding
       : (!activeBinding ? runtimeBindingsStore.getEnabledBinding(ownerId, botId, "cloud-hermes") : null);
     if (cloudBinding) {
-      const reminderReply = await handleExplicitCloudReminder({ ownerId, botId, bot, conversationId, message });
-      if (reminderReply) return reminderReply;
       return runHermesInline({
         ownerId,
         botId,

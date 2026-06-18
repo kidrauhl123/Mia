@@ -137,14 +137,13 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
   }
 });
 
-test("cloud-hermes explicit relative reminders create cloud tasks without running Hermes", async () => {
+test("cloud-hermes reminder requests run Hermes instead of direct app-side task creation", async () => {
   const ctx = setup();
   const hermesCalls = [];
   const taskCalls = [];
   const broadcasts = [];
   try {
     const dispatcher = makeDispatcher(ctx, {
-      nowMs: () => Date.parse("2026-06-18T05:37:00.000Z"),
       createScheduledTask(userId, input) {
         taskCalls.push({ userId, input });
         return { id: "t_cloud_1", ...input, nextFireAt: new Date(input.trigger.at).getTime() };
@@ -155,7 +154,7 @@ test("cloud-hermes explicit relative reminders create cloud tasks without runnin
       hermesRunsClient: {
         async runChat(args) {
           hermesCalls.push(args);
-          return { runId: "hr_should_not_run", content: "wrong", events: [] };
+          return { runId: "hr_scheduler", content: "我会通过 schedule_create 设置这个提醒。", events: [] };
         }
       }
     });
@@ -172,25 +171,13 @@ test("cloud-hermes explicit relative reminders create cloud tasks without runnin
       message
     });
 
-    assert.equal(hermesCalls.length, 0);
-    assert.equal(taskCalls.length, 1);
-    assert.deepEqual(taskCalls[0], {
-      userId: ctx.user.id,
-      input: {
-        title: "提醒：睡觉",
-        botId: BOT_ID,
-        conversationId: ctx.conversation.id,
-        sessionId: `conversation:${ctx.conversation.id}`,
-        originMessageId: message.id,
-        trigger: { type: "oneshot", at: "2026-06-18T05:38:00.000Z" },
-        timezone: "Asia/Shanghai",
-        prompt: "请在 Mia 会话里提醒用户：睡觉"
-      }
-    });
+    assert.equal(hermesCalls.length, 1);
+    assert.equal(taskCalls.length, 0);
+    assert.match(hermesCalls[0].input, /1分钟后提醒我睡觉/);
+    assert.match(hermesCalls[0].instructions, /schedule_create/);
     assert.equal(reply.sender_ref, BOT_ID);
-    assert.match(reply.body_md, /1 分钟后/);
-    assert.match(reply.body_md, /睡觉/);
-    assert.equal(reply.trace_json && JSON.parse(reply.trace_json).tools[0].name, "schedule_create");
+    assert.equal(reply.body_md, "我会通过 schedule_create 设置这个提醒。");
+    assert.equal(reply.trace_json, null);
     assert.equal(broadcasts.some((entry) => entry.event.type === "conversation.message_appended" && entry.event.message.id === reply.id), true);
   } finally {
     ctx.cleanup();

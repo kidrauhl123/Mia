@@ -1,10 +1,6 @@
 "use strict";
 
 const { CloudEvent } = require("../../shared/cloud-events.js");
-const { createScheduledReminderFromTurn } = require("../app-scheduler-reminder.js");
-const {
-  confirmationForReminder
-} = require("../reminder-intent.js");
 
 const PROCESSED_CAP = 500;
 const HISTORY_MESSAGE_LIMIT = 80;
@@ -255,7 +251,7 @@ function hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId
   return false;
 }
 
-function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, createScheduledTask = null, nowMs = () => Date.now(), emitCloudEvent = () => {}, log = () => {} }) {
+function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {} }) {
   const processed = new Set();
   const inFlight = new Set();
 
@@ -293,25 +289,6 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     }
   }
 
-  async function postSchedulerFailureMessage({ conversationId, botId, dedupKey, turnId, error }) {
-    const detail = sanitizeFailureDetail(error?.message || error);
-    try {
-      const result = await postConversationMessageAsBot(conversationId, {
-        botId,
-        bodyMd: `我没能创建这个提醒。${detail ? `原因：${detail}。` : ""}请稍后重试。`,
-        turnId,
-        errorJson: { stage: "scheduler", message: detail || String(error?.message || error || "unknown error") },
-        clientOpId: errorClientOpIdForDedupKey(dedupKey)
-      });
-      if (result && result.ok === false) throw new Error(result.error || result.message || "post failed");
-      emitPostedMessage(conversationId, result);
-      return true;
-    } catch (postError) {
-      log(`[local-bot-responder] scheduler failure post failed: ${postError?.message || postError}`);
-      return false;
-    }
-  }
-
   function isGroupConversation(conversationId, conversationType = "") {
     const type = String(conversationType || "").trim();
     if (type) return type === "group";
@@ -332,48 +309,6 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     }
   }
 
-  async function handleExplicitReminder({ conversationId, botId, dedupKey, triggerMessageId, userPrompt, turnId }) {
-    if (typeof createScheduledTask !== "function") return null;
-    try {
-      const scheduled = await createScheduledReminderFromTurn({
-        userPrompt,
-        botId,
-        conversationId,
-        sessionId: `conversation:${conversationId}`,
-        originMessageId: triggerMessageId,
-        createScheduledTask,
-        nowMs,
-        timezone: "Asia/Shanghai"
-      });
-      if (!scheduled) return null;
-      const result = await postConversationMessageAsBot(conversationId, {
-        botId,
-        bodyMd: confirmationForReminder(scheduled.intent),
-        turnId,
-        clientOpId: clientOpIdForDedupKey(dedupKey),
-        trace: {
-          tools: [{
-            id: "tool_schedule_create",
-            name: "schedule_create",
-            preview: "create",
-            status: "completed",
-            duration: 0,
-            error: false
-          }]
-        }
-      });
-      if (result && result.ok === false) throw new Error(result.error || result.message || "post failed");
-      emitPostedMessage(conversationId, result);
-      remember(dedupKey);
-      return true;
-    } catch (error) {
-      log(`[local-bot-responder] scheduler create failed: ${error?.message || error}`);
-      const didPostFailure = await postSchedulerFailureMessage({ conversationId, botId, dedupKey, turnId, error });
-      if (didPostFailure) remember(dedupKey);
-      return didPostFailure;
-    }
-  }
-
   async function respond({ conversationId, conversationType = "", botId, botSnapshot = null, dedupKey, triggerMessageId = "", triggerSeq = 0, systemPrompt, historyMessages = [], userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
     if (!conversationId || !botId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
@@ -385,19 +320,6 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       remember(dedupKey);
       inFlight.delete(dedupKey);
       return false;
-    }
-
-    const handledReminder = await handleExplicitReminder({
-      conversationId,
-      botId,
-      dedupKey,
-      triggerMessageId: resolvedTriggerMessageId,
-      userPrompt,
-      turnId
-    });
-    if (handledReminder !== null) {
-      inFlight.delete(dedupKey);
-      return handledReminder;
     }
 
     let text = "";

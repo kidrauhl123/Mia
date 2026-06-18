@@ -93,13 +93,12 @@ const {
   runCodexAppServerTurn
 } = require("./main/codex-app-server-runner.js");
 const { createSchedulerMcpBridge } = require("./main/scheduler-mcp-bridge.js");
-const { schedulerSkillIdsForTurn } = require("./main/scheduler-skill-detector.js");
+const { schedulerSkillIdsForTurn } = require("./main/scheduler-skill-defaults.js");
 const { deliverTaskReplyToConversation } = require("./main/task-reply-delivery.js");
 const { createSystemHermesService } = require("./main/system-hermes-service.js");
 const { createEngineRuntimeConfigService } = require("./main/engine-runtime-config-service.js");
 const { createEngineHealthService } = require("./main/engine-health-service.js");
 const { createEngineInstallService } = require("./main/engine-install-service.js");
-const { handleReminderChatTurn } = require("./main/app-scheduler-reminder.js");
 const { registerWindowIpc } = require("./main/ipc/window-ipc.js");
 const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — bot chats
@@ -2098,33 +2097,20 @@ async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages
     if (emit) {
       emit("session_started", { botKey: botForTurn.key, engine: agentEngine });
     }
-    const reminderResponse = await handleReminderChatTurn({
-      messages,
-      bot: botForTurn,
-      sessionId,
-      createScheduledTask: createAppScheduledTask,
-      chatCompletionResponse,
-      emit,
-      model: adapterForEngine(agentEngine).responseModel,
-      scheduledFire,
-      background
-    });
-    if (reminderResponse) return completeWithPetMessage(reminderResponse);
-    // Composer "使用" chips: enable these skills for this turn (so their content
-    // is injected) AND prepend a directive to the user's message so the agent
-    // actually USES them this turn — merely enabling is a no-op when the skill
-    // is already in the bot's enabled set (the "AI picks" case).
-    const turnActiveSkillIds = schedulerSkillIdsForTurn({ messages, activeSkillIds, utility, group, background });
-    if (turnActiveSkillIds.length) {
+    // Scheduler is always an available structured capability on foreground
+    // turns. Composer "使用" chips still get an explicit directive so the agent
+    // prioritizes them for this turn.
+    const turnEnabledSkillIds = schedulerSkillIdsForTurn({ activeSkillIds, background, scheduledFire });
+    if (turnEnabledSkillIds.length) {
       const caps = botForTurn.capabilities || {};
       botForTurn = {
         ...botForTurn,
         capabilities: {
           ...caps,
-          enabledSkills: [...new Set([...(caps.enabledSkills || []), ...turnActiveSkillIds.map((id) => String(id))])]
+          enabledSkills: [...new Set([...(caps.enabledSkills || []), ...turnEnabledSkillIds.map((id) => String(id))])]
         }
       };
-      const directive = skillsLoader.buildActiveSkillsDirective(turnActiveSkillIds);
+      const directive = skillsLoader.buildActiveSkillsDirective(activeSkillIds);
       if (directive && Array.isArray(messages)) {
         const next = messages.slice();
         for (let i = next.length - 1; i >= 0; i--) {
@@ -2555,7 +2541,6 @@ const localBotResponder = createLocalBotResponder({
   sendChat,
   postConversationMessageAsBot: (conversationId, body) => socialApi.postConversationMessageAsBot(conversationId, body),
   listConversationMessages: (conversationId, sinceSeq, limit) => socialApi.listConversationMessages(conversationId, sinceSeq, limit),
-  createScheduledTask: createAppScheduledTask,
   emitCloudEvent: (message) => {
     const envelope = {
       type: message.type,

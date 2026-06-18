@@ -106,9 +106,8 @@ test("respond folds the message's skill chips into the engine turn", async () =>
   assert.deepEqual(calls.engine[0].activeSkillIds, ["pdf-fill", "data-viz"]);
 });
 
-test("respond creates a Mia scheduled task directly for explicit relative reminders", async () => {
-  const nowMs = Date.parse("2026-06-18T05:09:00.000Z");
-  const { responder, calls } = setup({ nowMs: () => nowMs });
+test("respond sends explicit reminder requests through the engine scheduler path", async () => {
+  const { responder, calls } = setup();
 
   await responder.respond({
     ...base,
@@ -119,30 +118,21 @@ test("respond creates a Mia scheduled task directly for explicit relative remind
     dedupKey: "m_user_1:6859845"
   });
 
-  assert.equal(calls.engine.length, 0);
-  assert.deepEqual(calls.task, [{
-    title: "提醒：🦌",
-    botId: "6859845",
-    conversationId: "botc_7d852259-ed51-47c5-a84f-2f3e1987ad72",
-    sessionId: "conversation:botc_7d852259-ed51-47c5-a84f-2f3e1987ad72",
-    originMessageId: "m_user_1",
-    trigger: { type: "oneshot", at: "2026-06-18T05:10:00.000Z" },
-    timezone: "Asia/Shanghai",
-    prompt: "请在 Mia 会话里提醒用户：🦌"
-  }]);
+  assert.equal(calls.engine.length, 1);
+  assert.deepEqual(calls.task, []);
+  assert.equal(calls.engine[0].sessionId, "conversation:botc_7d852259-ed51-47c5-a84f-2f3e1987ad72");
+  assert.deepEqual(calls.engine[0].messages.at(-1), { role: "user", content: "1分钟后提醒我🦌" });
   assert.equal(calls.post.length, 1);
   assert.equal(calls.post[0].conversationId, "botc_7d852259-ed51-47c5-a84f-2f3e1987ad72");
-  assert.match(calls.post[0].body.bodyMd, /1 分钟后/);
-  assert.match(calls.post[0].body.bodyMd, /🦌/);
-  assert.equal(calls.post[0].body.trace.tools[0].name, "schedule_create");
-  assert.equal(calls.post[0].body.trace.tools[0].status, "completed");
+  assert.equal(calls.post[0].body.bodyMd, "hi from codex");
+  assert.ok(!calls.post[0].body.trace);
 });
 
-test("respond does not fall back to the local engine when direct reminder creation fails", async () => {
+test("respond treats reminder engine failures as engine failures, not scheduler parser failures", async () => {
   const { responder, calls } = setup({
-    createScheduledTask: async (input) => {
-      calls.task.push(input);
-      throw new Error("scheduler down");
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      throw new Error("scheduler tool unavailable");
     }
   });
 
@@ -154,10 +144,10 @@ test("respond does not fall back to the local engine when direct reminder creati
   });
 
   assert.equal(handled, true);
-  assert.equal(calls.engine.length, 0);
-  assert.equal(calls.task.length, 1);
-  assert.match(calls.post[0].body.bodyMd, /没能创建这个提醒/);
-  assert.equal(calls.post[0].body.errorJson.stage, "scheduler");
+  assert.equal(calls.engine.length, 1);
+  assert.equal(calls.task.length, 0);
+  assert.match(calls.post[0].body.bodyMd, /本地模型运行失败/);
+  assert.equal(calls.post[0].body.errorJson.stage, "engine");
 });
 
 test("respond does not mark bot private conversations as group turns", async () => {
