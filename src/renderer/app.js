@@ -1516,12 +1516,11 @@ const providerLabels = {
 
 const fontPresets = {
   system: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  pingfang: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
   serif: 'ui-serif, "Iowan Old Style", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif'
 };
 
 const DEFAULT_ACCENT_COLOR = "#318ad3";
-const DEFAULT_USER_BUBBLE_COLOR = "#0162db";
+const DEFAULT_USER_BUBBLE_COLOR = "#eeffde";
 const DEFAULT_SELECTION_STYLE = "solid";
 
 
@@ -2215,7 +2214,7 @@ function render() {
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
   const appearance = runtime.appearance || {
     theme: "light",
-    fontPreset: "pingfang",
+    fontPreset: "serif",
     accentColor: DEFAULT_ACCENT_COLOR,
     userBubbleColor: DEFAULT_USER_BUBBLE_COLOR,
     showHoverBackground: false,

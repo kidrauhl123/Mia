@@ -50,10 +50,10 @@ function loadAppearanceModule(depsOverride = {}) {
     mia: null,
     fontPresets: {
       system: "system-ui",
-      pingfang: "PingFang SC"
+      serif: "serif"
     },
     DEFAULT_ACCENT_COLOR: "#318ad3",
-    DEFAULT_USER_BUBBLE_COLOR: "#0162db",
+    DEFAULT_USER_BUBBLE_COLOR: "#eeffde",
     DEFAULT_SELECTION_STYLE: "solid",
     ...initOverrides
   });
@@ -76,10 +76,10 @@ function settingsSwitch(checked = true) {
 function appearanceControls(overrides = {}) {
   return {
     appearanceTheme: { value: "light" },
-    appearanceFontPreset: { value: "system" },
+    appearanceFontPreset: { value: "serif" },
     appearanceAccentColor: { value: "#318ad3" },
     appearanceAccentPreview: { style: {} },
-    appearanceUserBubbleColor: { value: "#0162db" },
+    appearanceUserBubbleColor: { value: "#eeffde" },
     appearanceUserBubblePreview: { style: {} },
     appearanceSelectionStyle: { value: "solid" },
     appearanceShowHoverBackground: settingsSwitch(true),
@@ -128,9 +128,9 @@ test("applyAppearance writes card and soft choices to document state", () => {
 
   api.applyAppearance({
     theme: "light",
-    fontPreset: "pingfang",
+    fontPreset: "serif",
     accentColor: "#318ad3",
-    userBubbleColor: "#0162db",
+    userBubbleColor: "#eeffde",
     listStyle: "card",
     selectionStyle: "soft"
   });
@@ -204,7 +204,7 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
       appearanceTheme: { value: "light" },
       appearanceFontPreset: { value: "system" },
       appearanceAccentColor: { value: "#318ad3" },
-      appearanceUserBubbleColor: { value: "#0162db" },
+      appearanceUserBubbleColor: { value: "#eeffde" },
       appearanceSelectionStyle: { value: "solid" },
       appearanceShowHoverBackground: { getAttribute: () => "true" },
       appearanceShowDesktopNotifications: { getAttribute: () => "false" },
@@ -319,12 +319,11 @@ test("applyAppearance keeps default tokens when appearance deps are missing", ()
 
   api.applyAppearance({
     theme: "light",
-    fontPreset: "pingfang",
     listStyle: "card",
     selectionStyle: "soft"
   });
 
-  assert.match(styleValues.get("--app-font"), /PingFang SC/);
+  assert.match(styleValues.get("--app-font"), /ui-serif/);
   assert.equal(styleValues.get("--accent"), "#318ad3");
   assert.equal(documentElement.dataset.selectionStyle, "soft");
 });
@@ -340,9 +339,9 @@ test("syncAppearanceControls skips form controls when element deps are missing",
 
   assert.doesNotThrow(() => {
     api.syncAppearanceControls({
-      fontPreset: "pingfang",
+      fontPreset: "serif",
       accentColor: "#318ad3",
-      userBubbleColor: "#0162db",
+      userBubbleColor: "#eeffde",
       listStyle: "card",
       selectionStyle: "soft"
     });
@@ -354,6 +353,15 @@ test("desktop appearance settings expose a serif font preset", () => {
   assert.match(htmlSource, /data-font-preset="serif"[\s\S]*衬线/);
   assert.match(htmlSource, /<option value="serif">Serif<\/option>/);
   assert.match(cssSource, /\.font-choice\[data-font-preset="serif"\]/);
+  assert.match(cssSource, /\.font-choice-grid\s*\{[\s\S]*?justify-self:\s*end;[\s\S]*?width:\s*min\(180px,\s*100%\);/);
+  assert.match(cssSource, /\.font-choice-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/);
+});
+
+test("desktop appearance settings no longer expose PingFang as a separate preset", () => {
+  assert.doesNotMatch(appSource, /pingfang:/);
+  assert.doesNotMatch(htmlSource, /data-font-preset="pingfang"/);
+  assert.doesNotMatch(htmlSource, /<option value="pingfang">/);
+  assert.doesNotMatch(cssSource, /\.font-choice\[data-font-preset="pingfang"\]/);
 });
 
 test("desktop appearance settings no longer expose the middle list style switch", () => {

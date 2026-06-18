@@ -39,7 +39,7 @@
   --rail-icon: rgba(0, 0, 0, 0.78); /* inactive nav-rail icons — stronger than --muted for contrast */
   --accent: #318ad3;
   --accent-2: #30d158;
-  --user-bubble: #dedcff;
+  --user-bubble: #eeffde;
   --user-bubble-text: rgba(0, 0, 0, 0.90);
   --danger: #d14343;
   --warn: #9a5a00;
@@ -88,7 +88,7 @@
   --rail-icon: rgba(255, 255, 255, 0.9); /* inactive nav-rail icons — brighter than --muted for contrast */
   --accent: #7c74ff;
   --accent-2: #30d158;
-  --user-bubble: #dedcff;
+  --user-bubble: #eeffde;
   --user-bubble-text: rgba(0, 0, 0, 0.90);
   --warn: #f6b954;
   --warn-bg: #302713;
@@ -7025,11 +7025,11 @@ select.select-open {
   display: grid;
   gap: 6px;
   justify-self: end;
-  width: min(360px, 100%);
+  width: min(180px, 100%);
 }
 
 .font-choice-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .font-choice {
@@ -7068,10 +7068,6 @@ select.select-open {
 
 .font-choice.active small {
   color: rgb(255 255 255 / 0.76);
-}
-
-.font-choice[data-font-preset="pingfang"] {
-  font-family: "PingFang SC", "Hiragino Sans GB", sans-serif;
 }
 
 .font-choice[data-font-preset="serif"] {
@@ -7928,7 +7924,7 @@ pre {
 
   .font-choice-grid {
     justify-self: stretch;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .accent-picker {

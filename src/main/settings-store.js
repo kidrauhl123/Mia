@@ -12,7 +12,7 @@ const path = require("node:path");
 
 const { normalizePermissionMode, permissionModeLabel } = require("../permission-modes");
 
-const APPEARANCE_FONT_PRESETS = ["system", "pingfang", "serif"];
+const APPEARANCE_FONT_PRESETS = ["system", "serif"];
 const MAX_APPEARANCE_BACKGROUND_IMAGE_LENGTH = 4 * 1024 * 1024;
 
 function normalizeAppearanceFontPreset(value) {
@@ -70,9 +70,9 @@ function createSettingsStore(deps = {}) {
   function defaultAppearanceSettings() {
     return {
       theme: "light",
-      fontPreset: "pingfang",
+      fontPreset: "serif",
       accentColor: "#318ad3",
-      userBubbleColor: "#0162db",
+      userBubbleColor: "#eeffde",
       showHoverBackground: false,
       showUserAvatar: false,
       showAssistantAvatar: false,
@@ -171,9 +171,9 @@ function createSettingsStore(deps = {}) {
     const current = appearanceSettings();
     const has = (key) => Object.prototype.hasOwnProperty.call(settings, key);
     const theme = String(settings.theme || current.theme || "light").trim();
-    const fontPreset = String(settings.fontPreset || current.fontPreset || "system").trim();
+    const fontPreset = String(settings.fontPreset || current.fontPreset || "serif").trim();
     const accentColor = String(settings.accentColor || current.accentColor || "#318ad3").trim();
-    const userBubbleColor = String(settings.userBubbleColor || current.userBubbleColor || "#dedcff").trim();
+    const userBubbleColor = String(settings.userBubbleColor || current.userBubbleColor || "#eeffde").trim();
     const showHoverBackground = settings.showHoverBackground == null ? current.showHoverBackground !== false : settings.showHoverBackground !== false;
     const showUserAvatar = settings.showUserAvatar == null ? current.showUserAvatar === true : settings.showUserAvatar === true;
     const showAssistantAvatar = settings.showAssistantAvatar == null ? current.showAssistantAvatar === true : settings.showAssistantAvatar === true;
@@ -188,7 +188,7 @@ function createSettingsStore(deps = {}) {
       theme: ["light", "dark"].includes(theme) ? theme : "light",
       fontPreset: normalizeAppearanceFontPreset(fontPreset),
       accentColor: validHex(accentColor, "#318ad3"),
-      userBubbleColor: validHex(userBubbleColor, "#dedcff"),
+      userBubbleColor: validHex(userBubbleColor, "#eeffde"),
       showHoverBackground,
       showUserAvatar,
       showAssistantAvatar,

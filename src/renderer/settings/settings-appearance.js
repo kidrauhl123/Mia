@@ -7,11 +7,10 @@
 
   const FALLBACK_FONT_PRESETS = Object.freeze({
     system: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    pingfang: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
     serif: 'ui-serif, "Iowan Old Style", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif'
   });
   const FALLBACK_ACCENT_COLOR = "#318ad3";
-  const FALLBACK_USER_BUBBLE_COLOR = "#0162db";
+  const FALLBACK_USER_BUBBLE_COLOR = "#eeffde";
   const FALLBACK_SELECTION_STYLE = "solid";
   const FALLBACK_WORKSPACE_BACKGROUND_COLOR = "#f0f0f3";
   const FALLBACK_DARK_WORKSPACE_BACKGROUND_COLOR = "#171920";
@@ -154,7 +153,7 @@
 
   function fontStackForAppearance(appearance = {}) {
     const presets = configuredFontPresets();
-    return presets[appearance.fontPreset || "system"] || presets.system;
+    return presets[appearance.fontPreset || "serif"] || presets.serif || presets.system;
   }
 
   function avatarToggleEnabled(value) {
@@ -222,7 +221,7 @@
     );
     return {
       theme,
-      fontPreset: controls.appearanceFontPreset?.value || "system",
+      fontPreset: controls.appearanceFontPreset?.value || "serif",
       accentColor: normalizeHexColor(controls.appearanceAccentColor?.value),
       userBubbleColor: normalizeHexColor(controls.appearanceUserBubbleColor?.value, defaultUserBubbleColor()),
       showHoverBackground: controls.appearanceShowHoverBackground?.getAttribute("aria-checked") !== "false",
@@ -275,7 +274,7 @@
   function syncAppearanceControls(appearance = currentAppearanceDraft()) {
     const controls = els || {};
     const presets = configuredFontPresets();
-    const fontPreset = presets[appearance.fontPreset] ? appearance.fontPreset : "system";
+    const fontPreset = presets[appearance.fontPreset] ? appearance.fontPreset : "serif";
     if (controls.appearanceFontPreset) controls.appearanceFontPreset.value = fontPreset;
     document.querySelectorAll("[data-font-preset]").forEach((button) => {
       const active = button.dataset.fontPreset === fontPreset;

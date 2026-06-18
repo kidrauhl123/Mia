@@ -8,7 +8,7 @@
 
   const STORAGE_KEY = "mia.web.appearance";
   const DEFAULT_ACCENT = "#318ad3";
-  const DEFAULT_USER_BUBBLE = "#0162db";
+  const DEFAULT_USER_BUBBLE = "#eeffde";
 
   const defaults = {
     theme: "light",            // "light" | "dark"

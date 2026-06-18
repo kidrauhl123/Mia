@@ -66,12 +66,13 @@ test("appearanceSettings defaults chat avatars off and desktop notifications on"
   assert.equal(appearance.showUserAvatar, false);
   assert.equal(appearance.showAssistantAvatar, false);
   assert.equal(appearance.showDesktopNotifications, true);
+  assert.equal(appearance.fontPreset, "serif");
 });
 
 test("appearanceSettings falls back from removed font presets", (t) => {
   const { runtime, store } = setup(t);
   fs.mkdirSync(path.dirname(runtime.appearanceSettings), { recursive: true });
-  fs.writeFileSync(runtime.appearanceSettings, JSON.stringify({ fontPreset: "mono" }));
+  fs.writeFileSync(runtime.appearanceSettings, JSON.stringify({ fontPreset: "pingfang" }));
 
   assert.equal(store.appearanceSettings().fontPreset, "system");
 });
@@ -106,7 +107,7 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     theme: "light",
     fontPreset: "system",
     accentColor: "#aabbcc",
-    userBubbleColor: "#dedcff",
+    userBubbleColor: "#eeffde",
     showHoverBackground: false,
     showUserAvatar: false,
     showAssistantAvatar: false,
@@ -158,6 +159,7 @@ test("writeAppearanceSettings rejects removed font presets", (t) => {
 
   assert.equal(store.writeAppearanceSettings({ fontPreset: "sf-pro" }).fontPreset, "system");
   assert.equal(store.writeAppearanceSettings({ fontPreset: "mono" }).fontPreset, "system");
+  assert.equal(store.writeAppearanceSettings({ fontPreset: "pingfang" }).fontPreset, "system");
 });
 
 test("normalizeEffortLevel keeps OpenClaw CLI thinking levels", (t) => {
