@@ -137,6 +137,81 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
   }
 });
 
+test("cloud-hermes persists ordered content blocks from streamed events", async () => {
+  const ctx = setup();
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      hermesRunsClient: {
+        async runChat(args) {
+          args.onEvent({ type: "reasoning_delta", id: "think_1", text: "检查上下文" });
+          args.onEvent({ type: "text_delta", id: "text_1", text: "我先看目录。" });
+          args.onEvent({ type: "tool_call_started", id: "tool_1", name: "shell", preview: "pwd" });
+          args.onEvent({ type: "tool_call_completed", id: "tool_1", name: "shell", duration: 0.75 });
+          args.onEvent({ type: "text_delta", id: "text_2", text: "结论是已确认。" });
+          return { runId: "hr_blocks", content: "我先看目录。\n\n结论是已确认。", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.deepEqual(JSON.parse(reply.content_blocks_json), [
+      { type: "thinking", id: "think_1", status: "running", duration: null, text: "检查上下文" },
+      { type: "text", id: "text_1", text: "我先看目录。" },
+      { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: 0.75, error: false },
+      { type: "text", id: "text_2", text: "结论是已确认。" }
+    ]);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud-hermes preserves streamed process text when final text is returned separately", async () => {
+  const ctx = setup();
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      hermesRunsClient: {
+        async runChat(args) {
+          args.onEvent({ type: "text_delta", id: "text_1", text: "我先检查。" });
+          args.onEvent({ type: "tool_call_started", id: "tool_1", name: "shell", preview: "pwd" });
+          args.onEvent({ type: "tool_call_completed", id: "tool_1", name: "shell" });
+          return { runId: "hr_final_only", content: "最终结论。", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.deepEqual(JSON.parse(reply.content_blocks_json), [
+      { type: "text", id: "text_1", text: "我先检查。" },
+      { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: null, error: false },
+      { type: "text", id: "text_final_2", text: "最终结论。" }
+    ]);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("cloud-hermes reminder requests run Hermes instead of direct app-side task creation", async () => {
   const ctx = setup();
   const hermesCalls = [];

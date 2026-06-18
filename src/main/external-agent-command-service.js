@@ -55,6 +55,7 @@ function createExternalAgentCommandService(deps = {}) {
   const normalizeEffortLevel = deps.normalizeEffortLevel || ((level) => String(level || "medium"));
   const localAgentEngines = deps.localAgentEngines || (() => ({}));
   const getAgentSessionId = deps.getAgentSessionId || (() => "");
+  const enginePermissionMode = deps.enginePermissionMode || (() => "default");
   const setAgentSessionId = deps.setAgentSessionId || (() => {});
   const setAgentSessionEntry = deps.setAgentSessionEntry || (() => {});
   const ensureClaudeBridgePlugin = deps.ensureClaudeBridgePlugin || (() => ({ fingerprint: "" }));
@@ -132,7 +133,7 @@ function createExternalAgentCommandService(deps = {}) {
     const engineInfo = engine === "claude-code" ? info.claudeCode : info.codex;
     const config = normalizeBotEngineConfig(bot.engineConfig);
     const model = config.model || (engine === "claude-code" ? "Claude Code 默认模型" : "Codex 默认模型");
-    const permission = config.permissionMode || "default";
+    const permission = enginePermissionMode(engine) || "default";
     const effort = normalizeEffortLevel(config.effortLevel || "medium", engine);
     const externalSessionId = getAgentSessionId(engine, bot.key, sessionId) || "尚未创建";
     const label = engine === "claude-code" ? "Claude Code" : "Codex";
@@ -213,8 +214,7 @@ function createExternalAgentCommandService(deps = {}) {
       return `当前模型：${config.model || (engine === "claude-code" ? "Claude Code 默认模型" : "Codex 默认模型")}。\n可以用底部模型选择器切换这个 Bot 的本地引擎模型。`;
     }
     if (command === "/permissions" || command === "/permission") {
-      const config = normalizeBotEngineConfig(bot.engineConfig);
-      return `当前权限模式：${config.permissionMode || "default"}。\n可以用底部权限选择器切换这个 Bot 的本地引擎权限。`;
+      return `当前权限模式：${enginePermissionMode(engine) || "default"}。\n可以用底部权限选择器切换当前本地引擎权限。`;
     }
     if (command === "/clear") {
       return "Mia 还没有把 /clear 接到当前会话清空动作。现在可以用顶部新对话按钮开启干净会话。";

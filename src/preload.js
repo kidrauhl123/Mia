@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld("mia", {
     return () => ipcRenderer.removeListener(IpcChannel.DesktopNotificationClick, listener);
   },
   openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
+  openLocalFile: (target) => ipcRenderer.invoke(IpcChannel.UtilOpenLocalFile, target),
   loadStatusBadgeAsset: (assetId) => ipcRenderer.invoke(IpcChannel.StatusBadgeAssetLoad, assetId),
   installEngine: (engineId) => ipcRenderer.invoke(IpcChannel.EngineInstall, engineId),
   onEngineInstallProgress: (callback) => {

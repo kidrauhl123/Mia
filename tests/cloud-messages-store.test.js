@@ -232,3 +232,72 @@ test("appendMessage round-trips assistant trace data", () => {
     });
   } finally { teardown(ctx); }
 });
+
+test("appendMessage round-trips ordered assistant content blocks", () => {
+  const ctx = setup();
+  try {
+    const message = ctx.messages.appendMessage({
+      conversationId: "r-msg",
+      senderKind: "bot",
+      senderRef: "codex",
+      senderOwnerId: ctx.alice.id,
+      bodyMd: "我先看目录。\n\n结论是已确认。",
+      contentBlocks: [
+        { type: "thinking", id: "think_1", text: "检查上下文", status: "completed", duration: 0.8 },
+        { type: "text", id: "text_1", text: "我先看目录。" },
+        { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed" },
+        { type: "text", id: "text_2", text: "结论是已确认。" }
+      ]
+    });
+
+    assert.deepEqual(JSON.parse(message.content_blocks_json), [
+      { type: "thinking", id: "think_1", status: "completed", duration: 0.8, text: "检查上下文" },
+      { type: "text", id: "text_1", text: "我先看目录。" },
+      {
+        type: "tool",
+        id: "tool_1",
+        name: "shell",
+        preview: "pwd",
+        status: "completed",
+        duration: null,
+        error: false
+      },
+      { type: "text", id: "text_2", text: "结论是已确认。" }
+    ]);
+
+    const listed = ctx.messages.listMessagesSince("r-msg", 0);
+    assert.equal(listed[0].content_blocks_json, message.content_blocks_json);
+
+    const invalid = ctx.messages.appendMessage({
+      conversationId: "r-msg",
+      senderKind: "bot",
+      senderRef: "codex",
+      bodyMd: "plain",
+      contentBlocks: [{ type: "text", text: " " }, { type: "tool" }]
+    });
+    assert.equal(invalid.content_blocks_json, null);
+  } finally { teardown(ctx); }
+});
+
+test("appendMessage appends final body text to existing process content blocks", () => {
+  const ctx = setup();
+  try {
+    const message = ctx.messages.appendMessage({
+      conversationId: "r-msg",
+      senderKind: "bot",
+      senderRef: "codex",
+      senderOwnerId: ctx.alice.id,
+      bodyMd: "最终结论。",
+      contentBlocks: [
+        { type: "text", id: "text_1", text: "我先检查。" },
+        { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed" }
+      ]
+    });
+
+    assert.deepEqual(JSON.parse(message.content_blocks_json), [
+      { type: "text", id: "text_1", text: "我先检查。" },
+      { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: null, error: false },
+      { type: "text", id: "text_final_2", text: "最终结论。" }
+    ]);
+  } finally { teardown(ctx); }
+});

@@ -1,4 +1,8 @@
 const crypto = require("node:crypto");
+const {
+  contentBlocksWithFinalText,
+  normalizeContentBlocks
+} = require("../shared/assistant-content-blocks.js");
 
 function nowIso() {
   return new Date().toISOString();
@@ -43,8 +47,8 @@ function createMessagesStore(db) {
   const insertMessage = db.prepare(`
     INSERT INTO messages (
       id, conversation_id, seq, turn_id, sender_kind, sender_ref, sender_owner_id,
-      body_md, attachments_json, mentions_json, skills_json, trace_json, status, error_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      body_md, attachments_json, mentions_json, skills_json, trace_json, content_blocks_json, status, error_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const selectMessage = db.prepare("SELECT * FROM messages WHERE id = ?");
   const selectSince = db.prepare(`
@@ -89,6 +93,7 @@ function createMessagesStore(db) {
       mentions = null,
       skills = null,
       trace = null,
+      contentBlocks = null,
       turnId = null,
       status = "complete",
       errorJson = null,
@@ -96,6 +101,10 @@ function createMessagesStore(db) {
     const id = randomId("m");
     const createdAt = nowIso();
     const tracePayload = normalizeTrace(trace);
+    const normalizedContentBlocks = normalizeContentBlocks(contentBlocks);
+    const contentBlocksPayload = normalizedContentBlocks.length
+      ? contentBlocksWithFinalText(normalizedContentBlocks, bodyMd)
+      : [];
     db.exec("BEGIN");
     try {
       const seq = selectMaxSeq.get(String(conversationId)).max_seq + 1;
@@ -112,6 +121,7 @@ function createMessagesStore(db) {
         mentions ? JSON.stringify(mentions) : null,
         skills && Array.isArray(skills) && skills.length ? JSON.stringify(skills) : null,
         tracePayload ? JSON.stringify(tracePayload) : null,
+        contentBlocksPayload.length ? JSON.stringify(contentBlocksPayload) : null,
         String(status),
         errorJson ? JSON.stringify(errorJson) : null,
         createdAt

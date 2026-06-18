@@ -207,7 +207,7 @@ test("saveBot retargets cloud-sourced desktop bots through cloud runtime binding
     deviceName: "Windows PC",
     model: "gpt-test",
     effortLevel: "high",
-    permissionMode: "readOnly",
+    permissionMode: "default",
     modelEntries: []
   });
   assert.equal(result.bot.targetDeviceId, "win-1");
@@ -684,7 +684,15 @@ test("ensureDesktopLocalBotConversation creates conversation and syncs external 
 
   const result = await commands.ensureDesktopLocalBotConversation({
     api,
-    state: { runtime: {} },
+    state: {
+      runtime: {
+        permissions: {
+          engines: {
+            codex: ":danger-full-access"
+          }
+        }
+      }
+    },
     bot: {
       key: "codex",
       name: "Codex",
@@ -712,7 +720,7 @@ test("ensureDesktopLocalBotConversation creates conversation and syncs external 
     agentEngine: "codex",
     model: "gpt-5.3-codex",
     effortLevel: "xhigh",
-    permissionMode: "readOnly",
+    permissionMode: ":danger-full-access",
     modelEntries: [
       { value: "default", label: "Codex 默认", model: "", provider: "codex", providerLabel: "" },
       { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "" }

@@ -32,6 +32,7 @@ function createDeps(messages, overrides = {}) {
       return overrides.expandedPrompt ?? text;
     },
     getAgentSessionEntry: () => overrides.savedEntry || {},
+    enginePermissionMode: overrides.enginePermissionMode || (() => overrides.enginePermissionModeValue || "default"),
     getMiaAppMcpSpec: () => overrides.miaAppMcpSpec ?? null,
     getSchedulerMcpSpec: () => overrides.schedulerMcpSpec ?? null,
     injectGroupContextForSdk: (prompt, contextBlock) => `GROUP:${contextBlock}\n${prompt}`,
@@ -84,7 +85,7 @@ test("sendChat streams partials, stores session, and returns chat response", asy
     { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text" } } },
     { type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "he" } } },
     { type: "assistant", message: { content: [{ type: "text", text: "hello final" }] } }
-  ], { expandedPrompt: "expanded" });
+  ], { expandedPrompt: "expanded", enginePermissionMode: () => "bypassPermissions" });
   const adapter = createClaudeCodeChatAdapter(deps);
   const emitted = [];
   const response = await adapter.sendChat({
@@ -122,6 +123,75 @@ test("sendChat streams partials, stores session, and returns chat response", asy
   });
   assert.equal(emitted[0].kind, "text_delta");
   assert.equal(emitted.at(-1).kind, "complete");
+});
+
+test("sendChat emits Claude tool_result unified diffs as file_edit events", async () => {
+  const deps = createDeps([
+    { session_id: "sess_1" },
+    {
+      type: "stream_event",
+      event: {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "tool_use", id: "toolu_1", name: "Edit", input: { file_path: "src/app.js" } }
+      }
+    },
+    {
+      type: "user",
+      message: {
+        content: [{
+          type: "tool_result",
+          tool_use_id: "toolu_1",
+          content: [{
+            type: "text",
+            text: [
+              "diff --git a/src/app.js b/src/app.js",
+              "--- a/src/app.js",
+              "+++ b/src/app.js",
+              "@@",
+              "-old",
+              "+new"
+            ].join("\n")
+          }]
+        }]
+      }
+    },
+    { type: "assistant", message: { content: [{ type: "text", text: "done" }] } }
+  ]);
+  const emitted = [];
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "改文件" }],
+    signal: null,
+    abortController: {},
+    emit: (kind, data) => emitted.push({ kind, data }),
+    utility: false
+  });
+
+  assert.deepEqual(emitted.filter((event) => event.kind === "file_edit"), [{
+    kind: "file_edit",
+    data: {
+      id: "toolu_1_diff_0",
+      path: "src/app.js",
+      action: "update",
+      title: "Edited src/app.js (+1 -1)",
+      diff: [
+        "diff --git a/src/app.js b/src/app.js",
+        "--- a/src/app.js",
+        "+++ b/src/app.js",
+        "@@",
+        "-old",
+        "+new"
+      ].join("\n"),
+      additions: 1,
+      deletions: 1,
+      status: "completed",
+      error: false
+    }
+  }]);
 });
 
 test("sendChat routes Mia-managed Claude Code models through Anthropic gateway env", async () => {
@@ -426,11 +496,13 @@ test("sendChat wires Claude tool permission requests through coordinator", async
   assert.equal(typeof permissionCalls[0].emit, "function");
 });
 
-test("sendChat does not show Mia permission prompts when runtime config is bypass", async () => {
+test("sendChat uses engine-level Claude permission and skips Mia prompts when bypassed", async () => {
   const permissionCalls = [];
   const deps = createDeps([
     { type: "assistant", message: { content: [{ text: "ok" }] } }
-  ]);
+  ], {
+    enginePermissionMode: () => "bypassPermissions"
+  });
   deps.permissionCoordinator = {
     requestPermission: async (payload) => {
       permissionCalls.push(payload);
@@ -447,7 +519,7 @@ test("sendChat does not show Mia permission prompts when runtime config is bypas
     abortController: {},
     emit: () => {},
     utility: false,
-    runtimeConfig: { permissionMode: "bypassPermissions" }
+    runtimeConfig: { permissionMode: "default" }
   });
 
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];

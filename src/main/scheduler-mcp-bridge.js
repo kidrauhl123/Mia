@@ -12,7 +12,7 @@ function stripMiaSchedulerSection(toml = "") {
   const filtered = [];
   let inOurSection = false;
   for (const line of lines) {
-    if (line.trim() === "[mcp_servers.mia-scheduler]") {
+    if (/^\[mcp_servers\.mia-scheduler(?:\.env)?\]$/.test(line.trim())) {
       inOurSection = true;
       continue;
     }
@@ -136,26 +136,26 @@ function createSchedulerMcpBridge(deps = {}) {
 
   function ensureCodexHome() {
     const profile = runtimeProfileService.ensureCodexProfile();
-    const miaCodexHome = profile.home;
-    const userCodexHome = profile.userHome;
+    const codexHome = profile.home;
 
     const baseUrl = daemonBaseUrl();
-    if (!baseUrl) return miaCodexHome;
+    if (!baseUrl) return codexHome;
     const scriptPath = materializeServerScript();
-    if (!scriptPath) return miaCodexHome;
+    if (!scriptPath) return codexHome;
     const command = resolveNodePath();
-    if (!command) return miaCodexHome;
+    if (!command) return codexHome;
 
+    const configPath = path.join(codexHome, "config.toml");
     let baseConfig = "";
     try {
-      baseConfig = fsImpl.readFileSync(path.join(userCodexHome, "config.toml"), "utf8");
+      baseConfig = fsImpl.readFileSync(configPath, "utf8");
     } catch {
       // No user config; write only Mia's MCP section.
     }
 
     const finalConfig = stripMiaSchedulerSection(baseConfig) + schedulerTomlSection({ baseUrl, command, scriptPath });
-    fsImpl.writeFileSync(path.join(miaCodexHome, "config.toml"), finalConfig, "utf8");
-    return miaCodexHome;
+    fsImpl.writeFileSync(configPath, finalConfig, "utf8");
+    return codexHome;
   }
 
   return {

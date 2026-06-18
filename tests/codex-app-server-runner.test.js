@@ -1,6 +1,9 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { PassThrough } = require("node:stream");
 const {
   codexConfigOverridesForMcpServers,
@@ -33,7 +36,7 @@ test("codexDecisionFor maps Mia decisions to app-server approval responses", () 
   });
 });
 
-test("toolPayloadFromCodexItem normalizes command and file-change items", () => {
+test("toolPayloadFromCodexItem normalizes command items and leaves file changes for file_edit", () => {
   assert.deepEqual(toolPayloadFromCodexItem({
     type: "commandExecution",
     id: "cmd_1",
@@ -48,19 +51,12 @@ test("toolPayloadFromCodexItem normalizes command and file-change items", () => 
     duration: 1.25,
     error: false
   });
-  assert.deepEqual(toolPayloadFromCodexItem({
+  assert.equal(toolPayloadFromCodexItem({
     type: "fileChange",
     id: "patch_1",
     changes: [{ kind: "update", path: "src/app.js" }],
     status: "completed"
-  }), {
-    id: "patch_1",
-    name: "apply_patch",
-    preview: "update src/app.js",
-    status: "completed",
-    duration: null,
-    error: false
-  });
+  }), null);
 });
 
 test("codexConfigOverridesForMcpServers converts Mia scheduler MCP spec to CLI config overrides", () => {
@@ -170,7 +166,7 @@ test("createCodexAppServerConnection runs codex with its own bin dir first in PA
   assert.equal(spawnOptions.env.PATH, "/opt/codex-node/bin:/bad-node/bin:/usr/bin");
 });
 
-test("runCodexAppServerTurn sends Codex permission profiles as thread config", async () => {
+test("runCodexAppServerTurn keeps full-access approval policy when using Codex permission profiles", async () => {
   const requests = [];
   const child = new EventEmitter();
   child.stdout = new PassThrough();
@@ -213,7 +209,8 @@ test("runCodexAppServerTurn sends Codex permission profiles as thread config", a
     env: { PATH: "/bin" },
     prompt: "hello",
     options: {
-      permissionProfile: ":workspace",
+      permissionProfile: ":danger-full-access",
+      approvalPolicy: "never",
       workingDirectory: "/repo",
       modelReasoningEffort: "low"
     },
@@ -222,11 +219,171 @@ test("runCodexAppServerTurn sends Codex permission profiles as thread config", a
 
   const threadStart = requests.find((request) => request.method === "thread/start");
   const turnStart = requests.find((request) => request.method === "turn/start");
-  assert.deepEqual(threadStart.params.config, { default_permissions: ":workspace" });
-  assert.equal(Object.hasOwn(threadStart.params, "approvalPolicy"), false);
+  assert.deepEqual(threadStart.params.config, { default_permissions: ":danger-full-access" });
+  assert.equal(threadStart.params.approvalPolicy, "never");
   assert.equal(Object.hasOwn(threadStart.params, "sandbox"), false);
-  assert.equal(Object.hasOwn(turnStart.params, "approvalPolicy"), false);
+  assert.equal(turnStart.params.approvalPolicy, "never");
   assert.equal(result.finalResponse, "done");
+});
+
+test("runCodexAppServerTurn emits Codex fileChange items as file_edit events", async () => {
+  const emitted = [];
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+    child.stdout.end();
+    child.stderr.end();
+    child.emit("exit", 0, null);
+  };
+  child.stdin = {
+    destroyed: false,
+    write(line) {
+      const request = JSON.parse(line);
+      if (request.method === "initialize") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { ok: true } }) + "\n"));
+      } else if (request.method === "thread/start") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { thread: { id: "thread_1" } } }) + "\n"));
+      } else if (request.method === "turn/start") {
+        queueMicrotask(() => {
+          child.stdout.write(JSON.stringify({
+            method: "item/completed",
+            params: {
+              item: {
+                type: "fileChange",
+                id: "patch_1",
+                status: "completed",
+                changes: [{
+                  kind: "update",
+                  path: "src/app.js",
+                  diff: "@@\n-old\n+new"
+                }]
+              }
+            }
+          }) + "\n");
+          child.stdout.write(JSON.stringify({
+            id: request.id,
+            result: {
+              turn: {
+                id: "turn_1",
+                status: "completed",
+                items: [{ type: "agentMessage", text: "done" }]
+              }
+            }
+          }) + "\n");
+        });
+      }
+    }
+  };
+
+  const result = await runCodexAppServerTurn({
+    codexPath: "/bin/codex",
+    env: { PATH: "/bin" },
+    prompt: "hello",
+    options: { workingDirectory: "/repo" },
+    spawn: () => child,
+    emit: (kind, payload) => emitted.push({ kind, payload })
+  });
+
+  assert.equal(result.finalResponse, "done");
+  assert.deepEqual(emitted.filter((event) => event.kind === "file_edit"), [{
+    kind: "file_edit",
+    payload: {
+      id: "patch_1_diff_0",
+      path: "src/app.js",
+      action: "update",
+      title: "Edited src/app.js (+1 -1)",
+      diff: "@@\n-old\n+new",
+      additions: 1,
+      deletions: 1,
+      status: "completed",
+      error: false
+    }
+  }]);
+});
+
+test("runCodexAppServerTurn emits shell-created workspace files as file_edit events", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mia-codex-app-shell-diff-"));
+  const emitted = [];
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+    child.stdout.end();
+    child.stderr.end();
+    child.emit("exit", 0, null);
+  };
+  child.stdin = {
+    destroyed: false,
+    write(line) {
+      const request = JSON.parse(line);
+      if (request.method === "initialize") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { ok: true } }) + "\n"));
+      } else if (request.method === "thread/start") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { thread: { id: "thread_1" } } }) + "\n"));
+      } else if (request.method === "turn/start") {
+        queueMicrotask(() => {
+          fs.writeFileSync(path.join(workspace, "mia-diff-demo.txt"), "hello mia\n");
+          child.stdout.write(JSON.stringify({
+            method: "item/completed",
+            params: {
+              item: {
+                type: "commandExecution",
+                id: "cmd_1",
+                command: "/bin/zsh -lc \"printf 'hello mia\\n' > mia-diff-demo.txt\"",
+                status: "completed"
+              }
+            }
+          }) + "\n");
+          child.stdout.write(JSON.stringify({
+            id: request.id,
+            result: {
+              turn: {
+                id: "turn_1",
+                status: "completed",
+                items: [{ type: "agentMessage", text: "done" }]
+              }
+            }
+          }) + "\n");
+        });
+      }
+    }
+  };
+
+  const result = await runCodexAppServerTurn({
+    codexPath: "/bin/codex",
+    env: { PATH: "/bin" },
+    prompt: "hello",
+    options: { workingDirectory: workspace },
+    spawn: () => child,
+    emit: (kind, payload) => emitted.push({ kind, payload })
+  });
+
+  assert.equal(result.finalResponse, "done");
+  assert.deepEqual(emitted.filter((event) => event.kind === "file_edit"), [{
+    kind: "file_edit",
+    payload: {
+      id: "cmd_1_diff_0",
+      path: "mia-diff-demo.txt",
+      action: "add",
+      title: "Added mia-diff-demo.txt (+1 -0)",
+      diff: [
+        "diff --git a/mia-diff-demo.txt b/mia-diff-demo.txt",
+        "--- /dev/null",
+        "+++ b/mia-diff-demo.txt",
+        "@@ -0,0 +1,1 @@",
+        "+hello mia"
+      ].join("\n"),
+      additions: 1,
+      deletions: 0,
+      status: "completed",
+      error: false
+    }
+  }]);
 });
 
 test("MCP elicitation requests are treated as Codex approval requests", () => {

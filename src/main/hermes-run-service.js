@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { fileEditPayloadsFromToolPayload } = require("./agent-file-edit-events.js");
 
 function cleanRunSessionId(value, botKey) {
   const raw = String(value || "").trim();
@@ -252,12 +253,20 @@ function createHermesRunService(deps = {}) {
       }
       if (name === "tool.completed") {
         if (emit) {
+          const error = Boolean(payload.error);
           emit("tool_call_completed", {
             name: String(payload.tool || ""),
             duration: typeof payload.duration === "number" ? payload.duration : null,
-            error: Boolean(payload.error),
+            error,
             matchByName: true
           });
+          for (const fileEdit of fileEditPayloadsFromToolPayload(payload, {
+            idPrefix: String(payload.tool || "tool"),
+            status: error ? "failed" : "completed",
+            error
+          })) {
+            emit("file_edit", fileEdit);
+          }
         }
         return false;
       }

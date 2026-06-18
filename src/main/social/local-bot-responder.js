@@ -1,6 +1,7 @@
 "use strict";
 
 const { CloudEvent } = require("../../shared/cloud-events.js");
+const { createAssistantContentBlockCollector } = require("../../shared/assistant-content-blocks.js");
 
 const PROCESSED_CAP = 500;
 const HISTORY_MESSAGE_LIMIT = 80;
@@ -325,6 +326,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     let text = "";
     const runId = runIdForDedupKey(dedupKey);
     const trace = createTraceCollector();
+    const contentBlocks = createAssistantContentBlockCollector();
     emitCloudEvent({
       type: "cloud_agent_run_started",
       runId,
@@ -358,6 +360,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       chatArgs.emit = (kind, data = {}) => {
         if (!kind || kind === "session_started") return;
         trace.collect(kind, data);
+        contentBlocks.collect(kind, data);
         emitCloudEvent({
           type: "cloud_agent_run_event",
           runId,
@@ -415,12 +418,14 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
 
     try {
       const tracePayload = trace.payload();
+      const contentBlocksPayload = contentBlocks.payload(text);
       const result = await postConversationMessageAsBot(conversationId, {
         botId,
         bodyMd: text,
         turnId,
         clientOpId: clientOpIdForDedupKey(dedupKey),
-        ...(tracePayload ? { trace: tracePayload } : {})
+        ...(tracePayload ? { trace: tracePayload } : {}),
+        ...(contentBlocksPayload.length ? { contentBlocks: contentBlocksPayload } : {})
       });
       if (result && result.ok === false) throw new Error(result.error || result.message || "post failed");
       emitPostedMessage(conversationId, result);

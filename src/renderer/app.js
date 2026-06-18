@@ -1916,12 +1916,14 @@ function renderAttachmentThumb(attachment = {}, className = "attachment-thumb") 
 
 function renderAttachmentChip(attachment = {}) {
   const image = (attachment.kind || window.miaFormat.attachmentKind(attachment)) === "image" && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
+  const imageSrc = String(attachment.dataUrl || attachment.previewDataUrl || attachment.thumbnailDataUrl || attachment.thumbnail || "").trim();
+  const imageSrcAttr = imageSrc.startsWith("data:image/") ? ` data-image-src="${window.miaMarkdown.escapeHtml(imageSrc)}"` : "";
   const href = String(attachment.dataUrl || "").startsWith("data:") ? String(attachment.dataUrl) : "";
   const tag = href ? "a" : "span";
   const download = href ? ` href="${window.miaMarkdown.escapeHtml(href)}" download="${window.miaMarkdown.escapeHtml(attachment.name || "attachment")}"` : "";
   if (image) {
     return `
-      <button class="message-attachment image" type="button" title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "")}" aria-label="预览图片">
+      <button class="message-attachment image" type="button"${imageSrcAttr} title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "")}" aria-label="预览图片">
         ${renderAttachmentThumb(attachment, "message-attachment-thumb")}
       </button>
     `;
@@ -1935,24 +1937,223 @@ function renderAttachmentChip(attachment = {}) {
   `;
 }
 
+let imagePreviewCleanup = null;
+
+function imageEditorIcon(name) {
+  const paths = {
+    crop: '<path d="M7 3V17H21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 7H17V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 3V7H21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 17H7V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+    draw: '<path d="M4 20L8.3 18.9L19.4 7.8C20.2 7 20.2 5.7 19.4 4.9L19.1 4.6C18.3 3.8 17 3.8 16.2 4.6L5.1 15.7L4 20Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14.8 6L18 9.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    save: '<path d="M5 4H16L19 7V20H5V4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 4V10H15V4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 17H16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    close: '<path d="M6.75 6.75L17.25 17.25M17.25 6.75L6.75 17.25" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>'
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths[name] || ""}</svg>`;
+}
+
 function closeImagePreview() {
+  if (imagePreviewCleanup) {
+    imagePreviewCleanup();
+    imagePreviewCleanup = null;
+  }
   document.querySelector(".image-preview-overlay")?.remove();
 }
 
-function openImagePreview(src, title = "") {
+function openImagePreview(src, title = "", options = {}) {
   const imageSrc = String(src || "").trim();
   if (!imageSrc.startsWith("data:image/")) return;
   closeImagePreview();
   const overlay = document.createElement("div");
-  overlay.className = "image-preview-overlay";
+  overlay.className = "image-preview-overlay image-editor-overlay";
   overlay.innerHTML = `
-    <button class="image-preview-close" type="button" aria-label="关闭">×</button>
-    <img src="${window.miaMarkdown.escapeHtml(imageSrc)}" alt="${window.miaMarkdown.escapeHtml(title || "图片预览")}">
+    <div class="image-editor-dialog" role="dialog" aria-label="图片编辑器">
+      <div class="image-editor-toolbar">
+        <button class="image-editor-tool" type="button" data-image-editor-action="crop" title="剪裁" aria-label="剪裁">${imageEditorIcon("crop")}</button>
+        <button class="image-editor-tool" type="button" data-image-editor-action="draw" title="涂鸦" aria-label="涂鸦">${imageEditorIcon("draw")}</button>
+        <button class="image-editor-tool" type="button" data-image-editor-action="save" title="保存" aria-label="保存">${imageEditorIcon("save")}</button>
+        <button class="image-editor-tool" type="button" data-image-editor-action="close" title="关闭" aria-label="关闭">${imageEditorIcon("close")}</button>
+      </div>
+      <div class="image-editor-stage">
+        <canvas class="image-editor-canvas" aria-label="${window.miaMarkdown.escapeHtml(title || "图片预览")}"></canvas>
+        <div class="image-editor-crop-box hidden" aria-hidden="true"></div>
+      </div>
+    </div>
   `;
+  const dialog = overlay.querySelector(".image-editor-dialog");
+  const stage = overlay.querySelector(".image-editor-stage");
+  const canvas = overlay.querySelector(".image-editor-canvas");
+  const cropBox = overlay.querySelector(".image-editor-crop-box");
+  const context = canvas?.getContext("2d");
+  const editor = {
+    mode: "",
+    crop: null,
+    selecting: false,
+    drawing: false,
+    start: null
+  };
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function canvasPoint(event) {
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width || 1;
+    const height = rect.height || 1;
+    return {
+      x: clamp((event.clientX - rect.left) * canvas.width / width, 0, canvas.width),
+      y: clamp((event.clientY - rect.top) * canvas.height / height, 0, canvas.height)
+    };
+  }
+
+  function normalizedRect(a, b) {
+    return {
+      x: Math.min(a.x, b.x),
+      y: Math.min(a.y, b.y),
+      width: Math.abs(a.x - b.x),
+      height: Math.abs(a.y - b.y)
+    };
+  }
+
+  function renderCropBox() {
+    if (!cropBox || !stage || !canvas || !editor.crop || editor.crop.width < 2 || editor.crop.height < 2) {
+      cropBox?.classList.add("hidden");
+      return;
+    }
+    const stageRect = stage.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width / (canvas.width || 1);
+    const scaleY = canvasRect.height / (canvas.height || 1);
+    cropBox.classList.remove("hidden");
+    cropBox.style.left = `${canvasRect.left - stageRect.left + editor.crop.x * scaleX}px`;
+    cropBox.style.top = `${canvasRect.top - stageRect.top + editor.crop.y * scaleY}px`;
+    cropBox.style.width = `${editor.crop.width * scaleX}px`;
+    cropBox.style.height = `${editor.crop.height * scaleY}px`;
+  }
+
+  function setEditorMode(mode) {
+    editor.mode = editor.mode === mode ? "" : mode;
+    overlay.querySelectorAll("[data-image-editor-action]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.imageEditorAction === editor.mode);
+    });
+    canvas.classList.toggle("is-cropping", editor.mode === "crop");
+    canvas.classList.toggle("is-drawing", editor.mode === "draw");
+    renderCropBox();
+  }
+
+  function outputDataUrl() {
+    const crop = editor.crop && editor.crop.width >= 8 && editor.crop.height >= 8 ? editor.crop : null;
+    if (!crop) return canvas.toDataURL("image/png");
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, Math.round(crop.width));
+    out.height = Math.max(1, Math.round(crop.height));
+    out.getContext("2d")?.drawImage(
+      canvas,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
+      0,
+      0,
+      out.width,
+      out.height
+    );
+    return out.toDataURL("image/png");
+  }
+
+  function saveImage() {
+    const dataUrl = outputDataUrl();
+    if (typeof options.onSave === "function") {
+      options.onSave({ dataUrl });
+    } else {
+      const link = document.createElement("a");
+      const baseName = String(title || "image").split(/[\\/]/).pop().replace(/[^\w.\-()[\] \u4e00-\u9fff]+/g, "_") || "image";
+      link.download = /\.[a-z0-9]{2,5}$/i.test(baseName) ? baseName : `${baseName}.png`;
+      link.href = dataUrl;
+      link.click();
+    }
+    closeImagePreview();
+  }
+
+  function handlePointerDown(event) {
+    if (!context || !editor.mode) return;
+    event.preventDefault();
+    const point = canvasPoint(event);
+    canvas.setPointerCapture?.(event.pointerId);
+    if (editor.mode === "crop") {
+      editor.selecting = true;
+      editor.start = point;
+      editor.crop = { ...point, width: 0, height: 0 };
+      renderCropBox();
+      return;
+    }
+    if (editor.mode === "draw") {
+      editor.drawing = true;
+      context.strokeStyle = "#ff3b30";
+      context.lineWidth = Math.max(4, Math.min(canvas.width, canvas.height) / 120);
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.beginPath();
+      context.moveTo(point.x, point.y);
+    }
+  }
+
+  function handlePointerMove(event) {
+    if (!context) return;
+    const point = canvasPoint(event);
+    if (editor.selecting && editor.start) {
+      editor.crop = normalizedRect(editor.start, point);
+      renderCropBox();
+      return;
+    }
+    if (editor.drawing) {
+      context.lineTo(point.x, point.y);
+      context.stroke();
+    }
+  }
+
+  function handlePointerUp(event) {
+    if (editor.selecting && editor.crop && (editor.crop.width < 8 || editor.crop.height < 8)) {
+      editor.crop = null;
+      renderCropBox();
+    }
+    editor.selecting = false;
+    editor.drawing = false;
+    editor.start = null;
+    canvas.releasePointerCapture?.(event.pointerId);
+  }
+
+  function handleKeydown(event) {
+    if (event.key === "Escape") closeImagePreview();
+  }
+
   overlay.addEventListener("click", (event) => {
-    if (event.target === overlay || event.target.closest(".image-preview-close")) closeImagePreview();
+    if (event.target === overlay) closeImagePreview();
+    const action = event.target.closest("[data-image-editor-action]")?.dataset.imageEditorAction;
+    if (!action) return;
+    event.preventDefault();
+    if (action === "close") closeImagePreview();
+    if (action === "save") saveImage();
+    if (action === "crop" || action === "draw") setEditorMode(action);
   });
+  canvas?.addEventListener("pointerdown", handlePointerDown);
+  canvas?.addEventListener("pointermove", handlePointerMove);
+  canvas?.addEventListener("pointerup", handlePointerUp);
+  canvas?.addEventListener("pointercancel", handlePointerUp);
+  window.addEventListener("resize", renderCropBox);
+  document.addEventListener("keydown", handleKeydown);
+  imagePreviewCleanup = () => {
+    window.removeEventListener("resize", renderCropBox);
+    document.removeEventListener("keydown", handleKeydown);
+  };
   document.body.appendChild(overlay);
+  const image = new Image();
+  image.onload = () => {
+    canvas.width = image.naturalWidth || image.width || 1;
+    canvas.height = image.naturalHeight || image.height || 1;
+    context?.drawImage(image, 0, 0, canvas.width, canvas.height);
+    dialog?.classList.add("ready");
+    renderCropBox();
+  };
+  image.src = imageSrc;
 }
 
 function extractLocalFilePaths(text = "") {
@@ -3157,7 +3358,42 @@ function renderMessageHtml(message, ctx) {
     color: persona?.color || persona?.avatarColor || persona?.avatar_color || ""
   });
   const activeAvatarSpec = message.role === "assistant" ? botAvatarSpec : userAvatarSpec;
-  const traceHtml = message.role === "assistant"
+  const timeHtml = renderMessageTime(message.createdAt);
+  const bodyHtml = String(message.content || "").trim() ? window.miaMarkdown.renderMarkdown(message.content) : "";
+  const commandResultHtml = message.role === "assistant" ? renderCommandResultHtml(message.commandResult) : "";
+  const replyHtml = window.miaMessageHelpers.replyQuoteHtml(message.replyTo);
+  const translation = window.miaMessageMenu?.translationHtml(message, messageIndex) || "";
+  const attachmentHtml = renderAttachmentChips([...(message.attachments || []), ...generatedAttachmentsForMessage(message)].map(hydrateAttachmentPreview));
+  const pinnedHtml = message.pinned ? `<span class="message-pin-badge">${ICON_PARK_PIN_SVG}置顶</span>` : "";
+  let contentBlocks = [];
+  if (message.role === "assistant") {
+    let rawBlocks = message.contentBlocks || message.content_blocks || message.content_blocks_json || [];
+    if (typeof rawBlocks === "string" && rawBlocks.trim()) {
+      try { rawBlocks = JSON.parse(rawBlocks); } catch { rawBlocks = []; }
+    }
+    const normalizer = window.miaAssistantContentBlocks;
+    contentBlocks = normalizer && typeof normalizer.normalizeContentBlocks === "function"
+      ? normalizer.normalizeContentBlocks(rawBlocks)
+      : (Array.isArray(rawBlocks) ? rawBlocks.filter((block) => block && typeof block === "object") : []);
+    if (contentBlocks.length && normalizer && typeof normalizer.contentBlocksWithFinalText === "function") {
+      contentBlocks = normalizer.contentBlocksWithFinalText(contentBlocks, message.content || "");
+    }
+  }
+  let renderedFirstTextBlock = false;
+  const orderedBlocksHtml = contentBlocks.length && window.miaTraceBlocks?.renderAssistantContentBlocks
+    ? window.miaTraceBlocks.renderAssistantContentBlocks({
+      blocks: contentBlocks,
+      expanded: false,
+      scopeKey: `msg:${message.createdAt || ""}`,
+      renderTextBlock(block) {
+        const prefixHtml = renderedFirstTextBlock ? "" : `${pinnedHtml}${replyHtml}`;
+        renderedFirstTextBlock = true;
+        const blockBodyHtml = String(block.text || "").trim() ? window.miaMarkdown.renderMarkdown(block.text) : "";
+        return `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${prefixHtml}${blockBodyHtml}</div>`;
+      }
+    })
+    : "";
+  const traceHtml = message.role === "assistant" && !orderedBlocksHtml
     ? window.miaTraceBlocks.renderTraceBlocks({
       reasoning: message.reasoning,
       tools: message.tools,
@@ -3166,13 +3402,6 @@ function renderMessageHtml(message, ctx) {
       scopeKey: `msg:${message.createdAt || ""}`
     })
     : "";
-  const timeHtml = renderMessageTime(message.createdAt);
-  const bodyHtml = String(message.content || "").trim() ? window.miaMarkdown.renderMarkdown(message.content) : "";
-  const commandResultHtml = message.role === "assistant" ? renderCommandResultHtml(message.commandResult) : "";
-  const replyHtml = window.miaMessageHelpers.replyQuoteHtml(message.replyTo);
-  const translation = window.miaMessageMenu?.translationHtml(message, messageIndex) || "";
-  const attachmentHtml = renderAttachmentChips([...(message.attachments || []), ...generatedAttachmentsForMessage(message)].map(hydrateAttachmentPreview));
-  const pinnedHtml = message.pinned ? `<span class="message-pin-badge">${ICON_PARK_PIN_SVG}置顶</span>` : "";
   const roleClass = message.role === "user" ? "user" : "assistant";
   // Tag the avatar so the same app.js handlers fire here as in cloud DM /
   // group bubbles: left-click → contact card, right-click → dropdown. In a
@@ -3191,9 +3420,10 @@ function renderMessageHtml(message, ctx) {
     text: activeAvatarSpec.image ? "" : activeAvatarSpec.text,
     attrs: `data-sender-kind="${senderKind}" data-sender-ref="${window.miaMarkdown.escapeHtml(senderRef)}" title="${window.miaMarkdown.escapeHtml(avatarTitle)}"`
   });
+  const defaultBubbleHtml = `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${pinnedHtml}${replyHtml}${bodyHtml}${commandResultHtml}${attachmentHtml}${translation}</div>`;
   return `<article class="message ${roleClass}">
       ${avatarHtml}
-      <div class="message-stack">${taskAffordanceHtml}${traceHtml}<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${pinnedHtml}${replyHtml}${bodyHtml}${commandResultHtml}${attachmentHtml}${translation}</div>${timeHtml}</div>
+      <div class="message-stack">${taskAffordanceHtml}${traceHtml}${orderedBlocksHtml || defaultBubbleHtml}${orderedBlocksHtml ? `${commandResultHtml}${attachmentHtml}${translation}` : ""}${timeHtml}</div>
     </article>`;
 }
 
@@ -3638,10 +3868,22 @@ function agentEngineForRuntimeControl(context = activeBotRuntimeControlContext()
   );
 }
 
+function isExternalAgentEngineForRuntimeControl(engine) {
+  return Boolean(window.miaEngineContracts?.isExternalEngine?.(engine))
+    || engine === "claude-code"
+    || engine === "codex"
+    || engine === "openclaw";
+}
+
+function enginePermissionModeForRuntimeControl(engine, runtime = state.runtime) {
+  if (!isExternalAgentEngineForRuntimeControl(engine)) return runtime?.permissions?.mode || "ask";
+  return runtime?.permissions?.engines?.[engine] || "default";
+}
+
 function modelEntriesForRuntimeControl(context = activeBotRuntimeControlContext()) {
   const engine = agentEngineForRuntimeControl(context);
   if (context?.runtimeKind === "cloud-hermes") return platformHermesModelEntries();
-  if (window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw") {
+  if (isExternalAgentEngineForRuntimeControl(engine)) {
     return window.miaEngineOptions.externalModelEntries(engine);
   }
   return window.miaModelSettings.connectedModelEntries(state.runtime);
@@ -3653,10 +3895,14 @@ function runtimeConfigForControl(context = activeBotRuntimeControlContext()) {
   const botConfig = context.bot?.engineConfig || context.bot?.engine_config || {};
   if (context.runtimeKind === "cloud-hermes") return { ...botConfig, ...(binding?.config || {}) };
   const engine = agentEngineForRuntimeControl(context);
-  if (binding?.config) return { ...botConfig, ...binding.config };
-  if (window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw") {
-    return botConfig;
+  const mergedConfig = { ...botConfig, ...(binding?.config || {}) };
+  if (isExternalAgentEngineForRuntimeControl(engine)) {
+    return {
+      ...mergedConfig,
+      permissionMode: enginePermissionModeForRuntimeControl(engine)
+    };
   }
+  if (binding?.config) return mergedConfig;
   const runtimeModel = state.runtime?.model || {};
   return {
     provider: runtimeModel.provider || "",
@@ -3675,7 +3921,7 @@ function modelValueForRuntimeControl(context, entries = [], config = {}) {
     return entry?.id || entry?.value || model;
   }
   if (context?.runtimeKind === "cloud-hermes") return model || entries[0]?.id || entries[0]?.value || "mia-default";
-  if (window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw") {
+  if (isExternalAgentEngineForRuntimeControl(engine)) {
     if (!model) return "default";
     const entry = entries.find((item) => item.model === model || item.id === model || item.value === model);
     return entry?.id || entry?.value || model;
@@ -3795,6 +4041,38 @@ async function saveActiveBotRuntimeControl(field, value, pendingText, successTex
   } catch (error) {
     setText(els.modelSwitchStatus, "保存失败");
     appendTransientChat("assistant", `${errorPrefix}: ${error.message || error}`);
+    syncConversationBotRuntimeControls();
+  } finally {
+    setRuntimeControlDisabled(false);
+  }
+  return true;
+}
+
+async function saveActivePermissionRuntimeControl(mode) {
+  const context = activeBotRuntimeControlContext();
+  if (!context) return false;
+  const engine = agentEngineForRuntimeControl(context);
+  if (context.runtimeKind === "cloud-hermes" || !isExternalAgentEngineForRuntimeControl(engine)) {
+    return saveActiveBotRuntimeControl(
+      "permissionMode",
+      mode || "ask",
+      "保存权限...",
+      "权限已更新",
+      "Permission mode failed"
+    );
+  }
+  setText(els.modelSwitchStatus, "保存权限...");
+  setRuntimeControlDisabled(true);
+  try {
+    state.runtime = await window.mia.savePermissions({
+      engine,
+      mode: mode || "default"
+    });
+    setText(els.modelSwitchStatus, "权限已更新");
+    render();
+  } catch (error) {
+    setText(els.modelSwitchStatus, "保存失败");
+    appendTransientChat("assistant", `Permission mode failed: ${error.message || error}`);
     syncConversationBotRuntimeControls();
   } finally {
     setRuntimeControlDisabled(false);
@@ -4083,6 +4361,7 @@ async function initializeRuntime(options = {}) {
       renderAttachmentThumb,
       renderSendButton,
       resizeChatInput: () => window.miaMessageHelpers.resizeChatInput(),
+      openImagePreview,
       appendTransientChat,
       cryptoRandomId,
     });
@@ -4900,13 +5179,7 @@ els.effortSelect?.addEventListener("change", async () => {
 els.permissionMode?.addEventListener("change", async () => {
   const mode = els.permissionMode.value;
   setText(els.permissionLabel, window.miaModelSettings.permissionLabelForMode(mode));
-  await saveActiveBotRuntimeControl(
-    "permissionMode",
-    mode || "ask",
-    "保存权限...",
-    "权限已更新",
-    "Permission mode failed"
-  );
+  await saveActivePermissionRuntimeControl(mode || "ask");
 });
 
 els.modelSelect?.addEventListener("change", () => {
@@ -5752,6 +6025,17 @@ els.chatInput?.addEventListener("paste", (event) => {
   if (!event.clipboardData?.files?.length) return;
   window.miaComposer.addComposerFiles(event.clipboardData.files);
 });
+const messageLinkSelector = "a.message-link[data-external-link], a.message-link[data-local-file-path]";
+function openMessageLink(link) {
+  if (link.dataset.localFilePath) {
+    window.mia?.openLocalFile?.(link.dataset.localFilePath);
+    return;
+  }
+  if (link.dataset.externalLink) {
+    window.mia?.openExternal?.(link.dataset.externalLink);
+  }
+}
+
 els.sendChat.addEventListener("click", async (event) => {
   if (!isActiveRunRunning()) return;
   event.preventDefault();
@@ -5812,7 +6096,7 @@ els.chat.addEventListener("click", async (event) => {
   if (imageButton && els.chat.contains(imageButton)) {
     event.preventDefault();
     event.stopPropagation();
-    openImagePreview(imageButton.querySelector("img")?.src || "", imageButton.title || "");
+    openImagePreview(imageButton.dataset.imageSrc || imageButton.querySelector("img")?.src || "", imageButton.title || "");
     return;
   }
   const setupButton = event.target.closest("[data-setup-action]");
@@ -5822,11 +6106,11 @@ els.chat.addEventListener("click", async (event) => {
     await handleSetupGuideAction(setupButton);
     return;
   }
-  const link = event.target.closest("a.message-link[data-external-link]");
+  const link = event.target.closest(messageLinkSelector);
   if (link && els.chat.contains(link)) {
     event.preventDefault();
     event.stopPropagation();
-    window.mia?.openExternal?.(link.dataset.externalLink);
+    openMessageLink(link);
     return;
   }
   const code = event.target.closest(".bubble code.inline-code");
@@ -5865,10 +6149,10 @@ els.chat.addEventListener("click", async (event) => {
 });
 els.chat.addEventListener("keydown", async (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
-  const link = event.target.closest("a.message-link[data-external-link]");
+  const link = event.target.closest(messageLinkSelector);
   if (link && els.chat.contains(link)) {
     event.preventDefault();
-    window.mia?.openExternal?.(link.dataset.externalLink);
+    openMessageLink(link);
     return;
   }
   const code = event.target.closest(".bubble code.inline-code");
@@ -5900,8 +6184,9 @@ els.chatForm.addEventListener("submit", async (event) => {
   // Branch: a cloud conversation (dm / group / bot) is active → send via social.
   if (window.miaSocial?.getActiveConversationId?.()) {
     const conversationId = window.miaSocial.getActiveConversationId();
+    const pendingAttachments = state.pendingAttachments.slice();
     let conversationText = els.chatInput.value;
-    if (!conversationText.trim()) return;
+    if (!conversationText.trim() && !pendingAttachments.length) return;
     // Cloud conversations have no reply_to column, so a quote-reply is embedded as a
     // markdown blockquote at the head of the message — visible to every member.
     const conversationReply = state.replyDraft ? { ...state.replyDraft } : null;
@@ -5912,7 +6197,10 @@ els.chatForm.addEventListener("submit", async (event) => {
       window.miaMessageHelpers.renderComposerReply();
     }
     els.chatInput.value = "";
+    state.pendingAttachments = [];
     window.miaMessageHelpers.resizeChatInput();
+    window.miaComposer.renderComposerAttachments();
+    renderSendButton();
     // Composer skill chips ride along with the message — stored on it, shown in
     // the bubble, used by the bot responder. Only send them for a bot conversation
     // (they drive that bot's AI) and only when they were attached in THIS conversation
@@ -5928,7 +6216,10 @@ els.chatForm.addEventListener("submit", async (event) => {
       state.composerSkillSelected = false;
       window.miaComposer.renderComposerSkills();
     }
-    await window.miaSocial.sendInActiveConversation(conversationText, messageSkills ? { skills: messageSkills } : {});
+    await window.miaSocial.sendInActiveConversation(conversationText, {
+      ...(messageSkills ? { skills: messageSkills } : {}),
+      attachments: pendingAttachments
+    });
     return;
   }
   // Cloud-only: with no active conversation there is nothing to send. The chat area

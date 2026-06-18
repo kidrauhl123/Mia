@@ -36,13 +36,23 @@ function fakeWebSocketClass() {
       this.readyState = FakeWebSocket.CLOSED;
       this.closed = { code, reason };
     }
+
+    ping() {
+      this.pings = (this.pings || 0) + 1;
+    }
+
+    terminate() {
+      this.terminated = true;
+      this.readyState = FakeWebSocket.CLOSED;
+      this.emit("close");
+    }
   }
   return { FakeWebSocket, sockets };
 }
 
 function setup(overrides = {}) {
   const { FakeWebSocket, sockets } = fakeWebSocketClass();
-  const calls = { chat: [], engines: [], logs: [], timers: [] };
+  const calls = { chat: [], engines: [], logs: [], timers: [], intervals: [] };
   let settings = {
     enabled: true,
     token: "tok_1",
@@ -79,6 +89,14 @@ function setup(overrides = {}) {
     },
     clearTimeoutFn: (timer) => {
       timer.cleared = true;
+    },
+    setIntervalFn: (fn, delayMs) => {
+      const interval = { fn, delayMs };
+      calls.intervals.push(interval);
+      return interval;
+    },
+    clearIntervalFn: (interval) => {
+      interval.cleared = true;
     },
     ...overrides
   });
@@ -118,6 +136,30 @@ test("start opens one bridge socket and ready updates status", () => {
   assert.equal(client.status().connected, true);
   assert.equal(client.status().connecting, false);
   assert.equal(client.status().deviceId, "dev_1");
+});
+
+test("heartbeat recycles a silent bridge socket and schedules reconnect", () => {
+  const { client, calls, sockets, FakeWebSocket } = setup({ heartbeatIntervalMs: 5000 });
+
+  client.start();
+  const ws = sockets[0];
+  ws.readyState = FakeWebSocket.OPEN;
+  ws.emit("message", JSON.stringify({ type: "bridge_ready", deviceId: "dev_1" }));
+
+  assert.equal(calls.intervals.length, 1);
+  assert.equal(calls.intervals[0].delayMs, 5000);
+
+  calls.intervals[0].fn();
+  assert.equal(ws.pings, 1);
+  assert.equal(client.status().connected, true);
+
+  calls.intervals[0].fn();
+  assert.equal(ws.terminated, true);
+  assert.equal(client.status().connected, false);
+  assert.equal(client.status().deviceId, "");
+  assert.equal(client.status().lastError, "heartbeat timeout");
+  assert.equal(calls.timers.length, 1);
+  assert.equal(calls.timers[0].delayMs, 3000);
 });
 
 test("device identity conflict resets local identity and schedules reconnect", () => {

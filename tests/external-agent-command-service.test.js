@@ -25,6 +25,7 @@ function makeService(overrides = {}) {
       codex: { path: "/bin/codex", version: "codex 2.3.4" }
     }),
     getAgentSessionId: () => "",
+    enginePermissionMode: () => "default",
     setAgentSessionId: (...args) => calls.push(["set-id", ...args]),
     setAgentSessionEntry: (...args) => calls.push(["set-entry", ...args]),
     ensureClaudeBridgePlugin: () => ({ fingerprint: "bridge_fp" }),
@@ -101,7 +102,8 @@ test("executeCommand rejects a custom command outside allowed command roots", ()
 
 test("runSlashCommand reports external agent status from injected engine and session state", () => {
   const { service } = makeService({
-    getAgentSessionId: () => "thread_1"
+    getAgentSessionId: () => "thread_1",
+    enginePermissionMode: () => ":danger-full-access"
   });
 
   const result = service.runSlashCommand({
@@ -118,7 +120,7 @@ test("runSlashCommand reports external agent status from injected engine and ses
   assert.match(result, /Alice 使用 Codex 本地引擎/);
   assert.match(result, /模型：gpt-5\.1-codex/);
   assert.match(result, /推理强度：high/);
-  assert.match(result, /权限：never/);
+  assert.match(result, /权限：:danger-full-access/);
   assert.match(result, /CLI：\/bin\/codex/);
   assert.match(result, /版本：codex 2\.3\.4/);
   assert.match(result, /外部会话：thread_1/);

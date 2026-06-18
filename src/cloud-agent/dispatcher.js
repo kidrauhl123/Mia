@@ -4,6 +4,7 @@ const { parseAttachmentsFromMessage } = require("./attachment-materializer.js");
 const { createGroupOrchestrator } = require("./group-orchestrator.js");
 const { MemberKind } = require("../shared/conversation-kinds.js");
 const { CloudEvent } = require("../shared/cloud-events.js");
+const { createAssistantContentBlockCollector } = require("../shared/assistant-content-blocks.js");
 const { decisionToHermesChoice } = require("../shared/agent-permissions.js");
 const { miaRuntimeSystemPrompt } = require("../main/mia-runtime-context.js");
 
@@ -426,6 +427,7 @@ function createCloudAgentDispatcher(deps = {}) {
     const rosterMembers = Array.isArray(members) ? members : socialStore.listConversationMembers(conversationId);
     const rosterBots = Array.isArray(bots) ? bots : botsStore.listBots(ownerId);
     const trace = createTraceCollector();
+    const contentBlocks = createAssistantContentBlockCollector();
     const run = cloudAgentRunsStore.createRun({
       userId: ownerId,
       botId,
@@ -488,6 +490,7 @@ function createCloudAgentDispatcher(deps = {}) {
         },
         onEvent(event) {
           trace.collect(event);
+          contentBlocks.collect(event);
           broadcastTransientEvent(ownerId, {
             type: "cloud_agent_run_event",
             runId: run.id,
@@ -513,6 +516,7 @@ function createCloudAgentDispatcher(deps = {}) {
         bodyMd: result.content || "",
         attachments: replyAttachments.length ? replyAttachments : null,
         trace: trace.payload(),
+        contentBlocks: contentBlocks.payload(result.content || ""),
         status: "complete"
       });
       cloudAgentRunsStore.markComplete(run.id);

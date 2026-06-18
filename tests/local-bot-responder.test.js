@@ -268,9 +268,11 @@ test("respond streams local engine trace events through cloud run events and sav
     sendChat: async (args) => {
       calls.engine.push(args);
       args.emit("reasoning_delta", { id: "r1", text: "检查文件" });
+      args.emit("text_delta", { id: "text_1", text: "我先看目录。" });
       args.emit("tool_call_started", { id: "tool_1", name: "shell", preview: "ls" });
       args.emit("tool_call_completed", { id: "tool_1", name: "shell", duration: 1.25 });
-      return { choices: [{ message: { content: "done" } }] };
+      args.emit("text_delta", { id: "text_2", text: "结论是 done。" });
+      return { choices: [{ message: { content: "我先看目录。\n\n结论是 done。" } }] };
     }
   });
 
@@ -279,8 +281,10 @@ test("respond streams local engine trace events through cloud run events and sav
   assert.equal(typeof calls.engine[0].emit, "function");
   assert.deepEqual(calls.cloudEvents.slice(1).map((item) => item.event.type), [
     "reasoning_delta",
+    "text_delta",
     "tool_call_started",
-    "tool_call_completed"
+    "tool_call_completed",
+    "text_delta"
   ]);
   assert.deepEqual(calls.post[0].body.trace, {
     reasoning: "检查文件",
@@ -293,6 +297,40 @@ test("respond streams local engine trace events through cloud run events and sav
       error: false
     }]
   });
+  assert.deepEqual(calls.post[0].body.contentBlocks, [
+    { type: "thinking", id: "r1", status: "running", duration: null, text: "检查文件" },
+    { type: "text", id: "text_1", text: "我先看目录。" },
+    {
+      type: "tool",
+      id: "tool_1",
+      name: "shell",
+      preview: "ls",
+      status: "completed",
+      duration: 1.25,
+      error: false
+    },
+    { type: "text", id: "text_2", text: "结论是 done。" }
+  ]);
+});
+
+test("respond keeps streamed process text and appends unstreamed final text", async () => {
+  const { responder, calls } = setup({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      args.emit("text_delta", { id: "text_1", text: "我先检查。" });
+      args.emit("tool_call_started", { id: "tool_1", name: "shell", preview: "pwd" });
+      args.emit("tool_call_completed", { id: "tool_1", name: "shell" });
+      return { choices: [{ message: { content: "最终结论。" } }] };
+    }
+  });
+
+  await responder.respond(base);
+
+  assert.deepEqual(calls.post[0].body.contentBlocks, [
+    { type: "text", id: "text_1", text: "我先检查。" },
+    { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_final_2", text: "最终结论。" }
+  ]);
 });
 
 test("respond forwards runtime config to the local chat engine", async () => {

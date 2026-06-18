@@ -7,6 +7,7 @@ const {
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
 } = require("./mia-runtime-context.js");
+const { fileEditPayloadsFromAcpContent } = require("./agent-file-edit-events.js");
 const { isForbiddenSchedulerToolName } = require("./scheduler-tool-guard.js");
 
 function requireDependency(deps, key) {
@@ -303,6 +304,7 @@ function createOpenClawChatAdapter(deps = {}) {
   const memoryBlock = deps.memoryBlock || (() => "");
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
+  const enginePermissionMode = deps.enginePermissionMode || (() => "default");
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const execFile = deps.execFile || defaultExecFile;
   const spawn = deps.spawn || defaultSpawn;
@@ -438,13 +440,23 @@ function createOpenClawChatAdapter(deps = {}) {
               status: update.status || "",
               error: update.status === "failed"
             };
-            if (update.status === "completed" || update.status === "failed") emit("tool_call_completed", payload);
-            else emit("tool_call_delta", payload);
+            if (update.status === "completed" || update.status === "failed") {
+              emit("tool_call_completed", payload);
+              for (const fileEdit of fileEditPayloadsFromAcpContent(update.content || update.rawOutput, {
+                idPrefix: id,
+                status: payload.status || "completed",
+                error: payload.error
+              })) {
+                emit("file_edit", fileEdit);
+              }
+            } else {
+              emit("tool_call_delta", payload);
+            }
           }
         },
         requestPermission: (params) => acpPermissionResponse(params, {
           permissionCoordinator,
-          permissionMode: bot.engineConfig?.permissionMode || bot.agentPermissionMode || "default",
+          permissionMode: enginePermissionMode("openclaw") || "default",
           engine: "openclaw",
           bot,
           sessionId,

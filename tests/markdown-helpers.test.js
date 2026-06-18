@@ -28,3 +28,19 @@ test("markdown code block renders the language label as the copy button", () => 
   assert.doesNotMatch(html, />⧉<\/button>/);
   assert.doesNotMatch(html, /<figcaption>[\s\S]*<span>Shell<\/span>/);
 });
+
+test("markdown renders bracketed absolute file paths as local file links", () => {
+  const markdown = loadMarkdownHelpers();
+  const html = markdown.renderMarkdown("[mia-diff-demo.txt]\n(/Users/jung/Library/Application%20Support/Mia/runtime/engine-home/workspace/mia-diff-demo.txt)");
+
+  assert.match(html, /<a class="message-link" data-local-file-path="\/Users\/jung\/Library\/Application Support\/Mia\/runtime\/engine-home\/workspace\/mia-diff-demo\.txt" role="link" tabindex="0" title="\/Users\/jung\/Library\/Application Support\/Mia\/runtime\/engine-home\/workspace\/mia-diff-demo\.txt">mia-diff-demo\.txt<\/a>/);
+  assert.doesNotMatch(html, /data-external-link/);
+});
+
+test("markdown renders file URLs as local file links", () => {
+  const markdown = loadMarkdownHelpers();
+  const html = markdown.renderMarkdown("[demo](file:///Users/jung/Library/Application%20Support/Mia/demo.txt)");
+
+  assert.match(html, /data-local-file-path="\/Users\/jung\/Library\/Application Support\/Mia\/demo\.txt"/);
+  assert.match(html, />demo<\/a>/);
+});

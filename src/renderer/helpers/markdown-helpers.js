@@ -75,6 +75,61 @@
     return `<button class="${className}" type="button" ${attrs}>${menuItemIcon(icon)}<span>${escapeHtml(label)}</span></button>`;
   }
 
+  function safeDecodeUri(value) {
+    try {
+      return decodeURI(value);
+    } catch {
+      return value;
+    }
+  }
+
+  function localFilePathFromLinkTarget(target) {
+    const raw = String(target || "").trim();
+    if (!raw) return "";
+    if (/^file:/i.test(raw)) {
+      try {
+        let pathname = "";
+        if (typeof URL === "function") {
+          const url = new URL(raw);
+          if (url.protocol !== "file:") return "";
+          if (url.hostname && url.hostname !== "localhost") return "";
+          pathname = url.pathname || "";
+        } else {
+          const fallback = raw.match(/^file:\/\/(?:localhost)?(\/[^?#]*)/i);
+          if (!fallback) return "";
+          pathname = fallback[1];
+        }
+        pathname = safeDecodeUri(pathname);
+        if (/^\/[A-Za-z]:[\\/]/.test(pathname)) pathname = pathname.slice(1);
+        return pathname;
+      } catch {
+        return "";
+      }
+    }
+    const decoded = safeDecodeUri(raw);
+    if (decoded.startsWith("/") || /^[A-Za-z]:[\\/]/.test(decoded) || /^\\\\/.test(decoded)) return decoded;
+    return "";
+  }
+
+  function markdownLinkSpec(text, target) {
+    const rawTarget = String(target || "").trim();
+    if (/^https?:\/\/[^\s)]+$/i.test(rawTarget)) return { kind: "external", text, target: rawTarget };
+    const localPath = localFilePathFromLinkTarget(rawTarget);
+    if (localPath) return { kind: "local-file", text, target: localPath };
+    return null;
+  }
+
+  function messageLinkHtml(link) {
+    const attr = link.kind === "local-file"
+      ? `data-local-file-path="${escapeHtml(link.target)}"`
+      : `data-external-link="${escapeHtml(link.target)}"`;
+    return `<a class="message-link" ${attr} role="link" tabindex="0" title="${escapeHtml(link.target)}">${escapeHtml(link.text)}</a>`;
+  }
+
+  function previewLinkHtml(link) {
+    return `<span class="sidebar-preview-link" title="${escapeHtml(link.target)}">${escapeHtml(link.text)}</span>`;
+  }
+
   function renderInlineMarkdown(value) {
     const codes = [];
     let protectedText = String(value || "").replace(/`([^`\n]+)`/g, (_match, code) => {
@@ -82,8 +137,10 @@
       return `@@MIA_INLINE_CODE_${index}@@`;
     });
     const links = [];
-    protectedText = protectedText.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_match, text, url) => {
-      const index = links.push({ text, url }) - 1;
+    protectedText = protectedText.replace(/\[([^\]\n]+)\]\s*\(([^)\n]+)\)/g, (match, text, target) => {
+      const link = markdownLinkSpec(text, target);
+      if (!link) return match;
+      const index = links.push(link) - 1;
       return `@@MIA_LINK_${index}@@`;
     });
     let html = escapeHtml(protectedText);
@@ -96,10 +153,9 @@
       );
     }
     for (let index = 0; index < links.length; index++) {
-      const { text, url } = links[index];
       html = html.replace(
         `@@MIA_LINK_${index}@@`,
-        `<a class="message-link" data-external-link="${escapeHtml(url)}" role="link" tabindex="0" title="${escapeHtml(url)}">${escapeHtml(text)}</a>`
+        messageLinkHtml(links[index])
       );
     }
     return html;
@@ -148,8 +204,10 @@
       return `MIAPREVIEWCODE${index}TOKEN`;
     });
     const links = [];
-    protectedText = protectedText.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_match, text, url) => {
-      const index = links.push({ text, url }) - 1;
+    protectedText = protectedText.replace(/\[([^\]\n]+)\]\s*\(([^)\n]+)\)/g, (match, text, target) => {
+      const link = markdownLinkSpec(text, target);
+      if (!link) return match;
+      const index = links.push(link) - 1;
       return `MIAPREVIEWLINK${index}TOKEN`;
     });
     let html = escapeHtml(protectedText);
@@ -163,10 +221,9 @@
       );
     }
     for (let index = 0; index < links.length; index++) {
-      const { text, url } = links[index];
       html = html.replace(
         `MIAPREVIEWLINK${index}TOKEN`,
-        `<span class="sidebar-preview-link" title="${escapeHtml(url)}">${escapeHtml(text)}</span>`
+        previewLinkHtml(links[index])
       );
     }
     return html;

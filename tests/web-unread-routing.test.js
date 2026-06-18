@@ -503,6 +503,11 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
     /copyFile\(["']src\/shared\/cloud-events\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']cloud-events\.js["']\)\)/,
     "build-cloud-release must copy cloud-events.js because cloud-agent dispatcher imports it"
   );
+  assert.match(
+    build,
+    /copyFile\(["']src\/shared\/assistant-content-blocks\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']assistant-content-blocks\.js["']\)\)/,
+    "build-cloud-release must copy assistant-content-blocks.js because cloud messages-store imports it"
+  );
   assert.doesNotMatch(
     build,
     /copyFile\(["']src\/shared\/group-bot-routing\.js["']/,
@@ -909,7 +914,9 @@ test("src/web/styles.css carries desktop-style rich bubble formatting", () => {
   assert.match(css, /\.bubble\s*\{[\s\S]*?cursor:\s*default;[\s\S]*?user-select:\s*text;/);
   assert.match(css, /\.bubble\.text-hit\s*\{[\s\S]*?cursor:\s*text;/);
   assert.doesNotMatch(css, /cursor:\s*var\(--message-text-cursor\)/);
-  assert.match(css, /\.bubble a\.message-link\s*\{[\s\S]*?cursor:\s*pointer;/);
+  assert.match(css, /\.bubble a\.message-link\s*\{[\s\S]*?color:\s*inherit;[\s\S]*?text-decoration:\s*none;[\s\S]*?cursor:\s*pointer;/);
+  assert.match(css, /\.bubble a\.message-link:hover\s*\{[\s\S]*?text-decoration:\s*underline;/);
+  assert.doesNotMatch(css, /\.message\.user \.bubble a\.message-link\s*\{/);
   assert.match(css, /\.bubble code\.inline-code\s*\{[\s\S]*?cursor:\s*pointer;/);
 });
 
@@ -1132,14 +1139,22 @@ test("src/web/app.js uses the resolved self avatar color for own message avatars
 
 test("src/web/app/index.html loads shared/trace-blocks.js before app.js", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
+  const contentBlocksIdx = html.indexOf("shared/assistant-content-blocks.js");
   const traceIdx = html.indexOf("shared/trace-blocks.js");
   const appIdx = html.indexOf("../app.js");
+  assert.ok(contentBlocksIdx >= 0, "index.html must include shared/assistant-content-blocks.js so ordered assistant blocks can normalize");
   assert.ok(traceIdx >= 0, "index.html must include shared/trace-blocks.js so window.miaTraceBlocks is defined");
+  assert.ok(contentBlocksIdx < traceIdx, "assistant-content-blocks.js must load before trace-blocks.js");
   assert.ok(traceIdx < appIdx, "shared/trace-blocks.js must load before app.js");
 });
 
-test("scripts/build-cloud-release.js copies shared/trace-blocks.js into the web tree", () => {
+test("scripts/build-cloud-release.js copies shared assistant block render dependencies into the web tree", () => {
   const source = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
+  assert.match(
+    source,
+    /copyFile\("src\/shared\/assistant-content-blocks\.js",\s*path\.join\(webDir,\s*"shared",\s*"assistant-content-blocks\.js"\)\)/,
+    "build-cloud-release.js must copy src/shared/assistant-content-blocks.js to the web bundle"
+  );
   assert.match(
     source,
     /copyFile\("src\/shared\/trace-blocks\.js",\s*path\.join\(webDir,\s*"shared",\s*"trace-blocks\.js"\)\)/,
@@ -1171,6 +1186,30 @@ test("src/web/app.js parses persisted trace_json + renders trace blocks for assi
   );
 });
 
+test("src/web/app.js renders persisted ordered assistant content blocks before trace fallback", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(
+    source,
+    /buildConversationMessageArticle[\s\S]*?contentBlocksFromMessage\(msg\)/,
+    "buildConversationMessageArticle must normalize msg.content_blocks_json through contentBlocksFromMessage"
+  );
+  assert.match(
+    source,
+    /function contentBlocksFromMessage\(msg\)[\s\S]*?contentBlocksWithFinalText/,
+    "contentBlocksFromMessage must append final body text for legacy ordered block payloads"
+  );
+  assert.match(
+    source,
+    /buildConversationMessageArticle[\s\S]*?renderAssistantContentBlocks/,
+    "buildConversationMessageArticle must render ordered assistant content blocks"
+  );
+  assert.match(
+    source,
+    /orderedBlocksHtml[\s\S]*?\?\s*""[\s\S]*?:\s*parseTraceJson\(msg\.trace_json/,
+    "trace_json rendering must be skipped when ordered blocks render"
+  );
+});
+
 test("src/web/app.js streams trace blocks instead of the 3-chip placeholder", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(
@@ -1181,6 +1220,46 @@ test("src/web/app.js streams trace blocks instead of the 3-chip placeholder", ()
   const streamingMatch = source.match(/function buildCloudAgentStreamingArticle[\s\S]*?\n\}\n/);
   assert.ok(streamingMatch, "buildCloudAgentStreamingArticle should be locatable");
   assert.doesNotMatch(streamingMatch[0], /run\.tools\.slice\(-3\)/, "streaming must not fall back to the 3-chip preview");
+});
+
+test("src/web/app.js streams ordered assistant content blocks inside cloud agent runs", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(
+    source,
+    /createAssistantContentBlockCollector/,
+    "cloud agent run state must create an ordered content block collector"
+  );
+  assert.match(
+    source,
+    /buildCloudAgentStreamingArticle[\s\S]*?run\.contentBlocks[\s\S]*?renderAssistantContentBlocks/,
+    "streaming article must render run.contentBlocks in order"
+  );
+});
+
+test("src/web/app.js preserves transient ordered file edits when final bot messages arrive", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(
+    source,
+    /function messageWithFallbackRunContentBlocks\(/,
+    "web must merge streaming contentBlocks into final bot messages before clearing the run"
+  );
+  const handlerMatch = source.match(/type === "conversation\.message_appended"[\s\S]*?renderRailUnreadBadge\(\);/);
+  assert.ok(handlerMatch, "conversation.message_appended handler must exist");
+  assert.match(
+    handlerMatch[0],
+    /const cachedMsg = messageWithFallbackRunContentBlocks\(conversationId,\s*msg\)/,
+    "message_appended must cache the merged final bot message"
+  );
+  assert.match(
+    handlerMatch[0],
+    /entry\.messages\.push\(cachedMsg\)/,
+    "message_appended must push cachedMsg rather than the raw persisted msg"
+  );
+  assert.match(
+    handlerMatch[0],
+    /cachedMsg\.sender_kind === SenderKind\.Bot[\s\S]*?state\.cloudAgentRunsByConversation\.delete\(conversationId\)/,
+    "the streaming run must be cleared only after contentBlocks can be copied"
+  );
 });
 
 test("src/web/app.js delegates trace row toggles to state.openTraceKeys", () => {

@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -8,6 +9,10 @@ const {
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
 } = require("./mia-runtime-context.js");
+const {
+  createWorkspaceDiffTracker,
+  fileEditPayloadFromUnifiedDiff
+} = require("./agent-file-edit-events.js");
 
 function mapCodexPermissionMode(value) {
   const id = String(value || "default").trim();
@@ -125,7 +130,131 @@ function envWithExecutableDirFirst(env = {}, executablePath = "") {
   };
 }
 
-function emitCodexItemEvent(emit, event, textByItem) {
+const MAX_FILE_DIFF_PREVIEW = 20000;
+
+function safeWorkspaceRelativePath(filePath, workingDirectory = "") {
+  const raw = String(filePath || "").trim();
+  if (!raw) return "";
+  const root = String(workingDirectory || "").trim();
+  const rel = path.isAbsolute(raw) && root ? path.relative(root, raw) : raw;
+  const normalized = rel.split(path.sep).join("/");
+  if (!normalized || normalized === "." || normalized.startsWith("../") || path.isAbsolute(normalized)) return "";
+  return normalized;
+}
+
+function diffStats(diff = "") {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of String(diff || "").split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) additions += 1;
+    if (line.startsWith("-")) deletions += 1;
+  }
+  return { additions, deletions };
+}
+
+function readGitDiffForPath(filePath, workingDirectory = "") {
+  const rel = safeWorkspaceRelativePath(filePath, workingDirectory);
+  if (!rel || !workingDirectory) return "";
+  try {
+    return execFileSync("git", ["diff", "--no-ext-diff", "--unified=80", "--", rel], {
+      cwd: workingDirectory,
+      encoding: "utf8",
+      maxBuffer: 512 * 1024,
+      timeout: 3000
+    });
+  } catch (error) {
+    return String(error?.stdout || "");
+  }
+}
+
+function syntheticAddedFileDiff(filePath, workingDirectory = "") {
+  const rel = safeWorkspaceRelativePath(filePath, workingDirectory);
+  if (!rel || !workingDirectory) return "";
+  const abs = path.join(workingDirectory, rel);
+  let content = "";
+  try {
+    const stat = fs.statSync(abs);
+    if (!stat.isFile() || stat.size > 256 * 1024) return "";
+    content = fs.readFileSync(abs, "utf8");
+  } catch {
+    return "";
+  }
+  const lines = content.split("\n");
+  const body = lines.map((line) => `+${line}`).join("\n");
+  return [
+    "diff --git a/dev/null b/" + rel,
+    "--- /dev/null",
+    "+++ b/" + rel,
+    "@@",
+    body
+  ].join("\n");
+}
+
+function defaultDescribeFileChange(change = {}, options = {}) {
+  const workingDirectory = options.workingDirectory || "";
+  const rel = safeWorkspaceRelativePath(change.path, workingDirectory) || String(change.path || "").trim() || "file";
+  const kind = String(change.kind || "update");
+  const verb = kind === "add" ? "Added" : kind === "delete" ? "Deleted" : "Edited";
+  let diff = readGitDiffForPath(rel, workingDirectory);
+  if (!diff && kind === "add") diff = syntheticAddedFileDiff(rel, workingDirectory);
+  const stats = diffStats(diff);
+  const statText = stats.additions || stats.deletions ? ` (+${stats.additions} -${stats.deletions})` : "";
+  const preview = diff.length > MAX_FILE_DIFF_PREVIEW
+    ? `${diff.slice(0, MAX_FILE_DIFF_PREVIEW)}\n… diff truncated …`
+    : diff;
+  return {
+    name: `${verb} ${rel}${statText}`,
+    preview,
+    additions: stats.additions,
+    deletions: stats.deletions
+  };
+}
+
+function emitCodexFileChangeEvents(emit, event, options = {}) {
+  if (typeof emit !== "function" || event?.type !== "item.completed") return;
+  const item = event.item;
+  if (!item || item.type !== "file_change") return;
+  const changes = Array.isArray(item.changes) ? item.changes : [];
+  for (let idx = 0; idx < changes.length; idx += 1) {
+    const change = changes[idx] || {};
+    const id = `${String(item.id || "file_change")}_${idx}`;
+    const describe = typeof options.describeFileChange === "function"
+      ? options.describeFileChange
+      : defaultDescribeFileChange;
+    const description = describe(change, {
+      workingDirectory: options.workingDirectory || ""
+    }) || {};
+    const error = item.status === "failed";
+    const filePath = safeWorkspaceRelativePath(change.path, options.workingDirectory || "")
+      || String(change.path || "").trim();
+    const payload = fileEditPayloadFromUnifiedDiff(description.diff || description.preview || "", {
+      id,
+      path: filePath,
+      action: change.kind,
+      title: description.title || description.name,
+      additions: description.additions,
+      deletions: description.deletions,
+      status: error ? "failed" : "completed",
+      error
+    });
+    if (payload) emit("file_edit", payload);
+  }
+}
+
+function emitWorkspaceFileEdits(emit, tracker, item = {}) {
+  if (typeof emit !== "function" || !tracker || typeof tracker.collect !== "function") return;
+  const error = item.status === "failed";
+  for (const payload of tracker.collect({
+    idPrefix: String(item.id || "command"),
+    status: error ? "failed" : "completed",
+    error
+  })) {
+    emit("file_edit", payload);
+  }
+}
+
+function emitCodexItemEvent(emit, event, textByItem, options = {}) {
   if (typeof emit !== "function" || !event?.item) return;
   const item = event.item;
   if (item.type === "agent_message") {
@@ -156,17 +285,23 @@ function emitCodexItemEvent(emit, event, textByItem) {
       error: item.status === "failed"
     };
     if (event.type === "item.started") emit("tool_call_started", payload);
-    if (event.type === "item.completed") emit("tool_call_completed", payload);
+    if (event.type === "item.completed") {
+      emit("tool_call_completed", payload);
+      emitWorkspaceFileEdits(emit, options.workspaceDiffTracker, item);
+    }
+    return;
   }
+  emitCodexFileChangeEvents(emit, event, options);
 }
 
-async function runCodexTurn(thread, prompt, { signal = null, emit = null } = {}) {
+async function runCodexTurn(thread, prompt, { signal = null, emit = null, workingDirectory = "", describeFileChange = null } = {}) {
   if (typeof emit !== "function" || typeof thread.runStreamed !== "function") {
     return thread.run(prompt, runOptions(signal));
   }
   const { events } = await thread.runStreamed(prompt, runOptions(signal));
   const items = [];
   const textByItem = new Map();
+  const workspaceDiffTracker = createWorkspaceDiffTracker(workingDirectory);
   let finalResponse = "";
   let usage = null;
   for await (const event of events) {
@@ -175,7 +310,7 @@ async function runCodexTurn(thread, prompt, { signal = null, emit = null } = {})
     } else if (event.type === "turn.started") {
       emit("status", { text: "本机 Codex 已开始运行。" });
     } else if (event.type === "item.started" || event.type === "item.updated" || event.type === "item.completed") {
-      emitCodexItemEvent(emit, event, textByItem);
+      emitCodexItemEvent(emit, event, textByItem, { workingDirectory, describeFileChange, workspaceDiffTracker });
       if (event.type === "item.completed") {
         if (event.item?.type === "agent_message") finalResponse = String(event.item.text || "");
         items.push(event.item);
@@ -214,6 +349,8 @@ function createCodexChatAdapter(deps = {}) {
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
   const appendEngineLog = deps.appendEngineLog || (() => {});
+  const enginePermissionMode = deps.enginePermissionMode || (() => "default");
+  const describeFileChange = deps.describeFileChange || null;
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
@@ -264,12 +401,12 @@ function createCodexChatAdapter(deps = {}) {
     try {
       codexHomePath = ensureCodexHome();
     } catch (error) {
-      throw new Error(`Mia Codex profile setup failed: ${error?.message || error}`);
+      throw new Error(`Mia Codex home setup failed: ${error?.message || error}`);
     }
-    if (!codexHomePath) throw new Error("Mia Codex profile setup failed: missing CODEX_HOME.");
+    if (!codexHomePath) throw new Error("Mia Codex home setup failed: missing CODEX_HOME.");
     const env = envWithExecutableDirFirst({ ...baseEnv, CODEX_HOME: codexHomePath }, commandPath);
     const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "codex", bot });
-    const permission = mapCodexPermissionMode(bot.engineConfig?.permissionMode || bot.agentPermissionMode || "default");
+    const permission = mapCodexPermissionMode(enginePermissionMode("codex") || "default");
     const effectivePermission = typeof emit === "function"
       ? permission
       : { ...permission, approvalPolicy: "never" };
@@ -324,7 +461,12 @@ function createCodexChatAdapter(deps = {}) {
       const thread = externalSessionId
         ? codex.resumeThread(externalSessionId, threadOptions)
         : codex.startThread(threadOptions);
-      turn = await runCodexTurn(thread, promptWithGroup, { signal, emit });
+      turn = await runCodexTurn(thread, promptWithGroup, {
+        signal,
+        emit,
+        workingDirectory: cwd(),
+        describeFileChange
+      });
       capturedSessionId = externalSessionId || thread.id || "";
     }
     const imagePaths = recentGeneratedImagePaths(capturedSessionId, { env, startedAtMs });
@@ -349,10 +491,17 @@ function createCodexChatAdapter(deps = {}) {
   async function sendStateless({ systemPrompt, userPrompt, signal }) {
     const commandPath = shellCommandPath("codex");
     if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
+    let codexHomePath = "";
+    try {
+      codexHomePath = ensureCodexHome();
+    } catch (error) {
+      throw new Error(`Mia Codex home setup failed: ${error?.message || error}`);
+    }
+    if (!codexHomePath) throw new Error("Mia Codex home setup failed: missing CODEX_HOME.");
     const { Codex } = await codexSdk();
     const codex = new Codex({
       codexPathOverride: commandPath,
-      env: envWithExecutableDirFirst(processEnvStrings(), commandPath)
+      env: envWithExecutableDirFirst({ ...processEnvStrings(), CODEX_HOME: codexHomePath }, commandPath)
     });
     const thread = codex.startThread({
       workingDirectory: cwd(),

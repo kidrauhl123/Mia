@@ -514,13 +514,15 @@
   function renderAttachmentChip(attachment = {}) {
     const image = (attachment.kind || attachmentKind(attachment)) === "image"
       && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
+    const imageSrc = String(attachment.dataUrl || attachment.previewDataUrl || attachment.thumbnailDataUrl || attachment.thumbnail || "").trim();
+    const imageSrcAttr = imageSrc.startsWith("data:image/") ? ` data-image-src="${escapeHtml(imageSrc)}"` : "";
     const href = String(attachment.url || attachment.dataUrl || "").trim();
     const safeHref = /^(\/api\/files\/[A-Za-z0-9_-]+|data:[^"'<>]+)$/i.test(href) ? href : "";
     const tag = safeHref ? "a" : "span";
     const download = safeHref ? ` href="${escapeHtml(safeHref)}" download="${escapeHtml(attachment.name || "attachment")}"` : "";
     if (image) {
       return `
-        <${tag} class="message-attachment image"${download} title="${escapeHtml(attachment.name || "")}" aria-label="预览图片">
+        <${tag} class="message-attachment image"${download}${imageSrcAttr} title="${escapeHtml(attachment.name || "")}" aria-label="预览图片">
           ${renderAttachmentThumb(attachment)}
         </${tag}>
       `;
@@ -604,6 +606,7 @@
 
   function applyCloudAgentRunEvent(run, event = {}) {
     const name = eventType(event);
+    collectRunContentBlock(run, event);
     if (name === "message.delta" || name === "text_delta") {
       run.text += eventText(event);
     } else if (name === "message.complete" || name === "message.completed") {
@@ -667,6 +670,28 @@
     return { reasoning, tools };
   }
 
+  function parseContentBlocksJson(value) {
+    if (!value) return [];
+    let parsed = value;
+    if (typeof value === "string") {
+      try { parsed = JSON.parse(value); } catch { return []; }
+    }
+    const normalizer = global.miaAssistantContentBlocks;
+    if (normalizer && typeof normalizer.normalizeContentBlocks === "function") {
+      return normalizer.normalizeContentBlocks(parsed);
+    }
+    return Array.isArray(parsed) ? parsed.filter((block) => block && typeof block === "object") : [];
+  }
+
+  function contentBlocksFromMessage(message) {
+    const blocks = parseContentBlocksJson(message?.content_blocks_json || message?.contentBlocks || message?.content_blocks);
+    if (!blocks.length) return [];
+    const normalizer = global.miaAssistantContentBlocks;
+    return normalizer && typeof normalizer.contentBlocksWithFinalText === "function"
+      ? normalizer.contentBlocksWithFinalText(blocks, message?.body_md || message?.bodyMd || "")
+      : blocks;
+  }
+
   function tracePayloadFromRun(run) {
     if (!run || typeof run !== "object") return null;
     const reasoning = String(run.reasoning || "").trim();
@@ -692,11 +717,34 @@
     };
   }
 
+  function collectRunContentBlock(run, event = {}) {
+    if (!run || !event || typeof event !== "object") return;
+    const api = global.miaAssistantContentBlocks;
+    if (!api || typeof api.createAssistantContentBlockCollector !== "function") return;
+    if (!run.contentBlockCollector) run.contentBlockCollector = api.createAssistantContentBlockCollector();
+    run.contentBlockCollector.collect(event);
+    run.contentBlocks = run.contentBlockCollector.payload();
+  }
+
+  function contentBlocksPayloadFromRun(run, finalText = "") {
+    const blocks = Array.isArray(run?.contentBlocks) ? run.contentBlocks : [];
+    if (!blocks.length) return null;
+    const api = global.miaAssistantContentBlocks;
+    if (finalText && api && typeof api.contentBlocksWithFinalText === "function") {
+      return api.contentBlocksWithFinalText(blocks, finalText);
+    }
+    return blocks;
+  }
+
   function messageWithFallbackRunTrace(conversationId, message) {
     const { SenderKind } = conversationKinds();
     if (!message || message.sender_kind !== SenderKind.Bot) return message;
+    if (contentBlocksFromMessage(message).length) return message;
+    const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
+    const blocks = contentBlocksPayloadFromRun(run, message.body_md || message.bodyMd || "");
+    if (blocks) return { ...message, contentBlocks: blocks };
     if (parseTraceJson(message.trace_json || message.trace)) return message;
-    const trace = tracePayloadFromRun(moduleState.cloudAgentRunsByConversation.get(conversationId));
+    const trace = tracePayloadFromRun(run);
     return trace ? { ...message, trace } : message;
   }
 
@@ -709,6 +757,17 @@
       content,
       expanded,
       scopeKey
+    });
+  }
+
+  function renderOrderedAssistantBlocks({ blocks, expanded, scopeKey, renderTextBlock }) {
+    const renderer = global.miaTraceBlocks;
+    if (!renderer || typeof renderer.renderAssistantContentBlocks !== "function") return "";
+    return renderer.renderAssistantContentBlocks({
+      blocks,
+      expanded,
+      scopeKey,
+      renderTextBlock
     });
   }
 
@@ -730,6 +789,8 @@
       status: "running",
       createdAt: new Date().toISOString(),
       tools: [],
+      contentBlocks: [],
+      contentBlockCollector: null,
       pendingPermissions: [],
       toolsById: new Map(),
       toolsByName: new Map()
@@ -2134,14 +2195,30 @@
       : `<div class="avatar message-avatar" data-sender-kind="${escapeHtml(msg.sender_kind || "")}" data-sender-ref="${escapeHtml(msg.sender_ref || "")}" style="${escapeHtml(avatarFallbackStyle(avatarHelpers, avatar.image, avatar.crop, avatarColor))}" title="${escapeHtml(authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
     const cache = moduleState.messageCache.get(moduleState.activeConversationId);
     const messageIndex = cache ? cache.messages.findIndex((m) => m.id === msg.id) : -1;
-    const bodyHtml = _renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
+    const bodyMd = (spec ? spec.bodyMd : msg.body_md) || "";
     const skillsHtml = _renderMsgSkills(msg);
-    const trace = !isUser ? parseTraceJson(msg.trace_json || msg.trace) : null;
+    const senderHtml = shouldRenderSenderTitle(conversation) ? senderTitleHtml(spec, avatarColor) : "";
+    const contentBlocks = !isUser ? contentBlocksFromMessage(msg) : [];
+    let renderedFirstTextBlock = false;
+    const orderedBlocksHtml = contentBlocks.length
+      ? renderOrderedAssistantBlocks({
+        blocks: contentBlocks,
+        expanded: false,
+        scopeKey: `cloud-msg:${msg.id || ""}`,
+        renderTextBlock(block) {
+          const prefixHtml = renderedFirstTextBlock ? "" : `${senderHtml}${skillsHtml}`;
+          renderedFirstTextBlock = true;
+          return `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${prefixHtml}${_renderMsgBody(block.text || "")}</div>`;
+        }
+      })
+      : "";
+    const bodyHtml = _renderMsgBody(bodyMd);
+    const trace = !isUser && !orderedBlocksHtml ? parseTraceJson(msg.trace_json || msg.trace) : null;
     const traceHtml = trace
       ? renderTraceFor({
         reasoning: trace.reasoning,
         tools: trace.tools,
-        content: (spec ? spec.bodyMd : msg.body_md) || "",
+        content: bodyMd,
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`
       })
@@ -2150,7 +2227,6 @@
     // attachment-only / empty-body message keeps a right-clickable carrier with
     // the data attributes the app.js contextmenu dispatcher looks for. Skill
     // chips the user selected for this message render at the top of the bubble.
-    const senderHtml = shouldRenderSenderTitle(conversation) ? senderTitleHtml(spec, avatarColor) : "";
     const bubbleHtml = `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${senderHtml}${skillsHtml}${bodyHtml}</div>`;
     const attachmentHtml = renderAttachmentChips(spec?.attachments || msg.attachments || []);
     const createdAt = msg.created_at || msg.createdAt || "";
@@ -2172,7 +2248,7 @@
       ${avatarHtml}
       <div class="message-stack">
         ${traceHtml}
-        ${bubbleHtml}
+        ${orderedBlocksHtml || bubbleHtml}
         ${attachmentHtml}
         ${_renderMsgTranslation(msg)}
         ${timeHtml}
@@ -2186,7 +2262,8 @@
     const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
     // Typing-only state ("running" with no text/reasoning/tools yet) shows in the
     // conversation header instead of a placeholder bubble — see paintHeaderStatus.
-    if (!run || (!run.text && !run.reasoning && !run.tools.length)) return null;
+    const runBlocks = contentBlocksPayloadFromRun(run) || [];
+    if (!run || (!run.text && !run.reasoning && !run.tools.length && !runBlocks.length)) return null;
     const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
     const botKey = run.botId || sessionHistoryShared().botId(conversation) || "mia";
     const synthetic = {
@@ -2213,14 +2290,26 @@
       })
       : `<div class="avatar message-avatar" data-sender-kind="bot" data-sender-ref="${escapeHtml(botKey)}" style="${escapeHtml(avatarFallbackStyle(avatarHelpers, avatar.image, avatar.crop, avatarColor))}" title="${escapeHtml(authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
     const bodyHtml = run.text ? _renderMsgBody(run.text) : "";
-    const traceHtml = renderTraceFor({
-      reasoning: run.reasoning,
-      tools: run.tools,
-      content: run.text,
-      expanded: true,
-      scopeKey: `cloud-run:${run.runId || conversationId}`
-    });
-    const toolsHtml = !traceHtml && run.tools.length
+    const orderedBlocksHtml = runBlocks.length
+      ? renderOrderedAssistantBlocks({
+        blocks: runBlocks,
+        expanded: true,
+        scopeKey: `cloud-run:${run.runId || conversationId}`,
+        renderTextBlock(block) {
+          return `<div class="bubble">${_renderMsgBody(block.text || "")}</div>`;
+        }
+      })
+      : "";
+    const traceHtml = orderedBlocksHtml
+      ? ""
+      : renderTraceFor({
+        reasoning: run.reasoning,
+        tools: run.tools,
+        content: run.text,
+        expanded: true,
+        scopeKey: `cloud-run:${run.runId || conversationId}`
+      });
+    const toolsHtml = !orderedBlocksHtml && !traceHtml && run.tools.length
       ? `<div class="message-attachments">${run.tools.slice(-3).map((tool) => `<span class="message-attachment"><span>TOOL</span><strong>${escapeHtml(tool.name || "工具")}</strong><em>${escapeHtml(tool.status || "")}</em></span>`).join("")}</div>`
       : "";
     const article = document.createElement("article");
@@ -2228,8 +2317,7 @@
     article.innerHTML = `
       ${avatarHtml}
       <div class="message-stack">
-        ${traceHtml}
-        ${bodyHtml ? `<div class="bubble">${bodyHtml}</div>` : ""}
+        ${orderedBlocksHtml || `${traceHtml}${bodyHtml ? `<div class="bubble">${bodyHtml}</div>` : ""}`}
         ${toolsHtml}
       </div>
     `;
@@ -2469,7 +2557,8 @@
   }
 
   function _appendLocalOutgoingConversationMessage(conversationId, prepared, skills = null) {
-    if (!conversationId || !prepared || !prepared.bodyMd) return null;
+    const attachments = Array.isArray(prepared?.attachments) ? prepared.attachments : [];
+    if (!conversationId || !prepared || (!prepared.bodyMd && !attachments.length)) return null;
     if (!moduleState.messageCache.has(conversationId)) {
       moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
     }
@@ -2479,7 +2568,7 @@
       sender_kind: conversationKinds().SenderKind.User,
       sender_ref: moduleState.myUserId || "",
       body_md: prepared.bodyMd,
-      attachments: prepared.attachments || [],
+      attachments,
       mentions: prepared.mentions || [],
       // Mirror the server's skills_json so the bubble renders chips immediately,
       // before the echoed message comes back.
@@ -2929,10 +3018,13 @@
     const skills = Array.isArray(options.skills) && options.skills.length
       ? options.skills.map((s) => ({ id: String(s.id || ""), name: String(s.name || s.id || "") })).filter((s) => s.id)
       : null;
+    const attachments = Array.isArray(options.attachments)
+      ? options.attachments.filter(Boolean).slice(0, 20)
+      : [];
     let prepared;
     try {
       prepared = sendPipelineShared().prepareOutgoingMessage(
-        { text },
+        { text, attachments },
         { members: sendPipelineMembersForConversation(conversationType, members) }
       );
     } catch (err) {
@@ -2946,6 +3038,7 @@
       const res = await window.mia.social.postConversationMessage(conversationId, {
         bodyMd: prepared.bodyMd,
         turnId: prepared.clientTraceId,
+        ...(prepared.attachments.length ? { attachments: prepared.attachments } : {}),
         ...(mentions.length ? { mentions } : {}),
         ...(skills ? { skills } : {})
       });
@@ -2975,6 +3068,8 @@
     if (existing.translation && incoming.translation == null) merged.translation = existing.translation;
     if (existing.trace_json && incoming.trace_json == null) merged.trace_json = existing.trace_json;
     if (existing.trace && incoming.trace == null) merged.trace = existing.trace;
+    if (existing.content_blocks_json && incoming.content_blocks_json == null) merged.content_blocks_json = existing.content_blocks_json;
+    if (existing.contentBlocks && incoming.contentBlocks == null) merged.contentBlocks = existing.contentBlocks;
     return merged;
   }
 

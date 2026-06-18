@@ -88,6 +88,7 @@ function createDeps(overrides = {}) {
     chatCompletionResponse,
     cwd: () => "/tmp/mia-workspace",
     expandLeadingSkillCommand: (text) => text,
+    enginePermissionMode: overrides.enginePermissionMode || (() => overrides.enginePermissionModeValue || "default"),
     getAgentSessionId: (engine, botKey, sessionId) => sessions.get(`${engine}:${botKey}:${sessionId}`) || "",
     injectGroupContextForSdk: (prompt, contextBlock) => `${contextBlock}\n\n${prompt}`,
     lastUserPrompt: (messages) => [...messages].reverse().find((message) => message.role === "user")?.content || "",
@@ -184,6 +185,84 @@ test("acpPermissionFallback never grants tools unless the bot is explicitly yolo
     outcome: { outcome: "selected", optionId: "reject-1" }
   });
   assert.deepEqual(acpPermissionFallback(params, { permissionMode: "bypassPermissions" }), {
+    outcome: { outcome: "selected", optionId: "allow-1" }
+  });
+});
+
+test("sendChat uses engine-level OpenClaw permission for ACP fallback decisions", async () => {
+  const permissionResponses = [];
+  function permissionAcpSdk(calls) {
+    class FakeClientSideConnection {
+      constructor(toClient, stream) {
+        calls.push(["acp-connect", Boolean(stream?.readable), Boolean(stream?.writable)]);
+        this.handlers = toClient(this);
+      }
+
+      async initialize(params) {
+        calls.push(["acp-initialize", params]);
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { promptCapabilities: { image: true } },
+          agentInfo: { name: "openclaw-acp", version: "test" }
+        };
+      }
+
+      async newSession(params) {
+        calls.push(["acp-new-session", params]);
+        return { sessionId: "acp-session", configOptions: [], modes: { currentModeId: "adaptive", availableModes: [] } };
+      }
+
+      async setSessionMode(params) {
+        calls.push(["acp-set-mode", params]);
+        return {};
+      }
+
+      async prompt(params) {
+        calls.push(["acp-prompt", params]);
+        permissionResponses.push(await this.handlers.requestPermission({
+          sessionId: params.sessionId,
+          toolCall: { kind: "shell", title: "Shell", rawInput: { command: "pwd" } },
+          options: [
+            { optionId: "allow-1", kind: "allow_once", name: "Allow" },
+            { optionId: "reject-1", kind: "reject_once", name: "Reject" }
+          ]
+        }));
+        await this.handlers.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "done" }
+          }
+        });
+        return { stopReason: "end_turn" };
+      }
+
+      async cancel(params) {
+        calls.push(["acp-cancel", params]);
+      }
+    }
+
+    return {
+      ClientSideConnection: FakeClientSideConnection,
+      PROTOCOL_VERSION: 1,
+      ndJsonStream: (writable, readable) => ({ writable, readable })
+    };
+  }
+
+  let deps;
+  deps = createDeps({
+    enginePermissionMode: () => "bypassPermissions",
+    importAcpSdk: async () => permissionAcpSdk(deps.calls)
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: { permissionMode: "readOnly" } },
+    sessionId: "mia-session",
+    messages: [{ role: "user", content: "运行 pwd" }]
+  });
+
+  assert.deepEqual(permissionResponses[0], {
     outcome: { outcome: "selected", optionId: "allow-1" }
   });
 });
@@ -312,6 +391,100 @@ test("sendChat runs OpenClaw through ACP backend and stores the stable session k
     "mia:claw:mia-session"
   ]);
   assert.equal(deps.calls.some((call) => call[0] === "exec"), false);
+});
+
+test("sendChat emits OpenClaw ACP diff content as unified file_edit events", async () => {
+  const deps = createDeps();
+  deps.importAcpSdk = async () => {
+    class DiffClientSideConnection {
+      constructor(toClient, stream) {
+        deps.calls.push(["acp-connect", Boolean(stream?.readable), Boolean(stream?.writable)]);
+        this.handlers = toClient(this);
+      }
+
+      async initialize(params) {
+        deps.calls.push(["acp-initialize", params]);
+        return { protocolVersion: 1, agentCapabilities: {}, agentInfo: { name: "openclaw-acp" } };
+      }
+
+      async newSession(params) {
+        deps.calls.push(["acp-new-session", params]);
+        return { sessionId: "acp-session", configOptions: [], modes: { currentModeId: "adaptive", availableModes: [] } };
+      }
+
+      async setSessionMode(params) {
+        deps.calls.push(["acp-set-mode", params]);
+        return {};
+      }
+
+      async prompt(params) {
+        deps.calls.push(["acp-prompt", params]);
+        await this.handlers.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "tool_1",
+            title: "Edit file",
+            kind: "edit",
+            rawInput: { path: "src/app.js" }
+          }
+        });
+        await this.handlers.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool_1",
+            status: "completed",
+            content: [{ type: "diff", path: "src/app.js", old_text: "old", new_text: "new" }]
+          }
+        });
+        await this.handlers.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "done" }
+          }
+        });
+        return { stopReason: "end_turn" };
+      }
+    }
+    return {
+      ClientSideConnection: DiffClientSideConnection,
+      PROTOCOL_VERSION: 1,
+      ndJsonStream: (writable, readable) => ({ writable, readable })
+    };
+  };
+  const emitted = [];
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    sessionId: "mia-session",
+    messages: [{ role: "user", content: "改文件" }],
+    emit: (kind, payload) => emitted.push({ kind, payload })
+  });
+
+  assert.deepEqual(emitted.filter((event) => event.kind === "file_edit"), [{
+    kind: "file_edit",
+    payload: {
+      id: "tool_1_diff_0",
+      path: "src/app.js",
+      action: "update",
+      title: "Edited src/app.js (+1 -1)",
+      diff: [
+        "diff --git a/src/app.js b/src/app.js",
+        "--- a/src/app.js",
+        "+++ b/src/app.js",
+        "@@ -1,1 +1,1 @@",
+        "-old",
+        "+new"
+      ].join("\n"),
+      additions: 1,
+      deletions: 1,
+      status: "completed",
+      error: false
+    }
+  }]);
 });
 
 test("sendChat puts the selected OpenClaw bin dir first in ACP env", async () => {

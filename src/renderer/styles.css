@@ -1006,6 +1006,15 @@ body.sidebar-resizing * {
 
 .conversation-sidebar .sidebar-tools {
   grid-template-columns: minmax(0, 1fr) 32px 32px;
+  -webkit-app-region: drag;
+}
+
+.conversation-sidebar .sidebar-tools button,
+.conversation-sidebar .sidebar-tools input,
+.conversation-sidebar .sidebar-tools .search-box,
+.conversation-sidebar .sidebar-tools .create-menu,
+.conversation-sidebar .sidebar-tools .sidebar-tag-filters {
+  -webkit-app-region: no-drag;
 }
 
 .sidebar-tools.has-tag-filters {
@@ -4834,71 +4843,74 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 }
 
 .composer-attachment {
+  position: relative;
   display: inline-grid;
-  grid-template-columns: auto minmax(0, max-content) auto 18px;
-  align-items: center;
-  gap: 5px;
-  max-width: 220px;
-  height: 28px;
-  padding: 0 4px 0 8px;
-  border-radius: 7px;
+  place-items: center;
+  width: 58px;
+  height: 48px;
+  overflow: hidden;
+  border-radius: 8px;
   background: var(--field);
   color: var(--text);
   font-size: 12px;
-  white-space: nowrap;
 }
 
 .composer-attachment.image {
-  grid-template-columns: 26px minmax(0, max-content) auto 18px;
-  height: 32px;
-  padding-left: 3px;
+  width: 96px;
+  height: 72px;
 }
 
-.composer-attachment-kind {
+.composer-attachment-preview {
   display: grid;
   place-items: center;
-  min-width: 20px;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
   color: var(--accent);
-  font-size: 10px;
-  font-weight: 400;
+  cursor: zoom-in;
 }
 
 .composer-attachment-thumb {
   display: block;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
   object-fit: cover;
   background: var(--surface);
 }
 
-.composer-attachment-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.composer-attachment-size {
-  color: var(--faint);
-  font-size: 11px;
-}
-
-.composer-attachment button {
+.composer-attachment-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.42);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 140ms ease, background 140ms ease;
 }
 
-.composer-attachment button:hover {
-  background: var(--hover-background);
-  color: var(--text);
+.composer-attachment-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.composer-attachment:hover .composer-attachment-remove,
+.composer-attachment-remove:focus-visible {
+  opacity: 1;
+}
+
+.composer-attachment-remove:hover {
+  background: rgba(0, 0, 0, 0.62);
 }
 
 .slash-command-menu {

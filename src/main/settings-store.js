@@ -10,6 +10,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const { normalizeAgentEngine } = require("./chat-engine-registry");
 const { normalizePermissionMode, permissionModeLabel } = require("../permission-modes");
 
 const APPEARANCE_FONT_PRESETS = ["system", "serif"];
@@ -221,8 +222,27 @@ function createSettingsStore(deps = {}) {
 
   function defaultPermissionSettings() {
     return {
-      mode: "ask"
+      mode: "ask",
+      engines: {}
     };
+  }
+
+  function normalizeEnginePermissionMode(engine, value) {
+    const normalizedEngine = normalizeAgentEngine(engine);
+    const raw = String(value || "").trim();
+    if (normalizedEngine === "hermes") return normalizePermissionMode(raw);
+    return raw || "default";
+  }
+
+  function normalizePermissionEngines(value = {}) {
+    const source = value && typeof value === "object" ? value : {};
+    const engines = {};
+    for (const [engine, mode] of Object.entries(source)) {
+      const normalizedEngine = normalizeAgentEngine(engine);
+      if (!normalizedEngine || normalizedEngine === "hermes") continue;
+      engines[normalizedEngine] = normalizeEnginePermissionMode(normalizedEngine, mode);
+    }
+    return engines;
   }
 
   function defaultDaemonSettings() {
@@ -291,10 +311,12 @@ function createSettingsStore(deps = {}) {
   function permissionSettings() {
     const p = runtimePaths();
     const saved = readJson(p.permissionSettings, {});
+    const mode = normalizePermissionMode(saved.mode || defaultPermissionSettings().mode);
     return {
       ...defaultPermissionSettings(),
       ...saved,
-      mode: normalizePermissionMode(saved.mode || defaultPermissionSettings().mode)
+      mode,
+      engines: normalizePermissionEngines(saved.engines)
     };
   }
 
@@ -302,19 +324,41 @@ function createSettingsStore(deps = {}) {
     const settings = permissionSettings();
     return {
       mode: settings.mode,
+      engines: settings.engines,
       label: permissionModeLabel(settings.mode)
     };
   }
 
   function writePermissionSettings(settings = {}) {
     const p = runtimePaths();
+    const current = permissionSettings();
+    const engine = String(settings.engine || settings.agentEngine || settings.agent_engine || "").trim();
+    const normalizedEngine = engine ? normalizeAgentEngine(engine) : "";
+    const engines = { ...(current.engines || {}) };
+    let mode = current.mode;
+    if (normalizedEngine && normalizedEngine !== "hermes") {
+      engines[normalizedEngine] = normalizeEnginePermissionMode(normalizedEngine, settings.mode);
+    } else {
+      mode = normalizePermissionMode(settings.mode);
+    }
     const next = {
-      mode: normalizePermissionMode(settings.mode)
+      mode,
+      engines: normalizePermissionEngines(engines)
     };
     fs.mkdirSync(path.dirname(p.permissionSettings), { recursive: true });
     fs.writeFileSync(p.permissionSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
     writeRuntimeConfig(getEngineState()?.port || readConfiguredPort());
     return next;
+  }
+
+  function enginePermissionMode(engine = "hermes") {
+    const normalizedEngine = normalizeAgentEngine(engine);
+    const settings = permissionSettings();
+    if (normalizedEngine === "hermes") return settings.mode;
+    return normalizeEnginePermissionMode(
+      normalizedEngine,
+      settings.engines?.[normalizedEngine] || "default"
+    );
   }
 
   function normalizeDaemonHost(value) {
@@ -454,6 +498,7 @@ function createSettingsStore(deps = {}) {
     permissionSettings,
     permissionStatus,
     writePermissionSettings,
+    enginePermissionMode,
     normalizeDaemonHost,
     normalizeDaemonPort,
     daemonSettings,

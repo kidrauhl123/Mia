@@ -549,6 +549,7 @@ function verifyRelease() {
     "api/src/shared/conversation-kinds.js",
     "api/src/shared/conversation-tags.js",
     "api/src/shared/cloud-events.js",
+    "api/src/shared/assistant-content-blocks.js",
     "api/src/shared/engine-contracts.js",
     "api/src/shared/ids.js",
     "api/src/shared/member-color.js",
@@ -641,6 +642,7 @@ function verifyRelease() {
     "api/src/shared/conversation-kinds.js",
     "api/src/shared/conversation-tags.js",
     "api/src/shared/cloud-events.js",
+    "api/src/shared/assistant-content-blocks.js",
     "api/src/shared/engine-contracts.js",
     "api/src/shared/member-color.js",
     "api/src/shared/avatar-media.js",
@@ -841,6 +843,7 @@ function main() {
   copyFile("src/shared/conversation-kinds.js", path.join(apiDir, "src", "shared", "conversation-kinds.js"));
   copyFile("src/shared/conversation-tags.js", path.join(apiDir, "src", "shared", "conversation-tags.js"));
   copyFile("src/shared/cloud-events.js", path.join(apiDir, "src", "shared", "cloud-events.js"));
+  copyFile("src/shared/assistant-content-blocks.js", path.join(apiDir, "src", "shared", "assistant-content-blocks.js"));
   copyFile("src/shared/engine-contracts.js", path.join(apiDir, "src", "shared", "engine-contracts.js"));
   copyFile("src/shared/ids.js", path.join(apiDir, "src", "shared", "ids.js"));
   copyFile("src/shared/member-color.js", path.join(apiDir, "src", "shared", "member-color.js"));
@@ -886,6 +889,7 @@ function main() {
   copyFile("packages/shared/cloud-client.js", path.join(webDir, "shared", "cloud-client.js"));
   copyFile("src/shared/bot-runtime-control.js", path.join(webDir, "shared", "bot-runtime-control.js"));
   copyFile("src/shared/agent-permissions.js", path.join(webDir, "shared", "agent-permissions.js"));
+  copyFile("src/shared/assistant-content-blocks.js", path.join(webDir, "shared", "assistant-content-blocks.js"));
   copyFile("src/shared/trace-blocks.js", path.join(webDir, "shared", "trace-blocks.js"));
   copyFile("src/shared/message-text-cursor.js", path.join(webDir, "shared", "message-text-cursor.js"));
   copyFile("src/shared/mention-render.js", path.join(webDir, "shared", "mention-render.js"));

@@ -12,7 +12,13 @@ const { chatCompletionResponse } = require("../src/main/chat-response.js");
 function createDeps(overrides = {}) {
   const calls = [];
   async function* streamEvents(events) {
-    for (const event of events) yield event;
+    for (const event of events) {
+      if (typeof event === "function") {
+        await event();
+        continue;
+      }
+      yield event;
+    }
   }
   function threadApi(id, responseText) {
     return {
@@ -56,12 +62,14 @@ function createDeps(overrides = {}) {
     calls,
     chatCompletionResponse,
     codexSdk: async () => ({ Codex }),
-    cwd: () => "/repo",
+    cwd: overrides.cwd || (() => "/repo"),
     expandLeadingSkillCommand: (text, options) => {
       calls.push(["expand", text, options.mode]);
       return overrides.expandedPrompt ?? text;
     },
-    ensureCodexHome: overrides.ensureCodexHome || (() => overrides.codexHomePath ?? "/runtime/codex-home"),
+    ensureCodexHome: overrides.ensureCodexHome || (() => overrides.codexHomePath ?? "/Users/test/.codex"),
+    describeFileChange: overrides.describeFileChange,
+    enginePermissionMode: overrides.enginePermissionMode || (() => overrides.enginePermissionModeValue || "default"),
     getMiaAppMcpSpec: () => overrides.miaAppMcpSpec ?? null,
     getSchedulerMcpSpec: () => overrides.schedulerMcpSpec ?? null,
     getAgentSessionId: () => overrides.externalSessionId || "",
@@ -74,6 +82,7 @@ function createDeps(overrides = {}) {
     resolveManagedModelRuntime: overrides.resolveManagedModelRuntime || (() => null),
     setAgentSessionId: (...args) => calls.push(["set-session", ...args]),
     shellCommandPath: (command) => command === "codex" ? (overrides.commandPath || "/bin/codex") : "",
+    syncCodexConfigForPermission: overrides.syncCodexConfigForPermission || (() => {}),
     writeSchedulerMcpContext: () => {}
   };
 }
@@ -117,7 +126,10 @@ test("mapCodexPermissionMode maps known permission modes", () => {
 });
 
 test("sendChat starts new thread with persona on first turn", async () => {
-  const deps = createDeps({ expandedPrompt: "expanded" });
+  const deps = createDeps({
+    expandedPrompt: "expanded",
+    enginePermissionMode: () => "readOnly"
+  });
   const adapter = createCodexChatAdapter(deps);
   const response = await adapter.sendChat({
     bot: { key: "alice", name: "Alice", bio: "", engineConfig: { permissionMode: "readOnly", effortLevel: "high", model: "gpt-test" } },
@@ -129,7 +141,7 @@ test("sendChat starts new thread with persona on first turn", async () => {
   });
 
   assert.deepEqual(deps.calls[0], ["expand", "hello", "inline"]);
-  assert.deepEqual(deps.calls[1], ["constructor", { codexPathOverride: "/bin/codex", env: { PATH: "/bin", CODEX_HOME: "/runtime/codex-home" } }]);
+  assert.deepEqual(deps.calls[1], ["constructor", { codexPathOverride: "/bin/codex", env: { PATH: "/bin", CODEX_HOME: "/Users/test/.codex" } }]);
   assert.equal(deps.calls[2][0], "startThread");
   assert.equal(deps.calls[2][1].workingDirectory, "/repo");
   assert.equal(deps.calls[2][1].modelReasoningEffort, "codex:high");
@@ -165,11 +177,11 @@ test("sendChat puts the selected codex bin dir first in SDK env", async () => {
 
   assert.deepEqual(deps.calls[1], ["constructor", {
     codexPathOverride: "/opt/codex-node/bin/codex",
-    env: { PATH: "/opt/codex-node/bin:/bad-node/bin:/usr/bin", CODEX_HOME: "/runtime/codex-home" }
+    env: { PATH: "/opt/codex-node/bin:/bad-node/bin:/usr/bin", CODEX_HOME: "/Users/test/.codex" }
   }]);
 });
 
-test("sendChat routes Mia-managed Codex models through the proxy profile", async () => {
+test("sendChat routes Mia-managed Codex models through the proxy runtime", async () => {
   const deps = createDeps({
     resolveManagedModelRuntime: () => ({
       provider: "mia",
@@ -190,14 +202,14 @@ test("sendChat routes Mia-managed Codex models through the proxy profile", async
 
   assert.deepEqual(deps.calls[1], ["constructor", {
     codexPathOverride: "/bin/codex",
-    env: { PATH: "/bin", CODEX_HOME: "/runtime/codex-home" },
+    env: { PATH: "/bin", CODEX_HOME: "/Users/test/.codex" },
     baseUrl: "https://mia.example/api/me/model-proxy/v1",
     apiKey: "cloud-token"
   }]);
   assert.equal(deps.calls[2][1].model, "mia-default");
 });
 
-test("sendChat fails closed when Mia Codex home cannot be created", async () => {
+test("sendChat fails closed when Codex home cannot be prepared", async () => {
   const deps = createDeps({
     ensureCodexHome: () => { throw new Error("disk denied"); }
   });
@@ -209,7 +221,7 @@ test("sendChat fails closed when Mia Codex home cannot be created", async () => 
       sessionId: "s1",
       messages: [{ role: "user", content: "hi" }]
     }),
-    /Mia Codex profile setup failed: disk denied/
+    /Mia Codex home setup failed: disk denied/
   );
 });
 
@@ -385,6 +397,123 @@ test("sendChat streams Codex agent message deltas when emit is provided", async 
   assert.equal(response.choices[0].message.content, "你好。");
 });
 
+test("sendChat emits Codex file changes as unified file_edit events", async () => {
+  const deps = createDeps({
+    streamEvents: [
+      { type: "thread.started", thread_id: "thread_stream" },
+      { type: "turn.started" },
+      {
+        type: "item.completed",
+        item: {
+          id: "patch_1",
+          type: "file_change",
+          status: "completed",
+          changes: [{ path: "src/web/app.js", kind: "update" }]
+        }
+      },
+      { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "done" } },
+      { type: "turn.completed", usage: null }
+    ],
+    describeFileChange: (change, options) => ({
+      name: `Edited ${change.path} (+5 -1)`,
+      preview: `cwd=${options.workingDirectory}\n@@\n-old\n+new`,
+      additions: 5,
+      deletions: 1
+    })
+  });
+  const emitted = [];
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "" },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    emit: (kind, payload) => emitted.push({ kind, payload }),
+    utility: false
+  });
+
+  assert.deepEqual(emitted.filter((event) => event.kind === "file_edit"), [{
+    kind: "file_edit",
+    payload: {
+      id: "patch_1_0",
+      path: "src/web/app.js",
+      action: "update",
+      title: "Edited src/web/app.js (+5 -1)",
+      diff: "cwd=/repo\n@@\n-old\n+new",
+      additions: 5,
+      deletions: 1,
+      status: "completed",
+      error: false
+    }
+  }]);
+  assert.equal(emitted.some((event) => event.kind === "tool_call_started" && event.payload.id === "patch_1_0"), false);
+});
+
+test("sendChat emits shell-created workspace files as unified file_edit events", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mia-codex-shell-diff-"));
+  const deps = createDeps({
+    cwd: () => workspace,
+    streamEvents: [
+      { type: "thread.started", thread_id: "thread_stream" },
+      { type: "turn.started" },
+      {
+        type: "item.started",
+        item: {
+          id: "cmd_1",
+          type: "command_execution",
+          command: "/bin/zsh -lc \"printf 'hello mia\\n' > mia-diff-demo.txt\"",
+          status: "running"
+        }
+      },
+      () => fs.writeFileSync(path.join(workspace, "mia-diff-demo.txt"), "hello mia\n"),
+      {
+        type: "item.completed",
+        item: {
+          id: "cmd_1",
+          type: "command_execution",
+          command: "/bin/zsh -lc \"printf 'hello mia\\n' > mia-diff-demo.txt\"",
+          status: "completed"
+        }
+      },
+      { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "done" } },
+      { type: "turn.completed", usage: null }
+    ]
+  });
+  const emitted = [];
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "" },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    emit: (kind, payload) => emitted.push({ kind, payload }),
+    utility: false
+  });
+
+  assert.deepEqual(emitted.filter((event) => event.kind === "file_edit"), [{
+    kind: "file_edit",
+    payload: {
+      id: "cmd_1_diff_0",
+      path: "mia-diff-demo.txt",
+      action: "add",
+      title: "Added mia-diff-demo.txt (+1 -0)",
+      diff: [
+        "diff --git a/mia-diff-demo.txt b/mia-diff-demo.txt",
+        "--- /dev/null",
+        "+++ b/mia-diff-demo.txt",
+        "@@ -0,0 +1,1 @@",
+        "+hello mia"
+      ].join("\n"),
+      additions: 1,
+      deletions: 0,
+      status: "completed",
+      error: false
+    }
+  }]);
+});
+
 test("sendChat uses Codex app-server runner for interactive approval-capable turns", async () => {
   const miaAppMcpSpec = {
     command: "/opt/node",
@@ -434,8 +563,10 @@ test("sendChat uses Codex app-server runner for interactive approval-capable tur
   assert.deepEqual(emitted.map((event) => event.kind), ["text_delta"]);
 });
 
-test("sendChat passes Codex permission profiles to app-server runner", async () => {
-  const deps = createDeps();
+test("sendChat passes engine-level Codex permission profiles to app-server runner", async () => {
+  const deps = createDeps({
+    enginePermissionMode: () => ":workspace"
+  });
   deps.runCodexAppServerTurn = async (args) => {
     deps.calls.push(["app-server", args]);
     return { threadId: "app_thread_1", finalResponse: "app out", items: [] };
@@ -443,7 +574,7 @@ test("sendChat passes Codex permission profiles to app-server runner", async () 
   const adapter = createCodexChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { permissionMode: ":workspace" } },
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { permissionMode: "readOnly" } },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -457,7 +588,38 @@ test("sendChat passes Codex permission profiles to app-server runner", async () 
   assert.equal(call.options.approvalPolicy, "never");
 });
 
-test("sendChat passes Mia-managed Codex profile to app-server runner", async () => {
+test("sendChat uses engine-level Codex permission and does not sync config per run", async () => {
+  const synced = [];
+  const deps = createDeps({
+    enginePermissionMode: () => ":danger-full-access",
+    syncCodexConfigForPermission: (permission) => synced.push(permission)
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { permissionMode: "readOnly" } },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    utility: false
+  });
+  await adapter.sendChat({
+    bot: { key: "bob", name: "Bob", bio: "", engineConfig: { permissionMode: "readOnly" } },
+    sessionId: "s2",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    utility: false
+  });
+
+  assert.deepEqual(synced, []);
+  const starts = deps.calls.filter((entry) => entry[0] === "startThread").map((entry) => entry[1]);
+  assert.equal(starts[0].sandboxMode, "danger-full-access");
+  assert.equal(starts[0].approvalPolicy, "never");
+  assert.equal(starts[1].sandboxMode, "danger-full-access");
+  assert.equal(starts[1].approvalPolicy, "never");
+});
+
+test("sendChat passes Mia-managed Codex model proxy to app-server runner", async () => {
   const deps = createDeps({
     resolveManagedModelRuntime: () => ({
       provider: "mia",

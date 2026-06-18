@@ -25,18 +25,19 @@ function setup(t) {
   return { dir, runtime, userHome, service };
 }
 
-test("codex profile links auth but excludes native sessions and memory", (t) => {
+test("codex profile uses the user's native Codex home", (t) => {
   const { service, userHome } = setup(t);
 
   const profile = service.ensureCodexProfile();
 
   assert.equal(profile.env.CODEX_HOME, profile.home);
-  assert.equal(fs.readFileSync(path.join(profile.home, "auth.json"), "utf8"), "{}");
-  assert.equal(fs.existsSync(path.join(profile.home, "sessions")), false);
-  assert.equal(fs.existsSync(path.join(profile.home, "history.jsonl")), false);
-  assert.equal(fs.existsSync(path.join(profile.home, "session_index.jsonl")), false);
-  assert.equal(fs.existsSync(path.join(profile.home, "memory")), false);
+  assert.equal(profile.home, path.join(userHome, ".codex"));
   assert.equal(profile.userHome, path.join(userHome, ".codex"));
+  assert.equal(fs.readFileSync(path.join(profile.home, "auth.json"), "utf8"), "{}");
+  assert.equal(fs.existsSync(path.join(profile.home, "sessions")), true);
+  assert.equal(fs.existsSync(path.join(profile.home, "history.jsonl")), true);
+  assert.equal(fs.existsSync(path.join(profile.home, "session_index.jsonl")), true);
+  assert.equal(fs.existsSync(path.join(profile.home, "memory")), true);
 });
 
 test("hermes profile uses Mia-owned home", (t) => {

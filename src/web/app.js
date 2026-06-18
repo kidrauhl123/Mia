@@ -9,6 +9,7 @@ const { prepareOutgoingMessage } = window.miaSendPipeline;
 const { MemberKind, SenderKind } = window.miaConversationKinds;
 const sessionHistory = window.miaSessionHistory || {};
 const botRuntimeControl = window.miaBotRuntimeControl || {};
+const assistantContentBlocks = window.miaAssistantContentBlocks || {};
 const conversationTagsApi = window.miaConversationTags || {
   defaultConversationTags: () => ({ items: [], assignments: {} }),
   normalizeConversationTags: (value) => value && typeof value === "object" ? value : { items: [], assignments: {} },
@@ -1145,6 +1146,8 @@ function cloudRunFor(conversationId, runId = "") {
     status: "running",
     createdAt: new Date().toISOString(),
     tools: [],
+    contentBlocks: [],
+    contentBlockCollector: null,
     toolsById: new Map(),
     toolsByName: new Map(),
   };
@@ -1246,24 +1249,72 @@ function parseTraceJson(value) {
   return { reasoning, tools };
 }
 
+function parseContentBlocksJson(value) {
+  if (!value) return [];
+  let parsed = value;
+  if (typeof value === "string") {
+    try { parsed = JSON.parse(value); } catch { return []; }
+  }
+  if (assistantContentBlocks && typeof assistantContentBlocks.normalizeContentBlocks === "function") {
+    return assistantContentBlocks.normalizeContentBlocks(parsed);
+  }
+  return Array.isArray(parsed) ? parsed.filter((block) => block && typeof block === "object") : [];
+}
+
+function contentBlocksFromMessage(msg) {
+  const blocks = parseContentBlocksJson(msg?.content_blocks_json || msg?.contentBlocks || msg?.content_blocks);
+  if (!blocks.length) return [];
+  return assistantContentBlocks && typeof assistantContentBlocks.contentBlocksWithFinalText === "function"
+    ? assistantContentBlocks.contentBlocksWithFinalText(blocks, msg?.body_md || msg?.bodyMd || "")
+    : blocks;
+}
+
+function collectRunContentBlock(run, event = {}) {
+  if (!run || !event || typeof event !== "object") return;
+  if (!assistantContentBlocks || typeof assistantContentBlocks.createAssistantContentBlockCollector !== "function") return;
+  if (!run.contentBlockCollector) run.contentBlockCollector = assistantContentBlocks.createAssistantContentBlockCollector();
+  run.contentBlockCollector.collect(event);
+  run.contentBlocks = run.contentBlockCollector.payload();
+}
+
+function contentBlocksPayloadFromRun(run, finalText = "") {
+  const blocks = Array.isArray(run?.contentBlocks) ? run.contentBlocks : [];
+  if (!blocks.length) return null;
+  if (finalText && typeof assistantContentBlocks.contentBlocksWithFinalText === "function") {
+    return assistantContentBlocks.contentBlocksWithFinalText(blocks, finalText);
+  }
+  return blocks;
+}
+
+function messageWithFallbackRunContentBlocks(conversationId, msg) {
+  if (!msg || msg.sender_kind !== SenderKind.Bot) return msg;
+  if (contentBlocksFromMessage(msg).length) return msg;
+  const blocks = contentBlocksPayloadFromRun(
+    state.cloudAgentRunsByConversation.get(conversationId),
+    msg.body_md || msg.bodyMd || ""
+  );
+  return blocks ? { ...msg, contentBlocks: blocks } : msg;
+}
+
 function handleCloudEvent(envelope) {
   const type = envelope?.type || "";
   if (type === "conversation.message_appended") {
     const msg = envelope.message;
     const conversationId = msg?.conversation_id || envelope.conversation_id;
-    if (!conversationId) return;
+    if (!conversationId || !msg) return;
+    const cachedMsg = messageWithFallbackRunContentBlocks(conversationId, msg);
     const entry = state.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
-    const fresh = !entry.messages.some((m) => m.id === msg.id);
+    const fresh = !entry.messages.some((m) => m.id === cachedMsg.id);
     if (fresh) {
-      entry.messages.push(msg);
-      entry.maxSeq = Math.max(entry.maxSeq, Number(msg.seq || 0));
+      entry.messages.push(cachedMsg);
+      entry.maxSeq = Math.max(entry.maxSeq, Number(cachedMsg.seq || 0));
       state.messageCache.set(conversationId, entry);
-      if (msg.sender_kind === SenderKind.Bot) state.cloudAgentRunsByConversation.delete(conversationId);
+      if (cachedMsg.sender_kind === SenderKind.Bot || msg.sender_kind === SenderKind.Bot) state.cloudAgentRunsByConversation.delete(conversationId);
       // Bump unread if the message isn't mine and the conversation isn't currently open.
       // Self-id check goes through shared/contact: resolveContact returns kind="self"
       // only when ref matches ctx.self.id (works for any sender kind).
       const author = window.miaContact.resolveContact(
-        { kind: "user", ref: msg.sender_ref },
+        { kind: "user", ref: cachedMsg.sender_ref },
         { self: state.user, friends: state.friends }
       );
       const isMine = author.kind === "self";
@@ -1273,7 +1324,7 @@ function handleCloudEvent(envelope) {
         // rows from since_seq forward, and we'd otherwise re-light the badge
         // for conversations the user read on desktop).
         const readMark = Number(state.settings?.readMarks?.[conversationId]) || 0;
-        const msgSeq = Number(msg.seq) || 0;
+        const msgSeq = Number(cachedMsg.seq) || 0;
         if (msgSeq > readMark) {
           state.unread.set(conversationId, (state.unread.get(conversationId) || 0) + 1);
         }
@@ -1302,7 +1353,8 @@ function handleCloudEvent(envelope) {
     const run = cloudRunFor(conversationId, envelope.runId || "");
     run.botId = envelope.botId || run.botId || "";
     const name = hermesEventType(event);
-    if (name === "message.delta") {
+    collectRunContentBlock(run, event);
+    if (name === "message.delta" || name === "text_delta") {
       run.text += hermesEventText(event);
     } else if (name === "message.complete" || name === "message.completed") {
       run.text = hermesEventText(event) || run.text;
@@ -2396,9 +2448,27 @@ function buildConversationMessageArticle(msg, conversation) {
   const highlightedBody = renderedBody && window.miaMentionRender
     ? window.miaMentionRender.highlightMentions(renderedBody, members || [])
     : renderedBody;
+  const contentBlocks = !isOwn ? contentBlocksFromMessage(msg) : [];
+  let renderedFirstTextBlock = false;
+  const orderedBlocksHtml = contentBlocks.length && window.miaTraceBlocks?.renderAssistantContentBlocks
+    ? window.miaTraceBlocks.renderAssistantContentBlocks({
+      blocks: contentBlocks,
+      expanded: false,
+      scopeKey: `web-msg:${msg.id || msg.seq || ""}`,
+      renderTextBlock(block) {
+        const prefixHtml = renderedFirstTextBlock ? "" : senderTitleHtml;
+        renderedFirstTextBlock = true;
+        const renderedBlock = block.text ? renderMarkdown(block.text) : "";
+        const highlightedBlock = renderedBlock && window.miaMentionRender
+          ? window.miaMentionRender.highlightMentions(renderedBlock, members || [])
+          : renderedBlock;
+        return highlightedBlock ? `<div class="bubble">${prefixHtml}${highlightedBlock}</div>` : "";
+      }
+    })
+    : "";
   const bodyHtml = spec.bodyMd ? `<div class="bubble">${senderTitleHtml}${highlightedBody}</div>` : "";
   const attachmentHtml = renderAttachmentChips(spec.attachments || msg.attachments || []);
-  const trace = !isOwn ? parseTraceJson(msg.trace_json || msg.trace) : null;
+  const trace = !isOwn ? (orderedBlocksHtml ? "" : parseTraceJson(msg.trace_json || msg.trace)) : null;
   const traceHtml = trace
     ? window.miaTraceBlocks.renderTraceBlocks({
       reasoning: trace.reasoning,
@@ -2413,7 +2483,7 @@ function buildConversationMessageArticle(msg, conversation) {
       ${avatarMarkup}
       <div class="message-stack">
         ${traceHtml}
-        ${bodyHtml}
+        ${orderedBlocksHtml || bodyHtml}
         ${attachmentHtml}
         <span class="message-time">${escapeHtml(formatMessageTime(spec.createdAt))}</span>
       </div>
@@ -2425,7 +2495,7 @@ function buildCloudAgentStreamingArticle(conversation, run) {
   if (!conversation || !run) return "";
   // Typing-only state ("running" with no body yet) renders as header dots,
   // not a placeholder bubble in the message stream. See renderActiveChat.
-  if (!run.text && !run.tools.length && !run.reasoning) return "";
+  if (!run.text && !run.tools.length && !run.reasoning && !(Array.isArray(run.contentBlocks) && run.contentBlocks.length)) return "";
   const botKey = run.botId || sessionHistory.botId(conversation) || "mia";
   const msg = {
     id: `cloud-agent-stream-${run.runId || conversation.id}`,
@@ -2448,20 +2518,32 @@ function buildCloudAgentStreamingArticle(conversation, run) {
     text: avatar.text || avatarResolve.identityDisplayText(spec.authorName, "?")
   });
   const textHtml = run.text ? `<div class="bubble">${renderMarkdown(run.text)}</div>` : "";
-  const traceHtml = window.miaTraceBlocks.renderTraceBlocks({
-    reasoning: run.reasoning,
-    tools: run.tools,
-    content: run.text || "",
-    expanded: true,
-    scopeKey: `web-run:${run.runId || conversation.id}`,
-  });
+  const orderedBlocksHtml = Array.isArray(run.contentBlocks) && run.contentBlocks.length && window.miaTraceBlocks?.renderAssistantContentBlocks
+    ? window.miaTraceBlocks.renderAssistantContentBlocks({
+      blocks: run.contentBlocks,
+      expanded: true,
+      scopeKey: `web-run:${run.runId || conversation.id}`,
+      renderTextBlock(block) {
+        return block.text ? `<div class="bubble">${renderMarkdown(block.text)}</div>` : "";
+      }
+    })
+    : "";
+  const traceHtml = orderedBlocksHtml
+    ? ""
+    : window.miaTraceBlocks.renderTraceBlocks({
+      reasoning: run.reasoning,
+      tools: run.tools,
+      content: run.text || "",
+      expanded: true,
+      scopeKey: `web-run:${run.runId || conversation.id}`,
+    });
   const permissionHtml = permissionBannerHtml(run.permission);
   const isGroup = conversation.type === "group"
     || (!conversation.id?.startsWith("dm:") && !conversation.id?.startsWith("botc_") && (conversation.id?.startsWith("g_") || conversation.id?.startsWith("g-")));
   return `
     <article class="message assistant streaming${isGroup ? " group-message" : ""}">
       ${avatarMarkup}
-      <div class="message-stack">${traceHtml}${textHtml}${permissionHtml}</div>
+      <div class="message-stack">${orderedBlocksHtml || `${traceHtml}${textHtml}`}${permissionHtml}</div>
     </article>
   `;
 }

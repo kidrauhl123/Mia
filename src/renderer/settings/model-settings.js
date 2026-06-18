@@ -178,7 +178,7 @@
     if (!state || !els || !els.permissionMode || !els.permissionLabel) return;
     const engine = window.miaEngineOptions.activeAgentEngine();
     const external = isExternalEngine(engine);
-    const mode = external ? (window.miaEngineOptions.engineConfigForPersona().permissionMode || "default") : (runtime?.permissions?.mode || "manual");
+    const mode = external ? (runtime?.permissions?.engines?.[engine] || "default") : (runtime?.permissions?.mode || "manual");
     setPermissionSelectOptions(engine, mode);
     if (document.activeElement !== els.permissionMode) {
       els.permissionMode.value = [...els.permissionMode.options].some((option) => option.value === mode) ? mode : els.permissionMode.options[0]?.value || "";

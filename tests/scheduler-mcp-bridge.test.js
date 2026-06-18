@@ -4,7 +4,10 @@ const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
 
-const { createSchedulerMcpBridge } = require("../src/main/scheduler-mcp-bridge.js");
+const {
+  createSchedulerMcpBridge,
+  stripMiaSchedulerSection
+} = require("../src/main/scheduler-mcp-bridge.js");
 
 function escapeRe(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -78,7 +81,7 @@ test("getSpec returns the stdio MCP config with daemon token and context path", 
   assert.equal(fs.readFileSync(runtimeScriptPath, "utf8"), "server");
 });
 
-test("ensureCodexHome links reusable Codex state, isolates sessions, and rewrites only Mia scheduler config", (t) => {
+test("ensureCodexHome uses user Codex home and rewrites only Mia scheduler config", (t) => {
   const { scriptPath, service, userHome } = setup(t, {
     nodePath: () => "/opt/node \"quoted\""
   });
@@ -100,10 +103,9 @@ test("ensureCodexHome links reusable Codex state, isolates sessions, and rewrite
 
   const codexHome = service.ensureCodexHome();
 
-  assert.equal(codexHome.endsWith(path.join("runtime", "codex-home")), true);
+  assert.equal(codexHome, userCodexHome);
   assert.equal(fs.readFileSync(path.join(codexHome, "auth.json"), "utf8"), "{}");
-  assert.equal(fs.existsSync(path.join(codexHome, "sessions")), false);
-  assert.equal(fs.lstatSync(path.join(codexHome, "config.toml")).isSymbolicLink(), false);
+  assert.equal(fs.existsSync(path.join(codexHome, "sessions")), true);
 
   const config = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
   const runtimeScriptPath = path.join(path.dirname(service.contextPath()), "scheduler-mcp-server.js");
@@ -115,4 +117,25 @@ test("ensureCodexHome links reusable Codex state, isolates sessions, and rewrite
   assert.match(config, new RegExp(`args = \\["${escapeRe(tomlStringValue(runtimeScriptPath))}"\\]`));
   assert.equal(fs.readFileSync(runtimeScriptPath, "utf8"), "server");
   assert.match(config, /MIA_DAEMON_TOKEN = "token_1"/);
+});
+
+test("stripMiaSchedulerSection removes stale scheduler env tables even when they appear before the main table", () => {
+  const stripped = stripMiaSchedulerSection([
+    "model = \"gpt\"",
+    "",
+    "[mcp_servers.mia-scheduler.env]",
+    "MIA_DAEMON_TOKEN = \"old\"",
+    "",
+    "[mcp_servers.mia-scheduler]",
+    "command = \"old\"",
+    "",
+    "[mcp_servers.other]",
+    "command = \"keep\"",
+    ""
+  ].join("\n"));
+
+  assert.match(stripped, /model = "gpt"/);
+  assert.match(stripped, /\[mcp_servers\.other\]\ncommand = "keep"/);
+  assert.doesNotMatch(stripped, /mcp_servers\.mia-scheduler/);
+  assert.doesNotMatch(stripped, /MIA_DAEMON_TOKEN = "old"/);
 });

@@ -2,7 +2,8 @@
 // Extracted from app.js. Read-only data layer for the multi-engine select UI:
 //
 //   - Which engine the active persona is using (hermes / claude-code / codex)
-//   - The persona's per-engine config (model name, permissionMode, effortLevel)
+//   - The persona's per-engine config (model name, effortLevel)
+//   - The engine-level permission mode shown beside those persona controls
 //   - The list of model entries for external engines
 //   - The list of permission modes and effort levels for the current engine,
 //     pulled from real engine capabilities when present and falling back to

@@ -325,7 +325,15 @@ test("bootstrapAfterLogin prefetches group members beyond the initial message ca
     }
   };
   s.initSocialModule({
-    getState: () => ({ runtime: {} }),
+    getState: () => ({
+      runtime: {
+        permissions: {
+          engines: {
+            codex: ":workspace"
+          }
+        }
+      }
+    }),
     render: () => {},
     els: {},
     appendTransientChat: () => {}
@@ -558,7 +566,15 @@ test("ensureBotConversation syncs external bot runtime config for web controls",
     ]
   };
   s.initSocialModule({
-    getState: () => ({ runtime: {} }),
+    getState: () => ({
+      runtime: {
+        permissions: {
+          engines: {
+            codex: ":workspace"
+          }
+        }
+      }
+    }),
     render: () => {},
     els: {},
     appendTransientChat: () => {}
@@ -586,7 +602,7 @@ test("ensureBotConversation syncs external bot runtime config for web controls",
     agentEngine: "codex",
     model: "gpt-5.3-codex",
     effortLevel: "xhigh",
-    permissionMode: "readOnly",
+    permissionMode: ":workspace",
     modelEntries: [
       { value: "default", label: "Codex 默认", model: "", provider: "codex", providerLabel: "" },
       { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "" }
@@ -1302,6 +1318,52 @@ test("sendInActiveConversation shows outgoing cloud messages before the network 
   assert.equal(entry.maxSeq, 1);
 });
 
+test("sendInActiveConversation posts and previews attachment-only messages", async () => {
+  const s = loadSocial();
+  const posted = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async (conversationId, body) => {
+      posted.push({ conversationId, body });
+      return {
+        ok: true,
+        data: {
+          message: {
+            id: "m_attachment",
+            seq: 1,
+            sender_kind: "user",
+            sender_ref: "u_me",
+            body_md: "",
+            attachments: body.attachments
+          }
+        }
+      };
+    }
+  };
+  s.moduleState.activeConversationId = "g_attachment";
+  s.moduleState.conversations = [{ id: "g_attachment", type: "group", name: "Attach" }];
+  s.moduleState.messageCache.set("g_attachment", { messages: [], maxSeq: 0 });
+  const attachment = {
+    id: "a_img",
+    name: "image.png",
+    kind: "image",
+    mime: "image/png",
+    size: 18,
+    dataUrl: "data:image/png;base64,cG5n",
+    thumbnailDataUrl: "data:image/png;base64,cG5n"
+  };
+
+  await s.sendInActiveConversation("", { attachments: [attachment] });
+
+  const entry = s.moduleState.messageCache.get("g_attachment");
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].conversationId, "g_attachment");
+  assert.equal(posted[0].body.bodyMd, "");
+  assert.deepEqual(posted[0].body.attachments, [attachment]);
+  assert.equal(entry.messages.length, 1);
+  assert.deepEqual(entry.messages[0].attachments, [attachment]);
+});
+
 test("sendInActiveConversation reconciles the websocket echo before the POST reply resolves", async () => {
   const s = loadSocial();
   const post = deferred();
@@ -1739,6 +1801,76 @@ test("renderConversationChat renders group sender status badge", () => {
   assert.match(chat.children[0].innerHTML, /name-with-badge/);
   assert.match(chat.children[0].innerHTML, /name-with-badge-badge-emoji/);
   assert.match(chat.children[0].innerHTML, /⭐/);
+});
+
+test("renderConversationChat renders group bot ordered content blocks before trace fallback", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  installSocialGroups(s.__mockWindow);
+  s.__mockWindow.miaMemberColor = { memberAccentColor: () => "#2563eb" };
+  s.__mockWindow.miaTraceBlocks = {
+    renderAssistantContentBlocks({ blocks, renderTextBlock }) {
+      return blocks.map((block) => {
+        if (block.type === "text") return renderTextBlock(block);
+        if (block.type === "thinking") return `<div class="ordered-thinking">${block.text}</div>`;
+        if (block.type === "tool") return `<div class="ordered-tool">${block.name}</div>`;
+        return "";
+      }).join("");
+    },
+    renderTraceBlocks() {
+      return '<div class="legacy-trace">legacy</div>';
+    }
+  };
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "g_blocks";
+  s.moduleState.conversations = [{ id: "g_blocks", type: "group", name: "Squad" }];
+  s._internalCtx.conversationMembersCache.set("g_blocks", [{
+    member_kind: "bot",
+    member_ref: "mia",
+    identity: {
+      kind: "bot",
+      id: "mia",
+      displayName: "Mia",
+      avatar: { image: "", crop: null, color: "#5e5ce6", text: "Mi" }
+    }
+  }]);
+  s.moduleState.messageCache.set("g_blocks", {
+    maxSeq: 1,
+    messages: [{
+      id: "m_group_blocks",
+      seq: 1,
+      sender_kind: "bot",
+      sender_ref: "mia",
+      body_md: "我先看目录。\n\n结论是已确认。",
+      created_at: "",
+      trace_json: JSON.stringify({ reasoning: "legacy", tools: [{ name: "legacy-tool", status: "completed" }] }),
+      content_blocks_json: JSON.stringify([
+        { type: "thinking", id: "think_1", text: "检查上下文", status: "completed" },
+        { type: "text", id: "text_1", text: "我先看目录。" },
+        { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed" },
+        { type: "text", id: "text_2", text: "结论是已确认。" }
+      ])
+    }]
+  });
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+
+  s.renderConversationChat(chat);
+
+  const html = chat.children[0].innerHTML;
+  assert.ok(html.indexOf("检查上下文") < html.indexOf("我先看目录。"));
+  assert.ok(html.indexOf("我先看目录。") < html.indexOf("shell"));
+  assert.ok(html.indexOf("shell") < html.indexOf("结论是已确认。"));
+  assert.doesNotMatch(html, /legacy-trace/);
+  assert.doesNotMatch(html, /legacy-tool/);
 });
 
 test("renderConversationChat initializes group sender lottie status badges", () => {
@@ -2312,6 +2444,58 @@ test("renderConversationChat renders normalized cloud run trace blocks", () => {
   assert.match(chat.children[0].innerHTML, /shell:completed/);
 });
 
+test("renderConversationChat streams ordered blocks without duplicate tool chips", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  s.__mockWindow.miaTraceBlocks = {
+    renderAssistantContentBlocks({ blocks, renderTextBlock }) {
+      return blocks.map((block) => {
+        if (block.type === "text") return renderTextBlock(block);
+        if (block.type === "tool") return `<div class="ordered-tool">${block.name}</div>`;
+        if (block.type === "thinking") return `<div class="ordered-thinking">${block.text}</div>`;
+        return "";
+      }).join("");
+    },
+    renderTraceBlocks() {
+      return '<div class="legacy-trace">legacy</div>';
+    }
+  };
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "text_delta", id: "text_1", text: "我先看目录。" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "pwd" } },
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  const html = chat.children[0].innerHTML;
+  assert.match(html, /ordered-tool/);
+  assert.doesNotMatch(html, /<span>TOOL<\/span>/);
+  assert.doesNotMatch(html, /legacy-trace/);
+});
+
 test("renderConversationChat marks rendered trace rows after painting", () => {
   const s = loadSocial();
   let markedRoot = null;
@@ -2390,6 +2574,117 @@ test("renderConversationChat renders persisted trace_json on bot messages", () =
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /做了计划/);
   assert.match(chat.children[0].innerHTML, /search/);
+});
+
+test("renderConversationChat prefers ordered content blocks over top-level trace_json", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaTraceBlocks = {
+    renderAssistantContentBlocks({ blocks, renderTextBlock }) {
+      return blocks.map((block) => {
+        if (block.type === "text") return renderTextBlock(block);
+        if (block.type === "thinking") return `<div class="ordered-thinking">${block.text}</div>`;
+        if (block.type === "tool") return `<div class="ordered-tool">${block.name}</div>`;
+        return "";
+      }).join("");
+    },
+    renderTraceBlocks() {
+      return '<div class="legacy-trace">legacy</div>';
+    }
+  };
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", {
+    messages: [{
+      id: "m_blocks",
+      seq: 1,
+      sender_kind: "bot",
+      sender_ref: "mia",
+      body_md: "我先看目录。\n\n结论是已确认。",
+      created_at: "",
+      trace_json: JSON.stringify({ reasoning: "legacy", tools: [{ name: "legacy-tool", status: "completed" }] }),
+      content_blocks_json: JSON.stringify([
+        { type: "thinking", id: "think_1", text: "检查上下文", status: "completed" },
+        { type: "text", id: "text_1", text: "我先看目录。" },
+        { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed" },
+        { type: "text", id: "text_2", text: "结论是已确认。" }
+      ])
+    }],
+    maxSeq: 1
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  const html = chat.children[0].innerHTML;
+  assert.ok(html.indexOf("检查上下文") < html.indexOf("我先看目录。"));
+  assert.ok(html.indexOf("我先看目录。") < html.indexOf("shell"));
+  assert.ok(html.indexOf("shell") < html.indexOf("结论是已确认。"));
+  assert.doesNotMatch(html, /legacy-trace/);
+  assert.doesNotMatch(html, /legacy-tool/);
+});
+
+test("renderConversationChat keeps process text and appends final body for legacy ordered blocks", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  s.__mockWindow.miaTraceBlocks = {
+    renderAssistantContentBlocks({ blocks, renderTextBlock }) {
+      return blocks.map((block) => {
+        if (block.type === "text") return renderTextBlock(block);
+        if (block.type === "tool") return `<div class="ordered-tool">${block.name}</div>`;
+        return "";
+      }).join("");
+    },
+    renderTraceBlocks() {
+      return '<div class="legacy-trace">legacy</div>';
+    }
+  };
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", {
+    messages: [{
+      id: "m_blocks_legacy",
+      seq: 1,
+      sender_kind: "bot",
+      sender_ref: "mia",
+      body_md: "最终结论。",
+      created_at: "",
+      content_blocks_json: JSON.stringify([
+        { type: "text", id: "text_1", text: "我先检查。" },
+        { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed" }
+      ])
+    }],
+    maxSeq: 1
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  const html = chat.children[0].innerHTML;
+  assert.ok(html.indexOf("我先检查。") < html.indexOf("shell"));
+  assert.ok(html.indexOf("shell") < html.indexOf("最终结论。"));
+  assert.doesNotMatch(html, /legacy-trace/);
 });
 
 test("handleCloudEvent bot reply clears transient cloud agent stream", () => {
@@ -2486,6 +2781,57 @@ test("handleCloudEvent preserves transient run trace when final bot message lack
   assert.equal(cached.trace.reasoning, "检查文件");
   assert.equal(cached.trace.tools[0].name, "shell");
   assert.equal(cached.trace.tools[0].status, "completed");
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+});
+
+test("handleCloudEvent preserves transient ordered file edits when final bot message has trace_json", () => {
+  const s = loadSocial();
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      runId: "car_1",
+      event: {
+        type: "file_edit",
+        id: "edit_1",
+        path: "mia-diff-demo.txt",
+        action: "update",
+        diff: "@@\n-hello mia\n+good jung",
+        additions: 1,
+        deletions: 1,
+        status: "completed"
+      }
+    },
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      message: {
+        id: "m1",
+        seq: 1,
+        sender_kind: "bot",
+        sender_ref: "mia",
+        body_md: "done",
+        trace_json: JSON.stringify({ tools: [{ id: "tool_1", name: "shell", status: "completed", preview: "cat > mia-diff-demo.txt" }] })
+      },
+    },
+  });
+
+  const cached = s.moduleState.messageCache.get("botc_u_a_mia").messages[0];
+  assert.equal(cached.contentBlocks.length, 2);
+  assert.equal(cached.contentBlocks[0].type, "file_edit");
+  assert.equal(cached.contentBlocks[0].path, "mia-diff-demo.txt");
+  assert.match(cached.contentBlocks[0].diff, /-hello mia/);
+  assert.equal(cached.contentBlocks[1].type, "text");
+  assert.equal(cached.contentBlocks[1].text, "done");
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
 });
 

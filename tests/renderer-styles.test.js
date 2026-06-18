@@ -105,6 +105,17 @@ test("sidebar and chat headers use the same surface and own their divider line",
     /\.conversation-section,\s*\.contact-section\s*\{[^}]*border-top:\s*0;/,
     "sidebar body should not draw a second adjacent divider that can drift from the topbar line"
   );
+  const conversationSidebarToolsRule = cssRuleBody(baseCss, ".conversation-sidebar .sidebar-tools");
+  assert.match(
+    conversationSidebarToolsRule,
+    /-webkit-app-region:\s*drag;/,
+    "conversation sidebar header should be a draggable window region"
+  );
+  assert.match(
+    baseCss,
+    /\.conversation-sidebar \.sidebar-tools button,\s*\.conversation-sidebar \.sidebar-tools input,\s*\.conversation-sidebar \.sidebar-tools \.search-box,\s*\.conversation-sidebar \.sidebar-tools \.create-menu,\s*\.conversation-sidebar \.sidebar-tools \.sidebar-tag-filters\s*\{[^}]*-webkit-app-region:\s*no-drag;/,
+    "conversation sidebar header controls should remain clickable instead of dragging the window"
+  );
 });
 
 test("conversation cards keep the default cursor outside tag controls", () => {
@@ -126,7 +137,14 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(chatCss, /\.bubble\s*\{[\s\S]*?cursor:\s*default;[\s\S]*?user-select:\s*text;/);
   assert.match(chatCss, /\.bubble\.text-hit\s*\{[\s\S]*?cursor:\s*text;/);
   assert.doesNotMatch(chatCss, /cursor:\s*var\(--message-text-cursor\)/);
-  assert.match(chatCss, /\.bubble a\.message-link\s*\{[\s\S]*?cursor:\s*pointer;/);
+  const messageLinkRule = cssRuleBody(chatCss, ".bubble a.message-link");
+  const messageLinkHoverRule = cssRuleBody(chatCss, ".bubble a.message-link:hover");
+  assert.match(messageLinkRule, /color:\s*inherit;/);
+  assert.match(messageLinkRule, /text-decoration:\s*none;/);
+  assert.match(messageLinkRule, /cursor:\s*pointer;/);
+  assert.match(messageLinkHoverRule, /text-decoration:\s*underline;/);
+  assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.bubble a\.message-link/);
+  assert.doesNotMatch(chatCss, /\.message\.user \.bubble a\.message-link/);
   assert.match(chatCss, /\.bubble code\.inline-code\s*\{[\s\S]*?cursor:\s*pointer;/);
   assert.match(chatCss, /\.message\.search-focus \.bubble\s*\{[\s\S]*?animation:\s*messageSearchFocus/);
   assert.match(chatCss, /@keyframes messageSearchFocus/);

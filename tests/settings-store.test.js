@@ -172,6 +172,37 @@ test("normalizeEffortLevel keeps OpenClaw CLI thinking levels", (t) => {
   assert.equal(store.normalizeStoredEffortLevel("off"), "off");
 });
 
+test("permissionSettings preserves engine-level external permission modes", (t) => {
+  const { runtime, store } = setup(t);
+
+  const next = store.writePermissionSettings({
+    engine: "codex",
+    mode: ":danger-full-access"
+  });
+
+  assert.equal(next.mode, "ask");
+  assert.equal(next.engines.codex, ":danger-full-access");
+  assert.equal(store.enginePermissionMode("codex"), ":danger-full-access");
+  assert.deepEqual(readJson(runtime.permissionSettings, {}), {
+    mode: "ask",
+    engines: {
+      codex: ":danger-full-access"
+    }
+  });
+});
+
+test("writePermissionSettings keeps global Hermes permission separate from external engines", (t) => {
+  const { store } = setup(t);
+
+  store.writePermissionSettings({ engine: "codex", mode: ":workspace" });
+  const next = store.writePermissionSettings({ mode: "yolo" });
+
+  assert.equal(next.mode, "yolo");
+  assert.equal(next.engines.codex, ":workspace");
+  assert.equal(store.enginePermissionMode("hermes"), "yolo");
+  assert.equal(store.enginePermissionMode("codex"), ":workspace");
+});
+
 test("windowSettings reads and writes normalized bounds", (t) => {
   const { runtime, store } = setup(t);
 

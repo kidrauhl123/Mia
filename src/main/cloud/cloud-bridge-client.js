@@ -1,6 +1,7 @@
 "use strict";
 
 const DEFAULT_RECONNECT_DELAY_MS = 3000;
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 20000;
 
 function defaultBridgeState() {
   return {
@@ -69,10 +70,15 @@ function createCloudBridgeClient({
   randomUUID,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
-  reconnectDelayMs = DEFAULT_RECONNECT_DELAY_MS
+  setIntervalFn = setInterval,
+  clearIntervalFn = clearInterval,
+  reconnectDelayMs = DEFAULT_RECONNECT_DELAY_MS,
+  heartbeatIntervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS
 }) {
   let activeSocket = null;
   let reconnectTimer = null;
+  let heartbeatTimer = null;
+  let isAlive = true;
   const abortControllers = new Map();
   let bridgeState = defaultBridgeState();
 
@@ -174,6 +180,7 @@ function createCloudBridgeClient({
   }
 
   function handleMessage(ws, raw) {
+    isAlive = true;
     let message = null;
     try {
       message = JSON.parse(String(raw || ""));
@@ -225,6 +232,44 @@ function createCloudBridgeClient({
       });
   }
 
+  function recycleSocket(ws, reason) {
+    if (!ws) return;
+    bridgeState.lastError = reason;
+    appendLog(`Mia Cloud Bridge ${reason}; reconnecting.`);
+    try {
+      if (typeof ws.terminate === "function") ws.terminate();
+      else ws.close(4000, reason);
+    } catch { /* ignore terminate failures */ }
+    if (activeSocket === ws) {
+      activeSocket = null;
+      bridgeState.connected = false;
+      bridgeState.connecting = false;
+      bridgeState.deviceId = "";
+      scheduleReconnect();
+    }
+  }
+
+  function heartbeatTick() {
+    const ws = activeSocket;
+    if (!ws || !bridgeState.connected) return;
+    if (!isAlive) {
+      recycleSocket(ws, "heartbeat timeout");
+      return;
+    }
+    isAlive = false;
+    try {
+      if (typeof ws.ping === "function") ws.ping();
+    } catch {
+      recycleSocket(ws, "ping failed");
+    }
+  }
+
+  function ensureHeartbeat() {
+    if (heartbeatTimer) return;
+    heartbeatTimer = setIntervalFn(heartbeatTick, heartbeatIntervalMs);
+    if (heartbeatTimer && typeof heartbeatTimer.unref === "function") heartbeatTimer.unref();
+  }
+
   function scheduleReconnect() {
     if (reconnectTimer) return;
     const s = settings();
@@ -239,6 +284,10 @@ function createCloudBridgeClient({
     if (reconnectTimer) {
       clearTimeoutFn(reconnectTimer);
       reconnectTimer = null;
+    }
+    if (heartbeatTimer) {
+      clearIntervalFn(heartbeatTimer);
+      heartbeatTimer = null;
     }
     const ws = activeSocket;
     activeSocket = null;
@@ -267,11 +316,14 @@ function createCloudBridgeClient({
     bridgeState.connecting = true;
     bridgeState.connected = false;
     bridgeState.lastError = "";
+    isAlive = true;
     const ws = new WebSocketImpl(cloudBridgeUrl(s), cloudWebSocketProtocols(s));
     activeSocket = ws;
+    ensureHeartbeat();
     ws.on("open", () => {
       appendLog(`Connecting to Mia Cloud: ${s.url}`);
     });
+    ws.on("pong", () => { isAlive = true; });
     ws.on("message", (raw) => handleMessage(ws, raw));
     ws.on("error", (error) => {
       bridgeState.lastError = String(error?.message || error);

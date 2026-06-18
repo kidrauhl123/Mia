@@ -1,6 +1,10 @@
 const { spawn: defaultSpawn } = require("node:child_process");
 const path = require("node:path");
 const readline = require("node:readline");
+const {
+  createWorkspaceDiffTracker,
+  fileEditPayloadsFromAcpContent
+} = require("./agent-file-edit-events.js");
 const { isForbiddenSchedulerToolName } = require("./scheduler-tool-guard.js");
 
 const CODEX_APP_SERVER_PROTOCOL_VERSION = 2;
@@ -65,17 +69,7 @@ function toolPayloadFromCodexItem(item = {}) {
     };
   }
   if (item.type === "fileChange") {
-    const changes = Array.isArray(item.changes)
-      ? item.changes.map((change) => `${change.kind || "update"} ${change.path || ""}`).join("\n")
-      : "";
-    return {
-      id: String(item.id || "file_change"),
-      name: "apply_patch",
-      preview: changes,
-      status: item.status || "",
-      duration: null,
-      error: item.status === "failed"
-    };
+    return null;
   }
   if (item.type === "mcpToolCall") {
     return {
@@ -98,6 +92,15 @@ function toolPayloadFromCodexItem(item = {}) {
     };
   }
   return null;
+}
+
+function fileEditPayloadsFromCodexItem(item = {}) {
+  if (item.type !== "fileChange") return [];
+  return fileEditPayloadsFromAcpContent(item.changes || [], {
+    idPrefix: String(item.id || "file_change"),
+    status: item.status || "completed",
+    error: item.status === "failed"
+  });
 }
 
 function writeJsonLine(child, message) {
@@ -329,6 +332,7 @@ async function runCodexAppServerTurn({
   let activeTurnId = "";
   let finalResponse = "";
   let completedTurn = null;
+  const workspaceDiffTracker = createWorkspaceDiffTracker(options.workingDirectory || "");
   let doneResolve;
   let doneReject;
   const done = new Promise((resolve, reject) => {
@@ -347,6 +351,20 @@ async function runCodexAppServerTurn({
     }
     const preview = payload.preview || toolPreviewById.get(payload.id) || "";
     emit(kind, { ...payload, preview });
+  }
+
+  function emitFileEdits(item) {
+    if (typeof emit !== "function") return;
+    const payloads = item?.type === "commandExecution"
+      ? workspaceDiffTracker.collect({
+          idPrefix: String(item.id || "command"),
+          status: item.status === "failed" ? "failed" : "completed",
+          error: item.status === "failed"
+        })
+      : fileEditPayloadsFromCodexItem(item);
+    for (const payload of payloads) {
+      emit("file_edit", payload);
+    }
   }
 
   function onNotification(message) {
@@ -392,6 +410,7 @@ async function runCodexAppServerTurn({
       const item = params.item || {};
       if (item.type === "agentMessage") finalResponse = String(item.text || finalResponse || "");
       emitTool("tool_call_completed", item);
+      emitFileEdits(item);
       return;
     }
     if (method === "turn/completed") {
@@ -467,6 +486,9 @@ async function runCodexAppServerTurn({
       capabilities: { experimentalApi: true, requestAttestation: false }
     });
     const permissionProfile = String(options.permissionProfile || "").trim();
+    const hasApprovalPolicy = Object.prototype.hasOwnProperty.call(options, "approvalPolicy")
+      && options.approvalPolicy !== null
+      && options.approvalPolicy !== "";
     const common = {
       model: options.model || null,
       cwd: options.workingDirectory || null,
@@ -475,8 +497,9 @@ async function runCodexAppServerTurn({
       serviceName: "Mia",
       ephemeral: false
     };
+    if (hasApprovalPolicy) common.approvalPolicy = options.approvalPolicy;
     if (!permissionProfile) {
-      common.approvalPolicy = options.approvalPolicy || "untrusted";
+      if (!hasApprovalPolicy) common.approvalPolicy = "untrusted";
       common.sandbox = options.sandboxMode || "workspace-write";
     }
     if (activeThreadId) {
@@ -494,8 +517,9 @@ async function runCodexAppServerTurn({
       effort: options.modelReasoningEffort || null,
       approvalsReviewer: "user"
     };
+    if (hasApprovalPolicy) turnParams.approvalPolicy = options.approvalPolicy;
     if (!permissionProfile) {
-      turnParams.approvalPolicy = options.approvalPolicy || "untrusted";
+      if (!hasApprovalPolicy) turnParams.approvalPolicy = "untrusted";
     }
     const startedTurn = await connection.request("turn/start", turnParams);
     activeTurnId = startedTurn?.turn?.id || activeTurnId;
@@ -522,5 +546,6 @@ module.exports = {
   isCodexApprovalRequest,
   runCodexAppServerTurn,
   sandboxPolicy,
+  fileEditPayloadsFromCodexItem,
   toolPayloadFromCodexItem
 };

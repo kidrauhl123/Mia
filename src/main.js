@@ -28,7 +28,8 @@ const { createAgentCommandProvider } = require("./main/agent-command-provider.js
 const { createClaudeBridgePluginService } = require("./main/claude-bridge-plugin-service.js");
 const { requireBot } = require("./main/bot-registry.js");
 const { createClaudeCodeChatAdapter } = require("./main/claude-code-chat-adapter.js");
-const { createCodexChatAdapter } = require("./main/codex-chat-adapter.js");
+const { createCodexChatAdapter, mapCodexPermissionMode } = require("./main/codex-chat-adapter.js");
+const { syncCodexConfigForPermission } = require("./main/codex-config-sync.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
 const { createOpenClawChatAdapter } = require("./main/openclaw-chat-adapter.js");
 const { createMiaMemoryService } = require("./main/mia-memory-service.js");
@@ -101,7 +102,9 @@ const { createEngineRuntimeConfigService } = require("./main/engine-runtime-conf
 const { createEngineHealthService } = require("./main/engine-health-service.js");
 const { createEngineInstallService } = require("./main/engine-install-service.js");
 const { registerWindowIpc } = require("./main/ipc/window-ipc.js");
+const { registerUtilIpc } = require("./main/ipc/util-ipc.js");
 const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
+const { createLocalFileOpenService } = require("./main/local-file-open-service.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — bot chats
 //  now sync via conversations+messages, no need for the workspace-shape mappers.)
 
@@ -124,6 +127,9 @@ if (isolatedUserDataDir) {
   app.setPath("userData", path.join(defaultUserDataDir, "daemon-profile"));
 }
 const startupTimer = createStartupTimer({ scope: "startup" });
+const localFileOpenService = createLocalFileOpenService({
+  shellOpenPath: (target) => shell.openPath(target)
+});
 
 function localDeviceName() {
   const hostname = String(os.hostname() || "").trim().replace(/\.local$/i, "");
@@ -493,6 +499,7 @@ const externalAgentCommandService = createExternalAgentCommandService({
   normalizeEffortLevel: settingsStore.normalizeEffortLevel,
   localAgentEngines: localAgentEngineService.localAgentEngines,
   getAgentSessionId: agentSessionStore.getId,
+  enginePermissionMode: settingsStore.enginePermissionMode,
   setAgentSessionId: agentSessionStore.setId,
   setAgentSessionEntry: agentSessionStore.setEntry,
   ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
@@ -1912,6 +1919,7 @@ function createActiveClaudeCodeChatAdapter() {
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     clearAgentSessionEntry: agentSessionStore.deleteEntry,
+    enginePermissionMode: settingsStore.enginePermissionMode,
     getAgentSessionEntry: agentSessionStore.getEntry,
     getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
@@ -1936,6 +1944,7 @@ function createActiveCodexChatAdapter() {
     codexSdk,
     cwd: agentWorkspaceDir,
     appendEngineLog,
+    enginePermissionMode: settingsStore.enginePermissionMode,
     ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionId: agentSessionStore.getId,
@@ -1961,6 +1970,7 @@ function createActiveOpenClawChatAdapter() {
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     chatCompletionResponse,
     cwd: agentWorkspaceDir,
+    enginePermissionMode: settingsStore.enginePermissionMode,
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionId: agentSessionStore.getId,
     injectGroupContextForSdk: _passthroughGroupContext,
@@ -2341,6 +2351,25 @@ const conversationTitleService = createConversationTitleService({
   sendChat
 });
 
+function applyNativePermissionConfig(settings = {}) {
+  const engine = normalizeAgentEngine(settings.engine || settings.agentEngine || settings.agent_engine || "");
+  if (engine !== "codex") return;
+  try {
+    syncCodexConfigForPermission(
+      mapCodexPermissionMode(settingsStore.enginePermissionMode("codex")),
+      { appendLog: appendEngineLog }
+    );
+  } catch (error) {
+    appendEngineLog(`Codex permission config sync failed: ${error?.message || error}`);
+  }
+}
+
+function writePermissionSettingsAndApply(settings = {}) {
+  const next = settingsStore.writePermissionSettings(settings);
+  applyNativePermissionConfig(settings);
+  return next;
+}
+
 remoteControlRouter = createRemoteControlRouter({
   isDaemonProcess: IS_DAEMON_PROCESS,
   getRuntimeStatus,
@@ -2354,7 +2383,7 @@ remoteControlRouter = createRemoteControlRouter({
   executeExternalAgentCommand: (body) => externalAgentCommandService.executeCommand(body),
   saveModelSelection: (settings) => modelSettingsService.saveModelSelection(settings),
   writeEffortSettings: (body) => settingsStore.writeEffortSettings(body),
-  writePermissionSettings: (body) => settingsStore.writePermissionSettings(body),
+  writePermissionSettings: writePermissionSettingsAndApply,
   stopChat,
   runRemoteChatRequest
 });
@@ -2423,6 +2452,7 @@ agentPermissionProxy = createAgentPermissionProxy({
 });
 
 registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle });
+registerUtilIpc({ ipcMain, openLocalFile: localFileOpenService.openLocalFile });
 
 ipcMain.handle(IpcChannel.RuntimeInitialize, async () => {
   const status = initializeRuntime();
@@ -2816,7 +2846,7 @@ ipcMain.handle(IpcChannel.SkillsPublish, async (_event, payload) => {
 ipcMain.handle(IpcChannel.SkillsReport, (_event, payload) =>
   cloudDesktopSync().reportSkill(payload?.skillId, payload?.reason || ""));
 ipcMain.handle(IpcChannel.PermissionsSave, async (_event, settings) => {
-  settingsStore.writePermissionSettings(settings);
+  writePermissionSettingsAndApply(settings);
   return getRuntimeStatus();
 });
 ipcMain.handle(IpcChannel.EffortSave, async (_event, settings) => {

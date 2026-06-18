@@ -90,8 +90,31 @@
     return { reasoning, tools };
   }
 
+  function parseContentBlocksJson(value) {
+    if (!value) return [];
+    let parsed = value;
+    if (typeof value === "string") {
+      try { parsed = JSON.parse(value); } catch { return []; }
+    }
+    const normalizer = global.miaAssistantContentBlocks;
+    if (normalizer && typeof normalizer.normalizeContentBlocks === "function") {
+      return normalizer.normalizeContentBlocks(parsed);
+    }
+    return Array.isArray(parsed) ? parsed.filter((block) => block && typeof block === "object") : [];
+  }
+
+  function contentBlocksFromMessage(msg) {
+    const blocks = parseContentBlocksJson(msg?.content_blocks_json || msg?.contentBlocks || msg?.content_blocks);
+    if (!blocks.length) return [];
+    const normalizer = global.miaAssistantContentBlocks;
+    return normalizer && typeof normalizer.contentBlocksWithFinalText === "function"
+      ? normalizer.contentBlocksWithFinalText(blocks, msg?.body_md || msg?.bodyMd || "")
+      : blocks;
+  }
+
   function renderTraceForMessage(msg, content) {
     if (msg.sender_kind !== SenderKind.Bot) return "";
+    if (contentBlocksFromMessage(msg).length) return "";
     const trace = parseTraceJson(msg.trace_json || msg.trace);
     if (!trace) return "";
     const renderer = global.miaTraceBlocks;
@@ -102,6 +125,17 @@
       content,
       expanded: false,
       scopeKey: `cloud-msg:${msg.id || ""}`
+    });
+  }
+
+  function renderOrderedAssistantBlocks({ blocks, expanded, scopeKey, renderTextBlock }) {
+    const renderer = global.miaTraceBlocks;
+    if (!renderer || typeof renderer.renderAssistantContentBlocks !== "function") return "";
+    return renderer.renderAssistantContentBlocks({
+      blocks,
+      expanded,
+      scopeKey,
+      renderTextBlock
     });
   }
 
@@ -158,11 +192,41 @@
         attrs: `data-sender-kind="${escapeHtml(msg.sender_kind || "")}" data-sender-ref="${escapeHtml(msg.sender_ref || "")}" title="${escapeHtml(spec?.authorName || "")}"`
       })
       : `<div class="avatar message-avatar" data-sender-kind="${escapeHtml(msg.sender_kind || "")}" data-sender-ref="${escapeHtml(msg.sender_ref || "")}" style="background-color:${escapeHtml(avatarColor)};" title="${escapeHtml(spec?.authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
-    const rawBodyHtml = renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
+    // Index in the conversation's message cache — used by the chat-level contextmenu
+    // dispatcher in app.js to look up the message for the floating menu.
+    const cache = moduleState.messageCache.get(conversationId);
+    const messageIndex = cache ? cache.messages.findIndex((m) => m.id === msg.id) : -1;
+    const bodyMd = (spec ? spec.bodyMd : msg.body_md) || "";
+    const senderTitleHtml = senderLabel
+      ? `<span class="bubble-sender" style="color:${escapeHtml(avatarColor)};">${renderNameWithBadgeHtml({
+          identity: spec?.authorIdentity,
+          fallbackName: senderLabel,
+          statusBadge: spec?.statusBadge
+        })}</span>`
+      : "";
+    const rawBodyHtml = renderMsgBody(bodyMd);
     const bodyHtml = global.miaMentionRender
       ? global.miaMentionRender.highlightMentions(rawBodyHtml, members || [])
       : rawBodyHtml;
-    const traceHtml = renderTraceForMessage(msg, (spec ? spec.bodyMd : msg.body_md) || "");
+    const contentBlocks = !isOwn ? contentBlocksFromMessage(msg) : [];
+    let renderedFirstTextBlock = false;
+    const orderedBlocksHtml = contentBlocks.length
+      ? renderOrderedAssistantBlocks({
+        blocks: contentBlocks,
+        expanded: false,
+        scopeKey: `cloud-msg:${msg.id || ""}`,
+        renderTextBlock(block) {
+          const prefixHtml = renderedFirstTextBlock ? "" : senderTitleHtml;
+          renderedFirstTextBlock = true;
+          const rawBlockHtml = renderMsgBody(block.text || "");
+          const blockHtml = global.miaMentionRender
+            ? global.miaMentionRender.highlightMentions(rawBlockHtml, members || [])
+            : rawBlockHtml;
+          return `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${prefixHtml}${blockHtml}</div>`;
+        }
+      })
+      : "";
+    const traceHtml = orderedBlocksHtml ? "" : renderTraceForMessage(msg, bodyMd);
     const attachmentHtml = typeof ctx.renderAttachmentChips === "function"
       ? ctx.renderAttachmentChips(spec?.attachments || msg.attachments || [])
       : "";
@@ -173,11 +237,6 @@
     const timeHtml = createdAt
       ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.miaTimeFormat.formatMessageTime(createdAt))}</time>`
       : "";
-
-    // Index in the conversation's message cache — used by the chat-level contextmenu
-    // dispatcher in app.js to look up the message for the floating menu.
-    const cache = moduleState.messageCache.get(conversationId);
-    const messageIndex = cache ? cache.messages.findIndex((m) => m.id === msg.id) : -1;
 
     // In-place translation block (same .message-translation markup as 1-on-1).
     const t = msg && msg.translation;
@@ -202,18 +261,11 @@
     }
     // Name color tracks the resolved avatar color, so a member's set accent
     // color shows here too; falls back to the id hash when none is set.
-    const senderTitleHtml = senderLabel
-      ? `<span class="bubble-sender" style="color:${escapeHtml(avatarColor)};">${renderNameWithBadgeHtml({
-          identity: spec?.authorIdentity,
-          fallbackName: senderLabel,
-          statusBadge: spec?.statusBadge
-        })}</span>`
-      : "";
     article.innerHTML = `
       ${avatarHtml}
       <div class="message-stack">
         ${traceHtml}
-        <div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${senderTitleHtml}${bodyHtml}</div>
+        ${orderedBlocksHtml || `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${senderTitleHtml}${bodyHtml}</div>`}
         ${attachmentHtml}
         ${translationHtml}
         ${timeHtml}

@@ -159,6 +159,42 @@ test("readRunEventStream emits deltas and returns final run content", async () =
   assert.deepEqual(result.events.map((item) => item.event), ["message.delta", "message.delta", "tool.completed", "run.completed"]);
 });
 
+test("readRunEventStream emits Hermes result_display file diffs as file_edit events", async () => {
+  const emitted = [];
+  const runs = service({
+    fetchImpl: async () => streamResponse([
+      "event: tool.completed",
+      "data: {\"tool\":\"edit\",\"result_display\":{\"file_diff\":{\"path\":\"src/app.js\",\"diff\":\"@@\\n-old\\n+new\"}}}",
+      "",
+      "event: run.completed",
+      "data: {\"final_response\":\"Done\"}",
+      "",
+      ""
+    ].join("\n"))
+  });
+
+  await runs.readRunEventStream({
+    runId: "run_1",
+    signal: null,
+    emit: (kind, payload) => emitted.push({ kind, payload })
+  });
+
+  assert.deepEqual(emitted.filter((event) => event.kind === "file_edit"), [{
+    kind: "file_edit",
+    payload: {
+      id: "edit_diff_0",
+      path: "src/app.js",
+      action: "update",
+      title: "Edited src/app.js (+1 -1)",
+      diff: "@@\n-old\n+new",
+      additions: 1,
+      deletions: 1,
+      status: "completed",
+      error: false
+    }
+  }]);
+});
+
 test("readRunEventStream normalizes run.failed provider configuration errors", async () => {
   const runs = service({
     fetchImpl: async () => streamResponse([

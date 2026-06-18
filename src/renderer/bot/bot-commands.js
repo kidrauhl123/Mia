@@ -475,7 +475,7 @@
     if (engine === "claude-code" || engine === "codex" || engine === "openclaw") {
       config.model = String(engineConfig.model || "").trim();
       config.effortLevel = String(engineConfig.effortLevel || "medium").trim();
-      config.permissionMode = String(engineConfig.permissionMode || "default").trim();
+      config.permissionMode = String(runtime.permissions?.engines?.[engine] || "default").trim();
       config.modelEntries = externalModelEntries(engine, engineOptions);
       return config;
     }

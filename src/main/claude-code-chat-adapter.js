@@ -5,6 +5,10 @@ const {
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
 } = require("./mia-runtime-context.js");
+const {
+  fileEditPayloadFromUnifiedDiff,
+  fileEditPayloadsFromAcpContent
+} = require("./agent-file-edit-events.js");
 const { schedulerDisallowedTools } = require("./scheduler-tool-guard.js");
 
 function firstTextValue(value) {
@@ -134,10 +138,11 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
+  const enginePermissionMode = deps.enginePermissionMode || (() => "default");
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
-  async function sendChat({ bot, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility, runtimeConfig = null }) {
+  async function sendChat({ bot, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
     const engine = "claude-code";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("claude");
@@ -201,7 +206,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       tools: { type: "preset", preset: "claude_code" },
       disallowedTools: schedulerDisallowedTools(),
       settingSources: ["project", "user", "local"],
-      permissionMode: claudePermissionModeForTurn(bot, runtimeConfig),
+      permissionMode: normalizeClaudePermissionMode(enginePermissionMode(engine) || "default"),
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
@@ -330,6 +335,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
             if (block?.type === "tool_result") {
               const toolId = String(block.tool_use_id || "");
               const resultPreview = firstTextValue(block.content).slice(0, 4000);
+              const status = block.is_error ? "failed" : "completed";
               emit("tool_call_completed", {
                 id: toolId,
                 name: "",
@@ -337,6 +343,18 @@ function createClaudeCodeChatAdapter(deps = {}) {
                 duration: null,
                 error: Boolean(block.is_error)
               });
+              const contentDiffs = fileEditPayloadsFromAcpContent(block.content, {
+                idPrefix: toolId || "claude_tool",
+                status,
+                error: Boolean(block.is_error)
+              });
+              const parsedDiff = fileEditPayloadFromUnifiedDiff(resultPreview, {
+                id: `${toolId || "claude_tool"}_diff_0`,
+                status,
+                error: Boolean(block.is_error)
+              });
+              const fileEdits = contentDiffs.length ? contentDiffs : (parsedDiff ? [parsedDiff] : []);
+              for (const fileEdit of fileEdits) emit("file_edit", fileEdit);
             }
           }
         }

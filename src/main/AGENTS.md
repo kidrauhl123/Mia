@@ -41,6 +41,7 @@ Handler 返回值要是可序列化对象。不要把 `BrowserWindow`、Node str
 - 探测路径走已有 `shellCommandPath` / 本地引擎服务；不要在业务代码里手写多个 `which`。
 - 起进程时传入受控 env；如果用户选定了某个 CLI 绝对路径，PATH 要优先包含该可执行文件目录，避免拿错 node/runtime。
 - 每个 adapter 只负责把 Mia 消息、工具、权限、取消信号映射到该引擎。共享状态放 registry 或 shared contract。
+- 外部 Agent 的用户级配置是正常集成入口。Codex 固定使用用户 `~/.codex`；伙伴级模型、推理强度由 adapter 每次运行显式传入，权限按引擎级设置保存，并在用户修改设置时同步用户级配置，不维护私有 Codex home。
 - Hermes 行为以实际安装版本或云端镜像 pin 为准，不要假设上游源码就是用户正在跑的二进制。
 
 ## Runtime 生命周期

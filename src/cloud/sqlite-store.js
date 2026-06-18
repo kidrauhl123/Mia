@@ -840,6 +840,7 @@ function migrate(db) {
       mentions_json   TEXT,
       skills_json     TEXT,
       trace_json      TEXT,
+      content_blocks_json TEXT,
       status          TEXT NOT NULL,
       error_json      TEXT,
       created_at      TEXT NOT NULL,
@@ -1253,6 +1254,13 @@ function migrate(db) {
   // v19: simple reminder tasks store final delivery text and do not rerun an
   // agent at fire time.
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (19, ?)")
+    .run(nowIso());
+  // v20: ordered assistant content blocks preserve the real event order inside
+  // one bot-authored message.
+  if (!hasColumn(db, "messages", "content_blocks_json")) {
+    db.exec("ALTER TABLE messages ADD COLUMN content_blocks_json TEXT");
+  }
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (20, ?)")
     .run(nowIso());
 }
 

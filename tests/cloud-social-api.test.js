@@ -940,7 +940,12 @@ test("POST /messages/as-bot allows owner to post on behalf of own bot", async ()
         trace: {
           reasoning: "检查上下文",
           tools: [{ id: "tool_1", name: "shell", preview: "pwd", status: "completed" }]
-        }
+        },
+        contentBlocks: [
+          { type: "thinking", id: "think_1", text: "检查上下文", status: "completed" },
+          { type: "text", id: "text_1", text: "Hello from Codex" },
+          { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed" }
+        ]
       }
     });
     assert.equal(r.status, 201);
@@ -952,6 +957,11 @@ test("POST /messages/as-bot allows owner to post on behalf of own bot", async ()
       reasoning: "检查上下文",
       tools: [{ id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: null, error: false }]
     });
+    assert.deepEqual(JSON.parse(r.body.message.content_blocks_json), [
+      { type: "thinking", id: "think_1", status: "completed", duration: null, text: "检查上下文" },
+      { type: "text", id: "text_1", text: "Hello from Codex" },
+      { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: null, error: false }
+    ]);
   } finally { await stopServer(ctx); }
 });
 

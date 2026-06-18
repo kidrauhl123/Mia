@@ -54,6 +54,39 @@ test("cloud conversation composer uses one social send path for dm and group con
   assert.doesNotMatch(appSource, /sendInActiveGroupConversation\(conversationText\)/);
 });
 
+test("cloud conversation composer sends pending attachments and clears the tray", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /const pendingAttachments = state\.pendingAttachments\.slice\(\);/);
+  assert.match(appSource, /if \(!conversationText\.trim\(\) && !pendingAttachments\.length\) return;/);
+  assert.match(appSource, /sendInActiveConversation\(conversationText,\s*\{[\s\S]*attachments: pendingAttachments/);
+  assert.match(appSource, /state\.pendingAttachments = \[\];/);
+  assert.match(appSource, /window\.miaComposer\.renderComposerAttachments\(\);/);
+});
+
+test("composer pending attachments are thumbnail-first and open the image editor", () => {
+  const composerSource = fs.readFileSync(path.join(root, "src/renderer/chat/composer.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(composerSource, /data-attachment-preview/);
+  assert.doesNotMatch(composerSource, /composer-attachment-name/);
+  assert.doesNotMatch(composerSource, /composer-attachment-size/);
+  assert.match(styleSource, /\.composer-attachment\.image\s*\{[\s\S]*?width:\s*96px;[\s\S]*?height:\s*72px;/);
+  assert.match(styleSource, /\.composer-attachment-thumb\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
+});
+
+test("image preview is an svg-icon editing window with crop draw and save actions", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /className = "image-preview-overlay image-editor-overlay"/);
+  assert.match(appSource, /data-image-editor-action="crop"/);
+  assert.match(appSource, /data-image-editor-action="draw"/);
+  assert.match(appSource, /data-image-editor-action="save"/);
+  assert.match(appSource, /<canvas class="image-editor-canvas"/);
+  assert.match(appSource, /<svg viewBox="0 0 24 24"/);
+  assert.doesNotMatch(appSource, />\s*(剪裁|涂鸦|保存)\s*</);
+});
+
 test("settings exposes manual update checks through the preload bridge", () => {
   const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
@@ -917,6 +950,90 @@ test("local assistant bubble avatars render with bot sender kind for contact car
   assert.doesNotMatch(html, /data-sender-kind="fellow"/);
 });
 
+test("local assistant messages render ordered content blocks before trace fallback", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const renderMessageHtml = eval(`(
+    function () {
+      const state = { runtime: { cloud: { user: { id: "user_me" } } }, tasks: [] };
+      const ICON_PARK_PIN_SVG = "";
+      const window = {
+        miaMarkdown: {
+          escapeHtml: (value) => String(value ?? ""),
+          renderMarkdown: (value) => String(value ?? "")
+        },
+        miaAvatarResolve: {
+          resolveAvatarForContact: (input) => ({ image: input.avatarImage || "", crop: input.avatarCrop || null, color: "#5e5ce6", text: input.displayName || input.id || "?" })
+        },
+        miaTraceBlocks: {
+          renderAssistantContentBlocks({ blocks, renderTextBlock }) {
+            return blocks.map((block) => {
+              if (block.type === "text") return renderTextBlock(block);
+              if (block.type === "thinking") return '<div class="ordered-thinking">' + block.text + '</div>';
+              if (block.type === "tool") return '<div class="ordered-tool">' + block.name + '</div>';
+              return "";
+            }).join("");
+          },
+          renderTraceBlocks: () => '<div class="legacy-trace">legacy</div>'
+        },
+        miaAssistantContentBlocks: require("../src/shared/assistant-content-blocks.js"),
+        miaMessageHelpers: { replyQuoteHtml: () => "" },
+        miaMessageMenu: { translationHtml: () => "" },
+        miaAvatar: {
+          avatarHtml: ({ attrs }) => '<span class="avatar message-avatar" ' + attrs + '></span>'
+        }
+      };
+      function botAvatarIdentityId(ref) { return ref; }
+      function formatRunTime() { return ""; }
+      function renderMessageTime() { return ""; }
+      function renderCommandResultHtml() { return ""; }
+      function generatedAttachmentsForMessage() { return []; }
+      function hydrateAttachmentPreview(value) { return value; }
+      function renderAttachmentChips() { return ""; }
+      ${extractFunctionSource(appSource, "renderMessageHtml")}
+      return renderMessageHtml;
+    }
+  )()`);
+
+  const html = renderMessageHtml(
+    {
+      role: "assistant",
+      content: "我先看目录。\n\n结论是已确认。",
+      reasoning: "legacy",
+      tools: [{ name: "legacy-tool", status: "completed" }],
+      contentBlocks: [
+        { type: "thinking", id: "think_1", text: "检查上下文", status: "completed" },
+        { type: "text", id: "text_1", text: "我先看目录。" },
+        { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed" },
+        { type: "text", id: "text_2", text: "结论是已确认。" }
+      ],
+      createdAt: "now"
+    },
+    { messageIndex: 0, user: { id: "user_me", displayName: "Me" }, persona: { key: "codex", name: "Codex" } }
+  );
+
+  assert.ok(html.indexOf("检查上下文") < html.indexOf("我先看目录。"));
+  assert.ok(html.indexOf("我先看目录。") < html.indexOf("shell"));
+  assert.ok(html.indexOf("shell") < html.indexOf("结论是已确认。"));
+  assert.doesNotMatch(html, /legacy-trace/);
+  assert.doesNotMatch(html, /legacy-tool/);
+
+  const legacyHtml = renderMessageHtml(
+    {
+      role: "assistant",
+      content: "最终结论。",
+      contentBlocks: [
+        { type: "text", id: "text_1", text: "我先检查。" },
+        { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed" }
+      ],
+      createdAt: "later"
+    },
+    { messageIndex: 1, user: { id: "user_me", displayName: "Me" }, persona: { key: "codex", name: "Codex" } }
+  );
+
+  assert.ok(legacyHtml.indexOf("我先检查。") < legacyHtml.indexOf("shell"));
+  assert.ok(legacyHtml.indexOf("shell") < legacyHtml.indexOf("最终结论。"));
+});
+
 test("sidebar card specs carry identity status badges when available", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const conversationCardSpecFromRow = eval(`(
@@ -1163,6 +1280,14 @@ test("chat code blocks use a right-aligned language copy button without code fra
   }
 });
 
+test("desktop renderer routes markdown local file links through preload", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /a\.message-link\[data-external-link\],\s*a\.message-link\[data-local-file-path\]/);
+  assert.match(appSource, /window\.mia\?\.openLocalFile\?\.\(link\.dataset\.localFilePath\)/);
+  assert.match(appSource, /window\.mia\?\.openExternal\?\.\(link\.dataset\.externalLink\)/);
+});
+
 test("agent permission banner uses a glass card and keeps allow buttons compact", () => {
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const cssBlock = (selector) => {
@@ -1212,6 +1337,7 @@ test("desktop bot controls save through bot runtime control adapter", () => {
 
   assert.match(appSource, /function runtimeKindForBotConversation\(conversation\)\s*\{[\s\S]*return sessionHistory\.runtimeKind\(conversation, "desktop-local"\);/);
   assert.match(appSource, /async function saveActiveBotRuntimeControl/);
+  assert.match(appSource, /async function saveActivePermissionRuntimeControl/);
   assert.match(appSource, /window\.miaBotCommands\.saveBotRuntimeControl\(\{/);
   assert.match(appSource, /window\.miaBotCommands\.getBotRuntimeBinding\(\{/);
   assert.doesNotMatch(appSource, new RegExp("window\\.mia\\.social\\.save" + "BotRuntime\\(context\\." + "fellow" + "Key"));
@@ -1221,11 +1347,11 @@ test("desktop bot controls save through bot runtime control adapter", () => {
   assert.match(commandsSource, /saveBotRuntimeConfig\(\{ api, cache, botKey: key, runtimeKind: kind, patch \}\)/);
   assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"model"/);
   assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"effortLevel"/);
-  assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"permissionMode"/);
+  assert.match(quickControlSource, /saveActivePermissionRuntimeControl\(/);
   assert.doesNotMatch(quickControlSource, /window\.mia\.saveFellowEngine\(/);
   assert.doesNotMatch(quickControlSource, /window\.mia\.saveModel\(/);
   assert.doesNotMatch(quickControlSource, /window\.mia\.saveEffort\(/);
-  assert.doesNotMatch(quickControlSource, /window\.mia\.savePermissions\(/);
+  assert.match(appSource, /window\.mia\.savePermissions\(/);
   assert.match(appSource, /const conversationPersona = personas\.find[\s\S]*if \(conversationPersona\) return conversationPersona;\s*return null;/);
 });
 

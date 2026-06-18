@@ -15,7 +15,7 @@
 
   let state, els, mia;
   let fallbackSlashCommands;
-  let loadSkills, renderAttachmentThumb, renderSendButton, resizeChatInput;
+  let loadSkills, renderAttachmentThumb, renderSendButton, resizeChatInput, openImagePreview;
   let appendTransientChat, cryptoRandomId;
 
   // Module-local hover-close timer for the skill picker.
@@ -30,6 +30,7 @@
     renderAttachmentThumb = deps.renderAttachmentThumb;
     renderSendButton = deps.renderSendButton;
     resizeChatInput = deps.resizeChatInput;
+    openImagePreview = deps.openImagePreview;
     appendTransientChat = deps.appendTransientChat;
     cryptoRandomId = deps.cryptoRandomId;
   }
@@ -138,14 +139,39 @@
     if (!state || !els || !els.composerAttachments) return;
     const attachments = state.pendingAttachments;
     els.composerAttachments.classList.toggle("hidden", attachments.length === 0);
-    els.composerAttachments.innerHTML = attachments.map((attachment) => `
-      <div class="composer-attachment${attachment.thumbnailDataUrl ? " image" : ""}" title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name)}">
-        <span class="composer-attachment-kind">${renderAttachmentThumb(attachment, "composer-attachment-thumb")}</span>
-        <span class="composer-attachment-name">${window.miaMarkdown.escapeHtml(attachment.name || "附件")}</span>
-        <span class="composer-attachment-size">${window.miaMarkdown.escapeHtml(window.miaFormat.formatBytes(attachment.size))}</span>
-        <button type="button" data-attachment-remove="${window.miaMarkdown.escapeHtml(attachment.id)}" title="移除附件" aria-label="移除附件">×</button>
+    els.composerAttachments.innerHTML = attachments.map((attachment) => {
+      const kind = attachment.kind || window.miaFormat.attachmentKind(attachment);
+      const image = kind === "image" && (attachment.dataUrl || attachment.thumbnailDataUrl || attachment.previewDataUrl);
+      return `
+      <div class="composer-attachment${image ? " image" : ""}" title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "附件")}">
+        <button class="composer-attachment-preview" type="button" data-attachment-preview="${window.miaMarkdown.escapeHtml(attachment.id)}" aria-label="预览附件">
+          ${renderAttachmentThumb(attachment, "composer-attachment-thumb")}
+        </button>
+        <button class="composer-attachment-remove" type="button" data-attachment-remove="${window.miaMarkdown.escapeHtml(attachment.id)}" title="移除附件" aria-label="移除附件">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M6.75 6.75L17.25 17.25M17.25 6.75L6.75 17.25" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+          </svg>
+        </button>
       </div>
-    `).join("");
+    `;
+    }).join("");
+    els.composerAttachments.querySelectorAll("[data-attachment-preview]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const attachment = state.pendingAttachments.find((item) => item.id === button.dataset.attachmentPreview);
+        const src = String(attachment?.dataUrl || attachment?.previewDataUrl || attachment?.thumbnailDataUrl || "").trim();
+        if (!attachment || !src.startsWith("data:image/") || typeof openImagePreview !== "function") {
+          els.chatInput?.focus();
+          return;
+        }
+        openImagePreview(src, attachment.name || "图片预览", {
+          onSave: (result = {}) => {
+            updateComposerAttachmentImage(attachment.id, result.dataUrl || "");
+          }
+        });
+      });
+    });
     els.composerAttachments.querySelectorAll("[data-attachment-remove]").forEach((button) => {
       button.addEventListener("click", () => {
         state.pendingAttachments = state.pendingAttachments.filter((item) => item.id !== button.dataset.attachmentRemove);
@@ -154,6 +180,32 @@
         els.chatInput?.focus();
       });
     });
+  }
+
+  function updateComposerAttachmentImage(id, dataUrl) {
+    const nextDataUrl = String(dataUrl || "").trim();
+    if (!id || !nextDataUrl.startsWith("data:image/")) return;
+    state.pendingAttachments = state.pendingAttachments.map((attachment) => {
+      if (attachment.id !== id) return attachment;
+      return {
+        ...attachment,
+        mime: nextDataUrl.match(/^data:([^;,]+)/)?.[1] || attachment.mime || "image/png",
+        size: dataUrlByteSize(nextDataUrl) || attachment.size || 0,
+        kind: "image",
+        dataUrl: nextDataUrl,
+        thumbnailDataUrl: nextDataUrl
+      };
+    });
+    renderComposerAttachments();
+    renderSendButton();
+    els.chatInput?.focus();
+  }
+
+  function dataUrlByteSize(value) {
+    const match = String(value || "").match(/^data:[^,]+,([\s\S]*)$/);
+    if (!match) return 0;
+    const payload = match[1].replace(/\s+/g, "");
+    return Math.max(0, Math.floor(payload.length * 3 / 4) - (payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0));
   }
 
   // Composer skill chips: skills temporarily attached to the next message(s)
@@ -324,11 +376,16 @@
       let filePath = "";
       let saved = null;
       let thumbnailDataUrl = "";
+      let dataUrl = "";
       try {
         thumbnailDataUrl = await thumbnailDataUrlForFile(file);
+        if (String(file.type || "").startsWith("image/")) {
+          dataUrl = await readFileAsDataUrl(file);
+          if (!thumbnailDataUrl) thumbnailDataUrl = dataUrl;
+        }
         filePath = await window.mia.filePathForFile?.(file);
         if (!filePath) {
-          saved = await saveBrowserFileAttachment(file, thumbnailDataUrl);
+          saved = await saveBrowserFileAttachment(file, thumbnailDataUrl, dataUrl);
           filePath = saved?.path || "";
         }
         if (!filePath && !saved) continue;
@@ -346,7 +403,8 @@
         mime: saved?.mime || file.type || "",
         size: saved?.size || file.size || 0,
         kind: saved?.kind || window.miaFormat.attachmentKind(file),
-        thumbnailDataUrl: saved?.thumbnailDataUrl || thumbnailDataUrl || ""
+        thumbnailDataUrl: saved?.thumbnailDataUrl || thumbnailDataUrl || "",
+        dataUrl: dataUrl || ""
       });
     }
     if (!next.length) return;
@@ -395,18 +453,18 @@
     });
   }
 
-  async function saveBrowserFileAttachment(file, thumbnailDataUrl = "") {
+  async function saveBrowserFileAttachment(file, thumbnailDataUrl = "", dataUrl = "") {
     if (!file) return null;
     if (file.size > 25 * 1024 * 1024) {
       appendTransientChat("assistant", `附件「${file.name || "未命名"}」超过 25MB，暂时不能发送。`);
       return null;
     }
-    const dataUrl = await readFileAsDataUrl(file);
+    const attachmentDataUrl = dataUrl || await readFileAsDataUrl(file);
     return window.mia.saveAttachment?.({
       name: file.name || "attachment",
       mime: file.type || "",
       size: file.size || 0,
-      dataUrl,
+      dataUrl: attachmentDataUrl,
       thumbnailDataUrl
     });
   }
