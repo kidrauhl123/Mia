@@ -222,6 +222,11 @@
     <!-- 发现 / 联系人共用顶条：横跨中栏+右栏，胶囊在连续地板上（仿技能/任务的顶栏 mode 胶囊） -->
     <div id="discoverTopBar" class="discover-top-bar">
       <div id="discoverModeToggle" class="discover-mode-toggle" role="tablist"></div>
+      <button class="narrow-back-button contacts-narrow-back" type="button" data-narrow-back title="返回联系人" aria-label="返回联系人">
+        <svg class="narrow-back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true" focusable="false">
+          <path d="M15 18L9 12L15 6"/>
+        </svg>
+      </button>
     </div>
 
     <section id="chatView" class="workspace">
@@ -344,11 +349,6 @@
 
     <section id="contactsView" class="workspace contacts-workspace hidden">
       <div hidden><span id="contactPageTitle">联系人</span><span id="contactPageMeta"></span></div>
-      <button class="narrow-back-button contacts-narrow-back" type="button" data-narrow-back title="返回联系人" aria-label="返回联系人">
-        <svg class="narrow-back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true" focusable="false">
-          <path d="M15 18L9 12L15 6"/>
-        </svg>
-      </button>
       <section class="contacts-layout">
         <div id="contactDetail" class="contact-detail"></div>
       </section>

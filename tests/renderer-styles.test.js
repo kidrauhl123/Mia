@@ -479,24 +479,29 @@ test("floating-floor pages remove the workspace frame even in narrow layouts", (
   }
 });
 
-test("contacts detail narrow header keeps back control separate from the mode capsule", () => {
+test("contacts detail narrow header keeps the mode capsule fixed and puts back control beside it", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
   assert.match(
     botStoreCss,
-    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell\[data-active-view="contacts"\]\s+#contactsView\s*\{[^}]*position:\s*relative;/,
-    "contacts detail should be the positioning context for its floating back control"
+    /\.discover-top-bar\s+\.contacts-narrow-back\s*\{[^}]*display:\s*none;/,
+    "contacts back control should not appear on discover pages or wide layouts"
   );
   assert.match(
     botStoreCss,
-    /\.app-shell\[data-active-view="contacts"\]\s+\.contacts-narrow-back\s*\{[^}]*position:\s*absolute;[^}]*top:\s*12px;[^}]*left:\s*14px;[^}]*background:\s*var\(--floating-control-bg\);/,
-    "contacts back control should float independently instead of sharing the mode capsule"
+    /\.app-shell\[data-active-view="contacts"\]\s+\.discover-top-bar\s*\{[^}]*left:\s*calc\(var\(--rail-column-width\)\s*\+\s*14px\);[^}]*gap:\s*10px;/,
+    "contacts mode capsule should keep the same fixed left edge as discover"
   );
   assert.match(
     botStoreCss,
-    /\.app-shell\[data-active-view="contacts"\]\s+\.discover-top-bar\s*\{[^}]*left:\s*calc\(var\(--rail-column-width\)\s*\+\s*66px\);/,
-    "contacts mode capsule should leave room for the floating back control"
+    /\.app-shell\[data-active-view="bot-store"\]\s+\.discover-top-bar\s*\{[^}]*left:\s*calc\(var\(--rail-column-width\)\s*\+\s*14px\);/,
+    "discover and contacts mode capsules should share the same narrow left edge"
+  );
+  assert.match(
+    botStoreCss,
+    /\.app-shell\[data-active-view="contacts"\]\s+\.discover-top-bar\s+\.contacts-narrow-back\s*\{[^}]*display:\s*grid;[^}]*flex:\s*0\s+0\s+auto;[^}]*width:\s*38px;[^}]*pointer-events:\s*auto;/,
+    "contacts back control should sit as the next floating chip to the right of the mode capsule"
   );
   assert.match(
     botStoreCss,

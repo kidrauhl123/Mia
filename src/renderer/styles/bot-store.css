@@ -25,6 +25,9 @@
   pointer-events: auto;
   -webkit-app-region: no-drag;
 }
+.discover-top-bar .contacts-narrow-back {
+  display: none;
+}
 /* rail / 列表 / 详情 / 网格都在同一个地板行；发现模式无中栏可拖 */
 .app-shell[data-active-view="contacts"] .nav-rail,
 .app-shell[data-active-view="bot-store"] .nav-rail { grid-row: 1; grid-column: 1; }
@@ -659,7 +662,6 @@
 
   .app-shell[data-active-view="contacts"] #contactsView {
     grid-column: 2 / -1;
-    position: relative;
   }
 
   .contacts-workspace {
@@ -676,11 +678,15 @@
   .app-shell[data-active-view="contacts"] .contacts-sidebar .contact-section {
     background: var(--surface);
   }
-  .app-shell[data-active-view="contacts"] .contacts-narrow-back {
-    position: absolute;
+  .app-shell[data-active-view="contacts"] .discover-top-bar {
     top: 12px;
-    left: 14px;
-    z-index: 13;
+    right: 14px;
+    left: calc(var(--rail-column-width) + 14px);
+    gap: 10px;
+  }
+  .app-shell[data-active-view="contacts"] .discover-top-bar .contacts-narrow-back {
+    display: grid;
+    flex: 0 0 auto;
     width: 38px;
     height: 38px;
     border-radius: 999px;
@@ -688,11 +694,8 @@
     box-shadow: var(--floating-control-shadow);
     -webkit-backdrop-filter: blur(18px) saturate(1.08);
     backdrop-filter: blur(18px) saturate(1.08);
-  }
-  .app-shell[data-active-view="contacts"] .discover-top-bar {
-    top: 12px;
-    right: 14px;
-    left: calc(var(--rail-column-width) + 66px);
+    pointer-events: auto;
+    -webkit-app-region: no-drag;
   }
   .app-shell[data-active-view="bot-store"] .discover-top-bar {
     top: 12px;

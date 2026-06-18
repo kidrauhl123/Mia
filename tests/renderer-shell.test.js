@@ -184,6 +184,8 @@ test("single-pane rail pages do not render meaningless narrow back buttons", () 
 
   assert.match(html, /title="返回消息栏"/);
   assert.match(html, /title="返回联系人"/);
+  assert.match(html, /<div id="discoverTopBar" class="discover-top-bar">[\s\S]*?class="narrow-back-button contacts-narrow-back"[\s\S]*?title="返回联系人"/);
+  assert.doesNotMatch(html.match(/<section id="contactsView"[\s\S]*?<section id="skillsView"/)?.[0] ?? "", /contacts-narrow-back/);
   assert.doesNotMatch(html, /title="返回能力库"/);
   assert.doesNotMatch(html, /title="返回任务"/);
 });
