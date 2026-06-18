@@ -12,6 +12,7 @@ Mia 应该保留并展示一次 Agent 回复里的真实顺序：先说了什么
 
 ```text
 助手回复
+  思考：正在分析部署来源。
   文字：我先检查部署目录。
   工具：shell
   文字：现在确认 Caddy 指向 tgbot-web。
@@ -28,7 +29,7 @@ Mia 现在会把一次正在运行的 Agent 回复压扁成两个桶：
 - 所有助手文字增量都追加到 `run.text`
 - 推理和工具事件收集到 `run.reasoning`、`run.tools`
 
-渲染时，前端把工具 trace 放在消息气泡上方，把所有文字合并成一个气泡。相关路径包括：
+渲染时，前端把工具 trace 放在消息气泡上方，把所有文字合并成一个气泡。reasoning 即使被收集到，也只在非常有限的条件下显示。相关路径包括：
 
 - `src/renderer/social/social.js` 把所有 `text_delta` 追加到 `run.text`
 - `src/renderer/social/social.js` 在云会话消息和流式预览里把 trace 渲染在气泡前面
@@ -49,16 +50,44 @@ assistant message
 
 但 Mia 最后只保存成“最终文本 + 工具列表”，无法还原文字和工具的交错顺序。
 
+## 成熟方案参考
+
+这个设计应该跟随成熟 Agent transcript 的共同原则：按事件发生顺序渲染，而不是按类型分区。
+
+AionUi desktop 的测试明确覆盖了这个行为：
+
+- `text -> acp_tool_call -> text` 必须保持为三段，而不是合并成一段 text 后再把 tool 放到上面。
+- `thinking -> acp_tool_call -> thinking` 也必须保持分段，工具打断 thinking 后，后续 thinking 不能合并回工具前面的 thinking。
+
+本地参考：
+
+- `/Users/jung/GitHub/Alkaka-reference/AionUi/tests/unit/renderer/messageMerging.dom.test.tsx`
+- `/Users/jung/GitHub/Alkaka-reference/AionUi/packages/desktop/src/renderer/pages/conversation/Messages/hooks.ts`
+- `/Users/jung/GitHub/Alkaka-reference/AionUi/packages/desktop/src/renderer/pages/conversation/Messages/components/MessageThinking.tsx`
+
+Claude Code 的流式事件天然是 content block 结构：`text`、`thinking`、`tool_use`、`tool_result` 按顺序出现。Mia 的 `src/main/claude-code-chat-adapter.js` 已经能识别 `content_block_start` 中的 `text`、`thinking`、`tool_use`，并 emit `text_delta`、`reasoning_delta`、`tool_call_started`。
+
+Codex 的 app-server 事件也是顺序流：`item/agentMessage/delta`、`item/reasoning/*Delta`、`item/started`、`item/completed` 按发生顺序到达。Mia 的 `src/main/codex-app-server-runner.js` 已经把这些事件 emit 成 `text_delta`、`reasoning_delta`、`tool_call_*`。
+
+结论：Mia 应该保留这个顺序。`thinking` 和 `tool` 用同一类小字 trace UI，`text` 不区分“过程回复”和“最终回复”，统一用气泡 UI。
+
 ## 设计决策
 
 新增“有序助手回复块”作为 message 级别的展示和持久化 contract。
 
 不要把一次 Agent turn 拆成多条 conversation message。一条助手回复仍然只有一个 message id、一个时间戳、一个右键菜单目标、一个删除动作、一个搜索结果和一个通知 payload。只是这条 message 内部可以按顺序渲染多个 block。
 
-第一版 block 类型只需要两个：
+第一版 block 类型需要三个：
 
 ```js
 [
+  {
+    type: "thinking",
+    id: "thinking_1",
+    text: "正在分析部署来源。",
+    status: "completed",
+    duration: 1.25
+  },
   {
     type: "text",
     id: "text_msg_1",
@@ -81,7 +110,9 @@ assistant message
 ]
 ```
 
-Reasoning 继续作为 trace 元数据保存，不默认作为可见 block 展示。它可以沿用现有 trace 组件的展示规则，但一旦存在 ordered blocks，工具就不应该再统一堆到回复顶部。
+`thinking` 和 `tool` 都属于 trace 系列 UI：小字、紧凑、可折叠或可弱化显示。`text` 属于聊天气泡 UI。过程回复和最终回复技术上都是 `text`，不需要两套 UI；最后一个 text block 自然承担最终回复角色。
+
+Reasoning 不是完整推理链的承诺。很多引擎只提供状态、摘要、空 summary 或加密内容。Mia 只能展示可展示的 reasoning summary 或“思考中/已思考”状态，不能假装拿到了完整推理过程。
 
 ## 非目标
 
@@ -111,14 +142,14 @@ content_blocks_json
   "sender_ref": "codex",
   "body_md": "我先检查部署目录。\n\n现在确认 Caddy 指向 tgbot-web。\n\n结论是...",
   "trace_json": "{\"tools\":[...]}",
-  "content_blocks_json": "[{\"type\":\"text\",\"id\":\"text_msg_1\",\"text\":\"我先检查部署目录。\"}]"
+  "content_blocks_json": "[{\"type\":\"thinking\",\"id\":\"thinking_1\",\"text\":\"正在分析部署来源。\"},{\"type\":\"text\",\"id\":\"text_msg_1\",\"text\":\"我先检查部署目录。\"}]"
 }
 ```
 
 字段职责：
 
 - `body_md`：完整可读文本，给搜索、复制、通知、历史上下文和旧客户端用。
-- `content_blocks_json`：有序展示 contract，给新前端按顺序渲染文字和工具。
+- `content_blocks_json`：有序展示 contract，给新前端按顺序渲染 thinking、tool 和 text。
 - `trace_json`：兼容旧前端，同时继续保存 reasoning 和工具元数据。
 
 写入前要 normalize blocks：
@@ -126,14 +157,15 @@ content_blocks_json
 - 总 block 数设置上限，例如 200。
 - 丢弃非法 block 对象。
 - 丢弃空 text block。
+- thinking block 可以只有状态和 duration；如果有可展示 summary，再保存 `text`。
 - tool block 必须有 `name`。
 - tool preview 要截断，沿用现有 trace preview 的长度策略。
-- tool status 统一成 `running`、`completed`、`error`。
+- thinking/tool status 统一成 `running`、`completed`、`error`。
 - normalize 后仍然保留原始顺序。
 
 ## 事件收集
 
-在现有 trace collector 旁边增加 ordered block collector。
+在现有 trace collector 旁边增加 ordered block collector。collector 的核心职责是保留事件顺序，不按类型重新排序。
 
 collector 处理现有 engine adapter 已经 emit 的事件：
 
@@ -161,9 +193,13 @@ collector 处理现有 engine adapter 已经 emit 的事件：
 
 reasoning 事件规则：
 
-- 继续收集到 `trace_json`。
-- 第一版不把 reasoning 加入可见 ordered blocks。
-- renderer 只有在现有 trace 策略允许时，才可以在第一个工具附近显示简洁 reasoning。
+- `reasoning_delta` 到达时，在当前位置创建或追加 `thinking` block。
+- 如果同一个 thinking id 连续到达，就合并到当前 thinking block。
+- 如果 tool block 打断了 thinking，后续同 id 的内容型 thinking delta 也创建新的 thinking block，不能合并回工具前面。
+- 如果 thinking 完成或耗时这类状态更新晚于 tool 到达，可以回填最近的匹配 thinking block，不需要创建新的空 thinking block。
+- 如果 engine 只提供“开始思考/结束思考”状态，没有可展示文字，也可以创建 status-only thinking block。
+- 如果 engine 只提供加密 reasoning 或空 summary，不要伪造 reasoning 文本；最多显示通用状态，例如“思考中”或“已思考 4.2s”。
+- reasoning 同时继续收集到 `trace_json`，服务旧前端和兼容路径。
 
 collector 应该放在共享或 main 侧模块，避免 daemon 和 renderer 各写一套规则。候选文件：
 
@@ -211,6 +247,7 @@ Engine adapters：
   <div class="avatar"></div>
   <div class="message-stack">
     <div class="assistant-blocks">
+      <details class="trace-row thinking">...</details>
       <div class="bubble assistant-text-block">...</div>
       <details class="trace-row tool">...</details>
       <div class="bubble assistant-text-block">...</div>
@@ -220,20 +257,23 @@ Engine adapters：
 </article>
 ```
 
-文字 block 使用现有 markdown renderer 和助手气泡样式。工具 block 复用现有 trace row 视觉语言，包括状态图标、可折叠内容、preview 文本、展开状态记忆。
+文字 block 使用现有 markdown renderer 和助手气泡样式。thinking block 和 tool block 复用同一套 trace row 视觉语言，包括状态图标、可折叠内容、preview 文本、duration、展开状态记忆。
 
 渲染规则：
 
-- 如果只有一个 text block 且没有 tool block，就渲染成今天的普通气泡。
+- 如果只有一个 text block 且没有 thinking/tool block，就渲染成今天的普通气泡。
 - 如果存在 ordered blocks，就不要再把旧的 top-level tool trace 列表渲染到气泡上方。
-- 如果 message 有 `trace_json.reasoning`，只有在现有 duplicate-reasoning 规则允许时，才在第一个工具前或工具附近紧凑显示。
+- 如果存在 ordered blocks，就按 block 顺序渲染 thinking、tool、text，不按类型分区。
+- 如果 message 只有旧 `trace_json.reasoning`、没有 ordered thinking block，才走旧 trace fallback。
 - 右键菜单、复制、删除、回复、翻译、时间戳仍然挂在整条 assistant message 上。
 - “复制整条消息”使用 `body_md`，不要复制 tool preview。
 - 单个文字 block 内的文本选择继续走现有 `.bubble` text-hit 行为。
+- thinking/tool block 默认紧凑显示，不抢正文视觉重心。
 
 流式预览规则：
 
 - blocks 到达时按顺序实时渲染。
+- thinking block 可以先显示“思考中”，后续 reasoning summary 到达时更新文本。
 - running tool block 原地更新。
 - 工具后面出现的新文字，显示为同一条助手回复内的新文字气泡。
 - 最终云端 message 到达后，用持久化 message 替换 transient streaming article，并保持视觉顺序一致。
@@ -259,6 +299,7 @@ Web 和移动端：
 
 - 如果 block normalize 失败，就丢弃 `content_blocks_json`，保留 `body_md`。
 - 如果收到 tool completed 但没有匹配的 started event，就在当前位置追加一个 synthetic tool block。
+- 如果收到 thinking done 但没有匹配的 running thinking block，就更新最近的 thinking block；没有最近 block 时追加一个 status-only thinking block。
 - 如果某个 engine 只返回最终文本、不提供流式事件，就不生成 blocks，继续走现有路径。
 
 ## 测试
@@ -267,9 +308,12 @@ Web 和移动端：
 
 Shared block collector：
 
-- 保留 text、tool、text 顺序。
+- 保留 thinking、text、tool、text 顺序。
 - 同一个 text id 会合并到同一个 block。
 - 工具后出现新的 text id 会创建新的 text block。
+- 同一个 thinking id 连续到达会合并到同一个 block。
+- 工具打断后，同一个 thinking id 的内容 delta 再出现会创建新的 thinking block。
+- 工具打断后，同一个 thinking id 的完成或耗时状态更新会回填最近的匹配 thinking block。
 - tool delta 和 completed 会更新匹配 block。
 - 非法和空 block 会被丢弃。
 
@@ -281,15 +325,15 @@ Cloud messages store：
 
 Local bot responder：
 
-- `text_delta -> tool_call_started -> tool_call_completed -> text_delta` 会保存 ordered `contentBlocks`。
+- `reasoning_delta -> text_delta -> tool_call_started -> tool_call_completed -> text_delta` 会保存 ordered `contentBlocks`。
 - 现有 `trace_json` 行为不变。
 
 Renderer：
 
-- 带 blocks 的云端助手消息按 text/tool/text 顺序渲染。
+- 带 blocks 的云端助手消息按 thinking/text/tool/text 顺序渲染。
 - 带 blocks 的消息不会在第一个气泡上方重复渲染 top-level tool trace。
 - fallback 路径仍然渲染旧的 `trace_json + body_md`。
-- streaming run 能在两段文字之间渲染 running tool。
+- streaming run 能在两段文字之间渲染 running thinking 和 running tool。
 
 Web parity：
 
@@ -314,19 +358,19 @@ Web parity：
 
 - `content_blocks_json` 是有序渲染来源。
 - `trace_json` 继续作为兼容元数据和 reasoning 存储。
-- 一旦 blocks 存在，就从 blocks 渲染工具，不再从 `trace_json.tools` 渲染工具。
+- 一旦 blocks 存在，就从 blocks 渲染 thinking 和工具，不再从 `trace_json` 顶部重渲染 thinking/tools。
 
-第二个风险是视觉噪音。工具 block 默认应该保持紧凑，复用可折叠 trace row，不自动展开长输出。
+第二个风险是视觉噪音。thinking/tool block 默认应该保持紧凑，复用可折叠 trace row，不自动展开长输出。
 
-第三个风险是搜索和复制。`body_md` 必须继续作为搜索、预览、通知、历史上下文和整条消息复制的纯文本来源。tool preview 只有以后做显式“复制工具输出”入口时才单独复制。
+第三个风险是搜索和复制。`body_md` 必须继续作为搜索、预览、通知、历史上下文和整条消息复制的纯文本来源。thinking 文本和 tool preview 只有以后做显式“复制 trace 内容”入口时才单独复制。
 
 ## 当前默认决策
 
 实现前不需要再做产品决策，第一版使用保守默认：
 
-- reasoning 不进入可见 ordered blocks。
+- reasoning 作为 `thinking` ordered block 进入 trace UI，但只展示可展示 summary 或状态，不展示不可获取的完整推理链。
 - `body_md` 仍然是完整文本来源。
 - 桌面和 Web 先支持 ordered rendering。
 - Mobile 先 fallback 到 `body_md`。
 
-如果后续用户确实需要更强的过程可见性，第二阶段再加设置项，例如 reasoning 的展示位置，或单个工具输出复制。
+如果后续用户确实需要更强的过程可见性，第二阶段再加设置项，例如 thinking 默认展开策略、是否显示 duration，或单个 trace block 复制。
