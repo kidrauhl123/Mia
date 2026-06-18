@@ -26,7 +26,7 @@ Mia should reuse that product shape, adapted to its current Electron main, prelo
 
 The finished product includes:
 
-- A Settings section named MCP services.
+- A `MCP 服务` mode inside the existing `能力库` workspace.
 - Add, edit, delete, enable, disable, duplicate-name replacement, and JSON import.
 - Transport support for `stdio`, `http`, `sse`, and `streamable_http`.
 - Connection testing through MCP SDK `initialize` and `tools/list`.
@@ -114,14 +114,30 @@ Add narrow IPC channels:
 
 Expose them through `window.mia.mcp`. All return values must be serializable objects with success, data, and error fields.
 
-## Settings UI
+## Product Entry
 
-The MCP settings UI should be work-focused and dense:
+The primary entry point is the existing `能力库` rail item, not the generic settings page.
 
-- The primary entry point is the existing settings gear in the left rail, then a top-level settings tab named `MCP 服务`.
-- The tab sits after `模型` in the current settings tab list: `账号与同步`, `外观`, `模型`, `MCP 服务`.
-- Do not bury MCP under `模型`; MCP servers are shared Agent tools, not model-provider settings.
-- Error states and empty states in Agent chat may include a secondary action that opens Settings directly to `MCP 服务`.
+Rationale:
+
+- Users understand both Skills and MCP servers as Agent capabilities.
+- MCP is not a model-provider setting; burying it under `模型` makes it look like engine tuning.
+- The existing Skills page already has a top mode toggle and search/filter surface that can naturally grow from Skill-only to capability management.
+
+Update the Skills page top mode toggle to:
+
+```text
+技能市场 / 我的技能 / MCP 服务
+```
+
+`MCP 服务` becomes a first-class capability-management view in the Skills workspace. The Settings page may include a secondary row or link under `模型` or a future `工具` section that opens `能力库 -> MCP 服务`, but Settings is not the primary home.
+
+Error states and empty states in Agent chat may include a secondary action that opens `能力库 -> MCP 服务` directly.
+
+## MCP Services UI
+
+The MCP services UI should be work-focused and dense:
+
 - List servers with name, transport badge, enabled toggle, connection status, sync status, and tool count.
 - Add server opens a form with a transport segmented control.
 - HTTP/SSE form fields: URL, headers, bearer token env var.
