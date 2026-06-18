@@ -2534,6 +2534,13 @@ const localBotResponder = createLocalBotResponder({
   sendChat,
   postConversationMessageAsBot: (conversationId, body) => socialApi.postConversationMessageAsBot(conversationId, body),
   listConversationMessages: (conversationId, sinceSeq, limit) => socialApi.listConversationMessages(conversationId, sinceSeq, limit),
+  createScheduledTask: async (input) => {
+    const result = await daemonTasksClient.call("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+    return result.task;
+  },
   emitCloudEvent: (message) => {
     const envelope = {
       type: message.type,
