@@ -926,7 +926,7 @@
 }
 
 :root[data-show-user-avatar="false"] .message.user .avatar,
-:root[data-show-assistant-avatar="false"] .message.assistant .avatar {
+:root[data-show-assistant-avatar="false"] .message.assistant:not(.group-message) .avatar {
   display: none;
 }
 
@@ -1044,7 +1044,7 @@
 }
 
 @media (max-width: 520px) {
-  .message .avatar {
+  .message:not(.group-message) .avatar {
     display: none;
   }
 

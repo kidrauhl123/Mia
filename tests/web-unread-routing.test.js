@@ -65,6 +65,18 @@ test("src/web/app/index.html includes private AI composer controls", () => {
   assert.match(html, /id="permissionMode"/);
 });
 
+test("web avatar display settings default off and do not hide group participants", () => {
+  const appearance = fs.readFileSync(path.join(ROOT, "src/web/appearance.js"), "utf8");
+  const app = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const css = fs.readFileSync(path.join(ROOT, "src/web/styles.css"), "utf8");
+
+  assert.match(appearance, /showUserAvatar:\s*false/);
+  assert.match(appearance, /showAssistantAvatar:\s*false/);
+  assert.match(app, /appearanceShowUserAvatar\)\s*els\.appearanceShowUserAvatar\.checked = ap\.showUserAvatar === true;/);
+  assert.match(app, /const cls = `\$\{isOwn \? "message user" : "message assistant"\}\$\{isGroup \? " group-message" : ""\}`;/);
+  assert.match(css, /:root\[data-show-assistant-avatar="off"\]\s+\.chat\s+\.message\.assistant:not\(\.group-message\)\s+\.avatar/);
+});
+
 test("src/web/app/index.html includes the desktop-style session history menu", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   assert.match(html, /id="sessionMenuButton"/);

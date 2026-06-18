@@ -77,6 +77,21 @@ test("chat floor overlay text uses the adaptive floor palette", () => {
   assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.message-time/);
 });
 
+test("chat avatar display settings do not hide group participant avatars", () => {
+  const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
+
+  assert.match(
+    chatCss,
+    /:root\[data-show-assistant-avatar="false"\]\s+\.message\.assistant:not\(\.group-message\)\s+\.avatar/,
+    "partner avatar toggle must only hide non-group assistant avatars"
+  );
+  assert.match(
+    chatCss,
+    /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?\.message:not\(\.group-message\)\s+\.avatar\s*\{\s*display:\s*none;/,
+    "narrow layout must keep group participant avatars visible"
+  );
+});
+
 test("sidebar and chat headers use the same surface and own their divider line", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 

@@ -2373,7 +2373,9 @@ function buildConversationMessageArticle(msg, conversation) {
   const senderAvatar = spec.avatar?.image || "";
   const senderCrop = spec.avatar?.crop || null;
   const senderColor = spec.avatar?.color || window.miaMemberColor.memberAccentColor(msg.sender_ref || senderLabel);
-  const cls = isOwn ? "message user" : "message assistant";
+  const isGroup = conversation.type === "group"
+    || (!conversation.id?.startsWith("dm:") && !conversation.id?.startsWith("botc_") && (conversation.id?.startsWith("g_") || conversation.id?.startsWith("g-")));
+  const cls = `${isOwn ? "message user" : "message assistant"}${isGroup ? " group-message" : ""}`;
   const fallbackText = spec.avatar?.text || avatarResolve.identityDisplayText(isOwn ? state.user?.username : senderLabel, "?");
   const avatarColor = senderColor;
   const avatarMarkup = avatarHtml({
@@ -2454,8 +2456,10 @@ function buildCloudAgentStreamingArticle(conversation, run) {
     scopeKey: `web-run:${run.runId || conversation.id}`,
   });
   const permissionHtml = permissionBannerHtml(run.permission);
+  const isGroup = conversation.type === "group"
+    || (!conversation.id?.startsWith("dm:") && !conversation.id?.startsWith("botc_") && (conversation.id?.startsWith("g_") || conversation.id?.startsWith("g-")));
   return `
-    <article class="message assistant streaming">
+    <article class="message assistant streaming${isGroup ? " group-message" : ""}">
       ${avatarMarkup}
       <div class="message-stack">${traceHtml}${textHtml}${permissionHtml}</div>
     </article>
@@ -3581,8 +3585,8 @@ function renderSettings() {
   if (els.appearanceHoverBackground) els.appearanceHoverBackground.checked = ap.hoverBackground !== false;
   if (els.appearanceAccentColor) els.appearanceAccentColor.value = ap.accentColor || "#5e5ce6";
   if (els.appearanceUserBubbleColor) els.appearanceUserBubbleColor.value = ap.userBubbleColor || "#0162db";
-  if (els.appearanceShowUserAvatar) els.appearanceShowUserAvatar.checked = ap.showUserAvatar !== false;
-  if (els.appearanceShowAssistantAvatar) els.appearanceShowAssistantAvatar.checked = ap.showAssistantAvatar !== false;
+  if (els.appearanceShowUserAvatar) els.appearanceShowUserAvatar.checked = ap.showUserAvatar === true;
+  if (els.appearanceShowAssistantAvatar) els.appearanceShowAssistantAvatar.checked = ap.showAssistantAvatar === true;
 }
 
 function openSettings() {

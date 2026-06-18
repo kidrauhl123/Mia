@@ -74,8 +74,8 @@ function createSettingsStore(deps = {}) {
       accentColor: "#318ad3",
       userBubbleColor: "#0162db",
       showHoverBackground: false,
-      showUserAvatar: true,
-      showAssistantAvatar: true,
+      showUserAvatar: false,
+      showAssistantAvatar: false,
       listStyle: "card",
       selectionStyle: "solid",
       workspaceBackgroundColor: "",
@@ -173,8 +173,8 @@ function createSettingsStore(deps = {}) {
     const accentColor = String(settings.accentColor || current.accentColor || "#318ad3").trim();
     const userBubbleColor = String(settings.userBubbleColor || current.userBubbleColor || "#dedcff").trim();
     const showHoverBackground = settings.showHoverBackground == null ? current.showHoverBackground !== false : settings.showHoverBackground !== false;
-    const showUserAvatar = settings.showUserAvatar == null ? current.showUserAvatar !== false : settings.showUserAvatar !== false;
-    const showAssistantAvatar = settings.showAssistantAvatar == null ? current.showAssistantAvatar !== false : settings.showAssistantAvatar !== false;
+    const showUserAvatar = settings.showUserAvatar == null ? current.showUserAvatar === true : settings.showUserAvatar === true;
+    const showAssistantAvatar = settings.showAssistantAvatar == null ? current.showAssistantAvatar === true : settings.showAssistantAvatar === true;
     const selectionStyle = String(settings.selectionStyle || current.selectionStyle || "soft").trim();
     const validHex = (value, fallback) => /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : fallback;
     const workspaceBackgroundColorInput = String(has("workspaceBackgroundColor") ? settings.workspaceBackgroundColor : (current.workspaceBackgroundColor || "")).trim();

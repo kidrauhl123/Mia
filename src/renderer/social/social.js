@@ -1812,7 +1812,7 @@
         const article = _buildGroupMessageArticle(msg, color, members);
         if (article) containerEl.appendChild(article);
       }
-      const streaming = _buildCloudAgentStreamingArticle(conversationId, color, members);
+      const streaming = _buildCloudAgentStreamingArticle(conversationId, color, members, { groupMessage: true });
       if (streaming) containerEl.appendChild(streaming);
       window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
       markRenderedTraceBlocks(containerEl);
@@ -1938,7 +1938,7 @@
     return article;
   }
 
-  function _buildCloudAgentStreamingArticle(conversationId, accentColor, members = []) {
+  function _buildCloudAgentStreamingArticle(conversationId, accentColor, members = [], options = {}) {
     const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
     // Typing-only state ("running" with no text/reasoning/tools yet) shows in the
     // conversation header instead of a placeholder bubble — see paintHeaderStatus.
@@ -1980,7 +1980,7 @@
       ? `<div class="message-attachments">${run.tools.slice(-3).map((tool) => `<span class="message-attachment"><span>TOOL</span><strong>${escapeHtml(tool.name || "工具")}</strong><em>${escapeHtml(tool.status || "")}</em></span>`).join("")}</div>`
       : "";
     const article = document.createElement("article");
-    article.className = "message assistant streaming";
+    article.className = `message assistant streaming${options.groupMessage ? " group-message" : ""}`;
     article.innerHTML = `
       ${avatarHtml}
       <div class="message-stack">
