@@ -281,8 +281,11 @@
   function renderServerCard(server) {
     const syncLabel = syncStatusLabel(server);
     const description = server.description || transportSummary(server.transport) || "未配置描述";
+    const id = escapeHtml(server.id || "");
+    const toggleLabel = server.enabled === false ? "启用" : "停用";
+    const toggleClass = server.enabled === false ? "mcp-action-primary" : "mcp-action-secondary";
     return `
-      <article class="skill-card mcp-card" data-mcp-id="${escapeHtml(server.id || "")}">
+      <article class="skill-card mcp-card" data-mcp-id="${id}">
         <div class="skill-card-head">
           <div class="skill-card-titlerow">
             <strong>${escapeHtml(server.name || server.id || "MCP 服务")}</strong>
@@ -298,12 +301,16 @@
             ${chip("mcp-chip-tools", `${Number(server.tools?.length || 0)} 个工具`)}
           </span>
         </span>
-        <div class="mcp-card-actions">
-          <button type="button" data-mcp-action="test" data-mcp-id="${escapeHtml(server.id || "")}">测试</button>
-          <button type="button" data-mcp-action="sync" data-mcp-id="${escapeHtml(server.id || "")}">同步</button>
-          <button type="button" data-mcp-action="toggle" data-mcp-id="${escapeHtml(server.id || "")}">${server.enabled === false ? "启用" : "禁用"}</button>
-          <button type="button" data-mcp-action="edit" data-mcp-id="${escapeHtml(server.id || "")}">编辑</button>
-          <button type="button" data-mcp-action="delete" data-mcp-id="${escapeHtml(server.id || "")}">删除</button>
+        <div class="mcp-card-actions mcp-server-actions" aria-label="MCP 服务操作">
+          <div class="mcp-action-strip mcp-action-strip-primary">
+            <button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="test" data-mcp-id="${id}">测试</button>
+            <button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="sync" data-mcp-id="${id}">同步</button>
+            <button class="mcp-action-button ${toggleClass}" type="button" data-mcp-action="toggle" data-mcp-id="${id}">${toggleLabel}</button>
+          </div>
+          <div class="mcp-action-strip mcp-action-strip-secondary">
+            <button class="mcp-action-button mcp-action-ghost" type="button" data-mcp-action="edit" data-mcp-id="${id}">编辑</button>
+            <button class="mcp-action-button mcp-action-danger" type="button" data-mcp-action="delete" data-mcp-id="${id}">删除</button>
+          </div>
         </div>
       </article>
     `;
@@ -326,7 +333,7 @@
           </span>
         </span>
         <div class="mcp-card-actions">
-          <button type="button" data-mcp-action="install" data-mcp-template="${escapeHtml(template.id || "")}">安装</button>
+          <button class="mcp-action-button mcp-action-primary" type="button" data-mcp-action="install" data-mcp-template="${escapeHtml(template.id || "")}">安装</button>
         </div>
       </article>
     `;
@@ -372,7 +379,7 @@
           <span class="mcp-inline-chips">${action.chips.join("")}</span>
         </span>
         <div class="mcp-card-actions">
-          <button type="button" data-mcp-action="${escapeHtml(action.id)}">${escapeHtml(action.buttonLabel)}</button>
+          <button class="mcp-action-button mcp-action-primary" type="button" data-mcp-action="${escapeHtml(action.id)}">${escapeHtml(action.buttonLabel)}</button>
         </div>
       </article>
     `;
@@ -610,7 +617,7 @@
     if (!server) return;
     const result = await window.mia.mcp.setEnabled(id, !server.enabled);
     if (!result?.success) {
-      alertText(`${server.enabled === false ? "启用" : "禁用"}失败：${result?.error || "未知错误"}`);
+      alertText(`${server.enabled === false ? "启用" : "停用"}失败：${result?.error || "未知错误"}`);
     }
     await loadMcpServers({ force: true });
   }

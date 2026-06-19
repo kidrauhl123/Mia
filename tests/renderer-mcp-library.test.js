@@ -344,6 +344,7 @@ test("ability library exposes MCP service mode and loads MCP renderer script", (
   const appState = read("src/renderer/app-state.js");
   const skillLibrary = read("src/renderer/skills/skill-library.js");
   const html = read("src/renderer/index.html");
+  const mcpCss = read("src/renderer/styles/mcp.css");
 
   assert.match(appState, /skillCapabilityMode:\s*"market"/);
   assert.match(appState, /mcp:\s*\{/);
@@ -351,6 +352,8 @@ test("ability library exposes MCP service mode and loads MCP renderer script", (
   assert.match(skillLibrary, /window\.miaMcpLibrary\.renderMcpLibrary/);
   assert.match(html, /styles\/mcp\.css/);
   assert.match(html, /mcp\/mcp-library\.js/);
+  assert.match(mcpCss, /\.mcp-action-strip-primary\s*\{[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(mcpCss, /\.mcp-action-button\s*\{[\s\S]*font-size:\s*12\.5px;[\s\S]*white-space:\s*nowrap/);
 });
 
 test("mcp-library renders installed, marketplace, and custom tabs", () => {
@@ -373,6 +376,11 @@ test("mcp-library renders installed, marketplace, and custom tabs", () => {
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
 
   assert.match(harness.els.skillCardGrid.innerHTML, /小红书 MCP/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /mcp-server-actions/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /mcp-action-strip-primary/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /mcp-action-danger/);
+  assert.match(harness.els.skillCardGrid.innerHTML, />停用</);
+  assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, />禁用</);
   assert.match(harness.els.skillChipRow.innerHTML, /已安装/);
   assert.match(harness.els.skillChipRow.innerHTML, /市场/);
   assert.match(harness.els.skillChipRow.innerHTML, /自定义/);
