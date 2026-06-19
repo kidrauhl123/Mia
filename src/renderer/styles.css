@@ -3,6 +3,7 @@
   --app-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --chrome: rgba(0, 0, 0, 0.035);
   --surface: #ffffff;
+  --surface-layer: #fbfbfc;
   --surface-soft: rgba(255, 255, 255, 0.86);
   --surface-muted: #f5f5f8;
   --workspace-floor: #f0f0f3;
@@ -22,7 +23,7 @@
   --menu-shadow: 0 16px 40px rgba(16, 20, 39, 0.14);
   --menu-separator: rgba(20, 24, 40, 0.08);
   --composer-add-menu-width: 154px;
-  --rail-glass-bg: color-mix(in srgb, var(--surface) 82%, transparent);
+  --rail-glass-bg: color-mix(in srgb, var(--surface-layer) 82%, transparent);
   --floating-control-bg: color-mix(in srgb, var(--surface) 86%, transparent);
   --floating-control-shadow: 0 1px 2px rgba(16, 20, 39, 0.06), 0 10px 28px rgba(16, 20, 39, 0.08);
   --floating-control-pill-shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
@@ -68,6 +69,7 @@
   color-scheme: dark;
   --chrome: #121318;
   --surface: #1f2128;
+  --surface-layer: #1f2128;
   --surface-soft: rgba(31, 33, 40, 0.90);
   --surface-muted: #171920;
   --workspace-floor: var(--surface-muted);
@@ -861,7 +863,7 @@ body.platform-win32 .topbar {
 }
 
 .sidebar {
-  background: var(--surface);
+  background: var(--surface-layer);
   box-shadow: var(--shadow);
 }
 
@@ -893,7 +895,7 @@ body.platform-win32 .topbar {
 .app-shell[data-layout="index-workspace"] .sidebar {
   margin: 8px 8px 10px 0;
   border-radius: var(--rail-corner-radius);
-  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  background: var(--surface-layer);
   box-shadow: var(--rail-expanded-shadow);
   opacity: 1;
   transform: translateX(0);
@@ -1012,7 +1014,7 @@ body.sidebar-resizing * {
   min-height: 66px;
   padding: 14px 10px 10px;
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  background: var(--surface-layer);
 }
 
 .conversation-sidebar .sidebar-tools {

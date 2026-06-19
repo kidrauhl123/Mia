@@ -95,10 +95,16 @@ test("chat avatar display settings do not hide group participant avatars", () =>
 test("sidebar and chat headers use the same surface and own their divider line", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
+  assert.match(baseCss, /--surface-layer:\s*#fbfbfc;/);
   assert.match(
     baseCss,
-    /\.sidebar-tools\s*\{[^}]*border-bottom:\s*1px solid var\(--line\);[^}]*background:\s*var\(--surface\);/,
-    "sidebar header should draw the same bottom divider as the chat topbar on the same surface"
+    /\.sidebar\s*\{[^}]*background:\s*var\(--surface-layer\);/,
+    "message middle pane should use the shared non-white layer surface"
+  );
+  assert.match(
+    baseCss,
+    /\.sidebar-tools\s*\{[^}]*border-bottom:\s*1px solid var\(--line\);[^}]*background:\s*var\(--surface-layer\);/,
+    "sidebar header should draw the same bottom divider as the message middle pane surface"
   );
   assert.match(
     baseCss,
@@ -340,7 +346,7 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
   assert.match(baseCss, /--floating-control-bg:\s*color-mix\(in srgb,\s*var\(--surface\)\s*86%,\s*transparent\);/);
   assert.match(baseCss, /--floating-control-shadow:\s*0 1px 2px rgba\(16,\s*20,\s*39,\s*0\.06\),\s*0 10px 28px rgba\(16,\s*20,\s*39,\s*0\.08\);/);
   assert.match(baseCss, /--floating-control-pill-shadow:\s*0 1px 3px rgba\(17,\s*24,\s*39,\s*0\.08\);/);
-  assert.match(baseCss, /--rail-glass-bg:\s*color-mix\(in srgb,\s*var\(--surface\)\s*82%,\s*transparent\);/);
+  assert.match(baseCss, /--rail-glass-bg:\s*color-mix\(in srgb,\s*var\(--surface-layer\)\s*82%,\s*transparent\);/);
   assert.match(baseCss, /--segmented-control-bg:\s*var\(--rail-glass-bg\);/);
   assert.match(baseCss, /--segmented-control-active-bg:\s*var\(--accent\);/);
   assert.match(baseCss, /--segmented-control-active-text:\s*#fff;/);
