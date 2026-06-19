@@ -130,6 +130,31 @@ function envWithExecutableDirFirst(env = {}, executablePath = "") {
   };
 }
 
+function codexSdkConfigForMcpServers(mcpServers = {}) {
+  const config = {};
+  for (const [name, spec] of Object.entries(mcpServers || {})) {
+    const serverName = String(name || "").trim();
+    if (!serverName) continue;
+    const url = String(spec?.url || "").trim();
+    const command = String(spec?.command || "").trim();
+    if (url) {
+      config[serverName] = {
+        url
+      };
+      const bearer = String(spec?.bearer_token_env_var || spec?.bearerTokenEnvVar || "").trim();
+      if (bearer) config[serverName].bearer_token_env_var = bearer;
+      continue;
+    }
+    if (!command) continue;
+    config[serverName] = {
+      command,
+      args: Array.isArray(spec?.args) ? spec.args : [],
+      env: spec?.env && typeof spec.env === "object" ? spec.env : {}
+    };
+  }
+  return Object.keys(config).length ? { mcp_servers: config } : null;
+}
+
 const MAX_FILE_DIFF_PREVIEW = 20000;
 
 function safeWorkspaceRelativePath(filePath, workingDirectory = "") {
@@ -466,9 +491,11 @@ function createCodexChatAdapter(deps = {}) {
       capturedSessionId = externalSessionId || turn?.threadId || "";
     } else {
       const { Codex } = await codexSdk();
+      const sdkConfig = codexSdkConfigForMcpServers(mcpServers);
       const codex = new Codex({
         codexPathOverride: commandPath,
         env,
+        ...(sdkConfig ? { config: sdkConfig } : {}),
         ...(managedModel?.baseUrl ? { baseUrl: managedModel.baseUrl } : {}),
         ...(managedModel?.apiKey ? { apiKey: managedModel.apiKey } : {})
       });

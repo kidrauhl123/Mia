@@ -607,6 +607,42 @@ test("sendChat merges user MCP servers into app-server runner and stores MCP fin
   assert.equal(setEntryCall[5], "mcp_fp");
 });
 
+test("sendChat merges built-in and user MCP servers into the SDK path and stores MCP fingerprint", async () => {
+  const deps = createDeps({
+    mcpFingerprint: "mcp_fp",
+    useEntryDeps: true,
+    miaAppMcpSpec: {
+      command: "/opt/node",
+      args: ["/tmp/mia-app.js"],
+      env: { MIA_DAEMON_URL: "http://127.0.0.1:27861", MIA_APP_CONTEXT_FILE: "/tmp/mia-app-context.json" }
+    },
+    schedulerMcpSpec: {
+      command: "/opt/node",
+      args: ["/tmp/mia-scheduler.js"],
+      env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
+    },
+    userMcpSpecs: {
+      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+    }
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    utility: false
+  });
+
+  const constructorCall = deps.calls.find((entry) => entry[0] === "constructor");
+  assert.equal(constructorCall[1].config.mcp_servers["mia-app"].command, "/opt/node");
+  assert.equal(constructorCall[1].config.mcp_servers["mia-scheduler"].command, "/opt/node");
+  assert.equal(constructorCall[1].config.mcp_servers.xhs.url, "http://127.0.0.1:18060/mcp");
+  const setEntryCall = deps.calls.find((entry) => entry[0] === "set-entry");
+  assert.equal(setEntryCall[5], "mcp_fp");
+});
+
 test("sendChat passes engine-level Codex permission profiles to app-server runner", async () => {
   const deps = createDeps({
     enginePermissionMode: () => ":workspace"
