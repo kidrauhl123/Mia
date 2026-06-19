@@ -232,7 +232,6 @@
     closeSkillContextMenu();
     renderSkillLibrary();
     if (mode === "market" && !state.skillMarket.loaded && !state.skillMarket.loading) loadMarketSkills();
-    if (mode === "mcp" && window.miaMcpLibrary && window.miaMcpLibrary.loadMcpServers) window.miaMcpLibrary.loadMcpServers();
   }
 
   function skillScrollContainer() {
@@ -259,7 +258,8 @@
     const render = () => {
       renderModeToggle();
       if (currentSkillMode() === "mcp") {
-        if (window.miaMcpLibrary && window.miaMcpLibrary.renderMcpLibrary) window.miaMcpLibrary.renderMcpLibrary();
+        const startedLoad = ensureMcpLibraryLoaded();
+        if (!startedLoad && window.miaMcpLibrary && window.miaMcpLibrary.renderMcpLibrary) window.miaMcpLibrary.renderMcpLibrary();
       } else if (currentSkillMode() === "market") renderMarketView();
       else renderLocalView();
       renderSkillContextMenu();
@@ -272,6 +272,14 @@
     const direction = pageTurnDirection;
     pageTurnDirection = 0;
     window.miaMasonryGrid?.layout(els.skillCardGrid, ".skill-card", { animate: direction });
+  }
+
+  function ensureMcpLibraryLoaded() {
+    const mcp = state?.mcp;
+    if (!window.miaMcpLibrary || typeof window.miaMcpLibrary.loadMcpServers !== "function") return false;
+    if (mcp?.loading || mcp?.loadAttempted) return false;
+    window.miaMcpLibrary.loadMcpServers();
+    return true;
   }
 
   function renderLocalView() {
@@ -851,6 +859,7 @@
     openSkillContextMenu,
     closeSkillContextMenu,
     renderSkillContextMenu,
+    layoutSkillCards,
     switchSkillMode,
     loadMarketSkills,
     installMarketSkill,

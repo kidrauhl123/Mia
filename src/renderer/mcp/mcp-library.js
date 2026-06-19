@@ -2,12 +2,15 @@
   "use strict";
 
   let state, els, escapeHtml, setText;
+  let layoutCards = () => {};
+  let activeLoadPromise = null;
 
   function initMcpLibrary(deps) {
     state = deps.state;
     els = deps.els;
     escapeHtml = deps.escapeHtml;
     setText = deps.setText;
+    layoutCards = typeof deps.layoutCards === "function" ? deps.layoutCards : () => {};
   }
 
   function mcpState() {
@@ -16,9 +19,13 @@
         activeTab: "installed",
         servers: [],
         templates: [],
+        loaded: false,
+        loadAttempted: false,
         loading: false,
         syncing: false,
         error: "",
+        serverError: "",
+        templateError: "",
         selectedId: "",
         formOpen: false,
         formMode: "create",
@@ -27,7 +34,15 @@
         importText: ""
       };
     }
+    if (typeof state.mcp.loaded !== "boolean") state.mcp.loaded = false;
+    if (typeof state.mcp.loadAttempted !== "boolean") state.mcp.loadAttempted = false;
+    if (typeof state.mcp.serverError !== "string") state.mcp.serverError = "";
+    if (typeof state.mcp.templateError !== "string") state.mcp.templateError = "";
     return state.mcp;
+  }
+
+  function syncAggregateError(mcp) {
+    mcp.error = String(mcp.serverError || mcp.templateError || "");
   }
 
   function setMcpTab(tab) {
@@ -46,42 +61,64 @@
     return values.join(" ").toLowerCase().includes(needle);
   }
 
-  function hasLoadedRecords() {
+  async function loadMcpServers(options = {}) {
     const mcp = mcpState();
-    return !!(
-      (Array.isArray(mcp.servers) && mcp.servers.length)
-      || (Array.isArray(mcp.templates) && mcp.templates.length)
-      || mcp.error
-    );
-  }
-
-  async function loadMcpServers() {
-    const mcp = mcpState();
+    const force = options.force === true;
+    if (mcp.loading && activeLoadPromise) return activeLoadPromise;
+    if (!force && mcp.loadAttempted) return activeLoadPromise || Promise.resolve(mcp);
     if (!window.mia || !window.mia.mcp || typeof window.mia.mcp.list !== "function") {
-      mcp.error = "MCP 服务暂不可用";
+      mcp.loaded = false;
+      mcp.loadAttempted = true;
+      mcp.serverError = "MCP 服务暂不可用";
+      mcp.templateError = "";
+      syncAggregateError(mcp);
       renderMcpLibrary();
-      return;
+      return Promise.resolve(mcp);
     }
     mcp.loading = true;
-    mcp.error = "";
+    mcp.serverError = "";
+    mcp.templateError = "";
+    syncAggregateError(mcp);
     renderMcpLibrary();
-    try {
-      const [listResult, marketResult] = await Promise.all([
-        window.mia.mcp.list(),
-        typeof window.mia.mcp.fetchMarketplace === "function"
-          ? window.mia.mcp.fetchMarketplace()
-          : Promise.resolve({ success: true, data: { templates: [] } })
-      ]);
-      if (listResult?.success) mcp.servers = Array.isArray(listResult.data?.servers) ? listResult.data.servers : [];
-      else mcp.error = String(listResult?.error || "MCP 服务加载失败");
-      if (marketResult?.success) mcp.templates = Array.isArray(marketResult.data?.templates) ? marketResult.data.templates : [];
-      else if (!mcp.error) mcp.error = String(marketResult?.error || "MCP 模板加载失败");
-    } catch (error) {
-      mcp.error = error?.message || "MCP 服务加载失败";
-    } finally {
-      mcp.loading = false;
-      renderMcpLibrary();
-    }
+    activeLoadPromise = (async () => {
+      try {
+        const [listResult, marketResult] = await Promise.all([
+          window.mia.mcp.list(),
+          typeof window.mia.mcp.fetchMarketplace === "function"
+            ? window.mia.mcp.fetchMarketplace()
+            : Promise.resolve({ success: true, data: { templates: [] } })
+        ]);
+        if (listResult?.success) {
+          mcp.servers = Array.isArray(listResult.data?.servers) ? listResult.data.servers : [];
+          mcp.serverError = "";
+        } else {
+          mcp.servers = [];
+          mcp.serverError = String(listResult?.error || "MCP 服务加载失败");
+        }
+        if (marketResult?.success) {
+          mcp.templates = Array.isArray(marketResult.data?.templates) ? marketResult.data.templates : [];
+          mcp.templateError = "";
+        } else {
+          mcp.templates = [];
+          mcp.templateError = String(marketResult?.error || "MCP 模板加载失败");
+        }
+        mcp.loaded = !mcp.serverError && !mcp.templateError;
+      } catch (error) {
+        mcp.loaded = false;
+        mcp.servers = [];
+        mcp.templates = [];
+        mcp.serverError = error?.message || "MCP 服务加载失败";
+        mcp.templateError = "";
+      } finally {
+        mcp.loadAttempted = true;
+        mcp.loading = false;
+        syncAggregateError(mcp);
+        renderMcpLibrary();
+        activeLoadPromise = null;
+      }
+      return mcp;
+    })();
+    return activeLoadPromise;
   }
 
   function renderMcpTabs() {
@@ -250,52 +287,76 @@
     ]));
   }
 
-  function renderState(text) {
-    els.skillCardGrid.innerHTML = `<div class="skill-empty-state">${escapeHtml(text)}</div>`;
+  function renderGrid(html) {
+    els.skillCardGrid.innerHTML = html;
+    layoutCards();
   }
 
-  function currentItems() {
-    const mcp = mcpState();
-    if (mcp.activeTab === "marketplace") return mcp.templates || [];
-    if (mcp.activeTab === "custom") return customEntryActions();
-    return mcp.servers || [];
+  function renderState(text) {
+    renderGrid(`<div class="skill-empty-state">${escapeHtml(text)}</div>`);
+  }
+
+  function renderCards(items, renderItem) {
+    renderGrid(items.map((item) => renderItem(item)).join(""));
   }
 
   function renderMcpLibrary() {
     const mcp = mcpState();
     setText(els.skillPageTitle, "MCP 服务");
     renderMcpTabs();
-    if (!mcp.loading && !hasLoadedRecords()) {
-      loadMcpServers();
+
+    if (mcp.activeTab === "custom") {
+      const customItems = filteredActions();
+      if (!customItems.length) {
+        renderState("没有匹配的入口");
+        return;
+      }
+      renderCards(customItems, renderCustomActionCard);
       return;
     }
-    if (mcp.loading) {
+
+    if (mcp.activeTab === "marketplace") {
+      const templates = Array.isArray(mcp.templates) ? mcp.templates : [];
+      if (!mcp.loadAttempted && !mcp.loading) {
+        renderState("正在加载 MCP 模板...");
+        return;
+      }
+      if (mcp.loading && !templates.length) {
+        renderState("正在加载 MCP 模板...");
+        return;
+      }
+      if (mcp.templateError && !templates.length) {
+        renderState(mcp.templateError || "MCP 模板加载失败");
+        return;
+      }
+      const shownTemplates = filteredTemplates();
+      if (!shownTemplates.length) {
+        renderState(templates.length ? "没有匹配的模板" : "暂无可用模板");
+        return;
+      }
+      renderCards(shownTemplates, renderTemplateCard);
+      return;
+    }
+
+    const servers = Array.isArray(mcp.servers) ? mcp.servers : [];
+    if (!mcp.loadAttempted && !mcp.loading) {
       renderState("正在加载 MCP 服务...");
       return;
     }
-
-    const items = mcp.activeTab === "marketplace"
-      ? filteredTemplates()
-      : mcp.activeTab === "custom"
-        ? filteredActions()
-        : filteredServers();
-
-    if (mcp.error && !currentItems().length) {
-      renderState(mcp.error || "MCP 服务加载失败");
+    if (mcp.loading && !servers.length) {
+      renderState("正在加载 MCP 服务...");
       return;
     }
-    if (!items.length) {
-      if (mcp.activeTab === "marketplace") renderState("暂无可用模板");
-      else if (mcp.activeTab === "custom") renderState("没有匹配的入口");
-      else renderState("暂无已安装 MCP 服务");
+    if (mcp.serverError && !servers.length) {
+      renderState(mcp.serverError || "MCP 服务加载失败");
       return;
     }
-
-    els.skillCardGrid.innerHTML = items.map((item) => {
-      if (mcp.activeTab === "marketplace") return renderTemplateCard(item);
-      if (mcp.activeTab === "custom") return renderCustomActionCard(item);
-      return renderServerCard(item);
-    }).join("");
+    const shownServers = filteredServers();
+    if (!shownServers.length) {
+      renderState(servers.length ? "没有匹配的 MCP 服务" : "暂无已安装 MCP 服务");
+      return;
+    }
+    renderCards(shownServers, renderServerCard);
   }
 
   window.miaMcpLibrary = {

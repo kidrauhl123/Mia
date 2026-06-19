@@ -4399,6 +4399,7 @@ async function initializeRuntime(options = {}) {
       els,
       escapeHtml: window.miaMarkdown.escapeHtml,
       setText,
+      layoutCards: () => window.miaSkillLibrary?.layoutSkillCards?.(),
     });
   }
   if (window.miaBotStore && window.miaBotStore.initBotStore) {
