@@ -270,6 +270,10 @@ function normalizeOpenClawModels(payload = {}) {
   const result = [];
   for (const row of rows) {
     if (!row || row.hidden === true || row.missing === true) continue;
+    if (row.available === false) continue;
+    const rawModelId = String(row.key || row.id || row.model || "").trim().toLowerCase();
+    // Mia-managed models are added from the platform catalog so they keep provider/auth metadata.
+    if (rawModelId.startsWith("mia/") || String(row.provider || "").trim().toLowerCase() === "mia") continue;
     const model = normalizeExternalModelEntry(row, {
       provider: "openclaw",
       providerLabel: "OpenClaw",

@@ -172,20 +172,22 @@ test("choicesFromHelp parses Claude Code and OpenClaw CLI choice text", () => {
 
 test("normalizeOpenClawModels accepts current models list JSON shape", () => {
   assert.deepEqual(normalizeOpenClawModels({
-    count: 2,
+    count: 4,
     models: [
       { key: "openai/gpt-5.5", name: "gpt-5.5", contextWindow: 200000, available: false, tags: ["default"], missing: false },
-      { key: "missing/model", name: "Missing", missing: true }
+      { key: "missing/model", name: "Missing", missing: true },
+      { key: "mia/mia-auto", name: "Auto", contextWindow: 200000, available: true, missing: false },
+      { key: "openai/gpt-5.6", name: "gpt-5.6", contextWindow: 200000, available: true, tags: ["default"], missing: false }
     ]
   }), [{
-    id: "openai/gpt-5.5",
+    id: "openai/gpt-5.6",
     provider: "openclaw",
     providerLabel: "OpenClaw",
-    model: "openai/gpt-5.5",
-    label: "gpt-5.5",
+    model: "openai/gpt-5.6",
+    label: "gpt-5.6",
     source: "openclaw-models-list",
     description: "",
-    available: false,
+    available: true,
     contextWindow: 200000,
     tags: ["default"]
   }]);
@@ -241,7 +243,7 @@ test("loadEngineCapabilities probes OpenClaw models and thinking levels from the
         return;
       }
       callback(null, JSON.stringify({
-        models: [{ key: "openai/gpt-5.5", name: "gpt-5.5", contextWindow: 200000, available: false, tags: ["default"] }]
+        models: [{ key: "openai/gpt-5.6", name: "gpt-5.6", contextWindow: 200000, available: true, tags: ["default"] }]
       }), "");
     }
   });
@@ -257,7 +259,7 @@ test("loadEngineCapabilities probes OpenClaw models and thinking levels from the
   assert.equal(openclaw.available, true);
   assert.deepEqual(openclaw.effortLevels, ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"]);
   assert.deepEqual(openclaw.permissionModes, ["default", "acceptEdits", "readOnly", "bypassPermissions"]);
-  assert.equal(openclaw.models[0].model, "openai/gpt-5.5");
+  assert.equal(openclaw.models[0].model, "openai/gpt-5.6");
 });
 
 test("loadEngineCapabilities falls back to OpenClaw dev help only for thinking levels", async () => {
