@@ -234,10 +234,13 @@
     }
     if (engine === EngineId.OpenClaw) {
       const dynamic = Array.isArray(capability.models) ? capability.models : [];
-      return dedupeModelEntries([
-        defaultEntry,
-        ...dynamic.map((entry, index) => normalizeExternalModelEntry(engine, entry, index)).filter(Boolean)
-      ]);
+      return [
+        ...dedupeModelEntries([
+          defaultEntry,
+          ...dynamic.map((entry, index) => normalizeExternalModelEntry(engine, entry, index)).filter(Boolean)
+        ]),
+        ...miaEntries
+      ];
     }
     if (engine !== EngineId.Codex) return [];
 

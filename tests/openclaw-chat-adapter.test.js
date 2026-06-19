@@ -107,7 +107,7 @@ function createDeps(overrides = {}) {
       return fakeChildProcess(calls);
     },
     execFile: (file, args, options, callback) => {
-      calls.push(["exec", file, args, options.cwd, options.env.PATH]);
+      calls.push(["exec", file, args, options.cwd, options.env.PATH, options.input || ""]);
       callback(null, overrides.stdout || JSON.stringify({ response: "OpenClaw reply", session_id: "oc-session" }), "");
       return { kill() {} };
     },
@@ -570,24 +570,33 @@ test("sendChat explains OpenClaw Gateway connection failures from ACP stdout", a
   );
 });
 
-test("sendChat fails closed for Mia-managed OpenClaw models until provider config is wired", async () => {
+test("sendChat syncs Mia-managed OpenClaw models and runs them through model override", async () => {
   const deps = createDeps({
     resolveManagedModelRuntime: () => ({
       provider: "mia",
-      model: "mia-default",
+      model: "mia-auto",
       baseUrl: "https://mia.example/api/me/model-proxy/v1",
-      apiKey: "cloud-token"
+      apiKey: "cloud-token",
+      providerLabel: "Mia",
+      apiMode: "chat_completions"
     })
   });
   const adapter = createOpenClawChatAdapter(deps);
 
-  await assert.rejects(
-    () => adapter.sendChat({
-      bot: { key: "claw", name: "Claw", engineConfig: { provider: "mia", model: "mia-default" } },
-      sessionId: "mia-session",
-      messages: [{ role: "user", content: "hello" }]
-    }),
-    /OpenClaw 的 Mia 托管模型还没有安全接入/
-  );
-  assert.equal(deps.calls.some((call) => call[0] === "exec"), false);
+  await adapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: { provider: "mia", model: "mia-auto" } },
+    sessionId: "mia-session",
+    messages: [{ role: "user", content: "hello" }]
+  });
+
+  const configCall = deps.calls.find((call) => call[0] === "exec" && call[2][0] === "config");
+  assert.deepEqual(configCall[2], ["config", "patch", "--stdin"]);
+  assert.match(configCall[5], /"providers":/);
+  assert.match(configCall[5], /"mia-auto"/);
+  assert.match(configCall[5], /"baseUrl":"https:\/\/mia\.example\/api\/me\/model-proxy\/v1"/);
+
+  const runCall = deps.calls.filter((call) => call[0] === "exec").find((call) => call[2][0] === "agent");
+  assert.ok(runCall[2].includes("--model"));
+  assert.equal(runCall[2][runCall[2].indexOf("--model") + 1], "mia/mia-auto");
+  assert.equal(deps.calls.some((call) => call[0] === "spawn"), false);
 });

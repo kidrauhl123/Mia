@@ -83,6 +83,9 @@ function execFileAsync(execFile, file, args, options = {}) {
       }
       resolve({ stdout: String(stdout || ""), stderr: String(stderr || "") });
     });
+    if (options.input != null) {
+      try { child.stdin?.end(String(options.input)); } catch { /* stdin may be unavailable in tests or old CLIs */ }
+    }
     if (options.signal) {
       options.signal.addEventListener("abort", () => {
         try { child.kill(); } catch { /* already exited */ }
@@ -271,6 +274,44 @@ function buildOpenClawAcpArgs(bot = {}) {
   return args;
 }
 
+function selectedOpenClawModelOverride(config = {}, managedModel = null) {
+  if (managedModel?.provider === "mia") {
+    const model = String(config.model || managedModel.model || "mia-auto").trim() || "mia-auto";
+    return `mia/${model}`;
+  }
+  return String(config.model || "").trim();
+}
+
+function openClawMiaProviderPatch(managedModel = {}, config = {}) {
+  const model = String(config.model || managedModel.model || "mia-auto").trim() || "mia-auto";
+  const baseUrl = String(managedModel.baseUrl || managedModel.base_url || config.baseUrl || config.base_url || "").trim();
+  const apiKey = String(managedModel.apiKey || managedModel.api_key || config.apiKey || config.api_key || "").trim();
+  if (!baseUrl || !apiKey) {
+    throw new Error("OpenClaw 的 Mia 托管模型缺少 Mia Cloud 连接信息，请先登录 Mia Cloud。");
+  }
+  return {
+    models: {
+      mode: "merge",
+      providers: {
+        mia: {
+          baseUrl,
+          apiKey,
+          auth: "token",
+          api: "openai-completions",
+          agentRuntime: { id: "openclaw" },
+          models: [{
+            id: model,
+            name: model === "mia-auto" ? "Auto" : model,
+            input: ["text"],
+            contextWindow: 200000,
+            agentRuntime: { id: "openclaw" }
+          }]
+        }
+      }
+    }
+  };
+}
+
 function decorateOpenClawAcpError(error, output = "") {
   if (error?.code === "MIA_STOPPED") return error;
   const raw = String(output || "").trim();
@@ -312,21 +353,33 @@ function createOpenClawChatAdapter(deps = {}) {
   const cwd = deps.cwd || (() => process.cwd());
   const timeoutSeconds = Number.isFinite(Number(deps.timeoutSeconds)) ? Number(deps.timeoutSeconds) : 600;
 
-  async function runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession = true } = {}) {
+  async function syncOpenClawManagedModelConfig(commandPath, managedModel = {}, config = {}, signal = null) {
+    const patch = openClawMiaProviderPatch(managedModel, config);
+    await execFileAsync(execFile, commandPath, ["config", "patch", "--stdin"], {
+      cwd: cwd(),
+      env: envWithExecutableDirFirst(processEnvStrings(), commandPath),
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+      input: JSON.stringify(patch),
+      signal
+    });
+  }
+
+  async function runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession = true, managedModel = null } = {}) {
     const commandPath = shellCommandPath("openclaw") || shellCommandPath("claw");
     if (!commandPath) throw new Error("本机没有检测到 OpenClaw CLI。请先安装并确认 `openclaw --version` 可用。");
     const externalSessionId = persistAgentSession ? getAgentSessionId("openclaw", bot.key, sessionId) : "";
     const effort = normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "openclaw");
     const forceLocal = bot.engineConfig?.openclawLocal === true || bot.engineConfig?.local === true;
-    const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });
-    if (managedModel?.provider === "mia") {
-      throw new Error("OpenClaw 的 Mia 托管模型还没有安全接入：OpenClaw 需要先有对应 provider/baseUrl 配置。请先选择 OpenClaw 默认模型。");
-    }
+    const effectiveManagedModel = managedModel || resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });
+    if (effectiveManagedModel?.provider === "mia") await syncOpenClawManagedModelConfig(commandPath, effectiveManagedModel, bot.engineConfig || {}, signal);
+    const model = selectedOpenClawModelOverride(bot.engineConfig || {}, effectiveManagedModel);
     const args = buildOpenClawArgs({
       bot,
       sessionId,
       externalSessionId,
       message,
+      model,
       effort,
       local: forceLocal,
       timeoutSeconds
@@ -354,7 +407,7 @@ function createOpenClawChatAdapter(deps = {}) {
     if (!commandPath) throw new Error("本机没有检测到 OpenClaw CLI。请先安装并确认 `openclaw --version` 可用。");
     const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });
     if (managedModel?.provider === "mia") {
-      throw new Error("OpenClaw 的 Mia 托管模型还没有安全接入：OpenClaw 需要先有对应 provider/baseUrl 配置。请先选择 OpenClaw 默认模型。");
+      return runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession, managedModel });
     }
 
     const storedSessionKey = persistAgentSession ? getAgentSessionId("openclaw", bot.key, sessionId) : "";
@@ -530,7 +583,12 @@ function createOpenClawChatAdapter(deps = {}) {
   }
 
   async function runOpenClaw({ bot, sessionId, message, signal, emit = null, persistAgentSession = true } = {}) {
-    if (shouldUseLegacyOpenClawTransport(bot)) {
+    const managedModel = resolveManagedModelRuntime(bot?.engineConfig || {}, { engine: "openclaw", bot });
+    if (managedModel?.provider === "mia") {
+      return runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession, managedModel });
+    }
+    const modelOverride = selectedOpenClawModelOverride(bot?.engineConfig || {}, null);
+    if (modelOverride || shouldUseLegacyOpenClawTransport(bot)) {
       return runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession });
     }
     return runOpenClawAcp({ bot, sessionId, message, signal, emit, persistAgentSession });
