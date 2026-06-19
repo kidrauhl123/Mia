@@ -1,5 +1,5 @@
 const { app, BrowserWindow, dialog, ipcMain, screen, shell } = require("electron");
-const { spawn, spawnSync } = require("node:child_process");
+const { execFile, spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -103,8 +103,13 @@ const { createEngineHealthService } = require("./main/engine-health-service.js")
 const { createEngineInstallService } = require("./main/engine-install-service.js");
 const { registerWindowIpc } = require("./main/ipc/window-ipc.js");
 const { registerUtilIpc } = require("./main/ipc/util-ipc.js");
+const { registerMcpIpc } = require("./main/ipc/mcp-ipc.js");
 const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
 const { createLocalFileOpenService } = require("./main/local-file-open-service.js");
+const { createMcpBridgeServer } = require("./main/mcp/mcp-bridge-server.js");
+const { runNativeMcpCliSync } = require("./main/mcp/mcp-engine-sync.js");
+const { createMcpSdkClientManager } = require("./main/mcp/mcp-sdk-client.js");
+const { createMcpService } = require("./main/mcp/mcp-service.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — bot chats
 //  now sync via conversations+messages, no need for the workspace-shape mappers.)
 
@@ -594,6 +599,37 @@ function readJson(filePath, fallback) {
   }
 }
 
+function execFileAsPromise(file, args, _meta = {}) {
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        file,
+        Array.isArray(args) ? args.map((arg) => String(arg)) : [],
+        {
+          encoding: "utf8",
+          env: processEnvStrings(),
+          windowsHide: true
+        },
+        (error, stdout, stderr) => {
+          resolve({
+            ok: !error,
+            code: Number.isInteger(error?.code) ? error.code : 0,
+            stdout: String(stdout || ""),
+            stderr: String(stderr || error?.message || "")
+          });
+        }
+      );
+    } catch (error) {
+      resolve({
+        ok: false,
+        code: 1,
+        stdout: "",
+        stderr: String(error?.message || error)
+      });
+    }
+  });
+}
+
 function daemonToken() {
   const p = runtimePaths();
   if (!fs.existsSync(p.daemonToken)) {
@@ -627,6 +663,54 @@ async function codexSdk() {
 function processEnvStrings() {
   return Object.fromEntries(Object.entries(localAgentEngineService.processEnvWithCliPath()).filter(([, value]) => typeof value === "string"));
 }
+
+const userMcpManager = createMcpSdkClientManager({
+  processEnvStrings,
+  appendLog: appendEngineLog,
+  authorizeToolCall: async ({ args, options = {} }) => {
+    const toolLabel = String(options.toolLabel || "").trim() || "mcp.tool";
+    let preview = "";
+    try {
+      preview = args ? JSON.stringify(args, null, 2).slice(0, 4000) : "";
+    } catch {
+      preview = "";
+    }
+    const decision = await agentPermissionCoordinator.requestPermission({
+      engine: String(options.engine || "mcp"),
+      botId: String(options.botId || ""),
+      sessionId: String(options.sessionId || ""),
+      signal: options.signal,
+      emit: options.emit,
+      toolName: toolLabel,
+      title: String(options.title || `MCP 请求使用 ${toolLabel}`),
+      description: String(options.description || ""),
+      preview,
+      input: args && typeof args === "object" ? args : {}
+    });
+    return {
+      allowed: String(decision?.decision || "").startsWith("allow"),
+      reason: decision?.message || "MCP 工具调用已被拒绝。"
+    };
+  }
+});
+const userMcpBridge = createMcpBridgeServer({
+  manager: userMcpManager,
+  secret: crypto.randomUUID(),
+  appendLog: appendEngineLog
+});
+const userMcpService = createMcpService({
+  runtimePaths,
+  manager: userMcpManager,
+  bridge: userMcpBridge,
+  nativeSync: (payload) => runNativeMcpCliSync({
+    ...payload,
+    cliPaths: { codex: "codex", claude: "claude" },
+    runCommand: execFileAsPromise,
+    appendLog: appendEngineLog
+  }),
+  nodePath: () => localAgentEngineService.shellCommandPath("node"),
+  stdioProxyScriptPath: () => path.join(__dirname, "main", "mcp", "mcp-stdio-proxy-server.js")
+});
 
 let runtimeLifecycleService = null;
 function runtimeLifecycle() {
@@ -2453,6 +2537,7 @@ agentPermissionProxy = createAgentPermissionProxy({
 
 registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle });
 registerUtilIpc({ ipcMain, openLocalFile: localFileOpenService.openLocalFile });
+registerMcpIpc({ ipcMain, mcpService: userMcpService });
 
 ipcMain.handle(IpcChannel.RuntimeInitialize, async () => {
   const status = initializeRuntime();

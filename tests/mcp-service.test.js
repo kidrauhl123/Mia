@@ -1,0 +1,136 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { test } = require("node:test");
+const { createMcpService } = require("../src/main/mcp/mcp-service.js");
+
+function setup(t, overrides = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-mcp-service-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const runtime = {
+    home: path.join(dir, "home"),
+    runtime: path.join(dir, "runtime"),
+    mcpServers: path.join(dir, "home", "mia-mcp-servers.json")
+  };
+  const manager = overrides.manager || {
+    testServer: async (record) => ({
+      success: true,
+      status: "connected",
+      tools: [{ server: record.name, name: "search_notes", description: "", inputSchema: {} }],
+      error: ""
+    }),
+    refresh: async () => ({ success: true, tools: [], errors: [] }),
+    toolManifest: () => [],
+    callTool: async () => ({ content: [{ type: "text", text: "ok" }], isError: false })
+  };
+  const bridge = overrides.bridge || {
+    start: async () => ({
+      callbackUrl: "http://127.0.0.1:3333/mcp/execute",
+      manifestUrl: "http://127.0.0.1:3333/mcp/manifest",
+      secret: "sec",
+      port: 3333
+    }),
+    stop: async () => {}
+  };
+  const service = createMcpService({
+    runtimePaths: () => runtime,
+    fs,
+    manager,
+    bridge,
+    nativeSync: overrides.nativeSync || (async () => ({ success: true, statuses: {}, commands: [] })),
+    nodePath: () => "/usr/local/bin/node",
+    stdioProxyScriptPath: () => path.join(runtime.runtime, "mcp-stdio-proxy-server.js"),
+    now: () => 1710000000000,
+    idFactory: () => "mcp_xhs"
+  });
+  return { runtime, service };
+}
+
+test("save list test and delete persist MCP records", async (t) => {
+  const { runtime, service } = setup(t);
+
+  const saved = await service.save({
+    name: "xhs",
+    transport: {
+      type: "http",
+      url: "http://127.0.0.1:18060/mcp",
+      headers: { Authorization: "Bearer secret-token" }
+    }
+  });
+  const tested = await service.test(saved.data.id);
+  const listed = await service.list();
+  const deleted = await service.delete(saved.data.id);
+
+  assert.equal(saved.success, true);
+  assert.equal(saved.data.transport.headers.Authorization, "••••••••");
+  assert.equal(tested.data.status, "connected");
+  assert.equal(listed.data.servers[0].tools[0].name, "search_notes");
+  assert.equal(listed.data.servers[0].transport.headers.Authorization, "••••••••");
+  assert.equal(deleted.success, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8")), []);
+});
+
+test("importJson saves imported servers as disabled until tested", async (t) => {
+  const { service } = setup(t);
+  const imported = await service.importJson({
+    mcpServers: {
+      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+    }
+  });
+
+  assert.equal(imported.success, true);
+  assert.equal(imported.data.servers[0].enabled, false);
+});
+
+test("save disable sync removeFromAgents and delete refresh bridge and sync native agent configs", async (t) => {
+  const syncCalls = [];
+  const refreshCalls = [];
+  const { runtime, service } = setup(t, {
+    manager: {
+      testServer: async () => ({ success: true, status: "connected", tools: [], error: "" }),
+      refresh: async (records) => {
+        refreshCalls.push(records.map((record) => record.name));
+        return { success: true, tools: [], errors: [] };
+      },
+      toolManifest: () => [],
+      callTool: async () => ({ content: [], isError: false })
+    },
+    nativeSync: async (payload) => {
+      syncCalls.push(payload);
+      return {
+        success: true,
+        statuses: {
+          codex: { status: "synced", error: "", commands: [] },
+          "claude-code": { status: "synced", error: "", commands: [] }
+        },
+        commands: []
+      };
+    }
+  });
+
+  const saved = await service.save({
+    name: "xhs",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+  });
+  const storedAfterSave = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  const disabled = await service.setEnabled(saved.data.id, false);
+  const synced = await service.sync();
+  const removed = await service.removeFromAgents([saved.data.id]);
+  const deleted = await service.delete(saved.data.id);
+
+  assert.equal(storedAfterSave[0].sync.codex.status, "synced");
+  assert.equal(disabled.success, true);
+  assert.equal(disabled.data.enabled, false);
+  assert.equal(synced.success, true);
+  assert.equal(removed.success, true);
+  assert.equal(deleted.success, true);
+  assert.equal(refreshCalls.length >= 5, true);
+  assert.equal(syncCalls.length >= 5, true);
+  assert.equal(syncCalls[0].currentRecords.some((record) => record.name === "xhs"), true);
+  assert.equal(syncCalls[1].currentRecords.some((record) => record.name === "xhs" && record.enabled === false), true);
+  assert.equal(syncCalls[3].previousRecords.some((record) => record.name === "xhs"), true);
+  assert.equal(syncCalls[3].currentRecords.some((record) => record.name === "xhs"), false);
+  assert.equal(syncCalls.at(-1).previousRecords.some((record) => record.name === "xhs"), true);
+});
