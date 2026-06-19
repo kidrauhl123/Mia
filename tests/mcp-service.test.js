@@ -83,6 +83,138 @@ test("importJson saves imported servers as disabled until tested", async (t) => 
   assert.equal(imported.data.servers[0].enabled, false);
 });
 
+test("save preserves masked header values when editing non-secret fields", async (t) => {
+  const { runtime, service } = setup(t);
+  const saved = await service.save({
+    name: "xhs",
+    description: "before",
+    transport: {
+      type: "http",
+      url: "http://127.0.0.1:18060/mcp",
+      headers: { Authorization: "Bearer real-token" }
+    }
+  });
+
+  const edited = await service.save({
+    id: saved.data.id,
+    name: "xhs",
+    description: "after",
+    transport: {
+      type: "http",
+      url: "http://127.0.0.1:18061/mcp",
+      headers: { Authorization: "••••••••" }
+    }
+  });
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(edited.success, true);
+  assert.equal(edited.data.description, "after");
+  assert.equal(edited.data.transport.headers.Authorization, "••••••••");
+  assert.equal(stored[0].transport.url, "http://127.0.0.1:18061/mcp");
+  assert.equal(stored[0].transport.headers.Authorization, "Bearer real-token");
+});
+
+test("save preserves masked stdio env values when editing non-secret fields", async (t) => {
+  const { runtime, service } = setup(t);
+  const saved = await service.save({
+    name: "github",
+    description: "before",
+    transport: {
+      type: "stdio",
+      command: "npx",
+      args: ["-y", "pkg"],
+      env: { GITHUB_TOKEN: "ghp_real" }
+    }
+  });
+
+  const edited = await service.save({
+    id: saved.data.id,
+    name: "github",
+    description: "after",
+    transport: {
+      type: "stdio",
+      command: "npx",
+      args: ["-y", "pkg2"],
+      env: { GITHUB_TOKEN: "••••••••" }
+    }
+  });
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(edited.success, true);
+  assert.equal(stored[0].transport.args[1], "pkg2");
+  assert.equal(stored[0].transport.env.GITHUB_TOKEN, "ghp_real");
+});
+
+test("importJson surfaces duplicate names before confirmed replacement", async (t) => {
+  let nextId = 0;
+  const syncCalls = [];
+  const { runtime, service } = setup(t, {
+    idFactory: () => `mcp_${++nextId}`,
+    nativeSync: async (payload) => {
+      syncCalls.push(payload);
+      return { success: true, statuses: {}, commands: [] };
+    }
+  });
+  const saved = await service.save({
+    name: "xhs",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+  });
+  syncCalls.length = 0;
+
+  const duplicate = await service.importJson({
+    mcpServers: {
+      xhs: { type: "http", url: "http://127.0.0.1:18061/mcp" }
+    }
+  });
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(duplicate.success, true);
+  assert.equal(duplicate.data.requiresConfirmation, true);
+  assert.deepEqual(duplicate.data.duplicates, ["xhs"]);
+  assert.equal(duplicate.data.imported, 0);
+  assert.equal(syncCalls.length, 0);
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].id, saved.data.id);
+  assert.equal(stored[0].transport.url, "http://127.0.0.1:18060/mcp");
+});
+
+test("confirmed duplicate import replaces through runtime cleanup path", async (t) => {
+  let nextId = 0;
+  const syncCalls = [];
+  const { runtime, service } = setup(t, {
+    idFactory: () => `mcp_${++nextId}`,
+    nativeSync: async (payload) => {
+      syncCalls.push(payload);
+      return { success: true, statuses: {}, commands: [] };
+    }
+  });
+  await service.save({
+    name: "xhs",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+  });
+  syncCalls.length = 0;
+
+  const replaced = await service.importJson({
+    mcpServers: {
+      xhs: { type: "http", url: "http://127.0.0.1:18061/mcp" }
+    }
+  }, { replaceDuplicates: true });
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(replaced.success, true);
+  assert.equal(replaced.data.replaced, 1);
+  assert.equal(replaced.data.imported, 1);
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].name, "xhs");
+  assert.equal(stored[0].enabled, false);
+  assert.equal(stored[0].transport.url, "http://127.0.0.1:18061/mcp");
+  assert.equal(syncCalls.length, 1);
+  assert.deepEqual(syncCalls[0].previousRecords.map((record) => [record.name, record.enabled]), [["xhs", true]]);
+  assert.deepEqual(syncCalls[0].currentRecords.map((record) => [record.name, record.enabled]), [["xhs", false]]);
+});
+
 test("save and list mask invalid originalJson secret text in public records", async (t) => {
   const { service } = setup(t);
   const originalJson = "Authorization: Bearer ghp_secret_token X_API_KEY=super_secret_value HEADER_AUTH: sk-super-secret-token";
@@ -620,4 +752,33 @@ test("delete persists refreshed sync status for surviving records after successf
   assert.equal(stored[0].sync.codex.status, "noop");
   assert.equal(stored[0].sync.codex.message, "delete-refresh");
   assert.equal(second.success, true);
+});
+
+test("initialize restores bridge specs for cold-start getEngineSpecs", async (t) => {
+  const { runtime, service } = setup(t);
+  fs.mkdirSync(path.dirname(runtime.mcpServers), { recursive: true });
+  fs.writeFileSync(runtime.mcpServers, JSON.stringify([{
+    id: "mcp_header",
+    name: "header-http",
+    description: "",
+    enabled: true,
+    status: "unknown",
+    tools: [],
+    transport: {
+      type: "http",
+      url: "http://127.0.0.1:18060/mcp",
+      headers: { Authorization: "Bearer real" }
+    },
+    sync: {},
+    createdAt: 1,
+    updatedAt: 1
+  }], null, 2));
+
+  const initialized = await service.initialize();
+  const codexSpecs = service.getEngineSpecs("codex");
+  const openClawServers = service.getEngineSpecs("openclaw", { supportsHttp: false, supportsSse: false });
+
+  assert.equal(initialized.success, true);
+  assert.equal(codexSpecs["mia-mcp-bridge"].command, "/usr/local/bin/node");
+  assert.deepEqual(openClawServers.map((server) => server.name), ["mia-mcp-bridge"]);
 });

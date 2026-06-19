@@ -98,6 +98,46 @@ test("refresh stores enabled server tools and callTool routes by server name", a
   assert.equal(called.content[0].text, "ok");
 });
 
+test("HTTP transports resolve bearerTokenEnvVar into Authorization header", async () => {
+  const events = [];
+  const manager = createMcpSdkClientManager({
+    loadSdk: fakeLoadSdk(events),
+    processEnvStrings: () => ({ XHS_TOKEN: "env-secret" })
+  });
+
+  const result = await manager.testServer({
+    name: "xhs",
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp", bearerTokenEnvVar: "XHS_TOKEN" }
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(events[1], ["connect", "streamable_http", {
+    url: "http://127.0.0.1:18060/mcp",
+    requestInit: { headers: { Authorization: "Bearer env-secret" } }
+  }]);
+});
+
+test("HTTP transports keep explicit Authorization before bearerTokenEnvVar", async () => {
+  const events = [];
+  const manager = createMcpSdkClientManager({
+    loadSdk: fakeLoadSdk(events),
+    processEnvStrings: () => ({ XHS_TOKEN: "env-secret" })
+  });
+
+  const result = await manager.testServer({
+    name: "xhs",
+    transport: {
+      type: "streamable_http",
+      url: "http://127.0.0.1:18060/mcp",
+      headers: { Authorization: "Bearer explicit" },
+      bearerTokenEnvVar: "XHS_TOKEN"
+    }
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(events[1][2].requestInit.headers, { Authorization: "Bearer explicit" });
+});
+
 test("callTool checks authorizeToolCall before invoking the SDK client", async () => {
   const events = [];
   const calls = [];

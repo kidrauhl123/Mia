@@ -553,7 +553,7 @@ const engineCatalogService = createEngineCatalogService({
   timeEngineStepAsync,
   shellCommandPath: (command) => localAgentEngineService.shellCommandPath(command),
   processEnvStrings,
-  ensureCodexHome: () => schedulerMcpBridge.ensureCodexHome(),
+  ensureCodexHome: (options) => schedulerMcpBridge.ensureCodexHome(options),
   createCodexAppServerConnection,
   claudeAgentSdk,
   cwd: () => process.cwd()
@@ -3002,6 +3002,10 @@ ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates()
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
   if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
+  const initializedMcp = await userMcpService.initialize();
+  if (!initializedMcp.success) {
+    appendEngineLog(`MCP bridge initialization failed: ${initializedMcp.error}`);
+  }
   if (IS_DAEMON_PROCESS) {
     try {
       app.dock?.hide?.();

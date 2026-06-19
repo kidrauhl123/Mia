@@ -16,6 +16,10 @@ async function defaultLoadSdk() {
   return { Client, StdioClientTransport, SSEClientTransport, StreamableHTTPClientTransport };
 }
 
+function hasAuthorizationHeader(headers = {}) {
+  return Object.keys(headers || {}).some((key) => String(key || "").trim().toLowerCase() === "authorization");
+}
+
 function requestInitForHeaders(headers = {}) {
   const entries = Object.entries(headers || {});
   if (!entries.length) return undefined;
@@ -71,19 +75,26 @@ function createMcpSdkClientManager(deps = {}) {
   async function transportFor(record) {
     const sdk = await loadSdk();
     const transport = record.transport || {};
+    const env = processEnvStrings() || {};
     if (transport.type === "stdio") {
       return new sdk.StdioClientTransport({
         command: transport.command,
         args: Array.isArray(transport.args) ? transport.args.slice() : [],
         env: {
-          ...(processEnvStrings() || {}),
+          ...env,
           ...(transport.env || {})
         }
       });
     }
 
     const url = new URL(transport.url);
-    const requestInit = requestInitForHeaders(transport.headers);
+    const headers = { ...(transport.headers || {}) };
+    const bearerTokenEnvVar = String(transport.bearerTokenEnvVar || "").trim();
+    const bearerToken = bearerTokenEnvVar ? String(env[bearerTokenEnvVar] || "").trim() : "";
+    if (bearerToken && !hasAuthorizationHeader(headers)) {
+      headers.Authorization = `Bearer ${bearerToken}`;
+    }
+    const requestInit = requestInitForHeaders(headers);
     const options = requestInit ? { requestInit } : undefined;
 
     if (transport.type === "sse") {

@@ -22,6 +22,8 @@ const {
   sanitizeSecretText
 } = require("./mcp-records.js");
 
+const MASK_SENTINEL = "••••••••";
+
 function readJson(fsImpl, filePath, fallback) {
   try {
     return JSON.parse(fsImpl.readFileSync(filePath, "utf8"));
@@ -74,6 +76,7 @@ function createMcpService(deps = {}) {
     : () => path.join(__dirname, "mcp-stdio-proxy-server.js");
 
   let bridgeInfo = null;
+  let initializationPromise = null;
 
   function recordsPath() {
     return runtimePaths().mcpServers;
@@ -177,6 +180,20 @@ function createMcpService(deps = {}) {
     };
   }
 
+  async function initialize() {
+    try {
+      if (!initializationPromise) {
+        initializationPromise = refreshBridgeState(loadRecords()).catch((error) => {
+          initializationPromise = null;
+          throw error;
+        });
+      }
+      return ok(await initializationPromise);
+    } catch (error) {
+      return fail(error);
+    }
+  }
+
   async function applyRuntimeChanges(previousRecords, currentRecords, options = {}) {
     const storedRecords = normalizeMcpRegistry(options.persistedRecords || currentRecords, { now, idFactory });
     let bridgeState = await refreshBridgeState(options.bridgeRecords || storedRecords);
@@ -213,9 +230,15 @@ function createMcpService(deps = {}) {
 
   function normalizeInputRecord(input, currentRecords) {
     const existing = resolveRecord(currentRecords, input?.id) || currentRecords.find((record) => record.name === String(input?.name || "").trim()) || null;
+    const inputTransport = input?.transport && typeof input.transport === "object" ? input.transport : null;
+    const existingTransport = existing?.transport && typeof existing.transport === "object" ? existing.transport : {};
+    const mergedTransport = inputTransport
+      ? preserveMaskedTransportSecrets(inputTransport, existingTransport)
+      : undefined;
     const merged = normalizeMcpRecord({
       ...(existing || {}),
       ...(input || {}),
+      ...(mergedTransport ? { transport: mergedTransport } : {}),
       id: String(input?.id || existing?.id || "").trim() || undefined,
       createdAt: existing?.createdAt,
       tools: Array.isArray(input?.tools) ? input.tools : existing?.tools,
@@ -227,6 +250,27 @@ function createMcpService(deps = {}) {
     }, { now, idFactory });
     if (!merged) throw new Error("MCP server record is invalid.");
     return { existing, record: { ...merged, updatedAt: now() } };
+  }
+
+  function preserveMaskedObjectValues(input = {}, existing = {}) {
+    const out = {};
+    for (const [key, value] of Object.entries(input || {})) {
+      out[key] = String(value) === MASK_SENTINEL && Object.prototype.hasOwnProperty.call(existing || {}, key)
+        ? existing[key]
+        : value;
+    }
+    return out;
+  }
+
+  function preserveMaskedTransportSecrets(inputTransport = {}, existingTransport = {}) {
+    const next = { ...inputTransport };
+    if (inputTransport.env && typeof inputTransport.env === "object") {
+      next.env = preserveMaskedObjectValues(inputTransport.env, existingTransport.env || {});
+    }
+    if (inputTransport.headers && typeof inputTransport.headers === "object") {
+      next.headers = preserveMaskedObjectValues(inputTransport.headers, existingTransport.headers || {});
+    }
+    return next;
   }
 
   function currentFingerprint(records = loadRecords()) {
@@ -349,7 +393,7 @@ function createMcpService(deps = {}) {
     }
   }
 
-  async function importJson(input) {
+  async function importJson(input, options = {}) {
     try {
       const current = loadRecords();
       const imported = parseMcpImportJson(input)
@@ -360,9 +404,32 @@ function createMcpService(deps = {}) {
         }, { now, idFactory }))
         .filter(Boolean);
       const names = new Set(imported.map((record) => record.name));
+      const duplicates = current.filter((record) => names.has(record.name));
+      if (duplicates.length && options?.replaceDuplicates !== true) {
+        return ok({
+          servers: publicServers(current),
+          imported: 0,
+          duplicates: duplicates.map((record) => record.name),
+          requiresConfirmation: true,
+          fingerprint: currentFingerprint(current)
+        });
+      }
       const next = current.filter((record) => !names.has(record.name)).concat(imported);
+      if (duplicates.length) {
+        const runtime = await applyRuntimeChanges(current, next, {
+          persistedRecordsOnError: current,
+          bridgeRecordsOnError: current
+        });
+        return ok({
+          servers: publicServers(runtime.records),
+          imported: imported.length,
+          replaced: duplicates.length,
+          duplicates: duplicates.map((record) => record.name),
+          fingerprint: currentFingerprint(runtime.records)
+        });
+      }
       const saved = saveRecords(next);
-      return ok({ servers: publicServers(saved), imported: imported.length, fingerprint: currentFingerprint(saved) });
+      return ok({ servers: publicServers(saved), imported: imported.length, replaced: 0, fingerprint: currentFingerprint(saved) });
     } catch (error) {
       return fail(error);
     }
@@ -498,6 +565,7 @@ function createMcpService(deps = {}) {
     getBridgeSpec,
     getEngineSpecs,
     importJson,
+    initialize,
     installTemplate,
     list,
     refreshBridge,

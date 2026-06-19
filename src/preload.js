@@ -100,7 +100,7 @@ contextBridge.exposeInMainWorld("mia", {
     delete: (id) => ipcRenderer.invoke(IpcChannel.McpDelete, id),
     setEnabled: (id, enabled) => ipcRenderer.invoke(IpcChannel.McpSetEnabled, id, enabled),
     test: (input) => ipcRenderer.invoke(IpcChannel.McpTest, input),
-    importJson: (input) => ipcRenderer.invoke(IpcChannel.McpImportJson, input),
+    importJson: (input, options) => ipcRenderer.invoke(IpcChannel.McpImportJson, input, options),
     fetchMarketplace: () => ipcRenderer.invoke(IpcChannel.McpFetchMarketplace),
     installTemplate: (templateId, values) => ipcRenderer.invoke(IpcChannel.McpInstallTemplate, templateId, values),
     sync: () => ipcRenderer.invoke(IpcChannel.McpSync),

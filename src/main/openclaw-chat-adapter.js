@@ -299,6 +299,32 @@ function decorateOpenClawAcpError(error, output = "") {
   return error instanceof Error ? error : new Error(message || "OpenClaw ACP 启动失败。");
 }
 
+function truthyCapability(value) {
+  return value === true || value === "true" || value === "http" || value === "sse";
+}
+
+function transportListHas(value, transport) {
+  if (!Array.isArray(value)) return false;
+  return value.map((item) => String(item || "").toLowerCase()).includes(transport);
+}
+
+function acpMcpCapabilityOptions(metadata = {}) {
+  const capabilities = metadata?.agentCapabilities || metadata?.capabilities || metadata || {};
+  const mcp = capabilities.mcp || capabilities.mcpServers || capabilities.mcp_servers || {};
+  const transports = mcp.transports || mcp.supportedTransports || mcp.supported_transports || capabilities.mcpTransports || [];
+  return {
+    supportsHttp: truthyCapability(mcp.http)
+      || truthyCapability(mcp.supportsHttp)
+      || truthyCapability(mcp.supports_http)
+      || transportListHas(transports, "http")
+      || transportListHas(transports, "streamable_http"),
+    supportsSse: truthyCapability(mcp.sse)
+      || truthyCapability(mcp.supportsSse)
+      || truthyCapability(mcp.supports_sse)
+      || transportListHas(transports, "sse")
+  };
+}
+
 function createOpenClawChatAdapter(deps = {}) {
   const shellCommandPath = requireDependency(deps, "shellCommandPath");
   const lastUserPrompt = requireDependency(deps, "lastUserPrompt");
@@ -369,10 +395,6 @@ function createOpenClawChatAdapter(deps = {}) {
       throw new Error("OpenClaw 的 Mia 托管模型还没有安全接入：OpenClaw 需要先有对应 provider/baseUrl 配置。请先选择 OpenClaw 默认模型。");
     }
 
-    const userMcpServers = getUserMcpServers({
-      supportsHttp: true,
-      supportsSse: true
-    });
     const mcpFingerprint = getMcpFingerprint();
     const desiredSessionKey = openClawAcpSessionKey(bot, sessionId, mcpFingerprint);
     const storedSessionKey = persistAgentSession ? getAgentSessionId("openclaw", bot.key, sessionId) : "";
@@ -483,7 +505,7 @@ function createOpenClawChatAdapter(deps = {}) {
         })
       }), ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(acpStdout)));
 
-      await withChildFailure(client.initialize({
+      const initialized = await withChildFailure(client.initialize({
         protocolVersion: PROTOCOL_VERSION,
         clientCapabilities: {
           fs: {
@@ -497,6 +519,7 @@ function createOpenClawChatAdapter(deps = {}) {
           version: "1.0.0"
         }
       }), failure);
+      const userMcpServers = getUserMcpServers(acpMcpCapabilityOptions(initialized));
       const session = await withChildFailure(client.newSession({
         cwd: cwd(),
         mcpServers: userMcpServers,

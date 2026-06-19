@@ -11,7 +11,7 @@ function registerMcpIpc({ ipcMain, mcpService }) {
   ipcMain.handle(IpcChannel.McpDelete, (_event, id) => mcpService.delete(String(id || "")));
   ipcMain.handle(IpcChannel.McpSetEnabled, (_event, id, enabled) => mcpService.setEnabled(String(id || ""), enabled === true));
   ipcMain.handle(IpcChannel.McpTest, (_event, input) => mcpService.test(input));
-  ipcMain.handle(IpcChannel.McpImportJson, (_event, input) => mcpService.importJson(input));
+  ipcMain.handle(IpcChannel.McpImportJson, (_event, input, options) => mcpService.importJson(input, options || {}));
   ipcMain.handle(IpcChannel.McpFetchMarketplace, () => mcpService.fetchMarketplace());
   ipcMain.handle(IpcChannel.McpInstallTemplate, (_event, templateId, values) => mcpService.installTemplate(String(templateId || ""), values || {}));
   ipcMain.handle(IpcChannel.McpSync, () => mcpService.sync());

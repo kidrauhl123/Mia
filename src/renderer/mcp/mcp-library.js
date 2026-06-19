@@ -568,8 +568,15 @@
   }
 
   async function importMcpJson(text) {
-    const result = await window.mia.mcp.importJson(text);
+    let result = await window.mia.mcp.importJson(text);
+    const duplicates = Array.isArray(result?.data?.duplicates) ? result.data.duplicates : [];
+    if (result?.success && result?.data?.requiresConfirmation && duplicates.length) {
+      const message = `已存在同名 MCP 服务：${duplicates.join("、")}。替换后会先清理旧服务的 Agent 同步状态，继续？`;
+      if (!confirmAction(message)) return { success: false, error: "cancelled" };
+      result = await window.mia.mcp.importJson(text, { replaceDuplicates: true });
+    }
     if (!result?.success) {
+      if (result?.error === "cancelled") return result;
       alertText(`导入失败：${result?.error || "未知错误"}`);
       return result;
     }

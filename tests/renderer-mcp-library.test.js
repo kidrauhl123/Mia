@@ -726,6 +726,55 @@ test("import flow submits JSON text and reloads on success", async () => {
   assert.equal(harness.document.body.querySelector("[data-mcp-import-form]"), null);
 });
 
+test("import flow asks before replacing duplicate MCP names", async () => {
+  const importCalls = [];
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "custom",
+      servers: [],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      importJson: async (text, options) => {
+        importCalls.push([text, options || null]);
+        if (!options?.replaceDuplicates) {
+          return { success: true, data: { requiresConfirmation: true, duplicates: ["xhs"] } };
+        }
+        return { success: true, data: { imported: 1, replaced: 1 } };
+      }
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="import"]').click();
+
+  const form = harness.document.body.querySelector("[data-mcp-import-form]");
+  form.querySelector('textarea[name="json"]').value = '{"mcpServers":{"xhs":{"command":"npx"}}}';
+  form.dispatch("submit");
+  await flushAsync();
+
+  assert.equal(importCalls.length, 2);
+  assert.equal(importCalls[0][0], '{"mcpServers":{"xhs":{"command":"npx"}}}');
+  assert.equal(importCalls[0][1], null);
+  assert.equal(importCalls[1][0], '{"mcpServers":{"xhs":{"command":"npx"}}}');
+  assert.equal(importCalls[1][1]?.replaceDuplicates, true);
+  assert.deepEqual(harness.confirms, ["已存在同名 MCP 服务：xhs。替换后会先清理旧服务的 Agent 同步状态，继续？"]);
+  assert.equal(harness.getListCalls(), 1);
+  assert.equal(harness.getMarketplaceCalls(), 1);
+  assert.equal(state.mcp.activeTab, "installed");
+});
+
 test("failed save keeps the form dialog open with user input intact", async () => {
   const state = {
     skillFilter: "",
