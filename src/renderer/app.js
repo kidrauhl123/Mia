@@ -1921,11 +1921,25 @@ function renderMessageTime(value) {
   return `<time class="message-time" datetime="${window.miaMarkdown.escapeHtml(date.toISOString())}" title="${window.miaMarkdown.escapeHtml(date.toLocaleString())}">${window.miaMarkdown.escapeHtml(formatMessageTime(date))}</time>`;
 }
 
+function isInlinePathRefAttachment(attachment = {}) {
+  return Boolean(
+    attachment.inlinePathRef
+    || attachment.inline_path_ref
+    || attachment.pathRefToken
+    || attachment.path_ref_token
+  );
+}
+
+function visibleMessageAttachments(attachments = []) {
+  return (Array.isArray(attachments) ? attachments : []).filter((attachment) => !isInlinePathRefAttachment(attachment));
+}
+
 function renderAttachmentChips(attachments = []) {
-  if (!Array.isArray(attachments) || !attachments.length) return "";
+  const visible = visibleMessageAttachments(attachments);
+  if (!visible.length) return "";
   return `
     <div class="message-attachments">
-      ${attachments.map(renderAttachmentChip).join("")}
+      ${visible.map(renderAttachmentChip).join("")}
     </div>
   `;
 }
@@ -2176,6 +2190,22 @@ function openImagePreview(src, title = "", options = {}) {
     renderCropBox();
   };
   image.src = imageSrc;
+}
+
+async function openPathRefPreviewFromChip(chip) {
+  const filePath = String(chip?.dataset?.pathRefPath || "").trim();
+  if (!filePath) return false;
+  try {
+    const attachment = await window.mia?.fetchFileAttachment?.({ path: filePath });
+    if (attachment?.error) throw new Error(attachment.message || "图片读取失败");
+    const src = String(attachment?.dataUrl || attachment?.previewDataUrl || attachment?.thumbnailDataUrl || "").trim();
+    if (!src.startsWith("data:image/")) throw new Error("这不是可预览的图片。");
+    openImagePreview(src, attachment?.name || filePath);
+    return true;
+  } catch (error) {
+    appendTransientChat("assistant", `图片预览失败: ${error.message || error}`);
+    return false;
+  }
 }
 
 function extractLocalFilePaths(text = "") {
@@ -6126,6 +6156,13 @@ els.chat.addEventListener("click", async (event) => {
     openImagePreview(imageButton.dataset.imageSrc || imageButton.querySelector("img")?.src || "", imageButton.title || "");
     return;
   }
+  const pathRefChip = event.target.closest("[data-path-ref-path]");
+  if (pathRefChip && els.chat.contains(pathRefChip)) {
+    event.preventDefault();
+    event.stopPropagation();
+    await openPathRefPreviewFromChip(pathRefChip);
+    return;
+  }
   const setupButton = event.target.closest("[data-setup-action]");
   if (setupButton && els.chat.contains(setupButton)) {
     event.preventDefault();
@@ -6176,6 +6213,12 @@ els.chat.addEventListener("click", async (event) => {
 });
 els.chat.addEventListener("keydown", async (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
+  const pathRefChip = event.target.closest("[data-path-ref-path]");
+  if (pathRefChip && els.chat.contains(pathRefChip)) {
+    event.preventDefault();
+    await openPathRefPreviewFromChip(pathRefChip);
+    return;
+  }
   const link = event.target.closest(messageLinkSelector);
   if (link && els.chat.contains(link)) {
     event.preventDefault();
@@ -6211,8 +6254,10 @@ els.chatForm.addEventListener("submit", async (event) => {
   // Branch: a cloud conversation (dm / group / bot) is active → send via social.
   if (window.miaSocial?.getActiveConversationId?.()) {
     const conversationId = window.miaSocial.getActiveConversationId();
-    const pendingAttachments = state.pendingAttachments.slice();
-    let conversationText = window.miaComposer.expandPathPasteRefsForSend(els.chatInput.value);
+    const composerText = els.chatInput.value;
+    const pathPasteAttachments = window.miaComposer.pathPasteAttachmentsForSend?.(composerText) || [];
+    const pendingAttachments = [...state.pendingAttachments, ...pathPasteAttachments].slice(0, 20);
+    let conversationText = window.miaComposer.expandPathPasteRefsForSend(composerText);
     if (!conversationText.trim() && !pendingAttachments.length) return;
     // Cloud conversations have no reply_to column, so a quote-reply is embedded as a
     // markdown blockquote at the head of the message — visible to every member.

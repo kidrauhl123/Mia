@@ -20,6 +20,29 @@
     return String(value || "").replace(/\n?\[\[MIA_PATH_REFS_BEGIN\]\][\s\S]*?\[\[MIA_PATH_REFS_END\]\]\n?/g, "\n").trim();
   }
 
+  function escapeRegExp(value) {
+    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function hiddenPathRefs(value) {
+    const source = String(value || "");
+    const block = source.match(/\[\[MIA_PATH_REFS_BEGIN\]\]([\s\S]*?)\[\[MIA_PATH_REFS_END\]\]/);
+    if (!block) return [];
+    return block[1]
+      .split(/\r?\n/)
+      .map((line) => line.match(/^\s*(IMG\d+)\s*:\s*(.+?)\s*$/))
+      .filter(Boolean)
+      .map((match) => ({ token: match[1], path: match[2] }))
+      .slice(0, 20);
+  }
+
+  function pathRefChipHtml(ref = {}) {
+    const token = String(ref.token || "");
+    const path = String(ref.path || "");
+    if (!token || !path) return escapeHtml(token);
+    return `<span class="composer-path-ref message-path-ref" role="button" tabindex="0" data-path-ref-token="${escapeHtml(token)}" data-path-ref-path="${escapeHtml(path)}" title="${escapeHtml(path)}"><span class="composer-path-ref-icon" aria-hidden="true"></span><span class="composer-path-ref-label">${escapeHtml(token)}</span></span>`;
+  }
+
   // Icon path data adapted from ByteDance IconPark (Apache-2.0).
   const ICON_PARK = {
     addPic: '<path d="M38 21V40C38 41.1046 37.1046 42 36 42H8C6.89543 42 6 41.1046 6 40V12C6 10.8954 6.89543 10 8 10H26.3636" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.0005 31.0308L18.0005 23L21.0005 26L24.5005 20.5L32.0005 31.0308H12.0005Z" fill="none" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M34.0005 10H42.0005" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M37.9946 5.79541V13.7954" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -134,7 +157,7 @@
     return `<span class="sidebar-preview-link" title="${escapeHtml(link.target)}">${escapeHtml(link.text)}</span>`;
   }
 
-  function renderInlineMarkdown(value) {
+  function renderInlineMarkdown(value, options = {}) {
     const codes = [];
     let protectedText = String(value || "").replace(/`([^`\n]+)`/g, (_match, code) => {
       const index = codes.push(code) - 1;
@@ -147,6 +170,16 @@
       const index = links.push(link) - 1;
       return `@@MIA_LINK_${index}@@`;
     });
+    const pathRefs = [];
+    for (const ref of options.pathRefs || []) {
+      const token = String(ref?.token || "");
+      if (!token) continue;
+      const re = new RegExp(`(^|[^A-Za-z0-9_])(${escapeRegExp(token)})(?=$|[^A-Za-z0-9_])`, "g");
+      protectedText = protectedText.replace(re, (_match, prefix) => {
+        const index = pathRefs.push(ref) - 1;
+        return `${prefix}@@MIA_PATH_REF_${index}@@`;
+      });
+    }
     let html = escapeHtml(protectedText);
     html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
     html = html.replace(/\n/g, "<br>");
@@ -160,6 +193,12 @@
       html = html.replace(
         `@@MIA_LINK_${index}@@`,
         messageLinkHtml(links[index])
+      );
+    }
+    for (let index = 0; index < pathRefs.length; index++) {
+      html = html.replace(
+        `@@MIA_PATH_REF_${index}@@`,
+        pathRefChipHtml(pathRefs[index])
       );
     }
     return html;
@@ -363,18 +402,18 @@
     return "";
   }
 
-  function renderTable(headerLine, delimiterLine, rowLines) {
+  function renderTable(headerLine, delimiterLine, rowLines, options = {}) {
     const aligns = splitTableCells(delimiterLine).map(tableCellAlignment);
     const headers = splitTableCells(headerLine);
     const styleFor = (index) => (aligns[index] ? ` style="text-align:${aligns[index]}"` : "");
     const head = headers
-      .map((cell, index) => `<th${styleFor(index)}>${renderInlineMarkdown(cell)}</th>`)
+      .map((cell, index) => `<th${styleFor(index)}>${renderInlineMarkdown(cell, options)}</th>`)
       .join("");
     const body = rowLines
       .map((rowLine) => {
         const cells = splitTableCells(rowLine);
         const tds = headers
-          .map((_, index) => `<td${styleFor(index)}>${renderInlineMarkdown(cells[index] || "")}</td>`)
+          .map((_, index) => `<td${styleFor(index)}>${renderInlineMarkdown(cells[index] || "", options)}</td>`)
           .join("");
         return `<tr>${tds}</tr>`;
       })
@@ -383,6 +422,7 @@
   }
 
   function renderMarkdown(value) {
+    const pathRefs = hiddenPathRefs(value);
     const lines = stripHiddenMarkdown(value).replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
     const html = [];
     let paragraph = [];
@@ -391,12 +431,12 @@
 
     const flushParagraph = () => {
       if (!paragraph.length) return;
-      html.push(`<p>${renderInlineMarkdown(paragraph.join("\n"))}</p>`);
+      html.push(`<p>${renderInlineMarkdown(paragraph.join("\n"), { pathRefs })}</p>`);
       paragraph = [];
     };
     const flushList = () => {
       if (!list) return;
-      html.push(`<${list.type}>${list.items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</${list.type}>`);
+      html.push(`<${list.type}>${list.items.map((item) => `<li>${renderInlineMarkdown(item, { pathRefs })}</li>`).join("")}</${list.type}>`);
       list = null;
     };
     const flushTextBlocks = () => {
@@ -434,7 +474,7 @@
       if (heading) {
         flushTextBlocks();
         const level = heading[1].length;
-        html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+        html.push(`<h${level}>${renderInlineMarkdown(heading[2], { pathRefs })}</h${level}>`);
         continue;
       }
       const unordered = line.match(/^\s*[-*]\s+(.+)$/);
@@ -471,7 +511,7 @@
             rowLines.push(lines[j]);
             j++;
           }
-          html.push(renderTable(line, lines[i + 1], rowLines));
+          html.push(renderTable(line, lines[i + 1], rowLines, { pathRefs }));
           i = j - 1;
           continue;
         }

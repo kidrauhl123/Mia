@@ -375,6 +375,7 @@
     myUsername: "",
     myUserId: "",
     cloudAgentRunsByConversation: new Map(),
+    attachmentPreviewCache: new Map(),
     pendingPermissionsById: new Map(),
     lastBotConversationByKey: readLastBotConversationByKey(),
     tagEditingConversationId: "",
@@ -536,9 +537,56 @@
     `;
   }
 
+  function isInlinePathRefAttachment(attachment = {}) {
+    return Boolean(
+      attachment.inlinePathRef
+      || attachment.inline_path_ref
+      || attachment.pathRefToken
+      || attachment.path_ref_token
+    );
+  }
+
   function renderAttachmentChips(attachments = []) {
-    if (!Array.isArray(attachments) || !attachments.length) return "";
-    return `<div class="message-attachments">${attachments.map(renderAttachmentChip).join("")}</div>`;
+    const visible = (Array.isArray(attachments) ? attachments : [])
+      .filter((attachment) => !isInlinePathRefAttachment(attachment));
+    if (!visible.length) return "";
+    return `<div class="message-attachments">${visible.map(hydrateAttachmentPreview).map(renderAttachmentChip).join("")}</div>`;
+  }
+
+  function attachmentHasInlinePreview(attachment = {}) {
+    return Boolean(attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl);
+  }
+
+  function attachmentPreviewKey(attachment = {}) {
+    return String(attachment.url || attachment.path || "").trim();
+  }
+
+  function fetchAttachmentPreviewRequest(key) {
+    if (/^(\/api\/files\/|https?:\/\/)/i.test(key)) return { url: key };
+    return { path: key };
+  }
+
+  function hydrateAttachmentPreview(attachment = {}) {
+    if (!attachment || typeof attachment !== "object" || attachmentHasInlinePreview(attachment)) return attachment;
+    const kind = String(attachment.kind || attachmentKind(attachment));
+    const key = attachmentPreviewKey(attachment);
+    if (kind !== "image" || !key || typeof window.mia?.fetchFileAttachment !== "function") return attachment;
+    const cached = moduleState.attachmentPreviewCache.get(key);
+    if (cached?.status === "ready" && cached.attachment) {
+      return { ...attachment, ...cached.attachment };
+    }
+    if (cached?.status) return attachment;
+    moduleState.attachmentPreviewCache.set(key, { status: "loading" });
+    window.mia.fetchFileAttachment(fetchAttachmentPreviewRequest(key))
+      .then((preview) => {
+        if (preview?.error) throw new Error(preview.message || "File not found.");
+        moduleState.attachmentPreviewCache.set(key, { status: "ready", attachment: preview });
+        _reRenderActiveChat({ force: true });
+      })
+      .catch(() => {
+        moduleState.attachmentPreviewCache.set(key, { status: "error" });
+      });
+    return attachment;
   }
 
   function eventType(event = {}) {
@@ -2212,6 +2260,7 @@
     const bodyMd = (spec ? spec.bodyMd : msg.body_md) || "";
     const skillsHtml = _renderMsgSkills(msg);
     const senderHtml = shouldRenderSenderTitle(conversation) ? senderTitleHtml(spec, avatarColor) : "";
+    const attachmentHtml = renderAttachmentChips(spec?.attachments || msg.attachments || []);
     const contentBlocks = !isUser ? contentBlocksFromMessage(msg) : [];
     let renderedFirstTextBlock = false;
     const orderedBlocksHtml = contentBlocks.length
@@ -2220,7 +2269,7 @@
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`,
         renderTextBlock(block) {
-          const prefixHtml = renderedFirstTextBlock ? "" : `${senderHtml}${skillsHtml}`;
+          const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentHtml}${senderHtml}${skillsHtml}`;
           renderedFirstTextBlock = true;
           return `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${prefixHtml}${_renderMsgBody(block.text || "")}</div>`;
         }
@@ -2241,8 +2290,10 @@
     // attachment-only / empty-body message keeps a right-clickable carrier with
     // the data attributes the app.js contextmenu dispatcher looks for. Skill
     // chips the user selected for this message render at the top of the bubble.
-    const bubbleHtml = `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${senderHtml}${skillsHtml}${bodyHtml}</div>`;
-    const attachmentHtml = renderAttachmentChips(spec?.attachments || msg.attachments || []);
+    const bubbleHtml = `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentHtml}${senderHtml}${skillsHtml}${bodyHtml}</div>`;
+    const orderedBlocksWithAttachments = orderedBlocksHtml && !renderedFirstTextBlock && attachmentHtml
+      ? `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentHtml}${senderHtml}${skillsHtml}</div>${orderedBlocksHtml}`
+      : orderedBlocksHtml;
     const createdAt = msg.created_at || msg.createdAt || "";
     const timeHtml = createdAt
       ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.miaTimeFormat.formatMessageTime(createdAt))}</time>`
@@ -2262,8 +2313,7 @@
       ${avatarHtml}
       <div class="message-stack">
         ${traceHtml}
-        ${orderedBlocksHtml || bubbleHtml}
-        ${attachmentHtml}
+        ${orderedBlocksWithAttachments || bubbleHtml}
         ${_renderMsgTranslation(msg)}
         ${timeHtml}
         ${renderSendStatus(msg)}

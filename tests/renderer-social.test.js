@@ -1580,6 +1580,108 @@ test("renderConversationChat marks failed outgoing cloud messages", async () => 
   assert.match(chat.children[0].innerHTML, /title="network down"/);
 });
 
+test("renderConversationChat renders image attachments inside the bubble before message text", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "dm_u_me_u_them";
+  s.moduleState.conversations = [{ id: "dm_u_me_u_them", type: "dm", name: "DM" }];
+  s.moduleState.messageCache.set("dm_u_me_u_them", {
+    messages: [{
+      id: "msg_img_1",
+      sender_kind: "user",
+      sender_ref: "u_me",
+      body_md: "hello with image",
+      created_at: "2026-06-18T10:00:00.000Z",
+      attachments: [{
+        id: "att_1",
+        kind: "image",
+        name: "image.png",
+        thumbnailDataUrl: "data:image/png;base64,cG5n"
+      }]
+    }],
+    maxSeq: 1
+  });
+
+  const chat = {
+    children: [],
+    dataset: {},
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  const html = chat.children[0].innerHTML;
+  const bubbleStart = html.indexOf('<div class="bubble"');
+  const bodyIndex = html.indexOf("hello with image");
+  const attachmentIndex = html.indexOf("message-attachments");
+  const bubbleEnd = html.indexOf("</div>", bodyIndex);
+  assert.ok(bubbleStart >= 0, "bubble rendered");
+  assert.ok(attachmentIndex > bubbleStart, "attachment block is inside bubble");
+  assert.ok(attachmentIndex < bodyIndex, "attachment block appears before message text");
+  assert.ok(attachmentIndex < bubbleEnd, "attachment block closes inside bubble");
+});
+
+test("renderConversationChat hydrates cloud image URL previews before rendering thumbnails", async () => {
+  const chat = {
+    children: [],
+    dataset: {},
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  installCloudConversationSource(s.__mockWindow);
+  const fetched = [];
+  s.__mockWindow.mia.fetchFileAttachment = async (request) => {
+    fetched.push(request);
+    return {
+      id: "att_2",
+      kind: "image",
+      name: "cloud.png",
+      url: request.url,
+      thumbnailDataUrl: "data:image/png;base64,cG5n"
+    };
+  };
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "dm_u_me_u_them";
+  s.moduleState.conversations = [{ id: "dm_u_me_u_them", type: "dm", name: "DM" }];
+  s.moduleState.messageCache.set("dm_u_me_u_them", {
+    messages: [{
+      id: "msg_img_2",
+      sender_kind: "user",
+      sender_ref: "u_them",
+      body_md: "remote image",
+      created_at: "2026-06-18T10:01:00.000Z",
+      attachments: [{
+        id: "att_2",
+        kind: "image",
+        name: "cloud.png",
+        url: "/api/files/file_att_2"
+      }]
+    }],
+    maxSeq: 1
+  });
+
+  s.renderConversationChat(chat);
+  assert.equal(fetched.length, 1);
+  assert.equal(fetched[0]?.url, "/api/files/file_att_2");
+  await flushPromises();
+
+  const html = chat.children[0]?.innerHTML || "";
+  assert.match(html, /class="message-attachment image"/);
+  assert.match(html, /<img class="message-attachment-thumb" src="data:image\/png;base64,cG5n"/);
+  assert.ok(html.indexOf("message-attachments") < html.indexOf("remote image"));
+});
+
 test("renderConversationChat resolves self and bot avatars from one contact context", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);

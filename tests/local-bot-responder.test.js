@@ -106,6 +106,26 @@ test("respond folds the message's skill chips into the engine turn", async () =>
   assert.deepEqual(calls.engine[0].activeSkillIds, ["pdf-fill", "data-viz"]);
 });
 
+test("respond passes trigger attachments on the current user turn", async () => {
+  const { responder, calls } = setup();
+  const attachment = {
+    id: "path-ref:IMG1",
+    name: "screen.png",
+    path: "/tmp/screen.png",
+    kind: "image",
+    inlinePathRef: true,
+    pathRefToken: "IMG1"
+  };
+
+  await responder.respond({ ...base, userPrompt: "IMG1 这是什么", userAttachments: [attachment] });
+
+  assert.deepEqual(calls.engine[0].messages.at(-1), {
+    role: "user",
+    content: "IMG1 这是什么",
+    attachments: [attachment]
+  });
+});
+
 test("respond sends explicit reminder requests through the engine scheduler path", async () => {
   const { responder, calls } = setup();
 

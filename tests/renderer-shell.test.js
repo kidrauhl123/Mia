@@ -57,7 +57,8 @@ test("cloud conversation composer uses one social send path for dm and group con
 test("cloud conversation composer sends pending attachments and clears the tray", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
-  assert.match(appSource, /const pendingAttachments = state\.pendingAttachments\.slice\(\);/);
+  assert.match(appSource, /const pathPasteAttachments = window\.miaComposer\.pathPasteAttachmentsForSend\?\.\(composerText\) \|\| \[\];/);
+  assert.match(appSource, /const pendingAttachments = \[\.\.\.state\.pendingAttachments, \.\.\.pathPasteAttachments\]\.slice\(0, 20\);/);
   assert.match(appSource, /if \(!conversationText\.trim\(\) && !pendingAttachments\.length\) return;/);
   assert.match(appSource, /sendInActiveConversation\(conversationText,\s*\{[\s\S]*attachments: pendingAttachments/);
   assert.match(appSource, /state\.pendingAttachments = \[\];/);
@@ -88,6 +89,15 @@ test("image preview is an svg-icon editing window with crop draw and save action
   assert.match(appSource, /<canvas class="image-editor-canvas"/);
   assert.match(appSource, /<svg viewBox="0 0 24 24"/);
   assert.doesNotMatch(appSource, />\s*(剪裁|涂鸦|保存)\s*</);
+});
+
+test("message path reference chips reuse the image preview", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /function openPathRefPreviewFromChip/);
+  assert.match(appSource, /fetchFileAttachment\?\.\(\{ path: filePath \}\)/);
+  assert.match(appSource, /openImagePreview\(src, attachment\?\.name \|\| filePath\)/);
+  assert.match(appSource, /closest\("\[data-path-ref-path\]"\)/);
 });
 
 test("settings exposes manual update checks through the preload bridge", () => {

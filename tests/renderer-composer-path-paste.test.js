@@ -172,9 +172,20 @@ test("composer path paste uses short image tokens and expands them for send", ()
   assert.match(expanded, /^请看 IMG1\n\n\[\[MIA_PATH_REFS_BEGIN\]\]/);
   assert.match(expanded, /IMG1: \/var\/folders\/x\/mia-clipboard\/clipboard-1\.png/);
   assert.match(expanded, /\[\[MIA_PATH_REFS_END\]\]$/);
+  assert.deepEqual(JSON.parse(JSON.stringify(composer.pathPasteAttachmentsForSend("请看 IMG1"))), [{
+    id: "path-ref:IMG1",
+    name: "clipboard-1.png",
+    path: "/var/folders/x/mia-clipboard/clipboard-1.png",
+    mime: "image/png",
+    size: 0,
+    kind: "image",
+    inlinePathRef: true,
+    pathRefToken: "IMG1"
+  }]);
 
   composer.clearPathPasteRefs();
   assert.equal(composer.expandPathPasteRefsForSend("请看 IMG1"), "请看 IMG1");
+  assert.deepEqual(JSON.parse(JSON.stringify(composer.pathPasteAttachmentsForSend("请看 IMG1"))), []);
 });
 
 test("composer path paste uses a rich inline editor for image chips", () => {
@@ -242,7 +253,8 @@ test("chat input accepts main-process path paste events only while focused", () 
   assert.match(appSource, /window\.mia\?\.onPathPasteText\?\.\(\(payload = \{\}\) => \{/);
   assert.match(appSource, /document\.activeElement !== els\.chatInput/);
   assert.match(appSource, /window\.miaComposer\.insertPathPastePayload\(payload\)/);
-  assert.match(appSource, /window\.miaComposer\.expandPathPasteRefsForSend\(els\.chatInput\.value\)/);
+  assert.match(appSource, /const composerText = els\.chatInput\.value/);
+  assert.match(appSource, /window\.miaComposer\.expandPathPasteRefsForSend\(composerText\)/);
   assert.match(appSource, /window\.miaComposer\.clearPathPasteRefs\(\)/);
 });
 

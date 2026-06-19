@@ -113,6 +113,36 @@ function generatedImageAttachments(imagePaths = []) {
   }).filter(Boolean);
 }
 
+function localImageInputsFromAttachments(attachments = []) {
+  return (Array.isArray(attachments) ? attachments : [])
+    .map((attachment) => {
+      const filePath = String(attachment?.path || "").trim();
+      if (!filePath) return null;
+      const kind = String(attachment?.kind || "").trim().toLowerCase();
+      const mime = String(attachment?.mime || attachment?.type || "").trim().toLowerCase();
+      if (kind !== "image" && !mime.startsWith("image/")) return null;
+      try {
+        const stat = fs.statSync(filePath);
+        if (!stat.isFile() || stat.size > 25 * 1024 * 1024) return null;
+      } catch {
+        return null;
+      }
+      return { type: "local_image", path: filePath };
+    })
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function codexPromptWithImages(prompt, attachments = []) {
+  const text = String(prompt || "");
+  const images = localImageInputsFromAttachments(attachments);
+  if (!images.length) return text;
+  return [
+    { type: "text", text },
+    ...images
+  ];
+}
+
 function requireDependency(deps, key) {
   if (typeof deps[key] !== "function") throw new Error(`${key} dependency is required.`);
   return deps[key];
@@ -396,6 +426,7 @@ function createCodexChatAdapter(deps = {}) {
     const promptWithGroup = group && group.contextBlock
       ? injectGroupContextForSdk(prompt, group.contextBlock)
       : prompt;
+    const codexPrompt = codexPromptWithImages(promptWithGroup, lastUserMessage?.attachments);
     const baseEnv = processEnvStrings();
     let codexHomePath = "";
     try {
@@ -439,7 +470,7 @@ function createCodexChatAdapter(deps = {}) {
         baseUrl: managedModel?.baseUrl || "",
         apiKey: managedModel?.apiKey || "",
         threadId: externalSessionId,
-        prompt: promptWithGroup,
+        prompt: codexPrompt,
         options: threadOptions,
         signal,
         emit,
@@ -461,7 +492,7 @@ function createCodexChatAdapter(deps = {}) {
       const thread = externalSessionId
         ? codex.resumeThread(externalSessionId, threadOptions)
         : codex.startThread(threadOptions);
-      turn = await runCodexTurn(thread, promptWithGroup, {
+      turn = await runCodexTurn(thread, codexPrompt, {
         signal,
         emit,
         workingDirectory: cwd(),
@@ -519,6 +550,8 @@ function createCodexChatAdapter(deps = {}) {
 }
 
 module.exports = {
+  codexPromptWithImages,
   createCodexChatAdapter,
+  localImageInputsFromAttachments,
   mapCodexPermissionMode
 };

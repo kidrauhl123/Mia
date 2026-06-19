@@ -8,6 +8,7 @@ const { PassThrough } = require("node:stream");
 const {
   codexConfigOverridesForMcpServers,
   codexDecisionFor,
+  codexTurnInput,
   createCodexAppServerConnection,
   isCodexApprovalRequest,
   runCodexAppServerTurn,
@@ -78,6 +79,23 @@ test("codexConfigOverridesForMcpServers converts Mia scheduler MCP spec to CLI c
     'mcp_servers.mia-scheduler.args=["/tmp/server.js"]',
     'mcp_servers.mia-scheduler.env.MIA_DAEMON_URL="http://127.0.0.1:27861"',
     'mcp_servers.mia-scheduler.env.MIA_DAEMON_TOKEN="token"'
+  ]);
+});
+
+test("codexTurnInput maps structured image entries to Codex app-server input", () => {
+  assert.deepEqual(codexTurnInput("hello"), [
+    { type: "text", text: "hello", text_elements: [] }
+  ]);
+  assert.deepEqual(codexTurnInput([
+    { type: "text", text: "看图" },
+    { type: "local_image", path: "/tmp/screen.png" },
+    { type: "localImage", path: "/tmp/other.png" },
+    { type: "local_image", path: " " },
+    { type: "unknown", path: "/tmp/nope.png" }
+  ]), [
+    { type: "text", text: "看图", text_elements: [] },
+    { type: "localImage", path: "/tmp/screen.png" },
+    { type: "localImage", path: "/tmp/other.png" }
   ]);
 });
 

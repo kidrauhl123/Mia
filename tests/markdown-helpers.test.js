@@ -50,6 +50,8 @@ test("markdown hides Mia path reference blocks from rendered chat text", () => {
   const source = "请看 IMG1\n\n[[MIA_PATH_REFS_BEGIN]]\nIMG1: /var/folders/x/mia-clipboard/clipboard-1.png\n[[MIA_PATH_REFS_END]]";
 
   assert.equal(markdown.stripHiddenMarkdown(source), "请看 IMG1");
-  assert.equal(markdown.renderMarkdown(source), "<p>请看 IMG1</p>");
+  assert.match(markdown.renderMarkdown(source), /class="composer-path-ref message-path-ref"/);
+  assert.match(markdown.renderMarkdown(source), /data-path-ref-path="\/var\/folders\/x\/mia-clipboard\/clipboard-1\.png"/);
+  assert.match(markdown.renderMarkdown(source), />IMG1<\/span>/);
   assert.equal(markdown.renderPreviewMarkdown(source), "请看 IMG1");
 });

@@ -204,6 +204,12 @@ function normalizeHistoryMessages(historyMessages) {
   return selected.reverse();
 }
 
+function normalizeResponderAttachments(attachments = []) {
+  return (Array.isArray(attachments) ? attachments : [])
+    .filter((attachment) => attachment && typeof attachment === "object")
+    .slice(0, 20);
+}
+
 // Composer "使用" chips travel with the user's cloud message (skills_json). Pull
 // the selected skill ids off the triggering message so the responder can drive
 // the agent with them — one source of truth, works across devices.
@@ -310,7 +316,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     }
   }
 
-  async function respond({ conversationId, conversationType = "", botId, botSnapshot = null, dedupKey, triggerMessageId = "", triggerSeq = 0, systemPrompt, historyMessages = [], userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
+  async function respond({ conversationId, conversationType = "", botId, botSnapshot = null, dedupKey, triggerMessageId = "", triggerSeq = 0, systemPrompt, historyMessages = [], userPrompt, userAttachments = [], turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
     if (!conversationId || !botId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
     if (inFlight.has(dedupKey)) return;
@@ -335,6 +341,9 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       triggerMessageId: resolvedTriggerMessageId
     });
     try {
+      const currentUserMessage = { role: "user", content: userPrompt || "" };
+      const currentUserAttachments = normalizeResponderAttachments(userAttachments);
+      if (currentUserAttachments.length) currentUserMessage.attachments = currentUserAttachments;
       const chatArgs = {
         botKey: botId,
         botId,
@@ -342,7 +351,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         messages: [
           { role: "system", content: systemPrompt || "" },
           ...normalizeHistoryMessages(historyMessages),
-          { role: "user", content: userPrompt || "" }
+          currentUserMessage
         ],
         group: isGroupConversation(conversationId, conversationType),
         utility: true,

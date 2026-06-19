@@ -101,6 +101,56 @@ test("buildBotInvocation uses internal scheduled task prompts without visible us
   ]);
 });
 
+test("buildBotInvocation carries trigger attachments into the responder args", () => {
+  const attachment = {
+    id: "path-ref:IMG1",
+    name: "screen.png",
+    path: "/tmp/screen.png",
+    kind: "image",
+    inlinePathRef: true,
+    pathRefToken: "IMG1"
+  };
+  const args = buildBotInvocation({
+    conversationId: "botc_review",
+    conversationType: "bot",
+    botId: "reviewer",
+    triggeringMessage: {
+      id: "m_1",
+      sender_kind: "user",
+      sender_ref: "u_alice",
+      body_md: "IMG1 这是什么",
+      attachments_json: JSON.stringify([attachment])
+    }
+  }, []);
+
+  assert.deepEqual(args.userAttachments, [attachment]);
+});
+
+test("buildBotInvocation reconstructs inline image refs when cloud strips local path attachments", () => {
+  const args = buildBotInvocation({
+    conversationId: "botc_review",
+    conversationType: "bot",
+    botId: "reviewer",
+    triggeringMessage: {
+      id: "m_1",
+      sender_kind: "user",
+      sender_ref: "u_alice",
+      body_md: "IMG1 这是什么\n\n[[MIA_PATH_REFS_BEGIN]]\nThe user-visible tokens above refer to these local file paths:\nIMG1: /var/folders/x/mia-clipboard/screen.webp\n[[MIA_PATH_REFS_END]]"
+    }
+  }, []);
+
+  assert.deepEqual(args.userAttachments, [{
+    id: "path-ref:IMG1",
+    name: "screen.webp",
+    path: "/var/folders/x/mia-clipboard/screen.webp",
+    mime: "image/webp",
+    size: 0,
+    kind: "image",
+    inlinePathRef: true,
+    pathRefToken: "IMG1"
+  }]);
+});
+
 test("buildBotInvocation returns null for missing trigger, conversation, or bot id", () => {
   const bots = [{ key: "codex", name: "Codex" }];
   const base = {

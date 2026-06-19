@@ -208,6 +208,9 @@
     const bodyHtml = global.miaMentionRender
       ? global.miaMentionRender.highlightMentions(rawBodyHtml, members || [])
       : rawBodyHtml;
+    const attachmentHtml = typeof ctx.renderAttachmentChips === "function"
+      ? ctx.renderAttachmentChips(spec?.attachments || msg.attachments || [])
+      : "";
     const contentBlocks = !isOwn ? contentBlocksFromMessage(msg) : [];
     let renderedFirstTextBlock = false;
     const orderedBlocksHtml = contentBlocks.length
@@ -216,7 +219,7 @@
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`,
         renderTextBlock(block) {
-          const prefixHtml = renderedFirstTextBlock ? "" : senderTitleHtml;
+          const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentHtml}${senderTitleHtml}`;
           renderedFirstTextBlock = true;
           const rawBlockHtml = renderMsgBody(block.text || "");
           const blockHtml = global.miaMentionRender
@@ -227,9 +230,9 @@
       })
       : "";
     const traceHtml = orderedBlocksHtml ? "" : renderTraceForMessage(msg, bodyMd);
-    const attachmentHtml = typeof ctx.renderAttachmentChips === "function"
-      ? ctx.renderAttachmentChips(spec?.attachments || msg.attachments || [])
-      : "";
+    const orderedBlocksWithAttachments = orderedBlocksHtml && !renderedFirstTextBlock && attachmentHtml
+      ? `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentHtml}${senderTitleHtml}</div>${orderedBlocksHtml}`
+      : orderedBlocksHtml;
     const sendStatusHtml = typeof ctx.renderSendStatus === "function"
       ? ctx.renderSendStatus(msg)
       : "";
@@ -265,8 +268,7 @@
       ${avatarHtml}
       <div class="message-stack">
         ${traceHtml}
-        ${orderedBlocksHtml || `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${senderTitleHtml}${bodyHtml}</div>`}
-        ${attachmentHtml}
+        ${orderedBlocksWithAttachments || `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentHtml}${senderTitleHtml}${bodyHtml}</div>`}
         ${translationHtml}
         ${timeHtml}
         ${sendStatusHtml}

@@ -4,7 +4,9 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const {
+  codexPromptWithImages,
   createCodexChatAdapter,
+  localImageInputsFromAttachments,
   mapCodexPermissionMode
 } = require("../src/main/codex-chat-adapter.js");
 const { chatCompletionResponse } = require("../src/main/chat-response.js");
@@ -337,6 +339,50 @@ test("sendChat surfaces generated image paths when Codex returns empty text", as
   assert.equal(response.choices[0].message.attachments[0].name, "ig_generated.png");
   assert.equal(response.choices[0].message.attachments[0].kind, "image");
   assert.match(response.choices[0].message.attachments[0].thumbnailDataUrl, /^data:image\/png;base64,/);
+});
+
+test("Codex prompt inputs attach local image files natively", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-codex-input-"));
+  const imagePath = path.join(dir, "screen.png");
+  fs.writeFileSync(imagePath, "png");
+
+  assert.deepEqual(localImageInputsFromAttachments([
+    { kind: "image", path: imagePath },
+    { kind: "text", path: path.join(dir, "note.txt") },
+    { kind: "image", path: path.join(dir, "missing.png") }
+  ]), [{ type: "local_image", path: imagePath }]);
+
+  assert.deepEqual(codexPromptWithImages("看图", [{ mime: "image/png", path: imagePath }]), [
+    { type: "text", text: "看图" },
+    { type: "local_image", path: imagePath }
+  ]);
+});
+
+test("sendChat passes current user image attachments to Codex input", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-codex-chat-image-"));
+  const imagePath = path.join(dir, "screen.png");
+  fs.writeFileSync(imagePath, "png");
+  const deps = createDeps({
+    lastUserPrompt: () => "IMG1 这是什么"
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "" },
+    sessionId: "s1",
+    messages: [{
+      role: "user",
+      content: "IMG1 这是什么",
+      attachments: [{ kind: "image", path: imagePath, inlinePathRef: true, pathRefToken: "IMG1" }]
+    }],
+    signal: null,
+    utility: false
+  });
+
+  const prompt = deps.calls.find((call) => call[0] === "run")?.[1];
+  assert.equal(Array.isArray(prompt), true);
+  assert.match(prompt[0].text, /IMG1 这是什么/);
+  assert.deepEqual(prompt.at(-1), { type: "local_image", path: imagePath });
 });
 
 test("sendStateless starts a fresh default thread", async () => {
