@@ -296,10 +296,14 @@ test("loadEngineCapabilities falls back to OpenClaw dev help only for thinking l
 
 test("loadEngineCapabilities probes Codex app-server models and permission profiles", async () => {
   const requests = [];
+  const ensureCodexHomeCalls = [];
   const { service } = createHarness({
     shellCommandPath: (command) => command === "codex" ? "/bin/codex" : "",
     processEnvStrings: () => ({ PATH: "/bin" }),
-    ensureCodexHome: () => "/tmp/codex-home",
+    ensureCodexHome: (options) => {
+      ensureCodexHomeCalls.push(options);
+      return "/tmp/codex-home";
+    },
     createCodexAppServerConnection: ({ codexPath, env }) => {
       requests.push(["connect", codexPath, env]);
       return {
@@ -329,6 +333,7 @@ test("loadEngineCapabilities probes Codex app-server models and permission profi
 
   const caps = await service.loadEngineCapabilities();
 
+  assert.deepEqual(ensureCodexHomeCalls, [{ syncSchedulerMcp: false }]);
   assert.equal(requests[0][1], "/bin/codex");
   assert.equal(requests[0][2].CODEX_HOME, "/tmp/codex-home");
   assert.deepEqual(caps.engines.codex.models, [{

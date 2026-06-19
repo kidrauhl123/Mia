@@ -392,7 +392,9 @@ function createEngineCatalogService({
     if (!codexPath) return empty;
     let codexHome = "";
     try {
-      codexHome = typeof ensureCodexHome === "function" ? String(ensureCodexHome() || "") : "";
+      codexHome = typeof ensureCodexHome === "function"
+        ? String(ensureCodexHome({ syncSchedulerMcp: false }) || "")
+        : "";
     } catch (error) {
       appendEngineLog(`Codex capability probe skipped: ${error?.message || error}`);
       return empty;

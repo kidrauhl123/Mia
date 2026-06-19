@@ -119,6 +119,22 @@ test("ensureCodexHome uses user Codex home and rewrites only Mia scheduler confi
   assert.match(config, /MIA_DAEMON_TOKEN = "token_1"/);
 });
 
+test("ensureCodexHome can skip scheduler MCP sync for read-only Codex probes", (t) => {
+  const { scriptPath, service, userHome } = setup(t);
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.writeFileSync(scriptPath, "server");
+  const userCodexHome = path.join(userHome, ".codex");
+  fs.mkdirSync(userCodexHome, { recursive: true });
+  const configPath = path.join(userCodexHome, "config.toml");
+  fs.writeFileSync(configPath, "model = \"gpt\"\n");
+
+  const codexHome = service.ensureCodexHome({ syncSchedulerMcp: false });
+
+  assert.equal(codexHome, userCodexHome);
+  assert.equal(fs.readFileSync(configPath, "utf8"), "model = \"gpt\"\n");
+  assert.equal(fs.existsSync(path.join(path.dirname(service.contextPath()), "scheduler-mcp-server.js")), false);
+});
+
 test("stripMiaSchedulerSection removes stale scheduler env tables even when they appear before the main table", () => {
   const stripped = stripMiaSchedulerSection([
     "model = \"gpt\"",
