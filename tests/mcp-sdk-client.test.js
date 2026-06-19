@@ -143,3 +143,45 @@ test("callTool returns an MCP error response when authorizeToolCall does not all
   assert.match(result.content[0].text, /Denied/);
   assert.equal(events.some((entry) => entry[0] === "callTool"), false);
 });
+
+test("refresh and testServer redact bridge errors before logging or returning them", async () => {
+  const logs = [];
+  const boom = Object.assign(new Error("Authorization: Bearer ghp_bridge_refresh_secret X_API_KEY=super_secret_value"), {
+    code: "EAUTH"
+  });
+  const manager = createMcpSdkClientManager({
+    loadSdk: fakeLoadSdk([], {
+      Client: class Client {
+        async connect() {
+          throw boom;
+        }
+      }
+    }),
+    processEnvStrings: () => ({}),
+    appendLog: (line) => logs.push(line)
+  });
+
+  const tested = await manager.testServer({
+    name: "alpha",
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: { Authorization: "Bearer ghp_bridge_refresh_secret" } }
+  });
+  const refreshed = await manager.refresh([
+    {
+      name: "alpha",
+      enabled: true,
+      transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: { Authorization: "Bearer ghp_bridge_refresh_secret" } }
+    }
+  ]);
+
+  assert.equal(tested.success, false);
+  assert.match(tested.error, /\[redacted\]/);
+  assert.doesNotMatch(tested.error, /ghp_bridge_refresh_secret|super_secret_value/);
+  assert.equal(refreshed.success, false);
+  assert.match(refreshed.errors[0].error, /\[redacted\]/);
+  assert.doesNotMatch(refreshed.errors[0].error, /ghp_bridge_refresh_secret|super_secret_value/);
+  assert.equal(logs.length >= 2, true);
+  for (const line of logs) {
+    assert.match(line, /\[redacted\]/);
+    assert.doesNotMatch(line, /ghp_bridge_refresh_secret|super_secret_value/);
+  }
+});

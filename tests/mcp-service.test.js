@@ -173,6 +173,32 @@ test("native sync failure redacts secrets before persisting or listing public sy
   assert.doesNotMatch(listed.data.servers[0].sync.codex.message, /ghp_secret_header_value|TOP_SECRET_ENV_VALUE|sk-super-secret-token/);
 });
 
+test("refreshBridge redacts bridge refresh errors before returning them", async (t) => {
+  const { service } = setup(t, {
+    manager: {
+      testServer: async () => ({ success: true, status: "connected", tools: [], error: "" }),
+      refresh: async () => ({
+        success: false,
+        tools: [],
+        errors: [
+          { server: "bridge-a", error: "Authorization: Bearer ghp_bridge_secret" },
+          "X_API_KEY=super_secret_bridge_value"
+        ]
+      }),
+      toolManifest: () => [],
+      callTool: async () => ({ content: [], isError: false })
+    }
+  });
+
+  const refreshed = await service.refreshBridge();
+
+  assert.equal(refreshed.success, true);
+  assert.match(refreshed.data.errors[0].error, /\[redacted\]/);
+  assert.doesNotMatch(refreshed.data.errors[0].error, /ghp_bridge_secret/);
+  assert.match(refreshed.data.errors[1], /\[redacted\]/);
+  assert.doesNotMatch(refreshed.data.errors[1], /super_secret_bridge_value/);
+});
+
 test("failed test disables a server through the shared runtime-change path", async (t) => {
   const syncCalls = [];
   const refreshCalls = [];
@@ -451,4 +477,56 @@ test("delete keeps the record with sanitized native cleanup errors when removal 
   assert.equal(stored[0].sync.codex.status, "error");
   assert.match(stored[0].sync.codex.message, /\[redacted\]/);
   assert.doesNotMatch(stored[0].sync.codex.message, /ghp_delete_secret/);
+});
+
+test("delete persists refreshed sync status for surviving records after successful removal", async (t) => {
+  let syncStep = 0;
+  let nextId = 0;
+  const { runtime, service } = setup(t, {
+    idFactory: () => `mcp_${++nextId}`,
+    nativeSync: async () => {
+      syncStep += 1;
+      if (syncStep < 3) {
+        return {
+          success: true,
+          statuses: {
+            codex: { status: "synced", message: `save-${syncStep}` },
+            "claude-code": { status: "synced", message: `save-${syncStep}` }
+          },
+          commands: [{ engine: "codex" }, { engine: "claude-code" }]
+        };
+      }
+      return {
+        success: true,
+        statuses: {
+          codex: { status: "noop", message: "delete-refresh" },
+          "claude-code": { status: "synced", message: "delete-refresh" }
+        },
+        commands: [{ engine: "codex" }, { engine: "claude-code" }]
+      };
+    }
+  });
+
+  const first = await service.save({
+    name: "alpha",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18061/mcp" }
+  });
+  const second = await service.save({
+    name: "beta",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18062/mcp" }
+  });
+  const deleted = await service.delete(first.data.id);
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(deleted.success, true);
+  assert.deepEqual(deleted.data.servers.map((record) => record.name), ["beta"]);
+  assert.equal(deleted.data.servers[0].sync.codex.status, "noop");
+  assert.equal(deleted.data.servers[0].sync.codex.message, "delete-refresh");
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].name, "beta");
+  assert.equal(stored[0].sync.codex.status, "noop");
+  assert.equal(stored[0].sync.codex.message, "delete-refresh");
+  assert.equal(second.success, true);
 });

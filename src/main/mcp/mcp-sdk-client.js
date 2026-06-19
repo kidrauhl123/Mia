@@ -1,6 +1,6 @@
 "use strict";
 
-const { maskMcpRecord, normalizeMcpRecord } = require("./mcp-records.js");
+const { maskMcpRecord, normalizeMcpRecord, sanitizeSecretText } = require("./mcp-records.js");
 const { MCP_TRANSPORTS } = require("../../shared/mcp-contracts.js");
 
 const CLIENT_INFO = Object.freeze({ name: "mia-mcp-client", version: "1.0.0" });
@@ -53,7 +53,7 @@ function createMcpSdkClientManager(deps = {}) {
 
   function logMasked(message, record, error) {
     const masked = record ? JSON.stringify(maskMcpRecord(record)) : "";
-    const suffix = error ? `: ${error?.message || error}` : "";
+    const suffix = error ? `: ${sanitizeSecretText(error?.message || error)}` : "";
     appendLog(`[MCP] ${message}${masked ? ` ${masked}` : ""}${suffix}`);
   }
 
@@ -124,7 +124,7 @@ function createMcpSdkClientManager(deps = {}) {
         success: false,
         status: "disconnected",
         tools: [],
-        error: String(error?.message || error)
+        error: sanitizeSecretText(error?.message || error)
       };
     }
   }
@@ -153,7 +153,7 @@ function createMcpSdkClientManager(deps = {}) {
         logMasked("refresh failed for server", record || input, error);
         errors.push({
           server: String((record || input)?.name || "").trim() || "server",
-          error: String(error?.message || error)
+          error: sanitizeSecretText(error?.message || error)
         });
       }
     }

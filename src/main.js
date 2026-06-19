@@ -601,6 +601,25 @@ function readJson(filePath, fallback) {
 
 function execFileAsPromise(file, args, _meta = {}) {
   return new Promise((resolve) => {
+    const resultFrom = (error, stdout, stderr) => {
+      const numericCode = Number.isInteger(error?.code) ? error.code : 1;
+      const spawnCode = error && !Number.isInteger(error?.code) && error?.code != null ? String(error.code) : "";
+      const signal = error?.signal ? String(error.signal) : "";
+      const stderrBase = String(stderr || error?.message || "");
+      const detailSuffix = [spawnCode ? `spawnCode=${spawnCode}` : "", signal ? `signal=${signal}` : ""]
+        .filter(Boolean)
+        .join(" ");
+      return {
+        ok: !error,
+        code: error ? numericCode : 0,
+        spawnCode,
+        signal,
+        stdout: String(stdout || ""),
+        stderr: detailSuffix && !stderrBase.includes(detailSuffix)
+          ? `${stderrBase}${stderrBase ? " " : ""}${detailSuffix}`
+          : stderrBase
+      };
+    };
     try {
       execFile(
         file,
@@ -611,21 +630,11 @@ function execFileAsPromise(file, args, _meta = {}) {
           windowsHide: true
         },
         (error, stdout, stderr) => {
-          resolve({
-            ok: !error,
-            code: error ? (Number.isInteger(error?.code) ? error.code : 1) : 0,
-            stdout: String(stdout || ""),
-            stderr: String(stderr || error?.message || "")
-          });
+          resolve(resultFrom(error, stdout, stderr));
         }
       );
     } catch (error) {
-      resolve({
-        ok: false,
-        code: 1,
-        stdout: "",
-        stderr: String(error?.message || error)
-      });
+      resolve(resultFrom(error, "", ""));
     }
   });
 }

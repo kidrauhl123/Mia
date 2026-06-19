@@ -45,6 +45,18 @@ function fail(error) {
   return { success: false, data: null, error: String(error?.message || error || "Unknown error") };
 }
 
+function sanitizeBridgeError(error) {
+  if (typeof error === "string") return sanitizeSecretText(error);
+  if (!error || typeof error !== "object") return sanitizeSecretText(error);
+  const next = { ...error };
+  if (typeof next.error === "string") next.error = sanitizeSecretText(next.error);
+  if (typeof next.message === "string") next.message = sanitizeSecretText(next.message);
+  if (typeof next.error !== "string" && typeof next.message !== "string") {
+    next.error = sanitizeSecretText(String(error));
+  }
+  return next;
+}
+
 function createMcpService(deps = {}) {
   const runtimePaths = deps.runtimePaths;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
@@ -156,19 +168,28 @@ function createMcpService(deps = {}) {
     }
     return {
       tools: Array.isArray(refreshed?.tools) ? refreshed.tools : [],
-      errors: Array.isArray(refreshed?.errors) ? refreshed.errors : [],
+      errors: Array.isArray(refreshed?.errors) ? refreshed.errors.map((error) => sanitizeBridgeError(error)) : [],
       bridge: maskedBridgeInfo(bridgeInfo)
     };
   }
 
   async function applyRuntimeChanges(previousRecords, currentRecords, options = {}) {
     const storedRecords = normalizeMcpRegistry(options.persistedRecords || currentRecords, { now, idFactory });
-    const bridgeState = await refreshBridgeState(storedRecords);
+    let bridgeState = await refreshBridgeState(options.bridgeRecords || storedRecords);
     const nativeResult = await nativeSync({
       previousRecords: normalizeMcpRegistry(previousRecords || [], { now, idFactory }),
       currentRecords: normalizeMcpRegistry(currentRecords || [], { now, idFactory })
     });
-    const withStatuses = applyStatuses(storedRecords, nativeResult, {
+    const nativeStatuses = nativeResult?.statuses && typeof nativeResult.statuses === "object"
+      ? nativeResult.statuses
+      : {};
+    const persistedBase = hasNativeErrors(nativeStatuses) && options.persistedRecordsOnError
+      ? normalizeMcpRegistry(options.persistedRecordsOnError, { now, idFactory })
+      : storedRecords;
+    if (hasNativeErrors(nativeStatuses) && options.bridgeRecordsOnError) {
+      bridgeState = await refreshBridgeState(options.bridgeRecordsOnError);
+    }
+    const withStatuses = applyStatuses(persistedBase, nativeResult, {
       availableIds: options.availableIds || new Set(),
       availableMessage: options.availableMessage || ""
     });
@@ -262,28 +283,14 @@ function createMcpService(deps = {}) {
       const existing = resolveRecord(current, id);
       if (!existing) throw new Error("MCP server not found.");
       const next = current.filter((record) => record.id !== existing.id);
-      const bridgeState = await refreshBridgeState(next);
-      const native = await nativeSync({
-        previousRecords: normalizeMcpRegistry(current, { now, idFactory }),
-        currentRecords: normalizeMcpRegistry(next, { now, idFactory })
+      const runtime = await applyRuntimeChanges(current, next, {
+        persistedRecordsOnError: current,
+        bridgeRecordsOnError: current
       });
-      const nativeStatuses = native?.statuses && typeof native.statuses === "object" ? native.statuses : {};
-      if (hasNativeErrors(nativeStatuses)) {
-        const failedRecord = applyStatuses([existing], native)[0];
-        const persisted = saveRecords(current.map((record) => (
-          record.id === existing.id ? failedRecord : record
-        )));
-        return ok({
-          bridge: bridgeState,
-          servers: publicServers(persisted),
-          fingerprint: currentFingerprint(persisted)
-        });
-      }
-      const persisted = saveRecords(next);
       return ok({
-        bridge: bridgeState,
-        servers: publicServers(persisted),
-        fingerprint: currentFingerprint(persisted)
+        bridge: runtime.bridgeState,
+        servers: publicServers(runtime.records),
+        fingerprint: currentFingerprint(runtime.records)
       });
     } catch (error) {
       return fail(error);
