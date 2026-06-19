@@ -72,6 +72,35 @@ test("maskMcpRecord hides secrets without destroying non-secret fields", () => {
   assert.equal(masked.transport.command, "npx");
 });
 
+test("maskMcpRecord also masks secrets preserved in originalJson", () => {
+  const originalBlob = JSON.stringify({
+    mcpServers: {
+      github: {
+        type: "http",
+        url: "https://example.test/mcp",
+        headers: { Authorization: "Bearer ghp_secret" },
+        env: { GITHUB_TOKEN: "ghp_secret" }
+      }
+    }
+  });
+  const record = normalizeMcpRecord({
+    name: "github",
+    originalJson: originalBlob,
+    transport: {
+      type: "http",
+      url: "https://example.test/mcp",
+      headers: { Authorization: "Bearer ghp_secret" }
+    }
+  }, { now: () => 1, idFactory: () => "mcp_github" });
+
+  const masked = maskMcpRecord(record);
+  const parsed = JSON.parse(masked.originalJson);
+
+  assert.ok(!masked.originalJson.includes("ghp_secret"));
+  assert.equal(parsed.mcpServers.github.headers.Authorization, "••••••••");
+  assert.equal(parsed.mcpServers.github.env.GITHUB_TOKEN, "••••••••");
+});
+
 test("mcpFingerprint changes when enabled transport config changes", () => {
   const first = normalizeMcpRegistry([
     { name: "a", enabled: true, transport: { type: "http", url: "http://127.0.0.1:1/mcp" } },

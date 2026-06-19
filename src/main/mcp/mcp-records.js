@@ -137,6 +137,30 @@ function maskValue(key, value) {
   return SENSITIVE_KEY_PATTERN.test(String(key || "")) && String(value || "") ? "••••••••" : value;
 }
 
+function maskSensitiveJsonValue(key, value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => maskSensitiveJsonValue("", item));
+  }
+  if (!value || typeof value !== "object") {
+    return maskValue(key, value);
+  }
+  const out = {};
+  for (const [childKey, childValue] of Object.entries(value)) {
+    out[childKey] = maskSensitiveJsonValue(childKey, childValue);
+  }
+  return out;
+}
+
+function maskOriginalJson(originalJson) {
+  const source = String(originalJson || "");
+  if (!source) return source;
+  try {
+    return JSON.stringify(maskSensitiveJsonValue("", JSON.parse(source)));
+  } catch {
+    return source;
+  }
+}
+
 function maskMcpRecord(record = {}) {
   const copy = JSON.parse(JSON.stringify(record || {}));
   if (copy.transport?.env) {
@@ -144,6 +168,9 @@ function maskMcpRecord(record = {}) {
   }
   if (copy.transport?.headers) {
     for (const key of Object.keys(copy.transport.headers)) copy.transport.headers[key] = maskValue(key, copy.transport.headers[key]);
+  }
+  if (typeof copy.originalJson === "string") {
+    copy.originalJson = maskOriginalJson(copy.originalJson);
   }
   return copy;
 }
