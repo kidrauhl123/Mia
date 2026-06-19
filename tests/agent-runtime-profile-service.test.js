@@ -8,11 +8,12 @@ const { createAgentRuntimeProfileService } = require("../src/main/agent-runtime-
 function setup(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agent-profile-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const userHome = path.join(dir, "user-home");
   const runtime = {
     runtime: path.join(dir, "runtime"),
-    home: path.join(dir, "runtime", "engine-home")
+    home: path.join(dir, "runtime", "engine-home"),
+    hermesHome: path.join(userHome, ".hermes")
   };
-  const userHome = path.join(dir, "user-home");
   fs.mkdirSync(path.join(userHome, ".codex", "sessions"), { recursive: true });
   fs.mkdirSync(path.join(userHome, ".codex", "memory"), { recursive: true });
   fs.writeFileSync(path.join(userHome, ".codex", "auth.json"), "{}");
@@ -40,13 +41,15 @@ test("codex profile uses the user's native Codex home", (t) => {
   assert.equal(fs.existsSync(path.join(profile.home, "memory")), true);
 });
 
-test("hermes profile uses Mia-owned home", (t) => {
+test("hermes profile uses the user's native Hermes home with separate Mia data home", (t) => {
   const { service, runtime } = setup(t);
 
   const profile = service.ensureHermesProfile();
 
-  assert.equal(profile.env.HERMES_HOME, runtime.home);
+  assert.equal(profile.env.HERMES_HOME, runtime.hermesHome);
   assert.equal(profile.env.MIA_HOME, runtime.home);
+  assert.notEqual(profile.env.HERMES_HOME, profile.env.MIA_HOME);
+  assert.ok(fs.existsSync(runtime.hermesHome));
   assert.ok(fs.existsSync(runtime.home));
 });
 

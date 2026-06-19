@@ -41,6 +41,39 @@ function createHermesChatAdapter(deps = {}) {
   const buildEnabledSkillsContext = deps.buildEnabledSkillsContext || (() => "");
   const memoryBlock = deps.memoryBlock || (() => "");
   const runtimeSystemPrompt = deps.runtimeSystemPrompt || miaRuntimeSystemPrompt;
+  const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
+  const writeModelRuntimeConfig = deps.writeModelRuntimeConfig || (() => {});
+
+  function resolveTurnRuntimeConfig(bot, runtimeConfig) {
+    const botConfig = bot?.engineConfig || bot?.engine_config || {};
+    const merged = {
+      ...(botConfig && typeof botConfig === "object" ? botConfig : {}),
+      ...(runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {})
+    };
+    let managed = null;
+    try {
+      managed = resolveManagedModelRuntime(merged, { engine: "hermes", bot });
+    } catch (error) {
+      throw error;
+    }
+    if (!managed) return runtimeConfig;
+    const model = String(merged.model || managed.model || "mia-default").trim() || "mia-default";
+    writeModelRuntimeConfig({
+      provider: managed.provider || "mia",
+      providerLabel: managed.providerLabel || merged.providerLabel || "Mia",
+      authType: managed.authType || merged.authType || "mia_account",
+      model,
+      apiKeyEnv: managed.apiKeyEnv || merged.apiKeyEnv || "MIA_CLOUD_MODEL_TOKEN",
+      apiKey: managed.apiKey || "",
+      baseUrl: managed.baseUrl || merged.baseUrl || "",
+      apiMode: managed.apiMode || merged.apiMode || "chat_completions"
+    });
+    return {
+      ...(runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {}),
+      provider: "mia",
+      model
+    };
+  }
 
   function slashCommandResponse({ id, content }) {
     return {
@@ -118,13 +151,14 @@ function createHermesChatAdapter(deps = {}) {
     const runMessages = systemContext
       ? [{ role: "system", content: systemContext }, ...sanitizedMessages]
       : sanitizedMessages;
+    const effectiveRuntimeConfig = resolveTurnRuntimeConfig(bot, runtimeConfig);
     const runBody = buildRunPayload({
       bot,
       sessionId,
       messages: runMessages,
-      model: runtimeConfig?.model,
-      effortLevel: runtimeConfig?.effortLevel,
-      permissionMode: runtimeConfig?.permissionMode
+      model: effectiveRuntimeConfig?.model,
+      effortLevel: effectiveRuntimeConfig?.effortLevel,
+      permissionMode: effectiveRuntimeConfig?.permissionMode
     });
     const headers = {
       "Content-Type": "application/json",

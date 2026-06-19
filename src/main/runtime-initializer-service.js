@@ -35,6 +35,7 @@ function createRuntimeInitializerService(deps = {}) {
     const created = [];
     fsImpl.mkdirSync(p.engine, { recursive: true });
     fsImpl.mkdirSync(p.home, { recursive: true });
+    if (p.hermesHome) fsImpl.mkdirSync(p.hermesHome, { recursive: true });
     fsImpl.mkdirSync(p.pluginsDir, { recursive: true });
     fsImpl.mkdirSync(p.botDir, { recursive: true });
     fsImpl.rmSync(path.join(p.home, "souls"), { recursive: true, force: true });
@@ -54,13 +55,13 @@ function createRuntimeInitializerService(deps = {}) {
 
     if (!fsImpl.existsSync(p.apiKey)) {
       writeFileIfMissing(p.apiKey, `${randomBytes(32).toString("hex")}\n`, 0o600);
-      created.push("runtime/engine-home/api-server.key");
+      created.push("~/.hermes/mia-api-server.key");
     }
 
     const configExisted = fsImpl.existsSync(p.config);
     writeRuntimeConfig(readConfiguredPort());
     if (!configExisted) {
-      created.push("runtime/engine-home/config.yaml");
+      created.push("~/.hermes/config.yaml");
     }
 
     if (writeFileIfMissing(p.modelSettings, JSON.stringify({

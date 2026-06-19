@@ -1,7 +1,8 @@
 // Runtime paths (main process)
 // Extracted from src/main.js. Owns the layout of the on-disk runtime
-// directory under MIA_HOME/app.getPath("userData") — every JSON file path,
-// every runtime subdirectory, and the bundled Hermes Python runtime lookup.
+// directory under MIA_HOME/app.getPath("userData") — every Mia JSON file path,
+// every runtime subdirectory, and the Hermes Python runtime lookup. Hermes
+// itself uses its native ~/.hermes home; Mia's data home is separate.
 //
 // CommonJS factory pattern: createRuntimePaths({...deps}) returns the
 // runtimePaths() function + the small bundled-runtime helpers. Engine
@@ -20,6 +21,7 @@ function createRuntimePaths(deps = {}) {
   function runtimePaths() {
     const configuredHome = String(env.MIA_HOME || "").trim();
     const home = configuredHome ? path.resolve(configuredHome) : path.join(app.getPath("userData"), "runtime", "engine-home");
+    const hermesHome = path.join(app.getPath("home"), ".hermes");
     const runtime = path.dirname(home);
     const root = path.dirname(runtime);
     const engine = path.join(runtime, "hermes-engine");
@@ -29,6 +31,7 @@ function createRuntimePaths(deps = {}) {
       runtime,
       engine,
       home,
+      hermesHome,
       pluginsDir,
       // Default agent working directory. A Mia-owned, non-protected location so
       // local agents (claude/codex) never default to `/` or the user's home and
@@ -37,13 +40,13 @@ function createRuntimePaths(deps = {}) {
       workspace: path.join(home, "workspace"),
       // Persisted override for the agent working directory (a user-picked folder).
       workspaceSettings: path.join(home, "mia-workspace.json"),
-      config: path.join(home, "config.yaml"),
+      config: path.join(hermesHome, "config.yaml"),
       soul: path.join(home, "SOUL.md"),
       botManifest: path.join(home, "bots", "manifest.json"),
       botDir: path.join(home, "bots"),
       legacyPersonaManifest: path.join(home, "personas", "manifest.json"),
       legacyPersonaDir: path.join(home, "personas", "accounts"),
-      apiKey: path.join(home, "api-server.key"),
+      apiKey: path.join(hermesHome, "mia-api-server.key"),
       authJson: path.join(home, "auth.json"),
       userProfile: path.join(home, "mia-user.json"),
       modelSettings: path.join(home, "mia-model.json"),

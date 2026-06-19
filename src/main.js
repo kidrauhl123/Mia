@@ -36,6 +36,7 @@ const { createCodexChatAdapter, mapCodexPermissionMode } = require("./main/codex
 const { syncCodexConfigForPermission } = require("./main/codex-config-sync.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
 const { createOpenClawChatAdapter } = require("./main/openclaw-chat-adapter.js");
+const { normalizeTurnRuntimeConfig } = require("./main/runtime-config-normalizer.js");
 const { createMiaMemoryService } = require("./main/mia-memory-service.js");
 const { createRuntimeInitializerService } = require("./main/runtime-initializer-service.js");
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
@@ -353,6 +354,7 @@ localAgentEngineService = createLocalAgentEngineService({
   env: process.env,
   spawnSync,
   isHermesInstalled: () => engineInstallService.isInstalled(),
+  isHermesApiRuntimeReady: () => engineInstallService.isApiRuntimeReady(),
   hermesSource: () => engineInstallService.engineSource()
 });
 
@@ -1661,6 +1663,11 @@ async function startEngine() {
   if (!engineInstallService.isInstalled()) {
     throw new Error("Hermes engine is not installed in Mia runtime.");
   }
+  const apiRuntime = engineInstallService.hermesApiRuntimeCheck();
+  if (!apiRuntime.ok) {
+    const detail = apiRuntime.error ? ` ${apiRuntime.error}` : "";
+    throw new Error(`Hermes API runtime is incomplete. Please run Repair Hermes in Mia settings.${detail}`);
+  }
   if (engineProcess && engineState.running) return getRuntimeStatus();
   enginePluginsService.ensureInstalled();
   if (await engineHealthService.adoptRunningEngine()) return getRuntimeStatus();
@@ -1692,31 +1699,16 @@ async function startEngine() {
     }
   }
 
-  const source = engineInstallService.engineSource();
-  const useLaunchd = process.platform === "darwin" && source === "managed";
   engineState = {
     ...engineState,
     running: false,
     starting: true,
     baseUrl: `http://127.0.0.1:${port}`,
     port,
-    managedBy: useLaunchd ? "launchd" : "process",
+    managedBy: "process",
     lastError: "",
     logs: []
   };
-
-  if (useLaunchd) {
-    await launchdService.startGateway();
-    const ok = await engineHealthService.waitForHealth(engineState.baseUrl, 45000, false);
-    engineState.starting = false;
-    engineState.running = ok;
-    if (!ok) {
-      engineState.lastError = "Timed out waiting for Mia Hermes launchd service.";
-      throw new Error(engineState.lastError);
-    }
-    appendEngineLog(`Mia Hermes service running at ${engineState.baseUrl}`);
-    return getRuntimeStatus();
-  }
 
   engineProcess = spawn(engineInstallService.enginePython(), launchdService.gatewayProgramArguments().slice(1), {
     cwd: p.engine,
@@ -1777,9 +1769,6 @@ function writeModelSettings(next) {
   const p = runtimePaths();
   fs.writeFileSync(p.modelSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
   writeRuntimeConfig(engineState.port || 8642);
-  // NOTE: mia never writes back to user's ~/.hermes/config.yaml. The user's
-  // hermes setup stays read-only; mia's model choice only affects mia's
-  // own private gateway.
 }
 
 function applyCodexModelSettings() {
@@ -1838,10 +1827,14 @@ function resolveManagedModelRuntime(config = {}) {
   const cloudBaseUrl = settingsStore.normalizeCloudUrl(cloud.url);
   return {
     provider: "mia",
+    providerLabel: "Mia",
     model: model || "mia-default",
+    authType: "mia_account",
+    apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
     baseUrl: `${cloudBaseUrl}/api/me/model-proxy/v1`,
     anthropicBaseUrl: `${cloudBaseUrl}/api/me/model-proxy`,
-    apiKey: cloud.token
+    apiKey: cloud.token,
+    apiMode: "chat_completions"
   };
 }
 
@@ -1910,6 +1903,10 @@ function createActiveHermesChatAdapter() {
     memoryBlock: miaMemoryService.memoryBlock,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
     writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
+    resolveManagedModelRuntime,
+    writeModelRuntimeConfig: (settings) => writeRuntimeConfig(engineState.port || readConfiguredPort(), {
+      modelSettings: settings
+    }),
     appendEngineLog
   });
 }
@@ -2028,18 +2025,6 @@ function createActiveBridgeChatAdapter(agentEngine = "codex") {
       });
     }
   };
-}
-
-function normalizeTurnRuntimeConfig(runtimeConfig = null) {
-  if (!runtimeConfig || typeof runtimeConfig !== "object") return {};
-  const config = {};
-  const model = String(runtimeConfig.model || "").trim();
-  const effortLevel = String(runtimeConfig.effortLevel || runtimeConfig.effort_level || "").trim();
-  const permissionMode = String(runtimeConfig.permissionMode || runtimeConfig.permission_mode || "").trim();
-  if (model) config.model = model;
-  if (effortLevel) config.effortLevel = effortLevel;
-  if (permissionMode) config.permissionMode = permissionMode;
-  return config;
 }
 
 function botWithRuntimeConfig(bot, runtimeConfig = {}, options = {}) {

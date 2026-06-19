@@ -20,7 +20,10 @@ function setup(t, overrides = {}) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const runtime = {
     home: path.join(dir, "engine-home"),
-    apiKey: path.join(dir, "engine-home", "api-server.key"),
+    hermesHome: path.join(dir, ".hermes"),
+    apiKey: path.join(dir, ".hermes", "mia-api-server.key"),
+    config: path.join(dir, ".hermes", "config.yaml"),
+    botManifest: path.join(dir, "engine-home", "bots", "manifest.json"),
     modelSettings: path.join(dir, "engine-home", "mia-model.json")
   };
   const service = createEngineRuntimeConfigService({
@@ -77,7 +80,7 @@ test("modelSettings returns defaults until model, provider, or api key is config
   });
 });
 
-test("writeRuntimeConfig writes the private Hermes config with auth, model, approvals, effort, and skill dirs", (t) => {
+test("writeRuntimeConfig writes the native Hermes config with auth, model, approvals, effort, and skill dirs", (t) => {
   const { dir, runtime, service } = setup(t, {
     externalSkillDirs: () => [
       path.join(dir, "skills-a"),
@@ -98,20 +101,76 @@ test("writeRuntimeConfig writes the private Hermes config with auth, model, appr
 
   service.writeRuntimeConfig(19191);
 
-  const config = fs.readFileSync(path.join(runtime.home, "config.yaml"), "utf8");
-  assert.match(config, /provider: "openai"/);
-  assert.match(config, /default: "gpt-5"/);
-  assert.match(config, /base_url: "https:\/\/api\.example\.test\/v1"/);
-  assert.match(config, /api_mode: "responses"/);
-  assert.match(config, /port: 19191/);
-  assert.match(config, new RegExp(`key: ${"a".repeat(64)}`));
-  assert.match(config, /approvals:\n  mode: "ask"/);
-  assert.match(config, /agent:\n  reasoning_effort: "high"\n  disabled_toolsets:\n    - cronjob/);
-  assert.match(config, /skills:\n  external_dirs:\n/);
-  assert.equal((config.match(/skills-a/g) || []).length, 1);
-  assert.match(config, /mia:\n  runtime_schema: 1\n  bots_manifest: bots\/manifest\.json/);
+  const parsed = yaml.load(fs.readFileSync(runtime.config, "utf8"));
+  assert.equal(parsed.model.provider, "openai");
+  assert.equal(parsed.model.default, "gpt-5");
+  assert.equal(parsed.model.base_url, "https://api.example.test/v1");
+  assert.equal(parsed.model.api_mode, "responses");
+  assert.equal(parsed.platforms.api_server.port, 19191);
+  assert.equal(parsed.platforms.api_server.key, "a".repeat(64));
+  assert.equal(parsed.approvals.mode, "ask");
+  assert.equal(parsed.agent.reasoning_effort, "high");
+  assert.deepEqual(parsed.agent.disabled_toolsets, ["cronjob"]);
+  assert.deepEqual(parsed.skills.external_dirs, [path.join(dir, "skills-a")]);
+  assert.equal(parsed.mia.runtime_schema, 1);
+  assert.equal(parsed.mia.bots_manifest, runtime.botManifest);
   // No scheduler spec supplied → no mcp_servers block.
-  assert.ok(!/mcp_servers:/.test(config));
+  assert.equal(parsed.mcp_servers, undefined);
+});
+
+test("writeRuntimeConfig preserves user-owned Hermes config while replacing Mia-owned entries", (t) => {
+  const { runtime, service } = setup(t);
+  fs.mkdirSync(path.dirname(runtime.config), { recursive: true });
+  fs.writeFileSync(runtime.config, yaml.dump({
+    model: { provider: "anthropic", default: "claude" },
+    platforms: {
+      telegram: { enabled: true },
+      api_server: { host: "0.0.0.0", port: 1234, key: "old" }
+    },
+    agent: { disabled_toolsets: ["browser"] },
+    mcp_servers: { user_server: { command: "uvx", args: ["tool"] } },
+    custom_providers: { local: { base_url: "http://localhost:1234" } }
+  }));
+
+  service.writeRuntimeConfig(19191);
+
+  const parsed = yaml.load(fs.readFileSync(runtime.config, "utf8"));
+  assert.equal(parsed.model.provider, "anthropic");
+  assert.equal(parsed.model.default, "claude");
+  assert.equal(parsed.platforms.telegram.enabled, true);
+  assert.equal(parsed.platforms.api_server.host, "127.0.0.1");
+  assert.equal(parsed.platforms.api_server.port, 19191);
+  assert.deepEqual(parsed.agent.disabled_toolsets, ["browser", "cronjob"]);
+  assert.equal(parsed.mcp_servers.user_server.command, "uvx");
+  assert.equal(parsed.custom_providers.local.base_url, "http://localhost:1234");
+});
+
+test("writeRuntimeConfig can apply per-turn Mia managed model settings", (t) => {
+  const { runtime, service } = setup(t);
+
+  service.writeRuntimeConfig(19191, {
+    modelSettings: {
+      provider: "mia",
+      providerLabel: "Mia",
+      authType: "mia_account",
+      model: "mia-deepseek",
+      apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+      apiKey: "cloud-token",
+      baseUrl: "https://mia.example/api/me/model-proxy/v1",
+      apiMode: "chat_completions"
+    }
+  });
+
+  const parsed = yaml.load(fs.readFileSync(runtime.config, "utf8"));
+  assert.equal(parsed.model.provider, "mia");
+  assert.equal(parsed.model.default, "mia-deepseek");
+  assert.equal(parsed.model.base_url, "https://mia.example/api/me/model-proxy/v1");
+  assert.equal(parsed.providers.mia.name, "Mia");
+  assert.equal(parsed.providers.mia.base_url, "https://mia.example/api/me/model-proxy/v1");
+  assert.equal(parsed.providers.mia.key_env, "MIA_CLOUD_MODEL_TOKEN");
+  assert.equal(parsed.providers.mia.api_key, "cloud-token");
+  assert.equal(parsed.providers.mia.default_model, "mia-deepseek");
+  assert.equal(parsed.providers.mia.api_mode, "chat_completions");
 });
 
 test("writeRuntimeConfig adds the mia-scheduler MCP server when a spec is available", (t) => {
@@ -142,7 +201,7 @@ test("writeRuntimeConfig adds the mia-scheduler MCP server when a spec is availa
 
   service.writeRuntimeConfig(19191);
 
-  const config = fs.readFileSync(path.join(runtime.home, "config.yaml"), "utf8");
+  const config = fs.readFileSync(runtime.config, "utf8");
   const parsed = yaml.load(config);
   assert.deepEqual(parsed.mcp_servers["mia-app"], {
     command: "/usr/local/bin/node",
@@ -173,8 +232,8 @@ test("readConfiguredPort returns the configured API server port or the Mia defau
   const { runtime, service } = setup(t);
 
   assert.equal(service.readConfiguredPort(), 18642);
-  fs.mkdirSync(runtime.home, { recursive: true });
-  fs.writeFileSync(path.join(runtime.home, "config.yaml"), [
+  fs.mkdirSync(path.dirname(runtime.config), { recursive: true });
+  fs.writeFileSync(runtime.config, [
     "platforms:",
     "  api_server:",
     "    port: 20001"

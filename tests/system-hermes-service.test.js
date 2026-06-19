@@ -84,7 +84,6 @@ test("refresh records usable system Hermes command and Python while resetting Ag
     commandPath: hermes,
     pythonPath: python,
     version: "Hermes Agent v0.11.0",
-    usesMiaHome: true,
     checkedAt: "2026-05-25T12:34:56.000Z"
   });
   assert.equal(service.pythonPath(), python);
@@ -117,6 +116,7 @@ test("probe recognizes official Windows Hermes venv launcher", (t) => {
         return { status: 0, stdout: "Hermes Agent v0.11.0\n", stderr: "" };
       }
       if (command === python && args[0] === "-c") {
+        assert.match(args[1], /aiohttp/);
         return { status: 0, stdout: `${python}\n`, stderr: "" };
       }
       return { status: 1, stdout: "", stderr: "" };

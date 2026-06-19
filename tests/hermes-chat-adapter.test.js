@@ -150,6 +150,56 @@ test("sendChat passes runtime config into Hermes run payload builder", async () 
   assert.equal(JSON.parse(deps.fetchCalls[0].options.body).model, "mia-pro");
 });
 
+test("sendChat resolves Mia managed models into Hermes runtime config", async () => {
+  const writes = [];
+  const deps = createDeps({
+    resolveManagedModelRuntime: () => ({
+      provider: "mia",
+      providerLabel: "Mia",
+      authType: "mia_account",
+      model: "mia-deepseek",
+      apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+      apiKey: "cloud-token",
+      baseUrl: "https://mia.example/api/me/model-proxy/v1",
+      apiMode: "chat_completions"
+    }),
+    writeModelRuntimeConfig: (settings) => writes.push(settings),
+    buildRunPayload: (input) => ({
+      model: input.model,
+      input: input.messages?.at(-1)?.content || "",
+      session_id: input.sessionId || "default",
+      account_id: input.bot.key,
+      metadata: { bot_id: input.bot.key }
+    })
+  });
+  const adapter = createHermesChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", engineConfig: { provider: "mia", model: "mia-deepseek" } },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hi" }],
+    runtimeConfig: {
+      provider: "mia",
+      authType: "mia_account",
+      model: "mia-deepseek",
+      modelProfileId: "mia:mia-deepseek"
+    },
+    signal: null
+  });
+
+  assert.deepEqual(writes, [{
+    provider: "mia",
+    providerLabel: "Mia",
+    authType: "mia_account",
+    model: "mia-deepseek",
+    apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+    apiKey: "cloud-token",
+    baseUrl: "https://mia.example/api/me/model-proxy/v1",
+    apiMode: "chat_completions"
+  }]);
+  assert.equal(JSON.parse(deps.fetchCalls[0].options.body).model, "mia-deepseek");
+});
+
 test("sendChat writes scheduler MCP context for the current bot/session", async () => {
   const deps = createDeps();
   const adapter = createHermesChatAdapter(deps);

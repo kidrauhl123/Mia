@@ -54,7 +54,7 @@ function createStartupBackgroundService({
   async function runEngine() {
     const runtime = getRuntimeStatus();
     if (!runtime?.engineInstalled) {
-      appendEngineLog("No Hermes available (system or managed); waiting for manual setup.");
+      appendEngineLog("No Hermes available from the user's system install; waiting for manual setup.");
       return createStepResult(true, { skipped: true });
     }
     if (typeof startEngine !== "function") return createStepResult(true, { skipped: true });

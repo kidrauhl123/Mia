@@ -217,7 +217,7 @@ function createSystemHermesService(deps = {}) {
     if (!command) return "";
     const result = spawnSync(command, [
       "-c",
-      "import sys; import hermes_cli.main, fastapi, uvicorn; print(sys.executable)"
+      "import sys; import hermes_cli.main, aiohttp; print(sys.executable)"
     ], {
       encoding: "utf8",
       timeout: 2500,
@@ -274,7 +274,6 @@ function createSystemHermesService(deps = {}) {
       commandPath,
       pythonPath,
       version: commandVersion(commandPath),
-      usesMiaHome: true,
       checkedAt: now().toISOString()
     };
   }

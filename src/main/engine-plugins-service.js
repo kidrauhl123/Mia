@@ -59,7 +59,7 @@ function pluginFiles() {
       "\"\"\"Per-Bot persona overlay for Mia.",
       "",
       "Reads X-Mia-Bot on Hermes api_server",
-      "requests, loads <HERMES_HOME>/bots/<bot_id>.md, and prepends it",
+      "requests, loads <MIA_HOME>/bots/<bot_id>.md, and prepends it",
       "to vanilla Hermes's ephemeral_system_prompt. Hermes core remains",
       "unmodified.",
       "",

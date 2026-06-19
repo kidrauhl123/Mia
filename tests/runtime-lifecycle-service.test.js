@@ -32,12 +32,12 @@ test("runtime lifecycle initializes runtime once and reuses status", () => {
     },
     initializeRuntimeCore: () => {
       initCalls += 1;
-      return { created: ["runtime/engine-home/config.yaml"] };
+      return { created: ["~/.hermes/config.yaml"] };
     },
     timer
   });
 
-  assert.deepEqual(service.initializeRuntime(), { created: ["runtime/engine-home/config.yaml"] });
+  assert.deepEqual(service.initializeRuntime(), { created: ["~/.hermes/config.yaml"] });
   assert.deepEqual(service.initializeRuntime(), { created: [], cached: true });
   assert.equal(initCalls, 1);
   assert.equal(statusCalls, 1);

@@ -26,6 +26,9 @@ function firstTextValue(value) {
 function normalizeHermesError(message) {
   const text = String(message || "").trim();
   if (text.includes("No inference provider configured") || text.includes("no API key was found")) {
+    if (/\bmia\b|mia cloud|model-proxy|MIA_CLOUD_MODEL_TOKEN/i.test(text)) {
+      return "Mia Hermes 已启动，但 Mia 官方模型还不能调用。请确认已登录 Mia Cloud，或稍后重试。";
+    }
     return "Mia Hermes 已启动，但模型还不能调用。请在右侧 Model 选择 preset，填 API key，保存后再发送。";
   }
   return text;

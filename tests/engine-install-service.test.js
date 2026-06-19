@@ -312,7 +312,8 @@ test("installFromOfficialPackage installs --user from the mirror, retries base p
 
   assert.deepEqual(pipCommands, [
     ["/opt/python3.11", "-m", "pip", "install", "--user", "--upgrade", "hermes-agent[web]", "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"],
-    ["/opt/python3.11", "-m", "pip", "install", "--user", "--upgrade", "hermes-agent", "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"]
+    ["/opt/python3.11", "-m", "pip", "install", "--user", "--upgrade", "hermes-agent", "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"],
+    ["/opt/python3.11", "-m", "pip", "install", "--user", "--upgrade", "aiohttp", "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"]
   ]);
   assert.match(logs.join("\n"), /retrying base package/);
   const types = calls.map((call) => call.type);
@@ -340,6 +341,7 @@ test("installFromOfficialPackage falls back to the official index when the mirro
 
   assert.deepEqual(indexes, [
     "https://pypi.tuna.tsinghua.edu.cn/simple",
+    "https://pypi.org/simple",
     "https://pypi.org/simple"
   ]);
   assert.match(logs.join("\n"), /Hermes install via https:\/\/pypi\.tuna[^\s]* failed/);
@@ -372,9 +374,11 @@ test("installFromOfficialPackageAsync retries PEP 668 user installs with break-s
 
   const status = await service.installFromOfficialPackageAsync({ onProgress: (payload) => progress.push(payload) });
 
-  assert.equal(pipArgs.length, 2);
+  assert.equal(pipArgs.length, 4);
   assert.equal(pipArgs[0].includes("--break-system-packages"), false);
   assert.equal(pipArgs[1].includes("--break-system-packages"), true);
+  assert.equal(pipArgs[2].includes("--break-system-packages"), false);
+  assert.equal(pipArgs[3].includes("--break-system-packages"), true);
   assert.match(progress.map((payload) => payload.message).join("\n"), /用户目录兼容模式/);
   assert.deepEqual(status, { created: ["hermes"], engineInstalled: true });
 });
@@ -399,19 +403,43 @@ test("installFromOfficialPackage fails when the installed runtime does not impor
 });
 
 test("repair reinstalls the official package", (t) => {
-  const indexes = [];
+  const installs = [];
   const { service } = setup(t, {
     officialPython: "/opt/python3.11",
     officialExtras: "",
     spawnSync: (command, args) => {
       if (args[0] === "-c") return dashCResult(args);
-      indexes.push(args[args.indexOf("--index-url") + 1]);
+      installs.push({
+        requirement: args[args.indexOf("--upgrade") + 1],
+        index: args[args.indexOf("--index-url") + 1]
+      });
       return { status: 0, stdout: "", stderr: "" };
     }
   });
 
   service.repair();
-  assert.deepEqual(indexes, ["https://pypi.tuna.tsinghua.edu.cn/simple"]);
+  assert.deepEqual(installs, [
+    { requirement: "hermes-agent", index: "https://pypi.tuna.tsinghua.edu.cn/simple" },
+    { requirement: "aiohttp", index: "https://pypi.tuna.tsinghua.edu.cn/simple" }
+  ]);
+});
+
+test("hermesApiRuntimeCheck requires the API server dependency", (t) => {
+  const { service } = setup(t, {
+    systemHermesPython: () => "/opt/python3.11",
+    spawnSync: (_command, args) => {
+      if (args[0] === "-c" && String(args[1]).includes("aiohttp")) {
+        return { status: 1, stdout: "", stderr: "ModuleNotFoundError: No module named 'aiohttp'" };
+      }
+      return dashCResult(args);
+    }
+  });
+
+  const check = service.hermesApiRuntimeCheck();
+
+  assert.equal(check.ok, false);
+  assert.match(check.error, /aiohttp/);
+  assert.equal(service.isApiRuntimeReady(), false);
 });
 
 test("install throws a user-visible cancellation error when signal is aborted", (t) => {

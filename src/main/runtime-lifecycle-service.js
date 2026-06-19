@@ -59,7 +59,7 @@ function createRuntimeLifecycleService({
       setTimeout(async () => {
         try {
           if (!getRuntimeStatus().engineInstalled) {
-            appendEngineLog?.("No Hermes available (system or managed); waiting for manual setup.");
+            appendEngineLog?.("No Hermes available from the user's system install; waiting for manual setup.");
             mark("engine:auto-start-skipped");
             return;
           }

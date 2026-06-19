@@ -4,6 +4,9 @@ const path = require("node:path");
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const { createHermesInstallSourceService } = require("./hermes-install-source-service.js");
 
+const HERMES_API_RUNTIME_MODULES = Object.freeze(["hermes_cli.main", "aiohttp"]);
+const HERMES_API_RUNTIME_REQUIREMENTS = Object.freeze(["aiohttp"]);
+
 // Hermes is an upstream engine the user runs from their own install on PATH
 // (system-hermes-service), exactly like claude/codex. This service installs the
 // official hermes-agent package from a package index into the user's standard
@@ -135,6 +138,32 @@ function createEngineInstallService(deps = {}) {
 
   function systemHermesPythonPath() {
     return String(systemHermesPython() || "").trim();
+  }
+
+  function moduleImportScript(modules) {
+    return [
+      "import importlib",
+      `modules = ${JSON.stringify(modules)}`,
+      "[importlib.import_module(module) for module in modules]",
+      "print('import OK')"
+    ].join("; ");
+  }
+
+  function hermesApiRuntimeCheck(python = enginePython()) {
+    const command = String(python || "").trim();
+    if (!command) return { ok: false, error: "Hermes Python is not available." };
+    const result = spawnSync(command, ["-c", moduleImportScript(HERMES_API_RUNTIME_MODULES)], {
+      encoding: "utf8",
+      env: { ...env, PYTHONPATH: buildPythonPath() },
+      timeout: 5000
+    });
+    if (!result.error && result.status === 0) return { ok: true, error: "" };
+    const output = String(result.stderr || result.stdout || result.error?.message || "").trim();
+    return { ok: false, error: output || `Python import check exited with code ${result.status ?? "unknown"}` };
+  }
+
+  function isApiRuntimeReady() {
+    return hermesApiRuntimeCheck().ok;
   }
 
   function isInstalled() {
@@ -538,7 +567,7 @@ function createEngineInstallService(deps = {}) {
   function importCheck(python, modules) {
     runInstallCommand(
       python,
-      ["-c", `import ${modules.join(", ")}; print('${modules.join("+")} import OK')`],
+      ["-c", moduleImportScript(modules)],
       undefined
     );
   }
@@ -546,7 +575,7 @@ function createEngineInstallService(deps = {}) {
   function importCheckAsync(python, modules, options = {}) {
     return runInstallCommandAsync(
       python,
-      ["-c", `import ${modules.join(", ")}; print('${modules.join("+")} import OK')`],
+      ["-c", moduleImportScript(modules)],
       undefined,
       {
         ...options,
@@ -636,9 +665,12 @@ function createEngineInstallService(deps = {}) {
           appendLog(`Official Hermes install with extras failed on ${indexUrl}; retrying base package: ${error.message}`);
           pipInstall(source.baseRequirement, indexUrl);
         }
+        for (const requirement of HERMES_API_RUNTIME_REQUIREMENTS) {
+          pipInstall(requirement, indexUrl);
+        }
         // Don't accept an index until the runtime + web deps actually import;
         // otherwise the gateway fails to start later. A bad index falls through.
-        importCheck(python, ["hermes_cli.main", "fastapi", "uvicorn"]);
+        importCheck(python, HERMES_API_RUNTIME_MODULES);
         installed = true;
         break;
       } catch (error) {
@@ -721,13 +753,16 @@ function createEngineInstallService(deps = {}) {
           });
           await pipInstall(source.baseRequirement, indexUrl);
         }
+        for (const requirement of HERMES_API_RUNTIME_REQUIREMENTS) {
+          await pipInstall(requirement, indexUrl);
+        }
         emitProgress(options, {
           engineId: "hermes",
           status: "running",
           stage: "verify",
           message: "正在验证 Hermes 运行时..."
         });
-        await importCheckAsync(python, ["hermes_cli.main", "fastapi", "uvicorn"], {
+        await importCheckAsync(python, HERMES_API_RUNTIME_MODULES, {
           ...options,
           engineId: "hermes",
           stage: "verify"
@@ -885,6 +920,8 @@ function createEngineInstallService(deps = {}) {
   return {
     pythonVersion,
     selectOfficialEnginePython,
+    hermesApiRuntimeCheck,
+    isApiRuntimeReady,
     isInstalled,
     enginePython,
     engineSource,

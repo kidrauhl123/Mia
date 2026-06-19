@@ -155,6 +155,9 @@ function createLocalAgentEngineService(deps = {}) {
   const isHermesInstalled = typeof deps.isHermesInstalled === "function"
     ? deps.isHermesInstalled
     : () => false;
+  const isHermesApiRuntimeReady = typeof deps.isHermesApiRuntimeReady === "function"
+    ? deps.isHermesApiRuntimeReady
+    : () => true;
   const hermesSource = typeof deps.hermesSource === "function"
     ? deps.hermesSource
     : () => "";
@@ -362,9 +365,6 @@ function createLocalAgentEngineService(deps = {}) {
 
   function miaHermesSource() {
     const source = String(hermesSource() || "").trim();
-    if (source === "bundled") return "mia-bundled";
-    if (source === "managed") return "mia-managed";
-    if (source === "local-source" || source === "maintained-local-source") return "mia-managed";
     if (source === "system") return "system";
     return "";
   }
@@ -380,15 +380,27 @@ function createLocalAgentEngineService(deps = {}) {
     const systemAvailable = Boolean(probe.path);
     const hermesRuntimeUsable = definition.id === "hermes" ? hermesUsable(systemAvailable) : false;
     const installed = Boolean(systemAvailable || hermesRuntimeUsable);
+    const hermesApiReady = definition.id === "hermes" && hermesRuntimeUsable
+      ? Boolean(isHermesApiRuntimeReady())
+      : true;
     const usableInMia = definition.id === "hermes"
-      ? hermesRuntimeUsable
+      ? hermesRuntimeUsable && hermesApiReady
       : Boolean(systemAvailable && !definition.detectionOnly);
     const source = definition.id === "hermes" && hermesRuntimeUsable
       ? miaHermesSource()
       : systemAvailable
         ? "system"
         : "missing";
-    const health = usableInMia ? "ready" : installed ? "detected" : "missing";
+    const health = definition.id === "hermes" && hermesRuntimeUsable && !hermesApiReady
+      ? "broken"
+      : usableInMia ? "ready" : installed ? "detected" : "missing";
+    const installAction = Boolean(definition.installable)
+      ? definition.id === "hermes" && installed && !usableInMia
+        ? "repair-hermes"
+        : !usableInMia && !installed
+          ? `install-${definition.id}`
+          : ""
+      : "";
     return {
       id: definition.id,
       label: definition.label,
@@ -397,7 +409,7 @@ function createLocalAgentEngineService(deps = {}) {
       installed,
       usableInMia,
       installable: Boolean(definition.installable),
-      installAction: Boolean(definition.installable) && !usableInMia && !installed ? `install-${definition.id}` : "",
+      installAction,
       detectionOnly: Boolean(definition.detectionOnly),
       path: probe.path,
       version: probe.version,
@@ -418,6 +430,7 @@ function createLocalAgentEngineService(deps = {}) {
   function buildInventory(agents, at) {
     const installedCount = agents.filter((agent) => agent.installed).length;
     const usableCount = agents.filter((agent) => agent.usableInMia).length;
+    const hasBrokenHermes = agents.some((agent) => agent.id === "hermes" && agent.health === "broken");
     return {
       generatedAt: at,
       agents,
@@ -426,7 +439,7 @@ function createLocalAgentEngineService(deps = {}) {
         usableCount,
         missingCount: agents.length - installedCount,
         hasUsableAgent: usableCount > 0,
-        recommendedAction: usableCount > 0 ? "continue" : "install-hermes"
+        recommendedAction: usableCount > 0 ? "continue" : hasBrokenHermes ? "repair-hermes" : "install-hermes"
       }
     };
   }

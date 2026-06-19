@@ -23,8 +23,10 @@ function createAgentRuntimeProfileService(deps = {}) {
 
   function ensureHermesProfile() {
     const p = runtimePaths();
+    const home = p.hermesHome || path.join(homeDir(), ".hermes");
+    fsImpl.mkdirSync(home, { recursive: true });
     fsImpl.mkdirSync(p.home, { recursive: true });
-    return { home: p.home, env: { HERMES_HOME: p.home, MIA_HOME: p.home } };
+    return { home, env: { HERMES_HOME: home, MIA_HOME: p.home } };
   }
 
   function claudeRunProfile() {

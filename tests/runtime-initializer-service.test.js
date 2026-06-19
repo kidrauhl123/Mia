@@ -8,18 +8,20 @@ const { createRuntimeInitializerService } = require("../src/main/runtime-initial
 
 function runtimeFor(dir) {
   const home = path.join(dir, "runtime", "engine-home");
+  const hermesHome = path.join(dir, ".hermes");
   const engine = path.join(dir, "runtime", "hermes-engine");
   return {
     root: dir,
     runtime: path.join(dir, "runtime"),
     engine,
     home,
+    hermesHome,
     pluginsDir: path.join(dir, "runtime", "mia-plugins"),
     botManifest: path.join(home, "bots", "manifest.json"),
     botDir: path.join(home, "bots"),
     legacyPersonaDir: path.join(home, "personas", "accounts"),
-    apiKey: path.join(home, "api-server.key"),
-    config: path.join(home, "config.yaml"),
+    apiKey: path.join(hermesHome, "mia-api-server.key"),
+    config: path.join(hermesHome, "config.yaml"),
     modelSettings: path.join(home, "mia-model.json"),
     providerConnections: path.join(home, "mia-providers.json"),
     permissionSettings: path.join(home, "mia-permissions.json"),
@@ -97,7 +99,8 @@ test("initializeRuntimeCore creates runtime directories, default files, and brid
     ["claude-bridge"]
   ]);
   assert.ok(status.created.includes("runtime/hermes-engine/README.md"));
-  assert.ok(status.created.includes("runtime/engine-home/api-server.key"));
+  assert.ok(status.created.includes("~/.hermes/mia-api-server.key"));
+  assert.ok(status.created.includes("~/.hermes/config.yaml"));
   assert.equal(status.created.some((entry) => entry.startsWith("runtime/engine-home/bots/")), false);
 });
 
@@ -105,6 +108,7 @@ test("initializeRuntimeCore does not overwrite existing user-owned runtime files
   const { runtime, service } = setup(t);
   fs.mkdirSync(path.dirname(runtime.apiKey), { recursive: true });
   fs.writeFileSync(runtime.apiKey, "existing-key\n", { mode: 0o600 });
+  fs.mkdirSync(path.dirname(runtime.modelSettings), { recursive: true });
   fs.writeFileSync(runtime.modelSettings, JSON.stringify({ provider: "openai" }) + "\n", { mode: 0o600 });
   fs.mkdirSync(runtime.botDir, { recursive: true });
   fs.writeFileSync(path.join(runtime.botDir, "mei.md"), "current persona");
@@ -116,7 +120,7 @@ test("initializeRuntimeCore does not overwrite existing user-owned runtime files
   assert.equal(fs.readFileSync(runtime.apiKey, "utf8"), "existing-key\n");
   assert.deepEqual(readJson(runtime.modelSettings), { provider: "openai" });
   assert.equal(fs.readFileSync(path.join(runtime.botDir, "mei.md"), "utf8"), "current persona");
-  assert.equal(status.created.includes("runtime/engine-home/api-server.key"), false);
+  assert.equal(status.created.includes("~/.hermes/mia-api-server.key"), false);
   assert.equal(status.created.includes("runtime/engine-home/mia-model.json"), false);
   assert.equal(status.created.includes("runtime/engine-home/bots/mei.md"), false);
 });

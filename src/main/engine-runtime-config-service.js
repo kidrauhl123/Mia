@@ -36,7 +36,32 @@ function createEngineRuntimeConfigService(deps = {}) {
     : () => null;
 
   function effectiveHermesHome() {
-    return runtimePaths().home;
+    return runtimePaths().hermesHome || runtimePaths().home;
+  }
+
+  function isPlainObject(value) {
+    return Boolean(value && typeof value === "object" && !Array.isArray(value));
+  }
+
+  function readYamlObject(filePath) {
+    try {
+      const parsed = yaml.load(fsImpl.readFileSync(filePath, "utf8"));
+      return isPlainObject(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function uniqueStrings(values) {
+    const seen = new Set();
+    const result = [];
+    for (const value of values || []) {
+      const next = String(value || "").trim();
+      if (!next || seen.has(next)) continue;
+      seen.add(next);
+      result.push(next);
+    }
+    return result;
   }
 
   function apiKey() {
@@ -49,7 +74,10 @@ function createEngineRuntimeConfigService(deps = {}) {
     return fsImpl.readFileSync(p.apiKey, "utf8").trim();
   }
 
-  function modelSettings() {
+  function modelSettings(overrides = null) {
+    if (overrides && typeof overrides === "object") {
+      return { ...defaultModelSettings(), ...overrides };
+    }
     const p = runtimePaths();
     const saved = readJson(p.modelSettings, {});
     if (!saved.provider && !saved.model && !saved.apiKey) return defaultModelSettings();
@@ -82,9 +110,9 @@ function createEngineRuntimeConfigService(deps = {}) {
     fsImpl.renameSync(tmpPath, filePath);
   }
 
-  function writeRuntimeConfig(port) {
+  function writeRuntimeConfig(port, options = {}) {
     const p = runtimePaths();
-    const settings = modelSettings();
+    const settings = modelSettings(options.modelSettings);
     const provider = String(settings.provider || "").trim();
     const model = String(settings.model || "").trim();
     const apiKeyEnv = String(settings.apiKeyEnv || "").trim();
@@ -92,67 +120,65 @@ function createEngineRuntimeConfigService(deps = {}) {
     const apiMode = String(settings.apiMode || "").trim();
     const approvalsMode = permissionSettings().mode;
     const reasoningEffort = effortSettings().level;
-    const source = engineSource();
     const configPath = path.join(effectiveHermesHome(), "config.yaml");
     fsImpl.mkdirSync(path.dirname(configPath), { recursive: true });
 
     fsImpl.mkdirSync(p.home, { recursive: true });
-    const lines = [
-      "model:",
-      `  provider: ${JSON.stringify(provider)}`,
-      `  default: ${JSON.stringify(model)}`,
-    ];
-    if (baseUrl) lines.push(`  base_url: ${JSON.stringify(baseUrl)}`);
-    if (apiMode) lines.push(`  api_mode: ${JSON.stringify(apiMode)}`);
+    const config = readYamlObject(configPath);
+    const modelConfig = isPlainObject(config.model) ? { ...config.model } : {};
+    if (provider) modelConfig.provider = provider;
+    if (model) modelConfig.default = model;
+    if (baseUrl) modelConfig.base_url = baseUrl;
+    if (apiMode) modelConfig.api_mode = apiMode;
+    if (Object.keys(modelConfig).length) config.model = modelConfig;
+
     if (provider && baseUrl) {
-      lines.push(
-        "",
-        "providers:",
-        `  ${JSON.stringify(provider)}:`,
-        `    name: ${JSON.stringify(settings.providerLabel || provider)}`,
-        `    base_url: ${JSON.stringify(baseUrl)}`,
-        ...(apiKeyEnv ? [`    key_env: ${JSON.stringify(apiKeyEnv)}`] : []),
-        ...(model ? [`    default_model: ${JSON.stringify(model)}`] : []),
-        ...(apiMode ? [`    api_mode: ${JSON.stringify(apiMode)}`] : [])
-      );
+      const providers = isPlainObject(config.providers) ? { ...config.providers } : {};
+      const providerConfig = isPlainObject(providers[provider]) ? { ...providers[provider] } : {};
+      providerConfig.name = settings.providerLabel || provider;
+      providerConfig.base_url = baseUrl;
+      if (apiKeyEnv) providerConfig.key_env = apiKeyEnv;
+      if (settings.apiKey) providerConfig.api_key = settings.apiKey;
+      if (model) providerConfig.default_model = model;
+      if (apiMode) providerConfig.api_mode = apiMode;
+      providers[provider] = providerConfig;
+      config.providers = providers;
     }
-    lines.push(
-      "",
-      "platforms:",
-      "  api_server:",
-      "    enabled: true",
-      "    host: 127.0.0.1",
-      `    port: ${port}`,
-      `    key: ${apiKey()}`,
-      "  feishu:",
-      "    enabled: false",
-      "  telegram:",
-      "    enabled: false",
-      "  discord:",
-      "    enabled: false",
-      "",
-      "approvals:",
-      `  mode: ${JSON.stringify(approvalsMode)}`,
-      "  timeout: 60",
-      "",
-      "agent:",
-      `  reasoning_effort: ${JSON.stringify(reasoningEffort)}`,
-      // Scheduling is owned by mia's app-maintained scheduler (the
-      // mia-scheduler MCP below), which delivers reminders back into the
-      // chat. Disable Hermes' built-in cronjob toolset so the bot routes
-      // through the app scheduler instead of Hermes' own cron (whose output
-      // never reaches the desktop UI).
-      "  disabled_toolsets:",
-      "    - cronjob",
-      ""
-    );
+
+    const platforms = isPlainObject(config.platforms) ? { ...config.platforms } : {};
+    platforms.api_server = {
+      ...(isPlainObject(platforms.api_server) ? platforms.api_server : {}),
+      enabled: true,
+      host: "127.0.0.1",
+      port,
+      key: apiKey()
+    };
+    config.platforms = platforms;
+
+    config.approvals = {
+      ...(isPlainObject(config.approvals) ? config.approvals : {}),
+      mode: approvalsMode,
+      timeout: Number(config.approvals?.timeout || 60) || 60
+    };
+
+    const agent = isPlainObject(config.agent) ? { ...config.agent } : {};
+    agent.reasoning_effort = reasoningEffort;
+    agent.disabled_toolsets = uniqueStrings([
+      ...(Array.isArray(agent.disabled_toolsets) ? agent.disabled_toolsets : []),
+      "cronjob"
+    ]);
+    config.agent = agent;
+
     const extDirs = externalSkillDirs();
     if (extDirs.length) {
-      lines.push("skills:");
-      lines.push("  external_dirs:");
-      for (const dir of extDirs) lines.push(`    - ${JSON.stringify(dir)}`);
-      lines.push("");
+      const skills = isPlainObject(config.skills) ? { ...config.skills } : {};
+      skills.external_dirs = uniqueStrings([
+        ...(Array.isArray(skills.external_dirs) ? skills.external_dirs : []),
+        ...extDirs
+      ]);
+      config.skills = skills;
     }
+
     const mcpServers = {};
     const miaAppSpec = (() => {
       try { return getMiaAppMcpSpec(); } catch { return null; }
@@ -179,16 +205,17 @@ function createEngineRuntimeConfigService(deps = {}) {
       };
     }
     if (Object.keys(mcpServers).length) {
-      const mcpYaml = yaml.dump({ mcp_servers: mcpServers }).trimEnd();
-      lines.push(mcpYaml, "");
+      config.mcp_servers = {
+        ...(isPlainObject(config.mcp_servers) ? config.mcp_servers : {}),
+        ...mcpServers
+      };
     }
-    lines.push(
-      "mia:",
-      "  runtime_schema: 1",
-      "  bots_manifest: bots/manifest.json",
-      ""
-    );
-    atomicWriteFile(configPath, lines.join("\n"), 0o600);
+    config.mia = {
+      ...(isPlainObject(config.mia) ? config.mia : {}),
+      runtime_schema: 1,
+      bots_manifest: p.botManifest
+    };
+    atomicWriteFile(configPath, yaml.dump(config, { lineWidth: 100, noRefs: true }), 0o600);
   }
 
   function readConfiguredPort() {

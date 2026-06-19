@@ -238,7 +238,7 @@ test("pendingAgentInventory reports checking state without spawning CLI probes",
   assert.equal(legacy.claudeCode.available, false);
 });
 
-test("agentInventory separates system Hermes detection from Mia Hermes usability", (t) => {
+test("agentInventory does not treat legacy managed Hermes source as usable", (t) => {
   let now = 1000;
   const { service } = makeService(t, {
     now: () => now,
@@ -272,13 +272,15 @@ test("agentInventory separates system Hermes detection from Mia Hermes usability
 
   assert.equal(cached, inventory);
   assert.equal(inventory.summary.installedCount, 4);
-  assert.equal(inventory.summary.usableCount, 4);
+  assert.equal(inventory.summary.usableCount, 3);
   assert.equal(inventory.summary.missingCount, 0);
   assert.equal(inventory.summary.hasUsableAgent, true);
   assert.equal(inventory.summary.recommendedAction, "continue");
   assert.equal(agentsById.hermes.installed, true);
-  assert.equal(agentsById.hermes.usableInMia, true);
-  assert.equal(agentsById.hermes.source, "mia-managed");
+  assert.equal(agentsById.hermes.usableInMia, false);
+  assert.equal(agentsById.hermes.source, "system");
+  assert.equal(agentsById.hermes.health, "detected");
+  assert.equal(agentsById.hermes.installAction, "repair-hermes");
   assert.deepEqual(agentsById.hermes.system, {
     available: true,
     path: "/bin/hermes",
@@ -294,6 +296,7 @@ test("agentInventory separates system Hermes detection from Mia Hermes usability
 test("agentInventory treats system Hermes as usable when Mia can launch its Python runtime", (t) => {
   const { service } = makeService(t, {
     isHermesInstalled: () => true,
+    isHermesApiRuntimeReady: () => true,
     hermesSource: () => "system",
     fs: {
       accessSync: () => {
@@ -322,6 +325,38 @@ test("agentInventory treats system Hermes as usable when Mia can launch its Pyth
   assert.equal(inventory.summary.recommendedAction, "continue");
   assert.equal(legacy.hermes.available, true);
   assert.equal(legacy.hermes.source, "system");
+});
+
+test("agentInventory marks Hermes broken when API runtime dependency is missing", (t) => {
+  const { service } = makeService(t, {
+    isHermesInstalled: () => true,
+    isHermesApiRuntimeReady: () => false,
+    hermesSource: () => "system",
+    fs: {
+      accessSync: () => {
+        throw new Error("missing");
+      }
+    },
+    spawnSync: (command, args) => {
+      if (command === "zsh" && args[1] === "command -v hermes") {
+        return { status: 0, stdout: "/bin/hermes\n", stderr: "" };
+      }
+      if (command === "/bin/hermes") return { status: 0, stdout: "Hermes Agent v0.16.0\n", stderr: "" };
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+
+  const inventory = service.agentInventory();
+  const hermes = inventory.agents.find((agent) => agent.id === "hermes");
+  const legacy = service.localAgentEngines();
+
+  assert.equal(hermes.installed, true);
+  assert.equal(hermes.usableInMia, false);
+  assert.equal(hermes.health, "broken");
+  assert.equal(hermes.installAction, "repair-hermes");
+  assert.equal(inventory.summary.usableCount, 0);
+  assert.equal(inventory.summary.recommendedAction, "repair-hermes");
+  assert.equal(legacy.hermes.available, false);
 });
 
 test("agentInventory recommends Hermes install when no usable agent is detected", (t) => {
@@ -357,7 +392,7 @@ test("agentInventory recommends Hermes install when no usable agent is detected"
   assert.equal(legacy.openClaw.available, false);
 });
 
-test("agentInventory treats Mia local-source Hermes as usable managed runtime", (t) => {
+test("agentInventory ignores legacy local-source Hermes runtime", (t) => {
   const { service } = makeService(t, {
     isHermesInstalled: () => true,
     hermesSource: () => "local-source",
@@ -373,15 +408,16 @@ test("agentInventory treats Mia local-source Hermes as usable managed runtime", 
   const hermes = inventory.agents.find((agent) => agent.id === "hermes");
   const legacy = service.localAgentEngines();
 
-  assert.equal(hermes.installed, true);
-  assert.equal(hermes.usableInMia, true);
-  assert.equal(hermes.source, "mia-managed");
-  assert.equal(hermes.health, "ready");
-  assert.equal(inventory.summary.installedCount, 1);
-  assert.equal(inventory.summary.usableCount, 1);
-  assert.equal(inventory.summary.hasUsableAgent, true);
-  assert.equal(legacy.hermes.available, true);
-  assert.equal(legacy.hermes.source, "mia-managed");
+  assert.equal(hermes.installed, false);
+  assert.equal(hermes.usableInMia, false);
+  assert.equal(hermes.source, "missing");
+  assert.equal(hermes.health, "missing");
+  assert.equal(hermes.installAction, "install-hermes");
+  assert.equal(inventory.summary.installedCount, 0);
+  assert.equal(inventory.summary.usableCount, 0);
+  assert.equal(inventory.summary.hasUsableAgent, false);
+  assert.equal(legacy.hermes.available, false);
+  assert.equal(legacy.hermes.source, "missing");
 });
 
 test("scanAgentsAsync probes agents asynchronously, reports progress, and warms the cache", async (t) => {

@@ -16,7 +16,8 @@ function createHarness(overrides = {}) {
   const paths = {
     authJson: path.join(dir, "auth.json"),
     engine: path.join(dir, "engine"),
-    home: path.join(dir, "home")
+    home: path.join(dir, "home"),
+    hermesHome: path.join(dir, ".hermes")
   };
   const calls = {
     fetch: [],
@@ -69,7 +70,7 @@ function createHarness(overrides = {}) {
     isEngineInstalled: () => true,
     getRuntimeStatus: () => ({ runtime: true }),
     enginePython: () => "/python",
-    effectiveHermesHome: () => paths.home,
+    effectiveHermesHome: () => paths.hermesHome,
     buildPythonPath: () => "/pythonpath",
     applyCodexModelSettings: () => {
       calls.codexApplied += 1;
@@ -137,7 +138,7 @@ test("startCodexOAuth completes device auth in the background and persists token
 });
 
 test("startProviderOAuth spawns hermes auth and saves provider on success", async () => {
-  const { calls, service } = createHarness();
+  const { calls, paths, service } = createHarness();
 
   await service.startProviderOAuth({
     provider: "anthropic",
@@ -148,7 +149,9 @@ test("startProviderOAuth spawns hermes auth and saves provider on success", asyn
 
   assert.equal(calls.spawned[0][0], "/python");
   assert.deepEqual(calls.spawned[0][1], ["-m", "hermes_cli.main", "auth", "add", "anthropic", "--type", "oauth"]);
-  assert.equal(calls.spawned[0][2].env.HERMES_HOME, calls.spawned[0][2].env.MIA_HOME);
+  assert.equal(calls.spawned[0][2].env.HERMES_HOME, paths.hermesHome);
+  assert.equal(calls.spawned[0][2].env.MIA_HOME, paths.home);
+  assert.notEqual(calls.spawned[0][2].env.HERMES_HOME, calls.spawned[0][2].env.MIA_HOME);
 
   calls.spawnedProcesses[0].stdout.emit("data", "Open https://auth.anthropic.example\n");
   calls.spawnedProcesses[0].emit("exit", 0, null);

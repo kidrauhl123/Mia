@@ -33,8 +33,8 @@
   const ENGINE_RUNTIME_POLICIES = Object.freeze({
     [EngineId.Hermes]: Object.freeze({
       id: EngineId.Hermes,
-      homeStrategy: "mia-managed-home",
-      nativeHomeSubdir: "",
+      homeStrategy: "native-user-home",
+      nativeHomeSubdir: ".hermes",
       permissionScope: "engine",
       permissionStore: "root-mode",
       permissionCodec: "hermes-approvals-mode",

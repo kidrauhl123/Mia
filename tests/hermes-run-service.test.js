@@ -210,3 +210,24 @@ test("readRunEventStream normalizes run.failed provider configuration errors", a
     /请在右侧 Model 选择.*API key/
   );
 });
+
+test("readRunEventStream normalizes Mia managed provider configuration errors", async () => {
+  const runs = service({
+    fetchImpl: async () => streamResponse([
+      "event: run.failed",
+      "data: {\"error\":\"no API key was found for provider mia\"}",
+      "",
+      ""
+    ].join("\n"))
+  });
+
+  await assert.rejects(
+    () => runs.readRunEventStream({ runId: "run_1", signal: null, emit: null }),
+    (error) => {
+      assert.match(error.message, /Mia 官方模型/);
+      assert.match(error.message, /Mia Cloud/);
+      assert.doesNotMatch(error.message, /填 API key/);
+      return true;
+    }
+  );
+});

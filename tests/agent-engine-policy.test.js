@@ -49,8 +49,8 @@ test("agent engine policy keeps runtime scope decisions in one table", () => {
 
   assert.deepEqual(agentEnginePolicy("hermes"), {
     id: "hermes",
-    homeStrategy: "mia-managed-home",
-    nativeHomeSubdir: "",
+    homeStrategy: "native-user-home",
+    nativeHomeSubdir: ".hermes",
     permissionScope: "engine",
     permissionStore: "root-mode",
     permissionCodec: "hermes-approvals-mode",
@@ -84,5 +84,5 @@ test("native home path is explicit only for engines that need Mia to pass one", 
   assert.equal(nativeHomePathForEngine("codex", userHome), path.join(userHome, ".codex"));
   assert.equal(nativeHomePathForEngine("claude-code", userHome), "");
   assert.equal(nativeHomePathForEngine("openclaw", userHome), "");
-  assert.equal(nativeHomePathForEngine("hermes", userHome), "");
+  assert.equal(nativeHomePathForEngine("hermes", userHome), path.join(userHome, ".hermes"));
 });

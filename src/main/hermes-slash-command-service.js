@@ -121,7 +121,7 @@ function createHermesSlashCommandService(deps = {}) {
   const defaultUserProfile = deps.defaultUserProfile || (() => ({ displayName: "Mia" }));
   const cleanRunSessionId = deps.cleanRunSessionId || ((sessionId, botId) => sessionId || botId || "default");
   const enginePython = deps.enginePython || (() => "python3");
-  const effectiveHermesHome = deps.effectiveHermesHome || (() => runtimePaths().home);
+  const effectiveHermesHome = deps.effectiveHermesHome || (() => runtimePaths().hermesHome || runtimePaths().home);
   const buildPythonPath = deps.buildPythonPath || (() => "");
   const spawnSync = deps.spawnSync || defaultSpawnSync;
   const env = deps.env || process.env;

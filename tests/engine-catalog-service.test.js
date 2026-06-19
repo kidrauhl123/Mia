@@ -14,17 +14,19 @@ function createHarness(overrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-engine-catalog-"));
   const engine = path.join(dir, "engine");
   const home = path.join(dir, "home");
+  const hermesHome = path.join(dir, ".hermes");
   const userHome = path.join(dir, "user");
   fs.mkdirSync(engine, { recursive: true });
   fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(hermesHome, { recursive: true });
   fs.mkdirSync(userHome, { recursive: true });
   const calls = { python: [], logs: [], timed: [] };
   const service = createEngineCatalogService({
     isEngineInstalled: () => true,
     initializeRuntime: () => {},
-    runtimePaths: () => ({ engine, home }),
+    runtimePaths: () => ({ engine, home, hermesHome }),
     userHome: () => userHome,
-    effectiveHermesHome: () => home,
+    effectiveHermesHome: () => hermesHome,
     buildPythonPath: () => "/pythonpath",
     runPythonScript: async (args, options) => {
       calls.python.push({ args, options });
@@ -37,7 +39,7 @@ function createHarness(overrides = {}) {
     },
     ...overrides
   });
-  return { calls, dir, engine, home, userHome, service };
+  return { calls, dir, engine, home, hermesHome, userHome, service };
 }
 
 test("loadHermesModelCatalog returns fallback without running Python when engine is missing", async () => {
@@ -51,7 +53,7 @@ test("loadHermesModelCatalog returns fallback without running Python when engine
 });
 
 test("loadHermesModelCatalog parses rows from the Hermes runtime and logs fallback failures", async () => {
-  const { calls, service, engine, home } = createHarness({
+  const { calls, service, engine, hermesHome } = createHarness({
     runPythonScript: async (args, options) => {
       calls.python.push({ args, options });
       return {
@@ -67,7 +69,7 @@ test("loadHermesModelCatalog parses rows from the Hermes runtime and logs fallba
   assert.deepEqual(rows, [{ id: "p::m", provider: "p", providerLabel: "P", model: "m", label: "M" }]);
   assert.equal(calls.timed[0], "Load Hermes model catalog");
   assert.equal(calls.python[0].options.cwd, engine);
-  assert.equal(calls.python[0].options.env.HERMES_HOME, home);
+  assert.equal(calls.python[0].options.env.HERMES_HOME, hermesHome);
   assert.equal(calls.python[0].options.env.PYTHONPATH, "/pythonpath");
 });
 

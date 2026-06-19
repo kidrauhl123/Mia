@@ -57,7 +57,7 @@ test("startup background service skips engine when Hermes is not installed", asy
   assert.deepEqual(calls, [
     "daemon",
     "system-hermes",
-    "engine-log:No Hermes available (system or managed); waiting for manual setup."
+    "engine-log:No Hermes available from the user's system install; waiting for manual setup."
   ]);
 });
 
