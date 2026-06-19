@@ -1039,13 +1039,19 @@ test("sidebar card specs carry identity status badges when available", () => {
   const conversationCardSpecFromRow = eval(`(
     function () {
       const state = {};
+      const MemberKind = { Bot: "bot" };
+      const runByConversation = new Map([
+        ["botc_u_me_mia", { status: "running", botId: "mia" }],
+        ["g_badge", { status: "running", botId: "mia" }]
+      ]);
       const window = {
         miaSocial: {
           getActiveConversationId: () => "",
           isConversationPinned: () => false,
           isConversationMuted: () => false,
           getUnreadForConversation: () => 0,
-          getConversationMembers: () => [],
+          conversationRun: (conversationId) => runByConversation.get(conversationId) || null,
+          getConversationMembers: () => [{ member_kind: "bot", member_ref: "mia", bot_name: "Mia" }],
           setActiveConversationId() {}
         },
         miaContact: {
@@ -1072,6 +1078,18 @@ test("sidebar card specs carry identity status badges when available", () => {
       function groupTilesCtx() { return {}; }
       function showNarrowContent() {}
       function render() {}
+      function conversationRunForSidebarPreview(social, conversation) {
+        const run = social?.conversationRun?.(conversation?.id);
+        return run?.status === "running" ? run : null;
+      }
+      function typingLabelForConversationRun(social, conversation, run = null) {
+        const activeRun = run || conversationRunForSidebarPreview(social, conversation);
+        const botId = activeRun?.botId || "";
+        if (!botId || conversation?.type !== "group") return "";
+        const member = (social?.getConversationMembers?.(conversation.id) || [])
+          .find((m) => m.member_kind === MemberKind.Bot && m.member_ref === botId);
+        return member?.bot_name || botId;
+      }
       ${extractFunctionSource(appSource, "firstNonEmpty")}
       ${extractFunctionSource(appSource, "hasOwn")}
       ${extractFunctionSource(appSource, "statusBadgeFrom")}
@@ -1097,7 +1115,11 @@ test("sidebar card specs carry identity status badges when available", () => {
   assert.equal(privateSpec.identity.id, "mia");
   assert.equal(privateSpec.identity.displayName, "Mia");
   assert.deepEqual(privateSpec.statusBadge, badge);
+  assert.equal(privateSpec.typing, true);
+  assert.equal(privateSpec.typingLabel, "");
   assert.deepEqual(groupSpec.statusBadge, badge);
+  assert.equal(groupSpec.typing, true);
+  assert.equal(groupSpec.typingLabel, "Mia");
 });
 
 test("desktop cloud human and group conversations hide the chat history session selector", () => {

@@ -1424,8 +1424,10 @@ p {
 }
 
 .bubble a.message-link {
-  color: inherit;
+  color: var(--accent);
   text-decoration: none;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px;
   text-underline-offset: 2px;
   cursor: pointer;
   word-break: break-word;
@@ -1433,6 +1435,8 @@ p {
 
 .bubble a.message-link:hover {
   text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px;
 }
 
 .bubble code.inline-code {

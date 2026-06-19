@@ -42,6 +42,16 @@
     return escapeHtml(text);
   }
 
+  function typingDotsHtml(label = "") {
+    const prefix = label ? `${label} ` : "";
+    return `<span class="typing-status">${escapeHtml(prefix)}正在输入<span class="typing-dots"><i></i><i></i><i></i></span></span>`;
+  }
+
+  function previewContentHtml(spec, fallback = "") {
+    if (spec.typing) return typingDotsHtml(spec.typingLabel || "");
+    return previewHtml(spec.preview, fallback);
+  }
+
   function tagItems(tags) {
     return Array.isArray(tags)
       ? tags.filter((tag) => String(tag?.name || "").trim()).slice(0, 3)
@@ -143,14 +153,14 @@
     if (!tagsHtml) {
       return `
         <span class="persona-preview-row">
-          <span class="persona-key">${previewHtml(spec.preview, fallback)}</span>
+          <span class="persona-key">${previewContentHtml(spec, fallback)}</span>
           ${buildStatusHtml(spec)}
         </span>
       `;
     }
     return `
       <span class="persona-preview-row">
-        <span class="persona-key">${previewHtml(spec.preview, fallback)}</span>
+        <span class="persona-key">${previewContentHtml(spec, fallback)}</span>
         ${buildStatusHtml(spec)}
       </span>
       <span class="persona-tag-row${spec.tagEditor?.active ? " editing" : ""}${spec.tagEditor?.adding ? " adding" : ""}${spec.tagEditor?.mode ? ` mode-${spec.tagEditor.mode}` : ""}">${tagsHtml}</span>

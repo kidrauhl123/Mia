@@ -139,10 +139,14 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.doesNotMatch(chatCss, /cursor:\s*var\(--message-text-cursor\)/);
   const messageLinkRule = cssRuleBody(chatCss, ".bubble a.message-link");
   const messageLinkHoverRule = cssRuleBody(chatCss, ".bubble a.message-link:hover");
-  assert.match(messageLinkRule, /color:\s*inherit;/);
+  assert.match(messageLinkRule, /color:\s*var\(--accent\);/);
   assert.match(messageLinkRule, /text-decoration:\s*none;/);
+  assert.match(messageLinkRule, /text-decoration-color:\s*var\(--accent\);/);
+  assert.match(messageLinkRule, /text-decoration-thickness:\s*1px;/);
   assert.match(messageLinkRule, /cursor:\s*pointer;/);
   assert.match(messageLinkHoverRule, /text-decoration:\s*underline;/);
+  assert.match(messageLinkHoverRule, /text-decoration-color:\s*var\(--accent\);/);
+  assert.match(messageLinkHoverRule, /text-decoration-thickness:\s*1px;/);
   assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.bubble a\.message-link/);
   assert.doesNotMatch(chatCss, /\.message\.user \.bubble a\.message-link/);
   assert.match(chatCss, /\.bubble code\.inline-code\s*\{[\s\S]*?cursor:\s*pointer;/);

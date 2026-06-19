@@ -57,17 +57,40 @@ test("sidebar conversation preview renders safe inline markdown", () => {
   const cards = loadSidebarCards();
   const card = cards.createPrivateCard({
     name: "mia",
-    preview: "**重点** `npm test` [文档](https://example.com) <script>",
+    preview: "**重点** *斜体* ~~删除~~ `npm test` [文档](https://example.com) [本地](/Users/jung/demo.txt) <script>",
     avatar: {},
     unread: 0
   });
 
   assert.match(card.innerHTML, /<strong>重点<\/strong>/);
+  assert.match(card.innerHTML, /<em>斜体<\/em>/);
+  assert.match(card.innerHTML, /<del>删除<\/del>/);
   assert.match(card.innerHTML, /<code class="sidebar-inline-code">npm test<\/code>/);
   assert.match(card.innerHTML, /<span class="sidebar-preview-link" title="https:\/\/example\.com">文档<\/span>/);
+  assert.match(card.innerHTML, /<span class="sidebar-preview-link" title="\/Users\/jung\/demo\.txt">本地<\/span>/);
   assert.match(card.innerHTML, /&lt;script&gt;/);
   assert.doesNotMatch(card.innerHTML, /<a\b/);
   assert.doesNotMatch(card.innerHTML, /tabindex/);
+});
+
+test("sidebar typing preview replaces the message row and preserves tag row", () => {
+  const cards = loadSidebarCards();
+  const card = cards.createPrivateCard({
+    name: "mia",
+    preview: "**上一条**消息",
+    typing: true,
+    typingLabel: "Mia",
+    avatar: {},
+    unread: 0,
+    tags: [{ name: "复习", color: "#2386d9" }]
+  });
+
+  assert.match(card.className, /\bhas-tags\b/);
+  assert.match(card.innerHTML, /<span class="typing-status">Mia 正在输入<span class="typing-dots"><i><\/i><i><\/i><i><\/i><\/span><\/span>/);
+  assert.match(card.innerHTML, /persona-tag-row/);
+  assert.match(card.innerHTML, /persona-tag-chip/);
+  assert.match(card.innerHTML, /复习/);
+  assert.doesNotMatch(card.innerHTML, /上一条/);
 });
 
 test("sidebar private card propagates identity status badge to name renderer", () => {

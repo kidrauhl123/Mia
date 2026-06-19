@@ -745,6 +745,23 @@ test("renderSidebarRows: dm conversation → private-conversation with otherUser
   assert.equal(rows[0].conversation.lastMessagePreview, "hi");
 });
 
+test("renderSidebarRows preserves complete markdown links for rich sidebar previews", () => {
+  const s = loadSocial();
+  const longLocalLink = "已改成：[mia-diff-demo.txt](/Users/jung/Library/Application%20Support/Mia/runtime/engine-home/workspace/mia-diff-demo.txt)";
+  s.moduleState.myUserId = "u_alice";
+  s.moduleState.friends = [{ id: "u_bob", username: "bob", account: "bob" }];
+  s.moduleState.conversations = [{ id: "dm:u_alice:u_bob", type: "dm", updatedAt: "2026-05-21T20:00:00.000Z" }];
+  s.moduleState.messageCache.set("dm:u_alice:u_bob", {
+    messages: [{ id: "m1", seq: 1, body_md: longLocalLink, created_at: "2026-05-21T20:01:00.000Z" }],
+    maxSeq: 1,
+  });
+
+  const rows = s.renderSidebarRows();
+
+  assert.equal(rows[0].conversation.lastMessagePreview, longLocalLink);
+  assert.match(rows[0].conversation.lastMessagePreview, /\)$/);
+});
+
 test("renderSidebarRows carries cloud pin state for sidebar sorting", () => {
   const s = loadSocial();
   s.moduleState.myUserId = "u_alice";
@@ -2326,6 +2343,7 @@ test("handleCloudEvent does not infer group typing state from conductor-mode use
 test("cloud agent run start exposes typing state to the conversation header", () => {
   const scheduled = [];
   let headerPaints = 0;
+  let renders = 0;
   const s = loadSocial({
     requestAnimationFrame: (fn) => {
       scheduled.push(fn);
@@ -2334,7 +2352,7 @@ test("cloud agent run start exposes typing state to the conversation header", ()
   });
   s.initSocialModule({
     getState: () => ({}),
-    render: () => {},
+    render: () => { renders += 1; },
     els: {},
     appendTransientChat: () => {},
     paintHeaderStatus: () => { headerPaints += 1; }
@@ -2349,6 +2367,7 @@ test("cloud agent run start exposes typing state to the conversation header", ()
 
   assert.equal(s.activeConversationRun().status, "running");
   assert.equal(s.activeConversationRun().botId, "mia");
+  assert.equal(renders, 1);
   scheduled.forEach((fn) => fn());
   assert.equal(headerPaints, 1);
 

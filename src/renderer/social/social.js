@@ -1188,6 +1188,12 @@
     return moduleState.cloudAgentRunsByConversation.get(conversationId) || null;
   }
 
+  function conversationRun(conversationId) {
+    const id = String(conversationId || "").trim();
+    if (!id) return null;
+    return moduleState.cloudAgentRunsByConversation.get(id) || null;
+  }
+
   // Parse dm:<a>:<b> and return the user-id that is NOT myUserId.
   function otherUserId(conversationId) {
     if (!conversationId || !conversationId.startsWith("dm:")) return null;
@@ -1832,11 +1838,14 @@
     if (type === "cloud_agent_run_started") {
       const conversationId = payload?.conversationId;
       if (!conversationId) return;
+      const previousRun = moduleState.cloudAgentRunsByConversation.get(conversationId);
+      const wasRunning = previousRun?.status === "running";
       const run = cloudRunFor(conversationId, payload.runId || "");
       run.runId = payload.runId || run.runId;
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
       run.status = "running";
+      if (!wasRunning && deps && typeof deps.render === "function") deps.render();
       scheduleCloudRunRender(conversationId);
       return;
     }
@@ -1845,9 +1854,15 @@
       const conversationId = payload?.conversationId;
       const hermesEvent = payload?.event || {};
       if (!conversationId) return;
+      const previousRun = moduleState.cloudAgentRunsByConversation.get(conversationId);
+      const wasRunning = previousRun?.status === "running";
       const run = cloudRunFor(conversationId, payload.runId || "");
       run.botId = payload.botId || run.botId || "";
       applyCloudAgentRunEvent(run, hermesEvent);
+      const isRunning = run.status === "running";
+      if ((!previousRun && isRunning) || wasRunning !== isRunning) {
+        if (deps && typeof deps.render === "function") deps.render();
+      }
       scheduleCloudRunRender(conversationId);
       return;
     }
@@ -1998,7 +2013,7 @@
     return sidebarConversations.map((conversation) => {
       const cacheEntry = moduleState.messageCache.get(conversation.id);
       const lastMsg = lastSidebarMessage(cacheEntry);
-      const lastMessagePreview = lastMsg ? String(lastMsg.body_md || "").slice(0, 80) : "";
+      const lastMessagePreview = lastMsg ? String(lastMsg.body_md || "") : "";
 
       // Sidebar activity follows the last message the chat can actually render.
       // Metadata-only conversation.updated events (title/runtime/member refresh)
@@ -3906,6 +3921,7 @@
     describeMessageForMenu,
     getActiveConversationId,
     activeConversationRun,
+    conversationRun,
     getConversationById,
     botConversationForKey,
     setActiveConversationId,
