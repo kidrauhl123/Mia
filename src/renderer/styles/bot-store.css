@@ -39,17 +39,17 @@
 .contacts-workspace { grid-template-rows: minmax(0, 1fr); }
 .bot-store-workspace { grid-column: 2 / -1; }
 
-/* ── 顶栏 mode 胶囊：滑动白胶囊（仿 skill-mode-toggle） ── */
+/* ── 顶栏 mode 胶囊：跟 rail 同质感的玻璃底 + 主题色选中态 ── */
 .discover-mode-toggle {
   position: relative;
   display: inline-flex;
   gap: 2px;
   padding: 3px;
   border-radius: 999px;
-  background: var(--floating-control-bg);
-  box-shadow: var(--floating-control-shadow);
-  -webkit-backdrop-filter: blur(18px) saturate(1.08);
-  backdrop-filter: blur(18px) saturate(1.08);
+  background: var(--segmented-control-bg);
+  box-shadow: var(--segmented-control-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(1.16);
+  backdrop-filter: blur(24px) saturate(1.16);
   isolation: isolate;
 }
 .discover-mode-toggle::before {
@@ -58,8 +58,8 @@
   top: 3px; bottom: 3px; left: 0;
   width: var(--pill-w, 0px);
   border-radius: 999px;
-  background: var(--surface);
-  box-shadow: var(--floating-control-pill-shadow);
+  background: var(--segmented-control-active-bg);
+  box-shadow: var(--segmented-control-pill-shadow);
   opacity: var(--pill-ready, 0);
   transform: translateX(var(--pill-x, 0px));
   pointer-events: none;
@@ -83,7 +83,7 @@
 }
 .discover-mode-toggle button.active {
   background: transparent;
-  color: var(--text);
+  color: var(--segmented-control-active-text);
   font-weight: 560;
 }
 
@@ -143,10 +143,10 @@
   max-width: 100%;
   padding: 3px;
   border-radius: 999px;
-  background: var(--floating-control-bg);
-  box-shadow: var(--floating-control-shadow);
-  -webkit-backdrop-filter: blur(18px) saturate(1.08);
-  backdrop-filter: blur(18px) saturate(1.08);
+  background: var(--segmented-control-bg);
+  box-shadow: var(--segmented-control-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(1.16);
+  backdrop-filter: blur(24px) saturate(1.16);
   isolation: isolate;
 }
 .bot-store-cap::before {
@@ -157,8 +157,8 @@
   left: 0;
   width: var(--pill-w, 0px);
   border-radius: 999px;
-  background: var(--surface);
-  box-shadow: var(--floating-control-pill-shadow);
+  background: var(--segmented-control-active-bg);
+  box-shadow: var(--segmented-control-pill-shadow);
   opacity: var(--pill-ready, 0);
   transform: translateX(var(--pill-x, 0px));
   pointer-events: none;
@@ -182,7 +182,7 @@
 }
 .bot-store-cap button.active {
   background: transparent;
-  color: var(--text);
+  color: var(--segmented-control-active-text);
   font-weight: 560;
 }
 

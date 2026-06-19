@@ -340,6 +340,9 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
   assert.match(baseCss, /--floating-control-bg:\s*color-mix\(in srgb,\s*var\(--surface\)\s*86%,\s*transparent\);/);
   assert.match(baseCss, /--floating-control-shadow:\s*0 1px 2px rgba\(16,\s*20,\s*39,\s*0\.06\),\s*0 10px 28px rgba\(16,\s*20,\s*39,\s*0\.08\);/);
   assert.match(baseCss, /--floating-control-pill-shadow:\s*0 1px 3px rgba\(17,\s*24,\s*39,\s*0\.08\);/);
+  assert.match(baseCss, /--segmented-control-bg:\s*color-mix\(in srgb,\s*var\(--surface-soft\)\s*62%,\s*transparent\);/);
+  assert.match(baseCss, /--segmented-control-active-bg:\s*var\(--accent\);/);
+  assert.match(baseCss, /--segmented-control-active-text:\s*#fff;/);
 
   for (const [name, selector, css] of [
     ["discover", "discover-mode-toggle", botStoreCss],
@@ -349,13 +352,13 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
   ]) {
     assert.match(
       css,
-      new RegExp(`\\.${selector}\\s*\\{[^}]*position:\\s*relative;[^}]*background:\\s*var\\(--floating-control-bg\\);[^}]*box-shadow:\\s*var\\(--floating-control-shadow\\);[^}]*backdrop-filter:\\s*blur\\(18px\\) saturate\\(1\\.08\\);[^}]*isolation:\\s*isolate;`),
-      `${name} toggle should be a floating control card on the workspace floor`
+      new RegExp(`\\.${selector}\\s*\\{[^}]*position:\\s*relative;[^}]*background:\\s*var\\(--segmented-control-bg\\);[^}]*box-shadow:\\s*var\\(--segmented-control-shadow\\);[^}]*backdrop-filter:\\s*blur\\(24px\\) saturate\\(1\\.16\\);[^}]*isolation:\\s*isolate;`),
+      `${name} toggle should use the same glass surface family as the rail`
     );
     assert.match(
       css,
-      new RegExp(`\\.${selector}::before\\s*\\{[^}]*width:\\s*var\\(--pill-w,\\s*0px\\);[^}]*background:\\s*var\\(--surface\\);[^}]*box-shadow:\\s*var\\(--floating-control-pill-shadow\\);[^}]*transform:\\s*translateX\\(var\\(--pill-x,\\s*0px\\)\\);[^}]*transition:\\s*transform\\s+\\d+ms[^;]*,\\s*width\\s+\\d+ms[^;]*,\\s*opacity\\s+\\d+ms`),
-      `${name} topbar toggle should move one selected capsule instead of swapping button backgrounds`
+      new RegExp(`\\.${selector}::before\\s*\\{[^}]*width:\\s*var\\(--pill-w,\\s*0px\\);[^}]*background:\\s*var\\(--segmented-control-active-bg\\);[^}]*box-shadow:\\s*var\\(--segmented-control-pill-shadow\\);[^}]*transform:\\s*translateX\\(var\\(--pill-x,\\s*0px\\)\\);[^}]*transition:\\s*transform\\s+\\d+ms[^;]*,\\s*width\\s+\\d+ms[^;]*,\\s*opacity\\s+\\d+ms`),
+      `${name} topbar toggle should move one theme-colored selected capsule`
     );
     assert.match(
       css,
@@ -364,8 +367,8 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
     );
     assert.match(
       css,
-      new RegExp(`\\.${selector}\\s+button\\.active\\s*\\{[^}]*background:\\s*transparent;`),
-      `${name} active button background should not fight the animated capsule layer`
+      new RegExp(`\\.${selector}\\s+button\\.active\\s*\\{[^}]*background:\\s*transparent;[^}]*color:\\s*var\\(--segmented-control-active-text\\);`),
+      `${name} active labels should sit on the theme-colored capsule`
     );
   }
 
@@ -417,8 +420,8 @@ test("floating-floor text uses adaptive floor colors outside surface cards", () 
   assert.match(taskCss, /\.task-mode-count\s*\{[^}]*color:\s*var\(--faint\);/);
   assert.match(
     taskCss,
-    /\.task-mode-toggle button\.active \.task-mode-count\s*\{[^}]*color:\s*var\(--faint\);/,
-    "selected task mode counts sit on a surface capsule and should not use bright floor text"
+    /\.task-mode-toggle button\.active \.task-mode-count\s*\{[^}]*color:\s*var\(--segmented-control-active-muted\);/,
+    "selected task mode counts should stay readable on the theme-colored capsule"
   );
 });
 

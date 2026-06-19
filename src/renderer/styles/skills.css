@@ -245,10 +245,10 @@
   gap: 2px;
   padding: 3px;
   border-radius: 999px;
-  background: var(--floating-control-bg);
-  box-shadow: var(--floating-control-shadow);
-  -webkit-backdrop-filter: blur(18px) saturate(1.08);
-  backdrop-filter: blur(18px) saturate(1.08);
+  background: var(--segmented-control-bg);
+  box-shadow: var(--segmented-control-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(1.16);
+  backdrop-filter: blur(24px) saturate(1.16);
   isolation: isolate;
 }
 
@@ -260,8 +260,8 @@
   left: 0;
   width: var(--pill-w, 0px);
   border-radius: 999px;
-  background: var(--surface);
-  box-shadow: var(--floating-control-pill-shadow);
+  background: var(--segmented-control-active-bg);
+  box-shadow: var(--segmented-control-pill-shadow);
   opacity: var(--pill-ready, 0);
   pointer-events: none;
   transform: translateX(var(--pill-x, 0px));
@@ -285,7 +285,7 @@
 
 .skill-mode-toggle button.active {
   background: transparent;
-  color: var(--text);
+  color: var(--segmented-control-active-text);
   font-weight: 560;
   box-shadow: none;
 }
