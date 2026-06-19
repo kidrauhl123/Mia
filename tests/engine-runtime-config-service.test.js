@@ -169,6 +169,22 @@ test("writeRuntimeConfig adds the mia-scheduler MCP server when a spec is availa
   assert.ok(!("alwaysLoad" in parsed.mcp_servers["mia-scheduler"]));
 });
 
+test("writeRuntimeConfig merges user MCP specs into Hermes config", (t) => {
+  const { runtime, service } = setup(t, {
+    getUserMcpSpecs: () => ({
+      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+    })
+  });
+
+  service.writeRuntimeConfig(19191);
+
+  const parsed = yaml.load(fs.readFileSync(path.join(runtime.home, "config.yaml"), "utf8"));
+  assert.deepEqual(parsed.mcp_servers.xhs, {
+    url: "http://127.0.0.1:18060/mcp",
+    headers: {}
+  });
+});
+
 test("readConfiguredPort returns the configured API server port or the Mia default", (t) => {
   const { runtime, service } = setup(t);
 

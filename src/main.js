@@ -314,7 +314,8 @@ const engineRuntimeConfigService = createEngineRuntimeConfigService({
   // only invoked at writeRuntimeConfig time (runtime), by which point it
   // exists. Lets the Hermes config.yaml carry the mia-scheduler MCP.
   getMiaAppMcpSpec: () => miaAppMcpBridge.getSpec(),
-  getSchedulerMcpSpec: () => schedulerMcpBridge.getSpec()
+  getSchedulerMcpSpec: () => schedulerMcpBridge.getSpec(),
+  getUserMcpSpecs: () => userMcpService.getEngineSpecs("hermes", { hermesSupportsUrl: true })
 });
 const {
   apiKey,
@@ -2014,8 +2015,10 @@ function createActiveClaudeCodeChatAdapter() {
     clearAgentSessionEntry: agentSessionStore.deleteEntry,
     enginePermissionMode: settingsStore.enginePermissionMode,
     getAgentSessionEntry: agentSessionStore.getEntry,
+    getMcpFingerprint: userMcpService.fingerprint,
     getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
+    getUserMcpSpecs: () => userMcpService.getEngineSpecs("claude-code"),
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
     memoryBlock: miaMemoryService.memoryBlock,
@@ -2040,9 +2043,12 @@ function createActiveCodexChatAdapter() {
     enginePermissionMode: settingsStore.enginePermissionMode,
     ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
+    getAgentSessionEntry: agentSessionStore.getEntry,
     getAgentSessionId: agentSessionStore.getId,
+    getMcpFingerprint: userMcpService.fingerprint,
     getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
+    getUserMcpSpecs: () => userMcpService.getEngineSpecs("codex"),
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
     memoryBlock: miaMemoryService.memoryBlock,
@@ -2052,6 +2058,7 @@ function createActiveCodexChatAdapter() {
     readBotPersona,
     resolveManagedModelRuntime,
     runCodexAppServerTurn,
+    setAgentSessionEntry: agentSessionStore.setEntry,
     setAgentSessionId: agentSessionStore.setId,
     shellCommandPath: localAgentEngineService.shellCommandPath,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext
@@ -2066,6 +2073,8 @@ function createActiveOpenClawChatAdapter() {
     enginePermissionMode: settingsStore.enginePermissionMode,
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionId: agentSessionStore.getId,
+    getMcpFingerprint: userMcpService.fingerprint,
+    getUserMcpServers: (options) => userMcpService.getEngineSpecs("openclaw", options),
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
     memoryBlock: miaMemoryService.memoryBlock,

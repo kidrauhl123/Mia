@@ -135,6 +135,8 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const memoryBlock = deps.memoryBlock || (() => "");
   const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
   const getSchedulerMcpSpec = requireDependency(deps, "getSchedulerMcpSpec");
+  const getUserMcpSpecs = deps.getUserMcpSpecs || (() => ({}));
+  const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
@@ -178,8 +180,10 @@ function createClaudeCodeChatAdapter(deps = {}) {
     } catch (error) {
       appendEngineLog(`Claude bridge plugin refresh failed: ${error?.message || error}`);
     }
+    const mcpFingerprint = getMcpFingerprint();
+    const sessionFingerprint = [bridgeFingerprint, mcpFingerprint].filter(Boolean).join(":");
     const savedEntry = shouldPersistAgentSession ? getAgentSessionEntry(engine, bot.key, sessionId) : {};
-    const externalSessionId = savedEntry.id && savedEntry.fingerprint === bridgeFingerprint
+    const externalSessionId = savedEntry.id && savedEntry.fingerprint === sessionFingerprint
       ? savedEntry.id
       : "";
     const schedulerMcpSpec = (() => {
@@ -188,6 +192,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const miaAppMcpSpec = (() => {
       try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
     })();
+    const userMcpServers = getUserMcpSpecs();
     const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine, bot });
     const selectedModel = String(managedModel?.model || bot.engineConfig?.model || "").trim();
     const env = envWithExecutableDirFirst(
@@ -196,7 +201,8 @@ function createClaudeCodeChatAdapter(deps = {}) {
     );
     const mcpServers = {
       ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
-      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
+      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {}),
+      ...userMcpServers
     };
     const options = {
       abortController,
@@ -267,7 +273,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
         processedStreamMessage = true;
         if (message?.session_id && !capturedSessionId) {
           capturedSessionId = message.session_id;
-          if (shouldPersistAgentSession) setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, bridgeFingerprint);
+          if (shouldPersistAgentSession) setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, sessionFingerprint);
         }
 
         if (emit && message?.type === "stream_event") {
@@ -382,7 +388,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       }
     }
     if (capturedSessionId && !externalSessionId && shouldPersistAgentSession) {
-      setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, bridgeFingerprint);
+      setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, sessionFingerprint);
     }
     if (signal?.aborted) {
       if (emit) emit("complete", { finishReason: "cancelled", aborted: true });

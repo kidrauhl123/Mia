@@ -34,6 +34,32 @@ function createEngineRuntimeConfigService(deps = {}) {
   const getSchedulerMcpSpec = typeof deps.getSchedulerMcpSpec === "function"
     ? deps.getSchedulerMcpSpec
     : () => null;
+  const getUserMcpSpecs = typeof deps.getUserMcpSpecs === "function"
+    ? deps.getUserMcpSpecs
+    : () => ({});
+
+  function runtimeMcpSpec(spec = {}) {
+    if (!spec || typeof spec !== "object") return null;
+    const command = String(spec.command || "").trim();
+    const url = String(spec.url || "").trim();
+    if (command) {
+      return {
+        command,
+        args: Array.isArray(spec.args) ? spec.args : [],
+        env: spec.env && typeof spec.env === "object" ? spec.env : {}
+      };
+    }
+    if (url) {
+      const normalized = {
+        url,
+        headers: spec.headers && typeof spec.headers === "object" ? spec.headers : {}
+      };
+      const bearer = String(spec.bearer_token_env_var || spec.bearerTokenEnvVar || "").trim();
+      if (bearer) normalized.bearer_token_env_var = bearer;
+      return normalized;
+    }
+    return null;
+  }
 
   function effectiveHermesHome() {
     return runtimePaths().home;
@@ -157,26 +183,22 @@ function createEngineRuntimeConfigService(deps = {}) {
     const miaAppSpec = (() => {
       try { return getMiaAppMcpSpec(); } catch { return null; }
     })();
-    if (miaAppSpec && miaAppSpec.command) {
-      mcpServers["mia-app"] = {
-        command: miaAppSpec.command,
-        args: miaAppSpec.args || [],
-        env: miaAppSpec.env || {}
-      };
-    }
+    const normalizedMiaAppSpec = runtimeMcpSpec(miaAppSpec);
+    if (normalizedMiaAppSpec) mcpServers["mia-app"] = normalizedMiaAppSpec;
     const schedulerSpec = (() => {
       try { return getSchedulerMcpSpec(); } catch { return null; }
     })();
-    if (schedulerSpec && schedulerSpec.command) {
+    const normalizedSchedulerSpec = runtimeMcpSpec(schedulerSpec);
+    if (normalizedSchedulerSpec) {
       // Reuse the same scheduler MCP server that Claude Code / Codex get, so
       // the Hermes bot can call schedule_* and have the app deliver the
       // reminder. Hermes reads command/args/env per mcp_servers entry and
       // infers stdio transport when no url is present (see Hermes mcp_tool).
-      mcpServers["mia-scheduler"] = {
-        command: schedulerSpec.command,
-        args: schedulerSpec.args || [],
-        env: schedulerSpec.env || {}
-      };
+      mcpServers["mia-scheduler"] = normalizedSchedulerSpec;
+    }
+    for (const [name, spec] of Object.entries(getUserMcpSpecs() || {})) {
+      const normalizedSpec = runtimeMcpSpec(spec);
+      if (normalizedSpec) mcpServers[name] = normalizedSpec;
     }
     if (Object.keys(mcpServers).length) {
       const mcpYaml = yaml.dump({ mcp_servers: mcpServers }).trimEnd();

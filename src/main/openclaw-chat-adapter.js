@@ -97,6 +97,16 @@ function openClawSessionKey(bot, sessionId) {
   return `mia:${botKey}:${localSession}`;
 }
 
+function openClawAcpSessionKey(bot, sessionId, mcpFingerprint = "") {
+  return [
+    "openclaw",
+    "mia",
+    String(bot?.key || bot?.id || "bot").trim() || "bot",
+    String(sessionId || "default").trim() || "default",
+    String(mcpFingerprint || "").trim()
+  ].filter(Boolean).join(":");
+}
+
 function shouldUseLegacyOpenClawTransport(bot = {}) {
   const config = bot.engineConfig || {};
   const transport = String(config.openclawTransport || config.transport || "").trim().toLowerCase();
@@ -300,6 +310,8 @@ function createOpenClawChatAdapter(deps = {}) {
   const normalizeEffortLevel = requireDependency(deps, "normalizeEffortLevel");
   const getAgentSessionId = requireDependency(deps, "getAgentSessionId");
   const setAgentSessionId = requireDependency(deps, "setAgentSessionId");
+  const getUserMcpServers = deps.getUserMcpServers || (() => []);
+  const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
   const memoryBlock = deps.memoryBlock || (() => "");
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
@@ -357,8 +369,14 @@ function createOpenClawChatAdapter(deps = {}) {
       throw new Error("OpenClaw 的 Mia 托管模型还没有安全接入：OpenClaw 需要先有对应 provider/baseUrl 配置。请先选择 OpenClaw 默认模型。");
     }
 
+    const userMcpServers = getUserMcpServers({
+      supportsHttp: true,
+      supportsSse: true
+    });
+    const mcpFingerprint = getMcpFingerprint();
+    const desiredSessionKey = openClawAcpSessionKey(bot, sessionId, mcpFingerprint);
     const storedSessionKey = persistAgentSession ? getAgentSessionId("openclaw", bot.key, sessionId) : "";
-    const sessionKey = storedSessionKey || openClawSessionKey(bot, sessionId);
+    const sessionKey = storedSessionKey === desiredSessionKey ? storedSessionKey : desiredSessionKey;
     const effort = normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "openclaw");
     const stdoutChunks = [];
     const stderrChunks = [];
@@ -481,7 +499,7 @@ function createOpenClawChatAdapter(deps = {}) {
       }), failure);
       const session = await withChildFailure(client.newSession({
         cwd: cwd(),
-        mcpServers: [],
+        mcpServers: userMcpServers,
         _meta: {
           sessionKey,
           sessionLabel: bot.engineConfig?.openclawSessionLabel || undefined,
@@ -492,7 +510,7 @@ function createOpenClawChatAdapter(deps = {}) {
       }), failure);
       acpSessionId = String(session?.sessionId || "");
       if (!acpSessionId) throw new Error("OpenClaw ACP 没有返回 sessionId。");
-      if (persistAgentSession && !storedSessionKey) {
+      if (persistAgentSession && storedSessionKey !== sessionKey) {
         setAgentSessionId("openclaw", bot.key, sessionId, sessionKey);
       }
       if (effort) {

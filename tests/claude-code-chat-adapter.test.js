@@ -32,9 +32,11 @@ function createDeps(messages, overrides = {}) {
       return overrides.expandedPrompt ?? text;
     },
     getAgentSessionEntry: () => overrides.savedEntry || {},
+    getMcpFingerprint: () => overrides.mcpFingerprint || "",
     enginePermissionMode: overrides.enginePermissionMode || (() => overrides.enginePermissionModeValue || "default"),
     getMiaAppMcpSpec: () => overrides.miaAppMcpSpec ?? null,
     getSchedulerMcpSpec: () => overrides.schedulerMcpSpec ?? null,
+    getUserMcpSpecs: () => overrides.userMcpSpecs ?? {},
     injectGroupContextForSdk: (prompt, contextBlock) => `GROUP:${contextBlock}\n${prompt}`,
     lastUserPrompt: overrides.lastUserPrompt || (() => "hello"),
     memoryBlock: overrides.memoryBlock || (() => ""),
@@ -123,6 +125,43 @@ test("sendChat streams partials, stores session, and returns chat response", asy
   });
   assert.equal(emitted[0].kind, "text_delta");
   assert.equal(emitted.at(-1).kind, "complete");
+});
+
+test("sendChat merges user MCP servers and fingerprints persisted sessions", async () => {
+  const deps = createDeps([
+    { session_id: "sess_1" },
+    { type: "assistant", message: { content: [{ type: "text", text: "ok" }] } }
+  ], {
+    mcpFingerprint: "mcp_fp",
+    schedulerMcpSpec: {
+      type: "stdio",
+      command: "/opt/node",
+      args: ["/tmp/mia-scheduler.js"],
+      env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
+    },
+    userMcpSpecs: {
+      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+    }
+  });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    abortController: {},
+    emit: null,
+    utility: false
+  });
+
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.equal(queryCall.options.resume, undefined);
+  assert.equal(queryCall.options.mcpServers.xhs.url, "http://127.0.0.1:18060/mcp");
+  assert.match(queryCall.options.mcpServers["mia-scheduler"].command, /node/);
+  assert.deepEqual(deps.calls.find((call) => call[0] === "set-session"), [
+    "set-session", "claude-code", "alice", "s1", "sess_1", "fp1:mcp_fp"
+  ]);
 });
 
 test("sendChat emits Claude tool_result unified diffs as file_edit events", async () => {
@@ -250,10 +289,10 @@ test("sendChat puts the selected Claude Code bin dir first in SDK env", async ()
   assert.equal(queryCall.options.env.PATH, "/opt/claude-node/bin:/bad-node/bin:/usr/bin");
 });
 
-test("sendChat resumes only when bridge fingerprint matches", async () => {
+test("sendChat resumes only when bridge and MCP fingerprints match", async () => {
   const deps = createDeps([
     { type: "assistant", message: { content: [{ text: "resumed" }] } }
-  ], { savedEntry: { id: "old_session", fingerprint: "fp1" } });
+  ], { savedEntry: { id: "old_session", fingerprint: "fp1:mcp_fp" }, mcpFingerprint: "mismatch" });
   const adapter = createClaudeCodeChatAdapter(deps);
   await adapter.sendChat({
     bot: { key: "alice", name: "Alice", bio: "" },
@@ -265,7 +304,7 @@ test("sendChat resumes only when bridge fingerprint matches", async () => {
     utility: false
   });
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
-  assert.equal(queryCall.options.resume, "old_session");
+  assert.equal(queryCall.options.resume, undefined);
 });
 
 test("sendChat exposes mia-app MCP while preserving scheduler compatibility", async () => {

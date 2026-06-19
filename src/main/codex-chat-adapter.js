@@ -337,14 +337,23 @@ function createCodexChatAdapter(deps = {}) {
   const codexSdk = requireDependency(deps, "codexSdk");
   const processEnvStrings = requireDependency(deps, "processEnvStrings");
   const normalizeEffortLevel = requireDependency(deps, "normalizeEffortLevel");
-  const getAgentSessionId = requireDependency(deps, "getAgentSessionId");
-  const setAgentSessionId = requireDependency(deps, "setAgentSessionId");
+  const getAgentSessionId = deps.getAgentSessionId || (() => "");
+  const setAgentSessionId = deps.setAgentSessionId || (() => {});
+  const getAgentSessionEntry = deps.getAgentSessionEntry || ((engine, botId, localSessionId) => ({
+    id: getAgentSessionId(engine, botId, localSessionId),
+    fingerprint: ""
+  }));
+  const setAgentSessionEntry = deps.setAgentSessionEntry || ((engine, botId, localSessionId, externalId) => {
+    setAgentSessionId(engine, botId, localSessionId, externalId);
+  });
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
   const memoryBlock = deps.memoryBlock || (() => "");
   const ensureCodexHome = requireDependency(deps, "ensureCodexHome");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
   const getSchedulerMcpSpec = deps.getSchedulerMcpSpec || (() => null);
+  const getUserMcpSpecs = deps.getUserMcpSpecs || (() => ({}));
+  const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
   const runCodexAppServerTurn = deps.runCodexAppServerTurn || null;
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
@@ -359,7 +368,11 @@ function createCodexChatAdapter(deps = {}) {
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("codex");
     if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
-    const externalSessionId = shouldPersistAgentSession ? getAgentSessionId(engine, bot.key, sessionId) : "";
+    const mcpFingerprint = getMcpFingerprint();
+    const savedEntry = shouldPersistAgentSession ? getAgentSessionEntry(engine, bot.key, sessionId) : { id: "", fingerprint: "" };
+    const externalSessionId = savedEntry.id && savedEntry.fingerprint === mcpFingerprint
+      ? savedEntry.id
+      : "";
     const lastUser = lastUserPrompt(messages);
     // Best-effort: grab id from last user message for scheduler context
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;
@@ -418,7 +431,8 @@ function createCodexChatAdapter(deps = {}) {
     })();
     const mcpServers = {
       ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
-      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
+      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {}),
+      ...getUserMcpSpecs()
     };
     const threadOptions = {
       workingDirectory: cwd(),
@@ -471,7 +485,7 @@ function createCodexChatAdapter(deps = {}) {
     }
     const imagePaths = recentGeneratedImagePaths(capturedSessionId, { env, startedAtMs });
     if (capturedSessionId && !externalSessionId && shouldPersistAgentSession) {
-      setAgentSessionId(engine, bot.key, sessionId, capturedSessionId);
+      setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, mcpFingerprint);
     }
     if (signal?.aborted) throw stoppedError();
     return chatCompletionResponse({
