@@ -65,7 +65,6 @@ function externalModelEntries(value) {
   const engine = normalizeAgentEngine(value);
   if (engine === "claude-code") return [{ id: "default", provider: "claude-code", providerLabel: "Claude Code", model: "", label: "Claude Code 默认" }];
   if (engine === "codex") return [{ id: "default", provider: "codex", providerLabel: "Codex CLI", model: "", label: "Codex 默认" }];
-  if (engine === "openclaw") return [{ id: "default", provider: "openclaw", providerLabel: "OpenClaw", model: "", label: "OpenClaw 默认" }];
   return [];
 }
 

@@ -90,7 +90,6 @@ test("engine contract owns external model and mode options for browser clients",
       }
     }).map((entry) => ({ id: entry.id, model: entry.model, label: entry.label, provider: entry.provider })),
     [
-      { id: "default", model: "", label: "OpenClaw 默认", provider: "openclaw" },
       { id: "openai/gpt-5.5", model: "openai/gpt-5.5", label: "gpt-5.5", provider: "openclaw" },
       { id: "mia-default", model: "mia-default", label: "Default", provider: "mia" }
     ]
