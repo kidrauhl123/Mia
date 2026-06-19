@@ -1683,6 +1683,10 @@ button.persona-tag-chip {
   color: var(--list-active-text);
 }
 
+.persona.active .persona-key .typing-status {
+  color: var(--list-active-text);
+}
+
 .persona.active .persona-key .sidebar-inline-code {
   background: rgba(255, 255, 255, 0.18);
 }

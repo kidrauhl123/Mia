@@ -153,6 +153,11 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(chatCss, /\.message\.search-focus \.bubble\s*\{[\s\S]*?animation:\s*messageSearchFocus/);
   assert.match(chatCss, /@keyframes messageSearchFocus/);
   assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?cursor:\s*pointer;/);
+  assert.match(
+    baseCss,
+    /\.persona\.active \.persona-key \.typing-status\s*\{[\s\S]*?color:\s*var\(--list-active-text\);/,
+    "typing preview should switch to the active-list text color on selected conversation cards"
+  );
   const tagButtonRule = baseCss.match(/button\.persona-tag-chip\s*\{([\s\S]*?)\}/)?.[1] || "";
   assert.doesNotMatch(tagButtonRule, /font:\s*inherit/);
   assert.match(baseCss, /\.persona-tag-input\s*\{[\s\S]*?font-size:\s*10px;/);
