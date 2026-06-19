@@ -276,6 +276,14 @@
     return api.normalizeContentBlocks(blocks);
   }
 
+  function assistantTextFromBlocks(blocks) {
+    return (Array.isArray(blocks) ? blocks : [])
+      .filter((block) => block && block.type === "text")
+      .map((block) => String(block.text || "").trim())
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
   function thinkingStatusText(block) {
     if (block.text) return block.text;
     if (block.status === "completed" && typeof block.duration === "number") return `已思考 ${Number(block.duration).toFixed(1)}s`;
@@ -287,6 +295,7 @@
   function renderAssistantContentBlocks({ blocks, renderTextBlock, expanded, scopeKey }) {
     const normalized = normalizeAssistantBlocks(blocks);
     if (!normalized.length) return "";
+    const assistantContent = assistantTextFromBlocks(normalized);
     const rows = [];
     for (let idx = 0; idx < normalized.length; idx++) {
       const block = normalized[idx];
@@ -298,7 +307,7 @@
         rows.push(renderTraceBlocks({
           reasoning: thinkingStatusText(block),
           tools: [],
-          content: "",
+          content: assistantContent,
           expanded,
           scopeKey: scopeKey ? `${scopeKey}::block::${idx}` : "",
           showReasoningWithoutTools: true

@@ -103,6 +103,25 @@ test("renderAssistantContentBlocks keeps thinking, text, tool, text render order
   assert.match(html, /data-trace-key="msg:m1::block::2::tool::tool_1"/);
 });
 
+test("renderAssistantContentBlocks hides thinking that duplicates the final message", () => {
+  const { traceBlocks } = loadTraceBlocks();
+  const finalText = "今天（6月19日周五）邱县下雨。现在是傍晚到夜间的情况。";
+  const html = traceBlocks.renderAssistantContentBlocks({
+    blocks: [
+      { type: "thinking", id: "think_1", text: finalText, status: "completed" },
+      { type: "text", id: "text_1", text: finalText }
+    ],
+    scopeKey: "msg:m_dup",
+    renderTextBlock(block) {
+      return `<div class="bubble assistant-text-block">${escapeHtml(block.text)}</div>`;
+    }
+  });
+
+  assert.doesNotMatch(html, /class="trace-row reasoning/);
+  assert.equal((html.match(/今天（6月19日周五）邱县下雨/g) || []).length, 1);
+  assert.match(html, /class="bubble assistant-text-block"/);
+});
+
 test("renderAssistantContentBlocks renders file edit blocks as expandable diff trace rows", () => {
   const { traceBlocks } = loadTraceBlocks();
   const html = traceBlocks.renderAssistantContentBlocks({
