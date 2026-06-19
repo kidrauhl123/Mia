@@ -404,3 +404,51 @@ test("targeted removeFromAgents does not add or re-sync other enabled servers", 
     ["beta", true]
   ]);
 });
+
+test("delete keeps the record with sanitized native cleanup errors when removal fails", async (t) => {
+  let syncStep = 0;
+  const { runtime, service } = setup(t, {
+    nativeSync: async () => {
+      syncStep += 1;
+      if (syncStep === 1) {
+        return {
+          success: true,
+          statuses: {
+            codex: { status: "synced", error: "", commands: [{ command: "codex", args: ["mcp", "add"] }] },
+            "claude-code": { status: "synced", error: "", commands: [{ command: "claude", args: ["mcp", "add"] }] }
+          },
+          commands: [{ engine: "codex" }, { engine: "claude-code" }]
+        };
+      }
+      return {
+        success: false,
+        statuses: {
+          codex: { status: "error", message: "Authorization: Bearer ghp_delete_secret" },
+          "claude-code": { status: "synced", error: "", commands: [{ command: "claude", args: ["mcp", "remove"] }] }
+        },
+        commands: [{ engine: "codex" }, { engine: "claude-code" }]
+      };
+    }
+  });
+
+  const saved = await service.save({
+    name: "xhs",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+  });
+  const deleted = await service.delete(saved.data.id);
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(deleted.success, true);
+  assert.equal(deleted.data.servers.length, 1);
+  assert.equal(deleted.data.servers[0].id, saved.data.id);
+  assert.equal(deleted.data.servers[0].sync.codex.status, "error");
+  assert.match(deleted.data.servers[0].sync.codex.message, /\[redacted\]/);
+  assert.doesNotMatch(deleted.data.servers[0].sync.codex.message, /ghp_delete_secret/);
+  assert.equal(deleted.data.servers[0].sync["claude-code"].status, "synced");
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].id, saved.data.id);
+  assert.equal(stored[0].sync.codex.status, "error");
+  assert.match(stored[0].sync.codex.message, /\[redacted\]/);
+  assert.doesNotMatch(stored[0].sync.codex.message, /ghp_delete_secret/);
+});

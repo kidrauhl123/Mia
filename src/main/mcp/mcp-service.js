@@ -104,6 +104,10 @@ function createMcpService(deps = {}) {
     return String(statusEntry.status || "").trim().toLowerCase() === "error";
   }
 
+  function hasNativeErrors(statuses = {}) {
+    return Object.values(statuses || {}).some((statusEntry) => isErrorStatus(statusEntry));
+  }
+
   function hasNativeCommandsOrErrors(statuses = {}, nativeCommands = []) {
     if (Array.isArray(nativeCommands) && nativeCommands.length) return true;
     return Object.values(statuses || {}).some((statusEntry) => (
@@ -258,9 +262,29 @@ function createMcpService(deps = {}) {
       const existing = resolveRecord(current, id);
       if (!existing) throw new Error("MCP server not found.");
       const next = current.filter((record) => record.id !== existing.id);
-      saveRecords(next);
-      const runtime = await applyRuntimeChanges(current, next);
-      return ok({ servers: publicServers(runtime.records), fingerprint: currentFingerprint(runtime.records) });
+      const bridgeState = await refreshBridgeState(next);
+      const native = await nativeSync({
+        previousRecords: normalizeMcpRegistry(current, { now, idFactory }),
+        currentRecords: normalizeMcpRegistry(next, { now, idFactory })
+      });
+      const nativeStatuses = native?.statuses && typeof native.statuses === "object" ? native.statuses : {};
+      if (hasNativeErrors(nativeStatuses)) {
+        const failedRecord = applyStatuses([existing], native)[0];
+        const persisted = saveRecords(current.map((record) => (
+          record.id === existing.id ? failedRecord : record
+        )));
+        return ok({
+          bridge: bridgeState,
+          servers: publicServers(persisted),
+          fingerprint: currentFingerprint(persisted)
+        });
+      }
+      const persisted = saveRecords(next);
+      return ok({
+        bridge: bridgeState,
+        servers: publicServers(persisted),
+        fingerprint: currentFingerprint(persisted)
+      });
     } catch (error) {
       return fail(error);
     }
