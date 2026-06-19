@@ -185,6 +185,8 @@ test("owned cloud bot card reads runtime binding before exposing controls", () =
 test("bot contact-card runtime edits go through bot command adapter", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "contact-card.js"), "utf8");
   assert.match(source, /global\.miaBotCommands\?\.saveBotRuntimeControl\?\.\(\{/);
+  assert.match(source, /global\.mia\?\.savePermissions\?\.\(\{/);
+  assert.match(source, /field === "permissionMode" && isExternal/);
   assert.doesNotMatch(source, new RegExp("global\\.mia\\?\\.social\\?\\.save" + "BotRuntime"));
   assert.doesNotMatch(source, /global\.mia\.saveModel\(/);
   assert.doesNotMatch(source, new RegExp("global\\.mia\\.save" + "FellowEngine\\("));

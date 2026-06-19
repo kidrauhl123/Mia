@@ -295,16 +295,14 @@
 
   function engineLabel(engine = "") {
     if (engine === "mia") return "Mia";
-    if (engine === "claude-code") return "Claude Code";
-    if (engine === "codex") return "Codex";
-    if (engine === "openclaw") return "OpenClaw";
-    return "Hermes";
+    return window.miaEngineContracts?.engineLabel?.(engine) || "Hermes";
   }
 
   function engineLogoKind(engine = "") {
-    if (engine === "claude-code") return "claude";
-    if (engine === "codex") return "codex";
-    if (engine === "openclaw") return "openclaw";
+    const normalized = window.miaEngineContracts?.normalizeAgentEngine?.(engine) || engine;
+    if (normalized === "claude-code") return "claude";
+    if (normalized === "codex") return "codex";
+    if (normalized === "openclaw") return "openclaw";
     return "hermes";
   }
 

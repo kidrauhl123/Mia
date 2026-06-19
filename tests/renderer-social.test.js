@@ -602,7 +602,6 @@ test("ensureBotConversation syncs external bot runtime config for web controls",
     agentEngine: "codex",
     model: "gpt-5.3-codex",
     effortLevel: "xhigh",
-    permissionMode: ":workspace",
     modelEntries: [
       { value: "default", label: "Codex 默认", model: "", provider: "codex", providerLabel: "" },
       { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "" }

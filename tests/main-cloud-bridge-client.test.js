@@ -206,7 +206,7 @@ test("run messages execute the requested Agent engine through the bridge Module"
   assert.equal(calls.chat.length, 1);
   assert.deepEqual(calls.engines, ["codex"]);
   assert.equal(calls.chat[0].bot.agentEngine, "codex");
-  assert.equal(calls.chat[0].bot.engineConfig.permissionMode, "default");
+  assert.equal(calls.chat[0].bot.engineConfig.permissionMode, undefined);
   assert.equal(calls.chat[0].runtimeConfig.agentEngine, "codex");
   assert.equal(calls.chat[0].sessionId, "cloud:c_1");
   assert.equal(calls.chat[0].messages[0].content, "生成猫图");
@@ -276,7 +276,7 @@ test("run messages can choose Claude Code instead of the legacy Codex bridge", a
   assert.equal(calls.chat[0].bot.key, "helper");
   assert.equal(calls.chat[0].bot.name, "Helper");
   assert.equal(calls.chat[0].bot.agentEngine, "claude-code");
-  assert.equal(calls.chat[0].bot.engineConfig.permissionMode, "bypassPermissions");
+  assert.equal(calls.chat[0].bot.engineConfig.permissionMode, undefined);
   assert.equal(calls.chat[0].bot.engineConfig.model, "sonnet");
   assert.equal(calls.chat[0].runtimeConfig.agentEngine, "claude-code");
   assert.equal(ws.sent[0].event.text, "本机 Claude Code 已开始运行。");

@@ -3,6 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { parseCommandFrontmatter } = require("./agent-command-provider.js");
 const { listExternalAgentSessions: defaultListExternalAgentSessions } = require("./agent-session-index.js");
+const { adapterForEngine } = require("./chat-engine-registry.js");
 
 const EXTERNAL_AGENT_BUILT_IN_COMMANDS = [
   { command: "/help", name: "/help", description: "显示本地外部 Agent 命令帮助", namespace: "builtin", type: "builtin" },
@@ -40,6 +41,21 @@ function agentSessionEntryId(entry) {
 
 function looksLikeUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
+}
+
+function localEngineInfoFor(engine, info = {}) {
+  if (engine === "claude-code") return info.claudeCode || {};
+  if (engine === "codex") return info.codex || {};
+  if (engine === "openclaw") return info.openclaw || {};
+  return {};
+}
+
+function localEngineLabel(engine) {
+  return adapterForEngine(engine).label || engine;
+}
+
+function defaultModelLabel(engine) {
+  return `${localEngineLabel(engine)} 默认模型`;
 }
 
 function createExternalAgentCommandService(deps = {}) {
@@ -130,13 +146,13 @@ function createExternalAgentCommandService(deps = {}) {
 
   function externalAgentStatus({ bot, engine, sessionId }) {
     const info = localAgentEngines();
-    const engineInfo = engine === "claude-code" ? info.claudeCode : info.codex;
+    const engineInfo = localEngineInfoFor(engine, info);
     const config = normalizeBotEngineConfig(bot.engineConfig);
-    const model = config.model || (engine === "claude-code" ? "Claude Code 默认模型" : "Codex 默认模型");
+    const model = config.model || defaultModelLabel(engine);
     const permission = enginePermissionMode(engine) || "default";
     const effort = normalizeEffortLevel(config.effortLevel || "medium", engine);
     const externalSessionId = getAgentSessionId(engine, bot.key, sessionId) || "尚未创建";
-    const label = engine === "claude-code" ? "Claude Code" : "Codex";
+    const label = localEngineLabel(engine);
     return [
       `${bot.name || "当前 Bot"} 使用 ${label} 本地引擎。`,
       `模型：${model}`,
@@ -211,7 +227,7 @@ function createExternalAgentCommandService(deps = {}) {
     if (command === "/status") return externalAgentStatus({ bot, engine, sessionId });
     if (command === "/model") {
       const config = normalizeBotEngineConfig(bot.engineConfig);
-      return `当前模型：${config.model || (engine === "claude-code" ? "Claude Code 默认模型" : "Codex 默认模型")}。\n可以用底部模型选择器切换这个 Bot 的本地引擎模型。`;
+      return `当前模型：${config.model || defaultModelLabel(engine)}。\n可以用底部模型选择器切换这个 Bot 的本地引擎模型。`;
     }
     if (command === "/permissions" || command === "/permission") {
       return `当前权限模式：${enginePermissionMode(engine) || "default"}。\n可以用底部权限选择器切换当前本地引擎权限。`;

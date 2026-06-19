@@ -2529,7 +2529,7 @@ function render() {
   if (!editingModel) updateModelFieldVisibility(runtime);
   if (els.quickModelSelect && document.activeElement !== els.quickModelSelect) {
     const engine = window.miaEngineOptions.activeAgentEngine();
-    const currentModelId = window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw"
+    const currentModelId = window.miaEngineOptions.isExternalAgentEngine(engine)
       ? (window.miaEngineOptions.engineConfigForPersona().model || "default")
       : window.miaModelHelpers.presetKeyForModel(runtime.model);
     if ([...els.quickModelSelect.options].some((option) => option.value === currentModelId)) {
@@ -2540,37 +2540,24 @@ function render() {
   window.miaModelSettings.syncEffortControl(runtime);
   const connectedEntries = window.miaModelSettings.connectedModelEntries(runtime);
   const engine = window.miaEngineOptions.activeAgentEngine();
-  const engineInfo = runtime.agentEngines || {};
-  const externalAvailable = engine === "claude-code"
-    ? engineInfo.claudeCode?.available
-    : engine === "codex"
-      ? engineInfo.codex?.available
-      : engine === "openclaw"
-        ? engineInfo.openclaw?.available
-      : false;
-  setText(els.modelSwitchStatus, engine === "claude-code"
-    ? (externalAvailable ? "Claude Code 本地" : "未检测到 Claude Code")
-    : engine === "codex"
-      ? (externalAvailable ? "Codex 本地" : "未检测到 Codex")
-      : engine === "openclaw"
-        ? (externalAvailable ? "OpenClaw 本地" : "未检测到 OpenClaw")
-      : connectedEntries.length ? (runtime.engineRunning ? "已连接" : runtime.engineInstalled ? "未启动" : "未安装") : "先连接提供商");
+  setText(els.modelSwitchStatus, window.miaEngineOptions.isExternalAgentEngine(engine)
+    ? window.miaEngineOptions.localEngineStatusText(runtime, engine)
+    : connectedEntries.length ? (runtime.engineRunning ? "已连接" : runtime.engineInstalled ? "未启动" : "未安装") : "先连接提供商");
   if (els.quickModelSelect) {
-    els.quickModelSelect.title = window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw"
+    els.quickModelSelect.title = window.miaEngineOptions.isExternalAgentEngine(engine)
       ? `当前模型：${els.quickModelSelect.selectedOptions?.[0]?.textContent || "默认"}`
       : connectedEntries.length
         ? `当前模型：${window.miaModelHelpers.modelDisplayName(runtime.model)}`
         : "未配置模型";
   }
-  const activeIcon = engine === "claude-code"
-    ? window.miaModelHelpers.modelIconSrc({ provider: "anthropic", model: "claude" })
-    : engine === "codex"
-      ? window.miaModelHelpers.modelIconSrc({ provider: "openai-codex", model: "codex" })
-      : engine === "openclaw"
-        ? window.miaModelHelpers.modelIconSrc({ provider: "openclaw", model: "openclaw" })
-      : connectedEntries.length
-        ? window.miaModelHelpers.modelIconSrc(runtime.model || {})
-        : "";
+  const activeIcon = window.miaEngineOptions.isExternalAgentEngine(engine)
+    ? window.miaModelHelpers.modelIconSrc({
+      provider: window.miaEngineOptions.engineIconProvider(engine),
+      model: window.miaEngineOptions.engineIconModel(engine)
+    })
+    : connectedEntries.length
+      ? window.miaModelHelpers.modelIconSrc(runtime.model || {})
+      : "";
   const modelAvatar = document.querySelector(".model-avatar");
   if (modelAvatar) {
     modelAvatar.textContent = activeIcon ? "" : "◇";
@@ -3889,10 +3876,7 @@ function agentEngineForRuntimeControl(context = activeBotRuntimeControlContext()
 }
 
 function isExternalAgentEngineForRuntimeControl(engine) {
-  return Boolean(window.miaEngineContracts?.isExternalEngine?.(engine))
-    || engine === "claude-code"
-    || engine === "codex"
-    || engine === "openclaw";
+  return Boolean(window.miaEngineOptions?.isExternalAgentEngine?.(engine));
 }
 
 function enginePermissionModeForRuntimeControl(engine, runtime = state.runtime) {

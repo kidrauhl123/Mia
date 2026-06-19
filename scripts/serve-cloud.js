@@ -1458,13 +1458,33 @@ function sanitizeRuntimeModelEntries(entries) {
     .filter(Boolean);
 }
 
-function sanitizeRuntimeConfig(inputConfig = {}) {
+function normalizeRuntimeAgentEngine(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  if (raw === "claude" || raw === "claude-code" || raw === "anthropic") return "claude-code";
+  if (raw === "codex" || raw === "openai-codex") return "codex";
+  if (raw === "openclaw" || raw === "open-claw") return "openclaw";
+  if (raw === "hermes" || raw === "cloud-hermes") return "hermes";
+  return "";
+}
+
+function shouldKeepRuntimePermissionMode({ agentEngine = "", runtimeKind = "" } = {}) {
+  const normalizedEngine = normalizeRuntimeAgentEngine(agentEngine);
+  const kind = String(runtimeKind || "").trim();
+  if (kind === "cloud-hermes" || normalizedEngine === "hermes") return true;
+  if (!normalizedEngine && kind !== "desktop-local") return true;
+  return false;
+}
+
+function sanitizeRuntimeConfig(inputConfig = {}, options = {}) {
   const input = inputConfig && typeof inputConfig === "object" ? inputConfig : {};
+  const agentEngine = String(input.agentEngine || input.agent_engine || "").trim().slice(0, 80);
+  const runtimeKind = String(options.runtimeKind || input.runtimeKind || input.runtime_kind || "").trim().slice(0, 80);
   const config = {
     model: String(input.model || "").trim().slice(0, 160),
-    effortLevel: String(input.effortLevel || "medium").trim().slice(0, 40),
-    permissionMode: String(input.permissionMode || "ask").trim().slice(0, 80)
+    effortLevel: String(input.effortLevel || "medium").trim().slice(0, 40)
   };
+  const permissionMode = String(input.permissionMode || input.permission_mode || "ask").trim().slice(0, 80);
+  if (shouldKeepRuntimePermissionMode({ agentEngine, runtimeKind })) config.permissionMode = permissionMode;
   for (const [canonical, aliases, limit] of [
     ["provider", ["provider", "modelProvider", "model_provider"], 80],
     ["providerLabel", ["providerLabel", "provider_label"], 120],
@@ -1478,7 +1498,6 @@ function sanitizeRuntimeConfig(inputConfig = {}) {
     const value = String(raw || "").trim().slice(0, limit);
     if (value) config[canonical] = value;
   }
-  const agentEngine = String(input.agentEngine || input.agent_engine || "").trim().slice(0, 80);
   if (agentEngine) config.agentEngine = agentEngine;
   const deviceId = String(input.deviceId || input.device_id || input.targetDeviceId || input.target_device_id || "").trim().slice(0, 96);
   if (deviceId) config.deviceId = deviceId;
@@ -3600,7 +3619,7 @@ async function handleRequest(req, res, context) {
       if (!bot) return writeError(res, 404, "bot not found");
       if (bot.ownerUserId !== auth.user.id) return writeError(res, 403, "you can only update your own bots");
       const runtimeKind = String(body.runtimeKind || "cloud-hermes").trim() || "cloud-hermes";
-      const config = sanitizeRuntimeConfig(body.config);
+      const config = sanitizeRuntimeConfig(body.config, { runtimeKind });
       const binding = context.runtimeBindingsStore.upsertBinding({
         userId: auth.user.id,
         botId,

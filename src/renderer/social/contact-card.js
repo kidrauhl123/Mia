@@ -278,7 +278,7 @@
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
     const runtimeKind = local.runtimeKind || "desktop-local";
     const engine = local.agentEngine || local.agent_engine || "hermes";
-    const isExternal = engine === "claude-code" || engine === "codex" || engine === "openclaw";
+    const isExternal = Boolean(engineOptions?.isExternalAgentEngine?.(engine));
     const isCloudHermes = runtimeKind === "cloud-hermes";
     const botKey = String(local.key || local.id || ref || "").trim();
     const runtimeBinding = isCloudHermes ? bindingForBot(botKey, runtimeKind) : null;
@@ -322,8 +322,8 @@
     const modelLogoSrc = (() => {
       if (isExternal) {
         return modelHelpers?.modelIconSrc?.({
-          provider: engine === "claude-code" ? "anthropic" : (engine === "openclaw" ? "openclaw" : "openai-codex"),
-          model: currentModelEntry?.model || ""
+          provider: engineOptions?.engineIconProvider?.(engine) || engine,
+          model: currentModelEntry?.model || engineOptions?.engineIconModel?.(engine) || ""
         }) || "";
       }
       return modelHelpers?.modelIconSrc?.(runtime?.model || {}) || "";
@@ -335,10 +335,21 @@
       || "";
     const currentEffortLabel = effortEntries.find((e) => e.value === currentEffort)?.label || "Medium";
 
-    const currentPermission = config.permissionMode
-      || permissionEntries.find((p) => p.value === (isCloudHermes ? "ask" : "default") || (Array.isArray(p.aliases) && p.aliases.includes("default")))?.value
-      || permissionEntries[0]?.value
-      || "";
+    const currentPermission = isCloudHermes
+      ? (config.permissionMode
+        || permissionEntries.find((p) => p.value === "ask")?.value
+        || permissionEntries[0]?.value
+        || "")
+      : isExternal
+        ? (runtime.permissions?.engines?.[engine]
+          || permissionEntries.find((p) => p.value === "default" || (Array.isArray(p.aliases) && p.aliases.includes("default")))?.value
+          || permissionEntries[0]?.value
+          || "")
+        : (runtime.permissions?.mode
+          || config.permissionMode
+          || permissionEntries.find((p) => p.value === "ask")?.value
+          || permissionEntries[0]?.value
+          || "");
     const currentPermissionEntry = permissionEntries.find((p) => p.value === currentPermission || (Array.isArray(p.aliases) && p.aliases.includes(currentPermission)));
     const currentPermissionLabel = currentPermissionEntry?.label || "Ask";
 
@@ -413,6 +424,13 @@
 
     async function persistField(field, value) {
       try {
+        if (field === "permissionMode" && isExternal) {
+          await global.mia?.savePermissions?.({
+            engine,
+            mode: value || "default"
+          });
+          return;
+        }
         await global.miaBotCommands?.saveBotRuntimeControl?.({
           api: global.mia,
           bot: local,

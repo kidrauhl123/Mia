@@ -862,9 +862,8 @@
   }
 
     function permissionEngineLabel(engine) {
-      if (engine === "claude-code") return "Claude Code";
-      if (engine === "codex") return "Codex";
-      if (engine === "openclaw") return "OpenClaw";
+      const label = window.miaEngineContracts?.engineLabel?.(engine);
+      if (label) return label;
       return engine || "Agent";
     }
 

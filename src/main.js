@@ -17,6 +17,10 @@ const {
   resolveChatEngineAdapter
 } = require("./main/chat-engine-registry.js");
 const {
+  enginePermissionStoreTarget,
+  shouldApplyNativePermissionConfig
+} = require("./shared/agent-engine-policy.js");
+const {
   createChatEngineAdapters,
   createStatelessChatEngineAdapters,
   sendWithChatEngineAdapter,
@@ -1869,10 +1873,11 @@ async function sendChatStateless({ botKey, botSnapshot = null, runtimeConfig = n
     const manifest = loadBotManifest();
     ({ bot } = requireBot(manifest, botKey, "还没有可用的 bot，请先在引导里创建一个再发起对话。"));
   }
+  const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
   const chatEngine = resolveChatEngineAdapter(bot);
   return sendWithStatelessChatEngineAdapter(createActiveStatelessChatEngineAdapters(), {
     chatEngine,
-    bot: botWithRuntimeConfig(bot, normalizeTurnRuntimeConfig(runtimeConfig)),
+    bot: botWithRuntimeConfig(bot, normalizeTurnRuntimeConfig(runtimeConfig), { agentEngine: runtimeAgentEngine }),
     systemPrompt,
     userPrompt,
     signal
@@ -2037,13 +2042,20 @@ function normalizeTurnRuntimeConfig(runtimeConfig = null) {
   return config;
 }
 
-function botWithRuntimeConfig(bot, runtimeConfig = {}) {
+function botWithRuntimeConfig(bot, runtimeConfig = {}, options = {}) {
   if (!runtimeConfig || !Object.keys(runtimeConfig).length) return bot;
+  const agentEngine = normalizeAgentEngine(
+    options.agentEngine || bot?.agentEngine || bot?.agent_engine || "hermes",
+    "hermes"
+  );
+  const configForEngine = { ...runtimeConfig };
+  if (enginePermissionStoreTarget(agentEngine) !== "root-mode") delete configForEngine.permissionMode;
+  if (!Object.keys(configForEngine).length) return bot;
   return {
     ...bot,
     engineConfig: {
       ...(bot.engineConfig || bot.engine_config || {}),
-      ...runtimeConfig
+      ...configForEngine
     }
   };
 }
@@ -2108,8 +2120,8 @@ async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages
       ({ bot } = requireBot(manifest, key, "还没有可用的 bot，请先在引导里创建一个再发起对话。"));
     }
     const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
-    let botForTurn = botWithRuntimeConfig(bot, turnRuntimeConfig);
     const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
+    let botForTurn = botWithRuntimeConfig(bot, turnRuntimeConfig, { agentEngine: runtimeAgentEngine });
     if (runtimeAgentEngine) {
       botForTurn = {
         ...botForTurn,
@@ -2353,7 +2365,7 @@ const conversationTitleService = createConversationTitleService({
 
 function applyNativePermissionConfig(settings = {}) {
   const engine = normalizeAgentEngine(settings.engine || settings.agentEngine || settings.agent_engine || "");
-  if (engine !== "codex") return;
+  if (!shouldApplyNativePermissionConfig(engine)) return;
   try {
     syncCodexConfigForPermission(
       mapCodexPermissionMode(settingsStore.enginePermissionMode("codex")),

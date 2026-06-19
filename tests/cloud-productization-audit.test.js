@@ -90,7 +90,8 @@ test("packaged desktop audit can read the final mac zip without requiring unpack
       "function runtimeConfigFromMessage(message) { return message.runtimeConfig || {}; }",
       "async function runCloudBridgeRequest(ws, message = {}) {",
       "  const runtimeConfig = runtimeConfigFromMessage(message);",
-      "  return { permissionMode: runtimeConfig.permissionMode };",
+      "  const agentEngine = runtimeConfig.agentEngine || \"hermes\";",
+      "  return { ...(agentEngine === \"hermes\" ? { permissionMode: runtimeConfig.permissionMode || \"ask\" } : {}) };",
       "}",
     ].join("\n"));
     await asar.createPackage(sourceDir, asarPath);

@@ -2,7 +2,6 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   claudeMessageText,
-  claudePermissionModeForTurn,
   createClaudeCodeChatAdapter,
   normalizeClaudePermissionMode
 } = require("../src/main/claude-code-chat-adapter.js");
@@ -55,23 +54,6 @@ test("normalizeClaudePermissionMode preserves supported modes", () => {
   assert.equal(normalizeClaudePermissionMode(":danger-full-access"), "bypassPermissions");
   assert.equal(normalizeClaudePermissionMode("yolo"), "bypassPermissions");
   assert.equal(normalizeClaudePermissionMode("nope"), "default");
-});
-
-test("claudePermissionModeForTurn prefers runtime config over stale bot config", () => {
-  assert.equal(
-    claudePermissionModeForTurn(
-      { engineConfig: { permissionMode: "default" } },
-      { permissionMode: "bypassPermissions" }
-    ),
-    "bypassPermissions"
-  );
-  assert.equal(
-    claudePermissionModeForTurn(
-      { engine_config: { permission_mode: "default" } },
-      { permission_mode: ":danger-full-access" }
-    ),
-    "bypassPermissions"
-  );
 });
 
 test("claudeMessageText extracts nested assistant text", () => {

@@ -38,21 +38,6 @@ function normalizeClaudePermissionMode(value) {
   return "default";
 }
 
-function claudePermissionModeForTurn(bot = {}, runtimeConfig = null) {
-  return normalizeClaudePermissionMode(
-    runtimeConfig?.permissionMode
-      || runtimeConfig?.permission_mode
-      || bot.engineConfig?.permissionMode
-      || bot.engine_config?.permissionMode
-      || bot.engine_config?.permission_mode
-      || bot.runtimeConfig?.permissionMode
-      || bot.runtime_config?.permissionMode
-      || bot.runtime_config?.permission_mode
-      || bot.agentPermissionMode
-      || "default"
-  );
-}
-
 function envWithExecutableDirFirst(env = {}, executablePath = "") {
   const dir = path.dirname(String(executablePath || ""));
   if (!dir || dir === ".") return env || {};
@@ -434,6 +419,5 @@ function createClaudeCodeChatAdapter(deps = {}) {
 module.exports = {
   claudeMessageText,
   createClaudeCodeChatAdapter,
-  claudePermissionModeForTurn,
   normalizeClaudePermissionMode
 };

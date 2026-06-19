@@ -153,7 +153,7 @@ function createCloudBridgeClient({
           capabilities,
           engineConfig: {
             effortLevel: runtimeConfig.effortLevel || "medium",
-            permissionMode: runtimeConfig.permissionMode || (agentEngine === "hermes" ? "ask" : "default"),
+            ...(agentEngine === "hermes" ? { permissionMode: runtimeConfig.permissionMode || "ask" } : {}),
             ...(runtimeConfig.model ? { model: runtimeConfig.model } : {})
           }
         },

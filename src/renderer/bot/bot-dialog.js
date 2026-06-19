@@ -462,10 +462,7 @@
   }
 
   function engineLabel(engine = "hermes") {
-    if (engine === "claude-code") return "Claude Code";
-    if (engine === "codex") return "Codex";
-    if (engine === "openclaw") return "OpenClaw";
-    return "Hermes";
+    return window.miaEngineContracts?.engineLabel?.(engine) || "Hermes";
   }
 
   function compactDeviceName(value = "") {

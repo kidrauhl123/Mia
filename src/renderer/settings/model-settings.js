@@ -29,10 +29,7 @@
   }
 
   function isExternalEngine(engine) {
-    return Boolean(window.miaEngineContracts?.isExternalEngine?.(engine))
-      || engine === "claude-code"
-      || engine === "codex"
-      || engine === "openclaw";
+    return Boolean(window.miaEngineOptions?.isExternalAgentEngine?.(engine));
   }
 
   function setEffortSelectOptions(engine, currentLevel) {

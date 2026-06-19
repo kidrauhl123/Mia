@@ -864,7 +864,7 @@ test("cloud bridge run forwards selected runtime config to the desktop device", 
     const runMessage = await runMessagePromise;
     assert.equal(runMessage.agentEngine, "claude-code");
     assert.equal(runMessage.runtimeConfig.agentEngine, "claude-code");
-    assert.equal(runMessage.runtimeConfig.permissionMode, "bypassPermissions");
+    assert.equal(runMessage.runtimeConfig.permissionMode, undefined);
     assert.equal(runMessage.runtimeConfig.model, "sonnet");
     assert.equal(runMessage.botId, "helper");
     assert.equal(runMessage.botName, "Helper");

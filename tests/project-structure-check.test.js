@@ -236,7 +236,9 @@ test("cloud bridge remote run is account-authenticated and does not add a separa
   assert.doesNotMatch(body, /等待本机权限确认/);
   assert.match(body, /runtimeConfigFromMessage\(message\)/);
   assert.match(body, /createActiveBridgeChatAdapter\(agentEngine\)/);
-  assert.match(body, /permissionMode: runtimeConfig\.permissionMode/);
+  assert.match(body, /agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/);
+  assert.doesNotMatch(body, /\n\s*permissionMode:\s*runtimeConfig\.permissionMode\s*(?:,|\n)/);
+  assert.match(mainSource, /enginePermissionStoreTarget\(agentEngine\) !== "root-mode"[\s\S]*delete configForEngine\.permissionMode/);
   assert.match(mainSource, /createCloudBridgeClient/, "main must instantiate the cloud bridge Module");
   assert.match(mainSource, /createActiveBridgeChatAdapter/, "main must provide a generic bridge adapter factory");
   assert.doesNotMatch(mainSource, /async function runCloudBridgeRequest/, "main must not own bridge run implementation");

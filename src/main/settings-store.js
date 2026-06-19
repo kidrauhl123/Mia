@@ -12,6 +12,10 @@ const path = require("node:path");
 
 const { normalizeAgentEngine } = require("./chat-engine-registry");
 const { normalizePermissionMode, permissionModeLabel } = require("../permission-modes");
+const {
+  enginePermissionStoreTarget,
+  normalizeEnginePermissionMode
+} = require("../shared/agent-engine-policy");
 
 const APPEARANCE_FONT_PRESETS = ["system", "serif"];
 const MAX_APPEARANCE_BACKGROUND_IMAGE_LENGTH = 4 * 1024 * 1024;
@@ -34,10 +38,10 @@ function createSettingsStore(deps = {}) {
     readJson,
     writeRuntimeConfig,
     readConfiguredPort,
-    // `getEngineState` accessor: writeEffortSettings + writePermissionSettings
-    // call writeRuntimeConfig(engineState.port || readConfiguredPort()), and
-    // main.js reassigns engineState on every Hermes restart — capturing the
-    // object would go stale.
+    // `getEngineState` accessor: writeEffortSettings and Hermes permission
+    // writes call writeRuntimeConfig(engineState.port || readConfiguredPort()),
+    // and main.js reassigns engineState on every Hermes restart — capturing
+    // the object would go stale.
     getEngineState,
     MIA_DAEMON_DEFAULT_PORT,
     MIA_CLOUD_DEFAULT_URL,
@@ -227,19 +231,12 @@ function createSettingsStore(deps = {}) {
     };
   }
 
-  function normalizeEnginePermissionMode(engine, value) {
-    const normalizedEngine = normalizeAgentEngine(engine);
-    const raw = String(value || "").trim();
-    if (normalizedEngine === "hermes") return normalizePermissionMode(raw);
-    return raw || "default";
-  }
-
   function normalizePermissionEngines(value = {}) {
     const source = value && typeof value === "object" ? value : {};
     const engines = {};
     for (const [engine, mode] of Object.entries(source)) {
       const normalizedEngine = normalizeAgentEngine(engine);
-      if (!normalizedEngine || normalizedEngine === "hermes") continue;
+      if (!normalizedEngine || enginePermissionStoreTarget(normalizedEngine) !== "engine-map") continue;
       engines[normalizedEngine] = normalizeEnginePermissionMode(normalizedEngine, mode);
     }
     return engines;
@@ -336,7 +333,8 @@ function createSettingsStore(deps = {}) {
     const normalizedEngine = engine ? normalizeAgentEngine(engine) : "";
     const engines = { ...(current.engines || {}) };
     let mode = current.mode;
-    if (normalizedEngine && normalizedEngine !== "hermes") {
+    const storeTarget = enginePermissionStoreTarget(normalizedEngine || "hermes");
+    if (normalizedEngine && storeTarget === "engine-map") {
       engines[normalizedEngine] = normalizeEnginePermissionMode(normalizedEngine, settings.mode);
     } else {
       mode = normalizePermissionMode(settings.mode);
@@ -347,14 +345,14 @@ function createSettingsStore(deps = {}) {
     };
     fs.mkdirSync(path.dirname(p.permissionSettings), { recursive: true });
     fs.writeFileSync(p.permissionSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-    writeRuntimeConfig(getEngineState()?.port || readConfiguredPort());
+    if (storeTarget === "root-mode") writeRuntimeConfig(getEngineState()?.port || readConfiguredPort());
     return next;
   }
 
   function enginePermissionMode(engine = "hermes") {
     const normalizedEngine = normalizeAgentEngine(engine);
     const settings = permissionSettings();
-    if (normalizedEngine === "hermes") return settings.mode;
+    if (enginePermissionStoreTarget(normalizedEngine) === "root-mode") return settings.mode;
     return normalizeEnginePermissionMode(
       normalizedEngine,
       settings.engines?.[normalizedEngine] || "default"

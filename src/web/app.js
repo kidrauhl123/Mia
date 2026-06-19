@@ -17,6 +17,7 @@ const conversationTagsApi = window.miaConversationTags || {
   assignTagNames: (tags) => tags && typeof tags === "object" ? tags : { items: [], assignments: {} }
 };
 const engineContracts = window.miaEngineContracts || {};
+const agentEnginePolicy = window.miaAgentEnginePolicy || {};
 const normalizeAgentEngine = engineContracts.normalizeAgentEngine || ((value) => {
   const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
   if (id === "claude" || id === "claude-code") return "claude-code";
@@ -31,6 +32,19 @@ const engineLabel = engineContracts.engineLabel || ((value) => {
   if (engine === "openclaw") return "OpenClaw";
   return "Hermes";
 });
+
+function isExternalAgentEngine(value) {
+  const engine = normalizeAgentEngine(value);
+  if (typeof agentEnginePolicy.enginePermissionStoreTarget === "function") {
+    return agentEnginePolicy.enginePermissionStoreTarget(engine) === "engine-map";
+  }
+  if (typeof engineContracts.isExternalEngine === "function") return engineContracts.isExternalEngine(engine);
+  return engine !== "hermes";
+}
+
+function isDesktopExternalRuntime(engine, runtimeKind) {
+  return runtimeKind === "desktop-local" && isExternalAgentEngine(engine);
+}
 
 function isValidPublicUid(value) {
   const text = String(value || "").trim();
@@ -63,7 +77,7 @@ function effortOptions(value) {
     });
   }
   const engine = normalizeAgentEngine(value);
-  if (engine === "claude-code" || engine === "codex" || engine === "openclaw") return [{ value: "medium", label: "Medium" }];
+  if (isExternalAgentEngine(engine)) return [{ value: "medium", label: "Medium" }];
   return ["low", "medium", "high"].map((level) => ({ value: level, label: level[0].toUpperCase() + level.slice(1) }));
 }
 
@@ -1703,7 +1717,7 @@ function selectEntriesForModel(engine, runtimeKind, config = {}) {
       apiMode: String(entry.apiMode || entry.api_mode || "")
     })).filter((entry) => entry.value || entry.model);
   }
-  if (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex" || engine === "openclaw")) {
+  if (isDesktopExternalRuntime(engine, runtimeKind)) {
     return externalModelEntries(engine).map((entry) => ({
       value: entry.model || entry.id,
       model: entry.model,
@@ -1734,7 +1748,7 @@ function selectEntriesForModel(engine, runtimeKind, config = {}) {
 }
 
 function selectEntriesForPermission(engine, runtimeKind) {
-  if (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex" || engine === "openclaw")) {
+  if (isDesktopExternalRuntime(engine, runtimeKind)) {
     return externalPermissionOptions(engine);
   }
   if (runtimeKind === "desktop-local") {
@@ -1792,7 +1806,7 @@ function renderComposerControls(conversation = null) {
   const editable = Boolean(botKey);
 
   const cloudModelEntries = selectEntriesForModel(engine, runtimeKind, config);
-  const isDesktopExternal = runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex" || engine === "openclaw");
+  const isDesktopExternal = isDesktopExternalRuntime(engine, runtimeKind);
   const modelValue = config.provider === "mia" && config.model
     ? (cloudModelEntries.find((entry) => entry.provider === "mia" && entry.model === config.model)?.value || config.model)
     : (config.model || (isDesktopExternal ? "default" : cloudModelEntries[0]?.value || "mia-default"));
@@ -1807,7 +1821,7 @@ function renderComposerControls(conversation = null) {
   const effortLabel = setSelectOptions(els.effortSelect, effortOptions(engine), effort, "Medium");
   if (els.effortLabel) els.effortLabel.textContent = effortLabel || "Medium";
 
-  const permission = config.permissionMode || (isDesktopExternal ? "default" : "ask");
+  const permission = isDesktopExternal ? "default" : (config.permissionMode || "ask");
   const permissionLabel = setSelectOptions(els.permissionMode, selectEntriesForPermission(engine, runtimeKind), permission, "Ask");
   if (els.permissionLabel) els.permissionLabel.textContent = permissionLabel || "Ask";
   const permissionWrap = els.permissionMode?.closest?.(".permission-switcher");
@@ -1816,7 +1830,7 @@ function renderComposerControls(conversation = null) {
 
   if (els.quickModelSelect) els.quickModelSelect.disabled = !editable;
   if (els.effortSelect) els.effortSelect.disabled = !editable;
-  if (els.permissionMode) els.permissionMode.disabled = !editable;
+  if (els.permissionMode) els.permissionMode.disabled = !editable || isDesktopExternal;
   setModelSwitchStatus(engineLabel(engine), editable);
 
   if (editable && !state.botRuntimeCache.has(runtimeCacheKey(botKey, runtimeKind))) {
@@ -1845,6 +1859,11 @@ async function saveWebAiControl(kind, value) {
   };
   const config = { ...(current.config || {}) };
   const engine = engineForRuntimeBinding(runtimeKind, current);
+  if (kind === "permission" && isDesktopExternalRuntime(engine, runtimeKind)) {
+    showToast("请在桌面端调整本机引擎权限。");
+    renderComposerControls(conversation);
+    return;
+  }
   const modelEntries = kind === "model" ? selectEntriesForModel(engine, runtimeKind, config) : [];
   setModelSwitchStatus("保存中...", true);
   try {
@@ -3115,14 +3134,15 @@ function webRuntimeConfigForTarget(target = {}) {
     };
   }
   const engine = normalizeAgentEngine(target.agentEngine || "hermes");
-  return {
+  const config = {
     agentEngine: engine,
     deviceId: String(target.deviceId || "").trim(),
     deviceName: webCompactDeviceName(target.deviceName || ""),
     model: "",
-    effortLevel: "medium",
-    permissionMode: engine === "hermes" ? "ask" : "default"
+    effortLevel: "medium"
   };
+  if (!isExternalAgentEngine(engine)) config.permissionMode = "ask";
+  return config;
 }
 
 function webRuntimeLabelForTarget(target = {}) {

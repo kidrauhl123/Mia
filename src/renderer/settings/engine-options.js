@@ -36,6 +36,54 @@
     return engineContracts.normalizeAgentEngine ? engineContracts.normalizeAgentEngine(engine) : engine;
   }
 
+  function normalizeAgentEngine(engine) {
+    if (engineContracts.normalizeAgentEngine) return engineContracts.normalizeAgentEngine(engine);
+    const raw = String(engine || "hermes").trim().toLowerCase().replace(/_/g, "-");
+    if (raw === "claude" || raw === "claude-code") return "claude-code";
+    if (raw === "codex" || raw === "openai-codex") return "codex";
+    if (raw === "openclaw" || raw === "open-claw") return "openclaw";
+    return "hermes";
+  }
+
+  function isExternalAgentEngine(engine) {
+    return Boolean(engineContracts.isExternalEngine?.(normalizeAgentEngine(engine)));
+  }
+
+  function engineLabel(engine) {
+    return engineContracts.engineLabel?.(engine) || normalizeAgentEngine(engine);
+  }
+
+  function runtimeAgentEngineInfo(runtime, engine) {
+    const normalized = normalizeAgentEngine(engine);
+    const info = runtime?.agentEngines || {};
+    if (normalized === "claude-code") return info.claudeCode || {};
+    if (normalized === "codex") return info.codex || {};
+    if (normalized === "openclaw") return info.openclaw || {};
+    return {};
+  }
+
+  function localEngineStatusText(runtime, engine) {
+    const label = engineLabel(engine);
+    const info = runtimeAgentEngineInfo(runtime, engine);
+    return info.available ? `${label} 本地` : `未检测到 ${label}`;
+  }
+
+  function engineIconProvider(engine) {
+    const normalized = normalizeAgentEngine(engine);
+    if (normalized === "claude-code") return "anthropic";
+    if (normalized === "codex") return "openai-codex";
+    if (normalized === "openclaw") return "openclaw";
+    return normalized;
+  }
+
+  function engineIconModel(engine) {
+    const normalized = normalizeAgentEngine(engine);
+    if (normalized === "claude-code") return "claude";
+    if (normalized === "codex") return "codex";
+    if (normalized === "openclaw") return "openclaw";
+    return normalized;
+  }
+
   function engineConfigForPersona(persona = activePersona?.()) {
     return persona?.engineConfig || persona?.engine_config || {};
   }
@@ -105,6 +153,13 @@
   window.miaEngineOptions = {
     initEngineOptions,
     activeAgentEngine,
+    normalizeAgentEngine,
+    isExternalAgentEngine,
+    engineLabel,
+    runtimeAgentEngineInfo,
+    localEngineStatusText,
+    engineIconProvider,
+    engineIconModel,
     engineConfigForPersona,
     externalModelEntries,
     externalPermissionOptions,

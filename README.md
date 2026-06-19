@@ -117,7 +117,7 @@ openclaw --version
 
 Hermes 是 Mia 支持的上游开源 Agent runtime，用户按官方方式自行安装，Mia 从 PATH 探测复用（不干预安装路径），或跑在云端 Docker，不随安装包打包。
 
-Mia 复用用户本机 Agent 时，优先保证稳定可用并遵循上游成熟配置路径。Codex 使用用户原生 `~/.codex`，不维护第二套 Codex home；每个伙伴的模型、推理强度由 Mia 按本次运行显式传入，权限按引擎级设置保存。用户在 Mia 中修改 Codex 权限时，Mia 会把当前引擎权限同步到 `~/.codex/config.toml` 作为上游兼容配置。
+Mia 复用用户本机 Agent 时，优先保证稳定可用并遵循上游成熟配置路径。Codex 使用用户原生 `~/.codex`，Claude Code / OpenClaw 使用各自原生默认用户环境，Hermes 当前仍由 Mia 管理 runtime home。每个伙伴的模型、推理强度由 Mia 按本次运行显式传入；权限按引擎级保存，同一引擎下所有伙伴共享。用户在 Mia 中修改权限时，Mia 只对需要用户级配置的引擎做一次 apply，例如 Codex 会更新 `~/.codex/config.toml`；不会在每次发消息前做配置 sync。
 
 ### 打包桌面端
 

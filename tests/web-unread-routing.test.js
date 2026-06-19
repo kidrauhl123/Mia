@@ -143,10 +143,14 @@ test("src/web/app/index.html uses the signed-in user avatar in the rail", () => 
 test("src/web/app/index.html loads shared engine contracts before app.js", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   const engineIdx = html.indexOf("shared/engine-contracts.js");
+  const policyIdx = html.indexOf("shared/agent-engine-policy.js");
   const appIdx = html.indexOf("../app.js");
   assert.ok(engineIdx >= 0, "index.html must reference shared/engine-contracts.js");
+  assert.ok(policyIdx >= 0, "index.html must reference shared/agent-engine-policy.js");
   assert.ok(appIdx >= 0, "index.html must load app.js");
   assert.ok(engineIdx < appIdx, "engine contracts must be loaded before app.js");
+  assert.ok(engineIdx < policyIdx, "engine contracts must load before agent-engine-policy.js");
+  assert.ok(policyIdx < appIdx, "agent engine policy must be loaded before app.js");
 });
 
 test("src/web/app/index.html loads shared session-history before app.js", () => {
@@ -475,6 +479,12 @@ test("scripts/build-cloud-release.js copies shared/engine-contracts.js into the 
     /copyFile\(["']src\/shared\/engine-contracts\.js["'][^)]+["']shared["'][^)]+["']engine-contracts\.js["']\)/,
     "build-cloud-release must copy src/shared/engine-contracts.js to web/shared/engine-contracts.js"
   );
+  assert.match(
+    build,
+    /copyFile\(["']src\/shared\/agent-engine-policy\.js["'][^)]+["']shared["'][^)]+["']agent-engine-policy\.js["']\)/,
+    "build-cloud-release must copy src/shared/agent-engine-policy.js to web/shared/agent-engine-policy.js"
+  );
+  assert.match(build, /"web\/shared\/agent-engine-policy\.js"/);
 });
 
 test("scripts/build-cloud-release.js copies shared/session-history.js into the web tree", () => {
@@ -793,6 +803,10 @@ test("src/web/app.js lets web controls update desktop-local bot runtime bindings
   assert.match(source, /const editable = Boolean\(botKey\);/);
   assert.match(source, /window\.miaBotRuntimeControl/);
   assert.match(source, /saveBotRuntimeControl\(\{/);
+  assert.match(source, /function isDesktopExternalRuntime\(engine, runtimeKind\)/);
+  assert.match(source, /kind === "permission" && isDesktopExternalRuntime\(engine, runtimeKind\)/);
+  assert.match(source, /if \(!isExternalAgentEngine\(engine\)\) config\.permissionMode = "ask";/);
+  assert.doesNotMatch(source, /permissionMode: engine === "hermes" \? "ask" : "default"/);
   assert.doesNotMatch(source, /body:\s*\{ runtimeKind, enabled: true, config \}/);
 });
 

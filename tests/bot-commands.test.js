@@ -207,7 +207,6 @@ test("saveBot retargets cloud-sourced desktop bots through cloud runtime binding
     deviceName: "Windows PC",
     model: "gpt-test",
     effortLevel: "high",
-    permissionMode: "default",
     modelEntries: []
   });
   assert.equal(result.bot.targetDeviceId, "win-1");
@@ -556,6 +555,33 @@ test("saveBotRuntimeControl saves desktop-local external engine controls through
   ]);
 });
 
+test("saveBotRuntimeControl does not save desktop-local external permissionMode into bot runtime binding", async () => {
+  const calls = [];
+  const api = {
+    social: {
+      async getBotRuntime(botId, runtimeKind) {
+        calls.push(["get", botId, runtimeKind]);
+        return { ok: true, data: { binding: { botId, runtimeKind, enabled: true, config: { agentEngine: "codex" } } } };
+      },
+      async saveBotRuntime(botId, body) {
+        calls.push(["save", botId, body]);
+        return { ok: true, data: { binding: { botId, ...body } } };
+      }
+    }
+  };
+
+  const result = await commands.saveBotRuntimeControl({
+    api,
+    bot: { key: "codex", runtimeKind: "desktop-local", agentEngine: "codex" },
+    field: "permissionMode",
+    value: ":danger-full-access"
+  });
+
+  assert.deepEqual(result, { saved: false, runtime: null, binding: null });
+  assert.deepEqual(calls, []);
+});
+
+
 test("saveBotRuntimeConfig merges patch with current cloud runtime binding", async () => {
   const calls = [];
   const cache = new Map();
@@ -720,7 +746,6 @@ test("ensureDesktopLocalBotConversation creates conversation and syncs external 
     agentEngine: "codex",
     model: "gpt-5.3-codex",
     effortLevel: "xhigh",
-    permissionMode: ":danger-full-access",
     modelEntries: [
       { value: "default", label: "Codex 默认", model: "", provider: "codex", providerLabel: "" },
       { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "" }

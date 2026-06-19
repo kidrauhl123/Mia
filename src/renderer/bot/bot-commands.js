@@ -402,6 +402,12 @@
     return "hermes";
   }
 
+  function isExternalAgentEngine(engine, engineContracts = global?.miaEngineContracts, engineOptions = global?.miaEngineOptions) {
+    if (typeof engineOptions?.isExternalAgentEngine === "function") return engineOptions.isExternalAgentEngine(engine);
+    if (typeof engineContracts?.isExternalEngine === "function") return engineContracts.isExternalEngine(engine);
+    return normalizeAgentEngine(engine, engineContracts) !== "hermes";
+  }
+
   function normalizeModelEntry(entry = {}, fallbackProvider = "") {
     const normalized = {
       value: String(entry.model || entry.id || entry.value || "").trim(),
@@ -472,10 +478,9 @@
       ...(deviceId ? { deviceId } : {}),
       ...(deviceName ? { deviceName } : {})
     };
-    if (engine === "claude-code" || engine === "codex" || engine === "openclaw") {
+    if (isExternalAgentEngine(engine, engineContracts, engineOptions)) {
       config.model = String(engineConfig.model || "").trim();
       config.effortLevel = String(engineConfig.effortLevel || "medium").trim();
-      config.permissionMode = String(runtime.permissions?.engines?.[engine] || "default").trim();
       config.modelEntries = externalModelEntries(engine, engineOptions);
       return config;
     }
@@ -571,11 +576,17 @@
     field = "",
     value = "",
     modelEntries = [],
-    engineContracts = global?.miaEngineContracts
+    engineContracts = global?.miaEngineContracts,
+    engineOptions = global?.miaEngineOptions
   } = {}) {
     const kind = String(runtimeKind || bot?.runtimeKind || bot?.runtime_kind || "desktop-local").trim();
     const key = String(bot?.key || bot?.id || "").trim();
     if (!key) return { saved: false, runtime: null, binding: null };
+    const normalizedField = field === "permission" ? "permissionMode" : field;
+    const engine = normalizeAgentEngine(bot?.agentEngine || bot?.agent_engine || "hermes", engineContracts);
+    if (kind === "desktop-local" && normalizedField === "permissionMode" && isExternalAgentEngine(engine, engineContracts, engineOptions)) {
+      return { saved: false, runtime: null, binding: null };
+    }
     const patch = patchForRuntimeField(field, value, modelEntries);
     if (!Object.keys(patch).length) return { saved: false, binding: null };
     return saveBotRuntimeConfig({ api, cache, botKey: key, runtimeKind: kind, patch });

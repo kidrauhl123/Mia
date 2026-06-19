@@ -1,6 +1,10 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const {
+  agentEnginePolicy,
+  nativeHomePathForEngine
+} = require("../shared/agent-engine-policy");
 
 function createAgentRuntimeProfileService(deps = {}) {
   const runtimePaths = deps.runtimePaths;
@@ -12,7 +16,7 @@ function createAgentRuntimeProfileService(deps = {}) {
   function ensureCodexProfile() {
     // Mia runs Codex against the user's native Codex home. Keeping one
     // source of truth avoids config/session drift between Mia and Codex CLI.
-    const home = path.join(homeDir(), ".codex");
+    const home = nativeHomePathForEngine("codex", homeDir()) || path.join(homeDir(), ".codex");
     fsImpl.mkdirSync(home, { recursive: true });
     return { home, userHome: home, env: { CODEX_HOME: home } };
   }
@@ -24,9 +28,8 @@ function createAgentRuntimeProfileService(deps = {}) {
   }
 
   function claudeRunProfile() {
-    const home = path.join(runtimePaths().runtime, "claude-code-home");
-    fsImpl.mkdirSync(home, { recursive: true });
-    return { home, env: { MIA_CLAUDE_HOME: home } };
+    const policy = agentEnginePolicy("claude-code");
+    return { home: "", env: {}, homeStrategy: policy.homeStrategy };
   }
 
   return {

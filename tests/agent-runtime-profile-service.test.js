@@ -50,12 +50,12 @@ test("hermes profile uses Mia-owned home", (t) => {
   assert.ok(fs.existsSync(runtime.home));
 });
 
-test("claude profile uses a Mia-owned per-run home marker", (t) => {
+test("claude profile uses the engine's native default home", (t) => {
   const { service, runtime } = setup(t);
 
   const profile = service.claudeRunProfile();
 
-  assert.equal(profile.home, path.join(runtime.runtime, "claude-code-home"));
-  assert.equal(profile.env.MIA_CLAUDE_HOME, profile.home);
-  assert.ok(fs.existsSync(profile.home));
+  assert.equal(profile.home, "");
+  assert.deepEqual(profile.env, {});
+  assert.equal(fs.existsSync(path.join(runtime.runtime, "claude-code-home")), false);
 });

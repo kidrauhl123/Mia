@@ -82,6 +82,12 @@ test("local bridge permission mapping never waits for hidden CLI approval UI", (
   });
 });
 
+test("local bridge Codex permission is local process config, not cloud runtime config", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "scripts", "local-agent-bridge.js"), "utf8");
+  assert.match(source, /mapPermissionMode\(process\.env\.MIA_CODEX_PERMISSION \|\| "default"\)/);
+  assert.doesNotMatch(source, /runtimeConfig\.permissionMode \|\| runtimeConfig\.permission_mode/);
+});
+
 test("local bridge includes attachment paths and text previews in Codex prompt", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-bridge-prompt-"));
   try {

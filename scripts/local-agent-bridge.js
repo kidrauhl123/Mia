@@ -303,7 +303,7 @@ async function runCodex(text, { signal = null, ws = null, runId = "", attachment
       workingDirectory: cwd,
       skipGitRepoCheck: true,
       modelReasoningEffort: runtimeConfig.effortLevel || runtimeConfig.effort_level || process.env.MIA_CODEX_EFFORT || "medium",
-      ...mapPermissionMode(runtimeConfig.permissionMode || runtimeConfig.permission_mode || process.env.MIA_CODEX_PERMISSION || "default")
+      ...mapPermissionMode(process.env.MIA_CODEX_PERMISSION || "default")
     };
     if (runtimeConfig.model) threadOptions.model = String(runtimeConfig.model);
     const thread = codex.startThread(threadOptions);
