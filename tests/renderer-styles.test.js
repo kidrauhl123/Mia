@@ -95,7 +95,7 @@ test("chat avatar display settings do not hide group participant avatars", () =>
 test("sidebar and chat headers use the same surface and own their divider line", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
-  assert.match(baseCss, /--surface-layer:\s*#fbfbfc;/);
+  assert.match(baseCss, /--surface-layer:\s*#f5f7f8;/);
   assert.match(
     baseCss,
     /\.sidebar\s*\{[^}]*background:\s*var\(--surface-layer\);/,
