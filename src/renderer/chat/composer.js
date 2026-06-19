@@ -33,6 +33,215 @@
     openImagePreview = deps.openImagePreview;
     appendTransientChat = deps.appendTransientChat;
     cryptoRandomId = deps.cryptoRandomId;
+    installComposerInputAdapter();
+  }
+
+  function isRichComposerInput(input = els?.chatInput) {
+    return Boolean(input && typeof input.getAttribute === "function" && input.getAttribute("contenteditable") === "true");
+  }
+
+  function editorContainsNode(editor, node) {
+    if (!editor || !node) return false;
+    return node === editor || editor.contains?.(node.nodeType === 3 ? node.parentNode : node);
+  }
+
+  function serializeComposerNode(node) {
+    if (!node) return "";
+    if (node.nodeType === 3) return String(node.nodeValue || "").replace(/\u00a0/g, " ");
+    if (node.nodeType !== 1 && node.nodeType !== 11) return "";
+    if (node.nodeType === 1) {
+      const element = node;
+      if (element.dataset?.pathRefToken) return String(element.dataset.pathRefToken || "");
+      if (element.tagName === "BR") return "\n";
+    }
+    return Array.from(node.childNodes || []).map(serializeComposerNode).join("");
+  }
+
+  function composerInputPlainText(input = els?.chatInput) {
+    if (!input) return "";
+    if (isRichComposerInput(input)) return serializeComposerNode(input);
+    return String(input.value || "");
+  }
+
+  function textFragmentForEditor(text) {
+    if (typeof document === "undefined") return null;
+    const fragment = document.createDocumentFragment();
+    const parts = String(text || "").split("\n");
+    parts.forEach((part, index) => {
+      if (index > 0) fragment.appendChild(document.createElement("br"));
+      if (part) fragment.appendChild(document.createTextNode(part));
+    });
+    return fragment;
+  }
+
+  function setRichComposerText(input, value) {
+    input.innerHTML = "";
+    const fragment = textFragmentForEditor(value);
+    if (fragment) input.appendChild(fragment);
+  }
+
+  function selectionOffsetForPoint(input, container, offset) {
+    if (!isRichComposerInput(input) || typeof document === "undefined" || !editorContainsNode(input, container)) {
+      return composerInputPlainText(input).length;
+    }
+    try {
+      const range = document.createRange();
+      range.setStart(input, 0);
+      range.setEnd(container, offset);
+      return serializeComposerNode(range.cloneContents()).length;
+    } catch {
+      return composerInputPlainText(input).length;
+    }
+  }
+
+  function richComposerSelectionOffset(input, edge = "start") {
+    if (!isRichComposerInput(input) || typeof window === "undefined") return 0;
+    const selection = window.getSelection?.();
+    if (!selection || !selection.rangeCount) return composerInputPlainText(input).length;
+    const range = selection.getRangeAt(0);
+    const container = edge === "end" ? range.endContainer : range.startContainer;
+    const offset = edge === "end" ? range.endOffset : range.startOffset;
+    return selectionOffsetForPoint(input, container, offset);
+  }
+
+  function offsetPointInEditor(input, targetOffset) {
+    const target = Math.max(0, Number(targetOffset) || 0);
+    let cursor = 0;
+    const childIndex = (node) => Array.prototype.indexOf.call(node.parentNode?.childNodes || [], node);
+
+    function pointBefore(node) {
+      return { node: node.parentNode || input, offset: Math.max(0, childIndex(node)) };
+    }
+
+    function pointAfter(node) {
+      return { node: node.parentNode || input, offset: Math.max(0, childIndex(node) + 1) };
+    }
+
+    function walk(node) {
+      if (node.nodeType === 3) {
+        const text = String(node.nodeValue || "");
+        if (target <= cursor + text.length) return { node, offset: Math.max(0, target - cursor) };
+        cursor += text.length;
+        return null;
+      }
+      if (node.nodeType !== 1 && node.nodeType !== 11) return null;
+      if (node.nodeType === 1) {
+        const element = node;
+        const token = element.dataset?.pathRefToken || "";
+        if (token) {
+          if (target <= cursor) return pointBefore(element);
+          if (target < cursor + token.length) return pointAfter(element);
+          cursor += token.length;
+          return null;
+        }
+        if (element.tagName === "BR") {
+          if (target <= cursor) return pointBefore(element);
+          if (target <= cursor + 1) return pointAfter(element);
+          cursor += 1;
+          return null;
+        }
+      }
+      for (const child of Array.from(node.childNodes || [])) {
+        const found = walk(child);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    return walk(input) || { node: input, offset: input.childNodes.length };
+  }
+
+  function setRichComposerSelectionRange(input, start, end = start) {
+    if (!isRichComposerInput(input) || typeof document === "undefined" || typeof window === "undefined") return;
+    const range = document.createRange();
+    const startPoint = offsetPointInEditor(input, start);
+    const endPoint = offsetPointInEditor(input, end);
+    range.setStart(startPoint.node, startPoint.offset);
+    range.setEnd(endPoint.node, endPoint.offset);
+    const selection = window.getSelection?.();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+
+  function currentRichComposerRange(input) {
+    if (!isRichComposerInput(input) || typeof document === "undefined" || typeof window === "undefined") return null;
+    const selection = window.getSelection?.();
+    if (selection?.rangeCount) {
+      const range = selection.getRangeAt(0);
+      if (editorContainsNode(input, range.commonAncestorContainer)) return range;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(input);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    return range;
+  }
+
+  function insertRichComposerFragment(input, fragment, caretNode = null) {
+    const range = currentRichComposerRange(input);
+    if (!range || !fragment) return false;
+    range.deleteContents();
+    range.insertNode(fragment);
+    if (caretNode && typeof window !== "undefined") {
+      const nextRange = document.createRange();
+      if (caretNode.nodeType === 3) nextRange.setStart(caretNode, caretNode.nodeValue.length);
+      else nextRange.setStartAfter(caretNode);
+      nextRange.collapse(true);
+      const selection = window.getSelection?.();
+      selection?.removeAllRanges();
+      selection?.addRange(nextRange);
+    }
+    return true;
+  }
+
+  function insertRichComposerText(input, text) {
+    const fragment = textFragmentForEditor(text);
+    if (!fragment) return false;
+    const lastNode = fragment.lastChild;
+    return insertRichComposerFragment(input, fragment, lastNode);
+  }
+
+  function installComposerInputAdapter() {
+    const input = els?.chatInput;
+    if (!isRichComposerInput(input) || input.dataset.miaComposerAdapter === "1") return;
+    input.dataset.miaComposerAdapter = "1";
+    Object.defineProperty(input, "value", {
+      configurable: true,
+      get() {
+        return composerInputPlainText(input);
+      },
+      set(value) {
+        setRichComposerText(input, value);
+      }
+    });
+    Object.defineProperty(input, "selectionStart", {
+      configurable: true,
+      get() {
+        return richComposerSelectionOffset(input, "start");
+      }
+    });
+    Object.defineProperty(input, "selectionEnd", {
+      configurable: true,
+      get() {
+        return richComposerSelectionOffset(input, "end");
+      }
+    });
+    input.setSelectionRange = (start, end = start) => setRichComposerSelectionRange(input, start, end);
+    input.addEventListener("click", (event) => {
+      const button = event.target?.closest?.("[data-remove-path-ref]");
+      if (button) {
+        event.preventDefault();
+        event.stopPropagation();
+        removePathPasteRef(button.dataset.removePathRef || "");
+        return;
+      }
+      const chip = event.target?.closest?.("[data-path-ref-token]");
+      if (!chip || !input.contains(chip)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openPathPasteRefPreview(chip.dataset.pathRefToken || "");
+    });
   }
 
   function filteredSlashCommands() {
@@ -138,6 +347,11 @@
   function renderComposerAttachments() {
     if (!state || !els || !els.composerAttachments) return;
     const attachments = state.pendingAttachments;
+    const composerCard = typeof els.composerAttachments.closest === "function"
+      ? els.composerAttachments.closest(".composer-card")
+      : null;
+    composerCard?.classList?.toggle("has-attachments", attachments.length > 0);
+    els.chatForm?.classList?.toggle("has-attachments", attachments.length > 0);
     els.composerAttachments.classList.toggle("hidden", attachments.length === 0);
     els.composerAttachments.innerHTML = attachments.map((attachment) => {
       const kind = attachment.kind || window.miaFormat.attachmentKind(attachment);
@@ -364,6 +578,352 @@
     els.chatInput.focus();
     resizeChatInput();
     renderSendButton();
+  }
+
+  function isMacPathPastePlatform(platform) {
+    return /mac|iphone|ipad|ipod/i.test(String(platform || ""));
+  }
+
+  function currentPathPastePlatform() {
+    if (typeof navigator === "undefined") return "";
+    return navigator.userAgentData?.platform || navigator.platform || "";
+  }
+
+  function isPathPasteShortcut(event, platform = currentPathPastePlatform()) {
+    if (!event || event.isComposing || event.repeat) return false;
+    const key = String(event.key || "").toLowerCase();
+    const code = String(event.code || "").toLowerCase();
+    if (key !== "v" && code !== "keyv") return false;
+    if (isMacPathPastePlatform(platform)) {
+      return Boolean(event.ctrlKey && !event.metaKey && !event.altKey);
+    }
+    return Boolean(event.altKey && !event.ctrlKey && !event.metaKey);
+  }
+
+  function stripWrappingQuotes(value) {
+    const text = String(value || "").trim();
+    if (text.length < 2) return text;
+    const first = text[0];
+    const last = text[text.length - 1];
+    if ((first === `"` && last === `"`) || (first === `'` && last === `'`)) {
+      return text.slice(1, -1).trim();
+    }
+    return text;
+  }
+
+  function normalizeFileUrlPath(value) {
+    const text = String(value || "").trim();
+    if (!/^file:/i.test(text)) return text;
+    try {
+      const url = new URL(text);
+      let pathname = decodeURIComponent(url.pathname || "");
+      if (/^\/[A-Za-z]:\//.test(pathname)) pathname = pathname.slice(1);
+      return pathname || text;
+    } catch {
+      return text.replace(/^file:\/\//i, "");
+    }
+  }
+
+  function normalizePathPasteLine(line) {
+    return normalizeFileUrlPath(stripWrappingQuotes(line));
+  }
+
+  function normalizePathPasteText(value) {
+    return String(value || "")
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map(normalizePathPasteLine)
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  function escapeRegExp(value) {
+    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function activeImagePathRefs() {
+    return (state?.pathPasteRefs || []).filter((ref) => ref?.token && ref?.path && String(ref.kind || "") === "image");
+  }
+
+  function createPathPasteChip(ref) {
+    if (typeof document === "undefined" || !ref?.token) return null;
+    const chip = document.createElement("span");
+    chip.className = "composer-path-ref";
+    chip.contentEditable = "false";
+    chip.dataset.pathRefToken = ref.token;
+    chip.setAttribute("role", "button");
+    chip.setAttribute("aria-label", `预览 ${ref.token}`);
+    chip.title = ref.path || ref.token;
+    chip.innerHTML = `
+      <span class="composer-path-ref-icon" aria-hidden="true"></span>
+      <span class="composer-path-ref-label"></span>
+      <button type="button" class="composer-path-ref-remove" data-remove-path-ref="" aria-label=""></button>
+    `;
+    const label = chip.querySelector(".composer-path-ref-label");
+    const button = chip.querySelector("[data-remove-path-ref]");
+    if (label) label.textContent = ref.token;
+    if (button) {
+      button.dataset.removePathRef = ref.token;
+      button.setAttribute("aria-label", `移除 ${ref.token}`);
+      button.textContent = "×";
+    }
+    return chip;
+  }
+
+  async function openPathPasteRefPreview(token) {
+    if (!state || !token) return false;
+    const ref = (state.pathPasteRefs || []).find((item) => String(item?.token || "") === String(token));
+    if (!ref?.path || typeof openImagePreview !== "function") return false;
+    try {
+      const attachment = typeof window !== "undefined" && typeof window.mia?.fetchFileAttachment === "function"
+        ? await window.mia.fetchFileAttachment({ path: ref.path })
+        : null;
+      if (attachment?.error) throw new Error(attachment.message || "图片读取失败");
+      const src = String(attachment?.dataUrl || attachment?.previewDataUrl || attachment?.thumbnailDataUrl || "").trim();
+      if (!src.startsWith("data:image/")) throw new Error("这不是可预览的图片。");
+      openImagePreview(src, attachment?.name || ref.path || ref.token);
+      return true;
+    } catch (error) {
+      appendTransientChat?.("assistant", `图片预览失败: ${error?.message || error}`);
+      return false;
+    }
+  }
+
+  function insertPathPasteChip(ref) {
+    const input = els?.chatInput;
+    if (!isRichComposerInput(input)) return insertPathPasteText(ref?.token || "");
+    const chip = createPathPasteChip(ref);
+    if (!chip) return false;
+    input.focus?.();
+    const value = composerInputPlainText(input);
+    const start = input.selectionStart || 0;
+    const end = input.selectionEnd || start;
+    const beforeSpace = start > 0 && value[start - 1] && !/\s/.test(value[start - 1])
+      ? document.createTextNode(" ")
+      : null;
+    const afterSpace = document.createTextNode(" ");
+    const fragment = document.createDocumentFragment();
+    if (beforeSpace) fragment.appendChild(beforeSpace);
+    fragment.appendChild(chip);
+    fragment.appendChild(afterSpace);
+    const inserted = insertRichComposerFragment(input, fragment, afterSpace);
+    if (!inserted) return false;
+    afterComposerTextProgrammaticChange();
+    return true;
+  }
+
+  function renderPathPasteRefs() {
+    // Kept as the small public repaint hook; inline chips live inside chatInput.
+  }
+
+  function removePathPasteRef(token) {
+    if (!state || !token) return false;
+    const before = state.pathPasteRefs || [];
+    const next = before.filter((ref) => String(ref?.token || "") !== String(token));
+    if (next.length === before.length) return false;
+    state.pathPasteRefs = next;
+    if (isRichComposerInput()) {
+      els.chatInput.querySelectorAll("[data-path-ref-token]").forEach((chip) => {
+        if (chip.dataset.pathRefToken === token) chip.remove();
+      });
+    }
+    renderPathPasteRefs();
+    if (typeof renderSendButton === "function") renderSendButton();
+    els?.chatInput?.focus?.();
+    return true;
+  }
+
+  function handlePathPasteRefBackspace(event) {
+    if (!event || !els?.chatInput || window.miaMessageHelpers?.isComposerComposing?.(event)) return false;
+    if (event.key !== "Backspace" && event.key !== "Delete") return false;
+    if (isRichComposerInput(els.chatInput)) {
+      const body = composerInputPlainText(els.chatInput);
+      const start = Number(els.chatInput.selectionStart) || 0;
+      const end = Number(els.chatInput.selectionEnd) || start;
+      if (start !== end) return false;
+      const refs = activeImagePathRefs();
+      const match = refs.find((ref) => (
+        event.key === "Backspace"
+          ? body.slice(Math.max(0, start - ref.token.length), start) === ref.token
+          : body.slice(start, start + ref.token.length) === ref.token
+      ));
+      if (!match) return false;
+      event.preventDefault?.();
+      return removePathPasteRef(match.token);
+    }
+    const refs = activeImagePathRefs();
+    if (event.key !== "Backspace" || !refs.length) return false;
+    const start = Number(els.chatInput.selectionStart) || 0;
+    const end = Number(els.chatInput.selectionEnd) || start;
+    if (start !== end) return false;
+    const body = String(els.chatInput.value || "");
+    const match = refs.find((ref) => body.slice(Math.max(0, start - ref.token.length), start) === ref.token);
+    if (!match) return false;
+    event.preventDefault?.();
+    els.chatInput.value = `${body.slice(0, start - match.token.length)}${body.slice(start)}`;
+    els.chatInput.setSelectionRange?.(start - match.token.length, start - match.token.length);
+    return removePathPasteRef(match.token);
+  }
+
+  function handleComposerEditorKeydown(event) {
+    if (!event || !isRichComposerInput(els?.chatInput)) return false;
+    if (event.key === "Enter" && event.shiftKey) {
+      event.preventDefault?.();
+      return insertPathPasteText("\n");
+    }
+    return false;
+  }
+
+  function afterComposerTextProgrammaticChange() {
+    if (typeof resizeChatInput === "function") resizeChatInput();
+    updateSlashCommandState();
+    updateMentionMenuState();
+    if (typeof renderSendButton === "function") renderSendButton();
+  }
+
+  function insertPathPasteText(text) {
+    if (!els || !els.chatInput) return false;
+    const insert = String(text || "");
+    if (!insert) return false;
+    const input = els.chatInput;
+    if (isRichComposerInput(input)) {
+      input.focus?.();
+      const inserted = insertRichComposerText(input, insert);
+      if (!inserted) return false;
+      afterComposerTextProgrammaticChange();
+      return true;
+    }
+    const current = String(input.value || "");
+    const start = Number.isFinite(input.selectionStart) ? input.selectionStart : current.length;
+    const end = Number.isFinite(input.selectionEnd) ? input.selectionEnd : start;
+    input.value = `${current.slice(0, start)}${insert}${current.slice(end)}`;
+    const caret = start + insert.length;
+    if (typeof input.setSelectionRange === "function") input.setSelectionRange(caret, caret);
+    afterComposerTextProgrammaticChange();
+    if (typeof input.focus === "function") input.focus();
+    return true;
+  }
+
+  function pathPasteTokenInText(token, text) {
+    if (!token) return false;
+    return new RegExp(`(^|[^A-Za-z0-9_])${escapeRegExp(token)}([^A-Za-z0-9_]|$)`).test(String(text || ""));
+  }
+
+  function nextPathPasteToken(kind = "path") {
+    if (!state) return kind === "image" ? "IMG1" : "PATH1";
+    const prefix = kind === "image" ? "IMG" : "PATH";
+    const used = new Set((state.pathPasteRefs || []).map((ref) => String(ref.token || "")));
+    let index = Math.max(1, Number(state.pathPasteNextIndex) || 1);
+    let token = `${prefix}${index}`;
+    while (used.has(token)) {
+      index += 1;
+      token = `${prefix}${index}`;
+    }
+    state.pathPasteNextIndex = index + 1;
+    return token;
+  }
+
+  function insertPathPasteReference(pathText, kind = "path") {
+    const pathValue = normalizePathPasteText(pathText);
+    if (!pathValue) return false;
+    if (!state || kind !== "image") return insertPathPasteText(pathValue);
+    const existing = (state.pathPasteRefs || []).find((ref) => ref.path === pathValue && ref.kind === kind);
+    const token = existing?.token || nextPathPasteToken(kind);
+    if (!existing) {
+      state.pathPasteRefs = [
+        ...(state.pathPasteRefs || []),
+        { token, path: pathValue, kind }
+      ];
+    }
+    renderPathPasteRefs();
+    if (typeof renderSendButton === "function") renderSendButton();
+    return insertPathPasteChip({ token, path: pathValue, kind });
+  }
+
+  function insertPathPastePayload(payload = {}) {
+    const text = normalizePathPasteText(payload.text || "");
+    if (!text) return false;
+    if (String(payload.kind || "") === "image") return insertPathPasteReference(text, "image");
+    return insertPathPasteText(text);
+  }
+
+  function expandPathPasteRefsForSend(text) {
+    if (!state || !Array.isArray(state.pathPasteRefs) || !state.pathPasteRefs.length) return text;
+    const body = String(text || "").trimEnd();
+    const refs = state.pathPasteRefs
+      .filter((ref) => ref?.token && ref?.path && pathPasteTokenInText(ref.token, body))
+      .slice(0, 20);
+    if (!refs.length) return body;
+    const missingTokens = refs
+      .filter((ref) => !pathPasteTokenInText(ref.token, body))
+      .map((ref) => ref.token);
+    const visible = [body, missingTokens.join(" ")].filter(Boolean).join(body ? " " : "");
+    const hidden = [
+      "[[MIA_PATH_REFS_BEGIN]]",
+      "The user-visible tokens above refer to these local file paths:",
+      ...refs.map((ref) => `${ref.token}: ${ref.path}`),
+      "[[MIA_PATH_REFS_END]]"
+    ].join("\n");
+    return `${visible}\n\n${hidden}`;
+  }
+
+  function clearPathPasteRefs() {
+    if (!state) return;
+    state.pathPasteRefs = [];
+    state.pathPasteNextIndex = 1;
+    if (isRichComposerInput()) {
+      els.chatInput.querySelectorAll("[data-path-ref-token]").forEach((chip) => chip.remove());
+    }
+    renderPathPasteRefs();
+  }
+
+  function reconcilePathPasteRefsFromInput() {
+    if (!state || !Array.isArray(state.pathPasteRefs) || !state.pathPasteRefs.length) return false;
+    const body = composerInputPlainText(els?.chatInput);
+    const next = state.pathPasteRefs.filter((ref) => ref?.token && pathPasteTokenInText(ref.token, body));
+    if (next.length === state.pathPasteRefs.length) return false;
+    state.pathPasteRefs = next;
+    renderPathPasteRefs();
+    return true;
+  }
+
+  function handleComposerPlainTextPaste(event) {
+    if (!event || !isRichComposerInput(els?.chatInput)) return false;
+    if (event.clipboardData?.files?.length) return false;
+    const text = event.clipboardData?.getData?.("text/plain") || "";
+    if (!text) return false;
+    event.preventDefault?.();
+    return insertPathPasteText(text);
+  }
+
+  async function pasteClipboardPathText() {
+    const desktopReadText = typeof mia?.readClipboardText === "function"
+      ? mia.readClipboardText
+      : (typeof window !== "undefined" && typeof window.mia?.readClipboardText === "function" ? window.mia.readClipboardText : null);
+    const browserReadText = typeof navigator !== "undefined" && typeof navigator.clipboard?.readText === "function"
+      ? navigator.clipboard.readText.bind(navigator.clipboard)
+      : null;
+    const readText = desktopReadText || browserReadText;
+    if (typeof readText !== "function") {
+      appendTransientChat?.("assistant", "当前环境无法读取剪贴板。");
+      return false;
+    }
+    let clipboardText = "";
+    try {
+      clipboardText = await readText();
+    } catch (error) {
+      appendTransientChat?.("assistant", `剪贴板路径读取失败: ${error?.message || error}`);
+      return false;
+    }
+    return insertPathPasteText(normalizePathPasteText(clipboardText));
+  }
+
+  function handlePathPasteShortcut(event) {
+    if (!isPathPasteShortcut(event)) return false;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    pasteClipboardPathText();
+    return true;
   }
 
   async function addComposerFiles(fileList) {
@@ -700,6 +1260,20 @@
     closeSkillPicker,
     renderSkillPicker,
     insertSkillIntoComposer,
+    isPathPasteShortcut,
+    normalizePathPasteText,
+    insertPathPasteText,
+    insertPathPasteReference,
+    insertPathPastePayload,
+    renderPathPasteRefs,
+    handlePathPasteRefBackspace,
+    handleComposerEditorKeydown,
+    expandPathPasteRefsForSend,
+    clearPathPasteRefs,
+    reconcilePathPasteRefsFromInput,
+    handleComposerPlainTextPaste,
+    pasteClipboardPathText,
+    handlePathPasteShortcut,
     addComposerFiles,
     thumbnailDataUrlForFile,
     readFileAsDataUrl,

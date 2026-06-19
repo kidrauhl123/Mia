@@ -1450,7 +1450,9 @@ function paintHeaderStatus() {
 
 function renderSendButton() {
   if (!els.sendChat) return;
-  const hasContent = Boolean(String(els.chatInput?.value || "").trim()) || state.pendingAttachments.length > 0;
+  const hasContent = Boolean(String(els.chatInput?.value || "").trim())
+    || state.pendingAttachments.length > 0
+    || (state.pathPasteRefs || []).length > 0;
   const cloudSignedIn = Boolean(state.runtime?.cloud?.enabled);
   const hasActiveCloudConversation = Boolean(window.miaSocial?.getActiveConversationId?.());
   const canSend = hasContent && (!cloudSignedIn || hasActiveCloudConversation);
@@ -3393,7 +3395,7 @@ function renderMessageHtml(message, ctx) {
       expanded: false,
       scopeKey: `msg:${message.createdAt || ""}`,
       renderTextBlock(block) {
-        const prefixHtml = renderedFirstTextBlock ? "" : `${pinnedHtml}${replyHtml}`;
+        const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentHtml}${pinnedHtml}${replyHtml}`;
         renderedFirstTextBlock = true;
         const blockBodyHtml = String(block.text || "").trim() ? window.miaMarkdown.renderMarkdown(block.text) : "";
         return `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${prefixHtml}${blockBodyHtml}</div>`;
@@ -3427,10 +3429,13 @@ function renderMessageHtml(message, ctx) {
     text: activeAvatarSpec.image ? "" : activeAvatarSpec.text,
     attrs: `data-sender-kind="${senderKind}" data-sender-ref="${window.miaMarkdown.escapeHtml(senderRef)}" title="${window.miaMarkdown.escapeHtml(avatarTitle)}"`
   });
-  const defaultBubbleHtml = `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${pinnedHtml}${replyHtml}${bodyHtml}${commandResultHtml}${attachmentHtml}${translation}</div>`;
+  const orderedBlocksWithAttachments = orderedBlocksHtml && !renderedFirstTextBlock && attachmentHtml
+    ? `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${attachmentHtml}${pinnedHtml}${replyHtml}</div>${orderedBlocksHtml}`
+    : orderedBlocksHtml;
+  const defaultBubbleHtml = `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${attachmentHtml}${pinnedHtml}${replyHtml}${bodyHtml}${commandResultHtml}${translation}</div>`;
   return `<article class="message ${roleClass}">
       ${avatarHtml}
-      <div class="message-stack">${taskAffordanceHtml}${traceHtml}${orderedBlocksHtml || defaultBubbleHtml}${orderedBlocksHtml ? `${commandResultHtml}${attachmentHtml}${translation}` : ""}${timeHtml}</div>
+      <div class="message-stack">${taskAffordanceHtml}${traceHtml}${orderedBlocksWithAttachments || defaultBubbleHtml}${orderedBlocksHtml ? `${commandResultHtml}${translation}` : ""}${timeHtml}</div>
     </article>`;
 }
 
@@ -5823,7 +5828,10 @@ els.modelForm.addEventListener("submit", async (event) => {
 
 els.chatInput.addEventListener("keydown", (event) => {
   if (window.miaMessageHelpers.isComposerComposing(event)) return;
+  if (window.miaComposer.handleComposerEditorKeydown(event)) return;
   if (window.miaComposer.handleComposerSkillBackspace(event)) return;
+  if (window.miaComposer.handlePathPasteRefBackspace(event)) return;
+  if (window.miaComposer.handlePathPasteShortcut(event)) return;
   if (state.mentionMenuOpen) {
     const items = window.miaComposer.filteredMentionMembers();
     if (event.key === "ArrowDown") {
@@ -5892,6 +5900,11 @@ els.chatInput.addEventListener("keydown", (event) => {
   }
 });
 
+window.mia?.onPathPasteText?.((payload = {}) => {
+  if (!els.chatInput || document.activeElement !== els.chatInput) return;
+  window.miaComposer.insertPathPastePayload(payload);
+});
+
 els.chatInput.addEventListener("compositionstart", () => {
   els.chatInput.dataset.composing = "true";
 });
@@ -5899,6 +5912,7 @@ els.chatInput.addEventListener("compositionstart", () => {
 els.chatInput.addEventListener("compositionend", () => {
   window.miaMessageHelpers.noteCompositionEnded();
   els.chatInput.dataset.composing = "false";
+  window.miaComposer.reconcilePathPasteRefsFromInput();
   window.miaMessageHelpers.resizeChatInput();
   window.miaComposer.updateSlashCommandState();
   window.miaComposer.updateMentionMenuState();
@@ -5906,6 +5920,7 @@ els.chatInput.addEventListener("compositionend", () => {
 });
 
 els.chatInput.addEventListener("input", () => {
+  window.miaComposer.reconcilePathPasteRefsFromInput();
   window.miaMessageHelpers.resizeChatInput();
   window.miaComposer.updateSlashCommandState();
   window.miaComposer.updateMentionMenuState();
@@ -6031,8 +6046,11 @@ els.chatForm?.addEventListener("drop", (event) => {
   window.miaComposer.addComposerFiles(event.dataTransfer.files);
 });
 els.chatInput?.addEventListener("paste", (event) => {
-  if (!event.clipboardData?.files?.length) return;
-  window.miaComposer.addComposerFiles(event.clipboardData.files);
+  if (event.clipboardData?.files?.length) {
+    window.miaComposer.addComposerFiles(event.clipboardData.files);
+    return;
+  }
+  window.miaComposer.handleComposerPlainTextPaste(event);
 });
 const messageLinkSelector = "a.message-link[data-external-link], a.message-link[data-local-file-path]";
 function openMessageLink(link) {
@@ -6194,7 +6212,7 @@ els.chatForm.addEventListener("submit", async (event) => {
   if (window.miaSocial?.getActiveConversationId?.()) {
     const conversationId = window.miaSocial.getActiveConversationId();
     const pendingAttachments = state.pendingAttachments.slice();
-    let conversationText = els.chatInput.value;
+    let conversationText = window.miaComposer.expandPathPasteRefsForSend(els.chatInput.value);
     if (!conversationText.trim() && !pendingAttachments.length) return;
     // Cloud conversations have no reply_to column, so a quote-reply is embedded as a
     // markdown blockquote at the head of the message — visible to every member.
@@ -6206,6 +6224,7 @@ els.chatForm.addEventListener("submit", async (event) => {
       window.miaMessageHelpers.renderComposerReply();
     }
     els.chatInput.value = "";
+    window.miaComposer.clearPathPasteRefs();
     state.pendingAttachments = [];
     window.miaMessageHelpers.resizeChatInput();
     window.miaComposer.renderComposerAttachments();

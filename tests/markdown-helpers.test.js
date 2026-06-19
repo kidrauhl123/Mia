@@ -44,3 +44,12 @@ test("markdown renders file URLs as local file links", () => {
   assert.match(html, /data-local-file-path="\/Users\/jung\/Library\/Application Support\/Mia\/demo\.txt"/);
   assert.match(html, />demo<\/a>/);
 });
+
+test("markdown hides Mia path reference blocks from rendered chat text", () => {
+  const markdown = loadMarkdownHelpers();
+  const source = "请看 IMG1\n\n[[MIA_PATH_REFS_BEGIN]]\nIMG1: /var/folders/x/mia-clipboard/clipboard-1.png\n[[MIA_PATH_REFS_END]]";
+
+  assert.equal(markdown.stripHiddenMarkdown(source), "请看 IMG1");
+  assert.equal(markdown.renderMarkdown(source), "<p>请看 IMG1</p>");
+  assert.equal(markdown.renderPreviewMarkdown(source), "请看 IMG1");
+});

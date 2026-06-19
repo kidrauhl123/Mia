@@ -276,12 +276,12 @@
         <form id="chatForm" class="composer">
           <div id="agentPermissionBanner" class="agent-permission-banner hidden" aria-live="polite"></div>
           <div id="composerReply" class="composer-reply hidden"></div>
-          <div id="composerAttachments" class="composer-attachments hidden"></div>
           <div class="composer-card">
+            <div id="composerAttachments" class="composer-attachments hidden"></div>
             <div class="composer-top-row">
               <div class="composer-input-field">
                 <div id="composerSkills" class="composer-skills hidden"></div>
-                <textarea id="chatInput" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+                <div id="chatInput" class="composer-editor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="输入消息，Enter 发送，Shift+Enter 换行"></div>
               </div>
               <button id="sendChat" class="send-button" type="submit" title="发送" aria-label="发送">
                 <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">

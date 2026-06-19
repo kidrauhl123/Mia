@@ -137,6 +137,8 @@
       slashMenuOpen: false,
       composerAddMenuOpen: false,
       pendingAttachments: [],
+      pathPasteRefs: [],
+      pathPasteNextIndex: 1,
       slashSelectedIndex: 0,
       slashFilter: "",
       mentionMenuOpen: false,

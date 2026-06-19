@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, webUtils } = require("electron");
+const { contextBridge, ipcRenderer, webUtils, clipboard } = require("electron");
 const { IpcChannel } = require("./shared/ipc-channels");
 
 contextBridge.exposeInMainWorld("mia", {
@@ -33,6 +33,18 @@ contextBridge.exposeInMainWorld("mia", {
   },
   openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
   openLocalFile: (target) => ipcRenderer.invoke(IpcChannel.UtilOpenLocalFile, target),
+  readClipboardText: () => {
+    try {
+      return clipboard.readText();
+    } catch {
+      return "";
+    }
+  },
+  onPathPasteText: (handler) => {
+    const listener = (_event, payload) => { try { handler(payload); } catch { /* ignore */ } };
+    ipcRenderer.on(IpcChannel.ComposerPathPaste, listener);
+    return () => ipcRenderer.removeListener(IpcChannel.ComposerPathPaste, listener);
+  },
   loadStatusBadgeAsset: (assetId) => ipcRenderer.invoke(IpcChannel.StatusBadgeAssetLoad, assetId),
   installEngine: (engineId) => ipcRenderer.invoke(IpcChannel.EngineInstall, engineId),
   onEngineInstallProgress: (callback) => {

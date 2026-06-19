@@ -16,6 +16,10 @@
       .replaceAll("'", "&#039;");
   }
 
+  function stripHiddenMarkdown(value) {
+    return String(value || "").replace(/\n?\[\[MIA_PATH_REFS_BEGIN\]\][\s\S]*?\[\[MIA_PATH_REFS_END\]\]\n?/g, "\n").trim();
+  }
+
   // Icon path data adapted from ByteDance IconPark (Apache-2.0).
   const ICON_PARK = {
     addPic: '<path d="M38 21V40C38 41.1046 37.1046 42 36 42H8C6.89543 42 6 41.1046 6 40V12C6 10.8954 6.89543 10 8 10H26.3636" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.0005 31.0308L18.0005 23L21.0005 26L24.5005 20.5L32.0005 31.0308H12.0005Z" fill="none" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M34.0005 10H42.0005" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M37.9946 5.79541V13.7954" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -162,7 +166,7 @@
   }
 
   function previewMarkdownSource(value) {
-    const lines = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+    const lines = stripHiddenMarkdown(value).replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
     const parts = [];
     let fence = null;
     for (const line of lines) {
@@ -379,7 +383,7 @@
   }
 
   function renderMarkdown(value) {
-    const lines = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+    const lines = stripHiddenMarkdown(value).replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
     const html = [];
     let paragraph = [];
     let list = null;
@@ -481,6 +485,7 @@
 
   window.miaMarkdown = {
     escapeHtml,
+    stripHiddenMarkdown,
     ICON_PARK,
     iconParkIcon,
     menuItemHtml,

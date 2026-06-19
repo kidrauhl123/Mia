@@ -69,9 +69,12 @@ test("composer pending attachments are thumbnail-first and open the image editor
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
   assert.match(composerSource, /data-attachment-preview/);
+  assert.match(composerSource, /classList\?\.toggle\("has-attachments", attachments\.length > 0\)/);
   assert.doesNotMatch(composerSource, /composer-attachment-name/);
   assert.doesNotMatch(composerSource, /composer-attachment-size/);
-  assert.match(styleSource, /\.composer-attachment\.image\s*\{[\s\S]*?width:\s*96px;[\s\S]*?height:\s*72px;/);
+  assert.match(styleSource, /\.composer-card\.has-attachments\s*\{/);
+  assert.match(styleSource, /@keyframes composerAttachmentsOpen/);
+  assert.match(styleSource, /\.composer-attachment\.image\s*\{[\s\S]*?width:\s*136px;[\s\S]*?height:\s*86px;/);
   assert.match(styleSource, /\.composer-attachment-thumb\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
 });
 
@@ -948,6 +951,19 @@ test("local assistant bubble avatars render with bot sender kind for contact car
 
   assert.match(html, /data-sender-kind="bot"/);
   assert.doesNotMatch(html, /data-sender-kind="fellow"/);
+});
+
+test("composer attachment tray is inside the composer card before the input row", () => {
+  const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const cardIndex = htmlSource.indexOf('<div class="composer-card">');
+  const attachmentsIndex = htmlSource.indexOf('id="composerAttachments"');
+  const topRowIndex = htmlSource.indexOf('<div class="composer-top-row">');
+
+  assert.ok(cardIndex >= 0, "composer card exists");
+  assert.ok(attachmentsIndex >= 0, "composer attachment tray exists");
+  assert.ok(topRowIndex >= 0, "composer top row exists");
+  assert.ok(cardIndex < attachmentsIndex, "attachment tray is inside composer card");
+  assert.ok(attachmentsIndex < topRowIndex, "attachment tray appears above the input row");
 });
 
 test("local assistant messages render ordered content blocks before trace fallback", () => {

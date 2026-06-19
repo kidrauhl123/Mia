@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, screen, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, screen, shell } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -49,6 +49,7 @@ const { createBotManifest } = require("./main/bot-manifest.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
 const { createSettingsStore } = require("./main/settings-store.js");
 const { createWindowStateManager } = require("./main/window-state.js");
+const { installPathPasteShortcut } = require("./main/path-paste-shortcut.js");
 const { createAutoUpdateService } = require("./main/updater/auto-update-service.js");
 const { createSkillsLoader } = require("./main/skills-loader.js");
 const { createTasksStore } = require("./main/tasks-store.js");
@@ -2259,6 +2260,11 @@ function createWindow() {
   const sendWindowEvent = (channel, payload) => {
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
   };
+  installPathPasteShortcut(win, {
+    clipboard,
+    channel: IpcChannel.ComposerPathPaste,
+    platform: process.platform
+  });
   win.on("focus", () => sendWindowEvent(IpcChannel.WindowFocusState, true));
   win.on("blur", () => sendWindowEvent(IpcChannel.WindowFocusState, false));
   win.on("enter-full-screen", () => sendWindowEvent(IpcChannel.WindowFullscreen, true));

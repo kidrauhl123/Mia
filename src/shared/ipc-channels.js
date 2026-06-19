@@ -60,6 +60,7 @@
     ChatAttachmentSave: "chat:attachment-save",
     ChatFileFetch: "chat:file-fetch",
     ChatEvent: "chat:event",
+    ComposerPathPaste: "composer:path-paste",
     ChatPermissionRespond: "chat:permission-respond",
     ChatPermissionList: "chat:permission-list",
     ConversationTitleGenerate: "conversation:title-generate",

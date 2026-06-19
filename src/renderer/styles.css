@@ -4148,11 +4148,19 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   border-radius: 22px;
   background: var(--surface);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(15, 20, 40, 0.07);
-  transition: box-shadow 160ms ease;
+  transition:
+    gap 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    padding 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 160ms ease;
 }
 
 .composer-card:focus-within {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 3px rgb(var(--accent-rgb) / 0.10), 0 10px 28px rgba(15, 20, 40, 0.09);
+}
+
+.composer-card.has-attachments {
+  gap: 7px;
+  padding-top: 10px;
 }
 
 :root[data-theme="dark"] .composer-card {
@@ -4718,9 +4726,26 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   align-items: center;
   gap: 6px;
   min-width: 0;
-  padding: 2px 0 0;
+  max-height: 86px;
+  padding: 0 2px 3px 0;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
+  transform-origin: top;
+  animation: composerAttachmentsOpen 190ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes composerAttachmentsOpen {
+  from {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(7px) scaleY(0.96);
+  }
+  to {
+    max-height: 86px;
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
 }
 
 /* Skill chips live inside the input field, inline before the text. */
@@ -4733,14 +4758,78 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   padding-top: 3px;
 }
 
-.composer-input-field > textarea {
+.composer-input-field > .composer-editor {
   flex: 1 1 140px;
   min-width: 120px;
 }
 
-/* contents: chip spans flow directly in the input field's flex/wrap */
+/* Skill chips flow directly before the editable text. */
 .composer-skills {
   display: contents;
+}
+
+.composer-path-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 116px;
+  min-height: 26px;
+  margin: 0 2px;
+  padding: 3px 5px 3px 7px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: 0.05em;
+}
+
+.composer-path-ref-icon {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background:
+    radial-gradient(circle at 72% 28%, #fff 0 12%, transparent 13%),
+    linear-gradient(135deg, #74c7ff 0%, #7c7aff 50%, #7ed7b8 100%);
+}
+
+.composer-path-ref-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-path-ref-remove {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  opacity: 0.68;
+}
+
+.composer-path-ref-remove:hover {
+  background: rgb(var(--accent-rgb) / 0.12);
+  opacity: 1;
+}
+
+:root[data-theme="dark"] .composer-path-ref {
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  border-color: rgb(var(--accent-rgb) / 0.34);
 }
 
 .composer-skill {
@@ -4853,11 +4942,24 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   background: var(--field);
   color: var(--text);
   font-size: 12px;
+  transform-origin: left top;
+  animation: composerAttachmentThumbIn 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .composer-attachment.image {
-  width: 96px;
-  height: 72px;
+  width: 136px;
+  height: 86px;
+}
+
+@keyframes composerAttachmentThumbIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .composer-attachment-preview {
@@ -5057,7 +5159,8 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   padding: 10px;
 }
 
-.composer textarea {
+.composer textarea,
+.composer .composer-editor {
   min-height: 32px;
   max-height: 156px;
   height: 32px;
@@ -5072,9 +5175,14 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   overflow-y: hidden;
   scrollbar-width: none;
   box-shadow: none;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
-.composer textarea::-webkit-scrollbar {
+.composer textarea::-webkit-scrollbar,
+.composer .composer-editor::-webkit-scrollbar {
   display: none;
 }
 
@@ -5083,7 +5191,15 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   opacity: 0.82;
 }
 
-.composer textarea:focus {
+.composer .composer-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--faint);
+  opacity: 0.82;
+  pointer-events: none;
+}
+
+.composer textarea:focus,
+.composer .composer-editor:focus {
   border-color: transparent;
   box-shadow: none;
 }
