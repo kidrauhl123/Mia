@@ -446,6 +446,8 @@ test("background market refresh preserves the skill market scroll position", asy
 test("topbar has the mine/market toggle and market styles exist", () => {
   const html = read("src/renderer/index.html");
   assert.match(html, /id="skillModeToggle"/);
+  const skillLibrary = read("src/renderer/skills/skill-library.js");
+  assert.match(skillLibrary, /data-skill-mode="mcp"/);
   const css = read("src/renderer/styles/skills.css");
   assert.match(css, /\.skill-mode-toggle/);
   assert.match(css, /\.skill-card/);
@@ -454,6 +456,7 @@ test("topbar has the mine/market toggle and market styles exist", () => {
 
 test("market state tracks cached pages separately from foreground loading", () => {
   const state = read("src/renderer/app-state.js");
+  assert.match(state, /skillCapabilityMode:\s*"market"/);
   assert.match(state, /refreshing:\s*false/);
   assert.match(state, /cached:\s*false/);
   assert.match(state, /stale:\s*false/);

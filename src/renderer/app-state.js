@@ -76,6 +76,7 @@
       contactFilter: "",
       skillFilter: "",
       skillCategoryFilter: "",
+      skillCapabilityMode: "market",
       skillMarketMode: true,
       skillMarket: {
         skills: [],
@@ -88,6 +89,20 @@
         queryKey: "",
         error: "",
         updatedAt: ""
+      },
+      mcp: {
+        activeTab: "installed",
+        servers: [],
+        templates: [],
+        loading: false,
+        syncing: false,
+        error: "",
+        selectedId: "",
+        formOpen: false,
+        formMode: "create",
+        formDraft: null,
+        importOpen: false,
+        importText: ""
       },
       installingSkillIds: new Set(),
       composerActiveSkills: [],
