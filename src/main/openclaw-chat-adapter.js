@@ -64,6 +64,8 @@ function parseOpenClawContent(stdout = "") {
       || parsed?.result?.session_id
       || parsed?.meta?.sessionId
       || parsed?.meta?.session_id
+      || parsed?.meta?.agentMeta?.sessionId
+      || parsed?.meta?.agentMeta?.session_id
       || ""
     ).trim();
     return { content: String(content || "").trim(), sessionId };
@@ -100,6 +102,11 @@ function openClawSessionKey(bot, sessionId) {
   return `mia:${botKey}:${localSession}`;
 }
 
+function openClawLegacySessionKey(bot, sessionId) {
+  const digest = crypto.createHash("sha256").update(openClawSessionKey(bot, sessionId)).digest("hex").slice(0, 32);
+  return `mia-${digest}`;
+}
+
 function shouldUseLegacyOpenClawTransport(bot = {}) {
   const config = bot.engineConfig || {};
   const transport = String(config.openclawTransport || config.transport || "").trim().toLowerCase();
@@ -129,10 +136,10 @@ function buildOpenClawArgs({
 } = {}) {
   const config = bot.engineConfig || {};
   const args = [...buildOpenClawGlobalArgs(config), "agent", "--message", String(message || "")];
-  const agentId = String(config.openclawAgent || config.agent || "").trim();
+  const agentId = String(config.openclawAgent || config.agent || "main").trim();
   if (agentId) args.push("--agent", agentId);
   if (externalSessionId) args.push("--session-id", externalSessionId);
-  else args.push("--session-id", openClawSessionKey(bot, sessionId));
+  else args.push("--session-key", openClawLegacySessionKey(bot, sessionId));
   const selectedModel = String(model || config.model || "").trim();
   if (selectedModel) args.push("--model", selectedModel);
   const thinking = String(effort || config.effortLevel || "medium").trim();
@@ -330,6 +337,19 @@ function decorateOpenClawAcpError(error, output = "") {
   return error instanceof Error ? error : new Error(message || "OpenClaw ACP 启动失败。");
 }
 
+function decorateOpenClawLegacyError(error) {
+  if (error?.code === "MIA_STOPPED") return error;
+  const stderr = String(error?.stderr || "").trim();
+  const stdout = String(error?.stdout || "").trim();
+  const rawMessage = String(error?.message || error || "").trim();
+  const detail = stderr || stdout || rawMessage.replace(/^Command failed:[^\n]*(?:\n|$)/i, "").trim();
+  const safeDetail = detail && !/^Command failed:/i.test(detail) ? detail : "";
+  return new Error([
+    "OpenClaw agent 运行失败。",
+    safeDetail || "OpenClaw CLI 没有返回可展示的错误详情。"
+  ].join("\n"));
+}
+
 function createOpenClawChatAdapter(deps = {}) {
   const shellCommandPath = requireDependency(deps, "shellCommandPath");
   const lastUserPrompt = requireDependency(deps, "lastUserPrompt");
@@ -370,8 +390,8 @@ function createOpenClawChatAdapter(deps = {}) {
     if (!commandPath) throw new Error("本机没有检测到 OpenClaw CLI。请先安装并确认 `openclaw --version` 可用。");
     const externalSessionId = persistAgentSession ? getAgentSessionId("openclaw", bot.key, sessionId) : "";
     const effort = normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "openclaw");
-    const forceLocal = bot.engineConfig?.openclawLocal === true || bot.engineConfig?.local === true;
     const effectiveManagedModel = managedModel || resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });
+    const forceLocal = bot.engineConfig?.openclawLocal === true || bot.engineConfig?.local === true || effectiveManagedModel?.provider === "mia";
     if (effectiveManagedModel?.provider === "mia") await syncOpenClawManagedModelConfig(commandPath, effectiveManagedModel, bot.engineConfig || {}, signal);
     const model = selectedOpenClawModelOverride(bot.engineConfig || {}, effectiveManagedModel);
     const args = buildOpenClawArgs({
@@ -384,13 +404,18 @@ function createOpenClawChatAdapter(deps = {}) {
       local: forceLocal,
       timeoutSeconds
     });
-    const result = await execFileAsync(execFile, commandPath, args, {
-      cwd: cwd(),
-      env: envWithExecutableDirFirst(processEnvStrings(), commandPath),
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-      signal
-    });
+    let result = null;
+    try {
+      result = await execFileAsync(execFile, commandPath, args, {
+        cwd: cwd(),
+        env: envWithExecutableDirFirst(processEnvStrings(), commandPath),
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024,
+        signal
+      });
+    } catch (error) {
+      throw decorateOpenClawLegacyError(error);
+    }
     if (signal?.aborted) throw stoppedError();
     const parsed = parseOpenClawContent(result.stdout);
     if (parsed.sessionId && !externalSessionId && persistAgentSession) {

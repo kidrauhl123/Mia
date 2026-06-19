@@ -123,18 +123,14 @@ test("buildOpenClawArgs prefers OpenClaw default routing and only forces local w
     effort: "medium"
   });
 
-  assert.deepEqual(args, [
-    "agent",
-    "--message",
-    "hello",
-    "--session-id",
-    "mia:mia:s1",
-    "--thinking",
-    "medium",
-    "--json",
-    "--timeout",
-    "600"
-  ]);
+  assert.equal(args[0], "agent");
+  assert.equal(args[1], "--message");
+  assert.equal(args[2], "hello");
+  assert.equal(args[3], "--agent");
+  assert.equal(args[4], "main");
+  assert.equal(args[5], "--session-key");
+  assert.match(args[6], /^mia-[a-f0-9]{32}$/);
+  assert.deepEqual(args.slice(7), ["--thinking", "medium", "--json", "--timeout", "600"]);
   assert.equal(args.includes("--local"), false);
   assert.equal(buildOpenClawArgs({ message: "hello", local: true }).includes("--local"), true);
 });
@@ -171,6 +167,10 @@ test("parseOpenClawContent accepts OpenClaw JSON and plain text", () => {
     response: "hello",
     meta: { session_id: "s2" }
   })), { content: "hello", sessionId: "s2" });
+  assert.deepEqual(parseOpenClawContent(JSON.stringify({
+    payloads: [{ text: "payload reply" }],
+    meta: { agentMeta: { sessionId: "agent-session" } }
+  })), { content: "payload reply", sessionId: "agent-session" });
   assert.deepEqual(parseOpenClawContent("plain reply"), { content: "plain reply", sessionId: "" });
 });
 
@@ -516,15 +516,11 @@ test("sendChat can explicitly fall back to the legacy OpenClaw agent CLI", async
   const execCall = deps.calls.find((call) => call[0] === "exec");
   assert.equal(execCall[1], "/bin/openclaw");
   assert.equal(execCall[2][0], "agent");
-  assert.deepEqual(execCall[2].slice(3), [
-    "--session-id",
-    "mia:claw:mia-session",
-    "--thinking",
-    "normalized-high",
-    "--json",
-    "--timeout",
-    "600"
-  ]);
+  assert.equal(execCall[2][3], "--agent");
+  assert.equal(execCall[2][4], "main");
+  assert.equal(execCall[2][5], "--session-key");
+  assert.match(execCall[2][6], /^mia-[a-f0-9]{32}$/);
+  assert.deepEqual(execCall[2].slice(7), ["--thinking", "normalized-high", "--json", "--timeout", "600"]);
   assert.equal(response.choices[0].message.content, "OpenClaw reply");
   assert.equal(response.mia.compatibility_transport, "openclaw-cli");
   assert.equal(deps.calls.some((call) => call[0] === "spawn"), false);
@@ -570,6 +566,33 @@ test("sendChat explains OpenClaw Gateway connection failures from ACP stdout", a
   );
 });
 
+test("sendChat redacts legacy OpenClaw command failures instead of leaking prompts", async () => {
+  const deps = createDeps({
+    execFile: (file, args, options, callback) => {
+      deps.calls.push(["exec", file, args, options.cwd, options.env.PATH, options.input || ""]);
+      const error = new Error("Command failed: /bin/openclaw agent --message SECRET_PROMPT --json");
+      callback(error, "", "Error: Pass --to <E.164>, --session-key, --session-id, or --agent to choose a session");
+      return { kill() {} };
+    }
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await assert.rejects(
+    () => adapter.sendChat({
+      bot: { key: "claw", name: "Claw", engineConfig: { openclawTransport: "legacy-agent" } },
+      sessionId: "mia-session",
+      messages: [{ role: "user", content: "SECRET_PROMPT" }]
+    }),
+    (error) => {
+      assert.match(error.message, /OpenClaw agent 运行失败/);
+      assert.match(error.message, /Pass --to/);
+      assert.doesNotMatch(error.message, /SECRET_PROMPT/);
+      assert.doesNotMatch(error.message, /--message/);
+      return true;
+    }
+  );
+});
+
 test("sendChat syncs Mia-managed OpenClaw models and runs them through model override", async () => {
   const deps = createDeps({
     resolveManagedModelRuntime: () => ({
@@ -596,7 +619,12 @@ test("sendChat syncs Mia-managed OpenClaw models and runs them through model ove
   assert.match(configCall[5], /"baseUrl":"https:\/\/mia\.example\/api\/me\/model-proxy\/v1"/);
 
   const runCall = deps.calls.filter((call) => call[0] === "exec").find((call) => call[2][0] === "agent");
+  assert.equal(runCall[2][3], "--agent");
+  assert.equal(runCall[2][4], "main");
+  assert.equal(runCall[2][5], "--session-key");
+  assert.match(runCall[2][6], /^mia-[a-f0-9]{32}$/);
   assert.ok(runCall[2].includes("--model"));
   assert.equal(runCall[2][runCall[2].indexOf("--model") + 1], "mia/mia-auto");
+  assert.equal(runCall[2].includes("--local"), true);
   assert.equal(deps.calls.some((call) => call[0] === "spawn"), false);
 });
