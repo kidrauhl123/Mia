@@ -9,6 +9,7 @@ const {
   fileEditPayloadFromUnifiedDiff,
   fileEditPayloadsFromAcpContent
 } = require("./agent-file-edit-events.js");
+const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
 const { schedulerDisallowedTools } = require("./scheduler-tool-guard.js");
 
 function firstTextValue(value) {
@@ -120,6 +121,9 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const memoryBlock = deps.memoryBlock || (() => "");
   const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
   const getSchedulerMcpSpec = requireDependency(deps, "getSchedulerMcpSpec");
+  const getUserMcpSpecs = deps.getUserMcpSpecs || (() => ({}));
+  const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
+  const ensureUserMcpReady = deps.ensureUserMcpReady || (async () => {});
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
@@ -132,6 +136,11 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("claude");
     if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
+    try {
+      await ensureUserMcpReady();
+    } catch (error) {
+      appendEngineLog(`MCP bridge initialization incomplete before Claude Code chat: ${error?.message || error}`);
+    }
     const lastUser = lastUserPrompt(messages);
     // Best-effort: grab id from last user message for scheduler context
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;
@@ -163,8 +172,10 @@ function createClaudeCodeChatAdapter(deps = {}) {
     } catch (error) {
       appendEngineLog(`Claude bridge plugin refresh failed: ${error?.message || error}`);
     }
+    const mcpFingerprint = getMcpFingerprint();
+    const sessionFingerprint = [bridgeFingerprint, mcpFingerprint].filter(Boolean).join(":");
     const savedEntry = shouldPersistAgentSession ? getAgentSessionEntry(engine, bot.key, sessionId) : {};
-    const externalSessionId = savedEntry.id && savedEntry.fingerprint === bridgeFingerprint
+    const externalSessionId = savedEntry.id && savedEntry.fingerprint === sessionFingerprint
       ? savedEntry.id
       : "";
     const schedulerMcpSpec = (() => {
@@ -173,16 +184,20 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const miaAppMcpSpec = (() => {
       try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
     })();
+    const userMcpServers = getUserMcpSpecs();
     const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine, bot });
     const selectedModel = String(managedModel?.model || bot.engineConfig?.model || "").trim();
     const env = envWithExecutableDirFirst(
       applyManagedClaudeModelEnv(processEnvStrings(), managedModel || {}),
       commandPath
     );
-    const mcpServers = {
-      ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
-      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
-    };
+    const mcpServers = mergeMcpServersWithReservedBuiltIns({
+      userServers: userMcpServers,
+      builtInServers: {
+        ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
+        ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
+      }
+    });
     const options = {
       abortController,
       cwd: cwd(),
@@ -252,7 +267,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
         processedStreamMessage = true;
         if (message?.session_id && !capturedSessionId) {
           capturedSessionId = message.session_id;
-          if (shouldPersistAgentSession) setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, bridgeFingerprint);
+          if (shouldPersistAgentSession) setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, sessionFingerprint);
         }
 
         if (emit && message?.type === "stream_event") {
@@ -367,7 +382,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       }
     }
     if (capturedSessionId && !externalSessionId && shouldPersistAgentSession) {
-      setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, bridgeFingerprint);
+      setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, sessionFingerprint);
     }
     if (signal?.aborted) {
       if (emit) emit("complete", { finishReason: "cancelled", aborted: true });

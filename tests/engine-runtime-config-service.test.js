@@ -228,6 +228,53 @@ test("writeRuntimeConfig adds the mia-scheduler MCP server when a spec is availa
   assert.ok(!("alwaysLoad" in parsed.mcp_servers["mia-scheduler"]));
 });
 
+test("writeRuntimeConfig merges user MCP specs into Hermes config", (t) => {
+  const { runtime, service } = setup(t, {
+    getUserMcpSpecs: () => ({
+      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+    })
+  });
+
+  service.writeRuntimeConfig(19191);
+
+  const parsed = yaml.load(fs.readFileSync(runtime.config, "utf8"));
+  assert.deepEqual(parsed.mcp_servers.xhs, {
+    url: "http://127.0.0.1:18060/mcp",
+    headers: {}
+  });
+});
+
+test("writeRuntimeConfig keeps reserved built-in MCP servers when user specs collide", (t) => {
+  const { runtime, service } = setup(t, {
+    getMiaAppMcpSpec: () => ({
+      type: "stdio",
+      command: "/usr/local/bin/node",
+      args: ["/opt/mia/mia-app-mcp-server.js"],
+      env: { MIA_APP_CONTEXT_FILE: "/tmp/mia-app-ctx.json" }
+    }),
+    getSchedulerMcpSpec: () => ({
+      type: "stdio",
+      command: "/usr/local/bin/node",
+      args: ["/opt/mia/scheduler-mcp-server.js"],
+      env: { MIA_SCHEDULER_CONTEXT_FILE: "/tmp/ctx.json" }
+    }),
+    getUserMcpSpecs: () => ({
+      "mia-app": { type: "http", url: "http://127.0.0.1:18061/mcp", headers: { Authorization: "bad" } },
+      "mia-scheduler": { type: "http", url: "http://127.0.0.1:18062/mcp", headers: { Authorization: "bad" } },
+      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+    })
+  });
+
+  service.writeRuntimeConfig(19191);
+
+  const parsed = yaml.load(fs.readFileSync(runtime.config, "utf8"));
+  assert.equal(parsed.mcp_servers["mia-app"].command, "/usr/local/bin/node");
+  assert.equal(parsed.mcp_servers["mia-app"].url, undefined);
+  assert.equal(parsed.mcp_servers["mia-scheduler"].command, "/usr/local/bin/node");
+  assert.equal(parsed.mcp_servers["mia-scheduler"].url, undefined);
+  assert.equal(parsed.mcp_servers.xhs.url, "http://127.0.0.1:18060/mcp");
+});
+
 test("readConfiguredPort returns the configured API server port or the Mia default", (t) => {
   const { runtime, service } = setup(t);
 

@@ -1,0 +1,162 @@
+/* MCP library extends the existing ability card system with compact infra chips. */
+
+.mcp-card {
+  cursor: default;
+}
+
+.mcp-card .skill-card-source {
+  align-items: flex-start;
+  white-space: normal;
+}
+
+.mcp-inline-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mcp-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.95);
+  color: #334155;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.mcp-chip-transport {
+  background: rgba(239, 246, 255, 0.95);
+  color: #1d4ed8;
+}
+
+.mcp-chip-tools,
+.mcp-chip-market,
+.mcp-chip-sync,
+.mcp-chip-muted {
+  background: rgba(241, 245, 249, 0.95);
+}
+
+.mcp-status-connected {
+  background: rgba(236, 253, 245, 0.98);
+  color: #047857;
+}
+
+.mcp-status-disconnected,
+.mcp-status-unknown {
+  background: rgba(248, 250, 252, 0.98);
+  color: #475569;
+}
+
+.mcp-status-auth_required {
+  background: rgba(255, 247, 237, 0.98);
+  color: #c2410c;
+}
+
+.mcp-status-unsupported {
+  background: rgba(248, 250, 252, 0.98);
+  color: #7c3aed;
+}
+
+.mcp-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.mcp-card-actions button,
+.mcp-dialog-actions button,
+.mcp-dialog-head button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--floating-control-bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mcp-card-actions button {
+  flex: 0 0 auto;
+}
+
+.mcp-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+}
+
+.mcp-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.32);
+}
+
+.mcp-dialog-panel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+  box-sizing: border-box;
+  width: min(620px, calc(100vw - 28px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 18px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--menu-shadow);
+}
+
+.mcp-dialog-head,
+.mcp-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mcp-dialog-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.mcp-dialog-panel label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.mcp-dialog-panel input,
+.mcp-dialog-panel textarea,
+.mcp-dialog-panel select {
+  width: 100%;
+  min-height: 34px;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--text);
+  font: inherit;
+}
+
+.mcp-dialog-panel textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.mcp-import-textarea {
+  min-height: 220px;
+}

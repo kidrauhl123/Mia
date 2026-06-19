@@ -134,9 +134,14 @@ function createSchedulerMcpBridge(deps = {}) {
     ].join("\n");
   }
 
-  function ensureCodexHome() {
-    const profile = runtimeProfileService.ensureCodexProfile();
+  function ensureCodexHome(options = {}) {
+    const profile = options.syncSchedulerMcp === false
+      ? (typeof runtimeProfileService.ensureCodexProbeProfile === "function"
+          ? runtimeProfileService.ensureCodexProbeProfile()
+          : { home: path.join(runtimePaths().runtime, "codex-probe-home") })
+      : runtimeProfileService.ensureCodexProfile();
     const codexHome = profile.home;
+    if (options.syncSchedulerMcp === false) return codexHome;
 
     const baseUrl = daemonBaseUrl();
     if (!baseUrl) return codexHome;

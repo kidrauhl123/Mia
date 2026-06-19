@@ -1,7 +1,9 @@
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { PassThrough } = require("node:stream");
 const { test } = require("node:test");
 
 const {
@@ -9,6 +11,8 @@ const {
   createEngineCatalogService,
   normalizeOpenClawModels
 } = require("../src/main/engine-catalog-service.js");
+const { createCodexAppServerConnection } = require("../src/main/codex-app-server-runner.js");
+const { createSchedulerMcpBridge } = require("../src/main/scheduler-mcp-bridge.js");
 
 function createHarness(overrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-engine-catalog-"));
@@ -300,10 +304,14 @@ test("loadEngineCapabilities falls back to OpenClaw dev help only for thinking l
 
 test("loadEngineCapabilities probes Codex app-server models and permission profiles", async () => {
   const requests = [];
+  const ensureCodexHomeCalls = [];
   const { service } = createHarness({
     shellCommandPath: (command) => command === "codex" ? "/bin/codex" : "",
     processEnvStrings: () => ({ PATH: "/bin" }),
-    ensureCodexHome: () => "/tmp/codex-home",
+    ensureCodexHome: (options) => {
+      ensureCodexHomeCalls.push(options);
+      return "/tmp/codex-home";
+    },
     createCodexAppServerConnection: ({ codexPath, env }) => {
       requests.push(["connect", codexPath, env]);
       return {
@@ -333,6 +341,7 @@ test("loadEngineCapabilities probes Codex app-server models and permission profi
 
   const caps = await service.loadEngineCapabilities();
 
+  assert.deepEqual(ensureCodexHomeCalls, [{ syncSchedulerMcp: false }]);
   assert.equal(requests[0][1], "/bin/codex");
   assert.equal(requests[0][2].CODEX_HOME, "/tmp/codex-home");
   assert.deepEqual(caps.engines.codex.models, [{
@@ -348,4 +357,94 @@ test("loadEngineCapabilities probes Codex app-server models and permission profi
     { id: ":workspace", description: null },
     { id: ":read-only", description: "Read files only" }
   ]);
+});
+
+test("loadEngineCapabilities uses a Mia-owned probe CODEX_HOME and does not create native .codex", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-codex-probe-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const runtime = {
+    runtime: path.join(dir, "runtime"),
+    engine: path.join(dir, "runtime", "hermes-engine"),
+    home: path.join(dir, "runtime", "engine-home")
+  };
+  const userHome = path.join(dir, "user-home");
+  const schedulerScriptPath = path.join(dir, "fixtures", "scheduler-mcp-server.js");
+  fs.mkdirSync(runtime.engine, { recursive: true });
+  fs.mkdirSync(runtime.home, { recursive: true });
+  fs.mkdirSync(userHome, { recursive: true });
+  fs.mkdirSync(path.dirname(schedulerScriptPath), { recursive: true });
+  fs.writeFileSync(schedulerScriptPath, "console.log('scheduler');\n");
+
+  const schedulerBridge = createSchedulerMcpBridge({
+    runtimePaths: () => runtime,
+    daemonStatus: () => ({ baseUrl: "http://127.0.0.1:27861" }),
+    daemonSettings: () => ({ host: "127.0.0.1", port: 27861 }),
+    daemonToken: () => "token_1",
+    nodePath: () => process.execPath,
+    serverScriptPath: () => schedulerScriptPath,
+    homeDir: () => userHome
+  });
+
+  const spawnCalls = [];
+  const spawn = (command, args, options) => {
+    spawnCalls.push({ command, args, options });
+    const child = new EventEmitter();
+    child.stdin = {
+      destroyed: false,
+      write(line) {
+        const request = JSON.parse(line);
+        if (request.method === "initialize") {
+          queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { ok: true } }) + "\n"));
+          return;
+        }
+        if (request.method === "model/list") {
+          queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { data: [] } }) + "\n"));
+          return;
+        }
+        if (request.method === "permissionProfile/list") {
+          queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { data: [] } }) + "\n"));
+        }
+      }
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.killed = false;
+    child.kill = () => {
+      child.killed = true;
+      child.stdout.end();
+      child.stderr.end();
+      child.emit("exit", 0, null);
+    };
+    return child;
+  };
+
+  const service = createEngineCatalogService({
+    isEngineInstalled: () => true,
+    initializeRuntime: () => {},
+    runtimePaths: () => runtime,
+    userHome: () => userHome,
+    effectiveHermesHome: () => runtime.home,
+    buildPythonPath: () => "/pythonpath",
+    runPythonScript: async () => ({ status: 0, stdout: "[]", stderr: "" }),
+    appendEngineLog: () => {},
+    timeEngineStepAsync: async (_label, fn) => fn(),
+    shellCommandPath: (command) => command === "codex" ? "/opt/codex/bin/codex" : "",
+    processEnvStrings: () => ({ PATH: "/usr/bin" }),
+    ensureCodexHome: schedulerBridge.ensureCodexHome,
+    createCodexAppServerConnection: (options) => createCodexAppServerConnection({ ...options, spawn })
+  });
+
+  const caps = await service.loadEngineCapabilities();
+  const nativeCodexHome = path.join(userHome, ".codex");
+  const probeCodexHome = path.join(runtime.runtime, "codex-probe-home");
+
+  assert.equal(caps.engines.codex.models.length, 0);
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0].command, "/opt/codex/bin/codex");
+  assert.equal(spawnCalls[0].options.env.CODEX_HOME, probeCodexHome);
+  assert.equal(spawnCalls[0].options.env.PATH, ["/opt/codex/bin", "/usr/bin"].join(path.delimiter));
+  assert.notEqual(spawnCalls[0].options.env.CODEX_HOME, nativeCodexHome);
+  assert.equal(fs.existsSync(probeCodexHome), true);
+  assert.equal(fs.existsSync(nativeCodexHome), false);
+  assert.equal(fs.existsSync(path.join(nativeCodexHome, "config.toml")), false);
 });

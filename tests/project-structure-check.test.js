@@ -568,6 +568,7 @@ test("scheduler MCP bridge context, spec, and Codex home setup live behind a mai
   assert.doesNotMatch(profileSource, /CODEX_BLOCKED_STATE/, "Codex should use the user's native home without private state filtering");
   assert.doesNotMatch(bridgeSource, /SESSION_STATE_ENTRIES/, "scheduler MCP bridge must not own native Codex session exclusions");
   assert.match(mainSource, /createSchedulerMcpBridge/, "main should instantiate scheduler MCP bridge");
+  assert.match(mainSource, /ensureCodexHome:\s*\(options\)\s*=>\s*schedulerMcpBridge\.ensureCodexHome\(options\)/, "main should forward Codex home options into the scheduler MCP bridge");
   assert.doesNotMatch(mainSource, /function resolveNodePath/, "main must not own node CLI discovery for scheduler MCP");
   assert.doesNotMatch(mainSource, /function schedulerMcpContextPath/, "main must not own scheduler MCP context path");
   assert.doesNotMatch(mainSource, /function schedulerMcpServerScriptPath/, "main must not own scheduler MCP script path");

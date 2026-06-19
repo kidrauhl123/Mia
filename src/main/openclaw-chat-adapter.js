@@ -107,6 +107,16 @@ function openClawLegacySessionKey(bot, sessionId) {
   return `mia-${digest}`;
 }
 
+function openClawAcpSessionKey(bot, sessionId, mcpFingerprint = "") {
+  return [
+    "openclaw",
+    "mia",
+    String(bot?.key || bot?.id || "bot").trim() || "bot",
+    String(sessionId || "default").trim() || "default",
+    String(mcpFingerprint || "").trim()
+  ].filter(Boolean).join(":");
+}
+
 function shouldUseLegacyOpenClawTransport(bot = {}) {
   const config = bot.engineConfig || {};
   const transport = String(config.openclawTransport || config.transport || "").trim().toLowerCase();
@@ -350,6 +360,32 @@ function decorateOpenClawLegacyError(error) {
   ].join("\n"));
 }
 
+function truthyCapability(value) {
+  return value === true || value === "true" || value === "http" || value === "sse";
+}
+
+function transportListHas(value, transport) {
+  if (!Array.isArray(value)) return false;
+  return value.map((item) => String(item || "").toLowerCase()).includes(transport);
+}
+
+function acpMcpCapabilityOptions(metadata = {}) {
+  const capabilities = metadata?.agentCapabilities || metadata?.capabilities || metadata || {};
+  const mcp = capabilities.mcp || capabilities.mcpServers || capabilities.mcp_servers || {};
+  const transports = mcp.transports || mcp.supportedTransports || mcp.supported_transports || capabilities.mcpTransports || [];
+  return {
+    supportsHttp: truthyCapability(mcp.http)
+      || truthyCapability(mcp.supportsHttp)
+      || truthyCapability(mcp.supports_http)
+      || transportListHas(transports, "http")
+      || transportListHas(transports, "streamable_http"),
+    supportsSse: truthyCapability(mcp.sse)
+      || truthyCapability(mcp.supportsSse)
+      || truthyCapability(mcp.supports_sse)
+      || transportListHas(transports, "sse")
+  };
+}
+
 function createOpenClawChatAdapter(deps = {}) {
   const shellCommandPath = requireDependency(deps, "shellCommandPath");
   const lastUserPrompt = requireDependency(deps, "lastUserPrompt");
@@ -361,11 +397,15 @@ function createOpenClawChatAdapter(deps = {}) {
   const normalizeEffortLevel = requireDependency(deps, "normalizeEffortLevel");
   const getAgentSessionId = requireDependency(deps, "getAgentSessionId");
   const setAgentSessionId = requireDependency(deps, "setAgentSessionId");
+  const getUserMcpServers = deps.getUserMcpServers || (() => []);
+  const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
+  const ensureUserMcpReady = deps.ensureUserMcpReady || (async () => {});
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
   const memoryBlock = deps.memoryBlock || (() => "");
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
   const enginePermissionMode = deps.enginePermissionMode || (() => "default");
+  const appendEngineLog = deps.appendEngineLog || (() => {});
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const execFile = deps.execFile || defaultExecFile;
   const spawn = deps.spawn || defaultSpawn;
@@ -435,8 +475,10 @@ function createOpenClawChatAdapter(deps = {}) {
       return runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession, managedModel });
     }
 
+    const mcpFingerprint = getMcpFingerprint();
+    const desiredSessionKey = openClawAcpSessionKey(bot, sessionId, mcpFingerprint);
     const storedSessionKey = persistAgentSession ? getAgentSessionId("openclaw", bot.key, sessionId) : "";
-    const sessionKey = storedSessionKey || openClawSessionKey(bot, sessionId);
+    const sessionKey = storedSessionKey === desiredSessionKey ? storedSessionKey : desiredSessionKey;
     const effort = normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "openclaw");
     const stdoutChunks = [];
     const stderrChunks = [];
@@ -543,7 +585,7 @@ function createOpenClawChatAdapter(deps = {}) {
         })
       }), ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(acpStdout)));
 
-      await withChildFailure(client.initialize({
+      const initialized = await withChildFailure(client.initialize({
         protocolVersion: PROTOCOL_VERSION,
         clientCapabilities: {
           fs: {
@@ -557,9 +599,15 @@ function createOpenClawChatAdapter(deps = {}) {
           version: "1.0.0"
         }
       }), failure);
+      try {
+        await ensureUserMcpReady();
+      } catch (error) {
+        appendEngineLog(`MCP bridge initialization incomplete before OpenClaw chat: ${error?.message || error}`);
+      }
+      const userMcpServers = getUserMcpServers(acpMcpCapabilityOptions(initialized));
       const session = await withChildFailure(client.newSession({
         cwd: cwd(),
-        mcpServers: [],
+        mcpServers: userMcpServers,
         _meta: {
           sessionKey,
           sessionLabel: bot.engineConfig?.openclawSessionLabel || undefined,
@@ -570,7 +618,7 @@ function createOpenClawChatAdapter(deps = {}) {
       }), failure);
       acpSessionId = String(session?.sessionId || "");
       if (!acpSessionId) throw new Error("OpenClaw ACP 没有返回 sessionId。");
-      if (persistAgentSession && !storedSessionKey) {
+      if (persistAgentSession && storedSessionKey !== sessionKey) {
         setAgentSessionId("openclaw", bot.key, sessionId, sessionKey);
       }
       if (effort) {

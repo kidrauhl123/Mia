@@ -11,6 +11,7 @@ const { chatCompletionResponse } = require("../src/main/chat-response.js");
 
 function createDeps(overrides = {}) {
   const calls = [];
+  const useEntryDeps = overrides.useEntryDeps === true || Object.prototype.hasOwnProperty.call(overrides, "savedEntry");
   async function* streamEvents(events) {
     for (const event of events) {
       if (typeof event === "function") {
@@ -71,8 +72,10 @@ function createDeps(overrides = {}) {
     describeFileChange: overrides.describeFileChange,
     enginePermissionMode: overrides.enginePermissionMode || (() => overrides.enginePermissionModeValue || "default"),
     getMiaAppMcpSpec: () => overrides.miaAppMcpSpec ?? null,
+    getMcpFingerprint: () => overrides.mcpFingerprint || "",
     getSchedulerMcpSpec: () => overrides.schedulerMcpSpec ?? null,
     getAgentSessionId: () => overrides.externalSessionId || "",
+    getUserMcpSpecs: () => overrides.userMcpSpecs ?? {},
     injectGroupContextForSdk: (prompt, contextBlock) => `GROUP:${contextBlock}\n${prompt}`,
     lastUserPrompt: overrides.lastUserPrompt || (() => "hello"),
     memoryBlock: overrides.memoryBlock || (() => ""),
@@ -83,7 +86,11 @@ function createDeps(overrides = {}) {
     setAgentSessionId: (...args) => calls.push(["set-session", ...args]),
     shellCommandPath: (command) => command === "codex" ? (overrides.commandPath || "/bin/codex") : "",
     syncCodexConfigForPermission: overrides.syncCodexConfigForPermission || (() => {}),
-    writeSchedulerMcpContext: () => {}
+    writeSchedulerMcpContext: () => {},
+    ...(useEntryDeps ? {
+      getAgentSessionEntry: () => overrides.savedEntry || { id: "", fingerprint: "" },
+      setAgentSessionEntry: (...args) => calls.push(["set-entry", ...args])
+    } : {})
   };
 }
 
@@ -160,6 +167,24 @@ test("sendChat starts new thread with persona on first turn", async () => {
   assert.equal(response.choices[0].message.content, "codex out");
 });
 
+test("sendChat waits for user MCP readiness before reading Codex MCP specs", async () => {
+  let ready = false;
+  const deps = createDeps({
+    ensureUserMcpReady: async () => { ready = true; },
+    getUserMcpSpecs: () => {
+      assert.equal(ready, true);
+      return {};
+    }
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s-ready",
+    messages: [{ role: "user", content: "hello" }]
+  });
+});
+
 test("sendChat puts the selected codex bin dir first in SDK env", async () => {
   const deps = createDeps({
     commandPath: "/opt/codex-node/bin/codex",
@@ -225,8 +250,12 @@ test("sendChat fails closed when Codex home cannot be prepared", async () => {
   );
 });
 
-test("sendChat resumes existing thread without persona injection", async () => {
-  const deps = createDeps({ externalSessionId: "thread_old", expandedPrompt: "expanded" });
+test("sendChat resumes existing thread only when MCP fingerprint matches", async () => {
+  const deps = createDeps({
+    savedEntry: { id: "thread_old", fingerprint: "mcp_fp" },
+    expandedPrompt: "expanded",
+    mcpFingerprint: "mismatch"
+  });
   const adapter = createCodexChatAdapter(deps);
   const response = await adapter.sendChat({
     bot: { key: "alice", name: "Alice", bio: "" },
@@ -236,13 +265,11 @@ test("sendChat resumes existing thread without persona injection", async () => {
     utility: false
   });
 
-  assert.equal(deps.calls[2][0], "resumeThread");
-  assert.equal(deps.calls[2][1], "thread_old");
+  assert.equal(deps.calls[2][0], "startThread");
   assert.match(deps.calls[3][1], /Mia 是聊天式多 Agent 应用/);
   assert.match(deps.calls[3][1], /expanded/);
-  assert.doesNotMatch(deps.calls[3][1], /以下是 Mia 给当前 Bot 的人设/);
-  assert.equal(deps.calls.some((call) => call[0] === "set-session"), false);
-  assert.equal(response.id, "thread_old");
+  assert.match(deps.calls[3][1], /以下是 Mia 给当前 Bot 的人设/);
+  assert.equal(response.id, "thread_1");
 });
 
 test("sendChat resumes utility conversations when native persistence is enabled", async () => {
@@ -592,6 +619,121 @@ test("sendChat uses Codex app-server runner for interactive approval-capable tur
   assert.equal(response.mia.transport, "codex-app-server");
   assert.equal(response.choices[0].message.content, "app out");
   assert.deepEqual(emitted.map((event) => event.kind), ["text_delta"]);
+});
+
+test("sendChat merges user MCP servers into app-server runner and stores MCP fingerprint", async () => {
+  const deps = createDeps({
+    mcpFingerprint: "mcp_fp",
+    useEntryDeps: true,
+    schedulerMcpSpec: {
+      command: "/opt/node",
+      args: ["/tmp/mia-scheduler.js"],
+      env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
+    },
+    userMcpSpecs: {
+      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+    }
+  });
+  deps.runCodexAppServerTurn = async (args) => {
+    deps.calls.push(["app-server", args]);
+    return { threadId: "app_thread_1", finalResponse: "app out", items: [] };
+  };
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    emit: () => {},
+    utility: false
+  });
+
+  const appServerCall = deps.calls.find((entry) => entry[0] === "app-server")[1];
+  assert.equal(appServerCall.mcpServers.xhs.url, "http://127.0.0.1:18060/mcp");
+  assert.match(appServerCall.mcpServers["mia-scheduler"].command, /node/);
+  const setEntryCall = deps.calls.find((entry) => entry[0] === "set-entry");
+  assert.equal(setEntryCall[5], "mcp_fp");
+});
+
+test("sendChat merges built-in and user MCP servers into the SDK path and stores MCP fingerprint", async () => {
+  const deps = createDeps({
+    mcpFingerprint: "mcp_fp",
+    useEntryDeps: true,
+    miaAppMcpSpec: {
+      command: "/opt/node",
+      args: ["/tmp/mia-app.js"],
+      env: { MIA_DAEMON_URL: "http://127.0.0.1:27861", MIA_APP_CONTEXT_FILE: "/tmp/mia-app-context.json" }
+    },
+    schedulerMcpSpec: {
+      command: "/opt/node",
+      args: ["/tmp/mia-scheduler.js"],
+      env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
+    },
+    userMcpSpecs: {
+      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+    }
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    utility: false
+  });
+
+  const constructorCall = deps.calls.find((entry) => entry[0] === "constructor");
+  assert.equal(constructorCall[1].config.mcp_servers["mia-app"].command, "/opt/node");
+  assert.equal(constructorCall[1].config.mcp_servers["mia-scheduler"].command, "/opt/node");
+  assert.equal(constructorCall[1].config.mcp_servers.xhs.url, "http://127.0.0.1:18060/mcp");
+  const setEntryCall = deps.calls.find((entry) => entry[0] === "set-entry");
+  assert.equal(setEntryCall[5], "mcp_fp");
+});
+
+test("sendChat keeps reserved built-in MCP servers when user specs collide on the SDK path", async () => {
+  const miaAppMcpSpec = {
+    command: "/opt/node",
+    args: ["/tmp/mia-app.js"],
+    env: { MIA_APP_CONTEXT_FILE: "/tmp/mia-app-context.json" }
+  };
+  const schedulerMcpSpec = {
+    command: "/opt/node",
+    args: ["/tmp/mia-scheduler.js"],
+    env: { MIA_SCHEDULER_CONTEXT_FILE: "/tmp/mia-scheduler-context.json" }
+  };
+  const deps = createDeps({
+    miaAppMcpSpec,
+    schedulerMcpSpec,
+    userMcpSpecs: {
+      "mia-app": { type: "http", url: "http://127.0.0.1:18061/mcp" },
+      "mia-scheduler": { type: "http", url: "http://127.0.0.1:18062/mcp" },
+      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+    }
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    utility: false
+  });
+
+  const constructorCall = deps.calls.find((entry) => entry[0] === "constructor");
+  assert.deepEqual(constructorCall[1].config.mcp_servers["mia-app"], {
+    command: "/opt/node",
+    args: ["/tmp/mia-app.js"],
+    env: { MIA_APP_CONTEXT_FILE: "/tmp/mia-app-context.json" }
+  });
+  assert.deepEqual(constructorCall[1].config.mcp_servers["mia-scheduler"], {
+    command: "/opt/node",
+    args: ["/tmp/mia-scheduler.js"],
+    env: { MIA_SCHEDULER_CONTEXT_FILE: "/tmp/mia-scheduler-context.json" }
+  });
+  assert.equal(constructorCall[1].config.mcp_servers.xhs.url, "http://127.0.0.1:18060/mcp");
 });
 
 test("sendChat passes engine-level Codex permission profiles to app-server runner", async () => {

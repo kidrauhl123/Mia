@@ -446,14 +446,144 @@ test("background market refresh preserves the skill market scroll position", asy
 test("topbar has the mine/market toggle and market styles exist", () => {
   const html = read("src/renderer/index.html");
   assert.match(html, /id="skillModeToggle"/);
+  const skillLibrary = read("src/renderer/skills/skill-library.js");
+  assert.match(skillLibrary, /data-skill-mode="mcp"/);
   const css = read("src/renderer/styles/skills.css");
   assert.match(css, /\.skill-mode-toggle/);
   assert.match(css, /\.skill-card/);
   assert.doesNotMatch(css, /\.skill-card-action/);
 });
 
+test("entering MCP mode triggers one initial MCP load", async () => {
+  const skillSrc = read("src/renderer/skills/skill-library.js");
+  const mcpSrc = read("src/renderer/mcp/mcp-library.js");
+  const fakeEl = () => ({
+    innerHTML: "",
+    textContent: "",
+    style: { setProperty: () => {} },
+    classList: { toggle: () => {}, add: () => {}, remove: () => {} },
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+    closest: () => null,
+    getBoundingClientRect: () => ({ left: 0, width: 0, height: 0 })
+  });
+  const state = {
+    skillFilter: "",
+    skillCategoryFilter: "",
+    skillCapabilityMode: "market",
+    skillMarketMode: true,
+    skillMarket: {
+      skills: [],
+      categories: [],
+      loading: false,
+      loaded: true,
+      queryKey: JSON.stringify({ limit: 72 }),
+      error: ""
+    },
+    skillLibrary: { skills: [] },
+    installingSkillIds: new Set(),
+    selectedSkillId: "",
+    skillContextMenu: { open: false, skillId: "" },
+    mcp: {
+      activeTab: "installed",
+      servers: [],
+      templates: [],
+      loaded: false,
+      loadAttempted: false,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const els = {
+    skillModeToggle: fakeEl(),
+    skillChipRow: fakeEl(),
+    skillCardGrid: fakeEl(),
+    skillPageTitle: fakeEl(),
+    skillContextMenu: fakeEl()
+  };
+  let listCalls = 0;
+  let marketplaceCalls = 0;
+  const context = {
+    console,
+    requestAnimationFrame: (fn) => fn(),
+    window: {
+      addEventListener: () => {},
+      innerWidth: 1024,
+      mia: {
+        mcp: {
+          list: async () => {
+            listCalls += 1;
+            return { success: true, data: { servers: [] } };
+          },
+          fetchMarketplace: async () => {
+            marketplaceCalls += 1;
+            return { success: true, data: { templates: [] } };
+          }
+        }
+      },
+      miaSkillHelpers: {
+        skillDisplayName: (skill) => skill.name_zh || skill.marketNameZh || skill.name,
+        skillSummaryZh: (skill) => skill.description || "",
+        skillDisplayCategory: (skill) => skill.category || skill.marketCategoryZh || "",
+        skillAuthorLabel: (skill) => skill.pluginLabel || skill.sourceLabel || "Local",
+        skillTone: () => "blue",
+        skillInitials: () => "SK",
+        renderSkillMarkdownSource: (body) => body
+      }
+    }
+  };
+  vm.createContext(context);
+  vm.runInContext(mcpSrc, context, { filename: "mcp-library.js" });
+  vm.runInContext(skillSrc, context, { filename: "skill-library.js" });
+
+  context.window.miaMcpLibrary.initMcpLibrary({
+    state,
+    els,
+    escapeHtml: (value) => String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;"),
+    setText: (el, value) => { el.textContent = String(value || ""); },
+    layoutCards: () => {}
+  });
+  context.window.miaSkillLibrary.initSkillLibrary({
+    state,
+    els,
+    mia: null,
+    escapeHtml: (value) => String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;"),
+    setText: (el, value) => { el.textContent = String(value || ""); },
+    menuItemHtml: () => "",
+    syncTopbarClickCapture: () => {},
+    closeGroupContextMenu: () => {},
+    showNarrowContent: () => {},
+    deleteSkill: () => {},
+    openSkillDirectory: () => {}
+  });
+
+  context.window.miaSkillLibrary.switchSkillMode("mcp");
+  await Promise.resolve();
+  await Promise.resolve();
+  context.window.miaSkillLibrary.renderSkillLibrary();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(state.skillCapabilityMode, "mcp");
+  assert.equal(listCalls, 1);
+  assert.equal(marketplaceCalls, 1);
+});
+
 test("market state tracks cached pages separately from foreground loading", () => {
   const state = read("src/renderer/app-state.js");
+  assert.match(state, /skillCapabilityMode:\s*"market"/);
   assert.match(state, /refreshing:\s*false/);
   assert.match(state, /cached:\s*false/);
   assert.match(state, /stale:\s*false/);

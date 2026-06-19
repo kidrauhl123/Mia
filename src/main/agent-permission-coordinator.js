@@ -47,6 +47,41 @@ function previewForInput(input = {}) {
   }
 }
 
+function permissionEngineLabel(engine = "") {
+  const normalized = String(engine || "").trim().toLowerCase();
+  if (normalized === "codex") return "Codex";
+  if (normalized === "claude-code") return "Claude Code";
+  if (normalized === "openclaw") return "OpenClaw";
+  if (normalized === "mcp") return "MCP";
+  return String(engine || "").trim() || "Agent";
+}
+
+function isLikelyMcpToolName(toolName = "") {
+  const value = String(toolName || "").trim();
+  return value.includes(".") || /^mcp([:_./ -]|$)/i.test(value);
+}
+
+function formatMcpPermissionTitle({ engine = "", toolName = "" } = {}) {
+  const tool = String(toolName || "MCP 工具").trim() || "MCP 工具";
+  return `${permissionEngineLabel(engine)} 想使用 MCP 工具 ${tool}`;
+}
+
+function formatPermissionTitle({ engine = "", toolName = "", title = "" } = {}) {
+  const explicit = compactWhitespace(title);
+  if (isLikelyMcpToolName(toolName)) {
+    if (explicit) {
+      return explicit.includes(toolName) || !/MCP\s*工具/i.test(explicit)
+        ? explicit
+        : `${explicit} ${String(toolName || "").trim()}`;
+    }
+    return formatMcpPermissionTitle({ engine, toolName });
+  }
+  if (explicit) return explicit;
+  const engineLabel = permissionEngineLabel(engine);
+  const tool = String(toolName || "tool").trim() || "tool";
+  return `${engineLabel} 请求使用 ${tool}`;
+}
+
 function ruleSubject(toolName, input = {}) {
   const tool = String(toolName || "").trim();
   const command = commandFromInput(input);
@@ -208,7 +243,7 @@ function createAgentPermissionCoordinator(deps = {}) {
       botId: String(request.botId || "").trim(),
       sessionId: String(request.sessionId || "").trim(),
       toolName,
-      title: String(request.title || `${engine} 请求使用 ${toolName}`).trim(),
+      title: formatPermissionTitle({ engine, toolName, title: request.title }),
       description: String(request.description || "").trim(),
       preview: String(request.preview || previewForInput(input)).trim(),
       input,
@@ -305,5 +340,7 @@ function createAgentPermissionCoordinator(deps = {}) {
 module.exports = {
   buildRule,
   createAgentPermissionCoordinator,
+  formatMcpPermissionTitle,
+  formatPermissionTitle,
   stableJson
 };

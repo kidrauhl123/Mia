@@ -44,6 +44,7 @@ test("runtime paths default to the Electron userData profile", () => {
   assert.equal(paths.home, path.join(expectedRoot, "runtime", "engine-home"));
   assert.equal(paths.hermesHome, path.join("/Users/alice", ".hermes"));
   assert.equal(paths.config, path.join("/Users/alice", ".hermes", "config.yaml"));
+  assert.equal(paths.mcpServers, path.join(expectedRoot, "runtime", "engine-home", "mia-mcp-servers.json"));
 });
 
 test("runtime paths use MIA_HOME for shared data even when Electron userData is isolated", () => {

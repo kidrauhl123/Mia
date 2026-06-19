@@ -4437,6 +4437,15 @@ async function initializeRuntime(options = {}) {
       openSkillDirectory,
     });
   }
+  if (window.miaMcpLibrary && window.miaMcpLibrary.initMcpLibrary) {
+    window.miaMcpLibrary.initMcpLibrary({
+      state,
+      els,
+      escapeHtml: window.miaMarkdown.escapeHtml,
+      setText,
+      layoutCards: () => window.miaSkillLibrary?.layoutSkillCards?.(),
+    });
+  }
   if (window.miaBotStore && window.miaBotStore.initBotStore) {
     window.miaBotStore.initBotStore({
       state,

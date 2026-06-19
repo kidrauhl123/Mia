@@ -3,7 +3,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createAgentPermissionCoordinator } = require("../src/main/agent-permission-coordinator.js");
+const {
+  createAgentPermissionCoordinator,
+  formatPermissionTitle
+} = require("../src/main/agent-permission-coordinator.js");
 
 function tempRuntime() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-perms-"));
@@ -65,4 +68,36 @@ test("permission coordinator denies when no approval UI is available", async () 
 
   assert.equal(decision.decision, "deny");
   assert.match(decision.message, /审批界面/);
+});
+
+test("permission title keeps user-added MCP tool names visible", () => {
+  assert.match(
+    formatPermissionTitle({ engine: "codex", toolName: "xhs.search_notes" }),
+    /xhs\.search_notes/
+  );
+});
+
+test("requestPermission augments generic Codex MCP titles with the real tool name", async () => {
+  const { runtimePaths } = tempRuntime();
+  const emitted = [];
+  const coordinator = createAgentPermissionCoordinator({
+    runtimePaths,
+    timeoutMs: 0,
+    randomUUID: () => "req_mcp"
+  });
+
+  const pending = coordinator.requestPermission({
+    engine: "codex",
+    sessionId: "session-1",
+    toolName: "xhs.search_notes",
+    title: "Codex 想使用 MCP 工具",
+    input: { q: "coffee" },
+    emit: (kind, data) => emitted.push({ kind, data })
+  });
+
+  assert.equal(emitted[0].kind, "permission_request");
+  assert.match(emitted[0].data.title, /xhs\.search_notes/);
+  assert.deepEqual(coordinator.resolvePermission({ requestId: "perm_req_mcp", decision: "allow_once" }), { ok: true });
+  const decision = await pending;
+  assert.equal(decision.decision, "allow");
 });

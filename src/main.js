@@ -1,5 +1,5 @@
 const { app, BrowserWindow, clipboard, dialog, ipcMain, screen, shell } = require("electron");
-const { spawn, spawnSync } = require("node:child_process");
+const { execFile, spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -41,6 +41,7 @@ const { createMiaMemoryService } = require("./main/mia-memory-service.js");
 const { createRuntimeInitializerService } = require("./main/runtime-initializer-service.js");
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
 const { createStartupBackgroundService } = require("./main/startup-background-service.js");
+const { createStartupMcpInitializer } = require("./main/mcp-startup-initializer.js");
 const { createStartupTimer } = require("./main/startup-timing.js");
 const { onboardingWindowBounds } = require("./main/onboarding-window-bounds.js");
 const { setMacNativeControlsVisible } = require("./main/mac-window-controls.js");
@@ -109,8 +110,13 @@ const { createEngineHealthService } = require("./main/engine-health-service.js")
 const { createEngineInstallService } = require("./main/engine-install-service.js");
 const { registerWindowIpc } = require("./main/ipc/window-ipc.js");
 const { registerUtilIpc } = require("./main/ipc/util-ipc.js");
+const { registerMcpIpc } = require("./main/ipc/mcp-ipc.js");
 const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
 const { createLocalFileOpenService } = require("./main/local-file-open-service.js");
+const { createMcpBridgeServer } = require("./main/mcp/mcp-bridge-server.js");
+const { runNativeMcpCliSync } = require("./main/mcp/mcp-engine-sync.js");
+const { createMcpSdkClientManager } = require("./main/mcp/mcp-sdk-client.js");
+const { createMcpService } = require("./main/mcp/mcp-service.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — bot chats
 //  now sync via conversations+messages, no need for the workspace-shape mappers.)
 
@@ -315,7 +321,8 @@ const engineRuntimeConfigService = createEngineRuntimeConfigService({
   // only invoked at writeRuntimeConfig time (runtime), by which point it
   // exists. Lets the Hermes config.yaml carry the mia-scheduler MCP.
   getMiaAppMcpSpec: () => miaAppMcpBridge.getSpec(),
-  getSchedulerMcpSpec: () => schedulerMcpBridge.getSpec()
+  getSchedulerMcpSpec: () => schedulerMcpBridge.getSpec(),
+  getUserMcpSpecs: () => userMcpService.getEngineSpecs("hermes", { hermesSupportsUrl: true })
 });
 const {
   apiKey,
@@ -554,7 +561,7 @@ const engineCatalogService = createEngineCatalogService({
   timeEngineStepAsync,
   shellCommandPath: (command) => localAgentEngineService.shellCommandPath(command),
   processEnvStrings,
-  ensureCodexHome: () => schedulerMcpBridge.ensureCodexHome(),
+  ensureCodexHome: (options) => schedulerMcpBridge.ensureCodexHome(options),
   createCodexAppServerConnection,
   claudeAgentSdk,
   cwd: () => process.cwd()
@@ -601,6 +608,46 @@ function readJson(filePath, fallback) {
   }
 }
 
+function execFileAsPromise(file, args, _meta = {}) {
+  return new Promise((resolve) => {
+    const resultFrom = (error, stdout, stderr) => {
+      const numericCode = Number.isInteger(error?.code) ? error.code : 1;
+      const spawnCode = error && !Number.isInteger(error?.code) && error?.code != null ? String(error.code) : "";
+      const signal = error?.signal ? String(error.signal) : "";
+      const stderrBase = String(stderr || error?.message || "");
+      const detailSuffix = [spawnCode ? `spawnCode=${spawnCode}` : "", signal ? `signal=${signal}` : ""]
+        .filter(Boolean)
+        .join(" ");
+      return {
+        ok: !error,
+        code: error ? numericCode : 0,
+        spawnCode,
+        signal,
+        stdout: String(stdout || ""),
+        stderr: detailSuffix && !stderrBase.includes(detailSuffix)
+          ? `${stderrBase}${stderrBase ? " " : ""}${detailSuffix}`
+          : stderrBase
+      };
+    };
+    try {
+      execFile(
+        file,
+        Array.isArray(args) ? args.map((arg) => String(arg)) : [],
+        {
+          encoding: "utf8",
+          env: processEnvStrings(),
+          windowsHide: true
+        },
+        (error, stdout, stderr) => {
+          resolve(resultFrom(error, stdout, stderr));
+        }
+      );
+    } catch (error) {
+      resolve(resultFrom(error, "", ""));
+    }
+  });
+}
+
 function daemonToken() {
   const p = runtimePaths();
   if (!fs.existsSync(p.daemonToken)) {
@@ -633,6 +680,66 @@ async function codexSdk() {
 
 function processEnvStrings() {
   return Object.fromEntries(Object.entries(localAgentEngineService.processEnvWithCliPath()).filter(([, value]) => typeof value === "string"));
+}
+
+const userMcpManager = createMcpSdkClientManager({
+  processEnvStrings,
+  appendLog: appendEngineLog,
+  authorizeToolCall: async ({ args, options = {} }) => {
+    const toolLabel = String(options.toolLabel || "").trim() || "mcp.tool";
+    let preview = "";
+    try {
+      preview = args ? JSON.stringify(args, null, 2).slice(0, 4000) : "";
+    } catch {
+      preview = "";
+    }
+    const decision = await agentPermissionCoordinator.requestPermission({
+      engine: String(options.engine || "mcp"),
+      botId: String(options.botId || ""),
+      sessionId: String(options.sessionId || ""),
+      signal: options.signal,
+      emit: options.emit,
+      toolName: toolLabel,
+      title: String(options.title || `MCP 请求使用 ${toolLabel}`),
+      description: String(options.description || ""),
+      preview,
+      input: args && typeof args === "object" ? args : {}
+    });
+    return {
+      allowed: String(decision?.decision || "").startsWith("allow"),
+      reason: decision?.message || "MCP 工具调用已被拒绝。"
+    };
+  }
+});
+const userMcpBridge = createMcpBridgeServer({
+  manager: userMcpManager,
+  secret: crypto.randomUUID(),
+  appendLog: appendEngineLog
+});
+const userMcpService = createMcpService({
+  runtimePaths,
+  manager: userMcpManager,
+  bridge: userMcpBridge,
+  nativeSync: (payload) => runNativeMcpCliSync({
+    ...payload,
+    cliPaths: { codex: "codex", claude: "claude" },
+    runCommand: execFileAsPromise,
+    appendLog: appendEngineLog
+  }),
+  nodePath: () => localAgentEngineService.shellCommandPath("node"),
+  stdioProxyScriptPath: () => path.join(__dirname, "main", "mcp", "mcp-stdio-proxy-server.js")
+});
+const startupMcpInitializer = createStartupMcpInitializer({
+  initializeMcp: () => userMcpService.initialize(),
+  appendEngineLog
+});
+
+async function ensureUserMcpReady(reason) {
+  try {
+    await userMcpService.awaitInitialization();
+  } catch (error) {
+    appendEngineLog(`MCP bridge initialization incomplete before ${reason}: ${error?.message || error}`);
+  }
 }
 
 let runtimeLifecycleService = null;
@@ -1660,6 +1767,7 @@ function startCloudRuntimeSockets() {
 
 async function startEngine() {
   initializeRuntime();
+  await ensureUserMcpReady("Hermes startup");
   const p = runtimePaths();
   if (!engineInstallService.isInstalled()) {
     throw new Error("Hermes engine is not installed in Mia runtime.");
@@ -1919,13 +2027,16 @@ function createActiveClaudeCodeChatAdapter() {
     chatCompletionResponse,
     claudeAgentSdk,
     ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
+    ensureUserMcpReady: () => ensureUserMcpReady("Claude Code chat"),
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     clearAgentSessionEntry: agentSessionStore.deleteEntry,
     enginePermissionMode: settingsStore.enginePermissionMode,
     getAgentSessionEntry: agentSessionStore.getEntry,
+    getMcpFingerprint: userMcpService.fingerprint,
     getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
+    getUserMcpSpecs: () => userMcpService.getEngineSpecs("claude-code"),
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
     memoryBlock: miaMemoryService.memoryBlock,
@@ -1949,10 +2060,14 @@ function createActiveCodexChatAdapter() {
     appendEngineLog,
     enginePermissionMode: settingsStore.enginePermissionMode,
     ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
+    ensureUserMcpReady: () => ensureUserMcpReady("Codex chat"),
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
+    getAgentSessionEntry: agentSessionStore.getEntry,
     getAgentSessionId: agentSessionStore.getId,
+    getMcpFingerprint: userMcpService.fingerprint,
     getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
+    getUserMcpSpecs: () => userMcpService.getEngineSpecs("codex"),
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
     memoryBlock: miaMemoryService.memoryBlock,
@@ -1962,6 +2077,7 @@ function createActiveCodexChatAdapter() {
     readBotPersona,
     resolveManagedModelRuntime,
     runCodexAppServerTurn,
+    setAgentSessionEntry: agentSessionStore.setEntry,
     setAgentSessionId: agentSessionStore.setId,
     shellCommandPath: localAgentEngineService.shellCommandPath,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext
@@ -1973,9 +2089,13 @@ function createActiveOpenClawChatAdapter() {
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     chatCompletionResponse,
     cwd: agentWorkspaceDir,
+    appendEngineLog,
     enginePermissionMode: settingsStore.enginePermissionMode,
+    ensureUserMcpReady: () => ensureUserMcpReady("OpenClaw chat"),
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionId: agentSessionStore.getId,
+    getMcpFingerprint: userMcpService.fingerprint,
+    getUserMcpServers: (options) => userMcpService.getEngineSpecs("openclaw", options),
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
     memoryBlock: miaMemoryService.memoryBlock,
@@ -2456,6 +2576,7 @@ agentPermissionProxy = createAgentPermissionProxy({
 
 registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle });
 registerUtilIpc({ ipcMain, openLocalFile: localFileOpenService.openLocalFile });
+registerMcpIpc({ ipcMain, mcpService: userMcpService });
 
 ipcMain.handle(IpcChannel.RuntimeInitialize, async () => {
   const status = initializeRuntime();
@@ -2902,6 +3023,7 @@ ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates()
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
   if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
+  startupMcpInitializer.start();
   if (IS_DAEMON_PROCESS) {
     try {
       app.dock?.hide?.();

@@ -13,6 +13,7 @@ const {
   createWorkspaceDiffTracker,
   fileEditPayloadFromUnifiedDiff
 } = require("./agent-file-edit-events.js");
+const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
 
 function mapCodexPermissionMode(value) {
   const id = String(value || "default").trim();
@@ -128,6 +129,31 @@ function envWithExecutableDirFirst(env = {}, executablePath = "") {
     ...(env || {}),
     PATH: [dir, ...parts].join(delimiter)
   };
+}
+
+function codexSdkConfigForMcpServers(mcpServers = {}) {
+  const config = {};
+  for (const [name, spec] of Object.entries(mcpServers || {})) {
+    const serverName = String(name || "").trim();
+    if (!serverName) continue;
+    const url = String(spec?.url || "").trim();
+    const command = String(spec?.command || "").trim();
+    if (url) {
+      config[serverName] = {
+        url
+      };
+      const bearer = String(spec?.bearer_token_env_var || spec?.bearerTokenEnvVar || "").trim();
+      if (bearer) config[serverName].bearer_token_env_var = bearer;
+      continue;
+    }
+    if (!command) continue;
+    config[serverName] = {
+      command,
+      args: Array.isArray(spec?.args) ? spec.args : [],
+      env: spec?.env && typeof spec.env === "object" ? spec.env : {}
+    };
+  }
+  return Object.keys(config).length ? { mcp_servers: config } : null;
 }
 
 const MAX_FILE_DIFF_PREVIEW = 20000;
@@ -337,14 +363,24 @@ function createCodexChatAdapter(deps = {}) {
   const codexSdk = requireDependency(deps, "codexSdk");
   const processEnvStrings = requireDependency(deps, "processEnvStrings");
   const normalizeEffortLevel = requireDependency(deps, "normalizeEffortLevel");
-  const getAgentSessionId = requireDependency(deps, "getAgentSessionId");
-  const setAgentSessionId = requireDependency(deps, "setAgentSessionId");
+  const getAgentSessionId = deps.getAgentSessionId || (() => "");
+  const setAgentSessionId = deps.setAgentSessionId || (() => {});
+  const getAgentSessionEntry = deps.getAgentSessionEntry || ((engine, botId, localSessionId) => ({
+    id: getAgentSessionId(engine, botId, localSessionId),
+    fingerprint: ""
+  }));
+  const setAgentSessionEntry = deps.setAgentSessionEntry || ((engine, botId, localSessionId, externalId) => {
+    setAgentSessionId(engine, botId, localSessionId, externalId);
+  });
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
   const memoryBlock = deps.memoryBlock || (() => "");
   const ensureCodexHome = requireDependency(deps, "ensureCodexHome");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
   const getSchedulerMcpSpec = deps.getSchedulerMcpSpec || (() => null);
+  const getUserMcpSpecs = deps.getUserMcpSpecs || (() => ({}));
+  const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
+  const ensureUserMcpReady = deps.ensureUserMcpReady || (async () => {});
   const runCodexAppServerTurn = deps.runCodexAppServerTurn || null;
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
@@ -359,7 +395,16 @@ function createCodexChatAdapter(deps = {}) {
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("codex");
     if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
-    const externalSessionId = shouldPersistAgentSession ? getAgentSessionId(engine, bot.key, sessionId) : "";
+    try {
+      await ensureUserMcpReady();
+    } catch (error) {
+      appendEngineLog(`MCP bridge initialization incomplete before Codex chat: ${error?.message || error}`);
+    }
+    const mcpFingerprint = getMcpFingerprint();
+    const savedEntry = shouldPersistAgentSession ? getAgentSessionEntry(engine, bot.key, sessionId) : { id: "", fingerprint: "" };
+    const externalSessionId = savedEntry.id && savedEntry.fingerprint === mcpFingerprint
+      ? savedEntry.id
+      : "";
     const lastUser = lastUserPrompt(messages);
     // Best-effort: grab id from last user message for scheduler context
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;
@@ -417,10 +462,13 @@ function createCodexChatAdapter(deps = {}) {
     const miaAppMcpSpec = (() => {
       try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
     })();
-    const mcpServers = {
-      ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
-      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
-    };
+    const mcpServers = mergeMcpServersWithReservedBuiltIns({
+      userServers: getUserMcpSpecs(),
+      builtInServers: {
+        ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
+        ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
+      }
+    });
     const threadOptions = {
       workingDirectory: cwd(),
       skipGitRepoCheck: true,
@@ -453,9 +501,11 @@ function createCodexChatAdapter(deps = {}) {
       capturedSessionId = externalSessionId || turn?.threadId || "";
     } else {
       const { Codex } = await codexSdk();
+      const sdkConfig = codexSdkConfigForMcpServers(mcpServers);
       const codex = new Codex({
         codexPathOverride: commandPath,
         env,
+        ...(sdkConfig ? { config: sdkConfig } : {}),
         ...(managedModel?.baseUrl ? { baseUrl: managedModel.baseUrl } : {}),
         ...(managedModel?.apiKey ? { apiKey: managedModel.apiKey } : {})
       });
@@ -472,7 +522,7 @@ function createCodexChatAdapter(deps = {}) {
     }
     const imagePaths = recentGeneratedImagePaths(capturedSessionId, { env, startedAtMs });
     if (capturedSessionId && !externalSessionId && shouldPersistAgentSession) {
-      setAgentSessionId(engine, bot.key, sessionId, capturedSessionId);
+      setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, mcpFingerprint);
     }
     if (signal?.aborted) throw stoppedError();
     return chatCompletionResponse({

@@ -34,7 +34,7 @@ function fakeAcpSdk(calls, overrides = {}) {
 
     async initialize(params) {
       calls.push(["acp-initialize", params]);
-      return {
+      return overrides.initializeResult || {
         protocolVersion: 1,
         agentCapabilities: { promptCapabilities: { image: true } },
         agentInfo: { name: "openclaw-acp", version: "test" }
@@ -90,6 +90,11 @@ function createDeps(overrides = {}) {
     expandLeadingSkillCommand: (text) => text,
     enginePermissionMode: overrides.enginePermissionMode || (() => overrides.enginePermissionModeValue || "default"),
     getAgentSessionId: (engine, botKey, sessionId) => sessions.get(`${engine}:${botKey}:${sessionId}`) || "",
+    getMcpFingerprint: () => overrides.mcpFingerprint || "",
+    getUserMcpServers: (options) => {
+      calls.push(["get-user-mcp-servers", options]);
+      return overrides.userMcpServers ?? [];
+    },
     injectGroupContextForSdk: (prompt, contextBlock) => `${contextBlock}\n\n${prompt}`,
     lastUserPrompt: (messages) => [...messages].reverse().find((message) => message.role === "user")?.content || "",
     memoryBlock: () => "Mia 记忆",
@@ -352,7 +357,7 @@ test("sendChat runs OpenClaw through ACP backend and stores the stable session k
     cwd: "/tmp/mia-workspace",
     mcpServers: [],
     _meta: {
-      sessionKey: "mia:claw:mia-session",
+      sessionKey: "openclaw:mia:claw:mia-session",
       sessionLabel: undefined,
       resetSession: false,
       requireExisting: false,
@@ -380,7 +385,7 @@ test("sendChat runs OpenClaw through ACP backend and stores the stable session k
     backend: "openclaw",
     compatibility_transport: "",
     engine: "openclaw",
-    session_id: "mia:claw:mia-session",
+    session_id: "openclaw:mia:claw:mia-session",
     bot_id: "claw"
   });
   assert.deepEqual(deps.calls.find((call) => call[0] === "set-session"), [
@@ -388,9 +393,74 @@ test("sendChat runs OpenClaw through ACP backend and stores the stable session k
     "openclaw",
     "claw",
     "mia-session",
-    "mia:claw:mia-session"
+    "openclaw:mia:claw:mia-session"
   ]);
   assert.equal(deps.calls.some((call) => call[0] === "exec"), false);
+});
+
+test("sendChat waits for user MCP readiness before reading OpenClaw MCP servers", async () => {
+  let ready = false;
+  const deps = createDeps({
+    ensureUserMcpReady: async () => { ready = true; },
+    getUserMcpServers: () => {
+      assert.equal(ready, true);
+      return [];
+    }
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    sessionId: "mia-session",
+    messages: [{ role: "user", content: "帮我整理文件" }]
+  });
+});
+
+test("ACP newSession defaults MCP injection to stdio plus bridge fallback when capabilities are missing", async () => {
+  const deps = createDeps({
+    userMcpServers: [{ name: "xhs", command: "node", args: ["/proxy.js"], env: [{ name: "A", value: "1" }] }],
+    mcpFingerprint: "mcp_fp"
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "bot", name: "Bot", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hi" }]
+  });
+
+  const newSession = deps.calls.find((call) => call[0] === "acp-new-session")[1];
+  assert.deepEqual(deps.calls.find((call) => call[0] === "get-user-mcp-servers"), [
+    "get-user-mcp-servers",
+    { supportsHttp: false, supportsSse: false }
+  ]);
+  assert.deepEqual(newSession.mcpServers, [{ name: "xhs", command: "node", args: ["/proxy.js"], env: [{ name: "A", value: "1" }] }]);
+  assert.deepEqual(deps.calls.find((call) => call[0] === "set-session"), ["set-session", "openclaw", "bot", "s1", "openclaw:mia:bot:s1:mcp_fp"]);
+});
+
+test("ACP MCP injection uses initialized transport capabilities when available", async () => {
+  const deps = createDeps({
+    initializeResult: {
+      protocolVersion: 1,
+      agentCapabilities: { mcp: { transports: ["http", "sse"] } },
+      agentInfo: { name: "openclaw-acp", version: "test" }
+    },
+    userMcpServers: [{ type: "http", name: "xhs", url: "http://127.0.0.1:18060/mcp", headers: [] }]
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "bot", name: "Bot", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hi" }]
+  });
+
+  const newSession = deps.calls.find((call) => call[0] === "acp-new-session")[1];
+  assert.deepEqual(deps.calls.find((call) => call[0] === "get-user-mcp-servers"), [
+    "get-user-mcp-servers",
+    { supportsHttp: true, supportsSse: true }
+  ]);
+  assert.deepEqual(newSession.mcpServers, [{ type: "http", name: "xhs", url: "http://127.0.0.1:18060/mcp", headers: [] }]);
 });
 
 test("sendChat emits OpenClaw ACP diff content as unified file_edit events", async () => {

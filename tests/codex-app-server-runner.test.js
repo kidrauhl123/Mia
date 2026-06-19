@@ -81,6 +81,33 @@ test("codexConfigOverridesForMcpServers converts Mia scheduler MCP spec to CLI c
   ]);
 });
 
+test("codexConfigOverridesForMcpServers supports URL MCP servers", () => {
+  const overrides = codexConfigOverridesForMcpServers({
+    xhs: { url: "http://127.0.0.1:18060/mcp", bearer_token_env_var: "XHS_TOKEN" }
+  });
+
+  assert.deepEqual(overrides, [
+    'mcp_servers.xhs.url="http://127.0.0.1:18060/mcp"',
+    'mcp_servers.xhs.bearer_token_env_var="XHS_TOKEN"'
+  ]);
+});
+
+test("codexConfigOverridesForMcpServers quotes server names that are not safe TOML bare keys", () => {
+  const overrides = codexConfigOverridesForMcpServers({
+    "foo.bar": { url: "http://127.0.0.1:18060/mcp" },
+    "小红书 MCP": {
+      command: "/opt/node",
+      args: ["/tmp/xhs.js"]
+    }
+  });
+
+  assert.deepEqual(overrides, [
+    'mcp_servers."foo.bar".url="http://127.0.0.1:18060/mcp"',
+    'mcp_servers."小红书 MCP".command="/opt/node"',
+    'mcp_servers."小红书 MCP".args=["/tmp/xhs.js"]'
+  ]);
+});
+
 test("createCodexAppServerConnection starts app-server with explicit config overrides", () => {
   const spawnCalls = [];
   const child = new EventEmitter();

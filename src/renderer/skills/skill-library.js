@@ -26,6 +26,7 @@
   let modeToggleIndicatorHost = null;
   let modeToggleIndicatorResizeBound = false;
   let pageTurnDirection = 0;
+  const SKILL_MODE_ORDER = Object.freeze({ market: 0, mine: 1, mcp: 2 });
 
   function syncModeToggleIndicator(host) {
     modeToggleIndicatorHost = host || modeToggleIndicatorHost;
@@ -191,28 +192,46 @@
     });
   }
 
+  function currentSkillMode() {
+    const explicit = String(state?.skillCapabilityMode || "").trim();
+    if (explicit === "market" || explicit === "mine" || explicit === "mcp") return explicit;
+    return state?.skillMarketMode ? "market" : "mine";
+  }
+
   function renderModeToggle() {
     if (!els.skillModeToggle) return;
-    const market = !!state.skillMarketMode;
+    const mode = currentSkillMode();
     els.skillModeToggle.innerHTML = `
-      <button class="${market ? "active" : ""}" type="button" role="tab" data-skill-mode="market">技能市场</button>
-      <button class="${market ? "" : "active"}" type="button" role="tab" data-skill-mode="mine">我的技能</button>
+      <button class="${mode === "market" ? "active" : ""}" type="button" role="tab" data-skill-mode="market">技能市场</button>
+      <button class="${mode === "mine" ? "active" : ""}" type="button" role="tab" data-skill-mode="mine">我的技能</button>
+      <button class="${mode === "mcp" ? "active" : ""}" type="button" role="tab" data-skill-mode="mcp">MCP 服务</button>
     `;
     els.skillModeToggle.querySelectorAll("[data-skill-mode]").forEach((button) => {
-      button.addEventListener("click", () => switchSkillMode(button.dataset.skillMode === "market"));
+      button.addEventListener("click", () => switchSkillMode(button.dataset.skillMode));
     });
     syncModeToggleIndicator(els.skillModeToggle);
   }
 
-  function switchSkillMode(toMarket) {
-    if (!!state.skillMarketMode === !!toMarket) return;
-    pageTurnDirection = toMarket ? 1 : -1;
+  function switchSkillMode(nextMode) {
+    const mode = nextMode === true
+      ? "market"
+      : nextMode === false
+        ? "mine"
+        : nextMode === "mcp"
+          ? "mcp"
+          : nextMode === "mine"
+            ? "mine"
+            : "market";
+    const modeNow = currentSkillMode();
+    if (modeNow === mode) return;
+    pageTurnDirection = (SKILL_MODE_ORDER[mode] || 0) >= (SKILL_MODE_ORDER[modeNow] || 0) ? 1 : -1;
     window.miaMasonryGrid?.capture(els.skillCardGrid, pageTurnDirection);
-    state.skillMarketMode = !!toMarket;
+    state.skillCapabilityMode = mode;
+    state.skillMarketMode = mode === "market";
     state.skillCategoryFilter = "";
     closeSkillContextMenu();
     renderSkillLibrary();
-    if (toMarket && !state.skillMarket.loaded && !state.skillMarket.loading) loadMarketSkills();
+    if (mode === "market" && !state.skillMarket.loaded && !state.skillMarket.loading) loadMarketSkills();
   }
 
   function skillScrollContainer() {
@@ -238,7 +257,10 @@
     if (!state || !els || !els.skillChipRow || !els.skillCardGrid) return;
     const render = () => {
       renderModeToggle();
-      if (state.skillMarketMode) renderMarketView();
+      if (currentSkillMode() === "mcp") {
+        const startedLoad = ensureMcpLibraryLoaded();
+        if (!startedLoad && window.miaMcpLibrary && window.miaMcpLibrary.renderMcpLibrary) window.miaMcpLibrary.renderMcpLibrary();
+      } else if (currentSkillMode() === "market") renderMarketView();
       else renderLocalView();
       renderSkillContextMenu();
     };
@@ -250,6 +272,14 @@
     const direction = pageTurnDirection;
     pageTurnDirection = 0;
     window.miaMasonryGrid?.layout(els.skillCardGrid, ".skill-card", { animate: direction });
+  }
+
+  function ensureMcpLibraryLoaded() {
+    const mcp = state?.mcp;
+    if (!window.miaMcpLibrary || typeof window.miaMcpLibrary.loadMcpServers !== "function") return false;
+    if (mcp?.loading || mcp?.loadAttempted) return false;
+    window.miaMcpLibrary.loadMcpServers();
+    return true;
   }
 
   function renderLocalView() {
@@ -349,7 +379,7 @@
       const published = await window.mia.publishSkill({ skillId, category: category.trim() || "uncategorized", version: "1.0.0" });
       window.alert(published ? `已发布「${published.name}」到市场。` : "发布失败。");
       state.skillMarket.loaded = false;
-      if (state.skillMarketMode) loadMarketSkills(marketRequestParams(), { forceRefresh: true });
+      if (currentSkillMode() === "market") loadMarketSkills(marketRequestParams(), { forceRefresh: true });
     } catch (error) {
       window.alert(`发布失败：${error?.message || error}`);
     }
@@ -829,6 +859,7 @@
     openSkillContextMenu,
     closeSkillContextMenu,
     renderSkillContextMenu,
+    layoutSkillCards,
     switchSkillMode,
     loadMarketSkills,
     installMarketSkill,

@@ -2,6 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const yaml = require("js-yaml");
+const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
 
 function createEngineRuntimeConfigService(deps = {}) {
   const runtimePaths = deps.runtimePaths;
@@ -34,6 +35,32 @@ function createEngineRuntimeConfigService(deps = {}) {
   const getSchedulerMcpSpec = typeof deps.getSchedulerMcpSpec === "function"
     ? deps.getSchedulerMcpSpec
     : () => null;
+  const getUserMcpSpecs = typeof deps.getUserMcpSpecs === "function"
+    ? deps.getUserMcpSpecs
+    : () => ({});
+
+  function runtimeMcpSpec(spec = {}) {
+    if (!spec || typeof spec !== "object") return null;
+    const command = String(spec.command || "").trim();
+    const url = String(spec.url || "").trim();
+    if (command) {
+      return {
+        command,
+        args: Array.isArray(spec.args) ? spec.args : [],
+        env: spec.env && typeof spec.env === "object" ? spec.env : {}
+      };
+    }
+    if (url) {
+      const normalized = {
+        url,
+        headers: spec.headers && typeof spec.headers === "object" ? spec.headers : {}
+      };
+      const bearer = String(spec.bearer_token_env_var || spec.bearerTokenEnvVar || "").trim();
+      if (bearer) normalized.bearer_token_env_var = bearer;
+      return normalized;
+    }
+    return null;
+  }
 
   function effectiveHermesHome() {
     return runtimePaths().hermesHome || runtimePaths().home;
@@ -178,32 +205,32 @@ function createEngineRuntimeConfigService(deps = {}) {
       ]);
       config.skills = skills;
     }
-
-    const mcpServers = {};
+    const builtInMcpServers = {};
     const miaAppSpec = (() => {
       try { return getMiaAppMcpSpec(); } catch { return null; }
     })();
-    if (miaAppSpec && miaAppSpec.command) {
-      mcpServers["mia-app"] = {
-        command: miaAppSpec.command,
-        args: miaAppSpec.args || [],
-        env: miaAppSpec.env || {}
-      };
-    }
+    const normalizedMiaAppSpec = runtimeMcpSpec(miaAppSpec);
+    if (normalizedMiaAppSpec) builtInMcpServers["mia-app"] = normalizedMiaAppSpec;
     const schedulerSpec = (() => {
       try { return getSchedulerMcpSpec(); } catch { return null; }
     })();
-    if (schedulerSpec && schedulerSpec.command) {
+    const normalizedSchedulerSpec = runtimeMcpSpec(schedulerSpec);
+    if (normalizedSchedulerSpec) {
       // Reuse the same scheduler MCP server that Claude Code / Codex get, so
       // the Hermes bot can call schedule_* and have the app deliver the
       // reminder. Hermes reads command/args/env per mcp_servers entry and
       // infers stdio transport when no url is present (see Hermes mcp_tool).
-      mcpServers["mia-scheduler"] = {
-        command: schedulerSpec.command,
-        args: schedulerSpec.args || [],
-        env: schedulerSpec.env || {}
-      };
+      builtInMcpServers["mia-scheduler"] = normalizedSchedulerSpec;
     }
+    const userMcpServers = {};
+    for (const [name, spec] of Object.entries(getUserMcpSpecs() || {})) {
+      const normalizedSpec = runtimeMcpSpec(spec);
+      if (normalizedSpec) userMcpServers[name] = normalizedSpec;
+    }
+    const mcpServers = mergeMcpServersWithReservedBuiltIns({
+      userServers: userMcpServers,
+      builtInServers: builtInMcpServers
+    });
     if (Object.keys(mcpServers).length) {
       config.mcp_servers = {
         ...(isPlainObject(config.mcp_servers) ? config.mcp_servers : {}),
