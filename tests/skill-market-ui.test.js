@@ -231,6 +231,10 @@ test("market cards do not render direct install or use actions", () => {
   });
 
   context.window.miaSkillLibrary.renderSkillLibrary();
+  assert.match(els.skillModeToggle.innerHTML, /data-skill-mode="market">技能/);
+  assert.doesNotMatch(els.skillModeToggle.innerHTML, /我的技能/);
+  assert.match(els.skillChipRow.innerHTML, /data-skill-scope="mine"/);
+  assert.match(els.skillChipRow.innerHTML, />\s*我的技能\s*</);
   assert.match(els.skillCardGrid.innerHTML, /data-market-id="skill-creator"/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /skill-card-action/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-install=/);
@@ -342,7 +346,7 @@ test("market category and search filters are local only after the catalog loads"
   assert.match(els.skillCardGrid.innerHTML, /data-market-id="anki"/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-market-id="pdf"/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-market-id="web"/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /正在加载技能市场/);
+  assert.doesNotMatch(els.skillCardGrid.innerHTML, /正在加载技能/);
 });
 
 test("background market refresh preserves the skill market scroll position", async () => {
@@ -443,10 +447,12 @@ test("background market refresh preserves the skill market scroll position", asy
   assert.match(els.skillCardGrid.innerHTML, /data-market-id="fresh"/);
 });
 
-test("topbar has the mine/market toggle and market styles exist", () => {
+test("topbar keeps skills as one mode and moves mine into in-page filters", () => {
   const html = read("src/renderer/index.html");
   assert.match(html, /id="skillModeToggle"/);
   const skillLibrary = read("src/renderer/skills/skill-library.js");
+  assert.match(skillLibrary, /data-skill-scope="\$\{chip\.mode\}"/);
+  assert.match(skillLibrary, /label:\s*"我的技能"/);
   assert.match(skillLibrary, /data-skill-mode="mcp"/);
   const css = read("src/renderer/styles/skills.css");
   assert.match(css, /\.skill-mode-toggle/);

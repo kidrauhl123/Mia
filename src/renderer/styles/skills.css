@@ -231,7 +231,7 @@
   font-size: 13px;
 }
 
-/* 顶栏标题 + 我的技能/探索发现 切换 */
+/* 顶栏标题 + 技能/MCP 切换 */
 .skills-topbar-title {
   display: flex;
   align-items: center;

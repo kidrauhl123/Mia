@@ -169,7 +169,19 @@
 
   function renderChips(entries) {
     const chipKeys = ["", ...entries.slice(0, 12).map(([category]) => category)];
+    const mode = currentSkillMode();
+    const scopeChips = isSkillCollectionMode(mode)
+      ? [
+          { mode: "market", label: "市场" },
+          { mode: "mine", label: "我的技能" }
+        ]
+      : [];
     els.skillChipRow.innerHTML = [
+      ...scopeChips.map((chip) => `
+        <button class="${mode === chip.mode ? "active" : ""}" type="button" data-skill-scope="${chip.mode}">
+          ${chip.label}
+        </button>
+      `),
       `<button class="${state.skillCategoryFilter ? "" : "active"}" type="button" data-skill-filter="">全部</button>`,
       ...entries.slice(0, 12).map(([category, count]) => `
         <button class="${state.skillCategoryFilter === category ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(category)}">
@@ -177,6 +189,9 @@
         </button>
       `)
     ].join("");
+    els.skillChipRow.querySelectorAll("[data-skill-scope]").forEach((button) => {
+      button.addEventListener("click", () => switchSkillMode(button.dataset.skillScope));
+    });
     els.skillChipRow.querySelectorAll("[data-skill-filter]").forEach((button) => {
       button.addEventListener("click", () => {
         const next = button.dataset.skillFilter || "";
@@ -198,12 +213,16 @@
     return state?.skillMarketMode ? "market" : "mine";
   }
 
+  function isSkillCollectionMode(mode = currentSkillMode()) {
+    return mode === "market" || mode === "mine";
+  }
+
   function renderModeToggle() {
     if (!els.skillModeToggle) return;
     const mode = currentSkillMode();
+    const skillActive = isSkillCollectionMode(mode);
     els.skillModeToggle.innerHTML = `
-      <button class="${mode === "market" ? "active" : ""}" type="button" role="tab" data-skill-mode="market">技能市场</button>
-      <button class="${mode === "mine" ? "active" : ""}" type="button" role="tab" data-skill-mode="mine">我的技能</button>
+      <button class="${skillActive ? "active" : ""}" type="button" role="tab" data-skill-mode="${skillActive ? mode : "market"}">技能</button>
       <button class="${mode === "mcp" ? "active" : ""}" type="button" role="tab" data-skill-mode="mcp">MCP 服务</button>
     `;
     els.skillModeToggle.querySelectorAll("[data-skill-mode]").forEach((button) => {
@@ -530,7 +549,7 @@
   }
 
   function renderMarketView() {
-    setText(els.skillPageTitle, "技能市场");
+    setText(els.skillPageTitle, "技能");
     const params = marketRequestParams();
     const queryKey = marketQueryKey(params);
     renderChips(marketCategoryEntries());
@@ -544,12 +563,12 @@
       return;
     }
     if (state.skillMarket.loading && !state.skillMarket.loaded) {
-      els.skillCardGrid.innerHTML = `<div class="skill-empty-state">正在加载技能市场...</div>`;
+      els.skillCardGrid.innerHTML = `<div class="skill-empty-state">正在加载技能...</div>`;
       layoutSkillCards();
       return;
     }
     if (state.skillMarket.error && !(state.skillMarket.skills || []).length) {
-      els.skillCardGrid.innerHTML = `<div class="skill-empty-state">技能市场加载失败，请稍后重试。</div>`;
+      els.skillCardGrid.innerHTML = `<div class="skill-empty-state">技能加载失败，请稍后重试。</div>`;
       layoutSkillCards();
       return;
     }
