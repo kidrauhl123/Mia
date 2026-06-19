@@ -2,6 +2,11 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const http = require("node:http");
 const { createMcpBridgeServer } = require("../src/main/mcp/mcp-bridge-server.js");
+const {
+  buildProxyToolEntries,
+  indexProxyToolEntries,
+  proxyToolName
+} = require("../src/main/mcp/mcp-stdio-proxy-server.js");
 
 function postJson(url, secret, body) {
   return new Promise((resolve, reject) => {
@@ -94,4 +99,63 @@ test("bridge redacts secrets from failure logs", async () => {
   } finally {
     await bridge.stop();
   }
+});
+
+test("stdio proxy manifest export uses injective encoded names", () => {
+  const tools = [
+    {
+      server: "alpha/beta",
+      name: "tool:name",
+      description: "First",
+      inputSchema: { type: "object", properties: { q: { type: "string" } } }
+    },
+    {
+      server: "alpha_beta",
+      name: "tool_name",
+      description: "Second",
+      inputSchema: { type: "object", properties: { limit: { type: "number" } } }
+    }
+  ];
+
+  const entries = buildProxyToolEntries(tools);
+
+  assert.equal(entries.length, 2);
+  assert.notEqual(entries[0].proxyName, entries[1].proxyName);
+  assert.equal(entries[0].proxyName, proxyToolName(tools[0]));
+  assert.equal(entries[0].description, "[alpha/beta] First");
+  assert.deepEqual(entries[1].inputSchema, tools[1].inputSchema);
+});
+
+test("stdio proxy call routing resolves the exact backend tool for colliding sanitized names", () => {
+  const tools = [
+    { server: "alpha/beta", name: "tool:name", description: "First", inputSchema: { type: "object" } },
+    { server: "alpha_beta", name: "tool_name", description: "Second", inputSchema: { type: "object" } }
+  ];
+
+  const entries = buildProxyToolEntries(tools);
+  const entryIndex = indexProxyToolEntries(entries);
+
+  const first = entryIndex.get(proxyToolName(tools[0]));
+  const second = entryIndex.get(proxyToolName(tools[1]));
+
+  assert.deepEqual(
+    { server: first.server, tool: first.tool },
+    { server: "alpha/beta", tool: "tool:name" }
+  );
+  assert.deepEqual(
+    { server: second.server, tool: second.tool },
+    { server: "alpha_beta", tool: "tool_name" }
+  );
+});
+
+test("stdio proxy fails closed on duplicate generated proxy names", () => {
+  const duplicateEntries = [
+    { proxyName: "mia__YWJj__ZGVm", server: "a", tool: "b" },
+    { proxyName: "mia__YWJj__ZGVm", server: "c", tool: "d" }
+  ];
+
+  assert.throws(
+    () => indexProxyToolEntries(duplicateEntries),
+    /Duplicate Mia MCP proxy tool name generated/
+  );
 });
