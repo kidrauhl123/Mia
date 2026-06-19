@@ -197,3 +197,19 @@ test("mcp-library keeps the custom tab stable with zero filtered records", () =>
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /MCP 服务暂不可用/);
   assert.equal(layoutCalls, 1);
 });
+
+test("mcp-library contains form, import, test, sync, and delete actions", () => {
+  const src = read("src/renderer/mcp/mcp-library.js");
+
+  assert.match(src, /function openMcpForm/);
+  assert.match(src, /function submitMcpForm/);
+  assert.match(src, /function importMcpJson/);
+  assert.match(src, /window\.mia\.mcp\.test/);
+  assert.match(src, /window\.mia\.mcp\.setEnabled/);
+  assert.match(src, /window\.mia\.mcp\.sync/);
+  assert.match(src, /window\.mia\.mcp\.delete/);
+  assert.match(src, /data-mcp-action="test"/);
+  assert.match(src, /data-mcp-action="sync"/);
+  assert.match(src, /data-mcp-action="toggle"/);
+  assert.match(src, /data-mcp-action="delete"/);
+});
