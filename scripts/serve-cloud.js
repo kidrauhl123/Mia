@@ -208,6 +208,7 @@ const cloudFeatures = [
   "sqlite-store",
   "auth-sessions",
   "authenticated-files",
+  "cloud.attachments",
   "events-websocket",
   "bridge-websocket-subprotocol-token",
   "bridge-run-lifecycle",

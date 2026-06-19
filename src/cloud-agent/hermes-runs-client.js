@@ -1,3 +1,8 @@
+const fs = require("node:fs");
+const path = require("node:path");
+
+const MAX_NATIVE_IMAGE_BYTES = 20 * 1024 * 1024;
+
 function cleanBaseUrl(value) {
   const base = String(value || "").trim().replace(/\/+$/, "");
   if (!base) throw new Error("Hermes baseUrl required");
@@ -50,6 +55,61 @@ function parseSseBlock(block) {
   }
 }
 
+function imageMimeForAttachment(attachment = {}) {
+  const explicit = String(attachment.mimeType || attachment.mime || "").trim().toLowerCase();
+  if (explicit.startsWith("image/")) return explicit;
+  const ext = path.extname(String(attachment.name || attachment.path || attachment.hostPath || "")).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  return "";
+}
+
+function imageDataUrlForAttachment(attachment = {}, fsImpl = fs) {
+  const existing = String(attachment.dataUrl || "").trim();
+  if (/^data:image\/[A-Za-z0-9.+-]+;base64,/i.test(existing) && Buffer.byteLength(existing, "utf8") <= MAX_NATIVE_IMAGE_BYTES * 2) {
+    return existing;
+  }
+  const mimeType = imageMimeForAttachment(attachment);
+  if (!mimeType) return "";
+  const hostPath = String(attachment.hostPath || "").trim();
+  if (!hostPath) return "";
+  try {
+    const stat = fsImpl.statSync(hostPath);
+    if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_NATIVE_IMAGE_BYTES) return "";
+    const encoded = fsImpl.readFileSync(hostPath).toString("base64");
+    return `data:${mimeType};base64,${encoded}`;
+  } catch {
+    return "";
+  }
+}
+
+function inputForHermesRuns(input, attachments = [], fsImpl = fs) {
+  const text = String(input || "");
+  const incoming = Array.isArray(attachments) ? attachments : [];
+  const imageParts = [];
+  const pathHints = [];
+  for (const attachment of incoming) {
+    const dataUrl = imageDataUrlForAttachment(attachment, fsImpl);
+    if (!dataUrl) continue;
+    imageParts.push({ type: "image_url", image_url: { url: dataUrl } });
+    const hintPath = String(attachment.path || attachment.name || attachment.id || "").trim();
+    if (hintPath) pathHints.push(`[Image attached at: ${hintPath}]`);
+  }
+  if (!imageParts.length) return text;
+  const textPart = [text.trim() || "What do you see in this image?", pathHints.join("\n")]
+    .filter(Boolean)
+    .join("\n\n");
+  return [{
+    role: "user",
+    content: [
+      { type: "text", text: textPart },
+      ...imageParts
+    ]
+  }];
+}
+
 function eventType(event = {}) {
   return String(event.type || event.event || "");
 }
@@ -64,6 +124,7 @@ function eventErrorMessage(event = {}) {
 
 function createHermesRunsClient(deps = {}) {
   const fetchImpl = deps.fetch || fetch;
+  const fsImpl = deps.fs || fs;
 
   async function createRun({ baseUrl, apiKey, body, headers, signal }) {
     const response = await fetchImpl(`${cleanBaseUrl(baseUrl)}/v1/runs`, {
@@ -175,21 +236,21 @@ function createHermesRunsClient(deps = {}) {
     if (!userId) throw new Error("userId required");
     if (!conversationId) throw new Error("conversationId required");
     const sessionId = String(args.sessionId || "").trim() || `cloud:${userId}:${key}:${conversationId}`;
+    const attachments = Array.isArray(args.attachments) ? args.attachments : [];
     const body = {
       model: args.model || "mia-default",
-      input: String(args.input || ""),
+      input: inputForHermesRuns(args.input || "", attachments, fsImpl),
       session_id: sessionId,
       conversation_history: Array.isArray(args.conversationHistory) ? args.conversationHistory : [],
-      attachments: Array.isArray(args.attachments)
-        ? args.attachments.map((attachment) => ({
+      attachments: attachments
+        .map((attachment) => ({
           id: attachment.id,
           name: attachment.name,
           mimeType: attachment.mimeType,
           size: attachment.size,
           kind: attachment.kind,
           path: attachment.path
-        }))
-        : [],
+        })),
       metadata: {
         bot_id: key,
         persona_key: key,
@@ -200,14 +261,13 @@ function createHermesRunsClient(deps = {}) {
         effort_level: args.effortLevel || "medium",
         permission_mode: args.permissionMode || "ask",
         conversation_id: conversationId,
-        attachments: Array.isArray(args.attachments)
-          ? args.attachments.map((attachment) => ({
+        attachments: attachments
+          .map((attachment) => ({
             id: attachment.id,
             name: attachment.name,
             mimeType: attachment.mimeType,
             path: attachment.path
           }))
-          : []
       }
     };
     if (instructions) body.instructions = instructions;

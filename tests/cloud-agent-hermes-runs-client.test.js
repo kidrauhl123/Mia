@@ -1,5 +1,8 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const { createHermesRunsClient } = require("../src/cloud-agent/hermes-runs-client.js");
 
@@ -31,6 +34,54 @@ test("runChat passes bot display name and persona instructions to Hermes", async
   assert.equal(requests[0].body.metadata.display_name, "空铃");
   assert.equal(requests[0].body.metadata.bot_id, "bot_kongling");
   assert.equal(requests[0].body.instructions, "你是空铃，群聊里的 Bot。");
+});
+
+test("runChat sends image attachments as native Hermes multimodal content parts", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-hermes-run-image-"));
+  try {
+    const imagePath = path.join(dir, "shot.png");
+    fs.writeFileSync(imagePath, Buffer.from("fakepng"));
+    const requests = [];
+    const client = createHermesRunsClient({
+      async fetch(url, options = {}) {
+        requests.push({ url: String(url), body: options.body ? JSON.parse(options.body) : null });
+        if (String(url).endsWith("/v1/runs")) {
+          return new Response(JSON.stringify({ run_id: "run_img" }), { status: 200 });
+        }
+        return new Response("data: {\"type\":\"run.completed\",\"content\":\"ok\"}\n\n", { status: 200 });
+      }
+    });
+
+    await client.runChat({
+      baseUrl: "http://worker",
+      apiKey: "k",
+      userId: "user_1",
+      conversationId: "g_1",
+      bot: { id: "bot_vision", displayName: "Vision" },
+      input: "看看这张图",
+      attachments: [{
+        id: "file_img",
+        name: "shot.png",
+        mimeType: "image/png",
+        size: 7,
+        kind: "image",
+        path: "/data/attachments/run_img/1-shot.png",
+        hostPath: imagePath
+      }]
+    });
+
+    const input = requests[0].body.input;
+    assert.equal(Array.isArray(input), true);
+    assert.equal(input[0].role, "user");
+    assert.equal(input[0].content[0].type, "text");
+    assert.match(input[0].content[0].text, /看看这张图/);
+    assert.match(input[0].content[0].text, /\[Image attached at: \/data\/attachments\/run_img\/1-shot\.png\]/);
+    assert.equal(input[0].content[1].type, "image_url");
+    assert.equal(input[0].content[1].image_url.url, `data:image/png;base64,${Buffer.from("fakepng").toString("base64")}`);
+    assert.equal(requests[0].body.attachments[0].hostPath, undefined);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("readEvents parses SSE split across stream chunks and surfaces approval.request live", async () => {

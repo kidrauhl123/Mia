@@ -420,6 +420,7 @@ test("cloud applies security headers and restricts browser CORS origins", async 
       fileCount: 2
     });
     assert.ok(health.features.includes("sqlite-store"));
+    assert.ok(health.features.includes("cloud.attachments"));
     assert.ok(health.features.includes("bridge-websocket-subprotocol-token"));
     assert.equal(allowed.headers.get("access-control-allow-origin"), "https://mia.gifgif.cn");
     assert.equal(allowed.headers.get("x-content-type-options"), "nosniff");
