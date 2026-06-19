@@ -180,7 +180,7 @@
     const userBubbleText = selectionTextColors(userBubbleRgb).text;
     const selectionStyle = normalizeSelectionStyle(appearance.selectionStyle);
     const workspaceBackgroundColor = normalizeHexColor(appearance.workspaceBackgroundColor, "");
-    const resolvedWorkspaceBackgroundColor = workspaceBackgroundColor || defaultWorkspaceBackgroundColor(theme);
+    const resolvedWorkspaceBackgroundColor = workspaceBackgroundColor || defaultWorkspaceBackgroundColor("light");
     const floorColors = floorTextColors(hexToRgb(resolvedWorkspaceBackgroundColor));
     const workspaceBackgroundImage = normalizeWorkspaceBackgroundImage(appearance.workspaceBackgroundImage);
     const glassOpacity = normalizeGlassOpacity(appearance.glassOpacity);
@@ -197,20 +197,30 @@
     document.documentElement.style.setProperty("--rail-glass-bg", railGlassBackground(theme, glassOpacity));
     document.documentElement.style.setProperty("--user-bubble", userBubbleColor);
     document.documentElement.style.setProperty("--user-bubble-text", userBubbleText);
-    document.documentElement.style.setProperty("--floor-text", floorColors.text);
-    document.documentElement.style.setProperty("--floor-muted", floorColors.muted);
-    document.documentElement.style.setProperty("--floor-faint", floorColors.faint);
-    document.documentElement.style.setProperty("--floor-line", floorColors.line);
-    document.documentElement.style.setProperty("--floor-hover", floorColors.hover);
-    if (workspaceBackgroundColor) {
-      document.documentElement.style.setProperty("--workspace-floor", workspaceBackgroundColor);
+    if (theme === "light") {
+      document.documentElement.style.setProperty("--floor-text", floorColors.text);
+      document.documentElement.style.setProperty("--floor-muted", floorColors.muted);
+      document.documentElement.style.setProperty("--floor-faint", floorColors.faint);
+      document.documentElement.style.setProperty("--floor-line", floorColors.line);
+      document.documentElement.style.setProperty("--floor-hover", floorColors.hover);
+      if (workspaceBackgroundColor) {
+        document.documentElement.style.setProperty("--workspace-floor", workspaceBackgroundColor);
+      } else {
+        document.documentElement.style.removeProperty?.("--workspace-floor");
+      }
+      document.documentElement.style.setProperty(
+        "--workspace-floor-image",
+        workspaceBackgroundImage ? `url("${cssUrl(workspaceBackgroundImage)}")` : "none"
+      );
     } else {
+      document.documentElement.style.removeProperty?.("--floor-text");
+      document.documentElement.style.removeProperty?.("--floor-muted");
+      document.documentElement.style.removeProperty?.("--floor-faint");
+      document.documentElement.style.removeProperty?.("--floor-line");
+      document.documentElement.style.removeProperty?.("--floor-hover");
       document.documentElement.style.removeProperty?.("--workspace-floor");
+      document.documentElement.style.removeProperty?.("--workspace-floor-image");
     }
-    document.documentElement.style.setProperty(
-      "--workspace-floor-image",
-      workspaceBackgroundImage ? `url("${cssUrl(workspaceBackgroundImage)}")` : "none"
-    );
     if (selectionStyle === "solid") {
       const textColors = selectionTextColors(rgb);
       document.documentElement.style.setProperty("--list-active", accentColor);
@@ -230,7 +240,7 @@
     const theme = controls.appearanceTheme?.value || "light";
     const workspaceBackgroundColor = normalizeHexColor(
       controls.appearanceWorkspaceBackgroundColor?.value,
-      defaultWorkspaceBackgroundColor(theme === "dark" ? "dark" : "light")
+      defaultWorkspaceBackgroundColor("light")
     );
     return {
       theme,
@@ -311,7 +321,7 @@
     const userBubbleColor = normalizeHexColor(appearance.userBubbleColor, defaultUserBubbleColor());
     if (controls.appearanceUserBubbleColor) controls.appearanceUserBubbleColor.value = userBubbleColor;
     if (controls.appearanceUserBubblePreview) controls.appearanceUserBubblePreview.style.backgroundColor = userBubbleColor;
-    const workspaceBackgroundDefault = defaultWorkspaceBackgroundColor(appearance.theme === "dark" ? "dark" : "light");
+    const workspaceBackgroundDefault = defaultWorkspaceBackgroundColor("light");
     const workspaceBackgroundColor = normalizeHexColor(appearance.workspaceBackgroundColor, workspaceBackgroundDefault);
     if (controls.appearanceWorkspaceBackgroundColor) {
       controls.appearanceWorkspaceBackgroundColor.value = workspaceBackgroundColor;
@@ -337,7 +347,7 @@
   function resetWorkspaceBackground() {
     const controls = els || {};
     if (controls.appearanceWorkspaceBackgroundColor) {
-      controls.appearanceWorkspaceBackgroundColor.value = defaultWorkspaceBackgroundColor(controls.appearanceTheme?.value === "dark" ? "dark" : "light");
+      controls.appearanceWorkspaceBackgroundColor.value = defaultWorkspaceBackgroundColor("light");
     }
     if (controls.appearanceWorkspaceBackgroundImage) controls.appearanceWorkspaceBackgroundImage.value = "";
     if (controls.appearanceWorkspaceBackgroundImageLabel) controls.appearanceWorkspaceBackgroundImageLabel.textContent = "未选择图片";

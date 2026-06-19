@@ -226,10 +226,10 @@ test("settings workspace lives on the app floor and adapts to narrow windows", (
   assert.doesNotMatch(baseCss, /\.settings-dialog/);
   assert.doesNotMatch(baseCss, /@keyframes settingsDrawerIn/);
   assert.doesNotMatch(baseCss, /@keyframes settingsDrawerOut/);
-  assert.match(
+  assert.doesNotMatch(
     baseCss,
-    /\.app-shell\[data-active-view="settings"\]\s*\{[\s\S]*?background:\s*#f0f0f3;/,
-    "settings should use a fixed default light-gray bottom board"
+    /\.app-shell\[data-active-view="settings"\]\s*\{[^}]*background:/,
+    "settings should follow the shared workspace floor instead of forcing a fixed bottom board"
   );
   assert.match(
     baseCss,

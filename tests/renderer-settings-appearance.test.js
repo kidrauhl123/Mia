@@ -185,6 +185,33 @@ test("applyAppearance writes bottom board color and image variables", () => {
   assert.equal(styleValues.get("--workspace-floor-image"), 'url("data:image/png;base64,abc123")');
 });
 
+test("applyAppearance keeps bottom board overrides light-mode only", () => {
+  const { api, styleValues } = loadAppearanceModule();
+
+  api.applyAppearance({
+    theme: "light",
+    workspaceBackgroundColor: "#aabbcc",
+    workspaceBackgroundImage: "data:image/png;base64,abc123"
+  });
+
+  assert.equal(styleValues.get("--workspace-floor"), "#aabbcc");
+  assert.equal(styleValues.get("--workspace-floor-image"), 'url("data:image/png;base64,abc123")');
+
+  api.applyAppearance({
+    theme: "dark",
+    workspaceBackgroundColor: "#aabbcc",
+    workspaceBackgroundImage: "data:image/png;base64,abc123"
+  });
+
+  assert.equal(styleValues.has("--workspace-floor"), false);
+  assert.equal(styleValues.has("--workspace-floor-image"), false);
+  assert.equal(styleValues.has("--floor-text"), false);
+  assert.equal(styleValues.has("--floor-muted"), false);
+  assert.equal(styleValues.has("--floor-faint"), false);
+  assert.equal(styleValues.has("--floor-line"), false);
+  assert.equal(styleValues.has("--floor-hover"), false);
+});
+
 test("applyAppearance derives readable floor text from the bottom board color", () => {
   const { api, styleValues } = loadAppearanceModule();
 
@@ -411,6 +438,7 @@ test("desktop appearance settings do not expose removed font presets", () => {
 
 test("desktop appearance settings expose bottom board color and image controls", () => {
   assert.match(htmlSource, /<strong>底板背景<\/strong>/);
+  assert.match(htmlSource, /调整浅色模式下窗口底层工作区的底色，也可上传图片。/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundPresets"/);
   assert.match(htmlSource, /data-workspace-background-color="#f0f0f3"/);
   assert.match(htmlSource, /data-workspace-background-color="#2ca1ff"/);
