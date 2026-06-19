@@ -9,6 +9,7 @@ const {
   fileEditPayloadFromUnifiedDiff,
   fileEditPayloadsFromAcpContent
 } = require("./agent-file-edit-events.js");
+const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
 const { schedulerDisallowedTools } = require("./scheduler-tool-guard.js");
 
 function firstTextValue(value) {
@@ -199,11 +200,13 @@ function createClaudeCodeChatAdapter(deps = {}) {
       applyManagedClaudeModelEnv(processEnvStrings(), managedModel || {}),
       commandPath
     );
-    const mcpServers = {
-      ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
-      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {}),
-      ...userMcpServers
-    };
+    const mcpServers = mergeMcpServersWithReservedBuiltIns({
+      userServers: userMcpServers,
+      builtInServers: {
+        ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
+        ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
+      }
+    });
     const options = {
       abortController,
       cwd: cwd(),

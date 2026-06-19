@@ -91,7 +91,10 @@ function createDeps(overrides = {}) {
     enginePermissionMode: overrides.enginePermissionMode || (() => overrides.enginePermissionModeValue || "default"),
     getAgentSessionId: (engine, botKey, sessionId) => sessions.get(`${engine}:${botKey}:${sessionId}`) || "",
     getMcpFingerprint: () => overrides.mcpFingerprint || "",
-    getUserMcpServers: () => overrides.userMcpServers ?? [],
+    getUserMcpServers: (options) => {
+      calls.push(["get-user-mcp-servers", options]);
+      return overrides.userMcpServers ?? [];
+    },
     injectGroupContextForSdk: (prompt, contextBlock) => `${contextBlock}\n\n${prompt}`,
     lastUserPrompt: (messages) => [...messages].reverse().find((message) => message.role === "user")?.content || "",
     memoryBlock: () => "Mia 记忆",
@@ -409,6 +412,10 @@ test("ACP newSession receives user MCP servers and records fingerprinted session
   });
 
   const newSession = deps.calls.find((call) => call[0] === "acp-new-session")[1];
+  assert.deepEqual(deps.calls.find((call) => call[0] === "get-user-mcp-servers"), [
+    "get-user-mcp-servers",
+    { supportsHttp: true, supportsSse: true }
+  ]);
   assert.deepEqual(newSession.mcpServers, [{ name: "xhs", command: "node", args: ["/proxy.js"], env: [{ name: "A", value: "1" }] }]);
   assert.deepEqual(deps.calls.find((call) => call[0] === "set-session"), ["set-session", "openclaw", "bot", "s1", "openclaw:mia:bot:s1:mcp_fp"]);
 });

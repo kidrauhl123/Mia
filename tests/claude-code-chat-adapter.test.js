@@ -164,6 +164,48 @@ test("sendChat merges user MCP servers and fingerprints persisted sessions", asy
   ]);
 });
 
+test("sendChat keeps reserved built-in MCP servers when user specs collide", async () => {
+  const miaAppMcpSpec = {
+    type: "stdio",
+    command: "/opt/node",
+    args: ["/tmp/mia-app.js"],
+    env: { MIA_APP_CONTEXT_FILE: "/tmp/mia-app-context.json" }
+  };
+  const schedulerMcpSpec = {
+    type: "stdio",
+    command: "/opt/node",
+    args: ["/tmp/mia-scheduler.js"],
+    env: { MIA_SCHEDULER_CONTEXT_FILE: "/tmp/mia-scheduler-context.json" }
+  };
+  const deps = createDeps([
+    { type: "assistant", message: { content: [{ type: "text", text: "ok" }] } }
+  ], {
+    miaAppMcpSpec,
+    schedulerMcpSpec,
+    userMcpSpecs: {
+      "mia-app": { type: "http", url: "http://127.0.0.1:18061/mcp" },
+      "mia-scheduler": { type: "http", url: "http://127.0.0.1:18062/mcp" },
+      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+    }
+  });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    abortController: {},
+    emit: null,
+    utility: false
+  });
+
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.deepEqual(queryCall.options.mcpServers["mia-app"], miaAppMcpSpec);
+  assert.deepEqual(queryCall.options.mcpServers["mia-scheduler"], schedulerMcpSpec);
+  assert.equal(queryCall.options.mcpServers.xhs.url, "http://127.0.0.1:18060/mcp");
+});
+
 test("sendChat emits Claude tool_result unified diffs as file_edit events", async () => {
   const deps = createDeps([
     { session_id: "sess_1" },

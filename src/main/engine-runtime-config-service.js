@@ -2,6 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const yaml = require("js-yaml");
+const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
 
 function createEngineRuntimeConfigService(deps = {}) {
   const runtimePaths = deps.runtimePaths;
@@ -179,12 +180,12 @@ function createEngineRuntimeConfigService(deps = {}) {
       for (const dir of extDirs) lines.push(`    - ${JSON.stringify(dir)}`);
       lines.push("");
     }
-    const mcpServers = {};
+    const builtInMcpServers = {};
     const miaAppSpec = (() => {
       try { return getMiaAppMcpSpec(); } catch { return null; }
     })();
     const normalizedMiaAppSpec = runtimeMcpSpec(miaAppSpec);
-    if (normalizedMiaAppSpec) mcpServers["mia-app"] = normalizedMiaAppSpec;
+    if (normalizedMiaAppSpec) builtInMcpServers["mia-app"] = normalizedMiaAppSpec;
     const schedulerSpec = (() => {
       try { return getSchedulerMcpSpec(); } catch { return null; }
     })();
@@ -194,12 +195,17 @@ function createEngineRuntimeConfigService(deps = {}) {
       // the Hermes bot can call schedule_* and have the app deliver the
       // reminder. Hermes reads command/args/env per mcp_servers entry and
       // infers stdio transport when no url is present (see Hermes mcp_tool).
-      mcpServers["mia-scheduler"] = normalizedSchedulerSpec;
+      builtInMcpServers["mia-scheduler"] = normalizedSchedulerSpec;
     }
+    const userMcpServers = {};
     for (const [name, spec] of Object.entries(getUserMcpSpecs() || {})) {
       const normalizedSpec = runtimeMcpSpec(spec);
-      if (normalizedSpec) mcpServers[name] = normalizedSpec;
+      if (normalizedSpec) userMcpServers[name] = normalizedSpec;
     }
+    const mcpServers = mergeMcpServersWithReservedBuiltIns({
+      userServers: userMcpServers,
+      builtInServers: builtInMcpServers
+    });
     if (Object.keys(mcpServers).length) {
       const mcpYaml = yaml.dump({ mcp_servers: mcpServers }).trimEnd();
       lines.push(mcpYaml, "");

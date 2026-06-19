@@ -13,6 +13,7 @@ const {
   createWorkspaceDiffTracker,
   fileEditPayloadFromUnifiedDiff
 } = require("./agent-file-edit-events.js");
+const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
 
 function mapCodexPermissionMode(value) {
   const id = String(value || "default").trim();
@@ -454,11 +455,13 @@ function createCodexChatAdapter(deps = {}) {
     const miaAppMcpSpec = (() => {
       try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
     })();
-    const mcpServers = {
-      ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
-      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {}),
-      ...getUserMcpSpecs()
-    };
+    const mcpServers = mergeMcpServersWithReservedBuiltIns({
+      userServers: getUserMcpSpecs(),
+      builtInServers: {
+        ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
+        ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
+      }
+    });
     const threadOptions = {
       workingDirectory: cwd(),
       skipGitRepoCheck: true,
