@@ -245,7 +245,8 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(css, /\.sidebar-rail-toggle\s*\{[\s\S]*?top:\s*12px;[\s\S]*?bottom:\s*12px;[\s\S]*?left:\s*calc\(var\(--rail-column-width\) - 7px\);[\s\S]*?width:\s*14px;[\s\S]*?height:\s*auto;[\s\S]*?background:\s*transparent;[\s\S]*?transform:\s*translateX\(-50%\);/);
   assert.match(css, /\.sidebar-rail-toggle::before\s*\{[\s\S]*?display:\s*none;[\s\S]*?content:\s*"";/);
   assert.match(css, /\.sidebar-rail-toggle svg\s*\{[\s\S]*?opacity:\s*0;/);
-  assert.match(css, /\.sidebar-rail-toggle:hover svg,[\s\S]*?\.sidebar-rail-toggle:focus-visible svg\s*\{[\s\S]*?opacity:\s*1;/);
+  assert.match(css, /\.sidebar-rail-toggle:hover svg\s*\{[\s\S]*?opacity:\s*1;/);
+  assert.doesNotMatch(css, /\.sidebar-rail-toggle:focus-visible/);
   assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle svg\s*\{[\s\S]*?transform:\s*rotate\(180deg\);/);
   assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-rail-toggle\s*\{[\s\S]*?display:\s*none;/);
 });

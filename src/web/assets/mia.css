@@ -338,7 +338,6 @@ h1.hero-title {
   outline: none;
 }
 .download-menu a:hover,
-.download-menu a:focus-visible,
 .download-menu a[aria-current="true"] {
   background: rgba(26, 25, 23, 0.055);
   border-color: rgba(26, 25, 23, 0.08);

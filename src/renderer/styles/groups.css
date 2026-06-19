@@ -342,7 +342,7 @@
   outline: none;
   border-color: transparent;
   background-color: var(--field);
-  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
+  box-shadow: none;
 }
 .group-info-goal-input {
   min-height: 72px;
@@ -479,8 +479,7 @@
   stroke-linejoin: round;
 }
 
-.add-friend-icon-button:hover:not(:disabled),
-.add-friend-icon-button:focus-visible:not(:disabled) {
+.add-friend-icon-button:hover:not(:disabled) {
   background: var(--hover);
   color: var(--accent);
 }

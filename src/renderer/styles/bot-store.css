@@ -554,9 +554,6 @@
   cursor: pointer;
   font: inherit;
 }
-.bot-store-badge-engine-row:focus-within {
-  background: color-mix(in srgb, var(--engine-accent, var(--badge-accent, #5dcaa5)) 8%, transparent);
-}
 .bot-store-badge-stamp {
   position: absolute;
   top: 56%;

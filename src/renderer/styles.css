@@ -517,8 +517,7 @@ body.platform-win32 .topbar {
   background: transparent;
 }
 
-.rail-avatar:hover,
-.rail-avatar:focus-visible {
+.rail-avatar:hover {
   box-shadow: none;
 }
 
@@ -978,13 +977,11 @@ body.platform-win32 .topbar {
   transition: opacity 120ms ease, transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
-.sidebar-rail-toggle:hover,
-.sidebar-rail-toggle:focus-visible {
+.sidebar-rail-toggle:hover {
   color: var(--text);
 }
 
-.sidebar-rail-toggle:hover svg,
-.sidebar-rail-toggle:focus-visible svg {
+.sidebar-rail-toggle:hover svg {
   opacity: 1;
 }
 
@@ -1125,12 +1122,12 @@ body.sidebar-resizing * {
 .conversation-sidebar .search-box {
   grid-column: 1 / 3;
   grid-template-columns: 24px minmax(0, 1fr) 24px;
+  background: var(--surface);
   animation: searchBoxOpen 140ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 .search-box:focus-within {
-  background: color-mix(in srgb, var(--field) 78%, var(--surface) 22%);
-  box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.20);
+  box-shadow: none;
 }
 
 .search-box-icon {
@@ -1329,10 +1326,6 @@ body.sidebar-resizing * {
   background: var(--hover-background);
 }
 
-.icon-button:focus-visible {
-  background: var(--hover);
-}
-
 .conversation-section,
 .contact-section {
   min-height: 0;
@@ -1395,11 +1388,6 @@ body.sidebar-resizing * {
   cursor: text;
   -webkit-user-select: text;
   user-select: text;
-}
-
-.persona:focus-visible {
-  outline: 2px solid rgba(var(--accent-rgb), 0.28);
-  outline-offset: 2px;
 }
 
 .message-card {
@@ -3043,8 +3031,7 @@ body.topbar-click-capture .topbar {
 }
 
 .capability-row:focus-within .capability-check {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14);
+  box-shadow: none;
 }
 
 .capability-row strong,
@@ -4171,10 +4158,6 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
     box-shadow 160ms ease;
 }
 
-.composer-card:focus-within {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 3px rgb(var(--accent-rgb) / 0.10), 0 10px 28px rgba(15, 20, 40, 0.09);
-}
-
 .composer-card.has-attachments {
   gap: 7px;
   padding-top: 10px;
@@ -4182,10 +4165,6 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 
 :root[data-theme="dark"] .composer-card {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.30), 0 10px 28px rgba(0, 0, 0, 0.30);
-}
-
-:root[data-theme="dark"] .composer-card:focus-within {
-  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.18), 0 12px 30px rgba(0, 0, 0, 0.36);
 }
 
 /* Top row: textarea grows, send pinned at the TOP-right (align-items:start). */
@@ -4546,10 +4525,6 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 
 .composer-add-menu button:hover {
   background: var(--menu-hover-background);
-}
-
-.composer-add-menu button:focus-visible {
-  background: var(--hover);
 }
 
 .skill-picker {
@@ -5023,8 +4998,7 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   height: 14px;
 }
 
-.composer-attachment:hover .composer-attachment-remove,
-.composer-attachment-remove:focus-visible {
+.composer-attachment:hover .composer-attachment-remove {
   opacity: 1;
 }
 
@@ -5265,10 +5239,6 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   background: var(--hover-background);
 }
 
-.model-switcher:focus-within {
-  background: var(--field);
-}
-
 .model-switcher.select-open,
 .effort-switcher.select-open,
 .permission-switcher.select-open,
@@ -5433,10 +5403,6 @@ select.select-open {
   background: var(--hover-background);
 }
 
-.effort-switcher:focus-within {
-  background: var(--field);
-}
-
 .effort-label {
   position: relative;
   z-index: 2;
@@ -5468,10 +5434,6 @@ select.select-open {
 
 .permission-switcher:hover {
   background: var(--hover-background);
-}
-
-.permission-switcher:focus-within {
-  background: var(--field);
 }
 
 .permission-label {
@@ -5774,8 +5736,7 @@ select.select-open {
   white-space: nowrap;
 }
 
-.identity-name-text:hover,
-.identity-name-text:focus-visible {
+.identity-name-text:hover {
   color: var(--accent);
   outline: 0;
 }
@@ -5803,7 +5764,7 @@ select.select-open {
 .identity-name-line .identity-name-input:focus,
 .identity-name-line .identity-name-input:focus-visible {
   outline: 0;
-  box-shadow: inset 0 -1px 0 var(--accent);
+  box-shadow: none;
 }
 
 .identity-name-line .identity-name-input::placeholder {
@@ -5907,15 +5868,12 @@ select.select-open {
 }
 
 .identity-badge-trigger:not(.empty):hover,
-.identity-badge-trigger:not(.empty):focus-visible,
-.identity-badge-trigger.empty:hover,
-.identity-badge-trigger.empty:focus-visible {
+.identity-badge-trigger.empty:hover {
   background: var(--hover);
   outline: 0;
 }
 
-.identity-badge-trigger.empty:hover,
-.identity-badge-trigger.empty:focus-visible {
+.identity-badge-trigger.empty:hover {
   color: var(--muted);
 }
 
@@ -5954,8 +5912,7 @@ select.select-open {
   cursor: pointer;
 }
 
-.identity-badge-choices button:hover,
-.identity-badge-choices button:focus-visible {
+.identity-badge-choices button:hover {
   background: transparent;
   outline: 0;
 }
@@ -6021,7 +5978,7 @@ select.select-open {
 .pet-generate-card textarea:focus,
 .pet-generate-card select:focus {
   background-color: var(--field);
-  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
+  box-shadow: none;
 }
 
 .bot-form textarea,
@@ -6177,8 +6134,7 @@ select.select-open {
   cursor: pointer;
 }
 
-.avatar-upload-button:hover,
-.avatar-upload-button:focus-visible {
+.avatar-upload-button:hover {
   color: var(--accent);
   outline: 0;
   box-shadow: 0 3px 10px rgba(16, 20, 39, 0.18), inset 0 0 0 1px color-mix(in srgb, var(--accent) 34%, var(--line));
@@ -6813,7 +6769,7 @@ select.select-open {
 
 .settings-content .settings-row > select:focus {
   border-color: transparent;
-  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
+  box-shadow: none;
 }
 
 .settings-panel .primary {
@@ -6883,7 +6839,7 @@ select.select-open {
 .settings-content input:focus,
 .settings-content select:focus {
   border-color: transparent;
-  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
+  box-shadow: none;
 }
 
 .form-save-status {
@@ -7327,7 +7283,9 @@ select {
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: var(--line-strong);
+  border-color: transparent;
+  outline: 0;
+  box-shadow: none;
 }
 
 .accordion-details > .accordion-body {

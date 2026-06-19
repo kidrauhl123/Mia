@@ -124,6 +124,37 @@ test("sidebar and chat headers use the same surface and own their divider line",
   );
 });
 
+test("conversation search uses a white field without focus highlight", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const conversationSearchRule = cssRuleBody(baseCss, ".conversation-sidebar .search-box");
+  const searchFocusRule = cssRuleBody(baseCss, ".search-box:focus-within");
+
+  assert.match(conversationSearchRule, /background:\s*var\(--surface\);/);
+  assert.match(searchFocusRule, /box-shadow:\s*none;/);
+});
+
+test("project styles do not draw focus highlights", () => {
+  const styleFiles = [
+    "src/renderer/styles.css",
+    "src/renderer/styles/chat.css",
+    "src/renderer/styles/groups.css",
+    "src/renderer/styles/tasks.css",
+    "src/renderer/styles/bot-store.css",
+    "src/renderer/onboarding/onboarding.css",
+    "src/web/styles.css",
+    "src/web/admin-model.css",
+    "src/web/assets/mia.css"
+  ];
+  const styles = styleFiles
+    .map((file) => fs.readFileSync(path.join(root, file), "utf8"))
+    .join("\n");
+
+  assert.doesNotMatch(styles, /:focus(?:-visible|-within)?[^{]*\{[^}]*box-shadow:(?!\s*none\b)/);
+  assert.doesNotMatch(styles, /:focus(?:-visible|-within)?[^{]*\{[^}]*border-color:\s*rgb\(var\(--accent-rgb\)/);
+  assert.doesNotMatch(styles, /:focus(?:-visible|-within)?[^{]*\{[^}]*outline:(?!\s*(?:0|none)\b)/);
+  assert.doesNotMatch(styles, /:focus(?:-visible|-within)?[^{]*\{[^}]*background(?:-color)?:\s*(?:var\(--hover|rgb\(var\(--accent-rgb\)|rgba\()/);
+});
+
 test("conversation cards keep the default cursor outside tag controls", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");

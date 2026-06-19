@@ -763,7 +763,7 @@ test("src/web avatar media does not use accent backgrounds or avatar borders", (
   assert.doesNotMatch(source, /style="background-color:\$\{escapeHtml\(color\)\};">\$\{avatarVideoHtml/);
   assert.doesNotMatch(source, /el\.style\.cssText = `background-color:\$\{color\};`/);
   assert.match(css, /\.rail-avatar\s*\{[\s\S]*?background-color:\s*transparent;/);
-  assert.match(css, /\.rail-avatar:hover,[\s\S]*?box-shadow:\s*none;/);
+  assert.match(css, /\.rail-avatar:hover\s*\{[\s\S]*?box-shadow:\s*none;/);
   assert.match(css, /\.avatar,\n\.profile-avatar\s*\{[\s\S]*?border:\s*0;/);
   assert.match(css, /\.avatar,\n\.profile-avatar\s*\{[\s\S]*?background-color:\s*transparent;/);
   assert.match(css, /\.avatar-crop-preview\s*\{[\s\S]*?border:\s*0;[\s\S]*?background-color:\s*transparent;[\s\S]*?box-shadow:\s*none;/);

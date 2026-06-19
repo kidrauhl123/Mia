@@ -123,7 +123,7 @@ html, body {
 }
 
 .onb-input:focus {
-  border-color: #c7c7cc;
+  border-color: var(--onb-line);
   background: #fff;
 }
 
