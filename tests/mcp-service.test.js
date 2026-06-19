@@ -42,7 +42,7 @@ function setup(t, overrides = {}) {
     nodePath: () => "/usr/local/bin/node",
     stdioProxyScriptPath: () => path.join(runtime.runtime, "mcp-stdio-proxy-server.js"),
     now: () => 1710000000000,
-    idFactory: () => "mcp_xhs"
+    idFactory: overrides.idFactory || (() => "mcp_xhs")
   });
   return { runtime, service };
 }
@@ -213,4 +213,49 @@ test("failed test disables a server through the shared runtime-change path", asy
   assert.equal(syncCalls.length >= 2, true);
   assert.equal(syncCalls.at(-1).previousRecords.some((record) => record.name === "xhs" && record.enabled === true), true);
   assert.equal(syncCalls.at(-1).currentRecords.some((record) => record.name === "xhs" && record.enabled === false), true);
+});
+
+test("targeted removeFromAgents does not add or re-sync other enabled servers", async (t) => {
+  const syncCalls = [];
+  let nextId = 0;
+  const { service } = setup(t, {
+    idFactory: () => `mcp_${++nextId}`,
+    nativeSync: async (payload) => {
+      syncCalls.push(payload);
+      return { success: true, statuses: {}, commands: [] };
+    }
+  });
+
+  const first = await service.save({
+    name: "alpha",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18061/mcp" }
+  });
+  const second = await service.save({
+    name: "beta",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18062/mcp" }
+  });
+
+  syncCalls.length = 0;
+
+  const removedFirst = await service.removeFromAgents([first.data.id]);
+  const firstRemovalSync = syncCalls.at(-1);
+  const removedSecond = await service.removeFromAgents([second.data.id]);
+  const secondRemovalSync = syncCalls.at(-1);
+  const listed = await service.list();
+
+  assert.equal(removedFirst.success, true);
+  assert.deepEqual(firstRemovalSync.previousRecords.map((record) => record.name), ["alpha"]);
+  assert.deepEqual(firstRemovalSync.currentRecords, []);
+
+  assert.equal(removedSecond.success, true);
+  assert.deepEqual(secondRemovalSync.previousRecords.map((record) => record.name), ["beta"]);
+  assert.deepEqual(secondRemovalSync.currentRecords, []);
+
+  assert.equal(listed.success, true);
+  assert.deepEqual(listed.data.servers.map((record) => [record.name, record.enabled]), [
+    ["alpha", true],
+    ["beta", true]
+  ]);
 });

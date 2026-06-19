@@ -417,13 +417,10 @@ function createMcpService(deps = {}) {
             })
             .filter(Boolean)
         : current.filter((record) => record.enabled !== false);
-      const targetNames = new Set(targets.map((record) => record.name));
       const persistedRecords = current.slice();
-      const currentForSync = current.filter((record) => !targetNames.has(record.name));
-      const availableIds = new Set(current.filter((record) => targetNames.has(record.name)).map((record) => record.id));
-      const runtime = await applyRuntimeChanges(targets, currentForSync, {
+      const runtime = await applyRuntimeChanges(targets, [], {
         persistedRecords,
-        availableIds,
+        availableIds: new Set(targets.map((record) => record.id)),
         availableMessage: "Removed from native agents."
       });
       return ok({ servers: publicServers(runtime.records), fingerprint: currentFingerprint(runtime.records) });
