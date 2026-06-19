@@ -173,6 +173,25 @@ test("native sync failure redacts secrets before persisting or listing public sy
   assert.doesNotMatch(listed.data.servers[0].sync.codex.message, /ghp_secret_header_value|TOP_SECRET_ENV_VALUE|sk-super-secret-token/);
 });
 
+test("refreshBridge returns sanitized IPC errors when dependencies throw secret-bearing messages", async (t) => {
+  const { service } = setup(t, {
+    manager: {
+      testServer: async () => ({ success: true, status: "connected", tools: [], error: "" }),
+      refresh: async () => {
+        throw new Error("Authorization: Bearer secret-token X_API_KEY=secret");
+      },
+      toolManifest: () => [],
+      callTool: async () => ({ content: [], isError: false })
+    }
+  });
+
+  const refreshed = await service.refreshBridge();
+
+  assert.equal(refreshed.success, false);
+  assert.match(refreshed.error, /\[redacted\]/);
+  assert.doesNotMatch(refreshed.error, /secret-token|X_API_KEY=secret/);
+});
+
 test("refreshBridge redacts bridge refresh errors before returning them", async (t) => {
   const { service } = setup(t, {
     manager: {
@@ -429,6 +448,56 @@ test("targeted removeFromAgents does not add or re-sync other enabled servers", 
     ["alpha", true],
     ["beta", true]
   ]);
+});
+
+test("targeted removeFromAgents preserves non-target sync state exactly", async (t) => {
+  let nextId = 0;
+  const { runtime, service } = setup(t, {
+    idFactory: () => `mcp_${++nextId}`,
+    nativeSync: async () => ({
+      success: true,
+      statuses: {
+        codex: { status: "synced", message: "native-cleanup" },
+        "claude-code": { status: "synced", message: "native-cleanup" }
+      },
+      commands: [{ engine: "codex" }, { engine: "claude-code" }]
+    })
+  });
+
+  const alpha = await service.save({
+    name: "alpha",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18061/mcp" }
+  });
+  const beta = await service.save({
+    name: "beta",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18062/mcp" }
+  });
+
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  const alphaStored = stored.find((record) => record.id === alpha.data.id);
+  const betaStored = stored.find((record) => record.id === beta.data.id);
+  alphaStored.sync.codex = { status: "pending", message: "alpha-before" };
+  alphaStored.sync["claude-code"] = { status: "pending", message: "alpha-before" };
+  betaStored.sync.codex = { status: "error", message: "beta-codex-before" };
+  betaStored.sync["claude-code"] = { status: "synced", message: "beta-claude-before" };
+  fs.writeFileSync(runtime.mcpServers, JSON.stringify(stored, null, 2));
+
+  const expectedBetaSync = JSON.parse(JSON.stringify(betaStored.sync));
+  const removed = await service.removeFromAgents([alpha.data.id]);
+  const persisted = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  const removedAlpha = removed.data.servers.find((record) => record.id === alpha.data.id);
+  const persistedBeta = persisted.find((record) => record.id === beta.data.id);
+  const returnedBeta = removed.data.servers.find((record) => record.id === beta.data.id);
+
+  assert.equal(removed.success, true);
+  assert.equal(removedAlpha.sync.codex.status, "available");
+  assert.equal(removedAlpha.sync.codex.message, "Removed from native agents.");
+  assert.equal(removedAlpha.sync["claude-code"].status, "available");
+  assert.equal(removedAlpha.sync["claude-code"].message, "Removed from native agents.");
+  assert.deepEqual(returnedBeta.sync, expectedBetaSync);
+  assert.deepEqual(persistedBeta.sync, expectedBetaSync);
 });
 
 test("delete keeps the record with sanitized native cleanup errors when removal fails", async (t) => {

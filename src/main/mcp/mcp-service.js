@@ -42,7 +42,7 @@ function ok(data) {
 }
 
 function fail(error) {
-  return { success: false, data: null, error: String(error?.message || error || "Unknown error") };
+  return { success: false, data: null, error: sanitizeSecretText(error?.message || error || "Unknown error") };
 }
 
 function sanitizeBridgeError(error) {
@@ -131,12 +131,16 @@ function createMcpService(deps = {}) {
   function applyStatuses(records, nativeResult = {}, options = {}) {
     const availableIds = options.availableIds || new Set();
     const availableMessage = sanitizeSecretText(options.availableMessage || "");
+    const statusRecordIds = options.statusRecordIds instanceof Set ? options.statusRecordIds : null;
     const statuses = nativeResult?.statuses && typeof nativeResult.statuses === "object"
       ? nativeResult.statuses
       : {};
     const nativeCommands = Array.isArray(nativeResult?.commands) ? nativeResult.commands : [];
     const sawNativeCommandsOrErrors = hasNativeCommandsOrErrors(statuses, nativeCommands);
     return records.map((record) => {
+      if (statusRecordIds && !statusRecordIds.has(record.id)) {
+        return record;
+      }
       const nextSync = { ...(record.sync || {}) };
       for (const engineId of MCP_ENGINE_IDS) {
         const statusEntry = statuses[engineId];
@@ -190,6 +194,7 @@ function createMcpService(deps = {}) {
       bridgeState = await refreshBridgeState(options.bridgeRecordsOnError);
     }
     const withStatuses = applyStatuses(persistedBase, nativeResult, {
+      statusRecordIds: options.statusRecordIds,
       availableIds: options.availableIds || new Set(),
       availableMessage: options.availableMessage || ""
     });
@@ -475,6 +480,7 @@ function createMcpService(deps = {}) {
       const persistedRecords = current.slice();
       const runtime = await applyRuntimeChanges(targets, [], {
         persistedRecords,
+        statusRecordIds: new Set(targets.map((record) => record.id)),
         availableIds: new Set(targets.map((record) => record.id)),
         availableMessage: "Removed from native agents."
       });
