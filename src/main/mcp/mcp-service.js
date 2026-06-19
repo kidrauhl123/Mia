@@ -100,18 +100,42 @@ function createMcpService(deps = {}) {
     };
   }
 
-  function applyStatuses(records, statuses = {}, options = {}) {
+  function isErrorStatus(statusEntry = {}) {
+    return String(statusEntry.status || "").trim().toLowerCase() === "error";
+  }
+
+  function hasNativeCommandsOrErrors(statuses = {}, nativeCommands = []) {
+    if (Array.isArray(nativeCommands) && nativeCommands.length) return true;
+    return Object.values(statuses || {}).some((statusEntry) => (
+      isErrorStatus(statusEntry)
+      || (Array.isArray(statusEntry?.commands) && statusEntry.commands.length > 0)
+    ));
+  }
+
+  function applyStatuses(records, nativeResult = {}, options = {}) {
     const availableIds = options.availableIds || new Set();
     const availableMessage = sanitizeSecretText(options.availableMessage || "");
+    const statuses = nativeResult?.statuses && typeof nativeResult.statuses === "object"
+      ? nativeResult.statuses
+      : {};
+    const nativeCommands = Array.isArray(nativeResult?.commands) ? nativeResult.commands : [];
+    const sawNativeCommandsOrErrors = hasNativeCommandsOrErrors(statuses, nativeCommands);
     return records.map((record) => {
       const nextSync = { ...(record.sync || {}) };
       for (const engineId of MCP_ENGINE_IDS) {
+        const statusEntry = statuses[engineId];
         if (availableIds.has(record.id) && (engineId === "codex" || engineId === "claude-code")) {
-          nextSync[engineId] = { status: "available", message: availableMessage };
-          continue;
+          if (statusEntry && isErrorStatus(statusEntry)) {
+            nextSync[engineId] = mergeStatus(nextSync[engineId], statusEntry);
+            continue;
+          }
+          if (statusEntry || !sawNativeCommandsOrErrors) {
+            nextSync[engineId] = { status: "available", message: availableMessage };
+            continue;
+          }
         }
-        if (statuses[engineId]) {
-          nextSync[engineId] = mergeStatus(nextSync[engineId], statuses[engineId]);
+        if (statusEntry) {
+          nextSync[engineId] = mergeStatus(nextSync[engineId], statusEntry);
         }
       }
       return { ...record, sync: nextSync, updatedAt: now() };
@@ -140,7 +164,7 @@ function createMcpService(deps = {}) {
       previousRecords: normalizeMcpRegistry(previousRecords || [], { now, idFactory }),
       currentRecords: normalizeMcpRegistry(currentRecords || [], { now, idFactory })
     });
-    const withStatuses = applyStatuses(storedRecords, nativeResult?.statuses || {}, {
+    const withStatuses = applyStatuses(storedRecords, nativeResult, {
       availableIds: options.availableIds || new Set(),
       availableMessage: options.availableMessage || ""
     });

@@ -215,6 +215,151 @@ test("failed test disables a server through the shared runtime-change path", asy
   assert.equal(syncCalls.at(-1).currentRecords.some((record) => record.name === "xhs" && record.enabled === false), true);
 });
 
+test("setEnabled(false) surfaces native cleanup errors instead of synthetic available status", async (t) => {
+  let syncStep = 0;
+  const { runtime, service } = setup(t, {
+    nativeSync: async () => {
+      syncStep += 1;
+      if (syncStep === 1) {
+        return {
+          success: true,
+          statuses: {
+            codex: { status: "synced", error: "", commands: [{ command: "codex", args: ["mcp", "add"] }] },
+            "claude-code": { status: "synced", error: "", commands: [{ command: "claude", args: ["mcp", "add"] }] }
+          },
+          commands: [{ engine: "codex" }, { engine: "claude-code" }]
+        };
+      }
+      return {
+        success: false,
+        statuses: {
+          codex: { status: "error", message: "Authorization: Bearer ghp_disable_secret" },
+          "claude-code": { status: "synced", error: "", commands: [{ command: "claude", args: ["mcp", "remove"] }] }
+        },
+        commands: [{ engine: "codex" }, { engine: "claude-code" }]
+      };
+    }
+  });
+
+  const saved = await service.save({
+    name: "xhs",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+  });
+  const disabled = await service.setEnabled(saved.data.id, false);
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(disabled.success, true);
+  assert.equal(disabled.data.sync.codex.status, "error");
+  assert.match(disabled.data.sync.codex.message, /\[redacted\]/);
+  assert.doesNotMatch(disabled.data.sync.codex.message, /Disabled in Mia\.|ghp_disable_secret/);
+  assert.equal(disabled.data.sync["claude-code"].status, "available");
+  assert.equal(disabled.data.sync["claude-code"].message, "Disabled in Mia.");
+  assert.equal(stored[0].sync.codex.status, "error");
+  assert.match(stored[0].sync.codex.message, /\[redacted\]/);
+});
+
+test("targeted removeFromAgents surfaces native cleanup errors instead of synthetic available status", async (t) => {
+  let syncStep = 0;
+  const { runtime, service } = setup(t, {
+    nativeSync: async () => {
+      syncStep += 1;
+      if (syncStep === 1) {
+        return {
+          success: true,
+          statuses: {
+            codex: { status: "synced", error: "", commands: [{ command: "codex", args: ["mcp", "add"] }] },
+            "claude-code": { status: "synced", error: "", commands: [{ command: "claude", args: ["mcp", "add"] }] }
+          },
+          commands: [{ engine: "codex" }, { engine: "claude-code" }]
+        };
+      }
+      return {
+        success: false,
+        statuses: {
+          codex: { status: "synced", error: "", commands: [{ command: "codex", args: ["mcp", "remove"] }] },
+          "claude-code": { status: "error", message: "token=sk-remove-secret-token" }
+        },
+        commands: [{ engine: "codex" }, { engine: "claude-code" }]
+      };
+    }
+  });
+
+  const saved = await service.save({
+    name: "xhs",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+  });
+  const removed = await service.removeFromAgents([saved.data.id]);
+  const target = removed.data.servers.find((record) => record.id === saved.data.id);
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(removed.success, true);
+  assert.equal(target.sync.codex.status, "available");
+  assert.equal(target.sync.codex.message, "Removed from native agents.");
+  assert.equal(target.sync["claude-code"].status, "error");
+  assert.match(target.sync["claude-code"].message, /\[redacted\]/);
+  assert.doesNotMatch(target.sync["claude-code"].message, /Removed from native agents\.|sk-remove-secret-token/);
+  assert.equal(stored[0].sync["claude-code"].status, "error");
+  assert.match(stored[0].sync["claude-code"].message, /\[redacted\]/);
+});
+
+test("failed test cleanup surfaces native disable errors instead of synthetic available status", async (t) => {
+  let syncStep = 0;
+  const { runtime, service } = setup(t, {
+    manager: {
+      testServer: async () => ({
+        success: false,
+        status: "disconnected",
+        tools: [],
+        error: "Authorization: Bearer ghp_test_cleanup_secret"
+      }),
+      refresh: async () => ({ success: true, tools: [], errors: [] }),
+      toolManifest: () => [],
+      callTool: async () => ({ content: [], isError: false })
+    },
+    nativeSync: async () => {
+      syncStep += 1;
+      if (syncStep === 1) {
+        return {
+          success: true,
+          statuses: {
+            codex: { status: "synced", error: "", commands: [{ command: "codex", args: ["mcp", "add"] }] },
+            "claude-code": { status: "synced", error: "", commands: [{ command: "claude", args: ["mcp", "add"] }] }
+          },
+          commands: [{ engine: "codex" }, { engine: "claude-code" }]
+        };
+      }
+      return {
+        success: false,
+        statuses: {
+          codex: { status: "error", message: "Authorization: Bearer ghp_native_disable_secret" },
+          "claude-code": { status: "synced", error: "", commands: [{ command: "claude", args: ["mcp", "remove"] }] }
+        },
+        commands: [{ engine: "codex" }, { engine: "claude-code" }]
+      };
+    }
+  });
+
+  const saved = await service.save({
+    name: "xhs",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+  });
+  const tested = await service.test(saved.data.id);
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(tested.success, true);
+  assert.equal(tested.data.enabled, false);
+  assert.equal(tested.data.sync.codex.status, "error");
+  assert.match(tested.data.sync.codex.message, /\[redacted\]/);
+  assert.doesNotMatch(tested.data.sync.codex.message, /Disabled in Mia after failed test\.|ghp_native_disable_secret/);
+  assert.equal(tested.data.sync["claude-code"].status, "available");
+  assert.equal(tested.data.sync["claude-code"].message, "Disabled in Mia after failed test.");
+  assert.equal(stored[0].sync.codex.status, "error");
+  assert.match(stored[0].sync.codex.message, /\[redacted\]/);
+});
+
 test("targeted removeFromAgents does not add or re-sync other enabled servers", async (t) => {
   const syncCalls = [];
   let nextId = 0;
