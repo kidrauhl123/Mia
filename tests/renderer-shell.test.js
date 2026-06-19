@@ -535,6 +535,7 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
 
 test("chat rail icon keeps playback without the thicker forum animation asset", () => {
   const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const groupsIcon = JSON.parse(fs.readFileSync(path.join(root, "src/renderer/assets/lottie/groups.json"), "utf8"));
 
   const chatButton = htmlSource.match(/<button class="rail-button active"[\s\S]*?data-view="chat"[\s\S]*?<\/button>/)?.[0] || "";
   assert.match(chatButton, /data-lottie="chat"/);
@@ -543,7 +544,13 @@ test("chat rail icon keeps playback without the thicker forum animation asset", 
   assert.doesNotMatch(chatButton, /data-lottie-trigger="static"/);
   assert.doesNotMatch(chatButton, /data-lottie="forum"/);
 
-  for (const name of ["contacts", "extension", "checklist", "settings"]) {
+  const contactsButton = htmlSource.match(/<button class="rail-button"[\s\S]*?data-view="contacts"[\s\S]*?<\/button>/)?.[0] || "";
+  assert.match(contactsButton, /data-lottie="groups"/);
+  assert.doesNotMatch(contactsButton, /data-lottie="contacts"/);
+  assert.equal(groupsIcon.nm, "system-regular-96-groups");
+  assert.deepEqual(groupsIcon.markers?.map((marker) => marker.cm), ["in-groups", "default:hover-groups", "morph-group-single"]);
+
+  for (const name of ["groups", "extension", "checklist", "settings"]) {
     const pattern = new RegExp(`data-lottie="${name}"[^>]*data-lottie-rest="60"[^>]*data-lottie-play="70,130"`);
     assert.match(htmlSource, pattern, `${name} rail icon should keep its existing playback attributes`);
     assert.doesNotMatch(
