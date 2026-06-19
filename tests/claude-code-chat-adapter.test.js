@@ -384,6 +384,28 @@ test("sendChat exposes mia-app MCP while preserving scheduler compatibility", as
   });
 });
 
+test("sendChat waits for user MCP readiness before reading Claude MCP specs", async () => {
+  let ready = false;
+  const deps = createDeps([
+    { session_id: "sess_ready" },
+    { type: "assistant", message: { content: [{ type: "text", text: "done" }] } }
+  ], {
+    ensureUserMcpReady: async () => { ready = true; },
+    getUserMcpSpecs: () => {
+      assert.equal(ready, true);
+      return {};
+    }
+  });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s-ready",
+    messages: [{ role: "user", content: "hello" }],
+    abortController: { abort() {} }
+  });
+});
+
 test("sendChat disables Claude cronjob so reminders route through Mia scheduler", async () => {
   const deps = createDeps([
     { type: "assistant", message: { content: [{ text: "ok" }] } }

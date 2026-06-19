@@ -74,6 +74,10 @@ function createMcpService(deps = {}) {
   const stdioProxyScriptPath = typeof deps.stdioProxyScriptPath === "function"
     ? deps.stdioProxyScriptPath
     : () => path.join(__dirname, "mcp-stdio-proxy-server.js");
+  const initializationTimeoutMs = Number.isFinite(Number(deps.initializationTimeoutMs))
+    && Number(deps.initializationTimeoutMs) > 0
+    ? Number(deps.initializationTimeoutMs)
+    : 5000;
 
   let bridgeInfo = null;
   let initializationPromise = null;
@@ -180,15 +184,50 @@ function createMcpService(deps = {}) {
     };
   }
 
-  async function initialize() {
+  function initializationTimeoutError(timeoutMs) {
+    const error = new Error(`Timed out after ${timeoutMs}ms waiting for MCP initialization.`);
+    error.code = "MCP_INIT_TIMEOUT";
+    return error;
+  }
+
+  function startInitialization() {
+    if (!initializationPromise) {
+      initializationPromise = refreshBridgeState(loadRecords()).catch((error) => {
+        initializationPromise = null;
+        throw error;
+      });
+      initializationPromise.catch(() => {});
+    }
+    return initializationPromise;
+  }
+
+  function awaitInitialization(options = {}) {
+    const requestedTimeoutMs = Number(options.timeoutMs);
+    const timeoutMs = Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0
+      ? requestedTimeoutMs
+      : initializationTimeoutMs;
+    const pending = startInitialization();
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        settled = true;
+        reject(initializationTimeoutError(timeoutMs));
+      }, timeoutMs);
+      pending.then((value) => {
+        if (settled) return;
+        clearTimeout(timer);
+        resolve(value);
+      }, (error) => {
+        if (settled) return;
+        clearTimeout(timer);
+        reject(error);
+      });
+    });
+  }
+
+  async function initialize(options = {}) {
     try {
-      if (!initializationPromise) {
-        initializationPromise = refreshBridgeState(loadRecords()).catch((error) => {
-          initializationPromise = null;
-          throw error;
-        });
-      }
-      return ok(await initializationPromise);
+      return ok(await awaitInitialization(options));
     } catch (error) {
       return fail(error);
     }
@@ -513,6 +552,7 @@ function createMcpService(deps = {}) {
   }
 
   function getEngineSpecs(engineId, options = {}) {
+    startInitialization();
     const records = enabledRecords();
     const bridgeSpec = getBridgeSpec();
     if (engineId === "claude-code") return mcpSpecsForClaudeSdk(records, { bridge: bridgeSpec, ...options });
@@ -566,6 +606,7 @@ function createMcpService(deps = {}) {
     getEngineSpecs,
     importJson,
     initialize,
+    awaitInitialization,
     installTemplate,
     list,
     refreshBridge,

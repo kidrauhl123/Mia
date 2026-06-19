@@ -380,6 +380,7 @@ function createCodexChatAdapter(deps = {}) {
   const getSchedulerMcpSpec = deps.getSchedulerMcpSpec || (() => null);
   const getUserMcpSpecs = deps.getUserMcpSpecs || (() => ({}));
   const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
+  const ensureUserMcpReady = deps.ensureUserMcpReady || (async () => {});
   const runCodexAppServerTurn = deps.runCodexAppServerTurn || null;
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
@@ -394,6 +395,11 @@ function createCodexChatAdapter(deps = {}) {
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("codex");
     if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
+    try {
+      await ensureUserMcpReady();
+    } catch (error) {
+      appendEngineLog(`MCP bridge initialization incomplete before Codex chat: ${error?.message || error}`);
+    }
     const mcpFingerprint = getMcpFingerprint();
     const savedEntry = shouldPersistAgentSession ? getAgentSessionEntry(engine, bot.key, sessionId) : { id: "", fingerprint: "" };
     const externalSessionId = savedEntry.id && savedEntry.fingerprint === mcpFingerprint

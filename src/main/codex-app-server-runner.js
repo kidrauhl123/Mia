@@ -17,11 +17,17 @@ function tomlArray(values = []) {
   return `[${(Array.isArray(values) ? values : []).map(tomlString).join(",")}]`;
 }
 
+function tomlPathSegment(value) {
+  const key = String(value || "").trim();
+  if (/^[A-Za-z0-9_-]+$/.test(key)) return key;
+  return tomlString(key);
+}
+
 function codexConfigOverridesForMcpServers(mcpServers = {}) {
   const overrides = [];
   for (const [name, spec] of Object.entries(mcpServers || {})) {
     const serverName = String(name || "").trim();
-    const prefix = `mcp_servers.${serverName}`;
+    const prefix = `mcp_servers.${tomlPathSegment(serverName)}`;
     const url = String(spec?.url || "").trim();
     const command = String(spec?.command || "").trim();
     if (!serverName) continue;

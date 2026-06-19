@@ -138,6 +138,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const getSchedulerMcpSpec = requireDependency(deps, "getSchedulerMcpSpec");
   const getUserMcpSpecs = deps.getUserMcpSpecs || (() => ({}));
   const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
+  const ensureUserMcpReady = deps.ensureUserMcpReady || (async () => {});
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
@@ -150,6 +151,11 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("claude");
     if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
+    try {
+      await ensureUserMcpReady();
+    } catch (error) {
+      appendEngineLog(`MCP bridge initialization incomplete before Claude Code chat: ${error?.message || error}`);
+    }
     const lastUser = lastUserPrompt(messages);
     // Best-effort: grab id from last user message for scheduler context
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;

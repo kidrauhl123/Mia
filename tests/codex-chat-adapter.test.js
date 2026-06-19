@@ -167,6 +167,24 @@ test("sendChat starts new thread with persona on first turn", async () => {
   assert.equal(response.choices[0].message.content, "codex out");
 });
 
+test("sendChat waits for user MCP readiness before reading Codex MCP specs", async () => {
+  let ready = false;
+  const deps = createDeps({
+    ensureUserMcpReady: async () => { ready = true; },
+    getUserMcpSpecs: () => {
+      assert.equal(ready, true);
+      return {};
+    }
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s-ready",
+    messages: [{ role: "user", content: "hello" }]
+  });
+});
+
 test("sendChat puts the selected codex bin dir first in SDK env", async () => {
   const deps = createDeps({
     commandPath: "/opt/codex-node/bin/codex",

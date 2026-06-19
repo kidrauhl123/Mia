@@ -338,11 +338,13 @@ function createOpenClawChatAdapter(deps = {}) {
   const setAgentSessionId = requireDependency(deps, "setAgentSessionId");
   const getUserMcpServers = deps.getUserMcpServers || (() => []);
   const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
+  const ensureUserMcpReady = deps.ensureUserMcpReady || (async () => {});
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
   const memoryBlock = deps.memoryBlock || (() => "");
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
   const enginePermissionMode = deps.enginePermissionMode || (() => "default");
+  const appendEngineLog = deps.appendEngineLog || (() => {});
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const execFile = deps.execFile || defaultExecFile;
   const spawn = deps.spawn || defaultSpawn;
@@ -519,6 +521,11 @@ function createOpenClawChatAdapter(deps = {}) {
           version: "1.0.0"
         }
       }), failure);
+      try {
+        await ensureUserMcpReady();
+      } catch (error) {
+        appendEngineLog(`MCP bridge initialization incomplete before OpenClaw chat: ${error?.message || error}`);
+      }
       const userMcpServers = getUserMcpServers(acpMcpCapabilityOptions(initialized));
       const session = await withChildFailure(client.newSession({
         cwd: cwd(),

@@ -36,6 +36,7 @@ const { createMiaMemoryService } = require("./main/mia-memory-service.js");
 const { createRuntimeInitializerService } = require("./main/runtime-initializer-service.js");
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
 const { createStartupBackgroundService } = require("./main/startup-background-service.js");
+const { createStartupMcpInitializer } = require("./main/mcp-startup-initializer.js");
 const { createStartupTimer } = require("./main/startup-timing.js");
 const { onboardingWindowBounds } = require("./main/onboarding-window-bounds.js");
 const { setMacNativeControlsVisible } = require("./main/mac-window-controls.js");
@@ -721,6 +722,18 @@ const userMcpService = createMcpService({
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
   stdioProxyScriptPath: () => path.join(__dirname, "main", "mcp", "mcp-stdio-proxy-server.js")
 });
+const startupMcpInitializer = createStartupMcpInitializer({
+  initializeMcp: () => userMcpService.initialize(),
+  appendEngineLog
+});
+
+async function ensureUserMcpReady(reason) {
+  try {
+    await userMcpService.awaitInitialization();
+  } catch (error) {
+    appendEngineLog(`MCP bridge initialization incomplete before ${reason}: ${error?.message || error}`);
+  }
+}
 
 let runtimeLifecycleService = null;
 function runtimeLifecycle() {
@@ -1747,6 +1760,7 @@ function startCloudRuntimeSockets() {
 
 async function startEngine() {
   initializeRuntime();
+  await ensureUserMcpReady("Hermes startup");
   const p = runtimePaths();
   if (!engineInstallService.isInstalled()) {
     throw new Error("Hermes engine is not installed in Mia runtime.");
@@ -2010,6 +2024,7 @@ function createActiveClaudeCodeChatAdapter() {
     chatCompletionResponse,
     claudeAgentSdk,
     ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
+    ensureUserMcpReady: () => ensureUserMcpReady("Claude Code chat"),
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     clearAgentSessionEntry: agentSessionStore.deleteEntry,
@@ -2042,6 +2057,7 @@ function createActiveCodexChatAdapter() {
     appendEngineLog,
     enginePermissionMode: settingsStore.enginePermissionMode,
     ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
+    ensureUserMcpReady: () => ensureUserMcpReady("Codex chat"),
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionEntry: agentSessionStore.getEntry,
     getAgentSessionId: agentSessionStore.getId,
@@ -2070,7 +2086,9 @@ function createActiveOpenClawChatAdapter() {
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     chatCompletionResponse,
     cwd: agentWorkspaceDir,
+    appendEngineLog,
     enginePermissionMode: settingsStore.enginePermissionMode,
+    ensureUserMcpReady: () => ensureUserMcpReady("OpenClaw chat"),
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionId: agentSessionStore.getId,
     getMcpFingerprint: userMcpService.fingerprint,
@@ -3002,10 +3020,7 @@ ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates()
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
   if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
-  const initializedMcp = await userMcpService.initialize();
-  if (!initializedMcp.success) {
-    appendEngineLog(`MCP bridge initialization failed: ${initializedMcp.error}`);
-  }
+  startupMcpInitializer.start();
   if (IS_DAEMON_PROCESS) {
     try {
       app.dock?.hide?.();

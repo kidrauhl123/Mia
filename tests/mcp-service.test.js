@@ -782,3 +782,28 @@ test("initialize restores bridge specs for cold-start getEngineSpecs", async (t)
   assert.equal(codexSpecs["mia-mcp-bridge"].command, "/usr/local/bin/node");
   assert.deepEqual(openClawServers.map((server) => server.name), ["mia-mcp-bridge"]);
 });
+
+test("getEngineSpecs triggers lazy initialization and initialize stays bounded when refresh hangs", async (t) => {
+  let refreshCalls = 0;
+  const { service } = setup(t, {
+    manager: {
+      testServer: async () => ({ success: true, status: "connected", tools: [], error: "" }),
+      refresh: async () => {
+        refreshCalls += 1;
+        return new Promise(() => {});
+      },
+      toolManifest: () => [],
+      callTool: async () => ({ content: [{ type: "text", text: "ok" }], isError: false })
+    }
+  });
+
+  service.getEngineSpecs("codex");
+  const startedAt = Date.now();
+  const initialized = await service.initialize({ timeoutMs: 20 });
+  const elapsedMs = Date.now() - startedAt;
+
+  assert.equal(refreshCalls, 1);
+  assert.equal(initialized.success, false);
+  assert.match(initialized.error, /Timed out after 20ms waiting for MCP initialization/);
+  assert.ok(elapsedMs < 250);
+});
