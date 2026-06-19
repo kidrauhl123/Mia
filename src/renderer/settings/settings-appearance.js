@@ -102,8 +102,7 @@
   }
 
   function railGlassBackground(theme, opacity) {
-    const base = theme === "dark" ? "var(--surface)" : "var(--surface-soft)";
-    return `color-mix(in srgb, ${base} ${normalizeGlassOpacity(opacity)}%, transparent)`;
+    return `color-mix(in srgb, var(--surface) ${normalizeGlassOpacity(opacity)}%, transparent)`;
   }
 
   function hexToRgb(value) {

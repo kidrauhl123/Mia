@@ -145,7 +145,11 @@ test("applyAppearance writes card and soft choices to document state", () => {
 
   assert.equal(documentElement.dataset.selectionStyle, "soft");
   assert.equal(styleValues.get("--list-active-text"), "#318ad3");
-  assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-soft) 91%, transparent)");
+  assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface) 91%, transparent)");
+
+  api.applyAppearance({ theme: "light", glassOpacity: 100 });
+
+  assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface) 100%, transparent)");
 });
 
 test("appearance avatar toggles default off unless explicitly enabled", () => {
@@ -336,7 +340,7 @@ test("applyAppearance keeps default tokens when appearance deps are missing", ()
 
   assert.match(styleValues.get("--app-font"), /ui-serif/);
   assert.equal(styleValues.get("--accent"), "#318ad3");
-  assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-soft) 82%, transparent)");
+  assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface) 82%, transparent)");
   assert.equal(documentElement.dataset.selectionStyle, "soft");
 });
 
