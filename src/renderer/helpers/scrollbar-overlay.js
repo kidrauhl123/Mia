@@ -90,24 +90,78 @@
     return scrollbarOverlayEl;
   }
 
+  function parseScrollbarRadiusY(value) {
+    const parts = String(value || "")
+      .trim()
+      .split(/\s+/)
+      .map((part) => Number.parseFloat(part))
+      .filter((part) => Number.isFinite(part));
+    return Math.max(0, parts[1] ?? parts[0] ?? 0);
+  }
+
+  function scrollbarRoundedRightEdgeBounds(target, rect) {
+    let top = rect.top;
+    let bottom = rect.bottom;
+    const rightEdgeSlop = 4;
+
+    for (
+      let current = target;
+      current && current !== document.body && current !== document.documentElement;
+      current = current.parentElement
+    ) {
+      if (!(current instanceof Element)) continue;
+      const currentRect = current.getBoundingClientRect();
+      if (currentRect.width <= 0 || currentRect.height <= 0) continue;
+      if (currentRect.bottom <= rect.top || currentRect.top >= rect.bottom) continue;
+      if (Math.abs(currentRect.right - rect.right) > rightEdgeSlop) continue;
+
+      const style = window.getComputedStyle(current);
+      const topRadius = parseScrollbarRadiusY(style.borderTopRightRadius);
+      const bottomRadius = parseScrollbarRadiusY(style.borderBottomRightRadius);
+      if (topRadius <= 0 && bottomRadius <= 0) continue;
+
+      top = Math.max(top, currentRect.top + topRadius);
+      bottom = Math.min(bottom, currentRect.bottom - bottomRadius);
+    }
+
+    return {
+      top,
+      bottom,
+      height: Math.max(0, bottom - top)
+    };
+  }
+
   function scrollbarOverlayTrackRect(target) {
     if (!(target instanceof Element)) return;
     const rect = target.getBoundingClientRect();
+    let trackTop = rect.top;
+    let trackBottom = rect.bottom;
     if (target.id === "chat") {
       const composer = document.querySelector("#chatView .composer-card");
       const composerRect = composer?.getBoundingClientRect?.();
-      if (!composerRect || composerRect.top <= rect.top) return rect;
-      const trackBottom = Math.min(rect.bottom, composerRect.top);
-      return {
-        top: rect.top,
-        right: rect.right,
-        bottom: trackBottom,
-        left: rect.left,
-        width: rect.width,
-        height: Math.max(0, trackBottom - rect.top)
-      };
+      if (composerRect && composerRect.top > rect.top) {
+        trackBottom = Math.min(trackBottom, composerRect.top);
+      }
     }
-    return rect;
+    const trackRect = {
+      top: trackTop,
+      right: rect.right,
+      bottom: trackBottom,
+      left: rect.left,
+      width: rect.width,
+      height: Math.max(0, trackBottom - trackTop)
+    };
+    const roundedBounds = scrollbarRoundedRightEdgeBounds(target, trackRect);
+    trackTop = roundedBounds.top;
+    trackBottom = roundedBounds.bottom;
+    return {
+      top: trackTop,
+      right: rect.right,
+      bottom: trackBottom,
+      left: rect.left,
+      width: rect.width,
+      height: Math.max(0, trackBottom - trackTop)
+    };
   }
 
   function scrollbarOverlayMetrics(target) {

@@ -365,8 +365,72 @@ test("chat scrollbar overlay stops at the composer top edge", () => {
   assert.match(scrollbarSource, /function scrollbarOverlayTrackRect\(target\)/);
   assert.match(scrollbarSource, /target\.id === "chat"/);
   assert.match(scrollbarSource, /document\.querySelector\("#chatView \.composer-card"\)/);
-  assert.match(scrollbarSource, /const trackBottom = Math\.min\(rect\.bottom,\s*composerRect\.top\);/);
+  assert.match(scrollbarSource, /trackBottom = Math\.min\(trackBottom,\s*composerRect\.top\);/);
   assert.match(scrollbarSource, /trackRect\.height - trackInset \* 2/);
+});
+
+test("custom scrollbar overlay track stays on rounded right edge straights", () => {
+  const scrollbarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/scrollbar-overlay.js"), "utf8");
+
+  class MockElement {
+    constructor(rect, style = {}) {
+      this.rect = rect;
+      this.style = style;
+      this.parentElement = null;
+      this.id = "";
+      this.scrollHeight = 1200;
+      this.clientHeight = rect.height;
+    }
+
+    getBoundingClientRect() {
+      return this.rect;
+    }
+
+    addEventListener() {}
+  }
+
+  const body = new MockElement({ top: 0, right: 500, bottom: 600, left: 0, width: 500, height: 600 });
+  const documentElement = new MockElement({ top: 0, right: 500, bottom: 600, left: 0, width: 500, height: 600 });
+  const shell = new MockElement(
+    { top: 0, right: 500, bottom: 600, left: 0, width: 500, height: 600 },
+    { borderTopRightRadius: "28px", borderBottomRightRadius: "28px", overflow: "hidden" }
+  );
+  const workspace = new MockElement(
+    { top: 0, right: 498, bottom: 600, left: 0, width: 498, height: 600 },
+    { borderTopRightRadius: "14px", borderBottomRightRadius: "14px", overflow: "hidden" }
+  );
+  const target = new MockElement(
+    { top: 0, right: 498, bottom: 600, left: 0, width: 498, height: 600 },
+    { overflowY: "auto" }
+  );
+
+  shell.parentElement = body;
+  workspace.parentElement = shell;
+  target.parentElement = workspace;
+
+  const sandbox = {
+    Element: MockElement,
+    document: {
+      body,
+      documentElement,
+      createElement: () => new MockElement({ top: 0, right: 0, bottom: 0, left: 0, width: 0, height: 0 }),
+      querySelector: () => null
+    },
+    window: {
+      getComputedStyle: (element) => element.style || {},
+      addEventListener() {},
+      clearTimeout() {},
+      setTimeout() { return 1; },
+      requestAnimationFrame(callback) { callback(); return 1; }
+    }
+  };
+  vm.runInNewContext(scrollbarSource, sandbox, { filename: "scrollbar-overlay.js" });
+
+  const trackRect = sandbox.window.miaScrollbarOverlay.scrollbarOverlayTrackRect(target);
+
+  assert.equal(trackRect.top, 28);
+  assert.equal(trackRect.bottom, 572);
+  assert.equal(trackRect.height, 544);
 });
 
 test("custom scrollbar overlay is invalidated when panes hide", () => {
