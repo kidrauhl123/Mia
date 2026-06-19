@@ -4,6 +4,7 @@ const http = require("node:http");
 const { createMcpBridgeServer } = require("../src/main/mcp/mcp-bridge-server.js");
 const {
   buildProxyToolEntries,
+  createProxyHandlers,
   indexProxyToolEntries,
   proxyToolName
 } = require("../src/main/mcp/mcp-stdio-proxy-server.js");
@@ -126,26 +127,79 @@ test("stdio proxy manifest export uses injective encoded names", () => {
   assert.deepEqual(entries[1].inputSchema, tools[1].inputSchema);
 });
 
-test("stdio proxy call routing resolves the exact backend tool for colliding sanitized names", () => {
+test("stdio proxy call routing resolves the exact backend tool for colliding sanitized names", async () => {
   const tools = [
     { server: "alpha/beta", name: "tool:name", description: "First", inputSchema: { type: "object" } },
     { server: "alpha_beta", name: "tool_name", description: "Second", inputSchema: { type: "object" } }
   ];
+  const calls = [];
+  const handlers = createProxyHandlers({
+    postJson: async (path, body) => {
+      calls.push([path, body]);
+      if (path === "/mcp/manifest") {
+        return { tools };
+      }
+      if (path === "/mcp/execute") {
+        return {
+          content: [{ type: "text", text: "ok" }],
+          isError: false
+        };
+      }
+      throw new Error(`Unexpected path: ${path}`);
+    }
+  });
 
-  const entries = buildProxyToolEntries(tools);
-  const entryIndex = indexProxyToolEntries(entries);
+  const listed = await handlers.listTools();
+  const routed = await handlers.callTool({
+    params: {
+      name: listed.tools[1].name,
+      arguments: { limit: 5, query: "Mia" }
+    }
+  });
 
-  const first = entryIndex.get(proxyToolName(tools[0]));
-  const second = entryIndex.get(proxyToolName(tools[1]));
+  assert.equal(listed.tools[0].name, proxyToolName(tools[0]));
+  assert.equal(listed.tools[1].name, proxyToolName(tools[1]));
+  assert.deepEqual(calls, [
+    ["/mcp/manifest", {}],
+    ["/mcp/execute", { server: "alpha_beta", tool: "tool_name", args: { limit: 5, query: "Mia" } }]
+  ]);
+  assert.equal(routed.content[0].text, "ok");
+});
 
-  assert.deepEqual(
-    { server: first.server, tool: first.tool },
-    { server: "alpha/beta", tool: "tool:name" }
-  );
-  assert.deepEqual(
-    { server: second.server, tool: second.tool },
-    { server: "alpha_beta", tool: "tool_name" }
-  );
+test("stdio proxy call routing fills cache from manifest before execute", async () => {
+  const tools = [
+    { server: "alpha/beta", name: "tool:name", description: "First", inputSchema: { type: "object" } },
+    { server: "alpha_beta", name: "tool_name", description: "Second", inputSchema: { type: "object" } }
+  ];
+  const calls = [];
+  const handlers = createProxyHandlers({
+    postJson: async (path, body) => {
+      calls.push([path, body]);
+      if (path === "/mcp/manifest") {
+        return { tools };
+      }
+      if (path === "/mcp/execute") {
+        return {
+          content: [{ type: "text", text: "cached ok" }],
+          isError: false
+        };
+      }
+      throw new Error(`Unexpected path: ${path}`);
+    }
+  });
+
+  const routed = await handlers.callTool({
+    params: {
+      name: proxyToolName(tools[0]),
+      arguments: { q: "cache-fill" }
+    }
+  });
+
+  assert.deepEqual(calls, [
+    ["/mcp/manifest", {}],
+    ["/mcp/execute", { server: "alpha/beta", tool: "tool:name", args: { q: "cache-fill" } }]
+  ]);
+  assert.equal(routed.content[0].text, "cached ok");
 });
 
 test("stdio proxy fails closed on duplicate generated proxy names", () => {

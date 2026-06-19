@@ -71,6 +71,52 @@ async function postJson(path, body) {
   return payload;
 }
 
+function createProxyHandlers({ postJson }) {
+  if (typeof postJson !== "function") {
+    throw new TypeError("createProxyHandlers requires a postJson function");
+  }
+
+  let cachedEntries = [];
+  let cachedEntryIndex = new Map();
+
+  async function loadManifest() {
+    const manifest = await postJson("/mcp/manifest", {});
+    cachedEntries = buildProxyToolEntries(manifest.tools);
+    cachedEntryIndex = indexProxyToolEntries(cachedEntries);
+    return cachedEntries;
+  }
+
+  return {
+    async listTools() {
+      const entries = await loadManifest();
+      return {
+        tools: entries.map((entry) => ({
+          name: entry.proxyName,
+          description: entry.description,
+          inputSchema: entry.inputSchema
+        }))
+      };
+    },
+    async callTool(request) {
+      if (!cachedEntries.length) {
+        await loadManifest();
+      }
+      const entry = cachedEntryIndex.get(request?.params?.name);
+      if (!entry) {
+        return {
+          content: [{ type: "text", text: `Unknown Mia MCP bridge tool: ${request?.params?.name}` }],
+          isError: true
+        };
+      }
+      return postJson("/mcp/execute", {
+        server: entry.server,
+        tool: entry.tool,
+        args: request?.params?.arguments || {}
+      });
+    }
+  };
+}
+
 async function main() {
   if (!BRIDGE_URL || !BRIDGE_SECRET) {
     throw new Error("MIA_MCP_BRIDGE_URL and MIA_MCP_BRIDGE_SECRET are required.");
@@ -86,47 +132,17 @@ async function main() {
     { name: "mia-mcp-bridge", version: "1.0.0" },
     { capabilities: { tools: {} } }
   );
-  let cachedEntries = [];
-  let cachedEntryIndex = new Map();
+  const handlers = createProxyHandlers({ postJson });
 
-  server.setRequestHandler(types.ListToolsRequestSchema, async () => {
-    const manifest = await postJson("/mcp/manifest", {});
-    cachedEntries = buildProxyToolEntries(manifest.tools);
-    cachedEntryIndex = indexProxyToolEntries(cachedEntries);
-    return {
-      tools: cachedEntries.map((entry) => ({
-        name: entry.proxyName,
-        description: entry.description,
-        inputSchema: entry.inputSchema
-      }))
-    };
-  });
-
-  server.setRequestHandler(types.CallToolRequestSchema, async (request) => {
-    if (!cachedEntries.length) {
-      const manifest = await postJson("/mcp/manifest", {});
-      cachedEntries = buildProxyToolEntries(manifest.tools);
-      cachedEntryIndex = indexProxyToolEntries(cachedEntries);
-    }
-    const entry = cachedEntryIndex.get(request.params.name);
-    if (!entry) {
-      return {
-        content: [{ type: "text", text: `Unknown Mia MCP bridge tool: ${request.params.name}` }],
-        isError: true
-      };
-    }
-    return postJson("/mcp/execute", {
-      server: entry.server,
-      tool: entry.tool,
-      args: request.params.arguments || {}
-    });
-  });
+  server.setRequestHandler(types.ListToolsRequestSchema, handlers.listTools);
+  server.setRequestHandler(types.CallToolRequestSchema, handlers.callTool);
 
   await server.connect(new StdioServerTransport());
 }
 
 module.exports = {
   buildProxyToolEntries,
+  createProxyHandlers,
   indexProxyToolEntries,
   proxyToolName
 };
