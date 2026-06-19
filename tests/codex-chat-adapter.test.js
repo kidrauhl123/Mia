@@ -4,9 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const {
-  codexPromptWithImages,
   createCodexChatAdapter,
-  localImageInputsFromAttachments,
   mapCodexPermissionMode
 } = require("../src/main/codex-chat-adapter.js");
 const { chatCompletionResponse } = require("../src/main/chat-response.js");
@@ -341,29 +339,16 @@ test("sendChat surfaces generated image paths when Codex returns empty text", as
   assert.match(response.choices[0].message.attachments[0].thumbnailDataUrl, /^data:image\/png;base64,/);
 });
 
-test("Codex prompt inputs attach local image files natively", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-codex-input-"));
-  const imagePath = path.join(dir, "screen.png");
-  fs.writeFileSync(imagePath, "png");
+test("sendChat keeps image path refs as text-only Codex prompt content", async () => {
+  const imagePath = "/var/folders/x/mia-clipboard/screen.png";
+  const userText = `IMG1 这是什么
 
-  assert.deepEqual(localImageInputsFromAttachments([
-    { kind: "image", path: imagePath },
-    { kind: "text", path: path.join(dir, "note.txt") },
-    { kind: "image", path: path.join(dir, "missing.png") }
-  ]), [{ type: "local_image", path: imagePath }]);
-
-  assert.deepEqual(codexPromptWithImages("看图", [{ mime: "image/png", path: imagePath }]), [
-    { type: "text", text: "看图" },
-    { type: "local_image", path: imagePath }
-  ]);
-});
-
-test("sendChat passes current user image attachments to Codex input", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-codex-chat-image-"));
-  const imagePath = path.join(dir, "screen.png");
-  fs.writeFileSync(imagePath, "png");
+[[MIA_PATH_REFS_BEGIN]]
+The user-visible tokens above refer to these local file paths:
+IMG1: ${imagePath}
+[[MIA_PATH_REFS_END]]`;
   const deps = createDeps({
-    lastUserPrompt: () => "IMG1 这是什么"
+    lastUserPrompt: () => userText
   });
   const adapter = createCodexChatAdapter(deps);
 
@@ -372,7 +357,7 @@ test("sendChat passes current user image attachments to Codex input", async () =
     sessionId: "s1",
     messages: [{
       role: "user",
-      content: "IMG1 这是什么",
+      content: userText,
       attachments: [{ kind: "image", path: imagePath, inlinePathRef: true, pathRefToken: "IMG1" }]
     }],
     signal: null,
@@ -380,9 +365,9 @@ test("sendChat passes current user image attachments to Codex input", async () =
   });
 
   const prompt = deps.calls.find((call) => call[0] === "run")?.[1];
-  assert.equal(Array.isArray(prompt), true);
-  assert.match(prompt[0].text, /IMG1 这是什么/);
-  assert.deepEqual(prompt.at(-1), { type: "local_image", path: imagePath });
+  assert.equal(typeof prompt, "string");
+  assert.match(prompt, /IMG1 这是什么/);
+  assert.match(prompt, new RegExp(`IMG1: ${imagePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 });
 
 test("sendStateless starts a fresh default thread", async () => {

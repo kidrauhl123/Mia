@@ -6255,8 +6255,7 @@ els.chatForm.addEventListener("submit", async (event) => {
   if (window.miaSocial?.getActiveConversationId?.()) {
     const conversationId = window.miaSocial.getActiveConversationId();
     const composerText = els.chatInput.value;
-    const pathPasteAttachments = window.miaComposer.pathPasteAttachmentsForSend?.(composerText) || [];
-    const pendingAttachments = [...state.pendingAttachments, ...pathPasteAttachments].slice(0, 20);
+    const pendingAttachments = [...state.pendingAttachments].slice(0, 20);
     let conversationText = window.miaComposer.expandPathPasteRefsForSend(composerText);
     if (!conversationText.trim() && !pendingAttachments.length) return;
     // Cloud conversations have no reply_to column, so a quote-reply is embedded as a

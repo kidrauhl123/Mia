@@ -126,7 +126,8 @@ test("buildBotInvocation carries trigger attachments into the responder args", (
   assert.deepEqual(args.userAttachments, [attachment]);
 });
 
-test("buildBotInvocation reconstructs inline image refs when cloud strips local path attachments", () => {
+test("buildBotInvocation keeps inline image refs as prompt text when cloud strips local path attachments", () => {
+  const body = "IMG1 这是什么\n\n[[MIA_PATH_REFS_BEGIN]]\nThe user-visible tokens above refer to these local file paths:\nIMG1: /var/folders/x/mia-clipboard/screen.webp\n[[MIA_PATH_REFS_END]]";
   const args = buildBotInvocation({
     conversationId: "botc_review",
     conversationType: "bot",
@@ -135,20 +136,12 @@ test("buildBotInvocation reconstructs inline image refs when cloud strips local 
       id: "m_1",
       sender_kind: "user",
       sender_ref: "u_alice",
-      body_md: "IMG1 这是什么\n\n[[MIA_PATH_REFS_BEGIN]]\nThe user-visible tokens above refer to these local file paths:\nIMG1: /var/folders/x/mia-clipboard/screen.webp\n[[MIA_PATH_REFS_END]]"
+      body_md: body
     }
   }, []);
 
-  assert.deepEqual(args.userAttachments, [{
-    id: "path-ref:IMG1",
-    name: "screen.webp",
-    path: "/var/folders/x/mia-clipboard/screen.webp",
-    mime: "image/webp",
-    size: 0,
-    kind: "image",
-    inlinePathRef: true,
-    pathRefToken: "IMG1"
-  }]);
+  assert.equal(args.userPrompt, body);
+  assert.deepEqual(args.userAttachments, []);
 });
 
 test("buildBotInvocation returns null for missing trigger, conversation, or bot id", () => {

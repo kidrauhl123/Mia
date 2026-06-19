@@ -71,20 +71,6 @@ function triggerPrompt(message) {
   return String(message?.task_prompt || message?.taskPrompt || message?.body_md || message?.bodyMd || "").trim();
 }
 
-function fileNameFromPath(filePath) {
-  const value = String(filePath || "").trim();
-  if (!value) return "图片";
-  return value.split(/[\\/]/).filter(Boolean).pop() || "图片";
-}
-
-function imageMimeFromPath(filePath) {
-  const ext = String(filePath || "").split(/[?#]/)[0].toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
-  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
-  if (ext === "webp") return "image/webp";
-  if (ext === "gif") return "image/gif";
-  return "image/png";
-}
-
 function safeJsonArray(input) {
   if (Array.isArray(input)) return input;
   if (!input) return [];
@@ -96,49 +82,13 @@ function safeJsonArray(input) {
   }
 }
 
-function hiddenPathRefAttachments(message = {}) {
-  const source = String(message.body_md || message.bodyMd || "");
-  const block = source.match(/\[\[MIA_PATH_REFS_BEGIN\]\]([\s\S]*?)\[\[MIA_PATH_REFS_END\]\]/);
-  if (!block) return [];
-  return block[1]
-    .split(/\r?\n/)
-    .map((line) => line.match(/^\s*(IMG\d+)\s*:\s*(.+?)\s*$/))
-    .filter(Boolean)
-    .map((match) => {
-      const token = match[1];
-      const filePath = match[2];
-      return {
-        id: `path-ref:${token}`,
-        name: fileNameFromPath(filePath),
-        path: filePath,
-        mime: imageMimeFromPath(filePath),
-        size: 0,
-        kind: "image",
-        inlinePathRef: true,
-        pathRefToken: token
-      };
-    })
-    .slice(0, 20);
-}
-
 function messageAttachments(message = {}) {
   const raw = Array.isArray(message.attachments)
     ? message.attachments
     : safeJsonArray(message.attachments_json || message.attachmentsJson);
-  const out = raw
+  return raw
     .filter((attachment) => attachment && typeof attachment === "object")
     .slice(0, 20);
-  const seen = new Set(out.map((attachment) => (
-    String(attachment.path || attachment.url || attachment.pathRefToken || attachment.id || "")
-  )).filter(Boolean));
-  for (const attachment of hiddenPathRefAttachments(message)) {
-    const key = String(attachment.path || attachment.pathRefToken || attachment.id || "");
-    if (key && seen.has(key)) continue;
-    out.push(attachment);
-    if (key) seen.add(key);
-    if (out.length >= 20) break;
-  }
-  return out;
 }
 
 function buildHistoryMessages({ recentMessages, triggeringMessage, groupConversation }) {

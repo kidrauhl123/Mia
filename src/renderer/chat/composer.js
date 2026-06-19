@@ -645,20 +645,6 @@
     return (state?.pathPasteRefs || []).filter((ref) => ref?.token && ref?.path && String(ref.kind || "") === "image");
   }
 
-  function fileNameFromPath(filePath) {
-    const value = String(filePath || "").trim();
-    if (!value) return "图片";
-    return value.split(/[\\/]/).filter(Boolean).pop() || "图片";
-  }
-
-  function imageMimeFromPath(filePath) {
-    const ext = String(filePath || "").split(/[?#]/)[0].toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
-    if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
-    if (ext === "webp") return "image/webp";
-    if (ext === "gif") return "image/gif";
-    return "image/png";
-  }
-
   function createPathPasteChip(ref) {
     if (typeof document === "undefined" || !ref?.token) return null;
     const chip = document.createElement("span");
@@ -879,24 +865,6 @@
       "[[MIA_PATH_REFS_END]]"
     ].join("\n");
     return `${visible}\n\n${hidden}`;
-  }
-
-  function pathPasteAttachmentsForSend(text) {
-    if (!state || !Array.isArray(state.pathPasteRefs) || !state.pathPasteRefs.length) return [];
-    const body = String(text || "");
-    return activeImagePathRefs()
-      .filter((ref) => pathPasteTokenInText(ref.token, body))
-      .slice(0, 20)
-      .map((ref) => ({
-        id: `path-ref:${ref.token}`,
-        name: fileNameFromPath(ref.path),
-        path: ref.path,
-        mime: imageMimeFromPath(ref.path),
-        size: 0,
-        kind: "image",
-        inlinePathRef: true,
-        pathRefToken: ref.token
-      }));
   }
 
   function clearPathPasteRefs() {
@@ -1301,7 +1269,6 @@
     handlePathPasteRefBackspace,
     handleComposerEditorKeydown,
     expandPathPasteRefsForSend,
-    pathPasteAttachmentsForSend,
     clearPathPasteRefs,
     reconcilePathPasteRefsFromInput,
     handleComposerPlainTextPaste,

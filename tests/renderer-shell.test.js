@@ -57,8 +57,8 @@ test("cloud conversation composer uses one social send path for dm and group con
 test("cloud conversation composer sends pending attachments and clears the tray", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
-  assert.match(appSource, /const pathPasteAttachments = window\.miaComposer\.pathPasteAttachmentsForSend\?\.\(composerText\) \|\| \[\];/);
-  assert.match(appSource, /const pendingAttachments = \[\.\.\.state\.pendingAttachments, \.\.\.pathPasteAttachments\]\.slice\(0, 20\);/);
+  assert.doesNotMatch(appSource, /pathPasteAttachmentsForSend/);
+  assert.match(appSource, /const pendingAttachments = \[\.\.\.state\.pendingAttachments\]\.slice\(0, 20\);/);
   assert.match(appSource, /if \(!conversationText\.trim\(\) && !pendingAttachments\.length\) return;/);
   assert.match(appSource, /sendInActiveConversation\(conversationText,\s*\{[\s\S]*attachments: pendingAttachments/);
   assert.match(appSource, /state\.pendingAttachments = \[\];/);

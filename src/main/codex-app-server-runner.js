@@ -57,24 +57,6 @@ function finalTextFromTurn(turn = {}) {
   return String(message?.text || "");
 }
 
-function codexTurnInput(prompt) {
-  if (Array.isArray(prompt)) {
-    const entries = prompt.map((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      if (entry.type === "text") {
-        return { type: "text", text: String(entry.text || ""), text_elements: [] };
-      }
-      if (entry.type === "local_image" || entry.type === "localImage") {
-        const imagePath = String(entry.path || "").trim();
-        return imagePath ? { type: "localImage", path: imagePath } : null;
-      }
-      return null;
-    }).filter(Boolean);
-    if (entries.length) return entries;
-  }
-  return [{ type: "text", text: String(prompt || ""), text_elements: [] }];
-}
-
 function toolPayloadFromCodexItem(item = {}) {
   if (item.type === "commandExecution") {
     return {
@@ -530,7 +512,7 @@ async function runCodexAppServerTurn({
     }
     const turnParams = {
       threadId: activeThreadId,
-      input: codexTurnInput(prompt),
+      input: [{ type: "text", text: String(prompt || ""), text_elements: [] }],
       model: options.model || null,
       effort: options.modelReasoningEffort || null,
       approvalsReviewer: "user"
@@ -560,7 +542,6 @@ async function runCodexAppServerTurn({
 module.exports = {
   codexConfigOverridesForMcpServers,
   codexDecisionFor,
-  codexTurnInput,
   createCodexAppServerConnection,
   isCodexApprovalRequest,
   runCodexAppServerTurn,
