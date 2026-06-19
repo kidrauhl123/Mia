@@ -33,7 +33,7 @@ Create:
 - `src/main/mcp/mcp-sdk-client.js`: official MCP SDK client manager for testing, tool discovery, refresh, and direct calls.
 - `src/main/mcp/mcp-bridge-server.js`: local HTTP callback bridge bound to `127.0.0.1`.
 - `src/main/mcp/mcp-stdio-proxy-server.js`: stdio MCP server used by engines that need a stdio bridge.
-- `src/main/mcp/mcp-engine-sync.js`: engine-specific conversion and native CLI sync/remove command generation.
+- `src/main/mcp/mcp-engine-sync.js`: engine-specific conversion plus native CLI sync/remove command execution helpers.
 - `src/main/mcp/mcp-service.js`: main-process orchestrator for registry, SDK manager, bridge, marketplace, sync, and public status.
 - `src/main/ipc/mcp-ipc.js`: MCP IPC handlers.
 - `src/renderer/mcp/mcp-library.js`: MCP renderer feature module mounted inside the ability library.
@@ -435,6 +435,7 @@ git commit -m "feat(mcp): 增加 MCP 配置规范化"
 
 **Interfaces:**
 - Consumes: `normalizeMcpRecord`, `maskMcpRecord`.
+- Consumes optional `authorizeToolCall({ serverName, toolName, args, record, options })`, normally backed by Mia's existing agent permission coordinator.
 - Produces: `createMcpSdkClientManager(deps)`.
 - Produces manager methods:
   - `testServer(record) -> Promise<{ success, status, tools, error }>`
@@ -442,6 +443,8 @@ git commit -m "feat(mcp): 增加 MCP 配置规范化"
   - `callTool(serverName, toolName, args, options) -> Promise<{ content, isError }>`
   - `toolManifest() -> Array<{ server, name, description, inputSchema }>`
   - `stopAll() -> Promise<void>`
+
+`callTool` is used by the local bridge/proxy path, so it must enforce `authorizeToolCall` before executing `client.callTool`. The injected authorizer returns `{ allowed: true }` to proceed; any other result returns an MCP error response and must not call the underlying client. Use a permission tool label of `server.tool`, for example `xhs.search_notes`.
 
 - [ ] **Step 1: Add failing SDK manager tests**
 
@@ -970,7 +973,7 @@ git commit -m "feat(mcp): 增加本地 MCP bridge"
 
 ---
 
-### Task 4: Engine Conversion And Native Sync Planning
+### Task 4: Engine Conversion And Native Sync Execution
 
 **Files:**
 - Create: `src/main/mcp/mcp-engine-sync.js`
@@ -986,7 +989,12 @@ git commit -m "feat(mcp): 增加本地 MCP bridge"
 - Produces: `mcpServersForOpenClawAcp(records, options) -> array`.
 - Produces: `planClaudeCliSync(records) -> command specs`.
 - Produces: `planCodexCliSync(records) -> command specs`.
+- Produces: `planClaudeCliRemove(records) -> command specs`.
+- Produces: `planCodexCliRemove(records) -> command specs`.
+- Produces: `runNativeMcpCliSync({ currentRecords, previousRecords, runCommand, cliPaths, appendLog }) -> Promise<{ success, statuses, commands }>` .
 - Produces: `bridgeMcpSpec({ command, scriptPath, bridgeUrl, secret }) -> stdio spec`.
+
+Native sync is not only command planning. This task must include an injectable runner that removes disabled/deleted servers from Claude Code and Codex native configs, then adds or updates currently enabled servers. The runner must use argument arrays only, never shell-concatenate commands, and tests must use fake `runCommand` functions and temporary paths.
 
 - [ ] **Step 1: Add failing conversion tests**
 
@@ -1045,6 +1053,30 @@ test("mcpServersForOpenClawAcp maps records into ACP wire shape", () => {
 test("native CLI planners generate safe command argument arrays", () => {
   assert.deepEqual(planCodexCliSync([records[1]])[0].args, ["mcp", "add", "xhs", "--url", "http://127.0.0.1:18060/mcp", "--bearer-token-env-var", "XHS_TOKEN"]);
   assert.equal(planClaudeCliSync([records[0]])[0].args[0], "mcp");
+});
+
+test("native CLI planners generate safe removal command argument arrays", () => {
+  assert.deepEqual(planCodexCliRemove([records[1]])[0].args, ["mcp", "remove", "xhs"]);
+  assert.deepEqual(planClaudeCliRemove([records[0]])[0].args, ["mcp", "remove", "-s", "user", "stdio"]);
+});
+
+test("runNativeMcpCliSync removes disabled or deleted records before adding enabled records", async () => {
+  const commands = [];
+  const result = await runNativeMcpCliSync({
+    previousRecords: records,
+    currentRecords: [{ ...records[0], enabled: false }, records[1]],
+    cliPaths: { codex: "/usr/local/bin/codex", claude: "/usr/local/bin/claude" },
+    runCommand: async (command, args) => {
+      commands.push([command, args]);
+      return { ok: true, stdout: "", stderr: "" };
+    }
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(commands[0], ["/usr/local/bin/codex", ["mcp", "remove", "stdio"]]);
+  assert.equal(commands.some((entry) => entry[1].includes("add")), true);
+  assert.equal(result.statuses.codex.status, "synced");
+  assert.equal(result.statuses["claude-code"].status, "synced");
 });
 ```
 
@@ -1207,6 +1239,14 @@ function planClaudeCliSync(records = []) {
   });
 }
 
+function planCodexCliRemove(records = []) {
+  return records.map((record) => ({ engine: "codex", name: record.name, args: ["mcp", "remove", record.name] }));
+}
+
+function planClaudeCliRemove(records = []) {
+  return records.map((record) => ({ engine: "claude-code", name: record.name, args: ["mcp", "remove", "-s", "user", record.name] }));
+}
+
 module.exports = {
   bridgeMcpSpec,
   mcpServersForOpenClawAcp,
@@ -1215,9 +1255,21 @@ module.exports = {
   mcpSpecsForHermes,
   planClaudeCliSync,
   planCodexCliSync,
+  planClaudeCliRemove,
+  planCodexCliRemove,
+  runNativeMcpCliSync,
   toNativeSpec
 };
 ```
+
+Add `runNativeMcpCliSync` in the same module. Requirements:
+
+- Accept injected `runCommand(command, args, options)` and never shell-concatenate commands.
+- Determine records that were removed, disabled, or changed by comparing `previousRecords` and `currentRecords`.
+- Run remove commands before add commands for both Claude Code and Codex.
+- Skip unsupported Codex specs that require arbitrary HTTP headers without `bearerTokenEnvVar`, returning a Codex status of `error` with a user-readable message instead of writing broken config.
+- Return serializable per-engine statuses keyed by `claude-code` and `codex`, with `{ status, error, commands }`.
+- Tests must inject fake runners and must not write `~/.codex` or `~/.claude`.
 
 - [ ] **Step 4: Extend Codex app-server overrides**
 
@@ -1263,7 +1315,7 @@ Expected: PASS.
 
 ```bash
 git add src/main/mcp/mcp-engine-sync.js src/main/codex-app-server-runner.js tests/mcp-engine-sync.test.js tests/codex-app-server-runner.test.js
-git commit -m "feat(mcp): 增加引擎 MCP 转换规则"
+git commit -m "feat(mcp): 增加引擎 MCP 转换和同步执行"
 ```
 
 ---
@@ -1280,22 +1332,26 @@ git commit -m "feat(mcp): 增加引擎 MCP 转换规则"
 - Modify: `src/main.js`
 
 **Interfaces:**
-- Consumes: records, SDK manager, bridge server, engine sync converters.
+- Consumes: records, SDK manager, bridge server, engine sync converters, and native CLI sync runner from Task 4.
 - Produces: `createMcpService(deps)`.
 - Produces service methods:
   - `list()`
   - `save(input)`
+  - `setEnabled(id, enabled)`
   - `delete(id)`
   - `test(idOrInput)`
   - `importJson(input)`
   - `fetchMarketplace()`
   - `installTemplate(templateId, values)`
   - `sync()`
+  - `removeFromAgents(recordsOrIds)`
   - `refreshBridge()`
   - `enabledRecords()`
   - `fingerprint()`
   - `getBridgeSpec()`
   - `getEngineSpecs(engineId)`
+
+`save`, `setEnabled`, `delete`, `sync`, and `removeFromAgents` must call the same runtime-change path: refresh the local bridge, execute native CLI sync/removal through injected `nativeSync`, persist per-engine sync status, and return masked public records. Deleting or disabling a server must remove it from Claude Code and Codex native configs.
 
 - [ ] **Step 1: Add failing service and IPC tests**
 
@@ -1309,7 +1365,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 const { createMcpService } = require("../src/main/mcp/mcp-service.js");
 
-function setup(t) {
+function setup(t, overrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-mcp-service-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const runtime = {
@@ -1317,13 +1373,13 @@ function setup(t) {
     runtime: path.join(dir, "runtime"),
     mcpServers: path.join(dir, "home", "mia-mcp-servers.json")
   };
-  const manager = {
+  const manager = overrides.manager || {
     testServer: async (record) => ({ success: true, status: "connected", tools: [{ server: record.name, name: "search_notes", description: "", inputSchema: {} }], error: "" }),
     refresh: async () => ({ success: true, tools: [], errors: [] }),
     toolManifest: () => [],
     callTool: async () => ({ content: [{ type: "text", text: "ok" }], isError: false })
   };
-  const bridge = {
+  const bridge = overrides.bridge || {
     start: async () => ({ callbackUrl: "http://127.0.0.1:3333/mcp/execute", manifestUrl: "http://127.0.0.1:3333/mcp/manifest", secret: "sec", port: 3333 }),
     stop: async () => {}
   };
@@ -1332,6 +1388,7 @@ function setup(t) {
     fs,
     manager,
     bridge,
+    nativeSync: overrides.nativeSync || (async () => ({ success: true, statuses: {}, commands: [] })),
     nodePath: () => "/usr/local/bin/node",
     stdioProxyScriptPath: () => path.join(runtime.runtime, "mcp-stdio-proxy-server.js"),
     now: () => 1710000000000,
@@ -1361,6 +1418,31 @@ test("importJson saves imported servers as disabled until tested", async (t) => 
 
   assert.equal(imported.success, true);
   assert.equal(imported.data.servers[0].enabled, false);
+});
+
+test("save disable and delete refresh bridge and sync native agent configs", async (t) => {
+  const syncCalls = [];
+  const refreshCalls = [];
+  const { service } = setup(t, {
+    manager: {
+      testServer: async (record) => ({ success: true, status: "connected", tools: [], error: "" }),
+      refresh: async (records) => { refreshCalls.push(records.map((record) => record.name)); return { success: true, tools: [], errors: [] }; },
+      toolManifest: () => [],
+      callTool: async () => ({ content: [], isError: false })
+    },
+    nativeSync: async (payload) => {
+      syncCalls.push(payload);
+      return { success: true, statuses: { codex: { status: "synced" }, "claude-code": { status: "synced" } }, commands: [] };
+    }
+  });
+
+  const saved = await service.save({ name: "xhs", enabled: true, transport: { type: "http", url: "http://127.0.0.1:18060/mcp" } });
+  await service.setEnabled(saved.data.id, false);
+  await service.delete(saved.data.id);
+
+  assert.equal(refreshCalls.length >= 3, true);
+  assert.equal(syncCalls.length >= 3, true);
+  assert.equal(syncCalls.at(-1).previousRecords.some((record) => record.name === "xhs"), true);
 });
 ```
 
@@ -1410,6 +1492,7 @@ In `src/shared/ipc-channels.js`, add constants:
 McpList: "mcp:list",
 McpSave: "mcp:save",
 McpDelete: "mcp:delete",
+McpSetEnabled: "mcp:set-enabled",
 McpTest: "mcp:test",
 McpImportJson: "mcp:import-json",
 McpFetchMarketplace: "mcp:fetch-marketplace",
@@ -1426,6 +1509,7 @@ mcp: {
   list: () => ipcRenderer.invoke(IpcChannel.McpList),
   save: (input) => ipcRenderer.invoke(IpcChannel.McpSave, input),
   delete: (id) => ipcRenderer.invoke(IpcChannel.McpDelete, id),
+  setEnabled: (id, enabled) => ipcRenderer.invoke(IpcChannel.McpSetEnabled, id, enabled),
   test: (input) => ipcRenderer.invoke(IpcChannel.McpTest, input),
   importJson: (input) => ipcRenderer.invoke(IpcChannel.McpImportJson, input),
   fetchMarketplace: () => ipcRenderer.invoke(IpcChannel.McpFetchMarketplace),
@@ -1624,6 +1708,17 @@ function createMcpService(deps = {}) {
 module.exports = { createMcpService };
 ```
 
+After the base service is in place, make these product-grade corrections before running tests:
+
+- Add a `nativeSync` dependency. Default it to an async no-op that returns `{ success: true, statuses: {}, commands: [] }`.
+- Add `applyRuntimeChanges(previousRecords, nextRecords)` that calls `refreshBridge()`, then `nativeSync({ previousRecords, currentRecords: nextRecords })`, then persists the returned per-engine statuses onto matching records' `sync` field.
+- `save(input)` must capture `current` before writing, save `next`, then call `applyRuntimeChanges(current, saved)`.
+- `setEnabled(id, enabled)` must update the record, save it, call `applyRuntimeChanges(current, saved)`, and return public masked records.
+- `delete(id)` must capture the full previous record list before filtering so `nativeSync` can remove deleted records from external CLI configs.
+- `sync()` and `removeFromAgents()` must both call the same runtime-change path; `removeFromAgents()` is not an alias for bridge refresh only.
+- `getEngineSpecs()` should include the latest bridge spec after bridge refresh so Hermes/Codex/OpenClaw fallbacks do not point at stale bridge URLs.
+- Public responses must stay serializable `{ success, data, error }` and must not expose secret env/header/token values.
+
 - [ ] **Step 5: Add IPC registration**
 
 Create `src/main/ipc/mcp-ipc.js`:
@@ -1635,13 +1730,14 @@ function registerMcpIpc({ ipcMain, mcpService }) {
   ipcMain.handle(IpcChannel.McpList, () => mcpService.list());
   ipcMain.handle(IpcChannel.McpSave, (_event, input) => mcpService.save(input || {}));
   ipcMain.handle(IpcChannel.McpDelete, (_event, id) => mcpService.delete(String(id || "")));
+  ipcMain.handle(IpcChannel.McpSetEnabled, (_event, id, enabled) => mcpService.setEnabled(String(id || ""), enabled === true));
   ipcMain.handle(IpcChannel.McpTest, (_event, input) => mcpService.test(input));
   ipcMain.handle(IpcChannel.McpImportJson, (_event, input) => mcpService.importJson(input));
   ipcMain.handle(IpcChannel.McpFetchMarketplace, () => mcpService.fetchMarketplace());
   ipcMain.handle(IpcChannel.McpInstallTemplate, (_event, templateId, values) => mcpService.installTemplate(String(templateId || ""), values || {}));
   ipcMain.handle(IpcChannel.McpSync, () => mcpService.sync());
   ipcMain.handle(IpcChannel.McpRefreshBridge, () => mcpService.refreshBridge());
-  ipcMain.handle(IpcChannel.McpRemoveFromAgents, () => mcpService.sync());
+  ipcMain.handle(IpcChannel.McpRemoveFromAgents, () => mcpService.removeFromAgents());
 }
 
 module.exports = { registerMcpIpc };
@@ -1654,12 +1750,28 @@ const { registerMcpIpc } = require("./main/ipc/mcp-ipc.js");
 const { createMcpService } = require("./main/mcp/mcp-service.js");
 const { createMcpSdkClientManager } = require("./main/mcp/mcp-sdk-client.js");
 const { createMcpBridgeServer } = require("./main/mcp/mcp-bridge-server.js");
+const { runNativeMcpCliSync } = require("./main/mcp/mcp-engine-sync.js");
 ```
 
 Instantiate after `miaAppMcpBridge`:
 
 ```js
-const userMcpManager = createMcpSdkClientManager({ processEnvStrings, appendLog: appendEngineLog });
+const userMcpManager = createMcpSdkClientManager({
+  processEnvStrings,
+  appendLog: appendEngineLog,
+  authorizeToolCall: async ({ toolName, args, options }) => {
+    const decision = await permissionCoordinator.requestPermission({
+      engine: options?.engine || "mcp",
+      botId: options?.botId || "",
+      sessionId: options?.sessionId || "",
+      toolName,
+      input: args || {},
+      emit: options?.emit,
+      signal: options?.signal
+    });
+    return { allowed: String(decision?.decision || "").startsWith("allow"), message: decision?.message || "MCP 工具调用已被拒绝。" };
+  }
+});
 const userMcpBridge = createMcpBridgeServer({
   manager: userMcpManager,
   secret: crypto.randomUUID(),
@@ -1669,10 +1781,18 @@ const userMcpService = createMcpService({
   runtimePaths,
   manager: userMcpManager,
   bridge: userMcpBridge,
+  nativeSync: (payload) => runNativeMcpCliSync({
+    ...payload,
+    cliPaths: { codex: "codex", claude: "claude" },
+    runCommand: execFileAsPromise,
+    appendLog: appendEngineLog
+  }),
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
   stdioProxyScriptPath: () => path.join(__dirname, "main", "mcp", "mcp-stdio-proxy-server.js")
 });
 ```
+
+If `src/main.js` does not already expose `execFileAsPromise`, add a small local wrapper around `child_process.execFile` that resolves `{ ok, code, stdout, stderr }` and rejects only on programmer errors. Do not use `exec` or shell strings for native MCP sync.
 
 Register IPC near other focused IPC modules:
 
@@ -2357,10 +2477,10 @@ git commit -m "feat(mcp): 在能力库增加 MCP 服务入口"
 - Test: `tests/agent-permission-coordinator.test.js`
 
 **Interfaces:**
-- Consumes: `window.mia.mcp.save`, `delete`, `test`, `importJson`, `sync`, `installTemplate`.
+- Consumes: `window.mia.mcp.save`, `setEnabled`, `delete`, `test`, `importJson`, `sync`, `installTemplate`.
 - Produces: modal form for `stdio`, `http`, `sse`, `streamable_http`.
 - Produces: JSON import modal.
-- Produces: sync/test/delete actions on installed cards.
+- Produces: sync/test/enable/disable/delete actions on installed cards.
 - Produces: permission prompt text that displays `server.tool` for user-added MCP tools.
 
 - [ ] **Step 1: Add failing UI behavior tests**
@@ -2374,10 +2494,12 @@ test("mcp-library contains form, import, test, sync, and delete actions", () => 
   assert.match(src, /function submitMcpForm/);
   assert.match(src, /function importMcpJson/);
   assert.match(src, /window\.mia\.mcp\.test/);
+  assert.match(src, /window\.mia\.mcp\.setEnabled/);
   assert.match(src, /window\.mia\.mcp\.sync/);
   assert.match(src, /window\.mia\.mcp\.delete/);
   assert.match(src, /data-mcp-action="test"/);
   assert.match(src, /data-mcp-action="sync"/);
+  assert.match(src, /data-mcp-action="toggle"/);
   assert.match(src, /data-mcp-action="delete"/);
 });
 ```
@@ -2406,6 +2528,7 @@ Update `renderServerCard(server)` to include icon/text actions:
 <div class="mcp-card-actions">
   <button type="button" data-mcp-action="test" data-mcp-id="${escapeHtml(server.id)}">测试</button>
   <button type="button" data-mcp-action="sync" data-mcp-id="${escapeHtml(server.id)}">同步</button>
+  <button type="button" data-mcp-action="toggle" data-mcp-id="${escapeHtml(server.id)}">${server.enabled ? "禁用" : "启用"}</button>
   <button type="button" data-mcp-action="edit" data-mcp-id="${escapeHtml(server.id)}">编辑</button>
   <button type="button" data-mcp-action="delete" data-mcp-id="${escapeHtml(server.id)}">删除</button>
 </div>
@@ -2431,6 +2554,7 @@ async function handleMcpAction(action, id) {
   if (action === "edit") return openMcpForm(mcpState().servers.find((server) => server.id === id));
   if (action === "test") return testMcpServer(id);
   if (action === "sync") return syncMcpServers();
+  if (action === "toggle") return toggleMcpServer(id);
   if (action === "delete") return deleteMcpServer(id);
   if (action === "install") return installTemplate(id);
 }
@@ -2529,6 +2653,14 @@ async function testMcpServer(id) {
 async function syncMcpServers() {
   const result = await window.mia.mcp.sync();
   if (!result?.success) window.alert(`同步失败：${result?.error || "未知错误"}`);
+  await loadMcpServers();
+}
+
+async function toggleMcpServer(id) {
+  const server = mcpState().servers.find((item) => item.id === id);
+  if (!server) return;
+  const result = await window.mia.mcp.setEnabled(id, !server.enabled);
+  if (!result?.success) window.alert(`${server.enabled ? "禁用" : "启用"}失败：${result?.error || "未知错误"}`);
   await loadMcpServers();
 }
 
@@ -2778,7 +2910,7 @@ If no docs changed, skip this commit.
 - Tool discovery through MCP SDK: Task 2.
 - Mia local bridge and stdio proxy: Task 3.
 - Hermes, Claude Code, Codex, OpenClaw: Tasks 4 and 6.
-- Native CLI sync command planning: Task 4.
+- Native CLI sync command execution and cleanup: Task 4.
 - Codex URL/bearer config overrides: Task 4.
 - MCP fingerprint and stale session prevention: Task 6.
 - Permission prompt copy for MCP tools: Task 8.
