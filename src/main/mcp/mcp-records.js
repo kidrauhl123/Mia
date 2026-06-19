@@ -180,7 +180,7 @@ function maskOriginalJson(originalJson) {
   try {
     return JSON.stringify(maskSensitiveJsonValue("", JSON.parse(source)));
   } catch {
-    return source;
+    return sanitizeSecretText(source);
   }
 }
 

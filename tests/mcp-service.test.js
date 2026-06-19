@@ -83,6 +83,28 @@ test("importJson saves imported servers as disabled until tested", async (t) => 
   assert.equal(imported.data.servers[0].enabled, false);
 });
 
+test("save and list mask invalid originalJson secret text in public records", async (t) => {
+  const { service } = setup(t);
+  const originalJson = "Authorization: Bearer ghp_secret_token X_API_KEY=super_secret_value HEADER_AUTH: sk-super-secret-token";
+
+  const saved = await service.save({
+    name: "masked-invalid-json",
+    originalJson,
+    transport: {
+      type: "http",
+      url: "https://example.test/mcp"
+    }
+  });
+  const listed = await service.list();
+
+  assert.equal(saved.success, true);
+  assert.match(saved.data.originalJson, /\[redacted\]/);
+  assert.doesNotMatch(saved.data.originalJson, /ghp_secret_token|super_secret_value|sk-super-secret-token/);
+  assert.equal(listed.success, true);
+  assert.match(listed.data.servers[0].originalJson, /\[redacted\]/);
+  assert.doesNotMatch(listed.data.servers[0].originalJson, /ghp_secret_token|super_secret_value|sk-super-secret-token/);
+});
+
 test("save disable sync removeFromAgents and delete refresh bridge and sync native agent configs", async (t) => {
   const syncCalls = [];
   const refreshCalls = [];
