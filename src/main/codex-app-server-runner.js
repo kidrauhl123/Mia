@@ -21,9 +21,17 @@ function codexConfigOverridesForMcpServers(mcpServers = {}) {
   const overrides = [];
   for (const [name, spec] of Object.entries(mcpServers || {})) {
     const serverName = String(name || "").trim();
-    const command = String(spec?.command || "").trim();
-    if (!serverName || !command) continue;
     const prefix = `mcp_servers.${serverName}`;
+    const url = String(spec?.url || "").trim();
+    const command = String(spec?.command || "").trim();
+    if (!serverName) continue;
+    if (url) {
+      overrides.push(`${prefix}.url=${tomlString(url)}`);
+      const bearer = String(spec?.bearer_token_env_var || spec?.bearerTokenEnvVar || "").trim();
+      if (bearer) overrides.push(`${prefix}.bearer_token_env_var=${tomlString(bearer)}`);
+      continue;
+    }
+    if (!command) continue;
     overrides.push(`${prefix}.command=${tomlString(command)}`);
     overrides.push(`${prefix}.args=${tomlArray(spec.args || [])}`);
     for (const [key, value] of Object.entries(spec.env || {})) {
