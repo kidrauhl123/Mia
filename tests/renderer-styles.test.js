@@ -249,8 +249,8 @@ test("settings workspace lives on the app floor and adapts to narrow windows", (
   );
   assert.match(
     baseCss,
-    /\.settings-tabs\s*\{[\s\S]*?width:\s*max-content;[\s\S]*?min-width:\s*168px;[\s\S]*?max-width:\s*188px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/,
-    "settings navigation should be a compact floating middle card"
+    /\.settings-tabs\s*\{[\s\S]*?width:\s*max-content;[\s\S]*?min-width:\s*168px;[\s\S]*?max-width:\s*188px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?background:\s*var\(--surface-layer\);[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);[\s\S]*?backdrop-filter:\s*none;/,
+    "settings navigation should use the same non-white middle-pane surface as the message sidebar"
   );
   const settingsTitleRule = cssRuleBody(baseCss, ".settings-tabs-title");
   assert.match(settingsTitleRule, /font-size:\s*18px;/, "settings title should stay lighter than a page headline");

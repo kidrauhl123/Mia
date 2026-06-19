@@ -6569,14 +6569,8 @@ select.select-open {
   padding: 28px 18px;
   overflow: hidden;
   border-radius: var(--rail-corner-radius);
-  background: color-mix(in srgb, var(--surface-soft) 86%, transparent);
+  background: var(--surface-layer);
   box-shadow: var(--rail-expanded-shadow);
-  -webkit-backdrop-filter: blur(24px) saturate(1.12);
-  backdrop-filter: blur(24px) saturate(1.12);
-}
-
-:root[data-theme="dark"] .settings-tabs {
-  background: var(--surface);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
