@@ -10,6 +10,31 @@ function enabled(records = []) {
   return (Array.isArray(records) ? records : []).filter((record) => record?.enabled !== false);
 }
 
+function unsupportedStatus(record = {}, engine, reason, detail = {}) {
+  return {
+    engine,
+    name: String(record?.name || ""),
+    transportType: String(record?.transport?.type || ""),
+    status: "unsupported",
+    reason,
+    ...detail
+  };
+}
+
+function reportUnsupported(options = {}, entry) {
+  if (!entry) return;
+  if (typeof options.onUnsupported === "function") {
+    options.onUnsupported(entry);
+  }
+  if (Array.isArray(options.statusCollector)) {
+    options.statusCollector.push(entry);
+    return;
+  }
+  if (typeof options.statusCollector === "function") {
+    options.statusCollector(entry);
+  }
+}
+
 function bridgeMcpSpec({ command, scriptPath, bridgeUrl, secret }) {
   return {
     type: "stdio",
@@ -45,32 +70,61 @@ function mcpSpecsForClaudeSdk(records = []) {
   return Object.fromEntries(enabled(records).map((record) => [record.name, toNativeSpec(record)]));
 }
 
+function hasArbitraryHeaders(record = {}) {
+  const transport = record.transport || {};
+  return Object.keys(transport.headers || {}).length > 0;
+}
+
 function codexRequiresBridge(record = {}) {
   const transport = record.transport || {};
   if (transport.type === "sse") return true;
-  if ((transport.type === "http" || transport.type === "streamable_http")
-    && Object.keys(transport.headers || {}).length > 0
-    && !transport.bearerTokenEnvVar) {
-    return true;
+  if (transport.type === "http" || transport.type === "streamable_http") {
+    return hasArbitraryHeaders(record);
   }
   return false;
 }
 
-function mcpSpecsForCodex(records = [], { bridge = null } = {}) {
+function codexBridgeReason(record = {}) {
+  const transport = record.transport || {};
+  if (transport.type === "sse") return "bridge_required_for_sse";
+  if ((transport.type === "http" || transport.type === "streamable_http") && hasArbitraryHeaders(record)) {
+    return "bridge_required_for_http_headers";
+  }
+  return "";
+}
+
+function codexNativeSpec(record = {}) {
+  const transport = record.transport || {};
+  if (transport.type === "stdio") return toNativeSpec(record);
+  return {
+    type: transport.type === "streamable_http" ? "http" : transport.type,
+    url: transport.url,
+    ...(transport.bearerTokenEnvVar ? { bearer_token_env_var: transport.bearerTokenEnvVar } : {})
+  };
+}
+
+function mcpSpecsForCodex(records = [], options = {}) {
+  const { bridge = null } = options;
   const specs = {};
   let needsBridge = false;
   for (const record of enabled(records)) {
     if (codexRequiresBridge(record)) {
       needsBridge = true;
+      if (!bridge) {
+        reportUnsupported(options, unsupportedStatus(record, "codex", codexBridgeReason(record), {
+          bridgeRequired: true
+        }));
+      }
       continue;
     }
-    specs[record.name] = toNativeSpec(record);
+    specs[record.name] = codexNativeSpec(record);
   }
   if (needsBridge && bridge) specs["mia-mcp-bridge"] = bridge;
   return specs;
 }
 
-function mcpSpecsForHermes(records = [], { hermesSupportsUrl = false, bridge = null } = {}) {
+function mcpSpecsForHermes(records = [], options = {}) {
+  const { hermesSupportsUrl = false, bridge = null } = options;
   const specs = {};
   let needsBridge = false;
   for (const record of enabled(records)) {
@@ -84,12 +138,22 @@ function mcpSpecsForHermes(records = [], { hermesSupportsUrl = false, bridge = n
       continue;
     }
     needsBridge = true;
+    if (!bridge) {
+      reportUnsupported(options, unsupportedStatus(record, "hermes", "bridge_required_for_non_stdio_transport", {
+        bridgeRequired: true
+      }));
+    }
   }
   if (needsBridge && bridge) specs["mia-mcp-bridge"] = bridge;
   return specs;
 }
 
-function mcpServersForOpenClawAcp(records = [], { supportsHttp = false, supportsSse = false, bridge = null } = {}) {
+function mcpServersForOpenClawAcp(records = [], options = {}) {
+  const {
+    supportsHttp = false,
+    supportsSse = false,
+    bridge = null
+  } = options;
   const servers = [];
   let needsBridge = false;
   for (const record of enabled(records)) {
@@ -122,6 +186,11 @@ function mcpServersForOpenClawAcp(records = [], { supportsHttp = false, supports
       continue;
     }
     needsBridge = true;
+    if (!bridge) {
+      reportUnsupported(options, unsupportedStatus(record, "openclaw", "bridge_required_for_unsupported_transport", {
+        bridgeRequired: true
+      }));
+    }
   }
   if (needsBridge && bridge) {
     servers.push({
@@ -232,8 +301,7 @@ function defaultStatus() {
 
 function codexNativeUnsupported(record = {}) {
   const transport = record.transport || {};
-  if (transport.type !== "http" && transport.type !== "streamable_http") return false;
-  return Object.keys(transport.headers || {}).length > 0 && !transport.bearerTokenEnvVar;
+  return codexRequiresBridge(record);
 }
 
 async function executePlans({ engine, commandPath, plans, runCommand, statuses, commands, appendLog }) {

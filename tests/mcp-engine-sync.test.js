@@ -16,7 +16,17 @@ const {
 const records = [
   { name: "stdio", enabled: true, transport: { type: "stdio", command: "npx", args: ["-y", "pkg"], env: { TOKEN: "abc" } } },
   { name: "xhs", enabled: true, transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {}, bearerTokenEnvVar: "XHS_TOKEN" } },
-  { name: "header-http", enabled: true, transport: { type: "http", url: "http://127.0.0.1:1999/mcp", headers: { Authorization: "Bearer abc" } } }
+  { name: "header-http", enabled: true, transport: { type: "http", url: "http://127.0.0.1:1999/mcp", headers: { Authorization: "Bearer abc" } } },
+  {
+    name: "header-bearer-http",
+    enabled: true,
+    transport: {
+      type: "http",
+      url: "http://127.0.0.1:2000/mcp",
+      headers: { "X-Trace": "trace-value" },
+      bearerTokenEnvVar: "HEADER_TOKEN"
+    }
+  }
 ];
 
 test("mcpSpecsForClaudeSdk preserves stdio and URL transports", () => {
@@ -35,7 +45,34 @@ test("mcpSpecsForCodex uses native URL for bearer-token HTTP and bridge for arbi
 
   assert.equal(specs.xhs.url, "http://127.0.0.1:18060/mcp");
   assert.equal(specs.xhs.bearer_token_env_var, "XHS_TOKEN");
+  assert.equal(Object.hasOwn(specs, "header-bearer-http"), false);
   assert.equal(specs["mia-mcp-bridge"].command, "/usr/local/bin/node");
+});
+
+test("mcpSpecsForCodex reports bridge-required records when bridge is absent", () => {
+  const statusCollector = [];
+  const specs = mcpSpecsForCodex(records, { statusCollector });
+
+  assert.equal(Object.hasOwn(specs, "header-http"), false);
+  assert.equal(Object.hasOwn(specs, "header-bearer-http"), false);
+  assert.deepEqual(statusCollector, [
+    {
+      engine: "codex",
+      name: "header-http",
+      transportType: "http",
+      status: "unsupported",
+      reason: "bridge_required_for_http_headers",
+      bridgeRequired: true
+    },
+    {
+      engine: "codex",
+      name: "header-bearer-http",
+      transportType: "http",
+      status: "unsupported",
+      reason: "bridge_required_for_http_headers",
+      bridgeRequired: true
+    }
+  ]);
 });
 
 test("mcpSpecsForHermes emits direct URL when supported and bridge when URL support is disabled", () => {
@@ -45,10 +82,41 @@ test("mcpSpecsForHermes emits direct URL when supported and bridge when URL supp
   assert.deepEqual(Object.keys(mcpSpecsForHermes(records, { hermesSupportsUrl: false, bridge })), ["stdio", "mia-mcp-bridge"]);
 });
 
+test("mcpSpecsForHermes reports unsupported non-stdio records when bridge is absent", () => {
+  const statusCollector = [];
+  const specs = mcpSpecsForHermes(records, { hermesSupportsUrl: false, statusCollector });
+
+  assert.deepEqual(Object.keys(specs), ["stdio"]);
+  assert.deepEqual(statusCollector.map((entry) => [entry.name, entry.reason]), [
+    ["xhs", "bridge_required_for_non_stdio_transport"],
+    ["header-http", "bridge_required_for_non_stdio_transport"],
+    ["header-bearer-http", "bridge_required_for_non_stdio_transport"]
+  ]);
+});
+
 test("mcpServersForOpenClawAcp maps records into ACP wire shape", () => {
   const acp = mcpServersForOpenClawAcp(records, { supportsHttp: true, supportsSse: true, bridge: null });
   assert.deepEqual(acp[0], { name: "stdio", command: "npx", args: ["-y", "pkg"], env: [{ name: "TOKEN", value: "abc" }] });
   assert.deepEqual(acp[1], { type: "http", name: "xhs", url: "http://127.0.0.1:18060/mcp", headers: [] });
+});
+
+test("mcpServersForOpenClawAcp reports unsupported records when bridge is absent", () => {
+  const statusCollector = [];
+  const acp = mcpServersForOpenClawAcp(records, {
+    supportsHttp: false,
+    supportsSse: false,
+    bridge: null,
+    statusCollector
+  });
+
+  assert.deepEqual(acp, [
+    { name: "stdio", command: "npx", args: ["-y", "pkg"], env: [{ name: "TOKEN", value: "abc" }] }
+  ]);
+  assert.deepEqual(statusCollector.map((entry) => [entry.engine, entry.name, entry.reason]), [
+    ["openclaw", "xhs", "bridge_required_for_unsupported_transport"],
+    ["openclaw", "header-http", "bridge_required_for_unsupported_transport"],
+    ["openclaw", "header-bearer-http", "bridge_required_for_unsupported_transport"]
+  ]);
 });
 
 test("native CLI planners generate safe command argument arrays", () => {
@@ -106,6 +174,25 @@ test("runNativeMcpCliSync reports Codex unsupported arbitrary headers as an erro
   const result = await runNativeMcpCliSync({
     previousRecords: [],
     currentRecords: [records[2]],
+    cliPaths: { codex: "/usr/local/bin/codex", claude: "/usr/local/bin/claude" },
+    runCommand: async (command, args) => {
+      commands.push([command, args]);
+      return { ok: true, stdout: "", stderr: "" };
+    }
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.statuses.codex.status, "error");
+  assert.match(result.statuses.codex.error, /unsupported/i);
+  assert.equal(commands.some(([command, args]) => command === "/usr/local/bin/codex" && args[1] === "add"), false);
+  assert.equal(commands.some(([command, args]) => command === "/usr/local/bin/claude" && args[1] === "add"), true);
+});
+
+test("runNativeMcpCliSync treats bearer-plus-header HTTP records as unsupported for Codex native sync", async () => {
+  const commands = [];
+  const result = await runNativeMcpCliSync({
+    previousRecords: [],
+    currentRecords: [records[3]],
     cliPaths: { codex: "/usr/local/bin/codex", claude: "/usr/local/bin/claude" },
     runCommand: async (command, args) => {
       commands.push([command, args]);
