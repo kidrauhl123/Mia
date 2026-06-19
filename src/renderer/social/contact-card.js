@@ -275,7 +275,8 @@
     const engineOptions = global.miaEngineOptions;
     const modelHelpers = global.miaModelHelpers;
     const modelSettings = global.miaModelSettings;
-    const runtime = _ctx?.deps?.getState?.()?.runtime || {};
+    const appState = _ctx?.deps?.getState?.() || {};
+    const runtime = appState.runtime || {};
     const runtimeKind = local.runtimeKind || "desktop-local";
     const engine = local.agentEngine || local.agent_engine || "hermes";
     const isExternal = Boolean(engineOptions?.isExternalAgentEngine?.(engine));
@@ -289,7 +290,8 @@
     // Reuse the same entry sources the topbar composer-bottom uses so the
     // dropdown contents (and labels / logos) match private chat exactly.
     const modelEntries = isCloudHermes
-      ? [{ id: "mia-default", model: "mia-default", label: "Mia Default", provider: "mia-cloud" }]
+      ? (global.miaEngineContracts?.miaModelEntries?.({ platformModels: appState.platformModels || [] })
+        || [{ id: "mia-default", model: "mia-default", label: "Default", provider: "mia" }])
       : isExternal
       ? (engineOptions?.externalModelEntries?.(engine) || [])
       : (modelSettings?.connectedModelEntries?.(runtime) || []);

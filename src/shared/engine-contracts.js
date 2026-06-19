@@ -184,11 +184,20 @@
       provider: MiaProviderId,
       providerLabel: "Mia",
       model: id,
-      label: String(entry.label || entry.name || entry.displayName || id).trim() || id,
+      label: platformModelDisplayLabel(entry, id),
       authType: "mia_account",
       modelProfileId: `mia:${id}`,
       upstreamModel: String(entry.upstreamModel || entry.upstream_model || "").trim()
     };
+  }
+
+  function platformModelDisplayLabel(entry = {}, fallbackId = "") {
+    const id = String(fallbackId || entry.id || entry.value || entry.model_name || entry.model || "").trim();
+    const idLower = id.toLowerCase();
+    if (idLower === "mia-auto") return "Auto";
+    if (idLower === "mia-default") return "Default";
+    const raw = String(entry.label || entry.name || entry.displayName || entry.display_name || id).trim() || id;
+    return raw.replace(/^Mia\s+/i, "").trim() || raw || id;
   }
 
   function miaModelEntries(options = {}) {
@@ -201,7 +210,7 @@
         provider: MiaProviderId,
         providerLabel: "Mia",
         model: "mia-default",
-        label: "Mia Default",
+        label: "Default",
         authType: "mia_account",
         modelProfileId: "mia:mia-default",
         upstreamModel: ""
@@ -379,6 +388,7 @@
     adapterForEngine,
     engineLabel,
     isExternalEngine,
+    platformModelDisplayLabel,
     miaModelEntries,
     externalModelEntries,
     externalPermissionOptions,

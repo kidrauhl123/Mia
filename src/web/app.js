@@ -754,8 +754,8 @@ function modelIconSrc(model = {}) {
     [/mimo/, "mimo.svg"],
     [/nvidia|nemotron/, "nvidia.png"],
     [/copilot/, "copilot.png"],
-    [/mia-default|mia /, "../mia-logo.png"],
-    [/hermes|nous|mia-default/, "nousresearch.png"],
+    [/mia-auto|mia-default|mia /, "../mia-logo.png"],
+    [/hermes|nous/, "nousresearch.png"],
     [/hugging/, "huggingface.png"],
     [/glm|zai|zhipu/, "zhipu.png"],
     [/step/, "step.png"]
@@ -1656,9 +1656,14 @@ function runtimeBindingFor(botKey, runtimeKind) {
 function normalizePlatformModel(model = {}) {
   const id = String(model.id || model.model_name || model.model || "").trim();
   if (!id) return null;
+  const displayLabel = typeof engineContracts.platformModelDisplayLabel === "function"
+    ? engineContracts.platformModelDisplayLabel(model, id)
+    : (id.toLowerCase() === "mia-auto"
+      ? "Auto"
+      : String(model.label || model.name || id).trim());
   return {
     value: id,
-    label: String(model.label || model.name || id).trim(),
+    label: displayLabel,
     provider: "mia",
     providerLabel: "Mia",
     model: id,
@@ -1737,7 +1742,7 @@ function selectEntriesForModel(engine, runtimeKind, config = {}) {
   if (runtimeKind === "cloud-hermes" || engine === "hermes") {
     return state.platformModels.length
       ? state.platformModels
-      : [{ value: "mia-default", label: "Mia Default", provider: "mia", providerLabel: "Mia", model: "mia-default", authType: "mia_account", modelProfileId: "mia:mia-default" }];
+      : [{ value: "mia-default", label: "Default", provider: "mia", providerLabel: "Mia", model: "mia-default", authType: "mia_account", modelProfileId: "mia:mia-default" }];
   }
   return externalModelEntries(engine).map((entry) => ({
     value: entry.id,

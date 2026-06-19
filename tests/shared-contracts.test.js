@@ -74,9 +74,11 @@ test("engine contract owns external model and mode options for browser clients",
     [
       { id: "default", model: "", label: "Claude Code 默认", provider: "claude-code" },
       { id: "sonnet", model: "sonnet", label: "Sonnet alias", provider: "claude-code" },
-      { id: "mia-default", model: "mia-default", label: "Mia Default", provider: "mia" }
+      { id: "mia-default", model: "mia-default", label: "Default", provider: "mia" }
     ]
   );
+  assert.equal(contract.platformModelDisplayLabel({ id: "mia-auto", label: "Mia DeepSeek" }), "Auto");
+  assert.equal(contract.platformModelDisplayLabel({ id: "mia-pro", label: "Mia Pro" }), "Pro");
   assert.deepEqual(
     contract.externalModelEntries("openclaw", {
       engineCapabilities: {
@@ -115,7 +117,7 @@ test("engine contract owns external model and mode options for browser clients",
         defaultReasoningLevel: "medium",
         supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "medium" }]
       },
-      { id: "mia-default", provider: "mia", providerLabel: "Mia", model: "mia-default", label: "Mia Default", authType: "mia_account", modelProfileId: "mia:mia-default", upstreamModel: "" }
+      { id: "mia-default", provider: "mia", providerLabel: "Mia", model: "mia-default", label: "Default", authType: "mia_account", modelProfileId: "mia:mia-default", upstreamModel: "" }
     ]
   );
   assert.deepEqual(contract.externalModelEntries("codex").map((entry) => entry.id), ["default", "mia-default"]);

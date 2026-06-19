@@ -129,7 +129,7 @@
       [/mimo/, "mimo.svg"],
       [/nvidia|nemotron/, "nvidia.png"],
       [/copilot/, "copilot.png"],
-      [/mia-default|mia /, "../mia-logo.png"],
+      [/mia-auto|mia-default|mia /, "../mia-logo.png"],
       [/hermes|nous/, "nousresearch.png"],
       [/hugging/, "huggingface.png"],
       [/glm|zai|zhipu/, "zhipu.png"],

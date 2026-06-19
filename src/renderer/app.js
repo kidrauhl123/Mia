@@ -3630,9 +3630,14 @@ function botRuntimeCacheKey(botKey, runtimeKind = "cloud-hermes") {
 function normalizePlatformModelEntry(entry = {}) {
   const id = String(entry.id || entry.model_name || entry.model || "").trim();
   if (!id) return null;
+  const displayLabel = typeof window.miaEngineContracts?.platformModelDisplayLabel === "function"
+    ? window.miaEngineContracts.platformModelDisplayLabel(entry, id)
+    : (id.toLowerCase() === "mia-auto"
+      ? "Auto"
+      : String(entry.label || entry.name || entry.displayName || id).trim());
   return {
     id,
-    label: String(entry.label || entry.name || entry.displayName || id).trim(),
+    label: displayLabel,
     provider: String(entry.provider || "").trim(),
     upstreamModel: String(entry.upstreamModel || entry.upstream_model || entry.model || "").trim()
   };
@@ -3670,7 +3675,7 @@ function platformHermesModelEntries() {
     }))
     : [{
       id: "mia-default",
-      label: "Mia Default",
+      label: "Default",
       provider: "mia",
       providerLabel: "Mia",
       model: "mia-default",
