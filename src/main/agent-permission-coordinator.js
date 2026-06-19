@@ -68,10 +68,15 @@ function formatMcpPermissionTitle({ engine = "", toolName = "" } = {}) {
 
 function formatPermissionTitle({ engine = "", toolName = "", title = "" } = {}) {
   const explicit = compactWhitespace(title);
-  if (explicit) return explicit;
   if (isLikelyMcpToolName(toolName)) {
+    if (explicit) {
+      return explicit.includes(toolName) || !/MCP\s*工具/i.test(explicit)
+        ? explicit
+        : `${explicit} ${String(toolName || "").trim()}`;
+    }
     return formatMcpPermissionTitle({ engine, toolName });
   }
+  if (explicit) return explicit;
   const engineLabel = permissionEngineLabel(engine);
   const tool = String(toolName || "tool").trim() || "tool";
   return `${engineLabel} 请求使用 ${tool}`;

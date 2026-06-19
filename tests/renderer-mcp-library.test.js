@@ -6,23 +6,9 @@ const vm = require("node:vm");
 
 const root = path.join(__dirname, "..");
 const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
-const flushAsync = async (turns = 3) => {
+const flushAsync = async (turns = 10) => {
   for (let i = 0; i < turns; i += 1) await Promise.resolve();
 };
-
-function createFakeEl() {
-  return {
-    innerHTML: "",
-    textContent: "",
-    style: { setProperty() {} },
-    classList: { add() {}, remove() {}, toggle() {} },
-    querySelectorAll: () => [],
-    querySelector: () => null,
-    addEventListener: () => {},
-    closest: () => null,
-    getBoundingClientRect: () => ({ left: 0, width: 0, height: 0 })
-  };
-}
 
 function escapeHtml(value) {
   return String(value || "")
@@ -32,23 +18,326 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-function createMcpContext(overrides = {}) {
-  const list = overrides.list || (async () => ({ success: true, data: { servers: [] } }));
-  const fetchMarketplace = overrides.fetchMarketplace || (async () => ({ success: true, data: { templates: [] } }));
+function decodeHtml(value) {
+  return String(value || "")
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&");
+}
+
+function parseAttributes(raw = "") {
+  const attrs = {};
+  const pattern = /([A-Za-z0-9:_-]+)(?:="([^"]*)")?/g;
+  let match;
+  while ((match = pattern.exec(raw))) {
+    attrs[match[1]] = decodeHtml(match[2] || "");
+  }
+  return attrs;
+}
+
+function selectedOptionValue(html) {
+  const selected = html.match(/<option\b[^>]*value="([^"]*)"[^>]*selected[^>]*>/i)
+    || html.match(/<option\b[^>]*selected[^>]*value="([^"]*)"[^>]*>/i);
+  if (selected) return decodeHtml(selected[1]);
+  const first = html.match(/<option\b[^>]*value="([^"]*)"[^>]*>/i);
+  return first ? decodeHtml(first[1]) : "";
+}
+
+function datasetFromAttributes(attrs = {}) {
+  const dataset = {};
+  for (const [name, value] of Object.entries(attrs)) {
+    if (!name.startsWith("data-")) continue;
+    dataset[name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = value;
+  }
+  return dataset;
+}
+
+function matchesSelector(node, selector) {
+  const attr = selector.match(/^\[([^\]=]+)(?:="([^"]*)")?\]$/);
+  if (attr) {
+    const [, name, expected] = attr;
+    if (!Object.prototype.hasOwnProperty.call(node.attributes, name)) return false;
+    return typeof expected === "undefined" || String(node.attributes[name]) === expected;
+  }
+  const namedField = selector.match(/^([a-z]+)\[name="([^"]+)"\]$/i);
+  if (namedField) {
+    return node.tagName === namedField[1].toLowerCase() && node.name === namedField[2];
+  }
+  return false;
+}
+
+class FakeNode {
+  constructor(tagName = "div", attrs = {}, documentRef = null) {
+    this.tagName = String(tagName || "div").toLowerCase();
+    this.attributes = { ...attrs };
+    this.dataset = datasetFromAttributes(attrs);
+    this.document = documentRef;
+    this.parentNode = null;
+    this.children = [];
+    this.hidden = false;
+    this.name = decodeHtml(attrs.name || "");
+    this.value = decodeHtml(attrs.value || "");
+    this.textContent = "";
+    this.style = { setProperty() {} };
+    this.classList = {
+      add() {},
+      remove() {},
+      toggle() {},
+      contains() { return false; }
+    };
+    this.listeners = new Map();
+    this._innerHTML = "";
+    this._parsedNodes = [];
+  }
+
+  set innerHTML(value) {
+    this._innerHTML = String(value || "");
+    this._parsedNodes = parseHtml(this._innerHTML, this.document);
+    for (const node of this._parsedNodes) node.parentNode = this;
+  }
+
+  get innerHTML() {
+    return this._innerHTML;
+  }
+
+  appendChild(node) {
+    node.parentNode = this;
+    this.children.push(node);
+    return node;
+  }
+
+  remove() {
+    if (!this.parentNode || !Array.isArray(this.parentNode.children)) return;
+    this.parentNode.children = this.parentNode.children.filter((child) => child !== this);
+    this.parentNode = null;
+  }
+
+  addEventListener(type, handler) {
+    if (!this.listeners.has(type)) this.listeners.set(type, []);
+    this.listeners.get(type).push(handler);
+  }
+
+  dispatch(type, extra = {}) {
+    const event = {
+      type,
+      target: this,
+      currentTarget: this,
+      preventDefault() { this.defaultPrevented = true; },
+      stopPropagation() { this.propagationStopped = true; },
+      ...extra
+    };
+    for (const handler of this.listeners.get(type) || []) handler(event);
+    return event;
+  }
+
+  click() {
+    return this.dispatch("click");
+  }
+
+  querySelectorAll(selector) {
+    return queryAllFrom(this, selector);
+  }
+
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
+
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+    if (name === "value") this.value = String(value);
+    this.dataset = datasetFromAttributes(this.attributes);
+  }
+
+  getAttribute(name) {
+    return this.attributes[name];
+  }
+}
+
+function parseLeafNodes(html, documentRef) {
+  const nodes = [];
+  let match;
+
+  const buttonPattern = /<button\b([^>]*)>([\s\S]*?)<\/button>/g;
+  while ((match = buttonPattern.exec(html))) {
+    const node = new FakeNode("button", parseAttributes(match[1]), documentRef);
+    node.textContent = decodeHtml(match[2]);
+    nodes.push(node);
+  }
+
+  const divPattern = /<div\b([^>]*)>([\s\S]*?)<\/div>/g;
+  while ((match = divPattern.exec(html))) {
+    const attrs = parseAttributes(match[1]);
+    if (!Object.keys(attrs).some((name) => name.startsWith("data-"))) continue;
+    nodes.push(new FakeNode("div", attrs, documentRef));
+  }
+
+  const labelPattern = /<label\b([^>]*)>/g;
+  while ((match = labelPattern.exec(html))) {
+    const attrs = parseAttributes(match[1]);
+    if (!("data-mcp-stdio" in attrs) && !("data-mcp-url" in attrs)) continue;
+    nodes.push(new FakeNode("label", attrs, documentRef));
+  }
+
+  const inputPattern = /<input\b([^>]*)>/g;
+  while ((match = inputPattern.exec(html))) {
+    nodes.push(new FakeNode("input", parseAttributes(match[1]), documentRef));
+  }
+
+  const textareaPattern = /<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/g;
+  while ((match = textareaPattern.exec(html))) {
+    const node = new FakeNode("textarea", parseAttributes(match[1]), documentRef);
+    node.value = decodeHtml(match[2]);
+    nodes.push(node);
+  }
+
+  const selectPattern = /<select\b([^>]*)>([\s\S]*?)<\/select>/g;
+  while ((match = selectPattern.exec(html))) {
+    const node = new FakeNode("select", parseAttributes(match[1]), documentRef);
+    node.value = selectedOptionValue(match[2]);
+    nodes.push(node);
+  }
+
+  return nodes;
+}
+
+function parseHtml(html, documentRef) {
+  const nodes = [];
+  const formPattern = /<form\b([^>]*)>([\s\S]*?)<\/form>/g;
+  let match;
+  while ((match = formPattern.exec(html))) {
+    const form = new FakeNode("form", parseAttributes(match[1]), documentRef);
+    form.innerHTML = match[2];
+    nodes.push(form);
+  }
+  const stripped = html.replace(formPattern, "");
+  nodes.push(...parseLeafNodes(stripped, documentRef));
+  return nodes;
+}
+
+function childNodes(node) {
+  return [...node.children, ...node._parsedNodes];
+}
+
+function queryAllFrom(root, selector) {
+  const matches = [];
+  const visit = (node) => {
+    for (const child of childNodes(node)) {
+      if (matchesSelector(child, selector)) matches.push(child);
+      visit(child);
+    }
+  };
+  visit(root);
+  return matches;
+}
+
+class FakeFormData {
+  constructor(form) {
+    this.values = new Map();
+    for (const field of childNodes(form)) {
+      if (!field.name) continue;
+      this.values.set(field.name, field.value);
+    }
+  }
+
+  get(name) {
+    return this.values.has(name) ? this.values.get(name) : null;
+  }
+}
+
+function createFakeDocument() {
+  const listeners = new Map();
+  const document = {
+    body: null,
+    createElement(tagName) {
+      return new FakeNode(tagName, {}, document);
+    },
+    addEventListener(type, handler) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(handler);
+    },
+    removeEventListener(type, handler) {
+      listeners.get(type)?.delete(handler);
+    },
+    querySelectorAll(selector) {
+      return document.body ? document.body.querySelectorAll(selector) : [];
+    },
+    querySelector(selector) {
+      return document.body ? document.body.querySelector(selector) : null;
+    }
+  };
+  document.body = new FakeNode("body", {}, document);
+  return document;
+}
+
+function fakeEl(tagName = "div") {
+  return new FakeNode(tagName);
+}
+
+function createMcpHarness({ state, mcpOverrides = {}, confirmResult = true } = {}) {
+  let listCalls = 0;
+  let marketplaceCalls = 0;
+  const alerts = [];
+  const confirms = [];
+  const document = createFakeDocument();
+  const mcp = {
+    list: async () => {
+      listCalls += 1;
+      return { success: true, data: { servers: state.mcp.servers || [] } };
+    },
+    fetchMarketplace: async () => {
+      marketplaceCalls += 1;
+      return { success: true, data: { templates: state.mcp.templates || [] } };
+    },
+    save: async () => ({ success: true, data: {} }),
+    importJson: async () => ({ success: true, data: {} }),
+    test: async () => ({ success: true, data: {} }),
+    sync: async () => ({ success: true, data: {} }),
+    setEnabled: async () => ({ success: true, data: {} }),
+    delete: async () => ({ success: true, data: {} }),
+    installTemplate: async () => ({ success: true, data: {} }),
+    ...mcpOverrides
+  };
   const context = {
     console,
+    document,
+    FormData: FakeFormData,
     window: {
-      mia: {
-        mcp: {
-          list,
-          fetchMarketplace
-        }
-      }
+      alert: (message) => alerts.push(String(message || "")),
+      confirm: (message) => {
+        confirms.push(String(message || ""));
+        return confirmResult;
+      },
+      mia: { mcp }
     }
   };
   vm.createContext(context);
   vm.runInContext(read("src/renderer/mcp/mcp-library.js"), context, { filename: "mcp-library.js" });
-  return context;
+
+  const els = {
+    skillPageTitle: fakeEl("h1"),
+    skillChipRow: fakeEl("div"),
+    skillCardGrid: fakeEl("div")
+  };
+  let layoutCalls = 0;
+  context.window.miaMcpLibrary.initMcpLibrary({
+    state,
+    els,
+    escapeHtml,
+    setText: (node, value) => { node.textContent = String(value || ""); },
+    layoutCards: () => { layoutCalls += 1; }
+  });
+
+  return {
+    context,
+    document,
+    els,
+    alerts,
+    confirms,
+    getLayoutCalls: () => layoutCalls,
+    getListCalls: () => listCalls,
+    getMarketplaceCalls: () => marketplaceCalls
+  };
 }
 
 test("ability library exposes MCP service mode and loads MCP renderer script", () => {
@@ -64,7 +353,7 @@ test("ability library exposes MCP service mode and loads MCP renderer script", (
   assert.match(html, /mcp\/mcp-library\.js/);
 });
 
-test("mcp-library renders installed, marketplace, and custom tabs", async () => {
+test("mcp-library renders installed, marketplace, and custom tabs", () => {
   const state = {
     skillFilter: "",
     mcp: {
@@ -79,32 +368,18 @@ test("mcp-library renders installed, marketplace, and custom tabs", async () => 
       templateError: ""
     }
   };
-  let layoutCalls = 0;
-  const els = { skillPageTitle: createFakeEl(), skillChipRow: createFakeEl(), skillCardGrid: createFakeEl() };
-  const context = createMcpContext({
-    list: async () => ({ success: true, data: { servers: state.mcp.servers } }),
-    fetchMarketplace: async () => ({ success: true, data: { templates: state.mcp.templates } })
-  });
-  context.window.miaMcpLibrary.initMcpLibrary({
-    state,
-    els,
-    escapeHtml,
-    setText: (node, value) => { node.textContent = value; },
-    layoutCards: () => { layoutCalls += 1; }
-  });
-  context.window.miaMcpLibrary.renderMcpLibrary();
+  const harness = createMcpHarness({ state });
 
-  assert.match(els.skillCardGrid.innerHTML, /小红书 MCP/);
-  assert.match(els.skillChipRow.innerHTML, /已安装/);
-  assert.match(els.skillChipRow.innerHTML, /市场/);
-  assert.match(els.skillChipRow.innerHTML, /自定义/);
-  assert.equal(layoutCalls, 1);
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+
+  assert.match(harness.els.skillCardGrid.innerHTML, /小红书 MCP/);
+  assert.match(harness.els.skillChipRow.innerHTML, /已安装/);
+  assert.match(harness.els.skillChipRow.innerHTML, /市场/);
+  assert.match(harness.els.skillChipRow.innerHTML, /自定义/);
+  assert.equal(harness.getLayoutCalls(), 1);
 });
 
 test("mcp-library settles empty successful responses into stable empty states", async () => {
-  let listCalls = 0;
-  let marketplaceCalls = 0;
-  let layoutCalls = 0;
   const state = {
     skillFilter: "",
     mcp: {
@@ -120,50 +395,32 @@ test("mcp-library settles empty successful responses into stable empty states", 
       templateError: ""
     }
   };
-  const els = { skillPageTitle: createFakeEl(), skillChipRow: createFakeEl(), skillCardGrid: createFakeEl() };
-  const context = createMcpContext({
-    list: async () => {
-      listCalls += 1;
-      return { success: true, data: { servers: [] } };
-    },
-    fetchMarketplace: async () => {
-      marketplaceCalls += 1;
-      return { success: true, data: { templates: [] } };
-    }
-  });
-  context.window.miaMcpLibrary.initMcpLibrary({
-    state,
-    els,
-    escapeHtml,
-    setText: (node, value) => { node.textContent = value; },
-    layoutCards: () => { layoutCalls += 1; }
-  });
+  const harness = createMcpHarness({ state });
 
-  await context.window.miaMcpLibrary.loadMcpServers();
+  await harness.context.window.miaMcpLibrary.loadMcpServers();
   await flushAsync();
 
-  assert.equal(listCalls, 1);
-  assert.equal(marketplaceCalls, 1);
+  assert.equal(harness.getListCalls(), 1);
+  assert.equal(harness.getMarketplaceCalls(), 1);
   assert.equal(state.mcp.loading, false);
   assert.equal(state.mcp.loaded, true);
   assert.equal(state.mcp.loadAttempted, true);
-  assert.match(els.skillCardGrid.innerHTML, /暂无已安装 MCP 服务/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /暂无已安装 MCP 服务/);
 
-  context.window.miaMcpLibrary.renderMcpLibrary();
-  assert.equal(listCalls, 1);
-  assert.equal(marketplaceCalls, 1);
-  assert.match(els.skillCardGrid.innerHTML, /暂无已安装 MCP 服务/);
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  assert.equal(harness.getListCalls(), 1);
+  assert.equal(harness.getMarketplaceCalls(), 1);
+  assert.match(harness.els.skillCardGrid.innerHTML, /暂无已安装 MCP 服务/);
 
   state.mcp.activeTab = "marketplace";
-  context.window.miaMcpLibrary.renderMcpLibrary();
-  assert.equal(listCalls, 1);
-  assert.equal(marketplaceCalls, 1);
-  assert.match(els.skillCardGrid.innerHTML, /暂无可用模板/);
-  assert.ok(layoutCalls >= 3);
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  assert.equal(harness.getListCalls(), 1);
+  assert.equal(harness.getMarketplaceCalls(), 1);
+  assert.match(harness.els.skillCardGrid.innerHTML, /暂无可用模板/);
+  assert.ok(harness.getLayoutCalls() >= 3);
 });
 
 test("mcp-library keeps the custom tab stable with zero filtered records", () => {
-  let layoutCalls = 0;
   const state = {
     skillFilter: "missing",
     mcp: {
@@ -179,37 +436,372 @@ test("mcp-library keeps the custom tab stable with zero filtered records", () =>
       templateError: ""
     }
   };
-  const els = { skillPageTitle: createFakeEl(), skillChipRow: createFakeEl(), skillCardGrid: createFakeEl() };
-  const context = { console, window: {} };
-  vm.createContext(context);
-  vm.runInContext(read("src/renderer/mcp/mcp-library.js"), context, { filename: "mcp-library.js" });
-  context.window.miaMcpLibrary.initMcpLibrary({
-    state,
-    els,
-    escapeHtml,
-    setText: (node, value) => { node.textContent = value; },
-    layoutCards: () => { layoutCalls += 1; }
-  });
+  const harness = createMcpHarness({ state });
 
-  context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
 
-  assert.match(els.skillCardGrid.innerHTML, /没有匹配的入口/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /MCP 服务暂不可用/);
-  assert.equal(layoutCalls, 1);
+  assert.match(harness.els.skillCardGrid.innerHTML, /没有匹配的入口/);
+  assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, /MCP 服务暂不可用/);
+  assert.equal(harness.getLayoutCalls(), 1);
 });
 
-test("mcp-library contains form, import, test, sync, and delete actions", () => {
-  const src = read("src/renderer/mcp/mcp-library.js");
+test("installed-card actions call MCP APIs with correct args and reload the library", async () => {
+  const apiCalls = [];
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "xhs",
+        name: "小红书 MCP",
+        enabled: true,
+        status: "connected",
+        transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
+        tools: [{ name: "search_notes" }],
+        sync: {}
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      test: async (id) => {
+        apiCalls.push(["test", id]);
+        return { success: true };
+      },
+      sync: async () => {
+        apiCalls.push(["sync"]);
+        return { success: true };
+      },
+      setEnabled: async (id, enabled) => {
+        apiCalls.push(["setEnabled", id, enabled]);
+        return { success: true };
+      },
+      delete: async (id) => {
+        apiCalls.push(["delete", id]);
+        return { success: true };
+      }
+    }
+  });
 
-  assert.match(src, /function openMcpForm/);
-  assert.match(src, /function submitMcpForm/);
-  assert.match(src, /function importMcpJson/);
-  assert.match(src, /window\.mia\.mcp\.test/);
-  assert.match(src, /window\.mia\.mcp\.setEnabled/);
-  assert.match(src, /window\.mia\.mcp\.sync/);
-  assert.match(src, /window\.mia\.mcp\.delete/);
-  assert.match(src, /data-mcp-action="test"/);
-  assert.match(src, /data-mcp-action="sync"/);
-  assert.match(src, /data-mcp-action="toggle"/);
-  assert.match(src, /data-mcp-action="delete"/);
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="test"]').click();
+  await flushAsync();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="sync"]').click();
+  await flushAsync();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="toggle"]').click();
+  await flushAsync();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="delete"]').click();
+  await flushAsync();
+
+  assert.deepEqual(apiCalls, [
+    ["test", "xhs"],
+    ["sync"],
+    ["setEnabled", "xhs", false],
+    ["delete", "xhs"]
+  ]);
+  assert.equal(harness.getListCalls(), 4);
+  assert.equal(harness.getMarketplaceCalls(), 4);
+  assert.deepEqual(harness.confirms, ["删除这个 MCP 服务？"]);
+});
+
+test("create form submits stdio payloads with parsed args and env", async () => {
+  const saveCalls = [];
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "custom",
+      servers: [],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      save: async (payload) => {
+        saveCalls.push(JSON.parse(JSON.stringify(payload)));
+        return { success: true, data: { id: "xhs" } };
+      }
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="create"]').click();
+
+  const form = harness.document.body.querySelector("[data-mcp-form]");
+  form.querySelector('input[name="name"]').value = "XHS MCP";
+  form.querySelector('input[name="description"]').value = "stdio server";
+  form.querySelector('input[name="command"]').value = "npx xhs-mcp";
+  form.querySelector('textarea[name="args"]').value = "--token\nabc";
+  form.querySelector('textarea[name="env"]').value = "XHS_TOKEN=abc\nDEBUG=1";
+  form.dispatch("submit");
+  await flushAsync();
+
+  assert.deepEqual(saveCalls, [{
+    id: "",
+    name: "XHS MCP",
+    description: "stdio server",
+    enabled: true,
+    transport: {
+      type: "stdio",
+      command: "npx xhs-mcp",
+      args: ["--token", "abc"],
+      env: { XHS_TOKEN: "abc", DEBUG: "1" }
+    }
+  }]);
+  assert.equal(harness.getListCalls(), 1);
+  assert.equal(harness.getMarketplaceCalls(), 1);
+  assert.equal(state.mcp.activeTab, "installed");
+  assert.equal(harness.document.body.querySelector("[data-mcp-form]"), null);
+});
+
+test("edit form submits URL payloads with parsed headers and bearer token env vars", async () => {
+  const saveCalls = [];
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "xhs",
+        name: "小红书 MCP",
+        description: "old",
+        enabled: false,
+        status: "connected",
+        transport: {
+          type: "http",
+          url: "http://127.0.0.1:18060/mcp",
+          headers: { Authorization: "Bearer old" },
+          bearerTokenEnvVar: "OLD_TOKEN"
+        },
+        tools: [],
+        sync: {}
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      save: async (payload) => {
+        saveCalls.push(JSON.parse(JSON.stringify(payload)));
+        return { success: true, data: { id: "xhs" } };
+      }
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="edit"]').click();
+
+  const form = harness.document.body.querySelector("[data-mcp-form]");
+  const typeSelect = form.querySelector('select[name="type"]');
+  typeSelect.value = "streamable_http";
+  typeSelect.dispatch("change");
+  form.querySelector('input[name="name"]').value = "XHS HTTP";
+  form.querySelector('input[name="description"]').value = "updated";
+  form.querySelector('input[name="url"]').value = "https://example.com/mcp";
+  form.querySelector('textarea[name="headers"]').value = "Authorization: Bearer demo\nX-Trace: abc";
+  form.querySelector('input[name="bearerTokenEnvVar"]').value = "XHS_TOKEN";
+  form.dispatch("submit");
+  await flushAsync();
+
+  assert.deepEqual(saveCalls, [{
+    id: "xhs",
+    name: "XHS HTTP",
+    description: "updated",
+    enabled: false,
+    transport: {
+      type: "streamable_http",
+      url: "https://example.com/mcp",
+      headers: {
+        Authorization: "Bearer demo",
+        "X-Trace": "abc"
+      },
+      bearerTokenEnvVar: "XHS_TOKEN"
+    }
+  }]);
+  assert.equal(harness.getListCalls(), 1);
+  assert.equal(harness.getMarketplaceCalls(), 1);
+});
+
+test("marketplace install calls installTemplate(id, {}) and reloads", async () => {
+  const installCalls = [];
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "marketplace",
+      servers: [],
+      templates: [{ id: "xhs-template", name: "XHS Template", description: "Install me", transport: { type: "http" } }],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      installTemplate: async (id, values) => {
+        installCalls.push([id, JSON.parse(JSON.stringify(values))]);
+        return { success: true };
+      }
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="install"]').click();
+  await flushAsync();
+
+  assert.deepEqual(installCalls, [["xhs-template", {}]]);
+  assert.equal(harness.getListCalls(), 1);
+  assert.equal(harness.getMarketplaceCalls(), 1);
+  assert.equal(state.mcp.activeTab, "installed");
+});
+
+test("import flow submits JSON text and reloads on success", async () => {
+  const importCalls = [];
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "custom",
+      servers: [],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      importJson: async (text) => {
+        importCalls.push(text);
+        return { success: true };
+      }
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="import"]').click();
+
+  const form = harness.document.body.querySelector("[data-mcp-import-form]");
+  const textarea = form.querySelector('textarea[name="json"]');
+  textarea.value = '{"mcpServers":{"xhs":{"command":"npx","args":["xhs"]}}}';
+  form.dispatch("submit");
+  await flushAsync();
+
+  assert.deepEqual(importCalls, ['{"mcpServers":{"xhs":{"command":"npx","args":["xhs"]}}}']);
+  assert.equal(harness.getListCalls(), 1);
+  assert.equal(harness.getMarketplaceCalls(), 1);
+  assert.equal(state.mcp.activeTab, "installed");
+  assert.equal(harness.document.body.querySelector("[data-mcp-import-form]"), null);
+});
+
+test("failed save keeps the form dialog open with user input intact", async () => {
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "custom",
+      servers: [],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      save: async () => ({ success: false, error: "boom" })
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="create"]').click();
+
+  const form = harness.document.body.querySelector("[data-mcp-form]");
+  const nameInput = form.querySelector('input[name="name"]');
+  nameInput.value = "Broken MCP";
+  form.dispatch("submit");
+  await flushAsync();
+
+  assert.deepEqual(harness.alerts, ["保存失败：boom"]);
+  const openForm = harness.document.body.querySelector("[data-mcp-form]");
+  assert.ok(openForm);
+  assert.equal(openForm.querySelector('input[name="name"]').value, "Broken MCP");
+  assert.equal(harness.getListCalls(), 0);
+  assert.equal(harness.getMarketplaceCalls(), 0);
+});
+
+test("failed import keeps the import dialog and JSON text available", async () => {
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "custom",
+      servers: [],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      importJson: async () => ({ success: false, error: "bad json" })
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="import"]').click();
+
+  const form = harness.document.body.querySelector("[data-mcp-import-form]");
+  const textarea = form.querySelector('textarea[name="json"]');
+  textarea.value = '{"mcpServers":{"broken":}}';
+  form.dispatch("submit");
+  await flushAsync();
+
+  assert.deepEqual(harness.alerts, ["导入失败：bad json"]);
+  const openForm = harness.document.body.querySelector("[data-mcp-import-form]");
+  assert.ok(openForm);
+  assert.equal(openForm.querySelector('textarea[name="json"]').value, '{"mcpServers":{"broken":}}');
+  assert.equal(harness.getListCalls(), 0);
+  assert.equal(harness.getMarketplaceCalls(), 0);
 });

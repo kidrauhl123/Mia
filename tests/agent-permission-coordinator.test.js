@@ -76,3 +76,28 @@ test("permission title keeps user-added MCP tool names visible", () => {
     /xhs\.search_notes/
   );
 });
+
+test("requestPermission augments generic Codex MCP titles with the real tool name", async () => {
+  const { runtimePaths } = tempRuntime();
+  const emitted = [];
+  const coordinator = createAgentPermissionCoordinator({
+    runtimePaths,
+    timeoutMs: 0,
+    randomUUID: () => "req_mcp"
+  });
+
+  const pending = coordinator.requestPermission({
+    engine: "codex",
+    sessionId: "session-1",
+    toolName: "xhs.search_notes",
+    title: "Codex 想使用 MCP 工具",
+    input: { q: "coffee" },
+    emit: (kind, data) => emitted.push({ kind, data })
+  });
+
+  assert.equal(emitted[0].kind, "permission_request");
+  assert.match(emitted[0].data.title, /xhs\.search_notes/);
+  assert.deepEqual(coordinator.resolvePermission({ requestId: "perm_req_mcp", decision: "allow_once" }), { ok: true });
+  const decision = await pending;
+  assert.equal(decision.decision, "allow");
+});
