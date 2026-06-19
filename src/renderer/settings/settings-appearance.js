@@ -14,6 +14,7 @@
   const FALLBACK_SELECTION_STYLE = "solid";
   const FALLBACK_WORKSPACE_BACKGROUND_COLOR = "#f0f0f3";
   const FALLBACK_DARK_WORKSPACE_BACKGROUND_COLOR = "#171920";
+  const FALLBACK_GLASS_OPACITY = 82;
   const MAX_WORKSPACE_BACKGROUND_IMAGE_BYTES = 3 * 1024 * 1024;
 
   let state, els, mia;
@@ -94,6 +95,17 @@
     return value === "soft" || value === "solid" ? value : defaultSelectionStyle();
   }
 
+  function normalizeGlassOpacity(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return FALLBACK_GLASS_OPACITY;
+    return Math.max(60, Math.min(100, Math.round(number)));
+  }
+
+  function railGlassBackground(theme, opacity) {
+    const base = theme === "dark" ? "var(--surface)" : "var(--surface-soft)";
+    return `color-mix(in srgb, ${base} ${normalizeGlassOpacity(opacity)}%, transparent)`;
+  }
+
   function hexToRgb(value) {
     const hex = normalizeHexColor(value).slice(1);
     return {
@@ -172,6 +184,7 @@
     const resolvedWorkspaceBackgroundColor = workspaceBackgroundColor || defaultWorkspaceBackgroundColor(theme);
     const floorColors = floorTextColors(hexToRgb(resolvedWorkspaceBackgroundColor));
     const workspaceBackgroundImage = normalizeWorkspaceBackgroundImage(appearance.workspaceBackgroundImage);
+    const glassOpacity = normalizeGlassOpacity(appearance.glassOpacity);
     const softActive = `rgb(${rgb.r} ${rgb.g} ${rgb.b} / ${theme === "dark" ? "0.22" : "0.16"})`;
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.selectionStyle = selectionStyle;
@@ -182,6 +195,7 @@
     document.documentElement.style.setProperty("--accent", accentColor);
     document.documentElement.style.setProperty("--accent-rgb", `${rgb.r} ${rgb.g} ${rgb.b}`);
     document.documentElement.style.setProperty("--active", softActive);
+    document.documentElement.style.setProperty("--rail-glass-bg", railGlassBackground(theme, glassOpacity));
     document.documentElement.style.setProperty("--user-bubble", userBubbleColor);
     document.documentElement.style.setProperty("--user-bubble-text", userBubbleText);
     document.documentElement.style.setProperty("--floor-text", floorColors.text);
@@ -223,6 +237,7 @@
       theme,
       fontPreset: controls.appearanceFontPreset?.value || "serif",
       accentColor: normalizeHexColor(controls.appearanceAccentColor?.value),
+      glassOpacity: normalizeGlassOpacity(controls.appearanceGlassOpacity?.value),
       userBubbleColor: normalizeHexColor(controls.appearanceUserBubbleColor?.value, defaultUserBubbleColor()),
       showHoverBackground: controls.appearanceShowHoverBackground?.getAttribute("aria-checked") !== "false",
       showUserAvatar: controls.appearanceShowUserAvatar?.getAttribute("aria-checked") === "true",
@@ -291,6 +306,9 @@
     const accentColor = normalizeHexColor(appearance.accentColor);
     if (controls.appearanceAccentColor) controls.appearanceAccentColor.value = accentColor;
     if (controls.appearanceAccentPreview) controls.appearanceAccentPreview.style.backgroundColor = accentColor;
+    const glassOpacity = normalizeGlassOpacity(appearance.glassOpacity);
+    if (controls.appearanceGlassOpacity) controls.appearanceGlassOpacity.value = String(glassOpacity);
+    if (controls.appearanceGlassOpacityValue) controls.appearanceGlassOpacityValue.textContent = `${glassOpacity}%`;
     const userBubbleColor = normalizeHexColor(appearance.userBubbleColor, defaultUserBubbleColor());
     if (controls.appearanceUserBubbleColor) controls.appearanceUserBubbleColor.value = userBubbleColor;
     if (controls.appearanceUserBubblePreview) controls.appearanceUserBubblePreview.style.backgroundColor = userBubbleColor;
@@ -418,6 +436,7 @@
     normalizeWorkspaceBackgroundImage,
     normalizeListStyle,
     normalizeSelectionStyle,
+    normalizeGlassOpacity,
     hexToRgb,
     relativeLuminance,
     selectionTextColors,

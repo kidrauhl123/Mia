@@ -254,6 +254,8 @@ const els = {
   appearanceAccentColor: document.getElementById("appearanceAccentColor"),
   appearanceAccentPreview: document.getElementById("appearanceAccentPreview"),
   appearanceAccentReset: document.getElementById("appearanceAccentReset"),
+  appearanceGlassOpacity: document.getElementById("appearanceGlassOpacity"),
+  appearanceGlassOpacityValue: document.getElementById("appearanceGlassOpacityValue"),
   appearanceUserBubbleColor: document.getElementById("appearanceUserBubbleColor"),
   appearanceUserBubblePreview: document.getElementById("appearanceUserBubblePreview"),
   appearanceUserBubbleReset: document.getElementById("appearanceUserBubbleReset"),
@@ -2470,6 +2472,7 @@ function render() {
     fontPreset: "serif",
     accentColor: DEFAULT_ACCENT_COLOR,
     userBubbleColor: DEFAULT_USER_BUBBLE_COLOR,
+    glassOpacity: 82,
     showHoverBackground: false,
     showUserAvatar: false,
     showAssistantAvatar: false,
@@ -5695,6 +5698,14 @@ els.appearanceAccentColor?.addEventListener("input", () => {
 
 els.appearanceAccentReset?.addEventListener("click", () => {
   if (els.appearanceAccentColor) els.appearanceAccentColor.value = DEFAULT_ACCENT_COLOR;
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
+});
+
+els.appearanceGlassOpacity?.addEventListener("input", () => {
+  window.miaSettingsAppearance.scheduleAppearanceSave();
+});
+
+els.appearanceGlassOpacity?.addEventListener("change", () => {
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 

@@ -237,9 +237,9 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.doesNotMatch(appSource, /state\.settingsOpen/);
   assert.doesNotMatch(appSource, /syncSettingsDrawerVisibility/);
   assert.match(css, /#chatView\s*\{[\s\S]*?grid-column:\s*4;[\s\S]*?grid-row:\s*1;/);
-  assert.match(css, /--rail-glass-bg:\s*color-mix\(in srgb,\s*var\(--surface-soft\)\s*74%,\s*transparent\);/);
+  assert.match(css, /--rail-glass-bg:\s*color-mix\(in srgb,\s*var\(--surface-soft\)\s*82%,\s*transparent\);/);
   assert.match(css, /\.nav-rail\s*\{[\s\S]*?grid-template-rows:\s*var\(--traffic-spacer-height\) 44px 1px repeat\(4,\s*44px\) minmax\(0,\s*1fr\) 44px;[\s\S]*?margin:\s*8px 8px 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?background:\s*var\(--rail-glass-bg\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.16\);/);
-  assert.match(css, /:root\[data-theme="dark"\] \.nav-rail\s*\{[\s\S]*?background:\s*var\(--surface\);[\s\S]*?backdrop-filter:\s*none;/);
+  assert.match(css, /:root\[data-theme="dark"\] \.nav-rail\s*\{[\s\S]*?background:\s*var\(--rail-glass-bg\);[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(css, /\.traffic-spacer\s*\{[\s\S]*?height:\s*var\(--traffic-spacer-height\);/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?margin:\s*8px 8px 10px 0;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/);
   assert.match(css, /\.sidebar-rail-toggle\s*\{[\s\S]*?top:\s*12px;[\s\S]*?bottom:\s*12px;[\s\S]*?left:\s*calc\(var\(--rail-column-width\) - 7px\);[\s\S]*?width:\s*14px;[\s\S]*?height:\s*auto;[\s\S]*?background:\s*transparent;[\s\S]*?transform:\s*translateX\(-50%\);/);

@@ -79,6 +79,8 @@ function appearanceControls(overrides = {}) {
     appearanceFontPreset: { value: "serif" },
     appearanceAccentColor: { value: "#318ad3" },
     appearanceAccentPreview: { style: {} },
+    appearanceGlassOpacity: { value: "82" },
+    appearanceGlassOpacityValue: { textContent: "" },
     appearanceUserBubbleColor: { value: "#eeffde" },
     appearanceUserBubblePreview: { style: {} },
     appearanceSelectionStyle: { value: "solid" },
@@ -121,6 +123,11 @@ test("appearance normalizers keep the list style fixed to cards", () => {
   assert.equal(api.normalizeSelectionStyle("soft"), "soft");
   assert.equal(api.normalizeSelectionStyle("solid"), "solid");
   assert.equal(api.normalizeSelectionStyle("invalid"), "solid");
+  assert.equal(api.normalizeGlassOpacity(72.4), 72);
+  assert.equal(api.normalizeGlassOpacity("91"), 91);
+  assert.equal(api.normalizeGlassOpacity(40), 60);
+  assert.equal(api.normalizeGlassOpacity(141), 100);
+  assert.equal(api.normalizeGlassOpacity("bad"), 82);
 });
 
 test("applyAppearance writes card and soft choices to document state", () => {
@@ -132,11 +139,13 @@ test("applyAppearance writes card and soft choices to document state", () => {
     accentColor: "#318ad3",
     userBubbleColor: "#eeffde",
     listStyle: "card",
-    selectionStyle: "soft"
+    selectionStyle: "soft",
+    glassOpacity: 91
   });
 
   assert.equal(documentElement.dataset.selectionStyle, "soft");
   assert.equal(styleValues.get("--list-active-text"), "#318ad3");
+  assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-soft) 91%, transparent)");
 });
 
 test("appearance avatar toggles default off unless explicitly enabled", () => {
@@ -204,6 +213,7 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
       appearanceTheme: { value: "light" },
       appearanceFontPreset: { value: "system" },
       appearanceAccentColor: { value: "#318ad3" },
+      appearanceGlassOpacity: { value: "91" },
       appearanceUserBubbleColor: { value: "#eeffde" },
       appearanceSelectionStyle: { value: "solid" },
       appearanceShowHoverBackground: { getAttribute: () => "true" },
@@ -219,6 +229,7 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
   });
 
   assert.equal(api.currentAppearanceDraft().workspaceBackgroundColor, "#f0f0f3");
+  assert.equal(api.currentAppearanceDraft().glassOpacity, 91);
   assert.equal(api.currentAppearanceDraft().showDesktopNotifications, false);
 });
 
@@ -325,6 +336,7 @@ test("applyAppearance keeps default tokens when appearance deps are missing", ()
 
   assert.match(styleValues.get("--app-font"), /ui-serif/);
   assert.equal(styleValues.get("--accent"), "#318ad3");
+  assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-soft) 82%, transparent)");
   assert.equal(documentElement.dataset.selectionStyle, "soft");
 });
 
@@ -418,6 +430,18 @@ test("desktop appearance settings expose bottom board color and image controls",
   assert.match(cssSource, /\.workspace-background-controls \.accent-swatch\s*\{[\s\S]*border-radius:\s*8px;/);
   assert.match(cssSource, /\.workspace-background-controls \.accent-swatch span\s*\{[\s\S]*border-radius:\s*6px;/);
   assert.match(cssSource, /\.workspace-background-presets \.avatar-color-chip\s*\{[\s\S]*border-radius:\s*6px;/);
+});
+
+test("desktop appearance settings expose the shared glass opacity control", () => {
+  assert.match(htmlSource, /<strong>玻璃不透明度<\/strong>/);
+  assert.match(htmlSource, /id="appearanceGlassOpacity"[^>]*type="range"[^>]*min="60"[^>]*max="100"[^>]*value="82"/);
+  assert.match(htmlSource, /id="appearanceGlassOpacityValue">82%/);
+  assert.match(appSource, /appearanceGlassOpacity:\s*document\.getElementById\("appearanceGlassOpacity"\)/);
+  assert.match(appSource, /appearanceGlassOpacityValue:\s*document\.getElementById\("appearanceGlassOpacityValue"\)/);
+  assert.match(appSource, /appearanceGlassOpacity\?\.addEventListener\("input"/);
+  assert.match(appSource, /appearanceGlassOpacity\?\.addEventListener\("change"/);
+  assert.match(cssSource, /\.glass-opacity-control\s*\{[\s\S]*?grid-template-columns:\s*minmax\(120px,\s*1fr\)\s+44px;/);
+  assert.match(cssSource, /\.glass-opacity-control input\[type="range"\]\s*\{[\s\S]*?accent-color:\s*var\(--accent\);/);
 });
 
 test("appearance settings initialize before startup modules that can render", () => {

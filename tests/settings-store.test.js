@@ -67,6 +67,15 @@ test("appearanceSettings defaults chat avatars off and desktop notifications on"
   assert.equal(appearance.showAssistantAvatar, false);
   assert.equal(appearance.showDesktopNotifications, true);
   assert.equal(appearance.fontPreset, "serif");
+  assert.equal(appearance.glassOpacity, 82);
+});
+
+test("appearanceSettings falls back from invalid glass opacity", (t) => {
+  const { runtime, store } = setup(t);
+  fs.mkdirSync(path.dirname(runtime.appearanceSettings), { recursive: true });
+  fs.writeFileSync(runtime.appearanceSettings, JSON.stringify({ glassOpacity: "bad" }));
+
+  assert.equal(store.appearanceSettings().glassOpacity, 82);
 });
 
 test("appearanceSettings falls back from removed font presets", (t) => {
@@ -99,6 +108,7 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     showDesktopNotifications: false,
     listStyle: "invalid",
     selectionStyle: "solid",
+    glassOpacity: 141,
     workspaceBackgroundColor: "#ABCDEF",
     workspaceBackgroundImage: "data:image/png;base64,abc123"
   });
@@ -108,6 +118,7 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     fontPreset: "system",
     accentColor: "#aabbcc",
     userBubbleColor: "#eeffde",
+    glassOpacity: 100,
     showHoverBackground: false,
     showUserAvatar: false,
     showAssistantAvatar: false,

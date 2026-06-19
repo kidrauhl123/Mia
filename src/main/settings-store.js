@@ -19,6 +19,7 @@ const {
 
 const APPEARANCE_FONT_PRESETS = ["system", "serif"];
 const MAX_APPEARANCE_BACKGROUND_IMAGE_LENGTH = 4 * 1024 * 1024;
+const DEFAULT_GLASS_OPACITY = 82;
 
 function normalizeAppearanceFontPreset(value) {
   const preset = String(value || "").trim();
@@ -30,6 +31,12 @@ function normalizeAppearanceBackgroundImage(value) {
   if (!image) return "";
   if (image.length > MAX_APPEARANCE_BACKGROUND_IMAGE_LENGTH) return "";
   return /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(image) ? image : "";
+}
+
+function normalizeGlassOpacity(value, fallback = DEFAULT_GLASS_OPACITY) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(60, Math.min(100, Math.round(number)));
 }
 
 function createSettingsStore(deps = {}) {
@@ -78,6 +85,7 @@ function createSettingsStore(deps = {}) {
       fontPreset: "serif",
       accentColor: "#318ad3",
       userBubbleColor: "#eeffde",
+      glassOpacity: DEFAULT_GLASS_OPACITY,
       showHoverBackground: false,
       showUserAvatar: false,
       showAssistantAvatar: false,
@@ -166,6 +174,7 @@ function createSettingsStore(deps = {}) {
     const saved = readJson(p.appearanceSettings, {});
     const next = { ...defaultAppearanceSettings(), ...saved };
     next.fontPreset = normalizeAppearanceFontPreset(next.fontPreset);
+    next.glassOpacity = normalizeGlassOpacity(next.glassOpacity, DEFAULT_GLASS_OPACITY);
     next.listStyle = "card";
     next.showDesktopNotifications = next.showDesktopNotifications !== false;
     return next;
@@ -179,6 +188,9 @@ function createSettingsStore(deps = {}) {
     const fontPreset = String(settings.fontPreset || current.fontPreset || "serif").trim();
     const accentColor = String(settings.accentColor || current.accentColor || "#318ad3").trim();
     const userBubbleColor = String(settings.userBubbleColor || current.userBubbleColor || "#eeffde").trim();
+    const glassOpacity = has("glassOpacity")
+      ? normalizeGlassOpacity(settings.glassOpacity, current.glassOpacity || DEFAULT_GLASS_OPACITY)
+      : normalizeGlassOpacity(current.glassOpacity, DEFAULT_GLASS_OPACITY);
     const showHoverBackground = settings.showHoverBackground == null ? current.showHoverBackground !== false : settings.showHoverBackground !== false;
     const showUserAvatar = settings.showUserAvatar == null ? current.showUserAvatar === true : settings.showUserAvatar === true;
     const showAssistantAvatar = settings.showAssistantAvatar == null ? current.showAssistantAvatar === true : settings.showAssistantAvatar === true;
@@ -194,6 +206,7 @@ function createSettingsStore(deps = {}) {
       fontPreset: normalizeAppearanceFontPreset(fontPreset),
       accentColor: validHex(accentColor, "#318ad3"),
       userBubbleColor: validHex(userBubbleColor, "#eeffde"),
+      glassOpacity,
       showHoverBackground,
       showUserAvatar,
       showAssistantAvatar,
