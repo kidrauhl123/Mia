@@ -2186,27 +2186,29 @@ function cloudBotSnapshotForTurn(snapshot = null, key = "", runtimeConfig = null
   };
 }
 
-async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [] }) {
+async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [], signal: externalSignal = null, abortController: externalAbortController = null }) {
   utility = Boolean(utility);
   const shouldPersistAgentSession = persistAgentSession == null
     ? !utility
     : Boolean(persistAgentSession);
-  let abortController;
-  if (group || utility || background) {
+  let abortController = externalAbortController && typeof externalAbortController.abort === "function"
+    ? externalAbortController
+    : null;
+  if (!abortController && (group || utility || background)) {
     // Group dispatches run in parallel; each gets its own controller.
     // Utility calls also skip the 1v1 "single active chat" semantics.
     // Background runs (scheduled tasks) must not share the interactive
     // single-flight controller — otherwise any foreground/web chat (or an
     // overlapping task) aborts the task mid-generation ("生成已停止").
     abortController = new AbortController();
-  } else {
+  } else if (!abortController) {
     if (activeChatAbortController) {
       activeChatAbortController.abort();
     }
     abortController = new AbortController();
     activeChatAbortController = abortController;
   }
-  const { signal } = abortController;
+  const signal = externalSignal || abortController.signal;
   // chat:event drives background/remote trace capture (see runRemoteChatRequest's
   // tracedEventSink). Interactive cloud-conversation chats publish their own
   // cloud:event stream via local-bot-responder — those
@@ -2300,13 +2302,35 @@ async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages
   }
 }
 
-function stopChat() {
+async function stopChat(payload = {}) {
+  let stopped = false;
   if (activeChatAbortController) {
     activeChatAbortController.abort();
     activeChatAbortController = null;
-    return { stopped: true };
+    stopped = true;
   }
-  return { stopped: false };
+  const localStop = localBotResponder?.stopActiveConversationRun?.(payload) || { stopped: false };
+  const result = {
+    stopped: stopped || Boolean(localStop.stopped),
+    ...(localStop.conversationId ? { conversationId: localStop.conversationId } : {}),
+    ...(localStop.runId ? { runId: localStop.runId } : {})
+  };
+  if (!IS_DAEMON_PROCESS && daemonTasksClient?.call && settingsStore.daemonSettings().enabled) {
+    try {
+      const daemonStop = await daemonTasksClient?.call?.("/api/chat/stop", {
+        method: "POST",
+        body: JSON.stringify(payload || {})
+      });
+      return {
+        stopped: result.stopped || Boolean(daemonStop?.stopped),
+        ...(daemonStop?.conversationId || result.conversationId ? { conversationId: daemonStop?.conversationId || result.conversationId } : {}),
+        ...(daemonStop?.runId || result.runId ? { runId: daemonStop?.runId || result.runId } : {})
+      };
+    } catch (error) {
+      appendCloudLog(`[daemon] chat stop delegation failed: ${error?.message || error}`);
+    }
+  }
+  return result;
 }
 
 function shouldOpenAgentSetupWindow() {
@@ -2937,7 +2961,7 @@ ipcMain.handle(IpcChannel.AuthProviderStart, (_event, provider) => authService.s
 ipcMain.handle(IpcChannel.AuthProviderCancel, () => authService.cancelProviderOAuth());
 ipcMain.handle(IpcChannel.ChatSend, (event, payload) => sendChat({ ...payload, webContents: event.sender }));
 ipcMain.handle(IpcChannel.ChatSendStateless, (_event, payload) => sendChatStateless(payload));
-ipcMain.handle(IpcChannel.ChatStop, () => stopChat());
+ipcMain.handle(IpcChannel.ChatStop, (_event, payload) => stopChat(payload || {}));
 ipcMain.handle(IpcChannel.ChatPermissionRespond, (_event, payload) => agentPermissionProxy.respond(payload || {}));
 ipcMain.handle(IpcChannel.ChatPermissionList, (_event, payload) => agentPermissionProxy.list(payload || {}));
 ipcMain.handle(IpcChannel.ChatAttachmentSave, (_event, payload) => saveChatAttachment(payload));

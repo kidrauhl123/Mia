@@ -110,8 +110,25 @@
     }
   }
 
-  function localFilePathFromLinkTarget(target) {
+  function unwrapMarkdownLinkTarget(target) {
     const raw = String(target || "").trim();
+    if (raw.startsWith("<") && raw.endsWith(">")) return raw.slice(1, -1).trim();
+    return raw;
+  }
+
+  function splitLocalFileLineSuffix(filePath) {
+    const pathText = String(filePath || "");
+    const match = pathText.match(/^(.*):([1-9]\d*)(?::([1-9]\d*))?$/);
+    if (!match || !match[1]) return { path: pathText, line: "", column: "" };
+    return {
+      path: match[1],
+      line: match[2] || "",
+      column: match[3] || ""
+    };
+  }
+
+  function localFileSpecFromLinkTarget(target) {
+    const raw = unwrapMarkdownLinkTarget(target);
     if (!raw) return "";
     if (/^file:/i.test(raw)) {
       try {
@@ -128,29 +145,49 @@
         }
         pathname = safeDecodeUri(pathname);
         if (/^\/[A-Za-z]:[\\/]/.test(pathname)) pathname = pathname.slice(1);
-        return pathname;
+        return splitLocalFileLineSuffix(pathname);
       } catch {
-        return "";
+        return null;
       }
     }
     const decoded = safeDecodeUri(raw);
-    if (decoded.startsWith("/") || /^[A-Za-z]:[\\/]/.test(decoded) || /^\\\\/.test(decoded)) return decoded;
-    return "";
+    if (decoded.startsWith("/") || /^[A-Za-z]:[\\/]/.test(decoded) || /^\\\\/.test(decoded)) {
+      return splitLocalFileLineSuffix(decoded);
+    }
+    return null;
+  }
+
+  function localFilePathFromLinkTarget(target) {
+    return localFileSpecFromLinkTarget(target)?.path || "";
   }
 
   function markdownLinkSpec(text, target) {
-    const rawTarget = String(target || "").trim();
+    const rawTarget = unwrapMarkdownLinkTarget(target);
     if (/^https?:\/\/[^\s)]+$/i.test(rawTarget)) return { kind: "external", text, target: rawTarget };
-    const localPath = localFilePathFromLinkTarget(rawTarget);
-    if (localPath) return { kind: "local-file", text, target: localPath };
+    const localFile = localFileSpecFromLinkTarget(rawTarget);
+    if (localFile?.path) {
+      return {
+        kind: "local-file",
+        text,
+        target: localFile.path,
+        line: localFile.line || "",
+        column: localFile.column || ""
+      };
+    }
     return null;
   }
 
   function messageLinkHtml(link) {
+    const title = link.kind === "local-file" && link.line
+      ? `${link.target}:${link.line}${link.column ? `:${link.column}` : ""}`
+      : link.target;
+    const lineAttr = link.kind === "local-file" && link.line
+      ? ` data-local-file-line="${escapeHtml(link.line)}"${link.column ? ` data-local-file-column="${escapeHtml(link.column)}"` : ""}`
+      : "";
     const attr = link.kind === "local-file"
-      ? `data-local-file-path="${escapeHtml(link.target)}"`
+      ? `data-local-file-path="${escapeHtml(link.target)}"${lineAttr}`
       : `data-external-link="${escapeHtml(link.target)}"`;
-    return `<a class="message-link" ${attr} role="link" tabindex="0" title="${escapeHtml(link.target)}">${escapeHtml(link.text)}</a>`;
+    return `<a class="message-link" ${attr} role="link" tabindex="0" title="${escapeHtml(title)}">${escapeHtml(link.text)}</a>`;
   }
 
   function previewLinkHtml(link) {

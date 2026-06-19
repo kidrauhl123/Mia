@@ -1334,6 +1334,75 @@ test("sendInActiveConversation shows outgoing cloud messages before the network 
   assert.equal(entry.maxSeq, 1);
 });
 
+test("sendInActiveConversation keeps later pending messages after an earlier server echo", async () => {
+  const s = loadSocial();
+  const posts = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async (conversationId, body) => {
+      const pending = deferred();
+      posts.push({ conversationId, body, pending });
+      return pending.promise;
+    }
+  };
+  s.moduleState.activeConversationId = "g_order";
+  s.moduleState.conversations = [{ id: "g_order", type: "group", name: "Order" }];
+  s.moduleState.messageCache.set("g_order", { messages: [], maxSeq: 0 });
+
+  const firstSend = s.sendInActiveConversation("first");
+  const secondSend = s.sendInActiveConversation("second");
+  const entry = s.moduleState.messageCache.get("g_order");
+
+  assert.deepEqual(entry.messages.map((m) => m.body_md), ["first", "second"]);
+
+  posts[0].pending.resolve({
+    ok: true,
+    data: { message: { id: "m_first", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "first" } }
+  });
+  await firstSend;
+
+  assert.deepEqual(entry.messages.map((m) => m.body_md), ["first", "second"]);
+
+  posts[1].pending.resolve({
+    ok: true,
+    data: { message: { id: "m_second", seq: 2, sender_kind: "user", sender_ref: "u_me", body_md: "second" } }
+  });
+  await secondSend;
+
+  assert.deepEqual(entry.messages.map((m) => m.body_md), ["first", "second"]);
+});
+
+test("sendInActiveConversation blocks a second user message while the active bot run is running", async () => {
+  const s = loadSocial();
+  const posted = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async (conversationId, body) => {
+      posted.push({ conversationId, body });
+      return { ok: true, data: { message: { id: "m_server", seq: 1, body_md: body.bodyMd } } };
+    }
+  };
+  s.moduleState.activeConversationId = "g_busy";
+  s.moduleState.conversations = [{ id: "g_busy", type: "group", name: "Busy" }];
+  s.moduleState.messageCache.set("g_busy", { messages: [], maxSeq: 0 });
+  s.moduleState.cloudAgentRunsByConversation.set("g_busy", {
+    runId: "car_busy",
+    conversationId: "g_busy",
+    botId: "codex",
+    status: "running"
+  });
+
+  const result = await s.sendInActiveConversation("too soon");
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    ok: false,
+    status: 409,
+    error: "CONVERSATION_RUN_IN_PROGRESS"
+  });
+  assert.equal(posted.length, 0);
+  assert.equal(s.moduleState.messageCache.get("g_busy").messages.length, 0);
+});
+
 test("sendInActiveConversation posts and previews attachment-only messages", async () => {
   const s = loadSocial();
   const posted = [];
@@ -2517,6 +2586,40 @@ test("renderConversationChat does not label tool-only agent activity as typing",
   assert.doesNotMatch(chat.children[0].innerHTML, /typing-status/);
 });
 
+test("renderConversationChat renders active cloud run status at the bottom of the stream", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "pwd" } },
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /agent-run-status/);
+  assert.match(chat.children[0].innerHTML, /正在执行 shell/);
+  assert.match(chat.children[0].innerHTML, /0s/);
+});
+
 test("renderConversationChat renders normalized cloud run trace blocks", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
@@ -2823,6 +2926,58 @@ test("handleCloudEvent bot reply clears transient cloud agent stream", () => {
     },
   });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+});
+
+test("handleCloudEvent materializes a cancelled cloud run before the next outgoing message", async () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  const post = deferred();
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async () => post.promise
+  };
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", {
+    messages: [{ id: "m_prev", seq: 1, sender_kind: "user", sender_ref: "u_a", body_md: "上一个问题" }],
+    maxSeq: 1
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_cancel", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_cancel", event: { type: "message.delta", delta: "我先检查。" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_cancel", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "pwd" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_cancel", event: { type: "run.cancelled" } },
+  });
+
+  const entry = s.moduleState.messageCache.get("botc_u_a_mia");
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+  assert.equal(entry.messages.length, 2);
+  assert.equal(entry.messages[1].sender_kind, "bot");
+  assert.equal(entry.messages[1]._localRunStatus, "cancelled");
+  assert.match(entry.messages[1].body_md, /我先检查/);
+
+  const sendPromise = s.sendInActiveConversation("新的问题");
+  assert.deepEqual(entry.messages.map((msg) => msg.body_md), ["上一个问题", "我先检查。", "新的问题"]);
+
+  post.resolve({
+    ok: true,
+    data: { message: { id: "m_next", seq: 2, sender_kind: "user", sender_ref: "u_a", body_md: "新的问题" } }
+  });
+  await sendPromise;
+
+  assert.deepEqual(entry.messages.map((msg) => msg.body_md), ["上一个问题", "我先检查。", "新的问题"]);
+  assert.equal(entry.messages[1]._localRunStatus, "cancelled");
 });
 
 test("handleCloudEvent bot reply replaces the active streaming bubble", () => {

@@ -9,6 +9,7 @@ function setup(overrides = {}) {
     permissionWrites: [],
     modelSelections: [],
     remoteChats: [],
+    stops: [],
     stream: []
   };
   const router = createRemoteControlRouter({
@@ -28,7 +29,10 @@ function setup(overrides = {}) {
     },
     writeEffortSettings: (body) => calls.effortWrites.push(body),
     writePermissionSettings: (body) => calls.permissionWrites.push(body),
-    stopChat: () => ({ stopped: true }),
+    stopChat: async (body) => {
+      calls.stops.push(body);
+      return { stopped: true, body };
+    },
     runRemoteChatRequest: async (body, eventSink = null) => {
       calls.remoteChats.push({ body, eventSink });
       if (eventSink) eventSink.send("chat", { delta: "hello" });
@@ -77,6 +81,22 @@ test("routes model, effort, and permission mutations without duplicating adapter
   }]);
   assert.deepEqual(calls.effortWrites, [{ effort: "high" }]);
   assert.deepEqual(calls.permissionWrites, [{ mode: "ask" }]);
+});
+
+test("routes chat stop with the conversation payload intact", async () => {
+  const { calls, router } = setup();
+
+  const result = await router.route({
+    method: "POST",
+    path: "/api/chat/stop",
+    body: { conversationId: "g_1", runId: "local_1" }
+  });
+
+  assert.deepEqual(calls.stops, [{ conversationId: "g_1", runId: "local_1" }]);
+  assert.deepEqual(result, {
+    handled: true,
+    data: { stopped: true, body: { conversationId: "g_1", runId: "local_1" } }
+  });
 });
 
 test("routes chat stream by emitting chat and result events before done", async () => {

@@ -65,6 +65,47 @@ test("cloud conversation composer sends pending attachments and clears the tray"
   assert.match(appSource, /window\.miaComposer\.renderComposerAttachments\(\);/);
 });
 
+test("cloud conversation composer checks active runs before clearing the draft", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const submitStart = appSource.indexOf('els.chatForm.addEventListener("submit"');
+  const submitEnd = appSource.indexOf("// Cloud-only:", submitStart);
+  const submitBody = appSource.slice(submitStart, submitEnd);
+  const busyGuard = submitBody.indexOf("isActiveRunRunning()");
+  const clearDraft = submitBody.indexOf('els.chatInput.value = "";');
+
+  assert.ok(submitStart >= 0, "chat submit handler should exist");
+  assert.ok(submitEnd > submitStart, "cloud conversation branch should be extractable");
+  assert.ok(clearDraft >= 0, "cloud conversation branch should clear the draft after accepting a send");
+  assert.ok(busyGuard >= 0, "cloud conversation submit must check the active run state");
+  assert.ok(busyGuard < clearDraft, "busy guard must run before clearing the composer draft");
+});
+
+test("active conversation stop passes the conversation id through preload to main", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const clickStart = appSource.indexOf('els.sendChat.addEventListener("click"');
+  const clickEnd = appSource.indexOf('els.chat.addEventListener("click"', clickStart);
+  const clickBody = appSource.slice(clickStart, clickEnd);
+
+  assert.match(clickBody, /window\.mia\.stopChat\?\.\(\{\s*conversationId:\s*window\.miaSocial\?\.getActiveConversationId\?\.\(\)/);
+  assert.match(preloadSource, /stopChat:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.ChatStop,\s*payload\)/);
+  assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.ChatStop,\s*\(_event,\s*payload\)\s*=>\s*stopChat\(payload\s*\|\|\s*\{\}\)\)/);
+  assert.match(mainSource, /localBotResponder\?\.stopActiveConversationRun\?\.\(payload\)/);
+});
+
+test("foreground active conversation stop delegates to the daemon owner", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const stopStart = mainSource.indexOf("async function stopChat");
+  const stopEnd = mainSource.indexOf("function shouldOpenAgentSetupWindow", stopStart);
+  const stopBody = mainSource.slice(stopStart, stopEnd);
+
+  assert.ok(stopStart >= 0, "stopChat should be async because daemon forwarding is async");
+  assert.match(stopBody, /!IS_DAEMON_PROCESS/);
+  assert.match(stopBody, /daemonTasksClient\?\.call\?\.\("\/api\/chat\/stop"/);
+  assert.match(stopBody, /body:\s*JSON\.stringify\(payload\s*\|\|\s*\{\}\)/);
+});
+
 test("composer pending attachments are thumbnail-first and open the image editor", () => {
   const composerSource = fs.readFileSync(path.join(root, "src/renderer/chat/composer.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");

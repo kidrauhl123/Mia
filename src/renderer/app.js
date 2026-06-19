@@ -6117,7 +6117,9 @@ els.sendChat.addEventListener("click", async (event) => {
   if (!isActiveRunRunning()) return;
   event.preventDefault();
   event.stopPropagation();
-  await window.mia.stopChat?.();
+  await window.mia.stopChat?.({
+    conversationId: window.miaSocial?.getActiveConversationId?.() || ""
+  });
 });
 els.chat.addEventListener("click", async (event) => {
   const jumpBtn = event.target.closest?.("[data-jump-task]");
@@ -6278,6 +6280,10 @@ els.chatForm.addEventListener("submit", async (event) => {
     const pendingAttachments = [...state.pendingAttachments].slice(0, 20);
     let conversationText = window.miaComposer.expandPathPasteRefsForSend(composerText);
     if (!conversationText.trim() && !pendingAttachments.length) return;
+    if (isActiveRunRunning()) {
+      renderSendButton();
+      return;
+    }
     // Cloud conversations have no reply_to column, so a quote-reply is embedded as a
     // markdown blockquote at the head of the message — visible to every member.
     const conversationReply = state.replyDraft ? { ...state.replyDraft } : null;

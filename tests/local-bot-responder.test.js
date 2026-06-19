@@ -48,7 +48,11 @@ test("respond runs the local engine and posts the reply as the bot", async () =>
   assert.equal(calls.engine.length, 1);
   const engineCall = { ...calls.engine[0] };
   assert.equal(typeof engineCall.emit, "function");
+  assert.equal(engineCall.signal.aborted, false);
+  assert.equal(typeof engineCall.abortController.abort, "function");
   delete engineCall.emit;
+  delete engineCall.signal;
+  delete engineCall.abortController;
   assert.deepEqual(engineCall, {
     botKey: "codex",
     botId: "codex",
@@ -220,6 +224,42 @@ test("respond emits a transient conversation run start before the local engine c
   assert.equal(calls.cloudEvents[0].botId, "codex");
   assert.equal(calls.cloudEvents[0].triggerMessageId, "m_1");
   assert.match(calls.cloudEvents[0].runId, /^local_/);
+});
+
+test("stopActiveConversationRun aborts the in-flight local engine turn without posting an error bubble", async () => {
+  const { responder, calls } = setup({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      return new Promise((_resolve, reject) => {
+        args.signal.addEventListener("abort", () => {
+          const stopped = new Error("生成已停止");
+          stopped.code = "MIA_STOPPED";
+          reject(stopped);
+        }, { once: true });
+      });
+    }
+  });
+
+  const responsePromise = responder.respond(base);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(calls.engine.length, 1);
+  assert.equal(calls.engine[0].signal.aborted, false);
+
+  const stopResult = responder.stopActiveConversationRun({ conversationId: "g_1" });
+  const handled = await responsePromise;
+
+  assert.deepEqual(stopResult, {
+    stopped: true,
+    conversationId: "g_1",
+    runId: calls.cloudEvents[0].runId
+  });
+  assert.equal(handled, true);
+  assert.equal(calls.engine[0].signal.aborted, true);
+  assert.equal(calls.post.length, 0);
+  assert.equal(calls.cloudEvents.at(-1).type, "cloud_agent_run_event");
+  assert.equal(calls.cloudEvents.at(-1).event.type, "run.cancelled");
 });
 
 test("respond publishes the persisted bot message immediately after posting it", async () => {

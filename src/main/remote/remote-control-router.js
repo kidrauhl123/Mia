@@ -107,7 +107,7 @@ function createRemoteControlRouter({
       return { handled: true, data: getRuntimeStatus() };
     }
     if (routeInfo.method === "POST" && routeInfo.pathname === "/api/chat/stop") {
-      return { handled: true, data: stopChat() };
+      return { handled: true, data: await stopChat(body || {}) };
     }
     if (routeInfo.method === "POST" && routeInfo.pathname === "/api/chat/send") {
       const result = await runRemoteChatRequest(body);

@@ -9,6 +9,8 @@
   // the server adds fields like trace_json after the row was first cached.
   const MESSAGE_BACKFILL_OVERLAP = 50;
   const MESSAGE_REMOVE_ANIMATION_MS = 180;
+  const LOCAL_TIMELINE_SEQ_STEP = 0.000001;
+  const LOCAL_TIMELINE_SEQ_SENTINEL = 1000000000000;
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   // Device-local memory of the last conversation the user had open, so relaunch
   // lands back on it instead of an empty chat pane. Same renderer-prefs convention
@@ -205,9 +207,14 @@
       status: msg.status || "",
       error: msg.error || "",
       trace: msg.trace_json || msg.trace || "",
+      contentBlocks: msg.content_blocks_json || msg.contentBlocks || msg.content_blocks || "",
       skills: msg.skills_json || "",
       attachments: msg.attachments || [],
-      translation: msg.translation || null
+      translation: msg.translation || null,
+      localRunId: msg._localRunId || "",
+      localRunStatus: msg._localRunStatus || "",
+      localRunStatusText: msg._localRunStatusText || "",
+      localRunElapsedMs: msg._localRunElapsedMs || 0
     });
   }
 
@@ -216,9 +223,12 @@
     return jsonSignature({
       runId: run.runId || "",
       botId: run.botId || "",
+      status: run.status || "",
       text: run.text || "",
       reasoning: run.reasoning || "",
       tools: run.tools || [],
+      goal: run.goal || null,
+      pendingPermissions: run.pendingPermissions || [],
       createdAt: run.createdAt || ""
     });
   }
@@ -395,6 +405,7 @@
 
   let deps = null;
   let _cloudRunRenderFrame = 0;
+  let _cloudRunStatusTimer = 0;
   let _permissionBannerWired = false;
   const _permissionDecisionInFlight = new Set();
   const _localDeletingMessageKeys = new Set();
@@ -655,6 +666,7 @@
   function applyCloudAgentRunEvent(run, event = {}) {
     const name = eventType(event);
     collectRunContentBlock(run, event);
+    applyRunGoalEvent(run, event);
     if (name === "message.delta" || name === "text_delta") {
       run.text += eventText(event);
     } else if (name === "message.complete" || name === "message.completed") {
@@ -782,6 +794,162 @@
       return api.contentBlocksWithFinalText(blocks, finalText);
     }
     return blocks;
+  }
+
+  function safeMessageSeq(value) {
+    const seq = Number(value);
+    return Number.isFinite(seq) ? seq : 0;
+  }
+
+  function nextLocalTimelineSeq(entry) {
+    const messages = Array.isArray(entry?.messages) ? entry.messages : [];
+    let maxSeq = safeMessageSeq(entry?.maxSeq);
+    for (const message of messages) {
+      const seq = safeMessageSeq(message?.seq);
+      if (seq > maxSeq && seq < LOCAL_TIMELINE_SEQ_SENTINEL) maxSeq = seq;
+    }
+    return maxSeq + LOCAL_TIMELINE_SEQ_STEP;
+  }
+
+  function sortMessagesByTimelineSeq(messages) {
+    if (!Array.isArray(messages)) return [];
+    return messages.sort((a, b) => safeMessageSeq(a?.seq) - safeMessageSeq(b?.seq));
+  }
+
+  function runStartedMs(run) {
+    const startedAt = run?.createdAt || run?.startedAt || run?._localRunStartedAt || "";
+    const parsed = Date.parse(startedAt);
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+
+  function runElapsedMs(run) {
+    const fixed = Number(run?._localRunElapsedMs);
+    if (Number.isFinite(fixed) && fixed > 0) return fixed;
+    return Math.max(0, Date.now() - runStartedMs(run));
+  }
+
+  function formatRunElapsed(ms) {
+    const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000) || 0);
+    if (totalSeconds < 60) return `${totalSeconds}s`;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes < 60) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const restMinutes = minutes % 60;
+    return restMinutes ? `${hours}h ${restMinutes}m` : `${hours}h`;
+  }
+
+  function latestRunToolForStatus(run) {
+    const tools = Array.isArray(run?.tools) ? run.tools : [];
+    for (let i = tools.length - 1; i >= 0; i -= 1) {
+      if (String(tools[i]?.status || "") === "running") return tools[i];
+    }
+    return tools.length ? tools[tools.length - 1] : null;
+  }
+
+  function normalizeRunGoal(goal) {
+    if (!goal || typeof goal !== "object") return null;
+    const objective = firstText(goal.objective, goal.title, goal.name, goal.display, goal.text);
+    if (!objective) return null;
+    const usage = goal.usage && typeof goal.usage === "object" ? goal.usage : {};
+    return {
+      objective,
+      status: String(goal.status || ""),
+      tokenBudget: Number(goal.tokenBudget ?? goal.token_budget ?? usage.tokenBudget ?? usage.token_budget) || 0,
+      tokensUsed: Number(goal.tokensUsed ?? goal.tokens_used ?? usage.tokensUsed ?? usage.tokens_used) || 0
+    };
+  }
+
+  function applyRunGoalEvent(run, event = {}) {
+    const goal = normalizeRunGoal(event.goal || event.currentGoal || event.data?.goal || event.data?.currentGoal);
+    if (goal) run.goal = goal;
+  }
+
+  function runGoalStatusText(run) {
+    const goal = normalizeRunGoal(run?.goal);
+    if (!goal) return "";
+    const usage = goal.tokenBudget > 0
+      ? ` ${goal.tokensUsed}/${goal.tokenBudget}`
+      : (goal.tokensUsed > 0 ? ` ${goal.tokensUsed}` : "");
+    return `目标：${goal.objective}${usage}`;
+  }
+
+  function runActivityLabel(run) {
+    const status = String(run?._localRunStatus || run?.status || "").trim();
+    if (status === "cancelled") return firstText(run?._localRunStatusText, "已中断");
+    if (status === "error") return "运行失败";
+    if (Array.isArray(run?.pendingPermissions) && run.pendingPermissions.length) {
+      return "等待授权";
+    }
+    const tool = latestRunToolForStatus(run);
+    if (tool && String(tool.status || "") === "running") {
+      return `正在执行 ${tool.name || "工具"}`;
+    }
+    if (run?.text) return "正在生成回复";
+    if (run?.reasoning) return "正在思考";
+    if (tool) return "正在整理结果";
+    return "正在处理";
+  }
+
+  function renderRunStatusLine(run, options = {}) {
+    if (!run) return "";
+    const status = String(run._localRunStatus || run.status || (options.cancelled ? "cancelled" : "running"));
+    const label = firstText(options.label, runActivityLabel(run));
+    const elapsed = formatRunElapsed(options.elapsedMs ?? runElapsedMs(run));
+    const goalText = runGoalStatusText(run);
+    const statusClass = status === "cancelled" ? " is-interrupted" : (status === "error" ? " is-error" : " is-running");
+    return `
+      <div class="agent-run-status${statusClass}" data-run-status="${escapeHtml(status)}">
+        <span class="agent-run-status-dot" aria-hidden="true"></span>
+        <span class="agent-run-status-label">${escapeHtml(label)}</span>
+        ${goalText ? `<span class="agent-run-status-goal">${escapeHtml(goalText)}</span>` : ""}
+        <span class="agent-run-status-elapsed">${escapeHtml(elapsed)}</span>
+      </div>
+    `;
+  }
+
+  function localRunMessageId(run, conversationId) {
+    const key = String(run?.runId || run?.hermesRunId || conversationId || Date.now()).trim();
+    const safe = key.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "run";
+    return `local_run_cancelled_${safe}`;
+  }
+
+  function materializeCancelledCloudRun(conversationId, run) {
+    if (!conversationId || !run) return null;
+    if (!moduleState.messageCache.has(conversationId)) {
+      moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+    }
+    const entry = moduleState.messageCache.get(conversationId);
+    const runKey = String(run.runId || run.hermesRunId || conversationId || "").trim();
+    const id = localRunMessageId(run, conversationId);
+    const existing = entry.messages.find((message) => (
+      message?.id === id
+      || (runKey && message?._localRunStatus === "cancelled" && message?._localRunId === runKey)
+    ));
+    if (existing) return existing;
+
+    const conversation = moduleState.conversations.find((item) => item.id === conversationId) || { id: conversationId };
+    const trace = tracePayloadFromRun(run);
+    const contentBlocks = contentBlocksPayloadFromRun(run, run.text || "");
+    const message = {
+      id,
+      seq: nextLocalTimelineSeq(entry),
+      sender_kind: conversationKinds().SenderKind.Bot,
+      sender_ref: run.botId || sessionHistoryShared().botId(conversation) || "mia",
+      body_md: run.text || "",
+      created_at: new Date().toISOString(),
+      _localRunId: runKey,
+      _localRunStatus: "cancelled",
+      _localRunStatusText: "已中断",
+      _localRunStartedAt: run.createdAt || "",
+      _localRunElapsedMs: runElapsedMs(run)
+    };
+    if (trace) message.trace = trace;
+    if (contentBlocks) message.contentBlocks = contentBlocks;
+    if (run.goal) message.goal = run.goal;
+    entry.messages.push(message);
+    sortMessagesByTimelineSeq(entry.messages);
+    return message;
   }
 
   function messageWithFallbackRunTrace(conversationId, message) {
@@ -1229,6 +1397,28 @@
     });
   }
 
+  function refreshCloudRunStatusTimer() {
+    const hasRunningRun = Array.from(moduleState.cloudAgentRunsByConversation.values())
+      .some((run) => run?.status === "running");
+    if (!hasRunningRun) {
+      if (_cloudRunStatusTimer && typeof global.clearInterval === "function") {
+        global.clearInterval(_cloudRunStatusTimer);
+      }
+      _cloudRunStatusTimer = 0;
+      return;
+    }
+    if (_cloudRunStatusTimer || typeof global.setInterval !== "function") return;
+    _cloudRunStatusTimer = global.setInterval(() => {
+      const activeRun = activeConversationRun();
+      if (!activeRun || activeRun.status !== "running") {
+        refreshCloudRunStatusTimer();
+        return;
+      }
+      _reRenderActiveChat({ force: true });
+      if (deps && typeof deps.paintHeaderStatus === "function") deps.paintHeaderStatus();
+    }, 1000);
+  }
+
   function activeConversationRun() {
     const conversationId = moduleState.activeConversationId;
     if (!conversationId) return null;
@@ -1239,6 +1429,15 @@
     const id = String(conversationId || "").trim();
     if (!id) return null;
     return moduleState.cloudAgentRunsByConversation.get(id) || null;
+  }
+
+  function conversationRunIsRunning(conversationId) {
+    return conversationRun(conversationId)?.status === "running";
+  }
+
+  function activeConversationCanSend() {
+    const conversationId = moduleState.activeConversationId;
+    return Boolean(conversationId) && !conversationRunIsRunning(conversationId);
   }
 
   // Parse dm:<a>:<b> and return the user-id that is NOT myUserId.
@@ -1894,6 +2093,7 @@
       run.status = "running";
       if (!wasRunning && deps && typeof deps.render === "function") deps.render();
       scheduleCloudRunRender(conversationId);
+      refreshCloudRunStatusTimer();
       return;
     }
 
@@ -1906,11 +2106,22 @@
       const run = cloudRunFor(conversationId, payload.runId || "");
       run.botId = payload.botId || run.botId || "";
       applyCloudAgentRunEvent(run, hermesEvent);
+      if (run.status === "cancelled") {
+        materializeCancelledCloudRun(conversationId, run);
+        clearRunPermissions(run);
+        moduleState.cloudAgentRunsByConversation.delete(conversationId);
+        renderAgentPermissionBanner();
+        refreshCloudRunStatusTimer();
+        if (deps && typeof deps.render === "function") deps.render();
+        if (conversationId === moduleState.activeConversationId) _reRenderActiveChat({ force: true });
+        return;
+      }
       const isRunning = run.status === "running";
       if ((!previousRun && isRunning) || wasRunning !== isRunning) {
         if (deps && typeof deps.render === "function") deps.render();
       }
       scheduleCloudRunRender(conversationId);
+      refreshCloudRunStatusTimer();
       return;
     }
 
@@ -1936,6 +2147,7 @@
       if (isBotMessage) {
         clearRunPermissions(moduleState.cloudAgentRunsByConversation.get(conversationId));
         moduleState.cloudAgentRunsByConversation.delete(conversationId);
+        refreshCloudRunStatusTimer();
         renderAgentPermissionBanner();
         // First bot reply in an untitled conversation → auto-title it.
         if (deps && typeof deps.maybeGenerateConversationTitle === "function") {
@@ -2286,14 +2498,17 @@
         scopeKey: `cloud-msg:${msg.id || ""}`
       })
       : "";
-    // Render the bubble unconditionally (matching the group builder) so even an
-    // attachment-only / empty-body message keeps a right-clickable carrier with
-    // the data attributes the app.js contextmenu dispatcher looks for. Skill
-    // chips the user selected for this message render at the top of the bubble.
-    const bubbleHtml = `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentHtml}${senderHtml}${skillsHtml}${bodyHtml}</div>`;
+    // Render the bubble for normal messages even when empty so attachment-only
+    // rows keep a context-menu carrier. Local run-status rows without content
+    // can stay as a compact status line.
+    const shouldRenderEmptyCarrier = !msg._localRunStatus || bodyHtml || attachmentHtml || senderHtml || skillsHtml;
+    const bubbleHtml = shouldRenderEmptyCarrier
+      ? `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentHtml}${senderHtml}${skillsHtml}${bodyHtml}</div>`
+      : "";
     const orderedBlocksWithAttachments = orderedBlocksHtml && !renderedFirstTextBlock && attachmentHtml
       ? `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentHtml}${senderHtml}${skillsHtml}</div>${orderedBlocksHtml}`
       : orderedBlocksHtml;
+    const runStatusHtml = !isUser && msg._localRunStatus ? renderRunStatusLine(msg) : "";
     const createdAt = msg.created_at || msg.createdAt || "";
     const timeHtml = createdAt
       ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.miaTimeFormat.formatMessageTime(createdAt))}</time>`
@@ -2315,6 +2530,7 @@
         ${traceHtml}
         ${orderedBlocksWithAttachments || bubbleHtml}
         ${_renderMsgTranslation(msg)}
+        ${runStatusHtml}
         ${timeHtml}
         ${renderSendStatus(msg)}
       </div>
@@ -2376,6 +2592,7 @@
     const toolsHtml = !orderedBlocksHtml && !traceHtml && run.tools.length
       ? `<div class="message-attachments">${run.tools.slice(-3).map((tool) => `<span class="message-attachment"><span>TOOL</span><strong>${escapeHtml(tool.name || "工具")}</strong><em>${escapeHtml(tool.status || "")}</em></span>`).join("")}</div>`
       : "";
+    const statusHtml = renderRunStatusLine(run);
     const article = document.createElement("article");
     article.className = `message assistant streaming${options.groupMessage ? " group-message" : ""}`;
     article.innerHTML = `
@@ -2383,6 +2600,7 @@
       <div class="message-stack">
         ${orderedBlocksHtml || `${traceHtml}${bodyHtml ? `<div class="bubble">${bodyHtml}</div>` : ""}`}
         ${toolsHtml}
+        ${statusHtml}
       </div>
     `;
     return article;
@@ -2626,9 +2844,10 @@
     if (!moduleState.messageCache.has(conversationId)) {
       moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
     }
+    const entry = moduleState.messageCache.get(conversationId);
     const msg = {
       id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      seq: Number.MAX_SAFE_INTEGER,
+      seq: nextLocalTimelineSeq(entry),
       sender_kind: conversationKinds().SenderKind.User,
       sender_ref: moduleState.myUserId || "",
       body_md: prepared.bodyMd,
@@ -2642,9 +2861,8 @@
       created_at: new Date().toISOString(),
       _localPending: true
     };
-    const entry = moduleState.messageCache.get(conversationId);
     entry.messages.push(msg);
-    entry.messages.sort((a, b) => a.seq - b.seq);
+    sortMessagesByTimelineSeq(entry.messages);
     if (conversationId === moduleState.activeConversationId) _appendMessageToActiveChat(msg);
     if (deps && typeof deps.render === "function") deps.render();
     return msg;
@@ -2684,6 +2902,19 @@
     return Boolean(senderRef && moduleState.myUserId && senderRef === moduleState.myUserId) || _isMessageFromSelf(message);
   }
 
+  function _resequencePendingMessagesAfterServerSeq(entry, serverSeq) {
+    if (!entry || !Array.isArray(entry.messages)) return;
+    let cursor = Math.max(safeMessageSeq(serverSeq), safeMessageSeq(entry.maxSeq));
+    if (cursor <= 0) return;
+    const pending = entry.messages
+      .filter((message) => message?._localPending && safeMessageSeq(message.seq) <= cursor)
+      .sort((a, b) => safeMessageSeq(a.seq) - safeMessageSeq(b.seq));
+    for (const message of pending) {
+      cursor += LOCAL_TIMELINE_SEQ_STEP;
+      message.seq = cursor;
+    }
+  }
+
   function _localPendingEchoIndexWithoutTurnId(entry, sentMsg) {
     if (sentMsg.turn_id || sentMsg.sender_kind !== conversationKinds().SenderKind.User || !_messageLooksFromSelf(sentMsg)) return -1;
     const sentBody = String(sentMsg.body_md || "");
@@ -2710,7 +2941,8 @@
       : _localPendingEchoIndexWithoutTurnId(entry, sentMsg);
     if (localIdx < 0) return false;
     entry.messages[localIdx] = sentMsg;
-    entry.messages.sort((a, b) => a.seq - b.seq);
+    _resequencePendingMessagesAfterServerSeq(entry, sentMsg.seq);
+    sortMessagesByTimelineSeq(entry.messages);
     if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
     if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
     if (deps && typeof deps.render === "function") deps.render();
@@ -2732,7 +2964,8 @@
     } else {
       entry.messages.push(sentMsg);
     }
-    entry.messages.sort((a, b) => a.seq - b.seq);
+    _resequencePendingMessagesAfterServerSeq(entry, sentMsg.seq);
+    sortMessagesByTimelineSeq(entry.messages);
     if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
     if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
     if (deps && typeof deps.render === "function") deps.render();
@@ -3075,6 +3308,13 @@
   async function sendInActiveConversation(text, options = {}) {
     const conversationId = moduleState.activeConversationId;
     if (!conversationId) return;
+    if (conversationRunIsRunning(conversationId)) {
+      return {
+        ok: false,
+        status: 409,
+        error: "CONVERSATION_RUN_IN_PROGRESS"
+      };
+    }
     const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
     const conversationType = conversationTypeFor(conversation, conversationId);
     const members = _conversationMembersCache.get(conversationId) || [];
@@ -3971,6 +4211,8 @@
     getActiveConversationId,
     activeConversationRun,
     conversationRun,
+    conversationRunIsRunning,
+    activeConversationCanSend,
     getConversationById,
     botConversationForKey,
     setActiveConversationId,

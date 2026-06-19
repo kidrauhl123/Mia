@@ -76,7 +76,7 @@ contextBridge.exposeInMainWorld("mia", {
   cancelProviderOAuth: () => ipcRenderer.invoke(IpcChannel.AuthProviderCancel),
   sendChat: (payload) => ipcRenderer.invoke(IpcChannel.ChatSend, payload),
   sendChatStateless: (payload) => ipcRenderer.invoke(IpcChannel.ChatSendStateless, payload),
-  stopChat: () => ipcRenderer.invoke(IpcChannel.ChatStop),
+  stopChat: (payload) => ipcRenderer.invoke(IpcChannel.ChatStop, payload),
   respondChatPermission: (payload) => ipcRenderer.invoke(IpcChannel.ChatPermissionRespond, payload),
   listChatPermissions: (payload) => ipcRenderer.invoke(IpcChannel.ChatPermissionList, payload),
   saveAttachment: (payload) => ipcRenderer.invoke(IpcChannel.ChatAttachmentSave, payload),

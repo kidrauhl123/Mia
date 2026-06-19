@@ -37,6 +37,20 @@ test("markdown renders bracketed absolute file paths as local file links", () =>
   assert.doesNotMatch(html, /data-external-link/);
 });
 
+test("markdown renders angle-bracket local file links with line numbers", () => {
+  const markdown = loadMarkdownHelpers();
+  const html = markdown.renderMarkdown(
+    "见 [index.tsx]\n(</Users/jung/GitHub/Premsir/apps/server/src/plugins/premsir-marketplace/dashboard/index.tsx:1794>)。"
+  );
+
+  assert.match(
+    html,
+    /<a class="message-link" data-local-file-path="\/Users\/jung\/GitHub\/Premsir\/apps\/server\/src\/plugins\/premsir-marketplace\/dashboard\/index\.tsx" data-local-file-line="1794" role="link" tabindex="0" title="\/Users\/jung\/GitHub\/Premsir\/apps\/server\/src\/plugins\/premsir-marketplace\/dashboard\/index\.tsx:1794">index\.tsx<\/a>/
+  );
+  assert.doesNotMatch(html, /&lt;\/Users\/jung\/GitHub\/Premsir/);
+  assert.doesNotMatch(html, /data-local-file-path="[^"]*:1794"/);
+});
+
 test("markdown renders file URLs as local file links", () => {
   const markdown = loadMarkdownHelpers();
   const html = markdown.renderMarkdown("[demo](file:///Users/jung/Library/Application%20Support/Mia/demo.txt)");
