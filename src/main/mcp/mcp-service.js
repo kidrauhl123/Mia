@@ -18,7 +18,8 @@ const {
   mcpFingerprint,
   normalizeMcpRecord,
   normalizeMcpRegistry,
-  parseMcpImportJson
+  parseMcpImportJson,
+  sanitizeSecretText
 } = require("./mcp-records.js");
 
 function readJson(fsImpl, filePath, fallback) {
@@ -95,13 +96,13 @@ function createMcpService(deps = {}) {
   function mergeStatus(sync = {}, statusEntry = {}) {
     return {
       status: String(statusEntry.status || "pending"),
-      message: String(statusEntry.message || statusEntry.error || "")
+      message: sanitizeSecretText(statusEntry.message || statusEntry.error || "")
     };
   }
 
   function applyStatuses(records, statuses = {}, options = {}) {
     const availableIds = options.availableIds || new Set();
-    const availableMessage = String(options.availableMessage || "");
+    const availableMessage = sanitizeSecretText(options.availableMessage || "");
     return records.map((record) => {
       const nextSync = { ...(record.sync || {}) };
       for (const engineId of MCP_ENGINE_IDS) {
@@ -258,7 +259,7 @@ function createMcpService(deps = {}) {
           status: result.status || "unknown",
           tools: Array.isArray(result.tools) ? result.tools : [],
           lastCheckedAt: now(),
-          lastError: String(result.error || "")
+          lastError: sanitizeSecretText(result.error || "")
         }));
       }
       const next = current.map((item) => (
@@ -268,13 +269,20 @@ function createMcpService(deps = {}) {
             status: String(result.status || "unknown"),
             tools: Array.isArray(result.tools) ? result.tools : [],
             lastCheckedAt: now(),
-            lastError: String(result.error || ""),
+            lastError: sanitizeSecretText(result.error || ""),
             enabled: result.success ? item.enabled : false,
             updatedAt: now()
           }
           : item
       ));
       const saved = saveRecords(next);
+      if (!result.success && existing.enabled !== false) {
+        const runtime = await applyRuntimeChanges(current, saved, {
+          availableIds: new Set([existing.id]),
+          availableMessage: "Disabled in Mia after failed test."
+        });
+        return ok(publicRecord(resolveRecord(runtime.records, existing.id) || existing));
+      }
       return ok(publicRecord(resolveRecord(saved, existing.id) || existing));
     } catch (error) {
       return fail(error);

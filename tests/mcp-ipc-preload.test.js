@@ -19,7 +19,7 @@ test("MCP IPC channels and preload bridge are wired", () => {
   assert.match(preload, /list:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.McpList\)/);
   assert.match(preload, /setEnabled:\s*\(id,\s*enabled\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.McpSetEnabled,\s*id,\s*enabled\)/);
   assert.match(preload, /refreshBridge:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.McpRefreshBridge\)/);
-  assert.match(preload, /removeFromAgents:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.McpRemoveFromAgents\)/);
+  assert.match(preload, /removeFromAgents:\s*\(recordsOrIds\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.McpRemoveFromAgents,\s*recordsOrIds\)/);
 
   const ipc = read("src/main/ipc/mcp-ipc.js");
   assert.match(ipc, /registerMcpIpc/);

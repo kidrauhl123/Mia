@@ -25,6 +25,20 @@ function cleanObject(input = {}) {
   return out;
 }
 
+function sanitizeSecretText(message) {
+  let text = String(message || "")
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "";
+  text = text
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+\b/gi, "Bearer [redacted]")
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[opsu]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})\b/g, "[redacted]")
+    .replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API(?:_|-)?KEY|AUTHORIZATION|COOKIE|SESSION)[A-Z0-9_]*)(=)(?:"[^"]+"|'[^']+'|[^\s,;]+)/gi, "$1$2[redacted]")
+    .replace(/\b((?:api[_-]?key|auth(?:orization)?|auth[_-]?token|authorization|bearer|token|password|secret|cookie|session)\s*[:=]\s*)(?:"[^"]+"|'[^']+'|[^\s,;]+)/gi, "$1[redacted]");
+  return text;
+}
+
 function defaultSync() {
   return MCP_ENGINE_IDS.reduce((sync, engine) => {
     sync[engine] = { status: "pending", message: "" };
@@ -72,7 +86,16 @@ function normalizeMcpRecord(input = {}, options = {}) {
   const transport = normalizeTransport(input.transport || input);
   if (!name || !transport) return null;
   const idFactory = typeof options.idFactory === "function" ? options.idFactory : stableId;
-  const sync = { ...defaultSync(), ...(input.sync && typeof input.sync === "object" ? input.sync : {}) };
+  const rawSync = { ...defaultSync(), ...(input.sync && typeof input.sync === "object" ? input.sync : {}) };
+  const sync = Object.fromEntries(
+    Object.entries(rawSync).map(([engineId, value]) => {
+      const entry = value && typeof value === "object" ? value : {};
+      return [engineId, {
+        status: String(entry.status || "pending"),
+        message: sanitizeSecretText(entry.message || entry.error || "")
+      }];
+    })
+  );
 
   return {
     id: String(input.id || idFactory(name)).trim(),
@@ -94,7 +117,7 @@ function normalizeMcpRecord(input = {}, options = {}) {
     createdAt: Number.isFinite(Number(input.createdAt)) ? Number(input.createdAt) : now,
     updatedAt: Number.isFinite(Number(input.updatedAt)) ? Number(input.updatedAt) : now,
     lastCheckedAt: Number.isFinite(Number(input.lastCheckedAt)) ? Number(input.lastCheckedAt) : 0,
-    lastError: String(input.lastError || ""),
+    lastError: sanitizeSecretText(input.lastError || ""),
     registryId: String(input.registryId || "").trim(),
     source: String(input.source || "custom").trim() || "custom",
     originalJson: String(input.originalJson || "")
@@ -172,6 +195,16 @@ function maskMcpRecord(record = {}) {
   if (typeof copy.originalJson === "string") {
     copy.originalJson = maskOriginalJson(copy.originalJson);
   }
+  if (typeof copy.lastError === "string") {
+    copy.lastError = sanitizeSecretText(copy.lastError);
+  }
+  if (copy.sync && typeof copy.sync === "object") {
+    for (const value of Object.values(copy.sync)) {
+      if (value && typeof value === "object" && typeof value.message === "string") {
+        value.message = sanitizeSecretText(value.message);
+      }
+    }
+  }
   return copy;
 }
 
@@ -199,5 +232,6 @@ module.exports = {
   normalizeMcpRecord,
   normalizeMcpRegistry,
   normalizeTransport,
-  parseMcpImportJson
+  parseMcpImportJson,
+  sanitizeSecretText
 };

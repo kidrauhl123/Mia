@@ -134,3 +134,83 @@ test("save disable sync removeFromAgents and delete refresh bridge and sync nati
   assert.equal(syncCalls[3].currentRecords.some((record) => record.name === "xhs"), false);
   assert.equal(syncCalls.at(-1).previousRecords.some((record) => record.name === "xhs"), true);
 });
+
+test("native sync failure redacts secrets before persisting or listing public sync status", async (t) => {
+  const secretHeader = "Bearer ghp_secret_header_value";
+  const secretEnv = "TOP_SECRET_ENV_VALUE";
+  const secretToken = "sk-super-secret-token";
+  const { runtime, service } = setup(t, {
+    nativeSync: async () => ({
+      success: false,
+      statuses: {
+        codex: {
+          status: "error",
+          message: `Authorization: ${secretHeader}; X_API_KEY=${secretEnv}; token=${secretToken}`
+        }
+      },
+      commands: []
+    })
+  });
+
+  const saved = await service.save({
+    name: "github",
+    enabled: true,
+    transport: {
+      type: "http",
+      url: "https://example.test/mcp",
+      headers: { Authorization: secretHeader }
+    }
+  });
+  const listed = await service.list();
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(saved.success, true);
+  assert.equal(listed.success, true);
+  assert.equal(stored[0].sync.codex.status, "error");
+  assert.match(stored[0].sync.codex.message, /\[redacted\]/);
+  assert.doesNotMatch(stored[0].sync.codex.message, /ghp_secret_header_value|TOP_SECRET_ENV_VALUE|sk-super-secret-token/);
+  assert.match(listed.data.servers[0].sync.codex.message, /\[redacted\]/);
+  assert.doesNotMatch(listed.data.servers[0].sync.codex.message, /ghp_secret_header_value|TOP_SECRET_ENV_VALUE|sk-super-secret-token/);
+});
+
+test("failed test disables a server through the shared runtime-change path", async (t) => {
+  const syncCalls = [];
+  const refreshCalls = [];
+  const { runtime, service } = setup(t, {
+    manager: {
+      testServer: async () => ({
+        success: false,
+        status: "disconnected",
+        tools: [],
+        error: "Authorization: Bearer ghp_secret_test_failure"
+      }),
+      refresh: async (records) => {
+        refreshCalls.push(records.map((record) => ({ name: record.name, enabled: record.enabled })));
+        return { success: true, tools: [], errors: [] };
+      },
+      toolManifest: () => [],
+      callTool: async () => ({ content: [], isError: false })
+    },
+    nativeSync: async (payload) => {
+      syncCalls.push(payload);
+      return { success: true, statuses: {}, commands: [] };
+    }
+  });
+
+  const saved = await service.save({
+    name: "xhs",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+  });
+  const tested = await service.test(saved.data.id);
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(tested.success, true);
+  assert.equal(tested.data.enabled, false);
+  assert.equal(stored[0].enabled, false);
+  assert.match(stored[0].lastError, /\[redacted\]/);
+  assert.equal(refreshCalls.length >= 2, true);
+  assert.equal(syncCalls.length >= 2, true);
+  assert.equal(syncCalls.at(-1).previousRecords.some((record) => record.name === "xhs" && record.enabled === true), true);
+  assert.equal(syncCalls.at(-1).currentRecords.some((record) => record.name === "xhs" && record.enabled === false), true);
+});

@@ -613,7 +613,7 @@ function execFileAsPromise(file, args, _meta = {}) {
         (error, stdout, stderr) => {
           resolve({
             ok: !error,
-            code: Number.isInteger(error?.code) ? error.code : 0,
+            code: error ? (Number.isInteger(error?.code) ? error.code : 1) : 0,
             stdout: String(stdout || ""),
             stderr: String(stderr || error?.message || "")
           });
