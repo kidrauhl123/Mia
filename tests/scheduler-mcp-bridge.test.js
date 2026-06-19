@@ -120,7 +120,7 @@ test("ensureCodexHome uses user Codex home and rewrites only Mia scheduler confi
 });
 
 test("ensureCodexHome can skip scheduler MCP sync for read-only Codex probes", (t) => {
-  const { scriptPath, service, userHome } = setup(t);
+  const { runtime, scriptPath, service, userHome } = setup(t);
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
   fs.writeFileSync(scriptPath, "server");
   const userCodexHome = path.join(userHome, ".codex");
@@ -130,20 +130,22 @@ test("ensureCodexHome can skip scheduler MCP sync for read-only Codex probes", (
 
   const codexHome = service.ensureCodexHome({ syncSchedulerMcp: false });
 
-  assert.equal(codexHome, userCodexHome);
+  assert.equal(codexHome, path.join(runtime.runtime, "codex-probe-home"));
+  assert.equal(fs.existsSync(codexHome), true);
   assert.equal(fs.readFileSync(configPath, "utf8"), "model = \"gpt\"\n");
   assert.equal(fs.existsSync(path.join(path.dirname(service.contextPath()), "scheduler-mcp-server.js")), false);
 });
 
 test("ensureCodexHome read-only probes do not create a missing native Codex home", (t) => {
-  const { scriptPath, service, userHome } = setup(t);
+  const { runtime, scriptPath, service, userHome } = setup(t);
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
   fs.writeFileSync(scriptPath, "server");
   const userCodexHome = path.join(userHome, ".codex");
 
   const codexHome = service.ensureCodexHome({ syncSchedulerMcp: false });
 
-  assert.equal(codexHome, userCodexHome);
+  assert.equal(codexHome, path.join(runtime.runtime, "codex-probe-home"));
+  assert.equal(fs.existsSync(codexHome), true);
   assert.equal(fs.existsSync(userCodexHome), false);
   assert.equal(fs.existsSync(path.join(userCodexHome, "config.toml")), false);
   assert.equal(fs.existsSync(path.join(path.dirname(service.contextPath()), "scheduler-mcp-server.js")), false);

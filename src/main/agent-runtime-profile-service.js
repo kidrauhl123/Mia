@@ -14,12 +14,23 @@ function createAgentRuntimeProfileService(deps = {}) {
     return { home, userHome: home, env: { CODEX_HOME: home } };
   }
 
+  function resolveCodexProbeProfile() {
+    const home = path.join(runtimePaths().runtime, "codex-probe-home");
+    return { home, env: { CODEX_HOME: home } };
+  }
+
   function ensureCodexProfile() {
     // Mia runs Codex against the user's native Codex home. Keeping one
     // source of truth avoids config/session drift between Mia and Codex CLI.
     const profile = resolveCodexProfile();
     const home = profile.home;
     fsImpl.mkdirSync(home, { recursive: true });
+    return profile;
+  }
+
+  function ensureCodexProbeProfile() {
+    const profile = resolveCodexProbeProfile();
+    fsImpl.mkdirSync(profile.home, { recursive: true });
     return profile;
   }
 
@@ -37,8 +48,10 @@ function createAgentRuntimeProfileService(deps = {}) {
 
   return {
     claudeRunProfile,
+    ensureCodexProbeProfile,
     ensureCodexProfile,
     ensureHermesProfile,
+    resolveCodexProbeProfile,
     resolveCodexProfile
   };
 }

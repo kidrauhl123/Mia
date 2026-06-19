@@ -40,6 +40,17 @@ test("codex profile uses the user's native Codex home", (t) => {
   assert.equal(fs.existsSync(path.join(profile.home, "memory")), true);
 });
 
+test("codex probe profile uses a Mia-owned probe home", (t) => {
+  const { service, runtime, userHome } = setup(t);
+
+  const profile = service.ensureCodexProbeProfile();
+
+  assert.equal(profile.env.CODEX_HOME, profile.home);
+  assert.equal(profile.home, path.join(runtime.runtime, "codex-probe-home"));
+  assert.equal(fs.existsSync(profile.home), true);
+  assert.equal(fs.existsSync(path.join(userHome, ".codex", "config.toml")), false);
+});
+
 test("hermes profile uses Mia-owned home", (t) => {
   const { service, runtime } = setup(t);
 
