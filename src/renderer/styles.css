@@ -22,10 +22,11 @@
   --menu-shadow: 0 16px 40px rgba(16, 20, 39, 0.14);
   --menu-separator: rgba(20, 24, 40, 0.08);
   --composer-add-menu-width: 154px;
+  --rail-glass-bg: color-mix(in srgb, var(--surface-soft) 74%, transparent);
   --floating-control-bg: color-mix(in srgb, var(--surface) 86%, transparent);
   --floating-control-shadow: 0 1px 2px rgba(16, 20, 39, 0.06), 0 10px 28px rgba(16, 20, 39, 0.08);
   --floating-control-pill-shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
-  --segmented-control-bg: color-mix(in srgb, var(--surface-soft) 62%, transparent);
+  --segmented-control-bg: var(--rail-glass-bg);
   --segmented-control-active-bg: var(--accent);
   --segmented-control-active-text: #fff;
   --segmented-control-active-muted: rgba(255, 255, 255, 0.74);
@@ -84,7 +85,8 @@
   --menu-border: rgba(255, 255, 255, 0.12);
   --menu-shadow: 0 18px 44px rgba(0, 0, 0, 0.30);
   --menu-separator: rgba(255, 255, 255, 0.10);
-  --segmented-control-bg: var(--surface);
+  --rail-glass-bg: var(--surface);
+  --segmented-control-bg: var(--rail-glass-bg);
   --segmented-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.26), 0 18px 46px rgba(0, 0, 0, 0.30);
   --segmented-control-pill-shadow: 0 1px 2px rgba(0, 0, 0, 0.20), 0 8px 18px rgb(var(--accent-rgb) / 0.26);
   --accent-rgb: 124 116 255;
@@ -377,7 +379,7 @@ body.platform-darwin.window-fullscreen .app-shell {
   padding: 0 0 12px;
   min-width: 0;
   border-radius: var(--rail-corner-radius);
-  background: color-mix(in srgb, var(--surface-soft) 62%, transparent);
+  background: var(--rail-glass-bg);
   box-shadow: 0 1px 2px rgba(16, 20, 39, 0.06), 0 18px 46px rgba(16, 20, 39, 0.10);
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
   backdrop-filter: blur(24px) saturate(1.16);
