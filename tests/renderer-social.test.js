@@ -2618,8 +2618,31 @@ test("renderConversationChat renders active cloud run status at the bottom of th
   assert.match(chat.children[0].innerHTML, /agent-run-status/);
   assert.match(chat.children[0].innerHTML, /agent-run-status-loader/);
   assert.match(chat.children[0].innerHTML, /agent-run-status-loading-dots/);
-  assert.match(chat.children[0].innerHTML, /正在执行 shell/);
+  assert.doesNotMatch(chat.children[0].innerHTML, /正在执行 shell/);
   assert.match(chat.children[0].innerHTML, /0s/);
+});
+
+test("run status labels use stable rotating Chinese phrase pools", () => {
+  const s = loadSocial();
+  const pools = s._internalCtx.agentRunStatusPhrasePools;
+  const total = Object.values(pools).reduce((sum, items) => sum + items.length, 0);
+  assert.equal(total, 120);
+  assert.equal(pools.tool.length, 20);
+
+  const run = {
+    runId: "car_shell_rotate",
+    status: "running",
+    tools: [{ id: "tool_1", name: "shell", status: "running", preview: "pwd" }]
+  };
+  const first = s._internalCtx.runActivityLabel(run, { elapsedMs: 0 });
+  const firstAgain = s._internalCtx.runActivityLabel(run, { elapsedMs: 1000 });
+  const second = s._internalCtx.runActivityLabel(run, { elapsedMs: 4000 });
+
+  assert.notEqual(first, "正在执行 shell");
+  assert.equal(first, firstAgain);
+  assert.notEqual(first, second);
+  assert.ok(pools.tool.includes(first));
+  assert.ok(pools.tool.includes(second));
 });
 
 test("renderConversationChat renders normalized cloud run trace blocks", () => {

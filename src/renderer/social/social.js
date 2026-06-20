@@ -847,6 +847,187 @@
     return tools.length ? tools[tools.length - 1] : null;
   }
 
+  const RUN_STATUS_PHRASE_INTERVAL_MS = 4000;
+  const agentRunStatusPhrasePools = {
+    general: [
+      "咕嘟咕嘟",
+      "还在打转",
+      "慢慢来，火候要到",
+      "喝前摇匀中",
+      "还在搅拌",
+      "有点眉目了",
+      "正在翻炒",
+      "继续转一圈",
+      "还在发酵",
+      "正在把混乱揉成团",
+      "正在捋顺耳机线",
+      "小火慢炖",
+      "还在找感觉",
+      "先把线团抖开",
+      "正在抽丝剥茧",
+      "还在和问题对视",
+      "正在醒面",
+      "继续等东风",
+      "正在驯服混乱",
+      "快了，锅里有动静"
+    ],
+    tool: [
+      "命令还在跑",
+      "终端：“咕噜咕噜”",
+      "shell 正在冒烟",
+      "还在等它开口",
+      "正在听终端说话",
+      "命令出去转了一圈",
+      "还在追输出",
+      "终端慢条斯理",
+      "主教练正在热身",
+      "正在捞关键输出",
+      "命令还没回家",
+      "还在等它尘埃落定",
+      "工具在吭哧吭哧",
+      "正在大浪淘沙",
+      "shell 说稍等",
+      "命令跑得不紧不慢",
+      "输出正在路上",
+      "工具还在翻口袋",
+      "终端正在挤牙膏",
+      "快生了，它刚踢了一下"
+    ],
+    context: [
+      "正在翻箱倒柜",
+      "还在找线头",
+      "代码堆里探个头",
+      "正在按图索骥",
+      "继续顺藤摸瓜",
+      "真相只有一个",
+      "正在翻旧账",
+      "让上下文排排坐",
+      "还在找藏起来的入口",
+      "正在给调用链梳头",
+      "继续撅一铲",
+      "依旧雾里看花",
+      "正在把线索串起来",
+      "文件里有点东西",
+      "还在翻抽屉",
+      "正在问代码你是谁",
+      "继续循着蛛丝马迹找",
+      "还在抓重点",
+      "正在把现场拼回去",
+      "眉目渐清"
+    ],
+    thinking: [
+      "正在转动脑内小齿轮",
+      "还在脑内绕圈",
+      "正在摆弄可能性",
+      "先让想法翻个面",
+      "还在和方案掰手腕",
+      "正在另辟蹊径",
+      "继续三思而后行",
+      "还在斟酌火候",
+      "正在踟蹰",
+      "思路正在蓄势待发",
+      "还在把问题捏扁",
+      "正在悄悄权衡",
+      "继续换个姿势想",
+      "还在给方案称重",
+      "正在拆小零件",
+      "翻个身",
+      "还在给判断找地板",
+      "正在把弯路折起来",
+      "继续等灵光一现",
+      "差不多有谱了"
+    ],
+    writing: [
+      "正在把话捋顺",
+      "还在字斟句酌",
+      "正在挤掉废话",
+      "继续让文字站好",
+      "还在拿捏语气",
+      "正在装盘",
+      "句子还在排队",
+      "正在给表达收边",
+      "还在推敲措辞",
+      "正在把重点摆正",
+      "正在熟悉人类的语言",
+      "还在删繁就简",
+      "你的AI正在攻击你的代码",
+      "字句正在各就各位",
+      "还在让段落坐稳",
+      "正在把毛边剪掉",
+      "继续抹平皱褶",
+      "答案快出炉",
+      "正在最后调味",
+      "马上端出来"
+    ],
+    verify: [
+      "敲敲看结不结实",
+      "还在查漏补缺",
+      "正在数羊，别少一只",
+      "继续晃一晃看稳不稳",
+      "还在数螺丝",
+      "大火收汁",
+      "先确认没踩空",
+      "还在看它会不会歪",
+      "正在收拾残局",
+      "继续检查边角",
+      "还在把尾巴塞好",
+      "正在验最后一下",
+      "还在擦指纹",
+      "正在把门关上",
+      "继续确认能站住",
+      "还在收拾工具",
+      "最后一哆嗦",
+      "快端平了",
+      "最后再抖一抖",
+      "可以准备落地"
+    ]
+  };
+
+  function stableStatusHash(value) {
+    const text = String(value || "");
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return hash >>> 0;
+  }
+
+  function runStatusKey(run) {
+    return firstText(run?.runId, run?.hermesRunId, run?.conversationId, run?._localRunId, run?.id, run?.createdAt, "run");
+  }
+
+  function runToolText(tool) {
+    return `${tool?.name || ""} ${tool?.preview || ""}`.toLowerCase();
+  }
+
+  function runToolPhrasePoolName(tool) {
+    const text = runToolText(tool);
+    if (/\b(npm|pnpm|yarn|node --test|test|vitest|jest|pytest|lint|tsc|build|check|verify)\b|git diff --check/.test(text)) {
+      return "verify";
+    }
+    if (/\b(rg|grep|find|sed|cat|ls|tree|read|search|glob|open|view|head|tail|nl|wc)\b/.test(text)) {
+      return "context";
+    }
+    return "tool";
+  }
+
+  function runActivityPhrasePoolName(run, tool) {
+    if (tool && String(tool.status || "") === "running") return runToolPhrasePoolName(tool);
+    if (run?.text) return "writing";
+    if (run?.reasoning) return "thinking";
+    if (tool) return runToolPhrasePoolName(tool);
+    return "general";
+  }
+
+  function runActivityPhrase(run, poolName, options = {}) {
+    const pool = agentRunStatusPhrasePools[poolName] || agentRunStatusPhrasePools.general;
+    const elapsedMs = Number.isFinite(Number(options.elapsedMs)) ? Number(options.elapsedMs) : runElapsedMs(run);
+    const bucket = Math.floor(Math.max(0, elapsedMs) / RUN_STATUS_PHRASE_INTERVAL_MS);
+    const offset = stableStatusHash(`${runStatusKey(run)}:${poolName}`);
+    return pool[(offset + bucket) % pool.length] || "正在处理";
+  }
+
   function normalizeRunGoal(goal) {
     if (!goal || typeof goal !== "object") return null;
     const objective = firstText(goal.objective, goal.title, goal.name, goal.display, goal.text);
@@ -874,7 +1055,7 @@
     return `目标：${goal.objective}${usage}`;
   }
 
-  function runActivityLabel(run) {
+  function runActivityLabel(run, options = {}) {
     const status = String(run?._localRunStatus || run?.status || "").trim();
     if (status === "cancelled") return firstText(run?._localRunStatusText, "已中断");
     if (status === "error") return "运行失败";
@@ -882,20 +1063,15 @@
       return "等待授权";
     }
     const tool = latestRunToolForStatus(run);
-    if (tool && String(tool.status || "") === "running") {
-      return `正在执行 ${tool.name || "工具"}`;
-    }
-    if (run?.text) return "正在生成回复";
-    if (run?.reasoning) return "正在思考";
-    if (tool) return "正在整理结果";
-    return "正在处理";
+    return runActivityPhrase(run, runActivityPhrasePoolName(run, tool), options);
   }
 
   function renderRunStatusLine(run, options = {}) {
     if (!run) return "";
     const status = String(run._localRunStatus || run.status || (options.cancelled ? "cancelled" : "running"));
-    const label = firstText(options.label, runActivityLabel(run));
-    const elapsed = formatRunElapsed(options.elapsedMs ?? runElapsedMs(run));
+    const elapsedMs = options.elapsedMs ?? runElapsedMs(run);
+    const label = firstText(options.label, runActivityLabel(run, { elapsedMs }));
+    const elapsed = formatRunElapsed(elapsedMs);
     const goalText = runGoalStatusText(run);
     const isLoading = status === "running";
     const statusClass = status === "cancelled"
@@ -4193,6 +4369,8 @@
     compactPermissionTitle,
     cloudRunFor,
     addRunPermission,
+    agentRunStatusPhrasePools,
+    runActivityLabel,
     renderAgentPermissionBanner,
     submitPermissionDecision,
     appendMessageToActiveChat: _appendMessageToActiveChat,
