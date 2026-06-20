@@ -88,7 +88,7 @@ test("sendChat streams partials, stores session, and returns chat response", asy
   assert.equal(queryCall.options.cwd, "/repo");
   assert.equal(queryCall.options.pathToClaudeCodeExecutable, "/bin/claude");
   assert.match(queryCall.options.systemPrompt.append, /Mia 是聊天式多 Agent 应用/);
-  assert.match(queryCall.options.systemPrompt.append, /不要使用 shell/);
+  assert.doesNotMatch(queryCall.options.systemPrompt.append, /schedule_create|不要使用 shell|cronjob/);
   assert.match(queryCall.options.systemPrompt.append, /persona/);
   assert.equal(queryCall.options.plugins[0].path, "/bridge");
   assert.equal(queryCall.options.model, "sonnet");

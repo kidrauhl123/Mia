@@ -266,7 +266,7 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
   }
 });
 
-test("POST bot reminder message routes through cloud Hermes scheduler tools", async () => {
+test("POST bot reminder message is handed to cloud Hermes without app-side reminder parsing", async () => {
   const dataDir = tempDir("mia-cloud-agent-reminder-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -307,7 +307,7 @@ test("POST bot reminder message routes through cloud Hermes scheduler tools", as
 
     assert.equal(hermesCalls.length, 1);
     assert.match(hermesCalls[0].input, /1分钟后提醒我睡觉/);
-    assert.match(hermesCalls[0].instructions, /schedule_create/);
+    assert.doesNotMatch(hermesCalls[0].instructions, /schedule_create|cronjob/);
     const tasks = await jsonFetch(baseUrl, "/api/tasks", { headers: authHeaders });
     assert.equal(tasks.tasks.length, 0);
     const listed = await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {

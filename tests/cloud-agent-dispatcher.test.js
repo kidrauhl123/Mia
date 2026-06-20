@@ -130,7 +130,7 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
     assert.doesNotMatch(hermesCalls[0].input, /群聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群成员/);
     assert.match(hermesCalls[0].instructions, /Mia Runtime Context/);
-    assert.match(hermesCalls[0].instructions, /schedule_create/);
+    assert.doesNotMatch(hermesCalls[0].instructions, /schedule_create|cronjob/);
     assert.match(hermesCalls[0].instructions, /You are Alice Bot\./);
   } finally {
     ctx.cleanup();
@@ -249,7 +249,7 @@ test("cloud-hermes reminder requests run Hermes instead of direct app-side task 
     assert.equal(hermesCalls.length, 1);
     assert.equal(taskCalls.length, 0);
     assert.match(hermesCalls[0].input, /1分钟后提醒我睡觉/);
-    assert.match(hermesCalls[0].instructions, /schedule_create/);
+    assert.doesNotMatch(hermesCalls[0].instructions, /schedule_create|cronjob/);
     assert.equal(reply.sender_ref, BOT_ID);
     assert.equal(reply.body_md, "我会通过 schedule_create 设置这个提醒。");
     assert.equal(reply.trace_json, null);

@@ -221,7 +221,7 @@ test("sendChat writes scheduler MCP context for the current bot/session", async 
   ]);
 });
 
-test("sendChat injects Mia runtime context as Hermes system instructions", async () => {
+test("sendChat injects minimal Mia runtime context as Hermes system instructions", async () => {
   const buildCalls = [];
   const deps = createDeps({
     buildRunPayload: (input) => {
@@ -246,7 +246,7 @@ test("sendChat injects Mia runtime context as Hermes system instructions", async
 
   assert.equal(buildCalls[0].messages[0].role, "system");
   assert.match(buildCalls[0].messages[0].content, /Mia 是聊天式多 Agent 应用/);
-  assert.match(buildCalls[0].messages[0].content, /不要使用 shell/);
+  assert.doesNotMatch(buildCalls[0].messages[0].content, /schedule_create|不要使用 shell|cronjob/);
 });
 
 test("sendChat injects one Mia memory block and sanitizes spoofed memory headers", async () => {

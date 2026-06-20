@@ -23,6 +23,50 @@ const {
 } = require("./mcp-records.js");
 
 const MASK_SENTINEL = "••••••••";
+const MCP_MARKETPLACE_TEMPLATES = [
+  {
+    id: "xhs-local-http",
+    name: "小红书 MCP",
+    description: "连接本机运行的小红书 MCP HTTP 服务。",
+    category: "内容平台",
+    transport: {
+      type: "http",
+      url: "http://127.0.0.1:18060/mcp",
+      headers: {}
+    },
+    requiredEnvKeys: []
+  },
+  {
+    id: "chrome-devtools-cdp",
+    name: "Chrome DevTools MCP",
+    description: "通过 Chromium/Chrome 远程调试端口提供浏览器检查、截图和交互测试。默认连接 http://127.0.0.1:9222。",
+    category: "浏览器自动化",
+    transport: {
+      type: "stdio",
+      command: "npx",
+      args: ["-y", "chrome-devtools-mcp@0.16.0", "--browser-url=http://127.0.0.1:9222"],
+      env: {}
+    },
+    requiredEnvKeys: []
+  },
+  {
+    id: "playwright-browser",
+    name: "Playwright MCP",
+    description: "启动 Playwright MCP 浏览器服务，用于打开本地页面、截图、点击、输入和验证前端交互。",
+    category: "浏览器自动化",
+    transport: {
+      type: "stdio",
+      command: "npx",
+      args: ["-y", "@playwright/mcp@latest"],
+      env: {}
+    },
+    requiredEnvKeys: []
+  }
+];
+
+function marketplaceTemplates() {
+  return MCP_MARKETPLACE_TEMPLATES.map((template) => JSON.parse(JSON.stringify(template)));
+}
 
 function readJson(fsImpl, filePath, fallback) {
   try {
@@ -476,20 +520,7 @@ function createMcpService(deps = {}) {
 
   async function fetchMarketplace() {
     return ok({
-      templates: [
-        {
-          id: "xhs-local-http",
-          name: "小红书 MCP",
-          description: "连接本机运行的小红书 MCP HTTP 服务。",
-          category: "内容平台",
-          transport: {
-            type: "http",
-            url: "http://127.0.0.1:18060/mcp",
-            headers: {}
-          },
-          requiredEnvKeys: []
-        }
-      ]
+      templates: marketplaceTemplates()
     });
   }
 

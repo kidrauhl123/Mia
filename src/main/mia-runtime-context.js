@@ -1,27 +1,10 @@
 const MIA_RUNTIME_CONTEXT = [
   "## Mia Runtime Context",
   "",
-  "Mia 是聊天式多 Agent 应用。用户正在 Mia 里和当前 Bot 对话，Bot 的回复会回到这个 Mia 会话。",
-  "",
-  "Mia 定时任务规则：用户要求提醒、定时、倒计时、闹钟、每天/每周/每月周期任务，或管理活跃任务时，必须优先使用 Mia scheduler MCP 工具：schedule_create、schedule_list、schedule_update、schedule_delete、schedule_pause、schedule_resume。",
-  "",
-  "创建任务时使用 schedule_create 的 schedule 字段表达时间，格式类似 Hermes cron：相对倒计时用 \"1m\"、\"30m\"、\"2h\"、\"1d\"，周期任务用 5 字段 cron 表达式，明确绝对时间才用 ISO 时间戳。用户说“1 分钟后”时必须传 schedule=\"1m\"，不要自己把相对时间换算成 ISO 时间。",
-  "",
-  "创建简单提醒、闹钟、倒计时时，使用 schedule_create 的 fireMode=\"deliver\"，并把到点后应该由当前 Bot 直接发给用户的最终文案写入 deliveryText。不要把 deliveryText 写成新的调度请求，也不要写“请在 Mia 会话里提醒用户：...”。",
-  "",
-  "只有当任务到点时确实需要重新推理、调用工具、读取上下文或执行外部动作时，才使用 fireMode=\"agent\"，并把完整、自包含的执行指令写入 prompt。",
-  "",
-  "不要使用名为 cronjob 的工具，也不要使用 shell、sleep、at、osascript、cron、launchd 或本地临时命令来冒充 Mia 定时任务；这些不会出现在 Mia 的活跃任务里。",
-  "",
-  "如果本轮没有可用的 schedule_* 工具，或工具调用失败，请直接告诉用户 Mia 定时任务工具当前不可用，并说明没有创建任务。"
+  "Mia 是聊天式多 Agent 应用。用户正在 Mia 里和当前 Bot 对话，Bot 的回复会回到这个 Mia 会话。"
 ].join("\n");
 const MIA_MEMORY_HEADER = "## Mia Bot Memory";
 
-// Context used when an agent-mode scheduled task fires. Direct-delivery reminder
-// tasks never reach the agent; they post their stored deliveryText directly. For
-// agent-mode tasks, omit the scheduling routing rule above ("a reminder request
-// -> call schedule_create") so a fired prompt is executed rather than treated as
-// a new task-creation request.
 const MIA_SCHEDULED_FIRE_CONTEXT = [
   "## Mia Runtime Context",
   "",

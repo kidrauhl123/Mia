@@ -71,6 +71,63 @@ test("save list test and delete persist MCP records", async (t) => {
   assert.deepEqual(JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8")), []);
 });
 
+test("fetchMarketplace exposes AION-style browser automation MCP templates", async (t) => {
+  const { service } = setup(t);
+
+  const market = await service.fetchMarketplace();
+  const templates = Object.fromEntries(market.data.templates.map((template) => [template.id, template]));
+
+  assert.equal(market.success, true);
+  assert.equal(templates["chrome-devtools-cdp"].category, "浏览器自动化");
+  assert.deepEqual(templates["chrome-devtools-cdp"].transport, {
+    type: "stdio",
+    command: "npx",
+    args: ["-y", "chrome-devtools-mcp@0.16.0", "--browser-url=http://127.0.0.1:9222"],
+    env: {}
+  });
+  assert.deepEqual(templates["playwright-browser"].transport, {
+    type: "stdio",
+    command: "npx",
+    args: ["-y", "@playwright/mcp@latest"],
+    env: {}
+  });
+});
+
+test("installTemplate persists browser MCP templates and syncs native agents", async (t) => {
+  let nextId = 0;
+  const syncCalls = [];
+  const { runtime, service } = setup(t, {
+    idFactory: () => `mcp_${++nextId}`,
+    nativeSync: async (payload) => {
+      syncCalls.push(payload);
+      return {
+        success: true,
+        statuses: {
+          codex: { status: "synced", error: "", commands: [] },
+          "claude-code": { status: "synced", error: "", commands: [] }
+        },
+        commands: []
+      };
+    }
+  });
+
+  const installed = await service.installTemplate("playwright-browser");
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(installed.success, true);
+  assert.equal(installed.data.name, "Playwright MCP");
+  assert.equal(stored[0].registryId, "playwright-browser");
+  assert.equal(stored[0].source, "marketplace");
+  assert.deepEqual(stored[0].transport, {
+    type: "stdio",
+    command: "npx",
+    args: ["-y", "@playwright/mcp@latest"],
+    env: {}
+  });
+  assert.equal(syncCalls.length, 1);
+  assert.deepEqual(syncCalls[0].currentRecords.map((record) => record.name), ["Playwright MCP"]);
+});
+
 test("importJson saves imported servers as disabled until tested", async (t) => {
   const { service } = setup(t);
   const imported = await service.importJson({

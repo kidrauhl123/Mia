@@ -156,7 +156,7 @@ test("sendChat starts new thread with persona on first turn", async () => {
   assert.equal(deps.calls[2][1].sandboxMode, "read-only");
   assert.match(deps.calls[3][1], /^GROUP:ctx\n以下是 Mia 给当前 Bot 的人设/);
   assert.match(deps.calls[3][1], /Mia 是聊天式多 Agent 应用/);
-  assert.match(deps.calls[3][1], /不要使用 shell/);
+  assert.doesNotMatch(deps.calls[3][1], /schedule_create|不要使用 shell|cronjob/);
   assert.match(deps.calls[3][1], /persona/);
   assert.match(deps.calls[3][1], /expanded/);
   assert.deepEqual(deps.calls[3][2], {});
