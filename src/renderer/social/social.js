@@ -897,11 +897,19 @@
     const label = firstText(options.label, runActivityLabel(run));
     const elapsed = formatRunElapsed(options.elapsedMs ?? runElapsedMs(run));
     const goalText = runGoalStatusText(run);
-    const statusClass = status === "cancelled" ? " is-interrupted" : (status === "error" ? " is-error" : " is-running");
+    const isLoading = status === "running";
+    const statusClass = status === "cancelled"
+      ? " is-interrupted"
+      : (status === "error" ? " is-error" : " is-running is-loading");
+    const loadingDots = isLoading
+      ? `<span class="agent-run-status-loading-dots" aria-hidden="true"><span></span><span></span><span></span></span>`
+      : "";
     return `
       <div class="agent-run-status${statusClass}" data-run-status="${escapeHtml(status)}">
-        <span class="agent-run-status-dot" aria-hidden="true"></span>
-        <span class="agent-run-status-label">${escapeHtml(label)}</span>
+        <span class="agent-run-status-loader" aria-hidden="true"><span></span></span>
+        <span class="agent-run-status-text">
+          <span class="agent-run-status-label">${escapeHtml(label)}</span>${loadingDots}
+        </span>
         ${goalText ? `<span class="agent-run-status-goal">${escapeHtml(goalText)}</span>` : ""}
         <span class="agent-run-status-elapsed">${escapeHtml(elapsed)}</span>
       </div>

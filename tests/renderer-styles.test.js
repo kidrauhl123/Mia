@@ -77,6 +77,31 @@ test("chat floor overlay text uses the adaptive floor palette", () => {
   assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.message-time/);
 });
 
+test("agent run loading status keeps the shimmer on text without a container card", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  const statusRule = cssRuleBody(baseCss, ".agent-run-status");
+  assert.match(statusRule, /background:\s*transparent;/);
+  assert.match(statusRule, /border:\s*0;/);
+  assert.match(statusRule, /box-shadow:\s*none;/);
+  assert.doesNotMatch(baseCss, /\.agent-run-status::before/);
+
+  const loaderRule = cssRuleBody(baseCss, ".agent-run-status-loader");
+  assert.doesNotMatch(loaderRule, /--accent/);
+  assert.match(loaderRule, /rgb\(255\s+255\s+255\s*\/\s*0\.72\)/);
+
+  const loaderCoreRule = cssRuleBody(baseCss, ".agent-run-status-loader span");
+  assert.doesNotMatch(loaderCoreRule, /--accent/);
+  assert.match(loaderCoreRule, /rgb\(255\s+255\s+255\s*\/\s*0\.16\)/);
+
+  const loadingLabelRule = cssRuleBody(baseCss, ".agent-run-status.is-loading .agent-run-status-label");
+  assert.match(loadingLabelRule, /background:[\s\S]*linear-gradient/);
+  assert.doesNotMatch(loadingLabelRule, /--accent/);
+  assert.match(loadingLabelRule, /rgb\(255\s+255\s+255\s*\/\s*0\.98\)/);
+  assert.match(loadingLabelRule, /background-clip:\s*text;/);
+  assert.match(loadingLabelRule, /animation:\s*agentRunStatusTextSweep\s*2\.8s\s*ease-in-out\s*infinite;/);
+});
+
 test("chat avatar display settings do not hide group participant avatars", () => {
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
 
@@ -194,6 +219,11 @@ test("conversation cards keep the default cursor outside tag controls", () => {
     baseCss,
     /\.persona\.active \.persona-key \.typing-status\s*\{[\s\S]*?color:\s*var\(--list-active-text\);/,
     "typing preview should switch to the active-list text color on selected conversation cards"
+  );
+  assert.match(
+    baseCss,
+    /\.app-shell\[data-shell-layout="single"\] \.persona\.active \.persona-key \.typing-status\s*\{[\s\S]*?color:\s*var\(--accent,\s*#5e5ce6\);/,
+    "typing preview should return to the normal non-selected color when single-pane layout removes the active card background"
   );
   const tagButtonRule = baseCss.match(/button\.persona-tag-chip\s*\{([\s\S]*?)\}/)?.[1] || "";
   assert.doesNotMatch(tagButtonRule, /font:\s*inherit/);

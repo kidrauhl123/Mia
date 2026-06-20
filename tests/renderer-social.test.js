@@ -2616,6 +2616,8 @@ test("renderConversationChat renders active cloud run status at the bottom of th
 
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /agent-run-status/);
+  assert.match(chat.children[0].innerHTML, /agent-run-status-loader/);
+  assert.match(chat.children[0].innerHTML, /agent-run-status-loading-dots/);
   assert.match(chat.children[0].innerHTML, /正在执行 shell/);
   assert.match(chat.children[0].innerHTML, /0s/);
 });
