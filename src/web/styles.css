@@ -3806,7 +3806,7 @@ p {
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-left: 2px solid rgba(148, 163, 184, 0.36);
   border-radius: 7px;
-  white-space: pre;
+  white-space: normal;
   word-break: normal;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #c9d1d9;
@@ -3816,8 +3816,8 @@ p {
 
 .diff-line {
   display: grid;
-  grid-template-columns: 4ch 4ch minmax(0, 1fr);
-  min-width: max-content;
+  grid-template-columns: 4ch minmax(0, 1fr);
+  min-width: 0;
   min-height: 1.5em;
   padding: 0;
   line-height: 1.5;
@@ -3834,7 +3834,8 @@ p {
 
 .diff-code {
   padding: 0 10px;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .diff-line.diff-del {

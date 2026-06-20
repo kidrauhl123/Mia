@@ -200,7 +200,7 @@
 
   function diffLineClass(line) {
     if (/^@@/.test(line)) return "diff-meta diff-hunk";
-    if (/^(diff --git|index |@@|\+\+\+|---)/.test(line)) return "diff-meta";
+    if (/^(diff --git|index |@@|\+\+\+|---|\\ No newline)/.test(line)) return "diff-meta";
     if (line.startsWith("+")) return "diff-add";
     if (line.startsWith("-")) return "diff-del";
     return "diff-context";
@@ -229,16 +229,55 @@
     };
   }
 
-  function renderDiffLine(line, className, oldLabel, newLabel) {
+  function diffLineParts(line) {
+    const text = String(line || "");
+    if (text.startsWith("+") || text.startsWith("-") || text.startsWith(" ")) {
+      return { marker: text.slice(0, 1), body: text.slice(1) };
+    }
+    return { marker: "", body: text };
+  }
+
+  function leadingIndentLength(text) {
+    const match = String(text || "").match(/^[ \t]*/);
+    return match ? match[0].length : 0;
+  }
+
+  function stripLeadingIndent(text, count) {
+    const value = String(text || "");
+    let idx = 0;
+    while (idx < value.length && idx < count && (value[idx] === " " || value[idx] === "\t")) {
+      idx += 1;
+    }
+    return value.slice(idx);
+  }
+
+  function sharedDiffCodeIndent(lines) {
+    let minIndent = Infinity;
+    for (const line of lines) {
+      const text = String(line || "");
+      if (!text || text.startsWith("@@") || text.startsWith("\\ No newline")) continue;
+      const { body } = diffLineParts(text);
+      if (!body.trim()) continue;
+      minIndent = Math.min(minIndent, leadingIndentLength(body));
+    }
+    return Number.isFinite(minIndent) && minIndent >= 2 ? minIndent : 0;
+  }
+
+  function diffCodeText(line, trimIndent) {
+    const { marker, body } = diffLineParts(line);
+    return marker + stripLeadingIndent(body, trimIndent);
+  }
+
+  function renderDiffLine(line, className, lineLabel, trimIndent = 0) {
     return `<span class="diff-line ${className}">` +
-      `<span class="diff-ln diff-ln-old">${window.miaMarkdown.escapeHtml(oldLabel)}</span>` +
-      `<span class="diff-ln diff-ln-new">${window.miaMarkdown.escapeHtml(newLabel)}</span>` +
-      `<span class="diff-code">${window.miaMarkdown.escapeHtml(line)}</span>` +
+      `<span class="diff-ln">${window.miaMarkdown.escapeHtml(lineLabel)}</span>` +
+      `<span class="diff-code">${window.miaMarkdown.escapeHtml(diffCodeText(line, trimIndent))}</span>` +
     `</span>`;
   }
 
   function renderDiffBody(diff) {
     const lines = visibleDiffLines(diff);
+    const trimIndent = sharedDiffCodeIndent(lines);
     let oldLine = 1;
     let newLine = 1;
     const html = lines.map((line) => {
@@ -249,23 +288,22 @@
           oldLine = hunk.oldLine;
           newLine = hunk.newLine;
         }
-        return renderDiffLine("", cls, "···", "···");
+        return renderDiffLine("", cls, "···");
       }
       if (line.startsWith("-")) {
         const label = oldLine > 0 ? oldLine : "";
         oldLine += 1;
-        return renderDiffLine(line, cls, label, "");
+        return renderDiffLine(line, cls, label, trimIndent);
       }
       if (line.startsWith("+")) {
         const label = newLine > 0 ? newLine : "";
         newLine += 1;
-        return renderDiffLine(line, cls, "", label);
+        return renderDiffLine(line, cls, label, trimIndent);
       }
-      const oldLabel = oldLine > 0 ? oldLine : "";
-      const newLabel = newLine > 0 ? newLine : "";
+      const label = newLine > 0 ? newLine : (oldLine > 0 ? oldLine : "");
       oldLine += 1;
       newLine += 1;
-      return renderDiffLine(line, cls, oldLabel, newLabel);
+      return renderDiffLine(line, cls, label, trimIndent);
     }).join("");
     return `<pre class="trace-body diff-body">${html}</pre>`;
   }

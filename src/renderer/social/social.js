@@ -146,6 +146,10 @@
   const SCROLL_LAYOUT_OBSERVER_TIMEOUT_MS = 2200;
   const MESSAGE_FOCUS_PENDING_TTL_MS = 10000;
   const MESSAGE_FOCUS_HIGHLIGHT_MS = 2200;
+  const PHASE_ORB_CYCLE_MS = 1700;
+  const PHASE_ORB_BASE_OPACITY = 0.08;
+  const PHASE_ORB_OPACITY = 0.96;
+  const PHASE_ORB_NEAR_OPACITY = 0.34;
   // Which conversation renderConversationChat last painted — a change means the user switched
   // conversations, so we land at the bottom instead of preserving the old offset.
   let _lastRenderedConversationId = null;
@@ -406,6 +410,7 @@
   let deps = null;
   let _cloudRunRenderFrame = 0;
   let _cloudRunStatusTimer = 0;
+  let _phaseOrbAnimationFrame = 0;
   let _permissionBannerWired = false;
   const _permissionDecisionInFlight = new Set();
   const _localDeletingMessageKeys = new Set();
@@ -1105,6 +1110,66 @@
     };
   }
 
+  function isWithinPhaseOrbMask(row, col) {
+    const x = col - 2;
+    const y = row - 2;
+    return Math.sqrt((x * x) + (y * y)) <= 2.24;
+  }
+
+  function phaseOrbOpacityForCell(row, col, phase, options = {}) {
+    if (!isWithinPhaseOrbMask(row, col)) return null;
+    const x = col - 2;
+    const y = row - 2;
+    const t = options.reducedMotion || options.idle ? 0 : (phase * Math.PI * 2);
+    const angle = Math.atan2(y, x);
+    const ring = Math.sqrt((x * x) + (y * y));
+
+    const angularPhase = ((angle - (t * 0.95) + (Math.PI * 4)) % (Math.PI * 2)) / ((Math.PI * 2) / 3);
+    const sectorPos = angularPhase - Math.floor(angularPhase);
+    const sectorPulse = Math.max(0, 1 - (Math.abs(sectorPos - 0.5) * 2));
+    const ringPhase = 0.5 + (0.5 * Math.cos((ring * 3.2) + (t * 1.7)));
+    const score = (0.74 * sectorPulse) + (0.26 * ringPhase);
+
+    let opacity = PHASE_ORB_BASE_OPACITY;
+    if (score > 0.84) {
+      opacity = PHASE_ORB_OPACITY;
+    } else if (score > 0.63) {
+      opacity = 0.62;
+    } else if (score > 0.44) {
+      opacity = PHASE_ORB_NEAR_OPACITY;
+    }
+
+    if (x === 0 && y === 0) {
+      return Math.max(opacity, PHASE_ORB_NEAR_OPACITY);
+    }
+    return opacity;
+  }
+
+  function phaseOrbCellAttrs(row, col, isLoading) {
+    const x = col - 2;
+    const y = row - 2;
+    const ring = Math.sqrt((x * x) + (y * y));
+    const angle = Math.atan2(y, x);
+    const opacity = isLoading ? phaseOrbOpacityForCell(row, col, 0) : null;
+    const opacityStyle = opacity == null ? "" : ` style="opacity:${opacity}"`;
+    return `data-orb-row="${row}" data-orb-col="${col}" data-orb-x="${x}" data-orb-y="${y}" data-orb-ring="${Number(ring.toFixed(3))}" data-orb-angle="${Number(angle.toFixed(3))}"${opacityStyle}`;
+  }
+
+  function runStatusPhaseOrbHtml(isLoading) {
+    const cells = [];
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 5; col++) {
+        const x = col - 2;
+        const y = row - 2;
+        const active = isWithinPhaseOrbMask(row, col);
+        const core = x === 0 && y === 0;
+        const classes = `agent-run-status-orb-dot${core ? " is-core" : ""}${active ? "" : " is-inactive"}`;
+        cells.push(`<span class="${classes}" ${phaseOrbCellAttrs(row, col, isLoading)}></span>`);
+      }
+    }
+    return cells.join("");
+  }
+
   function renderRunStatusLine(run, options = {}) {
     const model = runStatusLineModel(run, options);
     if (!model) return "";
@@ -1114,7 +1179,7 @@
     const animationAge = `${Math.max(0, Math.floor(model.elapsedMs))}ms`;
     return `
       <div class="agent-run-status${model.statusClass}" data-run-status="${escapeHtml(model.status)}" data-run-key="${escapeHtml(model.runKey)}" style="--agent-run-animation-age:${escapeHtml(animationAge)}">
-        <span class="agent-run-status-loader" aria-hidden="true"><span></span></span>
+        <span class="agent-run-status-loader" aria-hidden="true">${runStatusPhaseOrbHtml(model.isLoading)}</span>
         <span class="agent-run-status-text">
           <span class="agent-run-status-label">${escapeHtml(model.label)}</span>${loadingDots}
         </span>
@@ -1122,6 +1187,97 @@
         <span class="agent-run-status-elapsed">${escapeHtml(model.elapsed)}</span>
       </div>
     `;
+  }
+
+  function prefersReducedMotion() {
+    try {
+      return Boolean(global.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+    } catch {
+      return false;
+    }
+  }
+
+  function phaseOrbStatusElements(root) {
+    if (!root) return [];
+    const items = [];
+    const className = String(root.className || "");
+    if (className.split(/\s+/).includes("agent-run-status")) items.push(root);
+    if (typeof root.querySelectorAll === "function") {
+      items.push(...Array.from(root.querySelectorAll(".agent-run-status")));
+    }
+    return items;
+  }
+
+  function updatePhaseOrbStatusElement(statusEl, now = Date.now()) {
+    if (!statusEl) return false;
+    const className = String(statusEl.className || "");
+    const isLoading = className.split(/\s+/).includes("is-loading");
+    const dots = typeof statusEl.querySelectorAll === "function"
+      ? Array.from(statusEl.querySelectorAll(".agent-run-status-orb-dot"))
+      : [];
+    if (!dots.length) return isLoading;
+
+    if (!isLoading) {
+      dots.forEach((dot) => {
+        if (dot?.style && typeof dot.style.removeProperty === "function") dot.style.removeProperty("opacity");
+      });
+      return false;
+    }
+
+    const reducedMotion = prefersReducedMotion();
+    const phase = reducedMotion ? 0 : ((Number(now) || Date.now()) % PHASE_ORB_CYCLE_MS) / PHASE_ORB_CYCLE_MS;
+    dots.forEach((dot) => {
+      if (!dot || String(dot.className || "").split(/\s+/).includes("is-inactive")) return;
+      const row = Number(dot.dataset?.orbRow);
+      const col = Number(dot.dataset?.orbCol);
+      const opacity = phaseOrbOpacityForCell(row, col, phase, { reducedMotion });
+      if (opacity == null || !dot.style) return;
+      dot.style.opacity = String(opacity);
+    });
+    return true;
+  }
+
+  function updatePhaseOrbStatusElements(root, now = Date.now()) {
+    let hasLoading = false;
+    for (const statusEl of phaseOrbStatusElements(root)) {
+      hasLoading = updatePhaseOrbStatusElement(statusEl, now) || hasLoading;
+    }
+    return hasLoading;
+  }
+
+  function requestPhaseOrbFrame(callback) {
+    const raf = typeof global.requestAnimationFrame === "function"
+      ? global.requestAnimationFrame.bind(global)
+      : null;
+    if (!raf) {
+      return typeof global.setTimeout === "function" ? global.setTimeout(() => callback(Date.now()), 16) : 0;
+    }
+    let sync = true;
+    const frame = raf((timestamp) => {
+      if (sync && typeof global.setTimeout === "function") {
+        global.setTimeout(() => callback(timestamp || Date.now()), 16);
+        return;
+      }
+      callback(timestamp || Date.now());
+    });
+    sync = false;
+    return frame;
+  }
+
+  function schedulePhaseOrbAnimation(root = document) {
+    if (_phaseOrbAnimationFrame) return;
+    _phaseOrbAnimationFrame = requestPhaseOrbFrame((timestamp) => {
+      _phaseOrbAnimationFrame = 0;
+      if (updatePhaseOrbStatusElements(root || document, timestamp)) {
+        schedulePhaseOrbAnimation(root);
+      }
+    });
+  }
+
+  function startPhaseOrbAnimation(root = document) {
+    if (updatePhaseOrbStatusElements(root, Date.now())) {
+      schedulePhaseOrbAnimation(document);
+    }
   }
 
   function setTextIfChanged(element, text) {
@@ -1155,6 +1311,7 @@
     setTextIfChanged(elapsedEl, model.elapsed);
     const goalEl = statusEl.querySelector?.(".agent-run-status-goal");
     if (goalEl) setTextIfChanged(goalEl, model.goalText);
+    startPhaseOrbAnimation(statusEl);
     return true;
   }
 
@@ -2635,6 +2792,7 @@
 
     if (!isConversationSwitch && containerEl.dataset?.conversationRenderSignature === renderSignature) {
       initNameBadgeLotties(containerEl);
+      startPhaseOrbAnimation(containerEl);
       applyScroll();
       if (conversation && conversationType === "group" && !_conversationMembersCache.has(conversationId)) {
         _fetchAndCacheConversationMembers(conversationId);
@@ -2658,6 +2816,7 @@
       if (streaming) containerEl.appendChild(streaming);
       window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
       markRenderedTraceBlocks(containerEl);
+      startPhaseOrbAnimation(containerEl);
       initNameBadgeLotties(containerEl);
       applyScroll();
       if (!_conversationMembersCache.has(conversationId)) {
@@ -2679,6 +2838,7 @@
     if (streaming) containerEl.appendChild(streaming);
     window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
     markRenderedTraceBlocks(containerEl);
+    startPhaseOrbAnimation(containerEl);
     initNameBadgeLotties(containerEl);
     applyScroll();
   }
@@ -4450,6 +4610,7 @@
     addRunPermission,
     agentRunStatusPhrasePools,
     runActivityLabel,
+    phaseOrbOpacityForCell,
     renderAgentPermissionBanner,
     submitPermissionDecision,
     appendMessageToActiveChat: _appendMessageToActiveChat,

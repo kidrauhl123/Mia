@@ -2619,10 +2619,27 @@ test("renderConversationChat renders active cloud run status at the bottom of th
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /agent-run-status/);
   assert.match(chat.children[0].innerHTML, /agent-run-status-loader/);
+  assert.equal((chat.children[0].innerHTML.match(/agent-run-status-orb-dot/g) || []).length, 25);
+  assert.match(chat.children[0].innerHTML, /agent-run-status-orb-dot is-core/);
+  assert.match(chat.children[0].innerHTML, /data-orb-row="2" data-orb-col="2"/);
+  assert.match(chat.children[0].innerHTML, /data-orb-ring="0"/);
+  assert.match(chat.children[0].innerHTML, /data-orb-angle="0"/);
   assert.match(chat.children[0].innerHTML, /agent-run-status-loading-dots/);
   assert.match(chat.children[0].innerHTML, /--agent-run-animation-age:\d+ms/);
   assert.doesNotMatch(chat.children[0].innerHTML, /正在执行 shell/);
   assert.match(chat.children[0].innerHTML, /0s/);
+});
+
+test("phase orb opacity follows the DotmCircular6 resolver thresholds", () => {
+  const s = loadSocial();
+  const opacityForCell = s._internalCtx.phaseOrbOpacityForCell;
+  assert.equal(typeof opacityForCell, "function");
+
+  assert.equal(opacityForCell(0, 0, 0), null);
+  assert.equal(opacityForCell(2, 2, 0), 0.34);
+  assert.equal(opacityForCell(0, 3, 0), 0.96);
+  assert.equal(opacityForCell(3, 2, 0), 0.08);
+  assert.equal(opacityForCell(3, 2, 0.5), 0.34);
 });
 
 test("cloud run status timer updates the status line without rebuilding animation nodes", () => {
@@ -3083,6 +3100,19 @@ test("handleCloudEvent materializes a cancelled cloud run before the next outgoi
   assert.equal(entry.messages[1].sender_kind, "bot");
   assert.equal(entry.messages[1]._localRunStatus, "cancelled");
   assert.match(entry.messages[1].body_md, /我先检查/);
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+  assert.match(chat.children[1].innerHTML, /agent-run-status is-interrupted/);
+  assert.doesNotMatch(chat.children[1].innerHTML, /style="opacity:/);
 
   const sendPromise = s.sendInActiveConversation("新的问题");
   assert.deepEqual(entry.messages.map((msg) => msg.body_md), ["上一个问题", "我先检查。", "新的问题"]);

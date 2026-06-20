@@ -4900,34 +4900,45 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 .agent-run-status-loader {
   flex: 0 0 auto;
   display: grid;
-  place-items: center;
-  width: 12px;
-  height: 12px;
+  grid-template-columns: repeat(5, 2px);
+  grid-template-rows: repeat(5, 2px);
+  place-content: center;
+  gap: 1.25px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
-  background:
-    conic-gradient(from 0deg, var(--agent-run-status-loader-soft), var(--agent-run-status-loader-strong), var(--agent-run-status-loader-soft));
+  background: transparent;
 }
 
-.agent-run-status-loader span {
+.agent-run-status-orb-dot {
   display: block;
-  width: 6px;
-  height: 6px;
+  width: 2px;
+  height: 2px;
   border-radius: 999px;
+  background: var(--agent-run-status-loader-strong);
+  opacity: 0.13;
+  box-shadow: 0 0 3px var(--agent-run-status-loader-ring);
+  will-change: opacity;
+}
+
+.agent-run-status-orb-dot.is-inactive {
+  visibility: hidden;
+}
+
+.agent-run-status-orb-dot.is-core {
   background: var(--agent-run-status-loader-core);
+  opacity: 0.34;
   box-shadow: 0 0 0 1px var(--agent-run-status-loader-ring);
 }
 
-.agent-run-status.is-loading .agent-run-status-loader {
-  animation: agentRunStatusSpin 2.2s linear infinite;
-  animation-delay: calc(var(--agent-run-animation-age, 0ms) * -1);
-}
-
-.agent-run-status.is-interrupted .agent-run-status-loader {
+.agent-run-status.is-interrupted .agent-run-status-orb-dot:not(.is-inactive) {
   background: color-mix(in srgb, var(--muted) 54%, transparent);
+  opacity: 0.44;
 }
 
-.agent-run-status.is-error .agent-run-status-loader {
+.agent-run-status.is-error .agent-run-status-orb-dot:not(.is-inactive) {
   background: #ff3b30;
+  opacity: 0.7;
 }
 
 .agent-run-status-text {
@@ -5003,12 +5014,6 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   font-variant-numeric: tabular-nums;
 }
 
-@keyframes agentRunStatusSpin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @keyframes agentRunStatusDot {
   0%, 70%, 100% {
     opacity: 0.34;
@@ -5031,7 +5036,6 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 
 @media (prefers-reduced-motion: reduce) {
   .agent-run-status.is-loading .agent-run-status-label,
-  .agent-run-status.is-loading .agent-run-status-loader,
   .agent-run-status-loading-dots span {
     animation: none;
   }

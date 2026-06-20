@@ -158,10 +158,10 @@ test("renderAssistantContentBlocks renders file edit blocks as expandable diff t
   assert.doesNotMatch(html, /@@ -1,2 \+1,2 @@/);
   assert.match(html, /<pre class="trace-body diff-body">/);
   assert.doesNotMatch(html, /<\/span>\n<span class="diff-line/);
-  assert.match(html, /<span class="diff-line diff-meta diff-hunk"><span class="diff-ln diff-ln-old">···<\/span><span class="diff-ln diff-ln-new">···<\/span><span class="diff-code"><\/span><\/span>/);
-  assert.match(html, /<span class="diff-line diff-del"><span class="diff-ln diff-ln-old">1<\/span><span class="diff-ln diff-ln-new"><\/span><span class="diff-code">-old<\/span><\/span>/);
-  assert.match(html, /<span class="diff-line diff-add"><span class="diff-ln diff-ln-old"><\/span><span class="diff-ln diff-ln-new">1<\/span><span class="diff-code">\+new<\/span><\/span>/);
-  assert.match(html, /<span class="diff-line diff-context"><span class="diff-ln diff-ln-old">2<\/span><span class="diff-ln diff-ln-new">2<\/span><span class="diff-code"> same<\/span><\/span>/);
+  assert.match(html, /<span class="diff-line diff-meta diff-hunk"><span class="diff-ln">···<\/span><span class="diff-code"><\/span><\/span>/);
+  assert.match(html, /<span class="diff-line diff-del"><span class="diff-ln">1<\/span><span class="diff-code">-old<\/span><\/span>/);
+  assert.match(html, /<span class="diff-line diff-add"><span class="diff-ln">1<\/span><span class="diff-code">\+new<\/span><\/span>/);
+  assert.match(html, /<span class="diff-line diff-context"><span class="diff-ln">2<\/span><span class="diff-code"> same<\/span><\/span>/);
 });
 
 test("renderAssistantContentBlocks derives diff line numbers from hunk ranges", () => {
@@ -184,11 +184,37 @@ test("renderAssistantContentBlocks derives diff line numbers from hunk ranges", 
     }
   });
 
-  assert.match(html, /diff-context"><span class="diff-ln diff-ln-old">7<\/span><span class="diff-ln diff-ln-new">7<\/span><span class="diff-code"> context/);
-  assert.match(html, /diff-del"><span class="diff-ln diff-ln-old">8<\/span><span class="diff-ln diff-ln-new"><\/span><span class="diff-code">-old/);
-  assert.match(html, /diff-add"><span class="diff-ln diff-ln-old"><\/span><span class="diff-ln diff-ln-new">8<\/span><span class="diff-code">\+new/);
-  assert.match(html, /diff-add"><span class="diff-ln diff-ln-old"><\/span><span class="diff-ln diff-ln-new">9<\/span><span class="diff-code">\+extra/);
-  assert.match(html, /diff-context"><span class="diff-ln diff-ln-old">9<\/span><span class="diff-ln diff-ln-new">10<\/span><span class="diff-code"> tail/);
+  assert.match(html, /diff-context"><span class="diff-ln">7<\/span><span class="diff-code"> context/);
+  assert.match(html, /diff-del"><span class="diff-ln">8<\/span><span class="diff-code">-old/);
+  assert.match(html, /diff-add"><span class="diff-ln">8<\/span><span class="diff-code">\+new/);
+  assert.match(html, /diff-add"><span class="diff-ln">9<\/span><span class="diff-code">\+extra/);
+  assert.match(html, /diff-context"><span class="diff-ln">10<\/span><span class="diff-code"> tail/);
+});
+
+test("renderAssistantContentBlocks trims shared indentation from diff code", () => {
+  const { traceBlocks } = loadTraceBlocks();
+  const html = traceBlocks.renderAssistantContentBlocks({
+    blocks: [{
+      type: "file_edit",
+      id: "edit_1",
+      path: "src/app.js",
+      action: "update",
+      diff: "@@ -20,2 +20,2 @@\n         const oldValue = value;\n-        return oldValue;\n+        return nextValue;",
+      additions: 1,
+      deletions: 1,
+      status: "completed"
+    }],
+    scopeKey: "msg:m_indent",
+    expanded: true,
+    renderTextBlock(block) {
+      return `<div class="bubble assistant-text-block">${escapeHtml(block.text)}</div>`;
+    }
+  });
+
+  assert.match(html, /diff-context"><span class="diff-ln">20<\/span><span class="diff-code"> const oldValue = value;<\/span>/);
+  assert.match(html, /diff-del"><span class="diff-ln">21<\/span><span class="diff-code">-return oldValue;<\/span>/);
+  assert.match(html, /diff-add"><span class="diff-ln">21<\/span><span class="diff-code">\+return nextValue;<\/span>/);
+  assert.doesNotMatch(html, /<span class="diff-code">[ +-] {4,}/);
 });
 
 test("trace CSS hides previews immediately when a row is toggled open", () => {
@@ -202,8 +228,11 @@ test("trace CSS styles diff rows with terminal-like add/delete colors", () => {
   for (const css of [rendererCss, webCss]) {
     assert.match(css, /\.trace-body\.diff-body/);
     assert.match(css, /\.trace-body\.diff-body\s*\{[\s\S]*?background:\s*#0f1117;/);
-    assert.match(css, /\.diff-line\s*\{[\s\S]*?grid-template-columns:\s*4ch 4ch minmax\(0,\s*1fr\);/);
+    assert.match(css, /\.diff-line\s*\{[\s\S]*?grid-template-columns:\s*4ch minmax\(0,\s*1fr\);/);
+    assert.match(css, /\.diff-line\s*\{[\s\S]*?min-width:\s*0;/);
     assert.match(css, /\.diff-ln\s*\{[\s\S]*?text-align:\s*right;/);
+    assert.match(css, /\.diff-code\s*\{[\s\S]*?white-space:\s*pre-wrap;/);
+    assert.match(css, /\.diff-code\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/);
     assert.match(css, /\.trace-meta\.diff-stats/);
     assert.match(css, /\.diff-stat\.diff-stat-add/);
     assert.match(css, /\.diff-stat\.diff-stat-del/);
