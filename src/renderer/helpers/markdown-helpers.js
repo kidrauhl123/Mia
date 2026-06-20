@@ -465,6 +465,18 @@
     let paragraph = [];
     let list = null;
     let fence = null;
+    const listTypeForLine = (line) => {
+      if (/^\s*[-*]\s+(.+)$/.test(line || "")) return "ul";
+      if (/^\s*\d+[.)]\s+(.+)$/.test(line || "")) return "ol";
+      return "";
+    };
+    const nextNonBlankListType = (fromIndex) => {
+      for (let j = fromIndex; j < lines.length; j++) {
+        if (!lines[j].trim()) continue;
+        return listTypeForLine(lines[j]);
+      }
+      return "";
+    };
 
     const flushParagraph = () => {
       if (!paragraph.length) return;
@@ -499,6 +511,9 @@
         continue;
       }
       if (!line.trim()) {
+        if (list && nextNonBlankListType(i + 1) === list.type) {
+          continue;
+        }
         flushTextBlocks();
         continue;
       }

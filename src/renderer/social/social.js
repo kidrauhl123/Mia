@@ -847,7 +847,8 @@
     return tools.length ? tools[tools.length - 1] : null;
   }
 
-  const RUN_STATUS_PHRASE_INTERVAL_MS = 4000;
+  const RUN_STATUS_PHRASE_INTERVAL_MS = 9000;
+  const RUN_STATUS_PHRASE_STICKY_MS = 9000;
   const agentRunStatusPhrasePools = {
     general: [
       "咕嘟咕嘟",
@@ -920,9 +921,9 @@
       "还在脑内绕圈",
       "正在摆弄可能性",
       "先让想法翻个面",
-      "还在和方案掰手腕",
+      "还在和麻烦掰手腕",
       "正在另辟蹊径",
-      "继续三思而后行",
+      "三思而后行",
       "还在斟酌火候",
       "正在踟蹰",
       "思路正在蓄势待发",
@@ -941,8 +942,8 @@
       "正在把话捋顺",
       "还在字斟句酌",
       "正在挤掉废话",
-      "继续让文字站好",
-      "还在拿捏语气",
+      "打扫干净屋子",
+      "斟酌语气",
       "正在装盘",
       "句子还在排队",
       "正在给表达收边",
@@ -950,7 +951,7 @@
       "正在把重点摆正",
       "正在熟悉人类的语言",
       "还在删繁就简",
-      "你的AI正在攻击你的代码",
+      "AI正在攻击你的代码",
       "字句正在各就各位",
       "还在让段落坐稳",
       "正在把毛边剪掉",
@@ -964,7 +965,7 @@
       "还在查漏补缺",
       "正在数羊，别少一只",
       "继续晃一晃看稳不稳",
-      "还在数螺丝",
+      "正在数羊",
       "大火收汁",
       "先确认没踩空",
       "还在看它会不会歪",
@@ -1023,9 +1024,24 @@
   function runActivityPhrase(run, poolName, options = {}) {
     const pool = agentRunStatusPhrasePools[poolName] || agentRunStatusPhrasePools.general;
     const elapsedMs = Number.isFinite(Number(options.elapsedMs)) ? Number(options.elapsedMs) : runElapsedMs(run);
+    const runKey = runStatusKey(run);
+    const previous = run && typeof run === "object" ? run._agentRunStatusPhrase : null;
+    if (
+      previous
+      && previous.key === runKey
+      && previous.label
+      && elapsedMs >= previous.elapsedMs
+      && elapsedMs - previous.elapsedMs < RUN_STATUS_PHRASE_STICKY_MS
+    ) {
+      return previous.label;
+    }
     const bucket = Math.floor(Math.max(0, elapsedMs) / RUN_STATUS_PHRASE_INTERVAL_MS);
-    const offset = stableStatusHash(`${runStatusKey(run)}:${poolName}`);
-    return pool[(offset + bucket) % pool.length] || "正在处理";
+    const offset = stableStatusHash(`${runKey}:${poolName}`);
+    const label = pool[(offset + bucket) % pool.length] || "正在处理";
+    if (run && typeof run === "object") {
+      run._agentRunStatusPhrase = { key: runKey, label, elapsedMs, poolName };
+    }
+    return label;
   }
 
   function normalizeRunGoal(goal) {
@@ -1066,8 +1082,8 @@
     return runActivityPhrase(run, runActivityPhrasePoolName(run, tool), options);
   }
 
-  function renderRunStatusLine(run, options = {}) {
-    if (!run) return "";
+  function runStatusLineModel(run, options = {}) {
+    if (!run) return null;
     const status = String(run._localRunStatus || run.status || (options.cancelled ? "cancelled" : "running"));
     const elapsedMs = options.elapsedMs ?? runElapsedMs(run);
     const label = firstText(options.label, runActivityLabel(run, { elapsedMs }));
@@ -1077,19 +1093,69 @@
     const statusClass = status === "cancelled"
       ? " is-interrupted"
       : (status === "error" ? " is-error" : " is-running is-loading");
-    const loadingDots = isLoading
+    return {
+      status,
+      elapsedMs,
+      label,
+      elapsed,
+      goalText,
+      isLoading,
+      statusClass,
+      runKey: runStatusKey(run)
+    };
+  }
+
+  function renderRunStatusLine(run, options = {}) {
+    const model = runStatusLineModel(run, options);
+    if (!model) return "";
+    const loadingDots = model.isLoading
       ? `<span class="agent-run-status-loading-dots" aria-hidden="true"><span></span><span></span><span></span></span>`
       : "";
+    const animationAge = `${Math.max(0, Math.floor(model.elapsedMs))}ms`;
     return `
-      <div class="agent-run-status${statusClass}" data-run-status="${escapeHtml(status)}">
+      <div class="agent-run-status${model.statusClass}" data-run-status="${escapeHtml(model.status)}" data-run-key="${escapeHtml(model.runKey)}" style="--agent-run-animation-age:${escapeHtml(animationAge)}">
         <span class="agent-run-status-loader" aria-hidden="true"><span></span></span>
         <span class="agent-run-status-text">
-          <span class="agent-run-status-label">${escapeHtml(label)}</span>${loadingDots}
+          <span class="agent-run-status-label">${escapeHtml(model.label)}</span>${loadingDots}
         </span>
-        ${goalText ? `<span class="agent-run-status-goal">${escapeHtml(goalText)}</span>` : ""}
-        <span class="agent-run-status-elapsed">${escapeHtml(elapsed)}</span>
+        ${model.goalText ? `<span class="agent-run-status-goal">${escapeHtml(model.goalText)}</span>` : ""}
+        <span class="agent-run-status-elapsed">${escapeHtml(model.elapsed)}</span>
       </div>
     `;
+  }
+
+  function setTextIfChanged(element, text) {
+    if (!element) return false;
+    const next = String(text || "");
+    if (element.textContent === next) return true;
+    element.textContent = next;
+    return true;
+  }
+
+  function syncRunStatusLineElement(statusEl, run, options = {}) {
+    if (!statusEl || !run) return false;
+    const model = runStatusLineModel(run, options);
+    if (!model) return false;
+    const previousRunKey = statusEl.dataset?.runKey || statusEl.getAttribute?.("data-run-key") || "";
+    statusEl.className = `agent-run-status${model.statusClass}`;
+    if (statusEl.dataset) {
+      statusEl.dataset.runStatus = model.status;
+      statusEl.dataset.runKey = model.runKey;
+    } else if (typeof statusEl.setAttribute === "function") {
+      statusEl.setAttribute("data-run-status", model.status);
+      statusEl.setAttribute("data-run-key", model.runKey);
+    }
+    if (previousRunKey !== model.runKey && statusEl.style?.setProperty) {
+      statusEl.style.setProperty("--agent-run-animation-age", `${Math.max(0, Math.floor(model.elapsedMs))}ms`);
+    }
+    const labelEl = statusEl.querySelector?.(".agent-run-status-label");
+    const elapsedEl = statusEl.querySelector?.(".agent-run-status-elapsed");
+    if (!labelEl || !elapsedEl) return false;
+    setTextIfChanged(labelEl, model.label);
+    setTextIfChanged(elapsedEl, model.elapsed);
+    const goalEl = statusEl.querySelector?.(".agent-run-status-goal");
+    if (goalEl) setTextIfChanged(goalEl, model.goalText);
+    return true;
   }
 
   function localRunMessageId(run, conversationId) {
@@ -1581,6 +1647,17 @@
     });
   }
 
+  function updateActiveCloudRunStatusLine(conversationId = moduleState.activeConversationId) {
+    if (!conversationId || conversationId !== moduleState.activeConversationId) return false;
+    const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
+    if (!run) return false;
+    const chatEl = document.getElementById("chat");
+    if (!chatEl || typeof chatEl.querySelector !== "function") return false;
+    const statusEl = chatEl.querySelector(".message.streaming .agent-run-status")
+      || chatEl.querySelector(".agent-run-status");
+    return syncRunStatusLineElement(statusEl, run);
+  }
+
   function refreshCloudRunStatusTimer() {
     const hasRunningRun = Array.from(moduleState.cloudAgentRunsByConversation.values())
       .some((run) => run?.status === "running");
@@ -1598,7 +1675,9 @@
         refreshCloudRunStatusTimer();
         return;
       }
-      _reRenderActiveChat({ force: true });
+      if (!updateActiveCloudRunStatusLine()) {
+        scheduleCloudRunRender(moduleState.activeConversationId);
+      }
       if (deps && typeof deps.paintHeaderStatus === "function") deps.paintHeaderStatus();
     }, 1000);
   }

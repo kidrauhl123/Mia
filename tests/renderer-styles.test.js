@@ -84,22 +84,39 @@ test("agent run loading status keeps the shimmer on text without a container car
   assert.match(statusRule, /background:\s*transparent;/);
   assert.match(statusRule, /border:\s*0;/);
   assert.match(statusRule, /box-shadow:\s*none;/);
+  assert.match(statusRule, /--agent-run-status-text:\s*var\(--floor-muted,\s*var\(--muted\)\);/);
+  assert.match(statusRule, /--agent-run-status-strong:\s*var\(--floor-text,\s*var\(--text\)\);/);
   assert.doesNotMatch(baseCss, /\.agent-run-status::before/);
 
   const loaderRule = cssRuleBody(baseCss, ".agent-run-status-loader");
   assert.doesNotMatch(loaderRule, /--accent/);
-  assert.match(loaderRule, /rgb\(255\s+255\s+255\s*\/\s*0\.72\)/);
+  assert.match(loaderRule, /var\(--agent-run-status-loader-strong\)/);
 
   const loaderCoreRule = cssRuleBody(baseCss, ".agent-run-status-loader span");
   assert.doesNotMatch(loaderCoreRule, /--accent/);
-  assert.match(loaderCoreRule, /rgb\(255\s+255\s+255\s*\/\s*0\.16\)/);
+  assert.match(loaderCoreRule, /var\(--agent-run-status-loader-ring\)/);
 
   const loadingLabelRule = cssRuleBody(baseCss, ".agent-run-status.is-loading .agent-run-status-label");
   assert.match(loadingLabelRule, /background:[\s\S]*linear-gradient/);
   assert.doesNotMatch(loadingLabelRule, /--accent/);
-  assert.match(loadingLabelRule, /rgb\(255\s+255\s+255\s*\/\s*0\.98\)/);
+  assert.match(loadingLabelRule, /var\(--agent-run-status-shine\)/);
   assert.match(loadingLabelRule, /background-clip:\s*text;/);
-  assert.match(loadingLabelRule, /animation:\s*agentRunStatusTextSweep\s*2\.8s\s*ease-in-out\s*infinite;/);
+  assert.match(loadingLabelRule, /animation:\s*agentRunStatusTextSweep\s*4\.8s\s*ease-in-out\s*infinite;/);
+  assert.match(loadingLabelRule, /animation-delay:\s*calc\(var\(--agent-run-animation-age,\s*0ms\) \* -1\);/);
+
+  const loadingLoaderRule = cssRuleBody(baseCss, ".agent-run-status.is-loading .agent-run-status-loader");
+  assert.match(loadingLoaderRule, /animation:\s*agentRunStatusSpin\s*2\.2s\s*linear\s*infinite;/);
+  assert.match(loadingLoaderRule, /animation-delay:\s*calc\(var\(--agent-run-animation-age,\s*0ms\) \* -1\);/);
+
+  const dotRule = cssRuleBody(baseCss, ".agent-run-status-loading-dots span");
+  assert.match(dotRule, /animation:\s*agentRunStatusDot\s*1\.8s\s*ease-in-out\s*infinite;/);
+  assert.match(dotRule, /animation-delay:\s*calc\(var\(--agent-run-animation-age,\s*0ms\) \* -1\);/);
+
+  assert.match(
+    baseCss,
+    /:where\(\.message\.user,\s*\.persona\.active,\s*\.contact-row\.active\) \.agent-run-status\s*\{[\s\S]*?--agent-run-status-text:\s*rgba\(255,\s*255,\s*255,\s*0\.78\);[\s\S]*?--agent-run-status-strong:\s*rgba\(255,\s*255,\s*255,\s*0\.94\);/,
+    "status line should expose an on-strong-background color override"
+  );
 });
 
 test("chat avatar display settings do not hide group participant avatars", () => {

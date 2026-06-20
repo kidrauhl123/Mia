@@ -69,3 +69,12 @@ test("markdown hides Mia path reference blocks from rendered chat text", () => {
   assert.match(markdown.renderMarkdown(source), />IMG1<\/span>/);
   assert.equal(markdown.renderPreviewMarkdown(source), "请看 IMG1");
 });
+
+test("markdown keeps ordered list numbering across blank lines between items", () => {
+  const markdown = loadMarkdownHelpers();
+  const html = markdown.renderMarkdown("1. 第一项\n\n2. 第二项\n\n3. 第三项");
+  const repeatedMarkerHtml = markdown.renderMarkdown("1. 第一项\n\n1. 第二项\n\n1. 第三项");
+
+  assert.equal(html, "<ol><li>第一项</li><li>第二项</li><li>第三项</li></ol>");
+  assert.equal(repeatedMarkerHtml, "<ol><li>第一项</li><li>第二项</li><li>第三项</li></ol>");
+});

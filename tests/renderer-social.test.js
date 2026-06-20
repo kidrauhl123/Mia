@@ -31,6 +31,8 @@ function loadSocial(options = {}) {
   });
   const mockWindow = {
     requestAnimationFrame: options.requestAnimationFrame,
+    setInterval: options.setInterval,
+    clearInterval: options.clearInterval,
     mia: {},
     miaBotCommands: require("../src/renderer/bot/bot-commands.js"),
     miaSelfIdentity: require("../packages/shared/self-identity.js"),
@@ -2618,8 +2620,77 @@ test("renderConversationChat renders active cloud run status at the bottom of th
   assert.match(chat.children[0].innerHTML, /agent-run-status/);
   assert.match(chat.children[0].innerHTML, /agent-run-status-loader/);
   assert.match(chat.children[0].innerHTML, /agent-run-status-loading-dots/);
+  assert.match(chat.children[0].innerHTML, /--agent-run-animation-age:\d+ms/);
   assert.doesNotMatch(chat.children[0].innerHTML, /正在执行 shell/);
   assert.match(chat.children[0].innerHTML, /0s/);
+});
+
+test("cloud run status timer updates the status line without rebuilding animation nodes", () => {
+  let intervalCallback = null;
+  const statusLabel = { textContent: "" };
+  const statusElapsed = { textContent: "" };
+  const statusEl = {
+    className: "agent-run-status is-running is-loading",
+    dataset: { runStatus: "running" },
+    querySelector(selector) {
+      if (selector === ".agent-run-status-label") return statusLabel;
+      if (selector === ".agent-run-status-elapsed") return statusElapsed;
+      return null;
+    },
+  };
+  const chat = {
+    dataset: {},
+    children: [],
+    clearCount: 0,
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector(selector) {
+      if (selector === ".message.streaming .agent-run-status") return statusEl;
+      return null;
+    },
+    set innerHTML(value) {
+      this.clearCount += 1;
+      this.children = [];
+      this._html = String(value || "");
+    },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  const s = loadSocial({
+    elementsById: { chat },
+    setInterval: (fn) => {
+      intervalCallback = fn;
+      return 1;
+    },
+    clearInterval: () => {},
+  });
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "pwd" } },
+  });
+  s.renderConversationChat(chat);
+
+  const initialClearCount = chat.clearCount;
+  const initialArticle = chat.children[0];
+  assert.equal(typeof intervalCallback, "function");
+
+  intervalCallback();
+
+  assert.equal(chat.clearCount, initialClearCount);
+  assert.strictEqual(chat.children[0], initialArticle);
+  assert.match(statusLabel.textContent, /\S/);
+  assert.match(statusElapsed.textContent, /\d+s/);
 });
 
 test("run status labels use stable rotating Chinese phrase pools", () => {
@@ -2635,14 +2706,35 @@ test("run status labels use stable rotating Chinese phrase pools", () => {
     tools: [{ id: "tool_1", name: "shell", status: "running", preview: "pwd" }]
   };
   const first = s._internalCtx.runActivityLabel(run, { elapsedMs: 0 });
-  const firstAgain = s._internalCtx.runActivityLabel(run, { elapsedMs: 1000 });
-  const second = s._internalCtx.runActivityLabel(run, { elapsedMs: 4000 });
+  const firstAgain = s._internalCtx.runActivityLabel(run, { elapsedMs: 8000 });
+  const second = s._internalCtx.runActivityLabel(run, { elapsedMs: 9000 });
 
   assert.notEqual(first, "正在执行 shell");
   assert.equal(first, firstAgain);
   assert.notEqual(first, second);
   assert.ok(pools.tool.includes(first));
   assert.ok(pools.tool.includes(second));
+});
+
+test("run status labels stay sticky when the run phase changes briefly", () => {
+  const s = loadSocial();
+  const pools = s._internalCtx.agentRunStatusPhrasePools;
+  const run = {
+    runId: "car_phase_sticky",
+    status: "running",
+    tools: [{ id: "tool_1", name: "shell", status: "running", preview: "pwd" }]
+  };
+
+  const first = s._internalCtx.runActivityLabel(run, { elapsedMs: 0 });
+  run.tools[0].status = "completed";
+  run.text = "final text";
+
+  const sticky = s._internalCtx.runActivityLabel(run, { elapsedMs: 4500 });
+  const later = s._internalCtx.runActivityLabel(run, { elapsedMs: 9000 });
+
+  assert.equal(sticky, first);
+  assert.notEqual(later, first);
+  assert.ok(pools.writing.includes(later));
 });
 
 test("renderConversationChat renders normalized cloud run trace blocks", () => {
