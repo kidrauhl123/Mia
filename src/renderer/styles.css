@@ -7042,12 +7042,12 @@ select.select-open {
 
 .workspace-background-controls {
   display: grid;
-  grid-template-columns: auto auto auto minmax(0, 1fr);
+  grid-template-columns: auto;
   align-items: center;
   justify-self: end;
   gap: 8px;
   min-width: 0;
-  max-width: 280px;
+  max-width: 220px;
 }
 
 .workspace-background-controls .accent-picker {
@@ -7060,24 +7060,6 @@ select.select-open {
 
 .workspace-background-controls .accent-swatch span {
   border-radius: 6px;
-}
-
-.workspace-background-controls .secondary {
-  min-height: 28px;
-  padding: 0 10px;
-}
-
-.workspace-background-image-label {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--faint);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-background-controls .icon-button:disabled {
-  opacity: 0.35;
 }
 
 .workspace-background-presets {

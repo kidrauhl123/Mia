@@ -263,11 +263,6 @@ const els = {
   appearanceWorkspaceBackgroundPreview: document.getElementById("appearanceWorkspaceBackgroundPreview"),
   appearanceWorkspaceBackgroundPresets: document.getElementById("appearanceWorkspaceBackgroundPresets"),
   appearanceWorkspaceBackgroundReset: document.getElementById("appearanceWorkspaceBackgroundReset"),
-  appearanceWorkspaceBackgroundImage: document.getElementById("appearanceWorkspaceBackgroundImage"),
-  appearanceWorkspaceBackgroundImageFile: document.getElementById("appearanceWorkspaceBackgroundImageFile"),
-  appearanceWorkspaceBackgroundImageChoose: document.getElementById("appearanceWorkspaceBackgroundImageChoose"),
-  appearanceWorkspaceBackgroundImageClear: document.getElementById("appearanceWorkspaceBackgroundImageClear"),
-  appearanceWorkspaceBackgroundImageLabel: document.getElementById("appearanceWorkspaceBackgroundImageLabel"),
   appearanceShowHoverBackground: document.getElementById("appearanceShowHoverBackground"),
   appearanceShowDesktopNotifications: document.getElementById("appearanceShowDesktopNotifications"),
   appearanceShowUserAvatar: document.getElementById("appearanceShowUserAvatar"),
@@ -1009,10 +1004,20 @@ applySidebarWidth(state.sidebarWidth);
 syncNarrowLayout();
 observeComposerOverlayHeight();
 
+function activeConversationRunStatus() {
+  return String(window.miaSocial?.activeConversationRun?.()?.status || "").trim();
+}
+
 function isActiveRunRunning() {
-  return window.miaSocial?.activeConversationRun?.()?.status === "running";
+  return activeConversationRunStatus() === "running";
 }
 window.miaIsActiveRunRunning = isActiveRunRunning;
+
+function isActiveConversationBusy() {
+  const status = activeConversationRunStatus();
+  return status === "running" || status === "cancelling";
+}
+window.miaIsActiveConversationBusy = isActiveConversationBusy;
 
 function typingDotsHtml(label) {
   const prefix = label ? `${label} ` : "";
@@ -1458,11 +1463,16 @@ function renderSendButton() {
   const cloudSignedIn = Boolean(state.runtime?.cloud?.enabled);
   const hasActiveCloudConversation = Boolean(window.miaSocial?.getActiveConversationId?.());
   const canSend = hasContent && (!cloudSignedIn || hasActiveCloudConversation);
-  const generating = isActiveRunRunning();
-  els.sendChat.classList.toggle("stop", generating);
-  els.sendChat.title = generating ? "停止生成" : "发送";
-  els.sendChat.setAttribute("aria-label", generating ? "停止生成" : "发送");
-  els.sendChat.disabled = !generating && !canSend;
+  const status = activeConversationRunStatus();
+  const generating = status === "running";
+  const cancelling = status === "cancelling";
+  const busy = generating || cancelling;
+  els.sendChat.classList.toggle("stop", busy);
+  els.sendChat.classList.toggle("stopping", cancelling);
+  const title = cancelling ? "正在停止" : (generating ? "停止生成" : "发送");
+  els.sendChat.title = title;
+  els.sendChat.setAttribute("aria-label", title);
+  els.sendChat.disabled = cancelling || (!generating && !canSend);
 }
 
 
@@ -5739,20 +5749,6 @@ els.appearanceWorkspaceBackgroundReset?.addEventListener("click", () => {
   window.miaSettingsAppearance.resetWorkspaceBackground();
 });
 
-els.appearanceWorkspaceBackgroundImageChoose?.addEventListener("click", () => {
-  els.appearanceWorkspaceBackgroundImageFile?.click();
-});
-
-els.appearanceWorkspaceBackgroundImageFile?.addEventListener("change", () => {
-  const file = els.appearanceWorkspaceBackgroundImageFile?.files?.[0];
-  window.miaSettingsAppearance.readWorkspaceBackgroundImage(file);
-  if (els.appearanceWorkspaceBackgroundImageFile) els.appearanceWorkspaceBackgroundImageFile.value = "";
-});
-
-els.appearanceWorkspaceBackgroundImageClear?.addEventListener("click", () => {
-  window.miaSettingsAppearance.clearWorkspaceBackgroundImage();
-});
-
 els.appearanceShowHoverBackground?.addEventListener("click", () => {
   window.miaSettingsAppearance.toggleSettingsSwitch(els.appearanceShowHoverBackground);
 });
@@ -6114,12 +6110,15 @@ function openMessageLink(link) {
 }
 
 els.sendChat.addEventListener("click", async (event) => {
-  if (!isActiveRunRunning()) return;
+  const activeRun = window.miaSocial?.activeConversationRun?.();
+  if (activeRun?.status !== "running") return;
   event.preventDefault();
   event.stopPropagation();
   await window.mia.stopChat?.({
-    conversationId: window.miaSocial?.getActiveConversationId?.() || ""
+    conversationId: window.miaSocial?.getActiveConversationId?.() || "",
+    runId: activeRun?.runId || ""
   });
+  renderSendButton();
 });
 els.chat.addEventListener("click", async (event) => {
   const jumpBtn = event.target.closest?.("[data-jump-task]");
@@ -6280,7 +6279,7 @@ els.chatForm.addEventListener("submit", async (event) => {
     const pendingAttachments = [...state.pendingAttachments].slice(0, 20);
     let conversationText = window.miaComposer.expandPathPasteRefsForSend(composerText);
     if (!conversationText.trim() && !pendingAttachments.length) return;
-    if (isActiveRunRunning()) {
+    if (isActiveConversationBusy()) {
       renderSendButton();
       return;
     }

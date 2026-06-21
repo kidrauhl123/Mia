@@ -70,7 +70,7 @@ test("cloud conversation composer checks active runs before clearing the draft",
   const submitStart = appSource.indexOf('els.chatForm.addEventListener("submit"');
   const submitEnd = appSource.indexOf("// Cloud-only:", submitStart);
   const submitBody = appSource.slice(submitStart, submitEnd);
-  const busyGuard = submitBody.indexOf("isActiveRunRunning()");
+  const busyGuard = submitBody.indexOf("isActiveConversationBusy()");
   const clearDraft = submitBody.indexOf('els.chatInput.value = "";');
 
   assert.ok(submitStart >= 0, "chat submit handler should exist");
@@ -88,7 +88,11 @@ test("active conversation stop passes the conversation id through preload to mai
   const clickEnd = appSource.indexOf('els.chat.addEventListener("click"', clickStart);
   const clickBody = appSource.slice(clickStart, clickEnd);
 
+  assert.match(appSource, /function isActiveConversationBusy\(\)/);
+  assert.match(appSource, /return status === "running" \|\| status === "cancelling";/);
+  assert.match(clickBody, /const activeRun = window\.miaSocial\?\.activeConversationRun\?\.\(\);/);
   assert.match(clickBody, /window\.mia\.stopChat\?\.\(\{\s*conversationId:\s*window\.miaSocial\?\.getActiveConversationId\?\.\(\)/);
+  assert.match(clickBody, /runId:\s*activeRun\?\.runId \|\| ""/);
   assert.match(preloadSource, /stopChat:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.ChatStop,\s*payload\)/);
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.ChatStop,\s*\(_event,\s*payload\)\s*=>\s*stopChat\(payload\s*\|\|\s*\{\}\)\)/);
   assert.match(mainSource, /localBotResponder\?\.stopActiveConversationRun\?\.\(payload\)/);

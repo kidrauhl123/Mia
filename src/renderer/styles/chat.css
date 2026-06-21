@@ -1305,7 +1305,13 @@
 }
 
 .diff-line.diff-del {
-  background: rgba(239, 68, 68, 0.20);
+  background: rgba(248, 81, 73, 0.30);
+}
+
+.diff-line.diff-del .diff-ln {
+  background: rgba(248, 81, 73, 0.18);
+  border-right-color: rgba(248, 81, 73, 0.24);
+  color: #ffbbb4;
 }
 
 .diff-line.diff-del .diff-code {
@@ -1313,7 +1319,13 @@
 }
 
 .diff-line.diff-add {
-  background: rgba(34, 197, 94, 0.18);
+  background: rgba(63, 185, 80, 0.28);
+}
+
+.diff-line.diff-add .diff-ln {
+  background: rgba(63, 185, 80, 0.16);
+  border-right-color: rgba(63, 185, 80, 0.22);
+  color: #b8f5c5;
 }
 
 .diff-line.diff-add .diff-code {
@@ -1333,11 +1345,11 @@
 }
 
 :root[data-theme="dark"] .diff-line.diff-del {
-  background: rgba(239, 68, 68, 0.20);
+  background: rgba(248, 81, 73, 0.30);
 }
 
 :root[data-theme="dark"] .diff-line.diff-add {
-  background: rgba(34, 197, 94, 0.18);
+  background: rgba(63, 185, 80, 0.28);
 }
 
 .trace-row[data-auto-open="true"] .trace-body {

@@ -4,6 +4,7 @@ const { CloudEvent } = require("../../shared/cloud-events.js");
 const { createAssistantContentBlockCollector } = require("../../shared/assistant-content-blocks.js");
 
 const PROCESSED_CAP = 500;
+const CANCEL_DRAIN_TIMEOUT_MS = 15000;
 const HISTORY_MESSAGE_LIMIT = 80;
 const HISTORY_MESSAGE_CHAR_LIMIT = 4000;
 const HISTORY_TOTAL_CHAR_LIMIT = 24000;
@@ -277,20 +278,77 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     if (entry && entry.dedupKey === dedupKey) activeRunsByConversation.delete(conversationId);
   }
 
+  function emitRunEvent(entry, event = {}) {
+    if (!entry || !event?.type) return;
+    emitCloudEvent({
+      type: "cloud_agent_run_event",
+      runId: entry.runId,
+      conversationId: entry.conversationId,
+      botId: entry.botId,
+      event
+    });
+  }
+
+  function clearCancelDrainTimer(entry) {
+    if (!entry?.cancelDrainTimer) return;
+    clearTimeout(entry.cancelDrainTimer);
+    entry.cancelDrainTimer = null;
+  }
+
+  function markRunTerminal(entry) {
+    if (!entry) return;
+    entry.finalized = true;
+    clearCancelDrainTimer(entry);
+    inFlight.delete(entry.dedupKey);
+    clearActiveRun(entry.conversationId, entry.dedupKey);
+  }
+
+  function finishCancelledRun(entry, event = {}) {
+    if (!entry || entry.finalized) return false;
+    entry.status = "cancelled";
+    emitRunEvent(entry, { type: "run.cancelled", ...event });
+    remember(entry.dedupKey);
+    markRunTerminal(entry);
+    return true;
+  }
+
+  function scheduleCancelDrainTimeout(entry) {
+    if (!entry || entry.cancelDrainTimer) return;
+    entry.cancelDrainTimer = setTimeout(() => {
+      const active = activeRunsByConversation.get(entry.conversationId);
+      if (active !== entry || entry.finalized) return;
+      log(`[local-bot-responder] cancel drain timed out for ${entry.runId}`);
+      finishCancelledRun(entry, { reason: "cancel_timeout" });
+    }, CANCEL_DRAIN_TIMEOUT_MS);
+    entry.cancelDrainTimer?.unref?.();
+  }
+
+  function stoppedRunResult(entry) {
+    return {
+      stopped: true,
+      conversationId: entry.conversationId,
+      runId: entry.runId,
+      status: "cancelling"
+    };
+  }
+
   function stopActiveConversationRun(payload = {}) {
     const conversationId = String(payload?.conversationId || "").trim();
     const runId = String(payload?.runId || "").trim();
     const candidates = conversationId
       ? [activeRunsByConversation.get(conversationId)].filter(Boolean)
       : [...activeRunsByConversation.values()];
-    const entry = candidates.find((item) => item && (!runId || item.runId === runId) && !item.abortController.signal.aborted);
+    const entry = candidates.find((item) => item && (!runId || item.runId === runId) && !item.finalized);
     if (!entry) return { stopped: false };
+    if (entry.status === "cancelling" || entry.abortController.signal.aborted) {
+      return stoppedRunResult(entry);
+    }
+    entry.status = "cancelling";
+    entry.cancelRequestedAt = new Date().toISOString();
+    emitRunEvent(entry, { type: "run.cancelling" });
+    scheduleCancelDrainTimeout(entry);
     entry.abortController.abort();
-    return {
-      stopped: true,
-      conversationId: entry.conversationId,
-      runId: entry.runId
-    };
+    return stoppedRunResult(entry);
   }
 
   function emitPostedMessage(conversationId, result) {
@@ -346,7 +404,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     if (!conversationId || !botId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
     const activeRun = activeRunsByConversation.get(conversationId);
-    if (activeRun && !activeRun.abortController.signal.aborted) {
+    if (activeRun && !activeRun.finalized) {
       log(`[local-bot-responder] skip ${dedupKey}: conversation ${conversationId} already has active run ${activeRun.runId}`);
       return false;
     }
@@ -364,7 +422,19 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     const runId = runIdForDedupKey(dedupKey);
     const abortController = new AbortController();
     const { signal } = abortController;
-    activeRunsByConversation.set(conversationId, { conversationId, runId, botId, dedupKey, abortController });
+    const runEntry = {
+      conversationId,
+      runId,
+      botId,
+      dedupKey,
+      abortController,
+      status: "running",
+      startedAt: new Date().toISOString(),
+      cancelRequestedAt: "",
+      cancelDrainTimer: null,
+      finalized: false
+    };
+    activeRunsByConversation.set(conversationId, runEntry);
     const trace = createTraceCollector();
     const contentBlocks = createAssistantContentBlockCollector();
     emitCloudEvent({
@@ -415,30 +485,21 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         });
       };
       const result = await sendChat(chatArgs);
+      if (runEntry.finalized) return true;
+      if (signal.aborted || runEntry.status === "cancelling") {
+        finishCancelledRun(runEntry);
+        return true;
+      }
       text = responseText(result);
     } catch (error) {
+      if (runEntry.finalized) return true;
       if (isStoppedError(error, signal)) {
         log(`[local-bot-responder] engine stopped: ${error?.message || error}`);
-        emitCloudEvent({
-          type: "cloud_agent_run_event",
-          runId,
-          conversationId,
-          botId,
-          event: { type: "run.cancelled" }
-        });
-        remember(dedupKey);
-        inFlight.delete(dedupKey);
-        clearActiveRun(conversationId, dedupKey);
+        finishCancelledRun(runEntry);
         return true;
       }
       log(`[local-bot-responder] engine failed: ${error?.message || error}`);
-      emitCloudEvent({
-        type: "cloud_agent_run_event",
-        runId,
-        conversationId,
-        botId,
-        event: { type: "run.failed", error: String(error?.message || error) }
-      });
+      emitRunEvent(runEntry, { type: "run.failed", error: String(error?.message || error) });
       const didPostFailure = await postFailureMessage({
         conversationId,
         botId,
@@ -448,18 +509,12 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         error
       });
       if (didPostFailure) remember(dedupKey);
-      inFlight.delete(dedupKey);
-      clearActiveRun(conversationId, dedupKey);
+      markRunTerminal(runEntry);
       return didPostFailure;
     }
+    if (runEntry.finalized) return true;
     if (!text) {
-      emitCloudEvent({
-        type: "cloud_agent_run_event",
-        runId,
-        conversationId,
-        botId,
-        event: { type: "run.failed", error: "empty response" }
-      });
+      emitRunEvent(runEntry, { type: "run.failed", error: "empty response" });
       // The engine ran but produced no text (e.g. a tool permission was denied
       // or the turn ended on tool calls only). Post a visible bubble instead of
       // returning silently, so the bot never looks like a dead no-op.
@@ -472,8 +527,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         error: new Error("本地模型这次没有产生任何文本回复（可能是工具权限被拒，或本轮只调用了工具）")
       });
       if (didPostEmpty) remember(dedupKey);
-      inFlight.delete(dedupKey);
-      clearActiveRun(conversationId, dedupKey);
+      markRunTerminal(runEntry);
       return didPostEmpty;
     }
 
@@ -491,20 +545,12 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       if (result && result.ok === false) throw new Error(result.error || result.message || "post failed");
       emitPostedMessage(conversationId, result);
       remember(dedupKey);
-      inFlight.delete(dedupKey);
-      clearActiveRun(conversationId, dedupKey);
+      markRunTerminal(runEntry);
       return true;
     } catch (error) {
       log(`[local-bot-responder] post failed: ${error?.message || error}`);
-      emitCloudEvent({
-        type: "cloud_agent_run_event",
-        runId,
-        conversationId,
-        botId,
-        event: { type: "run.failed", error: String(error?.message || error) }
-      });
-      inFlight.delete(dedupKey);
-      clearActiveRun(conversationId, dedupKey);
+      emitRunEvent(runEntry, { type: "run.failed", error: String(error?.message || error) });
+      markRunTerminal(runEntry);
       return false;
     }
   }

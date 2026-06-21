@@ -15,7 +15,6 @@
   const FALLBACK_WORKSPACE_BACKGROUND_COLOR = "#f0f0f3";
   const FALLBACK_DARK_WORKSPACE_BACKGROUND_COLOR = "#171920";
   const FALLBACK_GLASS_OPACITY = 82;
-  const MAX_WORKSPACE_BACKGROUND_IMAGE_BYTES = 3 * 1024 * 1024;
 
   let state, els, mia;
   let fontPresets, DEFAULT_ACCENT_COLOR, DEFAULT_USER_BUBBLE_COLOR, DEFAULT_SELECTION_STYLE;
@@ -78,13 +77,7 @@
   }
 
   function normalizeWorkspaceBackgroundImage(value) {
-    const image = String(value || "").trim();
-    if (!image || image.length > 4 * 1024 * 1024) return "";
-    return /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(image) ? image : "";
-  }
-
-  function cssUrl(value) {
-    return String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\n\r\f]/g, "");
+    return "";
   }
 
   function normalizeListStyle(value) {
@@ -182,7 +175,6 @@
     const workspaceBackgroundColor = normalizeHexColor(appearance.workspaceBackgroundColor, "");
     const resolvedWorkspaceBackgroundColor = workspaceBackgroundColor || defaultWorkspaceBackgroundColor("light");
     const floorColors = floorTextColors(hexToRgb(resolvedWorkspaceBackgroundColor));
-    const workspaceBackgroundImage = normalizeWorkspaceBackgroundImage(appearance.workspaceBackgroundImage);
     const glassOpacity = normalizeGlassOpacity(appearance.glassOpacity);
     const softActive = `rgb(${rgb.r} ${rgb.g} ${rgb.b} / ${theme === "dark" ? "0.22" : "0.16"})`;
     document.documentElement.dataset.theme = theme;
@@ -210,7 +202,7 @@
       }
       document.documentElement.style.setProperty(
         "--workspace-floor-image",
-        workspaceBackgroundImage ? `url("${cssUrl(workspaceBackgroundImage)}")` : "none"
+        "none"
       );
     } else {
       document.documentElement.style.removeProperty?.("--floor-text");
@@ -255,7 +247,7 @@
       listStyle: "card",
       selectionStyle: normalizeSelectionStyle(controls.appearanceSelectionStyle?.value),
       workspaceBackgroundColor,
-      workspaceBackgroundImage: normalizeWorkspaceBackgroundImage(controls.appearanceWorkspaceBackgroundImage?.value)
+      workspaceBackgroundImage: ""
     };
   }
 
@@ -275,11 +267,7 @@
         ? currentColor || ""
         : incomingColor;
     }
-    if (has("workspaceBackgroundImage")) {
-      const incomingImage = normalizeWorkspaceBackgroundImage(patch.workspaceBackgroundImage);
-      const currentImage = normalizeWorkspaceBackgroundImage(base.workspaceBackgroundImage);
-      next.workspaceBackgroundImage = incomingImage || currentImage || "";
-    }
+    if (has("workspaceBackgroundImage") || base.workspaceBackgroundImage) next.workspaceBackgroundImage = "";
     return next;
   }
 
@@ -332,12 +320,6 @@
       button.classList.toggle("is-selected", active);
       button.setAttribute("aria-checked", active ? "true" : "false");
     });
-    const workspaceBackgroundImage = normalizeWorkspaceBackgroundImage(appearance.workspaceBackgroundImage);
-    if (controls.appearanceWorkspaceBackgroundImage) controls.appearanceWorkspaceBackgroundImage.value = workspaceBackgroundImage;
-    if (controls.appearanceWorkspaceBackgroundImageLabel) {
-      controls.appearanceWorkspaceBackgroundImageLabel.textContent = workspaceBackgroundImage ? "已选择图片" : "未选择图片";
-    }
-    if (controls.appearanceWorkspaceBackgroundImageClear) controls.appearanceWorkspaceBackgroundImageClear.disabled = !workspaceBackgroundImage;
     setSettingsSwitch(controls.appearanceShowHoverBackground, appearance.showHoverBackground !== false);
     setSettingsSwitch(controls.appearanceShowDesktopNotifications, appearance.showDesktopNotifications !== false);
     setSettingsSwitch(controls.appearanceShowUserAvatar, avatarToggleEnabled(appearance.showUserAvatar));
@@ -349,45 +331,7 @@
     if (controls.appearanceWorkspaceBackgroundColor) {
       controls.appearanceWorkspaceBackgroundColor.value = defaultWorkspaceBackgroundColor("light");
     }
-    if (controls.appearanceWorkspaceBackgroundImage) controls.appearanceWorkspaceBackgroundImage.value = "";
-    if (controls.appearanceWorkspaceBackgroundImageLabel) controls.appearanceWorkspaceBackgroundImageLabel.textContent = "未选择图片";
-    if (controls.appearanceWorkspaceBackgroundImageClear) controls.appearanceWorkspaceBackgroundImageClear.disabled = true;
     scheduleAppearanceSave(0);
-  }
-
-  function clearWorkspaceBackgroundImage() {
-    const controls = els || {};
-    if (controls.appearanceWorkspaceBackgroundImage) controls.appearanceWorkspaceBackgroundImage.value = "";
-    if (controls.appearanceWorkspaceBackgroundImageLabel) controls.appearanceWorkspaceBackgroundImageLabel.textContent = "未选择图片";
-    if (controls.appearanceWorkspaceBackgroundImageClear) controls.appearanceWorkspaceBackgroundImageClear.disabled = true;
-    scheduleAppearanceSave(0);
-  }
-
-  function readWorkspaceBackgroundImage(file) {
-    const controls = els || {};
-    if (!file) return;
-    if (!String(file.type || "").startsWith("image/")) {
-      showAppearanceSaveStatus("请选择图片文件", "error");
-      return;
-    }
-    if (Number(file.size || 0) > MAX_WORKSPACE_BACKGROUND_IMAGE_BYTES) {
-      showAppearanceSaveStatus("图片请控制在 3MB 以内", "error");
-      return;
-    }
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      const image = normalizeWorkspaceBackgroundImage(reader.result);
-      if (!image) {
-        showAppearanceSaveStatus("图片读取失败", "error");
-        return;
-      }
-      if (controls.appearanceWorkspaceBackgroundImage) controls.appearanceWorkspaceBackgroundImage.value = image;
-      if (controls.appearanceWorkspaceBackgroundImageLabel) controls.appearanceWorkspaceBackgroundImageLabel.textContent = file.name || "已选择图片";
-      if (controls.appearanceWorkspaceBackgroundImageClear) controls.appearanceWorkspaceBackgroundImageClear.disabled = false;
-      scheduleAppearanceSave(0);
-    });
-    reader.addEventListener("error", () => showAppearanceSaveStatus("图片读取失败", "error"));
-    reader.readAsDataURL(file);
   }
 
   function mergeRuntimeAppearance(appearance) {
@@ -458,8 +402,6 @@
     toggleSettingsSwitch,
     syncAppearanceControls,
     resetWorkspaceBackground,
-    clearWorkspaceBackgroundImage,
-    readWorkspaceBackgroundImage,
     mergeRuntimeAppearance,
     persistAppearanceDraft,
     scheduleAppearanceSave,

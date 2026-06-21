@@ -18,7 +18,6 @@ const {
 } = require("../shared/agent-engine-policy");
 
 const APPEARANCE_FONT_PRESETS = ["system", "serif"];
-const MAX_APPEARANCE_BACKGROUND_IMAGE_LENGTH = 4 * 1024 * 1024;
 const DEFAULT_GLASS_OPACITY = 82;
 
 function normalizeAppearanceFontPreset(value) {
@@ -27,10 +26,7 @@ function normalizeAppearanceFontPreset(value) {
 }
 
 function normalizeAppearanceBackgroundImage(value) {
-  const image = String(value || "").trim();
-  if (!image) return "";
-  if (image.length > MAX_APPEARANCE_BACKGROUND_IMAGE_LENGTH) return "";
-  return /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(image) ? image : "";
+  return "";
 }
 
 function normalizeGlassOpacity(value, fallback = DEFAULT_GLASS_OPACITY) {
@@ -177,6 +173,7 @@ function createSettingsStore(deps = {}) {
     next.glassOpacity = normalizeGlassOpacity(next.glassOpacity, DEFAULT_GLASS_OPACITY);
     next.listStyle = "card";
     next.showDesktopNotifications = next.showDesktopNotifications !== false;
+    next.workspaceBackgroundImage = "";
     return next;
   }
 

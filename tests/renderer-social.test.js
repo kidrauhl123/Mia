@@ -1405,6 +1405,37 @@ test("sendInActiveConversation blocks a second user message while the active bot
   assert.equal(s.moduleState.messageCache.get("g_busy").messages.length, 0);
 });
 
+test("sendInActiveConversation blocks user messages while the active bot run is cancelling", async () => {
+  const s = loadSocial();
+  const posted = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async (conversationId, body) => {
+      posted.push({ conversationId, body });
+      return { ok: true, data: { message: { id: "m_server", seq: 1, body_md: body.bodyMd } } };
+    }
+  };
+  s.moduleState.activeConversationId = "g_cancelling";
+  s.moduleState.conversations = [{ id: "g_cancelling", type: "group", name: "Cancelling" }];
+  s.moduleState.messageCache.set("g_cancelling", { messages: [], maxSeq: 0 });
+  s.moduleState.cloudAgentRunsByConversation.set("g_cancelling", {
+    runId: "car_cancelling",
+    conversationId: "g_cancelling",
+    botId: "codex",
+    status: "cancelling"
+  });
+
+  const result = await s.sendInActiveConversation("too soon");
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    ok: false,
+    status: 409,
+    error: "CONVERSATION_RUN_IN_PROGRESS"
+  });
+  assert.equal(posted.length, 0);
+  assert.equal(s.moduleState.messageCache.get("g_cancelling").messages.length, 0);
+});
+
 test("sendInActiveConversation posts and previews attachment-only messages", async () => {
   const s = loadSocial();
   const posted = [];
@@ -2555,6 +2586,43 @@ test("cloud agent run start exposes typing state to the conversation header", ()
   s.renderConversationChat(chat);
 
   assert.equal(chat.children.length, 0);
+});
+
+test("cloud agent run cancelling keeps the conversation busy until the terminal event", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "message.delta", delta: "我先停一下。" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "run.cancelling" } },
+  });
+
+  assert.equal(s.activeConversationRun().status, "cancelling");
+  assert.equal(s.conversationRunIsRunning("botc_u_a_mia"), false);
+  assert.equal(s.conversationRunIsBusy("botc_u_a_mia"), true);
+  assert.equal(s.activeConversationCanSend(), false);
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+  assert.match(chat.children.at(-1).innerHTML, /正在中断/);
 });
 
 test("renderConversationChat does not label tool-only agent activity as typing", () => {

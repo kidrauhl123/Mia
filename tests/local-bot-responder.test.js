@@ -248,18 +248,55 @@ test("stopActiveConversationRun aborts the in-flight local engine turn without p
   assert.equal(calls.engine[0].signal.aborted, false);
 
   const stopResult = responder.stopActiveConversationRun({ conversationId: "g_1" });
+  assert.equal(calls.cloudEvents.at(-1).type, "cloud_agent_run_event");
+  assert.equal(calls.cloudEvents.at(-1).event.type, "run.cancelling");
   const handled = await responsePromise;
 
   assert.deepEqual(stopResult, {
     stopped: true,
     conversationId: "g_1",
-    runId: calls.cloudEvents[0].runId
+    runId: calls.cloudEvents[0].runId,
+    status: "cancelling"
   });
   assert.equal(handled, true);
   assert.equal(calls.engine[0].signal.aborted, true);
   assert.equal(calls.post.length, 0);
   assert.equal(calls.cloudEvents.at(-1).type, "cloud_agent_run_event");
   assert.equal(calls.cloudEvents.at(-1).event.type, "run.cancelled");
+});
+
+test("stopActiveConversationRun is idempotent while the local turn is cancelling", async () => {
+  const { responder, calls } = setup({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      return new Promise((_resolve, reject) => {
+        args.signal.addEventListener("abort", () => {
+          setTimeout(() => {
+            const stopped = new Error("生成已停止");
+            stopped.code = "MIA_STOPPED";
+            reject(stopped);
+          }, 5);
+        }, { once: true });
+      });
+    }
+  });
+
+  const responsePromise = responder.respond(base);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const first = responder.stopActiveConversationRun({ conversationId: "g_1" });
+  const second = responder.stopActiveConversationRun({ conversationId: "g_1", runId: first.runId });
+
+  assert.deepEqual(second, {
+    stopped: true,
+    conversationId: "g_1",
+    runId: first.runId,
+    status: "cancelling"
+  });
+  assert.equal(calls.cloudEvents.filter((event) => event.event?.type === "run.cancelling").length, 1);
+
+  await responsePromise;
 });
 
 test("respond publishes the persisted bot message immediately after posting it", async () => {

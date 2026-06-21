@@ -683,6 +683,9 @@
     } else if (name === "run.failed" || name === "error") {
       run.status = "error";
       clearRunPermissions(run);
+    } else if (name === "run.cancelling") {
+      run.status = "cancelling";
+      clearRunPermissions(run);
     } else if (name === "run.cancelled") {
       run.status = "cancelled";
       clearRunPermissions(run);
@@ -1079,6 +1082,7 @@
   function runActivityLabel(run, options = {}) {
     const status = String(run?._localRunStatus || run?.status || "").trim();
     if (status === "cancelled") return firstText(run?._localRunStatusText, "已中断");
+    if (status === "cancelling") return "正在中断";
     if (status === "error") return "运行失败";
     if (Array.isArray(run?.pendingPermissions) && run.pendingPermissions.length) {
       return "等待授权";
@@ -1094,10 +1098,10 @@
     const label = firstText(options.label, runActivityLabel(run, { elapsedMs }));
     const elapsed = formatRunElapsed(elapsedMs);
     const goalText = runGoalStatusText(run);
-    const isLoading = status === "running";
+    const isLoading = status === "running" || status === "cancelling";
     const statusClass = status === "cancelled"
       ? " is-interrupted"
-      : (status === "error" ? " is-error" : " is-running is-loading");
+      : (status === "error" ? " is-error" : ` is-running${status === "cancelling" ? " is-cancelling" : ""} is-loading`);
     return {
       status,
       elapsedMs,
@@ -1817,7 +1821,7 @@
 
   function refreshCloudRunStatusTimer() {
     const hasRunningRun = Array.from(moduleState.cloudAgentRunsByConversation.values())
-      .some((run) => run?.status === "running");
+      .some((run) => isConversationRunBusy(run));
     if (!hasRunningRun) {
       if (_cloudRunStatusTimer && typeof global.clearInterval === "function") {
         global.clearInterval(_cloudRunStatusTimer);
@@ -1828,7 +1832,7 @@
     if (_cloudRunStatusTimer || typeof global.setInterval !== "function") return;
     _cloudRunStatusTimer = global.setInterval(() => {
       const activeRun = activeConversationRun();
-      if (!activeRun || activeRun.status !== "running") {
+      if (!activeRun || !isConversationRunBusy(activeRun)) {
         refreshCloudRunStatusTimer();
         return;
       }
@@ -1851,13 +1855,22 @@
     return moduleState.cloudAgentRunsByConversation.get(id) || null;
   }
 
+  function isConversationRunBusy(run) {
+    const status = String(run?.status || "").trim();
+    return status === "running" || status === "cancelling";
+  }
+
   function conversationRunIsRunning(conversationId) {
     return conversationRun(conversationId)?.status === "running";
   }
 
+  function conversationRunIsBusy(conversationId) {
+    return isConversationRunBusy(conversationRun(conversationId));
+  }
+
   function activeConversationCanSend() {
     const conversationId = moduleState.activeConversationId;
-    return Boolean(conversationId) && !conversationRunIsRunning(conversationId);
+    return Boolean(conversationId) && !conversationRunIsBusy(conversationId);
   }
 
   // Parse dm:<a>:<b> and return the user-id that is NOT myUserId.
@@ -2505,13 +2518,13 @@
       const conversationId = payload?.conversationId;
       if (!conversationId) return;
       const previousRun = moduleState.cloudAgentRunsByConversation.get(conversationId);
-      const wasRunning = previousRun?.status === "running";
+      const wasBusy = isConversationRunBusy(previousRun);
       const run = cloudRunFor(conversationId, payload.runId || "");
       run.runId = payload.runId || run.runId;
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
       run.status = "running";
-      if (!wasRunning && deps && typeof deps.render === "function") deps.render();
+      if (!wasBusy && deps && typeof deps.render === "function") deps.render();
       scheduleCloudRunRender(conversationId);
       refreshCloudRunStatusTimer();
       return;
@@ -2522,7 +2535,8 @@
       const hermesEvent = payload?.event || {};
       if (!conversationId) return;
       const previousRun = moduleState.cloudAgentRunsByConversation.get(conversationId);
-      const wasRunning = previousRun?.status === "running";
+      const previousStatus = previousRun?.status || "";
+      const wasBusy = isConversationRunBusy(previousRun);
       const run = cloudRunFor(conversationId, payload.runId || "");
       run.botId = payload.botId || run.botId || "";
       applyCloudAgentRunEvent(run, hermesEvent);
@@ -2536,8 +2550,8 @@
         if (conversationId === moduleState.activeConversationId) _reRenderActiveChat({ force: true });
         return;
       }
-      const isRunning = run.status === "running";
-      if ((!previousRun && isRunning) || wasRunning !== isRunning) {
+      const isBusy = isConversationRunBusy(run);
+      if ((!previousRun && isBusy) || wasBusy !== isBusy || previousStatus !== run.status) {
         if (deps && typeof deps.render === "function") deps.render();
       }
       scheduleCloudRunRender(conversationId);
@@ -3731,7 +3745,7 @@
   async function sendInActiveConversation(text, options = {}) {
     const conversationId = moduleState.activeConversationId;
     if (!conversationId) return;
-    if (conversationRunIsRunning(conversationId)) {
+    if (conversationRunIsBusy(conversationId)) {
       return {
         ok: false,
         status: 409,
@@ -4638,6 +4652,7 @@
     activeConversationRun,
     conversationRun,
     conversationRunIsRunning,
+    conversationRunIsBusy,
     activeConversationCanSend,
     getConversationById,
     botConversationForKey,

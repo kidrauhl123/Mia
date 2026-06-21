@@ -250,7 +250,7 @@ test("saveAppearanceSettings writes local appearance and syncs the cloud user se
       fontPreset: settings.fontPreset || "system",
       accentColor: settings.accentColor || "#318ad3",
       workspaceBackgroundColor: settings.workspaceBackgroundColor || "",
-      workspaceBackgroundImage: settings.workspaceBackgroundImage || ""
+      workspaceBackgroundImage: ""
     }),
     responses: [
       jsonResponse({ settings: { pins: ["conv_1"], readMarks: { conv_1: 7 }, appearance: { theme: "light" }, version: 4 } }),
@@ -278,7 +278,7 @@ test("saveAppearanceSettings writes local appearance and syncs the cloud user se
       fontPreset: "serif",
       accentColor: "#112233",
       workspaceBackgroundColor: "#2CA1FF",
-      workspaceBackgroundImage: "data:image/png;base64,abc123"
+      workspaceBackgroundImage: ""
     },
     expectedVersion: 4
   });

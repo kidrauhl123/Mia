@@ -90,9 +90,6 @@ function appearanceControls(overrides = {}) {
     appearanceShowAssistantAvatar: settingsSwitch(true),
     appearanceWorkspaceBackgroundColor: { value: "#f0f0f3" },
     appearanceWorkspaceBackgroundPreview: { style: {} },
-    appearanceWorkspaceBackgroundImage: { value: "" },
-    appearanceWorkspaceBackgroundImageLabel: { textContent: "" },
-    appearanceWorkspaceBackgroundImageClear: { disabled: true },
     appearanceSaveStatus: {
       textContent: "",
       dataset: {},
@@ -172,7 +169,7 @@ test("appearance avatar toggles default off unless explicitly enabled", () => {
   assert.equal(documentElement.dataset.showAssistantAvatar, "true");
 });
 
-test("applyAppearance writes bottom board color and image variables", () => {
+test("applyAppearance writes bottom board color and clears image variables", () => {
   const { api, styleValues } = loadAppearanceModule();
 
   api.applyAppearance({
@@ -182,7 +179,7 @@ test("applyAppearance writes bottom board color and image variables", () => {
   });
 
   assert.equal(styleValues.get("--workspace-floor"), "#aabbcc");
-  assert.equal(styleValues.get("--workspace-floor-image"), 'url("data:image/png;base64,abc123")');
+  assert.equal(styleValues.get("--workspace-floor-image"), "none");
 });
 
 test("applyAppearance keeps bottom board overrides light-mode only", () => {
@@ -195,7 +192,7 @@ test("applyAppearance keeps bottom board overrides light-mode only", () => {
   });
 
   assert.equal(styleValues.get("--workspace-floor"), "#aabbcc");
-  assert.equal(styleValues.get("--workspace-floor-image"), 'url("data:image/png;base64,abc123")');
+  assert.equal(styleValues.get("--workspace-floor-image"), "none");
 
   api.applyAppearance({
     theme: "dark",
@@ -254,12 +251,12 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
       appearanceWorkspaceBackgroundColor: {
         value: "#f0f0f3",
         dataset: { custom: "false" }
-      },
-      appearanceWorkspaceBackgroundImage: { value: "" }
+      }
     }
   });
 
   assert.equal(api.currentAppearanceDraft().workspaceBackgroundColor, "#f0f0f3");
+  assert.equal(api.currentAppearanceDraft().workspaceBackgroundImage, "");
   assert.equal(api.currentAppearanceDraft().glassOpacity, 91);
   assert.equal(api.currentAppearanceDraft().showDesktopNotifications, false);
 });
@@ -336,7 +333,7 @@ test("cloud appearance empty bottom board values do not overwrite local bottom b
 
   assert.equal(merged.theme, "dark");
   assert.equal(merged.workspaceBackgroundColor, "#2ca1ff");
-  assert.equal(merged.workspaceBackgroundImage, "data:image/png;base64,abc123");
+  assert.equal(merged.workspaceBackgroundImage, "");
 });
 
 test("cloud appearance stale default bottom board does not overwrite local custom color", () => {
@@ -436,9 +433,9 @@ test("desktop appearance settings do not expose removed font presets", () => {
   assert.doesNotMatch(cssSource, /\.font-choice\[data-font-preset="mono"\]/);
 });
 
-test("desktop appearance settings expose bottom board color and image controls", () => {
+test("desktop appearance settings expose bottom board color controls", () => {
   assert.match(htmlSource, /<strong>底板背景<\/strong>/);
-  assert.match(htmlSource, /调整浅色模式下窗口底层工作区的底色，也可上传图片。/);
+  assert.match(htmlSource, /调整浅色模式下窗口底层工作区的底色。/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundPresets"/);
   assert.match(htmlSource, /data-workspace-background-color="#f0f0f3"/);
   assert.match(htmlSource, /data-workspace-background-color="#2ca1ff"/);
@@ -446,12 +443,14 @@ test("desktop appearance settings expose bottom board color and image controls",
   assert.match(htmlSource, /data-workspace-background-color="#0f766e"/);
   assert.match(htmlSource, /data-workspace-background-color="#1f2937"/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundColor"[^>]*type="color"/);
-  assert.match(htmlSource, /id="appearanceWorkspaceBackgroundImageFile"[^>]*type="file"[^>]*accept="image\/\*"/);
-  assert.match(htmlSource, /id="appearanceWorkspaceBackgroundImage"/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundReset"/);
+  assert.doesNotMatch(htmlSource, /也可上传图片/);
+  assert.doesNotMatch(htmlSource, /appearanceWorkspaceBackgroundImage/);
+  assert.doesNotMatch(htmlSource, /未选择图片/);
   assert.match(appSource, /appearanceWorkspaceBackgroundColor:\s*document\.getElementById\("appearanceWorkspaceBackgroundColor"\)/);
   assert.match(appSource, /appearanceWorkspaceBackgroundPresets:\s*document\.getElementById\("appearanceWorkspaceBackgroundPresets"\)/);
-  assert.match(appSource, /appearanceWorkspaceBackgroundImageFile:\s*document\.getElementById\("appearanceWorkspaceBackgroundImageFile"\)/);
+  assert.doesNotMatch(appSource, /appearanceWorkspaceBackgroundImage/);
+  assert.doesNotMatch(appSource, /readWorkspaceBackgroundImage/);
   assert.match(appSource, /appearanceWorkspaceBackgroundColor\?\.addEventListener\("change"/);
   assert.match(appSource, /closest\("\[data-workspace-background-color\]"\)/);
   assert.match(appSource, /mergeCloudAppearance\?\.\(\s*state\.runtime\?\.appearance/);

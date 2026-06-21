@@ -126,12 +126,12 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     listStyle: "card",
     selectionStyle: "solid",
     workspaceBackgroundColor: "#abcdef",
-    workspaceBackgroundImage: "data:image/png;base64,abc123"
+    workspaceBackgroundImage: ""
   });
   assert.deepEqual(readJson(runtime.appearanceSettings, {}), next);
 });
 
-test("writeAppearanceSettings preserves saved bottom board fields on partial saves", (t) => {
+test("writeAppearanceSettings preserves saved bottom board color on partial saves", (t) => {
   const { store } = setup(t);
 
   store.writeAppearanceSettings({
@@ -142,15 +142,15 @@ test("writeAppearanceSettings preserves saved bottom board fields on partial sav
 
   assert.equal(next.theme, "dark");
   assert.equal(next.workspaceBackgroundColor, "#2ca1ff");
-  assert.equal(next.workspaceBackgroundImage, "data:image/png;base64,abc123");
+  assert.equal(next.workspaceBackgroundImage, "");
 });
 
-test("writeAppearanceSettings rejects invalid bottom board image data", (t) => {
+test("writeAppearanceSettings clears bottom board image data", (t) => {
   const { store } = setup(t);
 
   const next = store.writeAppearanceSettings({
     workspaceBackgroundColor: "not-a-color",
-    workspaceBackgroundImage: "https://example.test/bg.png"
+    workspaceBackgroundImage: "data:image/png;base64,abc123"
   });
 
   assert.equal(next.workspaceBackgroundColor, "");

@@ -70,17 +70,12 @@
     } else {
       root.style.removeProperty("--workspace-floor");
     }
-    const image = String(next.workspaceBackgroundImage || "").trim();
-    root.style.setProperty(
-      "--workspace-floor-image",
-      /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(image) && image.length <= 4 * 1024 * 1024
-        ? `url("${image.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\n\r\f]/g, "")}")`
-        : "none"
-    );
+    root.style.setProperty("--workspace-floor-image", "none");
   }
 
   function init() {
     current = load();
+    current.workspaceBackgroundImage = "";
     applyToDom(current);
   }
 
@@ -88,6 +83,7 @@
 
   function update(patch) {
     current = { ...current, ...(patch && typeof patch === "object" ? patch : {}) };
+    current.workspaceBackgroundImage = "";
     applyToDom(current);
     save();
     for (const cb of subscribers) {

@@ -2313,7 +2313,8 @@ async function stopChat(payload = {}) {
   const result = {
     stopped: stopped || Boolean(localStop.stopped),
     ...(localStop.conversationId ? { conversationId: localStop.conversationId } : {}),
-    ...(localStop.runId ? { runId: localStop.runId } : {})
+    ...(localStop.runId ? { runId: localStop.runId } : {}),
+    ...(localStop.status ? { status: localStop.status } : {})
   };
   if (!IS_DAEMON_PROCESS && daemonTasksClient?.call && settingsStore.daemonSettings().enabled) {
     try {
@@ -2324,7 +2325,8 @@ async function stopChat(payload = {}) {
       return {
         stopped: result.stopped || Boolean(daemonStop?.stopped),
         ...(daemonStop?.conversationId || result.conversationId ? { conversationId: daemonStop?.conversationId || result.conversationId } : {}),
-        ...(daemonStop?.runId || result.runId ? { runId: daemonStop?.runId || result.runId } : {})
+        ...(daemonStop?.runId || result.runId ? { runId: daemonStop?.runId || result.runId } : {}),
+        ...(daemonStop?.status || result.status ? { status: daemonStop?.status || result.status } : {})
       };
     } catch (error) {
       appendCloudLog(`[daemon] chat stop delegation failed: ${error?.message || error}`);

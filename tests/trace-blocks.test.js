@@ -236,7 +236,9 @@ test("trace CSS styles diff rows with terminal-like add/delete colors", () => {
     assert.match(css, /\.trace-meta\.diff-stats/);
     assert.match(css, /\.diff-stat\.diff-stat-add/);
     assert.match(css, /\.diff-stat\.diff-stat-del/);
-    assert.match(css, /\.diff-line\.diff-del\s*\{[\s\S]*?background:\s*rgba\(\s*239,\s*68,\s*68,/);
-    assert.match(css, /\.diff-line\.diff-add\s*\{[\s\S]*?background:\s*rgba\(\s*34,\s*197,\s*94,/);
+    assert.match(css, /\.diff-line\.diff-del\s*\{[\s\S]*?background:\s*rgba\(\s*248,\s*81,\s*73,\s*0\.30\s*\);/);
+    assert.match(css, /\.diff-line\.diff-del \.diff-ln\s*\{[\s\S]*?background:\s*rgba\(\s*248,\s*81,\s*73,\s*0\.18\s*\);/);
+    assert.match(css, /\.diff-line\.diff-add\s*\{[\s\S]*?background:\s*rgba\(\s*63,\s*185,\s*80,\s*0\.28\s*\);/);
+    assert.match(css, /\.diff-line\.diff-add \.diff-ln\s*\{[\s\S]*?background:\s*rgba\(\s*63,\s*185,\s*80,\s*0\.16\s*\);/);
   }
 });
