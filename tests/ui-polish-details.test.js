@@ -180,6 +180,16 @@ test("message list conversation cards keep hover backgrounds off while preservin
   );
 });
 
+test("sidebar header stays visually continuous with the message list", () => {
+  const desktopCss = read("src/renderer/styles.css");
+
+  assert.doesNotMatch(
+    cssBlock(desktopCss, ".sidebar-tools"),
+    /border-bottom:/,
+    "desktop sidebar header should not draw a divider under 消息"
+  );
+});
+
 test("sidebar bottom nav icon state changes animate contextually", () => {
   const desktopCss = read("src/renderer/styles.css");
 

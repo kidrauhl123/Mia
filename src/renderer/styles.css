@@ -1417,7 +1417,6 @@ body.sidebar-resizing * {
   gap: 6px;
   min-height: 66px;
   padding: 14px 10px 10px;
-  border-bottom: 1px solid var(--line);
   background: var(--surface-layer);
 }
 
