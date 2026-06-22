@@ -152,7 +152,7 @@ test("chat avatar display settings do not hide group participant avatars", () =>
   );
 });
 
-test("sidebar and chat headers use the same surface and own their divider line", () => {
+test("sidebar and chat headers use the same surface without a header divider", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
   assert.match(baseCss, /--surface-layer:\s*#f5f7f8;/);
@@ -161,11 +161,9 @@ test("sidebar and chat headers use the same surface and own their divider line",
     /\.sidebar\s*\{[^}]*background:\s*var\(--surface-layer\);/,
     "message middle pane should use the shared non-white layer surface"
   );
-  assert.match(
-    baseCss,
-    /\.sidebar-tools\s*\{[^}]*border-bottom:\s*1px solid var\(--line\);[^}]*background:\s*var\(--surface-layer\);/,
-    "sidebar header should draw the same bottom divider as the message middle pane surface"
-  );
+  const sidebarToolsRule = cssRuleBody(baseCss, ".sidebar-tools");
+  assert.match(sidebarToolsRule, /background:\s*var\(--surface-layer\);/);
+  assert.doesNotMatch(sidebarToolsRule, /border-bottom:/);
   assert.match(
     baseCss,
     /\.conversation-section,\s*\.contact-section\s*\{[^}]*border-top:\s*0;/,
@@ -474,6 +472,9 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
       `${name} active labels should sit on the theme-colored capsule`
     );
   }
+
+  assert.match(botStoreCss, /\.discover-mode-toggle\s+button\s*\{[^}]*cursor:\s*default;/);
+  assert.match(skillCss, /\.skill-mode-toggle\s+button\s*\{[^}]*cursor:\s*default;/);
 
   assert.match(
     `${skillCss}\n${taskCss}`,

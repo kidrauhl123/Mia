@@ -279,7 +279,7 @@
   color: var(--muted);
   font-size: 13px;
   font-weight: 560;
-  cursor: pointer;
+  cursor: default;
   transition: color 140ms ease;
 }
 
