@@ -781,3 +781,24 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="tasks"] #tasksView {
+  grid-column: 2 / -1;
+}
+
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="tasks"] .task-sidebar {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="tasks"] .tasks-topbar-title {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="tasks"] #tasksView,
+  .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="tasks"] .task-sidebar {
+    grid-row: 1;
+    grid-column: 1 / -1;
+  }
+}

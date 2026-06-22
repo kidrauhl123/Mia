@@ -14,6 +14,7 @@
     WindowOnboarding: "window:onboarding",
     WindowSignedOutOnboarding: "window:signed-out-onboarding",
     WindowNativeControlsVisible: "window:native-controls-visible",
+    WindowNativeControlsLayout: "window:native-controls-layout",
     WindowFocusState: "window:focus-state",
     WindowFullscreen: "window:fullscreen",
     WindowMaximized: "window:maximized",

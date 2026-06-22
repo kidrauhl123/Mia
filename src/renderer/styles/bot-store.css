@@ -841,3 +841,50 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="contacts"] .contacts-sidebar {
+  grid-row: 1;
+  grid-column: 1;
+  margin: 8px 0 10px 8px;
+}
+
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="contacts"] .contacts-explore-tabs {
+  display: grid;
+  padding: 0 12px 8px;
+}
+
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="contacts"] #contactsView,
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="bot-store"] #botStoreView {
+  grid-row: 1;
+  grid-column: 2 / -1;
+}
+
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="bot-store"] .explore-sidebar {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="contacts"] #sidebarResizeHandle,
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="bot-store"] #sidebarResizeHandle {
+  display: block;
+}
+
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="contacts"] .discover-top-bar,
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="bot-store"] .discover-top-bar {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="contacts"] .contacts-sidebar,
+  .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="bot-store"] .explore-sidebar,
+  .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="contacts"] #contactsView,
+  .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="bot-store"] #botStoreView {
+    grid-row: 1;
+    grid-column: 1 / -1;
+  }
+
+  .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="contacts"] #sidebarResizeHandle,
+  .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="bot-store"] #sidebarResizeHandle {
+    display: none !important;
+  }
+}

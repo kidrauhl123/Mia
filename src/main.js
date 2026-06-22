@@ -2362,7 +2362,7 @@ function createWindow() {
     };
     initialWindow.maximized = false;
   }
-  const minWindowWidth = onboarding ? onboardingWindowBounds.minWidth : 500;
+  const minWindowWidth = onboarding ? onboardingWindowBounds.minWidth : 360;
   const minWindowHeight = onboarding ? onboardingWindowBounds.minHeight : 560;
   const windowChromeOptions = process.platform === "darwin"
     ? { titleBarStyle: "hidden" }
@@ -2472,7 +2472,7 @@ function promoteOnboardingWindowToMain(win) {
   if (!win || win.isDestroyed()) return;
   if (typeof win.setBackgroundColor === "function") win.setBackgroundColor("#f0f0f3");
   setMacNativeControlsVisible(win, false);
-  win.setMinimumSize(500, 560);
+  win.setMinimumSize(360, 560);
   win.setSize(1040, 700);
   win.center();
   windowStateManager.attachWindowStatePersistence(win);

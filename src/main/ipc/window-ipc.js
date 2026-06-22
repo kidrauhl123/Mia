@@ -1,7 +1,7 @@
 const { BrowserWindow, Menu, Notification } = require("electron");
 const { IpcChannel } = require("../../shared/ipc-channels");
 const { onboardingWindowBounds } = require("../onboarding-window-bounds.js");
-const { setMacNativeControlsVisible } = require("../mac-window-controls.js");
+const { setMacNativeControlsVisible, setMacNativeControlsLayout } = require("../mac-window-controls.js");
 
 function windowState(w) {
   if (!w) return { focused: true, fullscreen: false, maximized: false };
@@ -72,7 +72,7 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
   ipcMain.handle(IpcChannel.WindowShowMain, (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);
     if (!w) return;
-    w.setMinimumSize(420, 560);
+    w.setMinimumSize(360, 560);
     w.setSize(1040, 700);
     w.center();
     // Main app uses the native macOS traffic lights. Renderer-drawn controls are
@@ -102,6 +102,10 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
   ipcMain.handle(IpcChannel.WindowNativeControlsVisible, (event, visible) => {
     const w = BrowserWindow.fromWebContents(event.sender);
     setMacNativeControlsVisible(w, visible);
+  });
+  ipcMain.handle(IpcChannel.WindowNativeControlsLayout, (event, layout) => {
+    const w = BrowserWindow.fromWebContents(event.sender);
+    setMacNativeControlsLayout(w, layout === "default" ? "default" : "rail");
   });
   ipcMain.handle(IpcChannel.WindowState, (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);

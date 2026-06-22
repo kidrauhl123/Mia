@@ -66,6 +66,19 @@ test("initialWindowState restores saved bounds and maximized state", () => {
   });
 });
 
+test("initialWindowState preserves the compact narrow saved width", () => {
+  const { store } = storeWith({
+    bounds: { x: 80, y: 44, width: 360, height: 640 },
+    maximized: false
+  });
+  const manager = createWindowStateManager({ settingsStore: store, screen: fakeScreen() });
+
+  assert.deepEqual(manager.initialWindowState(), {
+    bounds: { x: 80, y: 44, width: 360, height: 640 },
+    maximized: false
+  });
+});
+
 test("initialWindowState drops offscreen position but keeps a usable saved size", () => {
   const { store } = storeWith({
     bounds: { x: 3000, y: 1200, width: 1200, height: 780 },

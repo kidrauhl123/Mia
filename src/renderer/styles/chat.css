@@ -1164,14 +1164,6 @@
 
 .trace-row > summary::-webkit-details-marker { display: none; }
 
-.trace-row:hover > summary {
-  background: var(--floor-hover);
-}
-
-:root[data-hover-background="false"] .trace-row:hover > summary {
-  background: transparent;
-}
-
 .trace-chevron {
   display: inline-block;
   width: 10px;

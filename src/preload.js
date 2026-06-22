@@ -190,6 +190,7 @@ contextBridge.exposeInMainWorld("mia", {
     onboarding: () => ipcRenderer.invoke(IpcChannel.WindowOnboarding),
     signedOutOnboarding: () => ipcRenderer.invoke(IpcChannel.WindowSignedOutOnboarding),
     setNativeControlsVisible: (visible) => ipcRenderer.invoke(IpcChannel.WindowNativeControlsVisible, Boolean(visible)),
+    setNativeControlsLayout: (layout) => ipcRenderer.invoke(IpcChannel.WindowNativeControlsLayout, layout === "default" ? "default" : "rail"),
     state: () => ipcRenderer.invoke(IpcChannel.WindowState),
     onFocusState: (handler) => {
       const listener = (_e, focused) => handler(focused);

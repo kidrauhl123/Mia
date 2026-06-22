@@ -54,10 +54,13 @@
       agentSetupInstallProgressTimer: 0,
       forceScrollToBottom: false,
       sessionMenuOpen: false,
+      chatConversationMenuOpen: false,
       activeView: "chat",
+      navLayout: readLocal(storage, "mia.navLayout.v1", "rail") === "sidebar-bottom" ? "sidebar-bottom" : "rail",
       // 发现/联系人 section 上次停留的子页。联系人 rail 默认落到发现页；
       // 切到联系人子页时才启用中栏 + 详情的三槽布局。
       discoverSectionView: "bot-store",
+      exploreSectionView: "bot-store",
       activeContactKey: "",
       narrowPane: "content",
       shellLayout: windowWidth <= 720 ? "single" : "dual",

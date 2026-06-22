@@ -4,13 +4,14 @@ const AGENT_SETUP_SKIPPED_KEY = window.miaAppState.AGENT_SETUP_SKIPPED_KEY;
 const { ConversationKind, MemberKind, SenderKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../shared/conversation-kinds");
 const { prepareOutgoingMessage } = (typeof window !== "undefined" && window.miaSendPipeline) || require("../shared/send-pipeline");
 const sessionHistory = (typeof window !== "undefined" && window.miaSessionHistory) || require("../shared/session-history");
-const SIDEBAR_WIDTH_MIN = 220;
-const SIDEBAR_WIDTH_MAX = 380;
-const SIDEBAR_WIDTH_DEFAULT = 280;
+const SIDEBAR_WIDTH_MIN = 260;
+const SIDEBAR_WIDTH_MAX = 460;
+const SIDEBAR_WIDTH_DEFAULT = 320;
 const SHELL_SINGLE_MAX_WIDTH = 720;
 let skillPickerHoverCloseTimer = 0;
 let profilePopoverHideTimer = 0;
 let profileSaveDebounceTimer = 0;
+let lastNativeControlsLayout = "";
 let profileSaveInFlight = false;
 let profileSaveRequested = false;
 let profileLastSaveSignature = "";
@@ -76,11 +77,15 @@ const els = {
   appShell: document.querySelector(".app-shell"),
   openSettings: document.getElementById("openSettings"),
   userAvatar: document.getElementById("userAvatar"),
+  sidebarUserAvatar: document.getElementById("sidebarUserAvatar"),
   userDisplayName: document.getElementById("userDisplayName"),
   activeChatAvatar: document.getElementById("activeChatAvatar"),
   activeChatName: document.getElementById("activeChatName"),
   activeChatBadge: document.getElementById("activeChatBadge"),
   activeChatMeta: document.getElementById("activeChatMeta"),
+  activeConversationMenuButton: document.getElementById("activeConversationMenuButton"),
+  chatConversationMenu: document.getElementById("chatConversationMenu"),
+  chatConversationList: document.getElementById("chatConversationList"),
   initialize: document.getElementById("initialize"),
   startEngine: document.getElementById("startEngine"),
   stopEngine: document.getElementById("stopEngine"),
@@ -139,6 +144,9 @@ const els = {
   resetAvatarCrop: document.getElementById("resetAvatarCrop"),
   conversationSidebar: document.getElementById("conversationSidebar"),
   contactsSidebar: document.getElementById("contactsSidebar"),
+  exploreSidebar: document.getElementById("exploreSidebar"),
+  taskSidebar: document.getElementById("taskSidebar"),
+  settingsSidebar: document.getElementById("settingsSidebar"),
   sidebarResizeHandle: document.getElementById("sidebarResizeHandle"),
   sidebarRailToggle: document.getElementById("sidebarRailToggle"),
   narrowBackButtons: document.querySelectorAll("[data-narrow-back]"),
@@ -249,6 +257,7 @@ const els = {
   appearanceFontPreset: document.getElementById("appearanceFontPreset"),
   appearanceFontChoices: document.getElementById("appearanceFontChoices"),
   appearanceSelectionStyle: document.getElementById("appearanceSelectionStyle"),
+  navLayoutChoices: document.querySelectorAll("[data-nav-layout-choice]"),
   workspacePath: document.getElementById("workspacePath"),
   workspacePickButton: document.getElementById("workspacePickButton"),
   appearanceAccentColor: document.getElementById("appearanceAccentColor"),
@@ -304,6 +313,9 @@ const els = {
   appUpdateProgressText: document.getElementById("appUpdateProgressText"),
   tasksUnreadBadge: document.getElementById("tasksUnreadBadge"),
   contactsUnreadBadge: document.getElementById("contactsUnreadBadge"),
+  sidebarChatUnreadBadge: document.getElementById("sidebarChatUnreadBadge"),
+  sidebarExploreUnreadBadge: document.getElementById("sidebarExploreUnreadBadge"),
+  sidebarTasksUnreadBadge: document.getElementById("sidebarTasksUnreadBadge"),
   chatUnreadBadge: document.getElementById("chatUnreadBadge"),
   tasksView: document.getElementById("tasksView"),
   tasksContent: document.getElementById("tasksContent")
@@ -902,7 +914,7 @@ function triggerResponsiveShellTransition(direction) {
 }
 
 function sidebarCollapseSupported(view = state.activeView) {
-  return !state.isNarrowWindow && view === "chat";
+  return state.navLayout !== "sidebar-bottom" && !state.isNarrowWindow && view === "chat";
 }
 
 function syncSidebarCollapseState() {
@@ -931,6 +943,89 @@ function setSidebarCollapsed(collapsed, persist = false) {
     }
   }
   syncSidebarCollapseState();
+}
+
+function setNavLayout(layout, persist = false) {
+  state.navLayout = layout === "sidebar-bottom" ? "sidebar-bottom" : "rail";
+  if (state.navLayout === "sidebar-bottom" && state.sidebarWidth < SIDEBAR_WIDTH_DEFAULT) {
+    applySidebarWidth(SIDEBAR_WIDTH_DEFAULT, persist);
+  }
+  if (persist) {
+    try {
+      localStorage.setItem("mia.navLayout.v1", state.navLayout);
+    } catch {
+      // localStorage may be unavailable in restricted renderer contexts.
+    }
+  }
+  syncNavLayoutState();
+}
+
+function primaryNavForView(view = state.activeView) {
+  if (view === "chat") return "chat";
+  if (view === "tasks") return "tasks";
+  if (view === "settings") return "me";
+  if (view === "contacts" || view === "bot-store" || view === "skills") return "explore";
+  return "chat";
+}
+
+function syncNavLayoutState() {
+  const layout = state.navLayout === "sidebar-bottom" ? "sidebar-bottom" : "rail";
+  const nativeControlsLayout = layout === "sidebar-bottom" ? "default" : "rail";
+  els.appShell?.setAttribute("data-nav-layout", layout);
+  els.navLayoutChoices?.forEach((button) => {
+    const active = button.dataset.navLayoutChoice === layout;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-checked", active ? "true" : "false");
+  });
+  if (lastNativeControlsLayout !== nativeControlsLayout) {
+    lastNativeControlsLayout = nativeControlsLayout;
+    try {
+      window.mia?.window?.setNativeControlsLayout?.(nativeControlsLayout)?.catch?.(() => {});
+    } catch {
+      // Native traffic light positioning is macOS-only and optional in web mocks.
+    }
+  }
+  document.querySelectorAll("[data-primary-nav]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.primaryNav === primaryNavForView(state.activeView));
+  });
+}
+
+function syncExploreSidebarState() {
+  document.querySelectorAll("[data-explore-view]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.exploreView === state.activeView);
+  });
+}
+
+function syncTaskSidebarState() {
+  const mode = state.taskMode === "history" ? "history" : "active";
+  document.querySelectorAll("[data-task-sidebar-mode]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.taskSidebarMode === mode);
+  });
+}
+
+function showPrimaryNav(primary) {
+  if (primary === "chat") {
+    state.activeView = "chat";
+  } else if (primary === "explore") {
+    state.activeView = state.exploreSectionView || "bot-store";
+    state.discoverSectionView = state.activeView;
+  } else if (primary === "tasks") {
+    state.activeView = "tasks";
+  } else if (primary === "me") {
+    openSettingsView();
+    return;
+  }
+  if (state.activeView === "bot-store" && !(state.skillLibrary.botPresets || []).length && !state.skillsLoading) window.miaLoaders.loadSkills();
+  if (state.activeView === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) window.miaLoaders.loadSkills();
+  if (state.activeView === "bot-store") window.miaBotStore?.renderBotStore?.();
+  if (state.activeView === "tasks") {
+    window.miaTasksPanel?.loadTasksFromDaemon().then(() => {
+      window.miaTasksPanel?.renderTaskView();
+    });
+  }
+  if (state.isNarrowWindow && viewHasIndexPane(state.activeView)) showNarrowSidebar();
+  else showNarrowContent();
+  renderView();
 }
 
 function showNarrowContent() {
@@ -1001,6 +1096,7 @@ function observeComposerOverlayHeight() {
 }
 
 applySidebarWidth(state.sidebarWidth);
+syncNavLayoutState();
 syncNarrowLayout();
 observeComposerOverlayHeight();
 
@@ -1818,6 +1914,62 @@ function conversationCardSpecFromRow(row, personas) {
   return null;
 }
 
+function createConversationCardFromSpec(spec) {
+  return spec?.kind === ConversationKind.CloudGroup
+    ? window.miaSidebarCards.createGroupCard(spec)
+    : window.miaSidebarCards.createPrivateCard(spec);
+}
+
+function renderChatConversationMenu(rows = [], personas = []) {
+  const canOpen = state.activeView === "chat" && Boolean(els.chatConversationMenu && els.chatConversationList);
+  const open = canOpen && Boolean(state.chatConversationMenuOpen);
+  els.activeConversationMenuButton?.setAttribute("aria-expanded", open ? "true" : "false");
+  els.activeConversationMenuButton?.classList.toggle("active", open);
+  els.chatConversationMenu?.classList.toggle("hidden", !open);
+  syncTopbarClickCapture();
+  if (!canOpen || !open) {
+    if (els.chatConversationList) els.chatConversationList.innerHTML = "";
+    return;
+  }
+
+  els.chatConversationList.innerHTML = "";
+  const compactRows = rows.slice(0, 18);
+  for (const row of compactRows) {
+    const spec = conversationCardSpecFromRow(row, personas);
+    if (!spec) continue;
+    const onClick = spec.onClick;
+    const compactSpec = {
+      ...spec,
+      searchResult: false,
+      tags: [],
+      tagEditor: null,
+      preview: "",
+      typing: false,
+      onClick: () => {
+        state.chatConversationMenuOpen = false;
+        onClick?.();
+      }
+    };
+    const card = createConversationCardFromSpec(compactSpec);
+    card.classList.add("chat-conversation-menu-row");
+    card.setAttribute("role", "option");
+    card.setAttribute("aria-selected", compactSpec.active ? "true" : "false");
+    const status = card.querySelector(".persona-side:not(.empty)");
+    const nameRow = card.querySelector(".persona-name-row");
+    if (status && nameRow) nameRow.appendChild(status);
+    card.querySelector(".persona-preview-row")?.remove();
+    card.querySelector(".persona-tag-row")?.remove();
+    els.chatConversationList.appendChild(card);
+  }
+
+  if (!els.chatConversationList.children.length) {
+    const empty = document.createElement("div");
+    empty.className = "chat-conversation-menu-empty";
+    empty.textContent = "暂无对话";
+    els.chatConversationList.appendChild(empty);
+  }
+}
+
 // Paint #activeChatAvatar / #activeChatName / #activeChatMeta for the
 // currently-active cloud conversation (type ∈ {dm, group, bot}). Mirrors the
 // local-group branch — both paths route through miaGroupAvatar for
@@ -2501,6 +2653,7 @@ function render() {
   }
   const user = runtimeUserIdentity(runtime);
   window.miaAvatar.applyUserAvatar(els.userAvatar, user);
+  window.miaAvatar.applyUserAvatar(els.sidebarUserAvatar, user);
   setText(els.userDisplayName, user.displayName || "");
   if (els.profileUidValue) els.profileUidValue.textContent = user.id || "未登录";
   if (!editingProfile && els.profileForm) {
@@ -2715,6 +2868,8 @@ function render() {
         )
         : [])
       : window.miaBotManager.sortMessageCardsForSidebar(socialRows);
+  const compactConversationRows = cloudReady ? window.miaBotManager.sortMessageCardsForSidebar(socialRows) : [];
+  renderChatConversationMenu(compactConversationRows, personas);
   const tagInput = focusedSidebarTagInput();
   if (tagInput) social?.setConversationTagDraft?.(tagInput.conversationId, tagInput.value);
   const holdSidebarForTagInput = Boolean(tagInput
@@ -2725,10 +2880,7 @@ function render() {
     for (const row of messageRows) {
       const spec = conversationCardSpecFromRow(row, personas);
       if (!spec) continue;
-      const card = spec.kind === ConversationKind.CloudGroup
-        ? window.miaSidebarCards.createGroupCard(spec)
-        : window.miaSidebarCards.createPrivateCard(spec);
-      els.personaList.appendChild(card);
+      els.personaList.appendChild(createConversationCardFromSpec(spec));
     }
 
     if (!messageRows.length) {
@@ -2772,9 +2924,14 @@ function renderView() {
     state.botMenuOpen = false;
     state.contactMenuOpen = false;
   }
+  if (state.activeView !== "chat") state.chatConversationMenuOpen = false;
   syncNarrowLayout();
   els.conversationSidebar?.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsSidebar?.classList.toggle("hidden", state.activeView !== "contacts");
+  const sidebarBottomLayout = state.navLayout === "sidebar-bottom";
+  els.exploreSidebar?.classList.toggle("hidden", !(sidebarBottomLayout && (state.activeView === "bot-store" || state.activeView === "skills")));
+  els.taskSidebar?.classList.toggle("hidden", !(sidebarBottomLayout && state.activeView === "tasks"));
+  els.settingsSidebar?.classList.toggle("hidden", !(sidebarBottomLayout && state.activeView === "settings"));
   els.chatView.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsView?.classList.toggle("hidden", state.activeView !== "contacts");
   els.skillsView?.classList.toggle("hidden", state.activeView !== "skills");
@@ -2784,7 +2941,10 @@ function renderView() {
   els.appShell?.setAttribute("data-active-view", state.activeView);
   els.appShell?.setAttribute("data-layout", legacyGridLayoutForView(state.activeView));
   els.appShell?.setAttribute("data-shell-layout", state.shellLayout);
+  syncNavLayoutState();
   syncSidebarCollapseState();
+  syncExploreSidebarState();
+  syncTaskSidebarState();
   els.discoverModeToggle?.querySelectorAll("[data-discover-mode]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.discoverMode === state.activeView);
   });
@@ -2804,6 +2964,14 @@ function renderView() {
       els.contactsUnreadBadge.classList.add("hidden");
     }
   }
+  if (els.sidebarExploreUnreadBadge) {
+    if (incomingCount > 0) {
+      els.sidebarExploreUnreadBadge.classList.remove("hidden");
+      els.sidebarExploreUnreadBadge.textContent = window.miaUnread.unreadBadgeText(incomingCount);
+    } else {
+      els.sidebarExploreUnreadBadge.classList.add("hidden");
+    }
+  }
   // Chat unread = total unread DM/group conversation messages.
   const conversationUnread = window.miaSocial?.getTotalConversationUnread?.() || 0;
   if (els.chatUnreadBadge) {
@@ -2812,6 +2980,23 @@ function renderView() {
       els.chatUnreadBadge.textContent = window.miaUnread.unreadBadgeText(conversationUnread);
     } else {
       els.chatUnreadBadge.classList.add("hidden");
+    }
+  }
+  if (els.sidebarChatUnreadBadge) {
+    if (conversationUnread > 0) {
+      els.sidebarChatUnreadBadge.classList.remove("hidden");
+      els.sidebarChatUnreadBadge.textContent = window.miaUnread.unreadBadgeText(conversationUnread);
+    } else {
+      els.sidebarChatUnreadBadge.classList.add("hidden");
+    }
+  }
+  const tasksUnreadTotal = [...(state.tasksUnread?.values?.() || [])].reduce((sum, count) => sum + (Number(count) || 0), 0);
+  if (els.sidebarTasksUnreadBadge) {
+    if (tasksUnreadTotal > 0) {
+      els.sidebarTasksUnreadBadge.classList.remove("hidden");
+      els.sidebarTasksUnreadBadge.textContent = window.miaUnread.unreadBadgeText(tasksUnreadTotal);
+    } else {
+      els.sidebarTasksUnreadBadge.classList.add("hidden");
     }
   }
   els.botDialog?.classList.toggle("hidden", !state.botDialogOpen);
@@ -2854,7 +3039,7 @@ function openSettingsView(tab = state.activeSettingsTab) {
 
 
 function syncTopbarClickCapture() {
-  document.body.classList.toggle("topbar-click-capture", Boolean(state.skillContextMenu.open || state.sessionMenuOpen));
+  document.body.classList.toggle("topbar-click-capture", Boolean(state.skillContextMenu.open || state.sessionMenuOpen || state.chatConversationMenuOpen));
 }
 
 function formatRunTime(ms) {
@@ -4672,6 +4857,11 @@ els.openSettings.addEventListener("click", () => {
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   closeImagePreview();
+  if (state.chatConversationMenuOpen) {
+    event.preventDefault();
+    state.chatConversationMenuOpen = false;
+    render();
+  }
   if (state.skillContextMenu.open) window.miaSkillLibrary.closeSkillContextMenu();
   if (state.botContextMenu.open) window.miaBotManager.closeBotContextMenu();
   if (state.messageContextMenu.open) window.miaMessageMenu?.closeMessageContextMenu();
@@ -4682,10 +4872,25 @@ document.addEventListener("keydown", (event) => {
   }
 });
 document.addEventListener("pointerdown", closeProfilePopoverFromOutside);
+els.activeConversationMenuButton?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  state.chatConversationMenuOpen = !state.chatConversationMenuOpen;
+  if (state.chatConversationMenuOpen) state.sessionMenuOpen = false;
+  render();
+});
+els.activeConversationMenuButton?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  state.chatConversationMenuOpen = !state.chatConversationMenuOpen;
+  if (state.chatConversationMenuOpen) state.sessionMenuOpen = false;
+  render();
+});
 els.sessionMenuButton.addEventListener("click", (event) => {
   event.stopPropagation();
   state.sessionMenuOpen = !state.sessionMenuOpen;
+  if (state.sessionMenuOpen) state.chatConversationMenuOpen = false;
   renderSessionMenu();
+  renderChatConversationMenu([], []);
 });
 document.addEventListener("click", (event) => {
   if (state.skillContextMenu.open && !els.skillContextMenu?.contains(event.target)) window.miaSkillLibrary.closeSkillContextMenu();
@@ -4747,6 +4952,12 @@ document.addEventListener("click", (event) => {
   if (els.sessionMenu?.contains(event.target)) return;
   state.sessionMenuOpen = false;
   renderSessionMenu();
+});
+document.addEventListener("click", (event) => {
+  if (!state.chatConversationMenuOpen) return;
+  if (els.chatConversationMenu?.contains(event.target) || els.activeConversationMenuButton?.contains(event.target)) return;
+  state.chatConversationMenuOpen = false;
+  render();
 });
 document.addEventListener("click", (event) => {
   if (!state.botMenuOpen) return;
@@ -4840,6 +5051,9 @@ document.querySelectorAll("[data-view]").forEach((button) => {
     const nextView = button.dataset.view === "contacts"
       ? (state.discoverSectionView || "bot-store")
       : button.dataset.view;
+    if (nextView === "contacts" || nextView === "bot-store" || nextView === "skills") {
+      state.exploreSectionView = nextView;
+    }
     const reselectingCollapsedIndex = state.activeView === nextView
       && sidebarCollapseSupported(nextView)
       && state.sidebarCollapsed;
@@ -4859,6 +5073,36 @@ document.querySelectorAll("[data-view]").forEach((button) => {
         window.miaTasksPanel?.renderTaskView();
       });
     }
+  });
+});
+
+document.querySelectorAll("[data-primary-nav]").forEach((button) => {
+  button.addEventListener("click", () => {
+    showPrimaryNav(button.dataset.primaryNav);
+  });
+});
+
+document.querySelectorAll("[data-explore-view]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const nextView = button.dataset.exploreView || "bot-store";
+    if (state.activeView === nextView) return;
+    state.activeView = nextView;
+    state.exploreSectionView = nextView;
+    state.discoverSectionView = nextView;
+    if (nextView === "bot-store" && !(state.skillLibrary.botPresets || []).length && !state.skillsLoading) window.miaLoaders.loadSkills();
+    if (nextView === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) window.miaLoaders.loadSkills();
+    if (nextView === "bot-store") window.miaBotStore?.renderBotStore?.();
+    showNarrowContent();
+    renderView();
+  });
+});
+
+document.querySelectorAll("[data-task-sidebar-mode]").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.activeView = "tasks";
+    state.taskMode = button.dataset.taskSidebarMode === "history" ? "history" : "active";
+    showNarrowContent();
+    renderView();
   });
 });
 
@@ -5280,6 +5524,7 @@ function renderDiscoverModeToggle() {
       state.contactMenuOpen = false;
       state.activeView = btn.dataset.discoverMode;
       state.discoverSectionView = state.activeView; // 记住子页，rail 回来时恢复
+      state.exploreSectionView = state.activeView;
       if (state.isNarrowWindow && viewHasIndexPane(state.activeView)) {
         showNarrowSidebar();
       } else {
@@ -5309,6 +5554,8 @@ function openBotStore() {
   state.botMenuOpen = false;
   state.contactMenuOpen = false;
   state.activeView = "bot-store";
+  state.exploreSectionView = "bot-store";
+  state.discoverSectionView = "bot-store";
   showNarrowContent();
   if (!(state.skillLibrary.botPresets || []).length && !state.skillsLoading) window.miaLoaders.loadSkills();
   renderView();
@@ -5700,6 +5947,13 @@ els.workspacePickButton?.addEventListener("click", async () => {
 
 els.appearanceSelectionStyle?.addEventListener("change", () => {
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
+});
+
+els.navLayoutChoices?.forEach((button) => {
+  button.addEventListener("click", () => {
+    setNavLayout(button.dataset.navLayoutChoice, true);
+    renderView();
+  });
 });
 
 els.appearanceAccentColor?.addEventListener("input", () => {

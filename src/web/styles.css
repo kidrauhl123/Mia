@@ -3708,10 +3708,6 @@ p {
 
 .trace-row > summary::-webkit-details-marker { display: none; }
 
-.trace-row:hover > summary {
-  background: rgba(15, 23, 42, 0.05);
-}
-
 .trace-chevron {
   display: inline-block;
   width: 10px;

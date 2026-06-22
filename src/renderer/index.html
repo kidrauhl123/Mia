@@ -74,6 +74,43 @@
       </button>
     </aside>
 
+    <!-- Bottom nav SVG paths come from Phosphor Icons (MIT): https://github.com/phosphor-icons/core -->
+    <nav id="sidebarBottomNav" class="sidebar-bottom-nav" aria-label="主导航">
+      <button class="sidebar-bottom-nav-button" type="button" data-primary-nav="chat" title="聊天" aria-label="聊天">
+        <span class="sidebar-bottom-icon" data-sidebar-bottom-icon="chat" aria-hidden="true">
+          <svg viewBox="0 0 256 256">
+            <path class="sidebar-bottom-icon-regular" d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"/>
+            <path class="sidebar-bottom-icon-fill" d="M232,128A104,104,0,0,1,79.12,219.82L45.07,231.17a16,16,0,0,1-20.24-20.24l11.35-34.05A104,104,0,1,1,232,128Z"/>
+          </svg>
+        </span>
+        <span class="sidebar-bottom-label" aria-hidden="true">聊天</span>
+        <span id="sidebarChatUnreadBadge" class="sidebar-bottom-badge hidden" aria-hidden="true">0</span>
+      </button>
+      <button class="sidebar-bottom-nav-button" type="button" data-primary-nav="explore" title="探索" aria-label="探索">
+        <span class="sidebar-bottom-icon" data-sidebar-bottom-icon="explore" aria-hidden="true">
+          <svg viewBox="0 0 256 256">
+            <path class="sidebar-bottom-icon-regular" d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216ZM172.42,72.84l-64,32a8.05,8.05,0,0,0-3.58,3.58l-32,64A8,8,0,0,0,80,184a8.1,8.1,0,0,0,3.58-.84l64-32a8.05,8.05,0,0,0,3.58-3.58l32-64a8,8,0,0,0-10.74-10.74ZM138,138,97.89,158.11,118,118l40.15-20.07Z"/>
+            <path class="sidebar-bottom-icon-fill" d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm51.58,57.79-32,64a4.08,4.08,0,0,1-1.79,1.79l-64,32a4,4,0,0,1-5.37-5.37l32-64a4.08,4.08,0,0,1,1.79-1.79l64-32A4,4,0,0,1,179.58,81.79Z"/>
+          </svg>
+        </span>
+        <span class="sidebar-bottom-label" aria-hidden="true">探索</span>
+        <span id="sidebarExploreUnreadBadge" class="sidebar-bottom-badge hidden" aria-hidden="true">0</span>
+      </button>
+      <button class="sidebar-bottom-nav-button" type="button" data-primary-nav="tasks" title="任务" aria-label="任务">
+        <span class="sidebar-bottom-icon" data-sidebar-bottom-icon="tasks" aria-hidden="true">
+          <svg viewBox="0 0 256 256">
+            <path class="sidebar-bottom-icon-regular" d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM72,48v8a8,8,0,0,0,16,0V48h80v8a8,8,0,0,0,16,0V48h24V80H48V48ZM208,208H48V96H208V208Zm-38.34-85.66a8,8,0,0,1,0,11.32l-48,48a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L116,164.69l42.34-42.35A8,8,0,0,1,169.66,122.34Z"/>
+            <path class="sidebar-bottom-icon-fill" d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM169.66,133.66l-48,48a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L116,164.69l42.34-42.35a8,8,0,0,1,11.32,11.32ZM48,80V48H72v8a8,8,0,0,0,16,0V48h80v8a8,8,0,0,0,16,0V48h24V80Z"/>
+          </svg>
+        </span>
+        <span class="sidebar-bottom-label" aria-hidden="true">任务</span>
+        <span id="sidebarTasksUnreadBadge" class="sidebar-bottom-badge hidden" aria-hidden="true">0</span>
+      </button>
+      <button class="sidebar-bottom-nav-button sidebar-bottom-avatar-button" type="button" data-primary-nav="me" title="我" aria-label="我">
+        <span id="sidebarUserAvatar" class="profile-avatar sidebar-bottom-avatar" aria-hidden="true"></span>
+      </button>
+    </nav>
+
     <aside id="conversationSidebar" class="sidebar conversation-sidebar">
       <header class="sidebar-tools">
         <div class="sidebar-title">消息</div>
@@ -208,8 +245,52 @@
         </div>
       </header>
 
+      <div class="explore-sidebar-tabs contacts-explore-tabs" role="tablist" aria-label="探索分类">
+        <button type="button" data-explore-view="contacts">联系人</button>
+        <button type="button" data-explore-view="bot-store">发现 AI 助手</button>
+        <button type="button" data-explore-view="skills">能力库</button>
+      </div>
+
       <section class="contact-section">
         <div id="contactList" class="contact-list"></div>
+      </section>
+    </aside>
+
+    <aside id="exploreSidebar" class="sidebar explore-sidebar hidden">
+      <header class="sidebar-tools">
+        <div class="sidebar-title">探索</div>
+      </header>
+      <section class="explore-sidebar-section">
+        <div class="explore-sidebar-tabs" role="tablist" aria-label="探索分类">
+          <button type="button" data-explore-view="contacts">联系人</button>
+          <button type="button" data-explore-view="bot-store">发现 AI 助手</button>
+          <button type="button" data-explore-view="skills">能力库</button>
+        </div>
+      </section>
+    </aside>
+
+    <aside id="taskSidebar" class="sidebar task-sidebar hidden">
+      <header class="sidebar-tools">
+        <div class="sidebar-title">任务</div>
+      </header>
+      <section class="task-sidebar-section">
+        <div class="task-sidebar-tabs" role="tablist" aria-label="任务分类">
+          <button type="button" data-task-sidebar-mode="active">活跃任务</button>
+          <button type="button" data-task-sidebar-mode="history">历史</button>
+        </div>
+      </section>
+    </aside>
+
+    <aside id="settingsSidebar" class="sidebar settings-sidebar hidden">
+      <header class="sidebar-tools">
+        <div class="sidebar-title">设置</div>
+      </header>
+      <section class="settings-sidebar-section">
+        <div class="settings-sidebar-tabs" role="tablist" aria-label="设置分类">
+          <button class="settings-tab active" type="button" data-settings-tab="account">账号与同步</button>
+          <button class="settings-tab" type="button" data-settings-tab="appearance">外观</button>
+          <button class="settings-tab" type="button" data-settings-tab="model">模型</button>
+        </div>
       </section>
     </aside>
 
@@ -233,10 +314,15 @@
               <path d="M15 18L9 12L15 6"/>
             </svg>
           </button>
-          <div id="activeChatAvatar" class="profile-avatar">A</div>
-          <div class="group-title-copy">
-            <h1><span id="activeChatName">Mia</span></h1>
-            <p id="activeChatMeta">Bot</p>
+          <div id="activeConversationMenuButton" class="active-conversation-menu-button" role="button" tabindex="0" aria-label="切换对话" aria-haspopup="listbox" aria-expanded="false" aria-controls="chatConversationMenu">
+            <div id="activeChatAvatar" class="profile-avatar">A</div>
+            <div class="group-title-copy">
+              <h1><span id="activeChatName">Mia</span></h1>
+              <p id="activeChatMeta">Bot</p>
+            </div>
+          </div>
+          <div id="chatConversationMenu" class="chat-conversation-menu hidden" role="listbox" aria-label="切换对话">
+            <div id="chatConversationList" class="chat-conversation-list"></div>
           </div>
         </div>
         <div class="top-actions">
@@ -482,6 +568,56 @@
                   <option value="soft">柔和</option>
                   <option value="solid">实色</option>
                 </select>
+              </section>
+              <div class="settings-section-label">导航栏位置</div>
+              <section class="settings-row nav-layout-settings-row">
+                <div class="nav-layout-choice-grid" role="radiogroup" aria-label="导航栏位置">
+                  <button class="nav-layout-choice" type="button" role="radio" aria-checked="false" data-nav-layout-choice="sidebar-bottom">
+                    <span class="nav-layout-preview nav-layout-preview-bottom" aria-hidden="true">
+                      <span class="nav-preview-toolbar"></span>
+                      <span class="nav-preview-tab nav-preview-tab-active"></span>
+                      <span class="nav-preview-tab nav-preview-tab-soft"></span>
+                      <span class="nav-preview-tab nav-preview-tab-soft"></span>
+                      <span class="nav-preview-divider nav-preview-divider-tabs"></span>
+                      <span class="nav-preview-row-avatar nav-preview-row-avatar-1"></span>
+                      <span class="nav-preview-row-title nav-preview-row-title-1"></span>
+                      <span class="nav-preview-row-meta nav-preview-row-meta-1"></span>
+                      <span class="nav-preview-row-text nav-preview-row-text-1"></span>
+                      <span class="nav-preview-row-divider nav-preview-row-divider-1"></span>
+                      <span class="nav-preview-row-avatar nav-preview-row-avatar-2"></span>
+                      <span class="nav-preview-row-title nav-preview-row-title-2"></span>
+                      <span class="nav-preview-row-meta nav-preview-row-meta-2"></span>
+                      <span class="nav-preview-row-text nav-preview-row-text-2"></span>
+                      <span class="nav-preview-bottom-bar"></span>
+                      <span class="nav-preview-bottom-item nav-preview-bottom-item-1"></span>
+                      <span class="nav-preview-bottom-item nav-preview-bottom-item-2 nav-preview-bottom-item-active"></span>
+                      <span class="nav-preview-bottom-item nav-preview-bottom-item-3"></span>
+                      <span class="nav-preview-bottom-item nav-preview-bottom-item-4"></span>
+                    </span>
+                    <span class="nav-layout-choice-label">位于底部</span>
+                  </button>
+                  <button class="nav-layout-choice" type="button" role="radio" aria-checked="false" data-nav-layout-choice="rail">
+                    <span class="nav-layout-preview nav-layout-preview-rail" aria-hidden="true">
+                      <span class="nav-preview-rail"></span>
+                      <span class="nav-preview-rail-dot nav-preview-rail-dot-1"></span>
+                      <span class="nav-preview-rail-dot nav-preview-rail-dot-active"></span>
+                      <span class="nav-preview-rail-dot nav-preview-rail-dot-3"></span>
+                      <span class="nav-preview-rail-dot nav-preview-rail-dot-4"></span>
+                      <span class="nav-preview-toolbar"></span>
+                      <span class="nav-preview-divider nav-preview-divider-header"></span>
+                      <span class="nav-preview-row-avatar nav-preview-row-avatar-1"></span>
+                      <span class="nav-preview-row-title nav-preview-row-title-1"></span>
+                      <span class="nav-preview-row-meta nav-preview-row-meta-1"></span>
+                      <span class="nav-preview-row-text nav-preview-row-text-1"></span>
+                      <span class="nav-preview-row-divider nav-preview-row-divider-1"></span>
+                      <span class="nav-preview-row-avatar nav-preview-row-avatar-2"></span>
+                      <span class="nav-preview-row-title nav-preview-row-title-2"></span>
+                      <span class="nav-preview-row-meta nav-preview-row-meta-2"></span>
+                      <span class="nav-preview-row-text nav-preview-row-text-2"></span>
+                    </span>
+                    <span class="nav-layout-choice-label">位于左侧</span>
+                  </button>
+                </div>
               </section>
               <section class="settings-row">
                 <div>

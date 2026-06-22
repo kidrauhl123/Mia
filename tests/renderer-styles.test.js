@@ -63,12 +63,13 @@ test("chat workspace uses the shared continuous floor", () => {
 
 test("chat floor overlay text uses the adaptive floor palette", () => {
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
+  const webCss = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");
 
   assert.match(chatCss, /\.message-time\s*\{[\s\S]*?color:\s*var\(--floor-faint\);/);
   assert.match(chatCss, /\.message-send-status\s*\{[\s\S]*?color:\s*var\(--floor-faint\);/);
   assert.match(chatCss, /\.trace\s*\{[\s\S]*?color:\s*var\(--floor-muted\);[\s\S]*?opacity:\s*1;/);
-  assert.match(chatCss, /\.trace-row:hover\s*>\s*summary\s*\{[\s\S]*?background:\s*var\(--floor-hover\);/);
-  assert.match(chatCss, /:root\[data-hover-background="false"\]\s+\.trace-row:hover\s*>\s*summary\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.doesNotMatch(chatCss, /\.trace-row:hover\s*>\s*summary\s*\{[\s\S]*?background:/);
+  assert.doesNotMatch(webCss, /\.trace-row:hover\s*>\s*summary\s*\{[\s\S]*?background:/);
   assert.match(chatCss, /\.trace-cmd\s*\{[\s\S]*?color:\s*var\(--floor-text\);/);
   assert.match(chatCss, /\.trace-arg\s*\{[\s\S]*?color:\s*var\(--floor-muted\);/);
   assert.match(chatCss, /\.trace-meta\s*\{[\s\S]*?color:\s*var\(--floor-faint\);/);

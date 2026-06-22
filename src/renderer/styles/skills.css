@@ -589,3 +589,20 @@
   background: var(--surface-muted);
   color: var(--text);
 }
+
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="skills"] #skillsView {
+  grid-column: 2 / -1;
+}
+
+.app-shell[data-nav-layout="sidebar-bottom"][data-active-view="skills"] .explore-sidebar {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+@media (max-width: 720px) {
+  .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="skills"] #skillsView,
+  .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="skills"] .explore-sidebar {
+    grid-row: 1;
+    grid-column: 1 / -1;
+  }
+}
