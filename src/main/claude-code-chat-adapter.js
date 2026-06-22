@@ -83,6 +83,29 @@ function applyManagedClaudeModelEnv(baseEnv = {}, managedModel = {}) {
   return env;
 }
 
+function isMiaManagedClaudeModel(managedModel = {}) {
+  const provider = String(managedModel.provider || "").trim();
+  const authType = String(managedModel.authType || managedModel.auth_type || "").trim();
+  return provider === "mia" || authType === "mia_account";
+}
+
+function applyMiaClaudeProxyEnv(baseEnv = {}, proxySession = {}) {
+  const baseUrl = String(proxySession.baseUrl || "").trim().replace(/\/+$/, "");
+  const authToken = String(proxySession.authToken || "").trim();
+  if (!baseUrl || !authToken) return { ...baseEnv };
+  const env = { ...baseEnv };
+  env.ANTHROPIC_BASE_URL = baseUrl;
+  env.ANTHROPIC_AUTH_TOKEN = authToken;
+  env.ANTHROPIC_API_KEY = authToken;
+  delete env.ANTHROPIC_MODEL;
+  delete env.ANTHROPIC_SMALL_FAST_MODEL;
+  delete env.ANTHROPIC_CUSTOM_MODEL_OPTION;
+  delete env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME;
+  delete env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION;
+  delete env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY;
+  return env;
+}
+
 function stoppedError() {
   const stopped = new Error("生成已停止");
   stopped.code = "MIA_STOPPED";
@@ -126,12 +149,13 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const ensureUserMcpReady = deps.ensureUserMcpReady || (async () => {});
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
+  const ensureMiaClaudeProxy = deps.ensureMiaClaudeProxy || null;
   const permissionCoordinator = deps.permissionCoordinator || null;
   const enginePermissionMode = deps.enginePermissionMode || (() => "default");
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
-  async function sendChat({ bot, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
+  async function sendChat({ bot, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility, runtimeConfig = null }) {
     const engine = "claude-code";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("claude");
@@ -185,10 +209,28 @@ function createClaudeCodeChatAdapter(deps = {}) {
       try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
     })();
     const userMcpServers = getUserMcpSpecs();
-    const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine, bot });
-    const selectedModel = String(managedModel?.model || bot.engineConfig?.model || "").trim();
+    const turnConfig = {
+      ...(bot.engineConfig && typeof bot.engineConfig === "object" ? bot.engineConfig : {}),
+      ...(runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {})
+    };
+    const managedModel = resolveManagedModelRuntime(turnConfig, { engine, bot });
+    const selectedModel = String(managedModel?.model || turnConfig.model || "").trim();
+    let selectedModelForClaude = selectedModel;
+    let releaseManagedModelSession = null;
+    let managedEnv = processEnvStrings();
+    if (isMiaManagedClaudeModel(managedModel || {})) {
+      if (typeof ensureMiaClaudeProxy !== "function") {
+        throw new Error("Mia Claude Code model proxy is unavailable.");
+      }
+      const proxySession = await ensureMiaClaudeProxy(managedModel, { engine, bot, sessionId });
+      releaseManagedModelSession = typeof proxySession.release === "function" ? proxySession.release : null;
+      managedEnv = applyMiaClaudeProxyEnv(managedEnv, proxySession);
+      selectedModelForClaude = "";
+    } else {
+      managedEnv = applyManagedClaudeModelEnv(managedEnv, managedModel || {});
+    }
     const env = envWithExecutableDirFirst(
-      applyManagedClaudeModelEnv(processEnvStrings(), managedModel || {}),
+      managedEnv,
       commandPath
     );
     const mcpServers = mergeMcpServersWithReservedBuiltIns({
@@ -217,8 +259,8 @@ function createClaudeCodeChatAdapter(deps = {}) {
       ...(Object.keys(mcpServers).length ? { mcpServers } : {})
     };
     if (externalSessionId) options.resume = externalSessionId;
-    if (selectedModel) options.model = selectedModel;
-    options.effort = normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "claude-code");
+    if (selectedModelForClaude) options.model = selectedModelForClaude;
+    options.effort = normalizeEffortLevel(turnConfig.effortLevel || "medium", "claude-code");
     if (options.permissionMode === "bypassPermissions") options.allowDangerouslySkipPermissions = true;
     if (permissionCoordinator && options.permissionMode !== "bypassPermissions") {
       options.canUseTool = async (toolName, input = {}, context = {}) => {
@@ -362,23 +404,31 @@ function createClaudeCodeChatAdapter(deps = {}) {
     }
 
     try {
-      await consumeClaudeStream(options);
-    } catch (error) {
-      if (!processedStreamMessage && externalSessionId && isStaleClaudeResumeError(error)) {
-        appendEngineLog(`Claude Code resume session failed; clearing saved session and retrying without resume: ${error?.message || error}`);
-        try {
-          clearAgentSessionEntry(engine, bot.key, sessionId);
-        } catch (clearError) {
-          appendEngineLog(`Claude Code saved session cleanup failed: ${clearError?.message || clearError}`);
+      try {
+        await consumeClaudeStream(options);
+      } catch (error) {
+        if (!processedStreamMessage && externalSessionId && isStaleClaudeResumeError(error)) {
+          appendEngineLog(`Claude Code resume session failed; clearing saved session and retrying without resume: ${error?.message || error}`);
+          try {
+            clearAgentSessionEntry(engine, bot.key, sessionId);
+          } catch (clearError) {
+            appendEngineLog(`Claude Code saved session cleanup failed: ${clearError?.message || clearError}`);
+          }
+          capturedSessionId = "";
+          activeTextId = null;
+          blockIndex.clear();
+          const retryOptions = { ...options };
+          delete retryOptions.resume;
+          await consumeClaudeStream(retryOptions);
+        } else {
+          throw error;
         }
-        capturedSessionId = "";
-        activeTextId = null;
-        blockIndex.clear();
-        const retryOptions = { ...options };
-        delete retryOptions.resume;
-        await consumeClaudeStream(retryOptions);
-      } else {
-        throw error;
+      }
+    } finally {
+      try {
+        if (releaseManagedModelSession) releaseManagedModelSession();
+      } catch {
+        // Ignore cleanup failures; the proxy also expires idle sessions.
       }
     }
     if (capturedSessionId && !externalSessionId && shouldPersistAgentSession) {
@@ -434,5 +484,6 @@ function createClaudeCodeChatAdapter(deps = {}) {
 module.exports = {
   claudeMessageText,
   createClaudeCodeChatAdapter,
+  isMiaManagedClaudeModel,
   normalizeClaudePermissionMode
 };

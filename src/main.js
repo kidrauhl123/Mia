@@ -32,6 +32,7 @@ const { createAgentCommandProvider } = require("./main/agent-command-provider.js
 const { createClaudeBridgePluginService } = require("./main/claude-bridge-plugin-service.js");
 const { requireBot } = require("./main/bot-registry.js");
 const { createClaudeCodeChatAdapter } = require("./main/claude-code-chat-adapter.js");
+const { createClaudeCodeMiaProxy } = require("./main/claude-code-mia-proxy.js");
 const { createCodexChatAdapter, mapCodexPermissionMode } = require("./main/codex-chat-adapter.js");
 const { syncCodexConfigForPermission } = require("./main/codex-config-sync.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
@@ -269,6 +270,7 @@ const {
 let settingsStore = null;
 const miaMemoryService = createMiaMemoryService({ runtimePaths });
 const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
+const claudeCodeMiaProxy = createClaudeCodeMiaProxy({ appendLog: appendEngineLog, fetch });
 const enginePluginsService = createEnginePluginsService({ runtimePaths });
 let localAgentEngineService = null;
 const systemHermesService = createSystemHermesService({
@@ -2032,6 +2034,7 @@ function createActiveClaudeCodeChatAdapter() {
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     clearAgentSessionEntry: agentSessionStore.deleteEntry,
     enginePermissionMode: settingsStore.enginePermissionMode,
+    ensureMiaClaudeProxy: (managedModel) => claudeCodeMiaProxy.createSession(managedModel),
     getAgentSessionEntry: agentSessionStore.getEntry,
     getMcpFingerprint: userMcpService.fingerprint,
     getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
@@ -3045,6 +3048,10 @@ const autoUpdateService = createAutoUpdateService({
 });
 
 ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates());
+
+app.on("before-quit", () => {
+  claudeCodeMiaProxy.stop().catch((error) => appendEngineLog(`Claude Code Mia proxy stop failed: ${error?.message || error}`));
+});
 
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");

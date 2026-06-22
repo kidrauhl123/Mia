@@ -267,7 +267,23 @@ test("sendChat routes Mia-managed Claude Code models through Anthropic gateway e
       baseUrl: "https://mia.example/api/me/model-proxy/v1",
       anthropicBaseUrl: "https://mia.example/api/me/model-proxy",
       apiKey: "cloud-token"
-    })
+    }),
+    processEnvStrings: () => ({
+      PATH: "/bin",
+      ANTHROPIC_API_KEY: "old-bad-key",
+      ANTHROPIC_MODEL: "old-model",
+      ANTHROPIC_CUSTOM_MODEL_OPTION: "old-model",
+      CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1"
+    }),
+    ensureMiaClaudeProxy: async (managedModel) => {
+      deps.calls.push(["mia-proxy", managedModel]);
+      return {
+        baseUrl: "http://127.0.0.1:49123",
+        authToken: "proxy-token",
+        model: managedModel.model,
+        release: () => deps.calls.push(["mia-proxy-release"])
+      };
+    }
   });
   const adapter = createClaudeCodeChatAdapter(deps);
 
@@ -281,14 +297,15 @@ test("sendChat routes Mia-managed Claude Code models through Anthropic gateway e
   });
 
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
-  assert.equal(queryCall.options.model, "mia-default");
+  assert.equal(queryCall.options.model, undefined);
   assert.equal(queryCall.options.env.PATH, "/bin");
-  assert.equal(queryCall.options.env.ANTHROPIC_BASE_URL, "https://mia.example/api/me/model-proxy");
-  assert.equal(queryCall.options.env.ANTHROPIC_AUTH_TOKEN, "cloud-token");
-  assert.equal(queryCall.options.env.ANTHROPIC_MODEL, "mia-default");
-  assert.equal(queryCall.options.env.ANTHROPIC_CUSTOM_MODEL_OPTION, "mia-default");
-  assert.equal(queryCall.options.env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, "1");
-  assert.equal(Object.hasOwn(queryCall.options.env, "ANTHROPIC_API_KEY"), false);
+  assert.equal(queryCall.options.env.ANTHROPIC_BASE_URL, "http://127.0.0.1:49123");
+  assert.equal(queryCall.options.env.ANTHROPIC_AUTH_TOKEN, "proxy-token");
+  assert.equal(queryCall.options.env.ANTHROPIC_API_KEY, "proxy-token");
+  assert.equal(Object.hasOwn(queryCall.options.env, "ANTHROPIC_MODEL"), false);
+  assert.equal(Object.hasOwn(queryCall.options.env, "ANTHROPIC_CUSTOM_MODEL_OPTION"), false);
+  assert.equal(Object.hasOwn(queryCall.options.env, "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"), false);
+  assert.equal(deps.calls.some((call) => call[0] === "mia-proxy-release"), true);
 });
 
 test("sendChat puts the selected Claude Code bin dir first in SDK env", async () => {
