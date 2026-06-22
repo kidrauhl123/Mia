@@ -82,7 +82,6 @@ function createSettingsStore(deps = {}) {
       accentColor: "#318ad3",
       userBubbleColor: "#eeffde",
       glassOpacity: DEFAULT_GLASS_OPACITY,
-      showHoverBackground: false,
       showUserAvatar: false,
       showAssistantAvatar: false,
       showDesktopNotifications: true,
@@ -172,6 +171,7 @@ function createSettingsStore(deps = {}) {
     next.fontPreset = normalizeAppearanceFontPreset(next.fontPreset);
     next.glassOpacity = normalizeGlassOpacity(next.glassOpacity, DEFAULT_GLASS_OPACITY);
     next.listStyle = "card";
+    delete next.showHoverBackground;
     next.showDesktopNotifications = next.showDesktopNotifications !== false;
     next.workspaceBackgroundImage = "";
     return next;
@@ -188,7 +188,6 @@ function createSettingsStore(deps = {}) {
     const glassOpacity = has("glassOpacity")
       ? normalizeGlassOpacity(settings.glassOpacity, current.glassOpacity || DEFAULT_GLASS_OPACITY)
       : normalizeGlassOpacity(current.glassOpacity, DEFAULT_GLASS_OPACITY);
-    const showHoverBackground = settings.showHoverBackground == null ? current.showHoverBackground !== false : settings.showHoverBackground !== false;
     const showUserAvatar = settings.showUserAvatar == null ? current.showUserAvatar === true : settings.showUserAvatar === true;
     const showAssistantAvatar = settings.showAssistantAvatar == null ? current.showAssistantAvatar === true : settings.showAssistantAvatar === true;
     const showDesktopNotifications = has("showDesktopNotifications")
@@ -204,7 +203,6 @@ function createSettingsStore(deps = {}) {
       accentColor: validHex(accentColor, "#318ad3"),
       userBubbleColor: validHex(userBubbleColor, "#eeffde"),
       glassOpacity,
-      showHoverBackground,
       showUserAvatar,
       showAssistantAvatar,
       showDesktopNotifications,

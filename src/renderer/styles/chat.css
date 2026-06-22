@@ -75,6 +75,28 @@
   will-change: opacity, transform, height, max-height, padding;
 }
 
+.message.message-tail-enter {
+  overflow: hidden;
+  animation: messageTailEnter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: max-height, transform, opacity, clip-path;
+}
+
+@keyframes messageTailEnter {
+  from {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(16px);
+    clip-path: inset(100% 0 0 0);
+  }
+
+  to {
+    max-height: var(--message-tail-enter-height, 480px);
+    opacity: 1;
+    transform: translateY(0);
+    clip-path: inset(0 0 0 0);
+  }
+}
+
 .message .avatar {
   width: 42px;
   height: 42px;
@@ -188,6 +210,14 @@
 @media (prefers-reduced-motion: reduce) {
   .message.message-removing {
     transition: none;
+  }
+
+  .message.message-tail-enter {
+    animation: none;
+    max-height: none;
+    transform: none;
+    opacity: 1;
+    clip-path: none;
   }
 
   .message.search-focus .bubble {
@@ -829,18 +859,11 @@
 .message-code-copy.copied {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text);
-  font-size: 0;
   opacity: 1;
 }
 
 :root[data-theme="dark"] .message-code-copy.copied {
   background: rgba(255, 255, 255, 0.10);
-}
-
-.message-code-copy.copied::before {
-  content: "已复制";
-  font-size: 11px;
-  line-height: 18px;
 }
 
 .message-code-block pre {

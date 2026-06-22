@@ -410,7 +410,7 @@
     return `
       <figure class="message-code-block" data-language="${escapeHtml(lang)}">
         <figcaption>
-          <button type="button" class="message-code-copy" data-copy-code aria-label="复制 ${escapeHtml(label)} 代码" title="复制 ${escapeHtml(label)} 代码">${escapeHtml(label)}</button>
+          <button type="button" class="message-code-copy" data-copy-code data-slot-copy-label="${escapeHtml(label)}" aria-label="复制 ${escapeHtml(label)} 代码" title="复制 ${escapeHtml(label)} 代码">${escapeHtml(label)}</button>
         </figcaption>
         <pre><code class="syntax-code language-${escapeHtml(lang)}">${highlightCode(String(code || "").replace(/\n$/, ""), lang)}</code></pre>
       </figure>

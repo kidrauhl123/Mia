@@ -14,7 +14,6 @@
     theme: "light",            // "light" | "dark"
     listStyle: "card",
     selectionStyle: "soft",    // "soft" | "solid"
-    hoverBackground: true,
     accentColor: DEFAULT_ACCENT,
     userBubbleColor: DEFAULT_USER_BUBBLE,
     showUserAvatar: false,
@@ -54,7 +53,6 @@
     const root = document.documentElement;
     root.dataset.theme = next.theme === "dark" ? "dark" : "light";
     root.dataset.selectionStyle = next.selectionStyle === "solid" ? "solid" : "soft";
-    root.dataset.hoverBackground = next.hoverBackground ? "on" : "off";
     root.dataset.showUserAvatar = next.showUserAvatar === true ? "on" : "off";
     root.dataset.showAssistantAvatar = next.showAssistantAvatar === true ? "on" : "off";
     if (next.accentColor) {

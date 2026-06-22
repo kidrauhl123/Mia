@@ -179,7 +179,6 @@
     const softActive = `rgb(${rgb.r} ${rgb.g} ${rgb.b} / ${theme === "dark" ? "0.22" : "0.16"})`;
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.selectionStyle = selectionStyle;
-    document.documentElement.dataset.hoverBackground = appearance.showHoverBackground === false ? "false" : "true";
     document.documentElement.dataset.showUserAvatar = avatarToggleEnabled(appearance.showUserAvatar) ? "true" : "false";
     document.documentElement.dataset.showAssistantAvatar = avatarToggleEnabled(appearance.showAssistantAvatar) ? "true" : "false";
     document.documentElement.style.setProperty("--app-font", fontStackForAppearance(appearance));
@@ -240,7 +239,6 @@
       accentColor: normalizeHexColor(controls.appearanceAccentColor?.value),
       glassOpacity: normalizeGlassOpacity(controls.appearanceGlassOpacity?.value),
       userBubbleColor: normalizeHexColor(controls.appearanceUserBubbleColor?.value, defaultUserBubbleColor()),
-      showHoverBackground: controls.appearanceShowHoverBackground?.getAttribute("aria-checked") !== "false",
       showUserAvatar: controls.appearanceShowUserAvatar?.getAttribute("aria-checked") === "true",
       showAssistantAvatar: controls.appearanceShowAssistantAvatar?.getAttribute("aria-checked") === "true",
       showDesktopNotifications: controls.appearanceShowDesktopNotifications?.getAttribute("aria-checked") !== "false",
@@ -320,7 +318,6 @@
       button.classList.toggle("is-selected", active);
       button.setAttribute("aria-checked", active ? "true" : "false");
     });
-    setSettingsSwitch(controls.appearanceShowHoverBackground, appearance.showHoverBackground !== false);
     setSettingsSwitch(controls.appearanceShowDesktopNotifications, appearance.showDesktopNotifications !== false);
     setSettingsSwitch(controls.appearanceShowUserAvatar, avatarToggleEnabled(appearance.showUserAvatar));
     setSettingsSwitch(controls.appearanceShowAssistantAvatar, avatarToggleEnabled(appearance.showAssistantAvatar));

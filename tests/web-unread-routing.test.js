@@ -1151,6 +1151,30 @@ test("src/web/app.js uses the resolved self avatar color for own message avatars
   );
 });
 
+test("src/web/app.js animates only newly appended tail messages near the bottom", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const helper = source.match(/function buildConversationMessageArticle\(msg, conversation\) \{[\s\S]*?\n\}/);
+  assert.ok(helper, "buildConversationMessageArticle body must be extractable");
+  assert.match(helper[0], /data-message-id="\$\{escapeHtml\(messageStableId\(msg\)\)\}"/);
+  assert.match(source, /function animateMessageTailEnter\(/, "web must define the tail message reveal helper");
+  assert.match(source, /function animateChatTailToBottom\(/, "web must define the smooth bottom-follow helper");
+  assert.match(
+    source,
+    /const tailMessageIds = shouldAnimateTail[\s\S]*?tailMessageIdsAddedToEnd/,
+    "renderActiveChat must compute tail-only appended message ids"
+  );
+  assert.match(
+    source,
+    /if \(shouldAnimateTail && tailMessageIds\.length\) \{[\s\S]*?animateRenderedTailMessages/,
+    "renderActiveChat must animate only the newly appended tail messages"
+  );
+  assert.doesNotMatch(
+    source,
+    /if \(messages\.length \|\| streaming\) els\.chat\.scrollTop = els\.chat\.scrollHeight;/,
+    "renderActiveChat must not unconditionally pull history readers to the bottom"
+  );
+});
+
 test("src/web/app/index.html loads shared/trace-blocks.js before app.js", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   const contentBlocksIdx = html.indexOf("shared/assistant-content-blocks.js");

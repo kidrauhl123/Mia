@@ -11,6 +11,7 @@
     <link rel="icon" href="../favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="../apple-touch-icon.png">
     <link rel="manifest" href="../manifest.webmanifest">
+    <link rel="stylesheet" href="../shared/vendor/slot-text/style.css">
     <link rel="stylesheet" href="../styles.css?v=20260611-status-badges">
   </head>
   <body>
@@ -50,7 +51,7 @@
               <span>⌕</span>
               <input id="conversationSearch" autocomplete="off" placeholder="搜索">
             </label>
-            <button id="newConversation" class="icon-button" type="button" title="新建" aria-label="新建">＋</button>
+            <button id="newConversation" class="icon-button" type="button" title="新建" aria-label="新建" aria-haspopup="menu" aria-expanded="false" aria-controls="conversationCreateMenu">＋</button>
             <div id="conversationCreateMenu" class="create-menu hidden">
               <button id="convMenuDiscoverBots" type="button">
                 <span class="create-menu-icon" aria-hidden="true">
@@ -244,16 +245,6 @@
                       <option value="solid">实色</option>
                     </select>
                   </section>
-                  <section class="settings-row">
-                    <div>
-                      <strong>悬停底色</strong>
-                      <p>鼠标移到卡片上时显示浅色底。</p>
-                    </div>
-                    <label class="settings-switch-wrap">
-                      <input id="appearanceHoverBackground" type="checkbox">
-                      <span class="settings-switch-text"></span>
-                    </label>
-                  </section>
                   <section class="settings-row settings-group-end">
                     <div>
                       <strong>主题色</strong>
@@ -324,6 +315,7 @@
     <script src="../message-sources/cloud-conversation-source.js?v=20260601-avatar-root"></script>
     <script src="../assets/lottie/lottie_light.min.js?v=20260611-status-badges"></script>
     <script src="../appearance.js?v=20260522-1"></script>
+    <script src="../shared/slot-text-runtime.js"></script>
     <script src="../app.js?v=20260611-status-badges"></script>
   </body>
 </html>

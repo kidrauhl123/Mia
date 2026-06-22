@@ -24,9 +24,6 @@
 /* Appearance overrides. Setting attributes on :root keeps the rules cheap
    and avoids running JS to update individual elements when the user flips
    a toggle in settings. */
-:root[data-hover-background="off"] {
-  --hover: transparent;
-}
 :root[data-selection-style="solid"] .persona-row.active {
   background: var(--accent);
 }
@@ -126,6 +123,7 @@ body {
   color: var(--text);
   font: 14px/1.5 var(--app-font);
   letter-spacing: 0;
+  -webkit-font-smoothing: antialiased;
 }
 
 button,
@@ -533,6 +531,7 @@ p {
   font-size: 10px;
   font-style: normal;
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
   line-height: 16px;
 }
 
@@ -582,6 +581,7 @@ p {
 }
 
 .icon-button {
+  position: relative;
   display: grid;
   place-items: center;
   width: 32px;
@@ -591,11 +591,39 @@ p {
   color: var(--muted);
   font-size: 18px;
   font-weight: 300;
+  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.icon-button::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 14px;
+  pointer-events: none;
 }
 
 .icon-button:hover {
   background: var(--hover);
   color: var(--text);
+}
+
+.icon-button.active,
+.icon-button[aria-expanded="true"],
+.icon-button[aria-pressed="true"] {
+  background: var(--field);
+  color: var(--text);
+  box-shadow: none;
+}
+
+.icon-button.active:hover,
+.icon-button[aria-expanded="true"]:hover,
+.icon-button[aria-pressed="true"]:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.icon-button:active {
+  transform: scale(0.96);
 }
 
 .persona-list {
@@ -629,16 +657,13 @@ p {
   text-align: left;
 }
 
-/* Hover/active live on the row wrapper so the highlight fills the full card
+/* Active state lives on the row wrapper so the highlight fills the full card
    rectangle symmetrically (including the gap reserved for the ⋯ menu). */
 .persona-row {
   position: relative;
   display: block;
   margin: 0 7px;
   border-radius: 11px;
-}
-.persona-row:hover {
-  background: var(--hover);
 }
 .persona-row.active {
   background: var(--list-active);
@@ -1060,6 +1085,7 @@ p {
   color: #fff;
   font-size: 10px;
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .persona-row.has-unread .persona-name {
@@ -1336,6 +1362,28 @@ p {
   padding: 3px 6px;
 }
 
+.message.message-tail-enter {
+  overflow: hidden;
+  animation: messageTailEnter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: max-height, transform, opacity, clip-path;
+}
+
+@keyframes messageTailEnter {
+  from {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(16px);
+    clip-path: inset(100% 0 0 0);
+  }
+
+  to {
+    max-height: var(--message-tail-enter-height, 480px);
+    opacity: 1;
+    transform: translateY(0);
+    clip-path: inset(0 0 0 0);
+  }
+}
+
 .message.user {
   flex-direction: row-reverse;
 }
@@ -1550,18 +1598,11 @@ p {
 .message-code-copy.copied {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text);
-  font-size: 0;
   opacity: 1;
 }
 
 :root[data-theme="dark"] .message-code-copy.copied {
   background: rgba(255, 255, 255, 0.10);
-}
-
-.message-code-copy.copied::before {
-  content: "已复制";
-  font-size: 11px;
-  line-height: 18px;
 }
 
 .message-code-block pre {
@@ -1950,7 +1991,7 @@ p {
 }
 
 .send-button:active {
-  transform: scale(0.94);
+  transform: scale(0.96);
 }
 
 .send-button:disabled {
@@ -2550,7 +2591,7 @@ p {
 }
 
 .add-friend-icon-button:active:not(:disabled) {
-  transform: scale(0.94);
+  transform: scale(0.96);
 }
 
 .add-friend-icon-button:disabled {
@@ -3886,6 +3927,14 @@ p {
 .trace-row[data-user-open="true"] .trace-body { max-height: 240px; }
 
 @media (prefers-reduced-motion: reduce) {
+  .message.message-tail-enter {
+    animation: none;
+    max-height: none;
+    transform: none;
+    opacity: 1;
+    clip-path: none;
+  }
+
   .trace-anim-enter,
   .trace-row[data-status="run"] > summary > .trace-glyph {
     animation: none;

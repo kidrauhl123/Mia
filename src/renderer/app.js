@@ -272,7 +272,6 @@ const els = {
   appearanceWorkspaceBackgroundPreview: document.getElementById("appearanceWorkspaceBackgroundPreview"),
   appearanceWorkspaceBackgroundPresets: document.getElementById("appearanceWorkspaceBackgroundPresets"),
   appearanceWorkspaceBackgroundReset: document.getElementById("appearanceWorkspaceBackgroundReset"),
-  appearanceShowHoverBackground: document.getElementById("appearanceShowHoverBackground"),
   appearanceShowDesktopNotifications: document.getElementById("appearanceShowDesktopNotifications"),
   appearanceShowUserAvatar: document.getElementById("appearanceShowUserAvatar"),
   appearanceShowAssistantAvatar: document.getElementById("appearanceShowAssistantAvatar"),
@@ -321,8 +320,66 @@ const els = {
   tasksContent: document.getElementById("tasksContent")
 };
 
+const ANIMATED_TEXT_IDS = new Set([
+  "activeChatMeta",
+  "currentSessionTitle",
+  "modelSwitchStatus"
+]);
+
+function animatedTextOptions(el) {
+  const id = el?.id || "";
+  if (id === "currentSessionTitle") return { direction: "up", stagger: 18, duration: 240 };
+  if (id === "modelSwitchStatus") return { direction: "up", stagger: 16, duration: 220 };
+  return { direction: "up", stagger: 14, duration: 220 };
+}
+
+function setAnimatedText(el, value, options = {}) {
+  if (!el) return;
+  const text = String(value ?? "");
+  const nextOptions = { ...animatedTextOptions(el), ...options };
+  if (window.miaSlotText?.set) {
+    const currentHtml = String(el.innerHTML ?? "");
+    const currentText = String(el.textContent ?? "");
+    const staleRichText = el.dataset?.slotTextValue === text
+      && currentText !== text
+      && !currentHtml.includes("char-slot");
+    if (staleRichText) {
+      window.miaSlotText.destroy?.(el);
+      if (el.dataset) delete el.dataset.slotTextValue;
+    }
+    window.miaSlotText.set(el, text, nextOptions);
+  } else {
+    el.textContent = text;
+    if (el.dataset) el.dataset.slotTextValue = text;
+  }
+}
+
+function flashAnimatedText(el, value, options = {}) {
+  if (!el) return;
+  const text = String(value ?? "");
+  const restingText = String(options.restingText ?? el.dataset?.slotTextValue ?? el.textContent ?? "");
+  if (window.miaSlotText?.flash) {
+    window.miaSlotText.flash(el, text, {
+      revertAfter: 900,
+      restingText,
+      ...options
+    });
+  } else {
+    el.textContent = text;
+    clearTimeout(el._slotTextFlashTimer);
+    el._slotTextFlashTimer = setTimeout(() => {
+      el.textContent = restingText;
+    }, Number(options.revertAfter) || 900);
+  }
+}
+
 function setText(el, value) {
-  if (el) el.textContent = value;
+  if (!el) return;
+  if (ANIMATED_TEXT_IDS.has(el.id || "") || el.dataset?.slotText === "true") {
+    setAnimatedText(el, value);
+    return;
+  }
+  el.textContent = value;
 }
 
 function firstNonEmpty(...values) {
@@ -2011,7 +2068,7 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
       fallbackName: conversation.name || "群聊",
       statusBadge: statusBadgeFrom(conversation.identity, conversation)
     });
-    if (metaEl) metaEl.textContent = tiles.length ? `群聊 · ${tiles.length} 人` : "群聊";
+    if (metaEl) setText(metaEl, tiles.length ? `群聊 · ${tiles.length} 人` : "群聊");
     return;
   }
 
@@ -2040,7 +2097,7 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
       fallbackName: botName,
       statusBadge: statusBadgeFrom(bot, member?.identity, member, botRecord)
     });
-    if (metaEl) metaEl.textContent = "私聊";
+    if (metaEl) setText(metaEl, "私聊");
     return;
   }
 
@@ -2069,7 +2126,7 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
     fallbackName: displayName,
     statusBadge: statusBadgeFrom(otherUser.identity, otherUser)
   });
-  if (metaEl) metaEl.textContent = "私聊";
+  if (metaEl) setText(metaEl, "私聊");
 }
 
 // (openConversationContextMenu removed — sidebar now uses the unified
@@ -2635,7 +2692,6 @@ function render() {
     accentColor: DEFAULT_ACCENT_COLOR,
     userBubbleColor: DEFAULT_USER_BUBBLE_COLOR,
     glassOpacity: 82,
-    showHoverBackground: false,
     showUserAvatar: false,
     showAssistantAvatar: false,
     listStyle: "card",
@@ -2841,9 +2897,11 @@ function render() {
     });
     if (els.activeChatMeta) {
       const startupLoading = state.startupTasks[0]?.label;
-      els.activeChatMeta.innerHTML = startupLoading
-        ? `正在${window.miaMarkdown.escapeHtml(startupLoading)}`
-        : "在线";
+      if (startupLoading) {
+        els.activeChatMeta.innerHTML = `正在${window.miaMarkdown.escapeHtml(startupLoading)}`;
+      } else {
+        setText(els.activeChatMeta, "在线");
+      }
     }
     if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
     if (els.sessionMenuButton) els.sessionMenuButton.classList.remove("hidden");
@@ -2954,6 +3012,10 @@ function renderView() {
   els.userAvatar?.setAttribute("aria-expanded", state.profileDialogOpen ? "true" : "false");
   els.botCreateMenu?.classList.toggle("hidden", !state.botMenuOpen);
   els.contactCreateMenu?.classList.toggle("hidden", !state.contactMenuOpen);
+  els.newPersona?.setAttribute("aria-expanded", state.botMenuOpen ? "true" : "false");
+  els.newPersona?.classList.toggle("active", state.botMenuOpen);
+  els.newContact?.setAttribute("aria-expanded", state.contactMenuOpen ? "true" : "false");
+  els.newContact?.classList.toggle("active", state.contactMenuOpen);
   // Contacts unread = number of pending incoming friend requests.
   const incomingCount = window.miaSocial?.moduleState?.incomingRequests?.length || 0;
   if (els.contactsUnreadBadge) {
@@ -3510,8 +3572,8 @@ function renderCloudConversationSessionMenu(activeConversation) {
 function updateCurrentSessionTitle(title) {
   if (!els.currentSessionTitle) return;
   const next = title || "新对话";
-  if (els.currentSessionTitle.textContent === next) return;
-  els.currentSessionTitle.textContent = next;
+  if ((els.currentSessionTitle.dataset?.slotTextValue || els.currentSessionTitle.textContent) === next) return;
+  setAnimatedText(els.currentSessionTitle, next, { direction: "up", stagger: 18, duration: 240 });
   els.currentSessionTitle.classList.remove("title-updated");
   requestAnimationFrame(() => els.currentSessionTitle.classList.add("title-updated"));
 }
@@ -6003,10 +6065,6 @@ els.appearanceWorkspaceBackgroundReset?.addEventListener("click", () => {
   window.miaSettingsAppearance.resetWorkspaceBackground();
 });
 
-els.appearanceShowHoverBackground?.addEventListener("click", () => {
-  window.miaSettingsAppearance.toggleSettingsSwitch(els.appearanceShowHoverBackground);
-});
-
 els.appearanceShowDesktopNotifications?.addEventListener("click", () => {
   window.miaSettingsAppearance.toggleSettingsSwitch(els.appearanceShowDesktopNotifications);
 });
@@ -6463,8 +6521,11 @@ els.chat.addEventListener("click", async (event) => {
   const code = button.closest(".message-code-block")?.querySelector("code");
   if (!code) return;
   if (await copyTextToClipboard(code.textContent)) {
+    const restingText = button.dataset.slotCopyLabel || button.dataset.slotTextValue || button.textContent || "复制";
+    button.dataset.slotCopyLabel = restingText;
     button.classList.add("copied");
     button.disabled = true;
+    flashAnimatedText(button, "已复制", { restingText, revertAfter: 900 });
     setTimeout(() => {
       button.classList.remove("copied");
       button.disabled = false;

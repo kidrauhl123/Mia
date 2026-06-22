@@ -9,6 +9,7 @@
   // the server adds fields like trace_json after the row was first cached.
   const MESSAGE_BACKFILL_OVERLAP = 50;
   const MESSAGE_REMOVE_ANIMATION_MS = 180;
+  const MESSAGE_TAIL_ENTER_ANIMATION_MS = 220;
   const LOCAL_TIMELINE_SEQ_STEP = 0.000001;
   const LOCAL_TIMELINE_SEQ_SENTINEL = 1000000000000;
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -154,6 +155,7 @@
   // conversations, so we land at the bottom instead of preserving the old offset.
   let _lastRenderedConversationId = null;
   let _lastRenderedConversationMessageCount = 0;
+  let _lastRenderedConversationMessageIds = [];
   let _pendingMessageFocus = null;
   const _chatBottomStickSessions = new WeakMap();
 
@@ -1534,7 +1536,123 @@
 
   function isChatNearBottom(chatEl) {
     if (!chatEl) return false;
-    return chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < SCROLL_STICK_THRESHOLD_PX;
+    return chatBottomGap(chatEl) < SCROLL_STICK_THRESHOLD_PX;
+  }
+
+  function chatBottomGap(chatEl) {
+    if (!chatEl) return 0;
+    const scrollHeight = Number(chatEl.scrollHeight) || 0;
+    const scrollTop = Number(chatEl.scrollTop) || 0;
+    const clientHeight = Number(chatEl.clientHeight) || 0;
+    return Math.max(0, scrollHeight - scrollTop - clientHeight);
+  }
+
+  function messageStableId(message) {
+    return String(message?.id || message?.seq || message?.created_at || message?.createdAt || "");
+  }
+
+  function messageStableIds(messages = []) {
+    return (Array.isArray(messages) ? messages : [])
+      .map(messageStableId)
+      .filter(Boolean);
+  }
+
+  function tailMessageIdsAddedToEnd(previousIds = [], nextIds = []) {
+    if (!previousIds.length || nextIds.length <= previousIds.length) return [];
+    for (let i = 0; i < previousIds.length; i += 1) {
+      if (previousIds[i] !== nextIds[i]) return [];
+    }
+    return nextIds.slice(previousIds.length);
+  }
+
+  function rememberRenderedConversationMessages(conversationId, messages = []) {
+    _lastRenderedConversationId = conversationId;
+    _lastRenderedConversationMessageCount = Array.isArray(messages) ? messages.length : 0;
+    _lastRenderedConversationMessageIds = messageStableIds(messages);
+  }
+
+  function addElementClass(el, className) {
+    if (!el || !className) return;
+    const classes = new Set(String(el.className || "").split(/\s+/).filter(Boolean));
+    classes.add(className);
+    el.className = Array.from(classes).join(" ");
+    try { el.classList?.add?.(className); } catch (_) {}
+  }
+
+  function removeElementClass(el, className) {
+    if (!el || !className) return;
+    const next = String(el.className || "")
+      .split(/\s+/)
+      .filter((item) => item && item !== className)
+      .join(" ");
+    el.className = next;
+    try { el.classList?.remove?.(className); } catch (_) {}
+  }
+
+  function setStyleProperty(el, name, value) {
+    if (!el?.style || !name) return;
+    if (typeof el.style.setProperty === "function") el.style.setProperty(name, value);
+    else el.style[name] = value;
+  }
+
+  function removeStyleProperty(el, name) {
+    if (!el?.style || !name) return;
+    if (typeof el.style.removeProperty === "function") el.style.removeProperty(name);
+    else delete el.style[name];
+  }
+
+  function measuredElementHeight(el) {
+    const rect = typeof el?.getBoundingClientRect === "function" ? el.getBoundingClientRect() : null;
+    return Math.max(1, Number(rect?.height) || Number(el?.offsetHeight) || 1);
+  }
+
+  function animateMessageTailEnter(article) {
+    if (!article || prefersReducedMotion()) return false;
+    setStyleProperty(article, "--message-tail-enter-height", `${measuredElementHeight(article)}px`);
+    addElementClass(article, "message-tail-enter");
+    const cleanup = () => {
+      removeElementClass(article, "message-tail-enter");
+      removeStyleProperty(article, "--message-tail-enter-height");
+      article.removeEventListener?.("animationend", cleanup);
+    };
+    article.addEventListener?.("animationend", cleanup, { once: true });
+    setTimeout(cleanup, MESSAGE_TAIL_ENTER_ANIMATION_MS + 80);
+    return true;
+  }
+
+  function easeOutQuint(progress) {
+    const t = Math.min(1, Math.max(0, Number(progress) || 0));
+    return 1 - Math.pow(1 - t, 5);
+  }
+
+  function animateChatTailToBottom(chatEl, startBottomGap = 0) {
+    if (!chatEl) return;
+    const schedule = typeof global.requestAnimationFrame === "function"
+      ? global.requestAnimationFrame.bind(global)
+      : null;
+    if (!schedule || prefersReducedMotion()) {
+      chatEl.scrollTop = chatEl.scrollHeight;
+      scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
+      return;
+    }
+    const now = () => {
+      if (global.performance && typeof global.performance.now === "function") return global.performance.now();
+      return Date.now();
+    };
+    const startedAt = now();
+    const initialGap = Math.max(0, Number(startBottomGap) || 0);
+    const step = () => {
+      const progress = Math.min(1, (now() - startedAt) / MESSAGE_TAIL_ENTER_ANIMATION_MS);
+      const gap = initialGap * (1 - easeOutQuint(progress));
+      chatEl.scrollTop = Math.max(0, (Number(chatEl.scrollHeight) || 0) - (Number(chatEl.clientHeight) || 0) - gap);
+      if (progress < 1) {
+        schedule(step);
+        return;
+      }
+      chatEl.scrollTop = chatEl.scrollHeight;
+      scheduleChatBottomStick(chatEl, chatEl.scrollTop, 2, false);
+    };
+    schedule(step);
   }
 
   function scheduleFrame(fn) {
@@ -2583,6 +2701,9 @@
         moduleState.cloudAgentRunsByConversation.delete(conversationId);
         refreshCloudRunStatusTimer();
         renderAgentPermissionBanner();
+        if (conversationId === moduleState.activeConversationId && deps && typeof deps.paintHeaderStatus === "function") {
+          deps.paintHeaderStatus();
+        }
         // First bot reply in an untitled conversation → auto-title it.
         if (deps && typeof deps.maybeGenerateConversationTitle === "function") {
           Promise.resolve(deps.maybeGenerateConversationTitle(conversationId)).catch(() => {});
@@ -2780,25 +2901,42 @@
     const isFirstMessageHydration = !isConversationSwitch
       && _lastRenderedConversationMessageCount === 0
       && messages.length > 0;
+    const previousRenderedMessageIds = isConversationSwitch ? [] : _lastRenderedConversationMessageIds;
+    const currentMessageIds = messageStableIds(messages);
     const prevScrollTop = containerEl.scrollTop;
+    const startBottomGap = chatBottomGap(containerEl);
+    const wasNearBottom = startBottomGap < SCROLL_STICK_THRESHOLD_PX;
     const hasPendingFocus = Boolean(pendingFocusFor(conversationId));
     const stickToBottom = !hasPendingFocus && (
       isConversationSwitch
       || isFirstMessageHydration
-      || (containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight < SCROLL_STICK_THRESHOLD_PX)
+      || wasNearBottom
     );
-    _lastRenderedConversationId = conversationId;
-    _lastRenderedConversationMessageCount = messages.length;
+    const shouldAnimateTail = !isConversationSwitch
+      && !isFirstMessageHydration
+      && !hasPendingFocus
+      && wasNearBottom
+      && !prefersReducedMotion();
+    const tailMessageIds = shouldAnimateTail
+      ? tailMessageIdsAddedToEnd(previousRenderedMessageIds, currentMessageIds)
+      : [];
+    const tailMessageIdSet = new Set(tailMessageIds);
+    const shouldAnimateMessage = (msg) => tailMessageIdSet.has(messageStableId(msg));
+    rememberRenderedConversationMessages(conversationId, messages);
     const applyScroll = () => {
       if (focusPendingMessage(containerEl)) return;
       if (stickToBottom) {
-        containerEl.scrollTop = containerEl.scrollHeight;
-        scheduleChatBottomStick(
-          containerEl,
-          containerEl.scrollTop,
-          (isConversationSwitch || isFirstMessageHydration) ? SCROLL_LAYOUT_SETTLE_FRAMES : 1,
-          isConversationSwitch || isFirstMessageHydration
-        );
+        if (tailMessageIds.length) {
+          animateChatTailToBottom(containerEl, startBottomGap);
+        } else {
+          containerEl.scrollTop = containerEl.scrollHeight;
+          scheduleChatBottomStick(
+            containerEl,
+            containerEl.scrollTop,
+            (isConversationSwitch || isFirstMessageHydration) ? SCROLL_LAYOUT_SETTLE_FRAMES : 1,
+            isConversationSwitch || isFirstMessageHydration
+          );
+        }
       } else {
         containerEl.scrollTop = prevScrollTop;
       }
@@ -2824,7 +2962,10 @@
       const members = _conversationMembersCache.get(conversationId) || [];
       for (const msg of messages) {
         const article = _buildGroupMessageArticle(msg, color, members);
-        if (article) containerEl.appendChild(article);
+        if (article) {
+          containerEl.appendChild(article);
+          if (shouldAnimateMessage(msg)) animateMessageTailEnter(article);
+        }
       }
       const streaming = _buildCloudAgentStreamingArticle(conversationId, color, members, { groupMessage: true });
       if (streaming) containerEl.appendChild(streaming);
@@ -2846,7 +2987,10 @@
     }
     for (const msg of messages) {
       const article = _buildMessageArticle(msg, color, members);
-      if (article) containerEl.appendChild(article);
+      if (article) {
+        containerEl.appendChild(article);
+        if (shouldAnimateMessage(msg)) animateMessageTailEnter(article);
+      }
     }
     const streaming = _buildCloudAgentStreamingArticle(conversationId, color, members);
     if (streaming) containerEl.appendChild(streaming);
@@ -3258,20 +3402,33 @@
   function _appendMessageToActiveChat(msg, { stick = true } = {}) {
     const chatEl = document.getElementById("chat");
     if (!chatEl) return;
-    const nearBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < SCROLL_STICK_THRESHOLD_PX;
+    const startBottomGap = chatBottomGap(chatEl);
+    const nearBottom = startBottomGap < SCROLL_STICK_THRESHOLD_PX;
     const conversation = moduleState.conversations.find((r) => r.id === moduleState.activeConversationId);
     const color = conversation ? avatarColor(conversation.id) : "#5e5ce6";
     const conversationType = conversationTypeFor(conversation, moduleState.activeConversationId);
     const members = _conversationMembersCache.get(moduleState.activeConversationId) || [];
+    const shouldFollow = stick || nearBottom;
+    const shouldAnimateTail = nearBottom && !prefersReducedMotion();
     const article = conversationType === "group"
       ? _buildGroupMessageArticle(msg, color, _conversationMembersCache.get(moduleState.activeConversationId) || [])
       : _buildMessageArticle(msg, color, conversationType === "bot" ? members : []);
     if (article) {
       chatEl.appendChild(article);
+      if (shouldAnimateTail) animateMessageTailEnter(article);
       window.miaAvatar?.hydrateAvatarVideos?.(article);
       initNameBadgeLotties(article);
       markChatRenderFresh(chatEl);
-      if (stick || nearBottom) chatEl.scrollTop = chatEl.scrollHeight;
+      if (shouldFollow) {
+        if (shouldAnimateTail) {
+          animateChatTailToBottom(chatEl, startBottomGap);
+        } else {
+          chatEl.scrollTop = chatEl.scrollHeight;
+          scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
+        }
+      }
+      const entry = moduleState.messageCache.get(moduleState.activeConversationId);
+      rememberRenderedConversationMessages(moduleState.activeConversationId, entry?.messages || []);
     }
   }
 
@@ -3591,7 +3748,13 @@
     card.querySelector("#socialCopyUserId")?.addEventListener("click", () => {
       try { navigator.clipboard.writeText(moduleState.myUserId || ""); } catch { /* ignore */ }
       const btn = card.querySelector("#socialCopyUserId");
-      if (btn) { btn.textContent = "已复制"; setTimeout(() => { btn.textContent = "复制"; }, 1500); }
+      if (btn) {
+        window.miaSlotText?.flash?.(btn, "已复制", { restingText: "复制", revertAfter: 1200 });
+        if (!window.miaSlotText?.flash) {
+          btn.textContent = "已复制";
+          setTimeout(() => { btn.textContent = "复制"; }, 1200);
+        }
+      }
     });
 
     // Wire send button
@@ -3998,6 +4161,7 @@
     // instead of restoring a stale offset.
     _lastRenderedConversationId = null;
     _lastRenderedConversationMessageCount = 0;
+    _lastRenderedConversationMessageIds = [];
     moduleState.activeConversationId = next;
     if (id) {
       writeLastActiveConversationId(id);

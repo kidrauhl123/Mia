@@ -485,7 +485,7 @@
 }
 
 .add-friend-icon-button:active:not(:disabled) {
-  transform: scale(0.94);
+  transform: scale(0.96);
 }
 
 .add-friend-icon-button:disabled {

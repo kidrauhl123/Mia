@@ -24,7 +24,7 @@ test("markdown code block renders the language label as the copy button", () => 
   const html = markdown.renderMarkdown("```shell\npwd\n```");
 
   assert.match(html, /<figure class="message-code-block" data-language="bash">/);
-  assert.match(html, /<button type="button" class="message-code-copy" data-copy-code aria-label="复制 Shell 代码" title="复制 Shell 代码">Shell<\/button>/);
+  assert.match(html, /<button type="button" class="message-code-copy" data-copy-code data-slot-copy-label="Shell" aria-label="复制 Shell 代码" title="复制 Shell 代码">Shell<\/button>/);
   assert.doesNotMatch(html, />⧉<\/button>/);
   assert.doesNotMatch(html, /<figcaption>[\s\S]*<span>Shell<\/span>/);
 });

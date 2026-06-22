@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mia</title>
+  <link rel="stylesheet" href="../shared/vendor/slot-text/style.css">
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./styles/chat.css">
   <link rel="stylesheet" href="./styles/name-with-badge.css">
@@ -134,7 +135,7 @@
             </svg>
           </button>
         </div>
-        <button id="newPersona" class="icon-button" type="button" title="新建">＋</button>
+        <button id="newPersona" class="icon-button" type="button" title="新建" aria-label="新建" aria-haspopup="menu" aria-expanded="false" aria-controls="botCreateMenu">＋</button>
         <button id="closePersonaSearch" class="icon-button sidebar-search-close hidden" type="button" title="关闭搜索" aria-label="关闭搜索">
           <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
             <path d="M6 6L18 18M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
@@ -198,7 +199,7 @@
           <span>⌕</span>
           <input id="contactSearch" autocomplete="off" placeholder="搜索联系人">
         </label>
-        <button id="newContact" class="icon-button" type="button" title="新建">＋</button>
+        <button id="newContact" class="icon-button" type="button" title="新建" aria-label="新建" aria-haspopup="menu" aria-expanded="false" aria-controls="contactCreateMenu">＋</button>
         <div id="contactCreateMenu" class="create-menu hidden">
           <button id="contactMenuDiscoverBots" type="button">
             <span class="create-menu-icon" aria-hidden="true">
@@ -574,59 +575,65 @@
                 <div class="nav-layout-choice-grid" role="radiogroup" aria-label="导航栏位置">
                   <button class="nav-layout-choice" type="button" role="radio" aria-checked="false" data-nav-layout-choice="sidebar-bottom">
                     <span class="nav-layout-preview nav-layout-preview-bottom" aria-hidden="true">
-                      <span class="nav-preview-toolbar"></span>
-                      <span class="nav-preview-tab nav-preview-tab-active"></span>
-                      <span class="nav-preview-tab nav-preview-tab-soft"></span>
-                      <span class="nav-preview-tab nav-preview-tab-soft"></span>
-                      <span class="nav-preview-divider nav-preview-divider-tabs"></span>
-                      <span class="nav-preview-row-avatar nav-preview-row-avatar-1"></span>
-                      <span class="nav-preview-row-title nav-preview-row-title-1"></span>
-                      <span class="nav-preview-row-meta nav-preview-row-meta-1"></span>
-                      <span class="nav-preview-row-text nav-preview-row-text-1"></span>
-                      <span class="nav-preview-row-divider nav-preview-row-divider-1"></span>
-                      <span class="nav-preview-row-avatar nav-preview-row-avatar-2"></span>
-                      <span class="nav-preview-row-title nav-preview-row-title-2"></span>
-                      <span class="nav-preview-row-meta nav-preview-row-meta-2"></span>
-                      <span class="nav-preview-row-text nav-preview-row-text-2"></span>
-                      <span class="nav-preview-bottom-bar"></span>
-                      <span class="nav-preview-bottom-item nav-preview-bottom-item-1"></span>
-                      <span class="nav-preview-bottom-item nav-preview-bottom-item-2 nav-preview-bottom-item-active"></span>
-                      <span class="nav-preview-bottom-item nav-preview-bottom-item-3"></span>
-                      <span class="nav-preview-bottom-item nav-preview-bottom-item-4"></span>
+                      <span class="np-content">
+                        <span class="np-toolbar"></span>
+                        <span class="np-list">
+                          <span class="np-row">
+                            <span class="np-avatar"></span>
+                            <span class="np-lines">
+                              <span class="np-line np-line-title"></span>
+                              <span class="np-line np-line-text"></span>
+                            </span>
+                          </span>
+                          <span class="np-row">
+                            <span class="np-avatar"></span>
+                            <span class="np-lines">
+                              <span class="np-line np-line-title"></span>
+                              <span class="np-line np-line-text"></span>
+                            </span>
+                          </span>
+                        </span>
+                      </span>
+                      <span class="np-nav np-nav-bottom">
+                        <span class="np-tab np-tab-active"></span>
+                        <span class="np-tab"></span>
+                        <span class="np-tab"></span>
+                        <span class="np-tab"></span>
+                      </span>
                     </span>
                     <span class="nav-layout-choice-label">位于底部</span>
                   </button>
                   <button class="nav-layout-choice" type="button" role="radio" aria-checked="false" data-nav-layout-choice="rail">
                     <span class="nav-layout-preview nav-layout-preview-rail" aria-hidden="true">
-                      <span class="nav-preview-rail"></span>
-                      <span class="nav-preview-rail-dot nav-preview-rail-dot-1"></span>
-                      <span class="nav-preview-rail-dot nav-preview-rail-dot-active"></span>
-                      <span class="nav-preview-rail-dot nav-preview-rail-dot-3"></span>
-                      <span class="nav-preview-rail-dot nav-preview-rail-dot-4"></span>
-                      <span class="nav-preview-toolbar"></span>
-                      <span class="nav-preview-divider nav-preview-divider-header"></span>
-                      <span class="nav-preview-row-avatar nav-preview-row-avatar-1"></span>
-                      <span class="nav-preview-row-title nav-preview-row-title-1"></span>
-                      <span class="nav-preview-row-meta nav-preview-row-meta-1"></span>
-                      <span class="nav-preview-row-text nav-preview-row-text-1"></span>
-                      <span class="nav-preview-row-divider nav-preview-row-divider-1"></span>
-                      <span class="nav-preview-row-avatar nav-preview-row-avatar-2"></span>
-                      <span class="nav-preview-row-title nav-preview-row-title-2"></span>
-                      <span class="nav-preview-row-meta nav-preview-row-meta-2"></span>
-                      <span class="nav-preview-row-text nav-preview-row-text-2"></span>
+                      <span class="np-nav np-nav-rail">
+                        <span class="np-tab np-tab-active"></span>
+                        <span class="np-tab"></span>
+                        <span class="np-tab"></span>
+                        <span class="np-tab"></span>
+                      </span>
+                      <span class="np-content">
+                        <span class="np-toolbar"></span>
+                        <span class="np-list">
+                          <span class="np-row">
+                            <span class="np-avatar"></span>
+                            <span class="np-lines">
+                              <span class="np-line np-line-title"></span>
+                              <span class="np-line np-line-text"></span>
+                            </span>
+                          </span>
+                          <span class="np-row">
+                            <span class="np-avatar"></span>
+                            <span class="np-lines">
+                              <span class="np-line np-line-title"></span>
+                              <span class="np-line np-line-text"></span>
+                            </span>
+                          </span>
+                        </span>
+                      </span>
                     </span>
                     <span class="nav-layout-choice-label">位于左侧</span>
                   </button>
                 </div>
-              </section>
-              <section class="settings-row">
-                <div>
-                  <strong>悬停底色</strong>
-                  <p>鼠标移到可点击组件上时显示浅色底。</p>
-                </div>
-                <button id="appearanceShowHoverBackground" class="settings-switch" type="button" role="switch" aria-checked="true" aria-label="显示悬停底色">
-                  <span></span>
-                </button>
               </section>
               <section class="settings-row">
                 <div>
@@ -1292,6 +1299,7 @@
   <script src="./assets/lottie/lottie_light.min.js"></script>
   <script src="./lottie-icons.js"></script>
   <script src="./startup/startup-overlay.js"></script>
+  <script src="../shared/slot-text-runtime.js"></script>
   <!-- Main app entry — assembles everything -->
   <script src="./app.js"></script>
 </body>

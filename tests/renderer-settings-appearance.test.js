@@ -84,7 +84,6 @@ function appearanceControls(overrides = {}) {
     appearanceUserBubbleColor: { value: "#eeffde" },
     appearanceUserBubblePreview: { style: {} },
     appearanceSelectionStyle: { value: "solid" },
-    appearanceShowHoverBackground: settingsSwitch(true),
     appearanceShowDesktopNotifications: settingsSwitch(true),
     appearanceShowUserAvatar: settingsSwitch(true),
     appearanceShowAssistantAvatar: settingsSwitch(true),
@@ -244,7 +243,6 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
       appearanceGlassOpacity: { value: "91" },
       appearanceUserBubbleColor: { value: "#eeffde" },
       appearanceSelectionStyle: { value: "solid" },
-      appearanceShowHoverBackground: { getAttribute: () => "true" },
       appearanceShowDesktopNotifications: { getAttribute: () => "false" },
       appearanceShowUserAvatar: { getAttribute: () => "true" },
       appearanceShowAssistantAvatar: { getAttribute: () => "true" },
@@ -259,6 +257,7 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
   assert.equal(api.currentAppearanceDraft().workspaceBackgroundImage, "");
   assert.equal(api.currentAppearanceDraft().glassOpacity, 91);
   assert.equal(api.currentAppearanceDraft().showDesktopNotifications, false);
+  assert.equal(Object.hasOwn(api.currentAppearanceDraft(), "showHoverBackground"), false);
 });
 
 test("stale bottom board save response cannot roll back a newer color draft", async () => {
@@ -409,6 +408,18 @@ test("desktop appearance settings no longer expose the middle list style switch"
   assert.doesNotMatch(htmlSource, /appearanceListStyle/);
   assert.doesNotMatch(appSource, /appearanceListStyle/);
   assert.doesNotMatch(cssSource, /data-list-style="flush"/);
+});
+
+test("appearance settings no longer expose a global hover background switch", () => {
+  const settingsSource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-appearance.js"), "utf8");
+  const webHtmlSource = fs.readFileSync(path.join(root, "src/web/app/index.html"), "utf8");
+  const webAppSource = fs.readFileSync(path.join(root, "src/web/app.js"), "utf8");
+  const webAppearanceSource = fs.readFileSync(path.join(root, "src/web/appearance.js"), "utf8");
+  const webCssSource = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");
+
+  for (const source of [htmlSource, appSource, settingsSource, cssSource, webHtmlSource, webAppSource, webAppearanceSource, webCssSource]) {
+    assert.doesNotMatch(source, /悬停底色|appearanceShowHoverBackground|appearanceHoverBackground|showHoverBackground|hoverBackground|data-hover-background/);
+  }
 });
 
 test("desktop avatar display switches are initially off", () => {

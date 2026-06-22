@@ -335,8 +335,8 @@ test("sidebar-bottom navigation mode keeps the rail path and exposes four primar
   assert.doesNotMatch(html, /<strong>导航栏位置<\/strong>|选择四入口在左栏底部或保留左侧导航。/);
   assert.match(html, /class="nav-layout-choice-grid" role="radiogroup" aria-label="导航栏位置"/);
   assert.match(html, /data-nav-layout-choice="sidebar-bottom"[\s\S]*位于底部[\s\S]*data-nav-layout-choice="rail"[\s\S]*位于左侧/);
-  assert.match(html, /class="nav-layout-preview nav-layout-preview-bottom"[\s\S]*class="nav-preview-divider nav-preview-divider-tabs"[\s\S]*class="nav-preview-row-avatar nav-preview-row-avatar-1"[\s\S]*class="nav-preview-bottom-bar"[\s\S]*class="nav-preview-bottom-item nav-preview-bottom-item-2 nav-preview-bottom-item-active"/);
-  assert.match(html, /class="nav-layout-preview nav-layout-preview-rail"[\s\S]*class="nav-preview-rail"[\s\S]*class="nav-preview-divider nav-preview-divider-header"[\s\S]*class="nav-preview-row-avatar nav-preview-row-avatar-2"/);
+  assert.match(html, /class="nav-layout-preview nav-layout-preview-bottom"[\s\S]*class="np-content"[\s\S]*class="np-toolbar"[\s\S]*class="np-row"[\s\S]*class="np-avatar"[\s\S]*class="np-nav np-nav-bottom"[\s\S]*class="np-tab np-tab-active"/);
+  assert.match(html, /class="nav-layout-preview nav-layout-preview-rail"[\s\S]*class="np-nav np-nav-rail"[\s\S]*class="np-tab np-tab-active"[\s\S]*class="np-content"[\s\S]*class="np-toolbar"/);
   assert.doesNotMatch(html, /id="appearanceSidebarBottomNav"/);
   assert.doesNotMatch(html, /沿用现有发现、联系人和能力库内容|沿用现有任务卡片/);
 
@@ -364,12 +364,13 @@ test("sidebar-bottom navigation mode keeps the rail path and exposes four primar
   assert.match(css, /\.nav-layout-choice\s*\{[\s\S]*?padding:\s*0;[\s\S]*?border:\s*0;[\s\S]*?background:\s*transparent;/);
   assert.match(css, /\.nav-layout-choice\.active\s*\{[\s\S]*?color:\s*var\(--accent\);[\s\S]*?\}/);
   assert.match(css, /\.nav-layout-choice\.active \.nav-layout-preview\s*\{[\s\S]*?border-color:\s*var\(--accent\);/);
-  assert.match(css, /\.nav-layout-preview\s*\{[\s\S]*?height:\s*146px;/);
-  assert.match(css, /\.nav-preview-divider-tabs\s*\{[\s\S]*?top:\s*63px;/);
-  assert.match(css, /\.nav-preview-row-avatar-1\s*\{[\s\S]*?top:\s*72px;[\s\S]*?left:\s*18px;/);
-  assert.match(css, /\.nav-preview-bottom-bar\s*\{[\s\S]*?bottom:\s*10px;[\s\S]*?height:\s*20px;/);
-  assert.match(css, /\.nav-preview-bottom-item-active\s*\{[\s\S]*?background:\s*var\(--accent\);/);
-  assert.match(css, /\.nav-layout-preview-rail \.nav-preview-rail\s*\{[\s\S]*?width:\s*56px;/);
+  assert.match(css, /\.nav-layout-preview\s*\{[\s\S]*?display:\s*flex;[\s\S]*?height:\s*150px;/);
+  assert.match(css, /\.nav-layout-preview-bottom\s*\{[\s\S]*?flex-direction:\s*column;/);
+  assert.match(css, /\.np-content\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;/);
+  assert.match(css, /\.np-avatar\s*\{[\s\S]*?width:\s*26px;[\s\S]*?height:\s*26px;[\s\S]*?border-radius:\s*999px;/);
+  assert.match(css, /\.np-nav-bottom\s*\{[\s\S]*?height:\s*30px;[\s\S]*?border-top:\s*1px solid/);
+  assert.match(css, /\.np-tab-active\s*\{[\s\S]*?background:\s*var\(--accent\);/);
+  assert.match(css, /\.np-nav-rail\s*\{[\s\S]*?flex-direction:\s*column;[\s\S]*?width:\s*46px;/);
   assert.match(css, /\.app-shell\[data-nav-layout="sidebar-bottom"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--sidebar-width\) minmax\(0,\s*1fr\);/);
   assert.match(css, /\.app-shell\[data-nav-layout="sidebar-bottom"\] \.nav-rail\s*\{[\s\S]*?display:\s*none;/);
   assert.match(css, /\.app-shell\[data-nav-layout="sidebar-bottom"\] \.sidebar-bottom-nav\s*\{[\s\S]*?left:\s*8px;[\s\S]*?bottom:\s*10px;[\s\S]*?display:\s*grid;[\s\S]*?width:\s*calc\(var\(--sidebar-width\) - 8px\);[\s\S]*?border-top:\s*1px solid var\(--line\);[\s\S]*?border-radius:\s*0 0 var\(--rail-corner-radius\) var\(--rail-corner-radius\);[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface-layer\) 92%, transparent\);/);
@@ -1409,6 +1410,61 @@ test("desktop cloud human and group conversations hide the chat history session 
   assert.match(appSource, /const hideSessionSelector = activeIsGroup \|\| activeIsHumanDm;/);
   assert.match(appSource, /if \(hideSessionSelector\) state\.sessionMenuOpen = false;/);
   assert.match(appSource, /sessionMenuButton\.classList\.toggle\("hidden",\s*hideSessionSelector\)/);
+});
+
+test("active chat meta text helper clears stale typing rich text even when slot value is unchanged", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const helperStart = appSource.indexOf("function animatedTextOptions");
+  const helperEnd = appSource.indexOf("function flashAnimatedText");
+  const setTextStart = appSource.indexOf("function setText");
+  const setTextEnd = appSource.indexOf("function firstNonEmpty");
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, "animated text helper block should be extractable");
+  assert.ok(setTextStart >= 0 && setTextEnd > setTextStart, "setText helper should be extractable");
+  const context = vm.createContext({
+    window: {
+      miaSlotText: {
+        set(el, value) {
+          const text = String(value ?? "");
+          if (el.dataset?.slotTextValue === text) return;
+          el.textContent = text;
+          el.dataset.slotTextValue = text;
+        },
+        destroy(el) {
+          delete el.dataset.slotTextValue;
+        }
+      }
+    }
+  });
+  vm.runInContext(`
+    const ANIMATED_TEXT_IDS = new Set(["activeChatMeta"]);
+    ${appSource.slice(helperStart, helperEnd)}
+    ${appSource.slice(setTextStart, setTextEnd)}
+    this.setText = setText;
+  `, context);
+
+  let html = "私聊";
+  let text = "私聊";
+  const el = {
+    id: "activeChatMeta",
+    dataset: { slotTextValue: "私聊" },
+    get innerHTML() { return html; },
+    set innerHTML(value) {
+      html = String(value ?? "");
+      text = html.replace(/<[^>]+>/g, "");
+    },
+    get textContent() { return text; },
+    set textContent(value) {
+      text = String(value ?? "");
+      html = text;
+    }
+  };
+  el.innerHTML = '<span class="typing-status">正在输入<span class="typing-dots"><i></i><i></i><i></i></span></span>';
+
+  context.setText(el, "私聊");
+
+  assert.equal(el.innerHTML, "私聊");
+  assert.equal(el.textContent, "私聊");
+  assert.equal(el.dataset.slotTextValue, "私聊");
 });
 
 test("cloud-only renderer and preload do not expose local chat session CRUD", () => {

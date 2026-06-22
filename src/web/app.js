@@ -32,6 +32,8 @@ const engineLabel = engineContracts.engineLabel || ((value) => {
   if (engine === "openclaw") return "OpenClaw";
   return "Hermes";
 });
+const CHAT_SCROLL_STICK_THRESHOLD_PX = 80;
+const MESSAGE_TAIL_ENTER_ANIMATION_MS = 220;
 
 function isExternalAgentEngine(value) {
   const engine = normalizeAgentEngine(value);
@@ -141,7 +143,6 @@ const els = {
   profileStatusBadgeTrigger: document.getElementById("profileStatusBadgeTrigger"),
   appearanceTheme: document.getElementById("appearanceTheme"),
   appearanceSelectionStyle: document.getElementById("appearanceSelectionStyle"),
-  appearanceHoverBackground: document.getElementById("appearanceHoverBackground"),
   appearanceAccentColor: document.getElementById("appearanceAccentColor"),
   appearanceUserBubbleColor: document.getElementById("appearanceUserBubbleColor"),
   appearanceShowUserAvatar: document.getElementById("appearanceShowUserAvatar"),
@@ -149,6 +150,65 @@ const els = {
 
   toast: document.getElementById("toast"),
 };
+
+const ANIMATED_TEXT_IDS = new Set([
+  "activeMeta",
+  "currentSessionTitle"
+]);
+
+function animatedTextOptions(el) {
+  const id = el?.id || "";
+  if (id === "currentSessionTitle") return { direction: "up", stagger: 18, duration: 240 };
+  return { direction: "up", stagger: 14, duration: 220 };
+}
+
+function setAnimatedText(el, value, options = {}) {
+  if (!el) return;
+  const text = String(value ?? "");
+  if (window.miaSlotText?.set) {
+    const currentHtml = String(el.innerHTML ?? "");
+    const currentText = String(el.textContent ?? "");
+    const staleRichText = el.dataset?.slotTextValue === text
+      && currentText !== text
+      && !currentHtml.includes("char-slot");
+    if (staleRichText) {
+      window.miaSlotText.destroy?.(el);
+      if (el.dataset) delete el.dataset.slotTextValue;
+    }
+    window.miaSlotText.set(el, text, { ...animatedTextOptions(el), ...options });
+  } else {
+    el.textContent = text;
+    if (el.dataset) el.dataset.slotTextValue = text;
+  }
+}
+
+function flashAnimatedText(el, value, options = {}) {
+  if (!el) return;
+  const text = String(value ?? "");
+  const restingText = String(options.restingText ?? el.dataset?.slotTextValue ?? el.textContent ?? "");
+  if (window.miaSlotText?.flash) {
+    window.miaSlotText.flash(el, text, {
+      revertAfter: 900,
+      restingText,
+      ...options
+    });
+  } else {
+    el.textContent = text;
+    clearTimeout(el._slotTextFlashTimer);
+    el._slotTextFlashTimer = setTimeout(() => {
+      el.textContent = restingText;
+    }, Number(options.revertAfter) || 900);
+  }
+}
+
+function setText(el, value) {
+  if (!el) return;
+  if (ANIMATED_TEXT_IDS.has(el.id || "") || el.dataset?.slotText === "true") {
+    setAnimatedText(el, value);
+    return;
+  }
+  el.textContent = String(value ?? "");
+}
 
 let state = {
   token: "",
@@ -177,6 +237,9 @@ let state = {
   botRuntimeCache: new Map(),
   platformModels: [],
   activeConversationId: "",
+  lastRenderedConversationId: "",
+  lastRenderedConversationMessageIds: [],
+  lastRenderedConversationMessageCount: 0,
   // Per-conversation unread counters. Incremented when a WS message arrives
   // for a non-active conversation, cleared when the user opens it. In-memory
   // only for v1 — survives until reload.
@@ -198,6 +261,133 @@ let eventsReconnectTimer = 0;
 let eventsReconnectAttempts = 0;
 
 // ── helpers ────────────────────────────────────────────────────────────────
+
+function prefersReducedMotion() {
+  try {
+    return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+  } catch {
+    return false;
+  }
+}
+
+function chatBottomGap(chatEl) {
+  if (!chatEl) return 0;
+  const scrollHeight = Number(chatEl.scrollHeight) || 0;
+  const scrollTop = Number(chatEl.scrollTop) || 0;
+  const clientHeight = Number(chatEl.clientHeight) || 0;
+  return Math.max(0, scrollHeight - scrollTop - clientHeight);
+}
+
+function isChatNearBottom(chatEl) {
+  return chatBottomGap(chatEl) < CHAT_SCROLL_STICK_THRESHOLD_PX;
+}
+
+function messageStableId(message) {
+  return String(message?.id || message?.seq || message?.created_at || message?.createdAt || "");
+}
+
+function messageStableIds(messages = []) {
+  return (Array.isArray(messages) ? messages : [])
+    .map(messageStableId)
+    .filter(Boolean);
+}
+
+function tailMessageIdsAddedToEnd(previousIds = [], nextIds = []) {
+  if (!previousIds.length || nextIds.length <= previousIds.length) return [];
+  for (let i = 0; i < previousIds.length; i += 1) {
+    if (previousIds[i] !== nextIds[i]) return [];
+  }
+  return nextIds.slice(previousIds.length);
+}
+
+function addElementClass(el, className) {
+  if (!el || !className) return;
+  const classes = new Set(String(el.className || "").split(/\s+/).filter(Boolean));
+  classes.add(className);
+  el.className = Array.from(classes).join(" ");
+  try { el.classList?.add?.(className); } catch {}
+}
+
+function removeElementClass(el, className) {
+  if (!el || !className) return;
+  el.className = String(el.className || "")
+    .split(/\s+/)
+    .filter((item) => item && item !== className)
+    .join(" ");
+  try { el.classList?.remove?.(className); } catch {}
+}
+
+function setStyleProperty(el, name, value) {
+  if (!el?.style || !name) return;
+  if (typeof el.style.setProperty === "function") el.style.setProperty(name, value);
+  else el.style[name] = value;
+}
+
+function removeStyleProperty(el, name) {
+  if (!el?.style || !name) return;
+  if (typeof el.style.removeProperty === "function") el.style.removeProperty(name);
+  else delete el.style[name];
+}
+
+function measuredElementHeight(el) {
+  const rect = typeof el?.getBoundingClientRect === "function" ? el.getBoundingClientRect() : null;
+  return Math.max(1, Number(rect?.height) || Number(el?.offsetHeight) || 1);
+}
+
+function animateMessageTailEnter(article) {
+  if (!article || prefersReducedMotion()) return false;
+  setStyleProperty(article, "--message-tail-enter-height", `${measuredElementHeight(article)}px`);
+  addElementClass(article, "message-tail-enter");
+  const cleanup = () => {
+    removeElementClass(article, "message-tail-enter");
+    removeStyleProperty(article, "--message-tail-enter-height");
+    article.removeEventListener?.("animationend", cleanup);
+  };
+  article.addEventListener?.("animationend", cleanup, { once: true });
+  setTimeout(cleanup, MESSAGE_TAIL_ENTER_ANIMATION_MS + 80);
+  return true;
+}
+
+function easeOutQuint(progress) {
+  const t = Math.min(1, Math.max(0, Number(progress) || 0));
+  return 1 - Math.pow(1 - t, 5);
+}
+
+function animateChatTailToBottom(chatEl, startBottomGap = 0) {
+  if (!chatEl) return;
+  if (prefersReducedMotion() || typeof window.requestAnimationFrame !== "function") {
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return;
+  }
+  const startedAt = performance.now();
+  const initialGap = Math.max(0, Number(startBottomGap) || 0);
+  const step = () => {
+    const progress = Math.min(1, (performance.now() - startedAt) / MESSAGE_TAIL_ENTER_ANIMATION_MS);
+    const gap = initialGap * (1 - easeOutQuint(progress));
+    chatEl.scrollTop = Math.max(0, (Number(chatEl.scrollHeight) || 0) - (Number(chatEl.clientHeight) || 0) - gap);
+    if (progress < 1) {
+      window.requestAnimationFrame(step);
+      return;
+    }
+    chatEl.scrollTop = chatEl.scrollHeight;
+  };
+  window.requestAnimationFrame(step);
+}
+
+function animateRenderedTailMessages(chatEl, tailMessageIds = [], startBottomGap = 0) {
+  if (!chatEl || !tailMessageIds.length) return;
+  const ids = new Set(tailMessageIds.map(String));
+  chatEl.querySelectorAll?.(".message[data-message-id]").forEach((article) => {
+    if (ids.has(String(article.getAttribute("data-message-id") || ""))) animateMessageTailEnter(article);
+  });
+  animateChatTailToBottom(chatEl, startBottomGap);
+}
+
+function resetActiveChatRenderMemory() {
+  state.lastRenderedConversationId = "";
+  state.lastRenderedConversationMessageIds = [];
+  state.lastRenderedConversationMessageCount = 0;
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -1819,15 +2009,15 @@ function renderComposerControls(conversation = null) {
     || cloudModelEntries.find((entry) => String(entry.model) === String(config.model || ""))
     || {};
   setModelAvatar(engine, selectedModelEntry, config);
-  if (els.quickModelLabel) els.quickModelLabel.textContent = modelLabel || "Default";
+  setText(els.quickModelLabel, modelLabel || "Default");
 
   const effort = config.effortLevel || "medium";
   const effortLabel = setSelectOptions(els.effortSelect, effortOptions(engine), effort, "Medium");
-  if (els.effortLabel) els.effortLabel.textContent = effortLabel || "Medium";
+  setText(els.effortLabel, effortLabel || "Medium");
 
   const permission = isDesktopExternal ? "default" : (config.permissionMode || "ask");
   const permissionLabel = setSelectOptions(els.permissionMode, selectEntriesForPermission(engine, runtimeKind), permission, "Ask");
-  if (els.permissionLabel) els.permissionLabel.textContent = permissionLabel || "Ask";
+  setText(els.permissionLabel, permissionLabel || "Ask");
   const permissionWrap = els.permissionMode?.closest?.(".permission-switcher");
   permissionWrap?.classList.toggle("yolo", permission === "bypassPermissions");
   permissionWrap?.classList.toggle("claude-bypass", engine === "claude-code" && permission === "bypassPermissions");
@@ -1935,8 +2125,8 @@ function sessionConversationsForConversation(conversation) {
 function updateCurrentSessionTitle(title) {
   if (!els.currentSessionTitle) return;
   const next = title || "新对话";
-  if (els.currentSessionTitle.textContent === next) return;
-  els.currentSessionTitle.textContent = next;
+  if ((els.currentSessionTitle.dataset?.slotTextValue || els.currentSessionTitle.textContent) === next) return;
+  setAnimatedText(els.currentSessionTitle, next, { direction: "up", stagger: 18, duration: 240 });
   els.currentSessionTitle.classList.remove("title-updated");
   requestAnimationFrame(() => els.currentSessionTitle?.classList.add("title-updated"));
 }
@@ -2502,7 +2692,7 @@ function buildConversationMessageArticle(msg, conversation) {
     })
     : "";
   return `
-    <article class="${cls}">
+    <article class="${cls}" data-message-id="${escapeHtml(messageStableId(msg))}">
       ${avatarMarkup}
       <div class="message-stack">
         ${traceHtml}
@@ -2661,12 +2851,13 @@ function renderActiveChat() {
     els.activeAvatar.style.backgroundColor = "transparent";
     els.activeAvatar.textContent = "";
     els.activeTitle.textContent = "Mia";
-    els.activeMeta.textContent = "选择一个会话开始聊天";
+    setText(els.activeMeta, "选择一个会话开始聊天");
     els.chat.innerHTML = `<p class="persona-empty">还没有选中的会话。</p>`;
     setComposerEnabled(false, "选择一个会话开始聊天");
     renderComposerControls(null);
     state.sessionMenuOpen = false;
     renderSessionMenu();
+    resetActiveChatRenderMemory();
     return;
   }
 
@@ -2677,6 +2868,7 @@ function renderActiveChat() {
       renderComposerControls(null);
       state.sessionMenuOpen = false;
       renderSessionMenu();
+      resetActiveChatRenderMemory();
       return;
     }
     const title = conversationDisplayTitle(conversation);
@@ -2746,13 +2938,30 @@ function renderActiveChat() {
     if (activeRun?.status === "running") {
       els.activeMeta.innerHTML = `<span class="typing-status">正在输入<span class="typing-dots"><i></i><i></i><i></i></span></span>`;
     } else {
-      els.activeMeta.textContent = isDM ? "私聊" : isBot ? "AI 私聊" : "群聊";
+      setText(els.activeMeta, isDM ? "私聊" : isBot ? "AI 私聊" : "群聊");
     }
     renderSessionMenu();
     renderComposerControls(conversation);
     const cached = state.messageCache.get(conversation.id);
     const messages = cached?.messages || [];
     const streaming = buildCloudAgentStreamingArticle(conversation, state.cloudAgentRunsByConversation.get(conversation.id));
+    const isConversationSwitch = state.lastRenderedConversationId !== conversation.id;
+    const isFirstMessageHydration = !isConversationSwitch
+      && state.lastRenderedConversationMessageCount === 0
+      && messages.length > 0;
+    const previousRenderedMessageIds = isConversationSwitch ? [] : state.lastRenderedConversationMessageIds;
+    const currentMessageIds = messageStableIds(messages);
+    const prevScrollTop = els.chat.scrollTop;
+    const startBottomGap = chatBottomGap(els.chat);
+    const nearBottom = isChatNearBottom(els.chat);
+    const stickToBottom = isConversationSwitch || isFirstMessageHydration || nearBottom;
+    const shouldAnimateTail = !isConversationSwitch
+      && !isFirstMessageHydration
+      && nearBottom
+      && !prefersReducedMotion();
+    const tailMessageIds = shouldAnimateTail
+      ? tailMessageIdsAddedToEnd(previousRenderedMessageIds, currentMessageIds)
+      : [];
     els.chat.innerHTML = messages.length
       ? `${messages.map((m) => buildConversationMessageArticle(m, conversation)).join("")}${streaming}`
       : `<p class="persona-empty">还没有消息。</p>`;
@@ -2760,7 +2969,18 @@ function renderActiveChat() {
     hydrateAvatarVideos(els.chat);
     initStatusBadgeLotties(els.chat);
     if (window.miaTraceBlocks?.markRenderedTraceBlocks) window.miaTraceBlocks.markRenderedTraceBlocks(els.chat);
-    if (messages.length || streaming) els.chat.scrollTop = els.chat.scrollHeight;
+    state.lastRenderedConversationId = conversation.id;
+    state.lastRenderedConversationMessageIds = currentMessageIds;
+    state.lastRenderedConversationMessageCount = messages.length;
+    if (messages.length || streaming) {
+      if (shouldAnimateTail && tailMessageIds.length) {
+        animateRenderedTailMessages(els.chat, tailMessageIds, startBottomGap);
+      } else if (stickToBottom) {
+        els.chat.scrollTop = els.chat.scrollHeight;
+      } else {
+        els.chat.scrollTop = prevScrollTop;
+      }
+    }
     setComposerEnabled(true, "输入消息，Enter 发送，Shift+Enter 换行");
     return;
   }
@@ -2773,6 +2993,7 @@ function renderActiveChat() {
   state.sessionMenuOpen = false;
   renderSessionMenu();
   els.chat.innerHTML = `<p class="persona-empty">不支持的会话类型。</p>`;
+  resetActiveChatRenderMemory();
 }
 
 async function hydrateActiveConversation(id) {
@@ -3659,6 +3880,8 @@ function openCreateGroupDialog() {
 
 function renderCreateMenu() {
   els.conversationCreateMenu?.classList.toggle("hidden", !state.createMenuOpen);
+  els.newConversation?.setAttribute("aria-expanded", state.createMenuOpen ? "true" : "false");
+  els.newConversation?.classList.toggle("active", state.createMenuOpen);
 }
 
 // ── settings dialog ────────────────────────────────────────────────────────
@@ -3688,7 +3911,6 @@ function renderSettings() {
   const ap = window.miaAppearance?.get?.() || {};
   if (els.appearanceTheme) els.appearanceTheme.value = ap.theme || "light";
   if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = ap.selectionStyle || "soft";
-  if (els.appearanceHoverBackground) els.appearanceHoverBackground.checked = ap.hoverBackground !== false;
   if (els.appearanceAccentColor) els.appearanceAccentColor.value = ap.accentColor || "#5e5ce6";
   if (els.appearanceUserBubbleColor) els.appearanceUserBubbleColor.value = ap.userBubbleColor || "#eeffde";
   if (els.appearanceShowUserAvatar) els.appearanceShowUserAvatar.checked = ap.showUserAvatar === true;
@@ -3801,8 +4023,11 @@ els.chat.addEventListener("click", async (event) => {
     const code = copyButton.closest(".message-code-block")?.querySelector("code");
     if (!code) return;
     if (await copyTextToClipboard(code.textContent)) {
+      const restingText = copyButton.dataset.slotCopyLabel || copyButton.dataset.slotTextValue || copyButton.textContent || "复制";
+      copyButton.dataset.slotCopyLabel = restingText;
       copyButton.classList.add("copied");
       copyButton.disabled = true;
+      flashAnimatedText(copyButton, "已复制", { restingText, revertAfter: 900 });
       setTimeout(() => {
         copyButton.classList.remove("copied");
         copyButton.disabled = false;
@@ -3957,7 +4182,6 @@ function bindAppearanceInput(el, key, getValue) {
 }
 bindAppearanceInput(els.appearanceTheme, "theme", (e) => e.value);
 bindAppearanceInput(els.appearanceSelectionStyle, "selectionStyle", (e) => e.value);
-bindAppearanceInput(els.appearanceHoverBackground, "hoverBackground", (e) => e.checked);
 bindAppearanceInput(els.appearanceAccentColor, "accentColor", (e) => e.value);
 bindAppearanceInput(els.appearanceUserBubbleColor, "userBubbleColor", (e) => e.value);
 bindAppearanceInput(els.appearanceShowUserAvatar, "showUserAvatar", (e) => e.checked);

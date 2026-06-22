@@ -160,6 +160,7 @@
   line-height: 17px;
   text-align: center;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 @media (prefers-reduced-motion: reduce) {
   .task-mode-toggle::before {

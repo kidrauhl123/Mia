@@ -1682,6 +1682,86 @@ test("renderConversationChat marks failed outgoing cloud messages", async () => 
   assert.match(chat.children[0].innerHTML, /title="network down"/);
 });
 
+test("appendMessageToActiveChat animates new tail messages only when the chat is near bottom", () => {
+  const chat = {
+    children: [],
+    dataset: {},
+    scrollTop: 850,
+    scrollHeight: 1000,
+    clientHeight: 140,
+    appendChild(child) {
+      this.children.push(child);
+      this.scrollHeight = 1090;
+      return child;
+    },
+    querySelector() { return null; },
+    querySelectorAll() { return []; }
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "dm:u_me:u_friend";
+  s.moduleState.conversations = [{ id: "dm:u_me:u_friend", type: "dm", name: "Friend" }];
+
+  const msg = {
+    id: "m_tail",
+    seq: 3,
+    conversation_id: "dm:u_me:u_friend",
+    sender_kind: "user",
+    sender_ref: "u_friend",
+    body_md: "new tail",
+    created_at: "2026-06-22T10:00:00.000Z"
+  };
+  s.moduleState.messageCache.set("dm:u_me:u_friend", { messages: [msg], maxSeq: 3 });
+
+  s._internalCtx.appendMessageToActiveChat(msg, { stick: false });
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /\bmessage-tail-enter\b/);
+  assert.equal(chat.scrollTop, chat.scrollHeight);
+});
+
+test("appendMessageToActiveChat leaves history readers in place without tail animation", () => {
+  const chat = {
+    children: [],
+    dataset: {},
+    scrollTop: 420,
+    scrollHeight: 1000,
+    clientHeight: 140,
+    appendChild(child) {
+      this.children.push(child);
+      this.scrollHeight = 1090;
+      return child;
+    },
+    querySelector() { return null; },
+    querySelectorAll() { return []; }
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "dm:u_me:u_friend";
+  s.moduleState.conversations = [{ id: "dm:u_me:u_friend", type: "dm", name: "Friend" }];
+
+  const msg = {
+    id: "m_history",
+    seq: 4,
+    conversation_id: "dm:u_me:u_friend",
+    sender_kind: "user",
+    sender_ref: "u_friend",
+    body_md: "do not pull",
+    created_at: "2026-06-22T10:01:00.000Z"
+  };
+  s.moduleState.messageCache.set("dm:u_me:u_friend", { messages: [msg], maxSeq: 4 });
+
+  s._internalCtx.appendMessageToActiveChat(msg, { stick: false });
+
+  assert.equal(chat.children.length, 1);
+  assert.doesNotMatch(chat.children[0].className, /\bmessage-tail-enter\b/);
+  assert.equal(chat.scrollTop, 420);
+});
+
 test("renderConversationChat renders image attachments inside the bubble before message text", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
@@ -3128,6 +3208,45 @@ test("handleCloudEvent bot reply clears transient cloud agent stream", () => {
     },
   });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+});
+
+test("handleCloudEvent bot reply repaints the active header after clearing typing state", () => {
+  const scheduled = [];
+  let headerPaints = 0;
+  const s = loadSocial({
+    requestAnimationFrame: (fn) => {
+      scheduled.push(fn);
+      return scheduled.length;
+    }
+  });
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({
+    getState: () => ({}),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {},
+    paintHeaderStatus: () => { headerPaints += 1; }
+  });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+  scheduled.splice(0).forEach((fn) => fn());
+  assert.equal(headerPaints, 1);
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      message: { id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "done" },
+    },
+  });
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+  assert.equal(headerPaints, 2);
 });
 
 test("handleCloudEvent materializes a cancelled cloud run before the next outgoing message", async () => {

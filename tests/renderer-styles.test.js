@@ -62,6 +62,7 @@ test("chat workspace uses the shared continuous floor", () => {
 });
 
 test("chat floor overlay text uses the adaptive floor palette", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
   const webCss = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");
 
@@ -70,12 +71,26 @@ test("chat floor overlay text uses the adaptive floor palette", () => {
   assert.match(chatCss, /\.trace\s*\{[\s\S]*?color:\s*var\(--floor-muted\);[\s\S]*?opacity:\s*1;/);
   assert.doesNotMatch(chatCss, /\.trace-row:hover\s*>\s*summary\s*\{[\s\S]*?background:/);
   assert.doesNotMatch(webCss, /\.trace-row:hover\s*>\s*summary\s*\{[\s\S]*?background:/);
+  assert.doesNotMatch(baseCss, /data-hover-background/);
+  assert.doesNotMatch(chatCss, /data-hover-background/);
   assert.match(chatCss, /\.trace-cmd\s*\{[\s\S]*?color:\s*var\(--floor-text\);/);
   assert.match(chatCss, /\.trace-arg\s*\{[\s\S]*?color:\s*var\(--floor-muted\);/);
   assert.match(chatCss, /\.trace-meta\s*\{[\s\S]*?color:\s*var\(--floor-faint\);/);
   assert.match(chatCss, /\.trace-body\s*\{[\s\S]*?border-left-color:\s*var\(--floor-line\);[\s\S]*?color:\s*var\(--floor-muted\);[\s\S]*?opacity:\s*1;/);
   assert.doesNotMatch(chatCss, /--text-dim/);
   assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.message-time/);
+});
+
+test("new tail messages reveal like Telegram without ignoring reduced motion", () => {
+  const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
+  const webCss = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");
+
+  for (const css of [chatCss, webCss]) {
+    assert.match(css, /\.message\.message-tail-enter\s*\{[\s\S]*?animation:\s*messageTailEnter\s*220ms/);
+    assert.match(css, /@keyframes messageTailEnter\s*\{[\s\S]*?max-height:\s*0;[\s\S]*?translateY\(16px\)/);
+    assert.match(css, /@keyframes messageTailEnter\s*\{[\s\S]*?max-height:\s*var\(--message-tail-enter-height/);
+    assert.match(css, /@media \(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.message\.message-tail-enter\s*\{[\s\S]*?animation:\s*none/);
+  }
 });
 
 test("agent run loading status keeps the shimmer on text without a container card", () => {

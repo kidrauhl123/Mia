@@ -68,6 +68,7 @@ test("appearanceSettings defaults chat avatars off and desktop notifications on"
   assert.equal(appearance.showDesktopNotifications, true);
   assert.equal(appearance.fontPreset, "serif");
   assert.equal(appearance.glassOpacity, 82);
+  assert.equal(Object.hasOwn(appearance, "showHoverBackground"), false);
 });
 
 test("appearanceSettings falls back from invalid glass opacity", (t) => {
@@ -119,7 +120,6 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     accentColor: "#aabbcc",
     userBubbleColor: "#eeffde",
     glassOpacity: 100,
-    showHoverBackground: false,
     showUserAvatar: false,
     showAssistantAvatar: false,
     showDesktopNotifications: false,
@@ -128,6 +128,7 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     workspaceBackgroundColor: "#abcdef",
     workspaceBackgroundImage: ""
   });
+  assert.equal(Object.hasOwn(next, "showHoverBackground"), false);
   assert.deepEqual(readJson(runtime.appearanceSettings, {}), next);
 });
 
