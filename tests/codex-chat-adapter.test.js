@@ -69,6 +69,15 @@ function createDeps(overrides = {}) {
       return overrides.expandedPrompt ?? text;
     },
     ensureCodexHome: overrides.ensureCodexHome || (() => overrides.codexHomePath ?? "/Users/test/.codex"),
+    ensureMiaCodexProxy: overrides.ensureMiaCodexProxy || (async (managedModel) => {
+      calls.push(["ensureMiaCodexProxy", managedModel]);
+      return {
+        baseUrl: overrides.miaCodexProxyBaseUrl || "http://127.0.0.1:15722/v1",
+        apiKey: overrides.miaCodexProxyApiKey || "proxy-token",
+        model: managedModel.model || "mia-auto",
+        release: () => calls.push(["releaseMiaCodexProxy"])
+      };
+    }),
     describeFileChange: overrides.describeFileChange,
     enginePermissionMode: overrides.enginePermissionMode || (() => overrides.enginePermissionModeValue || "default"),
     getMiaAppMcpSpec: () => overrides.miaAppMcpSpec ?? null,
@@ -225,13 +234,15 @@ test("sendChat routes Mia-managed Codex models through the proxy runtime", async
     utility: false
   });
 
-  assert.deepEqual(deps.calls[1], ["constructor", {
+  assert.equal(deps.calls[1][0], "ensureMiaCodexProxy");
+  assert.deepEqual(deps.calls[2], ["constructor", {
     codexPathOverride: "/bin/codex",
     env: { PATH: "/bin", CODEX_HOME: "/Users/test/.codex" },
-    baseUrl: "https://mia.example/api/me/model-proxy/v1",
-    apiKey: "cloud-token"
+    baseUrl: "http://127.0.0.1:15722/v1",
+    apiKey: "proxy-token"
   }]);
-  assert.equal(deps.calls[2][1].model, "mia-default");
+  assert.equal(deps.calls[3][1].model, "mia-default");
+  assert.equal(deps.calls.some((call) => call[0] === "releaseMiaCodexProxy"), true);
 });
 
 test("sendChat fails closed when Codex home cannot be prepared", async () => {
@@ -621,6 +632,39 @@ test("sendChat uses Codex app-server runner for interactive approval-capable tur
   assert.deepEqual(emitted.map((event) => event.kind), ["text_delta"]);
 });
 
+test("sendChat routes Mia-managed interactive Codex turns through the local proxy", async () => {
+  const deps = createDeps({
+    resolveManagedModelRuntime: () => ({
+      provider: "mia",
+      model: "mia-auto",
+      baseUrl: "https://mia.example/api/me/model-proxy/v1",
+      apiKey: "cloud-token"
+    })
+  });
+  deps.runCodexAppServerTurn = async (args) => {
+    deps.calls.push(["app-server", args]);
+    args.emit("text_delta", { id: "msg_1", text: "app out" });
+    return { threadId: "app_thread_1", finalResponse: "app out", items: [] };
+  };
+  const adapter = createCodexChatAdapter(deps);
+
+  const response = await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { provider: "mia", model: "mia-auto" } },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    emit: () => {},
+    utility: false
+  });
+
+  const call = deps.calls.find((entry) => entry[0] === "app-server")[1];
+  assert.equal(call.baseUrl, "http://127.0.0.1:15722/v1");
+  assert.equal(call.apiKey, "proxy-token");
+  assert.equal(call.options.model, "mia-auto");
+  assert.equal(response.choices[0].message.content, "app out");
+  assert.equal(deps.calls.some((entry) => entry[0] === "releaseMiaCodexProxy"), true);
+});
+
 test("sendChat merges user MCP servers into app-server runner and stores MCP fingerprint", async () => {
   const deps = createDeps({
     mcpFingerprint: "mcp_fp",
@@ -817,9 +861,10 @@ test("sendChat passes Mia-managed Codex model proxy to app-server runner", async
   });
 
   const call = deps.calls.find((entry) => entry[0] === "app-server")[1];
-  assert.equal(call.baseUrl, "https://mia.example/api/me/model-proxy/v1");
-  assert.equal(call.apiKey, "cloud-token");
+  assert.equal(call.baseUrl, "http://127.0.0.1:15722/v1");
+  assert.equal(call.apiKey, "proxy-token");
   assert.equal(call.options.model, "mia-default");
+  assert.equal(deps.calls.some((entry) => entry[0] === "releaseMiaCodexProxy"), true);
 });
 
 test("sendChat puts the selected codex bin dir first in app-server env", async () => {

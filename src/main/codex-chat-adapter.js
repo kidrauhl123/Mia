@@ -131,6 +131,12 @@ function envWithExecutableDirFirst(env = {}, executablePath = "") {
   };
 }
 
+function isMiaManagedCodexModel(managedModel = {}) {
+  const provider = String(managedModel.provider || "").trim();
+  const authType = String(managedModel.authType || managedModel.auth_type || "").trim();
+  return provider === "mia" || authType === "mia_account";
+}
+
 function codexSdkConfigForMcpServers(mcpServers = {}) {
   const config = {};
   for (const [name, spec] of Object.entries(mcpServers || {})) {
@@ -383,6 +389,7 @@ function createCodexChatAdapter(deps = {}) {
   const ensureUserMcpReady = deps.ensureUserMcpReady || (async () => {});
   const runCodexAppServerTurn = deps.runCodexAppServerTurn || null;
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
+  const ensureMiaCodexProxy = deps.ensureMiaCodexProxy || null;
   const permissionCoordinator = deps.permissionCoordinator || null;
   const appendEngineLog = deps.appendEngineLog || (() => {});
   const enginePermissionMode = deps.enginePermissionMode || (() => "default");
@@ -452,6 +459,20 @@ function createCodexChatAdapter(deps = {}) {
     if (!codexHomePath) throw new Error("Mia Codex home setup failed: missing CODEX_HOME.");
     const env = envWithExecutableDirFirst({ ...baseEnv, CODEX_HOME: codexHomePath }, commandPath);
     const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "codex", bot });
+    let effectiveManagedModel = managedModel || null;
+    let miaProxySession = null;
+    if (isMiaManagedCodexModel(managedModel || {})) {
+      if (typeof ensureMiaCodexProxy !== "function") {
+        throw new Error("Mia Codex proxy is not available.");
+      }
+      miaProxySession = await ensureMiaCodexProxy(managedModel, { engine, bot, sessionId });
+      effectiveManagedModel = {
+        ...(managedModel || {}),
+        baseUrl: miaProxySession.baseUrl,
+        apiKey: miaProxySession.apiKey,
+        model: miaProxySession.model || managedModel?.model
+      };
+    }
     const permission = mapCodexPermissionMode(enginePermissionMode("codex") || "default");
     const effectivePermission = typeof emit === "function"
       ? permission
@@ -475,50 +496,54 @@ function createCodexChatAdapter(deps = {}) {
       modelReasoningEffort: normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "codex"),
       ...effectivePermission
     };
-    if (managedModel?.model || bot.engineConfig?.model) threadOptions.model = String(managedModel?.model || bot.engineConfig.model);
+    if (effectiveManagedModel?.model || bot.engineConfig?.model) threadOptions.model = String(effectiveManagedModel?.model || bot.engineConfig.model);
     const startedAtMs = Date.now();
     let turn;
     let capturedSessionId = externalSessionId;
     let transport = "codex-sdk";
-    if (typeof emit === "function" && typeof runCodexAppServerTurn === "function") {
-      transport = "codex-app-server";
-      turn = await runCodexAppServerTurn({
-        codexPath: commandPath,
-        env,
-        baseUrl: managedModel?.baseUrl || "",
-        apiKey: managedModel?.apiKey || "",
-        threadId: externalSessionId,
-        prompt: codexPrompt,
-        options: threadOptions,
-        signal,
-        emit,
-        permissionCoordinator,
-        botKey: bot.key,
-        sessionId,
-        mcpServers,
-        appendLog: appendEngineLog
-      });
-      capturedSessionId = externalSessionId || turn?.threadId || "";
-    } else {
-      const { Codex } = await codexSdk();
-      const sdkConfig = codexSdkConfigForMcpServers(mcpServers);
-      const codex = new Codex({
-        codexPathOverride: commandPath,
-        env,
-        ...(sdkConfig ? { config: sdkConfig } : {}),
-        ...(managedModel?.baseUrl ? { baseUrl: managedModel.baseUrl } : {}),
-        ...(managedModel?.apiKey ? { apiKey: managedModel.apiKey } : {})
-      });
-      const thread = externalSessionId
-        ? codex.resumeThread(externalSessionId, threadOptions)
-        : codex.startThread(threadOptions);
-      turn = await runCodexTurn(thread, codexPrompt, {
-        signal,
-        emit,
-        workingDirectory: cwd(),
-        describeFileChange
-      });
-      capturedSessionId = externalSessionId || thread.id || "";
+    try {
+      if (typeof emit === "function" && typeof runCodexAppServerTurn === "function") {
+        transport = "codex-app-server";
+        turn = await runCodexAppServerTurn({
+          codexPath: commandPath,
+          env,
+          baseUrl: effectiveManagedModel?.baseUrl || "",
+          apiKey: effectiveManagedModel?.apiKey || "",
+          threadId: externalSessionId,
+          prompt: codexPrompt,
+          options: threadOptions,
+          signal,
+          emit,
+          permissionCoordinator,
+          botKey: bot.key,
+          sessionId,
+          mcpServers,
+          appendLog: appendEngineLog
+        });
+        capturedSessionId = externalSessionId || turn?.threadId || "";
+      } else {
+        const { Codex } = await codexSdk();
+        const sdkConfig = codexSdkConfigForMcpServers(mcpServers);
+        const codex = new Codex({
+          codexPathOverride: commandPath,
+          env,
+          ...(sdkConfig ? { config: sdkConfig } : {}),
+          ...(effectiveManagedModel?.baseUrl ? { baseUrl: effectiveManagedModel.baseUrl } : {}),
+          ...(effectiveManagedModel?.apiKey ? { apiKey: effectiveManagedModel.apiKey } : {})
+        });
+        const thread = externalSessionId
+          ? codex.resumeThread(externalSessionId, threadOptions)
+          : codex.startThread(threadOptions);
+        turn = await runCodexTurn(thread, codexPrompt, {
+          signal,
+          emit,
+          workingDirectory: cwd(),
+          describeFileChange
+        });
+        capturedSessionId = externalSessionId || thread.id || "";
+      }
+    } finally {
+      try { miaProxySession?.release?.(); } catch { /* ignore */ }
     }
     const imagePaths = recentGeneratedImagePaths(capturedSessionId, { env, startedAtMs });
     if (capturedSessionId && !externalSessionId && shouldPersistAgentSession) {

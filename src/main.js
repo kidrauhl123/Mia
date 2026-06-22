@@ -33,6 +33,7 @@ const { createClaudeBridgePluginService } = require("./main/claude-bridge-plugin
 const { requireBot } = require("./main/bot-registry.js");
 const { createClaudeCodeChatAdapter } = require("./main/claude-code-chat-adapter.js");
 const { createClaudeCodeMiaProxy } = require("./main/claude-code-mia-proxy.js");
+const { createCodexMiaProxy } = require("./main/codex-mia-proxy.js");
 const { createCodexChatAdapter, mapCodexPermissionMode } = require("./main/codex-chat-adapter.js");
 const { syncCodexConfigForPermission } = require("./main/codex-config-sync.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
@@ -271,6 +272,7 @@ let settingsStore = null;
 const miaMemoryService = createMiaMemoryService({ runtimePaths });
 const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
 const claudeCodeMiaProxy = createClaudeCodeMiaProxy({ appendLog: appendEngineLog, fetch });
+const codexMiaProxy = createCodexMiaProxy({ appendLog: appendEngineLog, fetch });
 const enginePluginsService = createEnginePluginsService({ runtimePaths });
 let localAgentEngineService = null;
 const systemHermesService = createSystemHermesService({
@@ -2063,6 +2065,7 @@ function createActiveCodexChatAdapter() {
     appendEngineLog,
     enginePermissionMode: settingsStore.enginePermissionMode,
     ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
+    ensureMiaCodexProxy: (managedModel) => codexMiaProxy.createSession(managedModel),
     ensureUserMcpReady: () => ensureUserMcpReady("Codex chat"),
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionEntry: agentSessionStore.getEntry,
@@ -3051,6 +3054,7 @@ ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates()
 
 app.on("before-quit", () => {
   claudeCodeMiaProxy.stop().catch((error) => appendEngineLog(`Claude Code Mia proxy stop failed: ${error?.message || error}`));
+  codexMiaProxy.stop().catch((error) => appendEngineLog(`Codex Mia proxy stop failed: ${error?.message || error}`));
 });
 
 app.whenReady().then(async () => {
