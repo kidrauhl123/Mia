@@ -190,6 +190,36 @@
     return `<a class="message-link" ${attr} role="link" tabindex="0" title="${escapeHtml(title)}">${escapeHtml(link.text)}</a>`;
   }
 
+  function splitBareExternalUrl(value) {
+    let target = String(value || "");
+    let suffix = "";
+    const pairedClosers = {
+      ")": "(",
+      "]": "[",
+      "}": "{",
+      "）": "（",
+      "】": "【",
+      "》": "《"
+    };
+    const hasUnmatchedCloser = (text, closer) => {
+      const opener = pairedClosers[closer];
+      if (!opener) return false;
+      const openCount = (text.match(new RegExp(escapeRegExp(opener), "g")) || []).length;
+      const closeCount = (text.match(new RegExp(escapeRegExp(closer), "g")) || []).length;
+      return closeCount > openCount;
+    };
+    while (target) {
+      const last = target[target.length - 1];
+      if (/[.,;:!?，。！？、]/.test(last) || hasUnmatchedCloser(target, last)) {
+        suffix = last + suffix;
+        target = target.slice(0, -1);
+        continue;
+      }
+      break;
+    }
+    return { target, suffix };
+  }
+
   function previewLinkHtml(link) {
     return `<span class="sidebar-preview-link" title="${escapeHtml(link.target)}">${escapeHtml(link.text)}</span>`;
   }
@@ -206,6 +236,12 @@
       if (!link) return match;
       const index = links.push(link) - 1;
       return `@@MIA_LINK_${index}@@`;
+    });
+    protectedText = protectedText.replace(/(^|[^\w@:/?#%=&.-])((?:https?:\/\/)[^\s<>"'`]+)/gi, (match, prefix, rawUrl) => {
+      const { target, suffix } = splitBareExternalUrl(rawUrl);
+      if (!/^https?:\/\/[^\s]+$/i.test(target)) return match;
+      const index = links.push({ kind: "external", text: target, target }) - 1;
+      return `${prefix}@@MIA_LINK_${index}@@${suffix}`;
     });
     const pathRefs = [];
     for (const ref of options.pathRefs || []) {

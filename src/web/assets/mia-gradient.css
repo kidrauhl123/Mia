@@ -234,7 +234,7 @@ section.tint,
   width: 26px; height: 26px;
   border-radius: 50%;
   border: 2px solid transparent;
-  cursor: pointer;
+  cursor: default;
   padding: 0;
   outline: none;
   transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), border-color 0.18s;
@@ -262,7 +262,7 @@ section.tint,
   color: var(--ink-3);
   padding: 4px 11px;
   border-radius: 999px;
-  cursor: pointer;
+  cursor: default;
   transition: color 0.18s, background 0.18s, box-shadow 0.18s;
 }
 .gs-seg button[aria-pressed="true"] {
@@ -271,7 +271,7 @@ section.tint,
   box-shadow: var(--shadow-sm);
 }
 .gs-close {
-  border: 0; background: transparent; cursor: pointer;
+  border: 0; background: transparent; cursor: default;
   color: var(--ink-3); font-size: 18px; line-height: 1;
   padding: 2px 4px; border-radius: 6px;
 }

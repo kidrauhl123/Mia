@@ -9,6 +9,34 @@ function read(rel) {
   return fs.readFileSync(path.join(root, rel), "utf8");
 }
 
+function sourceFiles(dir, extensions) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...sourceFiles(abs, extensions));
+      continue;
+    }
+    if (extensions.has(path.extname(entry.name))) {
+      files.push(path.relative(root, abs));
+    }
+  }
+  return files;
+}
+
+function cssSelectorAt(css, offset) {
+  const open = css.lastIndexOf("{", offset);
+  const close = css.lastIndexOf("}", offset);
+  if (open === -1 || close > open) return "";
+  const previousClose = css.lastIndexOf("}", open - 1);
+  return css
+    .slice(previousClose + 1, open)
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function cssBlock(css, selector) {
   const escaped = selector
     .split(",")
@@ -60,6 +88,23 @@ test("main desktop and web surfaces use crisp macOS text rendering", () => {
 
   assert.match(cssBlock(desktopCss, "body"), /-webkit-font-smoothing:\s*antialiased;/);
   assert.match(cssBlock(webCss, "html, body"), /-webkit-font-smoothing:\s*antialiased;/);
+});
+
+test("only message bubble links use the hand cursor", () => {
+  const violations = [];
+  const files = sourceFiles(path.join(root, "src"), new Set([".css", ".html", ".js"]));
+
+  for (const file of files) {
+    const text = read(file);
+    for (const match of text.matchAll(/cursor\s*:\s*pointer\b/g)) {
+      const selector = path.extname(file) === ".css" ? cssSelectorAt(text, match.index || 0) : "";
+      if (selector === ".bubble a.message-link") continue;
+      const line = text.slice(0, match.index || 0).split("\n").length;
+      violations.push(`${file}:${line}${selector ? ` ${selector}` : ""}`);
+    }
+  }
+
+  assert.deepEqual(violations, []);
 });
 
 test("dynamic badges and unread counts use tabular numbers", () => {

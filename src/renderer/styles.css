@@ -223,6 +223,17 @@ textarea {
   -webkit-app-region: no-drag;
 }
 
+button,
+a,
+label,
+summary,
+[role="button"],
+input[type="button"],
+input[type="color"],
+input[type="submit"] {
+  cursor: default;
+}
+
 input,
 textarea,
 [contenteditable="true"] {
@@ -1646,7 +1657,7 @@ body.sidebar-resizing * {
   border-radius: 0;
   background: transparent;
   color: var(--faint);
-  cursor: pointer;
+  cursor: default;
 }
 
 .search-clear svg {
@@ -1726,7 +1737,7 @@ body.sidebar-resizing * {
   font-size: 10px;
   font-weight: 560;
   line-height: 16px;
-  cursor: pointer;
+  cursor: default;
   transition: background 140ms ease, color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
 }
 
@@ -1987,7 +1998,7 @@ body.sidebar-resizing * {
   background: none;
   border: none;
   color: var(--accent, #2563eb);
-  cursor: pointer;
+  cursor: default;
   padding: 0;
   font-size: 13px;
 }
@@ -2145,7 +2156,7 @@ body.sidebar-resizing * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
   transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 120ms ease, opacity 120ms ease;
 }
 
@@ -2383,7 +2394,7 @@ button.persona-tag-chip {
   border-radius: 7px;
   background: color-mix(in srgb, var(--tag-color, #64748b) 13%, transparent);
   color: var(--tag-color, #64748b);
-  cursor: pointer;
+  cursor: default;
   font-family: inherit;
   font-size: 10px;
   font-weight: 560;
@@ -3569,7 +3580,7 @@ body.topbar-click-capture .topbar {
   color: var(--text);
   text-align: left;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.035);
-  cursor: pointer;
+  cursor: default;
 }
 
 .runtime-target-option:hover {
@@ -4211,7 +4222,7 @@ body.topbar-click-capture .topbar {
   color: var(--text);
   font-size: 12px;
   font-weight: 480;
-  cursor: pointer;
+  cursor: default;
 }
 
 .setup-engine-action.primary {
@@ -4598,7 +4609,7 @@ body.onboarding-window .setup-guide.ready .setup-engine-action {
   color: var(--text);
   font-size: 12px;
   font-weight: 520;
-  cursor: pointer;
+  cursor: default;
   -webkit-app-region: no-drag;
 }
 
@@ -4632,7 +4643,7 @@ body.onboarding-window .setup-guide.ready .setup-engine-action:hover {
   color: #fff;
   font-size: 15px;
   font-weight: 600;
-  cursor: pointer;
+  cursor: default;
   box-shadow: 0 10px 24px rgb(0 0 0 / 0.14);
   transition: transform 0.12s ease, box-shadow 0.2s ease, filter 0.2s ease;
 }
@@ -4714,7 +4725,7 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   color: var(--text);
   font-size: 13px;
   font-weight: 520;
-  cursor: pointer;
+  cursor: default;
   transition: border-color 0.15s ease;
 }
 
@@ -5432,7 +5443,7 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   font-size: 12px;
   font-weight: 650;
   line-height: 1;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
   vertical-align: 0.05em;
 }
@@ -5465,7 +5476,7 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   border-radius: 999px;
   background: transparent;
   color: currentColor;
-  cursor: pointer;
+  cursor: default;
   font: inherit;
   line-height: 1;
   opacity: 0.68;
@@ -6352,7 +6363,7 @@ select.select-open {
 
 .send-button:not(:disabled) {
   color: var(--accent);
-  cursor: pointer;
+  cursor: default;
 }
 
 .send-button:not(:disabled):hover {
@@ -6661,7 +6672,7 @@ select.select-open {
   border-radius: 50%;
   background: transparent;
   color: var(--muted);
-  cursor: pointer;
+  cursor: default;
 }
 
 .identity-badge-trigger.empty {
@@ -6750,7 +6761,7 @@ select.select-open {
   color: var(--text);
   font: inherit;
   text-align: center;
-  cursor: pointer;
+  cursor: default;
 }
 
 .identity-badge-choices button:hover {
@@ -6887,7 +6898,7 @@ select.select-open {
   padding: 0;
   border-radius: 50%;
   border: 2px solid transparent;
-  cursor: pointer;
+  cursor: default;
   background-clip: padding-box;
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
@@ -6931,7 +6942,7 @@ select.select-open {
   padding: 0;
   border: 0;
   opacity: 0;
-  cursor: pointer;
+  cursor: default;
 }
 
 .avatar-crop-preview {
@@ -6972,7 +6983,7 @@ select.select-open {
   background: var(--surface);
   color: var(--text);
   box-shadow: 0 2px 8px rgba(16, 20, 39, 0.16), inset 0 0 0 1px var(--line);
-  cursor: pointer;
+  cursor: default;
 }
 
 .avatar-upload-button:hover {
@@ -7219,7 +7230,7 @@ select.select-open {
   border-radius: 9px;
   background: #151719;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.38), 0 8px 20px rgba(12, 14, 18, 0.14);
-  cursor: pointer;
+  cursor: default;
   touch-action: none;
   user-select: none;
 }
@@ -8407,7 +8418,7 @@ textarea:focus {
   border-radius: 0;
   background: transparent;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   font: inherit;
   color: inherit;
 }
@@ -8437,6 +8448,14 @@ textarea:focus {
 
 .engine-row.config-disabled .engine-row-chev {
   visibility: hidden;
+}
+
+.engine-row:not(.static):not(.config-disabled):hover {
+  background: var(--field);
+}
+
+.engine-row:not(.static):not(.config-disabled):hover .engine-row-chev {
+  color: var(--text);
 }
 
 .engine-row-logo {
@@ -8554,7 +8573,7 @@ textarea:focus {
   color: var(--accent-strong);
   font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
+  cursor: default;
 }
 
 .engine-install-action.row {

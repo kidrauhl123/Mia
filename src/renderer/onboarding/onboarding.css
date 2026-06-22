@@ -16,6 +16,17 @@
 
 * { box-sizing: border-box; }
 
+button,
+a,
+label,
+summary,
+[role="button"],
+input[type="button"],
+input[type="color"],
+input[type="submit"] {
+  cursor: default;
+}
+
 html, body {
   margin: 0;
   height: 100%;
@@ -161,7 +172,7 @@ html, body {
   border-radius: 999px;
   background: transparent;
   color: #8b8c91;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.15s ease, color 0.15s ease;
   -webkit-app-region: no-drag;
 }
@@ -255,7 +266,7 @@ html, body {
   color: #fff;
   font-size: 15px;
   font-weight: 600;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
 }
 
@@ -300,7 +311,7 @@ html, body {
   background: none;
   color: var(--onb-muted);
   font-size: 12.5px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .onb-link:hover { color: var(--onb-text); }
@@ -501,7 +512,7 @@ html, body {
   color: var(--onb-text);
   font-size: 12.5px;
   font-weight: 540;
-  cursor: pointer;
+  cursor: default;
 }
 
 .onb-row-btn:hover { border-color: #c7c7cc; }

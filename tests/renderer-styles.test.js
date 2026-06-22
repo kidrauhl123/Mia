@@ -244,10 +244,10 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(messageLinkHoverRule, /text-decoration-thickness:\s*1px;/);
   assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.bubble a\.message-link/);
   assert.doesNotMatch(chatCss, /\.message\.user \.bubble a\.message-link/);
-  assert.match(chatCss, /\.bubble code\.inline-code\s*\{[\s\S]*?cursor:\s*pointer;/);
+  assert.match(chatCss, /\.bubble code\.inline-code\s*\{[\s\S]*?cursor:\s*default;/);
   assert.match(chatCss, /\.message\.search-focus \.bubble\s*\{[\s\S]*?animation:\s*messageSearchFocus/);
   assert.match(chatCss, /@keyframes messageSearchFocus/);
-  assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?cursor:\s*pointer;/);
+  assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?cursor:\s*default;/);
   assert.match(
     baseCss,
     /\.persona\.active \.persona-key \.typing-status\s*\{[\s\S]*?color:\s*var\(--list-active-text\);/,

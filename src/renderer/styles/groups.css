@@ -330,7 +330,7 @@
   padding-right: 32px;
   -webkit-appearance: none;
   appearance: none;
-  cursor: pointer;
+  cursor: default;
 }
 .group-create-select:hover,
 .group-create-input:hover {
@@ -371,7 +371,7 @@
   border-radius: 7px;
   background: transparent;
   color: var(--muted);
-  cursor: pointer;
+  cursor: default;
   font: inherit;
   transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
 }
@@ -414,7 +414,7 @@
   padding: 7px 16px;
   border-radius: 10px;
   border: 1px solid transparent;
-  cursor: pointer;
+  cursor: default;
   font: inherit;
   font-size: 13px;
   font-weight: 450;
@@ -563,7 +563,7 @@
   border: 1px solid var(--line);
   border-radius: 50%;
   background: transparent;
-  cursor: pointer;
+  cursor: default;
   overflow: hidden;
   transition: border-color 120ms;
 }
@@ -602,7 +602,7 @@
   border-radius: 8px;
   background: transparent;
   color: var(--muted);
-  cursor: pointer;
+  cursor: default;
   font: inherit;
   font-size: 18px;
   line-height: 1;
@@ -658,7 +658,7 @@
   border-radius: 9px;
   background: transparent;
   color: var(--accent);
-  cursor: pointer;
+  cursor: default;
   font: inherit;
   font-size: 13px;
   font-weight: 430;
@@ -781,7 +781,7 @@
   justify-content: flex-end;
   gap: 8px;
 }
-.message-avatar { cursor: pointer; }
+.message-avatar { cursor: default; }
 
 /* ── Group info topbar button ── */
 .group-info-topbar-btn {

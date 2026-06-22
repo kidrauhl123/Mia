@@ -3794,7 +3794,7 @@ function openCreateGroupDialog() {
                     ${friends.length === 0
                       ? `<p class="pairing-hint">还没有朋友，先去添加好友。</p>`
                       : friends.map((f) => `
-                        <label style="display:flex; align-items:center; gap:8px; padding:6px 0; cursor:pointer;">
+                        <label style="display:flex; align-items:center; gap:8px; padding:6px 0; cursor: default;">
                           <input type="checkbox" data-friend-id="${escapeHtml(f.id)}" ${selected.has(f.id) ? "checked" : ""}>
                           <span>${escapeHtml(f.username || f.id)}</span>
                         </label>

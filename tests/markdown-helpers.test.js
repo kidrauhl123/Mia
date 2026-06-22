@@ -59,6 +59,18 @@ test("markdown renders file URLs as local file links", () => {
   assert.match(html, />demo<\/a>/);
 });
 
+test("markdown auto-links bare https URLs while leaving inline code alone", () => {
+  const markdown = loadMarkdownHelpers();
+  const html = markdown.renderMarkdown("永久网址 → https://jungui-cle.pages.dev\n快照 `1df7f38a.jungui-cle.pages.dev`");
+
+  assert.match(
+    html,
+    /<a class="message-link" data-external-link="https:\/\/jungui-cle\.pages\.dev" role="link" tabindex="0" title="https:\/\/jungui-cle\.pages\.dev">https:\/\/jungui-cle\.pages\.dev<\/a>/
+  );
+  assert.match(html, /<code class="inline-code" tabindex="0" title="点击复制">1df7f38a\.jungui-cle\.pages\.dev<\/code>/);
+  assert.doesNotMatch(html, /data-external-link="https:\/\/1df7f38a\.jungui-cle\.pages\.dev"/);
+});
+
 test("markdown hides Mia path reference blocks from rendered chat text", () => {
   const markdown = loadMarkdownHelpers();
   const source = "请看 IMG1\n\n[[MIA_PATH_REFS_BEGIN]]\nIMG1: /var/folders/x/mia-clipboard/clipboard-1.png\n[[MIA_PATH_REFS_END]]";

@@ -166,7 +166,7 @@
   border-radius: 10px;
   background: var(--surface);
   box-shadow: 0 1px 2px rgba(17, 24, 39, 0.035), 0 6px 18px rgba(17, 24, 39, 0.035);
-  cursor: pointer;
+  cursor: default;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
@@ -280,7 +280,12 @@
   font-size: 13px;
   font-weight: 560;
   cursor: default;
-  transition: color 140ms ease;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.skill-mode-toggle button:not(.active):hover {
+  background: rgb(var(--accent-rgb) / 0.07);
+  color: var(--text);
 }
 
 .skill-mode-toggle button.active {
@@ -436,7 +441,7 @@
   color: var(--text);
   font-size: 13px;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 
 .skill-use-picker button:hover {
@@ -484,7 +489,7 @@
   color: var(--faint);
   font-size: 20px;
   line-height: 1;
-  cursor: pointer;
+  cursor: default;
 }
 
 .skill-market-modal .smm-close:hover {
@@ -529,7 +534,7 @@
   background: transparent;
   color: var(--faint);
   font-size: 13px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .skill-market-modal .smm-back:hover {
@@ -558,7 +563,7 @@
   background: transparent;
   color: var(--text);
   font-size: 13px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .skill-market-modal .smm-body-toggle:hover {
@@ -573,7 +578,7 @@
   color: #fff;
   font-size: 13px;
   font-weight: 450;
-  cursor: pointer;
+  cursor: default;
 }
 
 .skill-market-modal .smm-add:hover {
