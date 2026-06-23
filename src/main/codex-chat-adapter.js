@@ -1,5 +1,4 @@
-const crypto = require("node:crypto");
-const { execFileSync } = require("node:child_process");
+﻿const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -9,11 +8,13 @@ const {
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
 } = require("./mia-runtime-context.js");
-const {
-  createWorkspaceDiffTracker,
-  fileEditPayloadFromUnifiedDiff
-} = require("./agent-file-edit-events.js");
 const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
+
+const CODEX_MANAGED_PROTOCOLS = Object.freeze(["cli", "codex-cli", "codex-app-server"]);
+
+function elapsedMs(startedAt) {
+  return `${Math.max(0, Date.now() - startedAt)}ms`;
+}
 
 function mapCodexPermissionMode(value) {
   const id = String(value || "default").trim();
@@ -42,10 +43,6 @@ function stoppedError() {
   const stopped = new Error("生成已停止");
   stopped.code = "MIA_STOPPED";
   return stopped;
-}
-
-function runOptions(signal) {
-  return signal ? { signal } : {};
 }
 
 function generatedImagesRoot(env = {}) {
@@ -122,8 +119,10 @@ function requireDependency(deps, key) {
 function envWithExecutableDirFirst(env = {}, executablePath = "") {
   const dir = path.dirname(String(executablePath || ""));
   if (!dir || dir === ".") return env || {};
-  const delimiter = process.platform === "win32" ? ";" : path.delimiter;
   const currentPath = String(env?.PATH || env?.Path || "");
+  const delimiter = process.platform === "win32" && !currentPath.includes(";") && !/^[A-Za-z]:[\\/]/.test(currentPath)
+    ? ":"
+    : process.platform === "win32" ? ";" : path.delimiter;
   const parts = currentPath.split(delimiter).filter(Boolean).filter((item) => item !== dir);
   return {
     ...(env || {}),
@@ -137,236 +136,59 @@ function isMiaManagedCodexModel(managedModel = {}) {
   return provider === "mia" || authType === "mia_account";
 }
 
-function codexSdkConfigForMcpServers(mcpServers = {}) {
-  const config = {};
-  for (const [name, spec] of Object.entries(mcpServers || {})) {
-    const serverName = String(name || "").trim();
-    if (!serverName) continue;
-    const url = String(spec?.url || "").trim();
-    const command = String(spec?.command || "").trim();
-    if (url) {
-      config[serverName] = {
-        url
-      };
-      const bearer = String(spec?.bearer_token_env_var || spec?.bearerTokenEnvVar || "").trim();
-      if (bearer) config[serverName].bearer_token_env_var = bearer;
-      continue;
-    }
-    if (!command) continue;
-    config[serverName] = {
-      command,
-      args: Array.isArray(spec?.args) ? spec.args : [],
-      env: spec?.env && typeof spec.env === "object" ? spec.env : {}
-    };
-  }
-  return Object.keys(config).length ? { mcp_servers: config } : null;
+const managedCodexProxySessions = new Map();
+
+function isDurableAgentSession(sessionId, persistAgentSession) {
+  return Boolean(persistAgentSession) && String(sessionId || "").startsWith("conversation:");
 }
 
-const MAX_FILE_DIFF_PREVIEW = 20000;
-
-function safeWorkspaceRelativePath(filePath, workingDirectory = "") {
-  const raw = String(filePath || "").trim();
-  if (!raw) return "";
-  const root = String(workingDirectory || "").trim();
-  const rel = path.isAbsolute(raw) && root ? path.relative(root, raw) : raw;
-  const normalized = rel.split(path.sep).join("/");
-  if (!normalized || normalized === "." || normalized.startsWith("../") || path.isAbsolute(normalized)) return "";
-  return normalized;
+function secretDigest(value = "") {
+  const text = String(value || "");
+  return text ? crypto.createHash("sha256").update(text).digest("hex").slice(0, 16) : "";
 }
 
-function diffStats(diff = "") {
-  let additions = 0;
-  let deletions = 0;
-  for (const line of String(diff || "").split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---")) continue;
-    if (line.startsWith("+")) additions += 1;
-    if (line.startsWith("-")) deletions += 1;
-  }
-  return { additions, deletions };
+function managedCodexProxyKey(managedModel = {}, { bot, sessionId } = {}) {
+  return JSON.stringify({
+    engine: "codex",
+    bot: String(bot?.key || bot?.id || ""),
+    sessionId: String(sessionId || ""),
+    provider: String(managedModel.provider || ""),
+    authType: String(managedModel.authType || managedModel.auth_type || ""),
+    model: String(managedModel.model || ""),
+    baseUrl: String(managedModel.baseUrl || managedModel.base_url || ""),
+    apiKey: secretDigest(managedModel.apiKey || managedModel.api_key || "")
+  });
 }
 
-function readGitDiffForPath(filePath, workingDirectory = "") {
-  const rel = safeWorkspaceRelativePath(filePath, workingDirectory);
-  if (!rel || !workingDirectory) return "";
-  try {
-    return execFileSync("git", ["diff", "--no-ext-diff", "--unified=80", "--", rel], {
-      cwd: workingDirectory,
-      encoding: "utf8",
-      maxBuffer: 512 * 1024,
-      timeout: 3000
-    });
-  } catch (error) {
-    return String(error?.stdout || "");
+async function createOrReuseManagedCodexProxy(factory, managedModel, context, { cache = false } = {}) {
+  if (!cache) {
+    return { session: await factory(managedModel, context), cached: false };
   }
+  const key = managedCodexProxyKey(managedModel, context);
+  const existing = managedCodexProxySessions.get(key);
+  if (existing) return { session: existing, cached: true };
+  const session = await factory(managedModel, context);
+  managedCodexProxySessions.set(key, session);
+  return { session, cached: true };
 }
 
-function syntheticAddedFileDiff(filePath, workingDirectory = "") {
-  const rel = safeWorkspaceRelativePath(filePath, workingDirectory);
-  if (!rel || !workingDirectory) return "";
-  const abs = path.join(workingDirectory, rel);
-  let content = "";
-  try {
-    const stat = fs.statSync(abs);
-    if (!stat.isFile() || stat.size > 256 * 1024) return "";
-    content = fs.readFileSync(abs, "utf8");
-  } catch {
-    return "";
+function closeManagedCodexProxySessions() {
+  for (const session of managedCodexProxySessions.values()) {
+    try { session?.release?.(); } catch { /* ignore proxy cleanup */ }
   }
-  const lines = content.split("\n");
-  const body = lines.map((line) => `+${line}`).join("\n");
-  return [
-    "diff --git a/dev/null b/" + rel,
-    "--- /dev/null",
-    "+++ b/" + rel,
-    "@@",
-    body
-  ].join("\n");
-}
-
-function defaultDescribeFileChange(change = {}, options = {}) {
-  const workingDirectory = options.workingDirectory || "";
-  const rel = safeWorkspaceRelativePath(change.path, workingDirectory) || String(change.path || "").trim() || "file";
-  const kind = String(change.kind || "update");
-  const verb = kind === "add" ? "Added" : kind === "delete" ? "Deleted" : "Edited";
-  let diff = readGitDiffForPath(rel, workingDirectory);
-  if (!diff && kind === "add") diff = syntheticAddedFileDiff(rel, workingDirectory);
-  const stats = diffStats(diff);
-  const statText = stats.additions || stats.deletions ? ` (+${stats.additions} -${stats.deletions})` : "";
-  const preview = diff.length > MAX_FILE_DIFF_PREVIEW
-    ? `${diff.slice(0, MAX_FILE_DIFF_PREVIEW)}\n… diff truncated …`
-    : diff;
-  return {
-    name: `${verb} ${rel}${statText}`,
-    preview,
-    additions: stats.additions,
-    deletions: stats.deletions
-  };
-}
-
-function emitCodexFileChangeEvents(emit, event, options = {}) {
-  if (typeof emit !== "function" || event?.type !== "item.completed") return;
-  const item = event.item;
-  if (!item || item.type !== "file_change") return;
-  const changes = Array.isArray(item.changes) ? item.changes : [];
-  for (let idx = 0; idx < changes.length; idx += 1) {
-    const change = changes[idx] || {};
-    const id = `${String(item.id || "file_change")}_${idx}`;
-    const describe = typeof options.describeFileChange === "function"
-      ? options.describeFileChange
-      : defaultDescribeFileChange;
-    const description = describe(change, {
-      workingDirectory: options.workingDirectory || ""
-    }) || {};
-    const error = item.status === "failed";
-    const filePath = safeWorkspaceRelativePath(change.path, options.workingDirectory || "")
-      || String(change.path || "").trim();
-    const payload = fileEditPayloadFromUnifiedDiff(description.diff || description.preview || "", {
-      id,
-      path: filePath,
-      action: change.kind,
-      title: description.title || description.name,
-      additions: description.additions,
-      deletions: description.deletions,
-      status: error ? "failed" : "completed",
-      error
-    });
-    if (payload) emit("file_edit", payload);
-  }
-}
-
-function emitWorkspaceFileEdits(emit, tracker, item = {}) {
-  if (typeof emit !== "function" || !tracker || typeof tracker.collect !== "function") return;
-  const error = item.status === "failed";
-  for (const payload of tracker.collect({
-    idPrefix: String(item.id || "command"),
-    status: error ? "failed" : "completed",
-    error
-  })) {
-    emit("file_edit", payload);
-  }
-}
-
-function emitCodexItemEvent(emit, event, textByItem, options = {}) {
-  if (typeof emit !== "function" || !event?.item) return;
-  const item = event.item;
-  if (item.type === "agent_message") {
-    const id = String(item.id || "agent_message");
-    const text = String(item.text || "");
-    const previous = textByItem.get(id) || "";
-    const delta = text.startsWith(previous) ? text.slice(previous.length) : text;
-    textByItem.set(id, text);
-    if (delta) emit("text_delta", { id, text: delta });
-    return;
-  }
-  if (item.type === "reasoning" && event.type !== "item.completed") {
-    const id = String(item.id || "reasoning");
-    const text = String(item.text || "");
-    const previous = textByItem.get(id) || "";
-    const delta = text.startsWith(previous) ? text.slice(previous.length) : text;
-    textByItem.set(id, text);
-    if (delta) emit("reasoning_delta", { id, text: delta });
-    return;
-  }
-  if (item.type === "command_execution") {
-    const payload = {
-      id: String(item.id || "command"),
-      name: "shell",
-      preview: String(item.command || ""),
-      status: item.status || "",
-      duration: null,
-      error: item.status === "failed"
-    };
-    if (event.type === "item.started") emit("tool_call_started", payload);
-    if (event.type === "item.completed") {
-      emit("tool_call_completed", payload);
-      emitWorkspaceFileEdits(emit, options.workspaceDiffTracker, item);
-    }
-    return;
-  }
-  emitCodexFileChangeEvents(emit, event, options);
-}
-
-async function runCodexTurn(thread, prompt, { signal = null, emit = null, workingDirectory = "", describeFileChange = null } = {}) {
-  if (typeof emit !== "function" || typeof thread.runStreamed !== "function") {
-    return thread.run(prompt, runOptions(signal));
-  }
-  const { events } = await thread.runStreamed(prompt, runOptions(signal));
-  const items = [];
-  const textByItem = new Map();
-  const workspaceDiffTracker = createWorkspaceDiffTracker(workingDirectory);
-  let finalResponse = "";
-  let usage = null;
-  for await (const event of events) {
-    if (event.type === "thread.started") {
-      emit("session_started", { sessionId: event.thread_id });
-    } else if (event.type === "turn.started") {
-      emit("status", { text: "本机 Codex 已开始运行。" });
-    } else if (event.type === "item.started" || event.type === "item.updated" || event.type === "item.completed") {
-      emitCodexItemEvent(emit, event, textByItem, { workingDirectory, describeFileChange, workspaceDiffTracker });
-      if (event.type === "item.completed") {
-        if (event.item?.type === "agent_message") finalResponse = String(event.item.text || "");
-        items.push(event.item);
-      }
-    } else if (event.type === "turn.completed") {
-      usage = event.usage || null;
-      emit("complete", { finishReason: "stop" });
-    } else if (event.type === "turn.failed") {
-      throw new Error(event.error?.message || "Codex turn failed.");
-    } else if (event.type === "error") {
-      throw new Error(event.message || "Codex stream failed.");
-    }
-  }
-  return { items, finalResponse, usage };
+  managedCodexProxySessions.clear();
 }
 
 function createCodexChatAdapter(deps = {}) {
   const shellCommandPath = requireDependency(deps, "shellCommandPath");
+  const resolveAgentRuntime = deps.resolveAgentRuntime || (() => null);
+  const agentRuntimeEnv = deps.agentRuntimeEnv || null;
   const lastUserPrompt = requireDependency(deps, "lastUserPrompt");
   const expandLeadingSkillCommand = requireDependency(deps, "expandLeadingSkillCommand");
   const buildEnabledSkillsContext = deps.buildEnabledSkillsContext || (() => "");
   const injectGroupContextForSdk = requireDependency(deps, "injectGroupContextForSdk");
   const readBotPersona = requireDependency(deps, "readBotPersona");
-  const codexSdk = requireDependency(deps, "codexSdk");
+  const runCodexAppServerTurn = requireDependency(deps, "runCodexAppServerTurn");
   const processEnvStrings = requireDependency(deps, "processEnvStrings");
   const normalizeEffortLevel = requireDependency(deps, "normalizeEffortLevel");
   const getAgentSessionId = deps.getAgentSessionId || (() => "");
@@ -387,23 +209,47 @@ function createCodexChatAdapter(deps = {}) {
   const getUserMcpSpecs = deps.getUserMcpSpecs || (() => ({}));
   const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
   const ensureUserMcpReady = deps.ensureUserMcpReady || (async () => {});
-  const runCodexAppServerTurn = deps.runCodexAppServerTurn || null;
   const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const ensureMiaCodexProxy = deps.ensureMiaCodexProxy || null;
   const permissionCoordinator = deps.permissionCoordinator || null;
   const appendEngineLog = deps.appendEngineLog || (() => {});
   const enginePermissionMode = deps.enginePermissionMode || (() => "default");
-  const describeFileChange = deps.describeFileChange || null;
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
+  async function timeCodexPhase(label, fn) {
+    const startedAt = Date.now();
+    try {
+      const value = await fn();
+      appendEngineLog(`[codex] ${label}: ${elapsedMs(startedAt)}`);
+      return value;
+    } catch (error) {
+      appendEngineLog(`[codex] ${label}: failed after ${elapsedMs(startedAt)} (${error?.message || error})`);
+      throw error;
+    }
+  }
+
+  function resolveCodexRuntimeCommand() {
+    const runtime = resolveAgentRuntime("codex", { protocols: CODEX_MANAGED_PROTOCOLS });
+    const commandPath = runtime?.path || shellCommandPath("codex");
+    return { runtime, commandPath };
+  }
+
+  function envForCodexRuntime(baseEnv, runtime, commandPath) {
+    if (runtime?.path && typeof agentRuntimeEnv === "function") {
+      return agentRuntimeEnv("codex", baseEnv, { protocols: CODEX_MANAGED_PROTOCOLS });
+    }
+    return envWithExecutableDirFirst(baseEnv, commandPath);
+  }
+
   async function sendChat({ bot, sessionId, messages, group, signal, emit = null, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
+    const chatStartedAt = Date.now();
     const engine = "codex";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
-    const commandPath = shellCommandPath("codex");
+    const { runtime: codexRuntime, commandPath } = resolveCodexRuntimeCommand();
     if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
     try {
-      await ensureUserMcpReady();
+      await timeCodexPhase("mcp-ready", () => ensureUserMcpReady());
     } catch (error) {
       appendEngineLog(`MCP bridge initialization incomplete before Codex chat: ${error?.message || error}`);
     }
@@ -452,20 +298,28 @@ function createCodexChatAdapter(deps = {}) {
     const baseEnv = processEnvStrings();
     let codexHomePath = "";
     try {
-      codexHomePath = ensureCodexHome();
+      codexHomePath = await timeCodexPhase("codex-home", async () => ensureCodexHome());
     } catch (error) {
       throw new Error(`Mia Codex home setup failed: ${error?.message || error}`);
     }
     if (!codexHomePath) throw new Error("Mia Codex home setup failed: missing CODEX_HOME.");
-    const env = envWithExecutableDirFirst({ ...baseEnv, CODEX_HOME: codexHomePath }, commandPath);
+    const env = envForCodexRuntime({ ...baseEnv, CODEX_HOME: codexHomePath }, codexRuntime, commandPath);
     const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "codex", bot });
     let effectiveManagedModel = managedModel || null;
     let miaProxySession = null;
+    let releaseMiaProxyAfterTurn = true;
     if (isMiaManagedCodexModel(managedModel || {})) {
       if (typeof ensureMiaCodexProxy !== "function") {
         throw new Error("Mia Codex proxy is not available.");
       }
-      miaProxySession = await ensureMiaCodexProxy(managedModel, { engine, bot, sessionId });
+      const proxy = await timeCodexPhase("mia-model-proxy", () => createOrReuseManagedCodexProxy(
+        ensureMiaCodexProxy,
+        managedModel,
+        { engine, bot, sessionId },
+        { cache: isDurableAgentSession(sessionId, shouldPersistAgentSession) }
+      ));
+      miaProxySession = proxy.session;
+      releaseMiaProxyAfterTurn = !proxy.cached;
       effectiveManagedModel = {
         ...(managedModel || {}),
         baseUrl: miaProxySession.baseUrl,
@@ -500,51 +354,46 @@ function createCodexChatAdapter(deps = {}) {
     const startedAtMs = Date.now();
     let turn;
     let capturedSessionId = externalSessionId;
-    let transport = "codex-sdk";
+    const transport = "codex-app-server";
+    const runtimeReuseKey = isDurableAgentSession(sessionId, shouldPersistAgentSession)
+      ? [
+          "codex",
+          String(bot.key || ""),
+          String(sessionId || ""),
+          mcpFingerprint,
+          String(codexHomePath || ""),
+          String(commandPath || ""),
+          String(effectiveManagedModel?.baseUrl || ""),
+          secretDigest(effectiveManagedModel?.apiKey || ""),
+          String(effectiveManagedModel?.model || bot.engineConfig?.model || "")
+        ].join("|")
+      : "";
     try {
-      if (typeof emit === "function" && typeof runCodexAppServerTurn === "function") {
-        transport = "codex-app-server";
-        turn = await runCodexAppServerTurn({
-          codexPath: commandPath,
-          env,
-          baseUrl: effectiveManagedModel?.baseUrl || "",
-          apiKey: effectiveManagedModel?.apiKey || "",
-          threadId: externalSessionId,
-          prompt: codexPrompt,
-          options: threadOptions,
-          signal,
-          emit,
-          permissionCoordinator,
-          botKey: bot.key,
-          sessionId,
-          mcpServers,
-          appendLog: appendEngineLog
-        });
-        capturedSessionId = externalSessionId || turn?.threadId || "";
-      } else {
-        const { Codex } = await codexSdk();
-        const sdkConfig = codexSdkConfigForMcpServers(mcpServers);
-        const codex = new Codex({
-          codexPathOverride: commandPath,
-          env,
-          ...(sdkConfig ? { config: sdkConfig } : {}),
-          ...(effectiveManagedModel?.baseUrl ? { baseUrl: effectiveManagedModel.baseUrl } : {}),
-          ...(effectiveManagedModel?.apiKey ? { apiKey: effectiveManagedModel.apiKey } : {})
-        });
-        const thread = externalSessionId
-          ? codex.resumeThread(externalSessionId, threadOptions)
-          : codex.startThread(threadOptions);
-        turn = await runCodexTurn(thread, codexPrompt, {
-          signal,
-          emit,
-          workingDirectory: cwd(),
-          describeFileChange
-        });
-        capturedSessionId = externalSessionId || thread.id || "";
-      }
+      appendEngineLog(`[codex] turn dispatch transport=${transport} model=${String(effectiveManagedModel?.model || bot.engineConfig?.model || "default")} effort=${String(threadOptions.modelReasoningEffort || "")}`);
+      turn = await timeCodexPhase("app-server-turn", () => runCodexAppServerTurn({
+        codexPath: commandPath,
+        env,
+        baseUrl: effectiveManagedModel?.baseUrl || "",
+        apiKey: effectiveManagedModel?.apiKey || "",
+        threadId: externalSessionId,
+        prompt: codexPrompt,
+        options: threadOptions,
+        signal,
+        emit,
+        permissionCoordinator,
+        botKey: bot.key,
+        sessionId,
+        mcpServers,
+        reuseKey: runtimeReuseKey,
+        appendLog: appendEngineLog
+      }));
+      capturedSessionId = externalSessionId || turn?.threadId || "";
     } finally {
-      try { miaProxySession?.release?.(); } catch { /* ignore */ }
+      if (releaseMiaProxyAfterTurn) {
+        try { miaProxySession?.release?.(); } catch { /* ignore */ }
+      }
     }
+    appendEngineLog(`[codex] chat total: ${elapsedMs(chatStartedAt)} transport=${transport}`);
     const imagePaths = recentGeneratedImagePaths(capturedSessionId, { env, startedAtMs });
     if (capturedSessionId && !externalSessionId && shouldPersistAgentSession) {
       setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, mcpFingerprint);
@@ -565,7 +414,7 @@ function createCodexChatAdapter(deps = {}) {
   }
 
   async function sendStateless({ systemPrompt, userPrompt, signal }) {
-    const commandPath = shellCommandPath("codex");
+    const { runtime: codexRuntime, commandPath } = resolveCodexRuntimeCommand();
     if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
     let codexHomePath = "";
     try {
@@ -574,19 +423,25 @@ function createCodexChatAdapter(deps = {}) {
       throw new Error(`Mia Codex home setup failed: ${error?.message || error}`);
     }
     if (!codexHomePath) throw new Error("Mia Codex home setup failed: missing CODEX_HOME.");
-    const { Codex } = await codexSdk();
-    const codex = new Codex({
-      codexPathOverride: commandPath,
-      env: envWithExecutableDirFirst({ ...processEnvStrings(), CODEX_HOME: codexHomePath }, commandPath)
+    const turn = await runCodexAppServerTurn({
+      codexPath: commandPath,
+      env: envForCodexRuntime({ ...processEnvStrings(), CODEX_HOME: codexHomePath }, codexRuntime, commandPath),
+      prompt: statelessPrompt(systemPrompt, userPrompt),
+      options: {
+        workingDirectory: cwd(),
+        skipGitRepoCheck: true,
+        modelReasoningEffort: normalizeEffortLevel("medium", "codex"),
+        ...mapCodexPermissionMode("default"),
+        approvalPolicy: "never"
+      },
+      signal,
+      emit: null,
+      permissionCoordinator: null,
+      botKey: "stateless",
+      sessionId: "",
+      mcpServers: {},
+      appendLog: appendEngineLog
     });
-    const thread = codex.startThread({
-      workingDirectory: cwd(),
-      skipGitRepoCheck: true,
-      modelReasoningEffort: normalizeEffortLevel("medium", "codex"),
-      ...mapCodexPermissionMode("default"),
-      approvalPolicy: "never"
-    });
-    const turn = await thread.run(statelessPrompt(systemPrompt, userPrompt), runOptions(signal));
     if (signal?.aborted) throw stoppedError();
     return { content: String(turn?.finalResponse || "").trim() };
   }
@@ -595,6 +450,7 @@ function createCodexChatAdapter(deps = {}) {
 }
 
 module.exports = {
+  closeManagedCodexProxySessions,
   createCodexChatAdapter,
   mapCodexPermissionMode
 };

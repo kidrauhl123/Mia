@@ -42,8 +42,10 @@ function normalizeClaudePermissionMode(value) {
 function envWithExecutableDirFirst(env = {}, executablePath = "") {
   const dir = path.dirname(String(executablePath || ""));
   if (!dir || dir === ".") return env || {};
-  const delimiter = process.platform === "win32" ? ";" : path.delimiter;
   const currentPath = String(env?.PATH || env?.Path || "");
+  const delimiter = process.platform === "win32" && !currentPath.includes(";") && !/^[A-Za-z]:[\\/]/.test(currentPath)
+    ? ":"
+    : process.platform === "win32" ? ";" : path.delimiter;
   const parts = currentPath.split(delimiter).filter(Boolean).filter((item) => item !== dir);
   return {
     ...(env || {}),
@@ -87,6 +89,49 @@ function isMiaManagedClaudeModel(managedModel = {}) {
   const provider = String(managedModel.provider || "").trim();
   const authType = String(managedModel.authType || managedModel.auth_type || "").trim();
   return provider === "mia" || authType === "mia_account";
+}
+
+const managedClaudeProxySessions = new Map();
+
+function isDurableAgentSession(sessionId, persistAgentSession) {
+  return Boolean(persistAgentSession) && String(sessionId || "").startsWith("conversation:");
+}
+
+function secretDigest(value = "") {
+  const text = String(value || "");
+  return text ? crypto.createHash("sha256").update(text).digest("hex").slice(0, 16) : "";
+}
+
+function managedClaudeProxyKey(managedModel = {}, { bot, sessionId } = {}) {
+  return JSON.stringify({
+    engine: "claude-code",
+    bot: String(bot?.key || bot?.id || ""),
+    sessionId: String(sessionId || ""),
+    provider: String(managedModel.provider || ""),
+    authType: String(managedModel.authType || managedModel.auth_type || ""),
+    model: String(managedModel.model || ""),
+    baseUrl: String(managedModel.baseUrl || managedModel.base_url || managedModel.anthropicBaseUrl || managedModel.anthropic_base_url || ""),
+    apiKey: secretDigest(managedModel.apiKey || managedModel.api_key || "")
+  });
+}
+
+async function createOrReuseManagedClaudeProxy(factory, managedModel, context, { cache = false } = {}) {
+  if (!cache) {
+    return { session: await factory(managedModel, context), cached: false };
+  }
+  const key = managedClaudeProxyKey(managedModel, context);
+  const existing = managedClaudeProxySessions.get(key);
+  if (existing) return { session: existing, cached: true };
+  const session = await factory(managedModel, context);
+  managedClaudeProxySessions.set(key, session);
+  return { session, cached: true };
+}
+
+function closeManagedClaudeProxySessions() {
+  for (const session of managedClaudeProxySessions.values()) {
+    try { session?.release?.(); } catch { /* ignore proxy cleanup */ }
+  }
+  managedClaudeProxySessions.clear();
 }
 
 function applyMiaClaudeProxyEnv(baseEnv = {}, proxySession = {}) {
@@ -217,13 +262,21 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const selectedModel = String(managedModel?.model || turnConfig.model || "").trim();
     let selectedModelForClaude = selectedModel;
     let releaseManagedModelSession = null;
+    let releaseManagedModelAfterTurn = true;
     let managedEnv = processEnvStrings();
     if (isMiaManagedClaudeModel(managedModel || {})) {
       if (typeof ensureMiaClaudeProxy !== "function") {
         throw new Error("Mia Claude Code model proxy is unavailable.");
       }
-      const proxySession = await ensureMiaClaudeProxy(managedModel, { engine, bot, sessionId });
+      const proxy = await createOrReuseManagedClaudeProxy(
+        ensureMiaClaudeProxy,
+        managedModel,
+        { engine, bot, sessionId },
+        { cache: isDurableAgentSession(sessionId, shouldPersistAgentSession) }
+      );
+      const proxySession = proxy.session;
       releaseManagedModelSession = typeof proxySession.release === "function" ? proxySession.release : null;
+      releaseManagedModelAfterTurn = !proxy.cached;
       managedEnv = applyMiaClaudeProxyEnv(managedEnv, proxySession);
       selectedModelForClaude = "";
     } else {
@@ -426,7 +479,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       }
     } finally {
       try {
-        if (releaseManagedModelSession) releaseManagedModelSession();
+        if (releaseManagedModelAfterTurn && releaseManagedModelSession) releaseManagedModelSession();
       } catch {
         // Ignore cleanup failures; the proxy also expires idle sessions.
       }
@@ -483,6 +536,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
 
 module.exports = {
   claudeMessageText,
+  closeManagedClaudeProxySessions,
   createClaudeCodeChatAdapter,
   isMiaManagedClaudeModel,
   normalizeClaudePermissionMode

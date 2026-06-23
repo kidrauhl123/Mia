@@ -2,6 +2,14 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync: defaultSpawnSync, execFile: defaultExecFile } = require("node:child_process");
+const {
+  createManagedAgentRuntimeService,
+  runtimeEnv
+} = require("./agent-runtime/managed-agent-runtime.js");
+const {
+  execFileExecutable,
+  spawnSyncExecutable
+} = require("./agent-runtime/process-launcher.js");
 
 const SYSTEM_CLI_PATH_SEGMENTS = [
   "/opt/homebrew/bin",
@@ -18,6 +26,7 @@ const AGENT_DEFINITIONS = Object.freeze([
     legacyKey: "hermes",
     label: "Hermes",
     commands: ["hermes"],
+    managedProtocols: ["cli"],
     installable: true,
     detectionOnly: false
   },
@@ -26,6 +35,7 @@ const AGENT_DEFINITIONS = Object.freeze([
     legacyKey: "claudeCode",
     label: "Claude Code",
     commands: ["claude"],
+    managedProtocols: ["cli", "claude-code-cli"],
     installable: true,
     detectionOnly: false
   },
@@ -34,6 +44,7 @@ const AGENT_DEFINITIONS = Object.freeze([
     legacyKey: "codex",
     label: "Codex",
     commands: ["codex"],
+    managedProtocols: ["cli", "codex-cli", "codex-app-server"],
     installable: true,
     detectionOnly: false
   },
@@ -42,6 +53,7 @@ const AGENT_DEFINITIONS = Object.freeze([
     legacyKey: "openClaw",
     label: "OpenClaw",
     commands: ["openclaw", "claw"],
+    managedProtocols: ["cli", "openclaw-cli"],
     installable: true,
     detectionOnly: false
   }
@@ -152,6 +164,15 @@ function createLocalAgentEngineService(deps = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const fsImpl = deps.fs || fs;
   const platform = deps.platform || process.platform;
+  const managedAgentRuntime = deps.managedAgentRuntime || createManagedAgentRuntimeService({
+    arch: deps.arch || process.arch,
+    env: currentEnv(),
+    fs: fsImpl,
+    platform,
+    resourceRoots: deps.managedResourceRoots,
+    resourcesPath: deps.resourcesPath,
+    spawnSync
+  });
   const isHermesInstalled = typeof deps.isHermesInstalled === "function"
     ? deps.isHermesInstalled
     : () => false;
@@ -169,9 +190,9 @@ function createLocalAgentEngineService(deps = {}) {
   function execFileAsync(file, args, options) {
     return new Promise((resolve) => {
       try {
-        execFile(file, args, options, (error, stdout, stderr) => {
+        execFileExecutable(execFile, file, args, options, (error, stdout, stderr) => {
           resolve({ error, stdout: String(stdout || ""), stderr: String(stderr || "") });
-        });
+        }, { platform });
       } catch (error) {
         resolve({ error, stdout: "", stderr: "" });
       }
@@ -235,7 +256,7 @@ function createLocalAgentEngineService(deps = {}) {
   function commandFileNames(name) {
     if (platform !== "win32") return [name];
     if (/\.(?:exe|cmd|bat|ps1)$/i.test(name)) return [name];
-    return [name, `${name}.exe`, `${name}.cmd`, `${name}.bat`, `${name}.ps1`];
+    return [`${name}.exe`, `${name}.cmd`, `${name}.bat`];
   }
 
   function directCommandPath(name) {
@@ -252,10 +273,28 @@ function createLocalAgentEngineService(deps = {}) {
     return "";
   }
 
-  // Windows has no zsh and uses .exe/.cmd/.bat executables, so the posix
-  // `command -v` + bare-name file scan never resolves a CLI there. `where`
-  // searches the real PATH with PATHEXT and returns the full path (extension
-  // included), which is exactly what the engine SDKs need to spawn it.
+  function windowsCommandRank(filePath) {
+    const ext = path.extname(String(filePath || "")).toLowerCase();
+    if (ext === ".exe" || ext === ".com") return 1;
+    if (ext === ".cmd") return 2;
+    if (ext === ".bat") return 3;
+    return 99;
+  }
+
+  function bestWindowsCommandPath(output) {
+    const candidates = String(output || "")
+      .split(/\r?\n/)
+      .map((line, index) => ({ path: line.trim(), index }))
+      .filter((entry) => entry.path)
+      .map((entry) => ({ ...entry, rank: windowsCommandRank(entry.path) }))
+      .filter((entry) => entry.rank < 99)
+      .sort((a, b) => a.rank - b.rank || a.index - b.index);
+    return candidates[0]?.path || "";
+  }
+
+  // Windows npm creates extensionless shell scripts next to .cmd wrappers.
+  // Node cannot spawn those scripts directly, so accept only real Windows
+  // executables or cmd/bat wrappers.
   function windowsCommandPath(name) {
     const result = spawnSync("where", [name], {
       encoding: "utf8",
@@ -263,15 +302,37 @@ function createLocalAgentEngineService(deps = {}) {
       env: processEnvWithCliPath()
     });
     if (!result.error && result.status === 0) {
-      const found = String(result.stdout || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+      const found = bestWindowsCommandPath(result.stdout);
       if (found) return found;
     }
     return "";
   }
 
+  function managedRuntimeForCommand(commandName) {
+    for (const definition of AGENT_DEFINITIONS) {
+      if (definition.commands.includes(commandName)) {
+        const runtime = managedAgentRuntime?.resolve?.(definition.id, { protocols: definition.managedProtocols });
+        if (runtime?.path) return runtime;
+      }
+    }
+    return null;
+  }
+
+  function resolveAgentRuntime(engine, options = {}) {
+    return managedAgentRuntime?.resolve?.(engine, options) || null;
+  }
+
+  function agentRuntimeEnv(engine, baseEnv = {}, options = {}) {
+    const runtime = resolveAgentRuntime(engine, options);
+    if (!runtime?.path) return { ...(baseEnv || {}) };
+    return runtimeEnv(runtime, baseEnv, { platform });
+  }
+
   function shellCommandPath(command) {
     const name = commandNameOnly(command);
     if (!name) return "";
+    const managed = managedRuntimeForCommand(name);
+    if (managed?.path) return managed.path;
     const direct = directCommandPath(name);
     if (direct) return direct;
     if (platform === "win32") return windowsCommandPath(name);
@@ -294,18 +355,31 @@ function createLocalAgentEngineService(deps = {}) {
 
   function commandVersion(commandPath) {
     if (!commandPath) return "";
-    const result = spawnSync(commandPath, ["--version"], {
+    const result = spawnSyncExecutable(spawnSync, commandPath, ["--version"], {
       encoding: "utf8",
       timeout: 2000,
       env: processEnvWithCliPath()
-    });
+    }, { platform });
     if (result.error) return "";
     return String(result.stdout || result.stderr || "").split(/\r?\n/)[0]?.trim() || "";
+  }
+
+  function managedProbe(definition) {
+    const runtime = managedAgentRuntime?.resolve?.(definition.id);
+    if (!runtime?.path) return null;
+    return {
+      command: runtime.command || definition.commands[0] || "",
+      path: runtime.path,
+      version: runtime.version || "",
+      source: "managed",
+      runtime
+    };
   }
 
   function resetCache() {
     agentInventoryCache = { at: 0, value: null };
     agentEngineCache = { at: 0, value: null };
+    managedAgentRuntime?.resetCache?.();
   }
 
   function firstCommandPath(commands) {
@@ -322,18 +396,24 @@ function createLocalAgentEngineService(deps = {}) {
     return { command: commands[0] || "", path: "", version: "" };
   }
 
+  function firstRuntimeProbe(definition) {
+    return managedProbe(definition) || firstCommandPath(definition.commands);
+  }
+
   // Async variants of the probes (execFile) for non-blocking detection. The
   // direct PATH scan is a cheap sync fs check; only the shell fallback and the
   // --version call shell out, and those run asynchronously here.
   async function shellCommandPathAsync(command) {
     const name = commandNameOnly(command);
     if (!name) return "";
+    const managed = managedRuntimeForCommand(name);
+    if (managed?.path) return managed.path;
     const direct = directCommandPath(name);
     if (direct) return direct;
     if (platform === "win32") {
       const result = await execFileAsync("where", [name], { encoding: "utf8", timeout: 1500, env: processEnvWithCliPath() });
       if (!result.error) {
-        const found = result.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+        const found = bestWindowsCommandPath(result.stdout);
         if (found) return found;
       }
       return "";
@@ -363,6 +443,10 @@ function createLocalAgentEngineService(deps = {}) {
     return { command: commands[0] || "", path: "", version: "" };
   }
 
+  async function firstRuntimeProbeAsync(definition) {
+    return managedProbe(definition) || firstCommandPathAsync(definition.commands);
+  }
+
   function miaHermesSource() {
     const source = String(hermesSource() || "").trim();
     if (source === "system") return "system";
@@ -377,16 +461,26 @@ function createLocalAgentEngineService(deps = {}) {
 
   // Pure status builder shared by the sync and async detection paths.
   function buildAgentStatus(definition, probe) {
-    const systemAvailable = Boolean(probe.path);
+    const runtimeSource = String(probe.source || "").trim();
+    const managedAvailable = runtimeSource === "managed" && Boolean(probe.path);
+    const managedProtocol = String(probe.runtime?.protocol || "cli").trim();
+    const managedSupported = managedAvailable && (
+      !Array.isArray(definition.managedProtocols)
+      || definition.managedProtocols.includes(managedProtocol)
+    );
+    const systemAvailable = Boolean(probe.path) && !managedAvailable;
+    const runtimeAvailable = Boolean(probe.path);
     const hermesRuntimeUsable = definition.id === "hermes" ? hermesUsable(systemAvailable) : false;
-    const installed = Boolean(systemAvailable || hermesRuntimeUsable);
+    const installed = Boolean(runtimeAvailable || hermesRuntimeUsable);
     const hermesApiReady = definition.id === "hermes" && hermesRuntimeUsable
       ? Boolean(isHermesApiRuntimeReady())
       : true;
     const usableInMia = definition.id === "hermes"
       ? hermesRuntimeUsable && hermesApiReady
-      : Boolean(systemAvailable && !definition.detectionOnly);
-    const source = definition.id === "hermes" && hermesRuntimeUsable
+      : Boolean((systemAvailable || managedSupported) && !definition.detectionOnly);
+    const source = managedAvailable
+      ? "managed"
+      : definition.id === "hermes" && hermesRuntimeUsable
       ? miaHermesSource()
       : systemAvailable
         ? "system"
@@ -419,12 +513,20 @@ function createLocalAgentEngineService(deps = {}) {
         available: systemAvailable,
         path: probe.path,
         version: probe.version
+      },
+      runtime: {
+        source,
+        managed: managedAvailable,
+        supported: managedSupported || systemAvailable,
+        path: probe.path,
+        version: probe.version,
+        protocol: probe.runtime?.protocol || ""
       }
     };
   }
 
   function agentStatus(definition) {
-    return buildAgentStatus(definition, firstCommandPath(definition.commands));
+    return buildAgentStatus(definition, firstRuntimeProbe(definition));
   }
 
   function buildInventory(agents, at) {
@@ -464,8 +566,8 @@ function createLocalAgentEngineService(deps = {}) {
       return Promise.resolve(agentInventoryCache.value);
     }
     const run = () => Promise.all(AGENT_DEFINITIONS.map(async (definition) => {
-      const probe = await firstCommandPathAsync(definition.commands);
-      const status = buildAgentStatus(definition, probe);
+      const runtimeProbe = await firstRuntimeProbeAsync(definition);
+      const status = buildAgentStatus(definition, runtimeProbe);
       try { if (typeof onProgress === "function") onProgress(status); } catch { /* ignore */ }
       return status;
     })).then((agents) => {
@@ -645,6 +747,8 @@ function createLocalAgentEngineService(deps = {}) {
     pendingLocalAgentEngines,
     processEnvWithCliPath,
     resetCache,
+    resolveAgentRuntime,
+    agentRuntimeEnv,
     scanAgentsAsync,
     shellCommandPath
   };

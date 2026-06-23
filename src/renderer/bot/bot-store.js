@@ -460,7 +460,9 @@
     });
 
     window.addEventListener("resize", () => {
-      if (state.activeView === "bot-store") movePill();
+      if (state.activeView !== "bot-store") return;
+      scrollCategoryButtonIntoView(els.botStoreCap?.querySelector("button.active"), "auto");
+      movePill();
     });
   }
 
@@ -487,12 +489,31 @@
         activeCat = c;
         cap.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
         b.classList.add("active");
+        scrollCategoryButtonIntoView(b, "smooth");
         movePill();
         renderGrid();
       });
       cap.appendChild(b);
     });
+    scrollCategoryButtonIntoView(cap.querySelector("button.active"), "auto");
     movePill();
+  }
+
+  function scrollCategoryButtonIntoView(button, behavior = "smooth") {
+    const cap = els?.botStoreCap;
+    if (!button || !cap || typeof button.scrollIntoView !== "function") return;
+    if ((cap.scrollWidth || 0) <= (cap.clientWidth || 0)) return;
+    const prefersReducedMotion = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    try {
+      button.scrollIntoView({
+        block: "nearest",
+        inline: "center",
+        behavior: prefersReducedMotion ? "auto" : behavior
+      });
+    } catch {
+      button.scrollIntoView();
+    }
   }
 
   function movePill() {
@@ -500,10 +521,11 @@
     if (!cap) return;
     const a = cap.querySelector("button.active");
     if (!a || typeof a.getBoundingClientRect !== "function") return;
-    const hr = cap.getBoundingClientRect();
     const ar = a.getBoundingClientRect();
-    cap.style.setProperty("--pill-x", `${ar.left - hr.left}px`);
-    cap.style.setProperty("--pill-w", `${ar.width}px`);
+    const pillX = Number.isFinite(a.offsetLeft) ? a.offsetLeft : (ar.left - cap.getBoundingClientRect().left + cap.scrollLeft);
+    const pillW = Number.isFinite(a.offsetWidth) && a.offsetWidth > 0 ? a.offsetWidth : ar.width;
+    cap.style.setProperty("--pill-x", `${pillX}px`);
+    cap.style.setProperty("--pill-w", `${pillW}px`);
     cap.style.setProperty("--pill-ready", "1");
   }
 

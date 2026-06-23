@@ -182,8 +182,10 @@ function titleCaseWords(value = "") {
 function envWithExecutableDirFirst(env = {}, executablePath = "") {
   const dir = path.dirname(String(executablePath || ""));
   if (!dir || dir === ".") return env || {};
-  const delimiter = process.platform === "win32" ? ";" : path.delimiter;
   const currentPath = String(env?.PATH || env?.Path || "");
+  const delimiter = process.platform === "win32" && !currentPath.includes(";") && !/^[A-Za-z]:[\\/]/.test(currentPath)
+    ? ":"
+    : process.platform === "win32" ? ";" : path.delimiter;
   const parts = currentPath.split(delimiter).filter(Boolean).filter((item) => item !== dir);
   return {
     ...(env || {}),

@@ -113,6 +113,9 @@
 /* 详情：无页面底板；里面的内容卡片直接浮在连续地板上 */
 .app-shell[data-active-view="contacts"] #contactsView,
 .app-shell[data-active-view="bot-store"] #botStoreView {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
   background: transparent;
   box-shadow: none;
@@ -130,10 +133,15 @@
   align-content: start;
   align-items: start;
   gap: 14px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 0;
   padding: 84px 24px 24px;
   background: transparent;
   overflow: auto;
+  overflow-x: hidden;
 }
 
 /* 顶部分类胶囊 —— 滑动白胶囊 */
@@ -142,16 +150,29 @@
   display: inline-flex;
   align-self: start;
   justify-self: start;
+  flex-wrap: nowrap;
   gap: 2px;
+  box-sizing: border-box;
   width: fit-content;
+  min-width: 0;
   max-width: 100%;
+  inline-size: fit-content;
+  min-inline-size: 0;
+  max-inline-size: 100%;
   padding: 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
   border-radius: 999px;
   background: var(--segmented-control-bg);
   box-shadow: var(--segmented-control-shadow);
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
   backdrop-filter: blur(24px) saturate(1.16);
   isolation: isolate;
+}
+.bot-store-cap::-webkit-scrollbar {
+  display: none;
 }
 .bot-store-cap::before {
   content: "";
@@ -161,8 +182,8 @@
   left: 0;
   width: var(--pill-w, 0px);
   border-radius: 999px;
-  background: var(--segmented-control-active-bg);
-  box-shadow: var(--segmented-control-pill-shadow);
+  background: rgb(var(--accent-rgb) / 0.14);
+  box-shadow: none;
   opacity: var(--pill-ready, 0);
   transform: translateX(var(--pill-x, 0px));
   pointer-events: none;
@@ -171,6 +192,7 @@
 }
 .bot-store-cap button {
   position: relative;
+  flex: 0 0 auto;
   z-index: 1;
   padding: 6px 15px;
   border: 0;
@@ -190,7 +212,7 @@
 }
 .bot-store-cap button.active {
   background: transparent;
-  color: var(--segmented-control-active-text);
+  color: var(--accent);
   font-weight: 560;
 }
 
@@ -895,4 +917,28 @@
   .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="bot-store"] #sidebarResizeHandle {
     display: none !important;
   }
+}
+
+body.platform-win32 .app-shell[data-active-view="contacts"] .discover-top-bar,
+body.platform-win32 .app-shell[data-active-view="bot-store"] .discover-top-bar {
+  top: calc(var(--win-titlebar-height) + 12px);
+}
+
+body.platform-win32 .app-shell[data-active-view="contacts"] .contacts-sidebar {
+  margin: calc(var(--win-titlebar-height) + 58px) 8px 10px 0;
+  border: 1px solid var(--win-panel-border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--rail-expanded-shadow);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
+}
+
+body.platform-win32 .app-shell[data-active-view="contacts"] .contacts-sidebar .sidebar-tools,
+body.platform-win32 .app-shell[data-active-view="contacts"] .contacts-sidebar .contact-section {
+  background: transparent;
+}
+
+body.platform-win32 .app-shell[data-active-view="contacts"] .contacts-sidebar .sidebar-tools {
+  border-bottom: 0;
 }

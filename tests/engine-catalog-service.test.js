@@ -442,7 +442,7 @@ test("loadEngineCapabilities uses a Mia-owned probe CODEX_HOME and does not crea
   assert.equal(spawnCalls.length, 1);
   assert.equal(spawnCalls[0].command, "/opt/codex/bin/codex");
   assert.equal(spawnCalls[0].options.env.CODEX_HOME, probeCodexHome);
-  assert.equal(spawnCalls[0].options.env.PATH, ["/opt/codex/bin", "/usr/bin"].join(path.delimiter));
+  assert.equal(spawnCalls[0].options.env.PATH, "/opt/codex/bin:/usr/bin");
   assert.notEqual(spawnCalls[0].options.env.CODEX_HOME, nativeCodexHome);
   assert.equal(fs.existsSync(probeCodexHome), true);
   assert.equal(fs.existsSync(nativeCodexHome), false);

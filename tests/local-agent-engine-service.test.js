@@ -91,7 +91,7 @@ test("shellCommandPath finds npm CLIs installed under nvm versions", (t) => {
   assert.equal(service.shellCommandPath("codex"), executable);
 });
 
-test("shellCommandPath uses `where` on Windows and returns the first resolved path", (t) => {
+test("shellCommandPath uses `where` on Windows and prefers native executables", (t) => {
   const calls = [];
   const { service } = makeService(t, {
     platform: "win32",
@@ -108,11 +108,41 @@ test("shellCommandPath uses `where` on Windows and returns the first resolved pa
     }
   });
 
-  // The resolved path keeps its extension so the engine SDKs get a runnable
-  // executable, and we never shell out to zsh (absent on Windows).
-  assert.equal(service.shellCommandPath("claude"), "C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd");
+  // Prefer the real executable over npm cmd shims when both are visible.
+  assert.equal(service.shellCommandPath("claude"), "C:\\other\\claude.exe");
   assert.equal(calls.filter((call) => call[0] === "zsh").length, 0);
   assert.deepEqual(calls, [["where", ["claude"]]]);
+});
+
+test("shellCommandPath ignores extensionless Windows npm shims from where output", (t) => {
+  const calls = [];
+  const { service } = makeService(t, {
+    platform: "win32",
+    spawnSync: (command, args) => {
+      calls.push([command, args]);
+      if (command === "where" && args[0] === "codex") {
+        return {
+          status: 0,
+          stdout: [
+            "C:\\Users\\me\\AppData\\Roaming\\npm\\codex",
+            "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd"
+          ].join("\r\n"),
+          stderr: ""
+        };
+      }
+      if (command === "cmd.exe") {
+        assert.deepEqual(args.slice(0, 4), ["/d", "/s", "/c", "call"]);
+        assert.match(args[4], /codex\.cmd/);
+        return { status: 0, stdout: "codex-cli 0.142.0\n", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+
+  const commandPath = service.shellCommandPath("codex");
+  assert.equal(commandPath, "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd");
+  assert.equal(service.commandVersion(commandPath), "codex-cli 0.142.0");
+  assert.deepEqual(calls.map((call) => call[0]), ["where", "cmd.exe"]);
 });
 
 test("shellCommandPath scans official Windows agent install directories before PATH lookup", (t) => {
@@ -152,6 +182,96 @@ test("shellCommandPath scans official Windows agent install directories before P
   assert.equal(service.shellCommandPath("codex"), codex);
   assert.equal(service.shellCommandPath("openclaw"), openclaw);
   assert.deepEqual(calls, []);
+});
+
+test("agentInventory prefers managed runtime manifests before system PATH probes", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-local-agent-home-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const root = path.join(home, "managed-resources");
+  const service = createLocalAgentEngineService({
+    homeDir: () => home,
+    env: { PATH: "" },
+    platform: "win32",
+    managedResourceRoots: [root],
+    fs: {
+      accessSync: (p, mode) => {
+        if (!String(p).startsWith(home)) throw new Error("ENOENT");
+        return fs.accessSync(p, mode);
+      },
+      readdirSync: (...args) => fs.readdirSync(...args),
+      readFileSync: (...args) => fs.readFileSync(...args)
+    },
+    spawnSync: (command, args) => {
+      if (command === "where" && args[0] === "codex") {
+        return { status: 0, stdout: "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd\r\n", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+  const runtimeDir = path.join(root, "acp", "codex-acp", "0.14.0", "win32-x64");
+  const entrypoint = path.join(runtimeDir, "codex-acp.exe");
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(entrypoint, "");
+  fs.writeFileSync(path.join(runtimeDir, "manifest.json"), JSON.stringify({
+    entrypoint: "codex-acp.exe",
+    protocol: "codex-app-server"
+  }));
+
+  const inventory = service.agentInventory();
+  const codex = inventory.agents.find((agent) => agent.id === "codex");
+
+  assert.equal(codex.source, "managed");
+  assert.equal(codex.usableInMia, true);
+  assert.equal(codex.path, entrypoint);
+  assert.equal(codex.version, "0.14.0");
+  assert.equal(codex.system.available, false);
+  assert.deepEqual(codex.runtime, {
+    source: "managed",
+    managed: true,
+    supported: true,
+    path: entrypoint,
+    version: "0.14.0",
+    protocol: "codex-app-server"
+  });
+});
+
+test("agentInventory detects unsupported managed ACP runtimes without exposing them as usable CLI adapters", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-local-agent-home-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const root = path.join(home, "managed-resources");
+  const runtimeDir = path.join(root, "acp", "codex-acp", "0.14.0", "win32-x64");
+  const entrypoint = path.join(runtimeDir, "codex-acp.exe");
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(entrypoint, "");
+  fs.writeFileSync(path.join(runtimeDir, "manifest.json"), JSON.stringify({
+    entrypoint: "codex-acp.exe",
+    protocol: "acp"
+  }));
+  const service = createLocalAgentEngineService({
+    homeDir: () => home,
+    env: { PATH: "" },
+    platform: "win32",
+    managedResourceRoots: [root],
+    fs: {
+      accessSync: (p, mode) => {
+        if (!String(p).startsWith(home)) throw new Error("ENOENT");
+        return fs.accessSync(p, mode);
+      },
+      readdirSync: (...args) => fs.readdirSync(...args),
+      readFileSync: (...args) => fs.readFileSync(...args)
+    },
+    spawnSync: () => ({ status: 1, stdout: "", stderr: "" })
+  });
+
+  const codex = service.agentInventory().agents.find((agent) => agent.id === "codex");
+
+  assert.equal(codex.installed, true);
+  assert.equal(codex.usableInMia, false);
+  assert.equal(codex.health, "detected");
+  assert.equal(codex.source, "managed");
+  assert.equal(codex.runtime.protocol, "acp");
+  assert.equal(codex.runtime.supported, false);
+  assert.equal(service.shellCommandPath("codex"), "");
 });
 
 test("shellCommandPath returns empty on Windows when `where` finds nothing", (t) => {

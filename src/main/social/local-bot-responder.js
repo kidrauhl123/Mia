@@ -244,6 +244,10 @@ function isStoppedError(error, signal) {
   return Boolean(signal?.aborted || error?.code === "MIA_STOPPED");
 }
 
+function elapsedMs(startedAt) {
+  return `${Math.max(0, Date.now() - startedAt)}ms`;
+}
+
 function hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId, turnId }) {
   const rows = Array.isArray(messages) ? messages : [];
   const targetBot = String(botId || "");
@@ -267,6 +271,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
   const processed = new Set();
   const inFlight = new Set();
   const activeRunsByConversation = new Map();
+  const queuedInvocationsByConversation = new Map();
 
   function remember(key) {
     processed.add(key);
@@ -276,6 +281,26 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
   function clearActiveRun(conversationId, dedupKey) {
     const entry = activeRunsByConversation.get(conversationId);
     if (entry && entry.dedupKey === dedupKey) activeRunsByConversation.delete(conversationId);
+  }
+
+  function queueInvocation(args, activeRun) {
+    const conversationId = String(args?.conversationId || "").trim();
+    const dedupKey = String(args?.dedupKey || "").trim();
+    if (!conversationId || !dedupKey) return false;
+    queuedInvocationsByConversation.set(conversationId, { ...args });
+    log(`[local-bot-responder] queue ${dedupKey}: conversation ${conversationId} already has active run ${activeRun?.runId || ""}`);
+    return true;
+  }
+
+  function drainQueuedInvocation(conversationId) {
+    const queued = queuedInvocationsByConversation.get(conversationId);
+    if (!queued) return;
+    queuedInvocationsByConversation.delete(conversationId);
+    Promise.resolve()
+      .then(() => respond(queued))
+      .catch((error) => {
+        log(`[local-bot-responder] queued run failed: ${error?.message || error}`);
+      });
   }
 
   function emitRunEvent(entry, event = {}) {
@@ -301,6 +326,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     clearCancelDrainTimer(entry);
     inFlight.delete(entry.dedupKey);
     clearActiveRun(entry.conversationId, entry.dedupKey);
+    drainQueuedInvocation(entry.conversationId);
   }
 
   function finishCancelledRun(entry, event = {}) {
@@ -403,12 +429,13 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
   async function respond({ conversationId, conversationType = "", botId, botSnapshot = null, dedupKey, triggerMessageId = "", triggerSeq = 0, systemPrompt, historyMessages = [], userPrompt, userAttachments = [], turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
     if (!conversationId || !botId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
+    if (inFlight.has(dedupKey)) return;
+    const requestStartedAt = Date.now();
     const activeRun = activeRunsByConversation.get(conversationId);
     if (activeRun && !activeRun.finalized) {
-      log(`[local-bot-responder] skip ${dedupKey}: conversation ${conversationId} already has active run ${activeRun.runId}`);
+      queueInvocation({ conversationId, conversationType, botId, botSnapshot, dedupKey, triggerMessageId, triggerSeq, systemPrompt, historyMessages, userPrompt, userAttachments, turnId, runtimeConfig, activeSkillIds }, activeRun);
       return false;
     }
-    if (inFlight.has(dedupKey)) return;
     inFlight.add(dedupKey);
 
     const resolvedTriggerMessageId = triggerMessageId || triggerMessageIdForDedupKey(dedupKey);
@@ -435,6 +462,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       finalized: false
     };
     activeRunsByConversation.set(conversationId, runEntry);
+    log(`[local-bot-responder] run ${runId} start bot=${botId} conversation=${conversationId} preflight=${elapsedMs(requestStartedAt)}`);
     const trace = createTraceCollector();
     const contentBlocks = createAssistantContentBlockCollector();
     emitCloudEvent({
@@ -459,9 +487,10 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         ],
         group: isGroupConversation(conversationId, conversationType),
         utility: true,
-        // App conversation history is the source of truth here. Resuming a native
-        // agent session can replay stale pending tool calls from a previous turn.
-        persistAgentSession: false,
+        // Keep the native agent session attached to this Mia conversation. The
+        // app conversation owns visible history; the agent runtime owns warm
+        // thread/session state, matching ACP-style backends.
+        persistAgentSession: true,
         allowSlashCommands: false,
         signal,
         abortController
@@ -472,8 +501,14 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       // into this turn so the chip actually reaches the engine (sendChat folds
       // them into capabilities.enabledSkills and prepends a "use these" directive).
       if (Array.isArray(activeSkillIds) && activeSkillIds.length) chatArgs.activeSkillIds = activeSkillIds;
+      const sendStartedAt = Date.now();
+      let firstEngineEventLogged = false;
       chatArgs.emit = (kind, data = {}) => {
         if (!kind || kind === "session_started") return;
+        if (!firstEngineEventLogged) {
+          firstEngineEventLogged = true;
+          log(`[local-bot-responder] run ${runId} first engine event=${kind} send=${elapsedMs(sendStartedAt)} total=${elapsedMs(requestStartedAt)}`);
+        }
         trace.collect(kind, data);
         contentBlocks.collect(kind, data);
         emitCloudEvent({
@@ -485,6 +520,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         });
       };
       const result = await sendChat(chatArgs);
+      log(`[local-bot-responder] run ${runId} sendChat completed send=${elapsedMs(sendStartedAt)} total=${elapsedMs(requestStartedAt)}`);
       if (runEntry.finalized) return true;
       if (signal.aborted || runEntry.status === "cancelling") {
         finishCancelledRun(runEntry);

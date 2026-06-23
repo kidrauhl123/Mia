@@ -87,6 +87,29 @@ test("cloud runtime status exposes events socket health separately from bridge h
   );
 });
 
+test("daemon startup does not run foreground MCP initialization before serving control API", () => {
+  const main = read("src/main.js");
+  assert.match(
+    main,
+    /if \(!IS_DAEMON_PROCESS\) startupMcpInitializer\.start\(\);[\s\S]*if \(IS_DAEMON_PROCESS\) \{/,
+    "daemon cold start must keep the control server responsive before optional foreground MCP warmup"
+  );
+});
+
+test("daemon bridge capability URL warms local Agent inventory when cache is cold", () => {
+  const main = read("src/main.js");
+  assert.match(
+    main,
+    /function bridgeEngineIdsFromView\(engines = \{\}\) \{[\s\S]*engines\.codex\?\.available[\s\S]*engines\.openClaw\?\.available/,
+    "bridge capabilities must include all usable local Agent engines, not just Hermes"
+  );
+  assert.match(
+    main,
+    /IS_DAEMON_PROCESS && !ids\.length && typeof localAgentEngineService\?\.localAgentEngines === "function"[\s\S]*localAgentEngineService\.localAgentEngines\(\)/,
+    "daemon bridge startup must synchronously warm cold Agent inventory before first cloud registration"
+  );
+});
+
 test("renderer social module no longer runs local engines for cloud conversation AI", () => {
   const social = read("src/renderer/social/social.js");
   const groups = read("src/renderer/social/social-groups.js");

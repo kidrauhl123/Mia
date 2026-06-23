@@ -553,19 +553,19 @@
   }
 
   function localDeviceOption(runtime = state?.runtime || {}) {
+    const engines = Object.entries({
+      hermes: runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed || runtime.engineInstalled || runtime.engineRunning,
+      "claude-code": runtime.agentEngines?.claudeCode?.available,
+      codex: runtime.agentEngines?.codex?.available,
+      openclaw: runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed
+    }).filter(([, ok]) => ok).map(([id]) => id);
+    if (!engines.length) engines.push(window.miaBotDirectory?.normalizeAgentEngine?.(state?.preferredAgentEngine || "hermes", "desktop-local") || "hermes");
     return normalizedDevice({
       id: runtime.localDevice?.id || runtime.cloud?.deviceId || "",
       deviceName: runtime.localDevice?.name || runtime.cloud?.deviceName || "当前设备",
       status: "local",
       isLocal: true,
-      capabilities: {
-        engines: Object.entries({
-          hermes: runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed,
-          "claude-code": runtime.agentEngines?.claudeCode?.available,
-          codex: runtime.agentEngines?.codex?.available,
-          openclaw: runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed
-        }).filter(([, ok]) => ok).map(([id]) => id)
-      }
+      capabilities: { engines }
     });
   }
 

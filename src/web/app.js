@@ -1568,6 +1568,8 @@ function handleCloudEvent(envelope) {
     } else if (name === "run.failed") {
       run.status = "error";
       run.permission = null;
+    } else if (name === "status") {
+      run.statusText = hermesEventText(event) || run.statusText || "";
     } else if (name === "run.cancelled") {
       run.status = "cancelled";
       run.permission = null;

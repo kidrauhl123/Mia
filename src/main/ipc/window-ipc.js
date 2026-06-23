@@ -2,6 +2,7 @@ const { BrowserWindow, Menu, Notification } = require("electron");
 const { IpcChannel } = require("../../shared/ipc-channels");
 const { onboardingWindowBounds } = require("../onboarding-window-bounds.js");
 const { setMacNativeControlsVisible, setMacNativeControlsLayout } = require("../mac-window-controls.js");
+const { applyWindowsTitleBarOverlay } = require("../windows-title-bar.js");
 
 function windowState(w) {
   if (!w) return { focused: true, fullscreen: false, maximized: false };
@@ -81,6 +82,7 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
       w.setBackgroundColor(process.platform === "darwin" ? "#00000000" : "#f0f0f3");
     }
     setMacNativeControlsVisible(w, true);
+    applyWindowsTitleBarOverlay(w, { theme: "light" });
   });
   // Onboarding / agent-scan shows in a compact, narrow window. The renderer
   // drives this whenever it enters the setup guide, since the create-time
@@ -98,6 +100,7 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
       w.setBackgroundColor(process.platform === "darwin" ? "#00000000" : "#ffffff");
     }
     setMacNativeControlsVisible(w, true);
+    applyWindowsTitleBarOverlay(w, { theme: "light" });
   });
   ipcMain.handle(IpcChannel.WindowNativeControlsVisible, (event, visible) => {
     const w = BrowserWindow.fromWebContents(event.sender);
@@ -106,6 +109,9 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
   ipcMain.handle(IpcChannel.WindowNativeControlsLayout, (event, layout) => {
     const w = BrowserWindow.fromWebContents(event.sender);
     setMacNativeControlsLayout(w, layout === "default" ? "default" : "rail");
+  });
+  ipcMain.handle(IpcChannel.WindowTitleBarTheme, (event, appearance = {}) => {
+    applyWindowsTitleBarOverlay(BrowserWindow.fromWebContents(event.sender), appearance);
   });
   ipcMain.handle(IpcChannel.WindowState, (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);

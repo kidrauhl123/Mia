@@ -8,6 +8,7 @@ const { PassThrough } = require("node:stream");
 const {
   codexConfigOverridesForMcpServers,
   codexDecisionFor,
+  closeCodexAppServerRuntimes,
   createCodexAppServerConnection,
   isCodexApprovalRequest,
   runCodexAppServerTurn,
@@ -143,6 +144,37 @@ test("createCodexAppServerConnection starts app-server with explicit config over
     'mcp_servers.mia-scheduler.command="/opt/node"'
   ]);
   assert.deepEqual(spawnCalls[0].options.env, { PATH: "/bin" });
+});
+
+test("createCodexAppServerConnection wraps Windows cmd shims through cmd.exe", () => {
+  const spawnCalls = [];
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+    child.stdout.end();
+    child.stderr.end();
+    child.emit("exit", 0, null);
+  };
+  const connection = createCodexAppServerConnection({
+    codexPath: "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd",
+    env: { PATH: "C:\\Users\\me\\AppData\\Roaming\\npm" },
+    platform: "win32",
+    spawn: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      return child;
+    }
+  });
+  connection.close();
+
+  assert.equal(spawnCalls[0].command, "cmd.exe");
+  assert.deepEqual(spawnCalls[0].args.slice(0, 4), ["/d", "/s", "/c", "call"]);
+  assert.match(spawnCalls[0].args[4], /codex\.cmd/);
+  assert.equal(spawnCalls[0].args[5], "app-server");
+  assert.equal(spawnCalls[0].args[7], "stdio://");
 });
 
 test("createCodexAppServerConnection writes Codex protocol version on requests", async () => {
@@ -486,4 +518,73 @@ test("runCodexAppServerTurn rejects cronjob MCP requests before user permission"
   assert.deepEqual(elicitationResponse, { action: "decline" });
   assert.equal(permissionCalled, false);
   assert.equal(result.finalResponse, "done");
+});
+
+test("runCodexAppServerTurn reuses app-server runtime for the same reuseKey", async (t) => {
+  t.after(() => closeCodexAppServerRuntimes());
+  const requests = [];
+  const children = [];
+  const spawn = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.killed = false;
+    child.kill = () => {
+      child.killed = true;
+      child.stdout.end();
+      child.stderr.end();
+      child.emit("exit", 0, null);
+    };
+    child.stdin = {
+      destroyed: false,
+      write(line) {
+        const request = JSON.parse(line);
+        requests.push(request);
+        if (request.method === "initialize") {
+          queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { ok: true } }) + "\n"));
+        } else if (request.method === "thread/start") {
+          queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { thread: { id: "thread_1" } } }) + "\n"));
+        } else if (request.method === "thread/resume") {
+          queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { thread: { id: request.params.threadId } } }) + "\n"));
+        } else if (request.method === "turn/start") {
+          queueMicrotask(() => child.stdout.write(JSON.stringify({
+            id: request.id,
+            result: {
+              turn: {
+                id: "turn_" + requests.filter((entry) => entry.method === "turn/start").length,
+                status: "completed",
+                items: [{ type: "agentMessage", text: "done" }]
+              }
+            }
+          }) + "\n"));
+        }
+      }
+    };
+    children.push(child);
+    return child;
+  };
+
+  const first = await runCodexAppServerTurn({
+    codexPath: "/bin/codex",
+    env: { PATH: "/bin" },
+    prompt: "hello",
+    options: { workingDirectory: "/repo" },
+    spawn,
+    reuseKey: "codex:alice:conversation"
+  });
+  const second = await runCodexAppServerTurn({
+    codexPath: "/bin/codex",
+    env: { PATH: "/bin" },
+    threadId: first.threadId,
+    prompt: "again",
+    options: { workingDirectory: "/repo" },
+    spawn,
+    reuseKey: "codex:alice:conversation"
+  });
+
+  assert.equal(children.length, 1);
+  assert.equal(requests.filter((request) => request.method === "initialize").length, 1);
+  assert.equal(requests.filter((request) => request.method === "thread/start").length, 1);
+  assert.equal(requests.filter((request) => request.method === "thread/resume").length, 1);
+  assert.equal(second.threadId, "thread_1");
 });

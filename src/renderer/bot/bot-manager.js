@@ -511,10 +511,11 @@
     const runtime = state?.runtime || {};
     const id = firstNonEmpty(runtime.localDevice?.id, runtime.cloud?.deviceId, "current-device");
     const engines = [];
-    if (runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed) engines.push("hermes");
+    if (runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed || runtime.engineInstalled || runtime.engineRunning) engines.push("hermes");
     if (runtime.agentEngines?.claudeCode?.available) engines.push("claude-code");
     if (runtime.agentEngines?.codex?.available) engines.push("codex");
     if (runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed) engines.push("openclaw");
+    if (!engines.length) engines.push(window.miaBotDirectory.normalizeAgentEngine(state?.preferredAgentEngine || "hermes", "desktop-local"));
     return normalizeDevice({
       id,
       deviceName: firstNonEmpty(runtime.localDevice?.name, runtime.cloud?.deviceName, "当前设备"),

@@ -224,6 +224,13 @@
       document.documentElement.style.setProperty("--list-active-muted", "var(--muted)");
       document.documentElement.style.setProperty("--list-active-faint", "var(--faint)");
     }
+    try {
+      (mia || window.mia)?.window?.setTitleBarTheme?.({
+        theme
+      })?.catch?.(() => {});
+    } catch {
+      // Window titlebar theming is optional in browser mocks and non-Windows shells.
+    }
   }
 
   function currentAppearanceDraft() {

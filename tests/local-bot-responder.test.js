@@ -41,6 +41,24 @@ const base = {
   turnId: "t_1"
 };
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function waitFor(predicate, timeoutMs = 1000) {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for condition.");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 test("respond runs the local engine and posts the reply as the bot", async () => {
   const { responder, calls } = setup();
   await responder.respond(base);
@@ -63,7 +81,7 @@ test("respond runs the local engine and posts the reply as the bot", async () =>
     ],
     group: true,
     utility: true,
-    persistAgentSession: false,
+    persistAgentSession: true,
     allowSlashCommands: false
   });
   assert.deepEqual(calls.post, [{
@@ -358,6 +376,49 @@ test("respond skips replayed invocations when the bot already replied to the tri
   assert.equal(calls.engine.length, 0);
   assert.equal(calls.post.length, 0);
   assert.equal(calls.cloudEvents.length, 0);
+});
+
+test("respond queues the latest same-conversation invocation instead of dropping it", async () => {
+  const firstTurn = deferred();
+  const calls = { engine: [], post: [], log: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      if (calls.engine.length === 1) {
+        await firstTurn.promise;
+        return { choices: [{ message: { content: "first reply" } }] };
+      }
+      return { choices: [{ message: { content: `reply to ${args.messages.at(-1).content}` } }] };
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line)
+  });
+
+  const first = responder.respond({ ...base, dedupKey: "m_1:codex", userPrompt: "first", turnId: "t_1" });
+  await waitFor(() => calls.engine.length === 1);
+
+  const secondHandled = await responder.respond({ ...base, dedupKey: "m_2:codex", userPrompt: "second", turnId: "t_2" });
+  const thirdHandled = await responder.respond({ ...base, dedupKey: "m_3:codex", userPrompt: "third", turnId: "t_3" });
+
+  assert.equal(secondHandled, false);
+  assert.equal(thirdHandled, false);
+  assert.equal(calls.engine.length, 1);
+
+  firstTurn.resolve();
+  await first;
+  await waitFor(() => calls.engine.length === 2 && calls.post.length === 2);
+
+  assert.equal(calls.engine[0].messages.at(-1).content, "first");
+  assert.equal(calls.engine[1].messages.at(-1).content, "third");
+  assert.equal(calls.post[0].body.bodyMd, "first reply");
+  assert.equal(calls.post[1].body.bodyMd, "reply to third");
+  assert.equal(calls.post[1].body.turnId, "t_3");
+  assert.equal(calls.log.some((line) => line.includes("queue m_2:codex")), true);
+  assert.equal(calls.log.some((line) => line.includes("queue m_3:codex")), true);
 });
 
 test("respond streams local engine trace events through cloud run events and saves final trace", async () => {

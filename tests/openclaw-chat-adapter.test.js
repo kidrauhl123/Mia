@@ -7,6 +7,7 @@ const {
   buildOpenClawAcpArgs,
   buildOpenClawArgs,
   buildOpenClawGlobalArgs,
+  closeOpenClawAcpRuntimes,
   createOpenClawChatAdapter,
   parseOpenClawContent
 } = require("../src/main/openclaw-chat-adapter.js");
@@ -688,13 +689,34 @@ test("sendChat syncs Mia-managed OpenClaw models and runs them through model ove
   assert.match(configCall[5], /"mia-auto"/);
   assert.match(configCall[5], /"baseUrl":"https:\/\/mia\.example\/api\/me\/model-proxy\/v1"/);
 
-  const runCall = deps.calls.filter((call) => call[0] === "exec").find((call) => call[2][0] === "agent");
-  assert.equal(runCall[2][3], "--agent");
-  assert.equal(runCall[2][4], "main");
-  assert.equal(runCall[2][5], "--session-key");
-  assert.match(runCall[2][6], /^mia-[a-f0-9]{32}$/);
-  assert.ok(runCall[2].includes("--model"));
-  assert.equal(runCall[2][runCall[2].indexOf("--model") + 1], "mia/mia-auto");
-  assert.equal(runCall[2].includes("--local"), true);
-  assert.equal(deps.calls.some((call) => call[0] === "spawn"), false);
+  const spawnCall = deps.calls.find((call) => call[0] === "spawn");
+  assert.equal(spawnCall[1], "/bin/openclaw");
+  assert.deepEqual(spawnCall[2], ["acp", "--no-prefix-cwd"]);
+  const newSessionCall = deps.calls.find((call) => call[0] === "acp-new-session");
+  assert.equal(newSessionCall[1]._meta.model, "mia/mia-auto");
+  const promptCall = deps.calls.find((call) => call[0] === "acp-prompt");
+  assert.equal(promptCall[1]._meta.model, "mia/mia-auto");
+  assert.equal(deps.calls.filter((call) => call[0] === "exec" && call[2][0] === "agent").length, 0);
+});
+
+test("sendChat reuses OpenClaw ACP runtime for durable conversation sessions", async (t) => {
+  t.after(() => closeOpenClawAcpRuntimes());
+  const deps = createDeps();
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    sessionId: "conversation:bot:u_1:claw",
+    messages: [{ role: "user", content: "hello" }]
+  });
+  await adapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    sessionId: "conversation:bot:u_1:claw",
+    messages: [{ role: "user", content: "again" }]
+  });
+
+  assert.equal(deps.calls.filter((call) => call[0] === "spawn").length, 1);
+  assert.equal(deps.calls.filter((call) => call[0] === "acp-initialize").length, 1);
+  assert.equal(deps.calls.filter((call) => call[0] === "acp-new-session").length, 1);
+  assert.equal(deps.calls.filter((call) => call[0] === "acp-prompt").length, 2);
 });

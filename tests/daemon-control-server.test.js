@@ -85,6 +85,8 @@ test("start serves health, protects remote routes, and delegates authorized remo
     runtimeHome: path.join(dir, "home"),
     version: ""
   });
+  const probe = await server.ping({ host: "127.0.0.1", port }, 500, { expectedRuntimeHome: path.join(dir, "home") });
+  assert.equal(probe.mode, "daemon");
 
   const unauthorized = await fetch(`${status.baseUrl}/api/runtime/status`);
   assert.equal(unauthorized.status, 401);

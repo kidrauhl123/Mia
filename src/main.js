@@ -31,13 +31,23 @@ const { chatCompletionResponse, responseMessageContent } = require("./main/chat-
 const { createAgentCommandProvider } = require("./main/agent-command-provider.js");
 const { createClaudeBridgePluginService } = require("./main/claude-bridge-plugin-service.js");
 const { requireBot } = require("./main/bot-registry.js");
-const { createClaudeCodeChatAdapter } = require("./main/claude-code-chat-adapter.js");
+const {
+  closeManagedClaudeProxySessions,
+  createClaudeCodeChatAdapter
+} = require("./main/claude-code-chat-adapter.js");
 const { createClaudeCodeMiaProxy } = require("./main/claude-code-mia-proxy.js");
 const { createCodexMiaProxy } = require("./main/codex-mia-proxy.js");
-const { createCodexChatAdapter, mapCodexPermissionMode } = require("./main/codex-chat-adapter.js");
+const {
+  closeManagedCodexProxySessions,
+  createCodexChatAdapter,
+  mapCodexPermissionMode
+} = require("./main/codex-chat-adapter.js");
 const { syncCodexConfigForPermission } = require("./main/codex-config-sync.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
-const { createOpenClawChatAdapter } = require("./main/openclaw-chat-adapter.js");
+const {
+  closeOpenClawAcpRuntimes,
+  createOpenClawChatAdapter
+} = require("./main/openclaw-chat-adapter.js");
 const { normalizeTurnRuntimeConfig } = require("./main/runtime-config-normalizer.js");
 const { createMiaMemoryService } = require("./main/mia-memory-service.js");
 const { createRuntimeInitializerService } = require("./main/runtime-initializer-service.js");
@@ -86,6 +96,8 @@ const { createConversationTitleService } = require("./main/conversation-title-se
 const { createDaemonControlServer, daemonNeedsReplacement } = require("./main/daemon/control-server.js");
 const { createDaemonTasksClient } = require("./main/daemon/tasks-client.js");
 const { createLocalEventsClient } = require("./main/daemon/local-events-client.js");
+const { createDaemonProcessLauncher } = require("./main/daemon/process-launcher.js");
+const { windowsTitleBarOverlayForAppearance, applyWindowsTitleBarOverlay } = require("./main/windows-title-bar.js");
 const { createProviderConnections } = require("./main/provider-connections.js");
 const { createAuthService } = require("./main/auth-service.js");
 const { createEngineCatalogService } = require("./main/engine-catalog-service.js");
@@ -100,6 +112,7 @@ const { createAgentSessionStore } = require("./main/agent-session-store.js");
 const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
 const { createAgentPermissionProxy } = require("./main/agent-permission-proxy.js");
 const {
+  closeCodexAppServerRuntimes,
   createCodexAppServerConnection,
   runCodexAppServerTurn
 } = require("./main/codex-app-server-runner.js");
@@ -361,9 +374,20 @@ const launchdService = createLaunchdService({
   spawnSync,
   appendLog: appendEngineLog
 });
+const daemonProcessLauncher = createDaemonProcessLauncher({
+  runtimePaths,
+  effectiveHermesHome,
+  appPath: () => app.getAppPath(),
+  execPath: () => process.execPath,
+  defaultApp: () => Boolean(process.defaultApp),
+  env: process.env,
+  spawn,
+  appendLog: appendDaemonLog
+});
 localAgentEngineService = createLocalAgentEngineService({
   homeDir: () => os.homedir(),
   env: process.env,
+  resourcesPath: process.resourcesPath || "",
   spawnSync,
   isHermesInstalled: () => engineInstallService.isInstalled(),
   isHermesApiRuntimeReady: () => engineInstallService.isApiRuntimeReady(),
@@ -571,7 +595,6 @@ const engineCatalogService = createEngineCatalogService({
   cwd: () => process.cwd()
 });
 let claudeAgentSdkModule = null;
-let codexSdkModule = null;
 let remoteControlRouter = null;
 let daemonControlServer = null;
 let daemonTasksClient = null;
@@ -675,11 +698,6 @@ function broadcastRendererEvent(channel, payload) {
 async function claudeAgentSdk() {
   if (!claudeAgentSdkModule) claudeAgentSdkModule = await import("@anthropic-ai/claude-agent-sdk");
   return claudeAgentSdkModule;
-}
-
-async function codexSdk() {
-  if (!codexSdkModule) codexSdkModule = await import("@openai/codex-sdk");
-  return codexSdkModule;
 }
 
 function processEnvStrings() {
@@ -1237,7 +1255,7 @@ async function startDaemonService() {
   if (IS_DAEMON_PROCESS) return daemonControlServer.start(settings);
   const expectedRuntimeHome = runtimePaths().home;
   const existing = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
-  if (existing.ok) {
+  if (existing.ok && existing.mode === "daemon") {
     // A KeepAlive launchd daemon survives app updates, so the freshly-updated
     // window can find an old-version daemon still owning cloud events + bot
     // execution. Reuse it only when versions match; otherwise fall through to
@@ -1247,6 +1265,8 @@ async function startDaemonService() {
       return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
     }
     appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
+  } else if (existing.ok) {
+    appendDaemonLog(`Ignoring ${existing.mode || "unknown"} process on daemon port; a real daemon process is required.`);
   }
   if (process.platform === "darwin") {
     await launchdService.startDaemon();
@@ -1255,14 +1275,23 @@ async function startDaemonService() {
       // Only accept once the *replacement* answers: during bootout/kickstart the
       // old daemon can still briefly hold the port, so require a version match
       // (not just ok) or the stale one would be accepted and replaced again next launch.
-      if (ping.ok && !daemonNeedsReplacement(ping, app.getVersion())) {
+      if (ping.ok && ping.mode === "daemon" && !daemonNeedsReplacement(ping, app.getVersion())) {
         return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
       }
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
     throw new Error("Timed out waiting for Mia daemon LaunchAgent.");
   }
-  return daemonControlServer.start(settings);
+  daemonControlServer.stop();
+  await daemonProcessLauncher.start();
+  for (let i = 0; i < 20; i += 1) {
+    const ping = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
+    if (ping.ok && ping.mode === "daemon" && !daemonNeedsReplacement(ping, app.getVersion())) {
+      return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  throw new Error("Timed out waiting for Mia daemon process.");
 }
 
 async function stopDaemonService() {
@@ -1713,13 +1742,28 @@ function cloudEventsUrl(settings = settingsStore.cloudSettings()) {
   return url.toString();
 }
 
-function localBridgeEngineIds() {
-  const engines = localAgentEngineService?.cachedLocalAgentEngines?.() || {};
+function bridgeEngineIdsFromView(engines = {}) {
   const ids = [];
   if (engines.hermes?.available || engines.hermes?.installed) ids.push("hermes");
   if (engines.claudeCode?.available) ids.push("claude-code");
   if (engines.codex?.available) ids.push("codex");
   if (engines.openClaw?.available || engines.openClaw?.installed) ids.push("openclaw");
+  return ids;
+}
+
+function localBridgeEngineIds() {
+  let engines = localAgentEngineService?.cachedLocalAgentEngines?.() || {};
+  let ids = bridgeEngineIdsFromView(engines);
+  if (IS_DAEMON_PROCESS && !ids.length && typeof localAgentEngineService?.localAgentEngines === "function") {
+    try {
+      engines = localAgentEngineService.localAgentEngines();
+      ids = bridgeEngineIdsFromView(engines);
+    } catch (error) {
+      appendCloudLog(`Local Agent scan for bridge capabilities failed: ${error?.message || error}`);
+    }
+  }
+  if (!ids.includes("hermes") && (engineState.running || engineInstallService.isInstalled())) ids.push("hermes");
+  if (!ids.length) ids.push("hermes");
   return ids;
 }
 
@@ -2060,7 +2104,6 @@ function createActiveCodexChatAdapter() {
   return createCodexChatAdapter({
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     chatCompletionResponse,
-    codexSdk,
     cwd: agentWorkspaceDir,
     appendEngineLog,
     enginePermissionMode: settingsStore.enginePermissionMode,
@@ -2085,6 +2128,8 @@ function createActiveCodexChatAdapter() {
     runCodexAppServerTurn,
     setAgentSessionEntry: agentSessionStore.setEntry,
     setAgentSessionId: agentSessionStore.setId,
+    agentRuntimeEnv: localAgentEngineService.agentRuntimeEnv,
+    resolveAgentRuntime: localAgentEngineService.resolveAgentRuntime,
     shellCommandPath: localAgentEngineService.shellCommandPath,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext
   });
@@ -2370,16 +2415,16 @@ function createWindow() {
   }
   const minWindowWidth = onboarding ? onboardingWindowBounds.minWidth : 360;
   const minWindowHeight = onboarding ? onboardingWindowBounds.minHeight : 560;
+  const initialAppearance = onboarding
+    ? { theme: "light" }
+    : settingsStore.appearanceSettings();
+  const initialWindowsTitleBarOverlay = windowsTitleBarOverlayForAppearance(initialAppearance);
   const windowChromeOptions = process.platform === "darwin"
     ? { titleBarStyle: "hidden" }
     : process.platform === "win32"
       ? {
           titleBarStyle: "hidden",
-          titleBarOverlay: {
-            color: "rgba(0, 0, 0, 0)",
-            symbolColor: "#24262d",
-            height: 36
-          }
+          titleBarOverlay: initialWindowsTitleBarOverlay
         }
       : { frame: true };
   const win = new BrowserWindow({
@@ -2391,8 +2436,9 @@ function createWindow() {
     autoHideMenuBar: process.platform !== "darwin",
     transparent: process.platform === "darwin",
     show: false,
-    backgroundColor: onboarding ? "#ffffff" : "#f0f0f3",
-    ...(onboarding ? {} : { backgroundColor: process.platform === "darwin" ? "#00000000" : "#f0f0f3" }),
+    backgroundColor: onboarding
+      ? "#ffffff"
+      : (process.platform === "darwin" ? "#00000000" : initialWindowsTitleBarOverlay.color),
     acceptFirstMouse: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -2462,6 +2508,7 @@ function showSignedOutOnboardingWindow(win) {
   }
   if (typeof target.setBackgroundColor === "function") target.setBackgroundColor("#ffffff");
   setMacNativeControlsVisible(target, true);
+  applyWindowsTitleBarOverlay(target, { theme: "light" });
   target.setMinimumSize(onboardingWindowBounds.minWidth, onboardingWindowBounds.minHeight);
   target.setSize(onboardingWindowBounds.width, onboardingWindowBounds.height);
   target.center();
@@ -2478,6 +2525,7 @@ function promoteOnboardingWindowToMain(win) {
   if (!win || win.isDestroyed()) return;
   if (typeof win.setBackgroundColor === "function") win.setBackgroundColor("#f0f0f3");
   setMacNativeControlsVisible(win, false);
+  applyWindowsTitleBarOverlay(win, settingsStore.appearanceSettings());
   win.setMinimumSize(360, 560);
   win.setSize(1040, 700);
   win.center();
@@ -3013,6 +3061,9 @@ ipcMain.handle(IpcChannel.ModelSave, (_event, settings) => modelSettingsService.
 
 ipcMain.handle(IpcChannel.AppearanceSave, async (_event, settings) => {
   await cloudDesktopSync().saveAppearanceSettings(settings || {});
+  for (const win of BrowserWindow.getAllWindows()) {
+    applyWindowsTitleBarOverlay(win, settingsStore.appearanceSettings());
+  }
   return getRuntimeStatus();
 });
 
@@ -3053,6 +3104,10 @@ const autoUpdateService = createAutoUpdateService({
 ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates());
 
 app.on("before-quit", () => {
+  closeCodexAppServerRuntimes();
+  closeOpenClawAcpRuntimes();
+  closeManagedClaudeProxySessions();
+  closeManagedCodexProxySessions();
   claudeCodeMiaProxy.stop().catch((error) => appendEngineLog(`Claude Code Mia proxy stop failed: ${error?.message || error}`));
   codexMiaProxy.stop().catch((error) => appendEngineLog(`Codex Mia proxy stop failed: ${error?.message || error}`));
 });
@@ -3060,7 +3115,7 @@ app.on("before-quit", () => {
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
   if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
-  startupMcpInitializer.start();
+  if (!IS_DAEMON_PROCESS) startupMcpInitializer.start();
   if (IS_DAEMON_PROCESS) {
     try {
       app.dock?.hide?.();

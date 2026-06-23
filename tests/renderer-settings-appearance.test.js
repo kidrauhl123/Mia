@@ -127,7 +127,19 @@ test("appearance normalizers keep the list style fixed to cards", () => {
 });
 
 test("applyAppearance writes card and soft choices to document state", () => {
-  const { api, documentElement, styleValues } = loadAppearanceModule();
+  const titleBarThemes = [];
+  const { api, documentElement, styleValues } = loadAppearanceModule({
+    windowOverrides: {
+      mia: {
+        window: {
+          setTitleBarTheme(appearance) {
+            titleBarThemes.push(appearance);
+            return Promise.resolve();
+          }
+        }
+      }
+    }
+  });
 
   api.applyAppearance({
     theme: "light",
@@ -142,10 +154,16 @@ test("applyAppearance writes card and soft choices to document state", () => {
   assert.equal(documentElement.dataset.selectionStyle, "soft");
   assert.equal(styleValues.get("--list-active-text"), "#318ad3");
   assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-layer) 91%, transparent)");
+  assert.equal(JSON.stringify(titleBarThemes.at(-1)), JSON.stringify({ theme: "light" }));
 
   api.applyAppearance({ theme: "light", glassOpacity: 100 });
 
   assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-layer) 100%, transparent)");
+  assert.equal(JSON.stringify(titleBarThemes.at(-1)), JSON.stringify({ theme: "light" }));
+
+  api.applyAppearance({ theme: "dark", glassOpacity: 82 });
+
+  assert.equal(JSON.stringify(titleBarThemes.at(-1)), JSON.stringify({ theme: "dark" }));
 });
 
 test("appearance avatar toggles default off unless explicitly enabled", () => {

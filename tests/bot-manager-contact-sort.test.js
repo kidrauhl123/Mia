@@ -31,6 +31,14 @@ function loadBotManager() {
     miaSocial: { moduleState: { bots: [] }, pendingRequestCount: () => 0 },
     miaBotDirectory: {
       listOwnedBots: ({ cloudBots }) => cloudBots,
+      normalizeAgentEngine: (value) => {
+        const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
+        return ["hermes", "claude-code", "codex", "openclaw"].includes(id) ? id : "hermes";
+      },
+      normalizeRuntimeKind: (value, fallback = "desktop-local") => {
+        const kind = String(value || fallback || "desktop-local").trim();
+        return kind === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
+      },
       runtimeLabelFor: () => ""
     },
     miaMarkdown: {

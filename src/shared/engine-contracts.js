@@ -33,7 +33,7 @@
       id: EngineId.Codex,
       label: "Codex",
       responseModel: "codex-cli",
-      transport: "codex-sdk",
+      transport: "codex-app-server",
       cliCommand: "codex",
       usesRuntime: false,
       usesSdkPromptPrefix: true

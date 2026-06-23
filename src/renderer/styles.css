@@ -58,6 +58,12 @@
   --window-corner-radius: 28px;
   --rail-column-width: 78px;
   --mac-rail-column-width: 82px;
+  --win-titlebar-height: 32px;
+  --win-titlebar-control-width: 138px;
+  --win-titlebar-bg: #e9edf2;
+  --win-rail-bg: #f7f8fa;
+  --win-sidebar-bg: #f2f4f7;
+  --win-panel-border: rgba(0, 0, 0, 0.12);
   --traffic-spacer-height: 52px;
   --mac-traffic-spacer-height: 64px;
   --rail-corner-radius: 22px;
@@ -115,6 +121,10 @@
   --code-bg: #111318;
   --code-text: #e8ebf2;
   --shadow: 0 18px 46px rgba(0, 0, 0, 0.25);
+  --win-titlebar-bg: #20242b;
+  --win-rail-bg: #181b21;
+  --win-sidebar-bg: #20232a;
+  --win-panel-border: rgba(255, 255, 255, 0.11);
   --rail-expanded-shadow: 0 1px 2px rgba(0, 0, 0, 0.24), 0 18px 46px rgba(0, 0, 0, 0.28);
   --sidebar-bottom-nav-bg: color-mix(in srgb, var(--surface) 46%, transparent);
   --sidebar-bottom-nav-border: rgba(255, 255, 255, 0.14);
@@ -214,6 +224,10 @@ body.platform-darwin {
   --traffic-spacer-height: var(--mac-traffic-spacer-height);
 }
 
+body.platform-win32 {
+  --traffic-spacer-height: 12px;
+}
+
 button,
 input,
 select,
@@ -267,6 +281,26 @@ p {
   background-repeat: no-repeat;
   overflow: hidden;
   transition: grid-template-columns 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+body.platform-win32 .app-shell {
+  padding: var(--win-titlebar-height) 0 0;
+}
+
+.window-drag-strip {
+  display: none;
+}
+
+body.platform-win32 .window-drag-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: var(--win-titlebar-control-width);
+  z-index: 60;
+  display: block;
+  height: var(--win-titlebar-height);
+  background: var(--win-titlebar-bg);
+  -webkit-app-region: drag;
 }
 
 body.platform-darwin .app-shell {
@@ -412,6 +446,17 @@ body.platform-darwin.window-fullscreen .app-shell {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+
+body.platform-win32 .nav-rail {
+  margin: 0;
+  padding: 8px 0 12px;
+  border-right: 1px solid var(--win-panel-border);
+  border-radius: 0;
+  background: var(--win-rail-bg);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 /* rail 上可点的元素保持可点（不参与拖拽） */
 .nav-rail .rail-button,
 .nav-rail .rail-avatar {
@@ -480,10 +525,6 @@ body.platform-win32 .traffic-spacer .traffic-light {
 
 body.platform-darwin .traffic-spacer .traffic-light {
   display: none;
-}
-
-body.platform-win32 .topbar {
-  padding-right: 150px;
 }
 
 .profile-avatar,
@@ -885,6 +926,11 @@ body.platform-win32 .topbar {
   box-shadow: var(--shadow);
 }
 
+body.platform-win32 .sidebar {
+  background: var(--win-sidebar-bg);
+  box-shadow: none;
+}
+
 .workspace {
   background: transparent;
   box-shadow: none;
@@ -920,6 +966,26 @@ body.platform-win32 .topbar {
   transition: opacity 180ms cubic-bezier(0.2, 0.7, 0.2, 1), transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
   -webkit-backdrop-filter: blur(18px) saturate(1.08);
   backdrop-filter: blur(18px) saturate(1.08);
+}
+
+body.platform-win32 .conversation-sidebar,
+body.platform-win32 .contacts-sidebar,
+body.platform-win32 .explore-sidebar,
+body.platform-win32 .task-sidebar,
+body.platform-win32 .settings-sidebar,
+body.platform-win32 .app-shell[data-layout="index-workspace"] .sidebar {
+  margin: 0;
+  border-right: 1px solid var(--win-panel-border);
+  border-radius: 0;
+  background: var(--win-sidebar-bg);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+body.platform-win32 [class~="sidebar-tools"] {
+  background: var(--win-sidebar-bg);
+  border-bottom: 1px solid var(--win-panel-border);
 }
 
 .app-shell[data-layout="index-workspace"][data-sidebar-state="collapsed"] .sidebar {
@@ -1880,6 +1946,17 @@ body.sidebar-resizing * {
   -webkit-user-select: none;
   user-select: none;
   transition: background 120ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 120ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+body.platform-win32 .persona {
+  width: 100%;
+  margin: 0;
+  border-radius: 0;
+}
+
+body.platform-win32 .persona.pinned:not(.active),
+body.platform-win32 .persona.pinned:not(.active):hover {
+  background: transparent;
 }
 
 .persona *,

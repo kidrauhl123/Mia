@@ -344,7 +344,8 @@ test("settings workspace lives on the app floor and adapts to narrow windows", (
     /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.settings-tabs\s*\{[\s\S]*?flex-direction:\s*row;[\s\S]*?overflow-x:\s*auto;/,
     "settings tabs should become a compact horizontal strip on narrow windows"
   );
-  const narrowSettingsIndex = baseCss.indexOf("@media (max-width: 720px) {\n  .settings-workspace");
+  const narrowSettingsMatch = baseCss.match(/\.settings-layout\s*\{\s*grid-template-columns:\s*1fr;/);
+  const narrowSettingsIndex = narrowSettingsMatch?.index ?? -1;
   assert.notEqual(narrowSettingsIndex, -1, "settings narrow-window media query should exist");
   const narrowSettingsTitleRule = cssRuleBody(baseCss, ".settings-tabs-title", narrowSettingsIndex);
   assert.match(narrowSettingsTitleRule, /font-size:\s*15px;/, "settings title should be smaller in the compact top strip");
@@ -447,7 +448,6 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
 
   for (const [name, selector, css] of [
     ["discover", "discover-mode-toggle", botStoreCss],
-    ["bot store category", "bot-store-cap", botStoreCss],
     ["skills", "skill-mode-toggle", skillCss],
     ["tasks", "task-mode-toggle", taskCss]
   ]) {
@@ -472,6 +472,42 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
       `${name} active labels should sit on the theme-colored capsule`
     );
   }
+
+  assert.match(
+    botStoreCss,
+    /\.bot-store-layout\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*overflow:\s*auto;[^}]*overflow-x:\s*hidden;/,
+    "bot store layout should not let category contents create a page-level horizontal overflow"
+  );
+  assert.match(
+    botStoreCss,
+    /\.bot-store-cap\s*\{[^}]*width:\s*fit-content;[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*inline-size:\s*fit-content;[^}]*min-inline-size:\s*0;[^}]*max-inline-size:\s*100%;[^}]*overflow-x:\s*auto;[^}]*scrollbar-width:\s*none;/,
+    "bot store category rail should use content width on wide screens, cap to the available viewport width, and scroll internally"
+  );
+  assert.match(
+    botStoreCss,
+    /\.bot-store-cap::before\s*\{[^}]*width:\s*var\(--pill-w,\s*0px\);[^}]*background:\s*rgb\(var\(--accent-rgb\) \/ 0\.14\);[^}]*box-shadow:\s*none;[^}]*transform:\s*translateX\(var\(--pill-x,\s*0px\)\);/,
+    "bot store category selected pill should use a soft theme-tinted background"
+  );
+  assert.match(
+    botStoreCss,
+    /\.bot-store-cap button\s*\{[^}]*flex:\s*0 0 auto;[^}]*color:\s*var\(--muted\);/,
+    "bot store category buttons should not compress when the rail scrolls"
+  );
+  assert.match(
+    botStoreCss,
+    /\.bot-store-cap button\.active\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--accent\);/,
+    "bot store active category text should use the theme color"
+  );
+  assert.match(
+    botStoreCss,
+    /\.bot-store-cap::-webkit-scrollbar\s*\{[^}]*display:\s*none;/,
+    "bot store category rail should hide the scrollbar while remaining scrollable"
+  );
+  assert.match(
+    fs.readFileSync(path.join(root, "src/renderer/bot/bot-store.js"), "utf8"),
+    /function scrollCategoryButtonIntoView\(button,\s*behavior = "smooth"\)[\s\S]*button\.scrollIntoView\(\{[\s\S]*inline:\s*"center"[\s\S]*\}\);[\s\S]*const pillX = Number\.isFinite\(a\.offsetLeft\)[\s\S]*const pillW = Number\.isFinite\(a\.offsetWidth\)/,
+    "bot store category rail should center selected edge items and position the pill in scroll coordinates"
+  );
 
   assert.match(botStoreCss, /\.discover-mode-toggle\s+button\s*\{[^}]*cursor:\s*default;/);
   assert.match(skillCss, /\.skill-mode-toggle\s+button\s*\{[^}]*cursor:\s*default;/);

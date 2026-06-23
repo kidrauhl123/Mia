@@ -685,6 +685,8 @@
     } else if (name === "run.failed" || name === "error") {
       run.status = "error";
       clearRunPermissions(run);
+    } else if (name === "status") {
+      run.statusText = eventText(event) || run.statusText || "";
     } else if (name === "run.cancelling") {
       run.status = "cancelling";
       clearRunPermissions(run);
@@ -1089,6 +1091,7 @@
     if (Array.isArray(run?.pendingPermissions) && run.pendingPermissions.length) {
       return "等待授权";
     }
+    if (run?.statusText) return String(run.statusText);
     const tool = latestRunToolForStatus(run);
     return runActivityPhrase(run, runActivityPhrasePoolName(run, tool), options);
   }

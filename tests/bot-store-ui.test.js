@@ -50,6 +50,17 @@ test("discover bot store uses a two-step enrollment flow before saving", () => {
   assert.doesNotMatch(src, /MIA-\$\{/);
 });
 
+test("bot runtime target UI keeps a local engine fallback while device probes are cold", () => {
+  const store = read("src/renderer/bot/bot-store.js");
+  const dialog = read("src/renderer/bot/bot-dialog.js");
+  const manager = read("src/renderer/bot/bot-manager.js");
+
+  for (const src of [store, dialog, manager]) {
+    assert.match(src, /runtime\.engineInstalled \|\| runtime\.engineRunning/);
+    assert.match(src, /if \(!engines\.length\) engines\.push/);
+  }
+});
+
 test("discover bot store is framed as assistants, not coworkers", () => {
   const app = read("src/renderer/app.js");
   const html = read("src/renderer/index.html");

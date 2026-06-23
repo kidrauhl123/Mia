@@ -1,7 +1,11 @@
-const { execFile: defaultExecFile, spawn: defaultSpawn } = require("node:child_process");
+﻿const { execFile: defaultExecFile, spawn: defaultSpawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const path = require("node:path");
 const { PassThrough, Readable, Writable } = require("node:stream");
+const {
+  execFileExecutable,
+  spawnExecutable
+} = require("./agent-runtime/process-launcher.js");
 const {
   appendMiaMemoryBlock,
   sanitizeMiaMemorySpoof,
@@ -11,15 +15,17 @@ const { fileEditPayloadsFromAcpContent } = require("./agent-file-edit-events.js"
 const { isForbiddenSchedulerToolName } = require("./scheduler-tool-guard.js");
 
 function requireDependency(deps, key) {
-  if (typeof deps[key] !== "function") throw new Error(`${key} dependency is required.`);
+  if (typeof deps[key] !== "function") throw new Error(String(key) + " dependency is required.");
   return deps[key];
 }
 
 function envWithExecutableDirFirst(env = {}, executablePath = "") {
   const dir = path.dirname(String(executablePath || ""));
   if (!dir || dir === ".") return env || {};
-  const delimiter = process.platform === "win32" ? ";" : path.delimiter;
   const currentPath = String(env?.PATH || env?.Path || "");
+  const delimiter = process.platform === "win32" && !currentPath.includes(";") && !/^[A-Za-z]:[\\/]/.test(currentPath)
+    ? ":"
+    : process.platform === "win32" ? ";" : path.delimiter;
   const parts = currentPath.split(delimiter).filter(Boolean).filter((item) => item !== dir);
   return {
     ...(env || {}),
@@ -76,7 +82,7 @@ function parseOpenClawContent(stdout = "") {
 
 function execFileAsync(execFile, file, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = execFile(file, args, options, (error, stdout, stderr) => {
+    const child = execFileExecutable(execFile, file, args, options, (error, stdout, stderr) => {
       if (error) {
         error.stdout = stdout;
         error.stderr = stderr;
@@ -84,7 +90,7 @@ function execFileAsync(execFile, file, args, options = {}) {
         return;
       }
       resolve({ stdout: String(stdout || ""), stderr: String(stderr || "") });
-    });
+    }, { platform: process.platform });
     if (options.input != null) {
       try { child.stdin?.end(String(options.input)); } catch { /* stdin may be unavailable in tests or old CLIs */ }
     }
@@ -99,12 +105,12 @@ function execFileAsync(execFile, file, args, options = {}) {
 function openClawSessionKey(bot, sessionId) {
   const botKey = String(bot?.key || bot?.id || "bot").trim() || "bot";
   const localSession = String(sessionId || "default").trim() || "default";
-  return `mia:${botKey}:${localSession}`;
+  return "mia:" + botKey + ":" + localSession;
 }
 
 function openClawLegacySessionKey(bot, sessionId) {
   const digest = crypto.createHash("sha256").update(openClawSessionKey(bot, sessionId)).digest("hex").slice(0, 32);
-  return `mia-${digest}`;
+  return "mia-" + digest;
 }
 
 function openClawAcpSessionKey(bot, sessionId, mcpFingerprint = "") {
@@ -241,7 +247,7 @@ async function acpPermissionResponse(params = {}, context = {}) {
     signal,
     emit,
     toolName: String(tool.kind || tool.title || "openclaw-tool"),
-    title: tool.title || `${bot.name || "OpenClaw"} 想使用工具`,
+      title: tool.title || String(bot.name || "OpenClaw") + " 想使用工具",
     description: tool.status || "",
     preview,
     input: tool.rawInput ?? tool.content ?? {}
@@ -266,8 +272,8 @@ function childFailurePromise(child, outputChunks, isExpectedExit) {
       if (isExpectedExit()) return;
       if (code && code !== 0) {
         const details = outputChunks.join("").trim();
-        const suffix = details ? `\n${details}` : "";
-        reject(new Error(`OpenClaw ACP 进程退出失败：code=${code}${signal ? ` signal=${signal}` : ""}${suffix}`));
+        const suffix = details ? "\n" + details : "";
+        reject(new Error("OpenClaw ACP 进程退出失败：code=" + code + (signal ? " signal=" + signal : "") + suffix));
       }
     });
   });
@@ -294,7 +300,7 @@ function buildOpenClawAcpArgs(bot = {}) {
 function selectedOpenClawModelOverride(config = {}, managedModel = null) {
   if (managedModel?.provider === "mia") {
     const model = String(config.model || managedModel.model || "mia-auto").trim() || "mia-auto";
-    return `mia/${model}`;
+    return "mia/" + model;
   }
   return String(config.model || "").trim();
 }
@@ -333,16 +339,16 @@ function decorateOpenClawAcpError(error, output = "") {
   if (error?.code === "MIA_STOPPED") return error;
   const raw = String(output || "").trim();
   const message = String(error?.message || error || "").trim();
-  const text = `${message}\n${raw}`;
+  const text = message + "\n" + raw;
   if (/ECONNREFUSED|gateway client error|gateway closed before ready|not connected to gateway/i.test(text)) {
     return new Error([
       "OpenClaw Gateway 没有运行或不可连接。",
-      "请先完成 `openclaw setup` / `openclaw configure`，并启动 `openclaw gateway`；如果你的 Gateway 不在默认地址，请在 Bot 配置里设置 openclawGatewayUrl。",
+      "请先完成 openclaw setup / openclaw configure，并启动 openclaw gateway；如果 Gateway 不在默认地址，请在 Bot 配置里设置 openclawGatewayUrl。",
       raw || message
     ].filter(Boolean).join("\n"));
   }
   if (/Failed to parse JSON message|ACP connection closed/i.test(text) && raw) {
-    return new Error(`OpenClaw ACP 启动失败：${raw}`);
+    return new Error("OpenClaw ACP 启动失败：" + raw);
   }
   return error instanceof Error ? error : new Error(message || "OpenClaw ACP 启动失败。");
 }
@@ -386,6 +392,46 @@ function acpMcpCapabilityOptions(metadata = {}) {
   };
 }
 
+const openClawAcpRuntimePool = new Map();
+
+function isDurableOpenClawSession(sessionId, persistAgentSession) {
+  return Boolean(persistAgentSession) && String(sessionId || "").startsWith("conversation:");
+}
+
+function openClawAcpRuntimeKey(parts = {}) {
+  return JSON.stringify({
+    commandPath: String(parts.commandPath || ""),
+    args: Array.isArray(parts.args) ? parts.args : [],
+    cwd: String(parts.cwd || ""),
+    sessionKey: String(parts.sessionKey || ""),
+    effort: String(parts.effort || ""),
+    model: String(parts.model || ""),
+    envPath: String(parts.env?.PATH || parts.env?.Path || "")
+  });
+}
+
+function closeOpenClawAcpRuntimeEntry(entry) {
+  if (!entry) return;
+  openClawAcpRuntimePool.delete(entry.key);
+  entry.expectedExit = true;
+  try { entry.child?.stdin?.end?.(); } catch { /* already closed */ }
+  try { entry.child?.kill?.(); } catch { /* already exited */ }
+}
+
+function closeOpenClawAcpRuntimes() {
+  for (const entry of openClawAcpRuntimePool.values()) {
+    closeOpenClawAcpRuntimeEntry(entry);
+  }
+  openClawAcpRuntimePool.clear();
+}
+
+function enqueueOpenClawAcpRuntime(entry, run) {
+  const previous = entry.queue.catch(() => {});
+  const current = previous.then(run);
+  entry.queue = current.catch(() => {});
+  return current;
+}
+
 function createOpenClawChatAdapter(deps = {}) {
   const shellCommandPath = requireDependency(deps, "shellCommandPath");
   const lastUserPrompt = requireDependency(deps, "lastUserPrompt");
@@ -427,7 +473,7 @@ function createOpenClawChatAdapter(deps = {}) {
 
   async function runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession = true, managedModel = null } = {}) {
     const commandPath = shellCommandPath("openclaw") || shellCommandPath("claw");
-    if (!commandPath) throw new Error("本机没有检测到 OpenClaw CLI。请先安装并确认 `openclaw --version` 可用。");
+    if (!commandPath) throw new Error("本机没有检测到 OpenClaw CLI。请先安装并确认 openclaw --version 可用。");
     const externalSessionId = persistAgentSession ? getAgentSessionId("openclaw", bot.key, sessionId) : "";
     const effort = normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "openclaw");
     const effectiveManagedModel = managedModel || resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });
@@ -467,13 +513,273 @@ function createOpenClawChatAdapter(deps = {}) {
     };
   }
 
+  async function createOpenClawAcpRuntimeEntry(context = {}) {
+    const {
+      key,
+      commandPath,
+      args,
+      cwdValue,
+      env,
+      sessionKey,
+      storedSessionKey,
+      persistAgentSession,
+      bot,
+      sessionId,
+      effort,
+      modelOverride,
+      signal
+    } = context;
+    if (signal?.aborted) throw stoppedError();
+    const stdoutChunks = [];
+    const outputChunks = [];
+    const entry = {
+      key,
+      child: null,
+      client: null,
+      acpSessionId: "",
+      sessionKey,
+      currentTurn: null,
+      expectedExit: false,
+      failure: null,
+      ready: null,
+      queue: Promise.resolve()
+    };
+    const child = spawnExecutable(spawn, commandPath, args, {
+      cwd: cwdValue,
+      env,
+      stdio: ["pipe", "pipe", "pipe"]
+    }, { platform: process.platform });
+    entry.child = child;
+    if (!child.stdin || !child.stdout) {
+      try { child.kill(); } catch { /* already exited */ }
+      throw new Error("OpenClaw ACP 无法创建 stdio 通道。");
+    }
+    const acpStdout = new PassThrough();
+    child.stdout.on("data", (chunk) => {
+      rememberChunk(stdoutChunks, chunk);
+      rememberChunk(outputChunks, chunk);
+    });
+    child.stdout.pipe(acpStdout);
+    child.stderr?.on("data", (chunk) => {
+      rememberChunk(outputChunks, chunk);
+    });
+    entry.failure = childFailurePromise(child, outputChunks, () => entry.expectedExit);
+    entry.failure.catch(() => closeOpenClawAcpRuntimeEntry(entry));
+
+    const { ClientSideConnection, PROTOCOL_VERSION, ndJsonStream } = await importAcpSdk();
+    entry.client = new ClientSideConnection(() => ({
+      sessionUpdate: async (params = {}) => {
+        const ctx = entry.currentTurn;
+        if (!ctx) return;
+        const update = params.update || {};
+        if (update.sessionUpdate === "agent_message_chunk") {
+          const text = acpUpdateText(update);
+          if (text) {
+            ctx.chunks.push(text);
+            if (typeof ctx.emit === "function") ctx.emit("text_delta", { id: ctx.textId, text });
+          }
+          return;
+        }
+        if (update.sessionUpdate === "agent_thought_chunk") {
+          const text = acpUpdateText(update);
+          if (text && typeof ctx.emit === "function") ctx.emit("reasoning_delta", { id: ctx.reasoningId, text });
+          return;
+        }
+        if (update.sessionUpdate === "tool_call") {
+          const id = String(update.toolCallId || ("tool_" + randomUUID()));
+          const name = String(update.title || update.kind || "OpenClaw tool");
+          ctx.toolNames.set(id, name);
+          if (typeof ctx.emit === "function") {
+            ctx.emit("tool_call_started", {
+              id,
+              name,
+              preview: commandPreview(update.rawInput)
+            });
+          }
+          return;
+        }
+        if (update.sessionUpdate === "tool_call_update" && typeof ctx.emit === "function") {
+          const id = String(update.toolCallId || ("tool_" + randomUUID()));
+          const payload = {
+            id,
+            name: ctx.toolNames.get(id) || String(update.title || update.kind || "OpenClaw tool"),
+            preview: commandPreview(update.rawOutput || update.content),
+            status: update.status || "",
+            error: update.status === "failed"
+          };
+          if (update.status === "completed" || update.status === "failed") {
+            ctx.emit("tool_call_completed", payload);
+            for (const fileEdit of fileEditPayloadsFromAcpContent(update.content || update.rawOutput, {
+              idPrefix: id,
+              status: payload.status || "completed",
+              error: payload.error
+            })) {
+              ctx.emit("file_edit", fileEdit);
+            }
+          } else {
+            ctx.emit("tool_call_delta", payload);
+          }
+        }
+      },
+      requestPermission: (params) => {
+        const ctx = entry.currentTurn;
+        return acpPermissionResponse(params, ctx || {
+          permissionCoordinator,
+          permissionMode: enginePermissionMode("openclaw") || "default",
+          engine: "openclaw",
+          bot,
+          sessionId,
+          signal,
+          emit: null
+        });
+      }
+    }), ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(acpStdout)));
+
+    const initialized = await withChildFailure(entry.client.initialize({
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: {
+        fs: {
+          readTextFile: false,
+          writeTextFile: false
+        },
+        terminal: false
+      },
+      clientInfo: {
+        name: "mia-openclaw-acp-client",
+        version: "1.0.0"
+      }
+    }), entry.failure);
+    try {
+      await ensureUserMcpReady();
+    } catch (error) {
+      appendEngineLog("MCP bridge initialization incomplete before OpenClaw chat: " + (error?.message || error));
+    }
+    const userMcpServers = getUserMcpServers(acpMcpCapabilityOptions(initialized));
+    const sessionMeta = {
+      sessionKey,
+      sessionLabel: bot.engineConfig?.openclawSessionLabel || undefined,
+      resetSession: bot.engineConfig?.openclawResetSession === true,
+      requireExisting: bot.engineConfig?.openclawRequireExisting === true,
+      prefixCwd: false
+    };
+    if (modelOverride) sessionMeta.model = modelOverride;
+    const session = await withChildFailure(entry.client.newSession({
+      cwd: cwdValue,
+      mcpServers: userMcpServers,
+      _meta: sessionMeta
+    }), entry.failure);
+    entry.acpSessionId = String(session?.sessionId || "");
+    if (!entry.acpSessionId) throw new Error("OpenClaw ACP 没有返回 sessionId。");
+    if (persistAgentSession && storedSessionKey !== sessionKey) {
+      setAgentSessionId("openclaw", bot.key, sessionId, sessionKey);
+    }
+    if (effort) {
+      try {
+        await withChildFailure(entry.client.setSessionMode({ sessionId: entry.acpSessionId, modeId: effort }), entry.failure);
+      } catch {
+        // OpenClaw also accepts thinking in prompt _meta; older builds may reject unknown modes.
+      }
+    }
+    return entry;
+  }
+
+  async function getOpenClawAcpRuntimeEntry(context = {}) {
+    const existing = openClawAcpRuntimePool.get(context.key);
+    if (existing && existing.ready) {
+      await existing.ready;
+      return existing;
+    }
+    if (existing) closeOpenClawAcpRuntimeEntry(existing);
+    const entry = {
+      key: context.key,
+      queue: Promise.resolve(),
+      ready: null
+    };
+    openClawAcpRuntimePool.set(context.key, entry);
+    entry.ready = createOpenClawAcpRuntimeEntry(context)
+      .then((readyEntry) => {
+        const ready = entry.ready;
+        Object.assign(entry, readyEntry);
+        entry.ready = ready;
+        return entry;
+      })
+      .catch((error) => {
+        closeOpenClawAcpRuntimeEntry(entry);
+        throw error;
+      });
+    await entry.ready;
+    return entry;
+  }
+
+  async function promptOpenClawAcpRuntime(entry, context = {}) {
+    await entry.ready;
+    if (context.signal?.aborted) throw stoppedError();
+    const chunks = [];
+    entry.currentTurn = {
+      permissionCoordinator,
+      permissionMode: enginePermissionMode("openclaw") || "default",
+      engine: "openclaw",
+      bot: context.bot,
+      sessionId: context.sessionId,
+      signal: context.signal,
+      emit: context.emit,
+      chunks,
+      textId: "text_" + randomUUID(),
+      reasoningId: "reasoning_" + randomUUID(),
+      toolNames: new Map()
+    };
+    let rejectAbort = null;
+    const abortPromise = new Promise((_, reject) => { rejectAbort = reject; });
+    const abortHandler = () => {
+      entry.client?.cancel?.({ sessionId: entry.acpSessionId }).catch(() => {});
+      closeOpenClawAcpRuntimeEntry(entry);
+      rejectAbort(stoppedError());
+    };
+    if (context.signal) context.signal.addEventListener("abort", abortHandler, { once: true });
+    const promptMeta = {
+      thinking: context.effort,
+      timeoutMs: timeoutSeconds * 1000,
+      prefixCwd: false
+    };
+    if (context.modelOverride) promptMeta.model = context.modelOverride;
+    try {
+      const response = await Promise.race([
+        withChildFailure(entry.client.prompt({
+          sessionId: entry.acpSessionId,
+          prompt: [{ type: "text", text: String(context.message || "") }],
+          _meta: promptMeta
+        }), entry.failure),
+        abortPromise
+      ]);
+      if (context.signal?.aborted || response?.stopReason === "cancelled") throw stoppedError();
+      return {
+        content: chunks.join("").trim(),
+        sessionId: entry.sessionKey,
+        stopReason: response?.stopReason || ""
+      };
+    } catch (error) {
+      if (context.signal?.aborted) throw stoppedError();
+      closeOpenClawAcpRuntimeEntry(entry);
+      throw decorateOpenClawAcpError(error, "");
+    } finally {
+      if (context.signal) context.signal.removeEventListener("abort", abortHandler);
+      entry.currentTurn = null;
+    }
+  }
+
+  async function runOpenClawAcpPooled(context = {}) {
+    const entry = await getOpenClawAcpRuntimeEntry(context);
+    return enqueueOpenClawAcpRuntime(entry, () => promptOpenClawAcpRuntime(entry, context));
+  }
+
   async function runOpenClawAcp({ bot, sessionId, message, signal, emit = null, persistAgentSession = true } = {}) {
     const commandPath = shellCommandPath("openclaw") || shellCommandPath("claw");
-    if (!commandPath) throw new Error("本机没有检测到 OpenClaw CLI。请先安装并确认 `openclaw --version` 可用。");
+    if (!commandPath) throw new Error("本机没有检测到 OpenClaw CLI。请先安装并确认 openclaw --version 可用。");
     const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });
     if (managedModel?.provider === "mia") {
-      return runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession, managedModel });
+      await syncOpenClawManagedModelConfig(commandPath, managedModel, bot.engineConfig || {}, signal);
     }
+    const modelOverride = selectedOpenClawModelOverride(bot.engineConfig || {}, managedModel);
 
     const mcpFingerprint = getMcpFingerprint();
     const desiredSessionKey = openClawAcpSessionKey(bot, sessionId, mcpFingerprint);
@@ -486,11 +792,41 @@ function createOpenClawChatAdapter(deps = {}) {
     let expectedExit = false;
     let acpSessionId = "";
     const args = buildOpenClawAcpArgs(bot);
-    const child = spawn(commandPath, args, {
-      cwd: cwd(),
-      env: envWithExecutableDirFirst(processEnvStrings(), commandPath),
-      stdio: ["pipe", "pipe", "pipe"]
+    const cwdValue = cwd();
+    const env = envWithExecutableDirFirst(processEnvStrings(), commandPath);
+    const runtimeKey = openClawAcpRuntimeKey({
+      commandPath,
+      args,
+      cwd: cwdValue,
+      env,
+      sessionKey,
+      effort,
+      model: modelOverride
     });
+    if (isDurableOpenClawSession(sessionId, persistAgentSession) && bot.engineConfig?.openclawResetSession !== true) {
+      return runOpenClawAcpPooled({
+        key: runtimeKey,
+        commandPath,
+        args,
+        cwdValue,
+        env,
+        sessionKey,
+        storedSessionKey,
+        persistAgentSession,
+        bot,
+        sessionId,
+        effort,
+        modelOverride,
+        signal,
+        emit,
+        message
+      });
+    }
+    const child = spawnExecutable(spawn, commandPath, args, {
+      cwd: cwdValue,
+      env,
+      stdio: ["pipe", "pipe", "pipe"]
+    }, { platform: process.platform });
     if (!child.stdin || !child.stdout) {
       try { child.kill(); } catch { /* already exited */ }
       throw new Error("OpenClaw ACP 无法创建 stdio 通道。");
@@ -508,8 +844,8 @@ function createOpenClawChatAdapter(deps = {}) {
     const failure = childFailurePromise(child, outputChunks, () => expectedExit);
     const { ClientSideConnection, PROTOCOL_VERSION, ndJsonStream } = await importAcpSdk();
     let client = null;
-    const textId = `text_${randomUUID()}`;
-    const reasoningId = `reasoning_${randomUUID()}`;
+    const textId = "text_" + randomUUID();
+    const reasoningId = "reasoning_" + randomUUID();
     const toolNames = new Map();
     const cancel = async () => {
       if (client && acpSessionId) {
@@ -539,7 +875,7 @@ function createOpenClawChatAdapter(deps = {}) {
             return;
           }
           if (update.sessionUpdate === "tool_call") {
-            const id = String(update.toolCallId || `tool_${randomUUID()}`);
+            const id = String(update.toolCallId || ("tool_" + randomUUID()));
             const name = String(update.title || update.kind || "OpenClaw tool");
             toolNames.set(id, name);
             if (typeof emit === "function") {
@@ -552,7 +888,7 @@ function createOpenClawChatAdapter(deps = {}) {
             return;
           }
           if (update.sessionUpdate === "tool_call_update" && typeof emit === "function") {
-            const id = String(update.toolCallId || `tool_${randomUUID()}`);
+            const id = String(update.toolCallId || ("tool_" + randomUUID()));
             const payload = {
               id,
               name: toolNames.get(id) || String(update.title || update.kind || "OpenClaw tool"),
@@ -602,22 +938,24 @@ function createOpenClawChatAdapter(deps = {}) {
       try {
         await ensureUserMcpReady();
       } catch (error) {
-        appendEngineLog(`MCP bridge initialization incomplete before OpenClaw chat: ${error?.message || error}`);
+        appendEngineLog("MCP bridge initialization incomplete before OpenClaw chat: " + (error?.message || error));
       }
       const userMcpServers = getUserMcpServers(acpMcpCapabilityOptions(initialized));
+      const sessionMeta = {
+        sessionKey,
+        sessionLabel: bot.engineConfig?.openclawSessionLabel || undefined,
+        resetSession: bot.engineConfig?.openclawResetSession === true,
+        requireExisting: bot.engineConfig?.openclawRequireExisting === true,
+        prefixCwd: false
+      };
+      if (modelOverride) sessionMeta.model = modelOverride;
       const session = await withChildFailure(client.newSession({
-        cwd: cwd(),
+        cwd: cwdValue,
         mcpServers: userMcpServers,
-        _meta: {
-          sessionKey,
-          sessionLabel: bot.engineConfig?.openclawSessionLabel || undefined,
-          resetSession: bot.engineConfig?.openclawResetSession === true,
-          requireExisting: bot.engineConfig?.openclawRequireExisting === true,
-          prefixCwd: false
-        }
+        _meta: sessionMeta
       }), failure);
       acpSessionId = String(session?.sessionId || "");
-      if (!acpSessionId) throw new Error("OpenClaw ACP 没有返回 sessionId。");
+    if (!acpSessionId) throw new Error("OpenClaw ACP 没有返回 sessionId。");
       if (persistAgentSession && storedSessionKey !== sessionKey) {
         setAgentSessionId("openclaw", bot.key, sessionId, sessionKey);
       }
@@ -629,14 +967,16 @@ function createOpenClawChatAdapter(deps = {}) {
         }
       }
       if (signal?.aborted) throw stoppedError();
+      const promptMeta = {
+        thinking: effort,
+        timeoutMs: timeoutSeconds * 1000,
+        prefixCwd: false
+      };
+      if (modelOverride) promptMeta.model = modelOverride;
       const response = await withChildFailure(client.prompt({
         sessionId: acpSessionId,
         prompt: [{ type: "text", text: String(message || "") }],
-        _meta: {
-          thinking: effort,
-          timeoutMs: timeoutSeconds * 1000,
-          prefixCwd: false
-        }
+        _meta: promptMeta
       }), failure);
       if (signal?.aborted || response?.stopReason === "cancelled") throw stoppedError();
       return {
@@ -656,12 +996,7 @@ function createOpenClawChatAdapter(deps = {}) {
   }
 
   async function runOpenClaw({ bot, sessionId, message, signal, emit = null, persistAgentSession = true } = {}) {
-    const managedModel = resolveManagedModelRuntime(bot?.engineConfig || {}, { engine: "openclaw", bot });
-    if (managedModel?.provider === "mia") {
-      return runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession, managedModel });
-    }
-    const modelOverride = selectedOpenClawModelOverride(bot?.engineConfig || {}, null);
-    if (modelOverride || shouldUseLegacyOpenClawTransport(bot)) {
+    if (shouldUseLegacyOpenClawTransport(bot)) {
       return runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession });
     }
     return runOpenClawAcp({ bot, sessionId, message, signal, emit, persistAgentSession });
@@ -692,7 +1027,7 @@ function createOpenClawChatAdapter(deps = {}) {
       persistAgentSession
     });
     return chatCompletionResponse({
-      id: result.sessionId || `openclaw_${randomUUID()}`,
+      id: result.sessionId || ("openclaw_" + randomUUID()),
       model: "openclaw-acp",
       content: result.content,
       mia: {
@@ -716,7 +1051,7 @@ function createOpenClawChatAdapter(deps = {}) {
     const message = [systemPrompt, userPrompt].filter(Boolean).join("\n\n");
     const result = await runOpenClaw({
       bot,
-      sessionId: `stateless-${randomUUID()}`,
+      sessionId: "stateless-" + randomUUID(),
       message,
       signal,
       persistAgentSession: false
@@ -732,6 +1067,7 @@ module.exports = {
   buildOpenClawAcpArgs,
   buildOpenClawArgs,
   buildOpenClawGlobalArgs,
+  closeOpenClawAcpRuntimes,
   createOpenClawChatAdapter,
   parseOpenClawContent,
   shouldUseLegacyOpenClawTransport

@@ -182,20 +182,27 @@ test("cloud conversation send and render do not depend on activeKey being empty"
   assert.doesNotMatch(appSource, /activeConversationId && !state\.activeKey/);
 });
 
-test("desktop window controls use Windows maximize semantics off macOS", () => {
+test("desktop window controls use Windows overlay title bar off macOS", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const windowIpcSource = fs.readFileSync(path.join(root, "src/main/ipc/window-ipc.js"), "utf8");
+  const channelSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
+  const titleBarSource = fs.readFileSync(path.join(root, "src/main/windows-title-bar.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
   assert.doesNotMatch(html, /id="windowControls"/);
-  assert.match(mainSource, /process\.platform === "win32"[\s\S]*titleBarOverlay:\s*\{/);
-  assert.match(mainSource, /titleBarOverlay:\s*\{[\s\S]*color:\s*"rgba\(0,\s*0,\s*0,\s*0\)"/);
-  assert.match(mainSource, /titleBarOverlay:\s*\{[\s\S]*height:\s*36/);
+  assert.match(html, /class="window-drag-strip"/);
+  assert.match(mainSource, /process\.platform === "win32"[\s\S]*titleBarStyle:\s*"hidden"[\s\S]*titleBarOverlay:\s*initialWindowsTitleBarOverlay/);
+  assert.match(titleBarSource, /const WINDOWS_TITLE_BAR_HEIGHT = 32;/);
+  assert.match(titleBarSource, /const WINDOWS_LIGHT_TITLE_BAR_COLOR = "#e9edf2";/);
+  assert.match(titleBarSource, /const WINDOWS_DARK_TITLE_BAR_COLOR = "#20242b";/);
+  assert.doesNotMatch(titleBarSource, /workspaceBackgroundColor/);
+  assert.match(titleBarSource, /symbolColor:\s*theme === "dark" \? WINDOWS_DARK_SYMBOL_COLOR : WINDOWS_LIGHT_SYMBOL_COLOR/);
   assert.match(mainSource, /transparent:\s*process\.platform === "darwin"/);
-  assert.match(mainSource, /backgroundColor:\s*process\.platform === "darwin"\s*\?\s*"#00000000"/);
+  assert.match(mainSource, /backgroundColor:\s*onboarding[\s\S]*\?\s*"#ffffff"[\s\S]*initialWindowsTitleBarOverlay\.color/);
   assert.match(mainSource, /autoHideMenuBar:\s*process\.platform !== "darwin"/);
   assert.match(mainSource, /process\.platform !== "darwin"[\s\S]*win\.setMenuBarVisibility\(false\)/);
   assert.match(appSource, /document\.body\.classList\.toggle\("platform-win32",\s*rendererPlatform === "win32"\)/);
@@ -204,19 +211,36 @@ test("desktop window controls use Windows maximize semantics off macOS", () => {
   assert.doesNotMatch(appSource, /getElementById\("windowControls"\)/);
   assert.match(appSource, /const task = isWindows \? \(api\.maximize\?\.\(\) \|\| api\.green\(\)\) : api\.green\(\);/);
   assert.match(preloadSource, /maximize:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.WindowMaximize\)/);
+  assert.match(preloadSource, /setTitleBarTheme:\s*\(appearance\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.WindowTitleBarTheme,\s*appearance \|\| \{\}\)/);
+  assert.match(channelSource, /WindowTitleBarTheme:\s*"window:title-bar-theme"/);
   assert.match(windowIpcSource, /if \(process\.platform !== "darwin"\) return toggleMaximized\(w\);/);
+  assert.match(windowIpcSource, /applyWindowsTitleBarOverlay\(w,\s*\{ theme:\s*"light" \}\)/);
   assert.match(windowIpcSource, /setBackgroundColor\(process\.platform === "darwin"\s*\?\s*"#00000000"\s*:\s*"#f0f0f3"\)/);
   assert.match(windowIpcSource, /setMacNativeControlsVisible\(w,\s*true\)/);
+  assert.match(windowIpcSource, /IpcChannel\.WindowTitleBarTheme[\s\S]*applyWindowsTitleBarOverlay\(BrowserWindow\.fromWebContents\(event\.sender\),\s*appearance\)/);
   assert.match(css, /body\.platform-win32 \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
   assert.match(css, /body\.platform-darwin \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
   assert.match(css, /--traffic-spacer-height:\s*52px;/);
   assert.match(css, /--mac-traffic-spacer-height:\s*64px;/);
+  assert.match(css, /--win-titlebar-height:\s*32px;/);
+  assert.match(css, /--win-titlebar-control-width:\s*138px;/);
+  assert.match(css, /--win-titlebar-bg:\s*#e9edf2;/);
+  assert.match(css, /:root\[data-theme="dark"\]\s*\{[\s\S]*?--win-titlebar-bg:\s*#20242b;/);
+  assert.match(css, /body\.platform-win32\s*\{[\s\S]*?--traffic-spacer-height:\s*12px;/);
+  assert.match(css, /body\.platform-win32 \.app-shell\s*\{[\s\S]*?padding:\s*var\(--win-titlebar-height\) 0 0;/);
+  assert.match(css, /body\.platform-win32 \.window-drag-strip\s*\{[\s\S]*?right:\s*var\(--win-titlebar-control-width\);[\s\S]*?background:\s*var\(--win-titlebar-bg\);[\s\S]*?-webkit-app-region:\s*drag;/);
+  assert.match(css, /body\.platform-win32 \.nav-rail\s*\{[\s\S]*?margin:\s*0;[\s\S]*?border-right:\s*1px solid var\(--win-panel-border\);[\s\S]*?border-radius:\s*0;[\s\S]*?background:\s*var\(--win-rail-bg\);[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
+  assert.match(css, /body\.platform-win32 \.conversation-sidebar,[\s\S]*?body\.platform-win32 \.app-shell\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?margin:\s*0;[\s\S]*?border-right:\s*1px solid var\(--win-panel-border\);[\s\S]*?border-radius:\s*0;[\s\S]*?background:\s*var\(--win-sidebar-bg\);[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
+  assert.match(css, /body\.platform-win32 \[class~="sidebar-tools"\]\s*\{[\s\S]*?background:\s*var\(--win-sidebar-bg\);[\s\S]*?border-bottom:\s*1px solid var\(--win-panel-border\);/);
+  assert.match(css, /body\.platform-win32 \.persona\s*\{[\s\S]*?width:\s*100%;[\s\S]*?margin:\s*0;[\s\S]*?border-radius:\s*0;/);
+  assert.match(botStoreCss, /body\.platform-win32 \.app-shell\[data-active-view="contacts"\] \.discover-top-bar,[\s\S]*?body\.platform-win32 \.app-shell\[data-active-view="bot-store"\] \.discover-top-bar\s*\{[\s\S]*?top:\s*calc\(var\(--win-titlebar-height\) \+ 12px\);/);
+  assert.match(botStoreCss, /body\.platform-win32 \.app-shell\[data-active-view="contacts"\] \.contacts-sidebar\s*\{[\s\S]*?margin:\s*calc\(var\(--win-titlebar-height\) \+ 58px\) 8px 10px 0;[\s\S]*?border:\s*1px solid var\(--win-panel-border\);[\s\S]*?border-radius:\s*8px;[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/);
   assert.match(css, /--mac-rail-column-width:\s*82px;/);
   assert.match(css, /body\.platform-darwin\s*\{[\s\S]*?--rail-column-width:\s*var\(--mac-rail-column-width\);[\s\S]*?--traffic-spacer-height:\s*var\(--mac-traffic-spacer-height\);/);
   assert.match(css, /body\.platform-darwin \.app-shell\s*\{[\s\S]*?border-radius:\s*var\(--window-corner-radius\);/);
   assert.match(css, /body\.platform-darwin\.window-maximized \.app-shell,[\s\S]*?body\.platform-darwin\.window-fullscreen \.app-shell\s*\{[\s\S]*?border-radius:\s*0;/);
   assert.doesNotMatch(css, /\.window-controls/);
-  assert.match(css, /body\.platform-win32 \.topbar\s*\{\s*padding-right:\s*150px;/);
+  assert.doesNotMatch(css, /body\.platform-win32 \.topbar\s*\{\s*padding-right:\s*150px;/);
 });
 
 test("desktop message notifications are wired through preload and main IPC", () => {
@@ -1517,11 +1541,13 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(ipcSource, /WindowSignedOutOnboarding:\s*"window:signed-out-onboarding"/);
   assert.match(ipcSource, /WindowNativeControlsVisible:\s*"window:native-controls-visible"/);
   assert.match(ipcSource, /WindowNativeControlsLayout:\s*"window:native-controls-layout"/);
+  assert.match(ipcSource, /WindowTitleBarTheme:\s*"window:title-bar-theme"/);
   assert.match(preloadSource, /showMain: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowShowMain\)/);
   assert.match(preloadSource, /onboarding: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowOnboarding\)/);
   assert.match(preloadSource, /signedOutOnboarding: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowSignedOutOnboarding\)/);
   assert.match(preloadSource, /setNativeControlsVisible: \(visible\) => ipcRenderer\.invoke\(IpcChannel\.WindowNativeControlsVisible,\s*Boolean\(visible\)\)/);
   assert.match(preloadSource, /setNativeControlsLayout: \(layout\) => ipcRenderer\.invoke\(IpcChannel\.WindowNativeControlsLayout,\s*layout === "default" \? "default" : "rail"\)/);
+  assert.match(preloadSource, /setTitleBarTheme: \(appearance\) => ipcRenderer\.invoke\(IpcChannel\.WindowTitleBarTheme,\s*appearance \|\| \{\}\)/);
   assert.match(windowIpcSource, /setMinimumSize\(360,\s*560\)/);
   assert.match(windowIpcSource, /setSize\(1040,\s*700\)/);
   // Compact onboarding window driven from the renderer.
@@ -1530,6 +1556,7 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(windowIpcSource, /onboardingWindowBounds\.width/);
   assert.match(windowIpcSource, /IpcChannel\.WindowNativeControlsVisible/);
   assert.match(windowIpcSource, /IpcChannel\.WindowNativeControlsLayout/);
+  assert.match(windowIpcSource, /IpcChannel\.WindowTitleBarTheme/);
   assert.match(windowIpcSource, /setMacNativeControlsVisible\(w,\s*visible\)/);
   assert.match(windowIpcSource, /setMacNativeControlsLayout\(w,\s*layout === "default" \? "default" : "rail"\)/);
   assert.deepEqual(macNativeChromeMetrics.defaultTrafficLightPosition, { x: 18, y: 18 });

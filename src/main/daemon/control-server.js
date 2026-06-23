@@ -508,7 +508,12 @@ function createDaemonControlServer({
         let body = null;
         try { body = await response.json(); } catch { body = null; }
         if (expectedRuntimeHome && String(body?.runtimeHome || "") !== expectedRuntimeHome) continue;
-        return { ok: true, baseUrl, version: String(body?.version || "") };
+        return {
+          ok: true,
+          baseUrl,
+          version: String(body?.version || ""),
+          mode: String(body?.mode || "")
+        };
       } catch {
         // Try the next candidate URL.
       }

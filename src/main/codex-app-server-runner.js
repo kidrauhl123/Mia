@@ -1,6 +1,7 @@
 const { spawn: defaultSpawn } = require("node:child_process");
 const path = require("node:path");
 const readline = require("node:readline");
+const { spawnExecutable } = require("./agent-runtime/process-launcher.js");
 const {
   createWorkspaceDiffTracker,
   fileEditPayloadsFromAcpContent
@@ -128,8 +129,10 @@ function writeJsonLine(child, message) {
 function envWithExecutableDirFirst(env = {}, executablePath = "") {
   const dir = path.dirname(String(executablePath || ""));
   if (!dir || dir === ".") return env || {};
-  const delimiter = process.platform === "win32" ? ";" : path.delimiter;
   const currentPath = String(env?.PATH || env?.Path || "");
+  const delimiter = process.platform === "win32" && !currentPath.includes(";") && !/^[A-Za-z]:[\\/]/.test(currentPath)
+    ? ":"
+    : process.platform === "win32" ? ";" : path.delimiter;
   const parts = currentPath.split(delimiter).filter(Boolean).filter((item) => item !== dir);
   return {
     ...(env || {}),
@@ -142,21 +145,27 @@ function createCodexAppServerConnection({
   env,
   configOverrides = [],
   spawn = defaultSpawn,
+  platform = process.platform,
   onNotification = () => {},
   onServerRequest = null,
+  onClose = null,
   appendLog = () => {}
 } = {}) {
   if (!codexPath) throw new Error("codexPath is required.");
   let nextId = 1;
   const pending = new Map();
+  let notificationHandler = typeof onNotification === "function" ? onNotification : () => {};
+  let serverRequestHandler = typeof onServerRequest === "function" ? onServerRequest : null;
+  let closed = false;
   const args = ["app-server", "--listen", "stdio://"];
   for (const override of configOverrides) {
     if (override) args.push("--config", String(override));
   }
-  const child = spawn(codexPath, args, {
+  const child = spawnExecutable(spawn, codexPath, args, {
     stdio: ["pipe", "pipe", "pipe"],
     env: envWithExecutableDirFirst(env, codexPath)
-  });
+  }, { platform });
+  appendLog(`[codex-app-server] spawned ${codexPath}`);
   let stderr = "";
   if (child.stderr) {
     child.stderr.on("data", (chunk) => {
@@ -164,17 +173,29 @@ function createCodexAppServerConnection({
       if (stderr.length > 12000) stderr = stderr.slice(-12000);
     });
   }
-  child.once("error", (error) => {
+  function rejectPending(error) {
     for (const entry of pending.values()) entry.reject(error);
     pending.clear();
+  }
+
+  function markClosed(error) {
+    if (closed) return;
+    closed = true;
+    rejectPending(error);
+    if (typeof onClose === "function") {
+      try { onClose(error); } catch { /* ignore close observers */ }
+    }
+  }
+
+  child.once("error", (error) => {
+    markClosed(error);
   });
   child.once("exit", (code, signal) => {
+    if (closed) return;
     const message = signal
       ? `Codex app-server exited with signal ${signal}`
       : `Codex app-server exited with code ${code ?? 1}`;
-    const error = new Error(stderr ? `${message}: ${stderr}` : message);
-    for (const entry of pending.values()) entry.reject(error);
-    pending.clear();
+    markClosed(new Error(stderr ? `${message}: ${stderr}` : message));
   });
 
   const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
@@ -197,20 +218,21 @@ function createCodexAppServerConnection({
       }
       return;
     }
-    if (message.id != null && message.method && typeof onServerRequest === "function") {
+    if (message.id != null && message.method && typeof serverRequestHandler === "function") {
       Promise.resolve()
-        .then(() => onServerRequest(message))
+        .then(() => serverRequestHandler(message))
         .then((result) => writeJsonLine(child, { id: message.id, result: result == null ? {} : result }))
         .catch((error) => writeJsonLine(child, {
           id: message.id,
           error: { code: -32000, message: String(error?.message || error) }
-        }));
+      }));
       return;
     }
-    if (message.method) onNotification(message);
+    if (message.method) notificationHandler(message);
   });
 
   function request(method, params) {
+    if (closed) return Promise.reject(new Error("Codex app-server connection is closed."));
     const id = nextId++;
     writeJsonLine(child, { id, method, params });
     return new Promise((resolve, reject) => {
@@ -218,12 +240,23 @@ function createCodexAppServerConnection({
     });
   }
 
+  function setHandlers(handlers = {}) {
+    notificationHandler = typeof handlers.onNotification === "function" ? handlers.onNotification : () => {};
+    serverRequestHandler = typeof handlers.onServerRequest === "function" ? handlers.onServerRequest : null;
+  }
+
   function close() {
+    if (closed) return;
+    closed = true;
+    rejectPending(new Error("Codex app-server connection closed."));
+    if (typeof onClose === "function") {
+      try { onClose(new Error("Codex app-server connection closed.")); } catch { /* ignore close observers */ }
+    }
     try { rl.close(); } catch { /* ignore */ }
     if (!child.killed) child.kill("SIGTERM");
   }
 
-  return { child, close, request };
+  return { child, close, request, setHandlers, isClosed: () => closed };
 }
 
 function codexApprovalTitle(method, params = {}) {
@@ -323,6 +356,73 @@ function codexDecisionFor(method, decision) {
   return {};
 }
 
+const codexAppServerRuntimePool = new Map();
+
+function stableJsonValue(value) {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (value && typeof value === "object") {
+    return Object.keys(value).sort().reduce((acc, key) => {
+      acc[key] = stableJsonValue(value[key]);
+      return acc;
+    }, {});
+  }
+  return value;
+}
+
+function codexRuntimePoolKey({ reuseKey = "", codexPath = "", env = {}, configOverrides = [] } = {}) {
+  const key = String(reuseKey || "").trim();
+  if (!key) return "";
+  return JSON.stringify(stableJsonValue({
+    key,
+    codexPath,
+    env,
+    configOverrides
+  }));
+}
+
+function deleteCodexRuntimeEntry(poolKey) {
+  if (!poolKey) return;
+  codexAppServerRuntimePool.delete(poolKey);
+}
+
+function closeCodexRuntimeEntry(entry) {
+  if (!entry) return;
+  deleteCodexRuntimeEntry(entry.poolKey);
+  try { entry.connection?.close?.(); } catch { /* ignore close failures */ }
+}
+
+function getCodexRuntimeEntry(poolKey, options) {
+  const existing = codexAppServerRuntimePool.get(poolKey);
+  if (existing && !existing.connection.isClosed()) return existing;
+  if (existing) deleteCodexRuntimeEntry(poolKey);
+  const entry = {
+    poolKey,
+    initialized: null,
+    queue: Promise.resolve(),
+    connection: null
+  };
+  entry.connection = createCodexAppServerConnection({
+    ...options,
+    onClose: () => deleteCodexRuntimeEntry(poolKey)
+  });
+  codexAppServerRuntimePool.set(poolKey, entry);
+  return entry;
+}
+
+function enqueueCodexRuntime(entry, run) {
+  const previous = entry.queue.catch(() => {});
+  const current = previous.then(run);
+  entry.queue = current.catch(() => {});
+  return current;
+}
+
+function closeCodexAppServerRuntimes() {
+  for (const entry of codexAppServerRuntimePool.values()) {
+    closeCodexRuntimeEntry(entry);
+  }
+  codexAppServerRuntimePool.clear();
+}
+
 async function runCodexAppServerTurn({
   codexPath,
   env,
@@ -338,8 +438,11 @@ async function runCodexAppServerTurn({
   sessionId = "",
   mcpServers = {},
   spawn = defaultSpawn,
+  reuseKey = "",
   appendLog = () => {}
 } = {}) {
+  const startedAt = Date.now();
+  let lastMarkAt = startedAt;
   const textByItem = new Map();
   const toolPreviewById = new Map();
   let activeThreadId = String(threadId || "");
@@ -353,6 +456,12 @@ async function runCodexAppServerTurn({
     doneResolve = resolve;
     doneReject = reject;
   });
+
+  function mark(label) {
+    const now = Date.now();
+    appendLog(`[codex-app-server] ${label}: +${now - lastMarkAt}ms total=${now - startedAt}ms`);
+    lastMarkAt = now;
+  }
 
   function emitTool(kind, item) {
     if (typeof emit !== "function") return;
@@ -384,6 +493,10 @@ async function runCodexAppServerTurn({
   function onNotification(message) {
     const method = message.method;
     const params = message.params || {};
+    if (!onNotification.seenFirst) {
+      onNotification.seenFirst = true;
+      mark(`first notification ${method}`);
+    }
     if (method === "thread/started") {
       activeThreadId = params.thread?.id || params.threadId || activeThreadId;
       if (typeof emit === "function" && activeThreadId) emit("session_started", { sessionId: activeThreadId });
@@ -401,6 +514,10 @@ async function runCodexAppServerTurn({
     if (method === "item/agentMessage/delta") {
       const id = String(params.itemId || "agent_message");
       const text = String(params.delta || "");
+      if (text && !onNotification.seenFirstText) {
+        onNotification.seenFirstText = true;
+        mark("first text delta");
+      }
       textByItem.set(id, `${textByItem.get(id) || ""}${text}`);
       finalResponse = textByItem.get(id) || finalResponse;
       if (typeof emit === "function" && text) emit("text_delta", { id, text });
@@ -431,6 +548,7 @@ async function runCodexAppServerTurn({
       completedTurn = params.turn || {};
       finalResponse = finalTextFromTurn(completedTurn) || finalResponse;
       if (typeof emit === "function") emit("complete", { finishReason: "stop" });
+      mark("turn completed");
       doneResolve({ finalResponse, items: completedTurn.items || [], usage: null, threadId: activeThreadId });
     }
   }
@@ -474,31 +592,49 @@ async function runCodexAppServerTurn({
   const configOverrides = codexConfigOverridesForMcpServers(mcpServers);
   if (baseUrl) configOverrides.push(`openai_base_url=${tomlString(baseUrl)}`);
 
-  const connection = createCodexAppServerConnection({
-    codexPath,
-    env: managedEnv,
-    configOverrides,
-    spawn,
-    appendLog,
-    onNotification,
-    onServerRequest
-  });
-
-  const onAbort = () => {
-    connection.request("turn/interrupt", { threadId: activeThreadId, turnId: activeTurnId }).catch(() => {});
-    connection.close();
-    doneReject(stoppedError());
+  const initializeParams = {
+    clientInfo: { name: "mia", title: "Mia", version: "0.1.0" },
+    capabilities: { experimentalApi: true, requestAttestation: false }
   };
-  if (signal) {
-    if (signal.aborted) onAbort();
-    else signal.addEventListener("abort", onAbort, { once: true });
+
+  async function executeTurn(connection, poolEntry = null) {
+    connection.setHandlers?.({ onNotification, onServerRequest });
+    const onAbort = () => {
+      connection.request("turn/interrupt", { threadId: activeThreadId, turnId: activeTurnId }).catch(() => {});
+      if (poolEntry) closeCodexRuntimeEntry(poolEntry);
+      else connection.close();
+      doneReject(stoppedError());
+    };
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
+    try {
+      if (poolEntry) {
+        if (!poolEntry.initialized) {
+          poolEntry.initialized = connection.request("initialize", initializeParams);
+          await poolEntry.initialized;
+          mark("initialize");
+        } else {
+          await poolEntry.initialized;
+          mark("initialize cached");
+        }
+      } else {
+        await connection.request("initialize", initializeParams);
+        mark("initialize");
+      }
+      return await runInitializedTurn(connection);
+    } catch (error) {
+      if (poolEntry) closeCodexRuntimeEntry(poolEntry);
+      throw error;
+    } finally {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      connection.setHandlers?.({});
+      if (!poolEntry) connection.close();
+    }
   }
 
-  try {
-    await connection.request("initialize", {
-      clientInfo: { name: "mia", title: "Mia", version: "0.1.0" },
-      capabilities: { experimentalApi: true, requestAttestation: false }
-    });
+  async function runInitializedTurn(connection) {
     const permissionProfile = String(options.permissionProfile || "").trim();
     const hasApprovalPolicy = Object.prototype.hasOwnProperty.call(options, "approvalPolicy")
       && options.approvalPolicy !== null
@@ -519,10 +655,12 @@ async function runCodexAppServerTurn({
     if (activeThreadId) {
       const resumed = await connection.request("thread/resume", { threadId: activeThreadId, ...common });
       activeThreadId = resumed?.thread?.id || activeThreadId;
+      mark("thread/resume");
     } else {
       const started = await connection.request("thread/start", common);
       activeThreadId = started?.thread?.id || "";
       if (typeof emit === "function" && activeThreadId) emit("session_started", { sessionId: activeThreadId });
+      mark("thread/start");
     }
     const turnParams = {
       threadId: activeThreadId,
@@ -537,6 +675,7 @@ async function runCodexAppServerTurn({
     }
     const startedTurn = await connection.request("turn/start", turnParams);
     activeTurnId = startedTurn?.turn?.id || activeTurnId;
+    mark("turn/start response");
     if (startedTurn?.turn?.status === "completed") {
       completedTurn = startedTurn.turn;
       finalResponse = finalTextFromTurn(completedTurn) || finalResponse;
@@ -547,15 +686,41 @@ async function runCodexAppServerTurn({
     }
     const result = await done;
     return result;
-  } finally {
-    if (signal) signal.removeEventListener("abort", onAbort);
-    connection.close();
   }
+
+  const pooledKey = codexRuntimePoolKey({
+    reuseKey,
+    codexPath,
+    env: managedEnv,
+    configOverrides
+  });
+  if (pooledKey) {
+    const entry = getCodexRuntimeEntry(pooledKey, {
+      codexPath,
+      env: managedEnv,
+      configOverrides,
+      spawn,
+      appendLog
+    });
+    return enqueueCodexRuntime(entry, () => executeTurn(entry.connection, entry));
+  }
+
+  const connection = createCodexAppServerConnection({
+    codexPath,
+    env: managedEnv,
+    configOverrides,
+    spawn,
+    appendLog,
+    onNotification,
+    onServerRequest
+  });
+  return executeTurn(connection);
 }
 
 module.exports = {
   codexConfigOverridesForMcpServers,
   codexDecisionFor,
+  closeCodexAppServerRuntimes,
   createCodexAppServerConnection,
   isCodexApprovalRequest,
   runCodexAppServerTurn,
