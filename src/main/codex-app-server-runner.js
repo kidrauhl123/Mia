@@ -9,6 +9,8 @@ const {
 const { isForbiddenSchedulerToolName } = require("./scheduler-tool-guard.js");
 
 const CODEX_APP_SERVER_PROTOCOL_VERSION = 2;
+const CODEX_CHATGPT_HTTPS_PROVIDER_ID = "mia-chatgpt-http";
+const CODEX_CHATGPT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 
 function tomlString(value) {
   return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -46,6 +48,25 @@ function codexConfigOverridesForMcpServers(mcpServers = {}) {
     }
   }
   return overrides;
+}
+
+function codexChatGptHttpsProviderOverrides() {
+  const prefix = `model_providers.${tomlPathSegment(CODEX_CHATGPT_HTTPS_PROVIDER_ID)}`;
+  return [
+    `model_provider=${tomlString(CODEX_CHATGPT_HTTPS_PROVIDER_ID)}`,
+    `${prefix}.name=${tomlString("ChatGPT Codex HTTPS")}`,
+    `${prefix}.base_url=${tomlString(CODEX_CHATGPT_CODEX_BASE_URL)}`,
+    `${prefix}.wire_api=${tomlString("responses")}`,
+    `${prefix}.requires_openai_auth=true`,
+    `${prefix}.supports_websockets=false`
+  ];
+}
+
+function shouldUseCodexChatGptHttpsProvider({ baseUrl = "", apiKey = "", env = {}, options = {} } = {}) {
+  if (options.codexChatGptHttpsProvider === false) return false;
+  if (String(baseUrl || "").trim() || String(apiKey || "").trim()) return false;
+  if (String(env?.CODEX_API_KEY || env?.OPENAI_API_KEY || "").trim()) return false;
+  return true;
 }
 
 function stoppedError() {
@@ -589,7 +610,11 @@ async function runCodexAppServerTurn({
 
   const managedEnv = { ...(env || {}) };
   if (apiKey) managedEnv.CODEX_API_KEY = String(apiKey);
-  const configOverrides = codexConfigOverridesForMcpServers(mcpServers);
+  const configOverrides = [];
+  if (shouldUseCodexChatGptHttpsProvider({ baseUrl, apiKey, env: managedEnv, options })) {
+    configOverrides.push(...codexChatGptHttpsProviderOverrides());
+  }
+  configOverrides.push(...codexConfigOverridesForMcpServers(mcpServers));
   if (baseUrl) configOverrides.push(`openai_base_url=${tomlString(baseUrl)}`);
 
   const initializeParams = {

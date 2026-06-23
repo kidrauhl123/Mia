@@ -225,6 +225,109 @@ test("createCodexAppServerConnection runs codex with its own bin dir first in PA
   assert.equal(spawnOptions.env.PATH, "/opt/codex-node/bin:/bad-node/bin:/usr/bin");
 });
 
+test("runCodexAppServerTurn forces ChatGPT Codex HTTPS provider for native auth", async () => {
+  const spawnCalls = [];
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+    child.stdout.end();
+    child.stderr.end();
+    child.emit("exit", 0, null);
+  };
+  child.stdin = {
+    destroyed: false,
+    write(line) {
+      const request = JSON.parse(line);
+      if (request.method === "initialize") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { ok: true } }) + "\n"));
+      } else if (request.method === "thread/start") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { thread: { id: "thread_1" } } }) + "\n"));
+      } else if (request.method === "turn/start") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({
+          id: request.id,
+          result: {
+            turn: {
+              id: "turn_1",
+              status: "completed",
+              items: [{ type: "agentMessage", text: "done" }]
+            }
+          }
+        }) + "\n"));
+      }
+    }
+  };
+
+  await runCodexAppServerTurn({
+    codexPath: "/bin/codex",
+    env: { PATH: "/bin" },
+    prompt: "hello",
+    options: { workingDirectory: "/repo" },
+    spawn: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      return child;
+    }
+  });
+
+  assert.ok(spawnCalls[0].args.includes('model_provider="mia-chatgpt-http"'));
+  assert.ok(spawnCalls[0].args.includes('model_providers.mia-chatgpt-http.base_url="https://chatgpt.com/backend-api/codex"'));
+  assert.ok(spawnCalls[0].args.includes("model_providers.mia-chatgpt-http.supports_websockets=false"));
+});
+
+test("runCodexAppServerTurn preserves explicit provider base URL", async () => {
+  const spawnCalls = [];
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+    child.stdout.end();
+    child.stderr.end();
+    child.emit("exit", 0, null);
+  };
+  child.stdin = {
+    destroyed: false,
+    write(line) {
+      const request = JSON.parse(line);
+      if (request.method === "initialize") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { ok: true } }) + "\n"));
+      } else if (request.method === "thread/start") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { thread: { id: "thread_1" } } }) + "\n"));
+      } else if (request.method === "turn/start") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({
+          id: request.id,
+          result: {
+            turn: {
+              id: "turn_1",
+              status: "completed",
+              items: [{ type: "agentMessage", text: "done" }]
+            }
+          }
+        }) + "\n"));
+      }
+    }
+  };
+
+  await runCodexAppServerTurn({
+    codexPath: "/bin/codex",
+    env: { PATH: "/bin" },
+    baseUrl: "http://127.0.0.1:43123/v1",
+    apiKey: "proxy-key",
+    prompt: "hello",
+    options: { workingDirectory: "/repo" },
+    spawn: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      return child;
+    }
+  });
+
+  assert.equal(spawnCalls[0].args.some((arg) => String(arg).includes("mia-chatgpt-http")), false);
+  assert.ok(spawnCalls[0].args.includes('openai_base_url="http://127.0.0.1:43123/v1"'));
+});
+
 test("runCodexAppServerTurn keeps full-access approval policy when using Codex permission profiles", async () => {
   const requests = [];
   const child = new EventEmitter();
