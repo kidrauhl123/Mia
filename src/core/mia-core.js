@@ -51,6 +51,21 @@ const { createHermesChatAdapter } = require("../main/hermes-chat-adapter.js");
 const { createMiaMemoryService } = require("../main/mia-memory-service.js");
 const { createSkillsLoader } = require("../main/skills-loader.js");
 
+// Attachments + MCP context bridges — the SAME pure-node factories main.js drives
+// (src/main.js ~453 createChatAttachments, ~631/640 the scheduler/Mia-app MCP
+// bridges; no fork). All three are constructed from runtimePaths + fs/path only:
+//   - createChatAttachments: the two methods Core needs (normalizeAttachments,
+//     attachmentContext) are pure fs/path. The save/read/cloud-fetch methods
+//     (which alone touch initializeRuntime/getCloudSettings) are never reached on
+//     the hermes-run-service payload path, so node sinks for those deps are safe.
+//   - createSchedulerMcpBridge / createMiaAppMcpBridge: writeContext is a pure fs
+//     write of {botId, sessionId, originMessageId} to context.json under Core's
+//     own runtime home. Core owns that home AND the daemon control server the MCP
+//     server scripts call back into (MIA_DAEMON_URL), so the write is correct.
+const { createChatAttachments } = require("../main/chat-attachments.js");
+const { createSchedulerMcpBridge } = require("../main/scheduler-mcp-bridge.js");
+const { createMiaAppMcpBridge } = require("../main/mia-app-mcp-bridge.js");
+
 // Cloud bot-invocation routing — the SAME pure-node social modules the Electron
 // main process drives (no fork). Core is the single owner when running, so the
 // dispatcher always handles (shouldHandle: () => true) and never falls back.
@@ -202,23 +217,56 @@ function createCoreBotExecution({
     isChildPath
   });
 
-  // Real Hermes run service (payload/stream/slash helpers). Attachments are not
-  // exercised in this slice; the no-op attachment deps match the service's own
-  // documented defaults.
-  // TODO(mia-core slice): wire real attachment normalization once Core owns the
-  // attachment store.
+  // REAL chat-attachments — pure node (fs/path) for the two methods the run
+  // service uses. normalizeAttachments + attachmentContext read local file
+  // metadata / text previews exactly like the Electron path (src/main.js:466).
+  // The save/read/cloud-fetch methods are never reached on the payload path, so
+  // their electron-ish deps are inert node sinks: initializeRuntime is a no-op
+  // (Core owns runtimePaths.attachmentsDir already), and the cloud deps reuse
+  // Core's own cloud settings if present.
+  const chatAttachments = createChatAttachments({
+    initializeRuntime: () => {},
+    runtimePaths,
+    getCloudSettings: () => (settingsStore && typeof settingsStore.cloudSettings === "function"
+      ? settingsStore.cloudSettings()
+      : { enabled: false }),
+    normalizeCloudUrl: settingsStore && typeof settingsStore.normalizeCloudUrl === "function"
+      ? settingsStore.normalizeCloudUrl
+      : (value) => String(value || "")
+  });
+
+  // Real Hermes run service (payload/stream/slash helpers) — now with the REAL
+  // attachment deps so a Hermes turn carrying local attachments injects the same
+  // "附件上下文" block + text previews the Electron daemon does (src/main.js:487).
   const hermesRunService = createHermesRunService({
-    normalizeAttachments: () => [],
-    attachmentContext: () => "",
+    normalizeAttachments: chatAttachments.normalizeAttachments,
+    attachmentContext: chatAttachments.attachmentContext,
     baseUrl,
     apiKey: apiKeyFn,
     fetchImpl,
     randomUUID: () => crypto.randomUUID()
   });
 
+  // REAL MCP context bridges — pure node. Only writeContext is wired into the
+  // adapter (a fs write of the per-turn {botId, sessionId, originMessageId} to
+  // context.json under Core's runtime home). The MCP server scripts read that
+  // file + MIA_DAEMON_URL to call back into the daemon — and Core IS that daemon
+  // (its control server + /api/tasks routes), so a Hermes turn's schedule_create
+  // / app tools resolve to the same conversation the Electron daemon would.
+  // getSpec (the config.yaml wiring) is NOT wired here — that is the engine-config
+  // path Core does not own; see the managed-model TODO below.
+  const schedulerMcpBridge = createSchedulerMcpBridge({
+    runtimePaths,
+    serverScriptPath: () => path.join(__dirname, "..", "main", "scheduler-mcp-server.js")
+  });
+  const miaAppMcpBridge = createMiaAppMcpBridge({
+    runtimePaths,
+    serverScriptPath: () => path.join(__dirname, "..", "main", "mia-app-mcp-server.js")
+  });
+
   // Real Hermes chat adapter — provides slashCommandResponse and (in production)
-  // the real sendChat. The optional MCP/memory/managed-model deps are stubbed for
-  // this slice but the adapter itself is the genuine one.
+  // the real sendChat. The MCP context writes are now the genuine bridges; the
+  // managed-model deps remain stubbed (see TODO) and the adapter itself is genuine.
   const hermesAdapter = createHermesChatAdapter({
     apiKey: apiKeyFn,
     baseUrl,
@@ -231,14 +279,19 @@ function createCoreBotExecution({
     // REAL memory block — Core owns the same single-owner mia-memory.json, so
     // a Hermes turn run via Core injects the same memory the Electron daemon does.
     memoryBlock: miaMemoryService.memoryBlock,
-    // TODO(mia-core slice): wire the scheduler MCP context write once Core owns
-    // the scheduler subsystem.
-    writeSchedulerMcpContext: () => {},
-    // TODO(mia-core slice): wire the Mia app MCP context write once Core owns the
-    // app MCP bridge.
-    writeMiaAppMcpContext: () => {},
-    // TODO(mia-core slice): wire the managed-model runtime once Core owns model
-    // settings; until then Hermes uses the turn's runtimeConfig as-is.
+    // REAL scheduler MCP context write — Core owns the scheduler subsystem, so a
+    // schedule_create from this turn fires the reminder back into this conversation.
+    writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
+    // REAL Mia app MCP context write — same per-turn context under Core's home.
+    writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
+    // TODO(mia-core slice): the managed-model runtime stays stubbed. resolveManagedModelRuntime
+    // is node-constructible (cloud settings + token), but the adapter contract requires that a
+    // non-null managed model be paired with writeModelRuntimeConfig, which writes Hermes's
+    // config.yaml via engineRuntimeConfigService.writeRuntimeConfig — the engine-config path
+    // Core does NOT own (the Electron app starts Hermes and owns its config.yaml + the full
+    // defaultModelSettings/permission/effort/MCP-spec graph). Wiring resolve-without-write
+    // would leave Hermes pointed at a stale model, so both stay stubbed; Hermes uses the
+    // turn's runtimeConfig as-is (acceptable-but-degraded for Mia-managed-model bots).
     resolveManagedModelRuntime: () => null,
     writeModelRuntimeConfig: () => {},
     // REAL enabled-skills context — injects the full content of the bot's
