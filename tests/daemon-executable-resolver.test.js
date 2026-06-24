@@ -188,7 +188,8 @@ test("packaged build resolves node-core from resourcesPath when nodePath/coreEnt
     defaultApp: () => false,
     nodePath: () => "",
     coreEntry: () => "",
-    resourcesPath: () => res
+    resourcesPath: () => res,
+    existsSync: () => true
   }).resolve();
   assert.equal(r.kind, "node-core");
   assert.equal(r.command, path.join(res, "mia-node"));
@@ -205,6 +206,44 @@ test("packaged build with no resourcesPath and no injected node is unresolved (f
   assert.equal(r.kind, "unresolved");
   assert.equal(r.usesGuiAppIdentity, false);
   assert.throws(() => setup({ defaultApp: () => false, nodePath: () => "", coreEntry: () => "", resourcesPath: () => "" }).assertLaunchable(), /GUI app identity/);
+});
+
+test("packaged build with a MISSING bundled node/core falls to unresolved (fail fast, no timeout)", () => {
+  // The bundle is incomplete (mia-node or the unpacked Core entry not on disk).
+  // The DERIVED packaged paths must be existence-checked so the target is
+  // `unresolved` (assertLaunchable throws clearly) rather than a node-core target
+  // pointing at a non-existent command that would silently time out on /health.
+  const res = "/Applications/Mia.app/Contents/Resources";
+  const missing = setup({
+    defaultApp: () => false,
+    nodePath: () => "",
+    coreEntry: () => "",
+    resourcesPath: () => res,
+    existsSync: () => false
+  });
+  assert.equal(missing.resolve().kind, "unresolved");
+  assert.throws(() => missing.assertLaunchable(), /GUI app identity/);
+
+  // Only the node binary is missing → still unresolved (no partial node-core).
+  const onlyNodeMissing = setup({
+    defaultApp: () => false,
+    nodePath: () => "",
+    coreEntry: () => "",
+    resourcesPath: () => res,
+    existsSync: (p) => p.endsWith(path.join("src", "core", "mia-core.js"))
+  });
+  assert.equal(onlyNodeMissing.resolve().kind, "unresolved");
+});
+
+test("injected dev node/core paths are trusted without an existence check", () => {
+  // Dev/test inject absolute paths the caller already resolved; they must NOT be
+  // existence-checked (the repo Core entry / `which node` result are trusted), so
+  // a default fs.existsSync against a fake /repo path still yields node-core.
+  const r = setup({
+    nodePath: () => "/usr/local/bin/node",
+    coreEntry: () => "/repo/src/core/mia-core.js"
+  }).resolve();
+  assert.equal(r.kind, "node-core");
 });
 
 test("describe exposes basename and identity flag for diagnostics", () => {

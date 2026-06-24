@@ -1,6 +1,7 @@
 "use strict";
 
 const path = require("node:path");
+const fs = require("node:fs");
 
 const DEFAULT_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
@@ -53,7 +54,16 @@ function createMiaCoreResolver(deps = {}) {
     // process.resourcesPath under a packaged Electron app
     // (…/Contents/Resources). "" in dev. Used to derive the packaged node
     // binary + the unpacked Core entry below.
-    resourcesPath = () => ""
+    resourcesPath = () => "",
+    // Existence check for the PACKAGED-DERIVED node/core paths only. A packaged
+    // build that ships a broken/incomplete bundle would otherwise resolve a
+    // node-core target whose command/entry don't exist on disk → the launched
+    // process never answers /health and the daemon TIMES OUT instead of failing
+    // fast. Guarding the derived paths makes a missing bundle fall through to
+    // `unresolved`, so assertLaunchable() throws a clear error. Injectable for
+    // tests; the injected dev/test node+coreEntry paths are trusted as-is (the
+    // caller already resolved them via `which node` / the on-disk Core entry).
+    existsSync = (p) => fs.existsSync(p)
   } = deps;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
   if (typeof effectiveHermesHome !== "function") throw new Error("effectiveHermesHome dependency is required.");
@@ -70,8 +80,15 @@ function createMiaCoreResolver(deps = {}) {
     // A plain node binary CANNOT require out of app.asar, so the packaged Core MUST
     // be the unpacked copy — never the in-asar path.
     const res = String(resourcesPath() || "").trim();
-    const node = String(nodePath() || "").trim() || packagedNodePath(res);
-    const entry = String(coreEntry() || "").trim() || packagedCoreEntry(res);
+    // Injected paths (dev / tests) are trusted as-is; the DERIVED packaged paths
+    // are existence-checked so a broken bundle fails fast as `unresolved` rather
+    // than launching a non-existent command that just times out on /health.
+    const injectedNode = String(nodePath() || "").trim();
+    const injectedEntry = String(coreEntry() || "").trim();
+    const derivedNode = packagedNodePath(res);
+    const derivedEntry = packagedCoreEntry(res);
+    const node = injectedNode || (derivedNode && existsSync(derivedNode) ? derivedNode : "");
+    const entry = injectedEntry || (derivedEntry && existsSync(derivedEntry) ? derivedEntry : "");
     if (node && entry) {
       return {
         kind: "node-core",

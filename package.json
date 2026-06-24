@@ -88,6 +88,7 @@
       "src/**",
       "packages/shared/**",
       "package.json",
+      "resources/official-library/**",
       "node_modules/ws/**",
       "node_modules/adm-zip/**",
       "node_modules/cron-parser/**",

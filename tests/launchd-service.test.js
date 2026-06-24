@@ -126,7 +126,10 @@ test("packaged resolver makes the launchd plist point ProgramArguments at mia-no
     env: {},
     nodePath: () => "",
     coreEntry: () => "",
-    resourcesPath: () => res
+    resourcesPath: () => res,
+    // The derived packaged paths don't exist on the test machine; this test
+    // asserts the derivation/plist shape, so trust existence.
+    existsSync: () => true
   });
   const { service } = setup(t, { resolver: packagedResolver, defaultApp: () => false });
 

@@ -50,10 +50,21 @@ const yaml = require("js-yaml");
   }
 })();
 
+const { spawn: defaultSpawn } = require("node:child_process");
+
 const { createRuntimePaths } = require("../main/runtime-paths.js");
 const { createSettingsStore } = require("../main/settings-store.js");
 const { createDaemonControlServer } = require("../main/daemon/control-server.js");
 const { createEngineHealthService } = require("../main/engine-health-service.js");
+
+// Engine lifecycle collaborators — the SAME pure-node factories the Electron
+// main process drives to START Hermes (src/main.js:1856 startEngine). All are
+// node-constructible (verified): no app.getAppPath/BrowserWindow; the bundled
+// python is NOT used — Hermes is an upstream engine resolved from PATH
+// (systemHermesService.pythonPath), exactly like claude/codex. Core reuses these
+// verbatim so a GUI-less daemon can own the engine when no GUI window is running.
+const { createSystemHermesService } = require("../main/system-hermes-service.js");
+const { createEnginePluginsService } = require("../main/engine-plugins-service.js");
 
 // Bot-execution graph — the SAME pure-node factories the Electron main process
 // drives (no fork). Core builds a real adapter graph; only the lowest-level
@@ -209,24 +220,66 @@ function isChildPath(parentPath, targetPath) {
 // In a node Core checkout they sit two levels up from src/core/.
 const CORE_REPO_ROOT = path.join(__dirname, "..", "..");
 
-// Node-only equivalents of botPetService.officialLibraryManifestPath /
-// resolveOfficialLibraryRoot (which are electron-coupled via app.getAppPath()).
-// They are NOT extracted from bot-pet-service (no fork); Core points at the same
-// bundled resources by repo path. The directive/context builders tolerate a
-// missing manifest (readMiaOfficialSkillSources returns [] → only the private
-// <home>/skills source is active), so this stays correct even outside a checkout.
+// process.resourcesPath is set ONLY in a packaged Electron build (…/Contents/
+// Resources). Plain node (dev / `node mia-core.js`) leaves it undefined. Core
+// resolves the bundled official-library + _builtin skills differently per mode:
+//
+//   DEV (no resourcesPath): the repo checkout — <repo>/resources/official-library
+//   and <repo>/skills (two levels up from src/core/).
+//
+//   PACKAGED (resourcesPath set): packaging (package.json `build`) puts
+//   `resources/official-library/**` under app.asar.unpacked (asarUnpack — a plain
+//   node binary CANNOT read inside app.asar, so it MUST be unpacked) and ships
+//   `skills` via extraResources to <resources>/skills. So Core resolves:
+//     manifest →  <resources>/app.asar.unpacked/resources/official-library/library.json
+//     skills/  →  <resources>/skills/...
+//
+// These mirror botPetService.officialLibraryManifestPath / miaSkillsRoot /
+// resolveOfficialLibraryRoot (electron-coupled via app.getAppPath()) but are
+// node-only — NOT extracted from bot-pet-service (no fork). The directive/context
+// builders tolerate a missing manifest (readMiaOfficialSkillSources returns [] →
+// only the private <home>/skills source is active), so this stays correct even
+// when neither candidate exists.
+function corePackagedResourcesPath() {
+  return String(process.resourcesPath || "").trim();
+}
+
 function coreOfficialLibraryManifestPath() {
-  return path.join(CORE_REPO_ROOT, "resources", "official-library", "library.json");
+  const res = corePackagedResourcesPath();
+  const candidates = [];
+  if (res) {
+    // Packaged: official-library is asarUnpack'd so plain node can read it.
+    candidates.push(path.join(res, "app.asar.unpacked", "resources", "official-library", "library.json"));
+    // Defensive: some packagers leave a flat copy under <resources>.
+    candidates.push(path.join(res, "official-library", "library.json"));
+  }
+  candidates.push(path.join(CORE_REPO_ROOT, "resources", "official-library", "library.json"));
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || candidates[candidates.length - 1];
+}
+
+// Root that holds the shipped `skills/_builtin` tree (pet-generator etc.).
+function coreMiaSkillsRoot() {
+  const res = corePackagedResourcesPath();
+  const candidates = [];
+  if (res) {
+    // extraResources ships `skills` to <resources>/skills.
+    candidates.push(path.join(res, "skills"));
+  }
+  candidates.push(path.join(CORE_REPO_ROOT, "skills"));
+  return candidates.find((candidate) => candidate && fs.existsSync(path.join(candidate, "_builtin")))
+    || candidates[candidates.length - 1];
 }
 
 function coreResolveOfficialLibraryRoot(root = "") {
   const value = String(root || "").trim();
   if (!value) return "";
   if (path.isAbsolute(value)) return value;
-  // The bundled skillSources use roots like "skills/_builtin"; Core mirrors the
-  // shipped layout (<repo>/skills/...) the desktop app resolves via miaSkillsRoot.
+  // The bundled skillSources use roots like "skills/_builtin"; resolve them
+  // against the shipped skills root (extraResources in packaged mode, <repo>/
+  // skills in dev) — the same layout botPetService resolves via miaSkillsRoot.
   if (value === "skills" || value.startsWith("skills/")) {
-    return path.join(CORE_REPO_ROOT, value);
+    const rel = value.slice("skills".length).replace(/^[\\/]/, "");
+    return path.join(coreMiaSkillsRoot(), rel);
   }
   return path.join(path.dirname(coreOfficialLibraryManifestPath()), value);
 }
@@ -245,7 +298,12 @@ function createCoreBotExecution({
   hermesBaseUrl,
   apiKey,
   sendHermesChat,
-  fetchImpl = fetch
+  fetchImpl = fetch,
+  // BLOCKER #2: ensure the Hermes engine is running before a turn. In production
+  // Core injects its engine supervisor's ensureRunning (adopt-or-spawn); when
+  // absent (older callers / pure-adapter tests) Core falls back to a plain
+  // /health probe, preserving the prior behaviour.
+  ensureEngine = null
 } = {}) {
   const baseUrl = typeof hermesBaseUrl === "function" ? hermesBaseUrl : () => String(hermesBaseUrl || "");
   const apiKeyFn = typeof apiKey === "function" ? apiKey : () => String(apiKey || "");
@@ -382,9 +440,19 @@ function createCoreBotExecution({
     ? sendHermesChat
     : hermesAdapter.sendChat;
 
-  // Health check for ensureHermesReady: probe the engine /health if a baseUrl is
-  // configured; otherwise no-op (the Electron app owns the engine lifecycle).
+  // ensureHermesReady: when Core owns the engine lifecycle (an ensureEngine is
+  // injected), ADOPT-OR-SPAWN the Hermes engine so a GUI-less daemon turn always
+  // has a running engine (BLOCKER #2). Otherwise fall back to a plain /health
+  // probe (legacy behaviour: the Electron app owns the engine).
   async function ensureHermesReady() {
+    if (typeof ensureEngine === "function") {
+      try {
+        await ensureEngine();
+      } catch {
+        // Non-fatal here: the actual send below surfaces a real connection error.
+      }
+      return;
+    }
     const url = baseUrl();
     if (!url) return;
     try {
@@ -891,6 +959,206 @@ function createCoreScheduler({
   };
 }
 
+// BLOCKER #2 — engine lifecycle ownership. The Electron app's startEngine
+// (src/main.js:1856) spawns Hermes as a CHILD of whatever process calls it (the
+// GUI window). startGateway() (the independent launchd gateway) has NO call
+// sites. So when the GUI is closed and only the Core daemon runs, NO engine is
+// running → all cloud bot work fails. Core must therefore be able to ENSURE the
+// engine is running itself — adopting an already-running one (the GUI's) and
+// only spawning when none is reachable (single-owner).
+//
+// This reconstructs the node-only slice of startEngine (verified node-
+// constructible): resolve the system Hermes python (PATH, like claude/codex),
+// write the mia_plugins overlay, choose a free port, write the minimal
+// platforms.api_server block Core already reads, then spawn the SAME gateway
+// command (`python -m mia_plugins gateway run --replace --accept-hooks`) with the
+// SAME env (API_SERVER_*, HERMES_HOME, MIA_HOME, PYTHONPATH) main.js spawns, and
+// supervise stdout/stderr/exit. Core kills ONLY an engine it spawned (never an
+// adopted one) on stop().
+//
+// What Core does NOT do (the engine-config-ownership boundary main.js owns): the
+// full writeRuntimeConfig graph (model/provider/permission/effort/MCP specs). The
+// GUI owns that richer config.yaml. Core writes a MINIMAL config.yaml (preserving
+// any existing keys) only so the api_server port/key it chose are on disk; the
+// model/provider sections come from whatever the GUI already wrote (degraded but
+// correct: a fresh install with no GUI run yet has no model config — that is the
+// documented boundary, see the managed-model TODO above).
+//
+// spawnImpl/fetchImpl/systemHermesPython are injectable so a test can assert the
+// EXACT spawned command + env (and adoption) without running the real Python.
+function createCoreEngineSupervisor({
+  runtimePaths,
+  buildPythonPath,
+  hermesHome,
+  spawnImpl = defaultSpawn,
+  fetchImpl = fetch,
+  // PATH-resolved Hermes python (system-hermes-service in production). A "" here
+  // falls back to "python3" — the SAME fallback engine-install-service.enginePython
+  // uses (src/main/engine-install-service.js:173).
+  systemHermesPython = null,
+  env = process.env,
+  log = () => {},
+  // Health timeout knobs (kept short-overridable for tests).
+  waitForHealthMs = 45000
+} = {}) {
+  const hermesHomePath = typeof hermesHome === "function" ? hermesHome : () => String(hermesHome || "");
+
+  const apiKeyFn = () => coreReadHermesApiKey(hermesHomePath());
+
+  // Ensure an api-server key exists on disk before spawn (mirrors
+  // engineRuntimeConfigService.apiKey, which creates it if missing). The engine
+  // authenticates incoming requests against this key; Core reads the same file.
+  function ensureApiKey() {
+    const keyPath = path.join(hermesHomePath(), "mia-api-server.key");
+    if (!fs.existsSync(keyPath)) {
+      fs.mkdirSync(path.dirname(keyPath), { recursive: true });
+      fs.writeFileSync(keyPath, `${crypto.randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
+    }
+    return String(fs.readFileSync(keyPath, "utf8")).trim();
+  }
+
+  // Minimal config.yaml write: ensure platforms.api_server.{enabled,host,port,key}
+  // matches the chosen port/key WITHOUT clobbering any richer config the GUI wrote
+  // (read-modify-write). This is the only config Core owns; everything else is the
+  // GUI's (see the boundary note above).
+  function writeMinimalConfig(port, key) {
+    const configPath = path.join(hermesHomePath(), "config.yaml");
+    let parsed = {};
+    try {
+      if (fs.existsSync(configPath)) parsed = yaml.load(fs.readFileSync(configPath, "utf8")) || {};
+    } catch {
+      parsed = {};
+    }
+    if (!parsed || typeof parsed !== "object") parsed = {};
+    parsed.platforms = parsed.platforms && typeof parsed.platforms === "object" ? parsed.platforms : {};
+    parsed.platforms.api_server = {
+      ...(parsed.platforms.api_server && typeof parsed.platforms.api_server === "object" ? parsed.platforms.api_server : {}),
+      enabled: true,
+      host: "127.0.0.1",
+      port,
+      key
+    };
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    const tmpPath = `${configPath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, yaml.dump(parsed), { mode: 0o600 });
+    fs.renameSync(tmpPath, configPath);
+  }
+
+  const systemHermes = createSystemHermesService({ runtimePaths, env });
+  const enginePlugins = createEnginePluginsService({ runtimePaths });
+
+  const resolvePython = typeof systemHermesPython === "function"
+    ? systemHermesPython
+    : () => systemHermes.pythonPath();
+
+  let engineProcess = null;
+  let spawnedByCore = false;
+
+  const healthService = createEngineHealthService({
+    fetchImpl,
+    apiKey: apiKeyFn,
+    readConfiguredPort: () => coreReadHermesPort(hermesHomePath()),
+    getEngineState: () => ({ port: coreReadHermesPort(hermesHomePath()) }),
+    // waitForHealth(requireChildProcess=true) checks the spawned child is still
+    // alive (exitCode null) before declaring health — mirrors main.js startEngine.
+    getEngineProcess: () => engineProcess
+  });
+
+  function isManaged() {
+    return Boolean(engineProcess) && spawnedByCore;
+  }
+
+  // Adopt an already-running engine (the GUI's, or any reachable one) so Core
+  // never double-starts. Returns true if one was adopted.
+  async function adopt() {
+    return healthService.adoptRunningEngine();
+  }
+
+  // Ensure an engine is reachable: adopt if one is already healthy, else spawn.
+  // Idempotent: a Core-spawned, still-alive engine short-circuits.
+  async function ensureRunning() {
+    if (isManaged() && engineProcess.exitCode === null) {
+      const baseUrl = coreHermesBaseUrl(hermesHomePath());
+      if (await healthService.isEngineHealthy(baseUrl)) return { adopted: false, spawned: false, baseUrl };
+    }
+    if (await adopt()) {
+      return { adopted: true, spawned: false, baseUrl: coreHermesBaseUrl(hermesHomePath()) };
+    }
+
+    const python = String(resolvePython() || "").trim() || "python3";
+    enginePlugins.ensureInstalled();
+
+    const port = await healthService.choosePort();
+    if (!port) throw new Error("No available local port for Mia Hermes API.");
+
+    const key = ensureApiKey();
+    writeMinimalConfig(port, key);
+
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const spawnEnv = {
+      ...env,
+      HERMES_HOME: hermesHomePath(),
+      MIA_HOME: runtimePaths().home,
+      HERMES_ACCEPT_HOOKS: "1",
+      API_SERVER_ENABLED: "true",
+      API_SERVER_HOST: "127.0.0.1",
+      API_SERVER_PORT: String(port),
+      API_SERVER_KEY: key,
+      PYTHONPATH: typeof buildPythonPath === "function" ? buildPythonPath() : String(buildPythonPath || "")
+    };
+    // The SAME gateway command main.js spawns (launchdService.gatewayProgramArguments
+    // minus the leading python): `-m mia_plugins gateway run --replace --accept-hooks`.
+    const args = ["-m", "mia_plugins", "gateway", "run", "--replace", "--accept-hooks"];
+
+    const child = spawnImpl(python, args, {
+      cwd: runtimePaths().engine,
+      env: spawnEnv,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    engineProcess = child;
+    spawnedByCore = true;
+
+    if (child.stdout) {
+      child.stdout.on("data", (chunk) => {
+        for (const line of String(chunk).split(/\r?\n/).filter(Boolean)) log(`[HermesEngine] ${line}`);
+      });
+    }
+    if (child.stderr) {
+      child.stderr.on("data", (chunk) => {
+        for (const line of String(chunk).split(/\r?\n/).filter(Boolean)) log(`[HermesEngine] ${line}`);
+      });
+    }
+    child.on("exit", (code, signal) => {
+      if (engineProcess === child) {
+        engineProcess = null;
+        spawnedByCore = false;
+      }
+      if (code !== 0 && signal !== "SIGTERM") {
+        log(`[HermesEngine] exited code ${code ?? "null"} signal ${signal ?? "null"}`);
+      }
+    });
+
+    const ok = await healthService.waitForHealth(baseUrl, waitForHealthMs, true);
+    if (!ok) {
+      stop();
+      throw new Error("Timed out waiting for Hermes API health.");
+    }
+    return { adopted: false, spawned: true, baseUrl, port, command: python, args, env: spawnEnv };
+  }
+
+  // Kill ONLY an engine Core spawned. An adopted engine (the GUI's) is left
+  // running — Core is not its owner.
+  function stop() {
+    if (engineProcess && spawnedByCore) {
+      try { engineProcess.kill("SIGTERM"); } catch { /* already gone */ }
+    }
+    engineProcess = null;
+    spawnedByCore = false;
+  }
+
+  return { ensureRunning, adopt, stop, isManaged, apiKey: apiKeyFn };
+}
+
 function createMiaCore(options = {}) {
   const env = options.env || process.env;
   const version = String(options.version || "");
@@ -909,7 +1177,7 @@ function createMiaCore(options = {}) {
     }
   };
 
-  const { runtimePaths } = createRuntimePaths({
+  const { runtimePaths, buildPythonPath } = createRuntimePaths({
     app: appShim,
     MIA_GATEWAY_SERVICE_LABEL,
     MIA_DAEMON_SERVICE_LABEL,
@@ -1003,6 +1271,30 @@ function createMiaCore(options = {}) {
     runtimePaths,
     getDaemonSettings: () => settingsStore.daemonSettings(),
     writeDaemonSettings: (settings) => settingsStore.writeDaemonSettings(settings),
+    // ADR P3: the window delegates cloud credential writes to the daemon so it
+    // stays the only mia-cloud.json writer while enabled. Without this the Core
+    // control server returns 501 on /api/cloud-settings and login/logout/
+    // profile-refresh FAIL against Core. Reuse the SAME single-owner settings
+    // store the Electron daemon writes (no second write path). Like main.js
+    // (src/main.js:2518), react to auth changes: a new token connects the cloud
+    // sockets, a logout drops them — so a login against Core actually brings the
+    // bot online. NOT getCloudSettings: that would enable the cloud-tasks PROXY
+    // and route /api/tasks upstream, bypassing Core's own single-owner scheduler.
+    writeCloudSettings: (patch) => {
+      const next = settingsStore.writeCloudSettings(patch);
+      if (patch && (patch.token !== undefined || patch.enabled !== undefined)) {
+        try {
+          if (next.enabled && next.token) {
+            cloudEvents().start();
+            cloudBridge().start();
+          } else {
+            if (cachedCloudEvents) cachedCloudEvents.stop();
+            if (cachedCloudBridge) cachedCloudBridge.stop();
+          }
+        } catch { /* sockets re-evaluate on their own retry tick */ }
+      }
+      return next;
+    },
     normalizeDaemonHost: settingsStore.normalizeDaemonHost,
     normalizeDaemonPort: settingsStore.normalizeDaemonPort,
     choosePort,
@@ -1036,6 +1328,27 @@ function createMiaCore(options = {}) {
     ? envHermesApiKey
     : coreReadHermesApiKey(runtimePaths().hermesHome));
 
+  // BLOCKER #2: Core's engine supervisor — built lazily, exposed for testing. It
+  // owns the Hermes engine lifecycle when Core runs GUI-less: adopt an already-
+  // running engine (the GUI's) or spawn one when none is reachable, and kill ONLY
+  // a Core-spawned engine on stop(). When MIA_HERMES_BASE_URL is set (an external
+  // engine is injected via env), Core does NOT manage the lifecycle — ensureEngine
+  // stays null and ensureHermesReady falls back to a plain /health probe.
+  let cachedEngineSupervisor = null;
+  function engineSupervisor(overrides = {}) {
+    if (cachedEngineSupervisor && !Object.keys(overrides).length) return cachedEngineSupervisor;
+    const built = createCoreEngineSupervisor({
+      runtimePaths,
+      buildPythonPath,
+      hermesHome: () => runtimePaths().hermesHome,
+      env,
+      log: () => {},
+      ...overrides
+    });
+    if (!Object.keys(overrides).length) cachedEngineSupervisor = built;
+    return built;
+  }
+
   let cachedBotExecution = null;
   function botExecution(overrides = {}) {
     if (cachedBotExecution && !Object.keys(overrides).length) return cachedBotExecution;
@@ -1044,6 +1357,10 @@ function createMiaCore(options = {}) {
       settingsStore,
       hermesBaseUrl: resolveHermesBaseUrl,
       apiKey: resolveHermesApiKey,
+      // Own the engine lifecycle only when no external engine endpoint is
+      // injected via env. With MIA_HERMES_BASE_URL set, the engine is external
+      // and Core must not adopt/spawn — ensureEngine stays absent.
+      ensureEngine: envHermesBaseUrl ? null : () => engineSupervisor().ensureRunning(),
       ...overrides
     });
     if (!Object.keys(overrides).length) cachedBotExecution = built;
@@ -1142,6 +1459,9 @@ function createMiaCore(options = {}) {
       // Clear any armed scheduler timer so node --test (and a clean shutdown)
       // exits; if the subsystem was never built this is a no-op.
       if (cachedScheduler) cachedScheduler.stopScheduler();
+      // BLOCKER #2: kill ONLY an engine Core spawned (an adopted GUI engine is
+      // left running — Core is not its owner). No-op if never built/spawned.
+      if (cachedEngineSupervisor) cachedEngineSupervisor.stop();
       return controlServer.stop();
     },
     status: () => controlServer.status(),
@@ -1151,6 +1471,7 @@ function createMiaCore(options = {}) {
     daemonToken,
     describeDaemonTarget,
     botExecution,
+    engineSupervisor,
     cloudRouting,
     cloudEvents,
     cloudBridge,
@@ -1165,11 +1486,19 @@ module.exports = {
   createCoreCloudEvents,
   createCoreCloudBridge,
   createCoreScheduler,
+  // Exported for the engine-lifecycle proof test (BLOCKER #2): adopt-or-spawn
+  // the Hermes engine, asserting the exact spawned command/args/env + adoption.
+  createCoreEngineSupervisor,
   // Exported for the engine-endpoint proof test: Core's on-disk Hermes endpoint
   // discovery (the production source of truth when MIA_HERMES_* env is unset).
   coreHermesBaseUrl,
   coreReadHermesApiKey,
-  coreReadHermesPort
+  coreReadHermesPort,
+  // Exported for the packaged-skills resolution test (BLOCKER #3): the bundled
+  // official-library manifest + skills/_builtin path resolution, dev vs packaged.
+  coreOfficialLibraryManifestPath,
+  coreMiaSkillsRoot,
+  coreResolveOfficialLibraryRoot
 };
 
 if (require.main === module) {

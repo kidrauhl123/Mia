@@ -87,6 +87,37 @@ test("dev integration: launching the resolver's node-core command answers /healt
   assert.equal(health.daemonTarget.usesGuiAppIdentity, false);
 });
 
+test("mia-core control server applies delegated cloud-settings writes (not 501)", async (t) => {
+  // BLOCKER #1: without writeCloudSettings the Core control server returns 501 on
+  // POST /api/cloud-settings, so the window's delegated login/logout/profile-refresh
+  // writes FAIL against Core. Assert the route persists to mia-cloud.json.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-cloud-write-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const port = await freePort();
+
+  const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });
+  core.writeDaemonSettings({ host: "127.0.0.1", port });
+  const status = await core.start();
+  t.after(() => core.stop());
+
+  const token = core.daemonToken();
+  const res = await fetch(`${status.baseUrl}/api/cloud-settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ patch: { enabled: true, token: "tok-abc", url: "https://example.test" } })
+  });
+  assert.notEqual(res.status, 501, "cloud-settings writes must be supported by Core");
+  assert.equal(res.status, 200);
+  const out = await res.json();
+  assert.equal(out.settings.enabled, true);
+  assert.equal(out.settings.token, "tok-abc");
+
+  // Persisted to the single-owner mia-cloud.json under MIA_HOME.
+  const persisted = JSON.parse(fs.readFileSync(path.join(home, "mia-cloud.json"), "utf8"));
+  assert.equal(persisted.token, "tok-abc");
+  assert.equal(persisted.enabled, true);
+});
+
 test("mia-core derives runtime home from MIA_HOME without electron", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-paths-"));
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });
