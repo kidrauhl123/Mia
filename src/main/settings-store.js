@@ -49,6 +49,7 @@ function createSettingsStore(deps = {}) {
     MIA_DAEMON_DEFAULT_PORT,
     MIA_CLOUD_DEFAULT_URL,
     normalizeAvatarCrop = (crop) => crop || defaultUserProfile().avatarCrop,
+    env = process.env,
   } = deps;
 
   function defaultModelSettings() {
@@ -256,7 +257,7 @@ function createSettingsStore(deps = {}) {
       : 27861;
     return {
       enabled: true,
-      host: process.env.MIA_DAEMON_HOST || "127.0.0.1",
+      host: env.MIA_DAEMON_HOST || "127.0.0.1",
       port
     };
   }

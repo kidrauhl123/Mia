@@ -28,39 +28,43 @@
 
 - `src/core/mia-core.js`: pure-node `createMiaCore({env, version})` reusing the real `runtime-paths` + `settings-store` + `control-server` factories. Owns runtime home, daemon token, daemon settings; serves the control HTTP/SSE API (`/health`, `/status`, control routes). Cloud/scheduler/bot wired as inert stubs.
 - **Verified:** `node src/core/mia-core.js` runs with process identity `node` (no Dock, no GUI bundle); `curl /health` → `{mode:"daemon", daemonTarget:{kind:"node-core", usesGuiAppIdentity:false}}`; token + settings persisted under `MIA_HOME`. Tests: `tests/mia-core.test.js`.
-- Also landed: behaviour-preserving `executable-resolver.js` seam + `control-server` `daemonTarget` diagnostics (reusable by slice 2).
+- Also landed: behaviour-preserving `executable-resolver.js` seam + `control-server` `daemonTarget` diagnostics (reusable by the launcher slice).
+- Pre-work LOW gaps from slice-1 review — **DONE**: settings-store `env` injection (`settings-store.js` now reads injected `env.MIA_DAEMON_HOST`), and real port probing in `createMiaCore` (reuses `engine-health-service` `choosePort`). Tests in `tests/mia-core.test.js`.
 
-## Slice 2 — Launcher integration + identity guard
+> **Ordering correction:** the launcher flip + deletion of the Electron daemon
+> is the **LAST** slice, not an early one. Pointing launchd at the node Core
+> before it owns cloud/scheduler/bot would drop those capabilities — a
+> regression. Capabilities migrate into Core first (slices 2–4), Core reaches
+> parity, then the launcher flips and the old daemon code is deleted (slice 5).
+> Until parity+flip, the node Core runs only for verification (throwaway
+> `MIA_HOME`/port), never as a live owner alongside the Electron daemon.
 
-Make the node Core the **launch target** (resolves NO-SHIP #2/#3).
+## Slice 2 — Migrate cloud sockets into Core
 
-Pre-work (LOW gaps surfaced by review of slice 1, must close before live launch):
-- Complete env injection: `settings-store.js:253-260` reads `process.env.MIA_DAEMON_HOST` globally; thread the factory's injected `env` through so `createMiaCore({env})` is fully isolated.
-- Real port selection: `createMiaCore` currently injects `choosePort: preferred => preferred`. Wire the actual probing path (`engine-health-service.js:19-38`) before the node Core becomes the live owner, so a busy port doesn't wedge startup.
+- Wire `cloud-events-client` + `cloud-bridge-client` (both pure-node, already shared modules) into `createMiaCore`, using the SAME modules `src/main.js` wires (no fork). The bot-invocation dispatcher they call is stubbed until slice 4.
+- Single-owner rule: do NOT connect cloud from the verification Core unless cloud creds exist on its throwaway home — keep it inert until the launcher flip.
+
+## Slice 3 — Migrate scheduler into Core
+
+- Wire `initSchedulerSubsystem` (tasks store/event bus, fire runner, cron — pure-node) into Core. Resolve `sendChat()` with `background=true` + an injected emit (no `webContents`).
+
+## Slice 4 — Migrate bot execution / agent adapters
+
+- Extract the `runRemoteChatRequest`/`sendChat` background path + chat-adapter wiring into a shared module Core can drive, so bot invocations execute in the backend. This is the deepest untangle (the chat/agent execution core) and unblocks real Core parity.
+
+## Slice 5 — Flip launcher + DELETE the Electron daemon (the cleanup the goal asks for)
 
 - Resolver gains a `node-core` target: `command = <node binary>`, `args = [coreEntry, "--daemon"]`. Dev: a resolved `node`. Packaged: a standalone node bundled via `extraResources` (own executable identity — no Dock/LaunchServices GUI semantics).
-- `launchd-service.js` + `daemon/process-launcher.js` already delegate to the resolver → they spawn the node Core unchanged.
-- Re-enable `assertLaunchable()` in `startDaemonService()` once `node-core` is the resolved target (so packaged macOS fails closed instead of running the GUI identity).
-- **Reuse/replacement (NO-SHIP #3):** `ping()` must return the answering daemon’s `daemonTarget`; `startDaemonService()` rejects reuse when `daemonTarget` is missing or `usesGuiAppIdentity === true`, so an old `Mia.app --daemon` is migrated, not kept.
-- **Self-report (NO-SHIP #2):** the daemon reads its target metadata from an injected env var (`MIA_DAEMON_TARGET_KIND`) set by the launcher, instead of re-resolving `process.resourcesPath` inside the daemon process.
-- Verify: packaged-`dir` build, inspect `ai.mia.daemon.plist` points at the node Core; Dock shows nothing daemon-only; `/health` reports `node-core`.
-
-## Slice 3 — Migrate cloud sockets into Core
-
-- Move `startCloudRuntimeSockets` (cloud-events-client + cloud-bridge-client, both pure-node) into `createMiaCore`. Flip ownership: the node Core connects cloud; the Electron GUI stops connecting in daemon mode.
-- Apply the single-owner flip rule: cut over atomically; the GUI window remains the documented fallback only when the daemon is unreachable.
-
-## Slice 4 — Migrate scheduler into Core
-
-- Move `initSchedulerSubsystem` (tasks store/event bus, fire runner, cron) into Core. Resolve the `sendChat()` execution path with `background=true` + an injected emit (no `webContents`).
-
-## Slice 5 — Migrate bot execution / agent adapters
-
-- Move `runRemoteChatRequest`/`sendChat` background path + chat-adapter wiring into Core so bot invocations execute in the backend.
+- `launchd-service.js` + `daemon/process-launcher.js` already delegate to the resolver → spawn the node Core unchanged.
+- Re-enable `assertLaunchable()` in `startDaemonService()` (packaged macOS fails closed instead of running GUI identity).
+- **Reuse/replacement (NO-SHIP #3):** `ping()` returns the answering daemon’s `daemonTarget`; `startDaemonService()` rejects reuse when `daemonTarget` missing or `usesGuiAppIdentity === true`, so an old `Mia.app --daemon` is migrated, not kept.
+- **Self-report (NO-SHIP #2):** the daemon reads target metadata from an injected env var (`MIA_DAEMON_TARGET_KIND`) set by the launcher, not by re-resolving `process.resourcesPath`.
+- **DELETE:** the `IS_DAEMON_PROCESS` daemon-boot branch in `src/main.js`, the `legacy-gui` resolver path, and any GUI-app `--daemon` wiring. This is the "彻底摒弃旧的不稳定代码" step — done only once Core is at parity.
+- Verify: packaged-`dir` build, `ai.mia.daemon.plist` points at the node Core; Dock shows nothing daemon-only; `/health` reports `node-core`.
 
 ## Slice 6 — GUI becomes a pure client
 
-- Electron retains window, updater, preload/IPC, renderer only. Delete the `IS_DAEMON_PROCESS` branch from `src/main.js`. LaunchAgent points at the node Core from install. `src/core` graduates toward `packages/mia-core`.
+- Electron retains window, updater, preload/IPC, renderer only. `src/core` graduates toward `packages/mia-core`. LaunchAgent points at the node Core from install.
 
 ---
 

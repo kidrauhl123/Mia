@@ -22,6 +22,7 @@ const crypto = require("node:crypto");
 const { createRuntimePaths } = require("../main/runtime-paths.js");
 const { createSettingsStore } = require("../main/settings-store.js");
 const { createDaemonControlServer } = require("../main/daemon/control-server.js");
+const { createEngineHealthService } = require("../main/engine-health-service.js");
 
 const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
 const MIA_DAEMON_SERVICE_LABEL = "ai.mia.daemon";
@@ -70,8 +71,13 @@ function createMiaCore(options = {}) {
     readConfiguredPort: () => defaultPort,
     getEngineState: () => ({}),
     MIA_DAEMON_DEFAULT_PORT: defaultPort,
-    MIA_CLOUD_DEFAULT_URL: cloudUrl
+    MIA_CLOUD_DEFAULT_URL: cloudUrl,
+    env
   });
+
+  // Real port selection (probes for a free port from the configured one),
+  // reusing the pure-node health service the Electron path uses.
+  const choosePort = createEngineHealthService({}).choosePort;
 
   let cachedToken = "";
   function daemonToken() {
@@ -116,7 +122,7 @@ function createMiaCore(options = {}) {
     writeDaemonSettings: (settings) => settingsStore.writeDaemonSettings(settings),
     normalizeDaemonHost: settingsStore.normalizeDaemonHost,
     normalizeDaemonPort: settingsStore.normalizeDaemonPort,
-    choosePort: async (preferred) => preferred,
+    choosePort,
     // Inert until later vertical slices migrate these capabilities into Core.
     initializeRuntime: () => {},
     initSchedulerSubsystem: () => {},
