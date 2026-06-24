@@ -57,8 +57,9 @@ Extract the `runRemoteChatRequest`/`sendChat` background path so bot invocations
 - **Remaining (DI re-wiring, no hard blockers):**
   - `botPetService.notifyMessage` (`src/main.js:2307`) — already guarded by `!utility` + non-`title:` session; background/daemon turns skip it. Inject a no-op `notifyMessage` for Core.
   - `emitCloudEvent`/`broadcastRendererEvent` (`src/main.js:2820-2828`) — already has the `IS_DAEMON_PROCESS → publishLocalEvent` branch; Core injects a control-server event publisher.
-  - The real work: `sendChat` + `runRemoteChatRequest` live inside `src/main.js`'s closure (adapters built with `hermesRunService`/`ensureHermesReady`/engine state). Extract them + their adapter construction into a shared `src/main/bot-execution-core.js` factory that both `main.js` and `src/core` instantiate (no fork), then wire `localBotResponder` + `mainBotRuntimeDispatcher` into `createMiaCore`.
-- Verify: a cloud `ConversationBotInvocationRequested` → dispatcher → `sendChat` background → adapter → `socialApi.postConversationMessageAsBot`, driven from Core with a stub adapter, asserted end-to-end.
+  - **DONE — `sendChat`/`stopChat` extracted** into `src/main/bot-execution-core.js` (`createBotExecutionCore` factory, pure-node, no fork). main.js delegates to it; bodies byte-identical; single-flight abort state is factory-internal; late-bound deps injected as accessors. Verified node-only via `tests/bot-execution-core.test.js`.
+  - **Remaining:** construct `createBotExecutionCore` inside `createMiaCore` — this needs the chat-engine-adapter construction (`createActiveChatEngineAdapters`, `hermesRunService`, `resolveChatEngineAdapter`, engine state) available in the Core context, which is the next untangle (engine-runtime wiring). Then wire `localBotResponder` + `mainBotRuntimeDispatcher` (both pure-node) into Core.
+- Verify (when wired): a cloud `ConversationBotInvocationRequested` → dispatcher → `sendChat` background → adapter → `socialApi.postConversationMessageAsBot`, driven from Core, asserted end-to-end.
 
 ## Slice 5 — Flip launcher + DELETE the Electron daemon (the cleanup the goal asks for)
 
