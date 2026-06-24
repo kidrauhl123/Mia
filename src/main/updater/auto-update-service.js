@@ -96,6 +96,7 @@ function createAutoUpdateService(deps = {}) {
     forceInstallDelayMs = 1200,
     installRetryDelayMs = 4000,
     installQuitFallbackDelayMs = 9000,
+    prepareForUpdateInstall = null,
     quitApp = null,
     setTimeoutFn = setTimeout,
     setIntervalFn = setInterval,
@@ -215,8 +216,22 @@ function createAutoUpdateService(deps = {}) {
     if (installScheduled) return;
     installScheduled = true;
     setTimeoutFn(() => {
-      emitUpdate("installing", info, { progress: normalizeProgress({ percent: 100 }) });
-      if (quitAndInstall(info)) scheduleInstallWatchdog(info);
+      const install = () => {
+        emitUpdate("installing", info, { progress: normalizeProgress({ percent: 100 }) });
+        if (quitAndInstall(info)) scheduleInstallWatchdog(info);
+      };
+      if (typeof prepareForUpdateInstall !== "function") {
+        install();
+        return;
+      }
+      return Promise.resolve()
+        .then(() => prepareForUpdateInstall(info))
+        .then(install)
+        .catch((error) => {
+          installScheduled = false;
+          logger.warn?.(`${TAG} update install preparation failed`, error);
+          emitUpdate("error", info, { error: serializeError(error) });
+        });
     }, forceInstallDelayMs);
   }
 

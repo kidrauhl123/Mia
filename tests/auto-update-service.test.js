@@ -214,6 +214,74 @@ test("available updates lock the app, report progress, and force install", async
   assert.equal(quitFallbackCalled, true);
 });
 
+test("force install waits for update preparation before quitting to install", async () => {
+  const scheduled = [];
+  const prepareCalls = [];
+  let finishPrepare;
+  const preparePromise = new Promise((resolve) => {
+    finishPrepare = resolve;
+  });
+  const updater = new FakeUpdater(() => Promise.resolve({
+    updateInfo: { version: "0.1.12" },
+    downloadPromise: Promise.resolve(),
+  }));
+  const service = createService(updater, {
+    prepareForUpdateInstall: async (info) => {
+      prepareCalls.push(info.version);
+      await preparePromise;
+    },
+    forceInstallDelayMs: 1,
+    setTimeoutFn: (fn, ms) => {
+      scheduled.push({ fn, ms });
+      return scheduled.length;
+    },
+  });
+
+  await service.checkForUpdates();
+  updater.emit("update-downloaded", { version: "0.1.12" });
+
+  const installPromise = scheduled[0].fn();
+  await Promise.resolve();
+  assert.deepEqual(prepareCalls, ["0.1.12"]);
+  assert.equal(updater.quitCalled, false);
+
+  finishPrepare();
+  await installPromise;
+  assert.equal(updater.quitCalled, true);
+});
+
+test("force install reports preparation failures without quitting to install", async () => {
+  const events = [];
+  const scheduled = [];
+  const updater = new FakeUpdater(() => Promise.resolve({
+    updateInfo: { version: "0.1.12" },
+    downloadPromise: Promise.resolve(),
+  }));
+  const service = createService(updater, {
+    prepareForUpdateInstall: async () => {
+      throw Object.assign(new Error("daemon stop failed"), { code: "EDAEMON" });
+    },
+    sendUpdateEvent: (payload) => events.push(payload),
+    forceInstallDelayMs: 1,
+    setTimeoutFn: (fn, ms) => {
+      scheduled.push({ fn, ms });
+      return scheduled.length;
+    },
+  });
+
+  await service.checkForUpdates();
+  updater.emit("update-downloaded", { version: "0.1.12" });
+
+  await scheduled[0].fn();
+
+  assert.equal(updater.quitCalled, false);
+  assert.equal(events.at(-1).status, "error");
+  assert.deepEqual(events.at(-1).error, {
+    message: "daemon stop failed",
+    code: "EDAEMON",
+  });
+});
+
 test("update install watchdog stops after before-quit-for-update", async () => {
   const scheduled = [];
   let quitFallbackCalled = false;
