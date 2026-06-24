@@ -24,6 +24,25 @@ const { createSettingsStore } = require("../main/settings-store.js");
 const { createDaemonControlServer } = require("../main/daemon/control-server.js");
 const { createEngineHealthService } = require("../main/engine-health-service.js");
 
+// Bot-execution graph — the SAME pure-node factories the Electron main process
+// drives (no fork). Core builds a real adapter graph; only the lowest-level
+// Hermes HTTP send is host-injected so the engine baseUrl/apiKey stay external.
+const { createBotExecutionCore } = require("../main/bot-execution-core.js");
+const { createBotTurnHelpers } = require("../main/bot-turn-helpers.js");
+const { createBotManifest } = require("../main/bot-manifest.js");
+const { requireBot } = require("../main/bot-registry.js");
+const { createChatEventEmitter } = require("../main/chat-events.js");
+const { chatCompletionResponse, responseMessageContent } = require("../main/chat-response.js");
+const { adapterForEngine, normalizeAgentEngine, resolveChatEngineAdapter } = require("../main/chat-engine-registry.js");
+const { enginePermissionStoreTarget } = require("../shared/agent-engine-policy.js");
+const { createChatEngineAdapters, sendWithChatEngineAdapter } = require("../main/chat-engine-adapters.js");
+const { normalizeTurnRuntimeConfig } = require("../main/runtime-config-normalizer.js");
+const { schedulerSkillIdsForTurn } = require("../main/scheduler-skill-defaults.js");
+const { createHermesRunService } = require("../main/hermes-run-service.js");
+const { createHermesChatAdapter } = require("../main/hermes-chat-adapter.js");
+
+const ENGINE_NOT_AVAILABLE = "engine not available in Mia Core yet";
+
 const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
 const MIA_DAEMON_SERVICE_LABEL = "ai.mia.daemon";
 
@@ -33,6 +52,157 @@ function readJson(file, fallback) {
   } catch {
     return fallback;
   }
+}
+
+// Build the REAL bot-execution core for the node Core process. This constructs
+// the same adapter graph the Electron main process builds — createChatEngineAdapters
+// → sendWithChatEngineAdapter → adapter.send — reusing the real shared helpers
+// (bot snapshot/runtime-config/skill/scheduler normalization). It is Hermes-only:
+// the non-Hermes send deps throw a clear "not available" error rather than failing
+// silently. The Hermes engine (Python) is started by the Electron app today, so
+// Core only takes the engine HTTP baseUrl + apiKey + the lowest-level
+// `sendHermesChat` (real adapter.sendChat in production; a fake in tests).
+function createCoreBotExecution({
+  runtimePaths,
+  settingsStore,
+  hermesBaseUrl,
+  apiKey,
+  sendHermesChat,
+  fetchImpl = fetch
+} = {}) {
+  const baseUrl = typeof hermesBaseUrl === "function" ? hermesBaseUrl : () => String(hermesBaseUrl || "");
+  const apiKeyFn = typeof apiKey === "function" ? apiKey : () => String(apiKey || "");
+
+  // Real bot manifest read-side: local fallback when a turn carries no cloud
+  // snapshot. Core owns the same runtime home, so it reads the same manifest.
+  const botManifest = createBotManifest({
+    runtimePaths,
+    readJson,
+    normalizeAgentEngine,
+    // settingsStore is only reached by manifest WRITE/normalize-effort paths,
+    // never by loadBotManifest (the only method bot-execution-core calls).
+    settingsStore: settingsStore && typeof settingsStore.normalizeStoredEffortLevel === "function"
+      ? settingsStore
+      : { normalizeStoredEffortLevel: (value) => String(value || "").trim() }
+  });
+
+  const { botWithRuntimeConfig, cloudBotSnapshotForTurn } = createBotTurnHelpers({
+    normalizeAgentEngine,
+    enginePermissionStoreTarget
+  });
+
+  // Real Hermes run service (payload/stream/slash helpers). Attachments are not
+  // exercised in this slice; the no-op attachment deps match the service's own
+  // documented defaults.
+  // TODO(mia-core slice): wire real attachment normalization once Core owns the
+  // attachment store.
+  const hermesRunService = createHermesRunService({
+    normalizeAttachments: () => [],
+    attachmentContext: () => "",
+    baseUrl,
+    apiKey: apiKeyFn,
+    fetchImpl,
+    randomUUID: () => crypto.randomUUID()
+  });
+
+  // Real Hermes chat adapter — provides slashCommandResponse and (in production)
+  // the real sendChat. The optional MCP/memory/managed-model deps are stubbed for
+  // this slice but the adapter itself is the genuine one.
+  const hermesAdapter = createHermesChatAdapter({
+    apiKey: apiKeyFn,
+    baseUrl,
+    buildGroupHeader: () => "",
+    buildRunPayload: hermesRunService.buildRunPayload,
+    normalizeError: hermesRunService.normalizeError,
+    readRunEventStream: hermesRunService.readRunEventStream,
+    responseModel: adapterForEngine("hermes").responseModel,
+    fetch: fetchImpl,
+    // TODO(mia-core slice): inject the real memory block once Core owns the
+    // memory store.
+    memoryBlock: () => "",
+    // TODO(mia-core slice): wire the scheduler MCP context write once Core owns
+    // the scheduler subsystem.
+    writeSchedulerMcpContext: () => {},
+    // TODO(mia-core slice): wire the Mia app MCP context write once Core owns the
+    // app MCP bridge.
+    writeMiaAppMcpContext: () => {},
+    // TODO(mia-core slice): wire the managed-model runtime once Core owns model
+    // settings; until then Hermes uses the turn's runtimeConfig as-is.
+    resolveManagedModelRuntime: () => null,
+    writeModelRuntimeConfig: () => {},
+    // TODO(mia-core slice): wire full enabled-skills context once Core owns the
+    // skills loader.
+    buildEnabledSkillsContext: () => "",
+    appendEngineLog: () => {}
+  });
+
+  // In production `sendHermesChat` is `hermesAdapter.sendChat`. Tests inject a
+  // fake so only the lowest-level Hermes HTTP send is replaced — the rest of the
+  // graph stays real.
+  const hermesChatSend = typeof sendHermesChat === "function"
+    ? sendHermesChat
+    : hermesAdapter.sendChat;
+
+  // Health check for ensureHermesReady: probe the engine /health if a baseUrl is
+  // configured; otherwise no-op (the Electron app owns the engine lifecycle).
+  async function ensureHermesReady() {
+    const url = baseUrl();
+    if (!url) return;
+    try {
+      await fetchImpl(`${url}/health`, { method: "GET" });
+    } catch {
+      // Non-fatal: the actual send below surfaces a real connection error.
+    }
+  }
+
+  const engineUnavailable = () => {
+    throw new Error(ENGINE_NOT_AVAILABLE);
+  };
+
+  // REAL adapter graph: Hermes is wired to the real adapter; every non-Hermes
+  // send throws a clear "not available" error (never silent).
+  function createActiveChatEngineAdapters() {
+    return createChatEngineAdapters({
+      chatCompletionResponse,
+      ensureHermesReady,
+      hermesSlashCommandResponse: hermesAdapter.slashCommandResponse,
+      runHermesSlashCommand: () => "",
+      sendHermesChat: hermesChatSend,
+      runExternalSlashCommand: engineUnavailable,
+      sendClaudeCodeChat: engineUnavailable,
+      sendCodexChat: engineUnavailable,
+      sendOpenClawChat: engineUnavailable
+    });
+  }
+
+  return createBotExecutionCore({
+    createChatEventEmitter,
+    cloudBotSnapshotForTurn,
+    loadBotManifest: botManifest.loadBotManifest,
+    requireBot,
+    normalizeTurnRuntimeConfig,
+    botWithRuntimeConfig,
+    normalizeAgentEngine,
+    resolveChatEngineAdapter,
+    // TODO(mia-core slice): wire the real bot pet service once Core owns it; a
+    // no-op notifyMessage keeps interactive turns flowing.
+    botPetService: { notifyMessage: () => {} },
+    responseMessageContent,
+    schedulerSkillIdsForTurn,
+    // TODO(mia-core slice): wire the real skills loader directive; an empty
+    // directive is correct-but-minimal for this slice.
+    skillsLoader: { buildActiveSkillsDirective: () => "" },
+    hermesRunService,
+    sendWithChatEngineAdapter,
+    createActiveChatEngineAdapters,
+    // TODO(mia-core slice): wire the real local bot responder once Core owns
+    // cloud-conversation handling; the stub keeps stopChat well-defined.
+    localBotResponder: () => ({ stopActiveConversationRun: () => ({ stopped: false }) }),
+    isDaemonProcess: true,
+    daemonTasksClient: () => null,
+    settingsStore: () => (settingsStore || { daemonSettings: () => ({ enabled: false }) }),
+    appendCloudLog: () => {}
+  });
 }
 
 function createMiaCore(options = {}) {
@@ -134,6 +304,24 @@ function createMiaCore(options = {}) {
     return controlServer.start(settingsStore.daemonSettings());
   }
 
+  // Bot execution is built lazily and exposed for testing. It is NOT auto-started
+  // on cloud yet — wiring it into the cloud events loop is a later vertical slice.
+  // The engine HTTP baseUrl + apiKey + lowest-level Hermes send are injectable so
+  // tests can fake only the HTTP layer while the real adapter graph stays intact.
+  let cachedBotExecution = null;
+  function botExecution(overrides = {}) {
+    if (cachedBotExecution && !Object.keys(overrides).length) return cachedBotExecution;
+    const built = createCoreBotExecution({
+      runtimePaths,
+      settingsStore,
+      hermesBaseUrl: env.MIA_HERMES_BASE_URL || "",
+      apiKey: env.MIA_HERMES_API_KEY || "",
+      ...overrides
+    });
+    if (!Object.keys(overrides).length) cachedBotExecution = built;
+    return built;
+  }
+
   return {
     start,
     stop: () => controlServer.stop(),
@@ -142,11 +330,12 @@ function createMiaCore(options = {}) {
     writeDaemonSettings: (settings) => settingsStore.writeDaemonSettings(settings),
     runtimePaths,
     daemonToken,
-    describeDaemonTarget
+    describeDaemonTarget,
+    botExecution
   };
 }
 
-module.exports = { createMiaCore };
+module.exports = { createMiaCore, createCoreBotExecution };
 
 if (require.main === module) {
   const core = createMiaCore({ version: require("../../package.json").version });

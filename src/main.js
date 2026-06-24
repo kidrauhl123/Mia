@@ -28,6 +28,7 @@ const {
 } = require("./main/chat-engine-adapters.js");
 const { createChatEventEmitter } = require("./main/chat-events.js");
 const { createBotExecutionCore } = require("./main/bot-execution-core.js");
+const { createBotTurnHelpers } = require("./main/bot-turn-helpers.js");
 const { chatCompletionResponse, responseMessageContent } = require("./main/chat-response.js");
 const { createAgentCommandProvider } = require("./main/agent-command-provider.js");
 const { createClaudeBridgePluginService } = require("./main/claude-bridge-plugin-service.js");
@@ -2212,43 +2213,14 @@ function createActiveBridgeChatAdapter(agentEngine = "codex") {
   };
 }
 
-function botWithRuntimeConfig(bot, runtimeConfig = {}, options = {}) {
-  if (!runtimeConfig || !Object.keys(runtimeConfig).length) return bot;
-  const agentEngine = normalizeAgentEngine(
-    options.agentEngine || bot?.agentEngine || bot?.agent_engine || "hermes",
-    "hermes"
-  );
-  const configForEngine = { ...runtimeConfig };
-  if (enginePermissionStoreTarget(agentEngine) !== "root-mode") delete configForEngine.permissionMode;
-  if (!Object.keys(configForEngine).length) return bot;
-  return {
-    ...bot,
-    engineConfig: {
-      ...(bot.engineConfig || bot.engine_config || {}),
-      ...configForEngine
-    }
-  };
-}
-
-function cloudBotSnapshotForTurn(snapshot = null, key = "", runtimeConfig = null) {
-  if (!snapshot || typeof snapshot !== "object") return null;
-  const botKey = String(snapshot.key || snapshot.id || key || "").trim();
-  if (!botKey) return null;
-  const requested = String(key || "").trim();
-  if (requested && botKey !== requested) return null;
-  const agentEngine = normalizeAgentEngine(
-    snapshot.agentEngine || snapshot.agent_engine || snapshot.engine || runtimeConfig?.agentEngine || runtimeConfig?.agent_engine,
-    "hermes"
-  );
-  return {
-    ...snapshot,
-    key: botKey,
-    id: String(snapshot.id || botKey),
-    name: String(snapshot.name || snapshot.displayName || snapshot.display_name || botKey),
-    agentEngine,
-    capabilities: snapshot.capabilities && typeof snapshot.capabilities === "object" ? snapshot.capabilities : {}
-  };
-}
+// `cloudBotSnapshotForTurn` and `botWithRuntimeConfig` now live in
+// src/main/bot-turn-helpers.js so the standalone Mia Core node process builds
+// the same turn-normalization pipeline — no fork. Behaviour is byte-identical;
+// the only deps are the two shared engine-policy functions already imported.
+const { botWithRuntimeConfig, cloudBotSnapshotForTurn } = createBotTurnHelpers({
+  normalizeAgentEngine,
+  enginePermissionStoreTarget
+});
 
 // Single shared bot-execution core: `sendChat`/`stopChat` (and the single-flight
 // abort state) live in src/main/bot-execution-core.js so the standalone Mia Core
