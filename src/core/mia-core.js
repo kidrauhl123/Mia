@@ -18,6 +18,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const yaml = require("js-yaml");
 
 // PACKAGED-NODE electron shim. Several reused main/ modules do
 // `const { shell } = require("electron")` at module load. Under a normal node
@@ -144,6 +145,50 @@ function readJson(file, fallback) {
     return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch {
     return fallback;
+  }
+}
+
+// Hermes engine endpoint discovery — Core's own source of truth.
+//
+// In production the daemon env does NOT set MIA_HERMES_BASE_URL /
+// MIA_HERMES_API_KEY (the resolver's daemonEnvOverlay omits them), so Core must
+// discover the running Hermes engine from the on-disk runtime home it owns —
+// the SAME files the Electron main process reads:
+//   - PORT: <hermesHome>/config.yaml  →  platforms.api_server.port  (default 18642)
+//           (minimal replica of engine-runtime-config-service.readConfiguredPort)
+//   - apiKey: <hermesHome>/mia-api-server.key  (runtimePaths().apiKey), trimmed
+//   - baseUrl: http://127.0.0.1:<port>  (local engine host; main.js engineState.baseUrl)
+//
+// Both reads are pure fs (+ js-yaml, an existing dep). They take NO mutating
+// action: unlike engine-runtime-config-service.apiKey(), the key file is NEVER
+// created here — Core only reads what the engine wrote ("" if missing). Core
+// passes these as FUNCTIONS to createCoreBotExecution so a Hermes restart /
+// config change is picked up on the next turn (re-read, not cached at build).
+const HERMES_DEFAULT_PORT = 18642;
+
+function coreReadHermesPort(hermesHome) {
+  const configPath = path.join(String(hermesHome || ""), "config.yaml");
+  if (!fs.existsSync(configPath)) return HERMES_DEFAULT_PORT;
+  try {
+    const parsed = yaml.load(fs.readFileSync(configPath, "utf8"));
+    const port = Number(parsed?.platforms?.api_server?.port);
+    if (Number.isInteger(port) && port > 0) return port;
+  } catch {
+    // fall through to default
+  }
+  return HERMES_DEFAULT_PORT;
+}
+
+function coreHermesBaseUrl(hermesHome) {
+  return `http://127.0.0.1:${coreReadHermesPort(hermesHome)}`;
+}
+
+function coreReadHermesApiKey(hermesHome) {
+  const keyPath = path.join(String(hermesHome || ""), "mia-api-server.key");
+  try {
+    return String(fs.readFileSync(keyPath, "utf8")).trim();
+  } catch {
+    return "";
   }
 }
 
@@ -978,14 +1023,27 @@ function createMiaCore(options = {}) {
   // on cloud yet — wiring it into the cloud events loop is a later vertical slice.
   // The engine HTTP baseUrl + apiKey + lowest-level Hermes send are injectable so
   // tests can fake only the HTTP layer while the real adapter graph stays intact.
+  // Resolve the live Hermes endpoint as FUNCTIONS so a Hermes restart / config
+  // change is re-read on the next turn. Env vars are an OVERRIDE only — in
+  // production the daemon env does NOT set them, so Core falls back to the
+  // on-disk runtime home it owns (config.yaml port + mia-api-server.key).
+  const envHermesBaseUrl = String(env.MIA_HERMES_BASE_URL || "").trim();
+  const envHermesApiKey = String(env.MIA_HERMES_API_KEY || "").trim();
+  const resolveHermesBaseUrl = () => (envHermesBaseUrl
+    ? envHermesBaseUrl
+    : coreHermesBaseUrl(runtimePaths().hermesHome));
+  const resolveHermesApiKey = () => (envHermesApiKey
+    ? envHermesApiKey
+    : coreReadHermesApiKey(runtimePaths().hermesHome));
+
   let cachedBotExecution = null;
   function botExecution(overrides = {}) {
     if (cachedBotExecution && !Object.keys(overrides).length) return cachedBotExecution;
     const built = createCoreBotExecution({
       runtimePaths,
       settingsStore,
-      hermesBaseUrl: env.MIA_HERMES_BASE_URL || "",
-      apiKey: env.MIA_HERMES_API_KEY || "",
+      hermesBaseUrl: resolveHermesBaseUrl,
+      apiKey: resolveHermesApiKey,
       ...overrides
     });
     if (!Object.keys(overrides).length) cachedBotExecution = built;
@@ -1100,7 +1158,19 @@ function createMiaCore(options = {}) {
   };
 }
 
-module.exports = { createMiaCore, createCoreBotExecution, createCoreCloudRouting, createCoreCloudEvents, createCoreCloudBridge, createCoreScheduler };
+module.exports = {
+  createMiaCore,
+  createCoreBotExecution,
+  createCoreCloudRouting,
+  createCoreCloudEvents,
+  createCoreCloudBridge,
+  createCoreScheduler,
+  // Exported for the engine-endpoint proof test: Core's on-disk Hermes endpoint
+  // discovery (the production source of truth when MIA_HERMES_* env is unset).
+  coreHermesBaseUrl,
+  coreReadHermesApiKey,
+  coreReadHermesPort
+};
 
 if (require.main === module) {
   const core = createMiaCore({ version: require("../../package.json").version });
