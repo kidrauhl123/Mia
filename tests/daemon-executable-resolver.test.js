@@ -19,6 +19,69 @@ function setup(overrides = {}) {
   });
 }
 
+test("node-core target launches the node binary with the Core entry and is not GUI identity", () => {
+  const r = setup({
+    nodePath: () => "/usr/local/bin/node",
+    coreEntry: () => "/repo/src/core/mia-core.js"
+  }).resolve();
+  assert.equal(r.kind, "node-core");
+  assert.equal(r.command, "/usr/local/bin/node");
+  assert.deepEqual(r.args, ["/repo/src/core/mia-core.js", "--daemon"]);
+  assert.equal(r.usesGuiAppIdentity, false);
+  assert.equal(r.workingDirectory, path.dirname("/repo/src/core/mia-core.js"));
+});
+
+test("node-core is preferred over the packaged GUI target when a node binary resolves", () => {
+  // Same packaged-macOS deps as the legacy-gui case, but with a usable node:
+  // node-core wins, so the daemon never launches under the GUI app identity.
+  const r = setup({ nodePath: () => "/opt/homebrew/bin/node", coreEntry: () => "/repo/src/core/mia-core.js" }).resolve();
+  assert.equal(r.kind, "node-core");
+  assert.equal(r.usesGuiAppIdentity, false);
+});
+
+test("node-core env overlay stamps the target kind + identity for the launched daemon", () => {
+  const env = setup({
+    nodePath: () => "/usr/local/bin/node",
+    coreEntry: () => "/repo/src/core/mia-core.js"
+  }).daemonEnvOverlay();
+  assert.equal(env.MIA_DAEMON_TARGET_KIND, "node-core");
+  assert.equal(env.MIA_DAEMON_USES_GUI_IDENTITY, "0");
+  // The unchanged runtime contract is still carried.
+  assert.equal(env.MIA_DAEMON, "1");
+});
+
+test("legacy-gui env overlay stamps GUI identity = 1", () => {
+  const env = setup().daemonEnvOverlay();
+  assert.equal(env.MIA_DAEMON_TARGET_KIND, "legacy-gui");
+  assert.equal(env.MIA_DAEMON_USES_GUI_IDENTITY, "1");
+});
+
+test("empty nodePath falls back to electron-dev / legacy-gui", () => {
+  // Dev: empty node + defaultApp → electron-dev.
+  const dev = setup({ nodePath: () => "", defaultApp: () => true, execPath: () => "/node_modules/.bin/electron" }).resolve();
+  assert.equal(dev.kind, "electron-dev");
+  // Packaged macOS: empty node → legacy-gui (the GUI fallback is retained).
+  const packaged = setup({ nodePath: () => "" }).resolve();
+  assert.equal(packaged.kind, "legacy-gui");
+});
+
+test("missing coreEntry alone falls back even with a node binary", () => {
+  const r = setup({ nodePath: () => "/usr/local/bin/node", coreEntry: () => "", defaultApp: () => true }).resolve();
+  assert.equal(r.kind, "electron-dev");
+});
+
+test("assertLaunchable passes node-core and throws legacy-gui", () => {
+  assert.doesNotThrow(() => setup({
+    nodePath: () => "/usr/local/bin/node",
+    coreEntry: () => "/repo/src/core/mia-core.js"
+  }).assertLaunchable());
+  assert.equal(
+    setup({ nodePath: () => "/usr/local/bin/node", coreEntry: () => "/repo/src/core/mia-core.js" }).assertLaunchable().kind,
+    "node-core"
+  );
+  assert.throws(() => setup().assertLaunchable(), /GUI app identity/);
+});
+
 test("dev electron target keeps app path arg and is not GUI-app identity", () => {
   const r = setup({ defaultApp: () => true, execPath: () => "/node_modules/.bin/electron" }).resolve();
   assert.equal(r.kind, "electron-dev");

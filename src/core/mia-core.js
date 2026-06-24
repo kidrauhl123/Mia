@@ -884,10 +884,16 @@ function createMiaCore(options = {}) {
   }
 
   function describeDaemonTarget() {
+    // Prefer the target kind/identity the launcher stamped into env
+    // (MIA_DAEMON_TARGET_KIND) so this process reports the SAME target the
+    // resolver chose, without re-resolving anything. Falls back to the
+    // node-core literal when launched directly (`node mia-core.js`).
+    const kind = String(env.MIA_DAEMON_TARGET_KIND || "").trim() || "node-core";
+    const usesGuiAppIdentity = String(env.MIA_DAEMON_USES_GUI_IDENTITY || "") === "1";
     return {
-      kind: "node-core",
+      kind,
       command: path.basename(process.execPath),
-      usesGuiAppIdentity: false,
+      usesGuiAppIdentity,
       workingDirectory: process.cwd()
     };
   }

@@ -18,12 +18,33 @@ function createMiaCoreResolver(deps = {}) {
     execPath = () => process.execPath,
     defaultApp = () => Boolean(process.defaultApp),
     platform = process.platform,
-    env = process.env
+    env = process.env,
+    // Absolute path to a real `node` binary. process.execPath under Electron is
+    // the GUI app executable, NOT node — so this must be injected (main.js wires
+    // it from a `which node` lookup). When it cannot be resolved it returns "",
+    // and resolve() falls back to the electron-dev / legacy-gui / bundled-cli path.
+    nodePath = () => "",
+    // Absolute path to the standalone Mia Core entry (src/core/mia-core.js).
+    coreEntry = () => path.resolve(__dirname, "..", "..", "core", "mia-core.js")
   } = deps;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
   if (typeof effectiveHermesHome !== "function") throw new Error("effectiveHermesHome dependency is required.");
 
   function resolve() {
+    // Preferred target: launch the standalone node Core as the daemon. This is a
+    // pure-node process with its own (non-GUI) executable identity — no Dock, no
+    // LaunchServices semantics. Requires both a real node binary and the Core entry.
+    const node = String(nodePath() || "").trim();
+    const entry = String(coreEntry() || "").trim();
+    if (node && entry) {
+      return {
+        kind: "node-core",
+        command: node,
+        args: [entry, "--daemon"],
+        workingDirectory: path.dirname(entry),
+        usesGuiAppIdentity: false
+      };
+    }
     if (defaultApp()) {
       const command = execPath();
       return {
@@ -59,13 +80,20 @@ function createMiaCoreResolver(deps = {}) {
 
   function daemonEnvOverlay() {
     const p = runtimePaths();
+    // Stamp the resolved target identity into the launched daemon's env so it can
+    // describe its own target (control-server /health daemonTarget) WITHOUT
+    // re-resolving process.resourcesPath — which is unavailable/misleading in a
+    // plain-node Core process (closes NO-SHIP #2).
+    const r = resolve();
     return {
       MIA_DAEMON: "1",
       MIA_USER_DATA_DIR: path.join(p.root || path.dirname(path.dirname(p.home)), "daemon-profile"),
       HERMES_HOME: effectiveHermesHome(),
       MIA_HOME: p.home,
       HERMES_LANGUAGE: env.HERMES_LANGUAGE || "zh",
-      PYTHONUNBUFFERED: "1"
+      PYTHONUNBUFFERED: "1",
+      MIA_DAEMON_TARGET_KIND: r.kind,
+      MIA_DAEMON_USES_GUI_IDENTITY: r.usesGuiAppIdentity ? "1" : "0"
     };
   }
 

@@ -127,6 +127,31 @@ test("daemon launch agent WorkingDirectory is a real directory, never the asar a
   assert.equal(workdir, "/Applications/Mia.app/Contents/MacOS");
 });
 
+test("node-core resolver makes the daemon plist launch node + Core entry, never the GUI app", (t) => {
+  const fakeResolver = {
+    resolve: () => ({
+      kind: "node-core",
+      command: "/usr/local/bin/node",
+      args: ["/repo/src/core/mia-core.js", "--daemon"],
+      workingDirectory: "/repo/src/core",
+      usesGuiAppIdentity: false
+    }),
+    daemonEnvOverlay: () => ({ MIA_DAEMON: "1", MIA_HOME: "/home", MIA_DAEMON_TARGET_KIND: "node-core" })
+  };
+  const { service } = setup(t, { resolver: fakeResolver });
+
+  assert.deepEqual(service.daemonProgramArguments(), [
+    "/usr/local/bin/node",
+    "/repo/src/core/mia-core.js",
+    "--daemon"
+  ]);
+  const plist = service.daemonLaunchAgentPlist();
+  assert.match(plist, /<string>\/usr\/local\/bin\/node<\/string>/);
+  assert.match(plist, /<string>\/repo\/src\/core\/mia-core\.js<\/string>/);
+  assert.doesNotMatch(plist, /Mia\.app\/Contents\/MacOS\/Mia/);
+  assert.match(plist, /<key>MIA_DAEMON_TARGET_KIND<\/key>\n      <string>node-core<\/string>/);
+});
+
 test("launchd start fails clearly on non-macOS platforms", async (t) => {
   const { service } = setup(t, { platform: "linux" });
 

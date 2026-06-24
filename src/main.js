@@ -100,7 +100,7 @@ const { isSafeEntryName, MAX_UNCOMPRESSED_BYTES } = require("./shared/skill-safe
 const { createRemoteControlRouter } = require("./main/remote/remote-control-router.js");
 const { createModelSettingsService } = require("./main/model-settings-service.js");
 const { createConversationTitleService } = require("./main/conversation-title-service.js");
-const { createDaemonControlServer, daemonNeedsReplacement } = require("./main/daemon/control-server.js");
+const { createDaemonControlServer, daemonNeedsReplacement, shouldReuseDaemon } = require("./main/daemon/control-server.js");
 const { createDaemonTasksClient } = require("./main/daemon/tasks-client.js");
 const { createLocalEventsClient } = require("./main/daemon/local-events-client.js");
 const { createDaemonProcessLauncher } = require("./main/daemon/process-launcher.js");
@@ -374,7 +374,19 @@ const miaCoreResolver = createMiaCoreResolver({
   defaultApp: () => Boolean(process.defaultApp),
   platform: process.platform,
   env: process.env,
-  resourcesPath: () => process.resourcesPath || ""
+  resourcesPath: () => process.resourcesPath || "",
+  // Launch the standalone node Core as the daemon when a real `node` binary is
+  // resolvable. process.execPath is the Electron GUI executable (NOT node), so we
+  // resolve an absolute node via the shared shell-path lookup. When none is found
+  // the resolver falls back to electron-dev / legacy-gui (Electron --daemon).
+  nodePath: () => {
+    try {
+      return String(localAgentEngineService?.shellCommandPath?.("node") || "").trim();
+    } catch {
+      return "";
+    }
+  },
+  coreEntry: () => path.resolve(__dirname, "core", "mia-core.js")
 });
 const launchdService = createLaunchdService({
   gatewayServiceLabel: MIA_GATEWAY_SERVICE_LABEL,
@@ -1277,24 +1289,35 @@ async function startDaemonService() {
   if (existing.ok && existing.mode === "daemon") {
     // A KeepAlive launchd daemon survives app updates, so the freshly-updated
     // window can find an old-version daemon still owning cloud events + bot
-    // execution. Reuse it only when versions match; otherwise fall through to
-    // launchdService.startDaemon() below, which rewrites the plist and
-    // bootout+bootstraps a daemon running this app's code.
-    if (!daemonNeedsReplacement(existing, app.getVersion())) {
+    // execution. Reuse it only when versions match AND it is NOT running under
+    // the GUI app identity (an old `Electron --daemon` is migrated to node-core,
+    // not kept). Otherwise fall through to launchdService.startDaemon() below,
+    // which rewrites the plist and bootout+bootstraps a daemon running this
+    // app's code as the node Core.
+    if (shouldReuseDaemon(existing, app.getVersion())) {
       return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
     }
-    appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
+    if (daemonNeedsReplacement(existing, app.getVersion())) {
+      appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
+    } else if (existing.daemonTarget?.usesGuiAppIdentity === true || !existing.daemonTarget) {
+      appendDaemonLog(`Daemon target ${existing.daemonTarget?.kind || "(unknown)"} uses GUI app identity or is unreported; migrating to node-core.`);
+    }
   } else if (existing.ok) {
     appendDaemonLog(`Ignoring ${existing.mode || "unknown"} process on daemon port; a real daemon process is required.`);
   }
+  // Re-enable the launchable guard now that node-core is the preferred target:
+  // refuse to launch a legacy-gui daemon (no node + packaged macOS) under the
+  // GUI app identity. node-core / electron-dev / bundled-cli all pass.
+  miaCoreResolver.assertLaunchable();
   if (process.platform === "darwin") {
     await launchdService.startDaemon();
     for (let i = 0; i < 20; i += 1) {
       const ping = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
-      // Only accept once the *replacement* answers: during bootout/kickstart the
-      // old daemon can still briefly hold the port, so require a version match
-      // (not just ok) or the stale one would be accepted and replaced again next launch.
-      if (ping.ok && ping.mode === "daemon" && !daemonNeedsReplacement(ping, app.getVersion())) {
+      // Only accept once the *replacement* node-core daemon answers: during
+      // bootout/kickstart the old daemon can still briefly hold the port, so
+      // require shouldReuseDaemon (version match + non-GUI target) or the stale
+      // GUI-identity one would be accepted and replaced again next launch.
+      if (shouldReuseDaemon(ping, app.getVersion())) {
         return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
       }
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1305,7 +1328,7 @@ async function startDaemonService() {
   await daemonProcessLauncher.start();
   for (let i = 0; i < 20; i += 1) {
     const ping = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
-    if (ping.ok && ping.mode === "daemon" && !daemonNeedsReplacement(ping, app.getVersion())) {
+    if (shouldReuseDaemon(ping, app.getVersion())) {
       return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -2464,7 +2487,21 @@ daemonControlServer = createDaemonControlServer({
   serviceLabel: MIA_DAEMON_SERVICE_LABEL,
   daemonToken,
   appVersion: () => app.getVersion(),
-  describeDaemonTarget: () => miaCoreResolver.describe(),
+  describeDaemonTarget: () => {
+    // When this process IS the launched daemon, prefer the target identity the
+    // launcher stamped into env (MIA_DAEMON_TARGET_KIND) so /health reports the
+    // SAME target the resolver chose, without re-resolving process.resourcesPath.
+    const kind = String(process.env.MIA_DAEMON_TARGET_KIND || "").trim();
+    if (IS_DAEMON_PROCESS && kind) {
+      return {
+        kind,
+        command: path.basename(process.execPath),
+        usesGuiAppIdentity: String(process.env.MIA_DAEMON_USES_GUI_IDENTITY || "") === "1",
+        workingDirectory: process.cwd()
+      };
+    }
+    return miaCoreResolver.describe();
+  },
   initializeRuntime,
   choosePort: engineHealthService.choosePort,
   getDaemonSettings: () => settingsStore.daemonSettings(),

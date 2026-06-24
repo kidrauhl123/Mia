@@ -4,8 +4,13 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
+const { spawn } = require("node:child_process");
+
 const { freePort } = require("./helpers/free-port.js");
 const { createMiaCore } = require("../src/core/mia-core.js");
+const { createMiaCoreResolver } = require("../src/main/daemon/executable-resolver.js");
+
+const CORE_ENTRY = path.resolve(__dirname, "..", "src", "core", "mia-core.js");
 
 test("mia-core node process serves health/status with node-core identity", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-home-"));
@@ -30,6 +35,56 @@ test("mia-core node process serves health/status with node-core identity", async
   // Owns runtime files under MIA_HOME (real single-owner persistence, no electron).
   assert.ok(fs.existsSync(path.join(home, "mia-daemon.key")), "daemon token persisted");
   assert.ok(fs.existsSync(path.join(home, "mia-daemon.json")), "daemon settings persisted");
+});
+
+test("dev integration: launching the resolver's node-core command answers /health with mode:daemon", async (t) => {
+  // Exercise the REAL launch the resolver produces: spawn `node mia-core.js
+  // --daemon` (command + args from the resolver) and confirm the spawned process
+  // is the daemon answering /health. nodePath uses the test runner's own node.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-launch-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const port = await freePort();
+
+  const resolver = createMiaCoreResolver({
+    runtimePaths: () => ({ home, root: home }),
+    effectiveHermesHome: () => path.join(home, ".hermes"),
+    nodePath: () => process.execPath,
+    coreEntry: () => CORE_ENTRY
+  });
+  const target = resolver.resolve();
+  assert.equal(target.kind, "node-core");
+  assert.equal(target.command, process.execPath);
+  assert.deepEqual(target.args, [CORE_ENTRY, "--daemon"]);
+
+  const env = {
+    ...process.env,
+    ...resolver.daemonEnvOverlay(),
+    MIA_HOME: home,
+    MIA_DAEMON_PORT: String(port),
+    MIA_DAEMON_HOST: "127.0.0.1"
+  };
+  const child = spawn(target.command, target.args, {
+    cwd: target.workingDirectory,
+    env,
+    stdio: "ignore",
+    detached: false
+  });
+  t.after(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } });
+
+  // Poll /health until the launched node-core daemon answers.
+  let health = null;
+  for (let i = 0; i < 50 && !health; i += 1) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(400) });
+      if (res.ok) health = await res.json();
+    } catch { /* not up yet */ }
+    if (!health) await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  assert.ok(health, "launched node-core daemon answered /health");
+  assert.equal(health.mode, "daemon");
+  assert.equal(health.daemonTarget.kind, "node-core");
+  assert.equal(health.daemonTarget.usesGuiAppIdentity, false);
 });
 
 test("mia-core derives runtime home from MIA_HOME without electron", () => {
