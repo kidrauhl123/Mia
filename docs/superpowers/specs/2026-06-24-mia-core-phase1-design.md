@@ -1,6 +1,8 @@
 # Mia Core Phase 1: 独立 daemon 可执行身份设计
 
-Status: approved; implemented per docs/superpowers/plans/2026-06-24-mia-core-phase1.md.
+Status: problem statement valid; helper-wrapper solution abandoned (NO-SHIP).
+Direction changed to a real standalone Mia Core process — see
+docs/superpowers/plans/2026-06-24-mia-core-migration.md.
 
 ## Goal
 

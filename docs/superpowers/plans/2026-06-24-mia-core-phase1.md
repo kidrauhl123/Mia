@@ -1,3 +1,10 @@
+> ⚠️ **SUPERSEDED** by `2026-06-24-mia-core-migration.md`. The nested-`.app`
+> Electron-helper approach below was reviewed NO-SHIP (omits Frameworks/asar →
+> crashes; unverifiable without a signed build) and abandoned in favour of a
+> real standalone Mia Core node process delivered in vertical slices. The
+> resolver-seam and diagnostics tasks here did land and are reused; the helper
+> packaging tasks (2, 6) did not. Kept for history.
+
 # Mia Core Phase 1: Independent Daemon Executable Identity — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
