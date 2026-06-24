@@ -191,7 +191,7 @@
     const { rect, maxScroll, trackInset, thumbHeight, travel } = metrics;
     const overlay = ensureScrollbarOverlay();
     const thumbTop = rect.top + trackInset + (target.scrollTop / maxScroll) * travel;
-    const thumbLeft = rect.right - 10;
+    const thumbLeft = rect.right - 8;
 
     overlay.style.height = `${thumbHeight}px`;
     overlay.style.transform = `translate3d(${Math.round(thumbLeft)}px, ${Math.round(thumbTop)}px, 0)`;

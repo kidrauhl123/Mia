@@ -135,6 +135,15 @@ test("chat floor overlay text uses the adaptive floor palette", () => {
   assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.message-time/);
 });
 
+test("custom scrollbar overlay uses a narrow thumb", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  const overlayRule = cssRuleBody(baseCss, ".scrollbar-overlay");
+  assert.match(overlayRule, /width:\s*6px;/);
+  assert.match(overlayRule, /min-height:\s*28px;/);
+  assert.match(baseCss, /\.scrollbar-overlay:hover,\s*\.scrollbar-overlay\.dragging\s*\{[\s\S]*?width:\s*8px;/);
+});
+
 test("new tail messages reveal like Telegram without ignoring reduced motion", () => {
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
   const webCss = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");

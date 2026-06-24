@@ -292,6 +292,7 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(appStateSource, /sidebarCollapsed:\s*options\.sidebarCollapsed \?\? readLocal\(storage, "mia\.sidebarCollapsed\.v1"\) === "1"/);
   assert.doesNotMatch(appStateSource, /skillPickerPluginId/);
   assert.match(html, /id="sidebarCollapseToggle" class="sidebar-collapse-toggle"[\s\S]*?aria-controls="conversationSidebar"[\s\S]*?aria-expanded="true"[\s\S]*?<\/button>\s*<div class="sidebar-title">消息<\/div>/);
+  assert.match(html, /id="sidebarRailHoverBridge" class="sidebar-rail-hover-bridge" aria-hidden="true"><\/div>\s*<button id="sidebarRailToggle"/);
   assert.match(html, /id="sidebarRailToggle" class="sidebar-rail-toggle sidebar-expand-toggle"[\s\S]*?aria-controls="conversationSidebar"[\s\S]*?aria-expanded="false"[\s\S]*?<rect x="3" y="4" width="18" height="16" rx="2\.5"/);
   assert.match(css, /--rail-column-width:\s*78px;/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) var\(--sidebar-width\) 0 minmax\(0,\s*1fr\);/);
@@ -324,10 +325,13 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(css, /\.conversation-sidebar:hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar\.sidebar-action-hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar \.sidebar-tools:focus-within \.sidebar-collapse-toggle\s*\{[\s\S]*?width:\s*28px;[\s\S]*?opacity:\s*1;/);
   assert.doesNotMatch(css, /\.sidebar-collapse-toggle:focus-visible[^{]*\{[^}]*(?:outline|box-shadow):/);
   assert.doesNotMatch(css, /\.sidebar-rail-toggle:focus-visible[^{]*\{[^}]*(?:outline|box-shadow):/);
+  assert.match(css, /\.sidebar-rail-hover-bridge\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*0;[\s\S]*?bottom:\s*0;[\s\S]*?left:\s*0;[\s\S]*?width:\s*calc\(var\(--rail-column-width\) \+ 64px\);[\s\S]*?display:\s*none;[\s\S]*?background:\s*transparent;[\s\S]*?-webkit-app-region:\s*no-drag;/);
+  assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\]\[data-sidebar-toggle="available"\] \.sidebar-rail-hover-bridge\s*\{[\s\S]*?display:\s*block;/);
   assert.match(css, /\.sidebar-rail-toggle\s*\{[\s\S]*?top:\s*50%;[\s\S]*?left:\s*calc\(var\(--rail-column-width\) - 6px\);[\s\S]*?width:\s*32px;[\s\S]*?height:\s*44px;[\s\S]*?background:\s*rgba\(15,\s*23,\s*42,\s*0\.10\);[\s\S]*?color:\s*var\(--muted\);[\s\S]*?box-shadow:\s*0 6px 18px rgba\(15,\s*23,\s*42,\s*0\.08\);[\s\S]*?opacity:\s*0;[\s\S]*?transform:\s*translateY\(-50%\);/);
   assert.match(css, /\.sidebar-rail-toggle:hover\s*\{[\s\S]*?background:\s*rgba\(15,\s*23,\s*42,\s*0\.14\);/);
-  assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\] \.nav-rail:hover ~ \.sidebar-rail-toggle,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:hover,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:focus-visible\s*\{[\s\S]*?opacity:\s*1;/);
-  assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-rail-toggle\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\] \.nav-rail:hover ~ \.sidebar-rail-toggle,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-hover-bridge:hover ~ \.sidebar-rail-toggle,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:hover,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:focus-visible\s*\{[\s\S]*?opacity:\s*1;/);
+  assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-rail-hover-bridge,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-rail-toggle\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\]\[data-sidebar-toggle="available"\]\[data-auth-state="signed-out"\] \.sidebar-rail-hover-bridge,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\]\[data-sidebar-toggle="available"\]\[data-layout="workspace"\] \.sidebar-rail-hover-bridge,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\]\[data-sidebar-toggle="available"\]\[data-shell-layout="single"\] \.sidebar-rail-hover-bridge,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\]\[data-sidebar-toggle="available"\]\[data-nav-layout="sidebar-bottom"\] \.sidebar-rail-hover-bridge\s*\{[\s\S]*?display:\s*none;/);
 });
 
 test("single-pane rail pages do not render meaningless narrow back buttons", () => {
@@ -646,6 +650,13 @@ test("custom scrollbar overlay track stays on rounded right edge straights", () 
   assert.equal(trackRect.top, 28);
   assert.equal(trackRect.bottom, 572);
   assert.equal(trackRect.height, 544);
+});
+
+test("custom scrollbar overlay aligns the narrower thumb to the right edge", () => {
+  const scrollbarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/scrollbar-overlay.js"), "utf8");
+
+  assert.match(scrollbarSource, /const thumbLeft = rect\.right - 8;/);
+  assert.doesNotMatch(scrollbarSource, /const thumbLeft = rect\.right - 10;/);
 });
 
 test("custom scrollbar overlay is invalidated when panes hide", () => {

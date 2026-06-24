@@ -179,7 +179,7 @@
   top: 0;
   left: 0;
   z-index: 9999;
-  width: 8px;
+  width: 6px;
   min-height: 28px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.34);
@@ -197,7 +197,7 @@
 
 .scrollbar-overlay:hover,
 .scrollbar-overlay.dragging {
-  width: 10px;
+  width: 8px;
   background: rgba(0, 0, 0, 0.48);
 }
 
@@ -331,6 +331,7 @@ body.platform-darwin.window-fullscreen .app-shell {
 
 .app-shell[data-layout="workspace"] .sidebar,
 .app-shell[data-layout="workspace"] .sidebar-resize-handle,
+.app-shell[data-layout="workspace"] .sidebar-rail-hover-bridge,
 .app-shell[data-layout="workspace"] .sidebar-rail-toggle {
   display: none;
 }
@@ -409,6 +410,7 @@ body.platform-darwin.window-fullscreen .app-shell {
 .app-shell[data-auth-state="signed-out"] .nav-rail,
 .app-shell[data-auth-state="signed-out"] .sidebar,
 .app-shell[data-auth-state="signed-out"] .sidebar-resize-handle,
+.app-shell[data-auth-state="signed-out"] .sidebar-rail-hover-bridge,
 .app-shell[data-auth-state="signed-out"] .sidebar-rail-toggle,
 .app-shell[data-auth-state="signed-out"] .topbar,
 .app-shell[data-auth-state="signed-out"] .composer,
@@ -464,7 +466,10 @@ body.platform-win32 .nav-rail {
 }
 /* rail 上可点的元素保持可点（不参与拖拽） */
 .nav-rail .rail-button,
-.nav-rail .rail-avatar {
+.nav-rail .rail-avatar,
+.nav-rail .traffic-light {
+  position: relative;
+  z-index: 13;
   -webkit-app-region: no-drag;
 }
 
@@ -1032,6 +1037,29 @@ body.platform-win32 [class~="sidebar-tools"] {
   display: none;
 }
 
+.sidebar-rail-hover-bridge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 11;
+  width: calc(var(--rail-column-width) + 64px);
+  display: none;
+  background: transparent;
+  -webkit-app-region: no-drag;
+}
+
+.app-shell[data-sidebar-state="collapsed"][data-sidebar-toggle="available"] .sidebar-rail-hover-bridge {
+  display: block;
+}
+
+.app-shell[data-sidebar-state="collapsed"][data-sidebar-toggle="available"][data-auth-state="signed-out"] .sidebar-rail-hover-bridge,
+.app-shell[data-sidebar-state="collapsed"][data-sidebar-toggle="available"][data-layout="workspace"] .sidebar-rail-hover-bridge,
+.app-shell[data-sidebar-state="collapsed"][data-sidebar-toggle="available"][data-shell-layout="single"] .sidebar-rail-hover-bridge,
+.app-shell[data-sidebar-state="collapsed"][data-sidebar-toggle="available"][data-nav-layout="sidebar-bottom"] .sidebar-rail-hover-bridge {
+  display: none;
+}
+
 .sidebar-rail-toggle {
   position: absolute;
   top: 50%;
@@ -1074,12 +1102,15 @@ body.platform-win32 [class~="sidebar-tools"] {
 }
 
 .app-shell[data-sidebar-state="collapsed"] .nav-rail:hover ~ .sidebar-rail-toggle,
+.app-shell[data-sidebar-state="collapsed"] .sidebar-rail-hover-bridge:hover ~ .sidebar-rail-toggle,
 .app-shell[data-sidebar-state="collapsed"] .sidebar-rail-toggle:hover,
 .app-shell[data-sidebar-state="collapsed"] .sidebar-rail-toggle:focus-visible {
   opacity: 1;
   transform: translateY(-50%);
 }
 
+.app-shell[data-sidebar-toggle="hidden"] .sidebar-rail-hover-bridge,
+.app-shell[data-shell-layout="single"] .sidebar-rail-hover-bridge,
 .app-shell[data-sidebar-toggle="hidden"] .sidebar-rail-toggle,
 .app-shell[data-shell-layout="single"] .sidebar-rail-toggle,
 .sidebar-rail-toggle[hidden] {
@@ -1467,6 +1498,7 @@ body.platform-win32 [class~="sidebar-tools"] {
   display: none;
 }
 
+.app-shell[data-nav-layout="sidebar-bottom"] .sidebar-rail-hover-bridge,
 .app-shell[data-nav-layout="sidebar-bottom"] .sidebar-rail-toggle {
   display: none;
 }
@@ -9907,6 +9939,7 @@ body.onboarding-window .setup-action {
 
   .app-shell[data-nav-layout="sidebar-bottom"] .nav-rail,
   .app-shell[data-nav-layout="sidebar-bottom"] .sidebar-resize-handle,
+  .app-shell[data-nav-layout="sidebar-bottom"] .sidebar-rail-hover-bridge,
   .app-shell[data-nav-layout="sidebar-bottom"] .sidebar-rail-toggle {
     display: none !important;
   }
