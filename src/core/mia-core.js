@@ -41,6 +41,13 @@ const { schedulerSkillIdsForTurn } = require("../main/scheduler-skill-defaults.j
 const { createHermesRunService } = require("../main/hermes-run-service.js");
 const { createHermesChatAdapter } = require("../main/hermes-chat-adapter.js");
 
+// Cloud bot-invocation routing — the SAME pure-node social modules the Electron
+// main process drives (no fork). Core is the single owner when running, so the
+// dispatcher always handles (shouldHandle: () => true) and never falls back.
+const { createSocialApi } = require("../main/social/social-api.js");
+const { createLocalBotResponder } = require("../main/social/local-bot-responder.js");
+const { createMainBotRuntimeDispatcher } = require("../main/social/bot-runtime-dispatcher.js");
+
 const ENGINE_NOT_AVAILABLE = "engine not available in Mia Core yet";
 
 const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
@@ -205,6 +212,68 @@ function createCoreBotExecution({
   });
 }
 
+// Wire the CLOUD bot-invocation routing into Core, reusing the SAME pure-node
+// social modules main.js drives (src/main.js ~2622-2708):
+//   dispatcher.handleCloudEvent(ConversationBotInvocationRequested)
+//     → localBotResponder.respond(...)
+//     → botExecution.sendChat (the real Hermes adapter graph)
+//     → socialApi.postConversationMessageAsBot(...) posts the reply.
+//
+// This is the routing ONLY — it is NOT auto-connected to the real cloud
+// WebSocket (that is a later slice + a dual-owner risk). Feeding the returned
+// dispatcher a cloud event drives the full node-only path, which is exactly how
+// the proof test exercises it.
+//
+// Injection points (for tests): `socialApi` (a mock recording posts) and
+// `botExecution` (a createCoreBotExecution graph with a faked Hermes send).
+function createCoreCloudRouting({
+  runtimePaths,
+  settingsStore,
+  botExecution,
+  socialApi,
+  emitLocalEvent = () => {},
+  deviceId = "mia-core",
+  log = () => {}
+} = {}) {
+  if (!botExecution || typeof botExecution.sendChat !== "function") {
+    throw new Error("createCoreCloudRouting requires a botExecution with sendChat");
+  }
+
+  // Real pure-node socialApi built from Core's cloud settings. Injectable for
+  // tests; in production it reuses settingsStore.cloudSettings() (same shape and
+  // url normalization the Electron path uses).
+  const api = socialApi || createSocialApi({
+    getSettings: () => (settingsStore ? settingsStore.cloudSettings() : { enabled: false }),
+    normalizeUrl: settingsStore ? settingsStore.normalizeCloudUrl : (value) => String(value || "")
+  });
+
+  const localBotResponder = createLocalBotResponder({
+    sendChat: botExecution.sendChat,
+    postConversationMessageAsBot: (conversationId, body) => api.postConversationMessageAsBot(conversationId, body),
+    listConversationMessages: (conversationId, sinceSeq, limit) => api.listConversationMessages(conversationId, sinceSeq, limit),
+    // Run streams (typing, token deltas, tool traces) + posted-message echoes go
+    // to the Core control server's local event channel. The caller injects the
+    // sink; a no-op/collector is fine until the local-events fan-out lands.
+    emitCloudEvent: (message) => emitLocalEvent({ type: message.type, payload: message }),
+    log
+  });
+
+  const dispatcher = createMainBotRuntimeDispatcher({
+    // Core is the single owner when running, so it always handles the turn.
+    shouldHandle: () => true,
+    currentDeviceId: () => String(deviceId || ""),
+    currentDeviceIds: () => [String(deviceId || "")],
+    // TODO(mia-core slice): wire the real owned-bots list once Core owns the bot
+    // directory read-side; an empty list is correct-but-minimal — buildBotInvocation
+    // falls back to the member roster / a botId snapshot, so Hermes turns still run.
+    listBots: () => [],
+    localBotResponder,
+    log
+  });
+
+  return { dispatcher, localBotResponder, socialApi: api };
+}
+
 function createMiaCore(options = {}) {
   const env = options.env || process.env;
   const version = String(options.version || "");
@@ -322,6 +391,28 @@ function createMiaCore(options = {}) {
     return built;
   }
 
+  // Cloud bot-invocation routing is built lazily and exposed for testing. It is
+  // NOT auto-started and NOT auto-connected to the real cloud WebSocket — that is
+  // a later vertical slice (dual-owner risk). The control server boot is unchanged.
+  // It reuses the SAME botExecution graph (real Hermes adapter) and the same
+  // pure-node social modules the Electron path drives.
+  let cachedCloudRouting = null;
+  function cloudRouting(overrides = {}) {
+    if (cachedCloudRouting && !Object.keys(overrides).length) return cachedCloudRouting;
+    const built = createCoreCloudRouting({
+      runtimePaths,
+      settingsStore,
+      botExecution: overrides.botExecution || botExecution(),
+      // The control server's local event channel: push run streams to any
+      // window listening on the daemon's local event feed (ADR P0).
+      emitLocalEvent: (envelope) => controlServer.publishLocalEvent?.(envelope),
+      log: () => {},
+      ...overrides
+    });
+    if (!Object.keys(overrides).length) cachedCloudRouting = built;
+    return built;
+  }
+
   return {
     start,
     stop: () => controlServer.stop(),
@@ -331,11 +422,12 @@ function createMiaCore(options = {}) {
     runtimePaths,
     daemonToken,
     describeDaemonTarget,
-    botExecution
+    botExecution,
+    cloudRouting
   };
 }
 
-module.exports = { createMiaCore, createCoreBotExecution };
+module.exports = { createMiaCore, createCoreBotExecution, createCoreCloudRouting };
 
 if (require.main === module) {
   const core = createMiaCore({ version: require("../../package.json").version });
