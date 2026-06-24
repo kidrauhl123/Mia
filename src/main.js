@@ -1281,6 +1281,9 @@ async function startDaemonService() {
   } else if (existing.ok) {
     appendDaemonLog(`Ignoring ${existing.mode || "unknown"} process on daemon port; a real daemon process is required.`);
   }
+  // Packaged macOS must not fall back to the GUI app identity for the daemon.
+  // Dev (electron-dev) and non-macOS (bundled-cli) pass through.
+  miaCoreResolver.assertLaunchable();
   if (process.platform === "darwin") {
     await launchdService.startDaemon();
     for (let i = 0; i < 20; i += 1) {
