@@ -63,13 +63,24 @@ test("Core builds the REAL adapter graph; a faked Hermes HTTP send flows back th
   assert.equal(seen[0].bot.agentEngine, "hermes");
 });
 
-test("Core throws a clear error for a non-Hermes engine (codex not available yet)", async () => {
+// PART B: a non-Hermes engine (codex) now routes through its REAL adapter — the
+// legacy "engine not available in Mia Core yet" throw is GONE. We inject a
+// CLI-absent localAgentEngineService so the REAL codex adapter hits its OWN
+// distinctive "本机没有检测到 Codex CLI" guard (deterministic, no real spawn).
+test("Core routes a codex turn through the REAL adapter (engineUnavailable throw is gone)", async () => {
   const core = createCoreBotExecution({
     runtimePaths: makeRuntimePaths(),
     settingsStore: { daemonSettings: () => ({ enabled: false }) },
     hermesBaseUrl: "",
     apiKey: "test-key",
-    sendHermesChat: async () => fakeHermesResponse("unused")
+    sendHermesChat: async () => fakeHermesResponse("unused"),
+    localAgentEngineService: {
+      shellCommandPath: () => "",
+      processEnvWithCliPath: () => ({ PATH: "" }),
+      agentRuntimeEnv: () => ({}),
+      resolveAgentRuntime: () => null,
+      localAgentEngines: () => ({})
+    }
   });
 
   await assert.rejects(
@@ -80,6 +91,9 @@ test("Core throws a clear error for a non-Hermes engine (codex not available yet
       messages: [{ role: "user", content: "hi" }],
       background: true
     }),
-    (err) => /engine not available in Mia Core yet/.test(String(err && err.message))
+    (err) => {
+      const message = String(err && err.message);
+      return /没有检测到 Codex CLI/.test(message) && !/engine not available in Mia Core yet/.test(message);
+    }
   );
 });

@@ -94,7 +94,10 @@
       "node_modules/cron-parser/**",
       "node_modules/luxon/**",
       "node_modules/js-yaml/**",
-      "node_modules/argparse/**"
+      "node_modules/argparse/**",
+      "node_modules/@anthropic-ai/claude-agent-sdk/**",
+      "node_modules/@anthropic-ai/sdk/**",
+      "node_modules/@modelcontextprotocol/sdk/**"
     ],
     "compression": "maximum",
     "publish": {

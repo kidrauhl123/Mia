@@ -66,6 +66,16 @@ function buildHarness({ enabled = true, token = "tok_core" } = {}) {
     sendHermesChat: async (context) => {
       sendChatSeen.push(context);
       return fakeHermesResponse("hi from core bridge");
+    },
+    // PART B: a non-Hermes bridge run now routes through the REAL engine adapter.
+    // Inject a CLI-absent service so a codex bridge run deterministically surfaces
+    // the real codex adapter's own guard (no real CLI spawn in tests).
+    localAgentEngineService: {
+      shellCommandPath: () => "",
+      processEnvWithCliPath: () => ({ PATH: "" }),
+      agentRuntimeEnv: () => ({}),
+      resolveAgentRuntime: () => null,
+      localAgentEngines: () => ({})
     }
   });
 
@@ -145,7 +155,7 @@ test("bridge run frame → Core sendChat (Hermes) → run_result over the mock s
   assert.equal(ws.closed?.code, 1000);
 });
 
-test("non-Hermes bridge run surfaces the 'engine not available in Mia Core yet' error", async () => {
+test("a codex bridge run routes through the REAL codex adapter (engineUnavailable throw is gone)", async () => {
   const { bridge, sockets, MockWebSocket, sendChatSeen } = buildHarness({ enabled: true });
   bridge.start();
   const ws = sockets[0];
@@ -164,15 +174,17 @@ test("non-Hermes bridge run surfaces the 'engine not available in Mia Core yet' 
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
 
-  // The run routes into botExecution.sendChat (engine selected by runtimeConfig);
-  // the non-Hermes adapter throws ENGINE_NOT_AVAILABLE BEFORE any Hermes HTTP send,
-  // so the faked sendHermesChat is never reached.
+  // The run routes into botExecution.sendChat → the REAL codex adapter (engine
+  // selected by runtimeConfig). The Hermes HTTP send is never reached (codex path).
   assert.equal(sendChatSeen.length, 0);
 
   const result = ws.sent.find((m) => m.type === "run_result");
   assert.ok(result, "expected a run_result frame");
   assert.equal(result.ok, false);
-  assert.match(result.error, /engine not available in Mia Core yet/);
+  // PART B: the error is now the REAL codex adapter's own CLI guard, NOT the
+  // legacy "engine not available in Mia Core yet" throw.
+  assert.match(result.error, /没有检测到 Codex CLI/);
+  assert.doesNotMatch(result.error, /engine not available in Mia Core yet/);
 
   bridge.stop();
 });
