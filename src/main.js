@@ -151,15 +151,13 @@ const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.MIA_D
 const ALLOW_MULTIPLE_INSTANCES = process.env.MIA_ALLOW_MULTIPLE_INSTANCES === "1";
 
 app.setName("Mia");
-const defaultUserDataDir = app.getPath("userData");
+// Migration slice 5c: the daemon is the standalone node Core, not Electron, so
+// the old `if (IS_DAEMON_PROCESS)` daemon-profile userData / MIA_HOME special
+// casing was deleted here — Electron always runs as the window. A general
+// MIA_USER_DATA_DIR override is still honoured (test isolation / multi-instance).
 const isolatedUserDataDir = String(process.env.MIA_USER_DATA_DIR || "").trim();
-if (IS_DAEMON_PROCESS && !String(process.env.MIA_HOME || "").trim()) {
-  process.env.MIA_HOME = path.join(defaultUserDataDir, "runtime", "engine-home");
-}
 if (isolatedUserDataDir) {
   app.setPath("userData", path.resolve(isolatedUserDataDir));
-} else if (IS_DAEMON_PROCESS) {
-  app.setPath("userData", path.join(defaultUserDataDir, "daemon-profile"));
 }
 const startupTimer = createStartupTimer({ scope: "startup" });
 const localFileOpenService = createLocalFileOpenService({
@@ -375,10 +373,12 @@ const miaCoreResolver = createMiaCoreResolver({
   platform: process.platform,
   env: process.env,
   resourcesPath: () => process.resourcesPath || "",
-  // Launch the standalone node Core as the daemon when a real `node` binary is
-  // resolvable. process.execPath is the Electron GUI executable (NOT node), so we
-  // resolve an absolute node via the shared shell-path lookup. When none is found
-  // the resolver falls back to electron-dev / legacy-gui (Electron --daemon).
+  // Launch the standalone node Core as the daemon (slice 5c: this is now the SOLE
+  // daemon target — the legacy-gui/electron-dev GUI-identity daemons are deleted).
+  // process.execPath is the Electron GUI executable (NOT node), so we resolve an
+  // absolute node via the shared shell-path lookup. When none is found on a
+  // packaged build the resolver returns `unresolved` and assertLaunchable() fails
+  // closed rather than launching the GUI app as the daemon.
   // DEV: process.defaultApp is true → use the system `node` (shell-path lookup)
   // + the on-disk Core entry (unchanged behaviour). PACKAGED: process.defaultApp
   // is false → the resolver derives the bundled node (<resources>/mia-node) and
@@ -1311,9 +1311,10 @@ async function startDaemonService() {
   } else if (existing.ok) {
     appendDaemonLog(`Ignoring ${existing.mode || "unknown"} process on daemon port; a real daemon process is required.`);
   }
-  // Re-enable the launchable guard now that node-core is the preferred target:
-  // refuse to launch a legacy-gui daemon (no node + packaged macOS) under the
-  // GUI app identity. node-core / electron-dev / bundled-cli all pass.
+  // Fail closed: node-core is the sole daemon target. On a degenerate packaged
+  // build that cannot resolve the bundled node Core the resolver returns
+  // `unresolved` and this throws, rather than launching the GUI app as the daemon
+  // (the deleted legacy-gui path). node-core / bundled-cli (non-darwin) pass.
   miaCoreResolver.assertLaunchable();
   if (process.platform === "darwin") {
     await launchdService.startDaemon();
@@ -3029,51 +3030,17 @@ app.on("before-quit", () => {
 
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
-  if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
-  if (!IS_DAEMON_PROCESS) startupMcpInitializer.start();
-  if (IS_DAEMON_PROCESS) {
-    try {
-      app.dock?.hide?.();
-    } catch {
-      // Dock APIs are macOS-only.
-    }
-    try {
-      await daemonControlServer.start();
-    } catch (error) {
-      const message = String(error?.message || error);
-      daemonControlServer.setLastError(message);
-      appendDaemonLog(`Daemon start failed: ${message}`);
-      throw error;
-    }
-    // Host cloud realtime sockets so this device's local AI keeps serving
-    // requests while the UI window is closed. Bridge exposes the device to
-    // Cloud; events deliver desktop-local bot invocations into this process.
-    // The interval retries once a cloud token appears (e.g. first login happens
-    // in the foreground after the daemon is already up) and after any drop.
-    try {
-      initializeRuntime();
-    } catch (error) {
-      appendDaemonLog(`Daemon runtime init failed: ${error?.message || error}`);
-    }
-    startCloudRuntimeSockets();
-    setInterval(() => {
-      startCloudRuntimeSockets();
-      // ADR P2: keep the window honest about upstream health — local channel
-      // up + cloud socket down must not render as "connected".
-      daemonControlServer?.publishLocalEvent?.({
-        type: "daemon.cloud_events_status",
-        payload: cloudEventsStatus()
-      });
-      daemonControlServer?.publishLocalEvent?.({
-        type: "daemon.cloud_runtime_status",
-        payload: {
-          events: cloudEventsStatus(),
-          bridge: cloudBridgeRuntime?.status?.(false) || null
-        }
-      });
-    }, 10000);
-    return;
-  }
+  // Migration slice 5c: the daemon is ALWAYS the standalone node Core
+  // (src/core/mia-core.js), never the Electron GUI app. The obsolete
+  // `if (IS_DAEMON_PROCESS)` Electron daemon-boot branch (dock.hide + control
+  // server + cloud sockets + retry interval) was deleted here — node Core owns
+  // that boot in createMiaCore.startWithCloud(). Electron only ever runs as the
+  // window; IS_DAEMON_PROCESS is false-by-construction in this process now, and
+  // its remaining `!IS_DAEMON_PROCESS` arms are the window-side path. The window
+  // still constructs daemonControlServer and pings/forwards to the node-Core
+  // daemon over 127.0.0.1; startDaemonService launches node Core.
+  if (!shouldRunDesktopInstance) return;
+  startupMcpInitializer.start();
   const win = createWindow();
   startupTimer.mark("window:created");
   autoUpdateService.start();

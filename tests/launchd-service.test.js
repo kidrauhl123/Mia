@@ -93,14 +93,14 @@ test("startDaemon re-enables a disabled LaunchAgent before bootstrapping", async
   ]);
 });
 
-test("daemon launch agent uses the app executable and daemon environment", (t) => {
+test("daemon launch agent carries the daemon environment and labels", (t) => {
+  // Real (uninjected) resolver in dev: a real `node` is on PATH so node-core
+  // resolves; this asserts the daemon env/label contract regardless of target.
   const { runtime, service } = setup(t, { defaultApp: () => true });
 
-  const args = service.daemonProgramArguments();
   const daemonEnv = service.daemonEnvironment();
   const plist = service.daemonLaunchAgentPlist();
 
-  assert.deepEqual(args, ["/Applications/Mia.app/Contents/MacOS/Mia", service.appPath(), "--daemon"]);
   assert.equal(daemonEnv.MIA_HOME, runtime.home);
   assert.equal(daemonEnv.MIA_USER_DATA_DIR, path.join(path.dirname(path.dirname(runtime.home)), "daemon-profile"));
   assert.match(plist, /<string>ai\.mia\.daemon<\/string>/);
@@ -108,6 +108,38 @@ test("daemon launch agent uses the app executable and daemon environment", (t) =
   assert.match(plist, /<key>MIA_USER_DATA_DIR<\/key>/);
   assert.match(plist, /<key>PATH<\/key>\n      <string>\/usr\/local\/bin:\/usr\/bin<\/string>/);
   assert.match(plist, new RegExp(`<string>${escapeRe(path.join(runtime.logsDir, "daemon.error.log"))}</string>`));
+});
+
+test("packaged resolver makes the launchd plist point ProgramArguments at mia-node, never Mia --daemon", (t) => {
+  // End-to-end with the REAL resolver wired exactly like packaged main.js:
+  // process.defaultApp false → no injected node/coreEntry → derive bundled
+  // mia-node + unpacked Core entry from resourcesPath. The launchd plist must
+  // launch <resources>/mia-node, NOT `Mia.app/Contents/MacOS/Mia --daemon`.
+  const { createMiaCoreResolver } = require("../src/main/daemon/executable-resolver.js");
+  const res = "/Applications/Mia.app/Contents/Resources";
+  const packagedResolver = createMiaCoreResolver({
+    runtimePaths: () => ({ root: "/r", home: "/r/runtime/engine-home" }),
+    effectiveHermesHome: () => "/r/.hermes",
+    execPath: () => "/Applications/Mia.app/Contents/MacOS/Mia",
+    defaultApp: () => false,
+    platform: "darwin",
+    env: {},
+    nodePath: () => "",
+    coreEntry: () => "",
+    resourcesPath: () => res
+  });
+  const { service } = setup(t, { resolver: packagedResolver, defaultApp: () => false });
+
+  const args = service.daemonProgramArguments();
+  assert.equal(args[0], path.join(res, "mia-node"));
+  assert.equal(args[1], path.join(res, "app.asar.unpacked", "src", "core", "mia-core.js"));
+  assert.equal(args[2], "--daemon");
+
+  const plist = service.daemonLaunchAgentPlist();
+  assert.match(plist, new RegExp(`<string>${escapeRe(path.join(res, "mia-node"))}</string>`));
+  assert.doesNotMatch(plist, /Mia\.app\/Contents\/MacOS\/Mia<\/string>/);
+  assert.match(plist, /<key>MIA_DAEMON_TARGET_KIND<\/key>\n      <string>node-core<\/string>/);
+  assert.match(plist, /<key>MIA_DAEMON_USES_GUI_IDENTITY<\/key>\n      <string>0<\/string>/);
 });
 
 test("daemon launch agent WorkingDirectory is a real directory, never the asar archive", (t) => {

@@ -25,11 +25,14 @@ function packagedCoreEntry(resourcesPath) {
   return path.join(base, "app.asar.unpacked", "src", "core", "mia-core.js");
 }
 
-// Resolves how the desktop launches its background daemon. This is the seam the
-// Mia Core migration plugs into: today it classifies the in-tree Electron daemon
-// launch (behaviour-preserving), and the launcher-integration slice will add a
-// `node-core` target that points launchd/spawn at the standalone Mia Core
-// process (src/core/mia-core.js) instead of the GUI app executable.
+// Resolves how the desktop launches its background daemon. After migration slice
+// 5c the daemon is ALWAYS the standalone node Core (src/core/mia-core.js) running
+// under its own non-GUI executable identity — never the Electron GUI app. The
+// obsolete `legacy-gui` (Electron-as-daemon under the GUI app identity) and
+// `electron-dev` targets were deleted here: they were the source of the original
+// Dock/LaunchServices/auto-update instability. On a packaged build a node-core
+// target MUST resolve (bundled mia-node + unpacked Core entry); if it cannot,
+// assertLaunchable() fails closed rather than falling back to GUI identity.
 // See docs/superpowers/plans/2026-06-24-mia-core-migration.md.
 function createMiaCoreResolver(deps = {}) {
   const {
@@ -43,7 +46,7 @@ function createMiaCoreResolver(deps = {}) {
     // Absolute path to a real `node` binary. process.execPath under Electron is
     // the GUI app executable, NOT node — so this must be injected (main.js wires
     // it from a `which node` lookup). When it cannot be resolved it returns "",
-    // and resolve() falls back to the electron-dev / legacy-gui / bundled-cli path.
+    // and resolve() falls back to packaged-node derivation / bundled-cli.
     nodePath = () => "",
     // Absolute path to the standalone Mia Core entry (src/core/mia-core.js).
     coreEntry = () => path.resolve(__dirname, "..", "..", "core", "mia-core.js"),
@@ -78,29 +81,25 @@ function createMiaCoreResolver(deps = {}) {
         usesGuiAppIdentity: false
       };
     }
-    if (defaultApp()) {
+    // No node-core target resolved. On macOS (dev or packaged) this is fail-closed
+    // territory: the `legacy-gui` GUI-identity daemon was deleted in slice 5c, so
+    // assertLaunchable() throws on this kind rather than launching the GUI app as
+    // the daemon. In dev a real `node` is always on PATH so node-core wins above;
+    // this branch is only reached on a degenerate packaged build (no bundled
+    // mia-node / unpacked Core) — exactly the case we want to refuse.
+    if (platform === "darwin") {
       const command = execPath();
       return {
-        kind: "electron-dev",
+        kind: "unresolved",
         command,
-        args: [appPath(), "--daemon"],
+        args: ["--daemon"],
         workingDirectory: path.dirname(command),
         usesGuiAppIdentity: false
       };
     }
-    if (platform === "darwin") {
-      // Today's shipping behaviour: the daemon is still the GUI app executable.
-      // The node-core launcher slice replaces this; the legacy-gui guard
-      // (assertLaunchable) activates once that target is wired in.
-      const command = execPath();
-      return {
-        kind: "legacy-gui",
-        command,
-        args: ["--daemon"],
-        workingDirectory: path.dirname(command),
-        usesGuiAppIdentity: true
-      };
-    }
+    // Non-darwin: no launchd. The detached process launcher spawns this command.
+    // process.execPath here is the node/Electron host running this code, not a
+    // GUI app identity with Dock/LaunchServices semantics.
     const command = execPath();
     return {
       kind: "bundled-cli",
@@ -132,7 +131,12 @@ function createMiaCoreResolver(deps = {}) {
 
   function assertLaunchable() {
     const r = resolve();
-    if (r.kind === "legacy-gui") {
+    // Fail closed: a packaged build that cannot resolve the bundled node Core
+    // (mia-node + unpacked mia-core.js) must NOT fall back to launching the GUI
+    // app as the daemon — that GUI-identity daemon was the source of the original
+    // Dock/LaunchServices/auto-update instability and is gone. node-core /
+    // bundled-cli (non-darwin) pass.
+    if (r.kind === "unresolved") {
       throw new Error(
         "Mia Core daemon executable not found in this packaged build; refusing to start the daemon under the GUI app identity. Reinstall Mia."
       );
