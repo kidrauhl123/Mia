@@ -238,7 +238,10 @@ test("cloud bridge remote run is account-authenticated and does not add a separa
   assert.match(body, /createActiveBridgeChatAdapter\(agentEngine\)/);
   assert.match(body, /agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/);
   assert.doesNotMatch(body, /\n\s*permissionMode:\s*runtimeConfig\.permissionMode\s*(?:,|\n)/);
-  assert.match(mainSource, /enginePermissionStoreTarget\(agentEngine\) !== "root-mode"[\s\S]*delete configForEngine\.permissionMode/);
+  // botWithRuntimeConfig's permission-strip logic now lives in the shared
+  // bot-turn-helpers Module (extracted from main.js so Mia Core reuses it).
+  const botTurnHelpersSource = fs.readFileSync(path.join(root, "src/main/bot-turn-helpers.js"), "utf8");
+  assert.match(botTurnHelpersSource, /enginePermissionStoreTarget\(agentEngine\) !== "root-mode"[\s\S]*delete configForEngine\.permissionMode/);
   assert.match(mainSource, /createCloudBridgeClient/, "main must instantiate the cloud bridge Module");
   assert.match(mainSource, /createActiveBridgeChatAdapter/, "main must provide a generic bridge adapter factory");
   assert.doesNotMatch(mainSource, /async function runCloudBridgeRequest/, "main must not own bridge run implementation");

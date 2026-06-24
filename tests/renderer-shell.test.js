@@ -95,17 +95,21 @@ test("active conversation stop passes the conversation id through preload to mai
   assert.match(clickBody, /runId:\s*activeRun\?\.runId \|\| ""/);
   assert.match(preloadSource, /stopChat:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.ChatStop,\s*payload\)/);
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.ChatStop,\s*\(_event,\s*payload\)\s*=>\s*stopChat\(payload\s*\|\|\s*\{\}\)\)/);
-  assert.match(mainSource, /localBotResponder\?\.stopActiveConversationRun\?\.\(payload\)/);
+  // stopChat's implementation now lives in the shared bot-execution-core Module
+  // (extracted from main.js so Mia Core drives the same stop path — no fork).
+  const botExecSource = fs.readFileSync(path.join(root, "src/main/bot-execution-core.js"), "utf8");
+  assert.match(botExecSource, /localBotResponder\?\.stopActiveConversationRun\?\.\(payload\)/);
 });
 
 test("foreground active conversation stop delegates to the daemon owner", () => {
-  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const stopStart = mainSource.indexOf("async function stopChat");
-  const stopEnd = mainSource.indexOf("function shouldOpenAgentSetupWindow", stopStart);
-  const stopBody = mainSource.slice(stopStart, stopEnd);
+  // The stop path moved into bot-execution-core.js; main.js delegates to it.
+  const botExecSource = fs.readFileSync(path.join(root, "src/main/bot-execution-core.js"), "utf8");
+  const stopStart = botExecSource.indexOf("async function stopChat");
+  const stopEnd = botExecSource.indexOf("return {", stopStart);
+  const stopBody = botExecSource.slice(stopStart, stopEnd);
 
   assert.ok(stopStart >= 0, "stopChat should be async because daemon forwarding is async");
-  assert.match(stopBody, /!IS_DAEMON_PROCESS/);
+  assert.match(stopBody, /!isDaemon\(\)/);
   assert.match(stopBody, /daemonTasksClient\?\.call\?\.\("\/api\/chat\/stop"/);
   assert.match(stopBody, /body:\s*JSON\.stringify\(payload\s*\|\|\s*\{\}\)/);
 });
