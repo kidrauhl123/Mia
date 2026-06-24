@@ -60,3 +60,23 @@ test("packaged daemon launcher does not pass an app path", () => {
 
   assert.deepEqual(launcher.daemonProgramArguments(), [path.join(dir, "electron.exe"), "--daemon"]);
 });
+
+test("detached launcher delegates command and env overlay to an injected resolver", async () => {
+  const fakeResolver = {
+    resolve: () => ({
+      command: "/opt/mia/Mia Core",
+      args: ["--daemon"],
+      workingDirectory: "/opt/mia"
+    }),
+    daemonEnvOverlay: () => ({ MIA_DAEMON: "1", MIA_HOME: "/home" })
+  };
+  const { calls, launcher } = setup({ resolver: fakeResolver });
+
+  await launcher.start();
+
+  assert.equal(calls[0].command, "/opt/mia/Mia Core");
+  assert.deepEqual(calls[0].args, ["--daemon"]);
+  assert.equal(calls[0].options.cwd, "/opt/mia");
+  assert.equal(calls[0].options.env.MIA_DAEMON, "1");
+  assert.equal(calls[0].options.env.CUSTOM_ENV, "kept"); // parent env still spread through
+});

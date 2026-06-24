@@ -1,7 +1,7 @@
 "use strict";
 
-const path = require("node:path");
 const { spawn: defaultSpawn } = require("node:child_process");
+const { createMiaCoreResolver } = require("./executable-resolver.js");
 
 function createDaemonProcessLauncher(deps = {}) {
   const {
@@ -18,28 +18,26 @@ function createDaemonProcessLauncher(deps = {}) {
   if (typeof effectiveHermesHome !== "function") throw new Error("effectiveHermesHome dependency is required.");
   if (typeof appPath !== "function") throw new Error("appPath dependency is required.");
 
+  const resolver = deps.resolver || createMiaCoreResolver({
+    runtimePaths,
+    effectiveHermesHome,
+    appPath,
+    execPath,
+    defaultApp,
+    env
+  });
+
   function daemonProgramArguments() {
-    const args = [execPath()];
-    if (defaultApp()) args.push(appPath());
-    args.push("--daemon");
-    return args;
+    const r = resolver.resolve();
+    return [r.command, ...r.args];
   }
 
   function daemonEnvironment() {
-    const p = runtimePaths();
-    return {
-      ...env,
-      MIA_DAEMON: "1",
-      MIA_USER_DATA_DIR: path.join(p.root || path.dirname(path.dirname(p.home)), "daemon-profile"),
-      HERMES_HOME: effectiveHermesHome(),
-      MIA_HOME: p.home,
-      HERMES_LANGUAGE: env.HERMES_LANGUAGE || "zh",
-      PYTHONUNBUFFERED: "1"
-    };
+    return { ...env, ...resolver.daemonEnvOverlay() };
   }
 
   function daemonWorkingDirectory() {
-    return path.dirname(execPath());
+    return resolver.resolve().workingDirectory;
   }
 
   async function start() {
