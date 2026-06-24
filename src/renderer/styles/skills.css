@@ -232,8 +232,8 @@
 .skill-card-head strong {
   overflow: hidden;
   color: var(--text);
-  font-size: 15px;
-  font-weight: 650;
+  font-size: var(--ui-text-max-size, 14px);
+  font-weight: var(--ui-text-max-weight, 500);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -528,7 +528,7 @@
   border-radius: 8px;
   background: transparent;
   color: var(--faint);
-  font-size: 20px;
+  font-size: var(--ui-text-max-size, 14px);
   line-height: 1;
   cursor: default;
 }
@@ -543,7 +543,7 @@
 
 .skill-market-modal .smm-title {
   color: var(--text);
-  font-size: 18px;
+  font-size: var(--ui-text-max-size, 14px);
   font-weight: 500;
   padding-right: 30px;
 }

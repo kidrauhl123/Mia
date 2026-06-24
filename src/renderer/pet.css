@@ -5,6 +5,8 @@ body {
   margin: 0;
   overflow: hidden;
   background: transparent;
+  font-size: 14px;
+  font-weight: 400;
   user-select: none;
   cursor: grab;
 }
@@ -32,7 +34,7 @@ body {
   color: #161922;
   box-shadow: 0 12px 28px rgba(16, 20, 39, 0.18);
   transform: translateX(-50%);
-  font: 600 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font: 500 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
   opacity: 1;
   transition: opacity 160ms ease, transform 160ms ease;

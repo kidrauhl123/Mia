@@ -14,6 +14,60 @@ function cssRuleBody(source, selector, fromIndex = 0) {
   return source.slice(open + 1, close);
 }
 
+function rendererCssFiles() {
+  const files = [];
+  const stack = [path.join(root, "src/renderer")];
+
+  while (stack.length) {
+    const dir = stack.pop();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const filePath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(filePath);
+      } else if (entry.isFile() && entry.name.endsWith(".css")) {
+        files.push(filePath);
+      }
+    }
+  }
+
+  return files.sort();
+}
+
+function rendererInlineStyleFiles() {
+  const files = [];
+  const stack = [path.join(root, "src/renderer")];
+  const lottieAssetsDir = `${path.sep}assets${path.sep}lottie${path.sep}`;
+
+  while (stack.length) {
+    const dir = stack.pop();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const filePath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(filePath);
+      } else if (
+        entry.isFile() &&
+        !filePath.includes(lottieAssetsDir) &&
+        (entry.name.endsWith(".js") || entry.name.endsWith(".html"))
+      ) {
+        files.push(filePath);
+      }
+    }
+  }
+
+  return files.sort();
+}
+
+function cssFontSizeToPx(value, inheritedPx) {
+  const normalized = value.trim().toLowerCase();
+  let match = normalized.match(/^([0-9]*\.?[0-9]+)px$/);
+  if (match) return Number(match[1]);
+  match = normalized.match(/^([0-9]*\.?[0-9]+)rem$/);
+  if (match) return Number(match[1]) * 16;
+  match = normalized.match(/^([0-9]*\.?[0-9]+)em$/);
+  if (match) return Number(match[1]) * inheritedPx;
+  return null;
+}
+
 test("renderer styles are split into feature stylesheets", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
@@ -205,8 +259,10 @@ test("conversation tag grouping uses Telegram-style text tabs with a moving unde
   const indicatorRule = cssRuleBody(baseCss, ".sidebar-tag-filter-indicator");
 
   assert.match(baseCss, /--capsule-tab-font-size:\s*13px;/);
-  assert.match(baseCss, /--capsule-tab-font-weight:\s*500;/);
-  assert.match(baseCss, /--capsule-tab-active-font-weight:\s*600;/);
+  assert.match(baseCss, /--capsule-tab-font-weight:\s*430;/);
+  assert.match(baseCss, /--capsule-tab-active-font-weight:\s*430;/);
+  assert.match(baseCss, /--ui-text-max-size:\s*14px;/);
+  assert.match(baseCss, /--ui-text-max-weight:\s*500;/);
   assert.match(filtersRule, /height:\s*30px;/);
   assert.match(stripRule, /height:\s*30px;/);
   assert.match(stripRule, /position:\s*relative;/);
@@ -228,6 +284,99 @@ test("conversation tag grouping uses Telegram-style text tabs with a moving unde
   assert.match(baseCss, /\.persona-list\.folder-page-back\s*\{/);
   assert.match(baseCss, /@keyframes conversationFolderPageForward/);
   assert.match(baseCss, /@keyframes conversationFolderPageBack/);
+});
+
+test("renderer text styles stay within the message title ceiling", () => {
+  const maxPx = 14;
+  const maxWeight = 500;
+  const allowedSizeVars = /^var\(--(?:ui-text-max-size|capsule-tab-font-size)(?:,\s*14px)?\)$/;
+  const allowedWeightVars = /^var\(--(?:ui-text-max-weight|capsule-tab-font-weight|capsule-tab-active-font-weight)(?:,\s*500)?\)$/;
+
+  for (const file of rendererCssFiles()) {
+    const relativeFile = path.relative(root, file);
+    const css = fs.readFileSync(file, "utf8");
+
+    for (const match of css.matchAll(/font-size:\s*([^;{}]+);/g)) {
+      const value = match[1].trim();
+      const normalized = value.toLowerCase();
+      if (normalized === "inherit" || normalized === "initial" || normalized === "unset" || normalized === "0") continue;
+      if (normalized.startsWith("var(")) {
+        assert.match(normalized, allowedSizeVars, `${relativeFile} uses an unchecked font-size variable: ${value}`);
+        continue;
+      }
+      const px = cssFontSizeToPx(value, maxPx);
+      assert.notEqual(px, null, `${relativeFile} uses an unchecked font-size expression: ${value}`);
+      assert.ok(px <= maxPx, `${relativeFile} font-size ${value} exceeds ${maxPx}px`);
+    }
+
+    for (const match of css.matchAll(/font-weight:\s*([^;{}]+);/g)) {
+      const value = match[1].trim();
+      const normalized = value.toLowerCase();
+      if (normalized === "inherit" || normalized === "initial" || normalized === "unset" || normalized === "normal") continue;
+      if (normalized.startsWith("var(")) {
+        assert.match(normalized, allowedWeightVars, `${relativeFile} uses an unchecked font-weight variable: ${value}`);
+        continue;
+      }
+      const weight = Number(normalized);
+      assert.ok(Number.isFinite(weight), `${relativeFile} uses an unchecked font-weight expression: ${value}`);
+      assert.ok(weight <= maxWeight, `${relativeFile} font-weight ${value} exceeds ${maxWeight}`);
+    }
+
+    for (const match of css.matchAll(/(?:^|[{\s;])font:\s*([^;{}]+);/g)) {
+      const value = match[1].trim();
+      if (value.toLowerCase() === "inherit") continue;
+      const parts = value.split(/\s+/);
+      const explicitWeight = parts.find((part) => /^(?:[1-9]00|[1-9][0-9]{2}|bold|bolder)$/i.test(part));
+      if (explicitWeight) {
+        assert.doesNotMatch(explicitWeight.toLowerCase(), /^(?:bold|bolder)$/, `${relativeFile} font shorthand uses ${explicitWeight}`);
+        assert.ok(Number(explicitWeight) <= maxWeight, `${relativeFile} font shorthand weight ${explicitWeight} exceeds ${maxWeight}`);
+      }
+      const sizeToken = parts.find((part) => /\d(?:px|rem|em)(?:\/|$)|^var\(/i.test(part));
+      assert.ok(sizeToken, `${relativeFile} font shorthand is missing an auditable size: ${value}`);
+      const sizeValue = sizeToken.split("/")[0].toLowerCase();
+      if (sizeValue.startsWith("var(")) {
+        assert.match(sizeValue, allowedSizeVars, `${relativeFile} font shorthand uses an unchecked size variable: ${sizeValue}`);
+      } else {
+        const px = cssFontSizeToPx(sizeValue, maxPx);
+        assert.notEqual(px, null, `${relativeFile} font shorthand uses an unchecked size: ${sizeValue}`);
+        assert.ok(px <= maxPx, `${relativeFile} font shorthand size ${sizeValue} exceeds ${maxPx}px`);
+      }
+    }
+  }
+});
+
+test("renderer inline text styles stay within the message title ceiling", () => {
+  const maxPx = 14;
+  const maxWeight = 500;
+
+  for (const file of rendererInlineStyleFiles()) {
+    const relativeFile = path.relative(root, file);
+    const source = fs.readFileSync(file, "utf8");
+
+    for (const match of source.matchAll(/font-size\s*:\s*([0-9]*\.?[0-9]+(?:px|rem|em))/gi)) {
+      const px = cssFontSizeToPx(match[1], maxPx);
+      assert.notEqual(px, null, `${relativeFile} inline font-size is not auditable: ${match[1]}`);
+      assert.ok(px <= maxPx, `${relativeFile} inline font-size ${match[1]} exceeds ${maxPx}px`);
+    }
+
+    for (const match of source.matchAll(/font-weight\s*:\s*(bold|bolder|[0-9]+)/gi)) {
+      const value = match[1].toLowerCase();
+      assert.doesNotMatch(value, /^(?:bold|bolder)$/, `${relativeFile} inline font-weight uses ${match[1]}`);
+      assert.ok(Number(value) <= maxWeight, `${relativeFile} inline font-weight ${match[1]} exceeds ${maxWeight}`);
+    }
+
+    for (const match of source.matchAll(/fontSize\s*=\s*["'`]([0-9]*\.?[0-9]+(?:px|rem|em))["'`]/g)) {
+      const px = cssFontSizeToPx(match[1], maxPx);
+      assert.notEqual(px, null, `${relativeFile} style.fontSize is not auditable: ${match[1]}`);
+      assert.ok(px <= maxPx, `${relativeFile} style.fontSize ${match[1]} exceeds ${maxPx}px`);
+    }
+
+    for (const match of source.matchAll(/fontWeight\s*=\s*["'`]?(bold|bolder|[0-9]+)/g)) {
+      const value = match[1].toLowerCase();
+      assert.doesNotMatch(value, /^(?:bold|bolder)$/, `${relativeFile} style.fontWeight uses ${match[1]}`);
+      assert.ok(Number(value) <= maxWeight, `${relativeFile} style.fontWeight ${match[1]} exceeds ${maxWeight}`);
+    }
+  }
 });
 
 test("project styles do not draw focus highlights", () => {
@@ -309,7 +458,7 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(appUpdateOverlayRule, /backdrop-filter:\s*none;/);
   assert.match(appUpdateOverlayRule, /pointer-events:\s*none;/);
   assert.match(appUpdatePanelRule, /pointer-events:\s*auto;/);
-  assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?border:\s*0;[\s\S]*?height:\s*16px;[\s\S]*?font-size:\s*10px;/);
+  assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?border:\s*0;[\s\S]*?height:\s*16px;[\s\S]*?font-size:\s*11px;[\s\S]*?font-weight:\s*var\(--capsule-tab-font-weight\);/);
   assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?border-radius:\s*5px;/);
   assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?background:\s*color-mix\(in srgb,\s*var\(--tag-color,\s*#64748b\) 14%,\s*transparent\);[\s\S]*?color:\s*var\(--tag-color,\s*#64748b\);/);
   assert.match(baseCss, /\.persona-tag-chip\.filtered\s*\{[\s\S]*?background:\s*color-mix\(in srgb,\s*var\(--tag-color,\s*#64748b\) 28%,\s*transparent\);[\s\S]*?box-shadow:\s*none;/);
@@ -356,11 +505,11 @@ test("settings workspace lives on the app floor and adapts to narrow windows", (
     "settings navigation should use the same non-white middle-pane surface as the message sidebar"
   );
   const settingsTitleRule = cssRuleBody(baseCss, ".settings-tabs-title");
-  assert.match(settingsTitleRule, /font-size:\s*18px;/, "settings title should stay lighter than a page headline");
+  assert.match(settingsTitleRule, /font-size:\s*var\(--ui-text-max-size,\s*14px\);/, "settings title should stay within the message title ceiling");
   assert.match(settingsTitleRule, /font-weight:\s*500;/, "settings title should not use heavy display weight");
   const sidebarTitleRule = cssRuleBody(baseCss, ".sidebar-title");
-  assert.match(sidebarTitleRule, /font-size:\s*16px;/, "conversation sidebar title should stay visually quieter on first load");
-  assert.match(sidebarTitleRule, /font-weight:\s*560;/, "conversation sidebar title should not use heavy display weight");
+  assert.match(sidebarTitleRule, /font-size:\s*var\(--ui-text-max-size\);/, "conversation sidebar title should define the renderer text ceiling");
+  assert.match(sidebarTitleRule, /font-weight:\s*var\(--ui-text-max-weight\);/, "conversation sidebar title should define the renderer weight ceiling");
   assert.match(
     baseCss,
     /\.settings-content\s*\{[\s\S]*?background:\s*transparent;/,
@@ -398,7 +547,7 @@ test("settings workspace lives on the app floor and adapts to narrow windows", (
   const narrowSettingsIndex = narrowSettingsMatch?.index ?? -1;
   assert.notEqual(narrowSettingsIndex, -1, "settings narrow-window media query should exist");
   const narrowSettingsTitleRule = cssRuleBody(baseCss, ".settings-tabs-title", narrowSettingsIndex);
-  assert.match(narrowSettingsTitleRule, /font-size:\s*15px;/, "settings title should be smaller in the compact top strip");
+  assert.match(narrowSettingsTitleRule, /font-size:\s*var\(--ui-text-max-size,\s*14px\);/, "settings compact title should stay within the text ceiling");
   const narrowSettingsTabRule = cssRuleBody(baseCss, ".settings-tab {", narrowSettingsIndex);
   assert.match(narrowSettingsTabRule, /width:\s*auto;/, "narrow settings tabs should override the base full width");
   assert.match(narrowSettingsTabRule, /min-width:\s*0;/, "narrow settings tabs should override the base minimum width");

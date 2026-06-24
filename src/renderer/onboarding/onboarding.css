@@ -12,6 +12,8 @@
   --onb-ink-hover: #303137;
   --onb-ok: #1fab5a;
   --wechat-green: #07c160;
+  --ui-text-max-size: 14px;
+  --ui-text-max-weight: 500;
 }
 
 * { box-sizing: border-box; }
@@ -32,6 +34,8 @@ html, body {
   height: 100%;
   background: var(--onb-bg);
   color: var(--onb-text);
+  font-size: var(--ui-text-max-size);
+  font-weight: 400;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
   user-select: none;
@@ -60,7 +64,7 @@ html, body {
 
 .onb-step {
   font-size: 11.5px;
-  font-weight: 560;
+  font-weight: var(--ui-text-max-weight, 500);
   color: var(--onb-muted);
   text-align: center;
 }
@@ -100,8 +104,8 @@ html, body {
 
 .onb-title {
   margin: 0;
-  font-size: 21px;
-  font-weight: 600;
+  font-size: var(--ui-text-max-size, 14px);
+  font-weight: var(--ui-text-max-weight, 500);
   letter-spacing: -0.2px;
 }
 
@@ -203,8 +207,8 @@ html, body {
 
 .onb-wechat-title h1 {
   margin: 0;
-  font-size: 21px;
-  font-weight: 650;
+  font-size: var(--ui-text-max-size, 14px);
+  font-weight: var(--ui-text-max-weight, 500);
   letter-spacing: 0;
 }
 
@@ -264,8 +268,8 @@ html, body {
   border-radius: 12px;
   background: var(--onb-ink);
   color: #fff;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--ui-text-max-size, 14px);
+  font-weight: var(--ui-text-max-weight, 500);
   cursor: default;
   transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
 }
@@ -331,7 +335,7 @@ html, body {
 }
 
 .onb[data-step="done"] .onb-title {
-  font-size: 20px;
+  font-size: var(--ui-text-max-size, 14px);
 }
 
 .onb[data-step="done"] .onb-tagline {
@@ -440,7 +444,7 @@ html, body {
 
 .onb-row-icon.monogram {
   font-size: 10px;
-  font-weight: 650;
+  font-weight: var(--ui-text-max-weight, 500);
 }
 
 .onb-row-main {
@@ -451,9 +455,9 @@ html, body {
   gap: 4px;
 }
 
-.onb-row-name { font-size: 13.5px; font-weight: 540; }
+.onb-row-name { font-size: 13.5px; font-weight: var(--ui-text-max-weight, 500); }
 .onb-row-status { font-size: 12px; color: var(--onb-muted); }
-.onb-row.ok .onb-row-status { color: var(--onb-ok); font-weight: 560; }
+.onb-row.ok .onb-row-status { color: var(--onb-ok); font-weight: var(--ui-text-max-weight, 500); }
 .onb-row.checking .onb-row-status { opacity: 0.65; }
 .onb-row.error {
   background: #fff7f7;
@@ -511,7 +515,7 @@ html, body {
   background: #fff;
   color: var(--onb-text);
   font-size: 12.5px;
-  font-weight: 540;
+  font-weight: var(--ui-text-max-weight, 500);
   cursor: default;
 }
 

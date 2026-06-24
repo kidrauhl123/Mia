@@ -413,7 +413,7 @@ test("sidebar-bottom navigation mode keeps the rail path and exposes four primar
   assert.match(css, /\.sidebar-bottom-nav-button\.active\s*\{[\s\S]*?color:\s*var\(--accent\);/);
   assert.match(css, /\.sidebar-bottom-nav-button\.active::before\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;[\s\S]*?opacity:\s*0;/);
   assert.match(css, /\.sidebar-bottom-icon\s*\{[\s\S]*?width:\s*25px;[\s\S]*?height:\s*25px;/);
-  assert.match(css, /\.sidebar-bottom-label\s*\{[\s\S]*?font-size:\s*9px;[\s\S]*?font-weight:\s*520;[\s\S]*?white-space:\s*nowrap;/);
+  assert.match(css, /\.sidebar-bottom-label\s*\{[\s\S]*?font-size:\s*9px;[\s\S]*?font-weight:\s*430;[\s\S]*?white-space:\s*nowrap;/);
   assert.match(css, /\.sidebar-bottom-icon-regular,[\s\S]*?\.sidebar-bottom-icon-fill\s*\{[\s\S]*?fill:\s*currentColor;[\s\S]*?stroke:\s*none;/);
   assert.match(css, /\.sidebar-bottom-icon-fill\s*\{[\s\S]*?display:\s*none;/);
   assert.match(css, /\.sidebar-bottom-nav-button\.active \.sidebar-bottom-icon-regular\s*\{[\s\S]*?display:\s*none;/);

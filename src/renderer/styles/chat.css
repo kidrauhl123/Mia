@@ -141,7 +141,7 @@
 .bubble-sender {
   display: block;
   font-size: 0.82em;
-  font-weight: 600;
+  font-weight: var(--ui-text-max-weight, 500);
   line-height: 1.2;
   margin-bottom: 4px;
 }
@@ -279,7 +279,7 @@
 
 .command-session-main strong {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: var(--ui-text-max-weight, 500);
   line-height: 1.25;
 }
 
@@ -347,7 +347,7 @@
 .message-reply-quote span {
   color: var(--accent);
   font-size: 11px;
-  font-weight: 520;
+  font-weight: var(--ui-text-max-weight, 500);
   line-height: 1.2;
 }
 
@@ -455,7 +455,7 @@
   margin: -1px 0 0 6px;
   color: var(--floor-faint);
   font-size: 10px;
-  font-weight: 520;
+  font-weight: var(--ui-text-max-weight, 500);
   line-height: 1;
   letter-spacing: 0;
   white-space: nowrap;
@@ -658,7 +658,7 @@
 .bubble h3 {
   margin: 4px 0 8px;
   color: var(--text);
-  font-size: 15px;
+  font-size: var(--ui-text-max-size, 14px);
   line-height: 1.35;
 }
 
@@ -704,7 +704,7 @@
 
 .bubble .message-table th {
   background: rgba(0, 0, 0, 0.045);
-  font-weight: 600;
+  font-weight: var(--ui-text-max-weight, 500);
 }
 
 .bubble .message-table tbody tr:nth-child(even) td {

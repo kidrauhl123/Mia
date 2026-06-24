@@ -3696,7 +3696,7 @@
         <span class="group-create-section-title">我的 UID</span>
       </div>
       <div style="display:flex; align-items:center; gap:8px; padding:6px 0;">
-        <span id="socialMyUserIdLabel" style="font-weight:600; font-variant-numeric:tabular-nums;">${myUserIdDisplay}</span>
+        <span id="socialMyUserIdLabel" style="font-weight:500; font-variant-numeric:tabular-nums;">${myUserIdDisplay}</span>
         <button type="button" class="button-soft" id="socialCopyUserId" style="font-size:12px; padding:3px 8px;">复制</button>
       </div>
     `;

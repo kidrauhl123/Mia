@@ -278,7 +278,7 @@
   background: rgba(255, 255, 255, 0.72);
   color: color-mix(in srgb, var(--bot-card-fg) 78%, #111827 22%);
   font-size: 11px;
-  font-weight: 620;
+  font-weight: var(--ui-text-max-weight, 500);
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -292,13 +292,13 @@
   border-radius: 15px;
   display: grid;
   place-items: center;
-  font-size: 25px;
+  font-size: var(--ui-text-max-size, 14px);
 }
 .bot-store-cover-avatar {
   width: 64px;
   height: 64px;
   border-radius: 19px;
-  font-size: 31px;
+  font-size: var(--ui-text-max-size, 14px);
   box-shadow: 0 12px 28px color-mix(in srgb, var(--bot-card-fg) 20%, transparent);
 }
 .bot-store-card-body {
@@ -315,8 +315,8 @@
 .bot-store-card-head strong {
   display: block;
   overflow: hidden;
-  font-size: 15px;
-  font-weight: 650;
+  font-size: var(--ui-text-max-size, 14px);
+  font-weight: var(--ui-text-max-weight, 500);
   letter-spacing: 0;
   color: var(--text);
   text-overflow: ellipsis;
@@ -421,7 +421,7 @@
   background: var(--badge-bar-bg);
   color: var(--badge-card-muted);
   font-size: 11px;
-  font-weight: 620;
+  font-weight: var(--ui-text-max-weight, 500);
   letter-spacing: 0.08em;
 }
 .bot-store-enroll-light {
@@ -470,7 +470,7 @@
   background: var(--badge-accent, #5dcaa5);
   color: #0e1320;
   font-size: 11px;
-  font-weight: 760;
+  font-weight: var(--ui-text-max-weight, 500);
   letter-spacing: 0.12em;
 }
 .bot-store-badge-shimmer {
@@ -503,14 +503,14 @@
 .bot-store-badge-id span {
   color: var(--badge-card-muted);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--ui-text-max-weight, 500);
   letter-spacing: 0.08em;
 }
 .bot-store-badge-id strong {
   overflow: hidden;
   color: var(--badge-card-text);
-  font-size: 18px;
-  font-weight: 650;
+  font-size: var(--ui-text-max-size, 14px);
+  font-weight: var(--ui-text-max-weight, 500);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -562,7 +562,7 @@
   min-width: 0;
   color: var(--badge-card-text);
   font-size: 12.5px;
-  font-weight: 620;
+  font-weight: var(--ui-text-max-weight, 500);
   text-align: right;
 }
 .bot-store-badge-fields [data-badge-engine] { color: var(--engine-accent, #5dcaa5); }
@@ -601,13 +601,13 @@
   transform: translate(-50%, -50%) scale(2.2) rotate(-28deg);
 }
 .bot-store-badge-stamp strong {
-  font-size: 18px;
-  font-weight: 760;
+  font-size: var(--ui-text-max-size, 14px);
+  font-weight: var(--ui-text-max-weight, 500);
   letter-spacing: 0.05em;
 }
 .bot-store-badge-stamp span {
   font-size: 9px;
-  font-weight: 720;
+  font-weight: var(--ui-text-max-weight, 500);
   letter-spacing: 0.22em;
 }
 .bot-store-badge-flash {
@@ -700,10 +700,10 @@
   pointer-events: none;
 }
 .bot-store-sheet-head { display: flex; align-items: center; gap: 16px; }
-.bot-store-sheet .bot-store-avatar { width: 64px; height: 64px; border-radius: 19px; font-size: 32px; }
-.bot-store-sheet-head h2 { margin: 0; font-size: 21px; font-weight: 640; letter-spacing: -0.01em; color: var(--text); }
+.bot-store-sheet .bot-store-avatar { width: 64px; height: 64px; border-radius: 19px; font-size: var(--ui-text-max-size, 14px); }
+.bot-store-sheet-head h2 { margin: 0; font-size: var(--ui-text-max-size, 14px); font-weight: var(--ui-text-max-weight, 500); letter-spacing: -0.01em; color: var(--text); }
 .bot-store-sheet-head .tag { margin-top: 4px; font-size: 13px; color: var(--faint); }
-.bot-store-sheet .desc { margin: 18px 0 0; font-size: 14.5px; line-height: 1.6; color: var(--text); }
+.bot-store-sheet .desc { margin: 18px 0 0; font-size: var(--ui-text-max-size, 14px); line-height: 1.6; color: var(--text); }
 .bot-store-demo {
   margin-top: 14px;
   padding: 14px 16px;
@@ -713,7 +713,7 @@
   line-height: 1.6;
   color: var(--text);
 }
-.bot-store-demo b { color: var(--accent); font-weight: 600; }
+.bot-store-demo b { color: var(--accent); font-weight: var(--ui-text-max-weight, 500); }
 .bot-store-actions {
   display: flex;
   justify-content: flex-end;
@@ -728,7 +728,7 @@
   padding: 0 18px;
   font: inherit;
   font-size: 13.5px;
-  font-weight: 580;
+  font-weight: var(--ui-text-max-weight, 500);
   cursor: default;
   transition: filter 0.14s ease, color 0.14s ease;
 }
@@ -834,7 +834,7 @@
     width: 52px;
     height: 52px;
     border-radius: 16px;
-    font-size: 26px;
+    font-size: var(--ui-text-max-size, 14px);
   }
   .bot-store-card-category {
     top: 8px;

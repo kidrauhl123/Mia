@@ -604,7 +604,7 @@
   color: var(--muted);
   cursor: default;
   font: inherit;
-  font-size: 18px;
+  font-size: var(--ui-text-max-size, 14px);
   line-height: 1;
 }
 .group-info-member-action-button:hover {
@@ -687,7 +687,7 @@
 }
 .group-info-add-indicator {
   color: var(--accent);
-  font-size: 16px;
+  font-size: var(--ui-text-max-size, 14px);
   line-height: 1;
 }
 .group-info-members-row {
@@ -785,5 +785,5 @@
 
 /* ── Group info topbar button ── */
 .group-info-topbar-btn {
-  font-size: 16px;
+  font-size: var(--ui-text-max-size, 14px);
 }
