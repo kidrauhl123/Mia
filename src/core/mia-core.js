@@ -355,7 +355,11 @@ function createCoreBotExecution({
   localAgentEngineService: injectedLocalAgentEngineService = null,
   // PART B test seam: override the Claude Agent SDK loader so a proof test can
   // assert the real Claude adapter reached the SDK without loading the npm package.
-  claudeAgentSdk: injectedClaudeAgentSdk = null
+  claudeAgentSdk: injectedClaudeAgentSdk = null,
+  // Test seam: override the Claude/Codex managed-model proxies so a shutdown test
+  // can assert closeAgentEngines() stops their loopback servers.
+  claudeCodeMiaProxy: injectedClaudeProxy = null,
+  codexMiaProxy: injectedCodexProxy = null
 } = {}) {
   const baseUrl = typeof hermesBaseUrl === "function" ? hermesBaseUrl : () => String(hermesBaseUrl || "");
   const apiKeyFn = typeof apiKey === "function" ? apiKey : () => String(apiKey || "");
@@ -663,8 +667,8 @@ function createCoreBotExecution({
   // loopback HTTP server lazily ONLY when a managed-model turn calls createSession
   // — never at construction, so importing Core has no side effect.
   const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
-  const claudeCodeMiaProxy = createClaudeCodeMiaProxy({ appendLog: () => {}, fetch: fetchImpl });
-  const codexMiaProxy = createCodexMiaProxy({ appendLog: () => {}, fetch: fetchImpl });
+  const claudeCodeMiaProxy = injectedClaudeProxy || createClaudeCodeMiaProxy({ appendLog: () => {}, fetch: fetchImpl });
+  const codexMiaProxy = injectedCodexProxy || createCodexMiaProxy({ appendLog: () => {}, fetch: fetchImpl });
 
   // User-defined MCP servers (the same registry main.js drives). All node: the
   // manager/bridge/service are pure JS; the bridge binds a loopback port lazily on
@@ -896,6 +900,10 @@ function createCoreBotExecution({
   async function closeAgentEngines() {
     try { if (userMcpBridge && typeof userMcpBridge.stop === "function") await userMcpBridge.stop(); } catch { /* already closed */ }
     try { if (userMcpManager && typeof userMcpManager.stopAll === "function") await userMcpManager.stopAll(); } catch { /* best effort */ }
+    // Close the Claude/Codex managed-model proxy loopback HTTP servers a turn may
+    // have opened (createSession). Mirrors main.js quit (src/main.js:3027-3028).
+    try { if (claudeCodeMiaProxy && typeof claudeCodeMiaProxy.stop === "function") await claudeCodeMiaProxy.stop(); } catch { /* best effort */ }
+    try { if (codexMiaProxy && typeof codexMiaProxy.stop === "function") await codexMiaProxy.stop(); } catch { /* best effort */ }
   }
 
   return Object.assign(botExecutionCore, { closeAgentEngines });
@@ -1857,7 +1865,7 @@ function createMiaCore(options = {}) {
 
   return {
     start: startWithCloud,
-    stop: () => {
+    stop: async () => {
       // Disconnect the cloud sockets first so their reconnect timers + active
       // sockets are torn down before the control server stops (clean shutdown,
       // node --test exits). No-op if they were never built/connected.
@@ -1871,8 +1879,10 @@ function createMiaCore(options = {}) {
       if (cachedEngineSupervisor) cachedEngineSupervisor.stop();
       // PART B: close the user-MCP bridge (loopback HTTP) + managed proxy sessions
       // a Codex/Claude/OpenClaw turn may have opened, so the daemon exits cleanly.
+      // MUST await — closeAgentEngines closes loopback HTTP servers; not awaiting
+      // leaves their handles alive and blocks a clean process exit.
       if (cachedBotExecution && typeof cachedBotExecution.closeAgentEngines === "function") {
-        try { cachedBotExecution.closeAgentEngines(); } catch { /* best effort */ }
+        try { await cachedBotExecution.closeAgentEngines(); } catch { /* best effort */ }
       }
       return controlServer.stop();
     },
