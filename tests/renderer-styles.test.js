@@ -263,6 +263,7 @@ test("conversation tag grouping uses Telegram-style text tabs with a moving unde
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const filtersRule = cssRuleBody(baseCss, ".sidebar-tag-filters", baseCss.indexOf("\n.sidebar-tag-filters {"));
   const stripRule = cssRuleBody(baseCss, ".sidebar-tag-filter-strip", baseCss.indexOf("\n.sidebar-tag-filter-strip {"));
+  const trackRule = cssRuleBody(baseCss, ".sidebar-tag-filter-track", baseCss.indexOf("\n.sidebar-tag-filter-track {"));
   const tabRule = cssRuleBody(baseCss, ".sidebar-tag-filter", baseCss.indexOf("\n.sidebar-tag-filter {"));
   const activeRule = cssRuleBody(baseCss, ".sidebar-tag-filter.active", baseCss.indexOf("\n.sidebar-tag-filter.active {"));
   const indicatorRule = cssRuleBody(baseCss, ".sidebar-tag-filter-indicator");
@@ -275,7 +276,23 @@ test("conversation tag grouping uses Telegram-style text tabs with a moving unde
   assert.match(filtersRule, /height:\s*30px;/);
   assert.match(stripRule, /height:\s*30px;/);
   assert.match(stripRule, /position:\s*relative;/);
+  assert.doesNotMatch(stripRule, /padding-right:/);
   assert.match(stripRule, /border-bottom:\s*1px solid var\(--line\);/);
+  assert.match(stripRule, /overflow:\s*hidden;/);
+  assert.match(stripRule, /-ms-overflow-style:\s*none;/);
+  assert.match(stripRule, /scrollbar-width:\s*none !important;/);
+  assert.match(stripRule, /scrollbar-color:\s*transparent transparent !important;/);
+  assert.doesNotMatch(stripRule, /mask-image:/);
+  assert.doesNotMatch(stripRule, /-webkit-mask-image:/);
+  assert.match(baseCss, /\.sidebar-tag-filter-strip::-webkit-scrollbar\s*\{[\s\S]*?display:\s*none !important;[\s\S]*?width:\s*0 !important;[\s\S]*?height:\s*0 !important;/);
+  assert.match(baseCss, /\.sidebar-tag-filter-strip::-webkit-scrollbar-track,[\s\S]*?\.sidebar-tag-filter-strip::-webkit-scrollbar-thumb,[\s\S]*?\.sidebar-tag-filter-strip::-webkit-scrollbar-corner\s*\{[\s\S]*?display:\s*none !important;/);
+  assert.match(trackRule, /display:\s*inline-flex;/);
+  assert.match(trackRule, /gap:\s*22px;/);
+  assert.match(trackRule, /width:\s*max-content;/);
+  assert.match(trackRule, /min-width:\s*100%;/);
+  assert.match(trackRule, /transform:\s*translateX\(calc\(var\(--tag-scroll-x,\s*0px\) \* -1\)\);/);
+  assert.match(trackRule, /transition:\s*transform 220ms cubic-bezier\(0\.2,\s*0\.7,\s*0\.2,\s*1\);/);
+  assert.match(baseCss, /\.sidebar-tag-filter-strip\.reordering \.sidebar-tag-filter-track\s*\{[\s\S]*?transition:\s*none;/);
   assert.match(tabRule, /height:\s*30px;/);
   assert.match(tabRule, /font-size:\s*var\(--capsule-tab-font-size\);/);
   assert.match(tabRule, /font-weight:\s*var\(--capsule-tab-font-weight\);/);
@@ -286,13 +303,38 @@ test("conversation tag grouping uses Telegram-style text tabs with a moving unde
   assert.match(activeRule, /color:\s*var\(--text\);/);
   assert.match(activeRule, /font-weight:\s*var\(--capsule-tab-active-font-weight\);/);
   assert.match(indicatorRule, /width:\s*var\(--tag-indicator-width,\s*0px\);/);
+  assert.match(indicatorRule, /z-index:\s*1;/);
   assert.match(indicatorRule, /transform:\s*translateX\(var\(--tag-indicator-x,\s*0px\)\);/);
   assert.match(indicatorRule, /transition:\s*transform 220ms/);
   assert.doesNotMatch(baseCss, /\.sidebar-tag-filter::after\s*\{/);
+  assert.match(baseCss, /\.sidebar-tag-filter-strip\.reordering\s*\{[\s\S]*?cursor:\s*grabbing;[\s\S]*?user-select:\s*none;/);
+  assert.match(baseCss, /\.sidebar-tag-filter\.dragging\s*\{[\s\S]*?opacity:\s*0\.82;/);
   assert.match(baseCss, /\.persona-list\.folder-page-forward\s*\{/);
   assert.match(baseCss, /\.persona-list\.folder-page-back\s*\{/);
   assert.match(baseCss, /@keyframes conversationFolderPageForward/);
   assert.match(baseCss, /@keyframes conversationFolderPageBack/);
+});
+
+test("contact bot groups use compact collapsible headers", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const headerRule = cssRuleBody(baseCss, ".contact-group-header");
+  const rowRule = cssRuleBody(baseCss, ".contact-row", baseCss.indexOf("\n.contact-row {"));
+  const mainRule = cssRuleBody(baseCss, ".contact-row-main", baseCss.indexOf("\n.contact-row-main {"));
+
+  assert.match(headerRule, /display:\s*flex;/);
+  assert.match(headerRule, /width:\s*calc\(100% - 28px\);/);
+  assert.match(headerRule, /border:\s*0;/);
+  assert.match(headerRule, /background:\s*transparent;/);
+  assert.match(headerRule, /text-align:\s*left;/);
+  assert.match(baseCss, /\.contact-group-toggle::after\s*\{[\s\S]*?content:\s*"⌄";[\s\S]*?margin-left:\s*auto;/);
+  assert.match(baseCss, /\.contact-group-toggle\.collapsed::after\s*\{[\s\S]*?transform:\s*rotate\(-90deg\);/);
+  assert.match(rowRule, /grid-template-columns:\s*32px minmax\(0,\s*1fr\) auto;/);
+  assert.match(rowRule, /min-height:\s*48px;/);
+  assert.match(rowRule, /padding:\s*6px 8px;/);
+  assert.match(mainRule, /align-content:\s*center;/);
+  assert.match(mainRule, /overflow:\s*hidden;/);
+  assert.match(baseCss, /\.contact-row-main strong\s*\{[\s\S]*?line-height:\s*1\.24;/);
+  assert.match(baseCss, /\.contact-row-main small\s*\{[\s\S]*?line-height:\s*1\.25;/);
 });
 
 test("renderer text styles stay within the message title ceiling", () => {

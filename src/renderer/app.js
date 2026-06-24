@@ -28,6 +28,11 @@ let lastConversationFolderKey = null;
 let conversationFolderMotion = { key: "", direction: 1 };
 let personaFolderAnimationTimer = 0;
 let personaListRenderSignature = "";
+let conversationFolderDrag = null;
+let conversationFolderSuppressClick = false;
+const CONVERSATION_FOLDER_ORDER_KEY = "mia.conversationFolderOrder.v1";
+const CONVERSATION_FOLDER_ALL_KEY = "__all__";
+const CONVERSATION_FOLDER_LONG_PRESS_MS = 260;
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
 const rendererPlatform = String(window.mia?.platform || "unknown");
 document.body.classList.toggle("platform-win32", rendererPlatform === "win32");
@@ -275,6 +280,7 @@ const els = {
   appearanceUserBubblePreview: document.getElementById("appearanceUserBubblePreview"),
   appearanceUserBubbleReset: document.getElementById("appearanceUserBubbleReset"),
   appearanceWorkspaceBackgroundColor: document.getElementById("appearanceWorkspaceBackgroundColor"),
+  appearanceWorkspaceBackgroundImage: document.getElementById("appearanceWorkspaceBackgroundImage"),
   appearanceWorkspaceBackgroundPreview: document.getElementById("appearanceWorkspaceBackgroundPreview"),
   appearanceWorkspaceBackgroundPresets: document.getElementById("appearanceWorkspaceBackgroundPresets"),
   appearanceWorkspaceBackgroundReset: document.getElementById("appearanceWorkspaceBackgroundReset"),
@@ -1369,6 +1375,10 @@ function setPersonaSearchOpen(open, options = {}) {
 function rowMatchesActiveTag(row) {
   const active = String(window.miaSocial?.getConversationTagFilter?.() || "").trim().toLowerCase();
   if (!active) return true;
+  const otherDeviceFilter = String(window.miaSocial?.OTHER_DEVICE_CONVERSATION_FILTER || "").trim().toLowerCase();
+  if (otherDeviceFilter && active === otherDeviceFilter) {
+    return Boolean(window.miaSocial?.conversationRunsOnOtherDevice?.(row?.conversation));
+  }
   const tags = row?.conversation?.tags || window.miaSocial?.conversationTagsFor?.(row?.conversation?.id) || [];
   return Array.isArray(tags) && tags.some((tag) => String(tag?.name || "").trim().toLowerCase() === active);
 }
@@ -1463,6 +1473,7 @@ function sidebarAllConversationFilterHtml(active) {
   return `
     <button class="sidebar-tag-filter all${active ? " active" : ""}" type="button"
       role="tab" data-sidebar-tag-filter data-tag-name=""
+      data-folder-key="${CONVERSATION_FOLDER_ALL_KEY}"
       aria-selected="${active ? "true" : "false"}" title="所有对话">
       <span class="sidebar-tag-filter-name">所有对话</span>
     </button>
@@ -1471,6 +1482,8 @@ function sidebarAllConversationFilterHtml(active) {
 
 function sidebarTagFilterHtml(tag) {
   const name = String(tag?.name || "").trim();
+  const filterValue = String(tag?.filterValue || name).trim();
+  const folderKey = String(tag?.storageKey || conversationFolderStorageKey(filterValue || name)).trim();
   const count = Number(tag?.count) || 0;
   const active = Boolean(tag?.filterActive);
   const color = safeTagColor(tag?.color);
@@ -1478,7 +1491,8 @@ function sidebarTagFilterHtml(tag) {
   return `
     <button class="sidebar-tag-filter${active ? " active" : ""}" type="button"
       role="tab"
-      data-sidebar-tag-filter data-tag-name="${window.miaMarkdown.escapeHtml(name)}"
+      data-sidebar-tag-filter data-tag-name="${window.miaMarkdown.escapeHtml(filterValue)}"
+      data-folder-key="${window.miaMarkdown.escapeHtml(folderKey)}"
       aria-selected="${active ? "true" : "false"}" title="${window.miaMarkdown.escapeHtml(title)}"
       style="--tag-color:${window.miaMarkdown.escapeHtml(color)}">
       <span class="sidebar-tag-filter-name">${window.miaMarkdown.escapeHtml(name)}</span>
@@ -1494,16 +1508,92 @@ function safeRenderSignature(value) {
   }
 }
 
-function tagFilterStructureSignature(filters) {
-  return safeRenderSignature((Array.isArray(filters) ? filters : []).map((tag) => ({
-    name: String(tag?.name || "").trim(),
-    count: Number(tag?.count) || 0,
-    color: safeTagColor(tag?.color)
-  })));
+function readLocalJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocalJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // localStorage may be unavailable in restricted renderer contexts.
+  }
 }
 
 function conversationFolderKey(name) {
   return String(name || "").trim().toLowerCase();
+}
+
+function conversationFolderStorageKey(name) {
+  const key = conversationFolderKey(name);
+  return key ? `tag:${key}` : CONVERSATION_FOLDER_ALL_KEY;
+}
+
+function conversationFolderItemStorageKey(tag = {}) {
+  const explicit = String(tag?.storageKey || "").trim();
+  if (explicit) return explicit;
+  return conversationFolderStorageKey(tag?.filterValue || tag?.name);
+}
+
+function conversationFilterValue(tag = {}) {
+  return String(tag?.filterValue || tag?.name || "").trim();
+}
+
+function conversationFolderLabelForFilter(filterValue) {
+  const value = String(filterValue || "").trim();
+  if (!value) return "";
+  const filters = window.miaSocial?.conversationTagFilters?.() || [];
+  const matched = filters.find((tag) => conversationFolderKey(conversationFilterValue(tag)) === conversationFolderKey(value));
+  if (matched?.name) return String(matched.name).trim();
+  const otherDeviceFilter = String(window.miaSocial?.OTHER_DEVICE_CONVERSATION_FILTER || "").trim();
+  if (otherDeviceFilter && conversationFolderKey(value) === conversationFolderKey(otherDeviceFilter)) {
+    return String(window.miaSocial?.OTHER_DEVICE_CONVERSATION_LABEL || "其他设备").trim();
+  }
+  return value;
+}
+
+function orderedConversationFolderItems(filters, activeFilterName) {
+  const items = [
+    { type: "all", key: CONVERSATION_FOLDER_ALL_KEY, active: !activeFilterName },
+    ...(Array.isArray(filters) ? filters : []).map((tag) => ({
+      type: "tag",
+      key: conversationFolderItemStorageKey(tag),
+      tag
+    }))
+  ];
+  const stored = readLocalJson(CONVERSATION_FOLDER_ORDER_KEY, []);
+  const order = new Map((Array.isArray(stored) ? stored : []).map((key, index) => [String(key || ""), index]));
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const aOrder = order.has(a.item.key) ? order.get(a.item.key) : Number.MAX_SAFE_INTEGER;
+      const bOrder = order.has(b.item.key) ? order.get(b.item.key) : Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.index - b.index;
+    })
+    .map(({ item }) => item);
+}
+
+function conversationFolderItemsSignature(items) {
+  return safeRenderSignature((Array.isArray(items) ? items : []).map((item) => {
+    if (item.type === "all") return { key: item.key, type: item.type };
+    const tag = item.tag || {};
+    return {
+      key: item.key,
+      type: item.type,
+      name: String(tag.name || "").trim(),
+      filterValue: conversationFilterValue(tag),
+      storageKey: conversationFolderItemStorageKey(tag),
+      count: Number(tag.count) || 0,
+      color: safeTagColor(tag.color),
+      special: Boolean(tag.special)
+    };
+  }));
 }
 
 function sidebarTagButtonIndex(name) {
@@ -1532,7 +1622,7 @@ function updateSidebarTagIndicator() {
     indicator?.style?.setProperty?.("--tag-indicator-width", "0px");
     return;
   }
-  const x = active.offsetLeft;
+  const x = active.offsetLeft - conversationFolderScrollLeft(strip);
   const width = active.offsetWidth;
   indicator.style.setProperty("--tag-indicator-x", `${Math.round(x)}px`);
   indicator.style.setProperty("--tag-indicator-width", `${Math.max(12, Math.round(width))}px`);
@@ -1547,6 +1637,54 @@ function scheduleSidebarTagIndicator() {
   sidebarTagIndicatorFrame = requestAnimationFrame(updateSidebarTagIndicator);
 }
 
+function conversationFolderTrack(strip = null) {
+  return (strip || els.personaTagFilters)?.querySelector?.(".sidebar-tag-filter-track") || null;
+}
+
+function conversationFolderScrollLeft(strip) {
+  return Number(strip?.dataset?.folderScrollX) || 0;
+}
+
+function conversationFolderMaxScroll(strip) {
+  const track = conversationFolderTrack(strip);
+  if (!strip || !track) return 0;
+  return Math.max(0, track.scrollWidth - strip.clientWidth);
+}
+
+function setConversationFolderScrollLeft(strip, value) {
+  const track = conversationFolderTrack(strip);
+  if (!strip || !track) return 0;
+  const nextLeft = Math.max(0, Math.min(conversationFolderMaxScroll(strip), Math.round(Number(value) || 0)));
+  strip.dataset.folderScrollX = String(nextLeft);
+  track.style.setProperty("--tag-scroll-x", `${nextLeft}px`);
+  return nextLeft;
+}
+
+function ensureActiveConversationFolderVisible(options = {}) {
+  const strip = els.personaTagFilters?.querySelector?.(".sidebar-tag-filter-strip");
+  const active = strip?.querySelector?.(".sidebar-tag-filter.active");
+  if (!strip || !active || conversationFolderMaxScroll(strip) <= 0) return;
+  const activeCenter = active.offsetLeft + active.offsetWidth / 2;
+  let nextLeft = activeCenter - strip.clientWidth / 2;
+  const previousLeft = conversationFolderScrollLeft(strip);
+  const actualLeft = setConversationFolderScrollLeft(strip, nextLeft);
+  if (Math.abs(actualLeft - previousLeft) < 1 && !options.force) return;
+  scheduleSidebarTagIndicator();
+}
+
+function handleConversationFolderWheel(event) {
+  const strip = event.target?.closest?.(".sidebar-tag-filter-strip");
+  const maxLeft = conversationFolderMaxScroll(strip);
+  if (!strip || maxLeft <= 0) return;
+  const primaryDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (!primaryDelta) return;
+  const unit = event.deltaMode === 1 ? 16 : (event.deltaMode === 2 ? strip.clientWidth : 1);
+  event.preventDefault();
+  event.stopPropagation();
+  setConversationFolderScrollLeft(strip, conversationFolderScrollLeft(strip) + primaryDelta * unit);
+  scheduleSidebarTagIndicator();
+}
+
 function syncSidebarTagFilterSelection(activeName) {
   const activeKey = conversationFolderKey(activeName);
   const buttons = Array.from(els.personaTagFilters?.querySelectorAll?.("[data-sidebar-tag-filter]") || []);
@@ -1555,6 +1693,92 @@ function syncSidebarTagFilterSelection(activeName) {
     button.classList.toggle("active", selected);
     button.setAttribute("aria-selected", selected ? "true" : "false");
   }
+}
+
+function cancelConversationFolderDragStart() {
+  if (!conversationFolderDrag?.timer) return;
+  clearTimeout(conversationFolderDrag.timer);
+  conversationFolderDrag = null;
+}
+
+function saveConversationFolderDomOrder() {
+  const keys = Array.from(els.personaTagFilters?.querySelectorAll?.("[data-sidebar-tag-filter]") || [])
+    .map((button) => String(button.dataset.folderKey || "").trim())
+    .filter(Boolean);
+  if (!keys.length) return;
+  writeLocalJson(CONVERSATION_FOLDER_ORDER_KEY, keys);
+}
+
+function startConversationFolderDrag(button, event) {
+  const strip = button?.closest?.(".sidebar-tag-filter-strip");
+  const track = conversationFolderTrack(strip);
+  if (!strip || !conversationFolderDrag || conversationFolderDrag.active) return;
+  conversationFolderDrag.active = true;
+  conversationFolderDrag.strip = strip;
+  conversationFolderDrag.track = track || strip;
+  conversationFolderDrag.button = button;
+  conversationFolderDrag.timer = 0;
+  strip.classList.add("reordering");
+  button.classList.add("dragging");
+  try { button.setPointerCapture?.(event.pointerId); } catch { /* best effort */ }
+}
+
+function beginConversationFolderDrag(event) {
+  const button = event.target?.closest?.("[data-sidebar-tag-filter]");
+  if (!button || (typeof event.button === "number" && event.button !== 0)) return;
+  cancelConversationFolderDragStart();
+  conversationFolderDrag = {
+    active: false,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    button,
+    strip: null,
+    track: null,
+    timer: setTimeout(() => startConversationFolderDrag(button, event), CONVERSATION_FOLDER_LONG_PRESS_MS)
+  };
+}
+
+function moveConversationFolderDrag(event) {
+  const drag = conversationFolderDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+  if (!drag.active && distance > 8) {
+    cancelConversationFolderDragStart();
+    return;
+  }
+  if (!drag.active || !drag.strip || !drag.button) return;
+  event.preventDefault();
+  const track = drag.track || conversationFolderTrack(drag.strip) || drag.strip;
+  const siblings = Array.from(track.querySelectorAll("[data-sidebar-tag-filter]"))
+    .filter((button) => button !== drag.button);
+  let inserted = false;
+  for (const sibling of siblings) {
+    const rect = sibling.getBoundingClientRect();
+    if (event.clientX < rect.left + rect.width / 2) {
+      track.insertBefore(drag.button, sibling);
+      inserted = true;
+      break;
+    }
+  }
+  if (!inserted) track.appendChild(drag.button);
+  scheduleSidebarTagIndicator();
+}
+
+function endConversationFolderDrag(event) {
+  const drag = conversationFolderDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  if (drag.timer) clearTimeout(drag.timer);
+  if (drag.active) {
+    event.preventDefault();
+    conversationFolderSuppressClick = true;
+    saveConversationFolderDomOrder();
+    scheduleSidebarTagIndicator();
+    setTimeout(() => { conversationFolderSuppressClick = false; }, 0);
+  }
+  drag.strip?.classList.remove("reordering");
+  drag.button?.classList.remove("dragging");
+  conversationFolderDrag = null;
 }
 
 function animatePersonaListFolderPage(activeName) {
@@ -1608,18 +1832,21 @@ function renderConversationSearchTools(cloudReady) {
     }
     return;
   }
-  const signature = tagFilterStructureSignature(filters);
+  const folderItems = orderedConversationFolderItems(filters, activeFilterName);
+  const signature = conversationFolderItemsSignature(folderItems);
   if (els.personaTagFilters.dataset.renderSignature !== signature) {
     els.personaTagFilters.innerHTML = `
       <div class="sidebar-tag-filter-strip" role="tablist" aria-label="对话分组">
-        ${sidebarAllConversationFilterHtml(!activeFilterName)}
-        ${filters.map(sidebarTagFilterHtml).join("")}
+        <div class="sidebar-tag-filter-track">
+          ${folderItems.map((item) => item.type === "all" ? sidebarAllConversationFilterHtml(!activeFilterName) : sidebarTagFilterHtml(item.tag)).join("")}
+        </div>
         <span class="sidebar-tag-filter-indicator" aria-hidden="true"></span>
       </div>
     `;
     els.personaTagFilters.dataset.renderSignature = signature;
   }
   syncSidebarTagFilterSelection(activeFilterName);
+  ensureActiveConversationFolderVisible();
   scheduleSidebarTagIndicator();
 }
 
@@ -3113,6 +3340,7 @@ function render() {
   const searchQuery = String(state.personaFilter || "").trim();
   const searchMode = Boolean(state.personaSearchOpen || searchQuery);
   const activeTagFilterName = String(window.miaSocial?.getConversationTagFilter?.() || "").trim();
+  const activeTagFilterLabel = conversationFolderLabelForFilter(activeTagFilterName);
   const useMessageSearch = searchMode && Boolean(searchQuery);
   const messageRows = !cloudReady
     ? []
@@ -3147,7 +3375,7 @@ function render() {
             ? (useMessageSearch
               ? (state.personaSearchLoading ? "正在搜索会话记录…" : (state.personaSearchError || "没有匹配的会话记录"))
               : "")
-            : (activeTagFilterName ? `「${activeTagFilterName}」分组暂无对话` : "没有匹配的消息"))
+            : (activeTagFilterLabel ? `「${activeTagFilterLabel}」分组暂无对话` : "没有匹配的消息"))
           : "正在同步会话…")
         : "正在打开登录引导…";
     }
@@ -5276,12 +5504,21 @@ els.closePersonaSearch?.addEventListener("click", (event) => {
   event.preventDefault();
   setPersonaSearchOpen(false);
 });
+els.personaTagFilters?.addEventListener("pointerdown", beginConversationFolderDrag);
+els.personaTagFilters?.addEventListener("wheel", handleConversationFolderWheel, { passive: false });
+document.addEventListener("pointermove", moveConversationFolderDrag, { passive: false });
+document.addEventListener("pointerup", endConversationFolderDrag);
+document.addEventListener("pointercancel", endConversationFolderDrag);
 els.personaTagFilters?.addEventListener("click", (event) => {
   const chip = event.target?.closest?.("[data-sidebar-tag-filter]");
   if (!chip) return;
   event.preventDefault();
+  if (conversationFolderSuppressClick) return;
   const nextName = chip.dataset.tagName || "";
-  if (!rememberConversationFolderMotion(nextName)) return;
+  if (!rememberConversationFolderMotion(nextName)) {
+    ensureActiveConversationFolderVisible();
+    return;
+  }
   window.miaSocial?.setConversationTagFilter?.(nextName);
 });
 els.contactSearch?.addEventListener("input", () => {
@@ -6249,7 +6486,12 @@ els.appearanceUserBubbleReset?.addEventListener("click", () => {
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
+function clearWorkspaceBackgroundImageDraft() {
+  if (els.appearanceWorkspaceBackgroundImage) els.appearanceWorkspaceBackgroundImage.value = "";
+}
+
 function saveWorkspaceBackgroundColor() {
+  clearWorkspaceBackgroundImageDraft();
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
 }
 
@@ -6258,15 +6500,24 @@ els.appearanceWorkspaceBackgroundColor?.addEventListener("input", saveWorkspaceB
 els.appearanceWorkspaceBackgroundColor?.addEventListener("change", saveWorkspaceBackgroundColor);
 
 els.appearanceWorkspaceBackgroundPresets?.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-workspace-background-color]");
+  const button = event.target.closest("[data-workspace-background-color], [data-workspace-background-image-preset]");
   if (!button || !els.appearanceWorkspaceBackgroundPresets.contains(button)) return;
+  if (button.dataset.workspaceBackgroundImagePreset) {
+    if (els.appearanceWorkspaceBackgroundImage) {
+      els.appearanceWorkspaceBackgroundImage.value = button.dataset.workspaceBackgroundImage || "";
+    }
+    window.miaSettingsAppearance.scheduleAppearanceSave(0);
+    return;
+  }
   if (els.appearanceWorkspaceBackgroundColor) {
     els.appearanceWorkspaceBackgroundColor.value = button.dataset.workspaceBackgroundColor || "#f0f0f3";
   }
+  clearWorkspaceBackgroundImageDraft();
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceWorkspaceBackgroundReset?.addEventListener("click", () => {
+  clearWorkspaceBackgroundImageDraft();
   window.miaSettingsAppearance.resetWorkspaceBackground();
 });
 

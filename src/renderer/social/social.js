@@ -18,6 +18,8 @@
   // as mia.sidebarWidth; not synced across devices on purpose.
   const LAST_CONVERSATION_KEY = "mia.lastActiveConversationId";
   const LAST_BOT_CONVERSATION_KEY = "mia.lastBotConversationByKey";
+  const OTHER_DEVICE_CONVERSATION_FILTER = "__mia_other_devices__";
+  const OTHER_DEVICE_CONVERSATION_LABEL = "其他设备";
 
   function isValidPublicUid(value) {
     const text = String(value || "").trim();
@@ -2040,17 +2042,59 @@
     return false;
   }
 
+  function isOtherDeviceConversationFilter(value) {
+    return String(value || "").trim().toLowerCase() === OTHER_DEVICE_CONVERSATION_FILTER;
+  }
+
+  function botRecordForConversationRuntime(conversation = {}) {
+    if (sessionHistoryShared().conversationType(conversation, conversation?.id || "") !== "bot") return null;
+    const botId = sessionHistoryShared().botId(conversation);
+    if (!botId) return null;
+    const existing = moduleState.bots.find((item) => botKeyFromRecord(item) === botId) || null;
+    const decorations = conversation.decorations || {};
+    const runtimeConfig = existing?.runtimeConfig || existing?.runtime_config || decorations.runtimeConfig || decorations.runtime_config || {};
+    return {
+      ...(existing || {}),
+      key: botId,
+      id: botId,
+      runtimeKind: firstText(
+        existing?.runtimeKind,
+        existing?.runtime_kind,
+        decorations.runtimeKind,
+        decorations.runtime_kind,
+        runtimeConfig.runtimeKind,
+        runtimeConfig.runtime_kind
+      ),
+      runtimeConfig,
+      agentEngine: firstText(existing?.agentEngine, existing?.agent_engine, decorations.agentEngine, decorations.agent_engine, runtimeConfig.agentEngine, runtimeConfig.agent_engine),
+      targetDeviceId: firstText(existing?.targetDeviceId, existing?.target_device_id, decorations.targetDeviceId, decorations.target_device_id, runtimeConfig.deviceId, runtimeConfig.device_id),
+      targetDeviceName: firstText(existing?.targetDeviceName, existing?.target_device_name, decorations.targetDeviceName, decorations.target_device_name, runtimeConfig.deviceName, runtimeConfig.device_name),
+      deviceId: firstText(existing?.deviceId, existing?.device_id, decorations.deviceId, decorations.device_id, runtimeConfig.deviceId, runtimeConfig.device_id),
+      deviceName: firstText(existing?.deviceName, existing?.device_name, decorations.deviceName, decorations.device_name, runtimeConfig.deviceName, runtimeConfig.device_name)
+    };
+  }
+
+  function conversationRunsOnOtherDevice(conversation = {}) {
+    const bot = botRecordForConversationRuntime(conversation);
+    return Boolean(bot && global.miaBotManager?.botRunsOnOtherDevice?.(bot));
+  }
+
   function visibleSocialConversations(conversations, options = {}) {
     if (!Array.isArray(conversations)) return [];
     const keepLegacyIds = new Set([
       String(options.activeConversationId || "").trim(),
       ...Object.values(options.preferredConversationIdByBotKey || {}).map((id) => String(id || "").trim())
     ].filter(Boolean));
-    const filteredTag = options.ignoreTagFilter ? "" : String(moduleState.tagFilterName || "").trim().toLowerCase();
+    const filterName = options.ignoreTagFilter ? "" : String(moduleState.tagFilterName || "").trim().toLowerCase();
+    const otherDeviceOnly = isOtherDeviceConversationFilter(filterName);
+    const filteredTag = otherDeviceOnly ? "" : filterName;
     return conversations.filter((conversation) =>
       !isLegacyBotSessionConversation(conversation)
       || keepLegacyIds.has(String(conversation?.id || ""))
     ).filter((conversation) => {
+      const otherDevice = conversationRunsOnOtherDevice(conversation);
+      if (otherDeviceOnly) return otherDevice;
+      if (otherDevice && options.includeOtherDevice !== true) return false;
       if (!filteredTag) return true;
       return conversationTagsFor(conversation?.id).some((tag) =>
         String(tag?.name || "").trim().toLowerCase() === filteredTag);
@@ -4337,11 +4381,22 @@
   function conversationTagFilters() {
     const tags = _ensureCloudSettings().tags;
     const active = String(moduleState.tagFilterName || "").trim().toLowerCase();
+    const otherDeviceActive = isOtherDeviceConversationFilter(active);
     const visibleIds = new Set(visibleSocialConversations(moduleState.conversations, {
       activeConversationId: moduleState.activeConversationId,
       preferredConversationIdByBotKey: moduleState.lastBotConversationByKey,
       ignoreTagFilter: true
     }).map((conversation) => String(conversation?.id || "")).filter(Boolean));
+    const otherDeviceCount = sessionHistoryShared().sidebarConversations(visibleSocialConversations(moduleState.conversations, {
+      activeConversationId: moduleState.activeConversationId,
+      preferredConversationIdByBotKey: moduleState.lastBotConversationByKey,
+      ignoreTagFilter: true,
+      includeOtherDevice: true
+    }), {
+      activeConversationId: moduleState.activeConversationId,
+      messageCache: moduleState.messageCache,
+      preferredConversationIdByBotId: moduleState.lastBotConversationByKey
+    }).filter(conversationRunsOnOtherDevice).length;
     const counts = new Map();
     for (const [conversationId, ids] of Object.entries(tags?.assignments || {})) {
       if (!visibleIds.has(String(conversationId || ""))) continue;
@@ -4349,7 +4404,7 @@
         counts.set(tagId, (counts.get(tagId) || 0) + 1);
       }
     }
-    return (Array.isArray(tags?.items) ? tags.items : [])
+    const tagFilters = (Array.isArray(tags?.items) ? tags.items : [])
       .map((item) => {
         const name = String(item?.name || "").trim();
         const count = counts.get(item?.id) || 0;
@@ -4367,6 +4422,19 @@
         if (b.count !== a.count) return b.count - a.count;
         return a.name.localeCompare(b.name, "zh-Hans-CN");
       });
+    if (otherDeviceCount > 0) {
+      tagFilters.push({
+        id: OTHER_DEVICE_CONVERSATION_FILTER,
+        name: OTHER_DEVICE_CONVERSATION_LABEL,
+        color: "#64748b",
+        count: otherDeviceCount,
+        filterValue: OTHER_DEVICE_CONVERSATION_FILTER,
+        storageKey: "other-devices",
+        special: true,
+        filterActive: otherDeviceActive
+      });
+    }
+    return tagFilters;
   }
   function getConversationTagFilter() {
     return String(moduleState.tagFilterName || "").trim();
@@ -4800,6 +4868,8 @@
 
   global.miaSocial = {
     moduleState,
+    OTHER_DEVICE_CONVERSATION_FILTER,
+    OTHER_DEVICE_CONVERSATION_LABEL,
     initSocialModule,
     bootstrapAfterLogin,
     isBootstrapped,
@@ -4833,6 +4903,7 @@
     isConversationManuallyUnread,
     setConversationManuallyUnread,
     conversationTagsFor,
+    conversationRunsOnOtherDevice,
     conversationTagFilters,
     getConversationTagFilter,
     conversationTagEditorFor,

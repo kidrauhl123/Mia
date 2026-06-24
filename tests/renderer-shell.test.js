@@ -668,6 +668,7 @@ test("custom scrollbar overlay is invalidated when panes hide", () => {
   assert.doesNotMatch(scrollbarSource, /settings-closing/);
   assert.match(scrollbarSource, /shell\.dataset\.sidebarState === "collapsed" && target\.closest\("\.sidebar"\)/);
   assert.match(scrollbarSource, /shell\.dataset\.narrowPane === "content" && target\.closest\("\.sidebar"\)/);
+  assert.match(scrollbarSource, /event\.target\?\.closest\?\.\("\.sidebar-tag-filter-strip"\)\) return;/);
   assert.match(scrollbarSource, /hideScrollbarOverlay\(target,\s*true\)/);
   assert.match(scrollbarSource, /new MutationObserver\(\(records\) => \{/);
   assert.match(scrollbarSource, /validateScrollbarOverlay/);
@@ -951,25 +952,78 @@ test("conversation tag filters render as persistent chat folder tabs", () => {
 
   assert.match(html, /id="personaTagFilters"[^>]+aria-label="对话分组"/);
   assert.match(appSource, /function sidebarAllConversationFilterHtml\(active\)/);
+  assert.match(appSource, /CONVERSATION_FOLDER_ORDER_KEY = "mia\.conversationFolderOrder\.v1"/);
   assert.match(appSource, /function rememberConversationFolderMotion\(nextName\)/);
   assert.match(appSource, /function updateSidebarTagIndicator\(\)/);
   assert.match(appSource, /function syncSidebarTagFilterSelection\(activeName\)/);
+  assert.match(appSource, /function orderedConversationFolderItems\(filters,\s*activeFilterName\)/);
+  assert.match(appSource, /function conversationFolderItemStorageKey\(tag = \{\}\)/);
+  assert.match(appSource, /function conversationFilterValue\(tag = \{\}\)/);
+  assert.match(appSource, /function conversationFolderLabelForFilter\(filterValue\)/);
+  assert.match(appSource, /function beginConversationFolderDrag\(event\)/);
+  assert.match(appSource, /function saveConversationFolderDomOrder\(\)/);
+  assert.match(appSource, /function conversationFolderTrack\(strip = null\)/);
+  assert.match(appSource, /function setConversationFolderScrollLeft\(strip,\s*value\)/);
+  assert.match(appSource, /function ensureActiveConversationFolderVisible\(options = \{\}\)/);
+  assert.match(appSource, /function handleConversationFolderWheel\(event\)/);
+  assert.match(appSource, /OTHER_DEVICE_CONVERSATION_FILTER/);
+  assert.match(appSource, /conversationRunsOnOtherDevice\?\.\(row\?\.conversation\)/);
   assert.match(appSource, /function syncPersonaListActiveState\(specs\)/);
   assert.match(appSource, /function renderPersonaListIfChanged\(specs,\s*emptyText,\s*activeTagFilterName\)/);
   assert.doesNotMatch(cardSignatureSource, /active:\s*Boolean\(spec\?\.active\)/);
   assert.match(searchToolsSource, /const showFilters = cloudReady && \(filters\.length > 0 \|\| activeFilterName\);/);
   assert.match(searchToolsSource, /dataset\.renderSignature !== signature/);
+  assert.match(searchToolsSource, /const folderItems = orderedConversationFolderItems\(filters,\s*activeFilterName\);/);
   assert.match(searchToolsSource, /sidebarAllConversationFilterHtml\(!activeFilterName\)/);
   assert.match(searchToolsSource, /role="tablist" aria-label="对话分组"/);
-  assert.match(searchToolsSource, /filters\.map\(sidebarTagFilterHtml\)\.join\(""\)/);
+  assert.match(searchToolsSource, /folderItems\.map\(\(item\) => item\.type === "all" \? sidebarAllConversationFilterHtml\(!activeFilterName\) : sidebarTagFilterHtml\(item\.tag\)\)\.join\(""\)/);
   assert.match(searchToolsSource, /sidebar-tag-filter-indicator/);
   assert.match(searchToolsSource, /syncSidebarTagFilterSelection\(activeFilterName\);/);
   assert.match(appSource, /animatePersonaListFolderPage\(activeTagFilterName\);/);
   assert.match(appSource, /if \(personaListRenderSignature === signature\) \{[\s\S]*?syncPersonaListActiveState\(specs\);[\s\S]*?return;/);
   assert.match(appSource, /renderPersonaListIfChanged\(sidebarSpecs,\s*emptyText,\s*activeTagFilterName\);/);
+  assert.match(appSource, /els\.personaTagFilters\?\.addEventListener\("pointerdown", beginConversationFolderDrag\);/);
+  assert.match(appSource, /els\.personaTagFilters\?\.addEventListener\("wheel", handleConversationFolderWheel, \{ passive: false \}\);/);
+  assert.match(appSource, /document\.addEventListener\("pointermove", moveConversationFolderDrag, \{ passive: false \}\);/);
+  assert.match(appSource, /const x = active\.offsetLeft - conversationFolderScrollLeft\(strip\);/);
+  assert.match(appSource, /const activeCenter = active\.offsetLeft \+ active\.offsetWidth \/ 2;/);
+  assert.match(appSource, /let nextLeft = activeCenter - strip\.clientWidth \/ 2;/);
+  assert.match(appSource, /track\.style\.setProperty\("--tag-scroll-x", `\$\{nextLeft\}px`\);/);
+  assert.match(appSource, /syncSidebarTagFilterSelection\(activeFilterName\);\s*ensureActiveConversationFolderVisible\(\);\s*scheduleSidebarTagIndicator\(\);/);
+  assert.match(appSource, /const primaryDelta = Math\.abs\(event\.deltaX\) > Math\.abs\(event\.deltaY\) \? event\.deltaX : event\.deltaY;/);
+  assert.match(appSource, /event\.preventDefault\(\);\s*event\.stopPropagation\(\);\s*setConversationFolderScrollLeft\(strip,\s*conversationFolderScrollLeft\(strip\) \+ primaryDelta \* unit\);/);
+  assert.match(searchToolsSource, /<div class="sidebar-tag-filter-track">[\s\S]*?<\/div>\s*<span class="sidebar-tag-filter-indicator" aria-hidden="true"><\/span>/);
+  assert.match(appSource, /const filterValue = String\(tag\?\.filterValue \|\| name\)\.trim\(\);/);
+  assert.match(appSource, /const folderKey = String\(tag\?\.storageKey \|\| conversationFolderStorageKey\(filterValue \|\| name\)\)\.trim\(\);/);
+  assert.match(appSource, /data-tag-name="\$\{window\.miaMarkdown\.escapeHtml\(filterValue\)\}"/);
+  assert.match(appSource, /data-folder-key="\$\{window\.miaMarkdown\.escapeHtml\(folderKey\)\}"/);
+  assert.match(appSource, /const activeTagFilterLabel = conversationFolderLabelForFilter\(activeTagFilterName\);/);
+  assert.match(appSource, /activeTagFilterLabel \? `「\$\{activeTagFilterLabel\}」分组暂无对话`/);
   assert.match(tagFilterClickSource, /const nextName = chip\.dataset\.tagName \|\| "";/);
-  assert.match(tagFilterClickSource, /if \(!rememberConversationFolderMotion\(nextName\)\) return;/);
+  assert.match(tagFilterClickSource, /if \(conversationFolderSuppressClick\) return;/);
+  assert.match(tagFilterClickSource, /if \(!rememberConversationFolderMotion\(nextName\)\) \{[\s\S]*?ensureActiveConversationFolderVisible\(\);[\s\S]*?return;[\s\S]*?\}/);
   assert.doesNotMatch(tagFilterClickSource, /personaSearchOpen\s*=\s*true/);
+});
+
+test("other-device bot conversations are hidden by default and exposed as a last folder tab only when non-empty", () => {
+  const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
+  const tagFiltersSource = extractFunctionSource(socialSource, "conversationTagFilters");
+
+  assert.match(socialSource, /const OTHER_DEVICE_CONVERSATION_FILTER = "__mia_other_devices__"/);
+  assert.match(socialSource, /const OTHER_DEVICE_CONVERSATION_LABEL = "其他设备"/);
+  assert.match(socialSource, /function conversationRunsOnOtherDevice\(conversation = \{\}\)/);
+  assert.match(socialSource, /global\.miaBotManager\?\.botRunsOnOtherDevice\?\.\(bot\)/);
+  assert.match(socialSource, /function visibleSocialConversations\(conversations,\s*options = \{\}\)[\s\S]*?const otherDeviceOnly = isOtherDeviceConversationFilter\(filterName\);/);
+  assert.match(socialSource, /function visibleSocialConversations\(conversations,\s*options = \{\}\)[\s\S]*?if \(otherDeviceOnly\) return otherDevice;/);
+  assert.match(socialSource, /function visibleSocialConversations\(conversations,\s*options = \{\}\)[\s\S]*?if \(otherDevice && options\.includeOtherDevice !== true\) return false;/);
+  assert.match(tagFiltersSource, /const otherDeviceCount = sessionHistoryShared\(\)\.sidebarConversations/);
+  assert.match(tagFiltersSource, /if \(otherDeviceCount > 0\) \{[\s\S]*?tagFilters\.push\(\{/);
+  assert.doesNotMatch(tagFiltersSource, /otherDeviceCount > 0 \|\| otherDeviceActive/);
+  assert.match(tagFiltersSource, /name:\s*OTHER_DEVICE_CONVERSATION_LABEL/);
+  assert.match(tagFiltersSource, /filterValue:\s*OTHER_DEVICE_CONVERSATION_FILTER/);
+  assert.match(tagFiltersSource, /storageKey:\s*"other-devices"/);
+  assert.match(socialSource, /OTHER_DEVICE_CONVERSATION_FILTER,[\s\S]*?OTHER_DEVICE_CONVERSATION_LABEL,[\s\S]*?initSocialModule/);
+  assert.match(socialSource, /conversationTagsFor,[\s\S]*?conversationRunsOnOtherDevice,[\s\S]*?conversationTagFilters/);
 });
 
 test("desktop lottie badges can load local TGS assets in the renderer with a preload bridge fallback", () => {
@@ -2021,6 +2075,25 @@ test("contacts use cloud-stored owned bot identities", () => {
   assert.doesNotMatch(socialSource, /cloudOnly:\s*(true|false)/);
   assert.match(appSource, /const syncedBotKeys = new Set/);
   assert.match(appSource, /const contactKeys = new Set/);
+});
+
+test("contacts group desktop-local bots from other devices behind a collapsed section", () => {
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+
+  assert.match(botManagerSource, /const OTHER_DEVICE_GROUP_KEY = "other-devices"/);
+  assert.match(botManagerSource, /const CONTACT_GROUP_COLLAPSED_KEY = "mia\.contactGroupCollapsed\.v1"/);
+  assert.match(botManagerSource, /function botRunsOnOtherDevice\(bot = \{\}\)/);
+  assert.match(botManagerSource, /target\.runtimeKind !== "desktop-local"/);
+  assert.match(botManagerSource, /function contactDisplayGroupKey\(bot = \{\}\)[\s\S]*OTHER_DEVICE_GROUP_KEY/);
+  assert.match(botManagerSource, /function contactGroupsForSidebar\(bots = \[\]\)/);
+  assert.match(botManagerSource, /function contactGroupCollapsedSet\(\)[\s\S]*\[OTHER_DEVICE_GROUP_KEY\]/);
+  assert.match(botManagerSource, /function isContactGroupCollapsed\(key,\s*options = \{\}\)[\s\S]*options\.forceExpanded/);
+  assert.match(botManagerSource, /function toggleContactGroupCollapsed\(key\)/);
+  assert.match(botManagerSource, /contactGroupLabel\(key\)[\s\S]*"其他设备"/);
+  assert.match(botManagerSource, /const primarySortedBots = sortBotsForSidebar\(bots\.filter\(\(bot\) => !botRunsOnOtherDevice\(bot\)\)\);/);
+  assert.match(botManagerSource, /const contactGroups = contactGroupsForSidebar\(visibleContacts\);/);
+  assert.match(botManagerSource, /const collapsed = isContactGroupCollapsed\(group\.key,\s*\{ forceExpanded: filterActive \}\);/);
+  assert.match(botManagerSource, /botRunsOnOtherDevice\(bot\) \? `<small>\$\{window\.miaMarkdown\.escapeHtml\(botDeviceLabel\(bot\)\)\}<\/small>` : ""/);
 });
 
 test("contact bot avatars resolve through shared bot identity", () => {

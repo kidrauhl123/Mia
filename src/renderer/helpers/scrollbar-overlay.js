@@ -268,6 +268,7 @@
   function maybeShowScrollbarForPointer(event) {
     if (scrollbarDrag?.active) return;
     if (scrollbarOverlayEl?.contains(event.target)) return;
+    if (event.target?.closest?.(".sidebar-tag-filter-strip")) return;
     const target = scrollableAncestor(event.target);
     if (!target) return;
     const rect = target.getBoundingClientRect();
