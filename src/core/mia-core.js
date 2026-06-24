@@ -52,8 +52,18 @@ const { createMainBotRuntimeDispatcher } = require("../main/social/bot-runtime-d
 // connects to /api/events, applies the resume cursor, and routes
 // ConversationBotInvocationRequested to botRuntimeDispatcher.handleCloudEvent.
 const { createCloudEventsClient } = require("../main/cloud/cloud-events-client.js");
-const { cloudEventsUrl: buildCloudEventsUrl, cloudWebSocketProtocols } = require("../main/cloud/cloud-events-url.js");
+const {
+  cloudEventsUrl: buildCloudEventsUrl,
+  cloudWebSocketUrl,
+  cloudWebSocketProtocols
+} = require("../main/cloud/cloud-events-url.js");
 const { CloudEvent } = require("../shared/cloud-events.js");
+
+// Cloud BRIDGE WebSocket — the SAME pure-node client main.js drives (no fork):
+// it hosts the desktop-agent side of web/mobile "remote run" requests on
+// /api/bridge. Reused verbatim; Core supplies a thin bridge chat adapter that
+// routes the run into Core's own botExecution.sendChat (Hermes-only).
+const { createCloudBridgeClient } = require("../main/cloud/cloud-bridge-client.js");
 
 // Scheduler subsystem — the SAME pure-node factories the Electron daemon drives
 // (src/main.js initSchedulerSubsystem, ~line 1194). No fork: Core builds the real
@@ -364,6 +374,134 @@ function createCoreCloudEvents({
     persistCursor: () => true,
     isDaemonProcess: true,
     isDaemonEnabled: cloudEnabled
+  });
+}
+
+// Build the /api/bridge WebSocket URL from Core's cloud settings. main.js's
+// cloudBridgeUrl is electron-coupled (app.getVersion(), localDeviceId(),
+// localDeviceFingerprint(), localBridgeEngineIds() reading the Electron
+// localAgentEngineService) and CANNOT be reused as-is — so it is NOT extracted.
+// Core supplies its own minimal builder over the SHARED pure-node
+// cloudWebSocketUrl("/api/bridge", ...): same address + token-protocol derivation,
+// Core's own deviceId, and a Hermes-only capabilities advertisement (Core only
+// runs Hermes — every non-Hermes bridge run throws ENGINE_NOT_AVAILABLE below).
+function coreCloudBridgeUrl(settings = {}, { deviceId = "mia-core", version = "" } = {}) {
+  const url = cloudWebSocketUrl("/api/bridge", settings);
+  url.searchParams.set("deviceId", String(deviceId || "mia-core"));
+  url.searchParams.set("deviceName", `Mia Core (${os.hostname()})`);
+  url.searchParams.set("engine", "hermes");
+  url.searchParams.set("capabilities", JSON.stringify({
+    chat: true,
+    attachments: false,
+    generatedImages: false,
+    cancellation: true,
+    streaming: true,
+    engines: ["hermes"],
+    app: "Mia Core",
+    appVersion: String(version || ""),
+    hostname: os.hostname(),
+    platform: os.platform(),
+    arch: os.arch()
+  }));
+  return url.toString();
+}
+
+// Wire the REAL cloud BRIDGE WebSocket client into Core, reusing the SAME
+// pure-node module main.js drives (src/main.js ~2654, no fork). The bridge hosts
+// the desktop-agent side of web/mobile "remote run" requests: a `run` frame on
+// /api/bridge calls runCloudBridgeRequest → the bridge chat adapter's sendChat →
+// (here) Core's own botExecution.sendChat → run_event/run_result frames back over
+// the socket.
+//
+// BRIDGE RUN CONTRACT (from cloud-bridge-client.js runCloudBridgeRequest): the
+// client calls `createActiveBridgeChatAdapter(agentEngine).sendChat({ bot, sessionId,
+// messages, signal, emit, utility:false, runtimeConfig })` and reads the result's
+// `choices[0].message` (content + attachments). Core's bridge adapter maps that
+// onto botExecution.sendChat by passing the bridge `bot` object as `botSnapshot`
+// (+ botKey/botId) and forwarding sessionId/messages/signal/emit/utility/runtimeConfig.
+// The engine is selected by runtimeConfig.agentEngine inside sendChat
+// (botWithRuntimeConfig), so Hermes runs the real adapter graph and every
+// non-Hermes engine hits the engineUnavailable throw (ENGINE_NOT_AVAILABLE) — the
+// SAME "engine not available in Mia Core yet" surfaced everywhere else in Core.
+//
+// SINGLE-OWNER: like the events client, the bridge client's own
+// isDaemonProcess/isDaemonEnabled gate connects only while cloud is enabled+tokened;
+// callers must NOT call start() at import — only createMiaCore.start() connects.
+//
+// ELECTRON-COUPLED deps replaced with node values here:
+//   cloudBridgeUrl              → coreCloudBridgeUrl (Hermes-only capabilities),
+//   createActiveCodexChatAdapter→ null (Codex not available in Core),
+//   resetLocalDeviceIdentity    → null (Core regenerates identity on reconnect),
+//   resolveBotCapabilities      → caller-injected (default {}),
+//   broadcast/run streams        → emitLocalEvent via the bridge adapter's emit.
+//
+// Injection points (for tests): `WebSocketImpl` (a mock socket) and `botExecution`
+// (a createCoreBotExecution graph with a faked Hermes send).
+function createCoreCloudBridge({
+  settingsStore,
+  botExecution,
+  WebSocketImpl,
+  emitLocalEvent = () => {},
+  cloudBridgeUrl = null,
+  deviceId = "mia-core",
+  version = "",
+  resolveBotCapabilities = () => ({}),
+  log = () => {}
+} = {}) {
+  if (!botExecution || typeof botExecution.sendChat !== "function") {
+    throw new Error("createCoreCloudBridge requires a botExecution with sendChat");
+  }
+  if (!WebSocketImpl) {
+    throw new Error("createCoreCloudBridge requires a WebSocketImpl");
+  }
+
+  const getSettings = () => (settingsStore ? settingsStore.cloudSettings() : { enabled: false });
+  const cloudEnabled = () => {
+    const s = getSettings();
+    return Boolean(s.enabled && s.token);
+  };
+
+  // Thin bridge chat adapter: routes a bridge run into Core's real botExecution
+  // graph. The bridge passes a full `bot` object (key/id/name/agentEngine/
+  // capabilities/engineConfig); Core forwards it as `botSnapshot` so no manifest
+  // read is needed for cloud-supplied bots. Engine selection + the Hermes-only
+  // guard live inside botExecution.sendChat (non-Hermes → ENGINE_NOT_AVAILABLE).
+  const createActiveBridgeChatAdapter = () => ({
+    sendChat: ({ bot, sessionId, messages, signal, emit, utility = false, runtimeConfig }) => botExecution.sendChat({
+      botKey: bot?.key || bot?.id || "",
+      botId: bot?.id || bot?.key || "",
+      botSnapshot: bot || null,
+      sessionId,
+      messages,
+      signal,
+      emit,
+      utility,
+      runtimeConfig
+    })
+  });
+
+  const buildBridgeUrl = typeof cloudBridgeUrl === "function"
+    ? cloudBridgeUrl
+    : (s) => coreCloudBridgeUrl(s, { deviceId, version });
+
+  return createCloudBridgeClient({
+    WebSocketImpl,
+    getSettings,
+    isDaemonProcess: true,
+    isDaemonEnabled: cloudEnabled,
+    cloudBridgeUrl: buildBridgeUrl,
+    cloudWebSocketProtocols,
+    createActiveBridgeChatAdapter,
+    // Codex (and every other non-Hermes engine) is not available in Core; routing
+    // a Codex bridge run through createActiveBridgeChatAdapter still reaches
+    // botExecution.sendChat, which throws ENGINE_NOT_AVAILABLE.
+    createActiveCodexChatAdapter: null,
+    resolveBotCapabilities,
+    // Core regenerates its device identity on the next reconnect rather than
+    // persisting an electron-side identity file.
+    // TODO(mia-core slice): wire a persisted Core device identity reset.
+    resetLocalDeviceIdentity: null,
+    randomUUID: () => crypto.randomUUID()
   });
 }
 
@@ -734,14 +872,39 @@ function createMiaCore(options = {}) {
     return built;
   }
 
+  // Cloud-BRIDGE WebSocket client — built lazily and exposed for testing. Like
+  // the events client it is NOT connected on construction/import; only
+  // createMiaCore.start() connects it (gated on cloud enabled+token), and stop()
+  // disconnects it. Reuses the SAME pure-node client main.js drives. Bridge runs
+  // execute through Core's own botExecution graph (Hermes-only).
+  let cachedCloudBridge = null;
+  function cloudBridge(overrides = {}) {
+    if (cachedCloudBridge && !Object.keys(overrides).length) return cachedCloudBridge;
+    const built = createCoreCloudBridge({
+      settingsStore,
+      botExecution: overrides.botExecution || botExecution(),
+      // Production transport is the same `ws` package main.js uses (no fork);
+      // tests inject a mock socket class.
+      WebSocketImpl: overrides.WebSocketImpl || require("ws"),
+      emitLocalEvent: (envelope) => controlServer.publishLocalEvent?.(envelope),
+      deviceId: "mia-core",
+      version,
+      log: () => {},
+      ...overrides
+    });
+    if (!Object.keys(overrides).length) cachedCloudBridge = built;
+    return built;
+  }
+
   async function startWithCloud() {
     const status = await start();
-    // SINGLE-OWNER CUT-OVER: connect to the cloud events socket only AFTER the
-    // control server is up AND cloud is enabled with a token. Never connect at
+    // SINGLE-OWNER CUT-OVER: connect to the cloud sockets only AFTER the control
+    // server is up AND cloud is enabled with a token. Never connect at
     // import/construction — only here, when Core runs as the daemon.
     const cloud = settingsStore.cloudSettings();
     if (cloud.enabled && cloud.token) {
       cloudEvents().start();
+      cloudBridge().start();
     }
     return status;
   }
@@ -749,10 +912,11 @@ function createMiaCore(options = {}) {
   return {
     start: startWithCloud,
     stop: () => {
-      // Disconnect the cloud events socket first so its reconnect timer + active
-      // socket are torn down before the control server stops (clean shutdown,
-      // node --test exits). No-op if it was never built/connected.
+      // Disconnect the cloud sockets first so their reconnect timers + active
+      // sockets are torn down before the control server stops (clean shutdown,
+      // node --test exits). No-op if they were never built/connected.
       if (cachedCloudEvents) cachedCloudEvents.stop();
+      if (cachedCloudBridge) cachedCloudBridge.stop();
       // Clear any armed scheduler timer so node --test (and a clean shutdown)
       // exits; if the subsystem was never built this is a no-op.
       if (cachedScheduler) cachedScheduler.stopScheduler();
@@ -767,11 +931,12 @@ function createMiaCore(options = {}) {
     botExecution,
     cloudRouting,
     cloudEvents,
+    cloudBridge,
     schedulerSubsystem
   };
 }
 
-module.exports = { createMiaCore, createCoreBotExecution, createCoreCloudRouting, createCoreCloudEvents, createCoreScheduler };
+module.exports = { createMiaCore, createCoreBotExecution, createCoreCloudRouting, createCoreCloudEvents, createCoreCloudBridge, createCoreScheduler };
 
 if (require.main === module) {
   const core = createMiaCore({ version: require("../../package.json").version });
