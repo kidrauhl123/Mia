@@ -304,18 +304,39 @@
     return `<span class="mcp-chip ${escapeHtml(className)}">${escapeHtml(label)}</span>`;
   }
 
+  function renderServerSetupGuide(server = {}) {
+    const commands = Array.isArray(server.setupCommands) ? server.setupCommands.filter(Boolean) : [];
+    const url = transportSummary(server.transport || {});
+    const expectedToolCount = Number(server.expectedToolCount || 0);
+    const hasSetup = server.setupHint || server.homepage || commands.length || expectedToolCount > 0;
+    const isDisconnected = String(server.status || "") === "disconnected";
+    if (!hasSetup && !isDisconnected) return "";
+    const rows = [];
+    if (isDisconnected) rows.push("<strong>需要先启动本机 MCP 服务</strong>");
+    if (server.setupHint) rows.push(`<span>${escapeHtml(server.setupHint)}</span>`);
+    if (url) rows.push(`<span>连接地址 <code>${escapeHtml(url)}</code></span>`);
+    if (commands.length) {
+      rows.push(`<span>源码方式 <code>${commands.map((command) => escapeHtml(command)).join("</code><code>")}</code></span>`);
+    }
+    if (expectedToolCount > 0) rows.push(`<span>连接成功后应发现 ${expectedToolCount} 个工具</span>`);
+    if (server.homepage) rows.push(`<span>仓库 ${escapeHtml(server.homepage.replace(/^https?:\/\/github\.com\//, ""))}</span>`);
+    return `<div class="mcp-setup-guide">${rows.join("")}</div>`;
+  }
+
+  function renderAvailabilityCheckHint() {
+    return `<div class="mcp-check-hint">检测只验证配置可用，不代表实际运行时状态。</div>`;
+  }
+
   function renderServerCard(server) {
     const syncLabel = syncStatusLabel(server);
     const description = server.description || transportSummary(server.transport) || "未配置描述";
     const id = escapeHtml(server.id || "");
-    const toggleLabel = server.enabled === false ? "启用" : "停用";
-    const toggleClass = server.enabled === false ? "mcp-action-primary" : "mcp-action-secondary";
     return `
       <article class="skill-card mcp-card" data-mcp-id="${id}">
         <div class="skill-card-head">
           <div class="skill-card-titlerow">
             <strong>${escapeHtml(server.name || server.id || "MCP 服务")}</strong>
-            ${server.enabled === false ? chip("mcp-chip-muted", "已停用") : ""}
+            ${server.enabled === false ? chip("mcp-chip-muted", "未加入新对话") : ""}
           </div>
           <p>${escapeHtml(description)}</p>
         </div>
@@ -327,14 +348,12 @@
             ${chip("mcp-chip-tools", `${Number(server.tools?.length || 0)} 个工具`)}
           </span>
         </span>
+        ${renderServerSetupGuide(server)}
+        ${renderAvailabilityCheckHint()}
         <div class="mcp-card-actions mcp-server-actions" aria-label="MCP 服务操作">
           <div class="mcp-action-strip mcp-action-strip-primary">
-            <button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="test" data-mcp-id="${id}">测试</button>
-            <button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="sync" data-mcp-id="${id}">同步</button>
-            <button class="mcp-action-button ${toggleClass}" type="button" data-mcp-action="toggle" data-mcp-id="${id}">${toggleLabel}</button>
-          </div>
-          <div class="mcp-action-strip mcp-action-strip-secondary">
-            <button class="mcp-action-button mcp-action-ghost" type="button" data-mcp-action="edit" data-mcp-id="${id}">编辑</button>
+            <button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="test" data-mcp-id="${id}" title="检测 MCP 可用状态，不会启动外部服务">检测连接</button>
+            <button class="mcp-action-button mcp-action-ghost" type="button" data-mcp-action="edit" data-mcp-id="${id}">配置</button>
             <button class="mcp-action-button mcp-action-danger" type="button" data-mcp-action="delete" data-mcp-id="${id}">删除</button>
           </div>
         </div>

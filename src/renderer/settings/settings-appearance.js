@@ -14,6 +14,7 @@
   const FALLBACK_SELECTION_STYLE = "solid";
   const FALLBACK_WORKSPACE_BACKGROUND_COLOR = "#f0f0f3";
   const FALLBACK_DARK_WORKSPACE_BACKGROUND_COLOR = "#171920";
+  const DOODLE_WORKSPACE_BACKGROUND_IMAGE = 'url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png")';
   const FALLBACK_GLASS_OPACITY = 82;
 
   let state, els, mia;
@@ -77,7 +78,8 @@
   }
 
   function normalizeWorkspaceBackgroundImage(value) {
-    return "";
+    const raw = String(value || "").trim();
+    return raw === DOODLE_WORKSPACE_BACKGROUND_IMAGE ? raw : "";
   }
 
   function normalizeListStyle(value) {
@@ -173,6 +175,7 @@
     const userBubbleText = selectionTextColors(userBubbleRgb).text;
     const selectionStyle = normalizeSelectionStyle(appearance.selectionStyle);
     const workspaceBackgroundColor = normalizeHexColor(appearance.workspaceBackgroundColor, "");
+    const workspaceBackgroundImage = normalizeWorkspaceBackgroundImage(appearance.workspaceBackgroundImage);
     const resolvedWorkspaceBackgroundColor = workspaceBackgroundColor || defaultWorkspaceBackgroundColor("light");
     const floorColors = floorTextColors(hexToRgb(resolvedWorkspaceBackgroundColor));
     const glassOpacity = normalizeGlassOpacity(appearance.glassOpacity);
@@ -201,7 +204,7 @@
       }
       document.documentElement.style.setProperty(
         "--workspace-floor-image",
-        "none"
+        workspaceBackgroundImage || "none"
       );
     } else {
       document.documentElement.style.removeProperty?.("--floor-text");
@@ -252,7 +255,7 @@
       listStyle: "card",
       selectionStyle: normalizeSelectionStyle(controls.appearanceSelectionStyle?.value),
       workspaceBackgroundColor,
-      workspaceBackgroundImage: ""
+      workspaceBackgroundImage: normalizeWorkspaceBackgroundImage(controls.appearanceWorkspaceBackgroundImage?.value)
     };
   }
 
@@ -272,7 +275,11 @@
         ? currentColor || ""
         : incomingColor;
     }
-    if (has("workspaceBackgroundImage") || base.workspaceBackgroundImage) next.workspaceBackgroundImage = "";
+    if (has("workspaceBackgroundImage") || base.workspaceBackgroundImage) {
+      const incomingImage = normalizeWorkspaceBackgroundImage(patch.workspaceBackgroundImage);
+      const currentImage = normalizeWorkspaceBackgroundImage(base.workspaceBackgroundImage);
+      next.workspaceBackgroundImage = incomingImage || currentImage || "";
+    }
     return next;
   }
 
@@ -316,12 +323,23 @@
     if (controls.appearanceUserBubblePreview) controls.appearanceUserBubblePreview.style.backgroundColor = userBubbleColor;
     const workspaceBackgroundDefault = defaultWorkspaceBackgroundColor("light");
     const workspaceBackgroundColor = normalizeHexColor(appearance.workspaceBackgroundColor, workspaceBackgroundDefault);
+    const workspaceBackgroundImage = normalizeWorkspaceBackgroundImage(appearance.workspaceBackgroundImage);
     if (controls.appearanceWorkspaceBackgroundColor) {
       controls.appearanceWorkspaceBackgroundColor.value = workspaceBackgroundColor;
     }
-    if (controls.appearanceWorkspaceBackgroundPreview) controls.appearanceWorkspaceBackgroundPreview.style.backgroundColor = workspaceBackgroundColor;
+    if (controls.appearanceWorkspaceBackgroundImage) controls.appearanceWorkspaceBackgroundImage.value = workspaceBackgroundImage;
+    if (controls.appearanceWorkspaceBackgroundPreview) {
+      controls.appearanceWorkspaceBackgroundPreview.style.backgroundColor = workspaceBackgroundColor;
+      controls.appearanceWorkspaceBackgroundPreview.style.backgroundImage = workspaceBackgroundImage;
+      controls.appearanceWorkspaceBackgroundPreview.style.backgroundSize = workspaceBackgroundImage ? "cover" : "";
+    }
     document.querySelectorAll("[data-workspace-background-color]").forEach((button) => {
-      const active = String(button.dataset.workspaceBackgroundColor || "").toLowerCase() === workspaceBackgroundColor;
+      const active = !workspaceBackgroundImage && String(button.dataset.workspaceBackgroundColor || "").toLowerCase() === workspaceBackgroundColor;
+      button.classList.toggle("is-selected", active);
+      button.setAttribute("aria-checked", active ? "true" : "false");
+    });
+    document.querySelectorAll("[data-workspace-background-image-preset]").forEach((button) => {
+      const active = normalizeWorkspaceBackgroundImage(button.dataset.workspaceBackgroundImage) === workspaceBackgroundImage && Boolean(workspaceBackgroundImage);
       button.classList.toggle("is-selected", active);
       button.setAttribute("aria-checked", active ? "true" : "false");
     });
@@ -335,6 +353,7 @@
     if (controls.appearanceWorkspaceBackgroundColor) {
       controls.appearanceWorkspaceBackgroundColor.value = defaultWorkspaceBackgroundColor("light");
     }
+    if (controls.appearanceWorkspaceBackgroundImage) controls.appearanceWorkspaceBackgroundImage.value = "";
     scheduleAppearanceSave(0);
   }
 

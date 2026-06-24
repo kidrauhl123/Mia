@@ -259,6 +259,66 @@ test("conversation search uses a white field without focus highlight", () => {
   assert.match(searchFocusRule, /box-shadow:\s*none;/);
 });
 
+test("icon buttons use shared svg glyph sizing", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const iconButtonSvgRule = cssRuleBody(baseCss, ".icon-button svg");
+
+  for (const id of [
+    "newPersona",
+    "newContact",
+    "newSession",
+    "groupInfoButton",
+    "closeSkillPicker",
+    "closeTaskPreview",
+    "appearanceAccentReset",
+    "appearanceWorkspaceBackgroundReset",
+    "appearanceUserBubbleReset",
+    "closeProfileDialog",
+    "closeBotDialog",
+    "closePetGenerateDialog",
+    "cancelAvatarCrop",
+    "groupCreateClose",
+    "groupInfoClose",
+    "closeTaskCreate"
+  ]) {
+    assert.match(
+      html,
+      new RegExp(`id="${id}"[\\s\\S]*?<svg viewBox="0 0 24 24"`),
+      `${id} should render an svg icon instead of a text glyph`
+    );
+  }
+
+  assert.doesNotMatch(
+    html,
+    /<button[^>]*class="[^"]*\bicon-button\b[^"]*"[^>]*>\s*(?:＋|×|↺|ℹ︎)\s*<\/button>/,
+    "icon-only buttons should not use font-rendered symbols"
+  );
+  assert.doesNotMatch(
+    socialSource,
+    /className\s*=\s*"icon-button"[\s\S]{0,300}?textContent\s*=\s*"(?:＋|×|↺|ℹ︎)"/,
+    "dynamic icon-only buttons should not use font-rendered symbols"
+  );
+  assert.match(
+    socialSource,
+    /className\s*=\s*"icon-button"[\s\S]{0,300}?<svg viewBox="0 0 24 24"/,
+    "dynamic icon-only buttons should render svg icons"
+  );
+  assert.match(iconButtonSvgRule, /width:\s*18px;/);
+  assert.match(iconButtonSvgRule, /height:\s*18px;/);
+  assert.match(iconButtonSvgRule, /stroke:\s*currentColor;/);
+  assert.match(iconButtonSvgRule, /stroke-width:\s*1\.35;/);
+  assert.match(iconButtonSvgRule, /stroke-linecap:\s*round;/);
+  assert.match(iconButtonSvgRule, /stroke-linejoin:\s*round;/);
+  assert.match(baseCss, /\.icon-button svg :where\(path,\s*circle,\s*line,\s*polyline,\s*rect\)\s*\{[\s\S]*?vector-effect:\s*non-scaling-stroke;[\s\S]*?stroke-width:\s*inherit;/);
+  assert.match(
+    baseCss,
+    /\.sidebar-search-trigger svg,\s*\.conversation-sidebar #newPersona svg,\s*\.sidebar-search-close svg\s*\{[\s\S]*?width:\s*19px;[\s\S]*?height:\s*19px;/,
+    "message sidebar header actions should share one optical icon size"
+  );
+});
+
 test("conversation tag grouping uses Telegram-style text tabs with a moving underline", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const filtersRule = cssRuleBody(baseCss, ".sidebar-tag-filters", baseCss.indexOf("\n.sidebar-tag-filters {"));

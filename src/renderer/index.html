@@ -145,7 +145,11 @@
             </svg>
           </button>
         </div>
-        <button id="newPersona" class="icon-button" type="button" title="新建" aria-label="新建" aria-haspopup="menu" aria-expanded="false" aria-controls="botCreateMenu">＋</button>
+        <button id="newPersona" class="icon-button" type="button" title="新建" aria-label="新建" aria-haspopup="menu" aria-expanded="false" aria-controls="botCreateMenu">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </button>
         <button id="closePersonaSearch" class="icon-button sidebar-search-close hidden" type="button" title="关闭搜索" aria-label="关闭搜索">
           <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
             <path d="M6 6L18 18M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
@@ -209,7 +213,11 @@
           <span>⌕</span>
           <input id="contactSearch" autocomplete="off" placeholder="搜索联系人">
         </label>
-        <button id="newContact" class="icon-button" type="button" title="新建" aria-label="新建" aria-haspopup="menu" aria-expanded="false" aria-controls="contactCreateMenu">＋</button>
+        <button id="newContact" class="icon-button" type="button" title="新建" aria-label="新建" aria-haspopup="menu" aria-expanded="false" aria-controls="contactCreateMenu">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </button>
         <div id="contactCreateMenu" class="create-menu hidden">
           <button id="contactMenuDiscoverBots" type="button">
             <span class="create-menu-icon" aria-hidden="true">
@@ -340,7 +348,13 @@
           </div>
         </div>
         <div class="top-actions">
-          <button id="groupInfoButton" class="icon-button group-info-topbar-btn hidden" type="button" title="群信息" aria-label="群信息">ℹ︎</button>
+          <button id="groupInfoButton" class="icon-button group-info-topbar-btn hidden" type="button" title="群信息" aria-label="群信息">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="8"/>
+              <path d="M12 10.5v5.5"/>
+              <path d="M12 7.5h.01"/>
+            </svg>
+          </button>
           <div class="session-menu-wrap">
             <button id="sessionMenuButton" class="session-trigger" type="button" title="会话记录" aria-label="会话记录">
               <span class="session-trigger-icon" aria-hidden="true">
@@ -364,7 +378,11 @@
                   </span>
                   会话记录
                 </strong>
-                <button id="newSession" class="icon-button" type="button" title="新建对话">＋</button>
+                <button id="newSession" class="icon-button" type="button" title="新建对话" aria-label="新建对话">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+                    <path d="M12 5v14M5 12h14"/>
+                  </svg>
+                </button>
               </div>
               <div id="sessionList" class="session-list"></div>
             </div>
@@ -435,7 +453,11 @@
           <div id="skillPicker" class="skill-picker hidden">
             <header class="skill-picker-head">
               <input id="skillPickerSearch" autocomplete="off" placeholder="搜索插件或 Skill" type="search">
-              <button id="closeSkillPicker" class="icon-button" type="button" title="关闭" aria-label="关闭">×</button>
+              <button id="closeSkillPicker" class="icon-button" type="button" title="关闭" aria-label="关闭">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+                  <path d="M6 6l12 12M18 6L6 18"/>
+                </svg>
+              </button>
             </header>
             <div id="skillPickerBody" class="skill-picker-body"></div>
           </div>
@@ -529,7 +551,11 @@
               <p id="taskPreviewMeta"></p>
             </div>
           </div>
-          <button id="closeTaskPreview" class="icon-button" type="button" title="关闭">×</button>
+          <button id="closeTaskPreview" class="icon-button" type="button" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+              <path d="M6 6l12 12M18 6L6 18"/>
+            </svg>
+          </button>
         </header>
         <article id="taskPreviewBody" class="task-preview-body"></article>
       </div>
@@ -663,7 +689,12 @@
                   <p>影响选中状态、链接和按钮。</p>
                 </div>
                 <div class="accent-picker">
-                  <button id="appearanceAccentReset" class="icon-button" type="button" title="恢复默认主题色" aria-label="恢复默认主题色">↺</button>
+                  <button id="appearanceAccentReset" class="icon-button" type="button" title="恢复默认主题色" aria-label="恢复默认主题色">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+                      <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4 9.4"/>
+                      <path d="M4 4v5.4h5.4"/>
+                    </svg>
+                  </button>
                   <label class="accent-swatch" title="选择主题色">
                     <span id="appearanceAccentPreview"></span>
                     <input id="appearanceAccentColor" type="color" value="#318ad3" aria-label="主题色">
@@ -688,15 +719,22 @@
                 </div>
                 <div class="workspace-background-controls">
                   <div class="accent-picker">
-                    <button id="appearanceWorkspaceBackgroundReset" class="icon-button" type="button" title="恢复默认底板" aria-label="恢复默认底板">↺</button>
-                    <label class="accent-swatch" title="选择底板颜色">
-                      <span id="appearanceWorkspaceBackgroundPreview"></span>
-                      <input id="appearanceWorkspaceBackgroundColor" type="color" value="#f0f0f3" aria-label="底板颜色">
-                    </label>
-                  </div>
-                  <div id="appearanceWorkspaceBackgroundPresets" class="workspace-background-presets" role="radiogroup" aria-label="底板预设颜色">
-                    <button class="avatar-color-chip" type="button" data-workspace-background-color="#f0f0f3" style="background:#f0f0f3;" title="#f0f0f3" aria-label="默认灰"></button>
-                    <button class="avatar-color-chip" type="button" data-workspace-background-color="#2ca1ff" style="background:#2ca1ff;" title="#2CA1FF" aria-label="亮蓝"></button>
+                    <button id="appearanceWorkspaceBackgroundReset" class="icon-button" type="button" title="恢复默认底板" aria-label="恢复默认底板">
+                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+                        <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4 9.4"/>
+                        <path d="M4 4v5.4h5.4"/>
+                      </svg>
+                    </button>
+	                    <label class="accent-swatch" title="选择底板颜色">
+	                      <span id="appearanceWorkspaceBackgroundPreview"></span>
+	                      <input id="appearanceWorkspaceBackgroundColor" type="color" value="#f0f0f3" aria-label="底板颜色">
+	                    </label>
+	                    <input id="appearanceWorkspaceBackgroundImage" type="hidden" value="">
+	                  </div>
+	                  <div id="appearanceWorkspaceBackgroundPresets" class="workspace-background-presets" role="radiogroup" aria-label="底板预设颜色">
+	                    <button class="avatar-color-chip" type="button" data-workspace-background-color="#f0f0f3" style="background:#f0f0f3;" title="#f0f0f3" aria-label="默认灰"></button>
+	                    <button class="avatar-color-chip workspace-background-image-chip" type="button" data-workspace-background-image-preset="doodle" data-workspace-background-image="url(&quot;file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png&quot;)" style='background-image:url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png");' title="涂鸦底纹" aria-label="涂鸦底纹"></button>
+	                    <button class="avatar-color-chip" type="button" data-workspace-background-color="#2ca1ff" style="background:#2ca1ff;" title="#2CA1FF" aria-label="亮蓝"></button>
                     <button class="avatar-color-chip" type="button" data-workspace-background-color="#0f766e" style="background:#0f766e;" title="#0f766e" aria-label="深青"></button>
                     <button class="avatar-color-chip" type="button" data-workspace-background-color="#8b5cf6" style="background:#8b5cf6;" title="#8b5cf6" aria-label="紫色"></button>
                     <button class="avatar-color-chip" type="button" data-workspace-background-color="#f97316" style="background:#f97316;" title="#f97316" aria-label="橙色"></button>
@@ -710,7 +748,12 @@
                   <p>只影响你发出的消息气泡。</p>
                 </div>
                 <div class="accent-picker">
-                  <button id="appearanceUserBubbleReset" class="icon-button" type="button" title="恢复默认用户气泡" aria-label="恢复默认用户气泡">↺</button>
+                  <button id="appearanceUserBubbleReset" class="icon-button" type="button" title="恢复默认用户气泡" aria-label="恢复默认用户气泡">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+                      <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4 9.4"/>
+                      <path d="M4 4v5.4h5.4"/>
+                    </svg>
+                  </button>
                   <label class="accent-swatch" title="选择用户气泡颜色">
                     <span id="appearanceUserBubblePreview"></span>
                     <input id="appearanceUserBubbleColor" type="color" value="#eeffde" aria-label="用户消息气泡底色">
@@ -894,7 +937,11 @@
           <div>
             <h2 id="profileDialogTitle">个人资料</h2>
           </div>
-          <button id="closeProfileDialog" class="icon-button" type="button" title="关闭">×</button>
+          <button id="closeProfileDialog" class="icon-button" type="button" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+              <path d="M6 6l12 12M18 6L6 18"/>
+            </svg>
+          </button>
         </header>
         <section class="dialog-identity-card">
           <div id="profileAvatarDrop" class="avatar-upload-shell">
@@ -932,7 +979,11 @@
           <div>
             <h2 id="botDialogTitle">添加伙伴</h2>
           </div>
-          <button id="closeBotDialog" class="icon-button" type="button" title="关闭">×</button>
+          <button id="closeBotDialog" class="icon-button" type="button" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+              <path d="M6 6l12 12M18 6L6 18"/>
+            </svg>
+          </button>
         </header>
         <input id="botKey" type="hidden">
         <section class="dialog-identity-card">
@@ -990,7 +1041,11 @@
             <h2 id="petGenerateTitle">生成桌宠</h2>
             <p id="petGenerateSubtitle"></p>
           </div>
-          <button id="closePetGenerateDialog" class="icon-button" type="button" title="关闭">×</button>
+          <button id="closePetGenerateDialog" class="icon-button" type="button" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+              <path d="M6 6l12 12M18 6L6 18"/>
+            </svg>
+          </button>
         </header>
         <label>
           补充描述
@@ -1023,7 +1078,11 @@
       <div class="avatar-crop-card">
         <header class="avatar-crop-head">
           <h2 id="avatarCropTitle">调整头像</h2>
-          <button id="cancelAvatarCrop" class="icon-button" type="button" title="关闭">×</button>
+          <button id="cancelAvatarCrop" class="icon-button" type="button" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+              <path d="M6 6l12 12M18 6L6 18"/>
+            </svg>
+          </button>
         </header>
         <div id="avatarCropStage" class="avatar-crop-stage">
           <div class="avatar-crop-circle"></div>
@@ -1066,7 +1125,11 @@
         <div class="skill-preview-title">
           <h2 id="groupCreateTitle">新建群聊</h2>
         </div>
-        <button id="groupCreateClose" class="icon-button" type="button" aria-label="关闭">×</button>
+        <button id="groupCreateClose" class="icon-button" type="button" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M6 6l12 12M18 6L6 18"/>
+          </svg>
+        </button>
       </div>
       <div class="group-create-body">
         <section class="group-create-section">
@@ -1107,7 +1170,11 @@
           <h2 id="groupInfoTitle">群设置</h2>
           <p>成员、目标和 AI 回复方式</p>
         </div>
-        <button id="groupInfoClose" class="icon-button" type="button" aria-label="关闭">×</button>
+        <button id="groupInfoClose" class="icon-button" type="button" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M6 6l12 12M18 6L6 18"/>
+          </svg>
+        </button>
       </div>
       <div class="group-info-body group-info-settings-card">
         <div class="settings-section-label">基础</div>
@@ -1177,7 +1244,11 @@
         <div>
           <h2 id="taskCreateTitle">新建自动任务</h2>
         </div>
-        <button id="closeTaskCreate" class="icon-button" type="button" title="关闭">×</button>
+        <button id="closeTaskCreate" class="icon-button" type="button" title="关闭" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M6 6l12 12M18 6L6 18"/>
+          </svg>
+        </button>
       </header>
 
       <label>

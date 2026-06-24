@@ -3723,7 +3723,11 @@
     closeBtn.className = "icon-button";
     closeBtn.type = "button";
     closeBtn.setAttribute("aria-label", "关闭");
-    closeBtn.textContent = "×";
+    closeBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M6 6l12 12M18 6L6 18"/>
+      </svg>
+    `;
     closeBtn.addEventListener("click", closeModal);
     toolbar.appendChild(closeBtn);
     card.appendChild(toolbar);

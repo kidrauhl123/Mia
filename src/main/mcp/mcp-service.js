@@ -27,11 +27,16 @@ const MCP_MARKETPLACE_TEMPLATES = [
   {
     id: "xhs-local-http",
     name: "小红书 MCP",
-    description: "连接本机运行的小红书 MCP HTTP 服务。",
+    nativeName: "xiaohongshu-mcp",
+    description: "连接 xpzouying/xiaohongshu-mcp 在本机运行的 HTTP MCP 服务。",
     category: "内容平台",
+    homepage: "https://github.com/xpzouying/xiaohongshu-mcp",
+    setupHint: "来自 xpzouying/xiaohongshu-mcp；按 README 先运行登录工具，再启动本地 MCP 服务，Mia 只负责连接。",
+    setupCommands: ["go run cmd/login/main.go", "go run ."],
+    expectedToolCount: 13,
     transport: {
       type: "http",
-      url: "http://127.0.0.1:18060/mcp",
+      url: "http://localhost:18060/mcp",
       headers: {}
     },
     requiredEnvKeys: []
@@ -39,6 +44,7 @@ const MCP_MARKETPLACE_TEMPLATES = [
   {
     id: "chrome-devtools-cdp",
     name: "Chrome DevTools MCP",
+    nativeName: "chrome-devtools-cdp",
     description: "通过 Chromium/Chrome 远程调试端口提供浏览器检查、截图和交互测试。默认连接 http://127.0.0.1:9222。",
     category: "浏览器自动化",
     transport: {
@@ -52,6 +58,7 @@ const MCP_MARKETPLACE_TEMPLATES = [
   {
     id: "playwright-browser",
     name: "Playwright MCP",
+    nativeName: "playwright-browser",
     description: "启动 Playwright MCP 浏览器服务，用于打开本地页面、截图、点击、输入和验证前端交互。",
     category: "浏览器自动化",
     transport: {
@@ -66,6 +73,31 @@ const MCP_MARKETPLACE_TEMPLATES = [
 
 function marketplaceTemplates() {
   return MCP_MARKETPLACE_TEMPLATES.map((template) => JSON.parse(JSON.stringify(template)));
+}
+
+function marketplaceTemplateById(id) {
+  const needle = String(id || "").trim();
+  return MCP_MARKETPLACE_TEMPLATES.find((template) => template.id === needle) || null;
+}
+
+function withMarketplaceTemplateDefaults(input = {}) {
+  const template = marketplaceTemplateById(input.registryId);
+  if (!template) return input;
+  const nativeName = input.nativeName && input.nativeName !== template.id
+    ? input.nativeName
+    : template.nativeName;
+  return {
+    ...template,
+    ...input,
+    description: input.description || template.description,
+    nativeName,
+    homepage: input.homepage || template.homepage || "",
+    setupHint: input.setupHint || template.setupHint || "",
+    setupCommands: Array.isArray(input.setupCommands) && input.setupCommands.length
+      ? input.setupCommands
+      : template.setupCommands || [],
+    expectedToolCount: input.expectedToolCount || template.expectedToolCount || 0
+  };
 }
 
 function readJson(fsImpl, filePath, fallback) {
@@ -131,11 +163,14 @@ function createMcpService(deps = {}) {
   }
 
   function loadRecords() {
-    return normalizeMcpRegistry(readJson(fsImpl, recordsPath(), []), { now, idFactory });
+    const raw = readJson(fsImpl, recordsPath(), []);
+    const rows = Array.isArray(raw) ? raw.map((record) => withMarketplaceTemplateDefaults(record)) : [];
+    return normalizeMcpRegistry(rows, { now, idFactory });
   }
 
   function saveRecords(records) {
-    const normalized = normalizeMcpRegistry(records, { now, idFactory });
+    const rows = Array.isArray(records) ? records.map((record) => withMarketplaceTemplateDefaults(record)) : [];
+    const normalized = normalizeMcpRegistry(rows, { now, idFactory });
     atomicWriteJson(fsImpl, recordsPath(), normalized);
     return normalized;
   }
@@ -308,11 +343,15 @@ function createMcpService(deps = {}) {
 
   function resolveRecord(records, idOrName) {
     const needle = String(idOrName || "").trim();
-    return records.find((record) => record.id === needle || record.name === needle) || null;
+    return records.find((record) => record.id === needle || record.name === needle || record.nativeName === needle) || null;
   }
 
   function normalizeInputRecord(input, currentRecords) {
-    const existing = resolveRecord(currentRecords, input?.id) || currentRecords.find((record) => record.name === String(input?.name || "").trim()) || null;
+    const inputName = String(input?.name || "").trim();
+    const inputNativeName = String(input?.nativeName || input?.native_name || "").trim();
+    const existing = resolveRecord(currentRecords, input?.id)
+      || currentRecords.find((record) => record.name === inputName || (inputNativeName && record.nativeName === inputNativeName))
+      || null;
     const inputTransport = input?.transport && typeof input.transport === "object" ? input.transport : null;
     const existingTransport = existing?.transport && typeof existing.transport === "object" ? existing.transport : {};
     const mergedTransport = inputTransport
@@ -323,6 +362,7 @@ function createMcpService(deps = {}) {
       ...(input || {}),
       ...(mergedTransport ? { transport: mergedTransport } : {}),
       id: String(input?.id || existing?.id || "").trim() || undefined,
+      nativeName: input?.nativeName || input?.native_name || existing?.nativeName,
       createdAt: existing?.createdAt,
       tools: Array.isArray(input?.tools) ? input.tools : existing?.tools,
       status: input?.status || existing?.status,
@@ -532,10 +572,15 @@ function createMcpService(deps = {}) {
       const name = String(values.name || template.name || "").trim() || template.id;
       return save({
         name,
+        nativeName: values.nativeName || values.native_name || template.nativeName || template.id,
         description: template.description,
         registryId: template.id,
         source: "marketplace",
         enabled: values.enabled !== false,
+        homepage: template.homepage || "",
+        setupHint: template.setupHint || "",
+        setupCommands: template.setupCommands || [],
+        expectedToolCount: template.expectedToolCount || 0,
         transport: {
           ...template.transport,
           ...(values.transport && typeof values.transport === "object" ? values.transport : {})

@@ -224,7 +224,7 @@
     const chipKeys = ["", "__mine__", ...categoryEntries.map(([category]) => category)];
     const scopeChips = isSkillCollectionMode(mode)
       ? [
-          `<button class="${mode === "market" && !state.skillCategoryFilter ? "active" : ""}" type="button" data-skill-scope="market">全部</button>`,
+          `<button class="${mode === "market" && !state.skillCategoryFilter ? "active" : ""}" type="button" data-skill-filter="">全部</button>`,
           `<button class="${mode === "mine" ? "active" : ""}" type="button" data-skill-scope="mine">我的技能</button>`
         ]
       : [];
