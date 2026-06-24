@@ -41,6 +41,16 @@ const { schedulerSkillIdsForTurn } = require("../main/scheduler-skill-defaults.j
 const { createHermesRunService } = require("../main/hermes-run-service.js");
 const { createHermesChatAdapter } = require("../main/hermes-chat-adapter.js");
 
+// Memory + skills collaborators — the SAME pure-node factories main.js drives
+// (src/main.js ~293 createMiaMemoryService, ~525 createSkillsLoader; no fork).
+// Both run node-only: the memory service needs only runtimePaths + fs; the
+// skills loader's directive/context builders are pure text over runtimePaths +
+// the bundled official-library files. The loader top-level `require("electron")`
+// resolves to a path string under plain node, so `shell` is undefined — only
+// openLocalSkillDirectory touches it, and Core never calls that.
+const { createMiaMemoryService } = require("../main/mia-memory-service.js");
+const { createSkillsLoader } = require("../main/skills-loader.js");
+
 // Cloud bot-invocation routing — the SAME pure-node social modules the Electron
 // main process drives (no fork). Core is the single owner when running, so the
 // dispatcher always handles (shouldHandle: () => true) and never falls back.
@@ -92,6 +102,45 @@ function readJson(file, fallback) {
   }
 }
 
+// Minimal pure-path helper replicated from src/main.js:910 (byte-identical).
+// It is a tiny self-contained predicate already duplicated across several main
+// modules (external-agent-command-service, managed-agent-runtime); replicating
+// the four lines here is the smallest non-forking choice and leaves main.js
+// untouched.
+function isChildPath(parentPath, targetPath) {
+  const parent = path.resolve(parentPath);
+  const target = path.resolve(targetPath);
+  const relative = path.relative(parent, target);
+  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+// Repo root that ships the bundled official-library + _builtin skills (the same
+// files main.js's botPetService resolves from app.getAppPath()/resourcesPath).
+// In a node Core checkout they sit two levels up from src/core/.
+const CORE_REPO_ROOT = path.join(__dirname, "..", "..");
+
+// Node-only equivalents of botPetService.officialLibraryManifestPath /
+// resolveOfficialLibraryRoot (which are electron-coupled via app.getAppPath()).
+// They are NOT extracted from bot-pet-service (no fork); Core points at the same
+// bundled resources by repo path. The directive/context builders tolerate a
+// missing manifest (readMiaOfficialSkillSources returns [] → only the private
+// <home>/skills source is active), so this stays correct even outside a checkout.
+function coreOfficialLibraryManifestPath() {
+  return path.join(CORE_REPO_ROOT, "resources", "official-library", "library.json");
+}
+
+function coreResolveOfficialLibraryRoot(root = "") {
+  const value = String(root || "").trim();
+  if (!value) return "";
+  if (path.isAbsolute(value)) return value;
+  // The bundled skillSources use roots like "skills/_builtin"; Core mirrors the
+  // shipped layout (<repo>/skills/...) the desktop app resolves via miaSkillsRoot.
+  if (value === "skills" || value.startsWith("skills/")) {
+    return path.join(CORE_REPO_ROOT, value);
+  }
+  return path.join(path.dirname(coreOfficialLibraryManifestPath()), value);
+}
+
 // Build the REAL bot-execution core for the node Core process. This constructs
 // the same adapter graph the Electron main process builds — createChatEngineAdapters
 // → sendWithChatEngineAdapter → adapter.send — reusing the real shared helpers
@@ -129,6 +178,30 @@ function createCoreBotExecution({
     enginePermissionStoreTarget
   });
 
+  // REAL memory service — pure node (runtimePaths + fs). Yields the same
+  // Hermes adapter `memoryBlock` main.js passes (src/main.js:2070), reading the
+  // single-owner mia-memory.json under Core's runtime home.
+  const miaMemoryService = createMiaMemoryService({ runtimePaths });
+
+  // REAL skills loader — node-only deps. `buildEnabledSkillsContext` /
+  // `buildActiveSkillsDirective` are pure text over runtimePaths + the bundled
+  // official library. The known light electron coupling (shell.openPath) is only
+  // reached by openLocalSkillDirectory, which Core never calls; a no-op opener is
+  // never needed because the module-level `require("electron")` already degrades
+  // to a path string (shell === undefined) under plain node. getEngineState is
+  // inert here (no Hermes /api/skills enable/disable probe in Core); apiKey is the
+  // configured engine key; appendEngineLog is a sink.
+  const skillsLoader = createSkillsLoader({
+    runtimePaths,
+    readJson,
+    officialLibraryManifestPath: coreOfficialLibraryManifestPath,
+    resolveOfficialLibraryRoot: coreResolveOfficialLibraryRoot,
+    getEngineState: () => ({}),
+    apiKey: apiKeyFn,
+    appendEngineLog: () => {},
+    isChildPath
+  });
+
   // Real Hermes run service (payload/stream/slash helpers). Attachments are not
   // exercised in this slice; the no-op attachment deps match the service's own
   // documented defaults.
@@ -155,9 +228,9 @@ function createCoreBotExecution({
     readRunEventStream: hermesRunService.readRunEventStream,
     responseModel: adapterForEngine("hermes").responseModel,
     fetch: fetchImpl,
-    // TODO(mia-core slice): inject the real memory block once Core owns the
-    // memory store.
-    memoryBlock: () => "",
+    // REAL memory block — Core owns the same single-owner mia-memory.json, so
+    // a Hermes turn run via Core injects the same memory the Electron daemon does.
+    memoryBlock: miaMemoryService.memoryBlock,
     // TODO(mia-core slice): wire the scheduler MCP context write once Core owns
     // the scheduler subsystem.
     writeSchedulerMcpContext: () => {},
@@ -168,9 +241,9 @@ function createCoreBotExecution({
     // settings; until then Hermes uses the turn's runtimeConfig as-is.
     resolveManagedModelRuntime: () => null,
     writeModelRuntimeConfig: () => {},
-    // TODO(mia-core slice): wire full enabled-skills context once Core owns the
-    // skills loader.
-    buildEnabledSkillsContext: () => "",
+    // REAL enabled-skills context — injects the full content of the bot's
+    // enabled skills into the user turn, exactly like main.js (src/main.js:2064).
+    buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     appendEngineLog: () => {}
   });
 
@@ -227,9 +300,11 @@ function createCoreBotExecution({
     botPetService: { notifyMessage: () => {} },
     responseMessageContent,
     schedulerSkillIdsForTurn,
-    // TODO(mia-core slice): wire the real skills loader directive; an empty
-    // directive is correct-but-minimal for this slice.
-    skillsLoader: { buildActiveSkillsDirective: () => "" },
+    // REAL skills loader — buildActiveSkillsDirective names the composer "使用"
+    // chips so the agent prioritizes them this turn (src/main.js bot-execution
+    // wiring). Same loader instance that backs the Hermes adapter's enabled-skills
+    // context above.
+    skillsLoader,
     hermesRunService,
     sendWithChatEngineAdapter,
     createActiveChatEngineAdapters,
