@@ -48,9 +48,17 @@
 
 - Wire `initSchedulerSubsystem` (tasks store/event bus, fire runner, cron — pure-node) into Core. Resolve `sendChat()` with `background=true` + an injected emit (no `webContents`).
 
-## Slice 4 — Migrate bot execution / agent adapters
+## Slice 4 — Migrate bot execution / agent adapters (keystone)
 
-- Extract the `runRemoteChatRequest`/`sendChat` background path + chat-adapter wiring into a shared module Core can drive, so bot invocations execute in the backend. This is the deepest untangle (the chat/agent execution core) and unblocks real Core parity.
+Extract the `runRemoteChatRequest`/`sendChat` background path so bot invocations execute in the backend. Extraction map (from a full coupling audit):
+
+- **Already pure-node, reuse as-is** (no electron): all four chat adapters (`hermes`/`codex`/`claude-code`/`openclaw`-chat-adapter.js — they take an `emit` callback, not `webContents`), `chat-engine-adapters.js`, `social/local-bot-responder.js`, `social/bot-runtime-dispatcher.js`, `social/social-api.js` (pure HTTP), `skills-loader` bot-capabilities, `chat-response.js`, `bot-registry.js`, `task-reply-delivery.js`.
+- **Hard electron blocker — DONE:** `chat-events.js` `createChatEventEmitter` hard-wired to `webContents.send`. Refactored to accept an injected `emitImpl(channel, envelope)` sink (commit `refactor(chat): chat-event emitter accepts non-electron sink`).
+- **Remaining (DI re-wiring, no hard blockers):**
+  - `botPetService.notifyMessage` (`src/main.js:2307`) — already guarded by `!utility` + non-`title:` session; background/daemon turns skip it. Inject a no-op `notifyMessage` for Core.
+  - `emitCloudEvent`/`broadcastRendererEvent` (`src/main.js:2820-2828`) — already has the `IS_DAEMON_PROCESS → publishLocalEvent` branch; Core injects a control-server event publisher.
+  - The real work: `sendChat` + `runRemoteChatRequest` live inside `src/main.js`'s closure (adapters built with `hermesRunService`/`ensureHermesReady`/engine state). Extract them + their adapter construction into a shared `src/main/bot-execution-core.js` factory that both `main.js` and `src/core` instantiate (no fork), then wire `localBotResponder` + `mainBotRuntimeDispatcher` into `createMiaCore`.
+- Verify: a cloud `ConversationBotInvocationRequested` → dispatcher → `sendChat` background → adapter → `socialApi.postConversationMessageAsBot`, driven from Core with a stub adapter, asserted end-to-end.
 
 ## Slice 5 — Flip launcher + DELETE the Electron daemon (the cleanup the goal asks for)
 
