@@ -31,7 +31,8 @@ function createDaemonControlServer({
   clearIntervalFn = clearInterval,
   // Keep-alive comments on the local SSE channel so the window's idle watchdog
   // (local-events-client) can tell a healthy idle stream from a half-open one.
-  localEventHeartbeatMs = 15000
+  localEventHeartbeatMs = 15000,
+  describeDaemonTarget = () => null
 }) {
   let controlServer = null;
   let localEventHeartbeatTimer = null;
@@ -106,6 +107,7 @@ function createDaemonControlServer({
       connectUrls: daemonConnectUrls(settings),
       runtimeHome: paths.home,
       launchAgent: paths.daemonLaunchAgent,
+      daemonTarget: describeDaemonTarget(),
       lastError: state.lastError,
       logs: state.logs.slice(-80)
     };
@@ -330,7 +332,8 @@ function createDaemonControlServer({
         uptime: Math.round(uptime()),
         mode: isDaemonProcess ? "daemon" : "desktop",
         runtimeHome: runtimePaths().home,
-        version: String(appVersion() || "")
+        version: String(appVersion() || ""),
+        daemonTarget: describeDaemonTarget()
       });
       return;
     }

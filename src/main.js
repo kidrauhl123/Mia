@@ -2612,6 +2612,7 @@ daemonControlServer = createDaemonControlServer({
   serviceLabel: MIA_DAEMON_SERVICE_LABEL,
   daemonToken,
   appVersion: () => app.getVersion(),
+  describeDaemonTarget: () => miaCoreResolver.describe(),
   initializeRuntime,
   choosePort: engineHealthService.choosePort,
   getDaemonSettings: () => settingsStore.daemonSettings(),

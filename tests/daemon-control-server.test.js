@@ -83,7 +83,8 @@ test("start serves health, protects remote routes, and delegates authorized remo
     uptime: 12,
     mode: "daemon",
     runtimeHome: path.join(dir, "home"),
-    version: ""
+    version: "",
+    daemonTarget: null
   });
   const probe = await server.ping({ host: "127.0.0.1", port }, 500, { expectedRuntimeHome: path.join(dir, "home") });
   assert.equal(probe.mode, "daemon");
@@ -186,4 +187,18 @@ test("ping rejects a daemon running from a different runtime home", async (t) =>
   const result = await server.ping(undefined, 500, { expectedRuntimeHome: path.join(dir, "home") });
 
   assert.deepEqual(result, { ok: false, baseUrl: `http://127.0.0.1:${port}` });
+});
+
+test("status and health report the resolved daemon target", async (t) => {
+  const target = { kind: "packaged-helper", command: "Mia Core", usesGuiAppIdentity: false, workingDirectory: "/x" };
+  const { server } = setup(t, { describeDaemonTarget: () => target });
+
+  assert.deepEqual(server.status().daemonTarget, target);
+
+  const port = await freePort();
+  await server.start({ host: "127.0.0.1", port });
+  t.after(() => server.stop());
+  const res = await fetch(`http://127.0.0.1:${port}/health`);
+  const body = await res.json();
+  assert.deepEqual(body.daemonTarget, target);
 });
