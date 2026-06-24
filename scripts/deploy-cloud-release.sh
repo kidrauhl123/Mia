@@ -618,6 +618,64 @@ run_as_root systemctl reload nginx
 ROLLBACK_SCRIPT
 }
 
+wait_for_public_release() {
+  echo "==> Waiting for public health"
+  MIA_WAIT_PUBLIC_URL="$PUBLIC_URL" \
+    MIA_WAIT_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
+    MIA_WAIT_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
+    node <<'NODE'
+const baseUrl = String(process.env.MIA_WAIT_PUBLIC_URL || "").replace(/\/+$/, "");
+const expectedCommit = String(process.env.MIA_WAIT_EXPECT_RELEASE_COMMIT || "");
+const expectedBuiltAt = String(process.env.MIA_WAIT_EXPECT_RELEASE_BUILT_AT || "");
+const timeoutMs = Number(process.env.MIA_WAIT_TIMEOUT_MS || 60000);
+const intervalMs = Number(process.env.MIA_WAIT_INTERVAL_MS || 2000);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function main() {
+  const deadline = Date.now() + timeoutMs;
+  let last = "not checked";
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${baseUrl}/api/health`, {
+        headers: { Origin: baseUrl }
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        last = `HTTP ${response.status}`;
+      } else {
+        const health = body ? JSON.parse(body) : {};
+        const release = health.release || {};
+        const commitMatches = !expectedCommit || release.gitCommit === expectedCommit;
+        const builtAtMatches = !expectedBuiltAt || release.builtAt === expectedBuiltAt;
+        if (commitMatches && builtAtMatches) {
+          console.log(`Public health is serving ${release.gitCommit || "unknown"} ${release.builtAt || ""}`.trim());
+          return;
+        }
+        last = `release commit ${release.gitCommit || "missing"} builtAt ${release.builtAt || "missing"}`;
+      }
+    } catch (error) {
+      last = error.message;
+    }
+    await sleep(intervalMs);
+  }
+  console.error(`Timed out waiting for public health: ${last}`);
+  process.exit(1);
+}
+
+main().catch((error) => {
+  console.error(`Failed while waiting for public health: ${error.message}`);
+  process.exit(1);
+});
+NODE
+}
+
+if ! wait_for_public_release; then
+  echo "==> Public health did not become ready; attempting remote rollback"
+  rollback_remote || echo "Remote rollback failed; inspect $REMOTE manually." >&2
+  exit 1
+fi
+
 echo "==> Running public doctor"
 if ! MIA_DOCTOR_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
   MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
