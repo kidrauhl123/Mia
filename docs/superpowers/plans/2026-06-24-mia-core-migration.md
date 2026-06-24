@@ -61,7 +61,23 @@ Extract the `runRemoteChatRequest`/`sendChat` background path so bot invocations
   - **DONE — Core builds the real adapter graph.** `cloudBotSnapshotForTurn`/`botWithRuntimeConfig` extracted to shared `bot-turn-helpers.js` (byte-identical). `createCoreBotExecution` (src/core/mia-core.js) constructs the genuine `createChatEngineAdapters → sendWithChatEngineAdapter → adapter.send` graph with real `hermesRunService` + `hermesAdapter`. Hermes-only; non-Hermes engines throw `"engine not available in Mia Core yet"`. Proven node-only via `tests/mia-core-bot-execution.test.js`. Exposed lazily, NOT auto-started (no dual-owner).
   - **Remaining in slice 4:** replace the marked `// TODO(mia-core slice)` stubs (memory block, scheduler/app MCP context, managed model runtime, full skills directive, attachments, real localBotResponder) with the real collaborators as Core gains ownership of those subsystems; read the Hermes engine baseUrl/apiKey from the runtime config the engine writes.
   - **Non-Hermes engines (Codex/ClaudeCode/OpenClaw)** are deeply Electron-coupled (claudeAgentSdk, workspace dirs, MCP bridges, agent permissions). Un-coupling them for the backend is its own large effort — tracked as a separate workstream, not blocking Hermes-path parity.
-- **Next: slice 2 (cloud) — wire `cloud-events-client`/`cloud-bridge-client` + `localBotResponder` + `mainBotRuntimeDispatcher` into Core, routing a cloud `ConversationBotInvocationRequested` → dispatcher → `createCoreBotExecution.sendChat` → `socialApi.postConversationMessageAsBot`, end-to-end. Only then does the launcher flip (slice 5) become safe.**
+## STATUS (live)
+
+Core now has **STRUCTURAL parity** with the Electron daemon — every subsystem is wired and verified node-only:
+- ✅ Slice 1 — control server / runtime-home / settings / token
+- ✅ Slice 4 keystone — `sendChat`/`stopChat` extracted; Core builds the real Hermes adapter graph
+- ✅ Slice 2a — cloud bot-invocation routing (dispatcher → responder → sendChat → socialApi)
+- ✅ Slice 2b — cloud EVENTS websocket connect (gated on cloud enabled+token)
+- ✅ Slice 2c — cloud BRIDGE websocket connect (remote runs → botExecution)
+- ✅ Slice 3 — scheduler subsystem (fired tasks → botExecution background)
+
+**Not yet FUNCTIONAL parity** — `createCoreBotExecution` still has slice-4 TODO stubs: memory block, scheduler/app **MCP context**, managed-model runtime, full **skills directive**, **attachments**. A Hermes turn run via Core today lacks memory/skills/MCP. These must be replaced with real Core-owned collaborators BEFORE the launcher flip, or live daemon turns would regress vs the Electron daemon.
+
+### Gate before Slice 5 (flip + delete)
+1. **Functional parity** — replace the slice-4 stubs above with real implementations (Core owns memory store, MCP bridges, skills loader, attachment store, or reads them from the shared runtime home).
+2. **Packaged node binary** — slice 5 needs a bundled `node` (the node-core launchd target). This CANNOT be verified in this dev worktree; it requires a real packaged build — a manual gate (same lesson as the abandoned helper-wrapper: do NOT delete the Electron daemon before the replacement is proven in a package).
+
+Only after 1+2 is it safe to flip launchd → node Core and DELETE the Electron `IS_DAEMON_PROCESS` branch.
 
 ## Slice 5 — Flip launcher + DELETE the Electron daemon (the cleanup the goal asks for)
 
