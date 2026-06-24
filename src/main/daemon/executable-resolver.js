@@ -4,6 +4,27 @@ const path = require("node:path");
 
 const DEFAULT_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
+// Packaged-build layout (see package.json `build`). In a packaged Electron app
+// the standalone node Core cannot live inside app.asar (a plain `node` binary
+// cannot require out of Electron's asar VFS), so the build:
+//   - copies a real `node` binary into extraResources → <resources>/mia-node
+//   - asarUnpack's the Core entry + its require graph → app.asar.unpacked/src/...
+// These two derivations are pure (resourcesPath → absolute path) so they can be
+// wired from main.js in packaged mode AND unit-tested without a real build.
+const PACKAGED_NODE_BASENAME = process.platform === "win32" ? "mia-node.exe" : "mia-node";
+
+function packagedNodePath(resourcesPath) {
+  const base = String(resourcesPath || "").trim();
+  if (!base) return "";
+  return path.join(base, PACKAGED_NODE_BASENAME);
+}
+
+function packagedCoreEntry(resourcesPath) {
+  const base = String(resourcesPath || "").trim();
+  if (!base) return "";
+  return path.join(base, "app.asar.unpacked", "src", "core", "mia-core.js");
+}
+
 // Resolves how the desktop launches its background daemon. This is the seam the
 // Mia Core migration plugs into: today it classifies the in-tree Electron daemon
 // launch (behaviour-preserving), and the launcher-integration slice will add a
@@ -25,7 +46,11 @@ function createMiaCoreResolver(deps = {}) {
     // and resolve() falls back to the electron-dev / legacy-gui / bundled-cli path.
     nodePath = () => "",
     // Absolute path to the standalone Mia Core entry (src/core/mia-core.js).
-    coreEntry = () => path.resolve(__dirname, "..", "..", "core", "mia-core.js")
+    coreEntry = () => path.resolve(__dirname, "..", "..", "core", "mia-core.js"),
+    // process.resourcesPath under a packaged Electron app
+    // (…/Contents/Resources). "" in dev. Used to derive the packaged node
+    // binary + the unpacked Core entry below.
+    resourcesPath = () => ""
   } = deps;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
   if (typeof effectiveHermesHome !== "function") throw new Error("effectiveHermesHome dependency is required.");
@@ -34,8 +59,16 @@ function createMiaCoreResolver(deps = {}) {
     // Preferred target: launch the standalone node Core as the daemon. This is a
     // pure-node process with its own (non-GUI) executable identity — no Dock, no
     // LaunchServices semantics. Requires both a real node binary and the Core entry.
-    const node = String(nodePath() || "").trim();
-    const entry = String(coreEntry() || "").trim();
+    //
+    // In DEV the caller injects nodePath (a `which node` lookup) + the on-disk
+    // Core entry. In a PACKAGED build neither is injected; we derive both from
+    // process.resourcesPath: the bundled `node` (extraResources → <resources>/
+    // mia-node) + the unpacked Core entry (app.asar.unpacked/src/core/mia-core.js).
+    // A plain node binary CANNOT require out of app.asar, so the packaged Core MUST
+    // be the unpacked copy — never the in-asar path.
+    const res = String(resourcesPath() || "").trim();
+    const node = String(nodePath() || "").trim() || packagedNodePath(res);
+    const entry = String(coreEntry() || "").trim() || packagedCoreEntry(res);
     if (node && entry) {
       return {
         kind: "node-core",
@@ -120,4 +153,4 @@ function createMiaCoreResolver(deps = {}) {
   return { resolve, daemonEnvOverlay, assertLaunchable, describe };
 }
 
-module.exports = { createMiaCoreResolver, DEFAULT_PATH };
+module.exports = { createMiaCoreResolver, DEFAULT_PATH, packagedNodePath, packagedCoreEntry };

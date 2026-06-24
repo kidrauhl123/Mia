@@ -19,6 +19,36 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 
+// PACKAGED-NODE electron shim. Several reused main/ modules do
+// `const { shell } = require("electron")` at module load. Under a normal node
+// checkout `require("electron")` resolves node_modules/electron/index.js, which
+// returns the binary PATH STRING, so destructuring `shell` yields undefined (the
+// modules already tolerate this — only openLocalSkillDirectory touches `shell`,
+// which Core never calls). In a PACKAGED build the `electron` dev-dependency is
+// NOT shipped, so that require would throw MODULE_NOT_FOUND and abort Core boot.
+// We register a stub in the module cache ONLY when electron cannot be resolved,
+// preserving the exact "shell === undefined" contract. This is a strict no-op in
+// dev (electron resolves) and never alters Electron main-process behaviour (this
+// file is never required by the Electron app).
+(() => {
+  try {
+    require.resolve("electron");
+  } catch {
+    require("node:module")._cache.electron = {
+      id: "electron",
+      filename: "electron",
+      loaded: true,
+      exports: {}
+    };
+    const Module = require("node:module");
+    const originalResolve = Module._resolveFilename;
+    Module._resolveFilename = function (request, ...rest) {
+      if (request === "electron") return "electron";
+      return originalResolve.call(this, request, ...rest);
+    };
+  }
+})();
+
 const { createRuntimePaths } = require("../main/runtime-paths.js");
 const { createSettingsStore } = require("../main/settings-store.js");
 const { createDaemonControlServer } = require("../main/daemon/control-server.js");

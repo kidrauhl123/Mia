@@ -2,7 +2,12 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { test } = require("node:test");
 
-const { createMiaCoreResolver, DEFAULT_PATH } = require("../src/main/daemon/executable-resolver.js");
+const {
+  createMiaCoreResolver,
+  DEFAULT_PATH,
+  packagedNodePath,
+  packagedCoreEntry
+} = require("../src/main/daemon/executable-resolver.js");
 
 function setup(overrides = {}) {
   const root = path.join(path.sep, "tmp", "mia-root");
@@ -123,6 +128,43 @@ test("assertLaunchable throws for the legacy GUI target but passes otherwise", (
 test("assertLaunchable returns the resolution for launchable targets", () => {
   const r = setup({ defaultApp: () => true }).assertLaunchable();
   assert.equal(r.kind, "electron-dev");
+});
+
+test("packaged path helpers derive the bundled node + unpacked Core entry from resourcesPath", () => {
+  const res = "/Applications/Mia.app/Contents/Resources";
+  assert.equal(packagedNodePath(res), path.join(res, "mia-node"));
+  assert.equal(
+    packagedCoreEntry(res),
+    path.join(res, "app.asar.unpacked", "src", "core", "mia-core.js")
+  );
+  // Empty resourcesPath (dev) yields "" so the node-core branch falls through.
+  assert.equal(packagedNodePath(""), "");
+  assert.equal(packagedCoreEntry(""), "");
+  assert.equal(packagedNodePath(undefined), "");
+});
+
+test("packaged build resolves node-core from resourcesPath when nodePath/coreEntry are not injected", () => {
+  // Mirrors packaged main.js wiring: process.defaultApp false → injected
+  // nodePath/coreEntry are "", and the resolver derives both from resourcesPath.
+  const res = "/Applications/Mia.app/Contents/Resources";
+  const r = setup({
+    defaultApp: () => false,
+    nodePath: () => "",
+    coreEntry: () => "",
+    resourcesPath: () => res
+  }).resolve();
+  assert.equal(r.kind, "node-core");
+  assert.equal(r.command, path.join(res, "mia-node"));
+  assert.deepEqual(r.args, [path.join(res, "app.asar.unpacked", "src", "core", "mia-core.js"), "--daemon"]);
+  assert.equal(r.usesGuiAppIdentity, false);
+  assert.equal(r.workingDirectory, path.dirname(path.join(res, "app.asar.unpacked", "src", "core", "mia-core.js")));
+});
+
+test("packaged build with no resourcesPath and no injected node falls back to legacy-gui", () => {
+  // Defensive: if resourcesPath is somehow empty in a packaged build, the node-core
+  // branch must NOT fire (no bogus node path), and the GUI fallback guard stays.
+  const r = setup({ defaultApp: () => false, nodePath: () => "", coreEntry: () => "", resourcesPath: () => "" }).resolve();
+  assert.equal(r.kind, "legacy-gui");
 });
 
 test("describe exposes basename and identity flag for diagnostics", () => {

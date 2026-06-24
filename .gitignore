@@ -11,6 +11,9 @@ test-results/
 .DS_Store
 npm-debug.log*
 
+# Staged Core daemon node binary (built by scripts/stage-core-node.js)
+resources/mia-node/
+
 # RN app build artifacts
 apps/mobile-rn/node_modules/
 apps/mobile-rn/.expo/

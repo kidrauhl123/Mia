@@ -79,10 +79,22 @@
   "build": {
     "appId": "ai.mia.app",
     "productName": "Mia",
+    "beforePack": "./scripts/stage-core-node.js",
     "directories": {
       "output": "release"
     },
     "asar": true,
+    "asarUnpack": [
+      "src/**",
+      "packages/shared/**",
+      "package.json",
+      "node_modules/ws/**",
+      "node_modules/adm-zip/**",
+      "node_modules/cron-parser/**",
+      "node_modules/luxon/**",
+      "node_modules/js-yaml/**",
+      "node_modules/argparse/**"
+    ],
     "compression": "maximum",
     "publish": {
       "provider": "generic",
@@ -98,6 +110,18 @@
       "!node_modules/@anthropic-ai/claude-agent-sdk-*-*/**"
     ],
     "extraResources": [
+      {
+        "from": "resources/mia-node/node",
+        "to": "mia-node"
+      },
+      {
+        "from": "node_modules/luxon",
+        "to": "app.asar.unpacked/node_modules/luxon",
+        "filter": [
+          "**/*",
+          "!**/*.map"
+        ]
+      },
       {
         "from": "resources/pet-generator",
         "to": "pet-generator",

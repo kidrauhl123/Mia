@@ -379,14 +379,20 @@ const miaCoreResolver = createMiaCoreResolver({
   // resolvable. process.execPath is the Electron GUI executable (NOT node), so we
   // resolve an absolute node via the shared shell-path lookup. When none is found
   // the resolver falls back to electron-dev / legacy-gui (Electron --daemon).
+  // DEV: process.defaultApp is true → use the system `node` (shell-path lookup)
+  // + the on-disk Core entry (unchanged behaviour). PACKAGED: process.defaultApp
+  // is false → the resolver derives the bundled node (<resources>/mia-node) and
+  // the unpacked Core entry (app.asar.unpacked/src/core/mia-core.js) from
+  // resourcesPath, because a plain node binary cannot require out of app.asar.
   nodePath: () => {
+    if (!process.defaultApp) return "";
     try {
       return String(localAgentEngineService?.shellCommandPath?.("node") || "").trim();
     } catch {
       return "";
     }
   },
-  coreEntry: () => path.resolve(__dirname, "core", "mia-core.js")
+  coreEntry: () => (process.defaultApp ? path.resolve(__dirname, "core", "mia-core.js") : "")
 });
 const launchdService = createLaunchdService({
   gatewayServiceLabel: MIA_GATEWAY_SERVICE_LABEL,
