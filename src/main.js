@@ -27,6 +27,7 @@ const {
   sendWithStatelessChatEngineAdapter
 } = require("./main/chat-engine-adapters.js");
 const { createChatEventEmitter } = require("./main/chat-events.js");
+const { createBotExecutionCore } = require("./main/bot-execution-core.js");
 const { chatCompletionResponse, responseMessageContent } = require("./main/chat-response.js");
 const { createAgentCommandProvider } = require("./main/agent-command-provider.js");
 const { createClaudeBridgePluginService } = require("./main/claude-bridge-plugin-service.js");
@@ -612,7 +613,6 @@ let remoteControlRouter = null;
 let daemonControlServer = null;
 let daemonTasksClient = null;
 let agentPermissionProxy = null;
-let activeChatAbortController = null;
 let cloudEventSocketRuntime = null;
 let cloudBridgeRuntime = null;
 let localEventsRuntime = null;
@@ -2250,153 +2250,40 @@ function cloudBotSnapshotForTurn(snapshot = null, key = "", runtimeConfig = null
   };
 }
 
-async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [], signal: externalSignal = null, abortController: externalAbortController = null }) {
-  utility = Boolean(utility);
-  const shouldPersistAgentSession = persistAgentSession == null
-    ? !utility
-    : Boolean(persistAgentSession);
-  let abortController = externalAbortController && typeof externalAbortController.abort === "function"
-    ? externalAbortController
-    : null;
-  if (!abortController && (group || utility || background)) {
-    // Group dispatches run in parallel; each gets its own controller.
-    // Utility calls also skip the 1v1 "single active chat" semantics.
-    // Background runs (scheduled tasks) must not share the interactive
-    // single-flight controller — otherwise any foreground/web chat (or an
-    // overlapping task) aborts the task mid-generation ("生成已停止").
-    abortController = new AbortController();
-  } else if (!abortController) {
-    if (activeChatAbortController) {
-      activeChatAbortController.abort();
-    }
-    abortController = new AbortController();
-    activeChatAbortController = abortController;
-  }
-  const signal = externalSignal || abortController.signal;
-  // chat:event drives background/remote trace capture (see runRemoteChatRequest's
-  // tracedEventSink). Interactive cloud-conversation chats publish their own
-  // cloud:event stream via local-bot-responder — those
-  // callers either pass externalEmit or set utility/group/background to skip
-  // this emitter.
-  const { emit } = typeof externalEmit === "function"
-    ? { emit: externalEmit }
-    : !utility
-    ? createChatEventEmitter({ webContents, sessionId })
-    : { emit: null };
-  try {
-    const key = botKey || botId;
-    const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, key, runtimeConfig);
-    let bot = snapshotBot;
-    if (!bot) {
-      const manifest = loadBotManifest();
-      ({ bot } = requireBot(manifest, key, "还没有可用的 bot，请先在引导里创建一个再发起对话。"));
-    }
-    const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
-    const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
-    let botForTurn = botWithRuntimeConfig(bot, turnRuntimeConfig, { agentEngine: runtimeAgentEngine });
-    if (runtimeAgentEngine) {
-      botForTurn = {
-        ...botForTurn,
-        agentEngine: normalizeAgentEngine(runtimeAgentEngine, botForTurn.agentEngine || botForTurn.agent_engine || "hermes")
-      };
-    }
-    const chatEngine = resolveChatEngineAdapter(botForTurn);
-    const agentEngine = chatEngine.id;
-    const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
-    const completeWithPetMessage = (response) => {
-      if (shouldNotifyPet) botPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
-      return response;
-    };
-    if (emit) {
-      emit("session_started", { botKey: botForTurn.key, engine: agentEngine });
-    }
-    // Scheduler is always an available structured capability on foreground
-    // turns. Composer "使用" chips still get an explicit directive so the agent
-    // prioritizes them for this turn.
-    const turnEnabledSkillIds = schedulerSkillIdsForTurn({ activeSkillIds, background, scheduledFire });
-    if (turnEnabledSkillIds.length) {
-      const caps = botForTurn.capabilities || {};
-      botForTurn = {
-        ...botForTurn,
-        capabilities: {
-          ...caps,
-          enabledSkills: [...new Set([...(caps.enabledSkills || []), ...turnEnabledSkillIds.map((id) => String(id))])]
-        }
-      };
-      const directive = skillsLoader.buildActiveSkillsDirective(activeSkillIds);
-      if (directive && Array.isArray(messages)) {
-        const next = messages.slice();
-        for (let i = next.length - 1; i >= 0; i--) {
-          if (next[i] && next[i].role === "user") {
-            next[i] = { ...next[i], content: `${directive}\n\n${next[i].content || ""}` };
-            break;
-          }
-        }
-        messages = next;
-      }
-    }
-    const slashText = allowSlashCommands ? hermesRunService.slashCommandText(messages) : "";
-    const response = await sendWithChatEngineAdapter(createActiveChatEngineAdapters(), {
-      chatEngine,
-      bot: botForTurn,
-      sessionId,
-      messages,
-      group,
-      signal,
-      abortController,
-      emit,
-      utility,
-      scheduledFire,
-      persistAgentSession: shouldPersistAgentSession,
-      slashText,
-      runtimeConfig: turnRuntimeConfig
-    });
-    return completeWithPetMessage(response);
-  } catch (error) {
-    if (signal.aborted) {
-      if (emit) emit("complete", { finishReason: "cancelled", aborted: true });
-      const stopped = new Error("生成已停止");
-      stopped.code = "MIA_STOPPED";
-      throw stopped;
-    }
-    if (emit) emit("error", { message: String(error?.message || error) });
-    throw error;
-  } finally {
-    if (activeChatAbortController === abortController) activeChatAbortController = null;
-  }
+// Single shared bot-execution core: `sendChat`/`stopChat` (and the single-flight
+// abort state) live in src/main/bot-execution-core.js so the standalone Mia Core
+// node process drives the exact same implementation — no fork. Late-bound deps
+// (localBotResponder, daemonTasksClient, settingsStore) are injected as accessors
+// because they are constructed after this point / reassigned at runtime.
+const botExecutionCore = createBotExecutionCore({
+  createChatEventEmitter,
+  cloudBotSnapshotForTurn,
+  loadBotManifest,
+  requireBot,
+  normalizeTurnRuntimeConfig,
+  botWithRuntimeConfig,
+  normalizeAgentEngine,
+  resolveChatEngineAdapter,
+  botPetService,
+  responseMessageContent,
+  schedulerSkillIdsForTurn,
+  skillsLoader,
+  hermesRunService,
+  sendWithChatEngineAdapter,
+  createActiveChatEngineAdapters,
+  localBotResponder: () => localBotResponder,
+  isDaemonProcess: IS_DAEMON_PROCESS,
+  daemonTasksClient: () => daemonTasksClient,
+  settingsStore: () => settingsStore,
+  appendCloudLog
+});
+
+function sendChat(payload) {
+  return botExecutionCore.sendChat(payload);
 }
 
-async function stopChat(payload = {}) {
-  let stopped = false;
-  if (activeChatAbortController) {
-    activeChatAbortController.abort();
-    activeChatAbortController = null;
-    stopped = true;
-  }
-  const localStop = localBotResponder?.stopActiveConversationRun?.(payload) || { stopped: false };
-  const result = {
-    stopped: stopped || Boolean(localStop.stopped),
-    ...(localStop.conversationId ? { conversationId: localStop.conversationId } : {}),
-    ...(localStop.runId ? { runId: localStop.runId } : {}),
-    ...(localStop.status ? { status: localStop.status } : {})
-  };
-  if (!IS_DAEMON_PROCESS && daemonTasksClient?.call && settingsStore.daemonSettings().enabled) {
-    try {
-      const daemonStop = await daemonTasksClient?.call?.("/api/chat/stop", {
-        method: "POST",
-        body: JSON.stringify(payload || {})
-      });
-      return {
-        stopped: result.stopped || Boolean(daemonStop?.stopped),
-        ...(daemonStop?.conversationId || result.conversationId ? { conversationId: daemonStop?.conversationId || result.conversationId } : {}),
-        ...(daemonStop?.runId || result.runId ? { runId: daemonStop?.runId || result.runId } : {}),
-        ...(daemonStop?.status || result.status ? { status: daemonStop?.status || result.status } : {})
-      };
-    } catch (error) {
-      appendCloudLog(`[daemon] chat stop delegation failed: ${error?.message || error}`);
-    }
-  }
-  return result;
+function stopChat(payload = {}) {
+  return botExecutionCore.stopChat(payload);
 }
 
 function shouldOpenAgentSetupWindow() {
