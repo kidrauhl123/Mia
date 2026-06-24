@@ -71,13 +71,20 @@ Core now has **STRUCTURAL parity** with the Electron daemon — every subsystem 
 - ✅ Slice 2c — cloud BRIDGE websocket connect (remote runs → botExecution)
 - ✅ Slice 3 — scheduler subsystem (fired tasks → botExecution background)
 
-**Not yet FUNCTIONAL parity** — `createCoreBotExecution` still has slice-4 TODO stubs: memory block, scheduler/app **MCP context**, managed-model runtime, full **skills directive**, **attachments**. A Hermes turn run via Core today lacks memory/skills/MCP. These must be replaced with real Core-owned collaborators BEFORE the launcher flip, or live daemon turns would regress vs the Electron daemon.
+**FUNCTIONAL parity — nearly complete** (Hermes path). Real, verified (each via a real Hermes turn capturing the `/v1/runs` payload):
+- ✅ memory block (`createMiaMemoryService`)
+- ✅ skills directive + enabled-skills context (`createSkillsLoader`, node-only)
+- ✅ attachments (`createChatAttachments` normalize/context, pure fs)
+- ✅ scheduler + Mia-app MCP context writes (real bridge `writeContext`)
+- ⏸️ **managed-model runtime — deferred (documented blocker):** requires writing Hermes `config.yaml`, which Core does NOT own (Electron owns the engine lifecycle). Wiring it = a divergent second writer. Hermes uses the turn `runtimeConfig` as-is — degraded ONLY for Mia-managed-model bots. Unblocks when Core owns the Hermes engine lifecycle (a later slice).
 
-### Gate before Slice 5 (flip + delete)
-1. **Functional parity** — replace the slice-4 stubs above with real implementations (Core owns memory store, MCP bridges, skills loader, attachment store, or reads them from the shared runtime home).
-2. **Packaged node binary** — slice 5 needs a bundled `node` (the node-core launchd target). This CANNOT be verified in this dev worktree; it requires a real packaged build — a manual gate (same lesson as the abandoned helper-wrapper: do NOT delete the Electron daemon before the replacement is proven in a package).
+### Gate before Slice 5 (flip + delete) — what remains
+1. **Managed-model** (above) — needs Core to own the Hermes engine lifecycle/config.
+2. **Packaged node binary** — slice 5 needs a bundled `node` as the node-core launchd target. This CANNOT be verified in this dev worktree; it requires a real packaged macOS build — a **manual gate** in the release environment (same lesson as the abandoned helper-wrapper: do NOT delete the Electron daemon before the replacement is proven in a signed package).
 
-Only after 1+2 is it safe to flip launchd → node Core and DELETE the Electron `IS_DAEMON_PROCESS` branch.
+Only after 1+2 is it safe to flip launchd → node Core and DELETE the Electron `IS_DAEMON_PROCESS` branch. Everything reachable in this dev environment is done; the flip/delete is gated on a packaged build the user's release env must produce.
+
+**Separate workstream (not blocking):** non-Hermes engines (Codex/ClaudeCode/OpenClaw) are deeply Electron-coupled; Core throws `"engine not available in Mia Core yet"` for them. Un-coupling is its own effort.
 
 ## Slice 5 — Flip launcher + DELETE the Electron daemon (the cleanup the goal asks for)
 
