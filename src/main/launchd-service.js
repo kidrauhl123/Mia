@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFile: defaultExecFile } = require("node:child_process");
+const { createMiaCoreResolver, DEFAULT_PATH } = require("./daemon/executable-resolver.js");
 
 function xmlEscape(value) {
   return String(value)
@@ -81,6 +82,16 @@ function createLaunchdService(deps = {}) {
   const execFile = deps.execFile || defaultExecFile;
   const appendLog = typeof deps.appendLog === "function" ? deps.appendLog : () => {};
 
+  const resolver = deps.resolver || createMiaCoreResolver({
+    runtimePaths,
+    effectiveHermesHome,
+    appPath,
+    execPath,
+    defaultApp,
+    platform,
+    env
+  });
+
   function launchdDomain() {
     const uid = getuid();
     if (uid === null || uid === undefined || uid === "") return "";
@@ -150,32 +161,19 @@ function createLaunchdService(deps = {}) {
   }
 
   function daemonProgramArguments() {
-    const args = [execPath()];
-    if (defaultApp()) args.push(appPath());
-    args.push("--daemon");
-    return args;
+    const r = resolver.resolve();
+    return [r.command, ...r.args];
   }
 
   function daemonEnvironment() {
-    const p = runtimePaths();
-    return {
-      MIA_DAEMON: "1",
-      MIA_USER_DATA_DIR: path.join(p.root || path.dirname(path.dirname(p.home)), "daemon-profile"),
-      HERMES_HOME: effectiveHermesHome(),
-      MIA_HOME: p.home,
-      HERMES_LANGUAGE: env.HERMES_LANGUAGE || "zh",
-      PATH: env.PATH || "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-      PYTHONUNBUFFERED: "1"
-    };
+    return { ...resolver.daemonEnvOverlay(), PATH: env.PATH || DEFAULT_PATH };
   }
 
-  // launchd chdir()s into WorkingDirectory before exec. appPath() resolves to the
-  // asar archive in a packaged build (a file, not a directory), which makes the
-  // job die with EX_CONFIG (exit 78). The executable's own folder is always a
-  // real directory in both dev and packaged builds, and cwd is irrelevant to the
-  // app (it loads via absolute paths), so anchor the daemon there.
+  // launchd chdir()s into WorkingDirectory before exec; the resolver always
+  // returns a real directory (never the asar archive) in both dev and packaged
+  // builds, so anchoring there avoids EX_CONFIG (exit 78).
   function daemonWorkingDirectory() {
-    return path.dirname(execPath());
+    return resolver.resolve().workingDirectory;
   }
 
   function daemonLaunchAgentPlist() {

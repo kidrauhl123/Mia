@@ -135,3 +135,25 @@ test("launchd start fails clearly on non-macOS platforms", async (t) => {
   await service.stopGateway();
   await service.stopDaemon();
 });
+
+test("daemon launch agent delegates command, workdir and env to an injected resolver", (t) => {
+  const fakeResolver = {
+    resolve: () => ({
+      command: "/Applications/Mia.app/Contents/Resources/Mia Core.app/Contents/MacOS/Mia Core",
+      args: ["--daemon"],
+      workingDirectory: "/Applications/Mia.app/Contents/Resources/Mia Core.app/Contents/MacOS"
+    }),
+    daemonEnvOverlay: () => ({ MIA_DAEMON: "1", MIA_HOME: "/home", HERMES_LANGUAGE: "en" })
+  };
+  const { service } = setup(t, { resolver: fakeResolver });
+
+  assert.deepEqual(service.daemonProgramArguments(), [
+    "/Applications/Mia.app/Contents/Resources/Mia Core.app/Contents/MacOS/Mia Core",
+    "--daemon"
+  ]);
+  const plist = service.daemonLaunchAgentPlist();
+  assert.match(plist, /Mia Core\.app\/Contents\/MacOS\/Mia Core/);
+  const daemonEnv = service.daemonEnvironment();
+  assert.equal(daemonEnv.MIA_DAEMON, "1");
+  assert.equal(daemonEnv.PATH, "/usr/local/bin:/usr/bin"); // from setup env, preserved
+});

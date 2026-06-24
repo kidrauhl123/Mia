@@ -97,6 +97,7 @@ const { createDaemonControlServer, daemonNeedsReplacement } = require("./main/da
 const { createDaemonTasksClient } = require("./main/daemon/tasks-client.js");
 const { createLocalEventsClient } = require("./main/daemon/local-events-client.js");
 const { createDaemonProcessLauncher } = require("./main/daemon/process-launcher.js");
+const { createMiaCoreResolver } = require("./main/daemon/executable-resolver.js");
 const { windowsTitleBarOverlayForAppearance, applyWindowsTitleBarOverlay } = require("./main/windows-title-bar.js");
 const { createProviderConnections } = require("./main/provider-connections.js");
 const { createAuthService } = require("./main/auth-service.js");
@@ -358,10 +359,21 @@ const engineHealthService = createEngineHealthService({
   timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs)
 });
 
+const miaCoreResolver = createMiaCoreResolver({
+  runtimePaths,
+  effectiveHermesHome,
+  appPath: () => app.getAppPath(),
+  execPath: () => process.execPath,
+  defaultApp: () => Boolean(process.defaultApp),
+  platform: process.platform,
+  env: process.env,
+  resourcesPath: () => process.resourcesPath || ""
+});
 const launchdService = createLaunchdService({
   gatewayServiceLabel: MIA_GATEWAY_SERVICE_LABEL,
   daemonServiceLabel: MIA_DAEMON_SERVICE_LABEL,
   runtimePaths,
+  resolver: miaCoreResolver,
   appPath: () => app.getAppPath(),
   execPath: () => process.execPath,
   defaultApp: () => Boolean(process.defaultApp),
@@ -377,6 +389,7 @@ const launchdService = createLaunchdService({
 const daemonProcessLauncher = createDaemonProcessLauncher({
   runtimePaths,
   effectiveHermesHome,
+  resolver: miaCoreResolver,
   appPath: () => app.getAppPath(),
   execPath: () => process.execPath,
   defaultApp: () => Boolean(process.defaultApp),
