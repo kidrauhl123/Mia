@@ -48,6 +48,13 @@ const { createSocialApi } = require("../main/social/social-api.js");
 const { createLocalBotResponder } = require("../main/social/local-bot-responder.js");
 const { createMainBotRuntimeDispatcher } = require("../main/social/bot-runtime-dispatcher.js");
 
+// Cloud events WebSocket — the SAME pure-node client main.js drives (no fork):
+// connects to /api/events, applies the resume cursor, and routes
+// ConversationBotInvocationRequested to botRuntimeDispatcher.handleCloudEvent.
+const { createCloudEventsClient } = require("../main/cloud/cloud-events-client.js");
+const { cloudEventsUrl: buildCloudEventsUrl, cloudWebSocketProtocols } = require("../main/cloud/cloud-events-url.js");
+const { CloudEvent } = require("../shared/cloud-events.js");
+
 // Scheduler subsystem — the SAME pure-node factories the Electron daemon drives
 // (src/main.js initSchedulerSubsystem, ~line 1194). No fork: Core builds the real
 // tasks store (single-owner mia-tasks.json under Core's runtime home), event bus,
@@ -286,6 +293,78 @@ function createCoreCloudRouting({
   });
 
   return { dispatcher, localBotResponder, socialApi: api };
+}
+
+// Mirror main.js's cloud event channel name so local-event consumers (windows
+// listening on the daemon's local feed) see the same envelope type the Electron
+// daemon emits. main.js passes IpcChannel.CloudEvent ("cloud:event").
+const CORE_CLOUD_EVENT_CHANNEL = "cloud:event";
+
+// Wire the REAL cloud-events WebSocket client into Core, reusing the SAME
+// pure-node module main.js drives (src/main.js ~2720, no fork). It connects to
+// /api/events, applies the resume cursor, and routes
+// ConversationBotInvocationRequested → cloudRouting.dispatcher.handleCloudEvent
+// (the full Core routing graph: responder → botExecution.sendChat → socialApi).
+//
+// SINGLE-OWNER: Core is the /api/events host only when it actually runs as the
+// daemon. The client's own isDaemonProcess/isDaemonEnabled gate is set so it
+// connects only while cloud is enabled+tokened; callers must additionally NOT
+// call start() at import — only createMiaCore.start() connects.
+//
+// ELECTRON-COUPLED deps in the client are replaced with node sinks here:
+//   broadcastRendererEvent → emitLocalEvent (Core control-server local channel),
+//                            NOT electron's BrowserWindow broadcast.
+//   messageCache → null (TODO: wire once Core owns the local message cache).
+//
+// Injection points (for tests): `WebSocketImpl` (a mock socket) and `cloudRouting`
+// (whose dispatcher routes into a faked Hermes send + mock socialApi).
+function createCoreCloudEvents({
+  settingsStore,
+  cloudRouting,
+  WebSocketImpl,
+  emitLocalEvent = () => {},
+  cloudEventsUrl = buildCloudEventsUrl,
+  log = () => {}
+} = {}) {
+  if (!cloudRouting || !cloudRouting.dispatcher) {
+    throw new Error("createCoreCloudEvents requires a cloudRouting with a dispatcher");
+  }
+  if (!WebSocketImpl) {
+    throw new Error("createCoreCloudEvents requires a WebSocketImpl");
+  }
+
+  const getSettings = () => (settingsStore ? settingsStore.cloudSettings() : { enabled: false });
+  const cloudEnabled = () => {
+    const s = getSettings();
+    return Boolean(s.enabled && s.token);
+  };
+
+  return createCloudEventsClient({
+    WebSocketImpl,
+    getSettings,
+    // Core is the single owner of the cursor when it runs as the daemon, so it
+    // persists lastEventSeq through the same settings-store the Electron daemon
+    // uses (single write path). Falls back to a no-op if absent.
+    writeCloudSettings: (patch) => (settingsStore && typeof settingsStore.writeCloudSettings === "function"
+      ? settingsStore.writeCloudSettings(patch)
+      : undefined),
+    cloudStatus: () => ({ enabled: cloudEnabled() }),
+    cloudEventsUrl,
+    cloudWebSocketProtocols,
+    // NOT electron: every renderer-bound cloud event is pushed to Core's
+    // control-server local channel (ADR P0/P2), where a window replays it.
+    broadcastRendererEvent: (channel, envelope) => emitLocalEvent(envelope),
+    cloudEventChannel: CORE_CLOUD_EVENT_CHANNEL,
+    appendCloudLog: (line) => log(line),
+    botRuntimeDispatcher: cloudRouting.dispatcher,
+    // TODO(mia-core slice): wire the local message cache once Core owns it.
+    messageCache: null,
+    // Core is the daemon owner of /api/events when it runs, so it persists the
+    // resume cursor (single writer).
+    persistCursor: () => true,
+    isDaemonProcess: true,
+    isDaemonEnabled: cloudEnabled
+  });
 }
 
 // Wire the REAL scheduler subsystem into Core, reusing the SAME pure-node
@@ -633,9 +712,47 @@ function createMiaCore(options = {}) {
     return built;
   }
 
+  // Cloud-events WebSocket client — built lazily and exposed for testing. It is
+  // NOT connected on construction/import; only createMiaCore.start() connects it
+  // (gated on cloud enabled+token), and stop() disconnects it. This is the
+  // single-owner cut-over point: Core only hosts /api/events when it actually
+  // runs as the daemon. Reuses the SAME pure-node client main.js drives.
+  let cachedCloudEvents = null;
+  function cloudEvents(overrides = {}) {
+    if (cachedCloudEvents && !Object.keys(overrides).length) return cachedCloudEvents;
+    const built = createCoreCloudEvents({
+      settingsStore,
+      cloudRouting: overrides.cloudRouting || cloudRouting(),
+      // Production transport is the same `ws` package main.js uses (no fork);
+      // tests inject a mock socket class.
+      WebSocketImpl: overrides.WebSocketImpl || require("ws"),
+      emitLocalEvent: (envelope) => controlServer.publishLocalEvent?.(envelope),
+      log: () => {},
+      ...overrides
+    });
+    if (!Object.keys(overrides).length) cachedCloudEvents = built;
+    return built;
+  }
+
+  async function startWithCloud() {
+    const status = await start();
+    // SINGLE-OWNER CUT-OVER: connect to the cloud events socket only AFTER the
+    // control server is up AND cloud is enabled with a token. Never connect at
+    // import/construction — only here, when Core runs as the daemon.
+    const cloud = settingsStore.cloudSettings();
+    if (cloud.enabled && cloud.token) {
+      cloudEvents().start();
+    }
+    return status;
+  }
+
   return {
-    start,
+    start: startWithCloud,
     stop: () => {
+      // Disconnect the cloud events socket first so its reconnect timer + active
+      // socket are torn down before the control server stops (clean shutdown,
+      // node --test exits). No-op if it was never built/connected.
+      if (cachedCloudEvents) cachedCloudEvents.stop();
       // Clear any armed scheduler timer so node --test (and a clean shutdown)
       // exits; if the subsystem was never built this is a no-op.
       if (cachedScheduler) cachedScheduler.stopScheduler();
@@ -649,11 +766,12 @@ function createMiaCore(options = {}) {
     describeDaemonTarget,
     botExecution,
     cloudRouting,
+    cloudEvents,
     schedulerSubsystem
   };
 }
 
-module.exports = { createMiaCore, createCoreBotExecution, createCoreCloudRouting, createCoreScheduler };
+module.exports = { createMiaCore, createCoreBotExecution, createCoreCloudRouting, createCoreCloudEvents, createCoreScheduler };
 
 if (require.main === module) {
   const core = createMiaCore({ version: require("../../package.json").version });

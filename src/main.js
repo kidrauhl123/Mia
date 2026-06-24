@@ -82,6 +82,11 @@ const {
 } = require("./main/social/local-bot-responder.js");
 const { createMainBotRuntimeDispatcher } = require("./main/social/bot-runtime-dispatcher.js");
 const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js");
+const {
+  cloudWebSocketUrl: buildCloudWebSocketUrl,
+  cloudWebSocketProtocols: buildCloudWebSocketProtocols,
+  cloudEventsUrl: buildCloudEventsUrl
+} = require("./main/cloud/cloud-events-url.js");
 const { createCloudBridgeClient } = require("./main/cloud/cloud-bridge-client.js");
 const { createCloudDesktopSyncClient } = require("./main/cloud/desktop-sync-client.js");
 const { createCloudSettingsWriter } = require("./main/cloud/cloud-settings-writer.js");
@@ -1736,24 +1741,15 @@ async function installDesktopMarketSkill(skillId) {
 }
 
 function cloudWebSocketUrl(pathname, settings = settingsStore.cloudSettings()) {
-  const url = new URL(settings.url);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = pathname;
-  url.search = "";
-  return url;
+  return buildCloudWebSocketUrl(pathname, settings);
 }
 
 function cloudWebSocketProtocols(settings = settingsStore.cloudSettings()) {
-  return [`mia-token.${settings.token}`];
+  return buildCloudWebSocketProtocols(settings);
 }
 
 function cloudEventsUrl(settings = settingsStore.cloudSettings()) {
-  const url = cloudWebSocketUrl("/api/events", settings);
-  // Tell the server where we left off so it can replay any persisted
-  // events we missed while disconnected (Phase 1.C). 0 == replay from
-  // the start (login / fresh install).
-  url.searchParams.set("since_seq", String(Number(settings.lastEventSeq) || 0));
-  return url.toString();
+  return buildCloudEventsUrl(settings);
 }
 
 function bridgeEngineIdsFromView(engines = {}) {
