@@ -131,8 +131,8 @@
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 560;
+  font-size: var(--capsule-tab-font-size);
+  font-weight: var(--capsule-tab-font-weight);
   cursor: default;
   transition: background 140ms ease, color 140ms ease;
 }
@@ -143,7 +143,7 @@
 .task-mode-toggle button.active {
   background: transparent;
   color: var(--segmented-control-active-text);
-  font-weight: 560;
+  font-weight: var(--capsule-tab-active-font-weight);
   box-shadow: none;
 }
 .task-mode-count {
@@ -217,8 +217,8 @@
   -webkit-backdrop-filter: blur(18px) saturate(1.08);
   backdrop-filter: blur(18px) saturate(1.08);
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 560;
+  font-size: var(--capsule-tab-font-size);
+  font-weight: var(--capsule-tab-font-weight);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   cursor: default;
@@ -233,7 +233,7 @@
 .task-chip-row button.active {
   background: var(--surface);
   color: var(--text);
-  font-weight: 560;
+  font-weight: var(--capsule-tab-active-font-weight);
   box-shadow: var(--floating-control-shadow);
 }
 .task-chip-row button.active span { color: var(--faint); }

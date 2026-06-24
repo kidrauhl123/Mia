@@ -23,6 +23,11 @@ let socialBootstrapInFlight = null;
 let personaSearchTimer = 0;
 let personaSearchSerial = 0;
 let shellLayoutTransitionTimer = 0;
+let sidebarTagIndicatorFrame = 0;
+let lastConversationFolderKey = null;
+let conversationFolderMotion = { key: "", direction: 1 };
+let personaFolderAnimationTimer = 0;
+let personaListRenderSignature = "";
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
 const rendererPlatform = String(window.mia?.platform || "unknown");
 document.body.classList.toggle("platform-win32", rendererPlatform === "win32");
@@ -148,6 +153,7 @@ const els = {
   taskSidebar: document.getElementById("taskSidebar"),
   settingsSidebar: document.getElementById("settingsSidebar"),
   sidebarResizeHandle: document.getElementById("sidebarResizeHandle"),
+  sidebarCollapseToggle: document.getElementById("sidebarCollapseToggle"),
   sidebarRailToggle: document.getElementById("sidebarRailToggle"),
   narrowBackButtons: document.querySelectorAll("[data-narrow-back]"),
   chatView: document.getElementById("chatView"),
@@ -981,13 +987,21 @@ function syncSidebarCollapseState() {
     els.appShell.setAttribute("data-sidebar-state", collapsed ? "collapsed" : "expanded");
     els.appShell.setAttribute("data-sidebar-toggle", supported ? "available" : "hidden");
   }
+  if (els.sidebarCollapseToggle) {
+    els.sidebarCollapseToggle.hidden = !supported || collapsed;
+    els.sidebarCollapseToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
   if (els.sidebarRailToggle) {
-    els.sidebarRailToggle.hidden = !supported;
+    els.sidebarRailToggle.hidden = !supported || !collapsed;
     els.sidebarRailToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    els.sidebarRailToggle.title = collapsed ? "展开中栏" : "收起中栏";
-    els.sidebarRailToggle.setAttribute("aria-label", collapsed ? "展开中栏" : "收起中栏");
+    els.sidebarRailToggle.title = "展开中栏";
+    els.sidebarRailToggle.setAttribute("aria-label", "展开中栏");
   }
   window.miaScrollbarOverlay?.validateScrollbarOverlay?.();
+}
+
+function setConversationSidebarActionHover(active) {
+  els.conversationSidebar?.classList.toggle("sidebar-action-hover", Boolean(active));
 }
 
 function setSidebarCollapsed(collapsed, persist = false) {
@@ -1445,28 +1459,130 @@ function openDesktopNotificationConversation(payload = {}) {
   render();
 }
 
+function sidebarAllConversationFilterHtml(active) {
+  return `
+    <button class="sidebar-tag-filter all${active ? " active" : ""}" type="button"
+      role="tab" data-sidebar-tag-filter data-tag-name=""
+      aria-selected="${active ? "true" : "false"}" title="所有对话">
+      <span class="sidebar-tag-filter-name">所有对话</span>
+    </button>
+  `;
+}
+
 function sidebarTagFilterHtml(tag) {
   const name = String(tag?.name || "").trim();
   const count = Number(tag?.count) || 0;
   const active = Boolean(tag?.filterActive);
   const color = safeTagColor(tag?.color);
+  const title = count ? `分组「${name}」 · ${count} 个对话` : `分组「${name}」`;
   return `
     <button class="sidebar-tag-filter${active ? " active" : ""}" type="button"
+      role="tab"
       data-sidebar-tag-filter data-tag-name="${window.miaMarkdown.escapeHtml(name)}"
-      aria-pressed="${active ? "true" : "false"}" title="筛选「${window.miaMarkdown.escapeHtml(name)}」"
+      aria-selected="${active ? "true" : "false"}" title="${window.miaMarkdown.escapeHtml(title)}"
       style="--tag-color:${window.miaMarkdown.escapeHtml(color)}">
       <span class="sidebar-tag-filter-name">${window.miaMarkdown.escapeHtml(name)}</span>
-      <span class="sidebar-tag-filter-count">${window.miaMarkdown.escapeHtml(String(count))}</span>
     </button>
   `;
+}
+
+function safeRenderSignature(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value ?? "");
+  }
+}
+
+function tagFilterStructureSignature(filters) {
+  return safeRenderSignature((Array.isArray(filters) ? filters : []).map((tag) => ({
+    name: String(tag?.name || "").trim(),
+    count: Number(tag?.count) || 0,
+    color: safeTagColor(tag?.color)
+  })));
+}
+
+function conversationFolderKey(name) {
+  return String(name || "").trim().toLowerCase();
+}
+
+function sidebarTagButtonIndex(name) {
+  const key = conversationFolderKey(name);
+  const buttons = Array.from(els.personaTagFilters?.querySelectorAll?.("[data-sidebar-tag-filter]") || []);
+  return buttons.findIndex((button) => conversationFolderKey(button.dataset.tagName || "") === key);
+}
+
+function rememberConversationFolderMotion(nextName) {
+  const currentName = String(window.miaSocial?.getConversationTagFilter?.() || "").trim();
+  const nextKey = conversationFolderKey(nextName);
+  if (conversationFolderKey(currentName) === nextKey) return false;
+  const currentIndex = sidebarTagButtonIndex(currentName);
+  const nextIndex = sidebarTagButtonIndex(nextName);
+  const direction = currentIndex >= 0 && nextIndex >= 0 && nextIndex < currentIndex ? -1 : 1;
+  conversationFolderMotion = { key: nextKey, direction };
+  return true;
+}
+
+function updateSidebarTagIndicator() {
+  sidebarTagIndicatorFrame = 0;
+  const strip = els.personaTagFilters?.querySelector?.(".sidebar-tag-filter-strip");
+  const indicator = strip?.querySelector?.(".sidebar-tag-filter-indicator");
+  const active = strip?.querySelector?.(".sidebar-tag-filter.active");
+  if (!strip || !indicator || !active) {
+    indicator?.style?.setProperty?.("--tag-indicator-width", "0px");
+    return;
+  }
+  const x = active.offsetLeft;
+  const width = active.offsetWidth;
+  indicator.style.setProperty("--tag-indicator-x", `${Math.round(x)}px`);
+  indicator.style.setProperty("--tag-indicator-width", `${Math.max(12, Math.round(width))}px`);
+}
+
+function scheduleSidebarTagIndicator() {
+  if (sidebarTagIndicatorFrame && typeof cancelAnimationFrame === "function") cancelAnimationFrame(sidebarTagIndicatorFrame);
+  if (typeof requestAnimationFrame !== "function") {
+    updateSidebarTagIndicator();
+    return;
+  }
+  sidebarTagIndicatorFrame = requestAnimationFrame(updateSidebarTagIndicator);
+}
+
+function syncSidebarTagFilterSelection(activeName) {
+  const activeKey = conversationFolderKey(activeName);
+  const buttons = Array.from(els.personaTagFilters?.querySelectorAll?.("[data-sidebar-tag-filter]") || []);
+  for (const button of buttons) {
+    const selected = conversationFolderKey(button.dataset.tagName || "") === activeKey;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", selected ? "true" : "false");
+  }
+}
+
+function animatePersonaListFolderPage(activeName) {
+  if (!els.personaList) return;
+  const key = conversationFolderKey(activeName);
+  if (lastConversationFolderKey == null) {
+    lastConversationFolderKey = key;
+    return;
+  }
+  if (lastConversationFolderKey === key) return;
+  const direction = conversationFolderMotion.key === key ? conversationFolderMotion.direction : 1;
+  lastConversationFolderKey = key;
+  els.personaList.classList.remove("folder-page-forward", "folder-page-back");
+  // Restart animation even when two quick taps have the same direction.
+  void els.personaList.offsetWidth;
+  els.personaList.classList.add(direction < 0 ? "folder-page-back" : "folder-page-forward");
+  if (personaFolderAnimationTimer) clearTimeout(personaFolderAnimationTimer);
+  personaFolderAnimationTimer = setTimeout(() => {
+    els.personaList?.classList.remove("folder-page-forward", "folder-page-back");
+  }, 260);
 }
 
 function renderConversationSearchTools(cloudReady) {
   const searchValue = String(state.personaFilter || "");
   const activeFilterName = String(window.miaSocial?.getConversationTagFilter?.() || "").trim();
-  const searchOpen = Boolean(state.personaSearchOpen || searchValue || activeFilterName);
+  const searchOpen = Boolean(state.personaSearchOpen || searchValue);
   const filters = cloudReady ? (window.miaSocial?.conversationTagFilters?.() || []) : [];
-  const showFilters = searchOpen && filters.length > 0;
+  const showFilters = cloudReady && (filters.length > 0 || activeFilterName);
   const tools = els.personaSearch?.closest?.(".sidebar-tools") || null;
   const searchBox = els.personaSearch?.closest?.(".search-box") || null;
 
@@ -1486,14 +1602,25 @@ function renderConversationSearchTools(cloudReady) {
   if (!els.personaTagFilters) return;
   els.personaTagFilters.classList.toggle("hidden", !showFilters);
   if (!showFilters) {
-    els.personaTagFilters.innerHTML = "";
+    if (els.personaTagFilters.dataset.renderSignature !== "hidden") {
+      els.personaTagFilters.innerHTML = "";
+      els.personaTagFilters.dataset.renderSignature = "hidden";
+    }
     return;
   }
-  els.personaTagFilters.innerHTML = `
-    <div class="sidebar-tag-filter-strip" role="listbox" aria-label="标签筛选">
-      ${filters.map(sidebarTagFilterHtml).join("")}
-    </div>
-  `;
+  const signature = tagFilterStructureSignature(filters);
+  if (els.personaTagFilters.dataset.renderSignature !== signature) {
+    els.personaTagFilters.innerHTML = `
+      <div class="sidebar-tag-filter-strip" role="tablist" aria-label="对话分组">
+        ${sidebarAllConversationFilterHtml(!activeFilterName)}
+        ${filters.map(sidebarTagFilterHtml).join("")}
+        <span class="sidebar-tag-filter-indicator" aria-hidden="true"></span>
+      </div>
+    `;
+    els.personaTagFilters.dataset.renderSignature = signature;
+  }
+  syncSidebarTagFilterSelection(activeFilterName);
+  scheduleSidebarTagIndicator();
 }
 
 function typingLabelForActiveRun(social, conversation) {
@@ -1975,6 +2102,66 @@ function createConversationCardFromSpec(spec) {
   return spec?.kind === ConversationKind.CloudGroup
     ? window.miaSidebarCards.createGroupCard(spec)
     : window.miaSidebarCards.createPrivateCard(spec);
+}
+
+function sidebarCardRenderSignature(spec) {
+  return {
+    kind: spec?.kind || "",
+    searchResult: Boolean(spec?.searchResult),
+    active: Boolean(spec?.active),
+    pinned: Boolean(spec?.pinned),
+    muted: Boolean(spec?.muted),
+    name: String(spec?.name || ""),
+    typeLabel: String(spec?.typeLabel || ""),
+    preview: String(spec?.preview || ""),
+    typing: Boolean(spec?.typing),
+    typingLabel: String(spec?.typingLabel || ""),
+    time: String(spec?.time || ""),
+    unread: Number(spec?.unread) || 0,
+    avatar: spec?.avatar || null,
+    members: Array.isArray(spec?.members) ? spec.members : [],
+    customAvatar: spec?.customAvatar || null,
+    statusBadge: spec?.statusBadge || null,
+    dataAttrs: spec?.dataAttrs || null,
+    tags: Array.isArray(spec?.tags)
+      ? spec.tags.map((tag) => ({
+          name: String(tag?.name || "").trim(),
+          color: safeTagColor(tag?.color)
+        }))
+      : [],
+    tagEditor: spec?.tagEditor
+      ? {
+          active: Boolean(spec.tagEditor.active),
+          adding: Boolean(spec.tagEditor.adding),
+          mode: String(spec.tagEditor.mode || ""),
+          targetName: String(spec.tagEditor.targetName || ""),
+          draft: String(spec.tagEditor.draft || ""),
+          removingName: String(spec.tagEditor.removingName || ""),
+          filterName: String(spec.tagEditor.filterName || "")
+        }
+      : null
+  };
+}
+
+function renderPersonaListIfChanged(specs, emptyText, activeTagFilterName) {
+  const signature = safeRenderSignature({
+    emptyText,
+    activeTagFilterName,
+    rows: specs.map(sidebarCardRenderSignature)
+  });
+  if (personaListRenderSignature === signature) return;
+  personaListRenderSignature = signature;
+  els.personaList.innerHTML = "";
+  for (const spec of specs) {
+    els.personaList.appendChild(createConversationCardFromSpec(spec));
+  }
+  if (!specs.length && emptyText) {
+    const empty = document.createElement("div");
+    empty.className = "persona-empty";
+    empty.textContent = emptyText;
+    els.personaList.appendChild(empty);
+  }
+  animatePersonaListFolderPage(activeTagFilterName);
 }
 
 function renderChatConversationMenu(rows = [], personas = []) {
@@ -2915,6 +3102,7 @@ function render() {
   renderConversationSearchTools(cloudReady);
   const searchQuery = String(state.personaFilter || "").trim();
   const searchMode = Boolean(state.personaSearchOpen || searchQuery);
+  const activeTagFilterName = String(window.miaSocial?.getConversationTagFilter?.() || "").trim();
   const useMessageSearch = searchMode && Boolean(searchQuery);
   const messageRows = !cloudReady
     ? []
@@ -2934,30 +3122,26 @@ function render() {
     && social?.conversationTagEditorFor?.(tagInput.conversationId)?.active);
 
   if (!holdSidebarForTagInput) {
-    els.personaList.innerHTML = "";
+    const sidebarSpecs = [];
     for (const row of messageRows) {
       const spec = conversationCardSpecFromRow(row, personas);
       if (!spec) continue;
-      els.personaList.appendChild(createConversationCardFromSpec(spec));
+      sidebarSpecs.push(spec);
     }
 
+    let emptyText = "";
     if (!messageRows.length) {
-      const emptyText = cloudSignedIn
+      emptyText = cloudSignedIn
         ? (cloudReady
           ? (searchMode
             ? (useMessageSearch
               ? (state.personaSearchLoading ? "正在搜索会话记录…" : (state.personaSearchError || "没有匹配的会话记录"))
               : "")
-            : "没有匹配的消息")
+            : (activeTagFilterName ? `「${activeTagFilterName}」分组暂无对话` : "没有匹配的消息"))
           : "正在同步会话…")
         : "正在打开登录引导…";
-      if (emptyText) {
-        const empty = document.createElement("div");
-        empty.className = "persona-empty";
-        empty.textContent = emptyText;
-        els.personaList.appendChild(empty);
-      }
     }
+    renderPersonaListIfChanged(sidebarSpecs, emptyText, activeTagFilterName);
   }
   renderView();
   renderSessionMenu();
@@ -5086,8 +5270,9 @@ els.personaTagFilters?.addEventListener("click", (event) => {
   const chip = event.target?.closest?.("[data-sidebar-tag-filter]");
   if (!chip) return;
   event.preventDefault();
-  state.personaSearchOpen = true;
-  window.miaSocial?.setConversationTagFilter?.(chip.dataset.tagName || "");
+  const nextName = chip.dataset.tagName || "";
+  if (!rememberConversationFolderMotion(nextName)) return;
+  window.miaSocial?.setConversationTagFilter?.(nextName);
 });
 els.contactSearch?.addEventListener("input", () => {
   state.contactFilter = els.contactSearch.value;
@@ -5168,9 +5353,18 @@ document.querySelectorAll("[data-task-sidebar-mode]").forEach((button) => {
   });
 });
 
+els.conversationSidebar?.addEventListener("pointerenter", () => setConversationSidebarActionHover(true));
+els.conversationSidebar?.addEventListener("pointerleave", () => setConversationSidebarActionHover(false));
+
+els.sidebarCollapseToggle?.addEventListener("click", () => {
+  if (!sidebarCollapseSupported(state.activeView)) return;
+  setSidebarCollapsed(true, true);
+  renderView();
+});
+
 els.sidebarRailToggle?.addEventListener("click", () => {
   if (!sidebarCollapseSupported(state.activeView)) return;
-  setSidebarCollapsed(!state.sidebarCollapsed, true);
+  setSidebarCollapsed(false, true);
   renderView();
 });
 
@@ -5248,6 +5442,7 @@ window.addEventListener("resize", () => {
   syncNarrowLayout();
   syncSidebarCollapseState();
   if (els.appShell) els.appShell.setAttribute("data-shell-layout", state.shellLayout);
+  scheduleSidebarTagIndicator();
   triggerResponsiveShellTransition(transitionDirection);
 });
 

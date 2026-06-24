@@ -291,7 +291,8 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(appStateSource, /shellLayout:\s*windowWidth <= 720 \? "single" : "dual"/);
   assert.match(appStateSource, /sidebarCollapsed:\s*options\.sidebarCollapsed \?\? readLocal\(storage, "mia\.sidebarCollapsed\.v1"\) === "1"/);
   assert.doesNotMatch(appStateSource, /skillPickerPluginId/);
-  assert.match(html, /id="sidebarRailToggle" class="sidebar-rail-toggle"[\s\S]*?aria-expanded="true"[\s\S]*?<path d="M15 18L9 12L15 6"/);
+  assert.match(html, /id="sidebarCollapseToggle" class="sidebar-collapse-toggle"[\s\S]*?aria-controls="conversationSidebar"[\s\S]*?aria-expanded="true"[\s\S]*?<\/button>\s*<div class="sidebar-title">消息<\/div>/);
+  assert.match(html, /id="sidebarRailToggle" class="sidebar-rail-toggle sidebar-expand-toggle"[\s\S]*?aria-controls="conversationSidebar"[\s\S]*?aria-expanded="false"[\s\S]*?<rect x="3" y="4" width="18" height="16" rx="2\.5"/);
   assert.match(css, /--rail-column-width:\s*78px;/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) var\(--sidebar-width\) 0 minmax\(0,\s*1fr\);/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\]\[data-sidebar-state="collapsed"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) 0 0 minmax\(0,\s*1fr\);/);
@@ -312,12 +313,19 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(css, /:root\[data-theme="dark"\] \.nav-rail\s*\{[\s\S]*?background:\s*var\(--rail-glass-bg\);[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(css, /\.traffic-spacer\s*\{[\s\S]*?height:\s*var\(--traffic-spacer-height\);/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?margin:\s*8px 8px 10px 0;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?background:\s*var\(--surface-layer\);[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/);
-  assert.match(css, /\.sidebar-rail-toggle\s*\{[\s\S]*?top:\s*12px;[\s\S]*?bottom:\s*12px;[\s\S]*?left:\s*calc\(var\(--rail-column-width\) - 7px\);[\s\S]*?width:\s*14px;[\s\S]*?height:\s*auto;[\s\S]*?background:\s*transparent;[\s\S]*?transform:\s*translateX\(-50%\);/);
-  assert.match(css, /\.sidebar-rail-toggle::before\s*\{[\s\S]*?display:\s*none;[\s\S]*?content:\s*"";/);
-  assert.match(css, /\.sidebar-rail-toggle svg\s*\{[\s\S]*?opacity:\s*0;/);
-  assert.match(css, /\.sidebar-rail-toggle:hover svg\s*\{[\s\S]*?opacity:\s*1;/);
-  assert.doesNotMatch(css, /\.sidebar-rail-toggle:focus-visible/);
-  assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle svg\s*\{[\s\S]*?transform:\s*rotate\(180deg\);/);
+  assert.match(appSource, /sidebarCollapseToggle:\s*document\.getElementById\("sidebarCollapseToggle"\)/);
+  assert.match(appSource, /els\.sidebarCollapseToggle\?\.addEventListener\("click",\s*\(\) => \{[\s\S]*?setSidebarCollapsed\(true,\s*true\);/);
+  assert.match(appSource, /els\.sidebarRailToggle\?\.addEventListener\("click",\s*\(\) => \{[\s\S]*?setSidebarCollapsed\(false,\s*true\);/);
+  assert.match(appSource, /function setConversationSidebarActionHover\(active\)/);
+  assert.match(appSource, /els\.conversationSidebar\?\.addEventListener\("pointerenter",\s*\(\) => setConversationSidebarActionHover\(true\)\)/);
+  assert.match(appSource, /els\.conversationSidebar\?\.addEventListener\("pointerleave",\s*\(\) => setConversationSidebarActionHover\(false\)\)/);
+  assert.match(css, /\.sidebar-title-row\s*\{[\s\S]*?display:\s*flex;[\s\S]*?align-items:\s*center;[\s\S]*?-webkit-app-region:\s*no-drag;/);
+  assert.match(css, /\.sidebar-collapse-toggle\s*\{[\s\S]*?width:\s*0;[\s\S]*?opacity:\s*0;[\s\S]*?overflow:\s*hidden;/);
+  assert.match(css, /\.conversation-sidebar:hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar\.sidebar-action-hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar \.sidebar-tools:focus-within \.sidebar-collapse-toggle\s*\{[\s\S]*?width:\s*28px;[\s\S]*?opacity:\s*1;/);
+  assert.doesNotMatch(css, /\.sidebar-collapse-toggle:focus-visible[^{]*\{[^}]*(?:outline|box-shadow):/);
+  assert.doesNotMatch(css, /\.sidebar-rail-toggle:focus-visible[^{]*\{[^}]*(?:outline|box-shadow):/);
+  assert.match(css, /\.sidebar-rail-toggle\s*\{[\s\S]*?top:\s*50%;[\s\S]*?left:\s*calc\(var\(--rail-column-width\) - 6px\);[\s\S]*?width:\s*32px;[\s\S]*?height:\s*44px;[\s\S]*?background:\s*color-mix\(in srgb,\s*var\(--surface-layer\) 72%,\s*transparent\);[\s\S]*?color:\s*var\(--faint\);[\s\S]*?box-shadow:\s*0 6px 18px rgba\(15,\s*23,\s*42,\s*0\.08\);[\s\S]*?opacity:\s*0;[\s\S]*?transform:\s*translateY\(-50%\);/);
+  assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\] \.nav-rail:hover ~ \.sidebar-rail-toggle,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:hover,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:focus-visible\s*\{[\s\S]*?opacity:\s*1;/);
   assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-rail-toggle\s*\{[\s\S]*?display:\s*none;/);
 });
 
@@ -918,6 +926,34 @@ test("conversation tag editor is inline on the sidebar card and uses the label a
   assert.doesNotMatch(stylesSource, /\.conversation-tags-popover/);
   assert.match(markdownSource, /tag:\s*\{ name:\s*"label"/);
   assert.match(labelAsset, /"nm":\s*"system-regular-146-label"/);
+});
+
+test("conversation tag filters render as persistent chat folder tabs", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const searchToolsSource = extractFunctionSource(appSource, "renderConversationSearchTools");
+  const tagFilterClickStart = appSource.indexOf('els.personaTagFilters?.addEventListener("click"');
+  const tagFilterClickEnd = appSource.indexOf("els.contactSearch?.addEventListener", tagFilterClickStart);
+  const tagFilterClickSource = appSource.slice(tagFilterClickStart, tagFilterClickEnd);
+
+  assert.match(html, /id="personaTagFilters"[^>]+aria-label="对话分组"/);
+  assert.match(appSource, /function sidebarAllConversationFilterHtml\(active\)/);
+  assert.match(appSource, /function rememberConversationFolderMotion\(nextName\)/);
+  assert.match(appSource, /function updateSidebarTagIndicator\(\)/);
+  assert.match(appSource, /function syncSidebarTagFilterSelection\(activeName\)/);
+  assert.match(appSource, /function renderPersonaListIfChanged\(specs,\s*emptyText,\s*activeTagFilterName\)/);
+  assert.match(searchToolsSource, /const showFilters = cloudReady && \(filters\.length > 0 \|\| activeFilterName\);/);
+  assert.match(searchToolsSource, /dataset\.renderSignature !== signature/);
+  assert.match(searchToolsSource, /sidebarAllConversationFilterHtml\(!activeFilterName\)/);
+  assert.match(searchToolsSource, /role="tablist" aria-label="对话分组"/);
+  assert.match(searchToolsSource, /filters\.map\(sidebarTagFilterHtml\)\.join\(""\)/);
+  assert.match(searchToolsSource, /sidebar-tag-filter-indicator/);
+  assert.match(searchToolsSource, /syncSidebarTagFilterSelection\(activeFilterName\);/);
+  assert.match(appSource, /animatePersonaListFolderPage\(activeTagFilterName\);/);
+  assert.match(appSource, /renderPersonaListIfChanged\(sidebarSpecs,\s*emptyText,\s*activeTagFilterName\);/);
+  assert.match(tagFilterClickSource, /const nextName = chip\.dataset\.tagName \|\| "";/);
+  assert.match(tagFilterClickSource, /if \(!rememberConversationFolderMotion\(nextName\)\) return;/);
+  assert.doesNotMatch(tagFilterClickSource, /personaSearchOpen\s*=\s*true/);
 });
 
 test("desktop lottie badges can load local TGS assets in the renderer with a preload bridge fallback", () => {

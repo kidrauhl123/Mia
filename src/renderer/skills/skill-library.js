@@ -25,6 +25,7 @@
   const marketRefreshKeys = new Set();
   let modeToggleIndicatorHost = null;
   let modeToggleIndicatorResizeBound = false;
+  let chipRowIndicatorResizeBound = false;
   let pageTurnDirection = 0;
   const SKILL_MODE_ORDER = Object.freeze({ market: 0, mine: 1, mcp: 2 });
 
@@ -51,6 +52,56 @@
     }
   }
 
+  function scrollChipButtonIntoView(button, behavior = "smooth") {
+    const row = els?.skillChipRow;
+    if (!button || !row || typeof button.scrollIntoView !== "function") return;
+    if ((row.scrollWidth || 0) <= (row.clientWidth || 0)) return;
+    const prefersReducedMotion = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    try {
+      button.scrollIntoView({
+        block: "nearest",
+        inline: "center",
+        behavior: prefersReducedMotion ? "auto" : behavior
+      });
+    } catch {
+      button.scrollIntoView();
+    }
+  }
+
+  function syncChipRowIndicator(behavior = "auto") {
+    const row = els?.skillChipRow;
+    if (!row) return;
+
+    const update = () => {
+      const active = row.querySelector("button.active");
+      if (!active || typeof active.getBoundingClientRect !== "function") {
+        row.style.setProperty("--pill-ready", "0");
+        return;
+      }
+      scrollChipButtonIntoView(active, behavior);
+      const activeRect = active.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      const pillX = Number.isFinite(active.offsetLeft)
+        ? active.offsetLeft
+        : (activeRect.left - rowRect.left + row.scrollLeft);
+      const pillW = Number.isFinite(active.offsetWidth) && active.offsetWidth > 0
+        ? active.offsetWidth
+        : activeRect.width;
+      row.style.setProperty("--pill-x", `${pillX}px`);
+      row.style.setProperty("--pill-w", `${pillW}px`);
+      row.style.setProperty("--pill-ready", "1");
+    };
+
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(update);
+    else update();
+
+    if (!chipRowIndicatorResizeBound && typeof window !== "undefined") {
+      chipRowIndicatorResizeBound = true;
+      window.addEventListener("resize", () => syncChipRowIndicator("auto"));
+    }
+  }
+
   function initSkillLibrary(deps) {
     state = deps.state;
     els = deps.els;
@@ -68,7 +119,7 @@
   function skillMatchesFilters(skill) {
     if (!state) return false;
     const needle = state.skillFilter.trim().toLowerCase();
-    const category = state.skillCategoryFilter.trim().toLowerCase();
+    const category = currentSkillMode() === "mine" ? "" : state.skillCategoryFilter.trim().toLowerCase();
     const haystack = [
       skill.name,
       skill.title,
@@ -168,24 +219,20 @@
   }
 
   function renderChips(entries) {
-    const chipKeys = ["", ...entries.slice(0, 12).map(([category]) => category)];
     const mode = currentSkillMode();
+    const categoryEntries = entries.slice(0, 12);
+    const chipKeys = ["", "__mine__", ...categoryEntries.map(([category]) => category)];
     const scopeChips = isSkillCollectionMode(mode)
       ? [
-          { mode: "market", label: "市场" },
-          { mode: "mine", label: "我的技能" }
+          `<button class="${mode === "market" && !state.skillCategoryFilter ? "active" : ""}" type="button" data-skill-scope="market">全部</button>`,
+          `<button class="${mode === "mine" ? "active" : ""}" type="button" data-skill-scope="mine">我的技能</button>`
         ]
       : [];
     els.skillChipRow.innerHTML = [
-      ...scopeChips.map((chip) => `
-        <button class="${mode === chip.mode ? "active" : ""}" type="button" data-skill-scope="${chip.mode}">
-          ${chip.label}
-        </button>
-      `),
-      `<button class="${state.skillCategoryFilter ? "" : "active"}" type="button" data-skill-filter="">全部</button>`,
-      ...entries.slice(0, 12).map(([category, count]) => `
-        <button class="${state.skillCategoryFilter === category ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(category)}">
-          ${escapeHtml(category)} <span>${count}</span>
+      ...scopeChips,
+      ...categoryEntries.map(([category, count]) => `
+        <button class="${mode === "market" && state.skillCategoryFilter === category ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(category)}" aria-label="${escapeHtml(count ? `${category}，${count} 个技能` : category)}">
+          ${escapeHtml(category)}
         </button>
       `)
     ].join("");
@@ -195,16 +242,21 @@
     els.skillChipRow.querySelectorAll("[data-skill-filter]").forEach((button) => {
       button.addEventListener("click", () => {
         const next = button.dataset.skillFilter || "";
-        if (state.skillCategoryFilter === next) return;
-        const fromIndex = Math.max(0, chipKeys.indexOf(state.skillCategoryFilter || ""));
+        const modeNow = currentSkillMode();
+        if (modeNow === "market" && state.skillCategoryFilter === next) return;
+        const fromKey = modeNow === "mine" ? "__mine__" : (state.skillCategoryFilter || "");
+        const fromIndex = Math.max(0, chipKeys.indexOf(fromKey));
         const toIndex = Math.max(0, chipKeys.indexOf(next));
         pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
         window.miaMasonryGrid?.capture(els.skillCardGrid, pageTurnDirection);
+        state.skillCapabilityMode = "market";
+        state.skillMarketMode = true;
         state.skillCategoryFilter = next;
         closeSkillContextMenu();
         renderSkillLibrary();
       });
     });
+    syncChipRowIndicator("auto");
   }
 
   function currentSkillMode() {
@@ -303,7 +355,7 @@
 
   function renderLocalView() {
     setText(els.skillPageTitle, state.skillsLoading ? "正在扫描能力" : "技能");
-    renderChips(skillCategories());
+    renderChips(marketCategoryEntries());
     const shown = visibleSkills();
     els.skillCardGrid.innerHTML = shown.length
       ? shown.map((skill) => renderSkillCard(skill)).join("")

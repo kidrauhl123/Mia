@@ -240,6 +240,32 @@
     els.skillChipRow.querySelectorAll("[data-mcp-tab]").forEach((button) => {
       button.addEventListener("click", () => setMcpTab(button.dataset.mcpTab));
     });
+    syncMcpTabsIndicator();
+  }
+
+  function syncMcpTabsIndicator() {
+    const row = els?.skillChipRow;
+    if (!row) return;
+    const update = () => {
+      const active = row.querySelector("button.active");
+      if (!active || typeof active.getBoundingClientRect !== "function") {
+        row.style.setProperty("--pill-ready", "0");
+        return;
+      }
+      const activeRect = active.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      const pillX = Number.isFinite(active.offsetLeft)
+        ? active.offsetLeft
+        : (activeRect.left - rowRect.left + row.scrollLeft);
+      const pillW = Number.isFinite(active.offsetWidth) && active.offsetWidth > 0
+        ? active.offsetWidth
+        : activeRect.width;
+      row.style.setProperty("--pill-x", `${pillX}px`);
+      row.style.setProperty("--pill-w", `${pillW}px`);
+      row.style.setProperty("--pill-ready", "1");
+    };
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(update);
+    else update();
   }
 
   function transportLabel(type) {

@@ -81,37 +81,71 @@
   overflow-y: auto;
 }
 
-/* 分类筛选：删除整块大胶囊，每个分类自己是独立浮动 chip。 */
 .skill-chip-row {
-  display: flex;
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  width: auto;
-  max-width: 100%;
+  align-self: start;
+  justify-self: start;
+  flex-wrap: nowrap;
+  gap: 2px;
+  box-sizing: border-box;
+  width: fit-content;
   min-width: 0;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
+  max-width: 100%;
+  inline-size: fit-content;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  padding: 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+  border-radius: 999px;
+  background: var(--segmented-control-bg);
+  box-shadow: var(--segmented-control-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(1.16);
+  backdrop-filter: blur(24px) saturate(1.16);
+  isolation: isolate;
+}
+
+.skill-chip-row::-webkit-scrollbar {
+  display: none;
+}
+
+.skill-chip-row::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: var(--pill-w, 0px);
+  border-radius: 999px;
+  background: rgb(var(--accent-rgb) / 0.14);
   box-shadow: none;
-  flex-wrap: wrap;
-  overflow: visible;
+  opacity: var(--pill-ready, 0);
+  transform: translateX(var(--pill-x, 0px));
+  pointer-events: none;
+  z-index: 0;
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1), width 200ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 120ms ease;
 }
 
 .skill-chip-row button {
+  position: relative;
   flex: 0 0 auto;
-  min-height: 34px;
-  padding: 0 16px;
+  z-index: 1;
+  padding: 6px 15px;
   border: 0;
   border-radius: 999px;
-  background: var(--floating-control-bg);
-  box-shadow: var(--floating-control-shadow);
-  -webkit-backdrop-filter: blur(18px) saturate(1.08);
-  backdrop-filter: blur(18px) saturate(1.08);
+  background: transparent;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 560;
+  font: inherit;
+  font-size: var(--capsule-tab-font-size);
+  font-weight: var(--capsule-tab-font-weight);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  cursor: default;
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .skill-chip-row button span {
@@ -121,7 +155,7 @@
 }
 
 .skill-chip-row button:hover {
-  background: var(--surface);
+  background: rgb(var(--accent-rgb) / 0.07);
   color: var(--text);
 }
 
@@ -130,14 +164,21 @@
 }
 
 .skill-chip-row button.active {
-  background: var(--surface);
-  color: var(--text);
-  font-weight: 560;
-  box-shadow: var(--floating-control-shadow);
+  background: transparent;
+  color: var(--accent);
+  font-weight: var(--capsule-tab-active-font-weight);
+  box-shadow: none;
 }
 
 .skill-chip-row button.active span {
   color: var(--faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skill-chip-row::before,
+  .skill-chip-row button {
+    transition: none;
+  }
 }
 
 /* 固定列卡片：从左上开始排，稀疏结果也不居中。 */
@@ -277,8 +318,8 @@
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 560;
+  font-size: var(--capsule-tab-font-size);
+  font-weight: var(--capsule-tab-font-weight);
   cursor: default;
   transition: background 140ms ease, color 140ms ease;
 }
@@ -291,7 +332,7 @@
 .skill-mode-toggle button.active {
   background: transparent;
   color: var(--segmented-control-active-text);
-  font-weight: 560;
+  font-weight: var(--capsule-tab-active-font-weight);
   box-shadow: none;
 }
 

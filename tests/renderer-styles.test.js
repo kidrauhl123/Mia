@@ -177,6 +177,11 @@ test("sidebar and chat headers use the same surface without a header divider", (
   );
   assert.match(
     baseCss,
+    /\.conversation-sidebar \.sidebar-tools\.has-tag-filters\s*\{[^}]*-webkit-app-region:\s*no-drag;/,
+    "conversation folder header gap should keep hover active instead of becoming a drag-only dead zone"
+  );
+  assert.match(
+    baseCss,
     /\.conversation-sidebar \.sidebar-tools button,\s*\.conversation-sidebar \.sidebar-tools input,\s*\.conversation-sidebar \.sidebar-tools \.search-box,\s*\.conversation-sidebar \.sidebar-tools \.create-menu,\s*\.conversation-sidebar \.sidebar-tools \.sidebar-tag-filters\s*\{[^}]*-webkit-app-region:\s*no-drag;/,
     "conversation sidebar header controls should remain clickable instead of dragging the window"
   );
@@ -189,6 +194,40 @@ test("conversation search uses a white field without focus highlight", () => {
 
   assert.match(conversationSearchRule, /background:\s*var\(--surface\);/);
   assert.match(searchFocusRule, /box-shadow:\s*none;/);
+});
+
+test("conversation tag grouping uses Telegram-style text tabs with a moving underline", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const filtersRule = cssRuleBody(baseCss, ".sidebar-tag-filters", baseCss.indexOf("\n.sidebar-tag-filters {"));
+  const stripRule = cssRuleBody(baseCss, ".sidebar-tag-filter-strip", baseCss.indexOf("\n.sidebar-tag-filter-strip {"));
+  const tabRule = cssRuleBody(baseCss, ".sidebar-tag-filter", baseCss.indexOf("\n.sidebar-tag-filter {"));
+  const activeRule = cssRuleBody(baseCss, ".sidebar-tag-filter.active", baseCss.indexOf("\n.sidebar-tag-filter.active {"));
+  const indicatorRule = cssRuleBody(baseCss, ".sidebar-tag-filter-indicator");
+
+  assert.match(baseCss, /--capsule-tab-font-size:\s*13px;/);
+  assert.match(baseCss, /--capsule-tab-font-weight:\s*500;/);
+  assert.match(baseCss, /--capsule-tab-active-font-weight:\s*600;/);
+  assert.match(filtersRule, /height:\s*30px;/);
+  assert.match(stripRule, /height:\s*30px;/);
+  assert.match(stripRule, /position:\s*relative;/);
+  assert.match(stripRule, /border-bottom:\s*1px solid var\(--line\);/);
+  assert.match(tabRule, /height:\s*30px;/);
+  assert.match(tabRule, /font-size:\s*var\(--capsule-tab-font-size\);/);
+  assert.match(tabRule, /font-weight:\s*var\(--capsule-tab-font-weight\);/);
+  assert.match(tabRule, /border-radius:\s*0;/);
+  assert.match(tabRule, /background:\s*transparent;/);
+  assert.match(tabRule, /color:\s*var\(--muted\);/);
+  assert.match(activeRule, /background:\s*transparent;/);
+  assert.match(activeRule, /color:\s*var\(--text\);/);
+  assert.match(activeRule, /font-weight:\s*var\(--capsule-tab-active-font-weight\);/);
+  assert.match(indicatorRule, /width:\s*var\(--tag-indicator-width,\s*0px\);/);
+  assert.match(indicatorRule, /transform:\s*translateX\(var\(--tag-indicator-x,\s*0px\)\);/);
+  assert.match(indicatorRule, /transition:\s*transform 220ms/);
+  assert.doesNotMatch(baseCss, /\.sidebar-tag-filter::after\s*\{/);
+  assert.match(baseCss, /\.persona-list\.folder-page-forward\s*\{/);
+  assert.match(baseCss, /\.persona-list\.folder-page-back\s*\{/);
+  assert.match(baseCss, /@keyframes conversationFolderPageForward/);
+  assert.match(baseCss, /@keyframes conversationFolderPageBack/);
 });
 
 test("project styles do not draw focus highlights", () => {
@@ -270,9 +309,10 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(appUpdateOverlayRule, /backdrop-filter:\s*none;/);
   assert.match(appUpdateOverlayRule, /pointer-events:\s*none;/);
   assert.match(appUpdatePanelRule, /pointer-events:\s*auto;/);
-  assert.match(baseCss, /\.sidebar-tag-filter\s*\{[\s\S]*?height:\s*16px;[\s\S]*?font-size:\s*10px;/);
-  assert.match(baseCss, /\.sidebar-tag-filter\s*\{[\s\S]*?border-radius:\s*5px;/);
-  assert.match(baseCss, /\.sidebar-tag-filter\s*\{[\s\S]*?background:\s*rgba\(142,\s*142,\s*147,\s*0\.14\);[\s\S]*?color:\s*rgba\(60,\s*60,\s*67,\s*0\.56\);/);
+  assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?border:\s*0;[\s\S]*?height:\s*16px;[\s\S]*?font-size:\s*10px;/);
+  assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?border-radius:\s*5px;/);
+  assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?background:\s*color-mix\(in srgb,\s*var\(--tag-color,\s*#64748b\) 14%,\s*transparent\);[\s\S]*?color:\s*var\(--tag-color,\s*#64748b\);/);
+  assert.match(baseCss, /\.persona-tag-chip\.filtered\s*\{[\s\S]*?background:\s*color-mix\(in srgb,\s*var\(--tag-color,\s*#64748b\) 28%,\s*transparent\);[\s\S]*?box-shadow:\s*none;/);
   assert.match(baseCss, /\.search-clear\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?color:\s*var\(--faint\);/);
   assert.match(baseCss, /\.search-clear:hover\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?color:\s*var\(--muted\);/);
   assert.match(baseCss, /\.persona\.search-result\s*\{[\s\S]*?grid-template-columns:\s*34px minmax\(0,\s*1fr\);[\s\S]*?min-height:\s*50px;/);
@@ -343,6 +383,16 @@ test("settings workspace lives on the app floor and adapts to narrow windows", (
     baseCss,
     /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.settings-tabs\s*\{[\s\S]*?flex-direction:\s*row;[\s\S]*?overflow-x:\s*auto;/,
     "settings tabs should become a compact horizontal strip on narrow windows"
+  );
+  assert.match(
+    baseCss,
+    /\.app-shell\[data-nav-layout="sidebar-bottom"\]\[data-active-view="settings"\]\s+\.settings-tab\s*\{[\s\S]*?font-size:\s*var\(--capsule-tab-font-size\);[\s\S]*?font-weight:\s*var\(--capsule-tab-font-weight\);/,
+    "settings bottom-nav capsule tabs should reuse the shared capsule label typography"
+  );
+  assert.match(
+    baseCss,
+    /\.app-shell\[data-nav-layout="sidebar-bottom"\]\[data-active-view="settings"\]\s+\.settings-tab\.active\s*\{[\s\S]*?font-weight:\s*var\(--capsule-tab-active-font-weight\);/,
+    "settings bottom-nav active capsule tab should reuse the shared active weight"
   );
   const narrowSettingsMatch = baseCss.match(/\.settings-layout\s*\{\s*grid-template-columns:\s*1fr;/);
   const narrowSettingsIndex = narrowSettingsMatch?.index ?? -1;
@@ -463,12 +513,12 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
     );
     assert.match(
       css,
-      new RegExp(`\\.${selector}\\s+button\\s*\\{[^}]*color:\\s*var\\(--muted\\);`),
+      new RegExp(`\\.${selector}\\s+button\\s*\\{[^}]*color:\\s*var\\(--muted\\);[^}]*font-size:\\s*var\\(--capsule-tab-font-size\\);[^}]*font-weight:\\s*var\\(--capsule-tab-font-weight\\);`),
       `${name} inactive toggle labels should use the floating card text palette`
     );
     assert.match(
       css,
-      new RegExp(`\\.${selector}\\s+button\\.active\\s*\\{[^}]*background:\\s*transparent;[^}]*color:\\s*var\\(--segmented-control-active-text\\);`),
+      new RegExp(`\\.${selector}\\s+button\\.active\\s*\\{[^}]*background:\\s*transparent;[^}]*color:\\s*var\\(--segmented-control-active-text\\);[^}]*font-weight:\\s*var\\(--capsule-tab-active-font-weight\\);`),
       `${name} active labels should sit on the theme-colored capsule`
     );
   }
@@ -490,12 +540,12 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
   );
   assert.match(
     botStoreCss,
-    /\.bot-store-cap button\s*\{[^}]*flex:\s*0 0 auto;[^}]*color:\s*var\(--muted\);/,
+    /\.bot-store-cap button\s*\{[^}]*flex:\s*0 0 auto;[^}]*color:\s*var\(--muted\);[^}]*font-size:\s*var\(--capsule-tab-font-size\);[^}]*font-weight:\s*var\(--capsule-tab-font-weight\);/,
     "bot store category buttons should not compress when the rail scrolls"
   );
   assert.match(
     botStoreCss,
-    /\.bot-store-cap button\.active\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--accent\);/,
+    /\.bot-store-cap button\.active\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--accent\);[^}]*font-weight:\s*var\(--capsule-tab-active-font-weight\);/,
     "bot store active category text should use the theme color"
   );
   assert.match(
@@ -816,40 +866,49 @@ test("contacts detail narrow header keeps back control separate from the mode ca
   );
 });
 
-test("skill and task category filters stay as stable individual chips", () => {
+test("skill category filters reuse the discover segmented capsule", () => {
   const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
+
+  assert.match(
+    skillCss,
+    /\.skill-chip-row\s*\{[^}]*position:\s*relative;[^}]*display:\s*inline-flex;[^}]*flex-wrap:\s*nowrap;[^}]*width:\s*fit-content;[^}]*overflow-x:\s*auto;[^}]*border-radius:\s*999px;[^}]*background:\s*var\(--segmented-control-bg\);[^}]*box-shadow:\s*var\(--segmented-control-shadow\);/,
+    "skill filters should use the same continuous capsule surface as discover categories"
+  );
+  assert.match(
+    skillCss,
+    /\.skill-chip-row::before\s*\{[^}]*width:\s*var\(--pill-w,\s*0px\);[^}]*background:\s*rgb\(var\(--accent-rgb\) \/ 0\.14\);[^}]*transform:\s*translateX\(var\(--pill-x,\s*0px\)\);/,
+    "skill filters should move one selected capsule instead of replacing the row"
+  );
+  assert.match(
+    skillCss,
+    /\.skill-chip-row button\s*\{[^}]*flex:\s*0 0 auto;[^}]*background:\s*transparent;[^}]*color:\s*var\(--muted\);[^}]*font-size:\s*var\(--capsule-tab-font-size\);[^}]*font-weight:\s*var\(--capsule-tab-font-weight\);[^}]*font-variant-numeric:\s*tabular-nums;[^}]*white-space:\s*nowrap;/,
+    "skill filter labels should keep stable sizing inside the capsule"
+  );
+  assert.match(
+    skillCss,
+    /\.skill-chip-row button\.active\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--accent\);[^}]*font-weight:\s*var\(--capsule-tab-active-font-weight\);/,
+    "skill active filter text should sit on the moved capsule"
+  );
+});
+
+test("task category filters stay as stable individual chips", () => {
   const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
 
-  for (const [name, selector, css] of [
-    ["skill", "skill-chip-row", skillCss],
-    ["task", "task-chip-row", taskCss]
-  ]) {
-    assert.match(
-      css,
-      new RegExp(`\\.${selector}\\s*\\{[^}]*padding:\\s*0;[^}]*border-radius:\\s*0;[^}]*background:\\s*transparent;[^}]*box-shadow:\\s*none;[^}]*flex-wrap:\\s*wrap;`),
-      `${name} filters should remain individual floating chips, not one clipped capsule`
-    );
-    assert.match(
-      css,
-      new RegExp(`\\.${selector}\\s+button\\s*\\{[^}]*background:\\s*var\\(--floating-control-bg\\);[^}]*box-shadow:\\s*var\\(--floating-control-shadow\\);[^}]*font-weight:\\s*\\d+;`),
-      `${name} inactive filters should each keep their own stable chip`
-    );
-  }
-  for (const [name, selector, css] of [
-    ["skill", "skill-chip-row", skillCss],
-    ["task", "task-chip-row", taskCss]
-  ]) {
-    assert.match(
-      css,
-      new RegExp(`\\.${selector}\\s+button\\s*\\{[^}]*font-weight:\\s*560;[^}]*font-variant-numeric:\\s*tabular-nums;[^}]*white-space:\\s*nowrap;`),
-      `${name} category buttons should keep one width model so active state does not shift positions`
-    );
-    assert.match(
-      css,
-      new RegExp(`\\.${selector}\\s+button\\.active\\s*\\{[^}]*font-weight:\\s*560;`),
-      `${name} active category buttons should not change text weight`
-    );
-  }
+  assert.match(
+    taskCss,
+    /\.task-chip-row\s*\{[^}]*padding:\s*0;[^}]*border-radius:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;[^}]*flex-wrap:\s*wrap;/,
+    "task filters should remain individual floating chips"
+  );
+  assert.match(
+    taskCss,
+    /\.task-chip-row button\s*\{[^}]*background:\s*var\(--floating-control-bg\);[^}]*box-shadow:\s*var\(--floating-control-shadow\);[^}]*font-size:\s*var\(--capsule-tab-font-size\);[^}]*font-weight:\s*var\(--capsule-tab-font-weight\);[^}]*font-variant-numeric:\s*tabular-nums;[^}]*white-space:\s*nowrap;/,
+    "task category buttons should keep one width model so active state does not shift positions"
+  );
+  assert.match(
+    taskCss,
+    /\.task-chip-row button\.active\s*\{[^}]*font-weight:\s*var\(--capsule-tab-active-font-weight\);/,
+    "task active category buttons should reuse the capsule active weight"
+  );
 });
 
 test("task preview dialog uses a structured inspector layout", () => {

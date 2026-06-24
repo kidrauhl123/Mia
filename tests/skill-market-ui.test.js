@@ -233,13 +233,27 @@ test("market cards do not render direct install or use actions", () => {
   context.window.miaSkillLibrary.renderSkillLibrary();
   assert.match(els.skillModeToggle.innerHTML, /data-skill-mode="market">技能/);
   assert.doesNotMatch(els.skillModeToggle.innerHTML, /我的技能/);
+  assert.match(els.skillChipRow.innerHTML, /data-skill-scope="market">全部<\/button>[\s\S]*data-skill-scope="mine">我的技能/);
+  assert.doesNotMatch(els.skillChipRow.innerHTML, />\s*市场\s*</);
   assert.match(els.skillChipRow.innerHTML, /data-skill-scope="mine"/);
   assert.match(els.skillChipRow.innerHTML, />\s*我的技能\s*</);
+  assert.match(els.skillChipRow.innerHTML, /data-skill-filter="开发工程"/);
   assert.match(els.skillCardGrid.innerHTML, /data-market-id="skill-creator"/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /skill-card-action/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-install=/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-use=/);
 
+  context.window.miaSkillLibrary.switchSkillMode("mine");
+  assert.equal(state.skillCapabilityMode, "mine");
+  assert.match(els.skillChipRow.innerHTML, /data-skill-scope="market">全部/);
+  assert.match(els.skillChipRow.innerHTML, /data-skill-scope="mine">我的技能/);
+  assert.match(els.skillChipRow.innerHTML, /开发工程/);
+  assert.match(els.skillChipRow.innerHTML, /data-skill-filter="开发工程"/);
+  state.skillCategoryFilter = "开发工程";
+  context.window.miaSkillLibrary.renderSkillLibrary();
+  assert.match(els.skillCardGrid.innerHTML, /data-skill-select="mia-official:skill-creator"/);
+
+  context.window.miaSkillLibrary.switchSkillMode("market");
   state.skillLibrary.skills.push({ id: "mia:skill-creator", source: "mia", fromMarket: true, marketId: "skill-creator", name: "skill-creator" });
   context.window.miaSkillLibrary.renderSkillLibrary();
   assert.match(els.skillCardGrid.innerHTML, /data-market-id="skill-creator"/);
@@ -451,8 +465,10 @@ test("topbar keeps skills as one mode and moves mine into in-page filters", () =
   const html = read("src/renderer/index.html");
   assert.match(html, /id="skillModeToggle"/);
   const skillLibrary = read("src/renderer/skills/skill-library.js");
-  assert.match(skillLibrary, /data-skill-scope="\$\{chip\.mode\}"/);
-  assert.match(skillLibrary, /label:\s*"我的技能"/);
+  assert.match(skillLibrary, /data-skill-scope="market">全部/);
+  assert.match(skillLibrary, /data-skill-scope="mine">我的技能/);
+  assert.doesNotMatch(skillLibrary, /label:\s*"市场"/);
+  assert.match(skillLibrary, /syncChipRowIndicator\("auto"\)/);
   assert.match(skillLibrary, /data-skill-mode="mcp"/);
   const css = read("src/renderer/styles/skills.css");
   assert.match(css, /\.skill-mode-toggle/);
