@@ -61,7 +61,24 @@ Extract the `runRemoteChatRequest`/`sendChat` background path so bot invocations
   - **DONE — Core builds the real adapter graph.** `cloudBotSnapshotForTurn`/`botWithRuntimeConfig` extracted to shared `bot-turn-helpers.js` (byte-identical). `createCoreBotExecution` (src/core/mia-core.js) constructs the genuine `createChatEngineAdapters → sendWithChatEngineAdapter → adapter.send` graph with real `hermesRunService` + `hermesAdapter`. Hermes-only; non-Hermes engines throw `"engine not available in Mia Core yet"`. Proven node-only via `tests/mia-core-bot-execution.test.js`. Exposed lazily, NOT auto-started (no dual-owner).
   - **Remaining in slice 4:** replace the marked `// TODO(mia-core slice)` stubs (memory block, scheduler/app MCP context, managed model runtime, full skills directive, attachments, real localBotResponder) with the real collaborators as Core gains ownership of those subsystems; read the Hermes engine baseUrl/apiKey from the runtime config the engine writes.
   - **Non-Hermes engines (Codex/ClaudeCode/OpenClaw)** are deeply Electron-coupled (claudeAgentSdk, workspace dirs, MCP bridges, agent permissions). Un-coupling them for the backend is its own large effort — tracked as a separate workstream, not blocking Hermes-path parity.
-## STATUS (live)
+## STATUS — MIGRATION CORE COMPLETE ✅
+
+The node Mia Core is now the **sole daemon**, verified in dev AND in a packaged build, and the unstable Electron-as-daemon path is **deleted**:
+- ✅ Slice 5a — node-core is the resolved daemon launch target; NO-SHIP #2 (env target metadata) + #3 (reject reuse of a GUI-identity daemon) closed.
+- ✅ Slice 5b — packaged build: bundled self-contained `mia-node` + asarUnpacked Core; `npm run pack` succeeds; launching `<resources>/mia-node <resources>/app.asar.unpacked/src/core/mia-core.js --daemon` answers `/health` `kind:node-core, command:mia-node, usesGuiAppIdentity:false` (independently re-launched from the built artifact).
+- ✅ Slice 5c — DELETED the `legacy-gui` (GUI-identity daemon — the original instability) + `electron-dev` resolver targets and the Electron `IS_DAEMON_PROCESS` daemon-boot block in main.js. Packaged macOS fails closed if the node Core can't resolve, never the GUI identity. Full suite zero new failures.
+
+### Remaining (all non-blocking, documented)
+- **managed-model runtime** — stubbed; needs Core to own the Hermes engine lifecycle/config.yaml (Electron still owns the engine). Degraded only for Mia-managed-model bots.
+- **Residual `IS_DAEMON_PROCESS` flag/guards in main.js** — now false-by-construction (dead-but-harmless); kept because the flag is entangled with the live window path + single-owner tests. Cosmetic purge only.
+- **x64 (Intel) node staging** — only arm64 was built/verified; `stage-core-node.js` supports x64 but it wasn't exercised.
+- **GUI-app end-to-end** — the packaged daemon launch + `startDaemonService` path are verified; actually booting the GUI app to confirm it spawns the daemon + the window connects is not headlessly testable (a `npm start` manual check).
+- **Signed/notarized distribution build** — only needed to ship to other machines; irrelevant to the daemon-flip verification done here.
+- **Non-Hermes engines** (Codex/ClaudeCode/OpenClaw) — Core throws `"engine not available in Mia Core yet"`; un-coupling is a separate workstream.
+
+---
+
+## (historical) earlier STATUS
 
 Core now has **STRUCTURAL parity** with the Electron daemon — every subsystem is wired and verified node-only:
 - ✅ Slice 1 — control server / runtime-home / settings / token
