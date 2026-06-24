@@ -1,6 +1,6 @@
 # Mia Core Phase 1: 独立 daemon 可执行身份设计
 
-Status: approved direction, pending implementation plan.
+Status: approved; implemented per docs/superpowers/plans/2026-06-24-mia-core-phase1.md.
 
 ## Goal
 

@@ -128,3 +128,11 @@ run→单条回复→窗口实时可见）。
   产品承诺。否决。
 - **窗口与 daemon 各连各的云但选主执行（ping 探测）**：~99% 单跑，TOCTOU
   窗口仍在，且不解决另外三类问题。否决。
+
+## Phase 1 / Phase 2 follow-up
+
+单 owner daemon 的进程身份问题由 Mia Core 可执行体接缝解决。设计见
+`docs/superpowers/specs/2026-06-24-mia-core-phase1-design.md`，实现计划见
+`docs/superpowers/plans/2026-06-24-mia-core-phase1.md`。Phase 2 在
+`src/main/daemon/executable-resolver.js` 这个接缝背后替换实现为独立 Mia Core
+进程，GUI 调用方、LaunchAgent 归属、runtime-home 契约都不再变动。
