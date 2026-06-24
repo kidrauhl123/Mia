@@ -34,6 +34,10 @@
 
 Make the node Core the **launch target** (resolves NO-SHIP #2/#3).
 
+Pre-work (LOW gaps surfaced by review of slice 1, must close before live launch):
+- Complete env injection: `settings-store.js:253-260` reads `process.env.MIA_DAEMON_HOST` globally; thread the factory's injected `env` through so `createMiaCore({env})` is fully isolated.
+- Real port selection: `createMiaCore` currently injects `choosePort: preferred => preferred`. Wire the actual probing path (`engine-health-service.js:19-38`) before the node Core becomes the live owner, so a busy port doesn't wedge startup.
+
 - Resolver gains a `node-core` target: `command = <node binary>`, `args = [coreEntry, "--daemon"]`. Dev: a resolved `node`. Packaged: a standalone node bundled via `extraResources` (own executable identity — no Dock/LaunchServices GUI semantics).
 - `launchd-service.js` + `daemon/process-launcher.js` already delegate to the resolver → they spawn the node Core unchanged.
 - Re-enable `assertLaunchable()` in `startDaemonService()` once `node-core` is the resolved target (so packaged macOS fails closed instead of running the GUI identity).
