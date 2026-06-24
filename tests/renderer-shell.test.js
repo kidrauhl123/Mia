@@ -324,7 +324,8 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(css, /\.conversation-sidebar:hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar\.sidebar-action-hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar \.sidebar-tools:focus-within \.sidebar-collapse-toggle\s*\{[\s\S]*?width:\s*28px;[\s\S]*?opacity:\s*1;/);
   assert.doesNotMatch(css, /\.sidebar-collapse-toggle:focus-visible[^{]*\{[^}]*(?:outline|box-shadow):/);
   assert.doesNotMatch(css, /\.sidebar-rail-toggle:focus-visible[^{]*\{[^}]*(?:outline|box-shadow):/);
-  assert.match(css, /\.sidebar-rail-toggle\s*\{[\s\S]*?top:\s*50%;[\s\S]*?left:\s*calc\(var\(--rail-column-width\) - 6px\);[\s\S]*?width:\s*32px;[\s\S]*?height:\s*44px;[\s\S]*?background:\s*color-mix\(in srgb,\s*var\(--surface-layer\) 72%,\s*transparent\);[\s\S]*?color:\s*var\(--faint\);[\s\S]*?box-shadow:\s*0 6px 18px rgba\(15,\s*23,\s*42,\s*0\.08\);[\s\S]*?opacity:\s*0;[\s\S]*?transform:\s*translateY\(-50%\);/);
+  assert.match(css, /\.sidebar-rail-toggle\s*\{[\s\S]*?top:\s*50%;[\s\S]*?left:\s*calc\(var\(--rail-column-width\) - 6px\);[\s\S]*?width:\s*32px;[\s\S]*?height:\s*44px;[\s\S]*?background:\s*rgba\(15,\s*23,\s*42,\s*0\.10\);[\s\S]*?color:\s*var\(--muted\);[\s\S]*?box-shadow:\s*0 6px 18px rgba\(15,\s*23,\s*42,\s*0\.08\);[\s\S]*?opacity:\s*0;[\s\S]*?transform:\s*translateY\(-50%\);/);
+  assert.match(css, /\.sidebar-rail-toggle:hover\s*\{[\s\S]*?background:\s*rgba\(15,\s*23,\s*42,\s*0\.14\);/);
   assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\] \.nav-rail:hover ~ \.sidebar-rail-toggle,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:hover,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:focus-visible\s*\{[\s\S]*?opacity:\s*1;/);
   assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-rail-toggle\s*\{[\s\S]*?display:\s*none;/);
 });
@@ -932,6 +933,7 @@ test("conversation tag filters render as persistent chat folder tabs", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const searchToolsSource = extractFunctionSource(appSource, "renderConversationSearchTools");
+  const cardSignatureSource = extractFunctionSource(appSource, "sidebarCardRenderSignature");
   const tagFilterClickStart = appSource.indexOf('els.personaTagFilters?.addEventListener("click"');
   const tagFilterClickEnd = appSource.indexOf("els.contactSearch?.addEventListener", tagFilterClickStart);
   const tagFilterClickSource = appSource.slice(tagFilterClickStart, tagFilterClickEnd);
@@ -941,7 +943,9 @@ test("conversation tag filters render as persistent chat folder tabs", () => {
   assert.match(appSource, /function rememberConversationFolderMotion\(nextName\)/);
   assert.match(appSource, /function updateSidebarTagIndicator\(\)/);
   assert.match(appSource, /function syncSidebarTagFilterSelection\(activeName\)/);
+  assert.match(appSource, /function syncPersonaListActiveState\(specs\)/);
   assert.match(appSource, /function renderPersonaListIfChanged\(specs,\s*emptyText,\s*activeTagFilterName\)/);
+  assert.doesNotMatch(cardSignatureSource, /active:\s*Boolean\(spec\?\.active\)/);
   assert.match(searchToolsSource, /const showFilters = cloudReady && \(filters\.length > 0 \|\| activeFilterName\);/);
   assert.match(searchToolsSource, /dataset\.renderSignature !== signature/);
   assert.match(searchToolsSource, /sidebarAllConversationFilterHtml\(!activeFilterName\)/);
@@ -950,6 +954,7 @@ test("conversation tag filters render as persistent chat folder tabs", () => {
   assert.match(searchToolsSource, /sidebar-tag-filter-indicator/);
   assert.match(searchToolsSource, /syncSidebarTagFilterSelection\(activeFilterName\);/);
   assert.match(appSource, /animatePersonaListFolderPage\(activeTagFilterName\);/);
+  assert.match(appSource, /if \(personaListRenderSignature === signature\) \{[\s\S]*?syncPersonaListActiveState\(specs\);[\s\S]*?return;/);
   assert.match(appSource, /renderPersonaListIfChanged\(sidebarSpecs,\s*emptyText,\s*activeTagFilterName\);/);
   assert.match(tagFilterClickSource, /const nextName = chip\.dataset\.tagName \|\| "";/);
   assert.match(tagFilterClickSource, /if \(!rememberConversationFolderMotion\(nextName\)\) return;/);

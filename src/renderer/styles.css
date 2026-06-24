@@ -1041,8 +1041,8 @@ body.platform-win32 [class~="sidebar-tools"] {
   height: 44px;
   border: 0;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-layer) 72%, transparent);
-  color: var(--faint);
+  background: rgba(15, 23, 42, 0.10);
+  color: var(--muted);
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
   opacity: 0;
   transform: translateY(-50%);
@@ -1067,7 +1067,7 @@ body.platform-win32 [class~="sidebar-tools"] {
 
 .sidebar-rail-toggle:hover {
   color: var(--muted);
-  background: color-mix(in srgb, var(--surface-layer) 84%, transparent);
+  background: rgba(15, 23, 42, 0.14);
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.10);
 }
 

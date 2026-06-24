@@ -2108,7 +2108,6 @@ function sidebarCardRenderSignature(spec) {
   return {
     kind: spec?.kind || "",
     searchResult: Boolean(spec?.searchResult),
-    active: Boolean(spec?.active),
     pinned: Boolean(spec?.pinned),
     muted: Boolean(spec?.muted),
     name: String(spec?.name || ""),
@@ -2143,18 +2142,29 @@ function sidebarCardRenderSignature(spec) {
   };
 }
 
+function syncPersonaListActiveState(specs) {
+  const cards = Array.from(els.personaList?.querySelectorAll?.(".persona.message-card") || []);
+  specs.forEach((spec, index) => {
+    cards[index]?.classList.toggle("active", Boolean(spec?.active));
+  });
+}
+
 function renderPersonaListIfChanged(specs, emptyText, activeTagFilterName) {
   const signature = safeRenderSignature({
     emptyText,
     activeTagFilterName,
     rows: specs.map(sidebarCardRenderSignature)
   });
-  if (personaListRenderSignature === signature) return;
+  if (personaListRenderSignature === signature) {
+    syncPersonaListActiveState(specs);
+    return;
+  }
   personaListRenderSignature = signature;
   els.personaList.innerHTML = "";
   for (const spec of specs) {
     els.personaList.appendChild(createConversationCardFromSpec(spec));
   }
+  syncPersonaListActiveState(specs);
   if (!specs.length && emptyText) {
     const empty = document.createElement("div");
     empty.className = "persona-empty";
