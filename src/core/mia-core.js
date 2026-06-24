@@ -48,6 +48,20 @@ const { createSocialApi } = require("../main/social/social-api.js");
 const { createLocalBotResponder } = require("../main/social/local-bot-responder.js");
 const { createMainBotRuntimeDispatcher } = require("../main/social/bot-runtime-dispatcher.js");
 
+// Scheduler subsystem — the SAME pure-node factories the Electron daemon drives
+// (src/main.js initSchedulerSubsystem, ~line 1194). No fork: Core builds the real
+// tasks store (single-owner mia-tasks.json under Core's runtime home), event bus,
+// fire runner, scheduler, and /api/tasks routes. The only Core-specific piece is
+// the fire path, which drives Core's own botExecution.sendChat instead of the
+// Electron-bound runRemoteChatRequest.
+const { createTasksStore } = require("../main/tasks-store.js");
+const { createTasksEventBus } = require("../main/tasks-events.js");
+const { createFireRunner } = require("../main/scheduler-fire.js");
+const { createScheduler, sweepMissedCronTasks } = require("../main/scheduler.js");
+const { createTasksRoutes } = require("../main/tasks-routes.js");
+const { deliverTaskReplyToConversation } = require("../main/task-reply-delivery.js");
+const { botConversationId } = require("../shared/bot-identity.js");
+
 const ENGINE_NOT_AVAILABLE = "engine not available in Mia Core yet";
 
 const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
@@ -274,6 +288,189 @@ function createCoreCloudRouting({
   return { dispatcher, localBotResponder, socialApi: api };
 }
 
+// Wire the REAL scheduler subsystem into Core, reusing the SAME pure-node
+// factories the Electron daemon drives (src/main.js initSchedulerSubsystem):
+//   createTasksStore  → single-owner mia-tasks.json under Core's runtime home
+//   createTasksEventBus → SSE fan-out for /api/tasks/events
+//   createFireRunner  → runs a fired task; the non-direct path drives Core's own
+//                       botExecution.sendChat({ background:true, scheduledFire:true })
+//                       and posts the reply via socialApi.postConversationMessageAsBot
+//                       (deliverTaskReplyToConversation — the real task-reply path).
+//   createScheduler   → cron/oneshot timers (constructed WITHOUT timers; only
+//                       initSchedulerSubsystem() → scheduler.start() arms them).
+//   createTasksRoutes → the real /api/tasks REST + events stream.
+//
+// SINGLE-OWNER SAFETY: constructing this subsystem starts NO timers. The
+// scheduler arms its setTimeout only inside initSchedulerSubsystem(), which the
+// control server calls on start(). Tests construct the subsystem and fire a task
+// directly via the returned fireRunner WITHOUT calling initSchedulerSubsystem(),
+// so no live wall-clock timer is ever created in tests. core.stop() stops the
+// control server; this function also returns stopScheduler() so timers (if armed)
+// are cleared on teardown.
+//
+// Injection points (for tests): `botExecution` (a createCoreBotExecution graph
+// with a faked Hermes send), `socialApi` (a mock recording posts), and
+// `runtimePaths` (a temp home so the tasks file is isolated).
+function createCoreScheduler({
+  runtimePaths,
+  settingsStore,
+  botExecution,
+  socialApi,
+  emitLocalEvent = () => {},
+  deviceId = "mia-core",
+  log = () => {}
+} = {}) {
+  if (!botExecution || typeof botExecution.sendChat !== "function") {
+    throw new Error("createCoreScheduler requires a botExecution with sendChat");
+  }
+
+  const api = socialApi || createSocialApi({
+    getSettings: () => (settingsStore ? settingsStore.cloudSettings() : { enabled: false }),
+    normalizeUrl: settingsStore ? settingsStore.normalizeCloudUrl : (value) => String(value || "")
+  });
+
+  // Core-side equivalent of main.js's runRemoteChatRequest for the fire path: run
+  // a background, scheduled-fire chat turn through Core's own botExecution graph,
+  // then deliver the assistant reply to the bot's cloud conversation the same way
+  // the Electron path does (deliverTaskReplyToConversation → socialApi as-bot post).
+  // It returns a session-shaped result so the real fireRunner records the reply
+  // (it reads result.session.messages for the last assistant message).
+  async function runRemoteChatRequest(body) {
+    const conversationId = String(body?.conversationId || body?.sessionId || "").trim();
+    const agentSessionId = String(body?.agentSessionId || conversationId || `remote:${crypto.randomUUID()}`);
+    const botKey = String(body?.botKey || body?.botId || "").trim();
+    const runtimeConfig = body?.runtimeConfig || null;
+
+    const response = await botExecution.sendChat({
+      botKey,
+      botId: botKey,
+      sessionId: agentSessionId,
+      messages: [{ role: "user", content: String(body?.text || ""), attachments: [] }],
+      background: Boolean(body?.background),
+      // A fired scheduled task carries meta.taskId. Switch the agent into
+      // execution mode so the replayed task prompt is run, not re-interpreted as
+      // a fresh "create a task" request (matches main.js sendChat semantics).
+      scheduledFire: Boolean(body?.meta?.taskId),
+      persistAgentSession: true,
+      runtimeConfig
+    });
+
+    const assistantText = responseMessageContent(response);
+    const assistantMessageId = "msg-" + crypto.randomBytes(6).toString("hex");
+    const savedAssistant = {
+      id: assistantMessageId,
+      role: "assistant",
+      content: assistantText,
+      createdAt: new Date().toISOString()
+    };
+    if (body?.meta) savedAssistant.meta = body.meta;
+
+    let deliveredAssistantMessageId = assistantMessageId;
+    // Only background (task) runs deliver to the cloud conversation; the bot we
+    // post as is keyed off the task's botId (deliverTaskReplyToConversation only
+    // reads bot.key || bot.id).
+    if (body?.background && assistantText.trim()) {
+      const cloud = settingsStore?.cloudSettings?.() || {};
+      const fallbackConversationId = cloud?.user?.id ? botConversationId(`${cloud.user.id}_${botKey}`) : "";
+      const delivery = await deliverTaskReplyToConversation({
+        socialApi: api,
+        settingsStore,
+        bot: { key: botKey },
+        conversationId,
+        fallbackConversationId,
+        assistantText,
+        assistantTracePayload: {},
+        taskRunId: body?.meta?.taskRunId || agentSessionId,
+        fallbackMessageId: assistantMessageId
+      });
+      deliveredAssistantMessageId = delivery.messageId || assistantMessageId;
+      savedAssistant.id = deliveredAssistantMessageId;
+    }
+
+    return {
+      session: {
+        id: agentSessionId,
+        conversationId,
+        botId: botKey,
+        messages: [savedAssistant],
+        updatedAt: savedAssistant.createdAt
+      },
+      response,
+      assistantMessageId: deliveredAssistantMessageId
+    };
+  }
+
+  const tasksStore = createTasksStore(runtimePaths().tasks);
+  const tasksEvents = createTasksEventBus();
+
+  const fireRunner = createFireRunner({
+    store: tasksStore,
+    runRemoteChatRequest,
+    // Direct-delivery tasks (canned text, no chat turn) post the reply straight
+    // to the conversation — the same path main.js wires.
+    deliverTaskMessage: async ({ task, runId, conversationId, text }) => {
+      const cloud = settingsStore?.cloudSettings?.() || {};
+      const fallbackConversationId = cloud?.user?.id ? botConversationId(`${cloud.user.id}_${task.botId}`) : "";
+      return deliverTaskReplyToConversation({
+        socialApi: api,
+        settingsStore,
+        bot: { key: task.botId },
+        conversationId,
+        fallbackConversationId,
+        assistantText: text,
+        assistantTracePayload: {},
+        taskRunId: runId,
+        fallbackMessageId: `task_${task.id}_${runId}`
+      });
+    },
+    emit: (type, payload) => tasksEvents.emit(type, payload)
+  });
+
+  const scheduler = createScheduler({
+    store: tasksStore,
+    onFire: (task) => fireRunner.fire(task)
+  });
+
+  const tasksRoutesImpl = createTasksRoutes({
+    store: tasksStore,
+    events: tasksEvents,
+    runNow: async (id) => {
+      const task = tasksStore.get(id);
+      if (!task) throw new Error("task not found");
+      const run = await fireRunner.fire(task);
+      return { runId: run?.id };
+    },
+    onChange: () => scheduler.rescan()
+  });
+
+  let started = false;
+  // The control server calls this on start(). It arms the cron/oneshot timers —
+  // the ONLY place timers are created. Idempotent + single-owner-gated upstream
+  // (Core's control server is only started standalone/in tests today).
+  function initSchedulerSubsystem() {
+    if (started) return;
+    started = true;
+    sweepMissedCronTasks(tasksStore, Date.now(), (type, payload) => tasksEvents.emit(type, payload));
+    scheduler.start();
+  }
+
+  function stopScheduler() {
+    started = false;
+    scheduler.stop();
+  }
+
+  return {
+    scheduler,
+    tasksRoutes: tasksRoutesImpl,
+    tasksStore,
+    tasksEvents,
+    fireRunner,
+    initSchedulerSubsystem,
+    stopScheduler,
+    socialApi: api
+  };
+}
+
 function createMiaCore(options = {}) {
   const env = options.env || process.env;
   const version = String(options.version || "");
@@ -350,6 +547,27 @@ function createMiaCore(options = {}) {
     };
   }
 
+  // REAL scheduler subsystem — built lazily so constructing createMiaCore arms NO
+  // timers (single-owner safety). The subsystem itself also starts no timers on
+  // construction; only its initSchedulerSubsystem() (called by the control server
+  // on start()) arms them. Reuses Core's botExecution (real Hermes adapter graph)
+  // and the same pure-node tasks/scheduler modules the Electron daemon drives.
+  let cachedScheduler = null;
+  function schedulerSubsystem() {
+    if (cachedScheduler) return cachedScheduler;
+    cachedScheduler = createCoreScheduler({
+      runtimePaths,
+      settingsStore,
+      botExecution: botExecution(),
+      // Reuse the same cloud socialApi the cloud routing builds, so task replies
+      // and interactive replies post through one client.
+      socialApi: cloudRouting().socialApi,
+      emitLocalEvent: (envelope) => controlServer.publishLocalEvent?.(envelope),
+      log: () => {}
+    });
+    return cachedScheduler;
+  }
+
   const controlServer = createDaemonControlServer({
     isDaemonProcess: true,
     serviceLabel: MIA_DAEMON_SERVICE_LABEL,
@@ -362,11 +580,13 @@ function createMiaCore(options = {}) {
     normalizeDaemonHost: settingsStore.normalizeDaemonHost,
     normalizeDaemonPort: settingsStore.normalizeDaemonPort,
     choosePort,
-    // Inert until later vertical slices migrate these capabilities into Core.
+    // Inert until later vertical slices migrate this capability into Core.
     initializeRuntime: () => {},
-    initSchedulerSubsystem: () => {},
     remoteRouter: () => ({ matches: () => false, route: async () => ({ handled: false }) }),
-    tasksRoutes: () => ({ handle: async () => false, handleEventsStream: () => {} })
+    // REAL scheduler: the control server calls initSchedulerSubsystem() on start()
+    // (arming timers) and tasksRoutes() per request to serve /api/tasks.
+    initSchedulerSubsystem: () => schedulerSubsystem().initSchedulerSubsystem(),
+    tasksRoutes: () => schedulerSubsystem().tasksRoutes
   });
 
   function start() {
@@ -415,7 +635,12 @@ function createMiaCore(options = {}) {
 
   return {
     start,
-    stop: () => controlServer.stop(),
+    stop: () => {
+      // Clear any armed scheduler timer so node --test (and a clean shutdown)
+      // exits; if the subsystem was never built this is a no-op.
+      if (cachedScheduler) cachedScheduler.stopScheduler();
+      return controlServer.stop();
+    },
     status: () => controlServer.status(),
     daemonSettings: () => settingsStore.daemonSettings(),
     writeDaemonSettings: (settings) => settingsStore.writeDaemonSettings(settings),
@@ -423,11 +648,12 @@ function createMiaCore(options = {}) {
     daemonToken,
     describeDaemonTarget,
     botExecution,
-    cloudRouting
+    cloudRouting,
+    schedulerSubsystem
   };
 }
 
-module.exports = { createMiaCore, createCoreBotExecution, createCoreCloudRouting };
+module.exports = { createMiaCore, createCoreBotExecution, createCoreCloudRouting, createCoreScheduler };
 
 if (require.main === module) {
   const core = createMiaCore({ version: require("../../package.json").version });
