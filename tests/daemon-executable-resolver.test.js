@@ -15,8 +15,6 @@ function setup(overrides = {}) {
     defaultApp: () => false,
     platform: "darwin",
     env: { HERMES_LANGUAGE: "en" },
-    resourcesPath: () => "/Applications/Mia.app/Contents/Resources",
-    existsSync: () => false,
     ...overrides
   });
 }
@@ -29,16 +27,7 @@ test("dev electron target keeps app path arg and is not GUI-app identity", () =>
   assert.equal(r.workingDirectory, path.dirname("/node_modules/.bin/electron"));
 });
 
-test("packaged macOS prefers the nested helper when present", () => {
-  const helper = "/Applications/Mia.app/Contents/Resources/Mia Core.app/Contents/MacOS/Mia Core";
-  const r = setup({ existsSync: (p) => p === helper }).resolve();
-  assert.equal(r.kind, "packaged-helper");
-  assert.equal(r.command, helper);
-  assert.deepEqual(r.args, ["--daemon"]);
-  assert.equal(r.usesGuiAppIdentity, false);
-});
-
-test("packaged macOS with no helper reports legacy GUI identity", () => {
+test("packaged macOS still reports legacy GUI identity until the node-core launcher lands", () => {
   const r = setup().resolve();
   assert.equal(r.kind, "legacy-gui");
   assert.equal(r.command, "/Applications/Mia.app/Contents/MacOS/Mia");

@@ -1,10 +1,15 @@
 "use strict";
 
 const path = require("node:path");
-const { existsSync: defaultExistsSync } = require("node:fs");
 
 const DEFAULT_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
+// Resolves how the desktop launches its background daemon. This is the seam the
+// Mia Core migration plugs into: today it classifies the in-tree Electron daemon
+// launch (behaviour-preserving), and the launcher-integration slice will add a
+// `node-core` target that points launchd/spawn at the standalone Mia Core
+// process (src/core/mia-core.js) instead of the GUI app executable.
+// See docs/superpowers/plans/2026-06-24-mia-core-migration.md.
 function createMiaCoreResolver(deps = {}) {
   const {
     runtimePaths,
@@ -13,16 +18,10 @@ function createMiaCoreResolver(deps = {}) {
     execPath = () => process.execPath,
     defaultApp = () => Boolean(process.defaultApp),
     platform = process.platform,
-    env = process.env,
-    resourcesPath = () => process.resourcesPath || "",
-    existsSync = defaultExistsSync
+    env = process.env
   } = deps;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
   if (typeof effectiveHermesHome !== "function") throw new Error("effectiveHermesHome dependency is required.");
-
-  function helperExecutablePath() {
-    return path.join(resourcesPath(), "Mia Core.app", "Contents", "MacOS", "Mia Core");
-  }
 
   function resolve() {
     if (defaultApp()) {
@@ -36,16 +35,9 @@ function createMiaCoreResolver(deps = {}) {
       };
     }
     if (platform === "darwin") {
-      const helper = helperExecutablePath();
-      if (existsSync(helper)) {
-        return {
-          kind: "packaged-helper",
-          command: helper,
-          args: ["--daemon"],
-          workingDirectory: path.dirname(helper),
-          usesGuiAppIdentity: false
-        };
-      }
+      // Today's shipping behaviour: the daemon is still the GUI app executable.
+      // The node-core launcher slice replaces this; the legacy-gui guard
+      // (assertLaunchable) activates once that target is wired in.
       const command = execPath();
       return {
         kind: "legacy-gui",
@@ -97,7 +89,7 @@ function createMiaCoreResolver(deps = {}) {
     };
   }
 
-  return { resolve, daemonEnvOverlay, assertLaunchable, describe, helperExecutablePath };
+  return { resolve, daemonEnvOverlay, assertLaunchable, describe };
 }
 
 module.exports = { createMiaCoreResolver, DEFAULT_PATH };
