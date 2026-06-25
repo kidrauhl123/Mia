@@ -29,6 +29,18 @@ function isMiaManagedRuntime(runtime = {}) {
   return Boolean(runtime && (runtime.managedByMia === true || runtime.provider === "mia" || runtime.authType === "mia_account"));
 }
 
+function toMiaManagedReference(config = {}) {
+  const model = firstString(config, ["model"]) || "mia-default";
+  return {
+    provider: "mia",
+    providerConnectionId: "mia",
+    providerLabel: firstString(config, ["providerLabel", "provider_label"]) || "Mia",
+    authType: "mia_account",
+    model,
+    modelProfileId: firstString(config, ["modelProfileId", "model_profile_id"]) || `mia:${model}`
+  };
+}
+
 function createMiaCoreModelRuntimeResolver(deps = {}) {
   const cloudStatus = typeof deps.cloudStatus === "function" ? deps.cloudStatus : () => ({ enabled: false });
   const normalizeCloudUrl = typeof deps.normalizeCloudUrl === "function"
@@ -42,15 +54,9 @@ function createMiaCoreModelRuntimeResolver(deps = {}) {
     if (!cloud?.enabled || !cloud.token || !cloud.url) {
       throw new Error("请先登录 Mia Cloud，再使用 Mia 托管模型。");
     }
-    const model = firstString(config, ["model"]) || "mia-default";
     const cloudBaseUrl = normalizeCloudUrl(cloud.url);
     return {
-      provider: "mia",
-      providerConnectionId: "mia",
-      providerLabel: firstString(config, ["providerLabel", "provider_label"]) || "Mia",
-      authType: "mia_account",
-      model,
-      modelProfileId: firstString(config, ["modelProfileId", "model_profile_id"]) || `mia:${model}`,
+      ...toMiaManagedReference(config),
       apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
       apiKey: cloud.token,
       baseUrl: `${cloudBaseUrl}/api/me/model-proxy/v1`,
@@ -67,7 +73,12 @@ function createMiaCoreModelRuntimeResolver(deps = {}) {
     const model = firstString(config, ["model"]);
     return (engine === "codex" || engine === "claude-code" || engine === "openclaw")
       && (!model || model === "default")
-      && (!provider || provider === engine || provider === "codex" || provider === "openclaw" || provider === "claude-code");
+      && (!provider
+        || provider === engine
+        || provider === "codex"
+        || provider === "openclaw"
+        || provider === "claude-code"
+        || (engine === "codex" && provider === "openai-codex"));
   }
 
   function resolveProviderConnection(config = {}, context = {}) {
@@ -101,15 +112,7 @@ function createMiaCoreModelRuntimeResolver(deps = {}) {
 
   function resolveMiaManagedModelSettings(settings = {}) {
     if (!isMiaManagedReference(settings)) return settings;
-    const runtime = resolveMiaCloud(settings);
-    return {
-      provider: runtime.provider,
-      providerConnectionId: runtime.providerConnectionId,
-      providerLabel: runtime.providerLabel,
-      authType: runtime.authType,
-      model: runtime.model,
-      modelProfileId: runtime.modelProfileId
-    };
+    return toMiaManagedReference(settings);
   }
 
   return {

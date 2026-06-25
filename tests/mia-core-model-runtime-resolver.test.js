@@ -90,6 +90,15 @@ test("returns null for native codex default model", () => {
   }, { engine: "codex" }), null);
 });
 
+test("returns null for native codex default model when provider id is openai-codex", () => {
+  const resolver = createResolver();
+
+  assert.equal(resolver.resolveModelRuntime({
+    providerConnectionId: "openai-codex",
+    model: ""
+  }, { engine: "codex" }), null);
+});
+
 test("requires Mia Cloud login for Mia managed profiles", () => {
   const resolver = createResolver({
     cloudStatus: () => ({ enabled: false, token: "", url: "" })
@@ -138,4 +147,21 @@ test("resolveMiaManagedModelSettings returns compact managed references only", (
   assert.equal("apiKey" in settings, false);
   assert.equal("baseUrl" in settings, false);
   assert.equal("apiMode" in settings, false);
+});
+
+test("resolveMiaManagedModelSettings does not require cloud login", () => {
+  const resolver = createResolver({
+    cloudStatus: () => ({ enabled: false, token: "", url: "" })
+  });
+
+  const settings = resolver.resolveMiaManagedModelSettings({ model: "mia-auto" });
+
+  assert.deepEqual(settings, {
+    provider: "mia",
+    providerConnectionId: "mia",
+    providerLabel: "Mia",
+    authType: "mia_account",
+    model: "mia-auto",
+    modelProfileId: "mia:mia-auto"
+  });
 });
