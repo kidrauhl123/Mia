@@ -74,6 +74,10 @@ function fail(error) {
   return { success: false, data: null, error: sanitizeSecretText(error?.message || error || "Unknown error") };
 }
 
+function failWithData(error, data) {
+  return { success: false, data, error: sanitizeSecretText(error?.message || error || "Unknown error") };
+}
+
 function sanitizeBridgeError(error) {
   if (typeof error === "string") return sanitizeSecretText(error);
   if (!error || typeof error !== "object") return sanitizeSecretText(error);
@@ -297,6 +301,13 @@ function createCoreMcpService(deps = {}) {
     return matchers.failedNames.has(record.name) || matchers.failedNames.has(record.nativeName);
   }
 
+  function canEnableManagedRecord(record) {
+    if (!record || record.managementMode !== "managed") return true;
+    if (String(record.status || "").trim().toLowerCase() === "connected") return true;
+    if (String(record.lastTestStatus || "").trim().toLowerCase() === "connected") return true;
+    return String(record?.connectionWizard?.state || "").trim().toLowerCase() === "connected";
+  }
+
   function applyStatuses(records, nativeResult = {}, options = {}) {
     const availableIds = options.availableIds || new Set();
     const availableMessage = sanitizeSecretText(options.availableMessage || "");
@@ -339,6 +350,7 @@ function createCoreMcpService(deps = {}) {
     const runtimeRecords = mergeManagedRecords(current, managedResult.records);
     const refreshFailureMatchers = managedRefreshFailureMatchers(managedResult.errors);
     const refreshableRecords = enabledCoreMcpRecords(runtimeRecords).filter((record) => !isManagedRefreshFailure(record, refreshFailureMatchers));
+    const nativeSyncRecords = runtimeRecords.filter((record) => !isManagedRefreshFailure(record, refreshFailureMatchers));
     const refreshed = manager && typeof manager.refresh === "function"
       ? await manager.refresh(refreshableRecords)
       : { success: true, tools: [], errors: [] };
@@ -351,7 +363,8 @@ function createCoreMcpService(deps = {}) {
         .concat(Array.isArray(refreshed?.errors) ? refreshed.errors.map((error) => sanitizeBridgeError(error)) : [])
         .concat(Array.isArray(managedResult?.errors) ? managedResult.errors.map((error) => sanitizeBridgeError(error)) : []),
       bridge: maskedBridgeInfo(bridgeInfo),
-      records: runtimeRecords
+      records: runtimeRecords,
+      nativeSyncRecords
     };
   }
 
@@ -414,7 +427,7 @@ function createCoreMcpService(deps = {}) {
     let bridgeState = await refreshBridgeState(options.bridgeRecords || storedRecords);
     const nativeResult = await nativeSync({
       previousRecords: normalizeCoreMcpRegistry(previousRecords || [], { now, idFactory }),
-      currentRecords: normalizeCoreMcpRegistry(currentRecords || [], { now, idFactory })
+      currentRecords: normalizeCoreMcpRegistry(bridgeState.nativeSyncRecords || currentRecords || [], { now, idFactory })
     });
     const nativeStatuses = nativeResult?.statuses && typeof nativeResult.statuses === "object"
       ? nativeResult.statuses
@@ -530,6 +543,9 @@ function createCoreMcpService(deps = {}) {
       const current = loadRecords();
       const existing = resolveRecord(current, id);
       if (!existing) throw new Error("MCP server not found.");
+      if (enabled === true && existing.managementMode === "managed" && !canEnableManagedRecord(existing)) {
+        return failWithData("Managed MCP server must pass connection test before it can be enabled.", publicRecord(existing));
+      }
       const next = current.map((record) => (
         record.id === existing.id
           ? { ...record, enabled: enabled === true, updatedAt: now() }
@@ -774,11 +790,11 @@ function createCoreMcpService(deps = {}) {
             updatedAt: now()
           }, { now, idFactory });
           const saved = saveRecords(current.map((record) => record.id === existing.id ? nextRecord : record));
-          await applyRuntimeChanges(current, saved, {
+          const runtime = await applyRuntimeChanges(current, saved, {
             availableIds: new Set([nextRecord.id]),
             availableMessage: "Waiting for managed MCP setup in Mia."
           });
-          return fail(message);
+          return failWithData(message, publicRecord(resolveRecord(runtime.records, nextRecord.id) || nextRecord));
         }
         nextRecord = normalizeCoreMcpRecord({
           ...existing,

@@ -203,11 +203,33 @@ test("runManagedAction returns failure and persists managed error when superviso
 
   assert.equal(started.success, false);
   assert.equal(started.error, "start failed TOKEN=[redacted]");
+  assert.equal(started.data.id, installed.data.id);
+  assert.equal(started.data.managedRuntime.state, "start_failed");
+  assert.equal(started.data.connectionWizard.state, "managed_error");
+  assert.equal(started.data.connectionWizard.message, "start failed TOKEN=[redacted]");
   assert.equal(stored[0].enabled, false);
   assert.equal(stored[0].managedRuntime.state, "start_failed");
   assert.equal(stored[0].connectionWizard.state, "managed_error");
   assert.equal(stored[0].connectionWizard.nextAction, "start");
   assert.equal(stored[0].connectionWizard.message, "start failed TOKEN=[redacted]");
+});
+
+test("setEnabled blocks managed enable until a connected test already exists", async (t) => {
+  const { service, runtime } = setup(t, {
+    managedSupervisor: {
+      ensureRunning: async (records) => ({ records, errors: [] })
+    }
+  });
+
+  const installed = await service.installTemplate("xiaohongshu", {});
+  const enabled = await service.setEnabled(installed.data.id, true);
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(enabled.success, false);
+  assert.equal(enabled.data.id, installed.data.id);
+  assert.equal(enabled.data.enabled, false);
+  assert.equal(enabled.error, "Managed MCP server must pass connection test before it can be enabled.");
+  assert.equal(stored[0].enabled, false);
 });
 
 test("runManagedAction test enables xiaohongshu after successful MCP test", async (t) => {
@@ -302,6 +324,14 @@ test("refreshBridge excludes ensureRunning failures from same-cycle manager refr
   const refreshCalls = [];
   const { service } = setup(t, {
     managedSupervisor: {
+      runAction: async (record, action) => ({
+        ok: true,
+        state: action,
+        message: action,
+        recordPatch: {
+          managedRuntime: { ...record.managedRuntime, state: action === "test" ? "running" : action }
+        }
+      }),
       ensureRunning: async (records) => ({
         records: records.map((record) => {
           if (record.nativeName === "xiaohongshu") {
@@ -336,7 +366,7 @@ test("refreshBridge excludes ensureRunning failures from same-cycle manager refr
 
   const installed = await service.installTemplate("xiaohongshu", {});
   await service.installTemplate("playwright", {});
-  await service.setEnabled(installed.data.id, true);
+  await service.runManagedAction(installed.data.id, "test", {});
   refreshCalls.length = 0;
 
   const refreshed = await service.refreshBridge();

@@ -365,3 +365,50 @@ test("refreshBridge sanitizes managed supervisor errors", async (t) => {
   assert.equal(refreshed.success, true);
   assert.equal(refreshed.data.errors[0].message, "managed failure TOKEN=[redacted]");
 });
+
+test("refreshBridge excludes ensureRunning failures from same-cycle native sync current records", async (t) => {
+  const nativeSyncCalls = [];
+  const { service } = setup(t, {
+    managedSupervisor: {
+      runAction: async (record, action) => ({
+        ok: true,
+        state: action,
+        message: action,
+        recordPatch: {
+          managedRuntime: { ...record.managedRuntime, state: action === "test" ? "running" : action }
+        }
+      }),
+      ensureRunning: async (records) => ({
+        records: records.map((record) => {
+          if (record.nativeName === "xiaohongshu") {
+            return {
+              ...record,
+              managedRuntime: { ...record.managedRuntime, state: "error" },
+              connectionWizard: {
+                ...record.connectionWizard,
+                state: "managed_error",
+                nextAction: "start",
+                message: "xiaohongshu startup failed"
+              }
+            };
+          }
+          return record;
+        }),
+        errors: [{ id: "mcp_xiaohongshu", name: "xiaohongshu", message: "startup failed" }]
+      })
+    },
+    nativeSync: async ({ currentRecords }) => {
+      nativeSyncCalls.push(currentRecords.map((record) => record.nativeName));
+      return { success: true, statuses: {}, commands: [] };
+    }
+  });
+
+  const installed = await service.installTemplate("xiaohongshu", {});
+  await service.runManagedAction(installed.data.id, "test", {});
+  nativeSyncCalls.length = 0;
+
+  const refreshed = await service.installTemplate("playwright", {});
+
+  assert.equal(refreshed.success, true);
+  assert.deepEqual(nativeSyncCalls, [["playwright"]]);
+});
