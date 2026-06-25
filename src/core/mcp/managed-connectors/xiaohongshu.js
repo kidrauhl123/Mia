@@ -1,5 +1,7 @@
 "use strict";
 
+const { sanitizeSecretText } = require("../records.js");
+
 const DEFAULT_ENDPOINT = "http://127.0.0.1:18060/mcp";
 const REPO_URL = "https://github.com/xpzouying/xiaohongshu-mcp";
 
@@ -18,10 +20,13 @@ function createXiaohongshuManagedConnector(deps = {}) {
     : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
 
-  function installDir(record = {}) {
-    const existing = String(record.managedRuntime?.installDir || "").trim();
-    if (existing) return existing;
-    return path.join(runtimePaths().runtime, "managed-mcp", "xiaohongshu-mcp");
+  function managedRoot() {
+    const paths = runtimePaths();
+    return path.join(paths.home || paths.runtime, "managed-mcp");
+  }
+
+  function installDir(_record = {}) {
+    return path.join(managedRoot(), "xiaohongshu-mcp");
   }
 
   function hasCheckout(dir) {
@@ -30,23 +35,109 @@ function createXiaohongshuManagedConnector(deps = {}) {
 
   function execFile(command, args, options = {}) {
     return new Promise((resolve, reject) => {
-      childProcess.execFile(command, args, options, (error, stdout, stderr) => {
+      let settled = false;
+      const settleReject = (error, stdout = "", stderr = "") => {
+        if (settled) return;
+        settled = true;
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+      };
+      const settleResolve = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const child = childProcess.execFile(command, args, options, (error, stdout, stderr) => {
         if (error) {
-          error.stdout = stdout;
-          error.stderr = stderr;
-          reject(error);
+          settleReject(error, stdout, stderr);
           return;
         }
-        resolve({ stdout, stderr });
+        settleResolve({ stdout, stderr });
       });
+      drainChild(child);
+      child?.once?.("error", (error) => settleReject(error));
     });
   }
 
   function spawn(command, args, options = {}) {
-    return childProcess.spawn(command, args, {
+    const child = childProcess.spawn(command, args, {
       ...options,
       stdio: ["ignore", "pipe", "pipe"]
     });
+    drainChild(child);
+    child?.on?.("error", () => {});
+    return child;
+  }
+
+  function drainChild(child) {
+    child?.stdout?.resume?.();
+    child?.stderr?.resume?.();
+  }
+
+  function spawnErrorMessage(label, error) {
+    const message = sanitizeSecretText(error?.message || error || "unknown error");
+    return `${label} failed to start: ${message}`;
+  }
+
+  function earlyExitMessage(label, code, signal) {
+    const detail = signal ? `signal ${signal}` : `code ${code}`;
+    return `${label} exited before it became ready (${detail}).`;
+  }
+
+  function waitForInitialSpawn(child, label, options = {}) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        child?.off?.("error", onError);
+        child?.off?.("exit", onExit);
+      };
+      const done = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback(value);
+      };
+      const onError = (error) => done(reject, new Error(spawnErrorMessage(label, error)));
+      const onExit = (code, signal) => {
+        if (options.allowCleanExit && Number(code) === 0 && !signal) {
+          done(resolve);
+          return;
+        }
+        done(reject, new Error(earlyExitMessage(label, code, signal)));
+      };
+      child?.once?.("error", onError);
+      child?.once?.("exit", onExit);
+      setImmediate(() => done(resolve));
+    });
+  }
+
+  async function waitForReadiness(child, readinessPromise, label) {
+    let settled = false;
+    let cleanup = () => {};
+    const earlyFailure = new Promise((_, reject) => {
+      const onError = (error) => {
+        if (settled) return;
+        reject(new Error(spawnErrorMessage(label, error)));
+      };
+      const onExit = (code, signal) => {
+        if (settled) return;
+        reject(new Error(earlyExitMessage(label, code, signal)));
+      };
+      child?.once?.("error", onError);
+      child?.once?.("exit", onExit);
+      cleanup = () => {
+        child?.off?.("error", onError);
+        child?.off?.("exit", onExit);
+      };
+    });
+    try {
+      await Promise.race([readinessPromise, earlyFailure]);
+      settled = true;
+    } finally {
+      settled = true;
+      cleanup();
+    }
   }
 
   function assertInstalled(dir) {
@@ -128,7 +219,7 @@ function createXiaohongshuManagedConnector(deps = {}) {
     const dir = installDir(record);
     const endpoint = String(record.managedRuntime?.endpoint || DEFAULT_ENDPOINT);
     if (action === "install") {
-      fs.mkdirSync(path.dirname(dir), { recursive: true });
+      fs.mkdirSync(managedRoot(), { recursive: true });
       if (!hasCheckout(dir)) {
         await execFile("git", ["clone", REPO_URL, dir], { cwd: runtimePaths().runtime });
       }
@@ -150,6 +241,7 @@ function createXiaohongshuManagedConnector(deps = {}) {
     if (action === "login") {
       assertInstalled(dir);
       const child = spawn("go", ["run", "cmd/login/main.go"], { cwd: dir });
+      await waitForInitialSpawn(child, "Xiaohongshu login command", { allowCleanExit: true });
       return {
         ok: true,
         state: "login_started",
@@ -170,7 +262,7 @@ function createXiaohongshuManagedConnector(deps = {}) {
       assertInstalled(dir);
       const child = spawn("go", ["run", "."], { cwd: dir });
       try {
-        await checkEndpointHealth(endpoint);
+        await waitForReadiness(child, checkEndpointHealth(endpoint), "Xiaohongshu MCP service");
       } catch (error) {
         child.kill?.();
         throw error;

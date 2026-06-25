@@ -7,10 +7,10 @@ const { test } = require("node:test");
 const { createManagedConnectorSupervisor } = require("../src/core/mcp/managed-connector-supervisor.js");
 const { normalizeCoreMcpRecord } = require("../src/core/mcp/records.js");
 
-function fakeChildProcess(calls) {
+function fakeChildProcess(calls, fakeOptions = {}) {
   return {
-    spawn(command, args, options) {
-      calls.push({ kind: "spawn", command, args, cwd: options?.cwd || "" });
+    spawn(command, args, spawnOptions) {
+      calls.push({ kind: "spawn", command, args, cwd: spawnOptions?.cwd || "" });
       const child = new EventEmitter();
       child.pid = 1234;
       child.kill = () => {
@@ -19,10 +19,17 @@ function fakeChildProcess(calls) {
       };
       child.stdout = new EventEmitter();
       child.stderr = new EventEmitter();
+      child.stdout.resume = () => calls.push({ kind: "resume", stream: "stdout" });
+      child.stderr.resume = () => calls.push({ kind: "resume", stream: "stderr" });
+      if (typeof fakeOptions?.onSpawn === "function") fakeOptions.onSpawn(child);
       return child;
     },
-    execFile(command, args, options, callback) {
-      calls.push({ kind: "execFile", command, args, cwd: options?.cwd || "" });
+    execFile(command, args, execOptions, callback) {
+      calls.push({ kind: "execFile", command, args, cwd: execOptions?.cwd || "" });
+      if (fakeOptions?.execFileError) {
+        callback(Object.assign(new Error(fakeOptions.execFileError), { stderr: "TOKEN=secret-value" }), "", "TOKEN=secret-value");
+        return;
+      }
       if (command === "git" && args[0] === "clone" && args[2]) {
         fs.mkdirSync(args[2], { recursive: true });
         fs.writeFileSync(path.join(args[2], "go.mod"), "module xiaohongshu-mcp\n");
@@ -43,7 +50,7 @@ function setup(t, overrides = {}) {
     runtimePaths: () => ({ runtime: dir }),
     fs,
     path,
-    childProcess: fakeChildProcess(calls),
+    childProcess: fakeChildProcess(calls, overrides.childProcessOptions),
     fetch,
     listTools: overrides.listTools,
     healthPollAttempts: overrides.healthPollAttempts,
@@ -91,6 +98,27 @@ test("login action runs the connector login command in managed directory", async
   assert.equal(result.ok, true);
   assert.equal(result.state, "login_started");
   assert.equal(calls.some((call) => call.kind === "spawn" && call.command === "go" && call.args.join(" ") === "run cmd/login/main.go"), true);
+  assert.equal(calls.some((call) => call.kind === "resume" && call.stream === "stdout"), true);
+  assert.equal(calls.some((call) => call.kind === "resume" && call.stream === "stderr"), true);
+});
+
+test("login action rejects cleanly when go spawn emits error", async (t) => {
+  let child;
+  const { supervisor, record } = setup(t, {
+    childProcessOptions: {
+      onSpawn: (spawned) => {
+        child = spawned;
+        queueMicrotask(() => child.emit("error", new Error("go missing TOKEN=secret-value")));
+      }
+    }
+  });
+  const installed = await supervisor.runAction(record, "install", {});
+  const withInstallDir = normalizeCoreMcpRecord({ ...record, ...installed.recordPatch, transport: record.transport });
+
+  await assert.rejects(
+    supervisor.runAction(withInstallDir, "login", {}),
+    /go missing TOKEN=\[redacted\]/
+  );
 });
 
 test("login action fails cleanly when the managed checkout is missing", async (t) => {
@@ -116,6 +144,44 @@ test("start action keeps a running child process and stop kills it", async (t) =
   assert.equal(calls.some((call) => call.kind === "spawn" && call.command === "go" && call.args.join(" ") === "run ."), true);
   assert.equal(stopped.ok, true);
   assert.equal(calls.some((call) => call.kind === "kill"), true);
+});
+
+test("start action rejects cleanly when go spawn emits error during readiness", async (t) => {
+  const { supervisor, record } = setup(t, {
+    childProcessOptions: {
+      onSpawn: (child) => queueMicrotask(() => child.emit("error", new Error("go start failed TOKEN=secret-value")))
+    },
+    fetch: async () => {
+      await new Promise((resolve) => setImmediate(resolve));
+      return { ok: true, status: 200 };
+    }
+  });
+  const installed = await supervisor.runAction(record, "install", {});
+  const withInstallDir = normalizeCoreMcpRecord({ ...record, ...installed.recordPatch, transport: record.transport });
+
+  await assert.rejects(
+    supervisor.runAction(withInstallDir, "start", {}),
+    /go start failed TOKEN=\[redacted\]/
+  );
+});
+
+test("start action rejects cleanly when go process exits during readiness", async (t) => {
+  const { supervisor, record } = setup(t, {
+    childProcessOptions: {
+      onSpawn: (child) => queueMicrotask(() => child.emit("exit", 127, null))
+    },
+    fetch: async () => {
+      await new Promise((resolve) => setImmediate(resolve));
+      return { ok: true, status: 200 };
+    }
+  });
+  const installed = await supervisor.runAction(record, "install", {});
+  const withInstallDir = normalizeCoreMcpRecord({ ...record, ...installed.recordPatch, transport: record.transport });
+
+  await assert.rejects(
+    supervisor.runAction(withInstallDir, "start", {}),
+    /exited before it became ready/i
+  );
 });
 
 test("start action fails cleanly when the managed checkout is missing", async (t) => {
@@ -197,6 +263,25 @@ test("test action uses the managed endpoint and marks the runtime healthy", asyn
   assert.deepEqual(fetchCalls, ["http://127.0.0.1:18060/mcp"]);
   assert.equal(result.recordPatch.managedRuntime.endpoint, "http://127.0.0.1:18060/mcp");
   assert.equal(result.recordPatch.managedRuntime.installDir, withInstallDir.managedRuntime.installDir);
+});
+
+test("managed actions ignore malicious persisted installDir outside Mia runtime", async (t) => {
+  const { dir, calls, supervisor, record } = setup(t);
+  const malicious = normalizeCoreMcpRecord({
+    ...record,
+    managedRuntime: {
+      ...record.managedRuntime,
+      installDir: "/tmp/evil",
+      state: "installed"
+    }
+  });
+
+  const result = await supervisor.runAction(malicious, "install", {});
+  const spawnDirs = calls.filter((call) => call.cwd).map((call) => call.cwd);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.recordPatch.managedRuntime.installDir, path.join(dir, "managed-mcp", "xiaohongshu-mcp"));
+  assert.equal(spawnDirs.includes("/tmp/evil"), false);
 });
 
 test("test action accepts service-shaped tool verification output", async (t) => {

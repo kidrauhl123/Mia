@@ -507,6 +507,58 @@ test("installed card omits legacy setupHint self-start guidance from default sur
   assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, /start the local service/i);
 });
 
+test("installed native built-ins hide generic edit while custom records keep it", () => {
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "mcp_github",
+        name: "GitHub MCP",
+        nativeName: "github",
+        registryId: "github",
+        managementMode: "native",
+        enabled: true,
+        status: "connected",
+        transport: { type: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"], env: {} },
+        tools: [],
+        sync: {}
+      }, {
+        id: "mcp_custom",
+        name: "Custom MCP",
+        managementMode: "custom",
+        enabled: false,
+        status: "disconnected",
+        transport: { type: "stdio", command: "node", args: ["server.js"], env: {} },
+        tools: [],
+        sync: {}
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({ state });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+
+  const html = harness.els.skillCardGrid.innerHTML;
+  const editButtons = harness.els.skillCardGrid.querySelectorAll('[data-mcp-action="edit"]');
+  const builtInChunk = html.match(/data-mcp-id="mcp_github"[\s\S]*?<\/article>/)?.[0] || "";
+  const customChunk = html.match(/data-mcp-id="mcp_custom"[\s\S]*?<\/article>/)?.[0] || "";
+  const builtInDefaultSurface = builtInChunk.replace(/<details class="mcp-advanced-diagnostics">[\s\S]*?<\/details>/, "");
+
+  assert.equal(editButtons.length, 1);
+  assert.equal(editButtons[0].dataset.mcpId, "mcp_custom");
+  assert.doesNotMatch(builtInDefaultSurface, /@modelcontextprotocol\/server-github/);
+  assert.match(builtInChunk, /<details class="mcp-advanced-diagnostics">[\s\S]*@modelcontextprotocol\/server-github/);
+  assert.match(customChunk, /data-mcp-action="edit"/);
+});
+
 test("mcp-library settles empty successful responses into stable empty states", async () => {
   const state = {
     skillFilter: "",

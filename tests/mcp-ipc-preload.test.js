@@ -31,6 +31,12 @@ test("MCP IPC channels and preload bridge are wired", () => {
   assert.match(ipc, /mcpService\.runManagedAction\(String\(id \|\| ""\),\s*String\(action \|\| ""\),\s*values \|\| \{\}\)/);
 });
 
+test("Electron main wires a production managed MCP supervisor", () => {
+  const src = read("src/main.js");
+  assert.match(src, /createManagedConnectorSupervisor/);
+  assert.match(src, /managedSupervisor:\s*createManagedConnectorSupervisor\(\{/);
+});
+
 test("mcp ipc registers Core AION alignment methods", () => {
   const src = read("src/main/ipc/mcp-ipc.js");
   assert.match(src, /McpListTools/);

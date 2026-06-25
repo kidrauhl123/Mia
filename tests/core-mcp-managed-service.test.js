@@ -173,6 +173,52 @@ test("runManagedAction updates xiaohongshu runtime state", async (t) => {
   assert.deepEqual(actions, [["xiaohongshu", "start"]]);
 });
 
+test("public save cannot patch managedRuntime installDir for built-in managed records", async (t) => {
+  const seen = [];
+  const { service, runtime } = setup(t, {
+    managedSupervisor: {
+      runAction: async (record, action) => {
+        seen.push(record.managedRuntime.installDir);
+        return {
+          ok: true,
+          state: action,
+          message: action,
+          recordPatch: {
+            managedRuntime: {
+              ...record.managedRuntime,
+              installDir: "/owned/xhs",
+              state: action,
+              lastAction: action
+            }
+          }
+        };
+      },
+      ensureRunning: async (records) => ({ records, errors: [] })
+    }
+  });
+  const installed = await service.installTemplate("xiaohongshu", {});
+
+  const saved = await service.save({
+    id: installed.data.id,
+    name: installed.data.name,
+    registryId: "xiaohongshu",
+    managementMode: "managed",
+    managedRuntime: {
+      connectorId: "xiaohongshu",
+      installDir: "/tmp/evil",
+      endpoint: "http://127.0.0.1:18060/mcp",
+      state: "installed"
+    },
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+  });
+  const storedAfterSave = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  await service.runManagedAction(installed.data.id, "start", {});
+
+  assert.equal(saved.success, true);
+  assert.notEqual(storedAfterSave[0].managedRuntime.installDir, "/tmp/evil");
+  assert.deepEqual(seen, [""]);
+});
+
 test("runManagedAction returns failure and persists managed error when supervisor action fails", async (t) => {
   const { service, runtime } = setup(t, {
     managedSupervisor: {
@@ -214,6 +260,36 @@ test("runManagedAction returns failure and persists managed error when superviso
   assert.equal(stored[0].connectionWizard.message, "start failed TOKEN=[redacted]");
 });
 
+test("runManagedAction persists managed error when a non-test supervisor action throws", async (t) => {
+  const { service, runtime } = setup(t, {
+    managedSupervisor: {
+      runAction: async (_record, action) => {
+        if (action === "start") throw new Error("spawn failed TOKEN=secret-value");
+        return { ok: true, state: action, message: action, recordPatch: {} };
+      },
+      ensureRunning: async (records) => ({ records, errors: [] })
+    }
+  });
+  const installed = await service.installTemplate("xiaohongshu", {});
+
+  const started = await service.runManagedAction(installed.data.id, "start", {});
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(started.success, false);
+  assert.equal(started.error, "spawn failed TOKEN=[redacted]");
+  assert.equal(started.data.id, installed.data.id);
+  assert.equal(started.data.enabled, false);
+  assert.equal(started.data.connectionWizard.state, "managed_error");
+  assert.equal(started.data.connectionWizard.nextAction, "start");
+  assert.equal(started.data.connectionWizard.message, "spawn failed TOKEN=[redacted]");
+  assert.equal(started.data.managedRuntime.state, "error");
+  assert.equal(started.data.lastError, "spawn failed TOKEN=[redacted]");
+  assert.equal(stored[0].enabled, false);
+  assert.equal(stored[0].connectionWizard.state, "managed_error");
+  assert.equal(stored[0].managedRuntime.state, "error");
+  assert.equal(stored[0].lastError, "spawn failed TOKEN=[redacted]");
+});
+
 test("setEnabled blocks managed enable until a connected test already exists", async (t) => {
   const { service, runtime } = setup(t, {
     managedSupervisor: {
@@ -229,6 +305,35 @@ test("setEnabled blocks managed enable until a connected test already exists", a
   assert.equal(enabled.data.id, installed.data.id);
   assert.equal(enabled.data.enabled, false);
   assert.equal(enabled.error, "Managed MCP server must pass connection test before it can be enabled.");
+  assert.equal(stored[0].enabled, false);
+});
+
+test("setEnabled blocks native built-ins until required inputs and connection test are complete", async (t) => {
+  const { service, runtime } = setup(t);
+
+  const missing = await service.installTemplate("github", {});
+  const missingEnabled = await service.setEnabled(missing.data.id, true);
+
+  assert.equal(missingEnabled.success, false);
+  assert.equal(missingEnabled.data.enabled, false);
+  assert.equal(missingEnabled.data.connectionWizard.state, "missing_required_inputs");
+  assert.match(missingEnabled.error, /required fields/i);
+
+  const ready = await service.installTemplate("github", { GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_secret" });
+  let stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  stored[0].enabled = false;
+  stored[0].status = "disconnected";
+  stored[0].lastTestStatus = "disconnected";
+  stored[0].connectionWizard = { state: "ready_to_test", nextAction: "test", message: "Retest required.", missingRequiredInputs: [], actions: [{ id: "test", label: "Test" }] };
+  fs.writeFileSync(runtime.mcpServers, `${JSON.stringify(stored, null, 2)}\n`);
+
+  const untested = await service.setEnabled(ready.data.id, true);
+  stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(untested.success, false);
+  assert.equal(untested.data.enabled, false);
+  assert.equal(untested.data.connectionWizard.state, "ready_to_test");
+  assert.match(untested.error, /connection test/i);
   assert.equal(stored[0].enabled, false);
 });
 

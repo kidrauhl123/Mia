@@ -373,7 +373,8 @@
   }
 
   function renderServerSetupGuide(server = {}) {
-    const url = transportSummary(server.transport || {});
+    const hideRawTransport = isInstalledBuiltIn(server) && server.transport?.type === "stdio";
+    const url = hideRawTransport ? "" : transportSummary(server.transport || {});
     const expectedToolCount = Number(
       server.expectedToolCount
       || server.managedRuntime?.expectedToolCount
@@ -439,12 +440,21 @@
     `;
   }
 
+  function isInstalledBuiltIn(server = {}) {
+    return !!server.registryId
+      || server.source === "marketplace"
+      || !!server.managedRuntime?.connectorId
+      || ["native", "managed"].includes(String(server.managementMode || ""));
+  }
+
   function renderServerCard(server) {
     const syncLabel = syncStatusLabel(server);
-    const description = server.description || transportSummary(server.transport) || "未配置描述";
+    const isBuiltIn = isInstalledBuiltIn(server);
+    const description = server.description || (isBuiltIn ? "Mia 管理的内置 MCP 服务" : transportSummary(server.transport)) || "未配置描述";
     const id = escapeHtml(server.id || "");
     const oauthAction = oauthActionHtml(server);
     const managedActions = managedActionHtml(server);
+    const showGenericEdit = !isBuiltIn;
     return `
       <article class="skill-card mcp-card" data-mcp-id="${id}">
         <div class="skill-card-head">
@@ -473,7 +483,7 @@
           </div>
           <div class="mcp-action-strip mcp-action-strip-secondary ${oauthAction ? "mcp-action-strip-auth" : ""}">
             ${oauthAction}
-            <button class="mcp-action-button mcp-action-ghost" type="button" data-mcp-action="edit" data-mcp-id="${id}">配置</button>
+            ${showGenericEdit ? `<button class="mcp-action-button mcp-action-ghost" type="button" data-mcp-action="edit" data-mcp-id="${id}">配置</button>` : ""}
             <button class="mcp-action-button mcp-action-danger" type="button" data-mcp-action="delete" data-mcp-id="${id}">删除</button>
           </div>
         </div>
