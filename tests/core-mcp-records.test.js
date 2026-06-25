@@ -44,6 +44,37 @@ test("public record redacts env headers oauth token refs and original json", () 
   assert.doesNotMatch(view.originalJson, /secret|ghp_real_secret/);
 });
 
+test("public record deeply redacts diagnostic secrets beyond message fields", () => {
+  const record = normalizeCoreMcpRecord({
+    name: "diag",
+    transport: { type: "http", url: "https://example.test/mcp" },
+    diagnostics: {
+      message: "Authorization: Bearer super-secret",
+      headers: {
+        Authorization: "Bearer super-secret",
+        Cookie: "session=abc123"
+      },
+      nested: {
+        accessToken: "access-secret",
+        refreshToken: "refresh-secret",
+        apiKey: "api-secret",
+        note: "Bearer nested-secret"
+      }
+    }
+  });
+
+  const view = publicCoreMcpRecord(record);
+  const serialized = JSON.stringify(view.diagnostics);
+
+  assert.equal(view.diagnostics.headers.Authorization, "••••••••");
+  assert.equal(view.diagnostics.headers.Cookie, "••••••••");
+  assert.equal(view.diagnostics.nested.accessToken, "••••••••");
+  assert.equal(view.diagnostics.nested.refreshToken, "••••••••");
+  assert.equal(view.diagnostics.nested.apiKey, "••••••••");
+  assert.match(view.diagnostics.nested.note, /\[redacted\]/);
+  assert.doesNotMatch(serialized, /super-secret|abc123|access-secret|refresh-secret|api-secret|nested-secret/);
+});
+
 test("enabled records exclude disabled and soft-deleted records", () => {
   const active = normalizeCoreMcpRecord({ name: "active", transport: { type: "stdio", command: "npx" } });
   const disabled = normalizeCoreMcpRecord({ name: "disabled", enabled: false, transport: { type: "stdio", command: "npx" } });
@@ -70,4 +101,22 @@ test("import parser accepts mcpServers and streamable-http aliases", () => {
 
   assert.equal(imported[0].name, "remote");
   assert.equal(imported[0].transport.type, "http");
+});
+
+test("normalize rejects reserved builtin names for user records", () => {
+  assert.equal(normalizeCoreMcpRecord({
+    name: "mia-app",
+    transport: { type: "stdio", command: "node" }
+  }), null);
+  assert.equal(normalizeCoreMcpRecord({
+    name: "mia-scheduler",
+    transport: { type: "stdio", command: "node" }
+  }), null);
+
+  const builtin = normalizeCoreMcpRecord({
+    name: "mia-app",
+    builtin: true,
+    transport: { type: "stdio", command: "node" }
+  });
+  assert.equal(builtin.name, "mia-app");
 });

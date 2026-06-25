@@ -49,7 +49,17 @@ function createCoreMcpFileRegistry(deps = {}) {
   async function upsert(input = {}) {
     const current = readAll();
     const existing = input.id ? current.find((record) => record.id === input.id) : current.find((record) => record.name === String(input.name || "").trim());
-    const record = normalizeCoreMcpRecord({ ...(existing || {}), ...(input || {}), id: input.id || existing?.id, createdAt: existing?.createdAt }, normalizeOptions());
+    const merged = {
+      ...(existing || {}),
+      ...(input || {}),
+      id: input.id || existing?.id,
+      createdAt: existing?.createdAt,
+      deletedAt: null
+    };
+    if (existing && input.enabled === undefined) {
+      merged.enabled = true;
+    }
+    const record = normalizeCoreMcpRecord(merged, normalizeOptions());
     if (!record) throw new Error("MCP server record is invalid.");
     return writeAll(current.filter((item) => item.id !== record.id && item.name !== record.name).concat({ ...record, updatedAt: now() })).find((item) => item.id === record.id);
   }

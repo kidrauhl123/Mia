@@ -43,3 +43,59 @@ test("get resolves by id or name including deleted records", async (t) => {
   assert.equal((await registry.get(saved.id)).name, "xhs");
   assert.equal((await registry.get("xhs")).id, saved.id);
 });
+
+test("registry preserves null lastTestCode and deletedAt across disk round-trip", async (t) => {
+  const { registry } = setup(t);
+
+  await registry.writeAll([{
+    id: "mcp_nulls",
+    name: "nulls",
+    transport: { type: "stdio", command: "npx" },
+    lastTestCode: null,
+    deletedAt: null
+  }]);
+
+  const [record] = await registry.readAll();
+  assert.equal(record.lastTestCode, null);
+  assert.equal(record.deletedAt, null);
+});
+
+test("upsert restores a soft-deleted record and re-enables it by default", async (t) => {
+  const { registry } = setup(t);
+  const saved = await registry.upsert({
+    name: "restore-me",
+    enabled: false,
+    transport: { type: "stdio", command: "npx" }
+  });
+
+  await registry.softDelete(saved.id);
+  const restored = await registry.upsert({
+    name: "restore-me",
+    transport: { type: "stdio", command: "node", args: ["server.js"] }
+  });
+
+  assert.equal(restored.id, saved.id);
+  assert.equal(restored.deletedAt, null);
+  assert.equal(restored.enabled, true);
+  assert.equal(restored.transport.command, "node");
+  assert.deepEqual((await registry.list()).map((record) => record.name), ["restore-me"]);
+});
+
+test("upsert rejects reserved builtin names for user records", async (t) => {
+  const { registry } = setup(t);
+
+  await assert.rejects(
+    registry.upsert({
+      name: "mia-app",
+      transport: { type: "stdio", command: "node" }
+    }),
+    /invalid/i
+  );
+  await assert.rejects(
+    registry.upsert({
+      name: "mia-scheduler",
+      transport: { type: "stdio", command: "node" }
+    }),
+    /invalid/i
+  );
+});

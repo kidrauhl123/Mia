@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const { MCP_ENGINE_IDS, MCP_TRANSPORTS, SENSITIVE_KEY_PATTERN } = require("../../shared/mcp-contracts.js");
 
 const MASK = "••••••••";
+const RESERVED_BUILTIN_NAMES = new Set(["mia-app", "mia-scheduler"]);
 
 function nowMs() {
   return Date.now();
@@ -105,6 +106,22 @@ function normalizeDiagnostics(input) {
   };
 }
 
+function normalizeNullableNumber(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalizeTimestamp(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeCounter(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
 function normalizeOAuth(input) {
   const source = input && typeof input === "object" ? input : {};
   return {
@@ -117,8 +134,10 @@ function normalizeOAuth(input) {
 function normalizeCoreMcpRecord(input = {}, options = {}) {
   const now = typeof options.now === "function" ? options.now() : nowMs();
   const name = String(input.name || "").trim();
+  if (!name) return null;
+  if (input.builtin !== true && RESERVED_BUILTIN_NAMES.has(name.toLowerCase())) return null;
   const transport = normalizeTransport(input.transport || input);
-  if (!name || !transport) return null;
+  if (!transport) return null;
   const idFactory = typeof options.idFactory === "function" ? options.idFactory : stableId;
   const rawSync = { ...defaultSync(), ...(input.sync && typeof input.sync === "object" ? input.sync : {}) };
   const sync = Object.fromEntries(
@@ -140,17 +159,17 @@ function normalizeCoreMcpRecord(input = {}, options = {}) {
     builtin: input.builtin === true,
     status: String(input.status || "unknown").trim() || "unknown",
     lastTestStatus: String(input.lastTestStatus || input.status || "unknown").trim() || "unknown",
-    lastTestCode: Number.isFinite(Number(input.lastTestCode)) ? Number(input.lastTestCode) : null,
+    lastTestCode: normalizeNullableNumber(input.lastTestCode),
     tools: normalizeTools(input.tools),
     transport,
     sync,
     diagnostics: normalizeDiagnostics(input.diagnostics),
     oauth: normalizeOAuth(input.oauth),
     sourceAgent: String(input.sourceAgent || "").trim(),
-    createdAt: Number.isFinite(Number(input.createdAt)) ? Number(input.createdAt) : now,
-    updatedAt: Number.isFinite(Number(input.updatedAt)) ? Number(input.updatedAt) : now,
-    deletedAt: Number.isFinite(Number(input.deletedAt)) ? Number(input.deletedAt) : null,
-    lastCheckedAt: Number.isFinite(Number(input.lastCheckedAt)) ? Number(input.lastCheckedAt) : 0,
+    createdAt: normalizeTimestamp(input.createdAt, now),
+    updatedAt: normalizeTimestamp(input.updatedAt, now),
+    deletedAt: normalizeNullableNumber(input.deletedAt),
+    lastCheckedAt: normalizeCounter(input.lastCheckedAt, 0),
     lastError: sanitizeSecretText(input.lastError || ""),
     registryId: String(input.registryId || "").trim(),
     source: String(input.source || "custom").trim() || "custom",
@@ -212,6 +231,23 @@ function maskSensitiveJsonValue(key, value) {
   return out;
 }
 
+function redactPublicValue(key, value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactPublicValue("", item));
+  }
+  if (typeof value === "string") {
+    return SENSITIVE_KEY_PATTERN.test(String(key || "")) && value ? MASK : sanitizeSecretText(value);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const out = {};
+  for (const [childKey, childValue] of Object.entries(value)) {
+    out[childKey] = redactPublicValue(childKey, childValue);
+  }
+  return out;
+}
+
 function maskOriginalJson(originalJson) {
   const source = String(originalJson || "");
   if (!source) return source;
@@ -239,8 +275,8 @@ function publicCoreMcpRecord(record = {}) {
   if (typeof copy.lastError === "string") {
     copy.lastError = sanitizeSecretText(copy.lastError);
   }
-  if (copy.diagnostics && typeof copy.diagnostics === "object" && typeof copy.diagnostics.message === "string") {
-    copy.diagnostics.message = sanitizeSecretText(copy.diagnostics.message);
+  if (copy.diagnostics && typeof copy.diagnostics === "object") {
+    copy.diagnostics = redactPublicValue("", copy.diagnostics);
   }
   if (copy.sync && typeof copy.sync === "object") {
     for (const value of Object.values(copy.sync)) {
