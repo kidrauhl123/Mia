@@ -13,6 +13,7 @@ const {
   mcpSpecsForHermes
 } = require("./engine-sync.js");
 const { createCoreMcpConnectionTester } = require("./connection-test.js");
+const { createCoreMcpAgentConfigService } = require("./agent-configs.js");
 const { createCoreMcpOAuthService } = require("./oauth-service.js");
 const { createCoreMcpOAuthTokenStore } = require("./oauth-token-store.js");
 const {
@@ -133,7 +134,12 @@ function createCoreMcpService(deps = {}) {
   const nativeSync = typeof deps.nativeSync === "function"
     ? deps.nativeSync
     : async () => ({ success: true, statuses: {}, commands: [] });
-  const agentConfigService = deps.agentConfigService || null;
+  const agentConfigService = deps.agentConfigService || createCoreMcpAgentConfigService({
+    runtimePaths,
+    fs: fsImpl,
+    runner: deps.agentConfigRunner,
+    processEnvStrings: deps.processEnvStrings
+  });
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const idFactory = typeof deps.idFactory === "function" ? deps.idFactory : () => `mcp_${crypto.randomUUID()}`;
   const nodePath = typeof deps.nodePath === "function" ? deps.nodePath : () => "";
@@ -708,7 +714,20 @@ function createCoreMcpService(deps = {}) {
       if (!agentConfigService || typeof agentConfigService.importAgentConfig !== "function") {
         throw new Error("Agent config service is not configured.");
       }
-      return ok(await agentConfigService.importAgentConfig(input));
+      const result = await agentConfigService.importAgentConfig(input);
+      const server = result?.server;
+      if (!server || server.importable === false) {
+        throw new Error(server?.importSkipReason || "Discovered MCP server is not importable.");
+      }
+      const saved = await save({
+        name: server.name,
+        enabled: false,
+        source: "agent-config",
+        sourceAgent: input.sourceAgent,
+        transport: server.transport
+      });
+      if (!saved.success) throw new Error(saved.error || "Failed to import MCP server.");
+      return ok({ imported: 1, server: saved.data });
     } catch (error) {
       return fail(error);
     }

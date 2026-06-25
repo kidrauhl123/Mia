@@ -23,6 +23,7 @@ function setup(t, overrides = {}) {
       nativeSync: overrides.nativeSync || (async () => ({ success: true, statuses: {}, commands: [] })),
       connectionTester: overrides.connectionTester,
       agentConfigService: overrides.agentConfigService,
+      agentConfigRunner: overrides.agentConfigRunner,
       oauthService: overrides.oauthService,
       now: () => 1710000000000,
       idFactory: (name) => `mcp_${name}`
@@ -117,9 +118,57 @@ test("new methods delegate to agent discovery oauth and manager manifest", async
 
   assert.equal((await service.listTools()).data.tools[0].name, "search");
   assert.equal((await service.getAgentConfigs()).data.sources[0].source, "codex");
-  assert.equal((await service.importAgentConfig({ sourceAgent: "codex", serverName: "x" })).data.imported, 1);
   assert.equal((await service.oauth.checkStatus({ serverUrl: "https://example.com/mcp" })).data.authenticated, true);
   assert.deepEqual(calls, ["manifest"]);
+});
+
+test("default agent discovery service uses runner", async (t) => {
+  const calls = [];
+  const { service } = setup(t, {
+    agentConfigRunner: async (command) => {
+      calls.push(command);
+      if (command === "claude") return { ok: true, stdout: "xhs: npx -y xhs - ✓ Connected", stderr: "" };
+      return { ok: false, stdout: "", stderr: "missing" };
+    }
+  });
+
+  const result = await service.getAgentConfigs();
+
+  assert.equal(result.success, true);
+  assert.deepEqual(result.data.sources.map((source) => source.source), ["claude-code", "codex", "openclaw", "hermes"]);
+  assert.equal(result.data.sources[0].servers[0].name, "xhs");
+  assert.ok(calls.includes("claude"));
+});
+
+test("importAgentConfig writes disabled agent-config registry record", async (t) => {
+  const { service, runtime } = setup(t, {
+    agentConfigService: {
+      getAgentConfigs: async () => [],
+      importAgentConfig: async () => ({
+        imported: 1,
+        server: {
+          source: "codex",
+          name: "pw",
+          importable: true,
+          transport: { type: "stdio", command: "npx", args: ["-y", "@playwright/mcp"], env: { API_TOKEN: "secret" } }
+        }
+      })
+    }
+  });
+
+  const imported = await service.importAgentConfig({ sourceAgent: "codex", serverName: "pw" });
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(imported.success, true);
+  assert.equal(imported.data.imported, 1);
+  assert.equal(imported.data.server.name, "pw");
+  assert.equal(imported.data.server.enabled, false);
+  assert.equal(imported.data.server.source, "agent-config");
+  assert.equal(imported.data.server.sourceAgent, "codex");
+  assert.equal(imported.data.server.transport.env.API_TOKEN, "••••••••");
+  assert.equal(stored[0].enabled, false);
+  assert.equal(stored[0].source, "agent-config");
+  assert.equal(stored[0].sourceAgent, "codex");
 });
 
 test("default oauth service stores tokens outside registry and reports status", async (t) => {
