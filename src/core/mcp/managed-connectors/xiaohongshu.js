@@ -8,9 +8,15 @@ function createXiaohongshuManagedConnector(deps = {}) {
   const path = deps.path || require("node:path");
   const childProcess = deps.childProcess || require("node:child_process");
   const fetch = deps.fetch;
+  const listTools = deps.listTools;
+  const testTools = deps.testTools;
   const runtimePaths = deps.runtimePaths;
+  const healthPollAttempts = Number.isInteger(deps.healthPollAttempts) && deps.healthPollAttempts > 0 ? deps.healthPollAttempts : 5;
+  const healthPollIntervalMs = Number.isFinite(deps.healthPollIntervalMs) && deps.healthPollIntervalMs >= 0 ? deps.healthPollIntervalMs : 250;
+  const sleep = typeof deps.sleep === "function"
+    ? deps.sleep
+    : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
-  if (typeof fetch !== "function") throw new Error("fetch dependency is required.");
 
   function installDir(record = {}) {
     const existing = String(record.managedRuntime?.installDir || "").trim();
@@ -48,16 +54,44 @@ function createXiaohongshuManagedConnector(deps = {}) {
   }
 
   async function checkEndpointHealth(endpoint) {
-    let response;
-    try {
-      response = await fetch(endpoint);
-    } catch (error) {
-      throw new Error(`Xiaohongshu endpoint health check failed for ${endpoint}.`);
+    if (typeof fetch !== "function") {
+      throw new Error("fetch dependency is required.");
     }
-    if (!response || response.ok !== true) {
-      const status = Number(response?.status);
-      const detail = Number.isFinite(status) ? ` Status ${status}.` : "";
-      throw new Error(`Xiaohongshu endpoint health check failed for ${endpoint}.${detail}`);
+    let lastError = null;
+    for (let attempt = 1; attempt <= healthPollAttempts; attempt += 1) {
+      try {
+        const response = await fetch(endpoint);
+        if (response && response.ok === true) return;
+        const status = Number(response?.status);
+        const detail = Number.isFinite(status) ? ` Status ${status}.` : "";
+        lastError = new Error(`Xiaohongshu endpoint health check failed for ${endpoint}.${detail}`);
+      } catch (error) {
+        const reason = String(error?.message || error || "").trim();
+        const suffix = reason ? ` ${reason}` : "";
+        lastError = new Error(`Xiaohongshu endpoint health check failed for ${endpoint}.${suffix}`.trim());
+      }
+      if (attempt < healthPollAttempts) {
+        await sleep(healthPollIntervalMs);
+      }
+    }
+    throw lastError || new Error(`Xiaohongshu endpoint health check failed for ${endpoint}.`);
+  }
+
+  async function verifyExpectedTools(record, endpoint) {
+    const expectedToolCount = Number(record?.managedRuntime?.expectedToolCount || 0);
+    if (expectedToolCount <= 0) return;
+    const verifyTools = typeof listTools === "function"
+      ? () => listTools(endpoint, record)
+      : typeof testTools === "function"
+        ? () => testTools(record)
+        : null;
+    if (!verifyTools) {
+      throw new Error("Expected tool verification dependency is required.");
+    }
+    const tools = await verifyTools();
+    const actualCount = Array.isArray(tools) ? tools.length : 0;
+    if (actualCount < expectedToolCount) {
+      throw new Error(`Xiaohongshu managed runtime expected ${expectedToolCount} tools but reported ${actualCount}.`);
     }
   }
 
@@ -143,6 +177,7 @@ function createXiaohongshuManagedConnector(deps = {}) {
     if (action === "test") {
       assertInstalled(dir);
       await checkEndpointHealth(endpoint);
+      await verifyExpectedTools(record, endpoint);
       return {
         ok: true,
         state: "healthy",
