@@ -159,6 +159,7 @@
   let _lastRenderedConversationMessageCount = 0;
   let _lastRenderedConversationMessageIds = [];
   let _pendingMessageFocus = null;
+  let _suppressPendingMessageFocus = false;
   const _chatBottomStickSessions = new WeakMap();
 
   function jsonSignature(value) {
@@ -326,6 +327,7 @@
       || containerEl.querySelector(`.message[data-message-id="${escapedId}"]`)
       || bubble;
     if (!target) return false;
+    if (pending.focusedAt) return true;
     centerMessageTarget(containerEl, target);
     const now = Date.now();
     pending.focusedAt = now;
@@ -2971,7 +2973,7 @@
     const shouldAnimateMessage = (msg) => tailMessageIdSet.has(messageStableId(msg));
     rememberRenderedConversationMessages(conversationId, messages);
     const applyScroll = () => {
-      if (focusPendingMessage(containerEl)) return;
+      if (!_suppressPendingMessageFocus && focusPendingMessage(containerEl)) return;
       if (stickToBottom) {
         if (tailMessageIds.length) {
           animateChatTailToBottom(containerEl, startBottomGap);
@@ -3271,7 +3273,15 @@
   }
 
   function renderForMessageFocus() {
-    if (deps && typeof deps.render === "function") deps.render();
+    if (deps && typeof deps.render === "function") {
+      const previousSuppress = _suppressPendingMessageFocus;
+      _suppressPendingMessageFocus = true;
+      try {
+        deps.render();
+      } finally {
+        _suppressPendingMessageFocus = previousSuppress;
+      }
+    }
     _reRenderActiveChat({ force: true });
   }
 

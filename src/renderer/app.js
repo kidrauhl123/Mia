@@ -1430,6 +1430,7 @@ function openConversationSearchResult(conversationId, row) {
   const messageId = String(row?.searchMessageId || row?.searchMessage?.id || "").trim();
   if (!id || !messageId) return false;
   state.activeKey = "";
+  state.activeView = "chat";
   state.personaSearchFocus = { conversationId: id, messageId };
   showNarrowContent();
   render();
