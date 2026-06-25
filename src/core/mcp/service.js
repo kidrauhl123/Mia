@@ -20,6 +20,7 @@ const {
   MASK,
   coreMcpFingerprint,
   enabledCoreMcpRecords,
+  isCoreMcpExposureReady,
   normalizeCoreMcpRecord,
   normalizeCoreMcpRegistry,
   parseCoreMcpImportJson,
@@ -27,82 +28,27 @@ const {
   sanitizeSecretText
 } = require("./records.js");
 const { createCoreMcpFileRegistry } = require("./file-registry.js");
+const {
+  builtinMcpTemplates,
+  builtinMcpTemplateById,
+  materializeBuiltinMcpRecord
+} = require("./catalog.js");
 
 const MASK_SENTINEL = MASK;
-const MCP_MARKETPLACE_TEMPLATES = [
-  {
-    id: "xhs-local-http",
-    name: "小红书 MCP",
-    nativeName: "xiaohongshu-mcp",
-    description: "连接 xpzouying/xiaohongshu-mcp 在本机运行的 HTTP MCP 服务。",
-    category: "内容平台",
-    homepage: "https://github.com/xpzouying/xiaohongshu-mcp",
-    setupHint: "来自 xpzouying/xiaohongshu-mcp；按 README 先运行登录工具，再启动本地 MCP 服务，Mia 只负责连接。",
-    setupCommands: ["go run cmd/login/main.go", "go run ."],
-    expectedToolCount: 13,
-    transport: {
-      type: "http",
-      url: "http://localhost:18060/mcp",
-      headers: {}
-    },
-    requiredEnvKeys: []
-  },
-  {
-    id: "chrome-devtools-cdp",
-    name: "Chrome DevTools MCP",
-    nativeName: "chrome-devtools-cdp",
-    description: "通过 Chromium/Chrome 远程调试端口提供浏览器检查、截图和交互测试。默认连接 http://127.0.0.1:9222。",
-    category: "浏览器自动化",
-    transport: {
-      type: "stdio",
-      command: "npx",
-      args: ["-y", "chrome-devtools-mcp@0.16.0", "--browser-url=http://127.0.0.1:9222"],
-      env: {}
-    },
-    requiredEnvKeys: []
-  },
-  {
-    id: "playwright-browser",
-    name: "Playwright MCP",
-    nativeName: "playwright-browser",
-    description: "启动 Playwright MCP 浏览器服务，用于打开本地页面、截图、点击、输入和验证前端交互。",
-    category: "浏览器自动化",
-    transport: {
-      type: "stdio",
-      command: "npx",
-      args: ["-y", "@playwright/mcp@latest"],
-      env: {}
-    },
-    requiredEnvKeys: []
-  }
-];
-
-function marketplaceTemplates() {
-  return MCP_MARKETPLACE_TEMPLATES.map((template) => JSON.parse(JSON.stringify(template)));
-}
-
-function marketplaceTemplateById(id) {
-  const needle = String(id || "").trim();
-  return MCP_MARKETPLACE_TEMPLATES.find((template) => template.id === needle) || null;
-}
 
 function withMarketplaceTemplateDefaults(input = {}) {
-  const template = marketplaceTemplateById(input.registryId);
+  const template = builtinMcpTemplateById(input.registryId);
   if (!template) return input;
-  const nativeName = input.nativeName && input.nativeName !== template.id
-    ? input.nativeName
-    : template.nativeName;
   return {
-    ...template,
     ...input,
     description: input.description || template.description,
-    nativeName,
+    nativeName: input.nativeName || input.native_name || template.nativeName,
     homepage: input.homepage || template.homepage || "",
-    setupHint: input.setupHint || template.setupHint || "",
-    setupCommands: Array.isArray(input.setupCommands) && input.setupCommands.length
-      ? input.setupCommands
-      : template.setupCommands || [],
-    expectedToolCount: input.expectedToolCount || template.expectedToolCount || 0
+    managementMode: input.managementMode || template.managementMode,
+    requiredInputs: input.requiredInputs || template.requiredInputs || [],
+    connectionWizard: input.connectionWizard || template.connectionWizard || {},
+    managedRuntime: input.managedRuntime || template.managedRuntime || {},
+    expectedToolCount: input.expectedToolCount || template.managedRuntime?.expectedToolCount || 0
   };
 }
 
@@ -129,6 +75,10 @@ function fail(error) {
   return { success: false, data: null, error: sanitizeSecretText(error?.message || error || "Unknown error") };
 }
 
+function failWithData(error, data) {
+  return { success: false, data, error: sanitizeSecretText(error?.message || error || "Unknown error") };
+}
+
 function sanitizeBridgeError(error) {
   if (typeof error === "string") return sanitizeSecretText(error);
   if (!error || typeof error !== "object") return sanitizeSecretText(error);
@@ -137,6 +87,17 @@ function sanitizeBridgeError(error) {
   if (typeof next.message === "string") next.message = sanitizeSecretText(next.message);
   if (typeof next.error !== "string" && typeof next.message !== "string") {
     next.error = sanitizeSecretText(String(error));
+  }
+  return next;
+}
+
+function sanitizeManagedValue(value) {
+  if (typeof value === "string") return sanitizeSecretText(value);
+  if (Array.isArray(value)) return value.map((item) => sanitizeManagedValue(item));
+  if (!value || typeof value !== "object") return value;
+  const next = {};
+  for (const [key, entry] of Object.entries(value)) {
+    next[key] = sanitizeManagedValue(entry);
   }
   return next;
 }
@@ -178,6 +139,7 @@ function createCoreMcpService(deps = {}) {
   const stdioProxyScriptPath = typeof deps.stdioProxyScriptPath === "function"
     ? deps.stdioProxyScriptPath
     : () => path.join(__dirname, "../../main/mcp/mcp-stdio-proxy-server.js");
+  const managedSupervisor = deps.managedSupervisor || null;
   const initializationTimeoutMs = Number.isFinite(Number(deps.initializationTimeoutMs))
     && Number(deps.initializationTimeoutMs) > 0
     ? Number(deps.initializationTimeoutMs)
@@ -251,6 +213,14 @@ function createCoreMcpService(deps = {}) {
     return records.map((record) => publicRecord(record));
   }
 
+  function publicBridgeState(state = {}) {
+    return {
+      tools: Array.isArray(state?.tools) ? state.tools : [],
+      errors: Array.isArray(state?.errors) ? state.errors : [],
+      bridge: maskedBridgeInfo(state?.bridge || bridgeInfo)
+    };
+  }
+
   function maskedBridgeInfo(info) {
     if (!info || typeof info !== "object") return null;
     return {
@@ -280,6 +250,128 @@ function createCoreMcpService(deps = {}) {
       isErrorStatus(statusEntry)
       || (Array.isArray(statusEntry?.commands) && statusEntry.commands.length > 0)
     ));
+  }
+
+  function mergeManagedRecordState(record, updatedRecord) {
+    if (!updatedRecord || updatedRecord.id !== record.id) return record;
+    const next = { ...record };
+    const managedKeys = [
+      "managedRuntime",
+      "connectionWizard",
+      "status",
+      "lastTestStatus",
+      "lastTestCode",
+      "diagnostics",
+      "tools",
+      "lastCheckedAt",
+      "lastError",
+      "enabled",
+      "oauth",
+      "sync"
+    ];
+    for (const key of managedKeys) {
+      if (Object.prototype.hasOwnProperty.call(updatedRecord, key)) {
+        next[key] = sanitizeManagedValue(updatedRecord[key]);
+      }
+    }
+    next.updatedAt = now();
+    return normalizeCoreMcpRecord(next, { now, idFactory }) || record;
+  }
+
+  function mergeManagedRecords(records = [], updatedRecords = []) {
+    const updates = new Map((Array.isArray(updatedRecords) ? updatedRecords : []).map((record) => [record.id, record]));
+    return normalizeCoreMcpRegistry(records.map((record) => mergeManagedRecordState(record, updates.get(record.id))), { now, idFactory });
+  }
+
+  function managedRefreshFailureMatchers(errors = []) {
+    const failedIds = new Set();
+    const failedNames = new Set();
+    for (const error of Array.isArray(errors) ? errors : []) {
+      if (!error || typeof error !== "object") continue;
+      const id = String(error.id || "").trim();
+      const name = String(error.name || "").trim();
+      if (id) failedIds.add(id);
+      if (name) failedNames.add(name);
+    }
+    return { failedIds, failedNames };
+  }
+
+  function isManagedRefreshFailure(record, matchers) {
+    if (!record || record.managementMode !== "managed") return false;
+    if (matchers.failedIds.has(record.id)) return true;
+    return matchers.failedNames.has(record.name) || matchers.failedNames.has(record.nativeName);
+  }
+
+  function isManagedExposureReady(record) {
+    return isCoreMcpExposureReady(record);
+  }
+
+  function canEnableManagedRecord(record) {
+    return isManagedExposureReady(record);
+  }
+
+  function isMarketplaceBuiltInRecord(record = {}) {
+    const registryId = String(record.registryId || "").trim();
+    return !!builtinMcpTemplateById(registryId) || (
+      record.source === "marketplace"
+      && ["native", "managed"].includes(String(record.managementMode || ""))
+    );
+  }
+
+  function missingRequiredInputKeys(record = {}) {
+    const requiredInputs = Array.isArray(record.requiredInputs) ? record.requiredInputs : [];
+    const transport = record.transport && typeof record.transport === "object" ? record.transport : {};
+    const env = transport.env && typeof transport.env === "object" ? transport.env : {};
+    return requiredInputs
+      .filter((field) => field?.required !== false)
+      .filter((field) => {
+        if (String(field?.target || "env") !== "env") return false;
+        return !String(env[field.key] || "").trim();
+      })
+      .map((field) => field.key);
+  }
+
+  function canEnableNativeBuiltInRecord(record = {}) {
+    const status = String(record.status || "").trim().toLowerCase();
+    const lastTestStatus = String(record.lastTestStatus || "").trim().toLowerCase();
+    const wizardState = String(record.connectionWizard?.state || "").trim().toLowerCase();
+    return status === "connected"
+      && lastTestStatus === "connected"
+      && (!wizardState || wizardState === "connected");
+  }
+
+  function nativeBuiltInEnableError(record = {}) {
+    if (record.managementMode !== "native" || !isMarketplaceBuiltInRecord(record)) return "";
+    if (missingRequiredInputKeys(record).length) {
+      return "Built-in MCP server requires required fields before it can be enabled.";
+    }
+    if (!canEnableNativeBuiltInRecord(record)) {
+      return "Built-in MCP server must pass connection test before it can be enabled.";
+    }
+    return "";
+  }
+
+  function managedEnsureFailureRecords(records = [], error) {
+    const message = sanitizeSecretText(error?.message || error || "Managed MCP startup failed.");
+    return normalizeCoreMcpRegistry(
+      records
+        .filter((record) => record?.managementMode === "managed")
+        .map((record) => normalizeCoreMcpRecord({
+          ...record,
+          managedRuntime: {
+            ...(record?.managedRuntime && typeof record.managedRuntime === "object" ? sanitizeManagedValue(record.managedRuntime) : {}),
+            state: "error"
+          },
+          connectionWizard: managedActionFailureWizard(
+            record,
+            String(record?.connectionWizard?.nextAction || "").trim() || "start",
+            message
+          ),
+          lastError: message,
+          updatedAt: now()
+        }, { now, idFactory })),
+      { now, idFactory }
+    );
   }
 
   function applyStatuses(records, nativeResult = {}, options = {}) {
@@ -318,16 +410,41 @@ function createCoreMcpService(deps = {}) {
 
   async function refreshBridgeState(records = loadRecords()) {
     const current = normalizeCoreMcpRegistry(records, { now, idFactory });
-    const refreshed = manager && typeof manager.refresh === "function"
-      ? await manager.refresh(enabledCoreMcpRecords(current))
+    const enabledCurrentRecords = enabledCoreMcpRecords(current);
+    let managedResult = { records: enabledCurrentRecords, errors: [] };
+    if (managedSupervisor && typeof managedSupervisor.ensureRunning === "function") {
+      try {
+        managedResult = await managedSupervisor.ensureRunning(enabledCurrentRecords);
+      } catch (error) {
+        const failedManagedRecords = managedEnsureFailureRecords(enabledCurrentRecords, error);
+        managedResult = {
+          records: failedManagedRecords,
+          errors: failedManagedRecords.map((record) => ({
+            id: record.id,
+            name: record.nativeName || record.name,
+            message: sanitizeSecretText(error?.message || error || "Managed MCP startup failed.")
+          }))
+        };
+      }
+    }
+    const runtimeRecords = mergeManagedRecords(current, managedResult.records);
+    const refreshFailureMatchers = managedRefreshFailureMatchers(managedResult.errors);
+    const refreshableRecords = enabledCoreMcpRecords(runtimeRecords).filter((record) => !isManagedRefreshFailure(record, refreshFailureMatchers));
+    const nativeSyncRecords = runtimeRecords.filter((record) => !isManagedRefreshFailure(record, refreshFailureMatchers));
+    const refreshed = refreshableRecords.length > 0 && manager && typeof manager.refresh === "function"
+      ? await manager.refresh(refreshableRecords)
       : { success: true, tools: [], errors: [] };
     if (bridge && typeof bridge.start === "function") {
       bridgeInfo = await bridge.start();
     }
     return {
       tools: Array.isArray(refreshed?.tools) ? refreshed.tools : [],
-      errors: Array.isArray(refreshed?.errors) ? refreshed.errors.map((error) => sanitizeBridgeError(error)) : [],
-      bridge: maskedBridgeInfo(bridgeInfo)
+      errors: []
+        .concat(Array.isArray(refreshed?.errors) ? refreshed.errors.map((error) => sanitizeBridgeError(error)) : [])
+        .concat(Array.isArray(managedResult?.errors) ? managedResult.errors.map((error) => sanitizeBridgeError(error)) : []),
+      bridge: maskedBridgeInfo(bridgeInfo),
+      records: runtimeRecords,
+      nativeSyncRecords
     };
   }
 
@@ -339,10 +456,15 @@ function createCoreMcpService(deps = {}) {
 
   function startInitialization() {
     if (!initializationPromise) {
-      initializationPromise = refreshBridgeState(loadRecords()).catch((error) => {
-        initializationPromise = null;
-        throw error;
-      });
+      initializationPromise = refreshBridgeState(loadRecords())
+        .then((state) => {
+          if (Array.isArray(state?.records)) saveRecords(state.records);
+          return publicBridgeState(state);
+        })
+        .catch((error) => {
+          initializationPromise = null;
+          throw error;
+        });
       initializationPromise.catch(() => {});
     }
     return initializationPromise;
@@ -385,14 +507,14 @@ function createCoreMcpService(deps = {}) {
     let bridgeState = await refreshBridgeState(options.bridgeRecords || storedRecords);
     const nativeResult = await nativeSync({
       previousRecords: normalizeCoreMcpRegistry(previousRecords || [], { now, idFactory }),
-      currentRecords: normalizeCoreMcpRegistry(currentRecords || [], { now, idFactory })
+      currentRecords: normalizeCoreMcpRegistry(bridgeState.nativeSyncRecords || currentRecords || [], { now, idFactory })
     });
     const nativeStatuses = nativeResult?.statuses && typeof nativeResult.statuses === "object"
       ? nativeResult.statuses
       : {};
     const persistedBase = hasNativeErrors(nativeStatuses) && options.persistedRecordsOnError
-      ? normalizeCoreMcpRegistry(options.persistedRecordsOnError, { now, idFactory })
-      : storedRecords;
+      ? mergeManagedRecords(normalizeCoreMcpRegistry(options.persistedRecordsOnError, { now, idFactory }), bridgeState.records)
+      : normalizeCoreMcpRegistry(bridgeState.records || storedRecords, { now, idFactory });
     if (hasNativeErrors(nativeStatuses) && options.bridgeRecordsOnError) {
       bridgeState = await refreshBridgeState(options.bridgeRecordsOnError);
     }
@@ -403,7 +525,7 @@ function createCoreMcpService(deps = {}) {
     });
     const persisted = saveRecords(withStatuses);
     return {
-      bridgeState,
+      bridgeState: publicBridgeState(bridgeState),
       native: nativeResult || { success: true, statuses: {}, commands: [] },
       records: persisted
     };
@@ -415,12 +537,13 @@ function createCoreMcpService(deps = {}) {
   }
 
   function normalizeInputRecord(input, currentRecords) {
-    const sourceInput = withMarketplaceTemplateDefaults(input || {});
-    const inputName = String(sourceInput?.name || "").trim();
-    const inputNativeName = String(sourceInput?.nativeName || sourceInput?.native_name || "").trim();
-    const existing = resolveRecord(currentRecords, sourceInput?.id)
+    const initialInput = input || {};
+    const inputName = String(initialInput?.name || "").trim();
+    const inputNativeName = String(initialInput?.nativeName || initialInput?.native_name || "").trim();
+    const existing = resolveRecord(currentRecords, initialInput?.id)
       || currentRecords.find((record) => record.name === inputName || (inputNativeName && record.nativeName === inputNativeName))
       || null;
+    const sourceInput = withMarketplaceTemplateDefaults(stripPublicBuiltInRuntimePatches(initialInput, existing));
     const inputTransport = sourceInput?.transport && typeof sourceInput.transport === "object" ? sourceInput.transport : null;
     const existingTransport = existing?.transport && typeof existing.transport === "object" ? existing.transport : {};
     const mergedTransport = inputTransport
@@ -442,6 +565,19 @@ function createCoreMcpService(deps = {}) {
     }, { now, idFactory });
     if (!merged) throw new Error("MCP server record is invalid.");
     return { existing, record: { ...merged, updatedAt: now() } };
+  }
+
+  function stripPublicBuiltInRuntimePatches(input = {}, existing = null) {
+    const registryId = String(input.registryId || existing?.registryId || "").trim();
+    const isBuiltIn = !!builtinMcpTemplateById(registryId)
+      || (existing && isMarketplaceBuiltInRecord(existing));
+    if (!isBuiltIn) return input;
+    const next = { ...input };
+    if (existing?.managedRuntime) next.managedRuntime = existing.managedRuntime;
+    else delete next.managedRuntime;
+    if (existing?.connectionWizard) next.connectionWizard = existing.connectionWizard;
+    if (Array.isArray(existing?.requiredInputs)) next.requiredInputs = existing.requiredInputs;
+    return next;
   }
 
   function preserveMaskedObjectValues(input = {}, existing = {}) {
@@ -501,6 +637,13 @@ function createCoreMcpService(deps = {}) {
       const current = loadRecords();
       const existing = resolveRecord(current, id);
       if (!existing) throw new Error("MCP server not found.");
+      if (enabled === true && existing.managementMode === "managed" && !canEnableManagedRecord(existing)) {
+        return failWithData("Managed MCP server must pass connection test before it can be enabled.", publicRecord(existing));
+      }
+      if (enabled === true) {
+        const builtInError = nativeBuiltInEnableError(existing);
+        if (builtInError) return failWithData(builtInError, publicRecord(existing));
+      }
       const next = current.map((record) => (
         record.id === existing.id
           ? { ...record, enabled: enabled === true, updatedAt: now() }
@@ -625,33 +768,218 @@ function createCoreMcpService(deps = {}) {
   }
 
   async function fetchMarketplace() {
-    return ok({
-      templates: marketplaceTemplates()
-    });
+    return ok({ templates: builtinMcpTemplates() });
   }
 
   async function installTemplate(templateId, values = {}) {
     try {
-      const market = await fetchMarketplace();
-      const template = market?.data?.templates?.find((item) => item.id === String(templateId || ""));
+      const template = builtinMcpTemplateById(templateId);
       if (!template) throw new Error("MCP template not found.");
-      const name = String(values.name || template.name || "").trim() || template.id;
-      return save({
-        name,
-        nativeName: values.nativeName || values.native_name || template.nativeName || template.id,
-        description: template.description,
-        registryId: template.id,
-        source: "marketplace",
-        enabled: values.enabled !== false,
-        homepage: template.homepage || "",
-        setupHint: template.setupHint || "",
-        setupCommands: template.setupCommands || [],
-        expectedToolCount: template.expectedToolCount || 0,
-        transport: {
-          ...template.transport,
-          ...(values.transport && typeof values.transport === "object" ? values.transport : {})
-        }
+      const current = loadRecords();
+      const existing = resolveRecord(current, values.id || template.nativeName || template.name)
+        || current.find((record) => record.registryId === template.id)
+        || null;
+      const materialized = materializeBuiltinMcpRecord(template, {
+        ...values,
+        id: existing?.id,
+        name: values.name || existing?.name || template.name
+      }, { now, idFactory });
+      let record = {
+        ...(existing || {}),
+        ...materialized.record,
+        createdAt: existing?.createdAt || materialized.record.createdAt,
+        updatedAt: now()
+      };
+
+      const withoutExisting = current.filter((item) => item.id !== record.id && item.name !== record.name);
+      let saved = saveRecords(withoutExisting.concat(record));
+
+      if (materialized.missingRequiredInputs.length) {
+        const runtime = await applyRuntimeChanges(current, saved, {
+          availableIds: new Set([record.id]),
+          availableMessage: "Waiting for required fields in Mia."
+        });
+        return ok(publicRecord(resolveRecord(runtime.records, record.id) || record));
+      }
+
+      if (record.managementMode === "managed") {
+        return ok(publicRecord(resolveRecord(saved, record.id) || record));
+      }
+
+      const tested = await testServer(record);
+      if (!tested.success) throw new Error(tested.error || "MCP connection test failed.");
+      const testedRecord = normalizeCoreMcpRecord({
+        ...record,
+        ...tested.data,
+        transport: record.transport,
+        requiredInputs: record.requiredInputs,
+        connectionWizard: tested.data.status === "connected"
+          ? { state: "connected", nextAction: "", message: "Connected and enabled.", missingRequiredInputs: [], actions: [] }
+          : { state: "test_failed", nextAction: "test", message: tested.data.lastError || "Connection test failed.", missingRequiredInputs: [], actions: [{ id: "test", label: "重新检测" }] },
+        enabled: tested.data.status === "connected"
+      }, { now, idFactory });
+      saved = saveRecords(withoutExisting.concat(testedRecord));
+      const runtime = await applyRuntimeChanges(current, saved, {
+        availableIds: testedRecord.enabled ? new Set() : new Set([testedRecord.id]),
+        availableMessage: testedRecord.enabled ? "" : "Connection test failed in Mia."
       });
+      return ok(publicRecord(resolveRecord(runtime.records, testedRecord.id) || testedRecord));
+    } catch (error) {
+      return fail(error);
+    }
+  }
+
+  function nextManagedWizard(action, result, testStatus = "") {
+    if (action === "install") {
+      return { state: "needs_managed_action", nextAction: "login", message: result.message || "Installed.", missingRequiredInputs: [], actions: [{ id: "login", label: "打开登录" }, { id: "start", label: "启动服务" }, { id: "test", label: "检测并启用" }] };
+    }
+    if (action === "login") {
+      return { state: "needs_managed_action", nextAction: "start", message: result.message || "Login started.", missingRequiredInputs: [], actions: [{ id: "start", label: "启动服务" }, { id: "test", label: "检测并启用" }] };
+    }
+    if (action === "start") {
+      return { state: "ready_to_test", nextAction: "test", message: result.message || "Service started.", missingRequiredInputs: [], actions: [{ id: "test", label: "检测并启用" }] };
+    }
+    if (action === "test" && testStatus === "connected") {
+      return { state: "connected", nextAction: "", message: "Connected and enabled.", missingRequiredInputs: [], actions: [] };
+    }
+    if (action === "test") {
+      return { state: "test_failed", nextAction: "test", message: result.message || "Connection test failed.", missingRequiredInputs: [], actions: [{ id: "test", label: "重新检测" }] };
+    }
+    return { state: "needs_managed_action", nextAction: "start", message: result.message || "", missingRequiredInputs: [], actions: [{ id: "start", label: "启动服务" }, { id: "test", label: "检测并启用" }] };
+  }
+
+  function managedActionFailureWizard(existing, action, message, patch = {}) {
+    const nextAction = String(action || "").trim() || "start";
+    return {
+      ...(existing?.connectionWizard && typeof existing.connectionWizard === "object" ? existing.connectionWizard : {}),
+      ...(patch && typeof patch === "object" ? sanitizeManagedValue(patch) : {}),
+      state: "managed_error",
+      nextAction,
+      message,
+      missingRequiredInputs: Array.isArray(patch?.missingRequiredInputs) ? sanitizeManagedValue(patch.missingRequiredInputs) : []
+    };
+  }
+
+  function managedActionPatch(recordPatch = {}) {
+    const patch = recordPatch && typeof recordPatch === "object"
+      ? sanitizeManagedValue(recordPatch)
+      : {};
+    return {
+      ...patch,
+      transport: undefined
+    };
+  }
+
+  function mergeManagedActionRecord(existing, patch = {}, overrides = {}) {
+    return normalizeCoreMcpRecord({
+      ...existing,
+      ...patch,
+      ...overrides,
+      transport: existing.transport,
+      updatedAt: now()
+    }, { now, idFactory });
+  }
+
+  async function persistManagedActionResult(current, existing, nextRecord, options = {}) {
+    const saved = saveRecords(current.map((record) => record.id === existing.id ? nextRecord : record));
+    const runtime = await applyRuntimeChanges(current, saved, {
+      availableIds: options.availableIds || new Set([nextRecord.id]),
+      availableMessage: options.availableMessage || "Waiting for managed MCP setup in Mia."
+    });
+    return resolveRecord(runtime.records, nextRecord.id) || nextRecord;
+  }
+
+  async function persistManagedActionError(current, existing, action, error) {
+    const message = sanitizeSecretText(error?.message || error || "Managed MCP action failed.");
+    const nextRecord = mergeManagedActionRecord(existing, {}, {
+      enabled: false,
+      connectionWizard: managedActionFailureWizard(existing, action, message),
+      managedRuntime: {
+        ...(existing?.managedRuntime && typeof existing.managedRuntime === "object" ? sanitizeManagedValue(existing.managedRuntime) : {}),
+        state: "error",
+        lastAction: String(action || "").trim()
+      },
+      lastError: message
+    });
+    const finalRecord = await persistManagedActionResult(current, existing, nextRecord);
+    return failWithData(message, publicRecord(finalRecord));
+  }
+
+  async function runManagedAction(id, action, values = {}) {
+    try {
+      const current = loadRecords();
+      const existing = resolveRecord(current, id);
+      if (!existing) throw new Error("MCP server not found.");
+      if (existing.managementMode !== "managed") throw new Error("MCP server is not managed by Mia.");
+      if (!managedSupervisor || typeof managedSupervisor.runAction !== "function") {
+        throw new Error("Managed MCP supervisor is not configured.");
+      }
+
+      let result = { ok: true, state: "", message: "", recordPatch: {} };
+      let nextRecord = existing;
+      if (action !== "test") {
+        try {
+          result = await managedSupervisor.runAction(existing, action, values || {});
+        } catch (error) {
+          return await persistManagedActionError(current, existing, action, error);
+        }
+        const patch = managedActionPatch(result?.recordPatch);
+        if (result?.ok === false) {
+          const message = sanitizeSecretText(result?.message || "Managed MCP action failed.");
+          nextRecord = mergeManagedActionRecord(existing, patch, {
+            enabled: false,
+            connectionWizard: managedActionFailureWizard(existing, action, message, patch.connectionWizard),
+          });
+          const finalRecord = await persistManagedActionResult(current, existing, nextRecord);
+          return failWithData(message, publicRecord(finalRecord));
+        }
+        nextRecord = mergeManagedActionRecord(existing, patch, {
+          connectionWizard: nextManagedWizard(action, result),
+          enabled: false
+        });
+      } else {
+        let patch = {};
+        try {
+          result = await managedSupervisor.runAction(existing, action, values || {});
+        } catch (error) {
+          return await persistManagedActionError(current, existing, action, error);
+        }
+        patch = managedActionPatch(result?.recordPatch);
+        if (result?.ok === false) {
+          const message = sanitizeSecretText(result?.message || "Managed MCP action failed.");
+          nextRecord = mergeManagedActionRecord(existing, patch, {
+            enabled: false,
+            connectionWizard: managedActionFailureWizard(existing, action, message, patch.connectionWizard),
+            lastError: message
+          });
+          const finalRecord = await persistManagedActionResult(current, existing, nextRecord);
+          return failWithData(message, publicRecord(finalRecord));
+        }
+        const workingRecord = mergeManagedActionRecord(existing, patch, {
+          enabled: false
+        });
+        const tested = await testServer(workingRecord);
+        if (!tested.success) throw new Error(tested.error || "MCP connection test failed.");
+        nextRecord = mergeManagedActionRecord(workingRecord, {}, {
+          status: tested.data.status,
+          lastTestStatus: tested.data.lastTestStatus || tested.data.status,
+          lastTestCode: tested.data.lastTestCode,
+          diagnostics: tested.data.diagnostics,
+          tools: tested.data.tools,
+          lastCheckedAt: tested.data.lastCheckedAt,
+          lastError: tested.data.lastError,
+          enabled: tested.data.status === "connected",
+          connectionWizard: nextManagedWizard(action, tested.data, tested.data.status),
+          managedRuntime: workingRecord.managedRuntime
+        });
+      }
+
+      const saved = saveRecords(current.map((record) => record.id === existing.id ? nextRecord : record));
+      const runtime = await applyRuntimeChanges(current, saved, {
+        availableIds: nextRecord.enabled ? new Set() : new Set([nextRecord.id]),
+        availableMessage: nextRecord.enabled ? "" : "Waiting for managed MCP setup in Mia."
+      });
+      return ok(publicRecord(resolveRecord(runtime.records, nextRecord.id) || nextRecord));
     } catch (error) {
       return fail(error);
     }
@@ -659,7 +987,9 @@ function createCoreMcpService(deps = {}) {
 
   async function refreshBridge() {
     try {
-      return ok(await refreshBridgeState(loadRecords()));
+      const state = await refreshBridgeState(loadRecords());
+      if (Array.isArray(state?.records)) saveRecords(state.records);
+      return ok(publicBridgeState(state));
     } catch (error) {
       return fail(error);
     }
@@ -686,7 +1016,7 @@ function createCoreMcpService(deps = {}) {
   }
 
   function enabledRecords() {
-    return enabledCoreMcpRecords(loadRecords());
+    return enabledCoreMcpRecords(loadRecords()).filter((record) => isManagedExposureReady(record));
   }
 
   function fingerprint() {
@@ -841,6 +1171,7 @@ function createCoreMcpService(deps = {}) {
     },
     refreshBridge,
     removeFromAgents,
+    runManagedAction,
     save,
     setEnabled,
     sync,

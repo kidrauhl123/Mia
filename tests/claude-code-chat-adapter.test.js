@@ -122,7 +122,7 @@ test("sendChat merges user MCP servers and fingerprints persisted sessions", asy
       env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
     },
     userMcpSpecs: {
-      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+      xiaohongshu: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
     }
   });
   const adapter = createClaudeCodeChatAdapter(deps);
@@ -139,7 +139,7 @@ test("sendChat merges user MCP servers and fingerprints persisted sessions", asy
 
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
   assert.equal(queryCall.options.resume, undefined);
-  assert.equal(queryCall.options.mcpServers.xhs.url, "http://127.0.0.1:18060/mcp");
+  assert.equal(queryCall.options.mcpServers.xiaohongshu.url, "http://127.0.0.1:18060/mcp");
   assert.match(queryCall.options.mcpServers["mia-scheduler"].command, /node/);
   assert.deepEqual(deps.calls.find((call) => call[0] === "set-session"), [
     "set-session", "claude-code", "alice", "s1", "sess_1", "fp1:mcp_fp"
@@ -167,7 +167,7 @@ test("sendChat keeps reserved built-in MCP servers when user specs collide", asy
     userMcpSpecs: {
       "mia-app": { type: "http", url: "http://127.0.0.1:18061/mcp" },
       "mia-scheduler": { type: "http", url: "http://127.0.0.1:18062/mcp" },
-      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+      xiaohongshu: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
     }
   });
   const adapter = createClaudeCodeChatAdapter(deps);
@@ -185,7 +185,7 @@ test("sendChat keeps reserved built-in MCP servers when user specs collide", asy
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
   assert.deepEqual(queryCall.options.mcpServers["mia-app"], miaAppMcpSpec);
   assert.deepEqual(queryCall.options.mcpServers["mia-scheduler"], schedulerMcpSpec);
-  assert.equal(queryCall.options.mcpServers.xhs.url, "http://127.0.0.1:18060/mcp");
+  assert.equal(queryCall.options.mcpServers.xiaohongshu.url, "http://127.0.0.1:18060/mcp");
 });
 
 test("sendChat emits Claude tool_result unified diffs as file_edit events", async () => {

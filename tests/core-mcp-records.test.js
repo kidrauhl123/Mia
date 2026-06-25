@@ -5,6 +5,7 @@ const {
   publicCoreMcpRecord,
   enabledCoreMcpRecords,
   coreMcpFingerprint,
+  isCoreMcpExposureReady,
   parseCoreMcpImportJson
 } = require("../src/core/mcp/records.js");
 
@@ -109,6 +110,79 @@ test("fingerprint changes when enabled transport changes and ignores deleted rec
   assert.equal(coreMcpFingerprint([a]), coreMcpFingerprint([a, deleted]));
 });
 
+test("fingerprint changes when managed exposure readiness changes without transport changes", () => {
+  const connected = normalizeCoreMcpRecord({
+    name: "managed",
+    nativeName: "managed",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+  const disconnected = normalizeCoreMcpRecord({
+    name: "managed",
+    nativeName: "managed",
+    managementMode: "managed",
+    enabled: true,
+    status: "disconnected",
+    lastTestStatus: "disconnected",
+    transport: { type: "stdio", command: "npx", args: ["managed"] },
+    connectionWizard: { state: "managed_error", nextAction: "test", message: "retry" },
+    managedRuntime: { state: "error" }
+  });
+  const nativeA = normalizeCoreMcpRecord({
+    name: "native",
+    nativeName: "native",
+    managementMode: "native",
+    enabled: true,
+    transport: { type: "stdio", command: "npx", args: ["native"] }
+  });
+  const nativeB = normalizeCoreMcpRecord({
+    name: "native",
+    nativeName: "native",
+    managementMode: "native",
+    enabled: true,
+    status: "disconnected",
+    lastTestStatus: "disconnected",
+    transport: { type: "stdio", command: "npx", args: ["native"] }
+  });
+
+  assert.notEqual(coreMcpFingerprint([connected]), coreMcpFingerprint([disconnected]));
+  assert.equal(coreMcpFingerprint([nativeA]), coreMcpFingerprint([nativeB]));
+});
+
+test("managed failure state overrides stale connected readiness", () => {
+  const connected = normalizeCoreMcpRecord({
+    name: "managed",
+    nativeName: "managed",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+  const staleManagedError = normalizeCoreMcpRecord({
+    name: "managed",
+    nativeName: "managed",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed"] },
+    connectionWizard: { state: "managed_error", nextAction: "test", message: "retry" },
+    managedRuntime: { state: "error" }
+  });
+
+  assert.equal(isCoreMcpExposureReady(connected), true);
+  assert.equal(isCoreMcpExposureReady(staleManagedError), false);
+  assert.notEqual(coreMcpFingerprint([connected]), coreMcpFingerprint([staleManagedError]));
+});
+
 test("import parser accepts mcpServers and streamable-http aliases", () => {
   const imported = parseCoreMcpImportJson({
     mcpServers: {
@@ -136,4 +210,35 @@ test("normalize rejects reserved builtin names for user records", () => {
     transport: { type: "stdio", command: "node" }
   });
   assert.equal(builtin.name, "mia-app");
+});
+
+test("normalizes managed runtime fields and public projection redacts managed-runtime internals", () => {
+  const record = normalizeCoreMcpRecord({
+    name: "小红书 MCP",
+    nativeName: "xiaohongshu",
+    managementMode: "managed",
+    source: "marketplace",
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
+    requiredInputs: [{ key: "TOKEN", label: "Token", secret: true, target: "env" }],
+    connectionWizard: { state: "needs_managed_action", nextAction: "install", message: "ready" },
+    managedRuntime: {
+      connectorId: "xiaohongshu",
+      endpoint: "http://127.0.0.1:18060/mcp",
+      installDir: "/Users/me/.mia/xhs",
+      lastAction: "Install command: npx -y xiaohongshu-mcp --api-key ghp_secret",
+      expectedToolCount: 13,
+      state: "not_installed"
+    }
+  });
+
+  assert.equal(record.managementMode, "managed");
+  assert.equal(record.requiredInputs[0].key, "TOKEN");
+  assert.equal(record.connectionWizard.nextAction, "install");
+  assert.equal(record.managedRuntime.expectedToolCount, 13);
+
+  const view = publicCoreMcpRecord(record);
+  assert.equal(view.managedRuntime.installDir, "[managed]");
+  assert.equal(view.managedRuntime.lastAction, "[managed]");
+  assert.equal(view.managedRuntime.lastAction.includes("npx"), false);
+  assert.equal(view.managedRuntime.lastAction.includes("ghp_secret"), false);
 });

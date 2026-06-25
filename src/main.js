@@ -156,6 +156,7 @@ const { createMcpBridgeServer } = require("./main/mcp/mcp-bridge-server.js");
 const { runNativeMcpCliSync } = require("./main/mcp/mcp-engine-sync.js");
 const { createMcpSdkClientManager } = require("./main/mcp/mcp-sdk-client.js");
 const { createMcpService } = require("./main/mcp/mcp-service.js");
+const { createManagedConnectorSupervisor } = require("./core/mcp/managed-connector-supervisor.js");
 const { createCoreMcpOAuthService } = require("./core/mcp/oauth-service.js");
 const { createCoreMcpOAuthTokenStore } = require("./core/mcp/oauth-token-store.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — bot chats
@@ -792,7 +793,13 @@ const userMcpService = createMcpService({
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
   stdioProxyScriptPath: () => path.join(__dirname, "main", "mcp", "mcp-stdio-proxy-server.js"),
   oauthTokenStore: userMcpOAuthTokenStore,
-  oauthService: userMcpOAuthService
+  oauthService: userMcpOAuthService,
+  managedSupervisor: createManagedConnectorSupervisor({
+    runtimePaths,
+    fs,
+    fetch,
+    testTools: (record) => userMcpManager.testServer(record)
+  })
 });
 const startupMcpInitializer = createStartupMcpInitializer({
   initializeMcp: () => userMcpService.initialize(),

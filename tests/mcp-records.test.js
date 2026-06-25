@@ -33,18 +33,18 @@ test("normalizeMcpRecord stores stable MCP fields and defaults sync state", () =
 test("normalizeMcpRecord derives a safe nativeName from marketplace registry id", () => {
   const record = normalizeMcpRecord({
     name: "小红书 MCP",
-    registryId: "xhs-local-http",
+    registryId: "xiaohongshu",
     transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
   }, { now: () => 1, idFactory: () => "mcp_xhs" });
 
   assert.equal(record.name, "小红书 MCP");
-  assert.equal(record.nativeName, "xhs-local-http");
+  assert.equal(record.nativeName, "xiaohongshu");
 });
 
 test("normalizeMcpRecord resets legacy invalid-name sync errors after nativeName migration", () => {
   const record = normalizeMcpRecord({
     name: "小红书 MCP",
-    registryId: "xhs-local-http",
+    registryId: "xiaohongshu",
     transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
     sync: {
       codex: {
@@ -58,7 +58,7 @@ test("normalizeMcpRecord resets legacy invalid-name sync errors after nativeName
     }
   }, { now: () => 1, idFactory: () => "mcp_xhs" });
 
-  assert.equal(record.nativeName, "xhs-local-http");
+  assert.equal(record.nativeName, "xiaohongshu");
   assert.equal(record.sync.codex.status, "available");
   assert.equal(record.sync["claude-code"].status, "available");
 });

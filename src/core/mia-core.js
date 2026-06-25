@@ -133,6 +133,7 @@ const { createCodexMiaProxy } = require("../main/codex-mia-proxy.js");
 const { createMcpSdkClientManager } = require("../main/mcp/mcp-sdk-client.js");
 const { createMcpBridgeServer } = require("../main/mcp/mcp-bridge-server.js");
 const { createCoreMcpService } = require("./mcp/service.js");
+const { createManagedConnectorSupervisor } = require("./mcp/managed-connector-supervisor.js");
 const { createCoreMcpOAuthService } = require("./mcp/oauth-service.js");
 const { createCoreMcpOAuthTokenStore } = require("./mcp/oauth-token-store.js");
 
@@ -730,7 +731,13 @@ function createCoreBotExecution({
     oauthService: userMcpOAuthService,
     fetch: fetchImpl,
     processEnvStrings,
-    openExternal: async () => {}
+    openExternal: async () => {},
+    managedSupervisor: createManagedConnectorSupervisor({
+      runtimePaths,
+      fs,
+      fetch: fetchImpl,
+      testTools: (record) => userMcpManager.testServer(record)
+    })
   });
   async function ensureUserMcpReady() {
     try { await userMcpService.awaitInitialization(); } catch { /* MCP optional; turn proceeds */ }

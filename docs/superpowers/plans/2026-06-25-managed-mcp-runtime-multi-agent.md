@@ -15,8 +15,9 @@
 - Unsupported or partially compatible MCP servers stay out of the built-in marketplace and can only be added through custom MCP.
 - First built-in catalog includes exactly `xiaohongshu`, `playwright`, `context7`, `github`, `tavily`, and `firecrawl`.
 - Deferred LobsterAI built-ins are not shown in the marketplace: Notion, Slack, Gmail, Google Drive, Google Calendar, Todoist, Canva, and GitLab.
-- Marketplace connection is no-command by default: card -> required fields or managed action -> detect/test -> enable.
-- Raw commands may appear only under an advanced diagnostics block.
+- Marketplace connection is no-manual-command by default: card -> required fields or managed action -> detect/test -> enable.
+- Built-in native command specs may exist in Core/public records so Mia can run and diagnose them; the default UI must not ask users to type or run those commands.
+- Raw commands may be displayed only under an advanced diagnostics block.
 - `xiaohongshu` is a managed connector: Mia locates or installs the local runtime, guides login, starts/stops the service, health-checks the endpoint, tests expected tools, and exposes it to all four agents after success.
 - `playwright`, `context7`, `github`, `tavily`, and `firecrawl` are native stdio templates.
 - `github` requires `GITHUB_PERSONAL_ACCESS_TOKEN`.
@@ -71,10 +72,10 @@
   - Construct Core MCP service with the managed supervisor and ensure all four adapters use the same service instance and fingerprint.
 
 - Modify chat adapters and tests if the existing adapter tests show any missing fingerprint invalidation:
-  - `src/main/agents/hermes-chat-adapter.js`
-  - `src/main/agents/claude-code-chat-adapter.js`
-  - `src/main/agents/codex-chat-adapter.js`
-  - `src/main/agents/openclaw-chat-adapter.js`
+  - `src/main/hermes-chat-adapter.js`
+  - `src/main/claude-code-chat-adapter.js`
+  - `src/main/codex-chat-adapter.js`
+  - `src/main/openclaw-chat-adapter.js`
 
 - Modify `src/shared/ipc-channels.js`
   - Add `McpRunManagedAction`.
@@ -1533,10 +1534,10 @@ Expected output includes:
 **Files:**
 - Modify: `src/core/mcp/engine-sync.js`
 - Modify if tests fail: `src/core/mia-core.js`
-- Modify if tests fail: `src/main/agents/hermes-chat-adapter.js`
-- Modify if tests fail: `src/main/agents/claude-code-chat-adapter.js`
-- Modify if tests fail: `src/main/agents/codex-chat-adapter.js`
-- Modify if tests fail: `src/main/agents/openclaw-chat-adapter.js`
+- Modify if tests fail: `src/main/hermes-chat-adapter.js`
+- Modify if tests fail: `src/main/claude-code-chat-adapter.js`
+- Modify if tests fail: `src/main/codex-chat-adapter.js`
+- Modify if tests fail: `src/main/openclaw-chat-adapter.js`
 - Modify: `tests/mcp-engine-sync.test.js`
 - Modify: `tests/hermes-chat-adapter.test.js`
 - Modify: `tests/claude-code-chat-adapter.test.js`
@@ -1726,7 +1727,7 @@ Expected output includes:
 Run:
 
 ```bash
-git add src/core/mcp/engine-sync.js src/core/mia-core.js src/main/agents/hermes-chat-adapter.js src/main/agents/claude-code-chat-adapter.js src/main/agents/codex-chat-adapter.js src/main/agents/openclaw-chat-adapter.js tests/mcp-engine-sync.test.js tests/hermes-chat-adapter.test.js tests/claude-code-chat-adapter.test.js tests/codex-chat-adapter.test.js tests/openclaw-chat-adapter.test.js
+git add src/core/mcp/engine-sync.js src/core/mia-core.js src/main/hermes-chat-adapter.js src/main/claude-code-chat-adapter.js src/main/codex-chat-adapter.js src/main/openclaw-chat-adapter.js tests/mcp-engine-sync.test.js tests/hermes-chat-adapter.test.js tests/claude-code-chat-adapter.test.js tests/codex-chat-adapter.test.js tests/openclaw-chat-adapter.test.js
 git commit -m "test: verify mcp exposure across agents"
 ```
 
@@ -1864,7 +1865,7 @@ Expected output includes:
   - Native required fields render inside a modal.
   - Secret fields use `<input type="password">`.
   - Managed xiaohongshu renders action buttons for install/login/start/test.
-  - Raw commands are hidden unless the user opens advanced diagnostics.
+  - Raw commands are not required from the user and are hidden unless the user opens advanced diagnostics.
   - Installed cards explain next action without saying the user must run commands.
 
 - [ ] **Step 1: Add failing renderer tests**

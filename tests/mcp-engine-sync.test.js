@@ -120,6 +120,53 @@ test("mcpServersForOpenClawAcp maps records into ACP wire shape", () => {
   assert.deepEqual(acp[1], { type: "http", name: "xhs", url: "http://127.0.0.1:18060/mcp", headers: [] });
 });
 
+test("managed HTTP MCP is exposed directly to OpenClaw when HTTP is supported", () => {
+  const servers = mcpServersForOpenClawAcp([
+    {
+      name: "小红书 MCP",
+      nativeName: "xiaohongshu",
+      enabled: true,
+      managementMode: "managed",
+      transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+    }
+  ], { supportsHttp: true });
+
+  assert.deepEqual(servers, [{
+    type: "http",
+    name: "xiaohongshu",
+    url: "http://127.0.0.1:18060/mcp",
+    headers: []
+  }]);
+});
+
+test("managed HTTP MCP uses Mia bridge for Hermes when URL MCP is unsupported", () => {
+  const bridge = bridgeMcpSpec({ command: "/usr/bin/node", scriptPath: "/app/mcp-stdio-proxy-server.js", bridgeUrl: "http://127.0.0.1:3333", secret: "sec" });
+  const specs = mcpSpecsForHermes([
+    {
+      name: "小红书 MCP",
+      nativeName: "xiaohongshu",
+      enabled: true,
+      managementMode: "managed",
+      transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+    }
+  ], { hermesSupportsUrl: false, bridge });
+
+  assert.deepEqual(Object.keys(specs), ["mia-mcp-bridge"]);
+});
+
+test("Codex and Claude receive native stdio built-ins without manual command steps", () => {
+  const builtinRecords = [{
+    name: "Context7 MCP",
+    nativeName: "context7",
+    enabled: true,
+    managementMode: "native",
+    transport: { type: "stdio", command: "npx", args: ["-y", "@upstash/context7-mcp@latest"], env: {} }
+  }];
+
+  assert.equal(mcpSpecsForCodex(builtinRecords).context7.command, "npx");
+  assert.equal(mcpSpecsForClaudeSdk(builtinRecords).context7.command, "npx");
+});
+
 test("mcpServersForOpenClawAcp reports unsupported records when bridge is absent", () => {
   const statusCollector = [];
   const acp = mcpServersForOpenClawAcp(records, {
@@ -148,13 +195,13 @@ test("native CLI planners use nativeName instead of localized display name", () 
   const localized = {
     ...records[1],
     name: "小红书 MCP",
-    nativeName: "xhs-local-http"
+    nativeName: "xiaohongshu"
   };
 
   assert.deepEqual(planCodexCliSync([localized])[0].args, [
     "mcp",
     "add",
-    "xhs-local-http",
+    "xiaohongshu",
     "--url",
     "http://127.0.0.1:18060/mcp",
     "--bearer-token-env-var",
@@ -167,7 +214,7 @@ test("native CLI planners use nativeName instead of localized display name", () 
     "user",
     "--transport",
     "http",
-    "xhs-local-http",
+    "xiaohongshu",
     "http://127.0.0.1:18060/mcp"
   ]);
 });

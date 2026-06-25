@@ -24,6 +24,7 @@ function setup(t, overrides = {}) {
       connectionTester: overrides.connectionTester,
       agentConfigService: overrides.agentConfigService,
       agentConfigRunner: overrides.agentConfigRunner,
+      managedSupervisor: overrides.managedSupervisor,
       oauthService: overrides.oauthService,
       now: () => 1710000000000,
       idFactory: (name) => `mcp_${name}`
@@ -330,4 +331,224 @@ test("default oauth service stores tokens outside registry and reports status", 
   assert.equal(logout.success, true);
   assert.equal(logout.data.authenticated, false);
   assert.equal(fs.existsSync(runtime.mcpServers), false);
+});
+
+test("fetchMarketplace exposes only supported native and managed templates", async (t) => {
+  const { service } = setup(t);
+
+  const result = await service.fetchMarketplace();
+
+  assert.equal(result.success, true);
+  assert.deepEqual(result.data.templates.map((item) => item.id), [
+    "xiaohongshu",
+    "playwright",
+    "context7",
+    "github",
+    "tavily",
+    "firecrawl"
+  ]);
+  assert.equal(result.data.templates.some((item) => String(item.managementMode).includes("external")), false);
+});
+
+test("refreshBridge sanitizes managed supervisor errors", async (t) => {
+  const { service } = setup(t, {
+    managedSupervisor: {
+      ensureRunning: async () => ({
+        records: [],
+        errors: [{ message: "managed failure TOKEN=secret-value" }]
+      })
+    }
+  });
+
+  const refreshed = await service.refreshBridge();
+
+  assert.equal(refreshed.success, true);
+  assert.equal(refreshed.data.errors[0].message, "managed failure TOKEN=[redacted]");
+});
+
+test("refreshBridge excludes ensureRunning failures from same-cycle native sync current records", async (t) => {
+  const nativeSyncCalls = [];
+  const { service } = setup(t, {
+    managedSupervisor: {
+      runAction: async (record, action) => ({
+        ok: true,
+        state: action,
+        message: action,
+        recordPatch: {
+          managedRuntime: { ...record.managedRuntime, state: action === "test" ? "running" : action }
+        }
+      }),
+      ensureRunning: async (records) => ({
+        records: records.map((record) => {
+          if (record.nativeName === "xiaohongshu") {
+            return {
+              ...record,
+              managedRuntime: { ...record.managedRuntime, state: "error" },
+              connectionWizard: {
+                ...record.connectionWizard,
+                state: "managed_error",
+                nextAction: "start",
+                message: "xiaohongshu startup failed"
+              }
+            };
+          }
+          return record;
+        }),
+        errors: [{ id: "mcp_xiaohongshu", name: "xiaohongshu", message: "startup failed" }]
+      })
+    },
+    nativeSync: async ({ currentRecords }) => {
+      nativeSyncCalls.push(currentRecords.map((record) => record.nativeName));
+      return { success: true, statuses: {}, commands: [] };
+    }
+  });
+
+  const installed = await service.installTemplate("xiaohongshu", {});
+  await service.runManagedAction(installed.data.id, "test", {});
+  nativeSyncCalls.length = 0;
+
+  const refreshed = await service.installTemplate("playwright", {});
+
+  assert.equal(refreshed.success, true);
+  assert.deepEqual(nativeSyncCalls, [["playwright"]]);
+});
+
+test("getEngineSpecs excludes managed records until connection is confirmed", async (t) => {
+  const { service } = setup(t);
+
+  await service.save({
+    id: "managed_error",
+    name: "managed-error",
+    nativeName: "managed-error",
+    managementMode: "managed",
+    enabled: true,
+    status: "disconnected",
+    transport: { type: "stdio", command: "npx", args: ["managed-error"] },
+    connectionWizard: { state: "managed_error", nextAction: "test", message: "retry" },
+    managedRuntime: { state: "error" }
+  });
+  await service.save({
+    id: "managed_disconnected",
+    name: "managed-disconnected",
+    nativeName: "managed-disconnected",
+    managementMode: "managed",
+    enabled: true,
+    status: "running",
+    lastTestStatus: "disconnected",
+    transport: { type: "stdio", command: "npx", args: ["managed-disconnected"] },
+    connectionWizard: { state: "ready_to_test", nextAction: "test", message: "test me" },
+    managedRuntime: { state: "running" }
+  });
+  await service.save({
+    id: "managed_connected",
+    name: "managed-connected",
+    nativeName: "managed-connected",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed-connected"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+  await service.save({
+    id: "native_enabled",
+    name: "native-enabled",
+    nativeName: "native-enabled",
+    managementMode: "native",
+    enabled: true,
+    transport: { type: "stdio", command: "npx", args: ["native-enabled"] }
+  });
+
+  const codexSpecs = service.getEngineSpecs("codex");
+
+  assert.equal("managed-error" in codexSpecs, false);
+  assert.equal("managed-disconnected" in codexSpecs, false);
+  assert.equal("managed-connected" in codexSpecs, true);
+  assert.equal("native-enabled" in codexSpecs, true);
+});
+
+test("getEngineSpecs excludes stale-connected managed records after startup failure", async (t) => {
+  const { service } = setup(t);
+
+  await service.save({
+    id: "managed_stale_connected_error",
+    name: "managed-stale-connected-error",
+    nativeName: "managed-stale-connected-error",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed-stale-connected-error"] },
+    connectionWizard: { state: "managed_error", nextAction: "start", message: "startup failed" },
+    managedRuntime: { state: "error" }
+  });
+  await service.save({
+    id: "managed_connected_ok",
+    name: "managed-connected-ok",
+    nativeName: "managed-connected-ok",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed-connected-ok"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+
+  const beforeFailureFingerprint = service.fingerprint();
+  const codexSpecs = service.getEngineSpecs("codex");
+
+  assert.equal("managed-stale-connected-error" in codexSpecs, false);
+  assert.equal("managed-connected-ok" in codexSpecs, true);
+
+  await service.save({
+    id: "managed_stale_connected_error",
+    name: "managed-stale-connected-error",
+    nativeName: "managed-stale-connected-error",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed-stale-connected-error"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+
+  assert.notEqual(service.fingerprint(), beforeFailureFingerprint);
+});
+
+test("fingerprint changes when managed exposure readiness changes", async (t) => {
+  const { service } = setup(t);
+
+  const connected = await service.save({
+    id: "managed_connected",
+    name: "managed-connected",
+    nativeName: "managed-connected",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed-connected"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+  assert.equal(connected.success, true);
+  const connectedFingerprint = service.fingerprint();
+
+  const failed = await service.save({
+    id: "managed_connected",
+    name: "managed-connected",
+    nativeName: "managed-connected",
+    managementMode: "managed",
+    enabled: true,
+    status: "disconnected",
+    lastTestStatus: "disconnected",
+    transport: { type: "stdio", command: "npx", args: ["managed-connected"] },
+    connectionWizard: { state: "managed_error", nextAction: "test", message: "retry" },
+    managedRuntime: { state: "error" }
+  });
+
+  assert.equal(failed.success, true);
+  assert.notEqual(service.fingerprint(), connectedFingerprint);
 });

@@ -27,6 +27,8 @@ test("Task 6: Mia Core constructs the Core MCP service without the main wrapper"
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "core", "mia-core.js"), "utf8");
   assert.match(src, /createCoreMcpService/);
   assert.match(src, /require\("\.\/mcp\/service\.js"\)/);
+  assert.match(src, /createManagedConnectorSupervisor/);
+  assert.match(src, /managedSupervisor:\s*createManagedConnectorSupervisor\(\{/);
   assert.doesNotMatch(src, /const \{ createMcpService \}/);
   assert.doesNotMatch(src, /createMcpService\(\{/);
   assert.doesNotMatch(src, /require\("\.\.\/main\/mcp\/mcp-service\.js"\)/);

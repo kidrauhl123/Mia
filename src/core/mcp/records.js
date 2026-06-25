@@ -5,6 +5,7 @@ const { MCP_ENGINE_IDS, MCP_TRANSPORTS, SENSITIVE_KEY_PATTERN } = require("../..
 
 const MASK = "••••••••";
 const RESERVED_BUILTIN_NAMES = new Set(["mia-app", "mia-scheduler"]);
+const MCP_MANAGEMENT_MODES = new Set(["native", "managed", "custom"]);
 
 function nowMs() {
   return Date.now();
@@ -132,6 +133,54 @@ function normalizeTransport(input = {}) {
   return transport;
 }
 
+function normalizeManagementMode(value, source = "") {
+  const mode = String(value || "").trim().toLowerCase().replace(/-/g, "_");
+  if (MCP_MANAGEMENT_MODES.has(mode)) return mode;
+  return source === "marketplace" ? "native" : "custom";
+}
+
+function normalizeRequiredInputs(input) {
+  return Array.isArray(input)
+    ? input.map((field) => ({
+        key: String(field?.key || "").trim(),
+        label: String(field?.label || field?.key || "").trim(),
+        secret: field?.secret === true,
+        target: String(field?.target || "env").trim() || "env",
+        required: field?.required !== false
+      })).filter((field) => field.key)
+    : [];
+}
+
+function normalizeConnectionWizard(input) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    state: String(source.state || "idle").trim() || "idle",
+    nextAction: String(source.nextAction || "").trim(),
+    message: sanitizeSecretText(source.message || ""),
+    missingRequiredInputs: Array.isArray(source.missingRequiredInputs)
+      ? source.missingRequiredInputs.map((key) => String(key || "").trim()).filter(Boolean)
+      : [],
+    actions: Array.isArray(source.actions)
+      ? source.actions.map((action) => ({
+          id: String(action?.id || "").trim(),
+          label: String(action?.label || action?.id || "").trim()
+        })).filter((action) => action.id)
+      : []
+  };
+}
+
+function normalizeManagedRuntime(input) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    connectorId: String(source.connectorId || "").trim(),
+    endpoint: String(source.endpoint || "").trim(),
+    installDir: String(source.installDir || "").trim(),
+    expectedToolCount: Number.isFinite(Number(source.expectedToolCount)) ? Number(source.expectedToolCount) : 0,
+    state: String(source.state || "").trim(),
+    lastAction: String(source.lastAction || "").trim()
+  };
+}
+
 function normalizeTools(tools) {
   return Array.isArray(tools)
     ? tools
@@ -232,6 +281,10 @@ function normalizeCoreMcpRecord(input = {}, options = {}) {
     lastError: sanitizeSecretText(input.lastError || ""),
     registryId: String(input.registryId || "").trim(),
     source: String(input.source || "custom").trim() || "custom",
+    managementMode: normalizeManagementMode(input.managementMode, input.source),
+    requiredInputs: normalizeRequiredInputs(input.requiredInputs),
+    connectionWizard: normalizeConnectionWizard(input.connectionWizard),
+    managedRuntime: normalizeManagedRuntime(input.managedRuntime),
     homepage: String(input.homepage || "").trim(),
     setupHint: sanitizeSecretText(input.setupHint || ""),
     setupCommands: Array.isArray(input.setupCommands)
@@ -344,6 +397,22 @@ function publicCoreMcpRecord(record = {}) {
   if (copy.diagnostics && typeof copy.diagnostics === "object") {
     copy.diagnostics = redactPublicValue("", copy.diagnostics);
   }
+  if (Array.isArray(copy.requiredInputs)) {
+    copy.requiredInputs = copy.requiredInputs.map((field) => ({
+      ...field,
+      value: undefined
+    }));
+  }
+  if (copy.managedRuntime && typeof copy.managedRuntime === "object") {
+    copy.managedRuntime = {
+      ...copy.managedRuntime,
+      installDir: copy.managedRuntime.installDir ? "[managed]" : "",
+      lastAction: String(copy.managedRuntime.lastAction || "").trim() ? "[managed]" : ""
+    };
+  }
+  if (copy.connectionWizard && typeof copy.connectionWizard === "object") {
+    copy.connectionWizard.message = sanitizeSecretText(copy.connectionWizard.message || "");
+  }
   if (copy.sync && typeof copy.sync === "object") {
     for (const value of Object.values(copy.sync)) {
       if (value && typeof value === "object" && typeof value.message === "string") {
@@ -364,12 +433,28 @@ function enabledCoreMcpRecords(records = []) {
   return normalizeCoreMcpRegistry(records).filter((record) => record.enabled && !record.deletedAt);
 }
 
+function isCoreMcpExposureReady(record) {
+  if (!record || record.managementMode !== "managed") return true;
+  const wizardState = String(record?.connectionWizard?.state || "").trim().toLowerCase();
+  const runtimeState = String(record?.managedRuntime?.state || "").trim().toLowerCase();
+  const status = String(record.status || "").trim().toLowerCase();
+  const lastTestStatus = String(record.lastTestStatus || "").trim().toLowerCase();
+  if (wizardState === "managed_error" || wizardState === "test_failed") return false;
+  if (runtimeState === "error") return false;
+  if (["disconnected", "configuration_required", "auth_required", "unknown"].includes(status)) return false;
+  if (["disconnected", "configuration_required", "auth_required", "unknown"].includes(lastTestStatus)) return false;
+  if (String(record.status || "").trim().toLowerCase() === "connected") return true;
+  if (String(record.lastTestStatus || "").trim().toLowerCase() === "connected") return true;
+  return wizardState === "connected";
+}
+
 function fingerprintPayload(records = []) {
   return enabledCoreMcpRecords(records)
     .map((record) => ({
       name: record.name,
       nativeName: record.nativeName,
-      transport: record.transport
+      transport: record.transport,
+      exposureReady: isCoreMcpExposureReady(record)
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -383,6 +468,7 @@ module.exports = {
   cleanObject,
   coreMcpFingerprint,
   enabledCoreMcpRecords,
+  isCoreMcpExposureReady,
   normalizeNativeName,
   normalizeCoreMcpRecord,
   normalizeCoreMcpRegistry,

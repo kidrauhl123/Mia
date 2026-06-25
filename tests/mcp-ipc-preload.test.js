@@ -13,6 +13,7 @@ test("MCP IPC channels and preload bridge are wired", () => {
   assert.match(channels, /McpSetEnabled:\s*"mcp:set-enabled"/);
   assert.match(channels, /McpRefreshBridge:\s*"mcp:refresh-bridge"/);
   assert.match(channels, /McpRemoveFromAgents:\s*"mcp:remove-from-agents"/);
+  assert.match(channels, /McpRunManagedAction:\s*"mcp:run-managed-action"/);
 
   const preload = read("src/preload.js");
   assert.match(preload, /mcp:\s*\{/);
@@ -20,11 +21,20 @@ test("MCP IPC channels and preload bridge are wired", () => {
   assert.match(preload, /setEnabled:\s*\(id,\s*enabled\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.McpSetEnabled,\s*id,\s*enabled\)/);
   assert.match(preload, /refreshBridge:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.McpRefreshBridge\)/);
   assert.match(preload, /removeFromAgents:\s*\(recordsOrIds\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.McpRemoveFromAgents,\s*recordsOrIds\)/);
+  assert.match(preload, /runManagedAction:\s*\(id,\s*action,\s*values\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.McpRunManagedAction,\s*id,\s*action,\s*values\)/);
 
   const ipc = read("src/main/ipc/mcp-ipc.js");
   assert.match(ipc, /registerMcpIpc/);
   assert.match(ipc, /IpcChannel\.McpList/);
   assert.match(ipc, /IpcChannel\.McpRemoveFromAgents/);
+  assert.match(ipc, /IpcChannel\.McpRunManagedAction/);
+  assert.match(ipc, /mcpService\.runManagedAction\(String\(id \|\| ""\),\s*String\(action \|\| ""\),\s*values \|\| \{\}\)/);
+});
+
+test("Electron main wires a production managed MCP supervisor", () => {
+  const src = read("src/main.js");
+  assert.match(src, /createManagedConnectorSupervisor/);
+  assert.match(src, /managedSupervisor:\s*createManagedConnectorSupervisor\(\{/);
 });
 
 test("mcp ipc registers Core AION alignment methods", () => {
