@@ -20,3 +20,20 @@ Implemented Core MCP discovery for external agent configs across Claude Code, Co
 ## Concerns
 
 - Discovery depends on external CLI output shapes. Parsers cover the documented Task 5 cases and common object/list variants, but future CLI formatting changes may need parser updates.
+
+## Review Fix: Secret Redaction
+
+Commit: `3b0b8fd` (`fix(core-mcp): redact discovered agent secrets`)
+
+Changed files:
+- `src/core/mcp/agent-configs.js`
+- `src/core/mcp/service.js`
+- `tests/core-mcp-agent-configs.test.js`
+- `tests/core-mcp-service.test.js`
+
+Tests run:
+- `node --test tests/core-mcp-agent-configs.test.js tests/core-mcp-service.test.js`
+- `node --check src/core/mcp/agent-configs.js src/core/mcp/service.js`
+
+Residual concerns:
+- Public discovery output is now projected through the same env/header masking used by Core MCP records, while import re-discovers raw config data before saving. Parser coverage still depends on external CLI/config output shapes.
