@@ -510,6 +510,82 @@ test("saveBotRuntimeControl saves desktop-local hermes controls through bot runt
   ]);
 });
 
+test("saveBotRuntimeControl removes legacy model transport fields when switching model", async () => {
+  const calls = [];
+  const api = {
+    social: {
+      async getBotRuntime(botId, runtimeKind) {
+        calls.push(["get", botId, runtimeKind]);
+        return {
+          ok: true,
+          data: {
+            binding: {
+              botId,
+              runtimeKind,
+              enabled: true,
+              config: {
+                agentEngine: "hermes",
+                deviceId: "mac-1",
+                deviceName: "MacBook Pro",
+                provider: "legacy-provider",
+                providerLabel: "Legacy Provider",
+                authType: "api_key",
+                apiKeyEnv: "LEGACY_API_KEY",
+                baseUrl: "https://legacy.example",
+                apiMode: "openai",
+                model: "old-model",
+                effortLevel: "medium",
+                permissionMode: "ask",
+                harmlessFlag: "keep-me"
+              }
+            }
+          }
+        };
+      },
+      async saveBotRuntime(botId, body) {
+        calls.push(["save", botId, body]);
+        return { ok: true, data: { binding: { botId, ...body } } };
+      }
+    }
+  };
+
+  await commands.saveBotRuntimeControl({
+    api,
+    bot: { key: "alice", runtimeKind: "desktop-local", agentEngine: "hermes" },
+    field: "model",
+    value: "deepseek-chat",
+    modelEntries: [
+      {
+        id: "deepseek-chat",
+        provider: "deepseek",
+        model: "deepseek-chat",
+        providerLabel: "DeepSeek",
+        authType: "api_key",
+        modelProfileId: "deepseek:deepseek-chat"
+      }
+    ]
+  });
+
+  assert.deepEqual(calls, [
+    ["get", "alice", "desktop-local"],
+    ["save", "alice", {
+      runtimeKind: "desktop-local",
+      enabled: true,
+      config: {
+        agentEngine: "hermes",
+        deviceId: "mac-1",
+        deviceName: "MacBook Pro",
+        model: "deepseek-chat",
+        providerConnectionId: "deepseek",
+        modelProfileId: "deepseek:deepseek-chat",
+        effortLevel: "medium",
+        permissionMode: "ask",
+        harmlessFlag: "keep-me"
+      }
+    }]
+  ]);
+});
+
 test("saveBotRuntimeControl saves desktop-local external engine controls through bot runtime binding", async () => {
   const calls = [];
   const api = {
@@ -670,6 +746,9 @@ test("syncDesktopLocalBotRuntimeBinding stores hermes config from current device
       }
     }
   ]]);
+  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "baseUrl"), false);
+  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "apiMode"), false);
 });
 
 test("syncDesktopLocalBotRuntimeBinding includes Mia model ownership metadata", async () => {
@@ -726,6 +805,9 @@ test("syncDesktopLocalBotRuntimeBinding includes Mia model ownership metadata", 
   assert.equal(Object.hasOwn(calls[0][2].config, "baseUrl"), false);
   assert.equal(Object.hasOwn(calls[0][2].config, "apiKeyEnv"), false);
   assert.equal(Object.hasOwn(calls[0][2].config, "apiMode"), false);
+  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "baseUrl"), false);
+  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "apiMode"), false);
 });
 
 test("syncDesktopLocalBotRuntimeBinding preserves openclaw as a desktop target", async () => {
@@ -806,6 +888,9 @@ test("ensureDesktopLocalBotConversation creates conversation and syncs external 
       { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "" }
     ]
   });
+  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "baseUrl"), false);
+  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "apiMode"), false);
   assert.equal(result.conversation.upserted, true);
   assert.equal(upserted[0].id, "botc_codex");
 });

@@ -35,6 +35,20 @@
       .trim();
   }
 
+  const LEGACY_RUNTIME_MODEL_FIELDS = [
+    "provider",
+    "providerLabel",
+    "authType",
+    "apiKeyEnv",
+    "baseUrl",
+    "apiMode",
+    "provider_label",
+    "auth_type",
+    "api_key_env",
+    "base_url",
+    "api_mode"
+  ];
+
   function botIdentity() {
     if (global.miaBotIdentity) return global.miaBotIdentity;
     if (typeof require === "function") {
@@ -375,18 +389,19 @@
       enabled: true,
       config: {}
     };
+    const mergedConfig = sanitizePersistedRuntimeConfig({ ...(current.config || {}), ...(patch || {}) });
     if (typeof api?.social?.saveBotRuntime !== "function") throw new Error("Bot 运行绑定保存接口不可用。");
     const response = await api.social.saveBotRuntime(key, {
       runtimeKind: kind,
       enabled: true,
-      config: { ...(current.config || {}), ...(patch || {}) }
+      config: mergedConfig
     });
     if (!response?.ok) throw new Error(response?.error || "保存 Bot 运行绑定失败");
     const binding = response.data?.binding || {
       ...current,
       runtimeKind: kind,
       enabled: true,
-      config: { ...(current.config || {}), ...(patch || {}) }
+      config: mergedConfig
     };
     cache?.set?.(runtimeCacheKey(key, kind), binding);
     return { saved: true, binding };
@@ -418,14 +433,44 @@
     };
     for (const [key, value] of Object.entries({
       authType: String(entry.authType || entry.auth_type || "").trim(),
-      modelProfileId: String(entry.modelProfileId || entry.model_profile_id || entry.profileId || entry.profile_id || "").trim(),
-      apiKeyEnv: String(entry.apiKeyEnv || entry.api_key_env || "").trim(),
-      baseUrl: String(entry.baseUrl || entry.base_url || "").trim(),
-      apiMode: String(entry.apiMode || entry.api_mode || "").trim()
+      modelProfileId: String(entry.modelProfileId || entry.model_profile_id || entry.profileId || entry.profile_id || "").trim()
     })) {
       if (value) normalized[key] = value;
     }
     return normalized;
+  }
+
+  function shouldStripLegacyRuntimeModelFields(config = {}) {
+    return Boolean(
+      String(config?.providerConnectionId || config?.provider_connection_id || "").trim()
+      || String(config?.modelProfileId || config?.model_profile_id || "").trim()
+    );
+  }
+
+  function sanitizePersistedModelEntry(entry = {}) {
+    const sanitized = {
+      value: String(entry?.value || entry?.model || entry?.id || "").trim(),
+      label: String(entry?.label || entry?.model || entry?.id || entry?.value || "Default").trim(),
+      model: String(entry?.model || "").trim(),
+      provider: String(entry?.provider || "").trim(),
+      providerLabel: String(entry?.providerLabel || entry?.provider_label || "").trim()
+    };
+    const authType = String(entry?.authType || entry?.auth_type || "").trim();
+    const modelProfileId = String(entry?.modelProfileId || entry?.model_profile_id || entry?.profileId || entry?.profile_id || "").trim();
+    if (authType) sanitized.authType = authType;
+    if (modelProfileId) sanitized.modelProfileId = modelProfileId;
+    return sanitized;
+  }
+
+  function sanitizePersistedRuntimeConfig(config = {}) {
+    const next = { ...(config && typeof config === "object" ? config : {}) };
+    if (Array.isArray(next.modelEntries)) {
+      next.modelEntries = next.modelEntries.map((entry) => sanitizePersistedModelEntry(entry));
+    }
+    if (shouldStripLegacyRuntimeModelFields(next)) {
+      for (const key of LEGACY_RUNTIME_MODEL_FIELDS) delete next[key];
+    }
+    return next;
   }
 
   function localHermesModelEntries(runtime = {}, modelSettings = global?.miaModelSettings) {
