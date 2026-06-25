@@ -27,11 +27,13 @@
 :root[data-selection-style="solid"] .persona-row.active {
   background: var(--accent);
 }
+
 :root[data-selection-style="solid"] .persona-row.active .persona-name,
 :root[data-selection-style="solid"] .persona-row.active .persona-preview,
 :root[data-selection-style="solid"] .persona-row.active .persona-time {
   color: #fff;
 }
+
 :root[data-show-user-avatar="off"] .chat .message.user .avatar,
 :root[data-show-assistant-avatar="off"] .chat .message.assistant:not(.group-message) .avatar {
   display: none !important;

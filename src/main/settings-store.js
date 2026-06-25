@@ -35,6 +35,10 @@ function normalizeGlassOpacity(value, fallback = DEFAULT_GLASS_OPACITY) {
   return Math.max(60, Math.min(100, Math.round(number)));
 }
 
+function normalizeAppearanceSelectionStyle() {
+  return "solid";
+}
+
 function createSettingsStore(deps = {}) {
   const {
     runtimePaths,
@@ -172,6 +176,7 @@ function createSettingsStore(deps = {}) {
     next.fontPreset = normalizeAppearanceFontPreset(next.fontPreset);
     next.glassOpacity = normalizeGlassOpacity(next.glassOpacity, DEFAULT_GLASS_OPACITY);
     next.listStyle = "card";
+    next.selectionStyle = normalizeAppearanceSelectionStyle(next.selectionStyle);
     delete next.showHoverBackground;
     next.showDesktopNotifications = next.showDesktopNotifications !== false;
     next.workspaceBackgroundImage = "";
@@ -194,7 +199,6 @@ function createSettingsStore(deps = {}) {
     const showDesktopNotifications = has("showDesktopNotifications")
       ? settings.showDesktopNotifications !== false
       : current.showDesktopNotifications !== false;
-    const selectionStyle = String(settings.selectionStyle || current.selectionStyle || "soft").trim();
     const validHex = (value, fallback) => /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : fallback;
     const workspaceBackgroundColorInput = String(has("workspaceBackgroundColor") ? settings.workspaceBackgroundColor : (current.workspaceBackgroundColor || "")).trim();
     const workspaceBackgroundImageInput = has("workspaceBackgroundImage") ? settings.workspaceBackgroundImage : (current.workspaceBackgroundImage || "");
@@ -208,7 +212,7 @@ function createSettingsStore(deps = {}) {
       showAssistantAvatar,
       showDesktopNotifications,
       listStyle: "card",
-      selectionStyle: ["soft", "solid"].includes(selectionStyle) ? selectionStyle : "soft",
+      selectionStyle: normalizeAppearanceSelectionStyle(settings.selectionStyle || current.selectionStyle),
       workspaceBackgroundColor: workspaceBackgroundColorInput ? validHex(workspaceBackgroundColorInput, "") : "",
       workspaceBackgroundImage: normalizeAppearanceBackgroundImage(workspaceBackgroundImageInput)
     };

@@ -117,7 +117,7 @@ test("appearance normalizers keep the list style fixed to cards", () => {
   assert.equal(api.normalizeListStyle("card"), "card");
   assert.equal(api.normalizeListStyle("flush"), "card");
   assert.equal(api.normalizeListStyle("invalid"), "card");
-  assert.equal(api.normalizeSelectionStyle("soft"), "soft");
+  assert.equal(api.normalizeSelectionStyle("soft"), "solid");
   assert.equal(api.normalizeSelectionStyle("solid"), "solid");
   assert.equal(api.normalizeSelectionStyle("invalid"), "solid");
   assert.equal(api.normalizeGlassOpacity(72.4), 72);
@@ -127,7 +127,7 @@ test("appearance normalizers keep the list style fixed to cards", () => {
   assert.equal(api.normalizeGlassOpacity("bad"), 82);
 });
 
-test("applyAppearance writes card and soft choices to document state", () => {
+test("applyAppearance writes card and solid choices to document state", () => {
   const titleBarThemes = [];
   const { api, documentElement, styleValues } = loadAppearanceModule({
     windowOverrides: {
@@ -152,8 +152,9 @@ test("applyAppearance writes card and soft choices to document state", () => {
     glassOpacity: 91
   });
 
-  assert.equal(documentElement.dataset.selectionStyle, "soft");
-  assert.equal(styleValues.get("--list-active-text"), "#318ad3");
+  assert.equal(documentElement.dataset.selectionStyle, "solid");
+  assert.equal(styleValues.get("--list-active"), "#318ad3");
+  assert.equal(styleValues.get("--list-active-text"), "#ffffff");
   assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-layer) 91%, transparent)");
   assert.equal(JSON.stringify(titleBarThemes.at(-1)), JSON.stringify({ theme: "light" }));
 
@@ -292,6 +293,7 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
 
   assert.equal(api.currentAppearanceDraft().workspaceBackgroundColor, "#f0f0f3");
   assert.match(api.currentAppearanceDraft().workspaceBackgroundImage, /%E6%B6%82%E9%B8%A6\.png/);
+  assert.equal(api.currentAppearanceDraft().selectionStyle, "solid");
   assert.equal(api.currentAppearanceDraft().glassOpacity, 91);
   assert.equal(api.currentAppearanceDraft().showDesktopNotifications, false);
   assert.equal(Object.hasOwn(api.currentAppearanceDraft(), "showHoverBackground"), false);
@@ -402,7 +404,7 @@ test("applyAppearance keeps default tokens when appearance deps are missing", ()
   assert.match(styleValues.get("--app-font"), /ui-serif/);
   assert.equal(styleValues.get("--accent"), "#318ad3");
   assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-layer) 82%, transparent)");
-  assert.equal(documentElement.dataset.selectionStyle, "soft");
+  assert.equal(documentElement.dataset.selectionStyle, "solid");
 });
 
 test("syncAppearanceControls skips form controls when element deps are missing", () => {
@@ -420,7 +422,7 @@ test("syncAppearanceControls skips form controls when element deps are missing",
       accentColor: "#318ad3",
       userBubbleColor: "#eeffde",
       listStyle: "card",
-      selectionStyle: "soft"
+      selectionStyle: "solid"
     });
   });
 });
@@ -446,6 +448,25 @@ test("desktop appearance settings no longer expose the middle list style switch"
   assert.doesNotMatch(htmlSource, /appearanceListStyle/);
   assert.doesNotMatch(appSource, /appearanceListStyle/);
   assert.doesNotMatch(cssSource, /data-list-style="flush"/);
+});
+
+test("desktop appearance settings no longer expose the selection style switch", () => {
+  assert.doesNotMatch(htmlSource, /appearanceSelectionStyle/);
+  assert.doesNotMatch(htmlSource, /<option value="solid">/);
+});
+
+test("web appearance settings keep solid selection fixed without exposing a switch", () => {
+  const webHtmlSource = fs.readFileSync(path.join(root, "src/web/app/index.html"), "utf8");
+  const webAppSource = fs.readFileSync(path.join(root, "src/web/app.js"), "utf8");
+  const webAppearanceSource = fs.readFileSync(path.join(root, "src/web/appearance.js"), "utf8");
+  const webCssSource = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");
+
+  assert.doesNotMatch(webHtmlSource, /appearanceSelectionStyle/);
+  assert.doesNotMatch(webHtmlSource, /<option value="solid">/);
+  assert.doesNotMatch(webAppSource, /appearanceSelectionStyle/);
+  assert.match(webAppearanceSource, /selectionStyle:\s*"solid"/);
+  assert.match(webAppearanceSource, /dataset\.selectionStyle\s*=\s*"solid"/);
+  assert.match(webCssSource, /data-selection-style="solid"/);
 });
 
 test("appearance settings no longer expose a global hover background switch", () => {

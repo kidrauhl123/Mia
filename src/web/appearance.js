@@ -13,7 +13,7 @@
   const defaults = {
     theme: "light",            // "light" | "dark"
     listStyle: "card",
-    selectionStyle: "soft",    // "soft" | "solid"
+    selectionStyle: "solid",
     accentColor: DEFAULT_ACCENT,
     userBubbleColor: DEFAULT_USER_BUBBLE,
     showUserAvatar: false,
@@ -52,7 +52,7 @@
   function applyToDom(next) {
     const root = document.documentElement;
     root.dataset.theme = next.theme === "dark" ? "dark" : "light";
-    root.dataset.selectionStyle = next.selectionStyle === "solid" ? "solid" : "soft";
+    root.dataset.selectionStyle = "solid";
     root.dataset.showUserAvatar = next.showUserAvatar === true ? "on" : "off";
     root.dataset.showAssistantAvatar = next.showAssistantAvatar === true ? "on" : "off";
     if (next.accentColor) {
@@ -73,6 +73,7 @@
 
   function init() {
     current = load();
+    current.selectionStyle = "solid";
     current.workspaceBackgroundImage = "";
     applyToDom(current);
   }
@@ -81,6 +82,7 @@
 
   function update(patch) {
     current = { ...current, ...(patch && typeof patch === "object" ? patch : {}) };
+    current.selectionStyle = "solid";
     current.workspaceBackgroundImage = "";
     applyToDom(current);
     save();

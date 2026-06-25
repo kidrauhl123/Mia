@@ -2211,9 +2211,9 @@ body.sidebar-resizing * {
 }
 
 body.platform-win32 .persona {
-  width: 100%;
-  margin: 0;
-  border-radius: 0;
+  width: calc(100% - 12px);
+  margin: 0 6px;
+  border-radius: 8px;
 }
 
 body.platform-win32 .persona.pinned:not(.active),
@@ -2854,6 +2854,13 @@ button.persona-tag-chip {
   color: #fff;
 }
 
+.skill-nav-row.active em,
+.skill-filter-row.active em,
+.persona.active .persona-unread:not(.muted) {
+  background: color-mix(in srgb, var(--list-active-text) 16%, transparent);
+  color: var(--list-active-text);
+}
+
 .contact-list {
   display: grid;
   align-content: start;
@@ -3030,13 +3037,6 @@ button.persona-tag-chip {
   line-height: 18px;
   text-align: center;
   font-weight: var(--ui-text-max-weight, 500);
-}
-
-:root[data-selection-style="solid"] .skill-nav-row.active em,
-:root[data-selection-style="solid"] .skill-filter-row.active em,
-:root[data-selection-style="solid"] .persona.active .persona-unread:not(.muted) {
-  background: color-mix(in srgb, var(--list-active-text) 16%, transparent);
-  color: var(--list-active-text);
 }
 
 .workspace {
@@ -9810,7 +9810,7 @@ pre {
     right: 18px;
   }
 
-  :root[data-selection-style="solid"] .app-shell[data-shell-layout="single"] .persona.active .persona-unread:not(.muted) {
+  .app-shell[data-shell-layout="single"] .persona.active .persona-unread:not(.muted) {
     background: #ff3b30;
     color: #fff;
   }

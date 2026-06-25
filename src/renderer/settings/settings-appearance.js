@@ -52,7 +52,7 @@
   }
 
   function defaultSelectionStyle() {
-    return DEFAULT_SELECTION_STYLE || FALLBACK_SELECTION_STYLE;
+    return DEFAULT_SELECTION_STYLE === "solid" ? "solid" : FALLBACK_SELECTION_STYLE;
   }
 
   function showAppearanceSaveStatus(text, kind = "ok") {
@@ -87,7 +87,7 @@
   }
 
   function normalizeSelectionStyle(value) {
-    return value === "soft" || value === "solid" ? value : defaultSelectionStyle();
+    return value === "solid" ? "solid" : defaultSelectionStyle();
   }
 
   function normalizeGlassOpacity(value) {
@@ -215,18 +215,11 @@
       document.documentElement.style.removeProperty?.("--workspace-floor");
       document.documentElement.style.removeProperty?.("--workspace-floor-image");
     }
-    if (selectionStyle === "solid") {
-      const textColors = selectionTextColors(rgb);
-      document.documentElement.style.setProperty("--list-active", accentColor);
-      document.documentElement.style.setProperty("--list-active-text", textColors.text);
-      document.documentElement.style.setProperty("--list-active-muted", textColors.muted);
-      document.documentElement.style.setProperty("--list-active-faint", textColors.faint);
-    } else {
-      document.documentElement.style.setProperty("--list-active", softActive);
-      document.documentElement.style.setProperty("--list-active-text", accentColor);
-      document.documentElement.style.setProperty("--list-active-muted", "var(--muted)");
-      document.documentElement.style.setProperty("--list-active-faint", "var(--faint)");
-    }
+    const textColors = selectionTextColors(rgb);
+    document.documentElement.style.setProperty("--list-active", accentColor);
+    document.documentElement.style.setProperty("--list-active-text", textColors.text);
+    document.documentElement.style.setProperty("--list-active-muted", textColors.muted);
+    document.documentElement.style.setProperty("--list-active-faint", textColors.faint);
     try {
       (mia || window.mia)?.window?.setTitleBarTheme?.({
         theme
@@ -253,7 +246,7 @@
       showAssistantAvatar: controls.appearanceShowAssistantAvatar?.getAttribute("aria-checked") === "true",
       showDesktopNotifications: controls.appearanceShowDesktopNotifications?.getAttribute("aria-checked") !== "false",
       listStyle: "card",
-      selectionStyle: normalizeSelectionStyle(controls.appearanceSelectionStyle?.value),
+      selectionStyle: defaultSelectionStyle(),
       workspaceBackgroundColor,
       workspaceBackgroundImage: normalizeWorkspaceBackgroundImage(controls.appearanceWorkspaceBackgroundImage?.value)
     };
@@ -302,13 +295,6 @@
     if (controls.appearanceFontPreset) controls.appearanceFontPreset.value = fontPreset;
     document.querySelectorAll("[data-font-preset]").forEach((button) => {
       const active = button.dataset.fontPreset === fontPreset;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-checked", active ? "true" : "false");
-    });
-    const selectionStyle = normalizeSelectionStyle(appearance.selectionStyle);
-    if (controls.appearanceSelectionStyle) controls.appearanceSelectionStyle.value = selectionStyle;
-    document.querySelectorAll("[data-selection-style]").forEach((button) => {
-      const active = button.dataset.selectionStyle === selectionStyle;
       button.classList.toggle("active", active);
       button.setAttribute("aria-checked", active ? "true" : "false");
     });

@@ -265,7 +265,6 @@ const els = {
   appearanceTheme: document.getElementById("appearanceTheme"),
   appearanceFontPreset: document.getElementById("appearanceFontPreset"),
   appearanceFontChoices: document.getElementById("appearanceFontChoices"),
-  appearanceSelectionStyle: document.getElementById("appearanceSelectionStyle"),
   navLayoutChoices: document.querySelectorAll("[data-nav-layout-choice]"),
   workspacePath: document.getElementById("workspacePath"),
   workspacePickButton: document.getElementById("workspacePickButton"),
@@ -3128,7 +3127,6 @@ function render() {
     els.appearanceTheme.value = appearance.theme || "light";
     const savedFontPreset = appearance.fontPreset || "system";
     els.appearanceFontPreset.value = fontPresets[savedFontPreset] ? savedFontPreset : "system";
-    if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = window.miaSettingsAppearance.normalizeSelectionStyle(appearance.selectionStyle);
     window.miaSettingsAppearance.syncAppearanceControls(appearance);
   }
   const user = runtimeUserIdentity(runtime);
@@ -6434,10 +6432,6 @@ els.workspacePickButton?.addEventListener("click", async () => {
     if (ws?.path && els.workspacePath) els.workspacePath.textContent = ws.path;
     if (ws?.changed) { await refreshRuntime(); renderView(); }
   } catch { /* ignore pick errors */ }
-});
-
-els.appearanceSelectionStyle?.addEventListener("change", () => {
-  window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.navLayoutChoices?.forEach((button) => {

@@ -142,7 +142,6 @@ const els = {
   profileStatusBadgeDetails: document.getElementById("profileStatusBadgeDetails"),
   profileStatusBadgeTrigger: document.getElementById("profileStatusBadgeTrigger"),
   appearanceTheme: document.getElementById("appearanceTheme"),
-  appearanceSelectionStyle: document.getElementById("appearanceSelectionStyle"),
   appearanceAccentColor: document.getElementById("appearanceAccentColor"),
   appearanceUserBubbleColor: document.getElementById("appearanceUserBubbleColor"),
   appearanceShowUserAvatar: document.getElementById("appearanceShowUserAvatar"),
@@ -3981,7 +3980,6 @@ function renderSettings() {
   // opens so it survives external mutations (multiple tabs, reset action).
   const ap = window.miaAppearance?.get?.() || {};
   if (els.appearanceTheme) els.appearanceTheme.value = ap.theme || "light";
-  if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = ap.selectionStyle || "soft";
   if (els.appearanceAccentColor) els.appearanceAccentColor.value = ap.accentColor || "#5e5ce6";
   if (els.appearanceUserBubbleColor) els.appearanceUserBubbleColor.value = ap.userBubbleColor || "#eeffde";
   if (els.appearanceShowUserAvatar) els.appearanceShowUserAvatar.checked = ap.showUserAvatar === true;
@@ -4252,7 +4250,6 @@ function bindAppearanceInput(el, key, getValue) {
   }
 }
 bindAppearanceInput(els.appearanceTheme, "theme", (e) => e.value);
-bindAppearanceInput(els.appearanceSelectionStyle, "selectionStyle", (e) => e.value);
 bindAppearanceInput(els.appearanceAccentColor, "accentColor", (e) => e.value);
 bindAppearanceInput(els.appearanceUserBubbleColor, "userBubbleColor", (e) => e.value);
 bindAppearanceInput(els.appearanceShowUserAvatar, "showUserAvatar", (e) => e.checked);

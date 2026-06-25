@@ -68,6 +68,7 @@ test("appearanceSettings defaults chat avatars off and desktop notifications on"
   assert.equal(appearance.showDesktopNotifications, true);
   assert.equal(appearance.fontPreset, "serif");
   assert.equal(appearance.glassOpacity, 82);
+  assert.equal(appearance.selectionStyle, "solid");
   assert.equal(Object.hasOwn(appearance, "showHoverBackground"), false);
 });
 
@@ -90,9 +91,10 @@ test("appearanceSettings falls back from removed font presets", (t) => {
 test("appearanceSettings folds legacy flush list style back to cards", (t) => {
   const { runtime, store } = setup(t);
   fs.mkdirSync(path.dirname(runtime.appearanceSettings), { recursive: true });
-  fs.writeFileSync(runtime.appearanceSettings, JSON.stringify({ listStyle: "flush" }));
+  fs.writeFileSync(runtime.appearanceSettings, JSON.stringify({ listStyle: "flush", selectionStyle: "solid" }));
 
   assert.equal(store.appearanceSettings().listStyle, "card");
+  assert.equal(store.appearanceSettings().selectionStyle, "solid");
 });
 
 test("writeAppearanceSettings validates choices, colors, and boolean toggles", (t) => {

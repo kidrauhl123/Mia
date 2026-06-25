@@ -237,7 +237,7 @@ test("desktop window controls use Windows overlay title bar off macOS", () => {
   assert.match(css, /body\.platform-win32 \.nav-rail\s*\{[\s\S]*?margin:\s*0;[\s\S]*?border-right:\s*1px solid var\(--win-panel-border\);[\s\S]*?border-radius:\s*0;[\s\S]*?background:\s*var\(--win-rail-bg\);[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(css, /body\.platform-win32 \.conversation-sidebar,[\s\S]*?body\.platform-win32 \.app-shell\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?margin:\s*0;[\s\S]*?border-right:\s*1px solid var\(--win-panel-border\);[\s\S]*?border-radius:\s*0;[\s\S]*?background:\s*var\(--win-sidebar-bg\);[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(css, /body\.platform-win32 \[class~="sidebar-tools"\]\s*\{[\s\S]*?background:\s*var\(--win-sidebar-bg\);[\s\S]*?border-bottom:\s*1px solid var\(--win-panel-border\);/);
-  assert.match(css, /body\.platform-win32 \.persona\s*\{[\s\S]*?width:\s*100%;[\s\S]*?margin:\s*0;[\s\S]*?border-radius:\s*0;/);
+  assert.match(css, /body\.platform-win32 \.persona\s*\{[\s\S]*?width:\s*calc\(100% - 12px\);[\s\S]*?margin:\s*0 6px;[\s\S]*?border-radius:\s*8px;/);
   assert.match(botStoreCss, /body\.platform-win32 \.app-shell\[data-active-view="contacts"\] \.discover-top-bar,[\s\S]*?body\.platform-win32 \.app-shell\[data-active-view="bot-store"\] \.discover-top-bar\s*\{[\s\S]*?top:\s*calc\(var\(--win-titlebar-height\) \+ 12px\);/);
   assert.match(botStoreCss, /body\.platform-win32 \.app-shell\[data-active-view="contacts"\] \.contacts-sidebar\s*\{[\s\S]*?margin:\s*calc\(var\(--win-titlebar-height\) \+ 58px\) 8px 10px 0;[\s\S]*?border:\s*1px solid var\(--win-panel-border\);[\s\S]*?border-radius:\s*8px;[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/);
   assert.match(css, /--mac-rail-column-width:\s*82px;/);
@@ -1852,8 +1852,7 @@ test("muted conversation list indicators stay grey in active desktop and narrow 
 
   assert.match(css, /\.persona-muted-icon\s*\{[\s\S]*?width:\s*13px;[\s\S]*?color:\s*var\(--faint\);/);
   assert.match(css, /\.persona-unread\.muted\s*\{[\s\S]*?background:\s*#b3b8c2;/);
-  assert.match(css, /:root\[data-selection-style="solid"\] \.persona\.active \.persona-unread:not\(\.muted\)\s*\{/);
-  assert.match(css, /:root\[data-selection-style="solid"\] \.app-shell\[data-shell-layout="single"\] \.persona\.active \.persona-unread:not\(\.muted\)\s*\{/);
+  assert.doesNotMatch(css, /:root\[data-selection-style="solid"\]/);
 });
 
 test("desktop bot controls save through bot runtime control adapter", () => {
