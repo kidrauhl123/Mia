@@ -16,7 +16,14 @@ export interface ConversationListItem {
   manualUnread: boolean;
   tiles: AvatarDescriptor[]; // 1 = 单头像;>1 = 群拼贴
   statusBadge?: StatusBadge | null;
+  tags: ConversationTag[];
   raw: Conversation;
+}
+
+export interface ConversationTag {
+  id: string;
+  name: string;
+  color: string;
 }
 
 export { identityDisplayText, memberAccentColor, resolveAvatar } from "./avatar";
@@ -100,6 +107,32 @@ function statusBadgeForConversation(c: Conversation, bots: Bot[], ctx: AvatarRes
     return statusBadgeFrom(peer?.identity, peer, friend?.identity, friend);
   }
   return statusBadgeFrom(c.identity, c);
+}
+
+function safeTagColor(value: unknown, fallback = "#64748b"): string {
+  const text = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(text) ? text : fallback;
+}
+
+function conversationTagsFor(settingsTags: any, conversationId: string): ConversationTag[] {
+  const input = settingsTags && typeof settingsTags === "object" ? settingsTags : {};
+  const items = Array.isArray(input.items) ? input.items : [];
+  const assignments = input.assignments && typeof input.assignments === "object" ? input.assignments : {};
+  const ids = Array.isArray(assignments[conversationId]) ? assignments[conversationId] : [];
+  const byId = new Map(
+    items
+      .map((item: any, index: number) => {
+        const id = String(item?.id || "").trim();
+        const name = String(item?.name || "").replace(/\s+/g, " ").trim();
+        if (!id || !name) return null;
+        return [id, { id, name: name.slice(0, 24), color: safeTagColor(item?.color, ["#2563eb", "#16a34a", "#dc2626", "#7c3aed", "#0891b2", "#ea580c", "#c026d3", "#64748b"][index % 8]) }];
+      })
+      .filter(Boolean) as [string, ConversationTag][]
+  );
+  return [...new Set(ids.map((id) => String(id || "").trim()))]
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .slice(0, 3) as ConversationTag[];
 }
 
 function conversationPreview(c: Conversation, messages?: ChatMessage[]): string {
@@ -193,6 +226,7 @@ export function buildConversationListItems(deps: {
   pinnedIds?: string[];
   mutedIds?: string[];
   unreadOverrides?: Record<string, boolean>;
+  tags?: unknown;
   query?: string;
 }): ConversationListItem[] {
   const bots = deps.bots || [];
@@ -225,6 +259,7 @@ export function buildConversationListItems(deps: {
       manualUnread: manualUnread[c.id] === true,
       tiles: conversationAvatarTiles(c, ctx),
       statusBadge: statusBadgeForConversation(c, bots, ctx) || null,
+      tags: conversationTagsFor(deps.tags, c.id),
       raw: c,
     };
   });

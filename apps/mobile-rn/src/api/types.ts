@@ -106,6 +106,10 @@ export interface UserSettings {
   readMarks?: Record<string, number>;
   mutedConversations?: string[];
   unreadOverrides?: Record<string, boolean>;
+  tags?: {
+    items?: { id?: string; name?: string; color?: string }[];
+    assignments?: Record<string, string[]>;
+  };
   appearance?: Record<string, unknown>;
 }
 

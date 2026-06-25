@@ -5,6 +5,7 @@ import {
   Easing,
   Keyboard,
   LayoutAnimation,
+  Text,
   View,
   FlatList,
   Modal,
@@ -25,7 +26,6 @@ import {
   togglePinnedConversation,
 } from "../logic/settings";
 import ConversationAvatar from "../components/ConversationAvatar";
-import ConnBanner from "../components/ConnBanner";
 import StatusBadge from "../components/StatusBadge";
 import { BodyStrong, Label, Sub, Title } from "../ui/Text";
 import { color, hairlineWidth, radius, space } from "../theme";
@@ -37,6 +37,7 @@ import type { MessagesStackParamList } from "../navigation/types";
 type Props = NativeStackScreenProps<MessagesStackParamList, "Conversations">;
 
 const desktopSearchBox = conversationSearchOverlayChrome.searchBox;
+const TAG_COLORS = ["#2563eb", "#16a34a", "#dc2626", "#7c3aed", "#0891b2", "#ea580c", "#c026d3", "#64748b"];
 
 function SearchGlyph({ size = desktopSearchBox.searchIconSize, tint = color.inkFaint }: { size?: number; tint?: string }) {
   return (
@@ -66,6 +67,49 @@ function CloseGlyph({
         strokeLinecap="round"
       />
     </Svg>
+  );
+}
+
+function PinGlyph({ tint = color.inkFaint }: { tint?: string }) {
+  return (
+    <Svg width={14} height={14} viewBox="0 0 48 48">
+      <Path
+        d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"
+        fill={tint}
+        fillOpacity={0.12}
+        stroke={tint}
+        strokeWidth={4}
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+function MutedGlyph({ tint = color.inkFaint }: { tint?: string }) {
+  return (
+    <Svg width={13} height={13} viewBox="0 0 24 24">
+      <Path d="M16 9a5 5 0 0 1 .95 2.32M19.36 6.64A9 9 0 0 1 21 12" stroke={tint} strokeWidth={2} strokeLinecap="round" fill="none" />
+      <Path d="M2 2l20 20M8.6 5.6 6 8H3v8h3l5 4v-8.6" stroke={tint} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <Path d="M14 4.8V7l-2.2-2.2L14 4.8Z" fill={tint} />
+    </Svg>
+  );
+}
+
+function alphaColor(hex: string, alpha: number): string {
+  const fallback = TAG_COLORS[7];
+  const value = /^#[0-9a-f]{6}$/i.test(hex) ? hex : fallback;
+  const r = parseInt(value.slice(1, 3), 16);
+  const g = parseInt(value.slice(3, 5), 16);
+  const b = parseInt(value.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function TagChip({ tag, index }: { tag: ConversationListItem["tags"][number]; index: number }) {
+  const tagColor = /^#[0-9a-f]{6}$/i.test(tag.color) ? tag.color : TAG_COLORS[index % TAG_COLORS.length];
+  return (
+    <View style={[styles.tagChip, { backgroundColor: alphaColor(tagColor, 0.14) }]}>
+      <Text allowFontScaling={false} numberOfLines={1} style={[styles.tagText, { color: tagColor }]}>{tag.name}</Text>
+    </View>
   );
 }
 
@@ -119,9 +163,10 @@ export default function ConversationListScreen({ navigation }: Props) {
       pinnedIds,
       mutedIds,
       unreadOverrides: settings?.unreadOverrides || {},
+      tags: settings?.tags,
       query: "",
     }),
-    [conversations, bots, friends, self, membersByConv, unreadByConversation, pinnedIds, mutedIds, settings?.unreadOverrides]
+    [conversations, bots, friends, self, membersByConv, unreadByConversation, pinnedIds, mutedIds, settings?.unreadOverrides, settings?.tags]
   );
   const searchItems = useMemo(
     () => buildConversationListItems({
@@ -134,9 +179,10 @@ export default function ConversationListScreen({ navigation }: Props) {
       pinnedIds,
       mutedIds,
       unreadOverrides: settings?.unreadOverrides || {},
+      tags: settings?.tags,
       query,
     }),
-    [conversations, bots, friends, self, membersByConv, unreadByConversation, pinnedIds, mutedIds, settings?.unreadOverrides, query]
+    [conversations, bots, friends, self, membersByConv, unreadByConversation, pinnedIds, mutedIds, settings?.unreadOverrides, settings?.tags, query]
   );
   const searchOpen = searchActive || Boolean(query.trim());
   const presentation = conversationSearchPresentation({
@@ -216,36 +262,53 @@ export default function ConversationListScreen({ navigation }: Props) {
     setActionItem(null);
   }
 
-  const renderConversationItem = ({ item }: { item: ConversationListItem }) => (
-    <Pressable
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-      onLongPress={() => setActionItem(item)}
-      onPress={() => navigation.navigate("Chat", { conversationId: item.id, title: item.title })}
-    >
-      <ConversationAvatar tiles={item.tiles} size={48} />
-      <View style={styles.textCol}>
-        <View style={styles.titleRow}>
-          <View style={styles.titleWithBadge}>
-            <BodyStrong numberOfLines={1} style={styles.title}>{item.title}</BodyStrong>
-            <StatusBadge badge={item.statusBadge} apiBase={apiBase} size={20} />
+  const renderConversationItem = ({ item }: { item: ConversationListItem }) => {
+    const hasTags = item.tags.length > 0;
+    const hasSide = item.pinned || item.unread > 0;
+    return (
+      <Pressable
+        style={({ pressed }) => [styles.row, item.pinned && styles.rowPinned, pressed && styles.pressed]}
+        onLongPress={() => setActionItem(item)}
+        onPress={() => navigation.navigate("Chat", { conversationId: item.id, title: item.title })}
+      >
+        <ConversationAvatar tiles={item.tiles} size={42} />
+        <View style={[styles.personaMain, hasTags && styles.personaMainWithTags]}>
+          <View style={styles.personaNameRow}>
+            <View style={styles.titleWithBadge}>
+              <BodyStrong allowFontScaling={false} numberOfLines={1} style={styles.title}>{item.title}</BodyStrong>
+              <StatusBadge badge={item.statusBadge} apiBase={apiBase} size={20} />
+            </View>
+            {item.muted ? <View style={styles.mutedIcon}><MutedGlyph /></View> : null}
+            {item.timeText ? <Sub allowFontScaling={false} numberOfLines={1} style={[styles.time, item.unread > 0 && !item.muted && styles.timeUnread]}>{item.timeText}</Sub> : null}
           </View>
-          {item.timeText ? <Sub numberOfLines={1} style={[styles.time, item.unread > 0 && !item.muted && styles.timeUnread]}>{item.timeText}</Sub> : null}
-        </View>
-        <View style={styles.subtitleRow}>
-          <Sub numberOfLines={1} style={[styles.sub, item.unread > 0 && !item.muted && styles.subUnread]}>{item.subtitle}</Sub>
-          <View style={styles.markers}>
-            {item.pinned ? <Label style={styles.marker}>置顶</Label> : null}
-            {item.muted ? <Label style={styles.marker}>免打扰</Label> : null}
+          <View style={styles.personaPreviewRow}>
+            <Sub
+              allowFontScaling={false}
+              numberOfLines={hasTags ? 1 : 2}
+              style={[styles.sub, hasTags && styles.subSingleLine, item.unread > 0 && !item.muted && styles.subUnread]}
+            >
+              {item.subtitle}
+            </Sub>
+            {hasSide ? (
+              <View style={[styles.personaSide, hasTags && styles.personaSideWithTags]}>
+                {item.pinned ? <View style={styles.pinIcon}><PinGlyph /></View> : null}
+                {item.unread ? (
+                  <View style={[styles.badge, item.muted && styles.badgeMuted]}>
+                    <Text allowFontScaling={false} style={styles.badgeText}>{item.unread}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
           </View>
+          {hasTags ? (
+            <View style={styles.tagRow}>
+              {item.tags.map((tag, index) => <TagChip key={tag.id} tag={tag} index={index} />)}
+            </View>
+          ) : null}
         </View>
-      </View>
-      {item.unread ? (
-        <View style={[styles.badge, item.muted && styles.badgeMuted]}>
-          <Sub style={styles.badgeText}>{item.unread}</Sub>
-        </View>
-      ) : null}
-    </Pressable>
-  );
+      </Pressable>
+    );
+  };
 
   const searchOverlayAnimatedStyle = {
     opacity: searchProgress,
@@ -257,18 +320,19 @@ export default function ConversationListScreen({ navigation }: Props) {
 
   return (
     <View style={styles.root}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top + 4, space.sm) }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <View style={styles.headerRow}>
-          <Title style={styles.screenTitle}>消息</Title>
+          <Title allowFontScaling={false} style={styles.screenTitle}>消息</Title>
         </View>
         <Pressable style={styles.searchBox} onPress={openSearch} accessibilityRole="button" accessibilityLabel="搜索">
-          <View style={styles.searchBoxIcon}>
-            <SearchGlyph />
+          <View style={styles.searchPlaceholderGroup}>
+            <View style={styles.searchBoxIcon}>
+              <SearchGlyph />
+            </View>
+            <Label allowFontScaling={false} numberOfLines={1} style={styles.searchPlaceholder}>{conversationHomeChrome.search.placeholder}</Label>
           </View>
-          <Label numberOfLines={1} style={styles.searchPlaceholder}>{conversationHomeChrome.search.placeholder}</Label>
         </Pressable>
       </View>
-      <ConnBanner />
       <FlatList
         data={allItems}
         keyExtractor={(it) => it.id}
@@ -284,7 +348,7 @@ export default function ConversationListScreen({ navigation }: Props) {
           pointerEvents={searchOpen ? "auto" : "none"}
           style={[styles.searchOverlay, searchOverlayAnimatedStyle]}
         >
-          <View style={[styles.searchOverlayHeader, { paddingTop: Math.max(insets.top + 4, space.sm) }]}>
+          <View style={[styles.searchOverlayHeader, { paddingTop: insets.top + 10 }]}>
             <View style={styles.searchRowActive}>
               <View style={styles.searchBoxActive}>
                 <View style={styles.searchBoxIcon}>
@@ -394,24 +458,25 @@ function ActionRow({ title, detail, onPress }: { title: string; detail: string; 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: conversationHomeChrome.page.backgroundColor },
   header: {
-    paddingHorizontal: space.lg,
-    paddingBottom: space.sm,
+    minHeight: 84,
+    paddingHorizontal: 10,
+    paddingBottom: 8,
     borderBottomWidth: conversationHomeChrome.header.separatorWidth,
     borderBottomColor: color.line,
-    gap: space.xs,
+    gap: 8,
     backgroundColor: conversationHomeChrome.page.backgroundColor,
   },
   headerRow: {
-    minHeight: 28,
+    minHeight: 34,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: space.md,
+    gap: 4,
   },
   screenTitle: {
     fontSize: conversationHomeChrome.title.fontSize,
     lineHeight: conversationHomeChrome.title.lineHeight,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   searchRowActive: {
     minHeight: desktopSearchBox.height,
@@ -423,30 +488,49 @@ const styles = StyleSheet.create({
     width: "100%",
     height: conversationHomeChrome.search.height,
     borderRadius: conversationHomeChrome.search.radius,
-    backgroundColor: color.field,
+    backgroundColor: "#FFFFFF",
+    borderWidth: hairlineWidth,
+    borderColor: "rgba(15,23,42,0.08)",
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: 8,
-    paddingRight: 6,
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  searchPlaceholderGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    minWidth: 0,
   },
   searchBoxIcon: {
-    width: desktopSearchBox.iconColumnWidth,
+    width: 15,
     height: conversationHomeChrome.search.height,
     alignItems: "center",
     justifyContent: "center",
   },
-  searchPlaceholder: { flex: 1, minWidth: 0, color: color.inkFaint, fontSize: 14, fontWeight: "400" },
+  searchPlaceholder: { color: "#9AA0A6", fontSize: 13, lineHeight: 32, fontWeight: "400", textAlign: "center" },
   searchBoxActive: {
     flex: 1,
-    height: desktopSearchBox.height,
-    borderRadius: desktopSearchBox.radius,
-    backgroundColor: "rgba(0,0,0,0.047)",
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
     borderWidth: hairlineWidth,
-    borderColor: "rgba(94,92,230,0.20)",
+    borderColor: "rgba(15,23,42,0.08)",
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: 8,
+    paddingLeft: 12,
     paddingRight: 6,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
   searchOverlay: {
     position: "absolute",
@@ -458,17 +542,21 @@ const styles = StyleSheet.create({
     backgroundColor: conversationHomeChrome.page.backgroundColor,
   },
   searchOverlayHeader: {
-    paddingHorizontal: space.lg,
-    paddingBottom: space.sm,
+    minHeight: 84,
+    paddingHorizontal: 10,
+    paddingBottom: 8,
     backgroundColor: conversationHomeChrome.page.backgroundColor,
   },
   searchInput: {
     flex: 1,
     minWidth: 0,
-    height: desktopSearchBox.height,
+    height: 32,
     color: color.ink,
-    fontSize: 14,
+    fontSize: 13,
+    lineHeight: 32,
     paddingVertical: 0,
+    paddingLeft: 13,
+    textAlign: "left",
   },
   clearButton: {
     width: desktopSearchBox.clearButtonSize,
@@ -486,37 +574,114 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  listContent: { paddingBottom: space.sm },
+  listContent: { paddingVertical: 6 },
   emptyContent: { flexGrow: 1, backgroundColor: conversationHomeChrome.page.backgroundColor },
-  searchListContent: { paddingBottom: 132, backgroundColor: conversationHomeChrome.page.backgroundColor },
+  searchListContent: { paddingTop: 6, paddingBottom: 132, backgroundColor: conversationHomeChrome.page.backgroundColor },
   searchEmptyContent: { flexGrow: 1, backgroundColor: conversationHomeChrome.page.backgroundColor, paddingTop: 44 },
   empty: { textAlign: "center", marginTop: 48 },
   searchEmpty: { marginTop: 24, color: color.inkFaint },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space.md,
-    paddingHorizontal: space.lg,
+    gap: 9,
     minHeight: conversationHomeChrome.row.minHeight,
-    paddingVertical: 10,
-    backgroundColor: color.bg,
+    marginHorizontal: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: 11,
+    backgroundColor: "transparent",
     shadowOpacity: conversationHomeChrome.row.shadowOpacity,
   },
+  rowPinned: { backgroundColor: color.field },
   pressed: { backgroundColor: color.surfaceMuted },
   textCol: { flex: 1, minWidth: 0, gap: 2 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  personaMain: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 52,
+    gap: 1,
+  },
+  personaMainWithTags: {
+    minHeight: 52,
+  },
+  personaNameRow: {
+    height: 18,
+    minHeight: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+  },
   titleWithBadge: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 0 },
-  title: { flex: 1, minWidth: 0 },
-  time: { color: color.inkFaint, fontSize: 12 },
-  timeUnread: { color: color.accent, fontWeight: "700" },
+  title: { flex: 1, minWidth: 0, color: color.ink, fontSize: 14, lineHeight: 18, fontWeight: "500" },
+  mutedIcon: { width: 13, height: 13, alignItems: "center", justifyContent: "center" },
+  time: { flexShrink: 0, maxWidth: 64, color: color.inkFaint, fontSize: 11, lineHeight: 16, fontWeight: "400" },
+  timeUnread: { color: color.accent, fontWeight: "500" },
   subtitleRow: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: 20 },
-  sub: { flex: 1, minWidth: 0, marginTop: 1 },
+  personaPreviewRow: {
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  sub: {
+    flex: 1,
+    minWidth: 0,
+    maxHeight: 34,
+    color: color.inkMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "400",
+  },
+  subSingleLine: {
+    maxHeight: 17,
+  },
   subUnread: { color: color.ink },
   markers: { flexDirection: "row", alignItems: "center", gap: 4, maxWidth: 118 },
   marker: { color: color.inkFaint, fontSize: 11 },
-  badge: { backgroundColor: color.accent, minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },
-  badgeMuted: { backgroundColor: color.lineStrong },
-  badgeText: { color: color.accentText, fontSize: 12, fontWeight: "600" },
+  personaSide: {
+    alignSelf: "flex-end",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 4,
+    minWidth: 18,
+    maxWidth: 54,
+    minHeight: 18,
+    marginBottom: 1,
+  },
+  personaSideWithTags: {
+    alignSelf: "center",
+    minHeight: 17,
+    marginBottom: 0,
+  },
+  pinIcon: { width: 14, height: 14, alignItems: "center", justifyContent: "center" },
+  badge: { backgroundColor: color.accent, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
+  badgeMuted: { backgroundColor: "#B3B8C2" },
+  badgeText: { color: "#FFFFFF", fontSize: 10, lineHeight: 18, fontWeight: "500", fontVariant: ["tabular-nums"] },
+  tagRow: {
+    height: 17,
+    minHeight: 17,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    overflow: "hidden",
+  },
+  tagChip: {
+    maxWidth: 78,
+    height: 16,
+    paddingHorizontal: 5,
+    borderRadius: 5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tagText: {
+    maxWidth: 68,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "500",
+  },
   sheetBackdrop: {
     flex: 1,
     justifyContent: "flex-end",

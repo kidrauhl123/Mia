@@ -9,3 +9,7 @@ export type ContactsStackParamList = {
   ContactsHome: undefined;
   BotDetail: { botId: string; title: string };
 };
+
+export type MeStackParamList = {
+  MeHome: undefined;
+};
