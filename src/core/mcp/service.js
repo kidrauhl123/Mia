@@ -12,6 +12,9 @@ const {
   mcpSpecsForCodex,
   mcpSpecsForHermes
 } = require("./engine-sync.js");
+const { createCoreMcpConnectionTester } = require("./connection-test.js");
+const { createCoreMcpOAuthService } = require("./oauth-service.js");
+const { createCoreMcpOAuthTokenStore } = require("./oauth-token-store.js");
 const {
   MASK,
   coreMcpFingerprint,
@@ -23,6 +26,7 @@ const {
   sanitizeSecretText
 } = require("./records.js");
 const { createCoreMcpFileRegistry } = require("./file-registry.js");
+const { createMcpSdkClientManager } = require("../../main/mcp/mcp-sdk-client.js");
 
 const MASK_SENTINEL = MASK;
 const MCP_MARKETPLACE_TEMPLATES = [
@@ -109,14 +113,11 @@ function createCoreMcpService(deps = {}) {
   const runtimePaths = deps.runtimePaths;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
   const fsImpl = deps.fs || fs;
-  const manager = deps.manager;
   const bridge = deps.bridge || null;
   const nativeSync = typeof deps.nativeSync === "function"
     ? deps.nativeSync
     : async () => ({ success: true, statuses: {}, commands: [] });
-  const connectionTester = deps.connectionTester || null;
   const agentConfigService = deps.agentConfigService || null;
-  const oauthService = deps.oauthService || null;
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const idFactory = typeof deps.idFactory === "function" ? deps.idFactory : () => `mcp_${crypto.randomUUID()}`;
   const nodePath = typeof deps.nodePath === "function" ? deps.nodePath : () => "";
@@ -129,6 +130,29 @@ function createCoreMcpService(deps = {}) {
     : 5000;
 
   const registry = deps.registry || createCoreMcpFileRegistry({ runtimePaths, fs: fsImpl, now, idFactory });
+  const oauthTokenStore = deps.oauthTokenStore || createCoreMcpOAuthTokenStore({ runtimePaths, fs: fsImpl, now });
+  const oauthService = deps.oauthService || createCoreMcpOAuthService({
+    tokenStore: oauthTokenStore,
+    fetch: deps.fetch,
+    openExternal: deps.openExternal,
+    createServer: deps.createServer,
+    now
+  });
+  const connectionTester = deps.connectionTester || (!deps.manager ? createCoreMcpConnectionTester({
+    loadSdk: deps.loadSdk,
+    processEnvStrings: deps.processEnvStrings,
+    oauthService,
+    timeoutMs: deps.connectionTestTimeoutMs
+  }) : null);
+  const manager = deps.manager || createMcpSdkClientManager({
+    loadSdk: deps.loadSdk,
+    processEnvStrings: deps.processEnvStrings,
+    appendLog: deps.appendLog,
+    authorizeToolCall: deps.authorizeToolCall,
+    connectionTester,
+    oauthService,
+    connectionTestTimeoutMs: deps.connectionTestTimeoutMs
+  });
 
   let bridgeInfo = null;
   let initializationPromise = null;

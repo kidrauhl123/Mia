@@ -121,3 +121,17 @@ test("new methods delegate to agent discovery oauth and manager manifest", async
   assert.equal((await service.oauth.checkStatus({ serverUrl: "https://example.com/mcp" })).data.authenticated, true);
   assert.deepEqual(calls, ["manifest"]);
 });
+
+test("default oauth service stores tokens outside registry and reports status", async (t) => {
+  const { service, runtime } = setup(t);
+
+  const before = await service.oauth.checkStatus({ serverUrl: "https://example.com/mcp" });
+  const logout = await service.oauth.logout({ serverUrl: "https://example.com/mcp" });
+
+  assert.equal(before.success, true);
+  assert.equal(before.data.authenticated, false);
+  assert.equal(before.data.accessToken, undefined);
+  assert.equal(logout.success, true);
+  assert.equal(logout.data.authenticated, false);
+  assert.equal(fs.existsSync(runtime.mcpServers), false);
+});

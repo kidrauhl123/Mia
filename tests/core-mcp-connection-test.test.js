@@ -207,6 +207,32 @@ test("testConnection resolves bearer token env var and OAuth headers", async () 
   });
 });
 
+test("testConnection uses OAuth Authorization header when no env fallback exists", async () => {
+  const calls = [];
+  const tester = createCoreMcpConnectionTester({
+    loadSdk: fakeLoadSdk(calls),
+    processEnvStrings: () => ({}),
+    oauthService: {
+      authorizationHeadersForServer: async (record) => ({
+        Authorization: `Bearer oauth-for-${record.transport.url}`
+      })
+    }
+  });
+
+  const result = await tester.testConnection({
+    name: "remote",
+    transport: {
+      type: "http",
+      url: "https://example.com/mcp"
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls[0][2].requestInit.headers, {
+    Authorization: "Bearer oauth-for-https://example.com/mcp"
+  });
+});
+
 test("SSE transports keep explicit headers and bearerTokenEnvVar fallback", async () => {
   const calls = [];
   const tester = createCoreMcpConnectionTester({

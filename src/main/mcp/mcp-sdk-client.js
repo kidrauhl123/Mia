@@ -51,10 +51,11 @@ function createMcpSdkClientManager(deps = {}) {
   const processEnvStrings = typeof deps.processEnvStrings === "function" ? deps.processEnvStrings : () => process.env;
   const appendLog = typeof deps.appendLog === "function" ? deps.appendLog : () => {};
   const authorizeToolCall = typeof deps.authorizeToolCall === "function" ? deps.authorizeToolCall : null;
+  const oauthService = deps.oauthService || null;
   const connectionTester = deps.connectionTester || createCoreMcpConnectionTester({
     loadSdk,
     processEnvStrings,
-    oauthService: deps.oauthService || null,
+    oauthService,
     timeoutMs: deps.connectionTestTimeoutMs || 15000
   });
 
@@ -95,6 +96,9 @@ function createMcpSdkClientManager(deps = {}) {
 
     const url = new URL(transport.url);
     const headers = { ...(transport.headers || {}) };
+    if (oauthService && typeof oauthService.authorizationHeadersForServer === "function") {
+      Object.assign(headers, await oauthService.authorizationHeadersForServer(record));
+    }
     const bearerTokenEnvVar = String(transport.bearerTokenEnvVar || "").trim();
     const bearerToken = bearerTokenEnvVar ? String(env[bearerTokenEnvVar] || "").trim() : "";
     if (bearerToken && !hasAuthorizationHeader(headers)) {
