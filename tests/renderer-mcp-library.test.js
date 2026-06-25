@@ -363,30 +363,45 @@ test("ability library exposes MCP service mode and loads MCP renderer script", (
   assert.match(skillLibrary, /window\.miaMcpLibrary\.renderMcpLibrary/);
   assert.match(html, /styles\/mcp\.css/);
   assert.match(html, /mcp\/mcp-library\.js/);
-  assert.match(mcpCss, /\.mcp-action-strip-primary\s*\{[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(mcpCss, /\.skill-chip-row\.mcp-toolbar-row\s*\{[\s\S]*background:\s*transparent/);
+  assert.match(mcpCss, /\.mcp-connection-card\s*\{/);
+  assert.match(mcpCss, /\.mcp-connect-status-connected\s*\{/);
   assert.match(mcpCss, /\.mcp-action-button\s*\{[\s\S]*font-size:\s*12\.5px;[\s\S]*white-space:\s*nowrap/);
-  assert.match(mcpCss, /\.mcp-setup-guide code\s*\{[\s\S]*max-width:\s*100%;[\s\S]*overflow-x:\s*auto/);
 });
 
-test("mcp renderer includes diagnostics oauth and discovery actions", () => {
+test("mcp renderer includes flat connection oauth and custom actions", () => {
   const src = read("src/renderer/mcp/mcp-library.js");
-  assert.match(src, /getAgentConfigs/);
-  assert.match(src, /importAgentConfig/);
+  assert.match(src, /connectMcpServer/);
+  assert.match(src, /disconnectMcpServer/);
   assert.match(src, /oauth\.login/);
   assert.match(src, /oauth\.logout/);
-  assert.match(src, /data-mcp-action="oauth-login"/);
-  assert.match(src, /data-mcp-action="oauth-logout"/);
-  assert.match(src, /data-mcp-action="import-agent-config"/);
-  assert.match(src, /lastTestStatus|diagnostics|lastError/);
+  assert.match(src, /data-mcp-toolbar-action="create"/);
+  assert.match(src, /connect-server/);
+  assert.match(src, /disconnect-server/);
+  assert.match(src, /oauth-login/);
+  assert.doesNotMatch(src, /data-mcp-tab=/);
 });
 
-test("mcp-library renders installed, marketplace, and custom tabs", () => {
+test("mcp-library renders one flat connection list without category capsules", () => {
   const state = {
     skillFilter: "",
     mcp: {
       activeTab: "installed",
-      servers: [{ id: "mcp_xhs", name: "小红书 MCP", enabled: true, status: "connected", transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }, tools: [{ name: "search_notes" }], sync: {} }],
-      templates: [{ id: "xiaohongshu", name: "小红书 MCP", description: "本地 HTTP", transport: { type: "http" } }],
+      servers: [{
+        id: "mcp_xhs",
+        name: "小红书 MCP",
+        nativeName: "xiaohongshu",
+        registryId: "xiaohongshu",
+        enabled: true,
+        status: "connected",
+        transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
+        tools: [{ name: "search_notes" }],
+        sync: {}
+      }],
+      templates: [
+        { id: "xiaohongshu", name: "小红书 MCP", description: "本地 HTTP", transport: { type: "http" } },
+        { id: "github", name: "GitHub MCP", description: "读取仓库", transport: { type: "stdio" } }
+      ],
       loaded: true,
       loadAttempted: true,
       loading: false,
@@ -399,25 +414,23 @@ test("mcp-library renders installed, marketplace, and custom tabs", () => {
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
 
-  assert.match(harness.els.skillCardGrid.innerHTML, /小红书 MCP/);
-  assert.match(harness.els.skillCardGrid.innerHTML, /mcp-server-actions/);
-  assert.match(harness.els.skillCardGrid.innerHTML, /mcp-action-strip-primary/);
-  assert.match(harness.els.skillCardGrid.innerHTML, /mcp-action-danger/);
-  assert.match(harness.els.skillCardGrid.innerHTML, />检测连接</);
-  assert.match(harness.els.skillCardGrid.innerHTML, />配置</);
-  assert.match(harness.els.skillCardGrid.innerHTML, />删除</);
-  assert.match(harness.els.skillCardGrid.innerHTML, /检测只验证配置可用，不代表实际运行时状态/);
-  assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, />同步</);
-  assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, />停用</);
-  assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, />启用</);
-  assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, />禁用</);
-  assert.match(harness.els.skillChipRow.innerHTML, /已安装/);
-  assert.match(harness.els.skillChipRow.innerHTML, /市场/);
+  const html = harness.els.skillCardGrid.innerHTML;
+  assert.match(html, /小红书 MCP/);
+  assert.match(html, /GitHub MCP/);
+  assert.match(html, /已连接/);
+  assert.match(html, /未连接/);
+  assert.match(html, /data-mcp-action="disconnect-server"/);
+  assert.match(html, /data-mcp-action="connect-template"/);
+  assert.doesNotMatch(html, /mcp-server-actions|mcp-action-strip-primary|mcp-setup-guide|mcp-advanced-diagnostics/);
+  assert.doesNotMatch(html, /检测连接|检测只验证|连接地址|0 个工具|1 个工具|模板|安装/);
+  assert.doesNotMatch(harness.els.skillChipRow.innerHTML, /已安装/);
+  assert.doesNotMatch(harness.els.skillChipRow.innerHTML, /市场/);
   assert.match(harness.els.skillChipRow.innerHTML, /自定义/);
+  assert.match(harness.els.skillChipRow.innerHTML, /data-mcp-toolbar-action="create"/);
   assert.equal(harness.getLayoutCalls(), 1);
 });
 
-test("managed installed xiaohongshu card exposes app actions instead of setup commands", async () => {
+test("managed installed xiaohongshu card exposes a single connect action", async () => {
   const actions = [];
   const state = {
     skillFilter: "",
@@ -463,17 +476,108 @@ test("managed installed xiaohongshu card exposes app actions instead of setup co
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
 
   const html = harness.els.skillCardGrid.innerHTML;
-  const defaultSurfaceHtml = html.replace(/<details class="mcp-advanced-diagnostics">[\s\S]*?<\/details>/, "");
-
-  assert.match(html, /检测并启用/);
-  assert.doesNotMatch(defaultSurfaceHtml, /go run/);
-  assert.match(html, /<details class="mcp-advanced-diagnostics">[\s\S]*<code>go run cmd\/login\/main\.go<\/code>[\s\S]*<code>go run \.<\/code>/);
+  assert.match(html, /小红书 MCP/);
+  assert.match(html, /data-mcp-action="connect-server"/);
+  assert.match(html, />连接</);
+  assert.doesNotMatch(html, /检测并启用|go run|mcp-action-strip-primary|mcp-managed-actions|mcp-advanced-diagnostics|连接地址|13 个工具/);
   assert.equal(harness.els.skillCardGrid.querySelector('[data-mcp-action="sync"]'), null);
   assert.equal(harness.els.skillCardGrid.querySelector('[data-mcp-action="toggle"]'), null);
-  harness.els.skillCardGrid.querySelector('[data-mcp-managed-action="test"]').click();
+  assert.equal(harness.els.skillCardGrid.querySelector('[data-mcp-managed-action="test"]'), null);
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-server"]').click();
   await flushAsync();
 
   assert.deepEqual(actions, [["mcp_xhs", "test"]]);
+});
+
+test("managed error cards keep verbose command failures out of the default surface", () => {
+  const verboseError = "Command failed:\ngit clone https://github.com/xpzouying/xiaohongshu-mcp /Users/jung/Library/Application Support/Mia/runtime/engine-home/managed-mcp/xiaohongshu-mcp\nfatal: destination path '/Users/jung/Library/Application Support/Mia/runtime/engine-home/managed-mcp/xiaohongshu-mcp' already exists and is not an empty directory.";
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "mcp_xhs",
+        name: "小红书 MCP",
+        nativeName: "xiaohongshu",
+        enabled: false,
+        status: "disconnected",
+        lastError: verboseError,
+        diagnostics: { code: "MANAGED_ACTION_FAILED", message: verboseError },
+        managedRuntime: { connectorId: "xiaohongshu", state: "error", lastAction: "install", expectedToolCount: 13 },
+        connectionWizard: {
+          state: "managed_error",
+          nextAction: "install",
+          message: verboseError,
+          actions: [{ id: "install", label: "重新安装" }]
+        },
+        homepage: "https://github.com/xpzouying/xiaohongshu-mcp",
+        transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
+        tools: [],
+        sync: {}
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({ state });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+
+  const html = harness.els.skillCardGrid.innerHTML;
+  assert.match(html, /连接失败/);
+  assert.match(html, /data-mcp-action="connect-server"/);
+  assert.doesNotMatch(html, /MANAGED_ACTION_FAILED|Command failed|git clone|destination path|Application Support|127\.0\.0\.1:18060\/mcp|xpzouying\/xiaohongshu-mcp|检测只验证配置可用|高级诊断/);
+});
+
+test("managed action failure alerts are concise", async () => {
+  const verboseError = "Command failed:\ngit clone https://github.com/xpzouying/xiaohongshu-mcp /Users/jung/Library/Application Support/Mia/runtime/engine-home/managed-mcp/xiaohongshu-mcp\nfatal: destination path already exists and is not an empty directory.";
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "mcp_xhs",
+        name: "小红书 MCP",
+        nativeName: "xiaohongshu",
+        enabled: false,
+        status: "disconnected",
+        managedRuntime: { connectorId: "xiaohongshu", state: "not_installed", expectedToolCount: 13 },
+        connectionWizard: {
+          state: "needs_managed_action",
+          nextAction: "install",
+          message: "需要安装小红书 MCP。",
+          actions: [{ id: "install", label: "安装" }]
+        },
+        transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
+        tools: [],
+        sync: {}
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      runManagedAction: async () => ({ success: false, error: verboseError })
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-server"]').click();
+  await flushAsync();
+
+  assert.deepEqual(harness.alerts, ["安装失败，请重试。"]);
 });
 
 test("installed card omits legacy setupHint self-start guidance from default surface", () => {
@@ -551,13 +655,12 @@ test("installed native built-ins hide generic edit while custom records keep it"
   const editButtons = harness.els.skillCardGrid.querySelectorAll('[data-mcp-action="edit"]');
   const builtInChunk = html.match(/data-mcp-id="mcp_github"[\s\S]*?<\/article>/)?.[0] || "";
   const customChunk = html.match(/data-mcp-id="mcp_custom"[\s\S]*?<\/article>/)?.[0] || "";
-  const builtInDefaultSurface = builtInChunk.replace(/<details class="mcp-advanced-diagnostics">[\s\S]*?<\/details>/, "");
 
   assert.equal(editButtons.length, 1);
   assert.equal(editButtons[0].dataset.mcpId, "mcp_custom");
-  assert.doesNotMatch(builtInDefaultSurface, /@modelcontextprotocol\/server-github/);
-  assert.match(builtInChunk, /<details class="mcp-advanced-diagnostics">[\s\S]*@modelcontextprotocol\/server-github/);
+  assert.doesNotMatch(builtInChunk, /@modelcontextprotocol\/server-github|mcp-advanced-diagnostics|data-mcp-action="edit"/);
   assert.match(customChunk, /data-mcp-action="edit"/);
+  assert.match(customChunk, /data-mcp-action="delete"/);
 });
 
 test("mcp-library settles empty successful responses into stable empty states", async () => {
@@ -583,29 +686,29 @@ test("mcp-library settles empty successful responses into stable empty states", 
 
   assert.equal(harness.getListCalls(), 1);
   assert.equal(harness.getMarketplaceCalls(), 1);
-  assert.equal(harness.getAgentConfigCalls(), 1);
+  assert.equal(harness.getAgentConfigCalls(), 0);
   assert.equal(state.mcp.loading, false);
   assert.equal(state.mcp.loaded, true);
   assert.equal(state.mcp.agentConfigsLoaded, true);
   assert.equal(state.mcp.loadAttempted, true);
-  assert.match(harness.els.skillCardGrid.innerHTML, /暂无已安装 MCP 服务/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /暂无可连接 MCP 服务/);
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
   assert.equal(harness.getListCalls(), 1);
   assert.equal(harness.getMarketplaceCalls(), 1);
-  assert.equal(harness.getAgentConfigCalls(), 1);
-  assert.match(harness.els.skillCardGrid.innerHTML, /暂无已安装 MCP 服务/);
+  assert.equal(harness.getAgentConfigCalls(), 0);
+  assert.match(harness.els.skillCardGrid.innerHTML, /暂无可连接 MCP 服务/);
 
   state.mcp.activeTab = "marketplace";
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
   assert.equal(harness.getListCalls(), 1);
   assert.equal(harness.getMarketplaceCalls(), 1);
-  assert.equal(harness.getAgentConfigCalls(), 1);
-  assert.match(harness.els.skillCardGrid.innerHTML, /暂无可用模板/);
+  assert.equal(harness.getAgentConfigCalls(), 0);
+  assert.match(harness.els.skillCardGrid.innerHTML, /暂无可连接 MCP 服务/);
   assert.ok(harness.getLayoutCalls() >= 3);
 });
 
-test("installed cards render diagnostics and oauth actions", () => {
+test("auth-required cards render login without diagnostics", () => {
   const state = {
     skillFilter: "",
     mcp: {
@@ -647,18 +750,27 @@ test("installed cards render diagnostics and oauth actions", () => {
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
 
-  assert.match(harness.els.skillCardGrid.innerHTML, /mcp-diagnostic/);
-  assert.match(harness.els.skillCardGrid.innerHTML, /AUTH_REQUIRED · Sign in required/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /需要登录/);
   assert.match(harness.els.skillCardGrid.innerHTML, /data-mcp-action="oauth-login"/);
-  assert.match(harness.els.skillCardGrid.innerHTML, /data-mcp-action="oauth-logout"/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /data-mcp-action="disconnect-server"/);
+  assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, /mcp-diagnostic|AUTH_REQUIRED|Sign in required|OAUTH_REQUIRED|Open login|data-mcp-action="oauth-logout"/);
 });
 
-test("custom tab renders agent config discovery before JSON import and blocks skipped rows", () => {
+test("custom entry is a single toolbar button instead of a rendered category", () => {
   const state = {
     skillFilter: "",
     mcp: {
       activeTab: "custom",
-      servers: [],
+      servers: [{
+        id: "custom",
+        name: "Custom MCP",
+        managementMode: "custom",
+        enabled: false,
+        status: "disconnected",
+        transport: { type: "stdio", command: "node", args: ["server.js"], env: {} },
+        tools: [],
+        sync: {}
+      }],
       templates: [],
       agentConfigs: [{
         source: "Claude",
@@ -687,14 +799,12 @@ test("custom tab renders agent config discovery before JSON import and blocks sk
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
 
   const html = harness.els.skillCardGrid.innerHTML;
-  assert.ok(html.indexOf("mcp-discovery") >= 0);
-  assert.ok(html.indexOf("mcp-discovery") < html.indexOf('data-mcp-action="import"'));
-  assert.match(html, /data-mcp-action="import-agent-config" data-mcp-source="Claude" data-mcp-name="xhs"/);
-  assert.match(html, /data-mcp-name="existing"[\s\S]*disabled/);
-  assert.match(html, /已安装/);
+  assert.match(html, /Custom MCP/);
+  assert.match(harness.els.skillChipRow.innerHTML, /data-mcp-toolbar-action="create"/);
+  assert.doesNotMatch(html, /mcp-discovery|data-mcp-action="import"|data-mcp-action="import-agent-config"|新建服务|导入 JSON|同步状态/);
 });
 
-test("oauth and agent config import actions call preload APIs and reload", async () => {
+test("oauth login action calls preload API and reloads", async () => {
   const apiCalls = [];
   const state = {
     skillFilter: "",
@@ -710,20 +820,16 @@ test("oauth and agent config import actions call preload APIs and reload", async
         tools: [],
         sync: {}
       }, {
-        id: "authed",
-        name: "Authed MCP",
+        id: "plain",
+        name: "Plain MCP",
         enabled: true,
         status: "connected",
-        oauth: { authenticated: true },
-        transport: { type: "http", url: "https://example.com/authed" },
+        transport: { type: "http", url: "https://example.com/plain" },
         tools: [],
         sync: {}
       }],
       templates: [],
-      agentConfigs: [{
-        source: "Claude",
-        servers: [{ name: "xhs", importable: true, transport: { type: "stdio" } }]
-      }],
+      agentConfigs: [],
       loaded: true,
       loadAttempted: true,
       loading: false,
@@ -745,10 +851,6 @@ test("oauth and agent config import actions call preload APIs and reload", async
           apiCalls.push(["oauth.logout", JSON.parse(JSON.stringify(payload))]);
           return { success: true };
         }
-      },
-      importAgentConfig: async (payload) => {
-        apiCalls.push(["importAgentConfig", JSON.parse(JSON.stringify(payload))]);
-        return { success: true };
       }
     }
   });
@@ -756,32 +858,32 @@ test("oauth and agent config import actions call preload APIs and reload", async
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
   harness.els.skillCardGrid.querySelector('[data-mcp-action="oauth-login"]').click();
   await flushAsync();
-  harness.els.skillCardGrid.querySelector('[data-mcp-action="oauth-logout"]').click();
-  await flushAsync();
-  state.mcp.activeTab = "custom";
-  harness.context.window.miaMcpLibrary.renderMcpLibrary();
-  harness.els.skillCardGrid.querySelector('[data-mcp-action="import-agent-config"]').click();
-  await flushAsync();
 
   assert.deepEqual(apiCalls, [
-    ["oauth.login", { serverId: "auth", serverUrl: "https://example.com/mcp" }],
-    ["oauth.logout", { serverId: "authed", serverUrl: "https://example.com/authed" }],
-    ["importAgentConfig", { sourceAgent: "Claude", serverName: "xhs" }]
+    ["oauth.login", { serverId: "auth", serverUrl: "https://example.com/mcp" }]
   ]);
-  assert.equal(harness.getListCalls(), 3);
-  assert.equal(harness.getMarketplaceCalls(), 3);
-  assert.equal(harness.getAgentConfigCalls(), 3);
+  assert.equal(harness.getListCalls(), 1);
+  assert.equal(harness.getMarketplaceCalls(), 1);
+  assert.equal(harness.getAgentConfigCalls(), 0);
 });
 
-test("mcp-library keeps the custom tab stable with zero filtered records", () => {
+test("mcp-library keeps the flat list stable with zero filtered records", () => {
   const state = {
     skillFilter: "missing",
     mcp: {
       activeTab: "custom",
-      servers: [],
+      servers: [{
+        id: "xhs",
+        name: "小红书 MCP",
+        enabled: true,
+        status: "connected",
+        transport: { type: "http" },
+        tools: [],
+        sync: {}
+      }],
       templates: [],
-      loaded: false,
-      loadAttempted: false,
+      loaded: true,
+      loadAttempted: true,
       loading: false,
       syncing: false,
       error: "",
@@ -793,12 +895,12 @@ test("mcp-library keeps the custom tab stable with zero filtered records", () =>
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
 
-  assert.match(harness.els.skillCardGrid.innerHTML, /没有匹配的入口/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /没有匹配的 MCP 服务/);
   assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, /MCP 服务暂不可用/);
   assert.equal(harness.getLayoutCalls(), 1);
 });
 
-test("installed-card actions align with AION-style availability checks", async () => {
+test("connection card actions connect and disconnect without delete prompts", async () => {
   const apiCalls = [];
   const state = {
     skillFilter: "",
@@ -807,10 +909,22 @@ test("installed-card actions align with AION-style availability checks", async (
       servers: [{
         id: "xhs",
         name: "小红书 MCP",
+        registryId: "xiaohongshu",
+        nativeName: "xiaohongshu",
         enabled: true,
         status: "connected",
         transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
         tools: [{ name: "search_notes" }],
+        sync: {}
+      }, {
+        id: "github",
+        name: "GitHub MCP",
+        registryId: "github",
+        nativeName: "github",
+        enabled: false,
+        status: "disconnected",
+        transport: { type: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"], env: {} },
+        tools: [],
         sync: {}
       }],
       templates: [],
@@ -828,10 +942,10 @@ test("installed-card actions align with AION-style availability checks", async (
     mcpOverrides: {
       test: async (id) => {
         apiCalls.push(["test", id]);
-        return { success: true };
+        return { success: true, data: { status: "connected" } };
       },
-      delete: async (id) => {
-        apiCalls.push(["delete", id]);
+      setEnabled: async (id, enabled) => {
+        apiCalls.push(["setEnabled", id, enabled]);
         return { success: true };
       }
     }
@@ -841,18 +955,24 @@ test("installed-card actions align with AION-style availability checks", async (
 
   assert.equal(harness.els.skillCardGrid.querySelector('[data-mcp-action="sync"]'), null);
   assert.equal(harness.els.skillCardGrid.querySelector('[data-mcp-action="toggle"]'), null);
-  harness.els.skillCardGrid.querySelector('[data-mcp-action="test"]').click();
+  assert.equal(harness.els.skillCardGrid.querySelector('[data-mcp-action="delete"]'), null);
+  harness.els.skillCardGrid.querySelectorAll('[data-mcp-action="connect-server"]')
+    .find((button) => button.dataset.mcpId === "github")
+    .click();
   await flushAsync();
-  harness.els.skillCardGrid.querySelector('[data-mcp-action="delete"]').click();
+  harness.els.skillCardGrid.querySelectorAll('[data-mcp-action="disconnect-server"]')
+    .find((button) => button.dataset.mcpId === "xhs")
+    .click();
   await flushAsync();
 
   assert.deepEqual(apiCalls, [
-    ["test", "xhs"],
-    ["delete", "xhs"]
+    ["test", "github"],
+    ["setEnabled", "github", true],
+    ["setEnabled", "xhs", false]
   ]);
   assert.equal(harness.getListCalls(), 2);
   assert.equal(harness.getMarketplaceCalls(), 2);
-  assert.deepEqual(harness.confirms, ["删除这个 MCP 服务？"]);
+  assert.deepEqual(harness.confirms, []);
 });
 
 test("create form submits stdio payloads with parsed args and env", async () => {
@@ -883,7 +1003,7 @@ test("create form submits stdio payloads with parsed args and env", async () => 
   });
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
-  harness.els.skillCardGrid.querySelector('[data-mcp-action="create"]').click();
+  harness.els.skillChipRow.querySelector('[data-mcp-toolbar-action="create"]').click();
 
   const form = harness.document.body.querySelector("[data-mcp-form]");
   form.querySelector('input[name="name"]').value = "XHS MCP";
@@ -908,7 +1028,7 @@ test("create form submits stdio payloads with parsed args and env", async () => 
   }]);
   assert.equal(harness.getListCalls(), 1);
   assert.equal(harness.getMarketplaceCalls(), 1);
-  assert.equal(state.mcp.activeTab, "installed");
+  assert.equal(state.mcp.activeTab, "custom");
   assert.equal(harness.document.body.querySelector("[data-mcp-form]"), null);
 });
 
@@ -1036,11 +1156,10 @@ test("marketplace template cards open a no-command connection wizard", async () 
   assert.deepEqual(installCalls, [{ id: "github", values: { GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_secret" } }]);
   assert.equal(harness.getListCalls(), 1);
   assert.equal(harness.getMarketplaceCalls(), 1);
-  assert.equal(state.mcp.activeTab, "installed");
+  assert.equal(state.mcp.activeTab, "marketplace");
 });
 
-test("import flow submits JSON text and reloads on success", async () => {
-  const importCalls = [];
+test("flat MCP page does not expose JSON import as a category card", () => {
   const state = {
     skillFilter: "",
     mcp: {
@@ -1056,79 +1175,57 @@ test("import flow submits JSON text and reloads on success", async () => {
       templateError: ""
     }
   };
+  const harness = createMcpHarness({ state });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+
+  assert.equal(harness.els.skillCardGrid.querySelector('[data-mcp-action="import"]'), null);
+  assert.equal(harness.document.body.querySelector("[data-mcp-import-form]"), null);
+  assert.match(harness.els.skillChipRow.innerHTML, /自定义 MCP/);
+});
+
+test("template without required inputs connects directly on the page", async () => {
+  const installCalls = [];
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "marketplace",
+      servers: [],
+      templates: [{
+        id: "context7",
+        name: "Context7 MCP",
+        managementMode: "native",
+        description: "文档检索",
+        transport: { type: "stdio" },
+        requiredInputs: []
+      }],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
   const harness = createMcpHarness({
     state,
     mcpOverrides: {
-      importJson: async (text) => {
-        importCalls.push(text);
+      installTemplate: async (id, values) => {
+        installCalls.push([id, JSON.parse(JSON.stringify(values))]);
         return { success: true };
       }
     }
   });
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
-  harness.els.skillCardGrid.querySelector('[data-mcp-action="import"]').click();
-
-  const form = harness.document.body.querySelector("[data-mcp-import-form]");
-  const textarea = form.querySelector('textarea[name="json"]');
-  textarea.value = '{"mcpServers":{"xhs":{"command":"npx","args":["xhs"]}}}';
-  form.dispatch("submit");
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-template"]').click();
   await flushAsync();
 
-  assert.deepEqual(importCalls, ['{"mcpServers":{"xhs":{"command":"npx","args":["xhs"]}}}']);
+  assert.deepEqual(installCalls, [["context7", {}]]);
   assert.equal(harness.getListCalls(), 1);
   assert.equal(harness.getMarketplaceCalls(), 1);
-  assert.equal(state.mcp.activeTab, "installed");
-  assert.equal(harness.document.body.querySelector("[data-mcp-import-form]"), null);
-});
-
-test("import flow asks before replacing duplicate MCP names", async () => {
-  const importCalls = [];
-  const state = {
-    skillFilter: "",
-    mcp: {
-      activeTab: "custom",
-      servers: [],
-      templates: [],
-      loaded: true,
-      loadAttempted: true,
-      loading: false,
-      syncing: false,
-      error: "",
-      serverError: "",
-      templateError: ""
-    }
-  };
-  const harness = createMcpHarness({
-    state,
-    mcpOverrides: {
-      importJson: async (text, options) => {
-        importCalls.push([text, options || null]);
-        if (!options?.replaceDuplicates) {
-          return { success: true, data: { requiresConfirmation: true, duplicates: ["xhs"] } };
-        }
-        return { success: true, data: { imported: 1, replaced: 1 } };
-      }
-    }
-  });
-
-  harness.context.window.miaMcpLibrary.renderMcpLibrary();
-  harness.els.skillCardGrid.querySelector('[data-mcp-action="import"]').click();
-
-  const form = harness.document.body.querySelector("[data-mcp-import-form]");
-  form.querySelector('textarea[name="json"]').value = '{"mcpServers":{"xhs":{"command":"npx"}}}';
-  form.dispatch("submit");
-  await flushAsync();
-
-  assert.equal(importCalls.length, 2);
-  assert.equal(importCalls[0][0], '{"mcpServers":{"xhs":{"command":"npx"}}}');
-  assert.equal(importCalls[0][1], null);
-  assert.equal(importCalls[1][0], '{"mcpServers":{"xhs":{"command":"npx"}}}');
-  assert.equal(importCalls[1][1]?.replaceDuplicates, true);
-  assert.deepEqual(harness.confirms, ["已存在同名 MCP 服务：xhs。替换后会先清理旧服务的 Agent 同步状态，继续？"]);
-  assert.equal(harness.getListCalls(), 1);
-  assert.equal(harness.getMarketplaceCalls(), 1);
-  assert.equal(state.mcp.activeTab, "installed");
+  assert.equal(harness.document.body.querySelector("[data-mcp-template-form]"), null);
 });
 
 test("failed save keeps the form dialog open with user input intact", async () => {
@@ -1155,7 +1252,7 @@ test("failed save keeps the form dialog open with user input intact", async () =
   });
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
-  harness.els.skillCardGrid.querySelector('[data-mcp-action="create"]').click();
+  harness.els.skillChipRow.querySelector('[data-mcp-toolbar-action="create"]').click();
 
   const form = harness.document.body.querySelector("[data-mcp-form]");
   const nameInput = form.querySelector('input[name="name"]');
@@ -1171,13 +1268,21 @@ test("failed save keeps the form dialog open with user input intact", async () =
   assert.equal(harness.getMarketplaceCalls(), 0);
 });
 
-test("failed import keeps the import dialog and JSON text available", async () => {
+test("failed direct template connection stays on the flat page with a short alert", async () => {
+  const verboseError = "Command failed:\nnpx -y broken-mcp\nfatal: long local command output";
   const state = {
     skillFilter: "",
     mcp: {
-      activeTab: "custom",
+      activeTab: "marketplace",
       servers: [],
-      templates: [],
+      templates: [{
+        id: "broken",
+        name: "Broken MCP",
+        description: "Broken",
+        managementMode: "native",
+        transport: { type: "stdio" },
+        requiredInputs: []
+      }],
       loaded: true,
       loadAttempted: true,
       loading: false,
@@ -1190,23 +1295,60 @@ test("failed import keeps the import dialog and JSON text available", async () =
   const harness = createMcpHarness({
     state,
     mcpOverrides: {
-      importJson: async () => ({ success: false, error: "bad json" })
+      installTemplate: async () => ({ success: false, error: verboseError })
     }
   });
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
-  harness.els.skillCardGrid.querySelector('[data-mcp-action="import"]').click();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-template"]').click();
+  await flushAsync();
 
-  const form = harness.document.body.querySelector("[data-mcp-import-form]");
-  const textarea = form.querySelector('textarea[name="json"]');
-  textarea.value = '{"mcpServers":{"broken":}}';
+  assert.deepEqual(harness.alerts, ["连接失败，请重试。"]);
+  assert.equal(harness.document.body.querySelector("[data-mcp-import-form]"), null);
+  assert.match(harness.els.skillCardGrid.innerHTML, /Broken MCP/);
+  assert.equal(harness.getListCalls(), 0);
+  assert.equal(harness.getMarketplaceCalls(), 0);
+});
+
+test("failed template wizard connection keeps verbose errors out of alerts", async () => {
+  const verboseError = "Command failed:\ngit clone https://github.com/example/mcp /Users/jung/Library/Application Support/Mia/runtime/mcp\nfatal: destination path already exists";
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "marketplace",
+      servers: [],
+      templates: [{
+        id: "needs-token",
+        name: "Needs Token MCP",
+        description: "Needs a token",
+        managementMode: "native",
+        transport: { type: "stdio" },
+        requiredInputs: [{ key: "TOKEN", label: "Token", secret: true, required: true }]
+      }],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      installTemplate: async () => ({ success: false, error: verboseError })
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-template"]').click();
+  const form = harness.document.body.querySelector("[data-mcp-template-form]");
+  form.querySelector('input[name="TOKEN"]').value = "secret";
   form.dispatch("submit");
   await flushAsync();
 
-  assert.deepEqual(harness.alerts, ["导入失败：bad json"]);
-  const openForm = harness.document.body.querySelector("[data-mcp-import-form]");
-  assert.ok(openForm);
-  assert.equal(openForm.querySelector('textarea[name="json"]').value, '{"mcpServers":{"broken":}}');
-  assert.equal(harness.getListCalls(), 0);
-  assert.equal(harness.getMarketplaceCalls(), 0);
+  assert.deepEqual(harness.alerts, ["连接失败，请重试。"]);
+  assert.ok(harness.document.body.querySelector("[data-mcp-template-form]"));
+  assert.doesNotMatch(harness.alerts.join("\n"), /Command failed|git clone|Application Support|destination path/);
 });

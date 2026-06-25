@@ -37,12 +37,11 @@
         formOpen: false,
         formMode: "create",
         formDraft: null,
-        importOpen: false,
-        importText: "",
         templateWizardOpen: false,
         templateWizardBusy: false,
         activeTemplateId: "",
-        managedBusyKey: ""
+        managedBusyKey: "",
+        connectBusyId: ""
       };
     }
     if (typeof state.mcp.loaded !== "boolean") state.mcp.loaded = false;
@@ -54,24 +53,17 @@
     if (typeof state.mcp.agentConfigsError !== "string") state.mcp.agentConfigsError = "";
     if (typeof state.mcp.oauthBusyId !== "string") state.mcp.oauthBusyId = "";
     if (typeof state.mcp.formOpen !== "boolean") state.mcp.formOpen = false;
-    if (typeof state.mcp.importOpen !== "boolean") state.mcp.importOpen = false;
     if (typeof state.mcp.formMode !== "string") state.mcp.formMode = "create";
-    if (typeof state.mcp.importText !== "string") state.mcp.importText = "";
     if (typeof state.mcp.templateWizardOpen !== "boolean") state.mcp.templateWizardOpen = false;
     if (typeof state.mcp.templateWizardBusy !== "boolean") state.mcp.templateWizardBusy = false;
     if (typeof state.mcp.activeTemplateId !== "string") state.mcp.activeTemplateId = "";
     if (typeof state.mcp.managedBusyKey !== "string") state.mcp.managedBusyKey = "";
+    if (typeof state.mcp.connectBusyId !== "string") state.mcp.connectBusyId = "";
     return state.mcp;
   }
 
   function syncAggregateError(mcp) {
-    mcp.error = String(mcp.serverError || mcp.templateError || mcp.agentConfigsError || "");
-  }
-
-  function setMcpTab(tab) {
-    const mcp = mcpState();
-    mcp.activeTab = tab === "marketplace" || tab === "custom" ? tab : "installed";
-    renderMcpLibrary();
+    mcp.error = String(mcp.serverError || mcp.templateError || "");
   }
 
   function activeFilterText() {
@@ -158,7 +150,6 @@
     activeDialog = null;
     const mcp = mcpState();
     mcp.formOpen = false;
-    mcp.importOpen = false;
     mcp.templateWizardOpen = false;
     mcp.templateWizardBusy = false;
     mcp.activeTemplateId = "";
@@ -209,18 +200,11 @@
     renderMcpLibrary();
     activeLoadPromise = (async () => {
       try {
-        const agentConfigsPromise = typeof window.mia.mcp.getAgentConfigs === "function"
-          ? window.mia.mcp.getAgentConfigs().catch((error) => ({
-            success: false,
-            error: error?.message || "MCP 外部配置加载失败"
-          }))
-          : Promise.resolve({ success: true, data: { sources: [] } });
-        const [listResult, marketResult, agentConfigsResult] = await Promise.all([
+        const [listResult, marketResult] = await Promise.all([
           window.mia.mcp.list(),
           typeof window.mia.mcp.fetchMarketplace === "function"
             ? window.mia.mcp.fetchMarketplace()
-            : Promise.resolve({ success: true, data: { templates: [] } }),
-          agentConfigsPromise
+            : Promise.resolve({ success: true, data: { templates: [] } })
         ]);
         if (listResult?.success) {
           mcp.servers = Array.isArray(listResult.data?.servers) ? listResult.data.servers : [];
@@ -236,13 +220,8 @@
           mcp.templates = [];
           mcp.templateError = String(marketResult?.error || "MCP 模板加载失败");
         }
-        if (agentConfigsResult?.success) {
-          mcp.agentConfigs = Array.isArray(agentConfigsResult.data?.sources) ? agentConfigsResult.data.sources : [];
-          mcp.agentConfigsError = "";
-        } else {
-          mcp.agentConfigs = [];
-          mcp.agentConfigsError = String(agentConfigsResult?.error || "MCP 外部配置加载失败");
-        }
+        mcp.agentConfigs = [];
+        mcp.agentConfigsError = "";
         mcp.agentConfigsLoaded = true;
         mcp.loaded = !mcp.serverError && !mcp.templateError;
       } catch (error) {
@@ -267,19 +246,15 @@
   }
 
   function renderMcpTabs() {
-    const mcp = mcpState();
-    const tabs = [
-      ["installed", "已安装", Array.isArray(mcp.servers) ? mcp.servers.length : 0],
-      ["marketplace", "市场", Array.isArray(mcp.templates) ? mcp.templates.length : 0],
-      ["custom", "自定义", ""]
-    ];
-    els.skillChipRow.innerHTML = tabs.map(([id, label, count]) => `
-      <button class="${mcp.activeTab === id ? "active" : ""}" type="button" data-mcp-tab="${id}">
-        ${escapeHtml(label)}${count === "" ? "" : ` <span>${count}</span>`}
-      </button>
-    `).join("");
-    els.skillChipRow.querySelectorAll("[data-mcp-tab]").forEach((button) => {
-      button.addEventListener("click", () => setMcpTab(button.dataset.mcpTab));
+    const row = els?.skillChipRow;
+    if (!row) return;
+    row.classList?.add?.("mcp-toolbar-row");
+    row.setAttribute?.("aria-label", "MCP 操作");
+    row.innerHTML = `
+      <button type="button" data-mcp-toolbar-action="create">自定义 MCP</button>
+    `;
+    row.querySelectorAll("[data-mcp-toolbar-action]").forEach((button) => {
+      button.addEventListener("click", () => handleMcpAction(button.dataset.mcpToolbarAction || "", ""));
     });
     syncMcpTabsIndicator();
   }
@@ -309,42 +284,6 @@
     else update();
   }
 
-  function transportLabel(type) {
-    const value = String(type || "").trim().toLowerCase();
-    if (value === "streamable_http") return "streamable HTTP";
-    if (value === "stdio") return "STDIO";
-    if (value === "sse") return "SSE";
-    if (value === "http") return "HTTP";
-    return value || "unknown";
-  }
-
-  function transportSummary(transport = {}) {
-    if (transport.type === "stdio") return [transport.command, ...(transport.args || [])].filter(Boolean).join(" ");
-    return transport.url || "";
-  }
-
-  function connectionStatusLabel(status) {
-    if (status === "connected") return "已连接";
-    if (status === "auth_required") return "需要认证";
-    if (status === "unsupported") return "不支持";
-    if (status === "disconnected") return "未连接";
-    return "状态未知";
-  }
-
-  function syncStatusLabel(entry = {}) {
-    const statuses = Object.values(entry.sync || {});
-    if (statuses.some((item) => String(item?.status || "") === "error")) return "同步异常";
-    if (statuses.some((item) => String(item?.status || "") === "unsupported")) return "部分不支持";
-    if (statuses.some((item) => String(item?.status || "") === "available")) return "待同步";
-    if (statuses.some((item) => String(item?.status || "") === "pending")) return "同步中";
-    if (statuses.some((item) => String(item?.status || "") === "synced")) return "已同步";
-    return "";
-  }
-
-  function chip(className, label) {
-    return `<span class="mcp-chip ${escapeHtml(className)}">${escapeHtml(label)}</span>`;
-  }
-
   function requiredInputHtml(field = {}) {
     const key = escapeHtml(field.key || "");
     const label = escapeHtml(field.label || field.key || "");
@@ -352,92 +291,29 @@
     return `<label>${label}<input name="${key}" type="${type}" autocomplete="off" ${field.required === false ? "" : "required"}></label>`;
   }
 
-  function advancedDiagnosticsHtml(item = {}) {
-    const commands = [];
-    const transport = item.transport || {};
-    if (transport.type === "stdio" && transport.command) {
-      commands.push([transport.command, ...(transport.args || [])].filter(Boolean).join(" "));
-    }
-    if (Array.isArray(item.setupCommands)) {
-      item.setupCommands.filter(Boolean).forEach((command) => commands.push(String(command)));
-    }
-    const details = [...new Set(commands.map((command) => String(command || "").trim()).filter(Boolean))];
-    if (!details.length) return "";
-    return `
-      <details class="mcp-advanced-diagnostics">
-        <summary>高级诊断</summary>
-        <p>包含 ${details.length} 条本地命令诊断，默认隐藏。</p>
-        ${details.map((command) => `<code>${escapeHtml(command)}</code>`).join("")}
-      </details>
-    `;
+  function managedActionLabel(action = "") {
+    const labels = {
+      install: "安装",
+      login: "登录",
+      start: "启动",
+      test: "检测",
+      connect: "连接"
+    };
+    return labels[String(action || "").trim()] || "操作";
   }
 
-  function renderServerSetupGuide(server = {}) {
-    const hideRawTransport = isInstalledBuiltIn(server) && server.transport?.type === "stdio";
-    const url = hideRawTransport ? "" : transportSummary(server.transport || {});
-    const expectedToolCount = Number(
-      server.expectedToolCount
-      || server.managedRuntime?.expectedToolCount
-      || 0
-    );
-    const message = String(server.connectionWizard?.message || "").trim();
-    const hasSetup = message || server.homepage || url || expectedToolCount > 0;
-    const isDisconnected = String(server.status || "") === "disconnected";
-    if (!hasSetup && !isDisconnected) return "";
-    const rows = [];
-    if (isDisconnected && !message) rows.push("<strong>服务尚未连接</strong>");
-    if (message) rows.push(`<strong>${escapeHtml(message)}</strong>`);
-    if (url) rows.push(`<span>连接地址 <code>${escapeHtml(url)}</code></span>`);
-    if (expectedToolCount > 0) rows.push(`<span>连接成功后应发现 ${expectedToolCount} 个工具</span>`);
-    if (server.homepage) rows.push(`<span>仓库 ${escapeHtml(server.homepage.replace(/^https?:\/\/github\.com\//, ""))}</span>`);
-    return `<div class="mcp-setup-guide">${rows.join("")}</div>`;
+  function isVerboseDiagnostic(value = "") {
+    const text = String(value || "").trim();
+    return text.length > 100
+      || /[\r\n]/.test(text)
+      || /\b(Command failed|fatal:|ENOENT|spawn|git clone|go run|npm |npx )\b/i.test(text)
+      || /\/Users\/|Application Support/i.test(text);
   }
 
-  function renderAvailabilityCheckHint() {
-    return `<div class="mcp-check-hint">检测只验证配置可用，不代表实际运行时状态。</div>`;
-  }
-
-  function diagnosticHtml(server = {}) {
-    const code = server.diagnostics?.code || server.lastTestCode || "";
-    const error = server.lastError || server.diagnostics?.message || "";
-    if (!code && !error && !server.lastTestStatus) return "";
-    const text = [code, error || server.lastTestStatus].filter(Boolean).join(" · ");
-    return text ? `<p class="mcp-diagnostic">${escapeHtml(text)}</p>` : "";
-  }
-
-  function oauthActionHtml(server = {}) {
-    if (server.lastTestStatus !== "auth_required" && !server.oauth?.authenticated) return "";
-    const mcp = mcpState();
-    const id = escapeHtml(server.id || "");
-    const isBusy = mcp.oauthBusyId === server.id;
-    const isAuthenticated = !!server.oauth?.authenticated;
-    const label = isBusy ? "处理中..." : (isAuthenticated ? "退出登录" : "登录");
-    const disabled = isBusy ? "disabled" : "";
-    if (isAuthenticated) {
-      return `<button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="oauth-logout" data-mcp-id="${id}" ${disabled}>${label}</button>`;
-    }
-    return `<button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="oauth-login" data-mcp-id="${id}" ${disabled}>${label}</button>`;
-  }
-
-  function managedActionHtml(server = {}) {
-    const actions = Array.isArray(server.connectionWizard?.actions) ? server.connectionWizard.actions : [];
-    const isManaged = server.managementMode === "managed"
-      || !!server.managedRuntime?.connectorId
-      || actions.length > 0;
-    if (!isManaged || !actions.length) return "";
-    const busyKey = mcpState().managedBusyKey;
-    return `
-      <div class="mcp-managed-actions">
-        ${server.connectionWizard?.message ? `<p>${escapeHtml(server.connectionWizard.message)}</p>` : ""}
-        <div class="mcp-action-strip">
-          ${actions.map((action) => {
-            const key = `${server.id}:${action.id}`;
-            const busy = busyKey === key;
-            return `<button class="mcp-action-button ${action.id === server.connectionWizard?.nextAction ? "mcp-action-primary" : "mcp-action-secondary"}" type="button" data-mcp-managed-action="${escapeHtml(action.id)}" data-mcp-id="${escapeHtml(server.id || "")}" ${busy ? "disabled" : ""}>${escapeHtml(busy ? "处理中..." : action.label || action.id)}</button>`;
-          }).join("")}
-        </div>
-      </div>
-    `;
+  function managedFailureMessage(action = "", detail = "") {
+    if (!String(detail || "").trim()) return `${managedActionLabel(action)}失败，请重试。`;
+    if (isVerboseDiagnostic(detail)) return `${managedActionLabel(action)}失败，请重试。`;
+    return String(detail || "").trim();
   }
 
   function isInstalledBuiltIn(server = {}) {
@@ -447,188 +323,186 @@
       || ["native", "managed"].includes(String(server.managementMode || ""));
   }
 
-  function renderServerCard(server) {
-    const syncLabel = syncStatusLabel(server);
-    const isBuiltIn = isInstalledBuiltIn(server);
-    const description = server.description || (isBuiltIn ? "Mia 管理的内置 MCP 服务" : transportSummary(server.transport)) || "未配置描述";
-    const id = escapeHtml(server.id || "");
-    const oauthAction = oauthActionHtml(server);
-    const managedActions = managedActionHtml(server);
-    const showGenericEdit = !isBuiltIn;
-    return `
-      <article class="skill-card mcp-card" data-mcp-id="${id}">
-        <div class="skill-card-head">
-          <div class="skill-card-titlerow">
-            <strong>${escapeHtml(server.name || server.id || "MCP 服务")}</strong>
-            ${server.enabled === false ? chip("mcp-chip-muted", "未加入新对话") : ""}
-          </div>
-          <p>${escapeHtml(description)}</p>
-          ${diagnosticHtml(server)}
-        </div>
-        <span class="skill-card-source">
-          <span class="mcp-inline-chips">
-            ${chip("mcp-chip-transport", transportLabel(server.transport?.type))}
-            ${chip(`mcp-chip-status mcp-status-${String(server.status || "unknown")}`, connectionStatusLabel(server.status))}
-            ${syncLabel ? chip("mcp-chip-sync", syncLabel) : ""}
-            ${chip("mcp-chip-tools", `${Number(server.tools?.length || 0)} 个工具`)}
-          </span>
-        </span>
-        ${renderServerSetupGuide(server)}
-        ${managedActions}
-        ${advancedDiagnosticsHtml(server)}
-        ${renderAvailabilityCheckHint()}
-        <div class="mcp-card-actions mcp-server-actions" aria-label="MCP 服务操作">
-          <div class="mcp-action-strip mcp-action-strip-primary">
-            ${managedActions ? "" : `<button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="test" data-mcp-id="${id}" title="检测 MCP 可用状态，不会启动外部服务">检测连接</button>`}
-          </div>
-          <div class="mcp-action-strip mcp-action-strip-secondary ${oauthAction ? "mcp-action-strip-auth" : ""}">
-            ${oauthAction}
-            ${showGenericEdit ? `<button class="mcp-action-button mcp-action-ghost" type="button" data-mcp-action="edit" data-mcp-id="${id}">配置</button>` : ""}
-            <button class="mcp-action-button mcp-action-danger" type="button" data-mcp-action="delete" data-mcp-id="${id}">删除</button>
-          </div>
-        </div>
-      </article>
-    `;
+  function normalizeMcpIdentity(value = "") {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^mcp[_-]/, "")
+      .replace(/\s*mcp$/i, "")
+      .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "");
   }
 
-  function renderTemplateCard(template) {
-    return `
-      <article class="skill-card mcp-card mcp-template-card" data-mcp-template-id="${escapeHtml(template.id || "")}">
-        <div class="skill-card-head">
-          <div class="skill-card-titlerow">
-            <strong>${escapeHtml(template.name || template.id || "MCP 模板")}</strong>
-          </div>
-          <p>${escapeHtml(template.description || "可安装的 MCP 模板")}</p>
-        </div>
-        <span class="skill-card-source">
-          <span class="mcp-inline-chips">
-            ${chip("mcp-chip-transport", transportLabel(template.transport?.type))}
-            ${template.category ? chip("mcp-chip-muted", template.category) : ""}
-            ${chip("mcp-chip-market", "模板")}
-          </span>
-        </span>
-        <div class="mcp-card-actions">
-          <button class="mcp-action-button mcp-action-primary" type="button" data-mcp-action="connect-template" data-mcp-template="${escapeHtml(template.id || "")}">连接</button>
-        </div>
-      </article>
-    `;
-  }
-
-  function customEntryActions() {
-    const mcp = mcpState();
+  function identityKeys(item = {}) {
     return [
-      {
-        id: "create",
-        title: "新建服务",
-        description: "录入 stdio、HTTP、SSE 或 streamable HTTP 服务。",
-        buttonLabel: "打开表单",
-        chips: [chip("mcp-chip-muted", "表单入口")]
-      },
-      {
-        id: "import",
-        title: "导入 JSON",
-        description: "载入现有 mcpServers 配置。",
-        buttonLabel: "导入 JSON",
-        chips: [chip("mcp-chip-muted", "JSON"), chip("mcp-chip-muted", "导入")]
-      },
-      {
-        id: "sync",
-        title: "同步状态",
-        description: "查看桥接与 Agent 同步结果。",
-        buttonLabel: mcp.syncing ? "同步中..." : "立即同步",
-        chips: [chip(mcp.syncing ? "mcp-chip-sync" : "mcp-chip-muted", mcp.syncing ? "同步中" : "待检查")]
-      }
-    ];
+      item.registryId,
+      item.nativeName,
+      item.managedRuntime?.connectorId,
+      item.id,
+      item.name
+    ]
+      .map(normalizeMcpIdentity)
+      .filter(Boolean);
   }
 
-  function renderCustomActionCard(action) {
-    return `
-      <article class="skill-card mcp-card mcp-action-card">
-        <div class="skill-card-head">
-          <div class="skill-card-titlerow">
-            <strong>${escapeHtml(action.title)}</strong>
-          </div>
-          <p>${escapeHtml(action.description)}</p>
-        </div>
-        <span class="skill-card-source">
-          <span class="mcp-inline-chips">${action.chips.join("")}</span>
-        </span>
-        <div class="mcp-card-actions">
-          <button class="mcp-action-button mcp-action-primary" type="button" data-mcp-action="${escapeHtml(action.id)}">${escapeHtml(action.buttonLabel)}</button>
-        </div>
-      </article>
-    `;
+  function findServerForTemplate(template = {}, servers = []) {
+    const templateKeys = new Set(identityKeys(template));
+    if (!templateKeys.size) return null;
+    return servers.find((server) => identityKeys(server).some((key) => templateKeys.has(key))) || null;
   }
 
-  function renderAgentConfigSources(mcp) {
-    const rows = (mcp.agentConfigs || []).flatMap((source) => (
-      (source.servers || []).map((server) => ({ source, server }))
-    ));
-    const statusHtml = mcp.agentConfigsError
-      ? `<p class="mcp-empty">${escapeHtml(mcp.agentConfigsError)}</p>`
-      : "";
-    if (!rows.length) {
-      return `
-        <section class="mcp-discovery" aria-label="外部 Agent MCP 配置">
-          <div class="mcp-discovery-head">
-            <strong>外部 Agent 配置</strong>
-            <span>${mcp.agentConfigsLoaded ? "已扫描" : "未扫描"}</span>
-          </div>
-          ${statusHtml || `<p class="mcp-empty">没有发现外部 Agent MCP 配置</p>`}
-        </section>
-      `;
-    }
-    return `
-      <section class="mcp-discovery" aria-label="外部 Agent MCP 配置">
-        <div class="mcp-discovery-head">
-          <strong>外部 Agent 配置</strong>
-          <span>${escapeHtml(`${rows.length} 项`)}</span>
-        </div>
-        ${statusHtml}
-        ${rows.map(({ source, server }) => {
-          const sourceName = String(source.source || source.name || "");
-          const serverName = String(server.name || server.id || "");
-          const importable = server.importable !== false;
-          return `
-            <article class="mcp-discovery-row">
-              <strong>${escapeHtml(sourceName)} / ${escapeHtml(serverName)}</strong>
-              <span>${escapeHtml(transportLabel(server.transport?.type))}</span>
-              <button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="import-agent-config" data-mcp-source="${escapeHtml(sourceName)}" data-mcp-name="${escapeHtml(serverName)}" ${importable ? "" : "disabled"}>导入</button>
-              ${server.importSkipReason ? `<small>${escapeHtml(server.importSkipReason)}</small>` : ""}
-            </article>
-          `;
-        }).join("")}
-      </section>
-    `;
-  }
-
-  function filteredServers() {
-    return (mcpState().servers || []).filter((server) => matchesFilter([
+  function mcpItemFilterValues(item = {}) {
+    const server = item.server || {};
+    const template = item.template || {};
+    return [
       server.id,
       server.name,
       server.description,
-      server.transport?.type,
-      transportSummary(server.transport),
-      connectionStatusLabel(server.status)
-    ]));
-  }
-
-  function filteredTemplates() {
-    return (mcpState().templates || []).filter((template) => matchesFilter([
+      server.registryId,
+      server.nativeName,
       template.id,
       template.name,
       template.description,
       template.category,
-      template.transport?.type
-    ]));
+      item.statusLabel
+    ];
   }
 
-  function filteredActions() {
-    return customEntryActions().filter((action) => matchesFilter([
-      action.id,
-      action.title,
-      action.description
-    ]));
+  function unifiedMcpItems() {
+    const mcp = mcpState();
+    const servers = Array.isArray(mcp.servers) ? mcp.servers : [];
+    const templates = Array.isArray(mcp.templates) ? mcp.templates : [];
+    const usedServerIds = new Set();
+    const items = [];
+
+    templates.forEach((template) => {
+      const server = findServerForTemplate(template, servers);
+      if (server) {
+        usedServerIds.add(server.id);
+        items.push({ kind: "server", server, template });
+        return;
+      }
+      items.push({ kind: "template", template });
+    });
+
+    servers.forEach((server) => {
+      if (!usedServerIds.has(server.id)) items.push({ kind: "server", server, template: null });
+    });
+
+    return items.map((item) => ({
+      ...item,
+      statusLabel: simpleConnectionLabel(item.server, item.template)
+    }));
+  }
+
+  function filteredMcpItems() {
+    return unifiedMcpItems().filter((item) => matchesFilter(mcpItemFilterValues(item)));
+  }
+
+  function isManagedServer(server = {}) {
+    return server.managementMode === "managed" || !!server.managedRuntime?.connectorId;
+  }
+
+  function isAuthRequired(server = {}) {
+    return server.lastTestStatus === "auth_required" || server.status === "auth_required";
+  }
+
+  function isConfigurationRequired(server = {}) {
+    return server.status === "configuration_required"
+      || server.connectionWizard?.state === "missing_required_inputs"
+      || (Array.isArray(server.connectionWizard?.missingRequiredInputs) && server.connectionWizard.missingRequiredInputs.length > 0);
+  }
+
+  function isConnectionError(server = {}) {
+    return server.status === "error"
+      || server.lastTestStatus === "error"
+      || server.connectionWizard?.state === "managed_error"
+      || server.connectionWizard?.state === "test_failed"
+      || server.managedRuntime?.state === "error";
+  }
+
+  function isServerConnected(server = {}) {
+    return server.enabled !== false && (
+      server.status === "connected"
+        || server.lastTestStatus === "connected"
+        || server.connectionWizard?.state === "connected"
+    );
+  }
+
+  function simpleConnectionLabel(server = null, template = null) {
+    if (!server) return "未连接";
+    const mcp = mcpState();
+    if (mcp.connectBusyId === server.id || String(mcp.managedBusyKey || "").startsWith(`${server.id}:`)) return "连接中";
+    if (isConnectionError(server)) return "连接失败";
+    if (isConfigurationRequired(server)) return "需要配置";
+    if (isAuthRequired(server)) return "需要登录";
+    if (isServerConnected(server)) return "已连接";
+    return template ? "未连接" : "未连接";
+  }
+
+  function simpleStatusClass(label = "") {
+    if (label === "已连接") return "connected";
+    if (label === "连接失败") return "error";
+    if (label === "需要登录" || label === "需要配置" || label === "连接中") return "attention";
+    return "idle";
+  }
+
+  function nextManagedAction(server = {}) {
+    const actions = Array.isArray(server.connectionWizard?.actions) ? server.connectionWizard.actions : [];
+    const preferred = String(server.connectionWizard?.nextAction || "").trim();
+    if (preferred && actions.some((action) => action.id === preferred)) return preferred;
+    return actions[0]?.id || "";
+  }
+
+  function primaryActionForServer(server = {}) {
+    const mcp = mcpState();
+    const busy = mcp.connectBusyId === server.id || String(mcp.managedBusyKey || "").startsWith(`${server.id}:`);
+    if (busy) return { action: "connect-server", label: "连接中...", disabled: true };
+    if (isServerConnected(server)) return { action: "disconnect-server", label: "断开", disabled: false };
+    if (isAuthRequired(server)) return { action: "oauth-login", label: "登录", disabled: false };
+    return { action: "connect-server", label: "连接", disabled: false };
+  }
+
+  function primaryActionForItem(item = {}) {
+    if (item.kind === "template") return { action: "connect-template", label: "连接", disabled: false };
+    return primaryActionForServer(item.server || {});
+  }
+
+  function renderConnectionCard(item = {}) {
+    const server = item.server || null;
+    const template = item.template || null;
+    const source = server || template || {};
+    const title = source.name || source.id || "MCP 服务";
+    const description = source.description || "Mia 已准备好这个 MCP，点击连接即可使用。";
+    const label = item.statusLabel || simpleConnectionLabel(server, template);
+    const statusClass = simpleStatusClass(label);
+    const action = primaryActionForItem(item);
+    const idAttr = server
+      ? `data-mcp-id="${escapeHtml(server.id || "")}"`
+      : `data-mcp-template-id="${escapeHtml(template?.id || "")}"`;
+    const actionTargetAttr = server
+      ? `data-mcp-id="${escapeHtml(server.id || "")}"`
+      : `data-mcp-template="${escapeHtml(template?.id || "")}"`;
+    const showCustomActions = server && !isInstalledBuiltIn(server);
+    return `
+      <article class="skill-card mcp-card mcp-connection-card" ${idAttr}>
+        <div class="skill-card-head">
+          <div class="skill-card-titlerow">
+            <strong>${escapeHtml(title)}</strong>
+            <span class="mcp-connect-status mcp-connect-status-${escapeHtml(statusClass)}">${escapeHtml(label)}</span>
+          </div>
+          <p>${escapeHtml(description)}</p>
+        </div>
+        <div class="mcp-card-actions" aria-label="MCP 服务操作">
+          <button class="mcp-action-button ${action.action === "disconnect-server" ? "mcp-action-secondary" : "mcp-action-primary"}" type="button" data-mcp-action="${escapeHtml(action.action)}" ${actionTargetAttr} ${action.disabled ? "disabled" : ""}>${escapeHtml(action.label)}</button>
+          ${showCustomActions ? `
+            <div class="mcp-card-secondary-actions">
+              <button class="mcp-action-button mcp-action-ghost" type="button" data-mcp-action="edit" data-mcp-id="${escapeHtml(server.id || "")}">配置</button>
+              <button class="mcp-action-button mcp-action-danger" type="button" data-mcp-action="delete" data-mcp-id="${escapeHtml(server.id || "")}">删除</button>
+            </div>
+          ` : ""}
+        </div>
+      </article>
+    `;
   }
 
   function bindMcpActionHandlers() {
@@ -642,14 +516,6 @@
           button.dataset.mcpId || button.dataset.mcpTemplate || "",
           button
         );
-      });
-    });
-    els.skillCardGrid.querySelectorAll("[data-mcp-managed-action]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault?.();
-        event.stopPropagation?.();
-        if (button.disabled || Object.prototype.hasOwnProperty.call(button.attributes || {}, "disabled")) return;
-        handleManagedAction(button.dataset.mcpId || "", button.dataset.mcpManagedAction || "");
       });
     });
   }
@@ -760,7 +626,6 @@
       alertText(`保存失败：${result?.error || "未知错误"}`);
       return;
     }
-    mcpState().activeTab = "installed";
     closeActiveDialog();
     await loadMcpServers({ force: true });
   }
@@ -769,7 +634,6 @@
     if (typeof document === "undefined" || !document.body || !template) return;
     const mcp = mcpState();
     const fields = Array.isArray(template.requiredInputs) ? template.requiredInputs : [];
-    const managed = template.managementMode === "managed";
     const overlay = document.createElement("section");
     overlay.className = "mcp-dialog";
     overlay.setAttribute("role", "dialog");
@@ -784,10 +648,9 @@
         </header>
         <p class="mcp-dialog-copy">${escapeHtml(template.description || "")}</p>
         ${fields.map((field) => requiredInputHtml(field)).join("")}
-        ${managed ? `<p class="mcp-dialog-copy">${escapeHtml(template.connectionWizard?.message || "Mia 会管理这个 MCP 的安装、登录、启动和检测。")}</p>` : ""}
         <footer class="mcp-dialog-actions">
           <button type="button" data-mcp-close>取消</button>
-          <button type="submit">${managed ? "添加到 Mia" : "检测并启用"}</button>
+          <button type="submit">连接</button>
         </footer>
       </form>
     `;
@@ -799,7 +662,7 @@
       event.preventDefault();
       if (typeof FormData === "undefined") return;
       if (!window.mia?.mcp?.installTemplate) {
-        alertText("MCP 模板安装暂不可用");
+        alertText("MCP 连接暂不可用");
         return;
       }
       const data = new FormData(form);
@@ -811,10 +674,9 @@
       try {
         const result = await window.mia.mcp.installTemplate(template.id, values);
         if (!result?.success) {
-          alertText(`连接失败：${result?.error || "未知错误"}`);
+          alertText(managedFailureMessage("connect", result?.error || "未知错误"));
           return;
         }
-        mcp.activeTab = "installed";
         closeActiveDialog();
         await loadMcpServers({ force: true });
       } finally {
@@ -823,88 +685,72 @@
     });
   }
 
-  function openImportForm() {
-    if (typeof document === "undefined" || !document.body) return;
-    const mcp = mcpState();
-    const overlay = document.createElement("section");
-    overlay.className = "mcp-dialog";
-    overlay.setAttribute("role", "dialog");
-    overlay.setAttribute("aria-modal", "true");
-    overlay.setAttribute("aria-label", "导入 MCP JSON");
-    overlay.innerHTML = `
-      <div class="mcp-dialog-backdrop" data-mcp-close></div>
-      <form class="mcp-dialog-panel" data-mcp-import-form>
-        <header class="mcp-dialog-head">
-          <h2>导入 mcpServers JSON</h2>
-          <button type="button" data-mcp-close aria-label="关闭">×</button>
-        </header>
-        <label>配置 JSON
-          <textarea name="json" class="mcp-import-textarea">${escapeHtml(mcp.importText || '{\n  "mcpServers": {}\n}')}</textarea>
-        </label>
-        <footer class="mcp-dialog-actions">
-          <button type="button" data-mcp-close>取消</button>
-          <button type="submit">导入</button>
-        </footer>
-      </form>
-    `;
-    if (!appendDialog(overlay)) return;
-    mcp.importOpen = true;
-    const form = overlay.querySelector("[data-mcp-import-form]");
-    form?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const text = String(new FormData(form).get("json") || "");
-      mcp.importText = text;
-      const result = await importMcpJson(text);
-      if (result?.success) closeActiveDialog();
-    });
-  }
-
-  async function importMcpJson(text) {
-    let result = await window.mia.mcp.importJson(text);
-    const duplicates = Array.isArray(result?.data?.duplicates) ? result.data.duplicates : [];
-    if (result?.success && result?.data?.requiresConfirmation && duplicates.length) {
-      const message = `已存在同名 MCP 服务：${duplicates.join("、")}。替换后会先清理旧服务的 Agent 同步状态，继续？`;
-      if (!confirmAction(message)) return { success: false, error: "cancelled" };
-      result = await window.mia.mcp.importJson(text, { replaceDuplicates: true });
-    }
-    if (!result?.success) {
-      if (result?.error === "cancelled") return result;
-      alertText(`导入失败：${result?.error || "未知错误"}`);
-      return result;
-    }
-    mcpState().activeTab = "installed";
-    await loadMcpServers({ force: true });
-    return result;
-  }
-
   async function testMcpServer(id) {
     const result = await window.mia.mcp.test(id);
     if (!result?.success) alertText(`测试失败：${result?.error || "未知错误"}`);
     await loadMcpServers({ force: true });
   }
 
-  async function syncMcpServers() {
+  async function connectTemplate(id) {
+    const template = mcpState().templates.find((item) => item.id === id);
+    if (!template) return;
+    const fields = Array.isArray(template.requiredInputs) ? template.requiredInputs : [];
+    if (fields.length) return openTemplateWizard(template);
+    return installTemplate(id);
+  }
+
+  async function connectMcpServer(id) {
     const mcp = mcpState();
-    mcp.syncing = true;
+    const server = mcp.servers.find((item) => item.id === id);
+    if (!server) return;
+
+    const template = (mcp.templates || []).find((item) => (
+      item.id === server.registryId || findServerForTemplate(item, [server]) === server
+    ));
+    if (isConfigurationRequired(server) && template) return openTemplateWizard(template);
+    if (isAuthRequired(server)) return handleMcpOauth(id, "login");
+
+    const managedAction = isManagedServer(server) ? nextManagedAction(server) : "";
+    if (managedAction) return handleManagedAction(id, managedAction);
+
+    mcp.connectBusyId = id;
     renderMcpLibrary();
     try {
-      const result = await window.mia.mcp.sync();
-      if (!result?.success) alertText(`同步失败：${result?.error || "未知错误"}`);
+      const result = await window.mia.mcp.test(id);
+      if (!result?.success) {
+        alertText(managedFailureMessage("connect", result?.error || "未知错误"));
+        return;
+      }
+      const testedStatus = String(result.data?.status || result.data?.lastTestStatus || "").trim();
+      if (!testedStatus || testedStatus === "connected") {
+        const enabled = await window.mia.mcp.setEnabled(id, true);
+        if (!enabled?.success) alertText(managedFailureMessage("connect", enabled?.error || "未知错误"));
+      } else if (testedStatus === "auth_required") {
+        alertText("需要登录后再连接。");
+      } else {
+        alertText("连接失败，请重试。");
+      }
       await loadMcpServers({ force: true });
     } finally {
-      mcp.syncing = false;
+      mcp.connectBusyId = "";
       renderMcpLibrary();
     }
   }
 
-  async function toggleMcpServer(id) {
-    const server = mcpState().servers.find((item) => item.id === id);
+  async function disconnectMcpServer(id) {
+    const mcp = mcpState();
+    const server = mcp.servers.find((item) => item.id === id);
     if (!server) return;
-    const result = await window.mia.mcp.setEnabled(id, !server.enabled);
-    if (!result?.success) {
-      alertText(`${server.enabled === false ? "启用" : "停用"}失败：${result?.error || "未知错误"}`);
+    mcp.connectBusyId = id;
+    renderMcpLibrary();
+    try {
+      const result = await window.mia.mcp.setEnabled(id, false);
+      if (!result?.success) alertText(`断开失败：${result?.error || "未知错误"}`);
+      await loadMcpServers({ force: true });
+    } finally {
+      mcp.connectBusyId = "";
+      renderMcpLibrary();
     }
-    await loadMcpServers({ force: true });
   }
 
   async function deleteMcpServer(id) {
@@ -917,10 +763,9 @@
   async function installTemplate(id) {
     const result = await window.mia.mcp.installTemplate(id, {});
     if (!result?.success) {
-      alertText(`安装失败：${result?.error || "未知错误"}`);
+      alertText(managedFailureMessage("connect", result?.error || "未知错误"));
       return;
     }
-    mcpState().activeTab = "installed";
     await loadMcpServers({ force: true });
   }
 
@@ -934,7 +779,7 @@
     renderMcpLibrary();
     try {
       const result = await window.mia.mcp.runManagedAction(id, action, {});
-      if (!result?.success) alertText(`操作失败：${result?.error || "未知错误"}`);
+      if (!result?.success) alertText(managedFailureMessage(action, result?.error || "未知错误"));
       await loadMcpServers({ force: true });
     } finally {
       mcp.managedBusyKey = "";
@@ -957,7 +802,7 @@
     try {
       const result = await fn({ serverId: server.id, serverUrl: server.transport?.url });
       if (!result?.success) {
-        alertText(result?.error || "MCP OAuth 操作失败");
+        alertText(managedFailureMessage("login", result?.error || "MCP OAuth 操作失败"));
         return;
       }
       await loadMcpServers({ force: true });
@@ -967,44 +812,17 @@
     }
   }
 
-  async function handleImportAgentConfig(sourceAgent, serverName) {
-    const rows = (mcpState().agentConfigs || []).flatMap((source) => (
-      (source.servers || []).map((server) => ({ source, server }))
-    ));
-    const match = rows.find(({ source, server }) => (
-      String(source.source || source.name || "") === sourceAgent
-        && String(server.name || server.id || "") === serverName
-    ));
-    if (match?.server?.importable === false) return;
-    if (typeof window.mia.mcp.importAgentConfig !== "function") {
-      alertText("外部 MCP 配置导入暂不可用");
-      return;
-    }
-    const result = await window.mia.mcp.importAgentConfig({ sourceAgent, serverName });
-    if (!result?.success) {
-      alertText(result?.error || "导入外部 MCP 配置失败");
-      return;
-    }
-    mcpState().activeTab = "installed";
-    await loadMcpServers({ force: true });
-  }
-
-  async function handleMcpAction(action, id, button = null) {
+  async function handleMcpAction(action, id) {
     if (action === "create") return openMcpForm(null);
-    if (action === "import") return openImportForm();
     if (action === "edit") return openMcpForm(mcpState().servers.find((server) => server.id === id));
     if (action === "test") return testMcpServer(id);
-    if (action === "sync") return syncMcpServers();
-    if (action === "toggle") return toggleMcpServer(id);
+    if (action === "connect-server") return connectMcpServer(id);
+    if (action === "disconnect-server") return disconnectMcpServer(id);
     if (action === "delete") return deleteMcpServer(id);
-    if (action === "connect-template") return openTemplateWizard(mcpState().templates.find((template) => template.id === id));
+    if (action === "connect-template") return connectTemplate(id);
     if (action === "install") return installTemplate(id);
     if (action === "oauth-login") return handleMcpOauth(id, "login");
     if (action === "oauth-logout") return handleMcpOauth(id, "logout");
-    if (action === "import-agent-config") return handleImportAgentConfig(
-      button?.dataset?.mcpSource || "",
-      button?.dataset?.mcpName || ""
-    );
   }
 
   function renderMcpLibrary() {
@@ -1012,59 +830,25 @@
     setText(els.skillPageTitle, "MCP 服务");
     renderMcpTabs();
 
-    if (mcp.activeTab === "custom") {
-      const customItems = filteredActions();
-      if (!customItems.length) {
-        renderState("没有匹配的入口");
-        return;
-      }
-      const discoveryHtml = activeFilterText() ? "" : renderAgentConfigSources(mcp);
-      renderGrid(`${discoveryHtml}${customItems.map((item) => renderCustomActionCard(item)).join("")}`);
-      return;
-    }
-
-    if (mcp.activeTab === "marketplace") {
-      const templates = Array.isArray(mcp.templates) ? mcp.templates : [];
-      if (!mcp.loadAttempted && !mcp.loading) {
-        renderState("正在加载 MCP 模板...");
-        return;
-      }
-      if (mcp.loading && !templates.length) {
-        renderState("正在加载 MCP 模板...");
-        return;
-      }
-      if (mcp.templateError && !templates.length) {
-        renderState(mcp.templateError || "MCP 模板加载失败");
-        return;
-      }
-      const shownTemplates = filteredTemplates();
-      if (!shownTemplates.length) {
-        renderState(templates.length ? "没有匹配的模板" : "暂无可用模板");
-        return;
-      }
-      renderCards(shownTemplates, renderTemplateCard);
-      return;
-    }
-
-    const servers = Array.isArray(mcp.servers) ? mcp.servers : [];
+    const items = unifiedMcpItems();
     if (!mcp.loadAttempted && !mcp.loading) {
       renderState("正在加载 MCP 服务...");
       return;
     }
-    if (mcp.loading && !servers.length) {
+    if (mcp.loading && !items.length) {
       renderState("正在加载 MCP 服务...");
       return;
     }
-    if (mcp.serverError && !servers.length) {
-      renderState(mcp.serverError || "MCP 服务加载失败");
+    if (mcp.error && !items.length) {
+      renderState(mcp.error || "MCP 服务加载失败");
       return;
     }
-    const shownServers = filteredServers();
-    if (!shownServers.length) {
-      renderState(servers.length ? "没有匹配的 MCP 服务" : "暂无已安装 MCP 服务");
+    const shownItems = filteredMcpItems();
+    if (!shownItems.length) {
+      renderState(items.length ? "没有匹配的 MCP 服务" : "暂无可连接 MCP 服务");
       return;
     }
-    renderCards(shownServers, renderServerCard);
+    renderCards(shownItems, renderConnectionCard);
   }
 
   window.miaMcpLibrary = {
