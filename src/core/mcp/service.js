@@ -278,6 +278,25 @@ function createCoreMcpService(deps = {}) {
     return normalizeCoreMcpRegistry(records.map((record) => mergeManagedRecordState(record, updates.get(record.id))), { now, idFactory });
   }
 
+  function managedRefreshFailureMatchers(errors = []) {
+    const failedIds = new Set();
+    const failedNames = new Set();
+    for (const error of Array.isArray(errors) ? errors : []) {
+      if (!error || typeof error !== "object") continue;
+      const id = String(error.id || "").trim();
+      const name = String(error.name || "").trim();
+      if (id) failedIds.add(id);
+      if (name) failedNames.add(name);
+    }
+    return { failedIds, failedNames };
+  }
+
+  function isManagedRefreshFailure(record, matchers) {
+    if (!record || record.managementMode !== "managed") return false;
+    if (matchers.failedIds.has(record.id)) return true;
+    return matchers.failedNames.has(record.name) || matchers.failedNames.has(record.nativeName);
+  }
+
   function applyStatuses(records, nativeResult = {}, options = {}) {
     const availableIds = options.availableIds || new Set();
     const availableMessage = sanitizeSecretText(options.availableMessage || "");
@@ -318,8 +337,10 @@ function createCoreMcpService(deps = {}) {
       ? await managedSupervisor.ensureRunning(enabledCoreMcpRecords(current))
       : { records: enabledCoreMcpRecords(current), errors: [] };
     const runtimeRecords = mergeManagedRecords(current, managedResult.records);
+    const refreshFailureMatchers = managedRefreshFailureMatchers(managedResult.errors);
+    const refreshableRecords = enabledCoreMcpRecords(runtimeRecords).filter((record) => !isManagedRefreshFailure(record, refreshFailureMatchers));
     const refreshed = manager && typeof manager.refresh === "function"
-      ? await manager.refresh(enabledCoreMcpRecords(runtimeRecords))
+      ? await manager.refresh(refreshableRecords)
       : { success: true, tools: [], errors: [] };
     if (bridge && typeof bridge.start === "function") {
       bridgeInfo = await bridge.start();

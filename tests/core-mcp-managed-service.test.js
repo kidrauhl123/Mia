@@ -297,3 +297,58 @@ test("refreshBridge persists managed error patches returned by ensureRunning", a
   assert.equal(listed.data.servers[0].connectionWizard.state, "managed_error");
   assert.equal(listed.data.servers[0].connectionWizard.message, "ensure failed API_KEY=[redacted]");
 });
+
+test("refreshBridge excludes ensureRunning failures from same-cycle manager refresh", async (t) => {
+  const refreshCalls = [];
+  const { service } = setup(t, {
+    managedSupervisor: {
+      ensureRunning: async (records) => ({
+        records: records.map((record) => {
+          if (record.nativeName === "xiaohongshu") {
+            return {
+              ...record,
+              managedRuntime: { ...record.managedRuntime, state: "error" },
+              connectionWizard: {
+                ...record.connectionWizard,
+                state: "managed_error",
+                nextAction: "start",
+                message: "xiaohongshu startup failed"
+              }
+            };
+          }
+          return {
+            ...record,
+            managedRuntime: { ...record.managedRuntime, state: "running" }
+          };
+        }),
+        errors: [{ id: "mcp_xiaohongshu", name: "xiaohongshu", message: "startup failed" }]
+      })
+    },
+    manager: {
+      refresh: async (records) => {
+        refreshCalls.push(records.map((record) => record.nativeName));
+        return { success: true, tools: [], errors: [] };
+      },
+      testServer: async () => ({ ok: true, success: true, status: "connected", code: "ok", tools: [{ name: "search", inputSchema: {} }] }),
+      toolManifest: () => []
+    }
+  });
+
+  const installed = await service.installTemplate("xiaohongshu", {});
+  await service.installTemplate("playwright", {});
+  await service.setEnabled(installed.data.id, true);
+  refreshCalls.length = 0;
+
+  const refreshed = await service.refreshBridge();
+  const listed = await service.list();
+  const failed = listed.data.servers.find((record) => record.nativeName === "xiaohongshu");
+  const healthy = listed.data.servers.find((record) => record.nativeName === "playwright");
+
+  assert.equal(refreshed.success, true);
+  assert.deepEqual(refreshCalls, [["playwright"]]);
+  assert.equal(failed.connectionWizard.state, "managed_error");
+  assert.equal(failed.connectionWizard.message, "xiaohongshu startup failed");
+  assert.equal(failed.enabled, true);
+  assert.equal(healthy.enabled, true);
+  assert.notEqual(healthy.connectionWizard.state, "managed_error");
+});
