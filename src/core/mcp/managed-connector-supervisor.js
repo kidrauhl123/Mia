@@ -52,7 +52,12 @@ function createManagedConnectorSupervisor(deps = {}) {
     const connector = connectorFor(record);
     if (!connector) throw new Error("Managed connector is not supported.");
     if (action === "stop") return stop(record.id);
-    const result = await connector.runAction(record, action, values);
+    let result;
+    try {
+      result = await connector.runAction(record, action, values);
+    } catch (error) {
+      throw new Error(sanitizeSecretText(error?.message || error));
+    }
     if (result.child && action === "start") {
       children.set(record.id, result.child);
       result.child.once?.("exit", () => children.delete(record.id));
@@ -95,7 +100,12 @@ function createManagedConnectorSupervisor(deps = {}) {
   async function stop(recordId) {
     const child = children.get(recordId);
     if (!child) {
-      return { ok: true, state: "stopped", message: "Managed connector was not running.", recordPatch: {} };
+      return {
+        ok: true,
+        state: "stopped",
+        message: "Managed connector was not running.",
+        recordPatch: { managedRuntime: { state: "stopped", lastAction: "stop" } }
+      };
     }
     child.kill?.();
     children.delete(recordId);

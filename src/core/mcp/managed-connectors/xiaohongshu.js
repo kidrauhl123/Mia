@@ -7,8 +7,10 @@ function createXiaohongshuManagedConnector(deps = {}) {
   const fs = deps.fs || require("node:fs");
   const path = deps.path || require("node:path");
   const childProcess = deps.childProcess || require("node:child_process");
+  const fetch = deps.fetch;
   const runtimePaths = deps.runtimePaths;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
+  if (typeof fetch !== "function") throw new Error("fetch dependency is required.");
 
   function installDir(record = {}) {
     const existing = String(record.managedRuntime?.installDir || "").trim();
@@ -39,6 +41,24 @@ function createXiaohongshuManagedConnector(deps = {}) {
       ...options,
       stdio: ["ignore", "pipe", "pipe"]
     });
+  }
+
+  function assertInstalled(dir) {
+    if (!hasCheckout(dir)) throw new Error("Xiaohongshu managed checkout is not installed.");
+  }
+
+  async function checkEndpointHealth(endpoint) {
+    let response;
+    try {
+      response = await fetch(endpoint);
+    } catch (error) {
+      throw new Error(`Xiaohongshu endpoint health check failed for ${endpoint}.`);
+    }
+    if (!response || response.ok !== true) {
+      const status = Number(response?.status);
+      const detail = Number.isFinite(status) ? ` Status ${status}.` : "";
+      throw new Error(`Xiaohongshu endpoint health check failed for ${endpoint}.${detail}`);
+    }
   }
 
   async function status(record = {}) {
@@ -77,6 +97,7 @@ function createXiaohongshuManagedConnector(deps = {}) {
       };
     }
     if (action === "login") {
+      assertInstalled(dir);
       const child = spawn("go", ["run", "cmd/login/main.go"], { cwd: dir });
       return {
         ok: true,
@@ -95,7 +116,14 @@ function createXiaohongshuManagedConnector(deps = {}) {
       };
     }
     if (action === "start") {
+      assertInstalled(dir);
       const child = spawn("go", ["run", "."], { cwd: dir });
+      try {
+        await checkEndpointHealth(endpoint);
+      } catch (error) {
+        child.kill?.();
+        throw error;
+      }
       return {
         ok: true,
         state: "running",
@@ -108,6 +136,24 @@ function createXiaohongshuManagedConnector(deps = {}) {
             endpoint,
             state: "running",
             lastAction: "start"
+          }
+        }
+      };
+    }
+    if (action === "test") {
+      assertInstalled(dir);
+      await checkEndpointHealth(endpoint);
+      return {
+        ok: true,
+        state: "healthy",
+        message: "Xiaohongshu MCP endpoint is healthy.",
+        recordPatch: {
+          managedRuntime: {
+            ...record.managedRuntime,
+            installDir: dir,
+            endpoint,
+            state: "healthy",
+            lastAction: "test"
           }
         }
       };
