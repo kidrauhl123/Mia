@@ -27,82 +27,27 @@ const {
   sanitizeSecretText
 } = require("./records.js");
 const { createCoreMcpFileRegistry } = require("./file-registry.js");
+const {
+  builtinMcpTemplates,
+  builtinMcpTemplateById,
+  materializeBuiltinMcpRecord
+} = require("./catalog.js");
 
 const MASK_SENTINEL = MASK;
-const MCP_MARKETPLACE_TEMPLATES = [
-  {
-    id: "xhs-local-http",
-    name: "小红书 MCP",
-    nativeName: "xiaohongshu-mcp",
-    description: "连接 xpzouying/xiaohongshu-mcp 在本机运行的 HTTP MCP 服务。",
-    category: "内容平台",
-    homepage: "https://github.com/xpzouying/xiaohongshu-mcp",
-    setupHint: "来自 xpzouying/xiaohongshu-mcp；按 README 先运行登录工具，再启动本地 MCP 服务，Mia 只负责连接。",
-    setupCommands: ["go run cmd/login/main.go", "go run ."],
-    expectedToolCount: 13,
-    transport: {
-      type: "http",
-      url: "http://localhost:18060/mcp",
-      headers: {}
-    },
-    requiredEnvKeys: []
-  },
-  {
-    id: "chrome-devtools-cdp",
-    name: "Chrome DevTools MCP",
-    nativeName: "chrome-devtools-cdp",
-    description: "通过 Chromium/Chrome 远程调试端口提供浏览器检查、截图和交互测试。默认连接 http://127.0.0.1:9222。",
-    category: "浏览器自动化",
-    transport: {
-      type: "stdio",
-      command: "npx",
-      args: ["-y", "chrome-devtools-mcp@0.16.0", "--browser-url=http://127.0.0.1:9222"],
-      env: {}
-    },
-    requiredEnvKeys: []
-  },
-  {
-    id: "playwright-browser",
-    name: "Playwright MCP",
-    nativeName: "playwright-browser",
-    description: "启动 Playwright MCP 浏览器服务，用于打开本地页面、截图、点击、输入和验证前端交互。",
-    category: "浏览器自动化",
-    transport: {
-      type: "stdio",
-      command: "npx",
-      args: ["-y", "@playwright/mcp@latest"],
-      env: {}
-    },
-    requiredEnvKeys: []
-  }
-];
-
-function marketplaceTemplates() {
-  return MCP_MARKETPLACE_TEMPLATES.map((template) => JSON.parse(JSON.stringify(template)));
-}
-
-function marketplaceTemplateById(id) {
-  const needle = String(id || "").trim();
-  return MCP_MARKETPLACE_TEMPLATES.find((template) => template.id === needle) || null;
-}
 
 function withMarketplaceTemplateDefaults(input = {}) {
-  const template = marketplaceTemplateById(input.registryId);
+  const template = builtinMcpTemplateById(input.registryId);
   if (!template) return input;
-  const nativeName = input.nativeName && input.nativeName !== template.id
-    ? input.nativeName
-    : template.nativeName;
   return {
-    ...template,
     ...input,
     description: input.description || template.description,
-    nativeName,
+    nativeName: input.nativeName || input.native_name || template.nativeName,
     homepage: input.homepage || template.homepage || "",
-    setupHint: input.setupHint || template.setupHint || "",
-    setupCommands: Array.isArray(input.setupCommands) && input.setupCommands.length
-      ? input.setupCommands
-      : template.setupCommands || [],
-    expectedToolCount: input.expectedToolCount || template.expectedToolCount || 0
+    managementMode: input.managementMode || template.managementMode,
+    requiredInputs: input.requiredInputs || template.requiredInputs || [],
+    connectionWizard: input.connectionWizard || template.connectionWizard || {},
+    managedRuntime: input.managedRuntime || template.managedRuntime || {},
+    expectedToolCount: input.expectedToolCount || template.managedRuntime?.expectedToolCount || 0
   };
 }
 
@@ -625,33 +570,62 @@ function createCoreMcpService(deps = {}) {
   }
 
   async function fetchMarketplace() {
-    return ok({
-      templates: marketplaceTemplates()
-    });
+    return ok({ templates: builtinMcpTemplates() });
   }
 
   async function installTemplate(templateId, values = {}) {
     try {
-      const market = await fetchMarketplace();
-      const template = market?.data?.templates?.find((item) => item.id === String(templateId || ""));
+      const template = builtinMcpTemplateById(templateId);
       if (!template) throw new Error("MCP template not found.");
-      const name = String(values.name || template.name || "").trim() || template.id;
-      return save({
-        name,
-        nativeName: values.nativeName || values.native_name || template.nativeName || template.id,
-        description: template.description,
-        registryId: template.id,
-        source: "marketplace",
-        enabled: values.enabled !== false,
-        homepage: template.homepage || "",
-        setupHint: template.setupHint || "",
-        setupCommands: template.setupCommands || [],
-        expectedToolCount: template.expectedToolCount || 0,
-        transport: {
-          ...template.transport,
-          ...(values.transport && typeof values.transport === "object" ? values.transport : {})
-        }
+      const current = loadRecords();
+      const existing = resolveRecord(current, values.id || template.nativeName || template.name)
+        || current.find((record) => record.registryId === template.id)
+        || null;
+      const materialized = materializeBuiltinMcpRecord(template, {
+        ...values,
+        id: existing?.id,
+        name: values.name || existing?.name || template.name
+      }, { now, idFactory });
+      let record = {
+        ...(existing || {}),
+        ...materialized.record,
+        createdAt: existing?.createdAt || materialized.record.createdAt,
+        updatedAt: now()
+      };
+
+      const withoutExisting = current.filter((item) => item.id !== record.id && item.name !== record.name);
+      let saved = saveRecords(withoutExisting.concat(record));
+
+      if (materialized.missingRequiredInputs.length) {
+        const runtime = await applyRuntimeChanges(current, saved, {
+          availableIds: new Set([record.id]),
+          availableMessage: "Waiting for required fields in Mia."
+        });
+        return ok(publicRecord(resolveRecord(runtime.records, record.id) || record));
+      }
+
+      if (record.managementMode === "managed") {
+        return ok(publicRecord(resolveRecord(saved, record.id) || record));
+      }
+
+      const tested = await testServer(record);
+      if (!tested.success) throw new Error(tested.error || "MCP connection test failed.");
+      const testedRecord = normalizeCoreMcpRecord({
+        ...record,
+        ...tested.data,
+        transport: record.transport,
+        requiredInputs: record.requiredInputs,
+        connectionWizard: tested.data.status === "connected"
+          ? { state: "connected", nextAction: "", message: "Connected and enabled.", missingRequiredInputs: [], actions: [] }
+          : { state: "test_failed", nextAction: "test", message: tested.data.lastError || "Connection test failed.", missingRequiredInputs: [], actions: [{ id: "test", label: "重新检测" }] },
+        enabled: tested.data.status === "connected"
+      }, { now, idFactory });
+      saved = saveRecords(withoutExisting.concat(testedRecord));
+      const runtime = await applyRuntimeChanges(current, saved, {
+        availableIds: testedRecord.enabled ? new Set() : new Set([testedRecord.id]),
+        availableMessage: testedRecord.enabled ? "" : "Connection test failed in Mia."
       });
+      return ok(publicRecord(resolveRecord(runtime.records, testedRecord.id) || testedRecord));
     } catch (error) {
       return fail(error);
     }

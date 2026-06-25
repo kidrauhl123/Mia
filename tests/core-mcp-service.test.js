@@ -331,3 +331,20 @@ test("default oauth service stores tokens outside registry and reports status", 
   assert.equal(logout.data.authenticated, false);
   assert.equal(fs.existsSync(runtime.mcpServers), false);
 });
+
+test("fetchMarketplace exposes only supported native and managed templates", async (t) => {
+  const { service } = setup(t);
+
+  const result = await service.fetchMarketplace();
+
+  assert.equal(result.success, true);
+  assert.deepEqual(result.data.templates.map((item) => item.id), [
+    "xiaohongshu",
+    "playwright",
+    "context7",
+    "github",
+    "tavily",
+    "firecrawl"
+  ]);
+  assert.equal(result.data.templates.some((item) => String(item.managementMode).includes("external")), false);
+});
