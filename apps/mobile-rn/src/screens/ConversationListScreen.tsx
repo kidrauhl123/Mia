@@ -123,11 +123,12 @@ export default function ConversationListScreen({ navigation }: Props) {
   const [query, setQuery] = useState("");
   const [searchActive, setSearchActive] = useState(false);
   const [searchOverlayMounted, setSearchOverlayMounted] = useState(false);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const [actionItem, setActionItem] = useState<ConversationListItem | null>(null);
   const searchInputRef = useRef<TextInput>(null);
   const searchFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchProgress = useRef(new Animated.Value(0)).current;
-  const { data: conversations = [], isLoading, refetch, isRefetching } = useConversations();
+  const { data: conversations = [], isLoading, refetch } = useConversations();
   const { data: bots = [] } = useBots();
   const { data: friends = [] } = useFriends();
   const { data: me } = useMe();
@@ -266,6 +267,11 @@ export default function ConversationListScreen({ navigation }: Props) {
     setActionItem(null);
   }
 
+  const refreshConversations = useCallback(() => {
+    setManualRefreshing(true);
+    refetch().finally(() => setManualRefreshing(false));
+  }, [refetch]);
+
   const renderConversationItem = ({ item }: { item: ConversationListItem }) => {
     const hasTags = item.tags.length > 0;
     const hasSide = item.pinned || item.unread > 0;
@@ -356,8 +362,8 @@ export default function ConversationListScreen({ navigation }: Props) {
       <FlatList
         data={allItems}
         keyExtractor={(it) => it.id}
-        onRefresh={refetch}
-        refreshing={isRefetching}
+        onRefresh={refreshConversations}
+        refreshing={manualRefreshing}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={allItems.length ? styles.listContent : styles.emptyContent}
         ListEmptyComponent={<Sub style={styles.empty}>{normalEmptyText}</Sub>}

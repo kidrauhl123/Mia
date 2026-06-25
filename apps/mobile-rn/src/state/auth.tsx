@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import * as SecureStore from "expo-secure-store";
 import { isDeprecatedApiBase } from "../logic/apiBase";
 
@@ -21,6 +22,8 @@ interface AuthCtx {
 const Ctx = createContext<AuthCtx>(null as any);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const qc = useQueryClient();
+  const previousUserId = useRef<string | undefined>(undefined);
   const [session, setSessionState] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -51,6 +54,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (s) SecureStore.setItemAsync(KEY, JSON.stringify(s));
     else SecureStore.deleteItemAsync(KEY);
   };
+
+  useEffect(() => {
+    const userId = String(session?.user?.id || "");
+    if (previousUserId.current === undefined) {
+      previousUserId.current = userId;
+      return;
+    }
+    if (previousUserId.current !== userId) {
+      previousUserId.current = userId;
+      qc.clear();
+    }
+  }, [qc, session?.user?.id]);
 
   return (
     <Ctx.Provider value={{ session, ready, setSession, apiBase: session?.apiBase || DEFAULT_API_BASE }}>

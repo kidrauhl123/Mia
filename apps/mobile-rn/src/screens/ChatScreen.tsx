@@ -19,6 +19,7 @@ import { useAuth } from "../state/auth";
 import { buildPendingMessage } from "../logic/optimisticSend";
 import { MAX_COMPOSER_ATTACHMENTS, normalizeAttachments, pickedAssetAttachment } from "../logic/attachments";
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
+import { patchConversationListSummary } from "../logic/conversationCache";
 import { lastSeenSeq } from "../logic/settings";
 import { conversationType } from "../logic/sessionHistory";
 import { chatKeyboardAvoidingBehavior, chatKeyboardAvoidingEnabled } from "../logic/keyboardAvoidance";
@@ -30,8 +31,9 @@ import { Sub } from "../ui/Text";
 import { withAndroidTextFace } from "../ui/androidTextFace";
 import { useTypography } from "../ui/TypographyProvider";
 import { color, space, hairlineWidth } from "../theme";
-import type { ChatMessage, MessageAttachment } from "../api/types";
+import type { ChatMessage, Conversation, MessageAttachment } from "../api/types";
 import type { MessagesStackParamList } from "../navigation/types";
+import { deleteCachedMessage, upsertCachedConversation, upsertCachedMessage } from "../storage/sqliteCache";
 
 type Props = NativeStackScreenProps<MessagesStackParamList, "Chat">;
 
@@ -119,10 +121,8 @@ export default function ChatScreen({ navigation, route }: Props) {
   const key = ["messages", conversationId];
   const setMsgs = (fn: (old: ChatMessage[]) => ChatMessage[]) =>
     qc.setQueryData<ChatMessage[]>(key, (old) => fn(old || []));
-  const scheduleRefresh = () => {
-    qc.invalidateQueries({ queryKey: ["conversations"] });
-    setTimeout(() => qc.invalidateQueries({ queryKey: key }), 1200);
-    setTimeout(() => qc.invalidateQueries({ queryKey: key }), 4200);
+  const scheduleMessageReconcile = () => {
+    setTimeout(() => qc.invalidateQueries({ queryKey: key, refetchType: "active" }), 1800);
   };
 
   // 投递一条已乐观入列的消息;成功并入服务端行,失败标 failed 供重发。
@@ -135,7 +135,11 @@ export default function ChatScreen({ navigation, route }: Props) {
       const row = res.message || res;
       const norm = normalizeServerRow({ ...row, client_trace_id: row.client_trace_id || payload.clientTraceId }, session?.user?.id);
       setMsgs((old) => mergeMessage(old, norm));
-      scheduleRefresh();
+      void upsertCachedMessage(session?.user?.id, conversationId, norm);
+      qc.setQueryData<Conversation[]>(["conversations"], (old) => patchConversationListSummary(old, conversationId, row));
+      const conversation = qc.getQueryData<Conversation[]>(["conversations"])?.find((item) => item.id === conversationId);
+      if (conversation) void upsertCachedConversation(session?.user?.id, conversation);
+      scheduleMessageReconcile();
     } catch {
       setMsgs((old) => old.map((m) => (m.clientTraceId === payload.clientTraceId ? { ...m, isPending: false, failed: true } : m)));
     }
@@ -202,6 +206,7 @@ export default function ChatScreen({ navigation, route }: Props) {
     if (localOnly) return;
     try {
       await api.api(`/api/conversations/${conversationId}/messages/${m.messageId}`, { method: "DELETE" });
+      void deleteCachedMessage(session?.user?.id, conversationId, m.messageId);
     } catch {
       if (snapshot) qc.setQueryData<ChatMessage[]>(key, snapshot);
     }

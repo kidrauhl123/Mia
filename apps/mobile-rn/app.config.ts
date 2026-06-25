@@ -40,6 +40,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-secure-store",
+    "expo-sqlite",
     "expo-video",
     "expo-notifications",
     "./modules/mia-android-updater/plugin/withMiaAndroidUpdater",

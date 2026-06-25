@@ -3,8 +3,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createEventsClient } from "../api/events";
 import { createApprovalQueue, type ApprovalItem } from "../logic/approvalQueue";
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
+import { mergeConversationUpdate, patchConversationListSummary, prependConversation } from "../logic/conversationCache";
 import { useAuth } from "./auth";
 import type { Bot, BotRuntimeBinding, ChatMessage, Conversation, MessageRow } from "../api/types";
+import {
+  deleteCachedConversation,
+  deleteCachedMessage,
+  saveCachedValue,
+  sqliteCacheKeys,
+  upsertCachedConversation,
+  upsertCachedMessage,
+} from "../storage/sqliteCache";
 
 interface EventsCtx {
   connStatus: string;
@@ -33,42 +42,6 @@ function approvalPreview(event: any = {}): string {
     pick(event.data) ||
     String(event.tool || event.tool_name || event.name || "请求执行操作")
   );
-}
-
-function messageHasAttachments(row: MessageRow): boolean {
-  if (Array.isArray(row.attachments)) return row.attachments.length > 0;
-  const raw = (row as any).attachments_json;
-  if (!raw) return false;
-  try {
-    const parsed = JSON.parse(String(raw));
-    return Array.isArray(parsed) && parsed.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-function patchConversationSummary(conversation: Conversation, row: MessageRow): Conversation {
-  const createdAt = row.created_at || "";
-  const seq = Number(row.seq) || 0;
-  const body = String(row.body_md || "");
-  const hasAttachments = messageHasAttachments(row);
-  return {
-    ...conversation,
-    lastMessageText: body,
-    last_message_text: body,
-    lastMessageSeq: seq,
-    last_message_seq: seq,
-    lastMessageSenderKind: row.sender_kind || "",
-    last_message_sender_kind: row.sender_kind || "",
-    lastMessageSenderRef: row.sender_ref || "",
-    last_message_sender_ref: row.sender_ref || "",
-    lastMessageCreatedAt: createdAt,
-    last_message_created_at: createdAt,
-    lastActivityAt: createdAt || conversation.lastActivityAt || conversation.last_activity_at,
-    last_activity_at: createdAt || conversation.last_activity_at || conversation.lastActivityAt,
-    lastMessageHasAttachments: hasAttachments,
-    last_message_has_attachments: hasAttachments,
-  };
 }
 
 export function EventsProvider({ children }: { children: React.ReactNode }) {
@@ -105,16 +78,10 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
           if (cid) {
             const incoming = normalizeServerRow(row, session.user?.id);
             qc.setQueryData<ChatMessage[]>(["messages", cid], (old) => mergeMessage(old || [], incoming));
-            qc.setQueryData<Conversation[]>(["conversations"], (old) => {
-              if (!old?.length) return old;
-              let changed = false;
-              const next = old.map((conversation) => {
-                if (conversation.id !== cid) return conversation;
-                changed = true;
-                return patchConversationSummary(conversation, row);
-              });
-              return changed ? next : old;
-            });
+            void upsertCachedMessage(session.user?.id, cid, incoming);
+            qc.setQueryData<Conversation[]>(["conversations"], (old) => patchConversationListSummary(old, cid, row));
+            const conversation = qc.getQueryData<Conversation[]>(["conversations"])?.find((item) => item.id === cid);
+            if (conversation) void upsertCachedConversation(session.user?.id, conversation);
           }
         } else if (t === "conversation.message_deleted") {
           // 本设备或其它设备的微信式本地隐藏:从对应会话列表里移除。
@@ -122,6 +89,7 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
           const mid = env.messageId || env.message_id;
           if (cid && mid) {
             qc.setQueryData<ChatMessage[]>(["messages", cid], (old) => (old || []).filter((m) => m.messageId !== mid));
+            void deleteCachedMessage(session.user?.id, cid, mid);
           }
         } else if (t === "social.friend_request_received") {
           qc.invalidateQueries({ queryKey: ["friend-requests", "incoming"] });
@@ -132,16 +100,14 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
           qc.invalidateQueries({ queryKey: ["friend-requests", "outgoing"] });
         } else if (t === "social.conversation_invited") {
           if (env.conversation?.id) {
-            qc.setQueryData<Conversation[]>(["conversations"], (old) => [env.conversation, ...(old || []).filter((item) => item.id !== env.conversation.id)]);
+            qc.setQueryData<Conversation[]>(["conversations"], (old) => prependConversation(old, env.conversation));
+            void upsertCachedConversation(session.user?.id, env.conversation);
           }
-          qc.invalidateQueries({ queryKey: ["conversations"] });
         } else if (t === "conversation.updated") {
           if (env.conversation?.id) {
-            qc.setQueryData<Conversation[]>(["conversations"], (old) =>
-              (old || []).some((item) => item.id === env.conversation.id)
-                ? (old || []).map((item) => (item.id === env.conversation.id ? { ...item, ...env.conversation } : item))
-                : [env.conversation, ...(old || [])]
-            );
+            qc.setQueryData<Conversation[]>(["conversations"], (old) => mergeConversationUpdate(old, env.conversation));
+            const conversation = qc.getQueryData<Conversation[]>(["conversations"])?.find((item) => item.id === env.conversation.id);
+            if (conversation) void upsertCachedConversation(session.user?.id, conversation);
           }
         } else if (t === "conversation.deleted") {
           const cid = env.conversationId || env.conversation_id;
@@ -149,6 +115,7 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
             qc.setQueryData<Conversation[]>(["conversations"], (old) => (old || []).filter((item) => item.id !== cid));
             qc.removeQueries({ queryKey: ["messages", cid] });
             qc.removeQueries({ queryKey: ["members", cid] });
+            void deleteCachedConversation(session.user?.id, cid);
           }
         } else if (t === "bot.upserted") {
           const bot: Bot | undefined = env.bot;
@@ -156,6 +123,7 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
           if (bot && id) {
             qc.setQueryData<Bot[]>(["bots"], (old) => [bot, ...(old || []).filter((item) => String(item.id || item.key || "") !== id)]);
             qc.setQueryData(["bot-detail", id], bot);
+            void saveCachedValue(session.user?.id, sqliteCacheKeys.bots, qc.getQueryData<Bot[]>(["bots"]) || []);
           }
         } else if (t === "bot.deleted") {
           const id = String(env.botId || env.bot_id || "");
@@ -163,6 +131,7 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
             qc.setQueryData<Bot[]>(["bots"], (old) => (old || []).filter((item) => String(item.id || item.key || "") !== id));
             qc.removeQueries({ queryKey: ["bot-detail", id] });
             qc.removeQueries({ queryKey: ["bot-runtime", id] });
+            void saveCachedValue(session.user?.id, sqliteCacheKeys.bots, qc.getQueryData<Bot[]>(["bots"]) || []);
           }
         } else if (t === "bot.runtime_updated") {
           const binding: BotRuntimeBinding | undefined = env.binding;
@@ -170,7 +139,10 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
             qc.setQueryData(["bot-runtime", binding.botId, binding.runtimeKind], binding);
           }
         } else if (t === "user_settings.updated") {
-          if (env.settings) qc.setQueryData(["settings"], env.settings);
+          if (env.settings) {
+            qc.setQueryData(["settings"], env.settings);
+            void saveCachedValue(session.user?.id, sqliteCacheKeys.settings, env.settings);
+          }
         } else if (t === "cloud_agent_run_event") {
           // 审批等交互事件包在 cloud_agent_run_event.event 里(与桌面/web 一致)。
           const inner = env.event || {};
@@ -197,7 +169,7 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
       },
     });
     return () => c.stop();
-  }, [apiBase, session?.token]);
+  }, [apiBase, session?.token, session?.user?.id]);
 
   return <Ctx.Provider value={{ connStatus, activeApproval, pendingApprovalCount, resolveApproval }}>{children}</Ctx.Provider>;
 }

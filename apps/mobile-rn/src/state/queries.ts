@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "./clientProvider";
 import { useAuth } from "./auth";
@@ -38,30 +39,90 @@ import type {
   UserSettings,
 } from "../api/types";
 import { botIdentityBody, botRuntimeDefaultConfig, type BotDraft } from "../logic/botDraft";
+import { mergeConversationSummaries, prependConversation } from "../logic/conversationCache";
 import type { GroupCreatePayload } from "../logic/groupCreate";
 import { mergeUserSettings, type UserSettingsPatch } from "../logic/settings";
+import {
+  loadCachedConversations,
+  loadCachedMessages,
+  loadCachedValue,
+  replaceCachedConversations,
+  replaceCachedMessages,
+  saveCachedValue,
+  sqliteCacheKeys,
+  upsertCachedConversation,
+} from "../storage/sqliteCache";
+
+const LIVE_CACHE_QUERY = {
+  staleTime: 60_000,
+  gcTime: 30 * 60_000,
+  refetchOnMount: false,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: true,
+} as const;
+
+function useCachedQueryHydration<T>(
+  queryKey: readonly unknown[],
+  enabled: boolean,
+  deps: unknown[],
+  load: () => Promise<T | undefined>,
+  accept: (value: T) => boolean = (value) => value !== undefined
+) {
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (!enabled || qc.getQueryData(queryKey) !== undefined) return undefined;
+    let cancelled = false;
+    load().then((value) => {
+      if (cancelled || value === undefined || !accept(value)) return;
+      if (qc.getQueryData(queryKey) === undefined) qc.setQueryData(queryKey, value);
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [qc, enabled, ...deps]);
+}
 
 export function useConversations() {
   const api = useApi();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
+  useCachedQueryHydration<Conversation[]>(
+    ["conversations"],
+    Boolean(cacheScope),
+    [cacheScope],
+    () => loadCachedConversations(cacheScope)
+  );
   return useQuery<Conversation[]>({
     queryKey: ["conversations"],
-    queryFn: () => api.api(conversationsPath({ includeMembers: true })).then((d) => d.conversations || []),
+    ...LIVE_CACHE_QUERY,
+    queryFn: async () => {
+      const conversations = await api.api(conversationsPath({ includeMembers: true })).then((d) => d.conversations || []);
+      void replaceCachedConversations(cacheScope, conversations);
+      return conversations;
+    },
+    structuralSharing: (oldData: unknown, newData: unknown) =>
+      mergeConversationSummaries(
+        Array.isArray(oldData) ? oldData as Conversation[] : [],
+        Array.isArray(newData) ? newData as Conversation[] : []
+      ),
   });
 }
 
 export function useCreateGroupConversation() {
   const api = useApi();
   const qc = useQueryClient();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
   return useMutation({
     mutationFn: (payload: GroupCreatePayload) => api.api(conversationsPath(), { method: "POST", body: payload }),
     onSuccess: (data) => {
       const conversation = data?.conversation || data?.data?.conversation;
       const members = data?.members || data?.data?.members;
       if (conversation?.id) {
-        qc.setQueryData<Conversation[]>(["conversations"], (old) => [conversation, ...(old || []).filter((item) => item.id !== conversation.id)]);
+        qc.setQueryData<Conversation[]>(["conversations"], (old) => prependConversation(old, conversation));
+        void upsertCachedConversation(cacheScope, conversation);
         if (Array.isArray(members)) qc.setQueryData<Member[]>(["members", conversation.id], members);
       }
-      qc.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
 }
@@ -70,13 +131,24 @@ export function useConversationMessages(conversationId: string) {
   const api = useApi();
   const { session } = useAuth();
   const selfId = session?.user?.id;
+  const cacheScope = session?.user?.id;
+  useCachedQueryHydration<ChatMessage[]>(
+    ["messages", conversationId],
+    Boolean(cacheScope && conversationId),
+    [cacheScope, conversationId],
+    () => loadCachedMessages(cacheScope, conversationId)
+  );
   return useQuery<ChatMessage[]>({
     queryKey: ["messages", conversationId],
     enabled: !!conversationId,
-    queryFn: () =>
-      api
+    ...LIVE_CACHE_QUERY,
+    queryFn: async () => {
+      const messages = await api
         .api(`/api/conversations/${conversationId}/messages?limit=200`)
-        .then((d) => (d.messages || []).map((r: MessageRow, i: number) => normalizeServerRow(r, selfId, i))),
+        .then((d) => (d.messages || []).map((r: MessageRow, i: number) => normalizeServerRow(r, selfId, i)));
+      void replaceCachedMessages(cacheScope, conversationId, messages);
+      return messages;
+    },
     structuralSharing: (oldData: unknown, newData: unknown) =>
       mergeFetchedMessages(
         Array.isArray(oldData) ? oldData as ChatMessage[] : [],
@@ -90,6 +162,7 @@ export function useConversationMembers(conversationId: string) {
   return useQuery<Member[]>({
     queryKey: ["members", conversationId],
     enabled: !!conversationId,
+    ...LIVE_CACHE_QUERY,
     queryFn: () =>
       api.api(`/api/conversations/${conversationId}`).then((d) => d.members || []),
   });
@@ -97,47 +170,103 @@ export function useConversationMembers(conversationId: string) {
 
 export function useBots() {
   const api = useApi();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
+  useCachedQueryHydration<Bot[]>(
+    ["bots"],
+    Boolean(cacheScope),
+    [cacheScope],
+    () => loadCachedValue<Bot[]>(cacheScope, sqliteCacheKeys.bots)
+  );
   // 非 compact:带 avatarImage,列表/联系人头像才能和桌面一致显示真实头像。
   return useQuery<Bot[]>({
     queryKey: ["bots"],
-    queryFn: () => api.api("/api/me/bots").then((d) => d.bots || []),
+    ...LIVE_CACHE_QUERY,
+    queryFn: async () => {
+      const bots = await api.api("/api/me/bots").then((d) => d.bots || []);
+      void saveCachedValue(cacheScope, sqliteCacheKeys.bots, bots);
+      return bots;
+    },
   });
 }
 
 export function useFriends() {
   const api = useApi();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
+  useCachedQueryHydration<Friend[]>(
+    ["friends"],
+    Boolean(cacheScope),
+    [cacheScope],
+    () => loadCachedValue<Friend[]>(cacheScope, sqliteCacheKeys.friends)
+  );
   return useQuery<Friend[]>({
     queryKey: ["friends"],
-    queryFn: () => api.api("/api/social/friends").then((d) => d.friends || []),
+    ...LIVE_CACHE_QUERY,
+    queryFn: async () => {
+      const friends = await api.api("/api/social/friends").then((d) => d.friends || []);
+      void saveCachedValue(cacheScope, sqliteCacheKeys.friends, friends);
+      return friends;
+    },
   });
 }
 
 // 完整自己资料(非 compact),带 avatarImage + avatarCrop —— 自己头像与群拼贴里的"自己"用。
 export function useMe() {
   const api = useApi();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
+  useCachedQueryHydration<any>(
+    ["me-full"],
+    Boolean(cacheScope),
+    [cacheScope],
+    () => loadCachedValue<any>(cacheScope, sqliteCacheKeys.me)
+  );
   return useQuery<any>({
     queryKey: ["me-full"],
-    queryFn: () => api.api("/api/me").then((d) => d.user || d),
+    ...LIVE_CACHE_QUERY,
+    queryFn: async () => {
+      const me = await api.api("/api/me").then((d) => d.user || d);
+      void saveCachedValue(cacheScope, sqliteCacheKeys.me, me);
+      return me;
+    },
   });
 }
 
 export function useUserSettings(options: { enabled?: boolean } = {}) {
   const api = useApi();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
+  const enabled = options.enabled ?? true;
+  useCachedQueryHydration<UserSettings>(
+    ["settings"],
+    Boolean(cacheScope && enabled),
+    [cacheScope, enabled],
+    () => loadCachedValue<UserSettings>(cacheScope, sqliteCacheKeys.settings)
+  );
   return useQuery<UserSettings>({
     queryKey: ["settings"],
-    enabled: options.enabled ?? true,
-    queryFn: () => api.api(settingsPath()).then((d) => d.settings || {}),
+    enabled,
+    ...LIVE_CACHE_QUERY,
+    queryFn: async () => {
+      const settings = await api.api(settingsPath()).then((d) => d.settings || {});
+      void saveCachedValue(cacheScope, sqliteCacheKeys.settings, settings);
+      return settings;
+    },
   });
 }
 
 export function useSaveProfile() {
   const api = useApi();
   const qc = useQueryClient();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
   return useMutation({
     mutationFn: (patch: { displayName?: string; statusBadge?: StatusBadge | null }) =>
       api.api(profilePath(), { method: "PATCH", body: patch }).then((d) => d.user || d),
     onSuccess: (user) => {
       qc.setQueryData(["me-full"], user);
+      void saveCachedValue(cacheScope, sqliteCacheKeys.me, user);
     },
   });
 }
@@ -145,6 +274,8 @@ export function useSaveProfile() {
 export function useSaveUserSettings() {
   const api = useApi();
   const qc = useQueryClient();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
   return useMutation({
     mutationFn: async (patch: UserSettingsPatch) => {
       const write = async (base: UserSettings | undefined) =>
@@ -160,6 +291,7 @@ export function useSaveUserSettings() {
     },
     onSuccess: (settings) => {
       qc.setQueryData(["settings"], settings);
+      void saveCachedValue(cacheScope, sqliteCacheKeys.settings, settings);
     },
   });
 }
@@ -269,6 +401,8 @@ export function useSaveBotRuntimeConfig() {
 export function useSaveBotIdentity() {
   const api = useApi();
   const qc = useQueryClient();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
   return useMutation({
     mutationFn: ({ botId, body }: { botId: string; body: Record<string, unknown> }) =>
       api.api(botDetailPath(botId), { method: "PUT", body }).then((d) => d.bot || null),
@@ -276,6 +410,7 @@ export function useSaveBotIdentity() {
       if (!bot) return;
       qc.setQueryData(["bot-detail", vars.botId], bot);
       qc.setQueryData<Bot[]>(["bots"], (old) => [bot, ...(old || []).filter((item) => String(item.id || item.key || "") !== vars.botId)]);
+      void saveCachedValue(cacheScope, sqliteCacheKeys.bots, qc.getQueryData<Bot[]>(["bots"]) || []);
     },
   });
 }
@@ -283,6 +418,8 @@ export function useSaveBotIdentity() {
 export function useCreateCloudBot() {
   const api = useApi();
   const qc = useQueryClient();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
   return useMutation({
     mutationFn: async ({ botId, draft, defaultModel }: { botId: string; draft: BotDraft; defaultModel?: string }) => {
       const identity = botIdentityBody(draft);
@@ -313,14 +450,15 @@ export function useCreateCloudBot() {
     onSuccess: (data, vars) => {
       const bot = { ...(data.bot || {}), id: data.bot?.id || vars.botId, key: data.bot?.key || vars.botId };
       qc.setQueryData<Bot[]>(["bots"], (old) => [bot, ...(old || []).filter((item) => String(item.id || item.key || "") !== vars.botId)]);
+      void saveCachedValue(cacheScope, sqliteCacheKeys.bots, qc.getQueryData<Bot[]>(["bots"]) || []);
       qc.setQueryData(["bot-detail", vars.botId], bot);
       if (data.binding) qc.setQueryData(["bot-runtime", vars.botId, "cloud-hermes"], data.binding);
       if (data.conversation?.id) {
-        qc.setQueryData<Conversation[]>(["conversations"], (old) => [data.conversation, ...(old || []).filter((item) => item.id !== data.conversation.id)]);
+        qc.setQueryData<Conversation[]>(["conversations"], (old) => prependConversation(old, data.conversation));
+        void upsertCachedConversation(cacheScope, data.conversation);
         if (Array.isArray(data.members)) qc.setQueryData<Member[]>(["members", data.conversation.id], data.members);
       }
       qc.invalidateQueries({ queryKey: ["bots"] });
-      qc.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
 }
@@ -328,6 +466,8 @@ export function useCreateCloudBot() {
 export function useCreateBotSessionConversation() {
   const api = useApi();
   const qc = useQueryClient();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
   return useMutation({
     mutationFn: ({ sessionId, botId, title, runtimeKind }: { sessionId: string; botId: string; title: string; runtimeKind: string }) =>
       api.api(botConversationPath(sessionId), { method: "PUT", body: { botId, title, runtimeKind } }),
@@ -335,11 +475,11 @@ export function useCreateBotSessionConversation() {
       const conversation = data?.conversation || null;
       const members = data?.members || null;
       if (conversation?.id) {
-        qc.setQueryData<Conversation[]>(["conversations"], (old) => [conversation, ...(old || []).filter((item) => item.id !== conversation.id)]);
+        qc.setQueryData<Conversation[]>(["conversations"], (old) => prependConversation(old, conversation));
+        void upsertCachedConversation(cacheScope, conversation);
         if (Array.isArray(members)) qc.setQueryData<Member[]>(["members", conversation.id], members);
         qc.setQueryData<ChatMessage[]>(["messages", conversation.id], []);
       }
-      qc.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
 }
@@ -347,12 +487,15 @@ export function useCreateBotSessionConversation() {
 export function useDeleteBot() {
   const api = useApi();
   const qc = useQueryClient();
+  const { session } = useAuth();
+  const cacheScope = session?.user?.id;
   return useMutation({
     mutationFn: ({ botId }: { botId: string }) => api.api(botDetailPath(botId), { method: "DELETE" }),
     onSuccess: (_data, vars) => {
       qc.removeQueries({ queryKey: ["bot-detail", vars.botId] });
       qc.removeQueries({ queryKey: ["bot-runtime", vars.botId] });
       qc.setQueryData<Bot[]>(["bots"], (old) => (old || []).filter((item) => String(item.id || item.key || "") !== vars.botId));
+      void saveCachedValue(cacheScope, sqliteCacheKeys.bots, qc.getQueryData<Bot[]>(["bots"]) || []);
       qc.invalidateQueries({ queryKey: ["bots"] });
       qc.invalidateQueries({ queryKey: ["conversations"] });
     },

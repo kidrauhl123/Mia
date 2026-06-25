@@ -23,6 +23,7 @@
     "expo-haptics": "~56.0.3",
     "expo-notifications": "~56.0.17",
     "expo-secure-store": "~56.0.4",
+    "expo-sqlite": "~56.0.5",
     "expo-status-bar": "~56.0.4",
     "expo-updates": "~56.0.17",
     "expo-video": "~56.1.2",
