@@ -71,10 +71,10 @@
   - Construct Core MCP service with the managed supervisor and ensure all four adapters use the same service instance and fingerprint.
 
 - Modify chat adapters and tests if the existing adapter tests show any missing fingerprint invalidation:
-  - `src/main/agents/hermes-chat-adapter.js`
-  - `src/main/agents/claude-code-chat-adapter.js`
-  - `src/main/agents/codex-chat-adapter.js`
-  - `src/main/agents/openclaw-chat-adapter.js`
+  - `src/main/hermes-chat-adapter.js`
+  - `src/main/claude-code-chat-adapter.js`
+  - `src/main/codex-chat-adapter.js`
+  - `src/main/openclaw-chat-adapter.js`
 
 - Modify `src/shared/ipc-channels.js`
   - Add `McpRunManagedAction`.
@@ -1533,10 +1533,10 @@ Expected output includes:
 **Files:**
 - Modify: `src/core/mcp/engine-sync.js`
 - Modify if tests fail: `src/core/mia-core.js`
-- Modify if tests fail: `src/main/agents/hermes-chat-adapter.js`
-- Modify if tests fail: `src/main/agents/claude-code-chat-adapter.js`
-- Modify if tests fail: `src/main/agents/codex-chat-adapter.js`
-- Modify if tests fail: `src/main/agents/openclaw-chat-adapter.js`
+- Modify if tests fail: `src/main/hermes-chat-adapter.js`
+- Modify if tests fail: `src/main/claude-code-chat-adapter.js`
+- Modify if tests fail: `src/main/codex-chat-adapter.js`
+- Modify if tests fail: `src/main/openclaw-chat-adapter.js`
 - Modify: `tests/mcp-engine-sync.test.js`
 - Modify: `tests/hermes-chat-adapter.test.js`
 - Modify: `tests/claude-code-chat-adapter.test.js`
@@ -1726,7 +1726,7 @@ Expected output includes:
 Run:
 
 ```bash
-git add src/core/mcp/engine-sync.js src/core/mia-core.js src/main/agents/hermes-chat-adapter.js src/main/agents/claude-code-chat-adapter.js src/main/agents/codex-chat-adapter.js src/main/agents/openclaw-chat-adapter.js tests/mcp-engine-sync.test.js tests/hermes-chat-adapter.test.js tests/claude-code-chat-adapter.test.js tests/codex-chat-adapter.test.js tests/openclaw-chat-adapter.test.js
+git add src/core/mcp/engine-sync.js src/core/mia-core.js src/main/hermes-chat-adapter.js src/main/claude-code-chat-adapter.js src/main/codex-chat-adapter.js src/main/openclaw-chat-adapter.js tests/mcp-engine-sync.test.js tests/hermes-chat-adapter.test.js tests/claude-code-chat-adapter.test.js tests/codex-chat-adapter.test.js tests/openclaw-chat-adapter.test.js
 git commit -m "test: verify mcp exposure across agents"
 ```
 
