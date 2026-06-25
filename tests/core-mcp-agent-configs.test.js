@@ -36,6 +36,21 @@ test("parses Codex MCP JSON output with env object and env_vars", () => {
   assert.deepEqual(servers[1].transport.env, { TOKEN: "secret" });
 });
 
+test("parses object-shaped Codex MCP JSON output with disabled entries not importable", () => {
+  const servers = parseCodexMcpListJson(JSON.stringify({
+    mcpServers: {
+      disabled: { enabled: false, type: "stdio", command: "npx", args: ["disabled"], env: { API_TOKEN: "secret" } },
+      remote: { enabled: true, type: "http", url: "https://example.com/mcp", headers: { Authorization: "Bearer secret" } }
+    }
+  }));
+
+  assert.equal(servers.find((server) => server.name === "disabled").importable, false);
+  assert.equal(servers.find((server) => server.name === "disabled").importSkipReason, "Disabled");
+  assert.deepEqual(servers.find((server) => server.name === "disabled").transport.env, { API_TOKEN: "secret" });
+  assert.equal(servers.find((server) => server.name === "remote").importable, true);
+  assert.equal(servers.find((server) => server.name === "remote").transport.headers.Authorization, "Bearer secret");
+});
+
 test("parses OpenClaw MCP JSON output with source override", () => {
   const servers = parseOpenClawMcpListJson(JSON.stringify([
     { name: "xhs", enabled: true, transport: { type: "http", url: "http://127.0.0.1:18060/mcp" } }

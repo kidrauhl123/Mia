@@ -142,7 +142,7 @@ function transportFromJsonEntry(entry = {}) {
 function parseCodexMcpListJson(output = "") {
   const parsed = String(output || "").trim() ? JSON.parse(output) : [];
   const entries = Array.isArray(parsed) ? parsed : Object.entries(parsed.mcpServers || parsed.mcp_servers || parsed.servers || {})
-    .map(([name, spec]) => ({ name, transport: spec }));
+    .map(([name, spec]) => (spec && typeof spec === "object" && !Array.isArray(spec) ? { name, ...spec } : { name, transport: spec }));
   return entries
     .map((entry) => {
       const enabled = entry.enabled !== false;

@@ -286,6 +286,38 @@ test("importAgentConfig rejects plugin-managed disabled and failed discoveries",
   assert.equal(disabled.error, "Disabled");
 });
 
+test("default importAgentConfig rejects object-shaped disabled Codex discovery", async (t) => {
+  const { service, runtime } = setup(t, {
+    agentConfigRunner: async (command) => {
+      if (command === "codex") {
+        return {
+          ok: true,
+          stdout: JSON.stringify({
+            mcpServers: {
+              disabled: {
+                enabled: false,
+                type: "stdio",
+                command: "npx",
+                args: ["disabled"],
+                env: { API_TOKEN: "raw-secret" }
+              }
+            }
+          }),
+          stderr: ""
+        };
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    }
+  });
+
+  const disabled = await service.importAgentConfig({ sourceAgent: "codex", serverName: "disabled" });
+
+  assert.equal(disabled.success, false);
+  assert.equal(disabled.error, "Disabled");
+  assert.doesNotMatch(disabled.error, /raw-secret/);
+  assert.equal(fs.existsSync(runtime.mcpServers), false);
+});
+
 test("default oauth service stores tokens outside registry and reports status", async (t) => {
   const { service, runtime } = setup(t);
 
