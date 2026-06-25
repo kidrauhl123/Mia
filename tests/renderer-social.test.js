@@ -2581,6 +2581,42 @@ test("handleCloudEvent cloud_agent_run events track transient conversation strea
   assert.equal(run.tools.map((tool) => tool.name).join(","), "shell");
 });
 
+test("cloud run streaming keeps canonical text while smoothing displayed text", () => {
+  const frames = [];
+  const s = loadSocial({
+    requestAnimationFrame: (fn) => {
+      frames.push(fn);
+      return frames.length;
+    }
+  });
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", decorations: { botId: "mia" } }];
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_smooth", botId: "mia" },
+  });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_smooth", event: { type: "text_delta", text: "abcdef" } },
+  });
+
+  const run = s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_mia");
+  assert.equal(run.text, "abcdef");
+  assert.equal(run.displayText, "");
+
+  while (frames.length && run.displayText !== "abc") frames.shift()();
+  assert.equal(run.displayText, "abc");
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_smooth", event: { type: "run.completed" } },
+  });
+  assert.equal(run.displayText, "abcdef");
+});
+
 test("handleCloudEvent tracks pending agent permission requests on the active run", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
@@ -3050,6 +3086,27 @@ test("run status labels use stable rotating Chinese phrase pools", () => {
   assert.notEqual(first, second);
   assert.ok(pools.tool.includes(first));
   assert.ok(pools.tool.includes(second));
+});
+
+test("run status labels ignore generic local engine startup status", () => {
+  const s = loadSocial();
+  const pools = s._internalCtx.agentRunStatusPhrasePools;
+  const run = {
+    runId: "car_generic_start_status",
+    status: "running",
+    statusText: "本机 Codex 已开始运行。",
+    tools: []
+  };
+
+  const label = s._internalCtx.runActivityLabel(run, { elapsedMs: 0 });
+
+  assert.notEqual(label, "本机 Codex 已开始运行。");
+  assert.ok(pools.general.includes(label));
+
+  run.statusText = "本机codex已经开始运行";
+  const compactLabel = s._internalCtx.runActivityLabel(run, { elapsedMs: 9000 });
+  assert.notEqual(compactLabel, "本机codex已经开始运行");
+  assert.ok(pools.general.includes(compactLabel));
 });
 
 test("run status labels stay sticky when the run phase changes briefly", () => {

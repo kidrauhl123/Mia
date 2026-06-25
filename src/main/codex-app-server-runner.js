@@ -525,7 +525,6 @@ async function runCodexAppServerTurn({
     }
     if (method === "turn/started") {
       activeTurnId = params.turn?.id || params.turnId || activeTurnId;
-      if (typeof emit === "function") emit("status", { text: "本机 Codex 已开始运行。" });
       return;
     }
     if (method === "item/started") {

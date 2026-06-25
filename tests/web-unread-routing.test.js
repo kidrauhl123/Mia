@@ -774,7 +774,7 @@ test("src/web/app.js renders web bubbles through desktop markdown", () => {
   assert.match(source, /function renderMarkdown\(value\)/);
   assert.match(source, /window\.miaMarkdown\?\.renderMarkdown/);
   assert.match(source, /<div class="bubble">\$\{senderTitleHtml\}\$\{highlightedBody\}<\/div>/);
-  assert.match(source, /<div class="bubble">\$\{renderMarkdown\(run\.text\)\}<\/div>/);
+  assert.match(source, /<div class="bubble">\$\{renderMarkdown\(displayText\)\}<\/div>/);
   assert.doesNotMatch(source, /escapeHtml\(run\.text\)\.replace\(\/\\n\/g, "<br>"\)/);
   assert.doesNotMatch(source, /escapeHtml\(body\)\.replace\(\/&lt;br&gt;\/g, "<br>"\)/);
 });

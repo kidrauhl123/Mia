@@ -314,7 +314,6 @@ async function runCodex(text, { signal = null, ws = null, runId = "", attachment
       const textByItem = new Map();
       const { events } = await thread.runStreamed(prompt, { signal });
       for await (const event of events) {
-        if (event.type === "turn.started") sendRunEvent(ws, runId, "status", { text: "本机 Codex 已开始运行。" });
         if (event.type === "item.started" || event.type === "item.updated" || event.type === "item.completed") {
           emitCodexStreamEvent(ws, runId, event, textByItem);
           if (event.type === "item.completed" && event.item?.type === "agent_message") {

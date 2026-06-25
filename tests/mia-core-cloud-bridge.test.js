@@ -135,12 +135,10 @@ test("bridge run frame → Core sendChat (Hermes) → run_result over the mock s
   assert.equal(sendChatSeen[0].messages[0].content, "hello core bridge");
   assert.equal(sendChatSeen[0].sessionId, "cloud:c_1");
 
-  // (b) The opening status event, the real run-stream events (session_started is
-  // emitted by Core's genuine adapter graph through the bridge's emit sink), and
-  // the final run_result were all sent back over the socket.
-  assert.deepEqual(ws.sent[0], {
-    type: "run_event", runId: "run_1", event: { kind: "status", text: "本机 Hermes 已开始运行。" }
-  });
+  // (b) The real run-stream events (session_started is emitted by Core's genuine
+  // adapter graph through the bridge's emit sink) and the final run_result were
+  // sent back over the socket without a generic startup status line.
+  assert.ok(!ws.sent.some((m) => /已开始运行/.test(m.event?.text || "")));
   assert.ok(
     ws.sent.some((m) => m.type === "run_event" && m.event?.kind === "session_started"),
     "expected the real adapter graph's session_started stream event over the socket"

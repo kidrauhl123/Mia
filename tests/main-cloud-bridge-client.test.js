@@ -212,7 +212,6 @@ test("run messages execute the requested Agent engine through the bridge Module"
   assert.equal(calls.chat[0].messages[0].content, "生成猫图");
   assert.deepEqual(calls.chat[0].messages[0].attachments, [{ name: "brief.txt", path: "/tmp/brief.txt" }]);
   assert.deepEqual(ws.sent, [
-    { type: "run_event", runId: "run_1", event: { kind: "status", text: "本机 Codex 已开始运行。" } },
     {
       type: "run_result",
       runId: "run_1",
@@ -279,7 +278,7 @@ test("run messages can choose Claude Code instead of the legacy Codex bridge", a
   assert.equal(calls.chat[0].bot.engineConfig.permissionMode, undefined);
   assert.equal(calls.chat[0].bot.engineConfig.model, "sonnet");
   assert.equal(calls.chat[0].runtimeConfig.agentEngine, "claude-code");
-  assert.equal(ws.sent[0].event.text, "本机 Claude Code 已开始运行。");
+  assert.ok(!ws.sent.some((msg) => /已开始运行/.test(msg.event?.text || "")));
 });
 
 test("run messages normalize cloud bridge runtime config to Core-shaped references", async () => {

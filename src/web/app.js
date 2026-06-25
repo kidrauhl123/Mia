@@ -259,6 +259,7 @@ const pendingConversationMemberFetches = new Set();
 let eventsSocket = null;
 let eventsReconnectTimer = 0;
 let eventsReconnectAttempts = 0;
+let cloudRunTextSmoother = null;
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -1358,6 +1359,59 @@ function cloudRunFor(conversationId, runId = "") {
   return run;
 }
 
+function streamingTextSmoother() {
+  if (!cloudRunTextSmoother && assistantContentBlocks && typeof assistantContentBlocks.createStreamingTextSmoother === "function") {
+    cloudRunTextSmoother = assistantContentBlocks.createStreamingTextSmoother({
+      charsPerFrame: 3,
+      schedule: (fn) => {
+        const schedule = typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame.bind(window)
+          : window.setTimeout.bind(window);
+        return schedule(fn, 16);
+      },
+      cancel: (handle) => {
+        if (!handle) return;
+        if (typeof window.cancelAnimationFrame === "function") {
+          try { window.cancelAnimationFrame(handle); return; } catch {}
+        }
+        window.clearTimeout(handle);
+      },
+      onUpdate: (run) => {
+        if (run?.conversationId === state.activeConversationId) renderActiveChat();
+      }
+    });
+  }
+  return cloudRunTextSmoother;
+}
+
+function syncRunDisplayText(run) {
+  if (!run) return;
+  if (prefersReducedMotion()) {
+    flushRunDisplayText(run);
+    return;
+  }
+  const smoother = streamingTextSmoother();
+  if (smoother && typeof smoother.enqueue === "function") {
+    smoother.enqueue(run, run.text || "");
+  } else {
+    run.displayText = String(run.text || "");
+  }
+}
+
+function flushRunDisplayText(run) {
+  if (!run) return;
+  const smoother = streamingTextSmoother();
+  if (smoother && typeof smoother.enqueue === "function") smoother.enqueue(run, run.text || "");
+  if (smoother && typeof smoother.flush === "function") smoother.flush(run);
+  run.displayText = String(run.text || "");
+}
+
+function runDisplayText(run) {
+  if (!run) return "";
+  if (typeof run.displayText === "string") return run.displayText;
+  return String(run.text || "");
+}
+
 // Pull a human-readable line out of a Hermes approval.request event. The payload
 // shape varies by guard (command / reason / tool), so probe the common fields and
 // fall back to a compact JSON dump.
@@ -1489,6 +1543,14 @@ function contentBlocksPayloadFromRun(run, finalText = "") {
   return blocks;
 }
 
+function displayedContentBlocksPayloadFromRun(run, finalText = "") {
+  const blocks = contentBlocksPayloadFromRun(run, finalText);
+  if (!blocks || finalText) return blocks;
+  return assistantContentBlocks && typeof assistantContentBlocks.contentBlocksWithDisplayText === "function"
+    ? assistantContentBlocks.contentBlocksWithDisplayText(blocks, runDisplayText(run))
+    : blocks;
+}
+
 function messageWithFallbackRunContentBlocks(conversationId, msg) {
   if (!msg || msg.sender_kind !== SenderKind.Bot) return msg;
   if (contentBlocksFromMessage(msg).length) return msg;
@@ -1559,20 +1621,25 @@ function handleCloudEvent(envelope) {
     collectRunContentBlock(run, event);
     if (name === "message.delta" || name === "text_delta") {
       run.text += hermesEventText(event);
+      syncRunDisplayText(run);
     } else if (name === "message.complete" || name === "message.completed") {
       run.text = hermesEventText(event) || run.text;
+      flushRunDisplayText(run);
     } else if (name === "run.completed") {
       run.text = hermesEventText(event) || run.text;
       run.status = "complete";
       run.permission = null;
+      flushRunDisplayText(run);
     } else if (name === "run.failed") {
       run.status = "error";
       run.permission = null;
+      flushRunDisplayText(run);
     } else if (name === "status") {
       run.statusText = hermesEventText(event) || run.statusText || "";
     } else if (name === "run.cancelled") {
       run.status = "cancelled";
       run.permission = null;
+      flushRunDisplayText(run);
     } else if (name === "approval.request") {
       // Interactive tool approval: the run paused waiting for the owner. Show a
       // banner; the decision is POSTed back so the cloud can resume the run.
@@ -2716,7 +2783,7 @@ function buildCloudAgentStreamingArticle(conversation, run) {
     id: `cloud-agent-stream-${run.runId || conversation.id}`,
     sender_kind: "bot",
     sender_ref: botKey,
-    body_md: run.text || "",
+    body_md: runDisplayText(run),
     created_at: run.createdAt || new Date().toISOString(),
     seq: 0,
   };
@@ -2732,10 +2799,12 @@ function buildCloudAgentStreamingArticle(conversation, run) {
     color: avatar.color || "#5e5ce6",
     text: avatar.text || avatarResolve.identityDisplayText(spec.authorName, "?")
   });
-  const textHtml = run.text ? `<div class="bubble">${renderMarkdown(run.text)}</div>` : "";
-  const orderedBlocksHtml = Array.isArray(run.contentBlocks) && run.contentBlocks.length && window.miaTraceBlocks?.renderAssistantContentBlocks
+  const displayText = runDisplayText(run);
+  const textHtml = displayText ? `<div class="bubble">${renderMarkdown(displayText)}</div>` : "";
+  const displayBlocks = displayedContentBlocksPayloadFromRun(run) || [];
+  const orderedBlocksHtml = displayBlocks.length && window.miaTraceBlocks?.renderAssistantContentBlocks
     ? window.miaTraceBlocks.renderAssistantContentBlocks({
-      blocks: run.contentBlocks,
+      blocks: displayBlocks,
       expanded: true,
       scopeKey: `web-run:${run.runId || conversation.id}`,
       renderTextBlock(block) {
@@ -2748,7 +2817,7 @@ function buildCloudAgentStreamingArticle(conversation, run) {
     : window.miaTraceBlocks.renderTraceBlocks({
       reasoning: run.reasoning,
       tools: run.tools,
-      content: run.text || "",
+      content: displayText,
       expanded: true,
       scopeKey: `web-run:${run.runId || conversation.id}`,
     });

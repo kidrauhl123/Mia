@@ -159,7 +159,6 @@ function createCloudBridgeClient({
     const botName = String(message.botName || message.displayName || label).trim();
     const capabilities = resolveBotCapabilities({ botKey, botName, message, runtimeConfig }) || {};
     try {
-      sendCloudBridgeRunEvent(ws, runId, "status", { text: `本机 ${label} 已开始运行。` });
       const response = await adapter.sendChat({
         bot: {
           key: botKey,
