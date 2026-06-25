@@ -229,6 +229,7 @@ test("runtime code composes bot conversation ids through shared bot identity hel
 
 test("cloud bridge remote run is account-authenticated and does not add a separate local approval gate", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const runtimeServiceSource = fs.readFileSync(path.join(root, "src/main/mia-core/runtime-service.js"), "utf8");
   const bridgeSource = fs.readFileSync(path.join(root, "src/main/cloud/cloud-bridge-client.js"), "utf8");
   const body = bridgeSource.match(/async function runCloudBridgeRequest\(ws, message = \{\}\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(body, "runCloudBridgeRequest should exist");
@@ -238,7 +239,7 @@ test("cloud bridge remote run is account-authenticated and does not add a separa
   assert.match(body, /createActiveBridgeChatAdapter\(agentEngine\)/);
   assert.match(body, /agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/);
   assert.doesNotMatch(body, /\n\s*permissionMode:\s*runtimeConfig\.permissionMode\s*(?:,|\n)/);
-  assert.match(mainSource, /enginePermissionStoreTarget\(agentEngine\) !== "root-mode"[\s\S]*delete configForEngine\.permissionMode/);
+  assert.match(runtimeServiceSource, /enginePermissionStoreTarget\(agentEngine\) !== "root-mode"[\s\S]*delete configForEngine\.permissionMode/);
   assert.match(mainSource, /createCloudBridgeClient/, "main must instantiate the cloud bridge Module");
   assert.match(mainSource, /createActiveBridgeChatAdapter/, "main must provide a generic bridge adapter factory");
   assert.doesNotMatch(mainSource, /async function runCloudBridgeRequest/, "main must not own bridge run implementation");
