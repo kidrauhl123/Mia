@@ -1,5 +1,8 @@
 # Mia Core Phase 1: Independent Daemon Executable Identity — Implementation Plan
 
+> Superseded on 2026-06-25 by `docs/adr/2026-06-25-mia-core-runtime-owner.md` and `docs/superpowers/plans/2026-06-25-mia-core-runtime-cutover.md`.
+> This document is retained for historical context only; do not implement new daemon-first work from it.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stop launching the desktop daemon as the GUI app identity (`Mia.app/Contents/MacOS/Mia --daemon`) by routing every daemon launch through one shared resolver Module, and ship a nested helper-app target with its own identity.

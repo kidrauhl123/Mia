@@ -1,5 +1,8 @@
 # Mia Core Phase 1: 独立 daemon 可执行身份设计
 
+> Superseded on 2026-06-25 by `docs/adr/2026-06-25-mia-core-runtime-owner.md` and `docs/superpowers/plans/2026-06-25-mia-core-runtime-cutover.md`.
+> This document is retained for historical context only; do not implement new daemon-first work from it.
+
 Status: approved direction, pending implementation plan.
 
 ## Goal
