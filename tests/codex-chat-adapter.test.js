@@ -605,7 +605,7 @@ test("sendChat merges user MCP servers into app-server runner and stores MCP fin
       env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
     },
     userMcpSpecs: {
-      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
+      xiaohongshu: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
     }
   });
   deps.runCodexAppServerTurn = async (args) => {
@@ -624,7 +624,7 @@ test("sendChat merges user MCP servers into app-server runner and stores MCP fin
   });
 
   const appServerCall = deps.calls.find((entry) => entry[0] === "app-server")[1];
-  assert.equal(appServerCall.mcpServers.xhs.url, "http://127.0.0.1:18060/mcp");
+  assert.equal(appServerCall.mcpServers.xiaohongshu.url, "http://127.0.0.1:18060/mcp");
   assert.match(appServerCall.mcpServers["mia-scheduler"].command, /node/);
   const setEntryCall = deps.calls.find((entry) => entry[0] === "set-entry");
   assert.equal(setEntryCall[5], "mcp_fp");
@@ -683,7 +683,7 @@ test("sendChat keeps reserved built-in MCP servers when user specs collide on th
     userMcpSpecs: {
       "mia-app": { type: "http", url: "http://127.0.0.1:18061/mcp" },
       "mia-scheduler": { type: "http", url: "http://127.0.0.1:18062/mcp" },
-      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+      xiaohongshu: { type: "http", url: "http://127.0.0.1:18060/mcp" }
     }
   });
   const adapter = createCodexChatAdapter(deps);
@@ -707,7 +707,7 @@ test("sendChat keeps reserved built-in MCP servers when user specs collide on th
     args: ["/tmp/mia-scheduler.js"],
     env: { MIA_SCHEDULER_CONTEXT_FILE: "/tmp/mia-scheduler-context.json" }
   });
-  assert.equal(appServerCall.mcpServers.xhs.url, "http://127.0.0.1:18060/mcp");
+  assert.equal(appServerCall.mcpServers.xiaohongshu.url, "http://127.0.0.1:18060/mcp");
 });
 
 test("sendChat passes engine-level Codex permission profiles to app-server runner", async () => {
