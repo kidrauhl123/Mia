@@ -375,6 +375,62 @@ test("focusConversationMessage consumes the first focus on the forced chat rende
   assert.equal(chat.scrollTop, 340);
 });
 
+test("focusConversationMessage waits for measurable layout before consuming offscreen focus", async () => {
+  const article = {
+    offsetTop: 500,
+    offsetHeight: 80,
+    offsetParent: null,
+    classList: { add() {}, remove() {} },
+  };
+  const bubble = { closest: () => article };
+  const chat = {
+    dataset: {},
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 400,
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector(selector) {
+      return selector.includes("m_hit") ? bubble : null;
+    },
+    set innerHTML(value) {
+      this._html = value;
+      this.children = [];
+    },
+    get innerHTML() {
+      return this._html || "";
+    }
+  };
+  article.offsetParent = chat;
+  const s = loadSocial({ requestAnimationFrame: (fn) => fn(), elementsById: { chat } });
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.activeConversationId = "botc_sess_1";
+  s.moduleState.conversations = [{ id: "botc_sess_1", type: "bot", name: "论文搭子" }];
+  s.moduleState.messageCache.set("botc_sess_1", {
+    messages: [{ id: "m_hit", seq: 120, sender_kind: "user", body_md: "命中消息" }],
+    maxSeq: 120
+  });
+  s.__mockWindow.mia.social = {
+    listConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
+    settingsPut: async () => ({}),
+  };
+
+  const result = await s.focusConversationMessage("botc_sess_1", { messageId: "m_hit" });
+
+  assert.equal(result.found, true);
+  assert.equal(chat.scrollTop, 0, "unmeasured layout cannot scroll yet");
+
+  chat.scrollHeight = 1200;
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.scrollTop, 340);
+});
+
 test("focusConversationMessage does not re-center after the user scrolls away", async () => {
   const article = {
     offsetTop: 500,

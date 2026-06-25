@@ -309,13 +309,20 @@
   }
 
   function centerMessageTarget(containerEl, targetEl) {
-    if (!containerEl || !targetEl) return;
+    if (!containerEl || !targetEl) return { ready: false, scrollTop: 0 };
     const targetTop = elementTopWithin(containerEl, targetEl);
     const targetHeight = Number(targetEl.offsetHeight) || Number(targetEl.getBoundingClientRect?.().height) || 0;
     const viewportHeight = Number(containerEl.clientHeight) || 0;
-    const maxScroll = Math.max(0, (Number(containerEl.scrollHeight) || 0) - viewportHeight);
+    const scrollHeight = Number(containerEl.scrollHeight) || 0;
+    const maxScroll = Math.max(0, scrollHeight - viewportHeight);
     const nextTop = Math.max(0, Math.min(maxScroll, Math.round(targetTop - (viewportHeight - targetHeight) / 2)));
     containerEl.scrollTop = nextTop;
+    const targetBottom = targetTop + targetHeight;
+    const targetAlreadyVisible = viewportHeight > 0 && targetTop >= 0 && targetBottom <= viewportHeight;
+    return {
+      ready: maxScroll > 0 || targetAlreadyVisible,
+      scrollTop: nextTop
+    };
   }
 
   function focusPendingMessage(containerEl = document.getElementById("chat")) {
@@ -328,7 +335,8 @@
       || bubble;
     if (!target) return false;
     if (pending.focusedAt) return true;
-    centerMessageTarget(containerEl, target);
+    const focusResult = centerMessageTarget(containerEl, target);
+    if (!focusResult.ready) return false;
     const now = Date.now();
     pending.focusedAt = now;
     pending.highlightUntil = Math.max(Number(pending.highlightUntil || 0), now + MESSAGE_FOCUS_HIGHLIGHT_MS);
