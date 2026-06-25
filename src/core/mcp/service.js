@@ -647,10 +647,12 @@ function createCoreMcpService(deps = {}) {
     startInitialization();
     const records = enabledRecords();
     const bridgeSpec = getBridgeSpec();
-    if (engineId === "claude-code") return mcpSpecsForClaudeSdk(records, { bridge: bridgeSpec, ...options });
-    if (engineId === "codex") return mcpSpecsForCodex(records, { bridge: bridgeSpec, ...options });
-    if (engineId === "hermes") return mcpSpecsForHermes(records, { bridge: bridgeSpec, ...options });
-    if (engineId === "openclaw") return mcpServersForOpenClawAcp(records, { bridge: bridgeSpec, ...options });
+    const statusCollector = Array.isArray(options.statusCollector) ? options.statusCollector : [];
+    const conversionOptions = { bridge: bridgeSpec, ...options, statusCollector };
+    if (engineId === "claude-code") return mcpSpecsForClaudeSdk(records, conversionOptions);
+    if (engineId === "codex") return mcpSpecsForCodex(records, conversionOptions);
+    if (engineId === "hermes") return mcpSpecsForHermes(records, conversionOptions);
+    if (engineId === "openclaw") return mcpServersForOpenClawAcp(records, conversionOptions);
     return {};
   }
 

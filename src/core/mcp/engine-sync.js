@@ -9,7 +9,7 @@ function headerArray(headers = {}) {
 }
 
 function enabled(records = []) {
-  return (Array.isArray(records) ? records : []).filter((record) => record?.enabled !== false);
+  return (Array.isArray(records) ? records : []).filter((record) => record?.enabled !== false && !record?.deletedAt);
 }
 
 function unsupportedStatus(record = {}, engine, reason, detail = {}) {
