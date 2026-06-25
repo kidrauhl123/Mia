@@ -5661,22 +5661,9 @@ document.addEventListener("scroll", (event) => {
 }, { capture: true, passive: true });
 document.addEventListener("pointermove", (event) => {
   window.miaScrollbarOverlay.updateScrollbarOverlayDrag(event);
-  window.miaScrollbarOverlay.maybeShowScrollbarForPointer(event);
 }, { capture: true });
 document.addEventListener("pointerup", (event) => window.miaScrollbarOverlay.stopScrollbarOverlayDrag(event), { capture: true });
 document.addEventListener("pointercancel", (event) => window.miaScrollbarOverlay.stopScrollbarOverlayDrag(event), { capture: true });
-document.addEventListener("mouseover", (event) => {
-  const target = event.target?.closest?.(".scrollbar-active");
-  if (!target) return;
-  window.miaScrollbarOverlay.cancelScrollbarHide(target);
-  window.miaScrollbarOverlay.updateScrollbarOverlay(target);
-  target.classList.add("scrollbar-visible");
-}, { capture: true, passive: true });
-document.addEventListener("mouseout", (event) => {
-  const target = event.target?.closest?.(".scrollbar-active");
-  if (!target || target.contains(event.relatedTarget)) return;
-  window.miaScrollbarOverlay.scheduleScrollbarHide(target, 500);
-}, { capture: true, passive: true });
 window.addEventListener("resize", () => {
   const overlayTarget = window.miaScrollbarOverlay.getScrollbarOverlayTarget();
   if (overlayTarget) window.miaScrollbarOverlay.updateScrollbarOverlay(overlayTarget);

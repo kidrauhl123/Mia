@@ -670,6 +670,90 @@ test("custom scrollbar overlay aligns the narrower thumb to the right edge", () 
   assert.doesNotMatch(scrollbarSource, /const thumbLeft = rect\.right - 10;/);
 });
 
+test("custom scrollbar overlay appears on scroll, not pointer hover", () => {
+  const scrollbarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/scrollbar-overlay.js"), "utf8");
+
+  class MockElement {
+    constructor(rect, style = {}) {
+      this.rect = rect;
+      this.style = {};
+      this.computedStyle = style;
+      this.parentElement = null;
+      this.children = [];
+      this.id = "";
+      this.isConnected = true;
+      this.scrollHeight = 1200;
+      this.clientHeight = rect.height;
+      this.scrollTop = 0;
+      this.className = "";
+      this.classList = {
+        add: (...names) => {
+          const classes = new Set(String(this.className || "").split(/\s+/).filter(Boolean));
+          for (const name of names) classes.add(name);
+          this.className = Array.from(classes).join(" ");
+        },
+        remove: (...names) => {
+          const remove = new Set(names);
+          this.className = String(this.className || "").split(/\s+/).filter((name) => name && !remove.has(name)).join(" ");
+        },
+        contains: (name) => String(this.className || "").split(/\s+/).includes(name)
+      };
+    }
+
+    getBoundingClientRect() { return this.rect; }
+    addEventListener() {}
+    appendChild(child) { this.children.push(child); child.parentElement = this; return child; }
+    contains(node) { return node === this || this.children.includes(node); }
+    matches() { return false; }
+    closest(selector) {
+      if (selector === ".hidden, [hidden]") return null;
+      if (selector === ".sidebar" || selector === ".workspace" || selector === ".app-shell" || selector === ".sidebar-tag-filter-strip") return null;
+      return null;
+    }
+  }
+
+  const body = new MockElement({ top: 0, right: 420, bottom: 600, left: 0, width: 420, height: 600 });
+  const documentElement = new MockElement({ top: 0, right: 420, bottom: 600, left: 0, width: 420, height: 600 });
+  const target = new MockElement(
+    { top: 0, right: 400, bottom: 600, left: 0, width: 400, height: 600 },
+    { overflowY: "auto", display: "block", visibility: "visible" }
+  );
+  target.parentElement = body;
+
+  const sandbox = {
+    Element: MockElement,
+    document: {
+      body,
+      documentElement,
+      createElement: () => new MockElement({ top: 0, right: 0, bottom: 0, left: 0, width: 0, height: 0 }),
+      querySelector: () => null
+    },
+    window: {
+      getComputedStyle: (element) => element.computedStyle || {},
+      addEventListener() {},
+      clearTimeout() {},
+      setTimeout() { return 1; },
+      requestAnimationFrame(callback) { callback(); return 1; }
+    }
+  };
+  vm.runInNewContext(scrollbarSource, sandbox, { filename: "scrollbar-overlay.js" });
+
+  sandbox.window.miaScrollbarOverlay.maybeShowScrollbarForPointer({
+    target,
+    clientX: 397
+  });
+
+  assert.equal(target.classList.contains("scrollbar-visible"), false);
+  assert.equal(target.classList.contains("scrollbar-active"), false);
+  assert.equal(sandbox.window.miaScrollbarOverlay.getScrollbarOverlayTarget(), null);
+
+  sandbox.window.miaScrollbarOverlay.showScrollingScrollbar(target);
+
+  assert.equal(target.classList.contains("scrollbar-visible"), true);
+  assert.equal(target.classList.contains("scrollbar-active"), true);
+  assert.strictEqual(sandbox.window.miaScrollbarOverlay.getScrollbarOverlayTarget(), target);
+});
+
 test("custom scrollbar overlay is invalidated when panes hide", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const scrollbarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/scrollbar-overlay.js"), "utf8");
@@ -679,8 +763,10 @@ test("custom scrollbar overlay is invalidated when panes hide", () => {
   assert.doesNotMatch(scrollbarSource, /settings-closing/);
   assert.match(scrollbarSource, /shell\.dataset\.sidebarState === "collapsed" && target\.closest\("\.sidebar"\)/);
   assert.match(scrollbarSource, /shell\.dataset\.narrowPane === "content" && target\.closest\("\.sidebar"\)/);
-  assert.match(scrollbarSource, /event\.target\?\.closest\?\.\("\.sidebar-tag-filter-strip"\)\) return;/);
   assert.match(scrollbarSource, /hideScrollbarOverlay\(target,\s*true\)/);
+  assert.doesNotMatch(scrollbarSource, /target\.matches\(":hover"\)/);
+  assert.doesNotMatch(appSource, /maybeShowScrollbarForPointer\(event\)/);
+  assert.doesNotMatch(appSource, /cancelScrollbarHide\(target\);[\s\S]*?target\.classList\.add\("scrollbar-visible"\)/);
   assert.match(scrollbarSource, /new MutationObserver\(\(records\) => \{/);
   assert.match(scrollbarSource, /validateScrollbarOverlay/);
   assert.match(appSource, /window\.miaScrollbarOverlay\?\.validateScrollbarOverlay\?\.\(\);/);

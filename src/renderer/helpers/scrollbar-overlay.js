@@ -235,7 +235,7 @@
         return;
       }
       if (scrollbarDrag?.active && scrollbarDrag.target === target) return;
-      if (target.matches(":hover") || scrollbarOverlayEl?.matches(":hover")) return;
+      if (scrollbarOverlayEl?.matches(":hover")) return;
       target.classList.remove("scrollbar-visible");
       target.classList.remove("scrollbar-active");
       scrollbarTimers.delete(target);
@@ -254,28 +254,7 @@
     scheduleScrollbarHide(target);
   }
 
-  function scrollableAncestor(node) {
-    let current = node instanceof Element ? node : node?.parentElement;
-    while (current && current !== document.body && current !== document.documentElement) {
-      const style = window.getComputedStyle(current);
-      const canScrollY = current.scrollHeight > current.clientHeight && /(auto|scroll|overlay)/.test(style.overflowY);
-      if (canScrollY && isScrollbarTargetUsable(current)) return current;
-      current = current.parentElement;
-    }
-    return null;
-  }
-
-  function maybeShowScrollbarForPointer(event) {
-    if (scrollbarDrag?.active) return;
-    if (scrollbarOverlayEl?.contains(event.target)) return;
-    if (event.target?.closest?.(".sidebar-tag-filter-strip")) return;
-    const target = scrollableAncestor(event.target);
-    if (!target) return;
-    const rect = target.getBoundingClientRect();
-    const nearRightEdge = event.clientX >= rect.right - 18 && event.clientX <= rect.right + 4;
-    if (!nearRightEdge && scrollbarOverlayTarget !== target) return;
-    showScrollingScrollbar(target);
-  }
+  function maybeShowScrollbarForPointer() {}
 
   function startScrollbarOverlayDrag(event) {
     const target = scrollbarOverlayTarget;
@@ -330,13 +309,6 @@
     return scrollbarOverlayTarget;
   }
 
-  // Cancel any pending hide-timer for `target`. Used by the mouseover
-  // listener in app.js so a hovered scrollbar stays visible.
-  function cancelScrollbarHide(target) {
-    if (!(target instanceof Element)) return;
-    clearScrollbarHide(target);
-  }
-
   function installScrollbarInvalidationObserver() {
     if (typeof MutationObserver !== "function") return;
     const observer = new MutationObserver((records) => {
@@ -369,13 +341,11 @@
     hideScrollbarOverlay,
     scheduleScrollbarHide,
     showScrollingScrollbar,
-    scrollableAncestor,
     maybeShowScrollbarForPointer,
     startScrollbarOverlayDrag,
     updateScrollbarOverlayDrag,
     stopScrollbarOverlayDrag,
     getScrollbarOverlayTarget,
-    cancelScrollbarHide,
     validateScrollbarOverlay,
   };
 })();
