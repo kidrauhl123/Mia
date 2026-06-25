@@ -446,6 +446,24 @@
       .filter((entry) => entry.value || entry.model === "");
   }
 
+  function runtimeProfilePatch(entry = {}, fallbackValue = "") {
+    const provider = String(
+      entry?.providerConnectionId
+      || entry?.provider_connection_id
+      || entry?.provider
+      || entry?.modelProvider
+      || entry?.model_provider
+      || ""
+    ).trim();
+    const model = String(entry?.model || fallbackValue || "").trim();
+    const patch = { model };
+    if (provider) patch.providerConnectionId = provider;
+    const profileId = String(entry?.modelProfileId || entry?.model_profile_id || entry?.profileId || entry?.profile_id || "").trim();
+    if (profileId) patch.modelProfileId = profileId;
+    else if (provider && model) patch.modelProfileId = `${provider}:${model}`;
+    return patch;
+  }
+
   function desktopLocalRuntimeConfig({
     state = {},
     bot = {},
@@ -479,15 +497,20 @@
       ...(deviceName ? { deviceName } : {})
     };
     if (isExternalAgentEngine(engine, engineContracts, engineOptions)) {
-      config.model = String(engineConfig.model || "").trim();
+      const modelEntries = externalModelEntries(engine, engineOptions);
+      const modelPatch = patchForRuntimeField("model", String(engineConfig.model || "").trim(), modelEntries);
+      Object.assign(config, modelPatch);
       config.effortLevel = String(engineConfig.effortLevel || "medium").trim();
-      config.modelEntries = externalModelEntries(engine, engineOptions);
+      config.modelEntries = modelEntries;
       return config;
     }
-    config.model = String(runtime.model?.model || "").trim();
+    const modelEntries = localHermesModelEntries(runtime, modelSettings);
+    const modelPatch = patchForRuntimeField("model", String(runtime.model?.model || "").trim(), modelEntries);
+    Object.assign(config, modelPatch);
+    if (!modelPatch.providerConnectionId) Object.assign(config, runtimeProfilePatch(runtime.model, String(runtime.model?.model || "").trim()));
     config.effortLevel = String(runtime.effort?.level || "medium").trim();
     config.permissionMode = String(runtime.permissions?.mode || "ask").trim();
-    config.modelEntries = localHermesModelEntries(runtime, modelSettings);
+    config.modelEntries = modelEntries;
     return config;
   }
 
@@ -555,14 +578,7 @@
   function patchForRuntimeField(field, value, modelEntries = []) {
     if (field === "model") {
       const entry = modelEntryForValue(modelEntries, value);
-      const patch = { model: entry?.model ?? value };
-      if (entry) {
-        const hasProviderBoundary = Boolean(entry.provider);
-        for (const key of ["provider", "providerLabel", "authType", "modelProfileId", "apiKeyEnv", "baseUrl", "apiMode"]) {
-          if (entry[key] || hasProviderBoundary) patch[key] = entry[key] || "";
-        }
-      }
-      return patch;
+      return runtimeProfilePatch(entry || {}, entry?.model ?? value);
     }
     if (field === "effortLevel" || field === "permissionMode") return { [field]: value };
     return {};
