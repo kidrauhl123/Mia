@@ -188,3 +188,47 @@ Created commit with message:
 ## Concerns
 
 None.
+
+## Review Fixes
+
+Commit:
+
+- `806ca8c fix(core-mcp): preserve tombstones and diagnostic codes`
+
+Changed files:
+
+- `src/core/mcp/service.js`
+- `src/core/mcp/records.js`
+- `src/core/mcp/engine-sync.js`
+- `src/main/mcp/mcp-engine-sync.js`
+- `tests/core-mcp-service.test.js`
+- `tests/core-mcp-records.test.js`
+- `tests/core-mcp-file-registry.test.js`
+- `tests/mcp-service.test.js`
+
+Fix details:
+
+- Preserved soft-deleted tombstones across normal service writes by merging existing deleted records back into `saveRecords()` unless the incoming write restores/replaces the same id or name.
+- Preserved non-numeric diagnostic `lastTestCode` values such as `"auth_required"` while keeping numeric and numeric-string legacy values numeric.
+- Moved engine-sync ownership into Core with `src/core/mcp/engine-sync.js`, updated Core service to import Core directly, and kept the existing main import path as a compatibility wrapper.
+- Added focused tests for tombstone durability after later `save`, `setEnabled`, and `importJson` writes, plus service/record/registry coverage for string `lastTestCode` persistence and projection.
+
+Tests run:
+
+```bash
+node --test tests/core-mcp-service.test.js tests/mcp-service.test.js tests/startup-mcp-initializer.test.js
+node --test tests/core-mcp-records.test.js tests/core-mcp-file-registry.test.js tests/mcp-records.test.js
+node --check src/core/mcp/service.js src/main/mcp/mcp-service.js src/core/mcp/engine-sync.js src/main/mcp/mcp-engine-sync.js
+node --test tests/mcp-engine-sync.test.js
+```
+
+Results:
+
+- Required service/startup tests: 29 passed, 0 failed.
+- Required record/registry tests: 21 passed, 0 failed.
+- Required syntax checks: passed.
+- Additional engine-sync compatibility tests: 13 passed, 0 failed.
+
+Residual concerns:
+
+- None.
