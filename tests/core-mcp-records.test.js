@@ -109,6 +109,50 @@ test("fingerprint changes when enabled transport changes and ignores deleted rec
   assert.equal(coreMcpFingerprint([a]), coreMcpFingerprint([a, deleted]));
 });
 
+test("fingerprint changes when managed exposure readiness changes without transport changes", () => {
+  const connected = normalizeCoreMcpRecord({
+    name: "managed",
+    nativeName: "managed",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+  const disconnected = normalizeCoreMcpRecord({
+    name: "managed",
+    nativeName: "managed",
+    managementMode: "managed",
+    enabled: true,
+    status: "disconnected",
+    lastTestStatus: "disconnected",
+    transport: { type: "stdio", command: "npx", args: ["managed"] },
+    connectionWizard: { state: "managed_error", nextAction: "test", message: "retry" },
+    managedRuntime: { state: "error" }
+  });
+  const nativeA = normalizeCoreMcpRecord({
+    name: "native",
+    nativeName: "native",
+    managementMode: "native",
+    enabled: true,
+    transport: { type: "stdio", command: "npx", args: ["native"] }
+  });
+  const nativeB = normalizeCoreMcpRecord({
+    name: "native",
+    nativeName: "native",
+    managementMode: "native",
+    enabled: true,
+    status: "disconnected",
+    lastTestStatus: "disconnected",
+    transport: { type: "stdio", command: "npx", args: ["native"] }
+  });
+
+  assert.notEqual(coreMcpFingerprint([connected]), coreMcpFingerprint([disconnected]));
+  assert.equal(coreMcpFingerprint([nativeA]), coreMcpFingerprint([nativeB]));
+});
+
 test("import parser accepts mcpServers and streamable-http aliases", () => {
   const imported = parseCoreMcpImportJson({
     mcpServers: {

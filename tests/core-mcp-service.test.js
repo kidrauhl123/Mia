@@ -467,3 +467,38 @@ test("getEngineSpecs excludes managed records until connection is confirmed", as
   assert.equal("managed-connected" in codexSpecs, true);
   assert.equal("native-enabled" in codexSpecs, true);
 });
+
+test("fingerprint changes when managed exposure readiness changes", async (t) => {
+  const { service } = setup(t);
+
+  const connected = await service.save({
+    id: "managed_connected",
+    name: "managed-connected",
+    nativeName: "managed-connected",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed-connected"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+  assert.equal(connected.success, true);
+  const connectedFingerprint = service.fingerprint();
+
+  const failed = await service.save({
+    id: "managed_connected",
+    name: "managed-connected",
+    nativeName: "managed-connected",
+    managementMode: "managed",
+    enabled: true,
+    status: "disconnected",
+    lastTestStatus: "disconnected",
+    transport: { type: "stdio", command: "npx", args: ["managed-connected"] },
+    connectionWizard: { state: "managed_error", nextAction: "test", message: "retry" },
+    managedRuntime: { state: "error" }
+  });
+
+  assert.equal(failed.success, true);
+  assert.notEqual(service.fingerprint(), connectedFingerprint);
+});

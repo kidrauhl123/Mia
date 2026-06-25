@@ -433,12 +433,20 @@ function enabledCoreMcpRecords(records = []) {
   return normalizeCoreMcpRegistry(records).filter((record) => record.enabled && !record.deletedAt);
 }
 
+function isCoreMcpExposureReady(record) {
+  if (!record || record.managementMode !== "managed") return true;
+  if (String(record.status || "").trim().toLowerCase() === "connected") return true;
+  if (String(record.lastTestStatus || "").trim().toLowerCase() === "connected") return true;
+  return String(record?.connectionWizard?.state || "").trim().toLowerCase() === "connected";
+}
+
 function fingerprintPayload(records = []) {
   return enabledCoreMcpRecords(records)
     .map((record) => ({
       name: record.name,
       nativeName: record.nativeName,
-      transport: record.transport
+      transport: record.transport,
+      exposureReady: isCoreMcpExposureReady(record)
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -452,6 +460,7 @@ module.exports = {
   cleanObject,
   coreMcpFingerprint,
   enabledCoreMcpRecords,
+  isCoreMcpExposureReady,
   normalizeNativeName,
   normalizeCoreMcpRecord,
   normalizeCoreMcpRegistry,

@@ -20,6 +20,7 @@ const {
   MASK,
   coreMcpFingerprint,
   enabledCoreMcpRecords,
+  isCoreMcpExposureReady,
   normalizeCoreMcpRecord,
   normalizeCoreMcpRegistry,
   parseCoreMcpImportJson,
@@ -302,10 +303,7 @@ function createCoreMcpService(deps = {}) {
   }
 
   function isManagedExposureReady(record) {
-    if (!record || record.managementMode !== "managed") return true;
-    if (String(record.status || "").trim().toLowerCase() === "connected") return true;
-    if (String(record.lastTestStatus || "").trim().toLowerCase() === "connected") return true;
-    return String(record?.connectionWizard?.state || "").trim().toLowerCase() === "connected";
+    return isCoreMcpExposureReady(record);
   }
 
   function canEnableManagedRecord(record) {
