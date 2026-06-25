@@ -233,6 +233,35 @@ test("testConnection uses OAuth Authorization header when no env fallback exists
   });
 });
 
+test("testConnection keeps explicit Authorization before OAuth Authorization", async () => {
+  const calls = [];
+  const tester = createCoreMcpConnectionTester({
+    loadSdk: fakeLoadSdk(calls),
+    processEnvStrings: () => ({}),
+    oauthService: {
+      authorizationHeadersForServer: async () => ({
+        Authorization: "Bearer oauth",
+        "X-OAuth": "present"
+      })
+    }
+  });
+
+  const result = await tester.testConnection({
+    name: "remote",
+    transport: {
+      type: "http",
+      url: "https://example.com/mcp",
+      headers: { Authorization: "Bearer explicit" }
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls[0][2].requestInit.headers, {
+    Authorization: "Bearer explicit",
+    "X-OAuth": "present"
+  });
+});
+
 test("SSE transports keep explicit headers and bearerTokenEnvVar fallback", async () => {
   const calls = [];
   const tester = createCoreMcpConnectionTester({

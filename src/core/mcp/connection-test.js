@@ -16,6 +16,15 @@ function hasAuthorizationHeader(headers = {}) {
   return Object.keys(headers || {}).some((key) => String(key || "").trim().toLowerCase() === "authorization");
 }
 
+function mergeOAuthHeaders(headers, oauthHeaders = {}) {
+  const hasExplicitAuthorization = hasAuthorizationHeader(headers);
+  for (const [key, value] of Object.entries(oauthHeaders || {})) {
+    if (hasExplicitAuthorization && String(key || "").trim().toLowerCase() === "authorization") continue;
+    headers[key] = value;
+  }
+  return headers;
+}
+
 function headersFromError(error = {}) {
   return error?.headers || error?.response?.headers || {};
 }
@@ -207,7 +216,7 @@ function createCoreMcpConnectionTester(deps = {}) {
 
     const headers = { ...(transport.headers || {}) };
     if (oauthService && typeof oauthService.authorizationHeadersForServer === "function") {
-      Object.assign(headers, await oauthService.authorizationHeadersForServer(record));
+      mergeOAuthHeaders(headers, await oauthService.authorizationHeadersForServer(record));
     }
     const bearerTokenEnvVar = String(transport.bearerTokenEnvVar || "").trim();
     const bearerToken = bearerTokenEnvVar ? String(env[bearerTokenEnvVar] || "").trim() : "";

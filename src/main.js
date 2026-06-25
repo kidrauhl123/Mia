@@ -140,6 +140,8 @@ const { createMcpBridgeServer } = require("./main/mcp/mcp-bridge-server.js");
 const { runNativeMcpCliSync } = require("./main/mcp/mcp-engine-sync.js");
 const { createMcpSdkClientManager } = require("./main/mcp/mcp-sdk-client.js");
 const { createMcpService } = require("./main/mcp/mcp-service.js");
+const { createCoreMcpOAuthService } = require("./core/mcp/oauth-service.js");
+const { createCoreMcpOAuthTokenStore } = require("./core/mcp/oauth-token-store.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — bot chats
 //  now sync via conversations+messages, no need for the workspace-shape mappers.)
 
@@ -741,9 +743,16 @@ function processEnvStrings() {
   return Object.fromEntries(Object.entries(localAgentEngineService.processEnvWithCliPath()).filter(([, value]) => typeof value === "string"));
 }
 
+const userMcpOAuthTokenStore = createCoreMcpOAuthTokenStore({ runtimePaths, fs });
+const userMcpOAuthService = createCoreMcpOAuthService({
+  tokenStore: userMcpOAuthTokenStore,
+  fetch,
+  openExternal: (url) => shell.openExternal(url)
+});
 const userMcpManager = createMcpSdkClientManager({
   processEnvStrings,
   appendLog: appendEngineLog,
+  oauthService: userMcpOAuthService,
   authorizeToolCall: async ({ args, options = {} }) => {
     const toolLabel = String(options.toolLabel || "").trim() || "mcp.tool";
     let preview = "";
@@ -786,7 +795,9 @@ const userMcpService = createMcpService({
     appendLog: appendEngineLog
   }),
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
-  stdioProxyScriptPath: () => path.join(__dirname, "main", "mcp", "mcp-stdio-proxy-server.js")
+  stdioProxyScriptPath: () => path.join(__dirname, "main", "mcp", "mcp-stdio-proxy-server.js"),
+  oauthTokenStore: userMcpOAuthTokenStore,
+  oauthService: userMcpOAuthService
 });
 const startupMcpInitializer = createStartupMcpInitializer({
   initializeMcp: () => userMcpService.initialize(),

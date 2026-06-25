@@ -26,7 +26,6 @@ const {
   sanitizeSecretText
 } = require("./records.js");
 const { createCoreMcpFileRegistry } = require("./file-registry.js");
-const { createMcpSdkClientManager } = require("../../main/mcp/mcp-sdk-client.js");
 
 const MASK_SENTINEL = MASK;
 const MCP_MARKETPLACE_TEMPLATES = [
@@ -109,6 +108,23 @@ function sanitizeBridgeError(error) {
   return next;
 }
 
+function createCoreLocalManager({ connectionTester } = {}) {
+  return {
+    async refresh() {
+      return { success: true, tools: [], errors: [] };
+    },
+    async testServer(record) {
+      if (connectionTester && typeof connectionTester.testConnection === "function") {
+        return connectionTester.testConnection(record);
+      }
+      return { ok: true, success: true, status: "connected", code: "ok", tools: [], error: "" };
+    },
+    toolManifest() {
+      return [];
+    }
+  };
+}
+
 function createCoreMcpService(deps = {}) {
   const runtimePaths = deps.runtimePaths;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
@@ -144,15 +160,19 @@ function createCoreMcpService(deps = {}) {
     oauthService,
     timeoutMs: deps.connectionTestTimeoutMs
   }) : null);
-  const manager = deps.manager || createMcpSdkClientManager({
-    loadSdk: deps.loadSdk,
-    processEnvStrings: deps.processEnvStrings,
-    appendLog: deps.appendLog,
-    authorizeToolCall: deps.authorizeToolCall,
-    connectionTester,
-    oauthService,
-    connectionTestTimeoutMs: deps.connectionTestTimeoutMs
-  });
+  const manager = deps.manager || (
+    typeof deps.managerFactory === "function"
+      ? deps.managerFactory({
+        loadSdk: deps.loadSdk,
+        processEnvStrings: deps.processEnvStrings,
+        appendLog: deps.appendLog,
+        authorizeToolCall: deps.authorizeToolCall,
+        connectionTester,
+        oauthService,
+        connectionTestTimeoutMs: deps.connectionTestTimeoutMs
+      })
+      : createCoreLocalManager({ connectionTester })
+  );
 
   let bridgeInfo = null;
   let initializationPromise = null;

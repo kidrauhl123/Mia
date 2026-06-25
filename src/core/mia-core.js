@@ -128,6 +128,8 @@ const { createCodexMiaProxy } = require("../main/codex-mia-proxy.js");
 const { createMcpService } = require("../main/mcp/mcp-service.js");
 const { createMcpSdkClientManager } = require("../main/mcp/mcp-sdk-client.js");
 const { createMcpBridgeServer } = require("../main/mcp/mcp-bridge-server.js");
+const { createCoreMcpOAuthService } = require("./mcp/oauth-service.js");
+const { createCoreMcpOAuthTokenStore } = require("./mcp/oauth-token-store.js");
 
 // Claude Agent SDK — plain-node ESM package (NOT electron). main.js loads it via
 // `await import("@anthropic-ai/claude-agent-sdk")`; Core does the same. For a
@@ -677,9 +679,15 @@ function createCoreBotExecution({
   const processEnvStrings = () => Object.fromEntries(
     Object.entries(localAgentEngineService.processEnvWithCliPath()).filter(([, value]) => typeof value === "string")
   );
+  const userMcpOAuthTokenStore = createCoreMcpOAuthTokenStore({ runtimePaths, fs });
+  const userMcpOAuthService = createCoreMcpOAuthService({
+    tokenStore: userMcpOAuthTokenStore,
+    fetch: fetchImpl
+  });
   const userMcpManager = createMcpSdkClientManager({
     processEnvStrings,
     appendLog: () => {},
+    oauthService: userMcpOAuthService,
     authorizeToolCall: async ({ args, options = {} }) => {
       const toolLabel = String(options.toolLabel || "").trim() || "mcp.tool";
       let preview = "";
@@ -712,7 +720,9 @@ function createCoreBotExecution({
     manager: userMcpManager,
     bridge: userMcpBridge,
     nodePath: coreNodePath,
-    stdioProxyScriptPath: () => path.join(__dirname, "..", "main", "mcp", "mcp-stdio-proxy-server.js")
+    stdioProxyScriptPath: () => path.join(__dirname, "..", "main", "mcp", "mcp-stdio-proxy-server.js"),
+    oauthTokenStore: userMcpOAuthTokenStore,
+    oauthService: userMcpOAuthService
   });
   async function ensureUserMcpReady() {
     try { await userMcpService.awaitInitialization(); } catch { /* MCP optional; turn proceeds */ }

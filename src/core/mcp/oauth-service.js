@@ -29,7 +29,7 @@ function createCoreMcpOAuthService(deps = {}) {
   const openExternal = typeof deps.openExternal === "function" ? deps.openExternal : async () => {};
 
   async function refreshToken(serverUrl, token) {
-    if (!token?.refreshToken || !token?.tokenEndpoint || typeof fetchImpl !== "function") return token;
+    if (!token?.refreshToken || !token?.tokenEndpoint || typeof fetchImpl !== "function") return null;
     const response = await fetchImpl(token.tokenEndpoint, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -38,7 +38,7 @@ function createCoreMcpOAuthService(deps = {}) {
         refresh_token: token.refreshToken
       })
     });
-    if (!response?.ok) return token;
+    if (!response?.ok) return null;
     const body = await response.json();
     return tokenStore.saveToken(serverUrl, {
       accessToken: body.access_token,

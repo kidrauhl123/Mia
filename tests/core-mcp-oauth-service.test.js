@@ -97,6 +97,36 @@ test("authorizationHeadersForServer returns current bearer token when not expire
   });
 });
 
+test("authorizationHeadersForServer returns empty headers for expired token without refresh data", async (t) => {
+  const { store } = tempStore(t);
+  await store.saveToken("https://example.com/mcp", {
+    accessToken: "old",
+    expiresAt: 1709999999000,
+    tokenType: "Bearer"
+  });
+  const service = createCoreMcpOAuthService({ tokenStore: store, now: () => 1710000000000 });
+
+  assert.deepEqual(await service.authorizationHeadersForServer({ serverUrl: "https://example.com/mcp" }), {});
+});
+
+test("authorizationHeadersForServer returns empty headers when expired token refresh fails", async (t) => {
+  const { store } = tempStore(t);
+  await store.saveToken("https://example.com/mcp", {
+    accessToken: "old",
+    refreshToken: "refresh",
+    expiresAt: 1709999999000,
+    tokenType: "Bearer",
+    tokenEndpoint: "https://auth.example/token"
+  });
+  const service = createCoreMcpOAuthService({
+    tokenStore: store,
+    now: () => 1710000000000,
+    fetch: async () => ({ ok: false, json: async () => ({}) })
+  });
+
+  assert.deepEqual(await service.authorizationHeadersForServer({ serverUrl: "https://example.com/mcp" }), {});
+});
+
 test("logout deletes token and checkStatus reports unauthenticated", async (t) => {
   const { store } = tempStore(t);
   await store.saveToken("https://example.com/mcp", {
