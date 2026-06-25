@@ -580,6 +580,55 @@ test("managed action failure alerts are concise", async () => {
   assert.deepEqual(harness.alerts, ["安装失败，请重试。"]);
 });
 
+test("missing xiaohongshu runtime alerts are concise but actionable", async () => {
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "mcp_xhs",
+        name: "小红书 MCP",
+        nativeName: "xiaohongshu",
+        enabled: false,
+        status: "disconnected",
+        managedRuntime: { connectorId: "xiaohongshu", state: "error", expectedToolCount: 13 },
+        connectionWizard: {
+          state: "managed_error",
+          nextAction: "login",
+          message: "Xiaohongshu login command failed to start: spawn go ENOENT",
+          actions: [{ id: "login", label: "打开登录" }]
+        },
+        transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
+        tools: [],
+        sync: {}
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      runManagedAction: async () => ({
+        success: false,
+        error: "Xiaohongshu login command failed to start: spawn go ENOENT"
+      })
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-server"]').click();
+  await flushAsync();
+
+  assert.deepEqual(harness.alerts, ["缺少小红书运行组件，请检查网络后重试。"]);
+  assert.doesNotMatch(harness.alerts.join("\n"), /spawn go|ENOENT|go run/);
+});
+
 test("installed card omits legacy setupHint self-start guidance from default surface", () => {
   const state = {
     skillFilter: "",

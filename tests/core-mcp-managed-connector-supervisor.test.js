@@ -7,6 +7,16 @@ const { test } = require("node:test");
 const { createManagedConnectorSupervisor } = require("../src/core/mcp/managed-connector-supervisor.js");
 const { normalizeCoreMcpRecord } = require("../src/core/mcp/records.js");
 
+function runtimeTarget(platform = process.platform, arch = process.arch) {
+  const osName = platform === "darwin" ? "darwin" : platform === "win32" ? "windows" : "linux";
+  const archName = arch === "arm64" ? "arm64" : "amd64";
+  const exe = osName === "windows" ? ".exe" : "";
+  return {
+    loginBinary: `xiaohongshu-login-${osName}-${archName}${exe}`,
+    serverBinary: `xiaohongshu-mcp-${osName}-${archName}${exe}`
+  };
+}
+
 function fakeChildProcess(calls, fakeOptions = {}) {
   return {
     spawn(command, args, spawnOptions) {
@@ -34,6 +44,13 @@ function fakeChildProcess(calls, fakeOptions = {}) {
         fs.mkdirSync(args[2], { recursive: true });
         fs.writeFileSync(path.join(args[2], "go.mod"), "module xiaohongshu-mcp\n");
       }
+      if (command === "tar" && args.includes("-C")) {
+        const target = runtimeTarget(fakeOptions.platform, fakeOptions.arch);
+        const outputDir = args[args.indexOf("-C") + 1];
+        fs.mkdirSync(outputDir, { recursive: true });
+        fs.writeFileSync(path.join(outputDir, target.loginBinary), "#!/bin/sh\n");
+        fs.writeFileSync(path.join(outputDir, target.serverBinary), "#!/bin/sh\n");
+      }
       callback(null, "", "");
     }
   };
@@ -46,16 +63,26 @@ function setup(t, overrides = {}) {
   const fetch = Object.prototype.hasOwnProperty.call(overrides, "fetch")
     ? overrides.fetch
     : async () => ({ ok: true, status: 200 });
+  const downloadFetch = Object.prototype.hasOwnProperty.call(overrides, "downloadFetch")
+    ? overrides.downloadFetch
+    : async () => ({ ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(1) });
   const supervisor = createManagedConnectorSupervisor({
     runtimePaths: () => ({ runtime: dir }),
     fs,
     path,
-    childProcess: fakeChildProcess(calls, overrides.childProcessOptions),
+    childProcess: fakeChildProcess(calls, {
+      ...(overrides.childProcessOptions || {}),
+      platform: overrides.platform || process.platform,
+      arch: overrides.arch || process.arch
+    }),
     fetch,
+    downloadFetch,
     listTools: overrides.listTools,
     healthPollAttempts: overrides.healthPollAttempts,
     healthPollIntervalMs: overrides.healthPollIntervalMs,
     sleep: overrides.sleep,
+    platform: overrides.platform || process.platform,
+    arch: overrides.arch || process.arch,
     now: () => 1710000000000
   });
   const record = normalizeCoreMcpRecord({
@@ -111,17 +138,33 @@ test("login action runs the connector login command in managed directory", async
   const { calls, supervisor, record } = setup(t);
   const installed = await supervisor.runAction(record, "install", {});
   const withInstallDir = normalizeCoreMcpRecord({ ...record, ...installed.recordPatch, transport: record.transport });
+  const target = runtimeTarget();
+
+  const result = await supervisor.runAction(withInstallDir, "login", {});
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state, "login_started");
+  assert.equal(calls.some((call) => call.kind === "execFile" && call.command === "tar"), true);
+  assert.equal(calls.some((call) => call.kind === "spawn" && call.command.endsWith(target.loginBinary) && call.args.length === 0), true);
+  assert.equal(calls.some((call) => call.kind === "resume" && call.stream === "stdout"), true);
+  assert.equal(calls.some((call) => call.kind === "resume" && call.stream === "stderr"), true);
+});
+
+test("login action falls back to go source when runtime download fails", async (t) => {
+  const { calls, supervisor, record } = setup(t, {
+    downloadFetch: async () => ({ ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) })
+  });
+  const installed = await supervisor.runAction(record, "install", {});
+  const withInstallDir = normalizeCoreMcpRecord({ ...record, ...installed.recordPatch, transport: record.transport });
 
   const result = await supervisor.runAction(withInstallDir, "login", {});
 
   assert.equal(result.ok, true);
   assert.equal(result.state, "login_started");
   assert.equal(calls.some((call) => call.kind === "spawn" && call.command === "go" && call.args.join(" ") === "run cmd/login/main.go"), true);
-  assert.equal(calls.some((call) => call.kind === "resume" && call.stream === "stdout"), true);
-  assert.equal(calls.some((call) => call.kind === "resume" && call.stream === "stderr"), true);
 });
 
-test("login action rejects cleanly when go spawn emits error", async (t) => {
+test("login action rejects cleanly when command spawn emits error", async (t) => {
   let child;
   const { supervisor, record } = setup(t, {
     childProcessOptions: {
@@ -145,7 +188,7 @@ test("login action fails cleanly when the managed checkout is missing", async (t
 
   await assert.rejects(
     supervisor.runAction(record, "login", {}),
-    /checkout is not installed/i
+    /runtime is not installed/i
   );
   assert.equal(calls.some((call) => call.kind === "spawn"), false);
 });
@@ -154,18 +197,19 @@ test("start action keeps a running child process and stop kills it", async (t) =
   const { calls, supervisor, record } = setup(t);
   const installed = await supervisor.runAction(record, "install", {});
   const withInstallDir = normalizeCoreMcpRecord({ ...record, ...installed.recordPatch, transport: record.transport });
+  const target = runtimeTarget();
 
   const started = await supervisor.runAction(withInstallDir, "start", {});
   const stopped = await supervisor.stop(withInstallDir.id);
 
   assert.equal(started.ok, true);
   assert.equal(started.state, "running");
-  assert.equal(calls.some((call) => call.kind === "spawn" && call.command === "go" && call.args.join(" ") === "run ."), true);
+  assert.equal(calls.some((call) => call.kind === "spawn" && call.command.endsWith(target.serverBinary) && call.args.length === 0), true);
   assert.equal(stopped.ok, true);
   assert.equal(calls.some((call) => call.kind === "kill"), true);
 });
 
-test("start action rejects cleanly when go spawn emits error during readiness", async (t) => {
+test("start action rejects cleanly when command spawn emits error during readiness", async (t) => {
   const { supervisor, record } = setup(t, {
     childProcessOptions: {
       onSpawn: (child) => queueMicrotask(() => child.emit("error", new Error("go start failed TOKEN=secret-value")))
@@ -184,7 +228,7 @@ test("start action rejects cleanly when go spawn emits error during readiness", 
   );
 });
 
-test("start action rejects cleanly when go process exits during readiness", async (t) => {
+test("start action rejects cleanly when service process exits during readiness", async (t) => {
   const { supervisor, record } = setup(t, {
     childProcessOptions: {
       onSpawn: (child) => queueMicrotask(() => child.emit("exit", 127, null))
@@ -208,7 +252,7 @@ test("start action fails cleanly when the managed checkout is missing", async (t
 
   await assert.rejects(
     supervisor.runAction(record, "start", {}),
-    /checkout is not installed/i
+    /runtime is not installed/i
   );
   assert.equal(calls.some((call) => call.kind === "spawn"), false);
 });
@@ -226,7 +270,7 @@ test("start action fails when endpoint health check does not succeed", async (t)
     supervisor.runAction(withInstallDir, "start", {}),
     /health check failed/i
   );
-  assert.equal(calls.some((call) => call.kind === "spawn" && call.command === "go" && call.args.join(" ") === "run ."), true);
+  assert.equal(calls.some((call) => call.kind === "spawn" && call.command.endsWith(runtimeTarget().serverBinary)), true);
 });
 
 test("start action polls endpoint health until it succeeds", async (t) => {
@@ -413,7 +457,7 @@ test("repeated start action is idempotent while a child is already tracked", asy
       lastAction: "start"
     }
   });
-  assert.equal(calls.filter((call) => call.kind === "spawn" && call.command === "go" && call.args.join(" ") === "run .").length, 1);
+  assert.equal(calls.filter((call) => call.kind === "spawn" && call.command.endsWith(runtimeTarget().serverBinary)).length, 1);
 });
 
 test("stop returns a canonical stopped patch when no child is tracked", async (t) => {

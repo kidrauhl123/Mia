@@ -311,9 +311,16 @@
   }
 
   function managedFailureMessage(action = "", detail = "") {
-    if (!String(detail || "").trim()) return `${managedActionLabel(action)}失败，请重试。`;
-    if (isVerboseDiagnostic(detail)) return `${managedActionLabel(action)}失败，请重试。`;
-    return String(detail || "").trim();
+    const text = String(detail || "").trim();
+    if (!text) return `${managedActionLabel(action)}失败，请重试。`;
+    if (/runtime download failed|runtime download is not available|archive did not contain/i.test(text)) {
+      return "小红书运行组件下载失败，请检查网络后重试。";
+    }
+    if (/spawn go ENOENT|go is not installed|go missing/i.test(text)) {
+      return "缺少小红书运行组件，请检查网络后重试。";
+    }
+    if (isVerboseDiagnostic(text)) return `${managedActionLabel(action)}失败，请重试。`;
+    return text;
   }
 
   function isInstalledBuiltIn(server = {}) {

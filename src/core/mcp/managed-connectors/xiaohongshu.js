@@ -4,15 +4,21 @@ const { sanitizeSecretText } = require("../records.js");
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:18060/mcp";
 const REPO_URL = "https://github.com/xpzouying/xiaohongshu-mcp";
+const RELEASE_DOWNLOAD_BASE = "https://github.com/xpzouying/xiaohongshu-mcp/releases/latest/download";
 
 function createXiaohongshuManagedConnector(deps = {}) {
   const fs = deps.fs || require("node:fs");
   const path = deps.path || require("node:path");
   const childProcess = deps.childProcess || require("node:child_process");
+  const AdmZip = deps.AdmZip || require("adm-zip");
   const fetch = deps.fetch;
+  const downloadFetch = deps.downloadFetch || fetch;
   const listTools = deps.listTools;
   const testTools = deps.testTools;
   const runtimePaths = deps.runtimePaths;
+  const platform = deps.platform || process.platform;
+  const arch = deps.arch || process.arch;
+  const releaseDownloadBase = String(deps.releaseDownloadBase || RELEASE_DOWNLOAD_BASE).replace(/\/+$/, "");
   const healthPollAttempts = Number.isInteger(deps.healthPollAttempts) && deps.healthPollAttempts > 0 ? deps.healthPollAttempts : 5;
   const healthPollIntervalMs = Number.isFinite(deps.healthPollIntervalMs) && deps.healthPollIntervalMs >= 0 ? deps.healthPollIntervalMs : 250;
   const sleep = typeof deps.sleep === "function"
@@ -33,8 +39,69 @@ function createXiaohongshuManagedConnector(deps = {}) {
     return fs.existsSync(path.join(dir, "go.mod"));
   }
 
+  function runtimeBinDir(dir) {
+    return path.join(dir, ".mia-runtime", "bin");
+  }
+
+  function platformPackage() {
+    const osName = platform === "darwin"
+      ? "darwin"
+      : platform === "linux"
+        ? "linux"
+        : platform === "win32"
+          ? "windows"
+          : "";
+    const archName = arch === "arm64"
+      ? "arm64"
+      : arch === "x64"
+        ? "amd64"
+        : "";
+    if (!osName || !archName) {
+      throw new Error(`Xiaohongshu runtime is not available for ${platform}-${arch}.`);
+    }
+    const ext = osName === "windows" ? "zip" : "tar.gz";
+    const exe = osName === "windows" ? ".exe" : "";
+    return {
+      osName,
+      archName,
+      archiveName: `xiaohongshu-mcp-${osName}-${archName}.${ext}`,
+      loginBinary: `xiaohongshu-login-${osName}-${archName}${exe}`,
+      serverBinary: `xiaohongshu-mcp-${osName}-${archName}${exe}`,
+      isZip: osName === "windows"
+    };
+  }
+
+  function findFileByName(root, fileName, depth = 4) {
+    if (!root || !fs.existsSync(root) || depth < 0) return "";
+    const entries = fs.readdirSync(root, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(root, entry.name);
+      if (entry.isFile() && entry.name === fileName) return fullPath;
+      if (entry.isDirectory()) {
+        const found = findFileByName(fullPath, fileName, depth - 1);
+        if (found) return found;
+      }
+    }
+    return "";
+  }
+
+  function runtimeBinary(dir, kind) {
+    const pkg = platformPackage();
+    const fileName = kind === "login" ? pkg.loginBinary : pkg.serverBinary;
+    return findFileByName(runtimeBinDir(dir), fileName) || findFileByName(dir, fileName, 2);
+  }
+
+  function chmodExecutable(filePath) {
+    if (!filePath || platform === "win32") return;
+    try {
+      fs.chmodSync(filePath, 0o755);
+    } catch {
+      // Best effort; the following spawn will report a permission error if chmod failed.
+    }
+  }
+
   function removeStaleInstallDir(dir) {
-    if (!fs.existsSync(dir) || hasCheckout(dir)) return;
+    if (!fs.existsSync(dir) || hasCheckout(dir) || runtimeBinary(dir, "login") || runtimeBinary(dir, "server")) return;
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
@@ -146,7 +213,71 @@ function createXiaohongshuManagedConnector(deps = {}) {
   }
 
   function assertInstalled(dir) {
-    if (!hasCheckout(dir)) throw new Error("Xiaohongshu managed checkout is not installed.");
+    if (!hasCheckout(dir) && !runtimeBinary(dir, "login") && !runtimeBinary(dir, "server")) {
+      throw new Error("Xiaohongshu managed runtime is not installed.");
+    }
+  }
+
+  async function downloadRuntimeBundle(dir) {
+    if (runtimeBinary(dir, "login") && runtimeBinary(dir, "server")) return;
+    if (typeof downloadFetch !== "function") {
+      throw new Error("Xiaohongshu runtime download is not available.");
+    }
+    const pkg = platformPackage();
+    const binDir = runtimeBinDir(dir);
+    const archivePath = path.join(dir, ".mia-runtime", pkg.archiveName);
+    const url = `${releaseDownloadBase}/${encodeURIComponent(pkg.archiveName)}`;
+    fs.mkdirSync(binDir, { recursive: true });
+
+    const response = await downloadFetch(url);
+    if (!response || response.ok !== true) {
+      const status = Number(response?.status);
+      const detail = Number.isFinite(status) ? `HTTP ${status}` : "request failed";
+      throw new Error(`Xiaohongshu runtime download failed (${detail}).`);
+    }
+    if (typeof response.arrayBuffer !== "function") {
+      throw new Error("Xiaohongshu runtime download returned an unreadable response.");
+    }
+    fs.writeFileSync(archivePath, Buffer.from(await response.arrayBuffer()));
+
+    if (pkg.isZip) {
+      const zip = new AdmZip(archivePath);
+      zip.extractAllTo(binDir, true);
+    } else {
+      await execFile("tar", ["-xzf", archivePath, "-C", binDir], { cwd: binDir });
+    }
+
+    const loginBinary = runtimeBinary(dir, "login");
+    const serverBinary = runtimeBinary(dir, "server");
+    if (!loginBinary || !serverBinary) {
+      throw new Error("Xiaohongshu runtime archive did not contain the expected binaries.");
+    }
+    chmodExecutable(loginBinary);
+    chmodExecutable(serverBinary);
+  }
+
+  async function runtimeCommand(dir, kind) {
+    const binary = runtimeBinary(dir, kind);
+    if (binary) {
+      chmodExecutable(binary);
+      return { command: binary, args: [] };
+    }
+    try {
+      await downloadRuntimeBundle(dir);
+      const downloaded = runtimeBinary(dir, kind);
+      if (downloaded) {
+        chmodExecutable(downloaded);
+        return { command: downloaded, args: [] };
+      }
+    } catch (error) {
+      if (!hasCheckout(dir)) throw error;
+    }
+    if (hasCheckout(dir)) {
+      return kind === "login"
+        ? { command: "go", args: ["run", "cmd/login/main.go"] }
+        : { command: "go", args: ["run", "."] };
+    }
+    throw new Error("Xiaohongshu managed runtime is not installed.");
   }
 
   async function checkEndpointHealth(endpoint) {
@@ -246,7 +377,8 @@ function createXiaohongshuManagedConnector(deps = {}) {
     }
     if (action === "login") {
       assertInstalled(dir);
-      const child = spawn("go", ["run", "cmd/login/main.go"], { cwd: dir });
+      const command = await runtimeCommand(dir, "login");
+      const child = spawn(command.command, command.args, { cwd: dir });
       await waitForInitialSpawn(child, "Xiaohongshu login command", { allowCleanExit: true });
       return {
         ok: true,
@@ -266,7 +398,8 @@ function createXiaohongshuManagedConnector(deps = {}) {
     }
     if (action === "start") {
       assertInstalled(dir);
-      const child = spawn("go", ["run", "."], { cwd: dir });
+      const command = await runtimeCommand(dir, "server");
+      const child = spawn(command.command, command.args, { cwd: dir });
       try {
         await waitForReadiness(child, checkEndpointHealth(endpoint), "Xiaohongshu MCP service");
       } catch (error) {
