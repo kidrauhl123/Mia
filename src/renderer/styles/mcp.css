@@ -92,7 +92,10 @@
 }
 
 .mcp-setup-guide code {
-  display: inline-flex;
+  display: inline-block;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: auto;
   margin: 0 4px 3px 0;
   padding: 2px 5px;
   border-radius: 5px;
@@ -101,6 +104,8 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   line-height: 1.3;
+  vertical-align: bottom;
+  white-space: nowrap;
 }
 
 .mcp-check-hint {

@@ -88,6 +88,25 @@ test("install action clones xiaohongshu connector into Mia runtime", async (t) =
   });
 });
 
+test("install action replaces stale non-checkout managed directory", async (t) => {
+  const { dir, calls, supervisor, record } = setup(t);
+  const staleDir = path.join(dir, "managed-mcp", "xiaohongshu-mcp");
+  fs.mkdirSync(staleDir, { recursive: true });
+  fs.writeFileSync(path.join(staleDir, "README.md"), "partial checkout\n");
+
+  const result = await supervisor.runAction(record, "install", {});
+
+  assert.equal(result.ok, true);
+  assert.equal(fs.existsSync(path.join(staleDir, "go.mod")), true);
+  assert.equal(fs.existsSync(path.join(staleDir, "README.md")), false);
+  assert.deepEqual(calls[0], {
+    kind: "execFile",
+    command: "git",
+    args: ["clone", "https://github.com/xpzouying/xiaohongshu-mcp", staleDir],
+    cwd: dir
+  });
+});
+
 test("login action runs the connector login command in managed directory", async (t) => {
   const { calls, supervisor, record } = setup(t);
   const installed = await supervisor.runAction(record, "install", {});

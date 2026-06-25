@@ -33,6 +33,11 @@ function createXiaohongshuManagedConnector(deps = {}) {
     return fs.existsSync(path.join(dir, "go.mod"));
   }
 
+  function removeStaleInstallDir(dir) {
+    if (!fs.existsSync(dir) || hasCheckout(dir)) return;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
   function execFile(command, args, options = {}) {
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -220,6 +225,7 @@ function createXiaohongshuManagedConnector(deps = {}) {
     const endpoint = String(record.managedRuntime?.endpoint || DEFAULT_ENDPOINT);
     if (action === "install") {
       fs.mkdirSync(managedRoot(), { recursive: true });
+      removeStaleInstallDir(dir);
       if (!hasCheckout(dir)) {
         await execFile("git", ["clone", REPO_URL, dir], { cwd: runtimePaths().runtime });
       }

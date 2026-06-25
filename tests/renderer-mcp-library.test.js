@@ -365,6 +365,7 @@ test("ability library exposes MCP service mode and loads MCP renderer script", (
   assert.match(html, /mcp\/mcp-library\.js/);
   assert.match(mcpCss, /\.mcp-action-strip-primary\s*\{[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(mcpCss, /\.mcp-action-button\s*\{[\s\S]*font-size:\s*12\.5px;[\s\S]*white-space:\s*nowrap/);
+  assert.match(mcpCss, /\.mcp-setup-guide code\s*\{[\s\S]*max-width:\s*100%;[\s\S]*overflow-x:\s*auto/);
 });
 
 test("mcp renderer includes diagnostics oauth and discovery actions", () => {
