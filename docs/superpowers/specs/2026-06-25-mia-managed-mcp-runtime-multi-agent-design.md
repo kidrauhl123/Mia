@@ -67,6 +67,8 @@ is global enabled MCP plus a session snapshot for correctness and debuggability.
 - Make built-in and marketplace MCP connection no-command by default. Users
   should select a card, fill required fields or complete login, click detect or
   connect, then enable it. Commands may appear as advanced diagnostics only.
+- Keep Mia's built-in MCP catalog small. A connector appears in the built-in
+  marketplace only when Mia owns the complete setup path for that connector.
 
 ## Built-In Connection Experience
 
@@ -81,21 +83,24 @@ Every built-in or marketplace template declares a `connectionMode`:
   inputs.
 - `managed`: Mia owns install or locate, login, start, health check, connect,
   and logs through `ManagedConnectorSupervisor`.
-- `external_assisted`: Mia cannot yet own the process, but it still provides a
-  guided checklist, detects whether the endpoint is running, validates login
-  state when possible, and keeps commands in an expandable advanced section.
+
+The built-in marketplace has only these two modes. If Mia cannot complete the
+configuration, auth, startup, connection test, and Agent exposure for a
+connector, that connector does not appear there. It can still be added manually
+through a custom MCP form, but then it is clearly a user-owned custom server
+rather than a Mia-supported built-in.
 
 The connection wizard for a template is a state machine:
 
 1. `requirements`: show what Mia can do automatically and what input is needed.
 2. `configure`: collect API keys, OAuth login, provider/model selection, URL,
    or local checkout path.
-3. `install_or_locate`: install runtime assets, detect existing CLI/package, or
-   validate an external service URL.
+3. `install_or_locate`: install runtime assets or detect an existing compatible
+   CLI/package when the template allows reuse.
 4. `authenticate`: run OAuth, QR login, browser login, or connector-specific
    login actions.
-5. `start`: start a managed process or confirm an external process is already
-   running.
+5. `start`: start a managed process when the template needs a long-running
+   connector.
 6. `test`: run MCP initialize and `tools/list`.
 7. `enable`: enable the record and refresh Agent exposure.
 
@@ -108,6 +113,33 @@ secrets in the public record.
 Commands are still useful for support and transparency, but they belong in
 advanced diagnostics. A failed step should show the failed action, sanitized log
 tail, and a repair button before showing a manual command.
+
+## First Built-In Catalog
+
+Mia's built-in MCP catalog starts small. These entries are the first supported
+set:
+
+- `xiaohongshu`: managed connector. Mia owns or locates the Xiaohongshu MCP
+  runtime, guides account login, starts and stops the service, health-checks the
+  endpoint, tests the expected tools, and exposes it to all four Agents.
+- `playwright`: native stdio template from LobsterAI's browser category. No
+  credential is required; Mia pre-fills the package command, tests tools, and
+  enables it.
+- `context7`: native stdio template from LobsterAI's developer category. No
+  credential is required; Mia pre-fills the package command, tests tools, and
+  enables it.
+- `github`: native stdio template from LobsterAI's developer category. Mia asks
+  for `GITHUB_PERSONAL_ACCESS_TOKEN`, stores it as a secret, validates the MCP
+  server, and then enables it.
+- `tavily`: native stdio template from LobsterAI's search category. Mia asks
+  for `TAVILY_API_KEY`, validates the MCP server, and then enables it.
+- `firecrawl`: native stdio template from LobsterAI's data/API category. Mia
+  asks for `FIRECRAWL_API_KEY`, validates the MCP server, and then enables it.
+
+Deferred candidates from LobsterAI include Notion, Slack, Gmail, Google Drive,
+Google Calendar, Todoist, Canva, GitLab, and any other template whose setup
+needs a more specific auth or account-linking wizard. They do not appear in
+Mia's built-in marketplace until that wizard exists.
 
 ## Non-Goals
 
@@ -168,7 +200,7 @@ Extend the Core MCP record with managed runtime and exposure metadata:
     bearerTokenEnvVar: ""
   },
   managedRuntime: {
-    mode: "none" | "managed_process" | "external_process",
+    mode: "none" | "managed_process",
     installState: "not_required" | "not_installed" | "installed" | "error",
     authState: "not_required" | "login_required" | "authenticated" | "error",
     processState: "stopped" | "starting" | "running" | "exited" | "error",
@@ -185,7 +217,7 @@ Extend the Core MCP record with managed runtime and exposure metadata:
     lastLogTail: ""
   },
   connectionWizard: {
-    connectionMode: "native" | "managed" | "external_assisted",
+    connectionMode: "native" | "managed",
     step: "requirements" | "configure" | "install_or_locate" |
       "authenticate" | "start" | "test" | "enable" | "done" | "error",
     requiredInputs: [
@@ -231,10 +263,9 @@ creates or updates a disabled draft record first, then enables it only after
 required inputs are present and the connection test succeeds, unless the user
 explicitly chooses to save it disabled for later.
 
-For a manual external HTTP server, Core verifies the URL and shows setup
-instructions but does not claim to manage the process. Even in this external
-case, the UI should prefer "Detect service" and "Test connection" actions over
-manual command instructions.
+For a manual custom HTTP server, Core verifies the URL and tests the connection,
+but the server does not appear as a Mia built-in marketplace item. The UI should
+label it as custom and user-owned.
 
 For a managed connector, Core runs the supervisor:
 
@@ -247,12 +278,11 @@ For a managed connector, Core runs the supervisor:
 - keep a redacted log tail available in the UI;
 - stop or restart on disable/delete/config change.
 
-The Xiaohongshu target should move from "Mia only connects to
-`http://localhost:18060/mcp`" to a managed connector template when the connector
-is stable enough for Mia to own its lifecycle. Until that is implemented, the UI
-must clearly say it is `external_assisted`, show the exact login/start steps in
-a guided checklist, provide a detect/test button, and keep raw commands behind
-an advanced disclosure.
+The Xiaohongshu target is required in Mia's built-in catalog, so it must be a
+managed connector. Shipping Xiaohongshu as "Mia only connects to
+`http://localhost:18060/mcp`" is not acceptable for the built-in marketplace.
+Mia must own or reliably locate the connector runtime, guide login, start the
+service, health-check it, test MCP tools, and expose it to all supported Agents.
 
 ## Agent Exposure
 
@@ -314,13 +344,11 @@ Each installed MCP row shows:
 Marketplace templates must be honest about responsibility. A template can be:
 
 - `managed`: Mia installs or locates it, logs in, starts it, and monitors it.
-- `external_assisted`: the user starts it outside Mia; Mia guides, detects,
-  and tests the connection.
 - `native`: no long-running connector process is needed.
 
-The Xiaohongshu card must not look one-click ready until the managed supervisor
-exists. It should say whether Mia is managing the process or only connecting to
-an already-running service.
+The Xiaohongshu card must not ship in the built-in marketplace until the
+managed supervisor path exists. If the connector is not managed, it belongs only
+in documentation or the custom MCP form, not as a Mia-supported built-in.
 
 The UI may show command previews in an advanced section for users who need to
 debug outside Mia, but command previews are not considered the setup flow.
@@ -357,20 +385,21 @@ Integration tests cover:
 - OpenClaw ACP receiving native MCP servers when capabilities allow them and
   bridge when they do not;
 - managed connector supervisor success and failure paths with a fake connector;
-- built-in template wizard flows for required env, OAuth, managed, and
-  external-assisted templates.
+- built-in template wizard flows for required env, OAuth, and managed templates.
 
 Renderer tests cover the MCP row state labels, marketplace setup wizard, hidden
 advanced commands, and Xiaohongshu setup guidance.
 
 ## Rollout
 
-Phase 1 finishes the Core runtime lifecycle for existing manual/template MCP
-records, adds a no-command connection wizard for built-in templates, and makes
-exposure status visible for all four Agents.
+Phase 1 finishes the Core runtime lifecycle, adds the no-command connection
+wizard, makes exposure status visible for all four Agents, and ships only the
+native first-catalog entries that Mia can fully configure: Playwright, Context7,
+GitHub, Tavily, and Firecrawl.
 
-Phase 2 adds `ManagedConnectorSupervisor` and converts Xiaohongshu from an
-external-assisted template to a managed connector template.
+Phase 2 adds `ManagedConnectorSupervisor` and ships Xiaohongshu as a managed
+connector template. Mia's built-in MCP catalog is not considered complete until
+Xiaohongshu is managed and visible through this path.
 
 Phase 3 adds per-conversation MCP selection and more marketplace templates.
 
