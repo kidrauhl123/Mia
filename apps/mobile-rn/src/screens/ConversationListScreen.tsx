@@ -500,8 +500,6 @@ const styles = StyleSheet.create({
     minHeight: conversationHomeChrome.row.minHeight,
     paddingVertical: 10,
     backgroundColor: color.bg,
-    borderBottomWidth: conversationHomeChrome.row.separatorWidth,
-    borderBottomColor: color.line,
     shadowOpacity: conversationHomeChrome.row.shadowOpacity,
   },
   pressed: { backgroundColor: color.surfaceMuted },
