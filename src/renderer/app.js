@@ -2192,7 +2192,7 @@ function conversationCardSpecFromRow(row, personas) {
     const pinned = Boolean(social?.isConversationPinned?.(conversation.id));
     const muted = Boolean(social?.isConversationMuted?.(conversation.id));
     const unread = social?.getUnreadForConversation?.(conversation.id) || 0;
-    const typingRun = conversationRunForSidebarPreview(social, conversation);
+    const typingRun = searchResult ? null : conversationRunForSidebarPreview(social, conversation);
     return {
       kind: "private",
       searchResult,
@@ -2203,7 +2203,7 @@ function conversationCardSpecFromRow(row, personas) {
       typeLabel: "私聊",
       preview: conversation.lastMessagePreview || "暂无对话",
       typing: Boolean(typingRun),
-      typingLabel: typingLabelForConversationRun(social, conversation, typingRun),
+      typingLabel: searchResult ? "" : typingLabelForConversationRun(social, conversation, typingRun),
       time: formatConversationTime(row.updatedAt),
       unread: searchResult ? 0 : unread,
       tags: searchResult ? [] : (conversation.tags || social?.conversationTagsFor?.(conversation.id) || []),
@@ -2268,7 +2268,7 @@ function conversationCardSpecFromRow(row, personas) {
         }
       : null;
     const cgStatusBadge = statusBadgeFrom(conversation.identity, conversation);
-    const typingRun = conversationRunForSidebarPreview(social, conversation);
+    const typingRun = searchResult ? null : conversationRunForSidebarPreview(social, conversation);
     return {
       kind: "group",
       searchResult,
@@ -2279,7 +2279,7 @@ function conversationCardSpecFromRow(row, personas) {
       typeLabel: memberCount ? `群聊 · ${memberCount}人` : "群聊",
       preview: conversation.lastMessagePreview || "暂无消息",
       typing: Boolean(typingRun),
-      typingLabel: typingLabelForConversationRun(social, conversation, typingRun),
+      typingLabel: searchResult ? "" : typingLabelForConversationRun(social, conversation, typingRun),
       time: formatConversationTime(row.updatedAt),
       unread: searchResult ? 0 : cgUnread,
       tags: searchResult ? [] : (conversation.tags || social?.conversationTagsFor?.(conversation.id) || []),
