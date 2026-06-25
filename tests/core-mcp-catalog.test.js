@@ -39,7 +39,7 @@ test("xiaohongshu is a managed connector owned by Mia", () => {
 
 test("Lobster-derived native templates keep runtime commands out of user copy", () => {
   const byId = Object.fromEntries(builtinMcpTemplates().map((item) => [item.id, item]));
-  assert.deepEqual(byId.playwright.transport.args, ["-y", "@executeautomation/playwright-mcp-server"]);
+  assert.deepEqual(byId.playwright.transport.args, ["-y", "@playwright/mcp@latest"]);
   assert.deepEqual(byId.context7.transport.args, ["-y", "@upstash/context7-mcp@latest"]);
   assert.deepEqual(byId.github.transport.args, ["-y", "@modelcontextprotocol/server-github"]);
   assert.deepEqual(byId.tavily.transport.args, ["-y", "tavily-mcp@latest"]);

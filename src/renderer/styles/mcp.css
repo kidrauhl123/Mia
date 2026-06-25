@@ -76,14 +76,37 @@
 
 .mcp-dialog-actions button,
 .mcp-dialog-head button {
-  min-height: 30px;
-  padding: 0 10px;
-  border: 0;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
   border-radius: 8px;
-  background: var(--floating-control-bg);
-  color: var(--text);
+  background: color-mix(in srgb, #fff 94%, var(--surface));
+  color: color-mix(in srgb, var(--text) 82%, #111827);
   font: inherit;
+  font-size: 13px;
+  font-weight: var(--ui-text-max-weight, 520);
   cursor: default;
+  box-shadow: 0 1px 1px rgba(16, 20, 39, 0.04);
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.mcp-dialog-actions button:hover,
+.mcp-dialog-head button:hover {
+  border-color: color-mix(in srgb, var(--accent) 26%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, #fff);
+}
+
+.mcp-dialog-actions .mcp-dialog-primary {
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.mcp-dialog-actions .mcp-dialog-primary:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 88%, #000);
+  color: #fff;
 }
 
 .mcp-action-button {
@@ -159,22 +182,26 @@
 .mcp-dialog-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(17, 24, 39, 0.32);
+  background: rgba(17, 24, 39, 0.34);
+  -webkit-backdrop-filter: blur(12px) saturate(115%);
+  backdrop-filter: blur(12px) saturate(115%);
 }
 
 .mcp-dialog-panel {
   position: relative;
   z-index: 1;
   display: grid;
-  gap: 12px;
+  gap: 16px;
   box-sizing: border-box;
-  width: min(620px, calc(100vw - 28px));
+  width: min(560px, calc(100vw - 28px));
   max-height: calc(100vh - 48px);
   overflow: auto;
-  padding: 18px;
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: var(--menu-shadow);
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  background: color-mix(in srgb, #fff 96%, var(--surface));
+  color: var(--text);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22), 0 4px 16px rgba(15, 23, 42, 0.08);
 }
 
 .mcp-dialog-head,
@@ -187,28 +214,55 @@
 
 .mcp-dialog-head h2 {
   margin: 0;
-  font-size: var(--ui-text-max-size, 14px);
+  color: color-mix(in srgb, var(--text) 92%, #111827);
+  font-size: 17px;
+  font-weight: var(--ui-text-max-weight, 680);
+  letter-spacing: 0;
+}
+
+.mcp-dialog-head button {
+  width: 34px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 72%, var(--text));
+  font-size: 20px;
+  line-height: 1;
+  box-shadow: none;
 }
 
 .mcp-dialog-panel label {
   display: grid;
-  gap: 6px;
-  color: var(--muted);
+  gap: 8px;
+  color: color-mix(in srgb, var(--muted) 78%, var(--text));
   font-size: 13px;
+  font-weight: var(--ui-text-max-weight, 520);
 }
 
 .mcp-dialog-panel input,
 .mcp-dialog-panel textarea,
 .mcp-dialog-panel select {
   width: 100%;
-  min-height: 34px;
+  min-height: 40px;
   box-sizing: border-box;
-  padding: 7px 9px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--background);
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, #fff 92%, var(--background));
   color: var(--text);
   font: inherit;
+  font-size: 13.5px;
+  outline: none;
+  box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.04);
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.mcp-dialog-panel input:focus,
+.mcp-dialog-panel textarea:focus,
+.mcp-dialog-panel select:focus {
+  border-color: color-mix(in srgb, var(--accent) 68%, transparent);
+  background: #fff;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), inset 0 1px 1px rgba(15, 23, 42, 0.03);
 }
 
 .mcp-dialog-panel textarea {
@@ -218,9 +272,31 @@
 
 .mcp-dialog-copy {
   margin: 0;
-  color: var(--muted);
+  color: color-mix(in srgb, var(--muted) 78%, var(--text));
   font-size: 13px;
   line-height: 1.5;
+}
+
+.mcp-message-panel {
+  width: min(420px, calc(100vw - 28px));
+  gap: 20px;
+  padding: 24px 28px 28px;
+}
+
+.mcp-message-panel p {
+  margin: 0;
+  color: color-mix(in srgb, var(--text) 92%, #111827);
+  font-size: 15px;
+  font-weight: var(--ui-text-max-weight, 620);
+  line-height: 1.45;
+}
+
+.mcp-message-panel .mcp-dialog-actions {
+  justify-content: stretch;
+}
+
+.mcp-message-panel .mcp-dialog-actions button {
+  width: 100%;
 }
 
 .mcp-import-textarea {

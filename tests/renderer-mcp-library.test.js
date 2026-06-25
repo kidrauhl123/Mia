@@ -351,6 +351,16 @@ function createMcpHarness({ state, mcpOverrides = {}, confirmResult = true } = {
   };
 }
 
+function bodyDialogHtml(harness) {
+  return harness.document.body.children.map((child) => child.innerHTML || "").join("\n");
+}
+
+function assertMcpAlert(harness, expectedText) {
+  const html = bodyDialogHtml(harness);
+  assert.match(html, /data-mcp-alert/);
+  assert.match(html, new RegExp(expectedText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+}
+
 test("ability library exposes MCP service mode and loads MCP renderer script", () => {
   const appState = read("src/renderer/app-state.js");
   const skillLibrary = read("src/renderer/skills/skill-library.js");
@@ -367,6 +377,10 @@ test("ability library exposes MCP service mode and loads MCP renderer script", (
   assert.match(mcpCss, /\.mcp-connection-card\s*\{/);
   assert.match(mcpCss, /\.mcp-connect-status-connected\s*\{/);
   assert.match(mcpCss, /\.mcp-action-button\s*\{[\s\S]*font-size:\s*12\.5px;[\s\S]*white-space:\s*nowrap/);
+  assert.match(mcpCss, /\.mcp-dialog-panel\s*\{[\s\S]*background:\s*color-mix\(in srgb,\s*#fff 96%,\s*var\(--surface\)\)/);
+  assert.match(mcpCss, /\.mcp-dialog-panel input,[\s\S]*border:\s*1px solid color-mix\(in srgb,\s*var\(--text\) 16%,\s*transparent\)/);
+  assert.match(mcpCss, /\.mcp-dialog-actions \.mcp-dialog-primary\s*\{[\s\S]*background:\s*var\(--accent\);[\s\S]*color:\s*#fff/);
+  assert.match(mcpCss, /\.mcp-message-panel\s*\{/);
 });
 
 test("mcp renderer includes flat connection oauth and custom actions", () => {
@@ -577,7 +591,7 @@ test("managed action failure alerts are concise", async () => {
   harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-server"]').click();
   await flushAsync();
 
-  assert.deepEqual(harness.alerts, ["安装失败，请重试。"]);
+  assertMcpAlert(harness, "安装失败，请重试。");
 });
 
 test("missing xiaohongshu runtime alerts are concise but actionable", async () => {
@@ -625,8 +639,8 @@ test("missing xiaohongshu runtime alerts are concise but actionable", async () =
   harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-server"]').click();
   await flushAsync();
 
-  assert.deepEqual(harness.alerts, ["缺少小红书运行组件，请检查网络后重试。"]);
-  assert.doesNotMatch(harness.alerts.join("\n"), /spawn go|ENOENT|go run/);
+  assertMcpAlert(harness, "缺少小红书运行组件，请检查网络后重试。");
+  assert.doesNotMatch(bodyDialogHtml(harness), /spawn go|ENOENT|go run/);
 });
 
 test("installed card omits legacy setupHint self-start guidance from default surface", () => {
@@ -1309,7 +1323,7 @@ test("failed save keeps the form dialog open with user input intact", async () =
   form.dispatch("submit");
   await flushAsync();
 
-  assert.deepEqual(harness.alerts, ["保存失败：boom"]);
+  assertMcpAlert(harness, "保存失败：boom");
   const openForm = harness.document.body.querySelector("[data-mcp-form]");
   assert.ok(openForm);
   assert.equal(openForm.querySelector('input[name="name"]').value, "Broken MCP");
@@ -1352,7 +1366,7 @@ test("failed direct template connection stays on the flat page with a short aler
   harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-template"]').click();
   await flushAsync();
 
-  assert.deepEqual(harness.alerts, ["连接失败，请重试。"]);
+  assertMcpAlert(harness, "连接失败，请重试。");
   assert.equal(harness.document.body.querySelector("[data-mcp-import-form]"), null);
   assert.match(harness.els.skillCardGrid.innerHTML, /Broken MCP/);
   assert.equal(harness.getListCalls(), 0);
@@ -1397,7 +1411,7 @@ test("failed template wizard connection keeps verbose errors out of alerts", asy
   form.dispatch("submit");
   await flushAsync();
 
-  assert.deepEqual(harness.alerts, ["连接失败，请重试。"]);
+  assertMcpAlert(harness, "连接失败，请重试。");
   assert.ok(harness.document.body.querySelector("[data-mcp-template-form]"));
-  assert.doesNotMatch(harness.alerts.join("\n"), /Command failed|git clone|Application Support|destination path/);
+  assert.doesNotMatch(bodyDialogHtml(harness), /Command failed|git clone|Application Support|destination path/);
 });

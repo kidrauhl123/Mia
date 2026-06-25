@@ -36,17 +36,43 @@ const {
 
 const MASK_SENTINEL = MASK;
 
+function isLegacyPlaywrightTransport(transport = {}) {
+  return String(transport?.type || "") === "stdio"
+    && String(transport?.command || "") === "npx"
+    && Array.isArray(transport?.args)
+    && transport.args.some((arg) => String(arg || "").includes("@executeautomation/playwright-mcp-server"));
+}
+
 function withMarketplaceTemplateDefaults(input = {}) {
   const template = builtinMcpTemplateById(input.registryId);
   if (!template) return input;
+  const shouldMigratePlaywright = template.id === "playwright" && isLegacyPlaywrightTransport(input.transport);
   return {
     ...input,
+    ...(shouldMigratePlaywright ? {
+      transport: template.transport,
+      enabled: false,
+      status: "disconnected",
+      lastTestStatus: "disconnected",
+      lastTestCode: null,
+      diagnostics: { message: "" },
+      tools: [],
+      lastError: ""
+    } : {}),
     description: input.description || template.description,
     nativeName: input.nativeName || input.native_name || template.nativeName,
     homepage: input.homepage || template.homepage || "",
     managementMode: input.managementMode || template.managementMode,
     requiredInputs: input.requiredInputs || template.requiredInputs || [],
-    connectionWizard: input.connectionWizard || template.connectionWizard || {},
+    connectionWizard: shouldMigratePlaywright
+      ? {
+        state: "ready_to_test",
+        nextAction: "test",
+        message: "Mia 将检测连接，成功后启用到新对话。",
+        missingRequiredInputs: [],
+        actions: [{ id: "test", label: "检测并启用" }]
+      }
+      : input.connectionWizard || template.connectionWizard || {},
     managedRuntime: input.managedRuntime || template.managedRuntime || {},
     expectedToolCount: input.expectedToolCount || template.managedRuntime?.expectedToolCount || 0
   };
@@ -343,10 +369,10 @@ function createCoreMcpService(deps = {}) {
   function nativeBuiltInEnableError(record = {}) {
     if (record.managementMode !== "native" || !isMarketplaceBuiltInRecord(record)) return "";
     if (missingRequiredInputKeys(record).length) {
-      return "Built-in MCP server requires required fields before it can be enabled.";
+      return "请先完成这个 MCP 的必填配置。";
     }
     if (!canEnableNativeBuiltInRecord(record)) {
-      return "Built-in MCP server must pass connection test before it can be enabled.";
+      return "连接检测未通过，暂时不能启用。";
     }
     return "";
   }
@@ -638,7 +664,7 @@ function createCoreMcpService(deps = {}) {
       const existing = resolveRecord(current, id);
       if (!existing) throw new Error("MCP server not found.");
       if (enabled === true && existing.managementMode === "managed" && !canEnableManagedRecord(existing)) {
-        return failWithData("Managed MCP server must pass connection test before it can be enabled.", publicRecord(existing));
+        return failWithData("连接检测未通过，暂时不能启用。", publicRecord(existing));
       }
       if (enabled === true) {
         const builtInError = nativeBuiltInEnableError(existing);

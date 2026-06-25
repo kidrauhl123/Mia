@@ -95,7 +95,7 @@ test("fetchMarketplace exposes supported marketplace MCP templates", async (t) =
   assert.deepEqual(templates.playwright.transport, {
     type: "stdio",
     command: "npx",
-    args: ["-y", "@executeautomation/playwright-mcp-server"],
+    args: ["-y", "@playwright/mcp@latest"],
     env: {}
   });
   assert.deepEqual(templates.context7.transport, {
@@ -136,7 +136,7 @@ test("installTemplate persists browser MCP templates and syncs native agents", a
   assert.deepEqual(stored[0].transport, {
     type: "stdio",
     command: "npx",
-    args: ["-y", "@executeautomation/playwright-mcp-server"],
+    args: ["-y", "@playwright/mcp@latest"],
     env: {}
   });
   assert.equal(syncCalls.length, 1);
@@ -169,6 +169,41 @@ test("installed marketplace records inherit updated setup metadata", async (t) =
   assert.equal(server.setupHint, "");
   assert.equal(server.sync.codex.status, "available");
   assert.equal(server.sync["claude-code"].status, "available");
+});
+
+test("installed legacy Playwright template migrates to the official MCP package", async (t) => {
+  const { runtime, service } = setup(t);
+  fs.mkdirSync(path.dirname(runtime.mcpServers), { recursive: true });
+  fs.writeFileSync(runtime.mcpServers, JSON.stringify([{
+    id: "mcp_pw",
+    name: "Playwright MCP",
+    nativeName: "playwright",
+    registryId: "playwright",
+    source: "marketplace",
+    managementMode: "native",
+    enabled: false,
+    status: "disconnected",
+    lastTestStatus: "disconnected",
+    lastTestCode: "timeout",
+    lastError: "Timed out after 15000ms",
+    diagnostics: { code: "timeout", message: "Timed out after 15000ms" },
+    transport: { type: "stdio", command: "npx", args: ["-y", "@executeautomation/playwright-mcp-server"], env: {} },
+    connectionWizard: { state: "test_failed", nextAction: "test", message: "Timed out after 15000ms", missingRequiredInputs: [], actions: [{ id: "test", label: "重新检测" }] }
+  }]));
+
+  const listed = await service.list();
+  const server = listed.data.servers[0];
+
+  assert.deepEqual(server.transport, {
+    type: "stdio",
+    command: "npx",
+    args: ["-y", "@playwright/mcp@latest"],
+    env: {}
+  });
+  assert.equal(server.connectionWizard.state, "ready_to_test");
+  assert.equal(server.lastTestCode, null);
+  assert.equal(server.lastError, "");
+  assert.equal(server.status, "disconnected");
 });
 
 test("importJson saves imported servers as disabled until tested", async (t) => {

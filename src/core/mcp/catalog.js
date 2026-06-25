@@ -43,7 +43,7 @@ const BUILTIN_MCP_TEMPLATES = Object.freeze([
     description: "浏览器自动化、截图、点击、输入和页面验证。",
     category: "浏览器自动化",
     managementMode: "native",
-    transport: { type: "stdio", command: "npx", args: ["-y", "@executeautomation/playwright-mcp-server"], env: {} },
+    transport: { type: "stdio", command: "npx", args: ["-y", "@playwright/mcp@latest"], env: {} },
     requiredInputs: []
   },
   {

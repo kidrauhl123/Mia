@@ -5,6 +5,7 @@
   let layoutCards = () => {};
   let activeLoadPromise = null;
   let activeDialog = null;
+  let activeMessageDialog = null;
 
   const MCP_TRANSPORT_TYPES = Object.freeze(["stdio", "http", "sse", "streamable_http"]);
 
@@ -74,14 +75,6 @@
     const needle = activeFilterText();
     if (!needle) return true;
     return values.join(" ").toLowerCase().includes(needle);
-  }
-
-  function alertText(message) {
-    if (typeof window !== "undefined" && typeof window.alert === "function") {
-      window.alert(message);
-      return;
-    }
-    console.warn(message);
   }
 
   function confirmAction(message) {
@@ -173,6 +166,57 @@
     document.body.appendChild(overlay);
     bindDialogClose(overlay);
     return true;
+  }
+
+  function closeMessageDialog() {
+    if (!activeMessageDialog) return;
+    const { overlay, onKeyDown } = activeMessageDialog;
+    if (typeof document !== "undefined" && onKeyDown) {
+      document.removeEventListener("keydown", onKeyDown);
+    }
+    overlay?.remove?.();
+    activeMessageDialog = null;
+  }
+
+  function appendMessageDialog(overlay) {
+    if (!overlay || typeof document === "undefined" || !document.body) return false;
+    closeMessageDialog();
+    document.body.appendChild(overlay);
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") closeMessageDialog();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    activeMessageDialog = { overlay, onKeyDown };
+    overlay.querySelectorAll("[data-mcp-message-close]").forEach((button) => {
+      button.addEventListener("click", () => closeMessageDialog());
+    });
+    return true;
+  }
+
+  function alertText(message) {
+    const text = String(message || "").trim();
+    if (typeof document === "undefined" || !document.body) {
+      if (typeof window !== "undefined" && typeof window.alert === "function") window.alert(text);
+      else console.warn(text);
+      return;
+    }
+    const overlay = document.createElement("section");
+    overlay.className = "mcp-dialog mcp-message-dialog";
+    overlay.setAttribute("role", "alertdialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "MCP 提示");
+    overlay.innerHTML = `
+      <div class="mcp-dialog-backdrop" data-mcp-message-close></div>
+      <div class="mcp-dialog-panel mcp-message-panel" data-mcp-alert>
+        <p>${escapeHtml(text || "操作失败，请重试。")}</p>
+        <footer class="mcp-dialog-actions">
+          <button class="mcp-dialog-primary" type="button" data-mcp-message-close>确定</button>
+        </footer>
+      </div>
+    `;
+    if (!appendMessageDialog(overlay)) return;
+    const button = overlay.querySelector("button[data-mcp-message-close]");
+    button?.focus?.();
   }
 
   async function loadMcpServers(options = {}) {
@@ -585,7 +629,7 @@
         <label data-mcp-url>Bearer Token 环境变量<input name="bearerTokenEnvVar" value="${escapeHtml(transport.bearerTokenEnvVar || "")}"></label>
         <footer class="mcp-dialog-actions">
           <button type="button" data-mcp-close>取消</button>
-          <button type="submit">${isEdit ? "保存" : "添加"}</button>
+          <button class="mcp-dialog-primary" type="submit">${isEdit ? "保存" : "添加"}</button>
         </footer>
       </form>
     `;
@@ -657,7 +701,7 @@
         ${fields.map((field) => requiredInputHtml(field)).join("")}
         <footer class="mcp-dialog-actions">
           <button type="button" data-mcp-close>取消</button>
-          <button type="submit">连接</button>
+          <button class="mcp-dialog-primary" type="submit">连接</button>
         </footer>
       </form>
     `;

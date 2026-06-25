@@ -304,7 +304,7 @@ test("setEnabled blocks managed enable until a connected test already exists", a
   assert.equal(enabled.success, false);
   assert.equal(enabled.data.id, installed.data.id);
   assert.equal(enabled.data.enabled, false);
-  assert.equal(enabled.error, "Managed MCP server must pass connection test before it can be enabled.");
+  assert.equal(enabled.error, "连接检测未通过，暂时不能启用。");
   assert.equal(stored[0].enabled, false);
 });
 
@@ -317,7 +317,7 @@ test("setEnabled blocks native built-ins until required inputs and connection te
   assert.equal(missingEnabled.success, false);
   assert.equal(missingEnabled.data.enabled, false);
   assert.equal(missingEnabled.data.connectionWizard.state, "missing_required_inputs");
-  assert.match(missingEnabled.error, /required fields/i);
+  assert.equal(missingEnabled.error, "请先完成这个 MCP 的必填配置。");
 
   const ready = await service.installTemplate("github", { GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_secret" });
   let stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
@@ -333,7 +333,7 @@ test("setEnabled blocks native built-ins until required inputs and connection te
   assert.equal(untested.success, false);
   assert.equal(untested.data.enabled, false);
   assert.equal(untested.data.connectionWizard.state, "ready_to_test");
-  assert.match(untested.error, /connection test/i);
+  assert.equal(untested.error, "连接检测未通过，暂时不能启用。");
   assert.equal(stored[0].enabled, false);
 });
 
