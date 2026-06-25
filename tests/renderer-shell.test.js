@@ -98,15 +98,15 @@ test("active conversation stop passes the conversation id through preload to mai
   assert.match(mainSource, /localBotResponder\?\.stopActiveConversationRun\?\.\(payload\)/);
 });
 
-test("foreground active conversation stop delegates to the daemon owner", () => {
+test("foreground active conversation stop delegates to the Mia Core owner", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const stopStart = mainSource.indexOf("async function stopChat");
   const stopEnd = mainSource.indexOf("function shouldOpenAgentSetupWindow", stopStart);
   const stopBody = mainSource.slice(stopStart, stopEnd);
 
-  assert.ok(stopStart >= 0, "stopChat should be async because daemon forwarding is async");
+  assert.ok(stopStart >= 0, "stopChat should be async because Mia Core forwarding is async");
   assert.match(stopBody, /!IS_DAEMON_PROCESS/);
-  assert.match(stopBody, /daemonTasksClient\?\.call\?\.\("\/api\/chat\/stop"/);
+  assert.match(stopBody, /miaCoreTasksClient\?\.call\?\.\("\/api\/chat\/stop"/);
   assert.match(stopBody, /body:\s*JSON\.stringify\(payload\s*\|\|\s*\{\}\)/);
 });
 
