@@ -73,34 +73,34 @@ test("save list test and delete persist MCP records", async (t) => {
   assert.equal(storedAfterDelete[0].enabled, false);
 });
 
-test("fetchMarketplace exposes AION-style browser automation MCP templates", async (t) => {
+test("fetchMarketplace exposes supported marketplace MCP templates", async (t) => {
   const { service } = setup(t);
 
   const market = await service.fetchMarketplace();
   const templates = Object.fromEntries(market.data.templates.map((template) => [template.id, template]));
 
   assert.equal(market.success, true);
-  assert.equal(templates["xhs-local-http"].nativeName, "xiaohongshu-mcp");
-  assert.equal(templates["xhs-local-http"].homepage, "https://github.com/xpzouying/xiaohongshu-mcp");
-  assert.equal(templates["xhs-local-http"].expectedToolCount, 13);
-  assert.match(templates["xhs-local-http"].setupHint, /登录工具/);
-  assert.deepEqual(templates["xhs-local-http"].setupCommands, ["go run cmd/login/main.go", "go run ."]);
-  assert.deepEqual(templates["xhs-local-http"].transport, {
+  assert.equal(templates.xiaohongshu.nativeName, "xiaohongshu");
+  assert.equal(templates.xiaohongshu.homepage, "https://github.com/xpzouying/xiaohongshu-mcp");
+  assert.equal(templates.xiaohongshu.expectedToolCount, 13);
+  assert.match(templates.xiaohongshu.connectionWizard.message, /登录后启动并检测连接/);
+  assert.deepEqual(templates.xiaohongshu.connectionWizard.actions.map((action) => action.id), ["install", "login", "start", "test"]);
+  assert.deepEqual(templates.xiaohongshu.transport, {
     type: "http",
     url: "http://localhost:18060/mcp",
     headers: {}
   });
-  assert.equal(templates["chrome-devtools-cdp"].category, "浏览器自动化");
-  assert.deepEqual(templates["chrome-devtools-cdp"].transport, {
+  assert.equal(templates.playwright.category, "浏览器自动化");
+  assert.deepEqual(templates.playwright.transport, {
     type: "stdio",
     command: "npx",
-    args: ["-y", "chrome-devtools-mcp@0.16.0", "--browser-url=http://127.0.0.1:9222"],
+    args: ["-y", "@executeautomation/playwright-mcp-server"],
     env: {}
   });
-  assert.deepEqual(templates["playwright-browser"].transport, {
+  assert.deepEqual(templates.context7.transport, {
     type: "stdio",
     command: "npx",
-    args: ["-y", "@playwright/mcp@latest"],
+    args: ["-y", "@upstash/context7-mcp@latest"],
     env: {}
   });
 });
@@ -123,24 +123,24 @@ test("installTemplate persists browser MCP templates and syncs native agents", a
     }
   });
 
-  const installed = await service.installTemplate("playwright-browser");
+  const installed = await service.installTemplate("playwright");
   const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
 
   assert.equal(installed.success, true);
   assert.equal(installed.data.name, "Playwright MCP");
-  assert.equal(installed.data.nativeName, "playwright-browser");
-  assert.equal(stored[0].registryId, "playwright-browser");
-  assert.equal(stored[0].nativeName, "playwright-browser");
+  assert.equal(installed.data.nativeName, "playwright");
+  assert.equal(stored[0].registryId, "playwright");
+  assert.equal(stored[0].nativeName, "playwright");
   assert.equal(stored[0].source, "marketplace");
   assert.deepEqual(stored[0].transport, {
     type: "stdio",
     command: "npx",
-    args: ["-y", "@playwright/mcp@latest"],
+    args: ["-y", "@executeautomation/playwright-mcp-server"],
     env: {}
   });
   assert.equal(syncCalls.length, 1);
   assert.deepEqual(syncCalls[0].currentRecords.map((record) => record.name), ["Playwright MCP"]);
-  assert.deepEqual(syncCalls[0].currentRecords.map((record) => record.nativeName), ["playwright-browser"]);
+  assert.deepEqual(syncCalls[0].currentRecords.map((record) => record.nativeName), ["playwright"]);
 });
 
 test("installed marketplace records inherit updated setup metadata", async (t) => {
@@ -149,7 +149,7 @@ test("installed marketplace records inherit updated setup metadata", async (t) =
   fs.writeFileSync(runtime.mcpServers, JSON.stringify([{
     id: "mcp_old_xhs",
     name: "小红书 MCP",
-    registryId: "xhs-local-http",
+    registryId: "xiaohongshu",
     source: "marketplace",
     enabled: true,
     transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} },
@@ -162,7 +162,7 @@ test("installed marketplace records inherit updated setup metadata", async (t) =
   const listed = await service.list();
   const server = listed.data.servers[0];
 
-  assert.equal(server.nativeName, "xiaohongshu-mcp");
+  assert.equal(server.nativeName, "xiaohongshu");
   assert.equal(server.homepage, "https://github.com/xpzouying/xiaohongshu-mcp");
   assert.equal(server.expectedToolCount, 13);
   assert.match(server.setupHint, /启动/);

@@ -385,7 +385,7 @@ test("mcp-library renders installed, marketplace, and custom tabs", () => {
     mcp: {
       activeTab: "installed",
       servers: [{ id: "mcp_xhs", name: "小红书 MCP", enabled: true, status: "connected", transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }, tools: [{ name: "search_notes" }], sync: {} }],
-      templates: [{ id: "xhs-local-http", name: "小红书 MCP", description: "本地 HTTP", transport: { type: "http" } }],
+      templates: [{ id: "xiaohongshu", name: "小红书 MCP", description: "本地 HTTP", transport: { type: "http" } }],
       loaded: true,
       loadAttempted: true,
       loading: false,

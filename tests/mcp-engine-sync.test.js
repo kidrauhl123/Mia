@@ -195,13 +195,13 @@ test("native CLI planners use nativeName instead of localized display name", () 
   const localized = {
     ...records[1],
     name: "小红书 MCP",
-    nativeName: "xhs-local-http"
+    nativeName: "xiaohongshu"
   };
 
   assert.deepEqual(planCodexCliSync([localized])[0].args, [
     "mcp",
     "add",
-    "xhs-local-http",
+    "xiaohongshu",
     "--url",
     "http://127.0.0.1:18060/mcp",
     "--bearer-token-env-var",
@@ -214,7 +214,7 @@ test("native CLI planners use nativeName instead of localized display name", () 
     "user",
     "--transport",
     "http",
-    "xhs-local-http",
+    "xiaohongshu",
     "http://127.0.0.1:18060/mcp"
   ]);
 });
