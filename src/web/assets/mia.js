@@ -229,7 +229,7 @@
   window.addEventListener('scroll', revealInViewport, { passive: true });
 
   /* ---------- helpers to build chat nodes ---------- */
-  function bubble({ av, me, html, sender }) {
+  function bubble({ av, me, html, sender, mini }) {
     const wrap = document.createElement('div');
     wrap.className = 'mw-msg' + (me ? ' me' : '');
     wrap.style.opacity = '0';
@@ -237,7 +237,7 @@
     wrap.style.transition = 'opacity .45s cubic-bezier(.16,1,.3,1), transform .45s cubic-bezier(.16,1,.3,1)';
     const avHtml = av ? avHTML(av) : '';
     const senderHtml = sender ? `<div class="demo-sender">${sender}</div>` : '';
-    wrap.innerHTML = `${avHtml}<div><div class="mw-bubble${me ? ' me' : ''}">${html}</div></div>`;
+    wrap.innerHTML = `${avHtml}<div><div class="mw-bubble${me ? ' me' : ''}${mini ? ' mini' : ''}">${html}</div></div>`;
     if (sender) {
       // put sender label above bubble
       const col = wrap.querySelector('div:last-child');
@@ -264,6 +264,28 @@
     });
   }
 
+  async function streamBubble(node, html, scrollEl) {
+    const target = node.querySelector('.mw-bubble');
+    if (!target) return;
+    target.classList.add('streaming');
+    target.innerHTML = '';
+    const parts = String(html).match(/<[^>]+>|[^<]/g) || [];
+    let next = '';
+    for (const part of parts) {
+      next += part;
+      target.innerHTML = next;
+      scrollChat(scrollEl);
+      if (part.startsWith('<')) {
+        await wait(8);
+      } else if (/[，。:：、.!?？]/.test(part)) {
+        await wait(90);
+      } else {
+        await wait(24);
+      }
+    }
+    target.classList.remove('streaming');
+  }
+
   /* ============================================================
      HERO — looping scripted conversation
      ============================================================ */
@@ -271,13 +293,25 @@
   const heroField = document.getElementById('heroField');
 
   const heroScript = [
-    { type: 'user', html: '帮我把新版落地页的测试跑一下,过了就提交' },
-    { type: 'typing', av: AV.coder, ms: 1100 },
-    { type: 'bot', av: AV.coder, html: '好的,我来跑 <code>npm test</code> →' },
-    { type: 'bot', av: AV.coder, html: '✅ 28 个用例全过。测试都过了,我把改动提交一下?' },
+    { type: 'user', html: '帮我把课程资料整理成 5 分钟展示稿,再列一下待办' },
+    { type: 'typing', av: AV.detective, ms: 1200 },
+    { type: 'bot', av: AV.detective, html: '我先把 18 页资料压成重点: 3 个观点、4 条引用、2 个可讲案例。' },
+    { type: 'typing', av: AV.analyst, ms: 1000 },
+    { type: 'bot', av: AV.analyst, html: '我把材料分成背景、问题、方法、结论,顺手标出最适合放进 PPT 的句子。' },
+    { type: 'typing', av: AV.coffee, ms: 1000 },
+    { type: 'bot', av: AV.coffee, html: '展示稿结构好了: 开场 30 秒、问题 1 分钟、方法 2 分钟、结论 90 秒。' },
+    { type: 'typing', av: AV.analyst, ms: 900 },
+    { type: 'bot', av: AV.analyst, html: '我把待办也排好了: 补一张图表、练两遍开场、明晚复习一次。要创建提醒吗?' },
     { type: 'perm' },
-    { type: 'user', html: '允许 ✓', mini: true },
-    { type: 'bot', av: AV.coder, html: '已提交 <code>feat: 新版落地页</code> 🎉 要我顺手发个上线通知到群里吗?' },
+    { type: 'user', html: '允许，继续生成', mini: true },
+    { type: 'typing', av: AV.analyst, ms: 850 },
+    { type: 'bot', av: AV.analyst, html: '已创建提醒。明晚 22:00 我会提醒你复习展示稿。' },
+    { type: 'typing', av: AV.coffee, ms: 1100 },
+    { type: 'bot', av: AV.coffee, html: '我把讲稿结构、待办和提醒都留在这条对话里。你继续改展示稿时,不用重新交代背景。' },
+    { type: 'typing', av: AV.detective, ms: 900 },
+    { type: 'bot', av: AV.detective, html: '我还把可引用句子和图表建议放在草稿旁边,你改表达风格就能用了。' },
+    { type: 'typing', av: AV.analyst, ms: 900 },
+    { type: 'bot', av: AV.analyst, html: '<b>下一步只剩三件事</b><br><code>今晚</code> 换成你的口吻 · <code>明晚</code> 练 2 遍 · <code>周五</code> 交稿。' },
   ];
 
   function heroPerm() {
@@ -290,9 +324,9 @@
       <div class="mw-perm-head">
         <span class="pulse"></span>
         <span class="mw-perm-kick">需要你的允许</span>
-        <span class="mw-perm-meta">小柯 · Bash</span>
+        <span class="mw-perm-meta">Mia · 日程</span>
       </div>
-      <div class="mw-perm-cmd">$ git commit -am "feat: 新版落地页"</div>
+      <div class="mw-perm-cmd">创建提醒: 明晚 22:00 复习展示稿</div>
       <div class="mw-perm-actions">
         <span class="ghost">拒绝</span>
         <button class="mw-pbtn">仅这次</button>
@@ -305,8 +339,9 @@
     if (reduceMotion) {
       // static fallback: render a couple of messages
       heroBody.appendChild(show2(bubble({ me: true, html: heroScript[0].html })));
-      heroBody.appendChild(show2(bubble({ av: AV.coder, html: heroScript[2].html })));
-      heroBody.appendChild(show2(bubble({ av: AV.coder, html: heroScript[3].html })));
+      heroBody.appendChild(show2(bubble({ av: AV.detective, html: heroScript[2].html })));
+      heroBody.appendChild(show2(bubble({ av: AV.coffee, html: heroScript[6].html })));
+      heroBody.appendChild(show2(bubble({ av: AV.coffee, html: heroScript[14].html })));
       return;
     }
     while (true) {
@@ -315,11 +350,11 @@
         if (step.type === 'user') {
           if (step.mini) {
             // typed in the field then "sent"
-            await typeField('允许并继续');
+            await typeField('允许，继续生成');
             await wait(250);
             heroField.textContent = '输入消息,Enter 发送…';
           }
-          const n = bubble({ me: true, html: step.html });
+          const n = bubble({ me: true, html: step.html, mini: step.mini });
           heroBody.appendChild(n);
           show(n);
           scrollChat(heroBody);
@@ -332,11 +367,12 @@
           await wait(step.ms || 1000);
           t.remove();
         } else if (step.type === 'bot') {
-          const n = bubble({ av: step.av, html: step.html });
+          const n = bubble({ av: step.av, html: '' });
           heroBody.appendChild(n);
           show(n);
           scrollChat(heroBody);
-          await wait(1500);
+          await streamBubble(n, step.html, heroBody);
+          await wait(520);
         } else if (step.type === 'perm') {
           const p = heroPerm();
           heroBody.appendChild(p);
@@ -358,7 +394,7 @@
           p.remove();
         }
       }
-      await wait(2600);
+      await wait(3400);
       // fade out before looping
       heroBody.style.transition = 'opacity .5s';
       heroBody.style.opacity = '0';
@@ -378,7 +414,9 @@
   }
 
   function scrollChat(el) {
-    el.scrollTop = el.scrollHeight;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
   }
   function show2(n) { n.style.opacity = '1'; n.style.transform = 'none'; return n; }
 
@@ -387,13 +425,13 @@
      ============================================================ */
   const groupBody = document.getElementById('groupBody');
   const groupScript = [
-    { me: true, html: '<span class="mention">@阿研</span> 查下竞品定价,<span class="mention">@阿析</span> 拉一下上周转化' },
+    { me: true, html: '<span class="mention">@阿研</span> 整理文献重点,<span class="mention">@阿文</span> 压一版 5 分钟讲稿' },
     { typing: AV.detective, ms: 1200 },
-    { av: AV.detective, sender: '阿研 · 调研', html: '竞品三家定价整理好了,平均比我们高约 20%。详细对比发群文件了 📄' },
+    { av: AV.detective, sender: '阿研 · 资料', html: '三篇文章的核心观点和可引用句子整理好了。' },
     { typing: AV.analyst, ms: 1100 },
-    { av: AV.analyst, sender: '阿析 · 数据', html: '上周转化 3.4%,环比 <code>+12%</code>。涨幅主要来自移动端。' },
-    { typing: AV.coder, ms: 1300 },
-    { av: AV.coder, sender: '小柯 · 工程', html: '那我按这个方向改价格页,改完 @ 你确认 👌' },
+    { av: AV.analyst, sender: '阿析 · 数据', html: '问卷数据我做成两张图，结论会更直观。' },
+    { typing: AV.coffee, ms: 1300 },
+    { av: AV.coffee, sender: '阿文 · 写作', html: '讲稿已经压到 5 分钟，结尾更有记忆点。' },
   ];
 
   async function playGroup() {
@@ -451,7 +489,7 @@
       permBanner.style.opacity = '0';
       permBanner.style.transform = 'translateY(-6px)';
       setTimeout(() => {
-        const ok = bubble({ av: AV.coder, html: '已提交改动 🎉 <code>feat: 新版落地页</code>' });
+        const ok = bubble({ av: AV.analyst, html: '已创建提醒。明晚 22:00 我会叫你复习展示稿。' });
         permBanner.replaceWith(ok);
         show(ok);
         // reset after a while so the demo can replay on re-enter
@@ -472,9 +510,9 @@
       <div class="mw-perm-head">
         <span class="pulse"></span>
         <span class="mw-perm-kick">需要你的允许</span>
-        <span class="mw-perm-meta">小柯 · Bash</span>
+        <span class="mw-perm-meta">Mia · 日程</span>
       </div>
-      <div class="mw-perm-cmd">$ git commit -am "feat: 新版落地页"</div>
+      <div class="mw-perm-cmd">创建提醒: 明晚 22:00 复习展示稿</div>
       <div class="mw-perm-actions">
         <span class="ghost">拒绝</span>
         <button class="mw-pbtn">仅这次</button>
@@ -502,7 +540,7 @@
       banner.style.opacity = '0';
       banner.style.transform = 'translateY(-6px)';
       setTimeout(() => {
-        const ok = bubble({ av: AV.coder, html: '已提交改动 🎉 <code>feat: 新版落地页</code>' });
+        const ok = bubble({ av: AV.analyst, html: '已创建提醒。明晚 22:00 我会叫你复习展示稿。' });
         banner.replaceWith(ok);
         show(ok);
         setTimeout(resetPerm, 4200);

@@ -205,7 +205,7 @@
       heroDemo.style.opacity = '1';
     }
 
-    // ── heading 2 "多端互通,多内核兼容": fades in CENTRED at white, holds ALONE,
+    // ── heading 2 "多端同步，多模型可选": fades in CENTRED at white, holds ALONE,
     //    then its merged card rises to a gap below it and they ride up together
     //    (mirrors heading 1 + group card) ──
     var demo2Start = whiteOn + ih * 0.5;            // heading2 solo beat, then card2 enters

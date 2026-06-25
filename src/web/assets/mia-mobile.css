@@ -13,7 +13,7 @@
 
 @media (max-width: 900px) {
   /* hero pinned sequence stays ON — just size it for a phone viewport */
-  .hero-track { height: 520vh; }
+  .hero-track { height: 700vh; }
   /* group-relay demo card: single-column chat on phones (rail hidden above) */
   .hero-demo { width: 92vw; }
   .hero-demo .miawin--2 .miawin-grid { grid-template-columns: 1fr; height: min(62vh, 440px); }
@@ -178,28 +178,41 @@
 /* ---- phones: collapse the desktop app window to a single chat card ---- */
 @media (max-width: 680px) {
   .hero-ctas {
-    width: 100%;
+    width: min(100%, 320px);
+    max-width: calc(100vw - 40px);
     gap: 9px;
     align-items: stretch;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    margin-left: auto;
+    margin-right: auto;
   }
   .download-cluster {
     width: 100%;
+    max-width: 100%;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: 1fr;
     justify-content: center;
   }
   .download-cluster > .btn-primary {
+    width: 100%;
+    max-width: 100%;
     min-width: 0;
     padding-left: 16px;
     padding-right: 16px;
   }
   .btn-more-downloads {
+    width: 100%;
     flex: none;
     padding-left: 13px !important;
     padding-right: 13px !important;
   }
   .download-menu-wrap {
     position: static;
+    width: 100%;
+  }
+  .hero-ctas > .btn-ghost {
+    width: 100%;
   }
   .download-menu {
     left: 0;
@@ -218,17 +231,33 @@
   .miawin { display: block !important; }
   .miawin-mobile-note { display: none !important; }
   .hero-product {
+    width: calc(100vw - 40px);
     max-width: 360px;
     margin-left: auto;
     margin-right: auto;
+    height: auto !important;
+    display: block !important;
+  }
+  .hero-product .miawin {
+    width: 100%;
+  }
+  .hero.hero-pin .hero-product .miawin {
+    width: 100%;
+    flex: 0 1 auto;
+    transform: none;
   }
   .miawin-grid {
     grid-template-columns: 1fr;
     height: 432px;            /* shorter so the whole hero fits one screen */
+  }
+  .hero.hero-pin .hero-product .miawin-grid {
+    height: 432px;
   }
   .mw-rail,
   .mw-list { display: none; }
   .mw-chat { border-radius: 16px; }
   /* the chat header loses the rail's traffic lights, so add a little air */
   .mw-top { padding-top: 16px; }
+  .mw-msg { max-width: 100%; }
+  .mw-bubble { overflow-wrap: break-word; }
 }

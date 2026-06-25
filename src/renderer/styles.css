@@ -1612,6 +1612,13 @@ body.sidebar-resizing * {
   opacity: 1;
 }
 
+.sidebar-collapse-toggle[hidden],
+.app-shell[data-sidebar-toggle="hidden"] .sidebar-collapse-toggle,
+.app-shell[data-shell-layout="single"] .sidebar-collapse-toggle,
+.app-shell[data-nav-layout="sidebar-bottom"] .sidebar-collapse-toggle {
+  display: none;
+}
+
 .sidebar-collapse-toggle:hover {
   background: var(--hover-background);
   color: var(--text);

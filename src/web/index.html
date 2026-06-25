@@ -5,18 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f6f5f1">
 <meta name="apple-mobile-web-app-title" content="Mia">
-<meta name="description" content="Mia 把一群 AI 当同事用：在一个聊天 GUI 里调度 Claude Code、Codex、Hermes，多端同步、本机权限可控。">
-<title>Mia — 把一群 AI 当同事用</title>
+<meta name="description" content="Mia 让你在一个地方调用不同 AI，处理学习、创作、求职、日程和灵感整理。多端同步，多模型可选。">
+<title>Mia — 不同 AI，处理不同事</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/mia.css?v=20260609-beian">
-<link rel="stylesheet" href="assets/mia-gradient.css?v=20260609-beian">
-<link rel="stylesheet" href="assets/mia-scroll.css?v=20260609-beian">
-<link rel="stylesheet" href="assets/mia-feature.css?v=20260609-beian">
-<link rel="stylesheet" href="assets/mia-mobile.css?v=20260609-beian">
+<link rel="stylesheet" href="assets/mia.css?v=20260625-realchat">
+<link rel="stylesheet" href="assets/mia-gradient.css?v=20260625-realchat">
+<link rel="stylesheet" href="assets/mia-scroll.css?v=20260625-realchat">
+<link rel="stylesheet" href="assets/mia-feature.css?v=20260625-realchat">
+<link rel="stylesheet" href="assets/mia-mobile.css?v=20260625-realchat">
 </head>
 <body data-palette="sunset" data-grad="medium">
 <div class="work-bg" id="workBg" aria-hidden="true"></div>
@@ -49,9 +49,10 @@
       <source src="assets/mia-logo-anim.webm" type="video/webm">
       <source src="assets/mia-logo-anim.mp4" type="video/mp4">
     </video>
-    <p class="hero-sub reveal">MIA</p>
-    <div class="eyebrow reveal" style="--d:.08s">Multiple Intelligent Agents</div>
-    <div class="hero-ctas reveal" style="--d:.18s">
+    <h1 class="hero-sub reveal">MIA</h1>
+    <p class="hero-line reveal" style="--d:.06s">不同 AI，处理不同事。</p>
+    <div class="eyebrow reveal" style="--d:.12s">学习、创作、求职、日程和灵感整理</div>
+    <div class="hero-ctas reveal" style="--d:.22s">
       <div class="download-cluster" data-download-cluster>
         <a class="btn btn-primary" data-primary-download href="/downloads/mia-macos-apple-silicon-latest.dmg" download="Mia-0.1.24-Apple-Silicon.dmg">
           <svg data-download-icon="apple" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c-1.3 0-2.7.8-3.5 1.9C12.3 6 11.7 7.5 11.9 9c1.4.1 2.8-.7 3.6-1.8.8-1.1 1.3-2.6 1-4.2zM19 16.4c0 1.8-1.6 3.7-2.9 4.6-.7.5-1.5.5-2.4.1-.9-.4-1.7-.4-2.6 0-1.1.5-1.7.4-2.4-.1C4.4 18.9 3.8 13 6.4 10.6c1-1 2.4-1.4 3.6-.9 1 .4 1.6.4 2.7 0 1.4-.6 2.9-.4 4 .6-2.3 1.4-1.9 4.6.3 6.1z"/></svg>
@@ -107,41 +108,48 @@
 
         <!-- conversation list -->
         <div class="mw-list">
+          <div class="mw-list-head">
+            <div class="mw-list-title">消息</div>
+            <div class="mw-list-actions">
+              <span aria-hidden="true">⌕</span>
+              <span aria-hidden="true">＋</span>
+            </div>
+          </div>
           <div class="mw-search"><span>⌕</span>搜索</div>
           <div class="mw-rows">
             <div class="mw-row on">
               <div class="mw-av av av--teal"><svg viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/></svg></div>
               <div class="mw-row-main">
-                <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">小柯</span><span class="mw-role">工程</span></span><span class="mw-time">现在</span></div>
-                <div class="mw-prev">好的,我来跑一下测试 →</div>
+                <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">阿研</span><span class="mw-role">学习</span></span><span class="mw-time">现在</span></div>
+                <div class="mw-prev">资料重点已经整理好 →</div>
               </div>
             </div>
             <div class="mw-row">
               <div class="mw-av av av--indigo"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.2"/><path d="M20.5 20.5 16 16"/></svg></div>
               <div class="mw-row-main">
-                <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">阿研</span><span class="mw-role">调研</span></span><span class="mw-time">2 分钟</span></div>
-                <div class="mw-row-top"><span class="mw-prev">竞品报告已经整理好了…</span><span class="mw-badge">2</span></div>
+                <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">阿文</span><span class="mw-role">写作</span></span><span class="mw-time">2 分钟</span></div>
+                <div class="mw-row-top"><span class="mw-prev">展示稿三版开头给你了…</span><span class="mw-badge">2</span></div>
               </div>
             </div>
             <div class="mw-row">
               <div class="mw-av av av--violet"><svg viewBox="0 0 24 24"><path d="M5 20V13"/><path d="M10 20V6"/><path d="M15 20v-9"/><path d="M20 20V9"/></svg></div>
               <div class="mw-row-main">
-                <div class="mw-row-top"><span class="mw-name">数据小组</span><span class="mw-time">10:24</span></div>
-                <div class="mw-prev">本周转化率涨了 12%</div>
+                <div class="mw-row-top"><span class="mw-name">求职小组</span><span class="mw-time">10:24</span></div>
+                <div class="mw-prev">简历项目经历更清楚了</div>
               </div>
             </div>
             <div class="mw-row">
               <div class="mw-av av av--rose"><svg viewBox="0 0 24 24"><path d="M12 4l1.7 4.8L18.5 10l-4.8 1.7L12 16.5l-1.7-4.8L5.5 10l4.8-1.7z"/></svg></div>
               <div class="mw-row-main">
                 <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">小映</span><span class="mw-role">创意</span></span><span class="mw-time">昨天</span></div>
-                <div class="mw-prev">三版封面方案都发你了 🎨</div>
+                <div class="mw-prev">封面和标题给你三版</div>
               </div>
             </div>
             <div class="mw-row">
               <div class="mw-av av av--amber"><svg viewBox="0 0 24 24"><path d="M14.5 5.5l4 4"/><path d="M4 20l1-4L16 5a2.12 2.12 0 0 1 3 3L8 19l-4 1z"/></svg></div>
               <div class="mw-row-main">
-                <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">老周</span><span class="mw-role">写作</span></span><span class="mw-time">昨天</span></div>
-                <div class="mw-prev">公众号推文初稿在这</div>
+                <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">小序</span><span class="mw-role">计划</span></span><span class="mw-time">昨天</span></div>
+                <div class="mw-prev">今晚 22:00 复习提醒已排好</div>
               </div>
             </div>
           </div>
@@ -152,7 +160,7 @@
           <div class="mw-top">
             <div class="mw-av av av--teal"><svg viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/></svg></div>
             <div>
-              <div class="mw-top-name">Mia 工程</div>
+              <div class="mw-top-name">Mia 学习</div>
               <div class="mw-top-meta">
 </div>
             </div>
@@ -180,7 +188,7 @@
     </div>
   </div>
   <div class="hero-pin-heading" id="heroPinHeading">
-    <h2>它们分工干活,你只管把关。</h2>
+    <h2>从资料到讲稿，到待办清单。</h2>
   </div>
 
   <!-- act 2: group-relay demo card, rides on the dark purple -->
@@ -206,16 +214,16 @@
           <div class="mw-top">
             <div class="mw-av av av--violet"><svg viewBox="0 0 24 24"><path d="M5 20V13"/><path d="M10 20V6"/><path d="M15 20v-9"/><path d="M20 20V9"/></svg></div>
             <div>
-              <div class="mw-top-name">改版上线小组</div>
-              <div class="mw-top-meta">你 + 3 位 · 周五前上线</div>
+              <div class="mw-top-name">展示准备小组</div>
+              <div class="mw-top-meta">你 + 3 位 · 周五前交稿</div>
             </div>
             <span class="mw-tag" style="margin-left:auto;">群聊</span>
           </div>
           <div class="mw-body">
-            <div class="mw-msg me"><div><div class="mw-bubble me"><span class="mention">@阿研</span> 查下竞品定价,<span class="mention">@阿析</span> 拉一下上周转化</div></div></div>
-            <div class="mw-msg"><div class="mw-av av av--indigo"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.2"/><path d="M20.5 20.5 16 16"/></svg></div><div><div class="demo-sender">阿研 · 调研</div><div class="mw-bubble">三家定价整理好了,平均比我们高约 20%,对比表发群文件了 📄</div></div></div>
-            <div class="mw-msg"><div class="mw-av av av--violet"><svg viewBox="0 0 24 24"><path d="M5 20V13"/><path d="M10 20V6"/><path d="M15 20v-9"/><path d="M20 20V9"/></svg></div><div><div class="demo-sender">阿析 · 数据</div><div class="mw-bubble">上周转化 3.4%,环比 <code>+12%</code>,涨幅主要来自移动端。</div></div></div>
-            <div class="mw-msg"><div class="mw-av av av--teal"><svg viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/></svg></div><div><div class="demo-sender">小柯 · 工程</div><div class="mw-bubble">那我按这个方向改价格页,改完 @ 你确认 👌</div></div></div>
+            <div class="mw-msg me"><div><div class="mw-bubble me"><span class="mention">@阿研</span> 整理文献重点,<span class="mention">@阿文</span> 压一版 5 分钟讲稿</div></div></div>
+            <div class="mw-msg"><div class="mw-av av av--indigo"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.2"/><path d="M20.5 20.5 16 16"/></svg></div><div><div class="demo-sender">阿研 · 资料</div><div class="mw-bubble">三篇文章的核心观点和可引用句子整理好了。</div></div></div>
+            <div class="mw-msg"><div class="mw-av av av--violet"><svg viewBox="0 0 24 24"><path d="M5 20V13"/><path d="M10 20V6"/><path d="M15 20v-9"/><path d="M20 20V9"/></svg></div><div><div class="demo-sender">阿析 · 数据</div><div class="mw-bubble">问卷数据我做成两张图，结论会更直观。</div></div></div>
+            <div class="mw-msg"><div class="mw-av av av--teal"><svg viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/></svg></div><div><div class="demo-sender">阿文 · 写作</div><div class="mw-bubble">讲稿已经压到 5 分钟，结尾更有记忆点。</div></div></div>
           </div>
         </div>
       </div>
@@ -223,15 +231,15 @@
   </div>
 
   <div class="hero-pin-heading" id="heroPinHeading2">
-    <h2>多端互通,多内核兼容</h2>
+    <h2>多端同步，多模型可选</h2>
   </div>
 
   <!-- act 3: merged feature card — rises to meet heading 2 (mirrors act 2) -->
   <div class="hero-demo hero-demo2" id="heroDemo2" aria-hidden="true">
     <article class="feat-merged">
       <div class="fm-block">
-        <div class="fm-cap">多端互通</div>
-        <p class="fm-desc">账号与对话云端同步,桌面开个头,通勤路上接着聊。</p>
+        <div class="fm-cap">多端同步</div>
+        <p class="fm-desc">桌面开个头，路上手机接着聊，资料和上下文不断线。</p>
         <div class="fm-devs">
           <span class="fm-dev"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>桌面</span>
           <span class="fm-conn"></span>
@@ -242,8 +250,8 @@
       </div>
       <div class="fm-rule"></div>
       <div class="fm-block">
-        <div class="fm-cap">多内核兼容</div>
-        <p class="fm-desc">写码用 Codex,长文找 Claude,日常用 Hermes——随时切换。</p>
+        <div class="fm-cap">多模型可选</div>
+        <p class="fm-desc">写代码、长文、搜索、日常问答，按任务切换合适模型。</p>
         <div class="fm-engs">
           <span class="fm-eng"><img src="assets/icons/hermes.svg" alt="">Hermes</span>
           <span class="fm-eng"><svg viewBox="0 0 24 24" fill="#d97706"><path clip-rule="evenodd" fill-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg>Claude</span>
@@ -260,13 +268,13 @@
 <section class="block" id="group" hidden>
   <div class="wrap">
     <div class="section-head center reveal" style="margin-bottom:8px;">
-      <span class="kicker">协作 · 掌控</span>
-      <h2 class="h2" style="margin:0 auto;">它们分工干活,你只管把关。</h2>
+      <span class="kicker">学习 · 创作 · 计划</span>
+      <h2 class="h2" style="margin:0 auto;">把资料、写作、计划一起推进。</h2>
     </div>
 
     <div class="duo">
       <div class="duo-col reveal">
-        <div class="duo-cap"><b>@ 谁就谁来</b><span>一个群里,多个伙伴分工接力。</span></div>
+        <div class="duo-cap"><b>@ 谁就谁来</b><span>一个群里，多个 AI 分工接力。</span></div>
         <div class="demo-card" id="groupDemo">
           <div class="demo-head">
             <div class="demo-stack">
@@ -275,8 +283,8 @@
               <div class="mw-av av av--violet"><svg viewBox="0 0 24 24"><path d="M5 20V13"/><path d="M10 20V6"/><path d="M15 20v-9"/><path d="M20 20V9"/></svg></div>
             </div>
             <div>
-              <div class="demo-head-title">改版上线小组</div>
-              <div class="demo-head-meta">你 + 3 位 · 目标:周五前上线</div>
+              <div class="demo-head-title">展示准备小组</div>
+              <div class="demo-head-meta">你 + 3 位 · 目标:周五前交稿</div>
             </div>
           </div>
           <div class="demo-body" id="groupBody"><!-- injected --></div>
@@ -284,27 +292,27 @@
       </div>
 
       <div class="duo-col reveal" style="--d:.1s">
-        <div class="duo-cap"><b>动手前先问你一句</b><span>敏感操作要你点头,不点就不动。</span></div>
+        <div class="duo-cap"><b>顺手排好下一步</b><span>待办、提醒和后续动作，跟着结果一起补上。</span></div>
         <div class="demo-card">
           <div class="demo-head">
             <div class="mw-av av av--teal" style="width:36px;height:36px"><svg viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/></svg></div>
             <div>
-              <div class="demo-head-title">小柯 · 工程</div>
-              <div class="demo-head-meta">请求执行一条命令</div>
+              <div class="demo-head-title">小序 · 计划</div>
+              <div class="demo-head-meta">复习安排</div>
             </div>
           </div>
           <div class="demo-body" style="min-height:auto;padding:22px;gap:16px;" id="permDemo">
             <div class="mw-msg">
               <div class="mw-av av av--teal"><svg viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/></svg></div>
-              <div class="mw-bubble">测试都过了,我把改动提交一下?</div>
+              <div class="mw-bubble">我可以把展示稿复习安排到明晚 22:00。要创建提醒吗?</div>
             </div>
             <div class="mw-perm" id="permBanner">
               <div class="mw-perm-head">
                 <span class="pulse"></span>
                 <span class="mw-perm-kick">需要你的允许</span>
-                <span class="mw-perm-meta">小柯 · Bash</span>
+                <span class="mw-perm-meta">Mia · 日程</span>
               </div>
-              <div class="mw-perm-cmd">$ git commit -am "feat: 新版落地页"</div>
+              <div class="mw-perm-cmd">创建提醒: 明晚 22:00 复习展示稿</div>
               <div class="mw-perm-actions">
                 <span class="ghost">拒绝</span>
                 <button class="mw-pbtn">仅这次</button>
@@ -323,12 +331,12 @@
   <div class="wrap">
     <div class="section-head center reveal" style="margin-bottom:6px;">
       <span class="kicker">随处可用 · 自由选模型</span>
-      <h2 class="h2" style="margin:0 auto;">在哪都接着上次聊,用哪个模型你定。</h2>
+      <h2 class="h2" style="margin:0 auto;">电脑、手机、网页，接着上次继续。</h2>
     </div>
 
     <div class="combo">
       <div class="combo-row reveal">
-        <div class="combo-label"><b>多端同步</b><span>账号、好友、群聊云端同步。</span></div>
+        <div class="combo-label"><b>多端同步</b><span>对话、资料和任务云端同步。</span></div>
         <div class="combo-cards">
           <div class="mini-card">
             <div class="mini-icon"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8 M12 17v4"/></svg></div>
@@ -346,7 +354,7 @@
       </div>
 
       <div class="combo-row reveal" style="--d:.1s">
-        <div class="combo-label"><b>多引擎兼容</b><span>按事挑人,不被单一模型绑住。</span></div>
+        <div class="combo-label"><b>多模型可选</b><span>按任务切换，不被单一模型绑住。</span></div>
         <div class="combo-cards engine-cards">
           <div class="mini-card">
             <div class="mini-logo hermes"><img src="assets/icons/hermes.svg" alt="Hermes"></div>
@@ -385,7 +393,7 @@
   </div>
 </footer>
 
-<script src="assets/mia.js?v=20260609-beian"></script>
-<script src="assets/mia-scroll.js?v=20260609-beian"></script>
+<script src="assets/mia.js?v=20260625-realchat"></script>
+<script src="assets/mia-scroll.js?v=20260625-realchat"></script>
 </body>
 </html>

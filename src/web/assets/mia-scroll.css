@@ -10,20 +10,31 @@
    the background snaps light->dark instantly, then the heading fades
    in dead-centre while the card flies off the top.
    ============================================================ */
-.hero-track { position: relative; height: 540vh; }
+.hero-track { position: relative; height: 720vh; }
 .hero.hero-pin {
   position: sticky;
   top: 0;
   height: 100vh;
   min-height: 560px;
   overflow: hidden;
-  padding: 84px 0 0;
+  padding: 64px 0 0;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   background: #ffffff;
 }
-.hero.hero-pin .hero-inner { transition: none; will-change: transform; }
+.hero.hero-pin .hero-inner { gap: 24px; transition: none; will-change: transform; }
+.hero.hero-pin .hero-product {
+  display: flex;
+  justify-content: center;
+  width: min(var(--mia-window-width), calc(100vw - 56px));
+  max-width: var(--mia-window-width);
+}
+.hero.hero-pin .hero-product .miawin {
+  width: 100%;
+  flex: 0 1 var(--mia-window-width);
+}
+.hero.hero-pin .hero-product .miawin-grid { height: var(--mia-window-height); }
 /* artistic gradient only at the TOP; it fades to the white homepage below,
    so the snap reads as a clean WHITE -> dark (not a gradient) */
 .hero.hero-pin .hg-mesh,
@@ -61,7 +72,7 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  width: min(660px, 92vw);
+  width: min(620px, 92vw);
   transform: translate(-50%, 58vh);
   z-index: 5;
   opacity: 0;
@@ -70,7 +81,7 @@
 }
 .hero-demo .miawin { margin: 0; background: #ffffff; }
 .hero-demo .miawin--2 .miawin-grid {
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   height: min(496px, 66vh);
 }
 .hero-demo .mw-body { overflow: hidden; }

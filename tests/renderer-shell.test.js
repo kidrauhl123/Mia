@@ -296,6 +296,11 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(appStateSource, /sidebarCollapsed:\s*options\.sidebarCollapsed \?\? readLocal\(storage, "mia\.sidebarCollapsed\.v1"\) === "1"/);
   assert.doesNotMatch(appStateSource, /skillPickerPluginId/);
   assert.match(html, /id="sidebarCollapseToggle" class="sidebar-collapse-toggle"[\s\S]*?aria-controls="conversationSidebar"[\s\S]*?aria-expanded="true"[\s\S]*?<\/button>\s*<div class="sidebar-title">消息<\/div>/);
+  assert.match(
+    html,
+    /id="sidebarCollapseToggle" class="sidebar-collapse-toggle"[^>]*\bhidden\b/,
+    "sidebar collapse toggle should default hidden until JS confirms a collapsible desktop layout"
+  );
   assert.match(html, /id="sidebarRailHoverBridge" class="sidebar-rail-hover-bridge" aria-hidden="true"><\/div>\s*<button id="sidebarRailToggle"/);
   assert.match(html, /id="sidebarRailToggle" class="sidebar-rail-toggle sidebar-expand-toggle"[\s\S]*?aria-controls="conversationSidebar"[\s\S]*?aria-expanded="false"[\s\S]*?<rect x="3" y="4" width="18" height="16" rx="2\.5"/);
   assert.match(css, /--rail-column-width:\s*78px;/);
@@ -327,6 +332,7 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(css, /\.sidebar-title-row\s*\{[\s\S]*?display:\s*flex;[\s\S]*?align-items:\s*center;[\s\S]*?-webkit-app-region:\s*no-drag;/);
   assert.match(css, /\.sidebar-collapse-toggle\s*\{[\s\S]*?width:\s*0;[\s\S]*?opacity:\s*0;[\s\S]*?overflow:\s*hidden;/);
   assert.match(css, /\.conversation-sidebar:hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar\.sidebar-action-hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar \.sidebar-tools:focus-within \.sidebar-collapse-toggle\s*\{[\s\S]*?width:\s*28px;[\s\S]*?opacity:\s*1;/);
+  assert.match(css, /\.sidebar-collapse-toggle\[hidden\],[\s\S]*?\.app-shell\[data-sidebar-toggle="hidden"\] \.sidebar-collapse-toggle,[\s\S]*?\.app-shell\[data-shell-layout="single"\] \.sidebar-collapse-toggle,[\s\S]*?\.app-shell\[data-nav-layout="sidebar-bottom"\] \.sidebar-collapse-toggle\s*\{[\s\S]*?display:\s*none;/);
   assert.doesNotMatch(css, /\.sidebar-collapse-toggle:focus-visible[^{]*\{[^}]*(?:outline|box-shadow):/);
   assert.doesNotMatch(css, /\.sidebar-rail-toggle:focus-visible[^{]*\{[^}]*(?:outline|box-shadow):/);
   assert.match(css, /\.sidebar-rail-hover-bridge\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*0;[\s\S]*?bottom:\s*0;[\s\S]*?left:\s*var\(--rail-column-width\);[\s\S]*?width:\s*64px;[\s\S]*?display:\s*none;[\s\S]*?background:\s*transparent;[\s\S]*?-webkit-app-region:\s*no-drag;/);
