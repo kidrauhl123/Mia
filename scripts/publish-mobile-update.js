@@ -76,8 +76,11 @@ function main() {
   if (!sourceUrl && !(localApk && fs.existsSync(localApk))) throw new Error("need --build <id> or --apk <path>");
 
   const apkName = `mia-android-${versionCode}.apk`;
+  const latestApkName = "mia-android-latest.apk";
   const dest = `${DOWNLOADS_DIR}/${apkName}`;
+  const latestDest = `${DOWNLOADS_DIR}/${latestApkName}`;
   const apkUrl = `${PUBLIC_BASE}/downloads/${apkName}`;
+  const latestApkUrl = `${PUBLIC_BASE}/downloads/${latestApkName}`;
 
   // Put the APK on the server.
   if (sourceUrl) {
@@ -87,6 +90,8 @@ function main() {
     console.log(`[publish] piping local APK over ssh → ${dest}`);
     execFileSync("ssh", [REMOTE, `cat > '${dest}'`], { input: fs.readFileSync(localApk), stdio: ["pipe", "inherit", "inherit"] });
   }
+  console.log(`[publish] updating website latest APK → ${latestDest}`);
+  sshRun(`cp '${dest}' '${latestDest}'`, { stdio: ["pipe", "inherit", "inherit"] });
 
   // Read the authoritative sha256 + size back from the served file.
   const stat = sshRun(`sha256sum '${dest}' | awk '{print $1}'; stat -c %s '${dest}'`).trim().split(/\s+/);
@@ -119,8 +124,9 @@ function main() {
 
   const manifestHttp = out("curl", ["-sS", "-o", "/dev/null", "-w", "%{http_code}", `${PUBLIC_BASE}/downloads/mia-mobile-update.json`]).trim();
   const apkHttp = out("curl", ["-sS", "-I", "-o", "/dev/null", "-w", "%{http_code}", apkUrl]).trim();
-  console.log(`[publish] verify manifest=${manifestHttp} apk=${apkHttp}`);
-  if (manifestHttp !== "200" || apkHttp !== "200") throw new Error("post-upload verification failed");
+  const latestApkHttp = out("curl", ["-sS", "-I", "-o", "/dev/null", "-w", "%{http_code}", latestApkUrl]).trim();
+  console.log(`[publish] verify manifest=${manifestHttp} apk=${apkHttp} latest=${latestApkHttp}`);
+  if (manifestHttp !== "200" || apkHttp !== "200" || latestApkHttp !== "200") throw new Error("post-upload verification failed");
   console.log("[publish] done — clients on a lower versionCode will now see the update.");
 }
 
