@@ -140,6 +140,52 @@ test("default agent discovery service uses runner", async (t) => {
   assert.ok(calls.includes("claude"));
 });
 
+test("getAgentConfigs masks discovered env and header secrets", async (t) => {
+  const { service } = setup(t, {
+    agentConfigRunner: async (command) => {
+      if (command === "claude") return { ok: true, stdout: "", stderr: "" };
+      if (command === "codex") {
+        return {
+          ok: true,
+          stdout: JSON.stringify([
+            {
+              name: "stdio-secret",
+              enabled: true,
+              transport: {
+                type: "stdio",
+                command: "npx",
+                args: ["-y", "secret-mcp"],
+                env: { API_TOKEN: "raw-token", SAFE_VALUE: "visible" }
+              }
+            },
+            {
+              name: "http-secret",
+              enabled: true,
+              transport: {
+                type: "http",
+                url: "https://example.com/mcp",
+                headers: { Authorization: "Bearer raw-header", Cookie: "sid=raw-cookie", "X-Trace": "visible" }
+              }
+            }
+          ]),
+          stderr: ""
+        };
+      }
+      return { ok: false, stdout: "", stderr: "" };
+    }
+  });
+
+  const result = await service.getAgentConfigs();
+  const servers = result.data.sources.find((source) => source.source === "codex").servers;
+
+  assert.equal(result.success, true);
+  assert.equal(servers.find((server) => server.name === "stdio-secret").transport.env.API_TOKEN, "••••••••");
+  assert.equal(servers.find((server) => server.name === "stdio-secret").transport.env.SAFE_VALUE, "visible");
+  assert.equal(servers.find((server) => server.name === "http-secret").transport.headers.Authorization, "••••••••");
+  assert.equal(servers.find((server) => server.name === "http-secret").transport.headers.Cookie, "••••••••");
+  assert.equal(servers.find((server) => server.name === "http-secret").transport.headers["X-Trace"], "visible");
+});
+
 test("importAgentConfig writes disabled agent-config registry record", async (t) => {
   const { service, runtime } = setup(t, {
     agentConfigService: {
@@ -169,6 +215,75 @@ test("importAgentConfig writes disabled agent-config registry record", async (t)
   assert.equal(stored[0].enabled, false);
   assert.equal(stored[0].source, "agent-config");
   assert.equal(stored[0].sourceAgent, "codex");
+  assert.equal(stored[0].transport.env.API_TOKEN, "secret");
+});
+
+test("default importAgentConfig stores raw discovered secret and returns masked record", async (t) => {
+  const { service, runtime } = setup(t, {
+    agentConfigRunner: async (command) => {
+      if (command === "codex") {
+        return {
+          ok: true,
+          stdout: JSON.stringify([
+            {
+              name: "pw",
+              enabled: true,
+              transport: {
+                type: "stdio",
+                command: "npx",
+                args: ["-y", "@playwright/mcp"],
+                env: { API_TOKEN: "raw-token" }
+              }
+            }
+          ]),
+          stderr: ""
+        };
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    }
+  });
+
+  const imported = await service.importAgentConfig({ sourceAgent: "codex", serverName: "pw" });
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(imported.success, true);
+  assert.equal(imported.data.server.transport.env.API_TOKEN, "••••••••");
+  assert.equal(stored[0].transport.env.API_TOKEN, "raw-token");
+});
+
+test("importAgentConfig rejects plugin-managed disabled and failed discoveries", async (t) => {
+  const { service } = setup(t, {
+    agentConfigRunner: async (command) => {
+      if (command === "claude") {
+        return {
+          ok: true,
+          stdout: "plugin:skip: node skip.js - ✓ Connected\nbroken: node bad.js - ✗ Failed TOKEN=raw-secret",
+          stderr: ""
+        };
+      }
+      if (command === "codex") {
+        return {
+          ok: true,
+          stdout: JSON.stringify([
+            { name: "disabled", enabled: false, transport: { type: "stdio", command: "npx", args: ["disabled"] } }
+          ]),
+          stderr: ""
+        };
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    }
+  });
+
+  const plugin = await service.importAgentConfig({ sourceAgent: "claude-code", serverName: "plugin:skip" });
+  const failed = await service.importAgentConfig({ sourceAgent: "claude-code", serverName: "broken" });
+  const disabled = await service.importAgentConfig({ sourceAgent: "codex", serverName: "disabled" });
+
+  assert.equal(plugin.success, false);
+  assert.equal(plugin.error, "Plugin-managed MCP");
+  assert.equal(failed.success, false);
+  assert.equal(failed.error, "Failed TOKEN=[redacted]");
+  assert.equal(disabled.success, false);
+  assert.equal(disabled.error, "Disabled");
 });
 
 test("default oauth service stores tokens outside registry and reports status", async (t) => {

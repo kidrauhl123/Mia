@@ -80,3 +80,27 @@ test("getAgentConfigs uses runner and temp Hermes home without writing", async (
   assert.equal(sources.find((source) => source.source === "openclaw").error, "unsupported TOKEN=[redacted]");
   assert.ok(commands.some(([command]) => command === "claude"));
 });
+
+test("getAgentConfigs returns sanitized errors for invalid JSON and YAML", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-mcp-agent-configs-invalid-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(dir, ".hermes"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".hermes", "config.yaml"), "mcp_servers:\n  bad: [TOKEN=hermes-secret\n");
+  const service = createCoreMcpAgentConfigService({
+    runtimePaths: () => ({ hermesHome: path.join(dir, ".hermes") }),
+    fs,
+    runner: async (command) => {
+      if (command === "claude") return { ok: true, stdout: "", stderr: "" };
+      if (command === "codex") return { ok: true, stdout: "{ TOKEN=codex-secret", stderr: "" };
+      return { ok: false, stdout: "", stderr: "" };
+    }
+  });
+
+  const sources = await service.getAgentConfigs();
+
+  assert.equal(sources.find((source) => source.source === "codex").installed, false);
+  assert.match(sources.find((source) => source.source === "codex").error, /JSON/);
+  assert.doesNotMatch(sources.find((source) => source.source === "codex").error, /codex-secret/);
+  assert.equal(sources.find((source) => source.source === "hermes").installed, false);
+  assert.doesNotMatch(sources.find((source) => source.source === "hermes").error, /hermes-secret/);
+});

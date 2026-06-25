@@ -5,7 +5,7 @@ const fsDefault = require("node:fs");
 const path = require("node:path");
 const yaml = require("js-yaml");
 
-const { normalizeTransport, sanitizeSecretText } = require("./records.js");
+const { normalizeTransport, publicCoreMcpRecord, sanitizeSecretText } = require("./records.js");
 
 const SOURCE_ORDER = ["claude-code", "codex", "openclaw", "hermes"];
 
@@ -217,6 +217,27 @@ function sourceResult(source, installed, servers = [], error = "") {
   };
 }
 
+function publicAgentConfigServer(server = {}) {
+  const copy = publicCoreMcpRecord(server);
+  return {
+    ...copy,
+    importSkipReason: sanitizeSecretText(copy.importSkipReason || "")
+  };
+}
+
+function publicAgentConfigSource(source = {}) {
+  return {
+    source: String(source.source || "").trim(),
+    installed: source.installed === true,
+    servers: Array.isArray(source.servers) ? source.servers.map((server) => publicAgentConfigServer(server)) : [],
+    error: sanitizeSecretText(source.error || "")
+  };
+}
+
+function publicAgentConfigSources(sources = []) {
+  return (Array.isArray(sources) ? sources : []).map((source) => publicAgentConfigSource(source));
+}
+
 function createCoreMcpAgentConfigService(deps = {}) {
   const fsImpl = deps.fs || fsDefault;
   const runtimePaths = typeof deps.runtimePaths === "function" ? deps.runtimePaths : () => ({});
@@ -264,7 +285,7 @@ function createCoreMcpAgentConfigService(deps = {}) {
     }
   }
 
-  async function getAgentConfigs() {
+  async function discoverAgentConfigs() {
     const sources = await Promise.all([
       claudeConfigs(),
       codexConfigs(),
@@ -275,10 +296,14 @@ function createCoreMcpAgentConfigService(deps = {}) {
     return SOURCE_ORDER.map((source) => bySource.get(source) || sourceResult(source, false, [], ""));
   }
 
+  async function getAgentConfigs() {
+    return publicAgentConfigSources(await discoverAgentConfigs());
+  }
+
   async function importAgentConfig(input = {}) {
     const sourceAgent = String(input.sourceAgent || "").trim();
     const serverName = String(input.serverName || "").trim();
-    const sources = await getAgentConfigs();
+    const sources = await discoverAgentConfigs();
     const source = sources.find((item) => item.source === sourceAgent);
     const server = source?.servers?.find((item) => item.name === serverName);
     if (!server) throw new Error("Discovered MCP server not found.");
@@ -296,5 +321,7 @@ module.exports = {
   parseClaudeMcpList,
   parseCodexMcpListJson,
   parseHermesConfigYaml,
-  parseOpenClawMcpListJson
+  parseOpenClawMcpListJson,
+  publicAgentConfigSource,
+  publicAgentConfigSources
 };

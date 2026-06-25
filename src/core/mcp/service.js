@@ -13,7 +13,7 @@ const {
   mcpSpecsForHermes
 } = require("./engine-sync.js");
 const { createCoreMcpConnectionTester } = require("./connection-test.js");
-const { createCoreMcpAgentConfigService } = require("./agent-configs.js");
+const { createCoreMcpAgentConfigService, publicAgentConfigSources } = require("./agent-configs.js");
 const { createCoreMcpOAuthService } = require("./oauth-service.js");
 const { createCoreMcpOAuthTokenStore } = require("./oauth-token-store.js");
 const {
@@ -703,7 +703,7 @@ function createCoreMcpService(deps = {}) {
       const sources = agentConfigService && typeof agentConfigService.getAgentConfigs === "function"
         ? await agentConfigService.getAgentConfigs()
         : [];
-      return ok({ sources: Array.isArray(sources) ? sources : [] });
+      return ok({ sources: publicAgentConfigSources(sources) });
     } catch (error) {
       return fail(error);
     }
