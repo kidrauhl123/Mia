@@ -117,7 +117,15 @@ contextBridge.exposeInMainWorld("mia", {
     installTemplate: (templateId, values) => ipcRenderer.invoke(IpcChannel.McpInstallTemplate, templateId, values),
     sync: () => ipcRenderer.invoke(IpcChannel.McpSync),
     refreshBridge: () => ipcRenderer.invoke(IpcChannel.McpRefreshBridge),
-    removeFromAgents: (recordsOrIds) => ipcRenderer.invoke(IpcChannel.McpRemoveFromAgents, recordsOrIds)
+    removeFromAgents: (recordsOrIds) => ipcRenderer.invoke(IpcChannel.McpRemoveFromAgents, recordsOrIds),
+    listTools: () => ipcRenderer.invoke(IpcChannel.McpListTools),
+    getAgentConfigs: () => ipcRenderer.invoke(IpcChannel.McpAgentConfigs),
+    importAgentConfig: (input) => ipcRenderer.invoke(IpcChannel.McpImportAgentConfig, input),
+    oauth: {
+      checkStatus: (input) => ipcRenderer.invoke(IpcChannel.McpOauthCheckStatus, input),
+      login: (input) => ipcRenderer.invoke(IpcChannel.McpOauthLogin, input),
+      logout: (input) => ipcRenderer.invoke(IpcChannel.McpOauthLogout, input)
+    }
   },
   saveModel: (settings) => ipcRenderer.invoke(IpcChannel.ModelSave, settings),
   savePermissions: (settings) => ipcRenderer.invoke(IpcChannel.PermissionsSave, settings),

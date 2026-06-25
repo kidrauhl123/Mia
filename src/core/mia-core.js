@@ -125,9 +125,9 @@ const { createAgentSessionStore } = require("../main/agent-session-store.js");
 const { createClaudeBridgePluginService } = require("../main/claude-bridge-plugin-service.js");
 const { createClaudeCodeMiaProxy } = require("../main/claude-code-mia-proxy.js");
 const { createCodexMiaProxy } = require("../main/codex-mia-proxy.js");
-const { createMcpService } = require("../main/mcp/mcp-service.js");
 const { createMcpSdkClientManager } = require("../main/mcp/mcp-sdk-client.js");
 const { createMcpBridgeServer } = require("../main/mcp/mcp-bridge-server.js");
+const { createCoreMcpService } = require("./mcp/service.js");
 const { createCoreMcpOAuthService } = require("./mcp/oauth-service.js");
 const { createCoreMcpOAuthTokenStore } = require("./mcp/oauth-token-store.js");
 
@@ -715,14 +715,17 @@ function createCoreBotExecution({
     secret: crypto.randomUUID(),
     appendLog: () => {}
   });
-  const userMcpService = createMcpService({
+  const userMcpService = createCoreMcpService({
     runtimePaths,
     manager: userMcpManager,
     bridge: userMcpBridge,
     nodePath: coreNodePath,
     stdioProxyScriptPath: () => path.join(__dirname, "..", "main", "mcp", "mcp-stdio-proxy-server.js"),
     oauthTokenStore: userMcpOAuthTokenStore,
-    oauthService: userMcpOAuthService
+    oauthService: userMcpOAuthService,
+    fetch: fetchImpl,
+    processEnvStrings,
+    openExternal: async () => {}
   });
   async function ensureUserMcpReady() {
     try { await userMcpService.awaitInitialization(); } catch { /* MCP optional; turn proceeds */ }

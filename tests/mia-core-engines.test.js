@@ -23,6 +23,15 @@ const { createRuntimePaths } = require("../src/main/runtime-paths.js");
 
 const ENGINE_NOT_AVAILABLE = "engine not available in Mia Core yet";
 
+test("Task 6: Mia Core constructs the Core MCP service without the main wrapper", () => {
+  const src = fs.readFileSync(path.join(__dirname, "..", "src", "core", "mia-core.js"), "utf8");
+  assert.match(src, /createCoreMcpService/);
+  assert.match(src, /require\("\.\/mcp\/service\.js"\)/);
+  assert.doesNotMatch(src, /const \{ createMcpService \}/);
+  assert.doesNotMatch(src, /createMcpService\(\{/);
+  assert.doesNotMatch(src, /require\("\.\.\/main\/mcp\/mcp-service\.js"\)/);
+});
+
 function makeRuntimePaths(home) {
   return createRuntimePaths({
     app: { getPath: () => os.homedir() },
