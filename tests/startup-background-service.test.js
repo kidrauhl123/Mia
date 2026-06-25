@@ -40,6 +40,28 @@ test("startup background service starts daemon even when stale settings say disa
   assert.equal(result.steps.daemon.status.running, true);
 });
 
+test("startup background service can leave Hermes engine ownership to Mia Core", async () => {
+  const calls = [];
+  const service = createStartupBackgroundService({
+    getRuntimeStatus: () => ({ engineInstalled: true }),
+    shouldStartEngine: () => false,
+    startDaemonService: async () => { calls.push("daemon"); return { running: true }; },
+    refreshSystemHermesAsync: async () => { calls.push("system-hermes"); },
+    startEngine: async () => { calls.push("engine"); return { engineRunning: true }; },
+    appendEngineLog: (line) => calls.push(`engine-log:${line}`)
+  });
+
+  const result = await service.run();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.steps.engine.skipped, true);
+  assert.deepEqual(calls, [
+    "daemon",
+    "system-hermes",
+    "engine-log:Hermes startup skipped here; Mia Core owns local engine runs."
+  ]);
+});
+
 test("startup background service skips engine when Hermes is not installed", async () => {
   const calls = [];
   const service = createStartupBackgroundService({

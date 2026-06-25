@@ -895,10 +895,22 @@ test("conversation tag editor is inline on the sidebar card and uses the label a
   assert.match(sidebarSource, /onDraft/);
   assert.match(html, /id="personaTagFilters"/);
   assert.match(html, /id="openPersonaSearch"/);
-  assert.match(html, /class="search-box hidden"/);
-  assert.match(html, /id="personaSearchClear"/);
+  assert.match(html, /id="openPersonaSearch"[^>]+hidden/);
+  assert.match(html, /class="search-box conversation-search-box"/);
+  assert.match(html, /class="search-box-label"[^>]*>搜索<\/span>/);
+  assert.doesNotMatch(html, /搜索 \(⌘ \+ K\)/);
+  assert.match(html, /id="personaSearch"[^>]+aria-label="搜索会话记录"/);
+  assert.doesNotMatch(html, /class="search-box hidden"/);
+  assert.match(html, /id="personaSearchClear"[^>]+title="关闭搜索"/);
   assert.match(html, /id="closePersonaSearch"[^>]+hidden/);
   assert.match(appSource, /function renderConversationSearchTools\(cloudReady\)/);
+  assert.match(appSource, /searchBox\?\.classList\.toggle\("has-query", Boolean\(searchValue\)\);/);
+  assert.match(appSource, /els\.personaSearchClear\?\.classList\.toggle\("hidden", !\(searchOpen \|\| searchValue\)\);/);
+  assert.match(
+    appSource,
+    /els\.personaSearchClear\?\.addEventListener\("click",\s*\(event\)\s*=>\s*\{[\s\S]*?setPersonaSearchOpen\(false\);/,
+    "conversation search close control should exit search mode instead of only clearing and refocusing"
+  );
   assert.match(appSource, /function conversationRowsFromMessageSearch\(results,\s*query\)/);
   assert.match(appSource, /async function searchConversationMessages\(query,\s*limit = 80\)/);
   assert.match(appSource, /function isMissingSearchIpcHandlerError\(error\)/);
@@ -910,6 +922,11 @@ test("conversation tag editor is inline on the sidebar card and uses the label a
   assert.match(appSource, /searchMessageId/);
   assert.match(appSource, /function setPersonaSearchOpen\(open/);
   assert.match(appSource, /personaSearchOpen/);
+  assert.match(
+    appSource,
+    /els\.personaSearch\.addEventListener\("focus",\s*\(\)\s*=>\s*\{[\s\S]*?setPersonaSearchOpen\(true\);/,
+    "focusing the always-visible conversation search field should enter the existing search-results mode"
+  );
   assert.match(appSource, /data-sidebar-tag-filter/);
   assert.doesNotMatch(appSource, /data-sidebar-tag-clear/);
   assert.match(sidebarSource, /spec\.searchResult/);
@@ -931,7 +948,9 @@ test("conversation tag editor is inline on the sidebar card and uses the label a
   assert.match(stylesSource, /\.persona-tag-suggestions/);
   assert.match(stylesSource, /\.persona-tag-input-wrap/);
   assert.match(stylesSource, /\.sidebar-tag-filters/);
-  assert.match(stylesSource, /\.sidebar-tools\.search-active/);
+  assert.match(stylesSource, /\.conversation-sidebar \.search-box:focus-within \.search-box-icon/);
+  assert.match(stylesSource, /\.conversation-sidebar \.search-box:focus-within input/);
+  assert.doesNotMatch(stylesSource, /\.sidebar-tools\.search-active \.sidebar-title-row,[\s\S]*?display:\s*none;/);
   assert.match(stylesSource, /\.sidebar-tag-filter\.active/);
   assert.match(stylesSource, /\.persona\.search-result/);
   assert.doesNotMatch(stylesSource, /\.sidebar-tag-filter-clear/);

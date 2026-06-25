@@ -26,6 +26,26 @@ function commandResponse({ commandId, chatCompletionResponse, engine, model, res
   });
 }
 
+function isHermesApiUnreachable(error) {
+  return error?.code === "HERMES_API_UNREACHABLE" && error?.stage === "create_run";
+}
+
+async function sendWithHermesRecovery(deps, context, send) {
+  const runOnce = async () => {
+    await deps.ensureHermesReady();
+    return send();
+  };
+  try {
+    return await runOnce();
+  } catch (error) {
+    if (!isHermesApiUnreachable(error) || typeof deps.recoverHermesAfterFailure !== "function" || context?.signal?.aborted) {
+      throw error;
+    }
+    await deps.recoverHermesAfterFailure(error);
+    return runOnce();
+  }
+}
+
 function createChatEngineAdapters(deps = {}) {
   const commandId = typeof deps.commandId === "function" ? deps.commandId : defaultCommandId;
   const chatCompletionResponse = deps.chatCompletionResponse;
@@ -116,8 +136,8 @@ function createChatEngineAdapters(deps = {}) {
     hermes: {
       id: "hermes",
       async send(context) {
-        await deps.ensureHermesReady();
         if (context.slashText) {
+          await deps.ensureHermesReady();
           const content = deps.runHermesSlashCommand({
             text: context.slashText,
             bot: context.bot,
@@ -128,7 +148,7 @@ function createChatEngineAdapters(deps = {}) {
             content: content || "(command completed)"
           });
         }
-        return deps.sendHermesChat(context);
+        return sendWithHermesRecovery(deps, context, () => deps.sendHermesChat(context));
       }
     }
   };
@@ -166,8 +186,7 @@ function createStatelessChatEngineAdapters(deps = {}) {
     hermes: {
       id: "hermes",
       async send(context) {
-        await deps.ensureHermesReady();
-        return deps.sendHermesStateless(context);
+        return sendWithHermesRecovery(deps, context, () => deps.sendHermesStateless(context));
       }
     }
   };

@@ -255,8 +255,21 @@ test("conversation search uses a white field without focus highlight", () => {
   const conversationSearchRule = cssRuleBody(baseCss, ".conversation-sidebar .search-box");
   const searchFocusRule = cssRuleBody(baseCss, ".search-box:focus-within");
 
-  assert.match(conversationSearchRule, /background:\s*var\(--surface\);/);
+  assert.match(conversationSearchRule, /background:\s*#fff;/);
+  assert.match(conversationSearchRule, /grid-column:\s*1\s*\/\s*-1;/);
+  assert.match(conversationSearchRule, /height:\s*32px;/);
   assert.match(searchFocusRule, /box-shadow:\s*none;/);
+  assert.match(
+    baseCss,
+    /\.conversation-sidebar \.search-box:focus-within \.search-box-icon,[\s\S]*?\.conversation-sidebar \.sidebar-tools\.search-active \.search-box \.search-box-icon\s*\{[\s\S]*?left:\s*12px;[\s\S]*?transform:\s*translateX\(0\);/,
+    "focused conversation search should move the icon from the centered prompt to the left edge"
+  );
+  assert.match(
+    baseCss,
+    /\.conversation-sidebar \.search-box:focus-within \.search-box-label,[\s\S]*?\.conversation-sidebar \.sidebar-tools\.search-active \.search-box \.search-box-label\s*\{[\s\S]*?left:\s*44px;[\s\S]*?transform:\s*translateY\(-50%\);/,
+    "focused conversation search should animate the visual label from the centered prompt to the left"
+  );
+  assert.match(baseCss, /\.conversation-sidebar \.search-box\.has-query \.search-box-label\s*\{[\s\S]*?opacity:\s*0;/);
 });
 
 test("icon buttons use shared svg glyph sizing", () => {

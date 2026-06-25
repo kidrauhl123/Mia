@@ -63,15 +63,13 @@ function createLaunchdService(deps = {}) {
     daemonServiceLabel,
     runtimePaths,
     enginePython,
-    effectiveHermesHome,
-    buildPythonPath
+    effectiveHermesHome
   } = deps;
   if (!gatewayServiceLabel) throw new Error("gatewayServiceLabel dependency is required.");
   if (!daemonServiceLabel) throw new Error("daemonServiceLabel dependency is required.");
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
   if (typeof enginePython !== "function") throw new Error("enginePython dependency is required.");
   if (typeof effectiveHermesHome !== "function") throw new Error("effectiveHermesHome dependency is required.");
-  if (typeof buildPythonPath !== "function") throw new Error("buildPythonPath dependency is required.");
 
   const appPath = typeof deps.appPath === "function" ? deps.appPath : () => "";
   const execPath = typeof deps.execPath === "function" ? deps.execPath : () => process.execPath;
@@ -115,19 +113,6 @@ function createLaunchdService(deps = {}) {
     });
   }
 
-  function gatewayEnvironment() {
-    const p = runtimePaths();
-    return {
-      HERMES_HOME: effectiveHermesHome(),
-      MIA_HOME: p.home,
-      HERMES_LANGUAGE: env.HERMES_LANGUAGE || "zh",
-      HERMES_ACCEPT_HOOKS: "1",
-      GATEWAY_ALLOW_ALL_USERS: "true",
-      PYTHONUNBUFFERED: "1",
-      PYTHONPATH: buildPythonPath()
-    };
-  }
-
   function gatewayProgramArguments() {
     return [
       enginePython(),
@@ -138,26 +123,6 @@ function createLaunchdService(deps = {}) {
       "--replace",
       "--accept-hooks"
     ];
-  }
-
-  function gatewayLaunchAgentPlist() {
-    const p = runtimePaths();
-    return renderLaunchAgentPlist({
-      label: gatewayServiceLabel,
-      programArguments: gatewayProgramArguments(),
-      workingDirectory: p.engine,
-      environment: gatewayEnvironment(),
-      stdoutPath: path.join(p.logsDir, "gateway.log"),
-      stderrPath: path.join(p.logsDir, "gateway.error.log")
-    });
-  }
-
-  function writeGatewayLaunchAgentPlist() {
-    const p = runtimePaths();
-    fs.mkdirSync(path.dirname(p.launchAgent), { recursive: true });
-    fs.mkdirSync(p.logsDir, { recursive: true });
-    fs.writeFileSync(p.launchAgent, gatewayLaunchAgentPlist(), { mode: 0o600 });
-    return p.launchAgent;
   }
 
   function daemonProgramArguments() {
@@ -220,15 +185,6 @@ function createLaunchdService(deps = {}) {
     return stopJob({ plistPath: runtimePaths().launchAgent, label: gatewayServiceLabel });
   }
 
-  function startGateway() {
-    return startJob({
-      plistPath: runtimePaths().launchAgent,
-      label: gatewayServiceLabel,
-      writePlist: writeGatewayLaunchAgentPlist,
-      errorMessage: "Mia background service is currently implemented for macOS launchd."
-    });
-  }
-
   function stopDaemon() {
     return stopJob({ plistPath: runtimePaths().daemonLaunchAgent, label: daemonServiceLabel });
   }
@@ -247,17 +203,13 @@ function createLaunchdService(deps = {}) {
     daemonEnvironment,
     daemonLaunchAgentPlist,
     daemonProgramArguments,
-    gatewayEnvironment,
-    gatewayLaunchAgentPlist,
     gatewayProgramArguments,
     launchdDomain,
     runLaunchctl,
     startDaemon,
-    startGateway,
     stopDaemon,
     stopGateway,
-    writeDaemonLaunchAgentPlist,
-    writeGatewayLaunchAgentPlist
+    writeDaemonLaunchAgentPlist
   };
 }
 

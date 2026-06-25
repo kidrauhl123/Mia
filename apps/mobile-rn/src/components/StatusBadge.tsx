@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { Directory, File, Paths } from "expo-file-system";
 import { color } from "../theme";
@@ -25,7 +25,7 @@ try {
 }
 
 const manifestCache = new Map<string, Promise<StatusBadgeAssetManifestEntry[]>>();
-const lottieUriCache = new Map<string, string>();
+const lottieDataCache = new Map<string, any>();
 
 function manifestUrl(apiBase: string): string {
   return `${String(apiBase || "").replace(/\/+$/, "")}${statusBadgeAssetsPath()}`;
@@ -49,46 +49,46 @@ async function loadManifest(apiBase: string): Promise<StatusBadgeAssetManifestEn
   return manifestCache.get(key) || Promise.resolve([]);
 }
 
-async function cachedLottieUri(assetId: string, apiBase: string): Promise<string> {
+async function cachedLottieData(assetId: string, apiBase: string): Promise<any> {
   const safeId = safeStatusBadgeAssetId(assetId);
-  if (!safeId) return "";
+  if (!safeId) return null;
   const cacheKey = `${String(apiBase || "").replace(/\/+$/, "")}:${safeId}`;
-  const cached = lottieUriCache.get(cacheKey);
+  const cached = lottieDataCache.get(cacheKey);
   if (cached) return cached;
   const assets = await loadManifest(apiBase);
   const entry = assets.find((item) => normalizedStatusBadgeAssetId(item) === safeId) || { id: safeId, url: statusBadgeAssetPath(safeId) };
   const filename = statusBadgeCacheFileName(entry);
-  if (!filename) return "";
+  if (!filename) return null;
   const dir = new Directory(Paths.cache, "mia-status-badges");
   if (!dir.exists) dir.create({ idempotent: true, intermediates: true });
   const file = new File(dir, filename);
   if (!file.exists) {
     const url = resolveManifestEntryUrl(entry, apiBase);
-    if (!url) return "";
+    if (!url) return null;
     await File.downloadFileAsync(url, file, { idempotent: true });
   }
-  lottieUriCache.set(cacheKey, file.uri);
-  return file.uri;
+  const data = JSON.parse(await file.text());
+  lottieDataCache.set(cacheKey, data);
+  return data;
 }
 
 export default function StatusBadge({ badge, apiBase, size = 16 }: { badge?: StatusBadgeT | null; apiBase: string; size?: number }) {
   const kind = badge?.kind || "";
   const assetId = badge?.kind === "lottie" ? safeStatusBadgeAssetId(badge.assetId) : "";
   const uriCacheKey = `${String(apiBase || "").replace(/\/+$/, "")}:${assetId}`;
-  const [uri, setUri] = useState(() => lottieUriCache.get(uriCacheKey) || "");
-  const lottieSource = useMemo(() => (uri ? { uri } : null), [uri]);
+  const [lottieData, setLottieData] = useState(() => lottieDataCache.get(uriCacheKey) || null);
   const wrapperStyle: ViewStyle = { width: size + 2, height: size, paddingLeft: 2, transform: [{ translateY: -1 }] };
   const boxStyle: ViewStyle = { width: size, height: size };
   const roundStyle = { borderRadius: size / 2 };
 
   useEffect(() => {
     let alive = true;
-    const cached = lottieUriCache.get(uriCacheKey);
-    setUri(cached || "");
+    const cached = lottieDataCache.get(uriCacheKey);
+    setLottieData(cached || null);
     if (!assetId || kind !== "lottie") return () => { alive = false; };
-    cachedLottieUri(assetId, apiBase)
-      .then((next) => { if (alive) setUri(next); })
-      .catch(() => { if (alive) setUri(""); });
+    cachedLottieData(assetId, apiBase)
+      .then((next) => { if (alive) setLottieData(next || null); })
+      .catch(() => { if (alive) setLottieData(null); });
     return () => { alive = false; };
   }, [apiBase, assetId, kind, uriCacheKey]);
 
@@ -102,10 +102,10 @@ export default function StatusBadge({ badge, apiBase, size = 16 }: { badge?: Sta
   }
   if (badge.kind === "lottie") {
     if (!assetId) return null;
-    if (lottieSource && LottieView) {
+    if (lottieData && LottieView) {
       return (
         <View style={[styles.wrap, wrapperStyle]}>
-          <LottieView source={lottieSource} autoPlay loop style={[styles.lottie, boxStyle]} />
+          <LottieView source={lottieData} autoPlay loop resizeMode="contain" style={[styles.lottie, boxStyle]} />
         </View>
       );
     }

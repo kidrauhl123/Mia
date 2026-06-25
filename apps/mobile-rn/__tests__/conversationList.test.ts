@@ -43,6 +43,24 @@ test("dm 标题取对方好友名,不暴露 dm 内部 id", () => {
   expect(items[0].title).toBe("棕野");
 });
 
+test("列表项带出对话标签,最多展示前三个", () => {
+  const items = buildConversationListItems({
+    conversations: [{ id: "dm:u1:u2", type: "dm", last_message_text: "hi" }],
+    self: { id: "u1", username: "我" },
+    friends: [{ id: "u2", username: "Bob" }],
+    tags: {
+      items: [
+        { id: "tag_a", name: "项目", color: "#2563eb" },
+        { id: "tag_b", name: "跟进", color: "#16a34a" },
+        { id: "tag_c", name: "重要", color: "#dc2626" },
+        { id: "tag_d", name: "隐藏", color: "#7c3aed" },
+      ],
+      assignments: { "dm:u1:u2": ["tag_a", "tag_b", "tag_c", "tag_d"] },
+    },
+  } as any);
+  expect(items[0].tags.map((tag) => tag.name)).toEqual(["项目", "跟进", "重要"]);
+});
+
 test("列表预览和时间优先取消息缓存最后一条", () => {
   const items = buildConversationListItems({
     conversations: [

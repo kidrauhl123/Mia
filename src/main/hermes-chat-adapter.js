@@ -24,6 +24,20 @@ function parseErrorMessage(text) {
   }
 }
 
+function isAbortError(error, signal) {
+  return Boolean(signal?.aborted) || error?.name === "AbortError" || error?.code === "ABORT_ERR";
+}
+
+function hermesApiUnreachableError(error, stage) {
+  const message = String(error?.message || error || "unknown error");
+  const wrapped = new Error(`Hermes API is unreachable: ${message}`);
+  wrapped.code = "HERMES_API_UNREACHABLE";
+  wrapped.stage = stage;
+  wrapped.retryable = true;
+  wrapped.cause = error;
+  return wrapped;
+}
+
 function createHermesChatAdapter(deps = {}) {
   const apiKey = requireDependency(deps, "apiKey");
   const baseUrl = requireDependency(deps, "baseUrl");
@@ -96,12 +110,18 @@ function createHermesChatAdapter(deps = {}) {
   }
 
   async function createRun({ body, headers, signal }) {
-    const response = await fetchImpl(`${baseUrl()}/v1/runs`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal
-    });
+    let response;
+    try {
+      response = await fetchImpl(`${baseUrl()}/v1/runs`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal
+      });
+    } catch (error) {
+      if (isAbortError(error, signal)) throw error;
+      throw hermesApiUnreachableError(error, "create_run");
+    }
     const text = await response.text();
     if (!response.ok) {
       const message = parseErrorMessage(text);

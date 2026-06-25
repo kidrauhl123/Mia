@@ -97,8 +97,6 @@ const els = {
   chatConversationMenu: document.getElementById("chatConversationMenu"),
   chatConversationList: document.getElementById("chatConversationList"),
   initialize: document.getElementById("initialize"),
-  startEngine: document.getElementById("startEngine"),
-  stopEngine: document.getElementById("stopEngine"),
   engineRowHermes: document.getElementById("engineRowHermes"),
   engineRowClaude: document.getElementById("engineRowClaude"),
   engineRowCodex: document.getElementById("engineRowCodex"),
@@ -1430,6 +1428,7 @@ function openConversationSearchResult(conversationId, row) {
   const messageId = String(row?.searchMessageId || row?.searchMessage?.id || "").trim();
   if (!id || !messageId) return false;
   state.activeKey = "";
+  state.activeView = "chat";
   state.personaSearchFocus = { conversationId: id, messageId };
   showNarrowContent();
   render();
@@ -1814,14 +1813,15 @@ function renderConversationSearchTools(cloudReady) {
     els.personaSearch.value = searchValue;
   }
   if (els.personaSearch) {
-    els.personaSearch.placeholder = "搜索会话记录";
+    els.personaSearch.placeholder = "";
   }
   tools?.classList.toggle("search-active", searchOpen);
-  els.personaSearchClear?.classList.toggle("hidden", !searchValue);
-  els.openPersonaSearch?.classList.toggle("hidden", searchOpen);
-  els.newPersona?.classList.toggle("hidden", searchOpen);
-  els.closePersonaSearch?.classList.toggle("hidden", !searchOpen);
-  searchBox?.classList.toggle("hidden", !searchOpen);
+  searchBox?.classList.toggle("has-query", Boolean(searchValue));
+  els.personaSearchClear?.classList.toggle("hidden", !(searchOpen || searchValue));
+  els.openPersonaSearch?.classList.add("hidden");
+  els.newPersona?.classList.remove("hidden");
+  els.closePersonaSearch?.classList.add("hidden");
+  searchBox?.classList.remove("hidden");
   tools?.classList.toggle("has-tag-filters", showFilters);
   if (!els.personaTagFilters) return;
   els.personaTagFilters.classList.toggle("hidden", !showFilters);
@@ -2191,7 +2191,7 @@ function conversationCardSpecFromRow(row, personas) {
     const pinned = Boolean(social?.isConversationPinned?.(conversation.id));
     const muted = Boolean(social?.isConversationMuted?.(conversation.id));
     const unread = social?.getUnreadForConversation?.(conversation.id) || 0;
-    const typingRun = conversationRunForSidebarPreview(social, conversation);
+    const typingRun = searchResult ? null : conversationRunForSidebarPreview(social, conversation);
     return {
       kind: "private",
       searchResult,
@@ -2202,7 +2202,7 @@ function conversationCardSpecFromRow(row, personas) {
       typeLabel: "私聊",
       preview: conversation.lastMessagePreview || "暂无对话",
       typing: Boolean(typingRun),
-      typingLabel: typingLabelForConversationRun(social, conversation, typingRun),
+      typingLabel: searchResult ? "" : typingLabelForConversationRun(social, conversation, typingRun),
       time: formatConversationTime(row.updatedAt),
       unread: searchResult ? 0 : unread,
       tags: searchResult ? [] : (conversation.tags || social?.conversationTagsFor?.(conversation.id) || []),
@@ -2267,7 +2267,7 @@ function conversationCardSpecFromRow(row, personas) {
         }
       : null;
     const cgStatusBadge = statusBadgeFrom(conversation.identity, conversation);
-    const typingRun = conversationRunForSidebarPreview(social, conversation);
+    const typingRun = searchResult ? null : conversationRunForSidebarPreview(social, conversation);
     return {
       kind: "group",
       searchResult,
@@ -2278,7 +2278,7 @@ function conversationCardSpecFromRow(row, personas) {
       typeLabel: memberCount ? `群聊 · ${memberCount}人` : "群聊",
       preview: conversation.lastMessagePreview || "暂无消息",
       typing: Boolean(typingRun),
-      typingLabel: typingLabelForConversationRun(social, conversation, typingRun),
+      typingLabel: searchResult ? "" : typingLabelForConversationRun(social, conversation, typingRun),
       time: formatConversationTime(row.updatedAt),
       unread: searchResult ? 0 : cgUnread,
       tags: searchResult ? [] : (conversation.tags || social?.conversationTagsFor?.(conversation.id) || []),
@@ -5482,6 +5482,9 @@ els.openPersonaSearch?.addEventListener("click", (event) => {
   event.preventDefault();
   setPersonaSearchOpen(true);
 });
+els.personaSearch.addEventListener("focus", () => {
+  if (!state.personaSearchOpen) setPersonaSearchOpen(true);
+});
 els.personaSearch.addEventListener("input", () => {
   state.personaSearchOpen = true;
   state.personaFilter = els.personaSearch.value;
@@ -5501,11 +5504,7 @@ els.personaSearch.addEventListener("keydown", (event) => {
 });
 els.personaSearchClear?.addEventListener("click", (event) => {
   event.preventDefault();
-  state.personaFilter = "";
-  if (els.personaSearch) els.personaSearch.value = "";
-  resetPersonaMessageSearch();
-  render();
-  els.personaSearch?.focus?.();
+  setPersonaSearchOpen(false);
 });
 els.closePersonaSearch?.addEventListener("click", (event) => {
   event.preventDefault();
@@ -5898,25 +5897,6 @@ if (window.mia.onCloudEvent) {
 }
 
 window.mia.onDesktopNotificationClick?.(openDesktopNotificationConversation);
-
-els.startEngine?.addEventListener("click", async () => {
-  els.startEngine.disabled = true;
-  els.startEngine.textContent = "Starting...";
-  try {
-    state.runtime = await window.mia.startEngine();
-    render();
-  } catch (error) {
-    window.alert(`启动失败：${error.message}`);
-    await refreshRuntime();
-  } finally {
-    els.startEngine.disabled = false;
-    els.startEngine.textContent = "Start";
-  }
-});
-els.stopEngine?.addEventListener("click", async () => {
-  state.runtime = await window.mia.stopEngine();
-  render();
-});
 
 els.codexLogin.addEventListener("click", async () => {
   els.codexLogin.disabled = true;

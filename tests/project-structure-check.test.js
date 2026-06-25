@@ -641,6 +641,48 @@ test("engine port selection and health probing live behind a main engine-health 
   assert.doesNotMatch(mainSource, /async function waitForHealth/, "main must not own engine health polling");
 });
 
+test("Hermes startup and chat recovery stay owned by Mia Core", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const rendererSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const ipcChannelsSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
+  const runtimeLifecycleSource = fs.readFileSync(path.join(root, "src/main/runtime-lifecycle-service.js"), "utf8");
+  const startIndex = mainSource.indexOf("async function startEngine()");
+  const stopIndex = mainSource.indexOf("async function stopEngine()", startIndex);
+  assert.notEqual(startIndex, -1, "main should define startEngine");
+  assert.notEqual(stopIndex, -1, "main should define stopEngine after startEngine");
+  const startEngineSource = mainSource.slice(startIndex, stopIndex);
+
+  assert.doesNotMatch(
+    startEngineSource,
+    /adoptRunningEngine\(\)/,
+    "Core-owned Hermes startup must spawn its own API process instead of adopting orphan gateways"
+  );
+  assert.match(startEngineSource, /writeRuntimeConfig\(port\)/, "Core-owned Hermes startup must write config for the port it owns");
+  assert.match(
+    mainSource,
+    /recoverHermesAfterFailure:\s*recoverHermesChatEngineAfterFailure/,
+    "Hermes adapters must be wired to restart through Mia Core after local API disconnects"
+  );
+  assert.doesNotMatch(mainSource, /ipcMain\.handle\(IpcChannel\.EngineStart/, "foreground must not expose direct Hermes start IPC");
+  assert.doesNotMatch(mainSource, /ipcMain\.handle\(IpcChannel\.EngineStop/, "foreground must not expose direct Hermes stop IPC");
+  assert.doesNotMatch(preloadSource, /startEngine:\s*\(\)\s*=>/, "preload must not expose direct Hermes start");
+  assert.doesNotMatch(preloadSource, /stopEngine:\s*\(\)\s*=>/, "preload must not expose direct Hermes stop");
+  assert.doesNotMatch(rendererSource, /window\.mia\.startEngine|window\.mia\.stopEngine/, "renderer must not call direct Hermes start/stop");
+  assert.doesNotMatch(ipcChannelsSource, /EngineStart|EngineStop/, "shared IPC channels must not include direct Hermes start/stop");
+  assert.doesNotMatch(runtimeLifecycleSource, /startEngine|engine:auto-start-begin|engine:auto-start-done/, "foreground runtime lifecycle must not auto-start Hermes");
+});
+
+test("launchd service keeps Hermes gateway cleanup but has no gateway start path", () => {
+  const launchdSource = fs.readFileSync(path.join(root, "src/main/launchd-service.js"), "utf8");
+
+  assert.match(launchdSource, /function stopGateway\(\)/, "old Hermes gateway cleanup should remain available");
+  assert.match(launchdSource, /function gatewayProgramArguments\(\)/, "Core-owned Hermes spawn still reuses gateway args");
+  assert.doesNotMatch(launchdSource, /function startGateway\(\)/, "launchd service must not start Hermes as an independent LaunchAgent");
+  assert.doesNotMatch(launchdSource, /function writeGatewayLaunchAgentPlist\(\)/, "launchd service must not write Hermes gateway LaunchAgent plists");
+  assert.doesNotMatch(launchdSource, /function gatewayLaunchAgentPlist\(\)/, "launchd service must not render Hermes gateway LaunchAgent plists");
+});
+
 test("engine installation lifecycle lives behind a main engine-install service", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const installSource = fs.readFileSync(path.join(root, "src/main/engine-install-service.js"), "utf8");

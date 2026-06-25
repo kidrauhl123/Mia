@@ -159,6 +159,7 @@
   let _lastRenderedConversationMessageCount = 0;
   let _lastRenderedConversationMessageIds = [];
   let _pendingMessageFocus = null;
+  let _suppressPendingMessageFocus = false;
   const _chatBottomStickSessions = new WeakMap();
 
   function jsonSignature(value) {
@@ -308,13 +309,20 @@
   }
 
   function centerMessageTarget(containerEl, targetEl) {
-    if (!containerEl || !targetEl) return;
+    if (!containerEl || !targetEl) return { ready: false, scrollTop: 0 };
     const targetTop = elementTopWithin(containerEl, targetEl);
     const targetHeight = Number(targetEl.offsetHeight) || Number(targetEl.getBoundingClientRect?.().height) || 0;
     const viewportHeight = Number(containerEl.clientHeight) || 0;
-    const maxScroll = Math.max(0, (Number(containerEl.scrollHeight) || 0) - viewportHeight);
+    const scrollHeight = Number(containerEl.scrollHeight) || 0;
+    const maxScroll = Math.max(0, scrollHeight - viewportHeight);
     const nextTop = Math.max(0, Math.min(maxScroll, Math.round(targetTop - (viewportHeight - targetHeight) / 2)));
     containerEl.scrollTop = nextTop;
+    const targetBottom = targetTop + targetHeight;
+    const targetAlreadyVisible = viewportHeight > 0 && targetTop >= 0 && targetBottom <= viewportHeight;
+    return {
+      ready: maxScroll > 0 || targetAlreadyVisible,
+      scrollTop: nextTop
+    };
   }
 
   function focusPendingMessage(containerEl = document.getElementById("chat")) {
@@ -326,7 +334,9 @@
       || containerEl.querySelector(`.message[data-message-id="${escapedId}"]`)
       || bubble;
     if (!target) return false;
-    centerMessageTarget(containerEl, target);
+    if (pending.focusedAt) return true;
+    const focusResult = centerMessageTarget(containerEl, target);
+    if (!focusResult.ready) return false;
     const now = Date.now();
     pending.focusedAt = now;
     pending.highlightUntil = Math.max(Number(pending.highlightUntil || 0), now + MESSAGE_FOCUS_HIGHLIGHT_MS);
@@ -2971,7 +2981,7 @@
     const shouldAnimateMessage = (msg) => tailMessageIdSet.has(messageStableId(msg));
     rememberRenderedConversationMessages(conversationId, messages);
     const applyScroll = () => {
-      if (focusPendingMessage(containerEl)) return;
+      if (!_suppressPendingMessageFocus && focusPendingMessage(containerEl)) return;
       if (stickToBottom) {
         if (tailMessageIds.length) {
           animateChatTailToBottom(containerEl, startBottomGap);
@@ -3271,7 +3281,15 @@
   }
 
   function renderForMessageFocus() {
-    if (deps && typeof deps.render === "function") deps.render();
+    if (deps && typeof deps.render === "function") {
+      const previousSuppress = _suppressPendingMessageFocus;
+      _suppressPendingMessageFocus = true;
+      try {
+        deps.render();
+      } finally {
+        _suppressPendingMessageFocus = previousSuppress;
+      }
+    }
     _reRenderActiveChat({ force: true });
   }
 

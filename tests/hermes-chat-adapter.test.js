@@ -338,6 +338,33 @@ test("sendChat normalizes Hermes error responses", async () => {
   );
 });
 
+test("sendChat classifies local Hermes API fetch failures before run creation", async () => {
+  const deps = createDeps();
+  deps.fetch = async (url, options) => {
+    deps.fetchCalls.push({ url, options });
+    throw new TypeError("fetch failed");
+  };
+  const adapter = createHermesChatAdapter(deps);
+
+  await assert.rejects(
+    () => adapter.sendChat({
+      bot,
+      sessionId: "s1",
+      messages: [{ role: "user", content: "hi" }],
+      signal: null,
+      emit: null
+    }),
+    (error) => {
+      assert.equal(error.code, "HERMES_API_UNREACHABLE");
+      assert.equal(error.stage, "create_run");
+      assert.match(error.message, /Hermes API is unreachable: fetch failed/);
+      assert.equal(error.cause?.message, "fetch failed");
+      return true;
+    }
+  );
+  assert.equal(deps.fetchCalls[0].url, "http://hermes.test/v1/runs");
+});
+
 test("sendChat rejects when Hermes run id is missing", async () => {
   const deps = createDeps({ fetchResponse: response({ body: {} }) });
   const adapter = createHermesChatAdapter(deps);

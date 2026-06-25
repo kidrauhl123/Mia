@@ -43,8 +43,6 @@
     EngineInstall: "engine:install",
     EngineInstallProgress: "engine:install-progress",
     EngineRepair: "engine:repair",
-    EngineStart: "engine:start",
-    EngineStop: "engine:stop",
     EngineWorkspaceGet: "engine:workspace:get",
     EngineWorkspacePick: "engine:workspace:pick",
     EngineScan: "engine:scan",

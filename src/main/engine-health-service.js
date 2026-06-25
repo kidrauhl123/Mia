@@ -11,7 +11,6 @@ function createEngineHealthService(deps = {}) {
   const sleep = deps.sleep || defaultSleep;
   const now = deps.now || (() => Date.now());
   const apiKey = deps.apiKey || (() => "");
-  const readConfiguredPort = deps.readConfiguredPort || (() => 18642);
   const getEngineState = deps.getEngineState || (() => ({}));
   const setEngineState = deps.setEngineState || (() => {});
   const getEngineProcess = deps.getEngineProcess || (() => null);
@@ -51,26 +50,18 @@ function createEngineHealthService(deps = {}) {
     }
   }
 
-  async function adoptRunningEngine() {
+  async function refreshRunningEngineHealth() {
     const state = getEngineState();
-    const configuredPort = readConfiguredPort();
-    const ports = [state.port, configuredPort]
-      .filter((port, index, list) => Number.isInteger(port) && port > 0 && list.indexOf(port) === index);
-    for (const port of ports) {
-      const baseUrl = `http://127.0.0.1:${port}`;
-      if (await isEngineHealthy(baseUrl)) {
-        setEngineState({
-          ...state,
-          running: true,
-          starting: false,
-          baseUrl,
-          port,
-          managedBy: "process",
-          lastError: ""
-        });
-        return true;
-      }
-    }
+    if (!state?.running || !state.baseUrl) return false;
+    if (await isEngineHealthy(state.baseUrl)) return true;
+    setEngineState({
+      ...state,
+      running: false,
+      starting: false,
+      baseUrl: "",
+      managedBy: "",
+      lastError: "Hermes API is no longer reachable."
+    });
     return false;
   }
 
@@ -92,9 +83,9 @@ function createEngineHealthService(deps = {}) {
   }
 
   return {
-    adoptRunningEngine,
     choosePort,
     isEngineHealthy,
+    refreshRunningEngineHealth,
     waitForHealth
   };
 }

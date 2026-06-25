@@ -4,17 +4,17 @@ export const conversationHomeChrome = {
     backgroundColor: "#FFFFFF",
   },
   title: {
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 34,
   },
   search: {
     leadingLabel: "",
-    placeholder: "搜索",
-    height: 34,
-    radius: 14,
+    placeholder: "搜索 (⌘ + K)",
+    height: 32,
+    radius: 16,
   },
   row: {
-    minHeight: 72,
+    minHeight: 66,
     separatorWidth: 0,
     shadowOpacity: 0,
   },

@@ -47,34 +47,27 @@ function setup(t, overrides = {}) {
   return { calls, runtime, service };
 }
 
-test("gateway launch agent plist escapes values and uses Hermes gateway arguments", (t) => {
-  const { runtime, service } = setup(t);
-
-  const plist = service.gatewayLaunchAgentPlist();
-
-  assert.match(plist, /<string>ai\.mia\.hermes\.gateway<\/string>/);
-  assert.match(plist, /<string>gateway<\/string>/);
-  assert.match(plist, /<string>run<\/string>/);
-  assert.match(plist, /<string>--replace<\/string>/);
-  assert.match(plist, /<string>--accept-hooks<\/string>/);
-  assert.match(plist, /<key>HERMES_HOME<\/key>\n      <string>.*hermes &amp; home<\/string>/);
-  assert.match(plist, /<key>MIA_HOME<\/key>\n      <string>.*home &amp; data<\/string>/);
-  assert.match(plist, /<string>.*engine &lt;runtime&gt;<\/string>/);
-  assert.match(plist, new RegExp(`<string>${escapeRe(path.join(runtime.logsDir, "gateway.log"))}</string>`));
-});
-
-test("startGateway writes plist, bootouts old jobs, then bootstrap and kickstart", async (t) => {
+test("Hermes gateway launchd service can only be cleaned up, not started", async (t) => {
   const { calls, runtime, service } = setup(t);
 
-  await service.startGateway();
+  assert.equal(typeof service.startGateway, "undefined");
+  assert.equal(typeof service.gatewayLaunchAgentPlist, "undefined");
+  assert.equal(typeof service.writeGatewayLaunchAgentPlist, "undefined");
+  assert.deepEqual(service.gatewayProgramArguments(), [
+    path.join(path.dirname(runtime.home), "venv", "bin", "python3"),
+    "-m",
+    "mia_plugins",
+    "gateway",
+    "run",
+    "--replace",
+    "--accept-hooks"
+  ]);
 
-  assert.ok(fs.existsSync(runtime.launchAgent));
+  await service.stopGateway();
+
   assert.deepEqual(calls, [
     ["launchctl", "bootout", "gui/501", runtime.launchAgent],
-    ["launchctl", "bootout", "gui/501/ai.mia.hermes.gateway"],
-    ["launchctl", "enable", "gui/501/ai.mia.hermes.gateway"],
-    ["launchctl", "bootstrap", "gui/501", runtime.launchAgent],
-    ["launchctl", "kickstart", "-k", "gui/501/ai.mia.hermes.gateway"]
+    ["launchctl", "bootout", "gui/501/ai.mia.hermes.gateway"]
   ]);
 });
 
@@ -190,7 +183,6 @@ test("node-core resolver makes the daemon plist launch node + Core entry, never 
 test("launchd start fails clearly on non-macOS platforms", async (t) => {
   const { service } = setup(t, { platform: "linux" });
 
-  await assert.rejects(() => service.startGateway(), /macOS launchd/);
   await assert.rejects(() => service.startDaemon(), /macOS launchd/);
   await service.stopGateway();
   await service.stopDaemon();
