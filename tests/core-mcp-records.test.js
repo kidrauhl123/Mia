@@ -137,3 +137,30 @@ test("normalize rejects reserved builtin names for user records", () => {
   });
   assert.equal(builtin.name, "mia-app");
 });
+
+test("normalizes managed runtime fields and public projection redacts install dir", () => {
+  const record = normalizeCoreMcpRecord({
+    name: "小红书 MCP",
+    nativeName: "xiaohongshu",
+    managementMode: "managed",
+    source: "marketplace",
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
+    requiredInputs: [{ key: "TOKEN", label: "Token", secret: true, target: "env" }],
+    connectionWizard: { state: "needs_managed_action", nextAction: "install", message: "ready" },
+    managedRuntime: {
+      connectorId: "xiaohongshu",
+      endpoint: "http://127.0.0.1:18060/mcp",
+      installDir: "/Users/me/.mia/xhs",
+      expectedToolCount: 13,
+      state: "not_installed"
+    }
+  });
+
+  assert.equal(record.managementMode, "managed");
+  assert.equal(record.requiredInputs[0].key, "TOKEN");
+  assert.equal(record.connectionWizard.nextAction, "install");
+  assert.equal(record.managedRuntime.expectedToolCount, 13);
+
+  const view = publicCoreMcpRecord(record);
+  assert.equal(view.managedRuntime.installDir, "[managed]");
+});
