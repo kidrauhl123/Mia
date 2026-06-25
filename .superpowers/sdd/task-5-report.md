@@ -37,3 +37,19 @@ Tests run:
 
 Residual concerns:
 - Public discovery output is now projected through the same env/header masking used by Core MCP records, while import re-discovers raw config data before saving. Parser coverage still depends on external CLI/config output shapes.
+
+## Review Fix: Disabled Codex Object Entries
+
+Commit: `988423e8cfb11acd4b58eb7db2bd150a6ab01cf2` (`fix(core-mcp): preserve disabled codex entries`)
+
+Changed files:
+- `src/core/mcp/agent-configs.js`
+- `tests/core-mcp-agent-configs.test.js`
+- `tests/core-mcp-service.test.js`
+
+Tests run:
+- `node --test tests/core-mcp-agent-configs.test.js tests/core-mcp-service.test.js`
+- `node --check src/core/mcp/agent-configs.js src/core/mcp/service.js`
+
+Residual concerns:
+- None.
