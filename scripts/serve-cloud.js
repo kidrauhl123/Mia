@@ -13,6 +13,12 @@ try {
 } catch {
   ({ createCloudStore } = require("./src/cloud/sqlite-store.js"));
 }
+let normalizeCloudHermesModel = null;
+try {
+  ({ normalizeCloudHermesModel } = require("../src/cloud-agent/cloud-hermes-model.js"));
+} catch {
+  ({ normalizeCloudHermesModel } = require("./src/cloud-agent/cloud-hermes-model.js"));
+}
 let createSocialStore = null;
 try {
   ({ createSocialStore } = require("../src/cloud/social-store.js"));
@@ -1481,7 +1487,9 @@ function sanitizeRuntimeConfig(inputConfig = {}, options = {}) {
   const agentEngine = String(input.agentEngine || input.agent_engine || "").trim().slice(0, 80);
   const runtimeKind = String(options.runtimeKind || input.runtimeKind || input.runtime_kind || "").trim().slice(0, 80);
   const config = {
-    model: String(input.model || "").trim().slice(0, 160),
+    model: runtimeKind === "cloud-hermes"
+      ? normalizeCloudHermesModel(input.model, { defaultModel: options.defaultModel })
+      : String(input.model || "").trim().slice(0, 160),
     effortLevel: String(input.effortLevel || "medium").trim().slice(0, 40)
   };
   const permissionMode = String(input.permissionMode || input.permission_mode || "ask").trim().slice(0, 80);
@@ -3620,7 +3628,7 @@ async function handleRequest(req, res, context) {
       if (!bot) return writeError(res, 404, "bot not found");
       if (bot.ownerUserId !== auth.user.id) return writeError(res, 403, "you can only update your own bots");
       const runtimeKind = String(body.runtimeKind || "cloud-hermes").trim() || "cloud-hermes";
-      const config = sanitizeRuntimeConfig(body.config, { runtimeKind });
+      const config = sanitizeRuntimeConfig(body.config, { runtimeKind, defaultModel: platformModelId(context) });
       const binding = context.runtimeBindingsStore.upsertBinding({
         userId: auth.user.id,
         botId,

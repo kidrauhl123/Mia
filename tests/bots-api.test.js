@@ -322,7 +322,7 @@ test("compact /api/me returns compact user identity even when the profile avatar
 });
 
 test("GET and PUT /api/me/bots/:id/runtime roundtrip cloud AI controls", async () => {
-  const ctx = await startServer();
+  const ctx = await startServer({ MIA_PLATFORM_MODEL_ID: "mia-pro" });
   try {
     const A = await register(ctx.port, "rho");
     await api(ctx.port, "PUT", "/api/me/bots/bot_codex", {
@@ -360,7 +360,7 @@ test("GET and PUT /api/me/bots/:id/runtime roundtrip cloud AI controls", async (
 
     const got = await api(ctx.port, "GET", "/api/me/bots/bot_codex/runtime?kind=cloud-hermes", { token: A.token });
     assert.equal(got.status, 200);
-    assert.equal(got.body.binding.config.model, "hermes-agent");
+    assert.equal(got.body.binding.config.model, "mia-pro");
     assert.equal(got.body.binding.config.permissionMode, "auto");
     assert.equal(got.body.binding.config.agentEngine, "codex");
     assert.deepEqual(got.body.binding.config.modelEntries, [

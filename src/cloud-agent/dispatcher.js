@@ -7,6 +7,7 @@ const { CloudEvent } = require("../shared/cloud-events.js");
 const { createAssistantContentBlockCollector } = require("../shared/assistant-content-blocks.js");
 const { decisionToHermesChoice } = require("../shared/agent-permissions.js");
 const { miaRuntimeSystemPrompt } = require("../main/mia-runtime-context.js");
+const { normalizeCloudHermesModel } = require("./cloud-hermes-model.js");
 
 const BOT_MEMBER_KIND = "bot";
 const BOT_SENDER_KIND = "bot";
@@ -462,7 +463,7 @@ function createCloudAgentDispatcher(deps = {}) {
         bot,
         conversationId,
         instructions: cloudRuntimeInstructions(bot, message),
-        model: runtimeConfig.model || "mia-default",
+        model: normalizeCloudHermesModel(runtimeConfig.model, { defaultModel: worker.model }),
         effortLevel: runtimeConfig.effortLevel || "medium",
         permissionMode: runtimeConfig.permissionMode || "ask",
         input: [

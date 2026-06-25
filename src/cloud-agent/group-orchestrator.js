@@ -1,6 +1,7 @@
 "use strict";
 
 const { MemberKind } = require("../shared/conversation-kinds.js");
+const { normalizeCloudHermesModel } = require("./cloud-hermes-model.js");
 
 const BOT_MEMBER_KIND = "bot";
 
@@ -256,7 +257,7 @@ function createGroupOrchestrator({
         conversationId,
         sessionId: conductorSessionId(userId, conversationId, message.id),
         metadataRole: "group-conductor",
-        model: "mia-default",
+        model: normalizeCloudHermesModel("", { defaultModel: worker.model }),
         effortLevel: "medium",
         permissionMode: "ask",
         input: dispatchPrompt,

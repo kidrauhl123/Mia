@@ -126,6 +126,7 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
     assert.equal(reply.sender_ref, BOT_ID);
     assert.equal(reply.body_md, "hi");
     assert.equal(hermesCalls.length, 1);
+    assert.equal(hermesCalls[0].model, "mia-default");
     assert.match(hermesCalls[0].input, /正在和用户私聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群成员/);
@@ -950,6 +951,11 @@ test("multi-bot group falls back to the conductor when no name matches", async (
       });
     }
     const dispatcher = makeDispatcher(ctx, {
+      workerManager: {
+        async ensureWorker(userId) {
+          return { userId, baseUrl: "http://worker", apiKey: "k", model: "mia-pro" };
+        }
+      },
       hermesRunsClient: {
         async runChat(args) {
           hermesCalls.push(args);
@@ -973,6 +979,7 @@ test("multi-bot group falls back to the conductor when no name matches", async (
     });
     assert.equal(reply.sender_ref, "bot_kongling");
     assert.deepEqual(hermesCalls.map((call) => call.metadataRole || "reply"), ["group-conductor", "reply"]);
+    assert.deepEqual(hermesCalls.map((call) => call.model), ["mia-pro", "mia-pro"]);
   } finally {
     ctx.cleanup();
   }

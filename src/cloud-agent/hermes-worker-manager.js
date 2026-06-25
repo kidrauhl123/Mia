@@ -181,7 +181,7 @@ function createHermesWorkerManager(options = {}) {
   async function ensureWorker(userId) {
     const paths = ensureUserDirs(userId);
     if (mode === "static" && staticBaseUrl) {
-      return { userId: paths.userId, baseUrl: staticBaseUrl.replace(/\/+$/, ""), apiKey, paths, env: envForUser(userId) };
+      return { userId: paths.userId, baseUrl: staticBaseUrl.replace(/\/+$/, ""), apiKey, model, paths, env: envForUser(userId) };
     }
     if (mode === "docker") {
       return ensureDockerWorker(paths);
@@ -278,6 +278,7 @@ function createHermesWorkerManager(options = {}) {
       userId: paths.userId,
       baseUrl,
       apiKey,
+      model,
       paths,
       env: envForUser(paths.userId),
       containerName: name
