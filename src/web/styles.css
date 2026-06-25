@@ -1380,6 +1380,10 @@ p {
   will-change: max-height, transform, opacity, clip-path;
 }
 
+.message.message-layout-shift {
+  will-change: transform;
+}
+
 @keyframes messageTailEnter {
   from {
     max-height: 0;
@@ -3771,6 +3775,14 @@ p {
 
 .trace-row[open] > summary > .trace-chevron {
   transform: rotate(90deg);
+}
+
+.trace-row.accordion-closing > summary > .trace-chevron {
+  transform: rotate(0deg);
+}
+
+.trace-accordion-body {
+  overflow: hidden;
 }
 
 .trace-glyph {

@@ -1933,6 +1933,59 @@ test("appendMessageToActiveChat leaves history readers in place without tail ani
   assert.equal(chat.scrollTop, 420);
 });
 
+test("renderConversationChat layout shifts animate existing message rows after rerender", () => {
+  const s = loadSocial();
+  const animations = [];
+  const makeArticle = (attrs = {}) => ({
+    className: attrs.className || "message assistant",
+    dataset: attrs.dataset || { messageId: attrs.messageId || "" },
+    style: {},
+    classList: { add() {}, remove() {} },
+    getAttribute(name) {
+      if (name === "data-message-id") return this.dataset.messageId || "";
+      if (name === "data-message-layout-key") return this.dataset.messageLayoutKey || "";
+      return "";
+    },
+    getBoundingClientRect: () => ({ top: attrs.top || 0, height: 40 }),
+    animate(keyframes, options) {
+      animations.push({ keyframes, options });
+      return {};
+    },
+    addEventListener() {},
+    removeEventListener() {}
+  });
+  const beforeArticle = makeArticle({ messageId: "m_shift", top: 160 });
+  const afterArticle = makeArticle({ messageId: "m_shift", top: 112 });
+  const before = s._internalCtx.captureMessageLayout({
+    querySelectorAll(selector) {
+      assert.equal(selector, "article.message");
+      return [beforeArticle];
+    }
+  });
+
+  const animated = s._internalCtx.animateMessageLayoutShift({
+    querySelectorAll(selector) {
+      assert.equal(selector, "article.message");
+      return [afterArticle];
+    }
+  }, before);
+
+  assert.equal(animated, true);
+  assert.equal(animations.length, 1);
+  assert.equal(JSON.stringify(animations[0].keyframes), JSON.stringify([
+    { transform: "translateY(48px)" },
+    { transform: "translateY(0)" }
+  ]));
+  assert.equal(animations[0].options.duration, 190);
+  assert.equal(
+    s._internalCtx.messageLayoutKey(makeArticle({
+      className: "message assistant streaming",
+      dataset: { messageLayoutKey: "cloud-agent-stream-car_1" }
+    })),
+    "cloud-agent-stream-car_1"
+  );
+});
+
 test("renderConversationChat renders image attachments inside the bubble before message text", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);

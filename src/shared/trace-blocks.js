@@ -50,6 +50,10 @@
     return text;
   }
 
+  function traceAccordionBody(innerHtml) {
+    return innerHtml ? `<div class="trace-accordion-body accordion-body">${innerHtml}</div>` : "";
+  }
+
   function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey, showReasoningWithoutTools }) {
     if (!state) return "";
     const animatedKeys = animatedTraceKeys();
@@ -93,9 +97,9 @@
       const key = scopeKey ? `${scopeKey}::reasoning` : "";
       const stateForKey = openState(key);
       rows.push(
-        `<details class="trace-row reasoning${animClass(key)}"${rowAttrs(key, rows.length, stateForKey)}>` +
+        `<details class="trace-row reasoning${animClass(key)}" data-accordion="true"${rowAttrs(key, rows.length, stateForKey)}>` +
           `<summary><span class="trace-chevron">▸</span><span class="trace-cmd">thinking</span>${stateForKey.open ? "" : `<span class="trace-arg">${window.miaMarkdown.escapeHtml(reasoningText.slice(0, 80).replace(/\s+/g, " "))}</span>`}</summary>` +
-          `<pre class="trace-body">${window.miaMarkdown.escapeHtml(reasoningText)}</pre>` +
+          traceAccordionBody(`<pre class="trace-body">${window.miaMarkdown.escapeHtml(reasoningText)}</pre>`) +
         `</details>`
       );
     }
@@ -112,7 +116,7 @@
       const key = scopeKey ? `${scopeKey}::tool::${tool.id || idx}` : "";
       const stateForKey = openState(key);
       rows.push(
-        `<details class="trace-row tool${animClass(key)}" data-status="${status}"${rowAttrs(key, rows.length, stateForKey)}>` +
+        `<details class="trace-row tool${animClass(key)}" data-status="${status}" data-accordion="true"${rowAttrs(key, rows.length, stateForKey)}>` +
           `<summary>` +
             `<span class="trace-chevron">▸</span>` +
             `<span class="trace-glyph">${glyph}</span>` +
@@ -120,7 +124,7 @@
             (!stateForKey.open && previewInline ? `<span class="trace-arg">${window.miaMarkdown.escapeHtml(previewInline)}</span>` : "") +
             (meta ? `<span class="trace-meta">${window.miaMarkdown.escapeHtml(meta)}</span>` : "") +
           `</summary>` +
-          (preview ? `<pre class="trace-body">${window.miaMarkdown.escapeHtml(preview)}</pre>` : "") +
+          traceAccordionBody(preview ? `<pre class="trace-body">${window.miaMarkdown.escapeHtml(preview)}</pre>` : "") +
         `</details>`
       );
     }
@@ -169,7 +173,7 @@
     const previewInline = diffPreviewLines(diff).join(" ").replace(/\s+/g, " ").slice(0, 120);
     const stateForKey = traceOpenState(scopeKey, expanded);
     return `<div class="trace">` +
-      `<details class="trace-row file-edit${traceAnimClass(scopeKey)}" data-status="${status}"${traceRowAttrs(scopeKey, rowIndex, stateForKey)}>` +
+      `<details class="trace-row file-edit${traceAnimClass(scopeKey)}" data-status="${status}" data-accordion="true"${traceRowAttrs(scopeKey, rowIndex, stateForKey)}>` +
         `<summary>` +
           `<span class="trace-chevron">▸</span>` +
           `<span class="trace-glyph">${glyph}</span>` +
@@ -177,7 +181,7 @@
           (!stateForKey.open && previewInline ? `<span class="trace-arg">${window.miaMarkdown.escapeHtml(previewInline)}</span>` : "") +
           meta +
         `</summary>` +
-        (diff ? renderDiffBody(diff) : "") +
+        traceAccordionBody(diff ? renderDiffBody(diff) : "") +
       `</details>` +
     `</div>`;
   }

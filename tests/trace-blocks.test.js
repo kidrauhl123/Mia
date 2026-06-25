@@ -76,6 +76,35 @@ test("renderTraceBlocks hides summary previews for open trace rows", () => {
   assert.match(open, /<pre class="trace-body">ls package\.json<\/pre>/);
 });
 
+test("renderTraceBlocks exposes trace bodies as managed accordions", () => {
+  const { traceBlocks } = loadTraceBlocks();
+  const html = traceBlocks.renderTraceBlocks({
+    reasoning: "checking project files",
+    tools: [
+      {
+        id: "tool_1",
+        name: "shell",
+        status: "completed",
+        preview: "git status",
+        durationMs: 4
+      }
+    ],
+    expanded: false,
+    scopeKey: "msg:m_trace"
+  });
+
+  assert.match(html, /<details class="trace-row reasoning[^"]*"[^>]*data-accordion="true"/);
+  assert.match(
+    html,
+    /<div class="trace-accordion-body accordion-body"><pre class="trace-body">checking project files<\/pre><\/div>/
+  );
+  assert.match(html, /<details class="trace-row tool[^"]*"[^>]*data-accordion="true"/);
+  assert.match(
+    html,
+    /<div class="trace-accordion-body accordion-body"><pre class="trace-body">git status<\/pre><\/div>/
+  );
+});
+
 test("renderAssistantContentBlocks keeps thinking, text, tool, text render order", () => {
   const { traceBlocks } = loadTraceBlocks();
   const html = traceBlocks.renderAssistantContentBlocks({
@@ -149,6 +178,7 @@ test("renderAssistantContentBlocks renders file edit blocks as expandable diff t
   assert.ok(html.indexOf("我先改文件。") < html.indexOf("Edited src/web/app.js"));
   assert.ok(html.indexOf("Edited src/web/app.js") < html.indexOf("改完了。"));
   assert.match(html, /class="trace-row file-edit/);
+  assert.match(html, /class="trace-row file-edit[^"]*"[^>]*data-accordion="true"/);
   assert.match(html, /data-trace-key="msg:m2::block::1::file_edit::edit_1"/);
   assert.doesNotMatch(html, /Edited src\/web\/app\.js \(\+5 -1\)/);
   assert.match(html, /<span class="trace-meta diff-stats"><span class="diff-stat diff-stat-add">\+5<\/span><span class="diff-stat diff-stat-del">-1<\/span><\/span>/);
@@ -156,7 +186,7 @@ test("renderAssistantContentBlocks renders file edit blocks as expandable diff t
   assert.doesNotMatch(html, /--- a\/src\/web\/app\.js/);
   assert.doesNotMatch(html, /\+\+\+ b\/src\/web\/app\.js/);
   assert.doesNotMatch(html, /@@ -1,2 \+1,2 @@/);
-  assert.match(html, /<pre class="trace-body diff-body">/);
+  assert.match(html, /<div class="trace-accordion-body accordion-body"><pre class="trace-body diff-body">/);
   assert.doesNotMatch(html, /<\/span>\n<span class="diff-line/);
   assert.match(html, /<span class="diff-line diff-meta diff-hunk"><span class="diff-ln">···<\/span><span class="diff-code"><\/span><\/span>/);
   assert.match(html, /<span class="diff-line diff-del"><span class="diff-ln">1<\/span><span class="diff-code">-old<\/span><\/span>/);
@@ -220,6 +250,18 @@ test("renderAssistantContentBlocks trims shared indentation from diff code", () 
 test("trace CSS hides previews immediately when a row is toggled open", () => {
   const css = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "styles", "chat.css"), "utf8");
   assert.match(css, /\.trace-row\[open\]\s*>\s*summary\s*>\s*\.trace-arg\s*\{\s*display:\s*none;/);
+});
+
+test("trace CSS supports accordion height transitions", () => {
+  const rendererCss = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "styles", "chat.css"), "utf8");
+  const webCss = fs.readFileSync(path.join(__dirname, "..", "src", "web", "styles.css"), "utf8");
+  for (const css of [rendererCss, webCss]) {
+    assert.match(css, /\.trace-accordion-body\s*\{[\s\S]*?overflow:\s*hidden;/);
+    assert.match(
+      css,
+      /\.trace-row\.accordion-closing\s*>\s*summary\s*>\s*\.trace-chevron\s*\{[\s\S]*?transform:\s*rotate\(0deg\);/
+    );
+  }
 });
 
 test("trace CSS styles diff rows with terminal-like add/delete colors", () => {

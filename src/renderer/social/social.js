@@ -10,6 +10,7 @@
   const MESSAGE_BACKFILL_OVERLAP = 50;
   const MESSAGE_REMOVE_ANIMATION_MS = 180;
   const MESSAGE_TAIL_ENTER_ANIMATION_MS = 220;
+  const MESSAGE_LAYOUT_SHIFT_ANIMATION_MS = 190;
   const LOCAL_TIMELINE_SEQ_STEP = 0.000001;
   const LOCAL_TIMELINE_SEQ_SENTINEL = 1000000000000;
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1139,8 +1140,8 @@
   }
 
   function isGenericLocalEngineStartupStatus(text = "") {
-    const value = String(text || "").replace(/\s+/g, " ").trim();
-    return /^本机\s+[^。.!！]+?\s+已(?:经)?开始运行[。.!！]?$/i.test(value);
+    const value = String(text || "").replace(/\s+/g, "").trim();
+    return /^本机[^。.!！]+?已(?:经)?开始运行[。.!！]?$/i.test(value);
   }
 
   function normalizeRunGoal(goal) {
@@ -1708,6 +1709,79 @@
     article.addEventListener?.("animationend", cleanup, { once: true });
     setTimeout(cleanup, MESSAGE_TAIL_ENTER_ANIMATION_MS + 80);
     return true;
+  }
+
+  function hasElementClass(el, className) {
+    if (!el || !className) return false;
+    return String(el.className || "").split(/\s+/).includes(className);
+  }
+
+  function messageLayoutKey(article) {
+    if (!article) return "";
+    const dataset = article.dataset || {};
+    const explicit = dataset.messageLayoutKey
+      || (typeof article.getAttribute === "function" ? article.getAttribute("data-message-layout-key") : "");
+    const messageId = dataset.messageId
+      || (typeof article.getAttribute === "function" ? article.getAttribute("data-message-id") : "");
+    return String(explicit || messageId || "").trim();
+  }
+
+  function captureMessageLayout(containerEl) {
+    const snapshot = new Map();
+    if (!containerEl || typeof containerEl.querySelectorAll !== "function") return snapshot;
+    const rows = containerEl.querySelectorAll("article.message");
+    Array.prototype.forEach.call(rows, (article) => {
+      const key = messageLayoutKey(article);
+      if (!key) return;
+      const rect = typeof article.getBoundingClientRect === "function" ? article.getBoundingClientRect() : null;
+      const top = Number(rect?.top);
+      if (!Number.isFinite(top)) return;
+      snapshot.set(key, { top });
+    });
+    return snapshot;
+  }
+
+  function animateMessageLayoutShift(containerEl, previousLayout) {
+    if (!containerEl || !previousLayout || !previousLayout.size || prefersReducedMotion()) return false;
+    if (typeof containerEl.querySelectorAll !== "function") return false;
+    let animated = false;
+    const rows = containerEl.querySelectorAll("article.message");
+    Array.prototype.forEach.call(rows, (article) => {
+      if (!article || hasElementClass(article, "message-tail-enter")) return;
+      const key = messageLayoutKey(article);
+      const previous = key ? previousLayout.get(key) : null;
+      if (!previous) return;
+      const rect = typeof article.getBoundingClientRect === "function" ? article.getBoundingClientRect() : null;
+      const top = Number(rect?.top);
+      if (!Number.isFinite(top)) return;
+      const deltaY = Math.round((Number(previous.top) || 0) - top);
+      if (Math.abs(deltaY) < 1 || typeof article.animate !== "function") return;
+      addElementClass(article, "message-layout-shift");
+      const cleanup = () => {
+        removeElementClass(article, "message-layout-shift");
+      };
+      try {
+        const animation = article.animate(
+          [
+            { transform: `translateY(${deltaY}px)` },
+            { transform: "translateY(0)" }
+          ],
+          {
+            duration: MESSAGE_LAYOUT_SHIFT_ANIMATION_MS,
+            easing: "cubic-bezier(0.2, 0.7, 0.2, 1)"
+          }
+        );
+        if (animation) {
+          animation.onfinish = cleanup;
+          animation.oncancel = cleanup;
+        }
+        setTimeout(cleanup, MESSAGE_LAYOUT_SHIFT_ANIMATION_MS + 80);
+        animated = true;
+      } catch (_) {
+        cleanup();
+      }
+    });
+    return animated;
   }
 
   function easeOutQuint(progress) {
@@ -3049,6 +3123,11 @@
       && !hasPendingFocus
       && wasNearBottom
       && !prefersReducedMotion();
+    const shouldAnimateLayoutShift = !isConversationSwitch
+      && !isFirstMessageHydration
+      && !hasPendingFocus
+      && !prefersReducedMotion();
+    const previousMessageLayout = shouldAnimateLayoutShift ? captureMessageLayout(containerEl) : null;
     const tailMessageIds = shouldAnimateTail
       ? tailMessageIdsAddedToEnd(previousRenderedMessageIds, currentMessageIds)
       : [];
@@ -3106,6 +3185,7 @@
       startPhaseOrbAnimation(containerEl);
       initNameBadgeLotties(containerEl);
       applyScroll();
+      animateMessageLayoutShift(containerEl, previousMessageLayout);
       if (!_conversationMembersCache.has(conversationId)) {
         _fetchAndCacheConversationMembers(conversationId);
       }
@@ -3131,6 +3211,7 @@
     startPhaseOrbAnimation(containerEl);
     initNameBadgeLotties(containerEl);
     applyScroll();
+    animateMessageLayoutShift(containerEl, previousMessageLayout);
   }
 
   function _specForMessage(msg, members = []) {
@@ -3309,6 +3390,8 @@
     const statusHtml = renderRunStatusLine(run);
     const article = document.createElement("article");
     article.className = `message assistant streaming${options.groupMessage ? " group-message" : ""}`;
+    if (article.dataset) article.dataset.messageLayoutKey = synthetic.id;
+    article.setAttribute?.("data-message-layout-key", synthetic.id);
     article.innerHTML = `
       ${avatarHtml}
       <div class="message-stack">
@@ -4969,6 +5052,9 @@
     renderAgentPermissionBanner,
     submitPermissionDecision,
     appendMessageToActiveChat: _appendMessageToActiveChat,
+    messageLayoutKey,
+    captureMessageLayout,
+    animateMessageLayoutShift,
     adapterCtx
   };
 

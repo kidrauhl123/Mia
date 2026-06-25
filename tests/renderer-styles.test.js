@@ -582,6 +582,10 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(appUpdateOverlayRule, /backdrop-filter:\s*none;/);
   assert.match(appUpdateOverlayRule, /pointer-events:\s*none;/);
   assert.match(appUpdatePanelRule, /pointer-events:\s*auto;/);
+  const appUpdateNotesRule = cssRuleBody(baseCss, ".app-update-notes");
+  assert.match(appUpdateNotesRule, /max-height:\s*112px;/);
+  assert.match(appUpdateNotesRule, /overflow-y:\s*auto;/);
+  assert.doesNotMatch(appUpdateNotesRule, /overflow:\s*hidden;/);
   assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?border:\s*0;[\s\S]*?height:\s*16px;[\s\S]*?font-size:\s*11px;[\s\S]*?font-weight:\s*var\(--capsule-tab-font-weight\);/);
   assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?border-radius:\s*5px;/);
   assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?background:\s*color-mix\(in srgb,\s*var\(--tag-color,\s*#64748b\) 14%,\s*transparent\);[\s\S]*?color:\s*var\(--tag-color,\s*#64748b\);/);
