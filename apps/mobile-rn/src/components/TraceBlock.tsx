@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { color, radius, space } from "../theme";
+import { withAndroidTextFace } from "../ui/androidTextFace";
+import { useTypography } from "../ui/TypographyProvider";
 
 interface Props {
   trace: { reasoning?: any; tools?: any } | null | undefined;
@@ -19,19 +21,20 @@ function toText(v: any): string {
 // 软风格折叠 chip:浅灰圆角、muted 文字,点开看 reasoning + 工具。
 export default function TraceBlock({ trace }: Props) {
   const [open, setOpen] = useState(false);
+  const typography = useTypography();
   if (!trace || (!trace.reasoning && !trace.tools)) return null;
   const tools = Array.isArray(trace.tools) ? trace.tools : trace.tools ? [trace.tools] : [];
   const steps = (trace.reasoning ? 1 : 0) + tools.length;
   return (
     <View style={styles.wrap}>
       <Pressable onPress={() => setOpen((o) => !o)} hitSlop={6} style={styles.chip}>
-        <Text style={styles.chipText}>{open ? "▾ 思考过程" : `▸ 思考 · ${steps} 步`}</Text>
+        <Text allowFontScaling={false} style={withAndroidTextFace([styles.chipText, typography.type.system])}>{open ? "▾ 思考过程" : `▸ 思考 · ${steps} 步`}</Text>
       </Pressable>
       {open ? (
         <View style={styles.body}>
-          {trace.reasoning ? <Text style={styles.reason}>{toText(trace.reasoning)}</Text> : null}
+          {trace.reasoning ? <Text allowFontScaling={false} style={withAndroidTextFace([styles.reason, typography.type.info])}>{toText(trace.reasoning)}</Text> : null}
           {tools.map((t: any, i: number) => (
-            <Text key={i} style={styles.tool}>
+            <Text key={i} allowFontScaling={false} style={withAndroidTextFace([styles.tool, typography.type.caption])}>
               🔧 {toText(t.name || t.tool || t)}
             </Text>
           ))}
@@ -50,8 +53,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 3,
   },
-  chipText: { fontSize: 12, color: color.inkMuted },
+  chipText: { color: color.inkMuted },
   body: { marginTop: space.sm, paddingLeft: space.sm, borderLeftWidth: 2, borderLeftColor: color.line },
-  reason: { fontSize: 13, color: color.inkMuted, marginBottom: space.xs, lineHeight: 19 },
-  tool: { fontSize: 12, color: color.inkFaint },
+  reason: { color: color.inkMuted, marginBottom: space.xs },
+  tool: { color: color.inkFaint },
 });

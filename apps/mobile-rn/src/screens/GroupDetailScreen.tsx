@@ -5,6 +5,7 @@ import { resolveAvatar } from "../logic/conversationList";
 import { useConversationMembers } from "../state/queries";
 import StateBlock from "../ui/StateBlock";
 import { BodyStrong, Label, Sub } from "../ui/Text";
+import { useTypography } from "../ui/TypographyProvider";
 import { color, space, hairlineWidth } from "../theme";
 import type { MessagesStackParamList } from "../navigation/types";
 
@@ -15,6 +16,7 @@ function memberTitle(member: any): string {
 }
 
 export default function GroupDetailScreen({ route }: Props) {
+  const typography = useTypography();
   const members = useConversationMembers(route.params.conversationId);
 
   if (members.isLoading) return <StateBlock title="加载群聊…" />;
@@ -28,8 +30,8 @@ export default function GroupDetailScreen({ route }: Props) {
       keyExtractor={(item, index) => `${item.member_kind || "member"}:${item.member_ref || index}`}
       ListHeaderComponent={
         <View style={styles.header}>
-          <BodyStrong>{route.params.title}</BodyStrong>
-          <Sub>{route.params.conversationId}</Sub>
+          <BodyStrong style={typography.type.listTitle}>{route.params.title}</BodyStrong>
+          <Sub style={typography.type.settingDetail}>{route.params.conversationId}</Sub>
         </View>
       }
       renderItem={({ item }) => {
@@ -39,8 +41,8 @@ export default function GroupDetailScreen({ route }: Props) {
           <View style={styles.row}>
             <Avatar title={title} avatar={avatar} />
             <View style={styles.text}>
-              <BodyStrong numberOfLines={1}>{title}</BodyStrong>
-              <Label>{item.member_kind || "member"}</Label>
+              <BodyStrong numberOfLines={1} style={typography.type.settingTitle}>{title}</BodyStrong>
+              <Label style={typography.type.settingDetail}>{item.member_kind || "member"}</Label>
             </View>
           </View>
         );

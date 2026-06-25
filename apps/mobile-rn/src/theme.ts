@@ -39,16 +39,75 @@ export const shadow = {
   elevation: 4,
 };
 
-// 字体:全系统体(iOS PingFang / Android Roboto-Noto,中英文一致渲染)。
-// 桌面端也是系统字体,不引自定义字体。粗细靠 fontWeight。
-export const type = {
-  brand: { fontSize: 24, fontWeight: "800" as const, letterSpacing: 0.2, color: color.ink },
-  title: { fontSize: 17, fontWeight: "700" as const, color: color.ink },
-  body: { fontSize: 15, lineHeight: 23, color: color.ink },
-  bodyStrong: { fontSize: 15, lineHeight: 23, fontWeight: "600" as const, color: color.ink },
-  sub: { fontSize: 13, color: color.inkMuted },
-  label: { fontSize: 12, fontWeight: "600" as const, color: color.inkMuted },
-};
+export const TELEGRAM_DEFAULT_FONT_SIZE = 16;
+export const TELEGRAM_FONT_SIZE_OPTIONS = [
+  { label: "小", value: 14 },
+  { label: "标准", value: 16 },
+  { label: "大", value: 18 },
+] as const;
+
+export type TelegramFontSize = typeof TELEGRAM_FONT_SIZE_OPTIONS[number]["value"];
+
+export function normalizeTelegramFontSize(value: unknown): TelegramFontSize {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return TELEGRAM_DEFAULT_FONT_SIZE;
+  return TELEGRAM_FONT_SIZE_OPTIONS.reduce<TelegramFontSize>((best, option) => (
+    Math.abs(option.value - parsed) < Math.abs(best - parsed) ? option.value : best
+  ), TELEGRAM_DEFAULT_FONT_SIZE);
+}
+
+function lineHeight(size: number, ratio = 1.32): number {
+  return Math.round(size * ratio);
+}
+
+export function createTelegramTypography(value: unknown = TELEGRAM_DEFAULT_FONT_SIZE) {
+  const chatBase = normalizeTelegramFontSize(value);
+  const chatSmall = Math.round((2 * chatBase + 10) / 3);
+  const chatAction = Math.max(16, chatBase) - 2;
+  const code = Math.max(10, Math.min(chatBase - 1, chatBase - 2));
+
+  return {
+    fontSize: chatBase,
+    type: {
+      brand: { fontSize: 20, lineHeight: 24, fontWeight: "500" as const, color: color.ink },
+      title: { fontSize: 20, lineHeight: 24, fontWeight: "500" as const, color: color.ink },
+      body: { fontSize: 16, lineHeight: 22, fontWeight: "400" as const, color: color.ink },
+      bodyStrong: { fontSize: 16, lineHeight: 22, fontWeight: "400" as const, color: color.ink },
+      sub: { fontSize: 14, lineHeight: 19, fontWeight: "400" as const, color: color.inkMuted },
+      label: { fontSize: 13, lineHeight: 17, fontWeight: "400" as const, color: color.inkMuted },
+      caption: { fontSize: 12, lineHeight: 16, fontWeight: "400" as const, color: color.inkFaint },
+      button: { fontSize: 15, lineHeight: 19, fontWeight: "500" as const },
+      input: { fontSize: 17, lineHeight: 22, fontWeight: "400" as const, color: color.ink },
+      composerInput: { fontSize: 18, lineHeight: 24, fontWeight: "400" as const, color: color.ink },
+      action: { fontSize: 15, lineHeight: 19, fontWeight: "500" as const },
+      nav: { fontSize: 11, lineHeight: 14, fontWeight: "500" as const },
+      chatMessage: { fontSize: chatBase, lineHeight: lineHeight(chatBase), fontWeight: "400" as const },
+      code: { fontFamily: "monospace" as const, fontSize: code, lineHeight: lineHeight(code, 1.25), fontWeight: "400" as const },
+      messageName: { fontSize: chatSmall, lineHeight: lineHeight(chatSmall, 1.25), fontWeight: "500" as const },
+      messageReplyText: { fontSize: chatSmall, lineHeight: lineHeight(chatSmall, 1.25), fontWeight: "400" as const },
+      messageMeta: { fontSize: 12, lineHeight: 16, fontWeight: "400" as const },
+      system: { fontSize: chatAction, lineHeight: lineHeight(chatAction, 1.3), fontWeight: "400" as const },
+      listTitle: { fontSize: 16, lineHeight: 20, fontWeight: "500" as const },
+      listSubtitle: { fontSize: 15, lineHeight: 19, fontWeight: "400" as const },
+      listTime: { fontSize: 12, lineHeight: 16, fontWeight: "400" as const },
+      listTag: { fontSize: 10, lineHeight: 13, fontWeight: "500" as const },
+      search: { fontSize: 18, lineHeight: 32, fontWeight: "400" as const },
+      badge: { fontSize: 13, lineHeight: 18, fontWeight: "500" as const },
+      settingHeader: { fontSize: 15, lineHeight: 20, fontWeight: "500" as const, color: color.inkMuted },
+      settingTitle: { fontSize: 16, lineHeight: 22, fontWeight: "400" as const, color: color.ink },
+      settingDetail: { fontSize: 13, lineHeight: 17, fontWeight: "400" as const, color: color.inkMuted },
+      info: { fontSize: 14, lineHeight: 19, fontWeight: "400" as const, color: color.inkMuted },
+      attachmentTitle: { fontSize: 15, lineHeight: 19, fontWeight: "500" as const, color: color.ink },
+      attachmentSubtitle: { fontSize: 13, lineHeight: 17, fontWeight: "400" as const, color: color.inkMuted },
+      avatarInitial: { fontSize: 18, lineHeight: 22, fontWeight: "500" as const, color: "#fff" },
+    },
+  };
+}
+
+// 字体:对齐 Telegram 手机端的系统字体策略。中文依赖系统中文字体
+// (iOS PingFang SC, Android Noto Sans CJK/设备系统字体),不硬绑英文字体。
+// 默认聊天字号 16; 字号设置只影响 TG 里会跟随设置的聊天文本,普通 UI 使用 TG 固定默认值。
+export const type = createTelegramTypography().type;
 
 // 向后兼容旧 theme.* 键
 export const theme = {

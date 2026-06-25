@@ -2,6 +2,8 @@ import { View, Pressable, StyleSheet, Text } from "react-native";
 import * as Haptics from "expo-haptics";
 import Markdown from "react-native-markdown-display";
 import { color, radius, space } from "../theme";
+import { withAndroidTextFace } from "../ui/androidTextFace";
+import { useTypography } from "../ui/TypographyProvider";
 import AttachmentList from "./AttachmentList";
 import TraceBlock from "./TraceBlock";
 import StatusBadge from "./StatusBadge";
@@ -33,10 +35,11 @@ export default function MessageBubble({
   members?: Member[];
   onLongPress?: (m: ChatMessage) => void;
 }) {
+  const typography = useTypography();
   if (msg.role === "system") {
     return (
       <View style={styles.systemRow}>
-        <Text style={styles.systemText}>{msg.bodyMd || "系统消息"}</Text>
+        <Text allowFontScaling={false} style={withAndroidTextFace([styles.systemText, typography.type.system], msg.bodyMd || "系统消息")}>{msg.bodyMd || "系统消息"}</Text>
       </View>
     );
   }
@@ -69,17 +72,17 @@ export default function MessageBubble({
         {!own && msg.trace ? <TraceBlock trace={msg.trace} /> : null}
         {!own && author?.name ? (
           <View style={styles.senderRow}>
-            <Text numberOfLines={1} style={styles.senderName}>{author.name}</Text>
+            <Text allowFontScaling={false} numberOfLines={1} style={withAndroidTextFace([styles.senderName, typography.type.messageName], author.name)}>{author.name}</Text>
             <StatusBadge badge={author.statusBadge} apiBase={apiBase} size={16} />
           </View>
         ) : null}
         {msg.bodyMd ? (
           <Markdown
             style={{
-              body: { color: textColor, margin: 0, fontSize: 15, lineHeight: 23 },
+              body: { ...typography.type.chatMessage, color: textColor, margin: 0 },
               paragraph: { marginTop: 0, marginBottom: 0 },
-              code_inline: { backgroundColor: own ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.06)", color: textColor, borderWidth: 0 },
-              fence: { backgroundColor: color.codeBg, color: color.codeText, borderWidth: 0, borderRadius: 10, padding: 10 },
+              code_inline: { ...typography.type.code, backgroundColor: own ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.06)", color: textColor, borderWidth: 0 },
+              fence: { ...typography.type.code, backgroundColor: color.codeBg, color: color.codeText, borderWidth: 0, borderRadius: 10, padding: 10 },
               link: { color: own ? "#fff" : color.accent },
             }}
           >
@@ -88,7 +91,10 @@ export default function MessageBubble({
         ) : null}
         <AttachmentList attachments={msg.attachments} apiBase={apiBase} own={own} />
         {metaText ? (
-          <Text style={[styles.meta, own ? styles.metaOwn : styles.metaOther, msg.failed ? styles.metaFailed : null]}>
+          <Text
+            allowFontScaling={false}
+            style={withAndroidTextFace([styles.meta, typography.type.messageMeta, own ? styles.metaOwn : styles.metaOther, msg.failed ? styles.metaFailed : null], metaText)}
+          >
             {metaText}
           </Text>
         ) : null}
@@ -107,8 +113,8 @@ const styles = StyleSheet.create({
   pending: { opacity: 0.55 },
   failed: { borderWidth: 1, borderColor: color.danger },
   senderRow: { flexDirection: "row", alignItems: "center", gap: 0, marginBottom: 3, maxWidth: "100%" },
-  senderName: { color: color.inkMuted, fontSize: 12, fontWeight: "600", maxWidth: 180 },
-  meta: { alignSelf: "flex-end", marginTop: 3, fontSize: 11 },
+  senderName: { color: color.inkMuted, maxWidth: 180 },
+  meta: { alignSelf: "flex-end", marginTop: 3 },
   metaOwn: { color: "rgba(255,255,255,0.72)" },
   metaOther: { color: color.inkFaint },
   metaFailed: { color: color.danger },
@@ -121,6 +127,5 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     color: color.inkFaint,
     backgroundColor: "rgba(0,0,0,0.045)",
-    fontSize: 12,
   },
 });

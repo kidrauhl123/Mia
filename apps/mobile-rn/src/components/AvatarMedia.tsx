@@ -2,6 +2,8 @@ import { Image, View, Text, StyleSheet } from "react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
 import type { AvatarDescriptor } from "../api/types";
 import { isVideoAvatar, avatarCropGeometry } from "../logic/avatar";
+import { withAndroidTextFace } from "../ui/androidTextFace";
+import { useTypography } from "../ui/TypographyProvider";
 
 // 动态头像(视频):静音循环播放,套用同样的裁剪几何。
 function VideoAvatar({ uri, size, radius, crop, color }: { uri: string; size: number; radius: number; crop: any; color: string }) {
@@ -25,6 +27,7 @@ function VideoAvatar({ uri, size, radius, crop, color }: { uri: string; size: nu
 
 // 单个头像渲染,套用裁剪参数(zoom/x/y)。无图→纯色+首字母;图→裁剪;视频→播放。
 export default function AvatarMedia({ tile, size = 44, radius }: { tile: AvatarDescriptor; size?: number; radius?: number }) {
+  const typography = useTypography();
   const r = radius ?? size / 2;
   const image = String(tile.image || "").trim();
   const color = tile.color || "#5e5ce6";
@@ -36,7 +39,7 @@ export default function AvatarMedia({ tile, size = 44, radius }: { tile: AvatarD
   if (!image) {
     return (
       <View style={[styles.box, { width: size, height: size, borderRadius: r, backgroundColor: color }]}>
-        <Text style={[styles.letter, { fontSize: size * 0.4 }]}>{tile.text || "?"}</Text>
+        <Text allowFontScaling={false} style={withAndroidTextFace([styles.letter, typography.type.avatarInitial, { lineHeight: size }], tile.text || "?")}>{tile.text || "?"}</Text>
       </View>
     );
   }
@@ -55,5 +58,5 @@ export default function AvatarMedia({ tile, size = 44, radius }: { tile: AvatarD
 
 const styles = StyleSheet.create({
   box: { alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  letter: { color: "#fff", fontWeight: "600" },
+  letter: { color: "#fff" },
 });

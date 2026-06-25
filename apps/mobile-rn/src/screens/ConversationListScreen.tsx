@@ -27,8 +27,10 @@ import {
 } from "../logic/settings";
 import ConversationAvatar from "../components/ConversationAvatar";
 import StatusBadge from "../components/StatusBadge";
-import { BodyStrong, Label, Sub, Title } from "../ui/Text";
+import { Body, BodyStrong, Label, Sub, Title } from "../ui/Text";
 import { color, hairlineWidth, radius, space } from "../theme";
+import { withAndroidTextFace } from "../ui/androidTextFace";
+import { useTypography } from "../ui/TypographyProvider";
 import { conversationHomeChrome } from "../logic/conversationHomeChrome";
 import { conversationSearchOverlayChrome, conversationSearchPresentation } from "../logic/conversationSearchMode";
 import type { Member } from "../api/types";
@@ -105,15 +107,17 @@ function alphaColor(hex: string, alpha: number): string {
 }
 
 function TagChip({ tag, index }: { tag: ConversationListItem["tags"][number]; index: number }) {
+  const typography = useTypography();
   const tagColor = /^#[0-9a-f]{6}$/i.test(tag.color) ? tag.color : TAG_COLORS[index % TAG_COLORS.length];
   return (
-    <View style={[styles.tagChip, { backgroundColor: alphaColor(tagColor, 0.14) }]}>
-      <Text allowFontScaling={false} numberOfLines={1} style={[styles.tagText, { color: tagColor }]}>{tag.name}</Text>
+    <View style={[styles.tagChip, { height: typography.type.listTag.lineHeight, backgroundColor: alphaColor(tagColor, 0.14) }]}>
+      <Text allowFontScaling={false} numberOfLines={1} style={withAndroidTextFace([styles.tagText, typography.type.listTag, { color: tagColor }], tag.name)}>{tag.name}</Text>
     </View>
   );
 }
 
 export default function ConversationListScreen({ navigation }: Props) {
+  const typography = useTypography();
   const { session, apiBase } = useAuth();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
@@ -265,43 +269,57 @@ export default function ConversationListScreen({ navigation }: Props) {
   const renderConversationItem = ({ item }: { item: ConversationListItem }) => {
     const hasTags = item.tags.length > 0;
     const hasSide = item.pinned || item.unread > 0;
+    const listTitleLineHeight = typography.type.listTitle.lineHeight;
+    const listSubtitleLineHeight = typography.type.listSubtitle.lineHeight;
+    const listTagLineHeight = typography.type.listTag.lineHeight;
+    const personaMainHeight = hasTags
+      ? listTitleLineHeight + listSubtitleLineHeight + listTagLineHeight + 2
+      : listTitleLineHeight + listSubtitleLineHeight + 4;
     return (
       <Pressable
-        style={({ pressed }) => [styles.row, item.pinned && styles.rowPinned, pressed && styles.pressed]}
+        style={({ pressed }) => [styles.row, hasTags && styles.rowWithTags, item.pinned && styles.rowPinned, pressed && styles.pressed]}
         onLongPress={() => setActionItem(item)}
         onPress={() => navigation.navigate("Chat", { conversationId: item.id, title: item.title })}
       >
-        <ConversationAvatar tiles={item.tiles} size={42} />
-        <View style={[styles.personaMain, hasTags && styles.personaMainWithTags]}>
-          <View style={styles.personaNameRow}>
+        <ConversationAvatar tiles={item.tiles} size={52} />
+        <View style={[styles.personaMain, hasTags && styles.personaMainWithTags, { height: personaMainHeight }]}>
+          <View style={[styles.personaNameRow, { height: listTitleLineHeight }]}>
             <View style={styles.titleWithBadge}>
-              <BodyStrong allowFontScaling={false} numberOfLines={1} style={styles.title}>{item.title}</BodyStrong>
+              <BodyStrong allowFontScaling={false} numberOfLines={1} style={[styles.title, typography.type.listTitle]}>{item.title}</BodyStrong>
               <StatusBadge badge={item.statusBadge} apiBase={apiBase} size={20} />
             </View>
             {item.muted ? <View style={styles.mutedIcon}><MutedGlyph /></View> : null}
-            {item.timeText ? <Sub allowFontScaling={false} numberOfLines={1} style={[styles.time, item.unread > 0 && !item.muted && styles.timeUnread]}>{item.timeText}</Sub> : null}
+            {item.timeText ? (
+              <Sub
+                allowFontScaling={false}
+                numberOfLines={1}
+                style={[styles.time, typography.type.listTime, item.unread > 0 && !item.muted && styles.timeUnread]}
+              >
+                {item.timeText}
+              </Sub>
+            ) : null}
           </View>
-          <View style={styles.personaPreviewRow}>
+          <View style={[styles.personaPreviewRow, { height: listSubtitleLineHeight }]}>
             <Sub
               allowFontScaling={false}
-              numberOfLines={hasTags ? 1 : 2}
-              style={[styles.sub, hasTags && styles.subSingleLine, item.unread > 0 && !item.muted && styles.subUnread]}
+              numberOfLines={1}
+              style={[styles.sub, typography.type.listSubtitle, { maxHeight: listSubtitleLineHeight }, item.unread > 0 && !item.muted && styles.subUnread]}
             >
               {item.subtitle}
             </Sub>
             {hasSide ? (
-              <View style={[styles.personaSide, hasTags && styles.personaSideWithTags]}>
+              <View style={styles.personaSide}>
                 {item.pinned ? <View style={styles.pinIcon}><PinGlyph /></View> : null}
                 {item.unread ? (
                   <View style={[styles.badge, item.muted && styles.badgeMuted]}>
-                    <Text allowFontScaling={false} style={styles.badgeText}>{item.unread}</Text>
+                    <Text allowFontScaling={false} style={withAndroidTextFace([styles.badgeText, typography.type.badge], item.unread)}>{item.unread}</Text>
                   </View>
                 ) : null}
               </View>
             ) : null}
           </View>
           {hasTags ? (
-            <View style={styles.tagRow}>
+            <View style={[styles.tagRow, { height: listTagLineHeight }]}>
               {item.tags.map((tag, index) => <TagChip key={tag.id} tag={tag} index={index} />)}
             </View>
           ) : null}
@@ -322,14 +340,16 @@ export default function ConversationListScreen({ navigation }: Props) {
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <View style={styles.headerRow}>
-          <Title allowFontScaling={false} style={styles.screenTitle}>消息</Title>
+          <Title allowFontScaling={false} style={[styles.screenTitle, typography.type.title]}>消息</Title>
         </View>
         <Pressable style={styles.searchBox} onPress={openSearch} accessibilityRole="button" accessibilityLabel="搜索">
           <View style={styles.searchPlaceholderGroup}>
             <View style={styles.searchBoxIcon}>
               <SearchGlyph />
             </View>
-            <Label allowFontScaling={false} numberOfLines={1} style={styles.searchPlaceholder}>{conversationHomeChrome.search.placeholder}</Label>
+            <Label allowFontScaling={false} numberOfLines={1} style={[styles.searchPlaceholder, typography.type.search]}>
+              {conversationHomeChrome.search.placeholder}
+            </Label>
           </View>
         </Pressable>
       </View>
@@ -363,7 +383,7 @@ export default function ConversationListScreen({ navigation }: Props) {
                   placeholderTextColor={color.inkFaint}
                   returnKeyType="search"
                   showSoftInputOnFocus
-                  style={styles.searchInput}
+                  style={[styles.searchInput, typography.type.search]}
                 />
                 {query ? (
                   <Pressable
@@ -413,8 +433,8 @@ export default function ConversationListScreen({ navigation }: Props) {
                 <View style={styles.sheetHead}>
                   <ConversationAvatar tiles={actionItem.tiles} size={40} />
                   <View style={styles.sheetTitleCol}>
-                    <BodyStrong numberOfLines={1}>{actionItem.title}</BodyStrong>
-                    <Sub numberOfLines={1}>{actionItem.subtitle}</Sub>
+                    <BodyStrong numberOfLines={1} style={typography.type.listTitle}>{actionItem.title}</BodyStrong>
+                    <Sub numberOfLines={1} style={typography.type.listSubtitle}>{actionItem.subtitle}</Sub>
                   </View>
                 </View>
                 <ActionRow
@@ -435,7 +455,7 @@ export default function ConversationListScreen({ navigation }: Props) {
                     : markConversationUnreadPatch(settings, actionItem.id))}
                 />
                 <Pressable style={styles.cancelAction} onPress={() => setActionItem(null)}>
-                  <BodyStrong style={styles.cancelText}>取消</BodyStrong>
+                  <Body style={styles.cancelText}>取消</Body>
                 </Pressable>
               </>
             ) : null}
@@ -447,10 +467,11 @@ export default function ConversationListScreen({ navigation }: Props) {
 }
 
 function ActionRow({ title, detail, onPress }: { title: string; detail: string; onPress: () => void }) {
+  const typography = useTypography();
   return (
     <Pressable style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]} onPress={onPress}>
-      <BodyStrong>{title}</BodyStrong>
-      <Sub>{detail}</Sub>
+      <Body style={typography.type.settingTitle}>{title}</Body>
+      <Label style={typography.type.settingDetail}>{detail}</Label>
     </Pressable>
   );
 }
@@ -473,11 +494,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 4,
   },
-  screenTitle: {
-    fontSize: conversationHomeChrome.title.fontSize,
-    lineHeight: conversationHomeChrome.title.lineHeight,
-    fontWeight: "500",
-  },
+  screenTitle: {},
   searchRowActive: {
     minHeight: desktopSearchBox.height,
     flexDirection: "row",
@@ -514,7 +531,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  searchPlaceholder: { color: "#9AA0A6", fontSize: 13, lineHeight: 32, fontWeight: "400", textAlign: "center" },
+  searchPlaceholder: { color: "#9AA0A6", textAlign: "center" },
   searchBoxActive: {
     flex: 1,
     height: 32,
@@ -552,8 +569,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
     height: 32,
     color: color.ink,
-    fontSize: 13,
-    lineHeight: 32,
     paddingVertical: 0,
     paddingLeft: 13,
     textAlign: "left",
@@ -583,14 +598,17 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
+    gap: 13,
     minHeight: conversationHomeChrome.row.minHeight,
-    marginHorizontal: 6,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    borderRadius: 11,
+    marginHorizontal: 0,
+    paddingHorizontal: 11,
+    paddingVertical: 0,
+    borderRadius: 0,
     backgroundColor: "transparent",
     shadowOpacity: conversationHomeChrome.row.shadowOpacity,
+  },
+  rowWithTags: {
+    minHeight: conversationHomeChrome.row.minHeightWithTags,
   },
   rowPinned: { backgroundColor: color.field },
   pressed: { backgroundColor: color.surfaceMuted },
@@ -599,49 +617,40 @@ const styles = StyleSheet.create({
   personaMain: {
     flex: 1,
     minWidth: 0,
-    minHeight: 52,
-    gap: 1,
+    justifyContent: "center",
+    gap: 4,
   },
   personaMainWithTags: {
-    minHeight: 52,
+    gap: 1,
   },
   personaNameRow: {
-    height: 18,
-    minHeight: 18,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     minWidth: 0,
   },
   titleWithBadge: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 0 },
-  title: { flex: 1, minWidth: 0, color: color.ink, fontSize: 14, lineHeight: 18, fontWeight: "500" },
+  title: { flex: 1, minWidth: 0, color: color.ink },
   mutedIcon: { width: 13, height: 13, alignItems: "center", justifyContent: "center" },
-  time: { flexShrink: 0, maxWidth: 64, color: color.inkFaint, fontSize: 11, lineHeight: 16, fontWeight: "400" },
+  time: { flexShrink: 0, maxWidth: 64, color: color.inkFaint },
   timeUnread: { color: color.accent, fontWeight: "500" },
   subtitleRow: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: 20 },
   personaPreviewRow: {
     minWidth: 0,
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 8,
   },
   sub: {
     flex: 1,
     minWidth: 0,
-    maxHeight: 34,
     color: color.inkMuted,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "400",
-  },
-  subSingleLine: {
-    maxHeight: 17,
   },
   subUnread: { color: color.ink },
   markers: { flexDirection: "row", alignItems: "center", gap: 4, maxWidth: 118 },
-  marker: { color: color.inkFaint, fontSize: 11 },
+  marker: { color: color.inkFaint },
   personaSide: {
-    alignSelf: "flex-end",
+    alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
@@ -649,20 +658,13 @@ const styles = StyleSheet.create({
     minWidth: 18,
     maxWidth: 54,
     minHeight: 18,
-    marginBottom: 1,
-  },
-  personaSideWithTags: {
-    alignSelf: "center",
-    minHeight: 17,
     marginBottom: 0,
   },
   pinIcon: { width: 14, height: 14, alignItems: "center", justifyContent: "center" },
   badge: { backgroundColor: color.accent, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
   badgeMuted: { backgroundColor: "#B3B8C2" },
-  badgeText: { color: "#FFFFFF", fontSize: 10, lineHeight: 18, fontWeight: "500", fontVariant: ["tabular-nums"] },
+  badgeText: { color: "#FFFFFF", fontVariant: ["tabular-nums"] },
   tagRow: {
-    height: 17,
-    minHeight: 17,
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
@@ -670,17 +672,13 @@ const styles = StyleSheet.create({
   },
   tagChip: {
     maxWidth: 78,
-    height: 16,
     paddingHorizontal: 5,
-    borderRadius: 5,
+    borderRadius: 4,
     alignItems: "center",
     justifyContent: "center",
   },
   tagText: {
     maxWidth: 68,
-    fontSize: 11,
-    lineHeight: 16,
-    fontWeight: "500",
   },
   sheetBackdrop: {
     flex: 1,

@@ -3,6 +3,7 @@ import { View, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { color, space, radius, hairlineWidth } from "../theme";
 import { Label, Body } from "../ui/Text";
+import { useTypography } from "../ui/TypographyProvider";
 import Button from "../ui/Button";
 import { useApi } from "../state/clientProvider";
 import { useEvents } from "../state/events";
@@ -11,6 +12,7 @@ import { PermissionDecision, decisionToHermesChoice, type PermissionDecisionT } 
 
 // Swiss:固定置底审批卡 —— 白底 + 顶部强黑规则线 + 橙色「允许」。
 export default function ApprovalSheet() {
+  const typography = useTypography();
   const api = useApi();
   const { activeApproval, pendingApprovalCount, resolveApproval } = useEvents();
   const insets = useSafeAreaInsets();
@@ -47,7 +49,7 @@ export default function ApprovalSheet() {
     <View style={[styles.sheet, { paddingBottom: space.lg + insets.bottom }]}>
       <View style={styles.markRow}>
         <View style={styles.mark} />
-        <Label>{approvalQueueLabel(pendingApprovalCount)}</Label>
+        <Label style={typography.type.settingHeader}>{approvalQueueLabel(pendingApprovalCount)}</Label>
       </View>
       <Body style={styles.preview}>{activeApproval.preview}</Body>
       {error ? <Body style={styles.error}>{error}</Body> : null}

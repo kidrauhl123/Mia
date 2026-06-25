@@ -121,10 +121,11 @@ export function useMe() {
   });
 }
 
-export function useUserSettings() {
+export function useUserSettings(options: { enabled?: boolean } = {}) {
   const api = useApi();
   return useQuery<UserSettings>({
     queryKey: ["settings"],
+    enabled: options.enabled ?? true,
     queryFn: () => api.api(settingsPath()).then((d) => d.settings || {}),
   });
 }

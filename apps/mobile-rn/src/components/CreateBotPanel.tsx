@@ -5,10 +5,12 @@ import { useCreateCloudBot, useModelCatalog } from "../state/queries";
 import { botKey, cloudBotKeyFromName } from "../logic/botDraft";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
-import { Sub, Title } from "../ui/Text";
+import { Label, Sub } from "../ui/Text";
+import { useTypography } from "../ui/TypographyProvider";
 import { color, radius, space } from "../theme";
 
 export default function CreateBotPanel({ bots }: { bots: Bot[] }) {
+  const typography = useTypography();
   const [name, setName] = useState("");
   const [personaText, setPersonaText] = useState("");
   const [status, setStatus] = useState("");
@@ -37,8 +39,8 @@ export default function CreateBotPanel({ bots }: { bots: Bot[] }) {
   return (
     <View style={styles.panel}>
       <View style={styles.head}>
-        <Title>新建智能体</Title>
-        <Sub>云端 Hermes · 默认会话</Sub>
+        <Label style={typography.type.settingHeader}>新建智能体</Label>
+        <Sub style={typography.type.info}>云端 Hermes · 默认会话</Sub>
       </View>
       <Input value={name} onChangeText={setName} placeholder="名称" returnKeyType="next" />
       <Input

@@ -8,6 +8,7 @@ import { EventsProvider } from "./src/state/events";
 import RootNavigator from "./src/navigation/RootNavigator";
 import { UpdateProvider } from "./src/updates/UpdateProvider";
 import { PushProvider } from "./src/notifications/PushProvider";
+import { TypographyProvider } from "./src/ui/TypographyProvider";
 
 const queryClient = new QueryClient();
 
@@ -18,14 +19,16 @@ export default function App() {
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <ApiProvider>
-              <PushProvider>
-                <UpdateProvider>
-                  <EventsProvider>
-                    <StatusBar style="dark" />
-                    <RootNavigator />
-                  </EventsProvider>
-                </UpdateProvider>
-              </PushProvider>
+              <TypographyProvider>
+                <PushProvider>
+                  <UpdateProvider>
+                    <EventsProvider>
+                      <StatusBar style="dark" />
+                      <RootNavigator />
+                    </EventsProvider>
+                  </UpdateProvider>
+                </PushProvider>
+              </TypographyProvider>
             </ApiProvider>
           </AuthProvider>
         </QueryClientProvider>

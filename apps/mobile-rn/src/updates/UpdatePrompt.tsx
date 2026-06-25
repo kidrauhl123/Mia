@@ -2,6 +2,7 @@ import { Modal, StyleSheet, View } from "react-native";
 import type { AndroidUpdateManifest, IosUpdateManifest } from "./manifest";
 import Button from "../ui/Button";
 import { Body, BodyStrong, Sub } from "../ui/Text";
+import { useTypography } from "../ui/TypographyProvider";
 import { color, radius, shadow, space } from "../theme";
 
 export type UpdatePromptPhase =
@@ -77,6 +78,7 @@ function statusFor(prompt: UpdatePromptModel): string {
 }
 
 export default function UpdatePrompt({ prompt, onPrimary, onDismiss }: Props) {
+  const typography = useTypography();
   if (!prompt) return null;
   const status = statusFor(prompt);
   const notes = prompt.kind === "android-binary" ? prompt.target.notes : [];
@@ -85,13 +87,13 @@ export default function UpdatePrompt({ prompt, onPrimary, onDismiss }: Props) {
       <View style={styles.backdrop}>
         <View style={styles.panel}>
           <View style={styles.head}>
-            <BodyStrong style={styles.title}>{titleFor(prompt)}</BodyStrong>
-            <Sub>{versionFor(prompt)}</Sub>
+            <BodyStrong style={typography.type.title}>{titleFor(prompt)}</BodyStrong>
+            <Sub style={typography.type.settingDetail}>{versionFor(prompt)}</Sub>
           </View>
           {notes.length ? (
             <View style={styles.notes}>
               {notes.slice(0, 4).map((note) => (
-                <Body key={note} style={styles.note}>
+                <Body key={note} style={[styles.note, typography.type.info]}>
                   {note}
                 </Body>
               ))}
@@ -102,10 +104,10 @@ export default function UpdatePrompt({ prompt, onPrimary, onDismiss }: Props) {
               <View style={styles.progressTrack}>
                 <View style={[styles.progressFill, { width: `${Math.round((prompt.progress ?? 0) * 100)}%` }]} />
               </View>
-              <Sub style={styles.progressPct}>{Math.round((prompt.progress ?? 0) * 100)}%</Sub>
+              <Sub style={[styles.progressPct, typography.type.caption]}>{Math.round((prompt.progress ?? 0) * 100)}%</Sub>
             </View>
           ) : null}
-          {status ? <Sub style={[styles.status, prompt.error ? styles.error : null]}>{status}</Sub> : null}
+          {status ? <Sub style={[styles.status, typography.type.info, prompt.error ? styles.error : null]}>{status}</Sub> : null}
           <View style={styles.actions}>
             <Button label={primaryLabelFor(prompt)} busy={busyFor(prompt)} onPress={onPrimary} />
             {!prompt.mandatory ? <Button label="稍后" variant="ghost" onPress={onDismiss} /> : null}
@@ -131,7 +133,6 @@ const styles = StyleSheet.create({
     ...shadow,
   },
   head: { gap: space.xs },
-  title: { fontSize: 18 },
   progressWrap: { flexDirection: "row", alignItems: "center", gap: space.sm },
   progressTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: color.surfaceMuted, overflow: "hidden" },
   progressFill: { height: 6, borderRadius: 3, backgroundColor: color.accent },

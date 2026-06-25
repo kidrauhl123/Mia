@@ -1,31 +1,28 @@
-import { Text as RNText, TextProps, StyleSheet } from "react-native";
-import { type } from "../theme";
+import { Text as RNText, TextProps } from "react-native";
+import { withAndroidTextFace } from "./androidTextFace";
+import { useTypography } from "./TypographyProvider";
 
-// 文字预设(全系统字体,对齐桌面端)。
 export function Brand(p: TextProps) {
-  return <RNText {...p} style={[styles.brand, p.style]} />;
+  const typography = useTypography();
+  return <RNText {...p} allowFontScaling={p.allowFontScaling ?? false} style={withAndroidTextFace([typography.type.brand, p.style], p.children)} />;
 }
 export function Title(p: TextProps) {
-  return <RNText {...p} style={[styles.title, p.style]} />;
+  const typography = useTypography();
+  return <RNText {...p} allowFontScaling={p.allowFontScaling ?? false} style={withAndroidTextFace([typography.type.title, p.style], p.children)} />;
 }
 export function Body(p: TextProps) {
-  return <RNText {...p} style={[styles.body, p.style]} />;
+  const typography = useTypography();
+  return <RNText {...p} allowFontScaling={p.allowFontScaling ?? false} style={withAndroidTextFace([typography.type.body, p.style], p.children)} />;
 }
 export function BodyStrong(p: TextProps) {
-  return <RNText {...p} style={[styles.bodyStrong, p.style]} />;
+  const typography = useTypography();
+  return <RNText {...p} allowFontScaling={p.allowFontScaling ?? false} style={withAndroidTextFace([typography.type.bodyStrong, p.style], p.children)} />;
 }
 export function Sub(p: TextProps) {
-  return <RNText {...p} style={[styles.sub, p.style]} />;
+  const typography = useTypography();
+  return <RNText {...p} allowFontScaling={p.allowFontScaling ?? false} style={withAndroidTextFace([typography.type.sub, p.style], p.children)} />;
 }
 export function Label(p: TextProps) {
-  return <RNText {...p} style={[styles.label, p.style]} />;
+  const typography = useTypography();
+  return <RNText {...p} allowFontScaling={p.allowFontScaling ?? false} style={withAndroidTextFace([typography.type.label, p.style], p.children)} />;
 }
-
-const styles = StyleSheet.create({
-  brand: type.brand,
-  title: type.title,
-  body: type.body,
-  bodyStrong: type.bodyStrong,
-  sub: type.sub,
-  label: type.label,
-});

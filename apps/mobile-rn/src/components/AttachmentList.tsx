@@ -1,10 +1,12 @@
 import { Image, Linking, Pressable, StyleSheet, View } from "react-native";
 import { isImageAttachment, resolveAttachmentUrl } from "../logic/attachments";
 import { BodyStrong, Label } from "../ui/Text";
+import { useTypography } from "../ui/TypographyProvider";
 import { color, radius, space, hairlineWidth } from "../theme";
 import type { MessageAttachment } from "../api/types";
 
 export default function AttachmentList({ attachments, apiBase, own }: { attachments?: MessageAttachment[]; apiBase: string; own?: boolean }) {
+  const typography = useTypography();
   const items = attachments || [];
   if (!items.length) return null;
   return (
@@ -21,8 +23,8 @@ export default function AttachmentList({ attachments, apiBase, own }: { attachme
           >
             {image ? <Image source={{ uri }} style={styles.image} resizeMode="cover" /> : null}
             <View style={styles.meta}>
-              <BodyStrong numberOfLines={1} style={own ? styles.ownText : undefined}>{item.name || "附件"}</BodyStrong>
-              <Label numberOfLines={1} style={own ? styles.ownSub : undefined}>{item.mimeType || item.type || "file"}</Label>
+              <BodyStrong numberOfLines={1} style={[typography.type.attachmentTitle, own ? styles.ownText : undefined]}>{item.name || "附件"}</BodyStrong>
+              <Label numberOfLines={1} style={[typography.type.attachmentSubtitle, own ? styles.ownSub : undefined]}>{item.mimeType || item.type || "file"}</Label>
             </View>
           </Pressable>
         );

@@ -27,6 +27,8 @@ import MessageActions from "../components/MessageActions";
 import ApprovalSheet from "../components/ApprovalSheet";
 import Input from "../ui/Input";
 import { Sub } from "../ui/Text";
+import { withAndroidTextFace } from "../ui/androidTextFace";
+import { useTypography } from "../ui/TypographyProvider";
 import { color, space, hairlineWidth } from "../theme";
 import type { ChatMessage, MessageAttachment } from "../api/types";
 import type { MessagesStackParamList } from "../navigation/types";
@@ -65,6 +67,7 @@ function SendIcon({ tint }: { tint: string }) {
 }
 
 export default function ChatScreen({ navigation, route }: Props) {
+  const typography = useTypography();
   const { conversationId } = route.params;
   const api = useApi();
   const qc = useQueryClient();
@@ -92,21 +95,21 @@ export default function ChatScreen({ navigation, route }: Props) {
         if (activeType === "group") {
           return (
             <Pressable hitSlop={10} onPress={() => navigation.navigate("GroupDetail", { conversationId, title: route.params.title })}>
-              <Text style={styles.headerAction}>详情</Text>
+              <Text allowFontScaling={false} style={withAndroidTextFace([styles.headerAction, typography.type.action], "详情")}>详情</Text>
             </Pressable>
           );
         }
         if (activeType === "bot") {
           return (
             <Pressable hitSlop={10} onPress={() => navigation.navigate("BotSessions", { conversationId, title: route.params.title })}>
-              <Text style={styles.headerAction}>聊天记录</Text>
+              <Text allowFontScaling={false} style={withAndroidTextFace([styles.headerAction, typography.type.action], "聊天记录")}>聊天记录</Text>
             </Pressable>
           );
         }
         return null;
       },
     });
-  }, [activeType, conversationId, navigation, route.params.title]);
+  }, [activeType, conversationId, navigation, route.params.title, typography.type.action]);
 
   useEffect(() => {
     const current = Number(settings?.readMarks?.[conversationId]) || 0;
@@ -228,13 +231,13 @@ export default function ChatScreen({ navigation, route }: Props) {
           <View style={styles.attachmentBar}>
             {pendingAttachments.map((attachment, index) => (
               <View key={`${attachment.id || attachment.name || "att"}:${index}`} style={styles.attachmentChip}>
-                <Sub numberOfLines={1} style={styles.attachmentName}>{attachment.name || "附件"}</Sub>
+                <Sub numberOfLines={1} style={[styles.attachmentName, typography.type.attachmentSubtitle]}>{attachment.name || "附件"}</Sub>
                 <Pressable
                   hitSlop={8}
                   onPress={() => setPendingAttachments((old) => (old || []).filter((_, i) => i !== index))}
                   style={styles.attachmentRemove}
                 >
-                  <Sub style={styles.attachmentRemoveText}>×</Sub>
+                  <Sub style={[styles.attachmentRemoveText, typography.type.caption]}>×</Sub>
                 </Pressable>
               </View>
             ))}
@@ -252,7 +255,7 @@ export default function ChatScreen({ navigation, route }: Props) {
             <PaperclipIcon tint={color.inkMuted} />
           </Pressable>
           <Input
-            style={styles.input}
+            style={[styles.input, typography.type.composerInput]}
             placeholder="输入消息…"
             value={text}
             onChangeText={setText}
@@ -294,7 +297,7 @@ export default function ChatScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.chatBg },
-  headerAction: { color: color.accent, fontSize: 15, fontWeight: "600" },
+  headerAction: { color: color.accent },
   list: { flex: 1 },
   composer: {
     gap: space.sm,
@@ -325,7 +328,7 @@ const styles = StyleSheet.create({
   },
   attachmentName: { flex: 1, minWidth: 0 },
   attachmentRemove: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: color.field },
-  attachmentRemoveText: { color: color.inkMuted, fontSize: 14 },
+  attachmentRemoveText: { color: color.inkMuted },
   attachmentError: { color: color.danger, paddingHorizontal: space.md },
   iconButton: {
     width: 42,
@@ -336,7 +339,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.surfaceMuted,
   },
   iconButtonPressed: { backgroundColor: color.field, transform: [{ scale: 0.96 }] },
-  input: { flex: 1, minHeight: 42, maxHeight: 118, paddingVertical: 10, borderRadius: 21 },
+  input: { flex: 1, minHeight: 44, maxHeight: 118, paddingVertical: 10, borderRadius: 22 },
   sendIconButton: {
     width: 42,
     height: 42,

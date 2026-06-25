@@ -11,22 +11,25 @@ import { useBotDetail, useBotRuntime, useDeleteBot, useSaveBotIdentity } from ".
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import StateBlock from "../ui/StateBlock";
-import { Body, BodyStrong, Label, Sub, Title } from "../ui/Text";
+import { Body, BodyStrong, Label, Sub } from "../ui/Text";
+import { useTypography } from "../ui/TypographyProvider";
 import { color, space, hairlineWidth } from "../theme";
 import type { ContactsStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<ContactsStackParamList, "BotDetail">;
 
 function Row({ label, value }: { label: string; value: string }) {
+  const typography = useTypography();
   return (
     <View style={styles.row}>
-      <Label>{label}</Label>
-      <Body style={styles.value}>{value}</Body>
+      <Body style={typography.type.settingTitle}>{label}</Body>
+      <Body style={[styles.value, typography.type.settingTitle]}>{value}</Body>
     </View>
   );
 }
 
 export default function BotDetailScreen({ navigation, route }: Props) {
+  const typography = useTypography();
   const { apiBase } = useAuth();
   const [name, setName] = useState(route.params.title || "");
   const [personaText, setPersonaText] = useState("");
@@ -105,8 +108,8 @@ export default function BotDetailScreen({ navigation, route }: Props) {
       <View style={styles.head}>
         <Avatar title={title} avatar={avatar} />
         <View style={styles.headText}>
-          <BodyStrong>{title}</BodyStrong>
-          <Sub>{route.params.botId}</Sub>
+          <BodyStrong style={typography.type.listTitle}>{title}</BodyStrong>
+          <Sub style={typography.type.settingDetail}>{route.params.botId}</Sub>
         </View>
       </View>
       <View style={styles.section}>
@@ -115,8 +118,8 @@ export default function BotDetailScreen({ navigation, route }: Props) {
         <Row label="所有者" value={data.ownerUserId || data.owner_user_id || ""} />
       </View>
       <View style={styles.section}>
-        <Title>编辑</Title>
-        <Label>姓名</Label>
+        <Label style={typography.type.settingHeader}>编辑</Label>
+        <Label style={typography.type.settingDetail}>姓名</Label>
         <View style={styles.identityLine}>
           {editingName ? (
             <TextInput
@@ -125,11 +128,12 @@ export default function BotDetailScreen({ navigation, route }: Props) {
               onBlur={() => setEditingName(false)}
               onSubmitEditing={() => setEditingName(false)}
               autoFocus
-              style={styles.nameInput}
+              allowFontScaling={false}
+              style={[styles.nameInput, typography.type.input]}
             />
           ) : (
             <Pressable style={styles.nameTextButton} onPress={() => setEditingName(true)}>
-              <BodyStrong style={styles.inlineName}>{name || title}</BodyStrong>
+              <BodyStrong style={[styles.inlineName, typography.type.settingTitle]}>{name || title}</BodyStrong>
             </Pressable>
           )}
           <Pressable
@@ -184,7 +188,7 @@ const styles = StyleSheet.create({
   status: { color: color.inkMuted },
   identityLine: { flexDirection: "row", alignItems: "center", gap: 6 },
   nameTextButton: { flex: 1, minWidth: 0, paddingVertical: 4 },
-  inlineName: { fontSize: 20 },
+  inlineName: {},
   nameInput: {
     flex: 1,
     minWidth: 0,
@@ -193,8 +197,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     color: color.ink,
-    fontSize: 20,
-    fontWeight: "700",
   },
   badgeTrigger: {
     width: 30,

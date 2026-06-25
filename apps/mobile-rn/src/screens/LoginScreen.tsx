@@ -11,7 +11,8 @@ import {
 import { createCloudClient, type CloudClient } from "../api/client";
 import { useAuth, DEFAULT_API_BASE } from "../state/auth";
 import { color, space, radius } from "../theme";
-import { Brand, Sub, Label, Body } from "../ui/Text";
+import { BodyStrong, Brand, Sub, Label } from "../ui/Text";
+import { useTypography } from "../ui/TypographyProvider";
 import Button from "../ui/Button";
 
 type Phase = "starting" | "waiting" | "expired" | "error";
@@ -23,6 +24,7 @@ interface QrSession {
 }
 
 export default function LoginScreen() {
+  const typography = useTypography();
   const { setSession } = useAuth();
   const apiBase = DEFAULT_API_BASE;
   const clientRef = useRef<CloudClient>(createCloudClient({ apiBase, getToken: () => "" }));
@@ -117,7 +119,7 @@ export default function LoginScreen() {
         <Image source={require("../../assets/icon.png")} style={styles.mark} resizeMode="contain" />
         <Brand>MIA</Brand>
       </View>
-      <Sub style={styles.tagline}>多 AI 伙伴工作台 · 微信登录</Sub>
+      <Sub style={[styles.tagline, typography.type.info]}>多 AI 伙伴工作台 · 微信登录</Sub>
 
       <View style={styles.qrCard}>
         {phase === "waiting" && qr ? (
@@ -127,7 +129,7 @@ export default function LoginScreen() {
             {phase === "starting" ? (
               <ActivityIndicator color={color.accent} />
             ) : (
-              <Label style={styles.placeholderText}>
+              <Label style={[styles.placeholderText, typography.type.info]}>
                 {phase === "expired" ? "二维码已过期" : "二维码加载失败"}
               </Label>
             )}
@@ -135,15 +137,15 @@ export default function LoginScreen() {
         )}
       </View>
 
-      {error ? <Sub style={styles.error}>{error}</Sub> : null}
+      {error ? <Sub style={[styles.error, typography.type.info]}>{error}</Sub> : null}
 
       <View style={styles.steps}>
-        <Body style={styles.stepsTitle}>用微信扫码登录</Body>
-        <Sub style={styles.step}>· 用另一台设备的微信「扫一扫」上方二维码即可</Sub>
-        <Sub style={styles.step}>
+        <BodyStrong style={[styles.stepsTitle, typography.type.settingHeader]}>用微信扫码登录</BodyStrong>
+        <Sub style={[styles.step, typography.type.info]}>· 用另一台设备的微信「扫一扫」上方二维码即可</Sub>
+        <Sub style={[styles.step, typography.type.info]}>
           · 就这一台手机：截屏保存二维码 → 打开微信「扫一扫」→ 右上角「相册」→ 选择刚才的截图
         </Sub>
-        <Sub style={styles.step}>· 在微信里确认授权后，回到 Mia 会自动登录</Sub>
+        <Sub style={[styles.step, typography.type.info]}>· 在微信里确认授权后，回到 Mia 会自动登录</Sub>
       </View>
 
       <View style={styles.actions}>
@@ -153,7 +155,7 @@ export default function LoginScreen() {
         )}
       </View>
 
-      <Label style={styles.footnote}>登录后，消息、联系人和智能体会通过 Mia Cloud 同步。</Label>
+      <Label style={[styles.footnote, typography.type.settingDetail]}>登录后，消息、联系人和智能体会通过 Mia Cloud 同步。</Label>
     </ScrollView>
   );
 }
@@ -176,8 +178,8 @@ const styles = StyleSheet.create({
   placeholderText: { textAlign: "center" },
   error: { color: color.danger, textAlign: "center" },
   steps: { gap: space.xs, marginTop: space.sm },
-  stepsTitle: { fontWeight: "700" },
-  step: { lineHeight: 20 },
+  stepsTitle: {},
+  step: {},
   actions: { gap: space.sm, marginTop: space.md },
   footnote: { textAlign: "center", marginTop: space.sm },
 });

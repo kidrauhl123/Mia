@@ -4,7 +4,7 @@ export const conversationHomeChrome = {
     backgroundColor: "#FFFFFF",
   },
   title: {
-    fontSize: 14,
+    fontSize: 20,
     lineHeight: 34,
   },
   search: {
@@ -14,7 +14,8 @@ export const conversationHomeChrome = {
     radius: 16,
   },
   row: {
-    minHeight: 66,
+    minHeight: 70,
+    minHeightWithTags: 73,
     separatorWidth: 0,
     shadowOpacity: 0,
   },

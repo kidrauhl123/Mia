@@ -13,7 +13,8 @@ import {
 import { resolveAvatar } from "../logic/conversationList";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
-import { BodyStrong, Label, Sub, Title } from "../ui/Text";
+import { BodyStrong, Label, Sub } from "../ui/Text";
+import { useTypography } from "../ui/TypographyProvider";
 import { color, radius, space } from "../theme";
 
 interface GroupMemberRow extends GroupMemberDraft {
@@ -62,6 +63,7 @@ function memberRows(friends: Friend[], bots: Bot[]): GroupMemberRow[] {
 }
 
 export default function CreateGroupPanel({ friends, bots }: { friends: Friend[]; bots: Bot[] }) {
+  const typography = useTypography();
   const [groupName, setGroupName] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [status, setStatus] = useState("");
@@ -95,10 +97,10 @@ export default function CreateGroupPanel({ friends, bots }: { friends: Friend[];
     <View style={styles.panel}>
       <View style={styles.head}>
         <View style={styles.headText}>
-          <Title>新建群聊</Title>
-          <Sub>选择好友和智能体</Sub>
+          <Label style={typography.type.settingHeader}>新建群聊</Label>
+          <Sub style={typography.type.info}>选择好友和智能体</Sub>
         </View>
-        <Label>{selectedKeys.length}/{MAX_GROUP_MEMBERS}</Label>
+        <Label style={typography.type.settingDetail}>{selectedKeys.length}/{MAX_GROUP_MEMBERS}</Label>
       </View>
       <Input value={groupName} onChangeText={setGroupName} placeholder="群名" style={styles.nameInput} />
       <View style={styles.members}>
@@ -120,8 +122,8 @@ export default function CreateGroupPanel({ friends, bots }: { friends: Friend[];
               >
                 <Avatar title={member.name} avatar={member.avatar} size={34} />
                 <View style={styles.memberText}>
-                  <BodyStrong numberOfLines={1}>{member.name}</BodyStrong>
-                  <Sub numberOfLines={1}>{member.subtitle}</Sub>
+                  <BodyStrong numberOfLines={1} style={typography.type.settingTitle}>{member.name}</BodyStrong>
+                  <Sub numberOfLines={1} style={typography.type.settingDetail}>{member.subtitle}</Sub>
                 </View>
                 <View style={[styles.check, selected && styles.checkSelected]}>
                   {selected ? <Label style={styles.checkText}>✓</Label> : null}
@@ -179,7 +181,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.surface,
   },
   checkSelected: { borderColor: color.accent, backgroundColor: color.accent },
-  checkText: { color: color.accentText, fontSize: 12, fontWeight: "800" },
+  checkText: { color: color.accentText },
   empty: { textAlign: "center", paddingVertical: space.sm },
   status: { color: color.inkMuted },
 });

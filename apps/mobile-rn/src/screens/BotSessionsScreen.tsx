@@ -12,6 +12,7 @@ import {
 import { formatConversationTime } from "../logic/conversationList";
 import Button from "../ui/Button";
 import { BodyStrong, Sub } from "../ui/Text";
+import { useTypography } from "../ui/TypographyProvider";
 import { color, hairlineWidth, space } from "../theme";
 import type { Conversation } from "../api/types";
 import type { MessagesStackParamList } from "../navigation/types";
@@ -27,6 +28,7 @@ function conversationTime(c: Conversation): string {
 }
 
 export default function BotSessionsScreen({ navigation, route }: Props) {
+  const typography = useTypography();
   const { data: conversations = [] } = useConversations();
   const { data: bots = [] } = useBots();
   const createSession = useCreateBotSessionConversation();
@@ -64,16 +66,16 @@ export default function BotSessionsScreen({ navigation, route }: Props) {
       <FlatList
         data={sessions}
         keyExtractor={(item) => item.id}
-        ListEmptyComponent={<Sub style={styles.empty}>{botId(active as any) ? "暂无聊天记录" : "不是 Bot 会话"}</Sub>}
+        ListEmptyComponent={<Sub style={[styles.empty, typography.type.info]}>{botId(active as any) ? "暂无聊天记录" : "不是 Bot 会话"}</Sub>}
         renderItem={({ item }) => {
           const activeRow = item.id === route.params.conversationId;
           return (
             <Pressable style={({ pressed }) => [styles.row, activeRow && styles.active, pressed && styles.pressed]} onPress={() => open(item as Conversation)}>
               <View style={styles.textCol}>
-                <BodyStrong numberOfLines={1}>{sessionTitle(item as any, { bots: bots as any, defaultTitle: "新对话" })}</BodyStrong>
-                <Sub numberOfLines={1}>{item.id}</Sub>
+                <BodyStrong numberOfLines={1} style={typography.type.listTitle}>{sessionTitle(item as any, { bots: bots as any, defaultTitle: "新对话" })}</BodyStrong>
+                <Sub numberOfLines={1} style={typography.type.settingDetail}>{item.id}</Sub>
               </View>
-              <Sub style={styles.time}>{conversationTime(item as Conversation)}</Sub>
+              <Sub style={[styles.time, typography.type.listTime]}>{conversationTime(item as Conversation)}</Sub>
             </Pressable>
           );
         }}
@@ -98,5 +100,5 @@ const styles = StyleSheet.create({
   active: { backgroundColor: color.accentSoft },
   pressed: { backgroundColor: color.surfaceMuted },
   textCol: { flex: 1, minWidth: 0, gap: 2 },
-  time: { color: color.inkFaint, fontSize: 12 },
+  time: { color: color.inkFaint },
 });

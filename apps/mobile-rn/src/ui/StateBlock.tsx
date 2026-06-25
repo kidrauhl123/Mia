@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
 import { Body, Label } from "./Text";
+import { useTypography } from "./TypographyProvider";
 import { color, space } from "../theme";
 
 export default function StateBlock({
@@ -9,10 +10,11 @@ export default function StateBlock({
   title: string;
   detail?: string;
 }) {
+  const typography = useTypography();
   return (
     <View style={styles.wrap}>
-      <Label style={styles.title}>{title}</Label>
-      {detail ? <Body style={styles.detail}>{detail}</Body> : null}
+      <Label style={[styles.title, typography.type.settingHeader]}>{title}</Label>
+      {detail ? <Body style={[styles.detail, typography.type.info]}>{detail}</Body> : null}
     </View>
   );
 }

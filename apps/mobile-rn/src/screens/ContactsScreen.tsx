@@ -21,6 +21,7 @@ import { friendName, friendRequestPeerName } from "../logic/friendRequests";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import { BodyStrong, Label, Sub, Title } from "../ui/Text";
+import { useTypography } from "../ui/TypographyProvider";
 import { color, radius, space } from "../theme";
 import type { ContactsStackParamList } from "../navigation/types";
 
@@ -36,6 +37,7 @@ interface Row {
 }
 
 export default function ContactsScreen({ navigation }: Props) {
+  const typography = useTypography();
   const [userId, setUserId] = useState("");
   const [status, setStatus] = useState("");
   const [addOpen, setAddOpen] = useState(false);
@@ -113,21 +115,21 @@ export default function ContactsScreen({ navigation }: Props) {
         ListHeaderComponent={
           <View style={styles.header}>
             <View style={styles.identityPanel}>
-              <Label>我的 UID</Label>
-              <BodyStrong selectable>{me?.id || "未登录"}</BodyStrong>
+              <Label style={typography.type.settingDetail}>我的 UID</Label>
+              <BodyStrong selectable style={typography.type.settingTitle}>{me?.id || "未登录"}</BodyStrong>
             </View>
 
             {incoming.length ? (
               <View style={styles.requestsPanel}>
                 <View style={styles.sectionHead}>
-                  <Title>收到的请求</Title>
-                  <Sub>同意后会自动创建私聊</Sub>
+                  <Label style={typography.type.settingHeader}>收到的请求</Label>
+                  <Sub style={typography.type.info}>同意后会自动创建私聊</Sub>
                 </View>
                 {incoming.map((request) => (
                   <View key={request.id} style={styles.requestRow}>
                     <View style={styles.requestText}>
-                      <BodyStrong numberOfLines={1}>{friendRequestPeerName(request, "incoming")}</BodyStrong>
-                      <Sub numberOfLines={1}>请求添加你为好友</Sub>
+                      <BodyStrong numberOfLines={1} style={typography.type.settingTitle}>{friendRequestPeerName(request, "incoming")}</BodyStrong>
+                      <Sub numberOfLines={1} style={typography.type.settingDetail}>请求添加你为好友</Sub>
                     </View>
                     <View style={styles.requestActions}>
                       <Button label="同意" onPress={() => respond(request.id, "accept")} busy={respondFriendRequest.isPending} style={styles.smallButton} />
@@ -141,14 +143,14 @@ export default function ContactsScreen({ navigation }: Props) {
             {outgoing.length ? (
               <View style={styles.requestsPanel}>
                 <View style={styles.sectionHead}>
-                  <Title>已发送的请求</Title>
-                  <Sub>等待对方处理</Sub>
+                  <Label style={typography.type.settingHeader}>已发送的请求</Label>
+                  <Sub style={typography.type.info}>等待对方处理</Sub>
                 </View>
                 {outgoing.map((request) => (
                   <View key={request.id} style={styles.requestRow}>
                     <View style={styles.requestText}>
-                      <BodyStrong numberOfLines={1}>{friendRequestPeerName(request, "outgoing")}</BodyStrong>
-                      <Sub numberOfLines={1}>待验证</Sub>
+                      <BodyStrong numberOfLines={1} style={typography.type.settingTitle}>{friendRequestPeerName(request, "outgoing")}</BodyStrong>
+                      <Sub numberOfLines={1} style={typography.type.settingDetail}>待验证</Sub>
                     </View>
                     <Button label="撤回" variant="outline" onPress={() => cancel(request.id)} busy={cancelFriendRequest.isPending} style={styles.smallButton} />
                   </View>
@@ -157,12 +159,12 @@ export default function ContactsScreen({ navigation }: Props) {
             ) : null}
 
             <View style={styles.sectionTitleRow}>
-              <Title>联系人</Title>
-              <Sub>{rows.length ? `${friends.length} 位好友 · ${bots.length} 个智能体` : "点右下角 + 添加好友、建群或创建智能体"}</Sub>
+              <Label style={typography.type.settingHeader}>联系人</Label>
+              <Sub style={typography.type.info}>{rows.length ? `${friends.length} 位好友 · ${bots.length} 个智能体` : "点右下角 + 添加好友、建群或创建智能体"}</Sub>
             </View>
           </View>
         }
-        ListEmptyComponent={<Label style={styles.empty}>暂无联系人</Label>}
+        ListEmptyComponent={<Label style={[styles.empty, typography.type.info]}>暂无联系人</Label>}
         renderItem={({ item }) => (
           <Pressable
             style={({ pressed }) => [styles.row, pressed && styles.pressed]}
@@ -172,8 +174,8 @@ export default function ContactsScreen({ navigation }: Props) {
           >
             <Avatar title={item.title} avatar={item.avatar} />
             <View style={styles.col}>
-              <BodyStrong>{item.title}</BodyStrong>
-              <Label style={styles.sub}>{item.sub}</Label>
+              <BodyStrong style={typography.type.settingTitle}>{item.title}</BodyStrong>
+              <Label style={[styles.sub, typography.type.settingDetail]}>{item.sub}</Label>
             </View>
           </Pressable>
         )}
@@ -195,8 +197,8 @@ export default function ContactsScreen({ navigation }: Props) {
             <ScrollView contentContainerStyle={styles.sheetBody} keyboardShouldPersistTaps="handled">
               <View style={styles.addPanel}>
                 <View style={styles.sectionHead}>
-                  <Title>添加好友</Title>
-                  <Sub>输入对方 UID 发送请求</Sub>
+                  <Label style={typography.type.settingHeader}>添加好友</Label>
+                  <Sub style={typography.type.info}>输入对方 UID 发送请求</Sub>
                 </View>
                 <View style={styles.addRow}>
                   <Input
