@@ -58,6 +58,13 @@ function redactDiagnosticValue(key, value) {
   ]));
 }
 
+function httpStatusFromMessage(message = "") {
+  const match = String(message || "").match(/\bHTTP\s+(\d{3})\b/i);
+  if (!match) return 0;
+  const status = Number(match[1]);
+  return Number.isFinite(status) ? status : 0;
+}
+
 function toolManifestFor(serverName, tools = []) {
   return (Array.isArray(tools) ? tools : [])
     .map((tool) => ({
@@ -81,20 +88,41 @@ function diagnostic(fields = {}) {
     error: sanitizeSecretText(fields.error || message),
     details: redactDiagnosticValue("", fields.details || {}),
     tools: Array.isArray(fields.tools) ? fields.tools : [],
-    auth: fields.auth || { needsAuth: false, method: "", serverUrl: "" }
+    auth: redactDiagnosticValue("", fields.auth || { needsAuth: false, method: "", serverUrl: "" })
   };
 }
 
 function classifyMcpConnectionError(error, context = {}) {
   const message = sanitizeSecretText(error?.message || error || "MCP connection failed.");
   const durationMs = Number(context.durationMs || 0);
-  const httpStatus = Number(error?.status || error?.statusCode || error?.response?.status || 0);
+  const httpStatus = Number(error?.status || error?.statusCode || error?.response?.status || httpStatusFromMessage(message) || 0);
   const headers = headersFromError(error);
   const wwwAuthenticate = headerValue(headers, "www-authenticate");
   const command = String(context.command || "");
   const url = String(context.url || "");
+  const looksLikeCommandNotFound = error?.code === "ENOENT" ||
+    /\bENOENT\b|command not found/i.test(message) ||
+    (Boolean(command) && /\bnot found\b/i.test(message));
 
-  if (error?.code === "ENOENT" || /\bENOENT\b|command not found|not found/i.test(message)) {
+  if (httpStatus === 401 || /\bHTTP\s*401\b|401 Unauthorized/i.test(message)) {
+    return diagnostic({
+      ok: false,
+      status: "auth_required",
+      code: "auth_required",
+      message: "MCP server requires authentication.",
+      details: { httpStatus: 401, wwwAuthenticate, durationMs },
+      auth: { needsAuth: true, method: "oauth", serverUrl: url }
+    });
+  }
+  if (httpStatus) {
+    return diagnostic({
+      ok: false,
+      code: "http_error",
+      message,
+      details: { httpStatus, durationMs }
+    });
+  }
+  if (looksLikeCommandNotFound) {
     return diagnostic({
       ok: false,
       code: "command_not_found",
@@ -116,24 +144,6 @@ function classifyMcpConnectionError(error, context = {}) {
       code: "timeout",
       message,
       details: { durationMs }
-    });
-  }
-  if (httpStatus === 401 || /\bHTTP\s*401\b|401 Unauthorized/i.test(message)) {
-    return diagnostic({
-      ok: false,
-      status: "auth_required",
-      code: "auth_required",
-      message: "MCP server requires authentication.",
-      details: { httpStatus: 401, wwwAuthenticate, durationMs },
-      auth: { needsAuth: true, method: "oauth", serverUrl: url }
-    });
-  }
-  if (httpStatus) {
-    return diagnostic({
-      ok: false,
-      code: "http_error",
-      message,
-      details: { httpStatus, durationMs }
     });
   }
   if (/initialize|tools\/list|JSON-RPC|protocol/i.test(message)) {
@@ -158,11 +168,19 @@ function closeResource(resource) {
 }
 
 function createTimeoutPromise(timeoutMs) {
-  return new Promise((_, reject) => {
-    setTimeout(() => {
+  let timeoutId = null;
+  const promise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
       reject(Object.assign(new Error(`Timed out after ${timeoutMs}ms`), { code: "ETIMEDOUT" }));
     }, timeoutMs);
   });
+  return {
+    promise,
+    clear: () => {
+      if (timeoutId != null) clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  };
 }
 
 function createCoreMcpConnectionTester(deps = {}) {
@@ -218,13 +236,19 @@ function createCoreMcpConnectionTester(deps = {}) {
       const sdk = await loadSdk();
       transport = await transportFor(sdk, record);
       client = new sdk.Client({ name: "mia-mcp-test", version: "1.0.0" }, { capabilities: {} });
-      const listed = await Promise.race([
-        (async () => {
-          await client.connect(transport);
-          return client.listTools();
-        })(),
-        createTimeoutPromise(timeoutMs)
-      ]);
+      const timeout = createTimeoutPromise(timeoutMs);
+      let listed = null;
+      try {
+        listed = await Promise.race([
+          (async () => {
+            await client.connect(transport);
+            return client.listTools();
+          })(),
+          timeout.promise
+        ]);
+      } finally {
+        timeout.clear();
+      }
       return diagnostic({
         ok: true,
         status: "connected",
