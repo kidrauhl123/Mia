@@ -93,10 +93,13 @@ const { isSafeEntryName, MAX_UNCOMPRESSED_BYTES } = require("./shared/skill-safe
 const { createRemoteControlRouter } = require("./main/remote/remote-control-router.js");
 const { createModelSettingsService } = require("./main/model-settings-service.js");
 const { createConversationTitleService } = require("./main/conversation-title-service.js");
-const { createDaemonControlServer, daemonNeedsReplacement } = require("./main/daemon/control-server.js");
-const { createDaemonTasksClient } = require("./main/daemon/tasks-client.js");
-const { createLocalEventsClient } = require("./main/daemon/local-events-client.js");
-const { createDaemonProcessLauncher } = require("./main/daemon/process-launcher.js");
+const {
+  createMiaCoreControlServer,
+  createMiaCoreTasksClient,
+  createMiaCoreLocalEventsClient,
+  createMiaCoreProcessLauncher,
+  coreNeedsReplacement
+} = require("./main/mia-core/local-process-control.js");
 const { windowsTitleBarOverlayForAppearance, applyWindowsTitleBarOverlay } = require("./main/windows-title-bar.js");
 const { createProviderConnections } = require("./main/provider-connections.js");
 const { createAuthService } = require("./main/auth-service.js");
@@ -379,7 +382,7 @@ const launchdService = createLaunchdService({
   spawnSync,
   appendLog: appendEngineLog
 });
-const daemonProcessLauncher = createDaemonProcessLauncher({
+const miaCoreProcessLauncher = createMiaCoreProcessLauncher({
   runtimePaths,
   effectiveHermesHome,
   appPath: () => app.getAppPath(),
@@ -611,8 +614,8 @@ const engineCatalogService = createEngineCatalogService({
 });
 let claudeAgentSdkModule = null;
 let remoteControlRouter = null;
-let daemonControlServer = null;
-let daemonTasksClient = null;
+let miaCoreControlServer = null;
+let miaCoreTasksClient = null;
 let agentPermissionProxy = null;
 let activeChatAbortController = null;
 let cloudEventSocketRuntime = null;
@@ -626,7 +629,7 @@ let cloudDesktopSyncRuntime = null;
 const pendingCloudLogs = [];
 const schedulerMcpBridge = createSchedulerMcpBridge({
   runtimePaths,
-  daemonStatus: () => daemonControlServer?.status() || {},
+  daemonStatus: () => miaCoreControlServer?.status() || {},
   daemonSettings: () => settingsStore.daemonSettings(),
   daemonToken,
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
@@ -635,7 +638,7 @@ const schedulerMcpBridge = createSchedulerMcpBridge({
 });
 const miaAppMcpBridge = createMiaAppMcpBridge({
   runtimePaths,
-  daemonStatus: () => daemonControlServer?.status() || {},
+  daemonStatus: () => miaCoreControlServer?.status() || {},
   daemonSettings: () => settingsStore.daemonSettings(),
   daemonToken,
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
@@ -789,7 +792,7 @@ function runtimeLifecycle() {
       initializeRuntimeCore: runtimeInitializerService.initializeRuntimeCore,
       isDaemonProcess: IS_DAEMON_PROCESS,
       refreshSystemHermesAsync: systemHermesService.refresh,
-      setDaemonLastError: (message) => daemonControlServer?.setLastError(message),
+      setDaemonLastError: (message) => miaCoreControlServer?.setLastError(message),
       setEngineLastError: (message) => { engineState.lastError = message; },
       startDaemonService,
       startEngine,
@@ -809,18 +812,18 @@ const startupBackgroundService = createStartupBackgroundService({
   getRuntimeStatus,
   isDaemonEnabled: () => settingsStore.daemonSettings().enabled,
   refreshSystemHermesAsync: systemHermesService.refresh,
-  setDaemonLastError: (message) => daemonControlServer?.setLastError(message),
+  setDaemonLastError: (message) => miaCoreControlServer?.setLastError(message),
   setEngineLastError: (message) => { engineState.lastError = message; },
   startDaemonService,
   startEngine
 });
 
 function getDaemonStatus() {
-  return daemonControlServer.status();
+  return miaCoreControlServer.status();
 }
 
 async function getObservedDaemonStatus(timeoutMs = 500) {
-  return daemonControlServer.observedStatus(timeoutMs);
+  return miaCoreControlServer.observedStatus(timeoutMs);
 }
 
 function getRuntimeStatus(created = [], options = {}) {
@@ -984,7 +987,7 @@ async function timeEngineStepAsync(label, fn) {
 }
 
 function appendDaemonLog(line) {
-  daemonControlServer.appendLog(line);
+  miaCoreControlServer.appendLog(line);
 }
 
 function normalizeRemoteUserMessage(input) {
@@ -1267,16 +1270,16 @@ async function startDaemonService() {
   }
   initializeRuntime();
   const settings = settingsStore.daemonSettings();
-  if (IS_DAEMON_PROCESS) return daemonControlServer.start(settings);
+  if (IS_DAEMON_PROCESS) return miaCoreControlServer.start(settings);
   const expectedRuntimeHome = runtimePaths().home;
-  const existing = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
+  const existing = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
   if (existing.ok && existing.mode === "daemon") {
     // A KeepAlive launchd daemon survives app updates, so the freshly-updated
     // window can find an old-version daemon still owning cloud events + bot
     // execution. Reuse it only when versions match; otherwise fall through to
     // launchdService.startDaemon() below, which rewrites the plist and
     // bootout+bootstraps a daemon running this app's code.
-    if (!daemonNeedsReplacement(existing, app.getVersion())) {
+    if (!coreNeedsReplacement(existing, app.getVersion())) {
       return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
     }
     appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
@@ -1286,22 +1289,22 @@ async function startDaemonService() {
   if (process.platform === "darwin") {
     await launchdService.startDaemon();
     for (let i = 0; i < 20; i += 1) {
-      const ping = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
+      const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
       // Only accept once the *replacement* answers: during bootout/kickstart the
       // old daemon can still briefly hold the port, so require a version match
       // (not just ok) or the stale one would be accepted and replaced again next launch.
-      if (ping.ok && ping.mode === "daemon" && !daemonNeedsReplacement(ping, app.getVersion())) {
+      if (ping.ok && ping.mode === "daemon" && !coreNeedsReplacement(ping, app.getVersion())) {
         return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
       }
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
     throw new Error("Timed out waiting for Mia daemon LaunchAgent.");
   }
-  daemonControlServer.stop();
-  await daemonProcessLauncher.start();
+  miaCoreControlServer.stop();
+  await miaCoreProcessLauncher.start();
   for (let i = 0; i < 20; i += 1) {
-    const ping = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
-    if (ping.ok && ping.mode === "daemon" && !daemonNeedsReplacement(ping, app.getVersion())) {
+    const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
+    if (ping.ok && ping.mode === "daemon" && !coreNeedsReplacement(ping, app.getVersion())) {
       return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1313,7 +1316,7 @@ async function stopDaemonService() {
   if (process.platform === "darwin" && !IS_DAEMON_PROCESS) {
     await launchdService.stopDaemon();
   }
-  return daemonControlServer.stop();
+  return miaCoreControlServer.stop();
 }
 
 function appendCloudLog(line) {
@@ -2161,7 +2164,7 @@ function createActiveChatEngineAdapters() {
 }
 
 async function createAppScheduledTask(input) {
-  const result = await daemonTasksClient.call("/api/tasks", {
+  const result = await miaCoreTasksClient.call("/api/tasks", {
     method: "POST",
     body: JSON.stringify(input)
   });
@@ -2311,9 +2314,9 @@ async function stopChat(payload = {}) {
     ...(localStop.runId ? { runId: localStop.runId } : {}),
     ...(localStop.status ? { status: localStop.status } : {})
   };
-  if (!IS_DAEMON_PROCESS && daemonTasksClient?.call && settingsStore.daemonSettings().enabled) {
+  if (!IS_DAEMON_PROCESS && miaCoreTasksClient?.call && settingsStore.daemonSettings().enabled) {
     try {
-      const daemonStop = await daemonTasksClient?.call?.("/api/chat/stop", {
+      const daemonStop = await miaCoreTasksClient?.call?.("/api/chat/stop", {
         method: "POST",
         body: JSON.stringify(payload || {})
       });
@@ -2535,7 +2538,7 @@ remoteControlRouter = createRemoteControlRouter({
   runRemoteChatRequest
 });
 
-daemonControlServer = createDaemonControlServer({
+miaCoreControlServer = createMiaCoreControlServer({
   isDaemonProcess: IS_DAEMON_PROCESS,
   serviceLabel: MIA_DAEMON_SERVICE_LABEL,
   daemonToken,
@@ -2573,7 +2576,7 @@ daemonControlServer = createDaemonControlServer({
   timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs)
 });
 
-daemonTasksClient = createDaemonTasksClient({
+miaCoreTasksClient = createMiaCoreTasksClient({
   isDaemonProcess: IS_DAEMON_PROCESS,
   getDaemonSettings: () => settingsStore.daemonSettings(),
   getDaemonStatus,
@@ -2594,7 +2597,7 @@ agentPermissionProxy = createAgentPermissionProxy({
   isDaemonProcess: IS_DAEMON_PROCESS,
   coordinator: agentPermissionCoordinator,
   daemonClient: {
-    call: (...args) => daemonTasksClient.call(...args)
+    call: (...args) => miaCoreTasksClient.call(...args)
   }
 });
 
@@ -2755,7 +2758,7 @@ const localBotResponder = createLocalBotResponder({
     broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
     // The daemon has no windows: push run streams (typing, token deltas,
     // tool traces) to the window over the local channel (ADR P0).
-    if (IS_DAEMON_PROCESS) daemonControlServer?.publishLocalEvent?.(envelope);
+    if (IS_DAEMON_PROCESS) miaCoreControlServer?.publishLocalEvent?.(envelope);
   },
   log: (line) => appendCloudLog(line)
 });
@@ -2800,7 +2803,7 @@ cloudEventSocketRuntime = createCloudEventsClient({
   // the window renders from the forwarded feed.
   broadcastRendererEvent: (channel, envelope) => {
     broadcastRendererEvent(channel, envelope);
-    if (IS_DAEMON_PROCESS) daemonControlServer?.publishLocalEvent?.(envelope);
+    if (IS_DAEMON_PROCESS) miaCoreControlServer?.publishLocalEvent?.(envelope);
   },
   cloudEventChannel: IpcChannel.CloudEvent,
   appendCloudLog,
@@ -2814,7 +2817,7 @@ cloudEventSocketRuntime = createCloudEventsClient({
 // the envelopes to its renderers — bot run streams (typing / token deltas /
 // tool traces) and, with the daemon enabled, the entire cloud event feed.
 if (!IS_DAEMON_PROCESS) {
-  localEventsRuntime = createLocalEventsClient({
+  localEventsRuntime = createMiaCoreLocalEventsClient({
     baseUrl: () => {
       const daemonSettings = settingsStore.daemonSettings();
       return `http://${daemonSettings.host}:${daemonSettings.port}`;
@@ -3032,7 +3035,7 @@ ipcMain.handle(IpcChannel.PetGenerate, (_event, payload) => botPetService.startG
 ipcMain.handle(IpcChannel.PetPlace, (_event, key) => botPetService.place(key));
 ipcMain.handle(IpcChannel.PetRecall, (_event, key) => botPetService.recall(key));
 
-registerTasksIpc({ ipcMain, callDaemonTasks: (...args) => daemonTasksClient.call(...args) });
+registerTasksIpc({ ipcMain, callDaemonTasks: (...args) => miaCoreTasksClient.call(...args) });
 
 const autoUpdateService = createAutoUpdateService({
   // Lazy: constructs the electron-updater singleton only when the foreground
@@ -3070,10 +3073,10 @@ app.whenReady().then(async () => {
       // Dock APIs are macOS-only.
     }
     try {
-      await daemonControlServer.start();
+      await miaCoreControlServer.start();
     } catch (error) {
       const message = String(error?.message || error);
-      daemonControlServer.setLastError(message);
+      miaCoreControlServer.setLastError(message);
       appendDaemonLog(`Daemon start failed: ${message}`);
       throw error;
     }
@@ -3092,11 +3095,11 @@ app.whenReady().then(async () => {
       startCloudRuntimeSockets();
       // ADR P2: keep the window honest about upstream health — local channel
       // up + cloud socket down must not render as "connected".
-      daemonControlServer?.publishLocalEvent?.({
+      miaCoreControlServer?.publishLocalEvent?.({
         type: "daemon.cloud_events_status",
         payload: cloudEventsStatus()
       });
-      daemonControlServer?.publishLocalEvent?.({
+      miaCoreControlServer?.publishLocalEvent?.({
         type: "daemon.cloud_runtime_status",
         payload: {
           events: cloudEventsStatus(),
@@ -3109,7 +3112,7 @@ app.whenReady().then(async () => {
   const win = createWindow();
   startupTimer.mark("window:created");
   autoUpdateService.start();
-  daemonTasksClient.startEvents();
+  miaCoreTasksClient.startEvents();
   startCloudRuntimeSockets(); // foreground clients self-gate; daemon owns runtime sockets
   syncMiaCloudWorkspace().catch((error) => appendCloudLog(`Cloud workspace sync failed: ${error?.message || error}`));
   if (!win.miaSkipAutomaticBackgroundStartup && process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
