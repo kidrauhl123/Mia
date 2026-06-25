@@ -30,3 +30,28 @@ OAuth authorization headers now flow through connection testing and SDK manager 
 
 - OAuth login is intentionally limited to explicit `authorizationEndpoint` and `tokenEndpoint` inputs. `.well-known` discovery and callback token exchange remain future work.
 - Existing production construction paths that inject a prebuilt manager need to pass the same OAuth service into that manager to use stored OAuth tokens during refresh/connect. The service default path wires this automatically when it owns manager construction.
+
+## Review Fixes
+
+Commit: `6b1275a`
+
+Changed files:
+
+- `src/core/mcp/connection-test.js`
+- `src/core/mcp/oauth-service.js`
+- `src/core/mcp/service.js`
+- `src/core/mia-core.js`
+- `src/main.js`
+- `src/main/mcp/mcp-sdk-client.js`
+- `tests/core-mcp-connection-test.test.js`
+- `tests/core-mcp-oauth-service.test.js`
+- `tests/mcp-sdk-client.test.js`
+
+Tests run:
+
+- `node --test tests/core-mcp-oauth-service.test.js tests/core-mcp-connection-test.test.js tests/core-mcp-service.test.js tests/mcp-sdk-client.test.js tests/mcp-service.test.js`
+- `node --check src/core/mcp/oauth-token-store.js && node --check src/core/mcp/oauth-service.js && node --check src/core/mcp/service.js && node --check src/main/mcp/mcp-sdk-client.js && node --check src/core/mia-core.js && node --check src/main.js`
+
+Residual concerns:
+
+- OAuth login remains explicit-endpoint only; discovery and callback token exchange are still future work.
