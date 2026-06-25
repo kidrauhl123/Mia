@@ -192,6 +192,7 @@ test("agentInventory prefers managed runtime manifests before system PATH probes
     homeDir: () => home,
     env: { PATH: "" },
     platform: "win32",
+    arch: "x64",
     managedResourceRoots: [root],
     fs: {
       accessSync: (p, mode) => {
@@ -251,6 +252,7 @@ test("agentInventory detects unsupported managed ACP runtimes without exposing t
     homeDir: () => home,
     env: { PATH: "" },
     platform: "win32",
+    arch: "x64",
     managedResourceRoots: [root],
     fs: {
       accessSync: (p, mode) => {

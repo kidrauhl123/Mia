@@ -99,6 +99,40 @@ test("returns null for native codex default model when provider id is openai-cod
   }, { engine: "codex" }), null);
 });
 
+test("returns null for native claude-code selected model profile", () => {
+  const resolver = createResolver();
+
+  assert.equal(resolver.resolveModelRuntime({
+    providerConnectionId: "claude-code",
+    modelProfileId: "claude-code:claude",
+    model: "claude"
+  }, { engine: "claude-code" }), null);
+  assert.equal(resolver.resolveModelRuntime({
+    modelProfileId: "claude-code:sonnet",
+    model: "sonnet"
+  }, { engine: "claude-code" }), null);
+  assert.equal(resolver.resolveModelRuntime({
+    providerConnectionId: "anthropic",
+    modelProfileId: "anthropic:claude",
+    model: "claude"
+  }, { engine: "claude-code" }), null);
+});
+
+test("returns null for native cli selected model profiles", () => {
+  const resolver = createResolver();
+
+  assert.equal(resolver.resolveModelRuntime({
+    providerConnectionId: "codex",
+    modelProfileId: "codex:gpt-5.3-codex",
+    model: "gpt-5.3-codex"
+  }, { engine: "codex" }), null);
+  assert.equal(resolver.resolveModelRuntime({
+    providerConnectionId: "openclaw",
+    modelProfileId: "openclaw:auto",
+    model: "auto"
+  }, { engine: "openclaw" }), null);
+});
+
 test("requires Mia Cloud login for Mia managed profiles", () => {
   const resolver = createResolver({
     cloudStatus: () => ({ enabled: false, token: "", url: "" })

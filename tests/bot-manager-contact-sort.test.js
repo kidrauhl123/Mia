@@ -10,6 +10,7 @@ function mockEl() {
   return {
     children: [],
     classList: { add() {}, remove() {}, toggle() {} },
+    dataset: {},
     style: {},
     addEventListener() {},
     appendChild(child) { this.children.push(child); return child; },
@@ -113,7 +114,9 @@ test("renderContacts groups bot contacts by alphabetical initial", () => {
   manager.renderContacts();
 
   const rendered = contactList.children.map((child) => {
-    if (child.className === "contact-group-header") return `header:${child.textContent}`;
+    if (String(child.className || "").includes("contact-group-header")) {
+      return `header:${child.innerHTML.match(/<span>([^<]+)<\/span>/)?.[1] || child.textContent}`;
+    }
     return child.innerHTML.match(/<strong>([^<]+)<\/strong>/)?.[1];
   });
   assert.deepEqual(rendered, [

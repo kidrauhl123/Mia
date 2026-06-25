@@ -512,7 +512,7 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "tests/bot-conversations.test.js", /Bot-conversation messages POST works through the unified/, "bot chat conversation integration test")
     ]),
     item("gate.same-account-bridge-control", "同账号 Web/手机端可直接调用桌面 Agent，设备鉴权不复用 Agent permission", [
-      checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest[\s\S]*runtimeConfigFromMessage\(message\)[\s\S]*agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/, "desktop bridge keeps Hermes permission config local to Hermes runs"),
+      checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /function botEngineConfigFromRuntime[\s\S]*agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}[\s\S]*async function runCloudBridgeRequest[\s\S]*runtimeConfigFromMessage\(message\)[\s\S]*botEngineConfigFromRuntime\(runtimeConfig, agentEngine\)/, "desktop bridge keeps Hermes permission config local to Hermes runs"),
       checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest(?![\s\S]*?confirmCloudBridgeRun\()/, "desktop bridge run source does not call local approval gate"),
       checkSource(rootDir, "src/main/cloud/cloud-events-url.js", /cloudWebSocketProtocols[\s\S]*mia-token\./, "desktop bridge authenticates to Cloud with account token subprotocol (shared cloud-events-url Module)"),
       checkSource(rootDir, "scripts/serve-cloud.js", /devicesByUser[\s\S]*hub\.devicesByUser\.get\(userId\)/, "cloud bridge devices are scoped by authenticated userId"),

@@ -43,6 +43,18 @@ function providerFromProfileId(config = {}) {
   return index > 0 ? profileId.slice(0, index) : "";
 }
 
+function isNativeCliEngine(engine = "") {
+  return engine === "codex" || engine === "claude-code" || engine === "openclaw";
+}
+
+function isNativeCliProvider(engine = "", provider = "") {
+  if (!provider) return true;
+  if (provider === engine) return true;
+  if (engine === "codex") return provider === "openai-codex";
+  if (engine === "claude-code") return provider === "anthropic";
+  return false;
+}
+
 function toMiaManagedReference(config = {}) {
   const model = firstString(config, ["model"]) || "mia-default";
   const profileId = firstString(config, ["modelProfileId", "model_profile_id"]);
@@ -84,16 +96,11 @@ function createMiaCoreModelRuntimeResolver(deps = {}) {
 
   function nativeCliDefault(config = {}, context = {}) {
     const engine = String(context?.engine || config.agentEngine || config.agent_engine || "").trim();
-    const provider = firstString(config, ["providerConnectionId", "provider_connection_id", "provider"]);
-    const model = firstString(config, ["model"]);
-    return (engine === "codex" || engine === "claude-code" || engine === "openclaw")
-      && (!model || model === "default")
-      && (!provider
-        || provider === engine
-        || provider === "codex"
-        || provider === "openclaw"
-        || provider === "claude-code"
-        || (engine === "codex" && provider === "openai-codex"));
+    if (!isNativeCliEngine(engine)) return false;
+    const provider = explicitProviderConnectionId(config)
+      || providerFromProfileId(config)
+      || firstString(config, ["provider", "modelProvider", "model_provider"]);
+    return isNativeCliProvider(engine, provider);
   }
 
   function resolveProviderConnection(config = {}, context = {}) {

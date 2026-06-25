@@ -81,10 +81,31 @@ test("isEngineHealthy verifies the authenticated Mia probe route", async () => {
   assert.equal(await rejected.isEngineHealthy("http://127.0.0.1:18642"), false);
 });
 
-test("engine health service does not expose orphan Hermes adoption", () => {
-  const service = createEngineHealthService();
+test("adoptRunningEngine adopts a healthy configured local engine", async () => {
+  let state = { running: false, starting: true, port: 18642, baseUrl: "", managedBy: "process" };
+  const probes = [];
+  const service = createEngineHealthService({
+    apiKey: () => "key_1",
+    readConfiguredPort: () => 18642,
+    getEngineState: () => state,
+    setEngineState: (next) => { state = next; },
+    fetchImpl: async (url) => {
+      probes.push(url);
+      return { status: 404 };
+    }
+  });
 
-  assert.equal("adoptRunningEngine" in service, false);
+  assert.equal(await service.adoptRunningEngine(), true);
+  assert.deepEqual(probes, [
+    "http://127.0.0.1:18642/v1/runs/_mia_probe/events"
+  ]);
+  assert.deepEqual(state, {
+    running: true,
+    starting: false,
+    port: 18642,
+    baseUrl: "http://127.0.0.1:18642",
+    managedBy: ""
+  });
 });
 
 test("refreshRunningEngineHealth clears stale running state when the remembered API is gone", async () => {

@@ -179,7 +179,7 @@ test("compact icon buttons expose and style selected/open states", () => {
     assert.match(tag, /aria-expanded="false"/);
     assert.match(tag, new RegExp(`aria-controls="${controls}"`));
     assert.doesNotMatch(block, /data-lottie="plusToX"|plus-toggle-glyph/);
-    assert.match(block, />＋<\/button>/);
+    assert.match(block, />＋<\/button>|<svg[\s\S]*M12 5v14M5 12h14/);
   }
 
   assert.match(desktopApp, /els\.newPersona\?\.setAttribute\("aria-expanded", state\.botMenuOpen \? "true" : "false"\);/);

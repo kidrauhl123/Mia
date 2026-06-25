@@ -2,7 +2,9 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  contentBlocksWithDisplayText,
   contentBlocksWithFinalText,
+  createStreamingTextSmoother,
   createAssistantContentBlockCollector,
   normalizeContentBlocks
 } = require("../src/shared/assistant-content-blocks.js");
@@ -161,4 +163,45 @@ test("final text completion does not duplicate existing final content", () => {
   ], "结论是已确认。"), [
     { type: "text", id: "text_1", text: "结论是已确认。" }
   ]);
+});
+
+test("display text is distributed across ordered text blocks without hiding tools", () => {
+  assert.deepEqual(contentBlocksWithDisplayText([
+    { type: "text", id: "text_1", text: "我先整理。" },
+    { type: "tool", id: "tool_1", name: "shell", preview: "ls", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "然后给你结论。" }
+  ], "我先整理。然后"), [
+    { type: "text", id: "text_1", text: "我先整理。" },
+    { type: "tool", id: "tool_1", name: "shell", preview: "ls", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "然后" }
+  ]);
+});
+
+test("streaming text smoother keeps canonical text and reveals display text gradually", () => {
+  const scheduled = [];
+  const updates = [];
+  const smoother = createStreamingTextSmoother({
+    charsPerFrame: 2,
+    schedule: (fn) => {
+      scheduled.push(fn);
+      return scheduled.length;
+    },
+    cancel: () => {},
+    onUpdate: (run) => updates.push(run.displayText)
+  });
+  const run = { conversationId: "botc_u_a_mia", text: "" };
+
+  run.text += "abcdef";
+  smoother.enqueue(run, "abcdef");
+  assert.equal(run.text, "abcdef");
+  assert.equal(run.displayText, "");
+
+  scheduled.shift()();
+  assert.equal(run.displayText, "ab");
+  scheduled.shift()();
+  assert.equal(run.displayText, "abcd");
+
+  smoother.flush(run);
+  assert.equal(run.displayText, "abcdef");
+  assert.deepEqual(updates, ["ab", "abcd", "abcdef"]);
 });

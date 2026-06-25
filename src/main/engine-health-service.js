@@ -14,6 +14,7 @@ function createEngineHealthService(deps = {}) {
   const getEngineState = deps.getEngineState || (() => ({}));
   const setEngineState = deps.setEngineState || (() => {});
   const getEngineProcess = deps.getEngineProcess || (() => null);
+  const readConfiguredPort = deps.readConfiguredPort || (() => Number(getEngineState()?.port || 0));
 
   function choosePort(preferred = 18642, attempts = 40) {
     const start = preferred;
@@ -65,6 +66,21 @@ function createEngineHealthService(deps = {}) {
     return false;
   }
 
+  async function adoptRunningEngine() {
+    const port = Number(readConfiguredPort() || 0);
+    if (!port) return false;
+    const baseUrl = `http://127.0.0.1:${port}`;
+    if (!(await isEngineHealthy(baseUrl))) return false;
+    setEngineState({
+      ...getEngineState(),
+      running: true,
+      starting: false,
+      baseUrl,
+      managedBy: ""
+    });
+    return true;
+  }
+
   async function waitForHealth(baseUrl, timeoutMs = 45000, requireChildProcess = false) {
     const started = now();
     while (now() - started < timeoutMs) {
@@ -84,6 +100,7 @@ function createEngineHealthService(deps = {}) {
 
   return {
     choosePort,
+    adoptRunningEngine,
     isEngineHealthy,
     refreshRunningEngineHealth,
     waitForHealth

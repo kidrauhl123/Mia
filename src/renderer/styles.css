@@ -2893,7 +2893,6 @@ button.persona-tag-chip {
   border: 0;
   background: transparent;
   color: var(--faint);
-  cursor: pointer;
   font-family: inherit;
   font-size: 11px;
   font-weight: var(--ui-text-max-weight, 500);

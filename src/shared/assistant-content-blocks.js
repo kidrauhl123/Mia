@@ -186,6 +186,77 @@
     ]);
   }
 
+  function contentBlocksWithDisplayText(input, displayText) {
+    const blocks = normalizeContentBlocks(input);
+    if (arguments.length < 2) return blocks;
+    let remaining = safeString(displayText);
+    const out = [];
+    for (const block of blocks) {
+      if (block.type !== "text") {
+        out.push(block);
+        continue;
+      }
+      if (!remaining) continue;
+      const text = remaining.slice(0, block.text.length);
+      remaining = remaining.slice(text.length);
+      if (text.trim()) out.push({ ...block, text });
+    }
+    return out;
+  }
+
+  function createStreamingTextSmoother(options = {}) {
+    const charsPerFrame = Math.max(1, nonNegativeInt(options.charsPerFrame) || 4);
+    const schedule = typeof options.schedule === "function"
+      ? options.schedule
+      : (fn) => setTimeout(fn, 16);
+    const cancel = typeof options.cancel === "function"
+      ? options.cancel
+      : (handle) => clearTimeout(handle);
+    const onUpdate = typeof options.onUpdate === "function" ? options.onUpdate : () => {};
+    const states = new Map();
+
+    function step(run) {
+      const state = states.get(run);
+      if (!state) return;
+      state.handle = null;
+      const current = safeString(run.displayText);
+      const next = state.target.slice(0, Math.min(state.target.length, current.length + charsPerFrame));
+      if (next !== current) {
+        run.displayText = next;
+        onUpdate(run);
+      }
+      if (run.displayText.length < state.target.length) {
+        state.handle = schedule(() => step(run));
+      }
+    }
+
+    function enqueue(run, text) {
+      if (!run || typeof run !== "object") return;
+      const target = safeString(text);
+      const state = states.get(run) || { target: "", handle: null };
+      state.target = target;
+      states.set(run, state);
+      const current = safeString(run.displayText);
+      if (!target.startsWith(current)) run.displayText = "";
+      else if (run.displayText == null) run.displayText = "";
+      if (!state.handle && safeString(run.displayText).length < target.length) {
+        state.handle = schedule(() => step(run));
+      }
+    }
+
+    function flush(run) {
+      const state = states.get(run);
+      if (!state) return;
+      if (state.handle) cancel(state.handle);
+      state.handle = null;
+      run.displayText = state.target;
+      onUpdate(run);
+      states.delete(run);
+    }
+
+    return { enqueue, flush };
+  }
+
   function createAssistantContentBlockCollector() {
     const blocks = [];
     const toolsById = new Map();
@@ -367,8 +438,10 @@
     MAX_DIFF_LENGTH,
     MAX_PREVIEW_LENGTH,
     bodyMdFromContentBlocks,
+    contentBlocksWithDisplayText,
     contentBlocksWithFinalText,
     createAssistantContentBlockCollector,
+    createStreamingTextSmoother,
     normalizeContentBlocks,
     normalizeStatus
   };
