@@ -138,7 +138,7 @@ test("normalize rejects reserved builtin names for user records", () => {
   assert.equal(builtin.name, "mia-app");
 });
 
-test("normalizes managed runtime fields and public projection redacts install dir", () => {
+test("normalizes managed runtime fields and public projection redacts managed-runtime internals", () => {
   const record = normalizeCoreMcpRecord({
     name: "小红书 MCP",
     nativeName: "xiaohongshu",
@@ -151,6 +151,7 @@ test("normalizes managed runtime fields and public projection redacts install di
       connectorId: "xiaohongshu",
       endpoint: "http://127.0.0.1:18060/mcp",
       installDir: "/Users/me/.mia/xhs",
+      lastAction: "Install command: npx -y xiaohongshu-mcp --api-key ghp_secret",
       expectedToolCount: 13,
       state: "not_installed"
     }
@@ -163,4 +164,7 @@ test("normalizes managed runtime fields and public projection redacts install di
 
   const view = publicCoreMcpRecord(record);
   assert.equal(view.managedRuntime.installDir, "[managed]");
+  assert.equal(view.managedRuntime.lastAction, "[managed]");
+  assert.equal(view.managedRuntime.lastAction.includes("npx"), false);
+  assert.equal(view.managedRuntime.lastAction.includes("ghp_secret"), false);
 });

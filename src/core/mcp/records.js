@@ -406,7 +406,8 @@ function publicCoreMcpRecord(record = {}) {
   if (copy.managedRuntime && typeof copy.managedRuntime === "object") {
     copy.managedRuntime = {
       ...copy.managedRuntime,
-      installDir: copy.managedRuntime.installDir ? "[managed]" : ""
+      installDir: copy.managedRuntime.installDir ? "[managed]" : "",
+      lastAction: String(copy.managedRuntime.lastAction || "").trim() ? "[managed]" : ""
     };
   }
   if (copy.connectionWizard && typeof copy.connectionWizard === "object") {
