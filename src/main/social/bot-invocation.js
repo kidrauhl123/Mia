@@ -2,6 +2,7 @@
 
 const { MemberKind, SenderKind } = require("../../shared/conversation-kinds.js");
 const { activeSkillIdsFromMessage } = require("./local-bot-responder.js");
+const { normalizeTurnRuntimeConfig } = require("../runtime-config-normalizer.js");
 
 const HISTORY_MESSAGE_LIMIT = 80;
 const HISTORY_MESSAGE_CHAR_LIMIT = 4000;
@@ -140,7 +141,8 @@ function buildBotInvocation(payload, bots) {
       name: botId
     };
   const botAgentEngine = String(bot.agentEngine || bot.agent_engine || "").trim();
-  const nextRuntimeConfig = runtimeConfig && typeof runtimeConfig === "object" ? { ...runtimeConfig } : null;
+  const normalizedRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
+  const nextRuntimeConfig = Object.keys(normalizedRuntimeConfig).length ? { ...normalizedRuntimeConfig } : null;
   const runtimeAgentEngine = String(nextRuntimeConfig?.agentEngine || nextRuntimeConfig?.agent_engine || "").trim();
   if (botAgentEngine && (!runtimeAgentEngine || runtimeAgentEngine === "hermes")) {
     if (nextRuntimeConfig) nextRuntimeConfig.agentEngine = botAgentEngine;

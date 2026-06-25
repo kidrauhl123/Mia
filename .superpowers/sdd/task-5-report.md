@@ -77,6 +77,31 @@ Extracted the pure turn-runtime helpers from `src/main.js` into `src/main/mia-co
 
 - `feat: introduce mia core turn runtime service`
 
+## Review Fix: Core Runtime Boundary
+
+- Updated `tests/main-bot-runtime-dispatcher.test.js` to treat `baseUrl`, `apiKeyEnv`, and `apiMode` as regression input only, not valid responder output.
+- The dispatcher test now asserts the responder receives Core-shaped runtime config only:
+  - routing and engine fields: `deviceId`, `agentEngine`
+  - Core model reference fields: `providerConnectionId`, `modelProfileId`, `model`
+  - negative checks: `baseUrl`, `apiKeyEnv`, and `apiMode` are absent
+- Updated `src/main/social/bot-invocation.js` to normalize incoming invocation runtime config through `normalizeTurnRuntimeConfig()` before passing it to the responder, preserving the existing bot-engine override behavior while stripping renderer-native fields.
+
+## Review Fix Test Evidence
+
+- Red step:
+  - `node --test tests/main-bot-runtime-dispatcher.test.js`
+  - Result before code change: FAIL because `calls.responder[0].runtimeConfig` still had `baseUrl`
+- Green step:
+  - `node --test tests/main-bot-runtime-dispatcher.test.js`
+  - Result after code change: PASS
+- Covering suite:
+  - `node --test tests/mia-core-runtime-service.test.js tests/main-bot-runtime-dispatcher.test.js tests/runtime-config-normalizer.test.js tests/project-structure-check.test.js`
+  - Result: PASS
+
+## Review Fix Commit
+
+- `fix: normalize bot invocation runtime config`
+
 ## Concerns
 
 - None.

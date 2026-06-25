@@ -34,6 +34,7 @@ test("desktop responds when the cloud requests a bot invocation", async () => {
       providerConnectionId: "mia",
       modelProfileId: "mia:mia-auto",
       model: "mia-auto",
+      apiMode: "chat_completions",
       baseUrl: "https://renderer-native.example",
       apiKeyEnv: "RENDERER_NATIVE"
     },
@@ -46,11 +47,14 @@ test("desktop responds when the cloud requests a bot invocation", async () => {
   assert.equal(calls.responder[0].conversationId, "g_1");
   assert.equal(calls.responder[0].botId, "codex");
   assert.equal(calls.responder[0].dedupKey, "m_1:codex");
+  assert.equal(calls.responder[0].runtimeConfig.deviceId, "device_mac");
+  assert.equal(calls.responder[0].runtimeConfig.agentEngine, "codex");
   assert.equal(calls.responder[0].runtimeConfig.providerConnectionId, "mia");
   assert.equal(calls.responder[0].runtimeConfig.modelProfileId, "mia:mia-auto");
   assert.equal(calls.responder[0].runtimeConfig.model, "mia-auto");
-  assert.equal(calls.responder[0].runtimeConfig.baseUrl, "https://renderer-native.example");
-  assert.equal(calls.responder[0].runtimeConfig.apiKeyEnv, "RENDERER_NATIVE");
+  assert.equal(Object.hasOwn(calls.responder[0].runtimeConfig, "baseUrl"), false);
+  assert.equal(Object.hasOwn(calls.responder[0].runtimeConfig, "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(calls.responder[0].runtimeConfig, "apiMode"), false);
   assert.deepEqual(calls.responder[0].historyMessages, [
     { role: "user", content: "[user:u_1] 背景" }
   ]);
