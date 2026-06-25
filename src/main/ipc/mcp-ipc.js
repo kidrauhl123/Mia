@@ -14,6 +14,9 @@ function registerMcpIpc({ ipcMain, mcpService }) {
   ipcMain.handle(IpcChannel.McpImportJson, (_event, input, options) => mcpService.importJson(input, options || {}));
   ipcMain.handle(IpcChannel.McpFetchMarketplace, () => mcpService.fetchMarketplace());
   ipcMain.handle(IpcChannel.McpInstallTemplate, (_event, templateId, values) => mcpService.installTemplate(String(templateId || ""), values || {}));
+  ipcMain.handle(IpcChannel.McpRunManagedAction, (_event, id, action, values) => (
+    mcpService.runManagedAction(String(id || ""), String(action || ""), values || {})
+  ));
   ipcMain.handle(IpcChannel.McpSync, () => mcpService.sync());
   ipcMain.handle(IpcChannel.McpRefreshBridge, () => mcpService.refreshBridge());
   ipcMain.handle(IpcChannel.McpRemoveFromAgents, (_event, recordsOrIds) => mcpService.removeFromAgents(recordsOrIds));

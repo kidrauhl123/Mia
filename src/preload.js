@@ -113,6 +113,7 @@ contextBridge.exposeInMainWorld("mia", {
     importJson: (input, options) => ipcRenderer.invoke(IpcChannel.McpImportJson, input, options),
     fetchMarketplace: () => ipcRenderer.invoke(IpcChannel.McpFetchMarketplace),
     installTemplate: (templateId, values) => ipcRenderer.invoke(IpcChannel.McpInstallTemplate, templateId, values),
+    runManagedAction: (id, action, values) => ipcRenderer.invoke(IpcChannel.McpRunManagedAction, id, action, values),
     sync: () => ipcRenderer.invoke(IpcChannel.McpSync),
     refreshBridge: () => ipcRenderer.invoke(IpcChannel.McpRefreshBridge),
     removeFromAgents: (recordsOrIds) => ipcRenderer.invoke(IpcChannel.McpRemoveFromAgents, recordsOrIds),

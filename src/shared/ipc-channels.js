@@ -88,6 +88,7 @@
     McpImportJson: "mcp:import-json",
     McpFetchMarketplace: "mcp:fetch-marketplace",
     McpInstallTemplate: "mcp:install-template",
+    McpRunManagedAction: "mcp:run-managed-action",
     McpSync: "mcp:sync",
     McpRefreshBridge: "mcp:refresh-bridge",
     McpRemoveFromAgents: "mcp:remove-from-agents",
