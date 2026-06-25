@@ -1,5 +1,7 @@
 "use strict";
 
+const { normalizeTurnRuntimeConfig } = require("../runtime-config-normalizer.js");
+
 const DEFAULT_RECONNECT_DELAY_MS = 3000;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 20000;
 
@@ -36,7 +38,7 @@ function runtimeConfigFromMessage(message = {}) {
     message.agentEngine || message.agent_engine || message.engine || input.agentEngine || input.agent_engine,
     "codex"
   );
-  const config = { ...input, agentEngine };
+  const config = normalizeTurnRuntimeConfig({ ...input, agentEngine });
   for (const key of ["model", "effortLevel", "permissionMode"]) {
     if (message[key] != null) config[key] = message[key];
   }
