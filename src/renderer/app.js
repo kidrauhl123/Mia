@@ -5196,6 +5196,9 @@ async function initializeRuntime(options = {}) {
       appendTransientChat,
       maybeGenerateConversationTitle: maybeGenerateCloudConversationTitle,
       onCloudAuthExpired: handleCloudAuthExpired,
+      onActiveConversationChanged: (previousId, nextId) => {
+        window.miaComposer?.switchConversationDraft?.(previousId, nextId);
+      },
       isWindowFocused: () => desktopWindowFocused,
       showDesktopMessageNotification: (payload) => window.mia.showDesktopNotification?.(payload),
       paintHeaderStatus,

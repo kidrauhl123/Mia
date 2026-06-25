@@ -4202,10 +4202,11 @@
 
   function setActiveConversationId(id) {
     const next = id || null;
+    const previous = moduleState.activeConversationId || null;
     // Re-selecting the already-active conversation has no observable effect but
     // would otherwise re-write localStorage, re-POST a read mark, and re-trigger
     // _ensureConversationMessages. Drop those redundant side effects up front.
-    if (next === moduleState.activeConversationId) return;
+    if (next === previous) return;
     // Any actual navigation (switching conversations, or leaving to a local bot chat
     // that reuses #chat) invalidates the last-painted marker, so the next
     // renderConversationChat treats re-entry as a switch and lands at the latest message
@@ -4214,6 +4215,13 @@
     _lastRenderedConversationMessageCount = 0;
     _lastRenderedConversationMessageIds = [];
     moduleState.activeConversationId = next;
+    if (typeof deps?.onActiveConversationChanged === "function") {
+      try {
+        deps.onActiveConversationChanged(previous, next);
+      } catch (error) {
+        console.warn("[social] active conversation change hook failed:", error?.message || error);
+      }
+    }
     if (id) {
       writeLastActiveConversationId(id);
       rememberBotConversation(id);
