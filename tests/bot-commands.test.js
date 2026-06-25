@@ -586,6 +586,68 @@ test("saveBotRuntimeControl removes legacy model transport fields when switching
   ]);
 });
 
+test("saveBotRuntimeControl normalizes legacy profileless Mia bindings when saving controls", async () => {
+  const calls = [];
+  const api = {
+    social: {
+      async getBotRuntime(botId, runtimeKind) {
+        calls.push(["get", botId, runtimeKind]);
+        return {
+          ok: true,
+          data: {
+            binding: {
+              botId,
+              runtimeKind,
+              enabled: true,
+              config: {
+                agentEngine: "hermes",
+                model: "mia-auto",
+                provider: "mia",
+                providerLabel: "Mia",
+                authType: "mia_account",
+                apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+                baseUrl: "https://should-not-persist.example/v1",
+                apiMode: "chat_completions",
+                permissionMode: "ask",
+                harmlessFlag: "keep-me"
+              }
+            }
+          }
+        };
+      },
+      async saveBotRuntime(botId, body) {
+        calls.push(["save", botId, body]);
+        return { ok: true, data: { binding: { botId, ...body } } };
+      }
+    }
+  };
+
+  await commands.saveBotRuntimeControl({
+    api,
+    bot: { key: "alice", runtimeKind: "desktop-local", agentEngine: "hermes" },
+    field: "effortLevel",
+    value: "high",
+    modelEntries: []
+  });
+
+  assert.deepEqual(calls, [
+    ["get", "alice", "desktop-local"],
+    ["save", "alice", {
+      runtimeKind: "desktop-local",
+      enabled: true,
+      config: {
+        agentEngine: "hermes",
+        model: "mia-auto",
+        providerConnectionId: "mia",
+        modelProfileId: "mia:mia-auto",
+        permissionMode: "ask",
+        harmlessFlag: "keep-me",
+        effortLevel: "high"
+      }
+    }]
+  ]);
+});
+
 test("saveBotRuntimeControl saves desktop-local external engine controls through bot runtime binding", async () => {
   const calls = [];
   const api = {
@@ -679,6 +741,8 @@ test("saveBotRuntimeConfig merges patch with current cloud runtime binding", asy
 
   assert.deepEqual(result.binding.config, {
     model: "mia-default",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:mia-default",
     effortLevel: "high",
     permissionMode: "ask"
   });
@@ -689,6 +753,8 @@ test("saveBotRuntimeConfig merges patch with current cloud runtime binding", asy
       enabled: true,
       config: {
         model: "mia-default",
+        providerConnectionId: "mia",
+        modelProfileId: "mia:mia-default",
         effortLevel: "high",
         permissionMode: "ask"
       }

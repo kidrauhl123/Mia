@@ -347,7 +347,8 @@ const engineRuntimeConfigService = createEngineRuntimeConfigService({
   // exists. Lets the Hermes config.yaml carry the mia-scheduler MCP.
   getMiaAppMcpSpec: () => miaAppMcpBridge.getSpec(),
   getSchedulerMcpSpec: () => schedulerMcpBridge.getSpec(),
-  getUserMcpSpecs: () => userMcpService.getEngineSpecs("hermes", { hermesSupportsUrl: true })
+  getUserMcpSpecs: () => userMcpService.getEngineSpecs("hermes", { hermesSupportsUrl: true }),
+  resolveModelRuntime: (settings, context) => resolveModelRuntime(settings, context)
 });
 const {
   apiKey,

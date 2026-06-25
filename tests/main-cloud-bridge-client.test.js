@@ -319,17 +319,17 @@ test("run messages normalize cloud bridge runtime config to Core-shaped referenc
     deviceId: "device-1",
     deviceName: "MacBook Pro",
     providerConnectionId: "mia",
-    modelProfileId: "mia:mia-auto",
     model: "mia-auto-override",
     effortLevel: "high",
     permissionMode: "bypassPermissions"
   });
   assert.deepEqual(calls.chat[0].bot.engineConfig, {
     providerConnectionId: "mia",
-    modelProfileId: "mia:mia-auto",
     model: "mia-auto-override",
     effortLevel: "high"
   });
+  assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "modelProfileId"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "modelProfileId"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "baseUrl"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "apiKeyEnv"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "apiMode"), false);

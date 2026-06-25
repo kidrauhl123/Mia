@@ -42,6 +42,11 @@ function runtimeConfigFromMessage(message = {}) {
   for (const key of ["model", "effortLevel", "permissionMode"]) {
     if (message[key] != null) config[key] = message[key];
   }
+  if (message.model != null && message.modelProfileId == null && message.model_profile_id == null) {
+    delete config.modelProfileId;
+  }
+  if (message.modelProfileId != null) config.modelProfileId = message.modelProfileId;
+  if (message.model_profile_id != null) config.modelProfileId = message.model_profile_id;
   if (message.effort_level != null) config.effortLevel = message.effort_level;
   if (message.permission_mode != null) config.permissionMode = message.permission_mode;
   return config;

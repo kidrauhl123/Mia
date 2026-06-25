@@ -29,6 +29,16 @@ function isMiaManagedRuntime(runtime = {}) {
   return Boolean(runtime && (runtime.managedByMia === true || runtime.provider === "mia" || runtime.authType === "mia_account"));
 }
 
+function explicitProviderConnectionId(config = {}) {
+  return firstString(config, ["providerConnectionId", "provider_connection_id"]);
+}
+
+function providerFromProfileId(config = {}) {
+  const profileId = normalizeProfileId(firstString(config, ["modelProfileId", "model_profile_id", "profileId", "profile_id"]));
+  const index = profileId.indexOf(":");
+  return index > 0 ? profileId.slice(0, index) : "";
+}
+
 function toMiaManagedReference(config = {}) {
   const model = firstString(config, ["model"]) || "mia-default";
   return {
@@ -83,10 +93,19 @@ function createMiaCoreModelRuntimeResolver(deps = {}) {
 
   function resolveProviderConnection(config = {}, context = {}) {
     if (nativeCliDefault(config, context)) return null;
-    const providerId = firstString(config, ["providerConnectionId", "provider_connection_id", "provider", "modelProvider", "model_provider"]);
+    const explicitProviderId = explicitProviderConnectionId(config);
+    const profileProviderId = providerFromProfileId(config);
+    const providerId = explicitProviderId
+      || profileProviderId
+      || firstString(config, ["provider", "modelProvider", "model_provider"]);
     if (!providerId) return null;
     const connection = providerConnection(providerId);
-    if (!connection) return null;
+    if (!connection) {
+      if (explicitProviderId || profileProviderId) {
+        throw new Error(`Provider connection ${providerId} is not available. Please reconnect it in Mia settings.`);
+      }
+      return null;
+    }
     const model = firstString(config, ["model"]) || firstString(modelSettings(), ["model"]);
     return {
       provider: connection.provider || providerId,

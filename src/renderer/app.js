@@ -4640,10 +4640,10 @@ function runtimeConfigForControl(context = activeBotRuntimeControlContext()) {
 
 function modelValueForRuntimeControl(context, entries = [], config = {}) {
   const engine = agentEngineForRuntimeControl(context);
-  const provider = String(config.provider || "").trim();
+  const provider = String(config.providerConnectionId || config.provider_connection_id || config.provider || "").trim();
   const model = String(config.model || "").trim();
   if (provider === "mia" && model) {
-    const entry = entries.find((item) => item.provider === "mia" && (item.model === model || item.id === model || item.value === model));
+    const entry = entries.find((item) => (item.providerConnectionId || item.provider) === "mia" && (item.model === model || item.id === model || item.value === model));
     return entry?.id || entry?.value || model;
   }
   if (context?.runtimeKind === "cloud-hermes") return model || entries[0]?.id || entries[0]?.value || "mia-default";
@@ -4654,7 +4654,7 @@ function modelValueForRuntimeControl(context, entries = [], config = {}) {
   }
   const runtimeModel = state.runtime?.model || {};
   return window.miaModelHelpers.catalogEntryForModel(runtimeModel)?.id
-    || entries.find((item) => item.provider === provider && item.model === model)?.id
+    || entries.find((item) => (item.providerConnectionId || item.provider) === provider && item.model === model)?.id
     || entries[0]?.id
     || entries[0]?.value
     || "";

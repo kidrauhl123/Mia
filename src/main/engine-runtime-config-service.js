@@ -38,6 +38,9 @@ function createEngineRuntimeConfigService(deps = {}) {
   const getUserMcpSpecs = typeof deps.getUserMcpSpecs === "function"
     ? deps.getUserMcpSpecs
     : () => ({});
+  const resolveModelRuntime = typeof deps.resolveModelRuntime === "function"
+    ? deps.resolveModelRuntime
+    : () => null;
 
   function runtimeMcpSpec(spec = {}) {
     if (!spec || typeof spec !== "object") return null;
@@ -111,6 +114,41 @@ function createEngineRuntimeConfigService(deps = {}) {
     return { ...defaultModelSettings(), ...saved };
   }
 
+  function isCompactRuntimeReference(settings = {}) {
+    const provider = String(settings.provider || "").trim();
+    const authType = String(settings.authType || settings.auth_type || "").trim();
+    const providerConnectionId = String(settings.providerConnectionId || settings.provider_connection_id || "").trim();
+    const modelProfileId = String(settings.modelProfileId || settings.model_profile_id || "").trim();
+    const model = String(settings.model || "").trim();
+    return Boolean(
+      providerConnectionId
+      || modelProfileId
+      || provider === "mia"
+      || authType === "mia_account"
+      || model === "mia-auto"
+      || model === "mia-default"
+    );
+  }
+
+  function runtimeResolvedModelSettings(settings = {}) {
+    if (!isCompactRuntimeReference(settings)) return settings;
+    const runtime = resolveModelRuntime(settings, { engine: "hermes" });
+    if (!runtime) return settings;
+    return {
+      ...settings,
+      provider: runtime.provider || settings.provider || "",
+      providerConnectionId: runtime.providerConnectionId || settings.providerConnectionId || runtime.provider || "",
+      providerLabel: runtime.providerLabel || settings.providerLabel || runtime.provider || settings.provider || "",
+      authType: runtime.authType || settings.authType || "api_key",
+      model: runtime.model || settings.model || "",
+      modelProfileId: runtime.modelProfileId || settings.modelProfileId || "",
+      apiKeyEnv: runtime.apiKeyEnv || "",
+      apiKey: runtime.apiKey || "",
+      baseUrl: runtime.baseUrl || "",
+      apiMode: runtime.apiMode || ""
+    };
+  }
+
   function externalSkillDirs() {
     const candidates = typeof externalSkillDirsSource === "function"
       ? externalSkillDirsSource()
@@ -139,7 +177,7 @@ function createEngineRuntimeConfigService(deps = {}) {
 
   function writeRuntimeConfig(port, options = {}) {
     const p = runtimePaths();
-    const settings = modelSettings(options.modelSettings);
+    const settings = runtimeResolvedModelSettings(modelSettings(options.modelSettings));
     const provider = String(settings.provider || "").trim();
     const model = String(settings.model || "").trim();
     const apiKeyEnv = String(settings.apiKeyEnv || "").trim();

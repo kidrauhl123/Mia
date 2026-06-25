@@ -123,6 +123,18 @@ test("preserves stable providerConnectionId when provider kind differs", () => {
   assert.equal(runtime.modelProfileId, "deepseek-team:deepseek-chat");
 });
 
+test("fails explicitly when a referenced provider connection is missing", () => {
+  const resolver = createResolver();
+
+  assert.throws(
+    () => resolver.resolveModelRuntime({
+      providerConnectionId: "missing-provider",
+      model: "missing-model"
+    }, { engine: "hermes" }),
+    /Provider connection missing-provider is not available/
+  );
+});
+
 test("resolveMiaManagedModelSettings returns compact managed references only", () => {
   const resolver = createResolver();
 

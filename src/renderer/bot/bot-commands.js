@@ -444,6 +444,10 @@
     return Boolean(
       String(config?.providerConnectionId || config?.provider_connection_id || "").trim()
       || String(config?.modelProfileId || config?.model_profile_id || "").trim()
+      || String(config?.provider || config?.modelProvider || config?.model_provider || "").trim() === "mia"
+      || String(config?.authType || config?.auth_type || "").trim() === "mia_account"
+      || String(config?.model || "").trim() === "mia-auto"
+      || String(config?.model || "").trim() === "mia-default"
     );
   }
 
@@ -466,6 +470,18 @@
     const next = { ...(config && typeof config === "object" ? config : {}) };
     if (Array.isArray(next.modelEntries)) {
       next.modelEntries = next.modelEntries.map((entry) => sanitizePersistedModelEntry(entry));
+    }
+    const model = String(next.model || "").trim();
+    const profileId = String(next.modelProfileId || next.model_profile_id || "").trim();
+    if (
+      String(next.provider || next.modelProvider || next.model_provider || "").trim() === "mia"
+      || String(next.authType || next.auth_type || "").trim() === "mia_account"
+      || profileId.startsWith("mia:")
+      || model === "mia-auto"
+      || model === "mia-default"
+    ) {
+      next.providerConnectionId = "mia";
+      if (!next.modelProfileId && model) next.modelProfileId = `mia:${model}`;
     }
     if (shouldStripLegacyRuntimeModelFields(next)) {
       for (const key of LEGACY_RUNTIME_MODEL_FIELDS) delete next[key];

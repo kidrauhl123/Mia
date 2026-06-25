@@ -739,6 +739,18 @@ test("Core task HTTP client and task event stream use the daemon compatibility M
   assert.doesNotMatch(mainSource, /\/api\/tasks\/events/, "main must not own the daemon task event stream route");
 });
 
+test("desktop Hermes bot runtime controls select saved Core provider references", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const body = appSource.slice(
+    appSource.indexOf("function modelValueForRuntimeControl"),
+    appSource.indexOf("function permissionEntriesForRuntimeControl")
+  );
+
+  assert.match(body, /config\.providerConnectionId/);
+  assert.match(body, /providerConnectionId/);
+  assert.match(body, /entries\.find\(\(item\) => \(item\.providerConnectionId \|\| item\.provider\) === provider/);
+});
+
 test("foreground permission IPC routes through the daemon-owned permission proxy", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const proxySource = fs.readFileSync(path.join(root, "src/main/agent-permission-proxy.js"), "utf8");
