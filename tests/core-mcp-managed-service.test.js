@@ -233,15 +233,34 @@ test("setEnabled blocks managed enable until a connected test already exists", a
 });
 
 test("runManagedAction test enables xiaohongshu after successful MCP test", async (t) => {
+  const calls = [];
   const { service } = setup(t, {
     managedSupervisor: {
-      runAction: async (record, action) => ({
-        ok: true,
-        state: action === "start" ? "running" : "installed",
-        message: action,
-        recordPatch: { managedRuntime: { ...record.managedRuntime, state: "running", installDir: "/tmp/xhs", lastAction: action } }
-      }),
+      runAction: async (record, action) => {
+        calls.push(["supervisor", action, record.nativeName]);
+        return {
+          ok: true,
+          state: action === "start" ? "running" : "installed",
+          message: action,
+          recordPatch: { managedRuntime: { ...record.managedRuntime, state: "running", installDir: "/tmp/xhs", lastAction: action } }
+        };
+      },
       ensureRunning: async (records) => ({ records, errors: [] })
+    },
+    manager: {
+      refresh: async () => ({ success: true, tools: [], errors: [] }),
+      testServer: async (record) => {
+        calls.push(["generic", record.nativeName, record.enabled]);
+        return {
+          ok: true,
+          success: true,
+          status: "connected",
+          code: "ok",
+          tools: [{ name: "search", inputSchema: {} }],
+          error: ""
+        };
+      },
+      toolManifest: () => []
     }
   });
   const installed = await service.installTemplate("xiaohongshu", {});
@@ -253,6 +272,121 @@ test("runManagedAction test enables xiaohongshu after successful MCP test", asyn
   assert.equal(tested.data.enabled, true);
   assert.equal(tested.data.status, "connected");
   assert.equal(tested.data.connectionWizard.state, "connected");
+  assert.deepEqual(calls, [
+    ["supervisor", "start", "xiaohongshu"],
+    ["supervisor", "test", "xiaohongshu"],
+    ["generic", "xiaohongshu", false]
+  ]);
+});
+
+test("runManagedAction test returns failure and skips generic test when supervisor returns ok false", async (t) => {
+  const calls = [];
+  const { service, runtime } = setup(t, {
+    managedSupervisor: {
+      runAction: async (record, action) => {
+        calls.push(["supervisor", action, record.nativeName]);
+        if (action === "test") {
+          return {
+            ok: false,
+            state: "error",
+            message: "endpoint unhealthy TOKEN=secret-value",
+            recordPatch: {
+              transport: { type: "http", url: "https://override.invalid/mcp" },
+              managedRuntime: {
+                ...record.managedRuntime,
+                state: "error",
+                exposure: { endpointUrl: "https://xhs.example/mcp" }
+              },
+              connectionWizard: {
+                state: "test_failed",
+                nextAction: "test",
+                message: "should be overridden"
+              }
+            }
+          };
+        }
+        return {
+          ok: true,
+          state: action,
+          message: action,
+          recordPatch: { managedRuntime: { ...record.managedRuntime, state: "running" } }
+        };
+      },
+      ensureRunning: async (records) => ({ records, errors: [] })
+    },
+    manager: {
+      refresh: async () => ({ success: true, tools: [], errors: [] }),
+      testServer: async () => {
+        calls.push(["generic"]);
+        assert.fail("generic testServer should not run when supervisor test returns ok false");
+      },
+      toolManifest: () => []
+    }
+  });
+  const installed = await service.installTemplate("xiaohongshu", {});
+
+  const tested = await service.runManagedAction(installed.data.id, "test", { probe: true });
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(tested.success, false);
+  assert.equal(tested.error, "endpoint unhealthy TOKEN=[redacted]");
+  assert.equal(tested.data.enabled, false);
+  assert.equal(tested.data.connectionWizard.state, "managed_error");
+  assert.equal(tested.data.connectionWizard.nextAction, "test");
+  assert.equal(tested.data.connectionWizard.message, "endpoint unhealthy TOKEN=[redacted]");
+  assert.equal(tested.data.transport.url, installed.data.transport.url);
+  assert.equal(tested.data.managedRuntime.state, "error");
+  assert.equal(tested.data.lastError, "endpoint unhealthy TOKEN=[redacted]");
+  assert.deepEqual(calls, [["supervisor", "test", "xiaohongshu"]]);
+  assert.equal(stored[0].enabled, false);
+  assert.equal(stored[0].connectionWizard.state, "managed_error");
+  assert.equal(stored[0].transport.url, installed.data.transport.url);
+});
+
+test("runManagedAction test returns failure and skips generic test when supervisor throws", async (t) => {
+  const calls = [];
+  const { service, runtime } = setup(t, {
+    managedSupervisor: {
+      runAction: async (record, action) => {
+        calls.push(["supervisor", action, record.nativeName]);
+        if (action === "test") {
+          throw new Error("supervisor boom TOKEN=secret-value");
+        }
+        return {
+          ok: true,
+          state: action,
+          message: action,
+          recordPatch: { managedRuntime: { ...record.managedRuntime, state: "running" } }
+        };
+      },
+      ensureRunning: async (records) => ({ records, errors: [] })
+    },
+    manager: {
+      refresh: async () => ({ success: true, tools: [], errors: [] }),
+      testServer: async () => {
+        calls.push(["generic"]);
+        assert.fail("generic testServer should not run when supervisor test throws");
+      },
+      toolManifest: () => []
+    }
+  });
+  const installed = await service.installTemplate("xiaohongshu", {});
+
+  const tested = await service.runManagedAction(installed.data.id, "test", {});
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(tested.success, false);
+  assert.equal(tested.error, "supervisor boom TOKEN=[redacted]");
+  assert.equal(tested.data.enabled, false);
+  assert.equal(tested.data.connectionWizard.state, "managed_error");
+  assert.equal(tested.data.connectionWizard.nextAction, "test");
+  assert.equal(tested.data.connectionWizard.message, "supervisor boom TOKEN=[redacted]");
+  assert.equal(tested.data.transport.url, installed.data.transport.url);
+  assert.equal(tested.data.lastError, "supervisor boom TOKEN=[redacted]");
+  assert.deepEqual(calls, [["supervisor", "test", "xiaohongshu"]]);
+  assert.equal(stored[0].enabled, false);
+  assert.equal(stored[0].connectionWizard.state, "managed_error");
+  assert.equal(stored[0].transport.url, installed.data.transport.url);
 });
 
 test("refreshBridge starts enabled managed records before manager refresh", async (t) => {

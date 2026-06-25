@@ -801,6 +801,35 @@ function createCoreMcpService(deps = {}) {
     };
   }
 
+  function managedActionPatch(recordPatch = {}) {
+    const patch = recordPatch && typeof recordPatch === "object"
+      ? sanitizeManagedValue(recordPatch)
+      : {};
+    return {
+      ...patch,
+      transport: undefined
+    };
+  }
+
+  function mergeManagedActionRecord(existing, patch = {}, overrides = {}) {
+    return normalizeCoreMcpRecord({
+      ...existing,
+      ...patch,
+      ...overrides,
+      transport: existing.transport,
+      updatedAt: now()
+    }, { now, idFactory });
+  }
+
+  async function persistManagedActionResult(current, existing, nextRecord, options = {}) {
+    const saved = saveRecords(current.map((record) => record.id === existing.id ? nextRecord : record));
+    const runtime = await applyRuntimeChanges(current, saved, {
+      availableIds: options.availableIds || new Set([nextRecord.id]),
+      availableMessage: options.availableMessage || "Waiting for managed MCP setup in Mia."
+    });
+    return resolveRecord(runtime.records, nextRecord.id) || nextRecord;
+  }
+
   async function runManagedAction(id, action, values = {}) {
     try {
       const current = loadRecords();
@@ -815,39 +844,55 @@ function createCoreMcpService(deps = {}) {
       let nextRecord = existing;
       if (action !== "test") {
         result = await managedSupervisor.runAction(existing, action, values || {});
-        const patch = result?.recordPatch && typeof result.recordPatch === "object"
-          ? sanitizeManagedValue(result.recordPatch)
-          : {};
+        const patch = managedActionPatch(result?.recordPatch);
         if (result?.ok === false) {
           const message = sanitizeSecretText(result?.message || "Managed MCP action failed.");
-          nextRecord = normalizeCoreMcpRecord({
-            ...existing,
-            ...patch,
-            transport: existing.transport,
+          nextRecord = mergeManagedActionRecord(existing, patch, {
             enabled: false,
             connectionWizard: managedActionFailureWizard(existing, action, message, patch.connectionWizard),
-            updatedAt: now()
-          }, { now, idFactory });
-          const saved = saveRecords(current.map((record) => record.id === existing.id ? nextRecord : record));
-          const runtime = await applyRuntimeChanges(current, saved, {
-            availableIds: new Set([nextRecord.id]),
-            availableMessage: "Waiting for managed MCP setup in Mia."
           });
-          return failWithData(message, publicRecord(resolveRecord(runtime.records, nextRecord.id) || nextRecord));
+          const finalRecord = await persistManagedActionResult(current, existing, nextRecord);
+          return failWithData(message, publicRecord(finalRecord));
         }
-        nextRecord = normalizeCoreMcpRecord({
-          ...existing,
-          ...patch,
-          transport: existing.transport,
+        nextRecord = mergeManagedActionRecord(existing, patch, {
           connectionWizard: nextManagedWizard(action, result),
-          enabled: false,
-          updatedAt: now()
-        }, { now, idFactory });
+          enabled: false
+        });
       } else {
-        const tested = await testServer(existing);
+        let patch = {};
+        try {
+          result = await managedSupervisor.runAction(existing, action, values || {});
+        } catch (error) {
+          const message = sanitizeSecretText(error?.message || error || "Managed MCP action failed.");
+          nextRecord = mergeManagedActionRecord(existing, {}, {
+            enabled: false,
+            connectionWizard: managedActionFailureWizard(existing, action, message),
+            managedRuntime: {
+              ...(existing?.managedRuntime && typeof existing.managedRuntime === "object" ? sanitizeManagedValue(existing.managedRuntime) : {}),
+              state: "error"
+            },
+            lastError: message
+          });
+          const finalRecord = await persistManagedActionResult(current, existing, nextRecord);
+          return failWithData(message, publicRecord(finalRecord));
+        }
+        patch = managedActionPatch(result?.recordPatch);
+        if (result?.ok === false) {
+          const message = sanitizeSecretText(result?.message || "Managed MCP action failed.");
+          nextRecord = mergeManagedActionRecord(existing, patch, {
+            enabled: false,
+            connectionWizard: managedActionFailureWizard(existing, action, message, patch.connectionWizard),
+            lastError: message
+          });
+          const finalRecord = await persistManagedActionResult(current, existing, nextRecord);
+          return failWithData(message, publicRecord(finalRecord));
+        }
+        const workingRecord = mergeManagedActionRecord(existing, patch, {
+          enabled: false
+        });
+        const tested = await testServer(workingRecord);
         if (!tested.success) throw new Error(tested.error || "MCP connection test failed.");
-        nextRecord = normalizeCoreMcpRecord({
-          ...existing,
+        nextRecord = mergeManagedActionRecord(workingRecord, {}, {
           status: tested.data.status,
           lastTestStatus: tested.data.lastTestStatus || tested.data.status,
           lastTestCode: tested.data.lastTestCode,
@@ -857,8 +902,8 @@ function createCoreMcpService(deps = {}) {
           lastError: tested.data.lastError,
           enabled: tested.data.status === "connected",
           connectionWizard: nextManagedWizard(action, tested.data, tested.data.status),
-          updatedAt: now()
-        }, { now, idFactory });
+          managedRuntime: workingRecord.managedRuntime
+        });
       }
 
       const saved = saveRecords(current.map((record) => record.id === existing.id ? nextRecord : record));
