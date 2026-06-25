@@ -489,30 +489,14 @@
   function normalizedDevice(input = {}) {
     const id = String(input.id || input.deviceId || "").trim();
     if (!id) return null;
-    const aliases = Array.isArray(input.aliases)
-      ? input.aliases.map((item) => String(item || "").trim()).filter(Boolean)
-      : [];
     return {
       ...input,
       id,
       deviceName: String(input.deviceName || input.device_name || input.name || id).trim(),
       status: String(input.status || "").trim(),
       isLocal: Boolean(input.isLocal),
-      aliases: [...new Set([id, ...aliases])],
       capabilities: input.capabilities && typeof input.capabilities === "object" ? input.capabilities : {}
     };
-  }
-
-  function normalizedDeviceName(device = {}) {
-    return String(device.deviceName || device.device_name || device.name || "").trim().toLowerCase();
-  }
-
-  function isSameLocalDevice(device, local) {
-    if (!device || !local) return false;
-    if (device.id === local.id) return true;
-    const deviceName = normalizedDeviceName(device);
-    const localName = normalizedDeviceName(local);
-    return Boolean(deviceName && localName && deviceName === localName);
   }
 
   function mergeDeviceEngines(left = {}, right = {}) {
@@ -527,23 +511,20 @@
     return out;
   }
 
-  function mergeDevices(existing, incoming, options = {}) {
+  function mergeDevices(existing, incoming) {
     if (!existing) return incoming;
-    const local = options.local || null;
-    const keepLocalIdentity = Boolean(local && (isSameLocalDevice(existing, local) || isSameLocalDevice(incoming, local)));
-    const aliases = [...new Set([...(existing.aliases || []), existing.id, ...(incoming.aliases || []), incoming.id].filter(Boolean))];
     const engines = mergeDeviceEngines(existing, incoming);
-    const status = keepLocalIdentity
+    const isLocal = Boolean(existing.isLocal || incoming.isLocal);
+    const status = isLocal
       ? "local"
       : ([existing.status, incoming.status].includes("online") ? "online" : (incoming.status || existing.status || ""));
     return {
       ...existing,
       ...incoming,
-      id: keepLocalIdentity ? local.id : (existing.id || incoming.id),
-      deviceName: keepLocalIdentity ? local.deviceName : (incoming.deviceName || existing.deviceName),
+      id: existing.id || incoming.id,
+      deviceName: incoming.deviceName || existing.deviceName,
       status,
-      isLocal: keepLocalIdentity || Boolean(existing.isLocal || incoming.isLocal),
-      aliases,
+      isLocal,
       capabilities: {
         ...(existing.capabilities || {}),
         ...(incoming.capabilities || {}),
@@ -572,15 +553,13 @@
   function bridgeDeviceOptions() {
     const runtime = state?.runtime || {};
     const byId = new Map();
-    const local = localDeviceOption(runtime);
     const add = (device) => {
       const normalized = normalizedDevice(device);
       if (!normalized) return;
-      const key = isSameLocalDevice(normalized, local) ? local.id : normalized.id;
-      byId.set(key, mergeDevices(byId.get(key), normalized, { local }));
+      byId.set(normalized.id, mergeDevices(byId.get(normalized.id), normalized));
     };
     for (const device of runtime.cloud?.devices || runtime.cloud?.bridgeDevices || []) add(device);
-    add(local);
+    add(localDeviceOption(runtime));
     return [...byId.values()];
   }
 
@@ -634,7 +613,7 @@
   function readSelectedRuntimeTarget() {
     const selected = parseRuntimeTargetValue(els?.botRuntimeTarget?.value || "");
     if (selected.runtimeKind === "cloud-hermes") return selected;
-    const device = bridgeDeviceOptions().find((item) => item.id === selected.targetDeviceId || (item.aliases || []).includes(selected.targetDeviceId));
+    const device = bridgeDeviceOptions().find((item) => item.id === selected.targetDeviceId);
     return {
       ...selected,
       targetDeviceName: selected.targetDeviceName || (device ? runtimeDeviceDisplayName(device) : "") || compactDeviceName(state?.runtime?.localDevice?.name) || "当前设备"
@@ -736,9 +715,9 @@
     const wantedDeviceId = String(current.deviceId || "").trim();
     const allDevices = bridgeDeviceOptions();
     const wantedDevice = wantedDeviceId
-      ? allDevices.find((device) => device.id === wantedDeviceId || (device.aliases || []).includes(wantedDeviceId))
+      ? allDevices.find((device) => device.id === wantedDeviceId)
       : null;
-    const wantedIsEditable = wantedDeviceId && devices.some((device) => device.id === wantedDeviceId || (device.aliases || []).includes(wantedDeviceId));
+    const wantedIsEditable = wantedDeviceId && devices.some((device) => device.id === wantedDeviceId);
     if (wantedDeviceId && !wantedIsEditable) {
       const displayDevice = wantedDevice || normalizedDevice({
         id: wantedDeviceId,
@@ -784,7 +763,7 @@
     const previous = select.value;
     const currentDeviceId = String(current.deviceId || "").trim();
     const canonicalDevice = currentDeviceId
-      ? bridgeDeviceOptions().find((device) => device.id === currentDeviceId || (device.aliases || []).includes(currentDeviceId))
+      ? bridgeDeviceOptions().find((device) => device.id === currentDeviceId)
       : null;
     const wanted = encodeRuntimeTarget(current.runtimeKind === "cloud-hermes"
       ? { runtimeKind: "cloud-hermes", agentEngine: "hermes" }

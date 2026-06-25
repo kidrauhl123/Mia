@@ -694,6 +694,56 @@ test("desktop-local binding without a target device appends a visible error inst
   }
 });
 
+test("desktop-local binding ignores stale device aliases when validating bridge devices", async () => {
+  const ctx = setup();
+  const broadcasts = [];
+  try {
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "cloud-hermes",
+      enabled: false,
+      config: {}
+    });
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "desktop-local",
+      activate: true,
+      config: { agentEngine: "codex", deviceId: "stale_device_alias" }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      broadcastPersistedEvent(userId, event) {
+        broadcasts.push({ userId, event });
+      },
+      listBridgeDevices() {
+        return [
+          { id: "device_mac", aliases: ["stale_device_alias"], deviceName: "Mac", status: "online" }
+        ];
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.match(reply.body_md, /运行设备已失效/);
+    assert.equal(reply.sender_ref, BOT_ID);
+    assert.equal(broadcasts.length, 1);
+    assert.equal(broadcasts[0].event.type, "conversation.message_appended");
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("desktop-local binding on an offline target appends a visible error instead of broadcasting", async () => {
   const ctx = setup();
   const broadcasts = [];

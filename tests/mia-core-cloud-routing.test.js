@@ -1,7 +1,10 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
-const { createCoreBotExecution, createCoreCloudRouting } = require("../src/core/mia-core.js");
+const { createMiaCore, createCoreBotExecution, createCoreCloudRouting } = require("../src/core/mia-core.js");
 const { CloudEvent } = require("../src/shared/cloud-events.js");
 
 // The on-disk manifest is never read: every turn carries a cloud bot snapshot
@@ -55,7 +58,7 @@ function botInvocationEvent({ deviceId }) {
 }
 
 test("cloud → dispatcher → responder → Core sendChat (Hermes) → socialApi reply, node-only", async () => {
-  const deviceId = "mia-core-device";
+  const deviceId = "device_core_fixture";
   const sendChatSeen = [];
 
   // Core's REAL bot-execution graph with ONLY the lowest-level Hermes HTTP send
@@ -128,10 +131,90 @@ test("dispatcher ignores an invocation targeting a different device (single-owne
   const { dispatcher } = createCoreCloudRouting({
     botExecution,
     socialApi,
-    deviceId: "mia-core-device"
+    deviceId: "device_core_fixture"
   });
 
   const handled = await dispatcher.handleCloudEvent(botInvocationEvent({ deviceId: "some-other-device" }));
   assert.equal(handled, false);
   assert.equal(posts.length, 0);
+});
+
+test("createCoreCloudRouting requires an explicit persisted device id", () => {
+  assert.throws(() => createCoreCloudRouting({
+    botExecution: { sendChat: async () => fakeHermesResponse("unused") },
+    socialApi: {
+      postConversationMessageAsBot: async () => ({ ok: true }),
+      listConversationMessages: async () => ({ messages: [] })
+    }
+  }), /deviceId/);
+});
+
+test("createMiaCore cloud routing accepts invocations for the persisted desktop device identity", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-routing-identity-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(home, "mia-device.json"), JSON.stringify({
+    id: "device_existing_air7",
+    createdAt: "2026-06-18T03:09:46.142Z"
+  }, null, 2));
+
+  const sendChatSeen = [];
+  const posts = [];
+  const core = createMiaCore({ env: { MIA_HOME: home }, version: "0.0.0-test" });
+  const { dispatcher } = core.cloudRouting({
+    botExecution: {
+      sendChat: async (context) => {
+        sendChatSeen.push(context);
+        return fakeHermesResponse("hi from persisted device");
+      }
+    },
+    socialApi: {
+      postConversationMessageAsBot: async (conversationId, body) => {
+        posts.push({ conversationId, body });
+        return { ok: true, message: { id: "posted_1", body_md: body.bodyMd } };
+      },
+      listConversationMessages: async () => ({ messages: [] })
+    }
+  });
+
+  const handled = await dispatcher.handleCloudEvent(botInvocationEvent({ deviceId: "device_existing_air7" }));
+
+  assert.equal(handled, true);
+  assert.equal(sendChatSeen.length, 1);
+  assert.equal(posts.length, 1);
+});
+
+test("createMiaCore cloud routing rereads the persisted device identity", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-routing-reset-identity-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const identityPath = path.join(home, "mia-device.json");
+  fs.writeFileSync(identityPath, JSON.stringify({
+    id: "device_existing_air7",
+    createdAt: "2026-06-18T03:09:46.142Z"
+  }, null, 2));
+
+  const sendChatSeen = [];
+  const core = createMiaCore({ env: { MIA_HOME: home }, version: "0.0.0-test" });
+  const { dispatcher } = core.cloudRouting({
+    botExecution: {
+      sendChat: async (context) => {
+        sendChatSeen.push(context);
+        return fakeHermesResponse("hi from reset device");
+      }
+    },
+    socialApi: {
+      postConversationMessageAsBot: async () => ({ ok: true, message: { id: "posted_1" } }),
+      listConversationMessages: async () => ({ messages: [] })
+    }
+  });
+
+  fs.writeFileSync(identityPath, JSON.stringify({
+    id: "device_after_reset",
+    previousId: "device_existing_air7",
+    createdAt: "2026-06-25T00:00:00.000Z"
+  }, null, 2));
+
+  const handled = await dispatcher.handleCloudEvent(botInvocationEvent({ deviceId: "device_after_reset" }));
+
+  assert.equal(handled, true);
+  assert.equal(sendChatSeen.length, 1);
 });

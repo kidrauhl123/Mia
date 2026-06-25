@@ -235,30 +235,14 @@
   function normalizeDevice(input = {}) {
     const id = String(input.id || input.deviceId || "").trim();
     if (!id) return null;
-    const aliases = Array.isArray(input.aliases)
-      ? input.aliases.map((item) => String(item || "").trim()).filter(Boolean)
-      : [];
     return {
       ...input,
       id,
       deviceName: firstNonEmpty(input.deviceName, input.device_name, input.name, id),
       status: String(input.status || "").trim(),
       isLocal: Boolean(input.isLocal),
-      aliases: [...new Set([id, ...aliases])],
       capabilities: input.capabilities && typeof input.capabilities === "object" ? input.capabilities : {}
     };
-  }
-
-  function normalizedDeviceName(device = {}) {
-    return String(device.deviceName || device.device_name || device.name || "").trim().toLowerCase();
-  }
-
-  function isSameLocalDevice(device, local) {
-    if (!device || !local) return false;
-    if (device.id === local.id) return true;
-    const deviceName = normalizedDeviceName(device);
-    const localName = normalizedDeviceName(local);
-    return Boolean(deviceName && localName && deviceName === localName);
   }
 
   function mergeEngineLists(left = {}, right = {}) {
@@ -273,23 +257,20 @@
     return out;
   }
 
-  function mergeDevices(existing, incoming, options = {}) {
+  function mergeDevices(existing, incoming) {
     if (!existing) return incoming;
-    const local = options.local || null;
-    const keepLocalIdentity = Boolean(local && (isSameLocalDevice(existing, local) || isSameLocalDevice(incoming, local)));
-    const aliases = [...new Set([...(existing.aliases || []), existing.id, ...(incoming.aliases || []), incoming.id].filter(Boolean))];
     const engines = mergeEngineLists(existing, incoming);
-    const status = keepLocalIdentity
+    const isLocal = Boolean(existing.isLocal || incoming.isLocal);
+    const status = isLocal
       ? "local"
       : ([existing.status, incoming.status].includes("online") ? "online" : (incoming.status || existing.status || ""));
     return {
       ...existing,
       ...incoming,
-      id: keepLocalIdentity ? local.id : (existing.id || incoming.id),
-      deviceName: keepLocalIdentity ? local.deviceName : (incoming.deviceName || existing.deviceName),
+      id: existing.id || incoming.id,
+      deviceName: incoming.deviceName || existing.deviceName,
       status,
-      isLocal: keepLocalIdentity || Boolean(existing.isLocal || incoming.isLocal),
-      aliases,
+      isLocal,
       capabilities: {
         ...(existing.capabilities || {}),
         ...(incoming.capabilities || {}),
@@ -317,15 +298,13 @@
 
   function runtimeDevices() {
     const byId = new Map();
-    const local = localDeviceCandidate();
     const add = (device) => {
       const normalized = normalizeDevice(device);
       if (!normalized) return;
-      const key = isSameLocalDevice(normalized, local) ? local.id : normalized.id;
-      byId.set(key, mergeDevices(byId.get(key), normalized, { local }));
+      byId.set(normalized.id, mergeDevices(byId.get(normalized.id), normalized));
     };
     for (const device of state?.runtime?.cloud?.devices || state?.runtime?.cloud?.bridgeDevices || []) add(device);
-    add(local);
+    add(localDeviceCandidate());
     return [...byId.values()];
   }
 
@@ -377,7 +356,7 @@
     }
     const wantedDeviceId = String(current.deviceId || "").trim();
     const devices = editableRuntimeDevices();
-    if (wantedDeviceId && !devices.some((device) => device.id === wantedDeviceId || (device.aliases || []).includes(wantedDeviceId))) {
+    if (wantedDeviceId && !devices.some((device) => device.id === wantedDeviceId)) {
       devices.push(normalizeDevice({
         id: wantedDeviceId,
         deviceName: current.deviceName || wantedDeviceId,

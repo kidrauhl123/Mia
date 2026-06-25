@@ -1,7 +1,11 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const {
+  createMiaCore,
   createCoreBotExecution,
   createCoreCloudBridge
 } = require("../src/core/mia-core.js");
@@ -90,7 +94,7 @@ function buildHarness({ enabled = true, token = "tok_core" } = {}) {
     botExecution,
     WebSocketImpl: MockWebSocket,
     emitLocalEvent: (envelope) => localEvents.push(envelope),
-    deviceId: "mia-core-device",
+    deviceId: "device_core_fixture",
     version: "0.0.0-test",
     log: () => {}
   });
@@ -105,7 +109,7 @@ test("bridge run frame → Core sendChat (Hermes) → run_result over the mock s
   bridge.start();
   assert.equal(sockets.length, 1);
   assert.match(sockets[0].url, /\/api\/bridge\?/);
-  assert.match(sockets[0].url, /deviceId=mia-core-device/);
+  assert.match(sockets[0].url, /deviceId=device_core_fixture/);
   assert.match(sockets[0].url, /engine=hermes/);
   assert.deepEqual(sockets[0].protocols, ["mia-token.tok_core"]);
 
@@ -199,4 +203,81 @@ test("createCoreCloudBridge does NOT connect when cloud is enabled but has no to
   bridge.start();
   assert.equal(sockets.length, 0);
   bridge.stop();
+});
+
+test("createCoreCloudBridge requires an explicit persisted device id", () => {
+  const botExecution = { sendChat: async () => fakeHermesResponse("unused") };
+  const { MockWebSocket } = mockWebSocketClass();
+  assert.throws(() => createCoreCloudBridge({
+    settingsStore: { cloudSettings: () => ({ enabled: true, token: "tok_core", url: "https://cloud.example" }) },
+    botExecution,
+    WebSocketImpl: MockWebSocket
+  }), /deviceId/);
+});
+
+test("createMiaCore cloud bridge reuses the persisted desktop device identity", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-bridge-identity-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(home, "mia-device.json"), JSON.stringify({
+    id: "device_existing_air7",
+    createdAt: "2026-06-18T03:09:46.142Z"
+  }, null, 2));
+  fs.writeFileSync(path.join(home, "mia-cloud.json"), JSON.stringify({
+    enabled: true,
+    token: "tok_core",
+    url: "https://cloud.example"
+  }, null, 2));
+
+  const { MockWebSocket, sockets } = mockWebSocketClass();
+  const core = createMiaCore({ env: { MIA_HOME: home }, version: "0.0.0-test" });
+  const bridge = core.cloudBridge({
+    WebSocketImpl: MockWebSocket,
+    botExecution: { sendChat: async () => fakeHermesResponse("unused") }
+  });
+  t.after(() => bridge.stop());
+
+  bridge.start();
+
+  assert.equal(sockets.length, 1);
+  const url = new URL(sockets[0].url);
+  assert.equal(url.searchParams.get("deviceId"), "device_existing_air7");
+  assert.notEqual(url.searchParams.get("deviceId"), "mia-core");
+});
+
+test("createMiaCore cloud bridge rereads the persisted device identity after reset", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-bridge-reset-identity-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const identityPath = path.join(home, "mia-device.json");
+  fs.writeFileSync(identityPath, JSON.stringify({
+    id: "device_existing_air7",
+    createdAt: "2026-06-18T03:09:46.142Z"
+  }, null, 2));
+  fs.writeFileSync(path.join(home, "mia-cloud.json"), JSON.stringify({
+    enabled: true,
+    token: "tok_core",
+    url: "https://cloud.example"
+  }, null, 2));
+
+  const { MockWebSocket, sockets } = mockWebSocketClass();
+  const core = createMiaCore({ env: { MIA_HOME: home }, version: "0.0.0-test" });
+  const bridge = core.cloudBridge({
+    WebSocketImpl: MockWebSocket,
+    botExecution: { sendChat: async () => fakeHermesResponse("unused") }
+  });
+  t.after(() => bridge.stop());
+
+  bridge.start();
+  assert.equal(new URL(sockets[0].url).searchParams.get("deviceId"), "device_existing_air7");
+
+  sockets[0].readyState = MockWebSocket.OPEN;
+  bridge.handleMessage(sockets[0], JSON.stringify({
+    type: "device_identity_conflict",
+    message: "conflict"
+  }));
+  const resetIdentity = JSON.parse(fs.readFileSync(identityPath, "utf8"));
+  assert.notEqual(resetIdentity.id, "device_existing_air7");
+
+  bridge.start();
+  assert.equal(sockets.length, 2);
+  assert.equal(new URL(sockets[1].url).searchParams.get("deviceId"), resetIdentity.id);
 });

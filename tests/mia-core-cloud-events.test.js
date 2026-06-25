@@ -79,7 +79,7 @@ function botInvocationFrame({ deviceId, seq }) {
   };
 }
 
-function buildHarness({ enabled = true, token = "tok_core", deviceId = "mia-core-device" } = {}) {
+function buildHarness({ enabled = true, token = "tok_core", deviceId = "device_core_fixture" } = {}) {
   const sendChatSeen = [];
   const botExecution = createCoreBotExecution({
     runtimePaths: makeRuntimePaths(),
@@ -131,7 +131,7 @@ function buildHarness({ enabled = true, token = "tok_core", deviceId = "mia-core
 }
 
 test("cloud events socket → dispatcher → Core sendChat (Hermes) → socialApi post, node-only mock transport", async () => {
-  const deviceId = "mia-core-device";
+  const deviceId = "device_core_fixture";
   const { events, sockets, MockWebSocket, posts, sendChatSeen } = buildHarness({ enabled: true, deviceId });
 
   // Connect: opens exactly one /api/events socket with the resume cursor + token.

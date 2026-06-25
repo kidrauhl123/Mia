@@ -118,9 +118,9 @@ test("desktop handles bot invocations targeted at this device", async () => {
   assert.equal(calls.responder.length, 1);
 });
 
-test("desktop handles bot invocations targeted at a known bridge alias", async () => {
+test("desktop ignores bot invocations targeted at stale bridge aliases", async () => {
   const { dispatcher, calls } = setup({
-    currentDeviceIds: () => ["device_mac", "bridge_live"]
+    currentDeviceId: () => "device_mac"
   });
 
   const handled = await dispatcher.handleCloudEvent({
@@ -131,8 +131,8 @@ test("desktop handles bot invocations targeted at a known bridge alias", async (
     triggeringMessage: { id: "m_1", body_md: "@codex 看看", sender_kind: "user" }
   });
 
-  assert.equal(handled, true);
-  assert.equal(calls.responder.length, 1);
+  assert.equal(handled, false);
+  assert.equal(calls.responder.length, 0);
 });
 
 test("shouldHandle gate suppresses invocation events", async () => {

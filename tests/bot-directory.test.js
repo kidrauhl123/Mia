@@ -118,6 +118,35 @@ test("bot directory reads desktop active runtime from runtimeConfig", () => {
   assert.equal(bots[0].runtimeLabel, "本机运行");
 });
 
+test("bot directory does not resolve stale runtime devices through aliases", () => {
+  const { listOwnedBots } = require(directoryPath);
+
+  const bots = listOwnedBots({
+    cloudBots: [
+      {
+        id: "nono",
+        name: "nono",
+        runtimeKind: "desktop-local",
+        runtimeConfig: { agentEngine: "claude-code", deviceId: "stale-device-id", deviceName: "Old Mac" }
+      }
+    ],
+    runtime: {
+      localDevice: { id: "mac-1", name: "Office Mac" },
+      cloud: {
+        devices: [{
+          id: "mac-1",
+          aliases: ["stale-device-id"],
+          deviceName: "Office Mac",
+          status: "online"
+        }]
+      }
+    }
+  });
+
+  assert.equal(bots.length, 1);
+  assert.equal(bots[0].runtimeLabel, "Old Mac");
+});
+
 test("bot directory compacts verbose Mia Desktop device labels", () => {
   const { listOwnedBots } = require(directoryPath);
 

@@ -6,7 +6,6 @@ const { buildBotInvocation } = require("./bot-invocation.js");
 function createMainBotRuntimeDispatcher({
   shouldHandle = () => true,
   currentDeviceId = () => "",
-  currentDeviceIds = null,
   listBots = () => [],
   localBotResponder,
   log = () => {}
@@ -20,17 +19,12 @@ function createMainBotRuntimeDispatcher({
     if (!(await canHandle())) return false;
     const runtimeConfig = message.runtimeConfig && typeof message.runtimeConfig === "object" ? message.runtimeConfig : {};
     const wantedDeviceId = String(message.targetDeviceId || runtimeConfig.deviceId || runtimeConfig.targetDeviceId || "").trim();
-    const ownDeviceIds = typeof currentDeviceIds === "function"
-      ? currentDeviceIds()
-      : [typeof currentDeviceId === "function" ? currentDeviceId() : ""];
-    const ownDeviceIdSet = new Set((Array.isArray(ownDeviceIds) ? ownDeviceIds : [ownDeviceIds])
-      .map((id) => String(id || "").trim())
-      .filter(Boolean));
+    const ownDeviceId = String(typeof currentDeviceId === "function" ? currentDeviceId() : "").trim();
     if (!wantedDeviceId) {
       log("Ignoring desktop bot invocation without target device.");
       return false;
     }
-    if (!ownDeviceIdSet.has(wantedDeviceId)) return false;
+    if (!ownDeviceId || wantedDeviceId !== ownDeviceId) return false;
     if (!localBotResponder || typeof localBotResponder.respond !== "function") return false;
     const args = buildBotInvocation(message, listBots());
     if (!args) return false;

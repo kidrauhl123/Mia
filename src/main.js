@@ -62,6 +62,13 @@ const { setMacNativeControlsVisible } = require("./main/mac-window-controls.js")
 const { createChatAttachments } = require("./main/chat-attachments.js");
 const { createBotManifest } = require("./main/bot-manifest.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
+const {
+  localDeviceIdentity: loadLocalDeviceIdentity,
+  resetLocalDeviceIdentity: resetPersistedLocalDeviceIdentity,
+  localDeviceId: loadLocalDeviceId,
+  localDeviceName,
+  localDeviceFingerprint: computeLocalDeviceFingerprint
+} = require("./main/device-identity.js");
 const { createSettingsStore } = require("./main/settings-store.js");
 const { createWindowStateManager } = require("./main/window-state.js");
 const { installPathPasteShortcut } = require("./main/path-paste-shortcut.js");
@@ -175,51 +182,20 @@ const localFileOpenService = createLocalFileOpenService({
   shellOpenPath: (target) => shell.openPath(target)
 });
 
-function localDeviceName() {
-  const hostname = String(os.hostname() || "").trim().replace(/\.local$/i, "");
-  return hostname || "本机";
-}
-
-function createLocalDeviceIdentity(previousId = "") {
-  return {
-    id: `device_${crypto.randomUUID().replace(/-/g, "")}`,
-    createdAt: new Date().toISOString(),
-    ...(previousId ? { previousId } : {})
-  };
-}
-
-function writeLocalDeviceIdentity(identity) {
-  const p = runtimePaths();
-  fs.mkdirSync(path.dirname(p.deviceIdentity), { recursive: true });
-  fs.writeFileSync(p.deviceIdentity, JSON.stringify(identity, null, 2) + "\n", { mode: 0o600 });
-  return identity;
-}
-
 function localDeviceIdentity() {
-  const p = runtimePaths();
-  const saved = readJson(p.deviceIdentity, {});
-  const existing = String(saved.id || saved.deviceId || "").trim();
-  if (/^device_[A-Za-z0-9_-]{8,}$/.test(existing)) return { ...saved, id: existing };
-  return writeLocalDeviceIdentity(createLocalDeviceIdentity(existing));
+  return loadLocalDeviceIdentity({ runtimePaths, readJson });
 }
 
 function resetLocalDeviceIdentity() {
-  const current = localDeviceIdentity();
-  return writeLocalDeviceIdentity(createLocalDeviceIdentity(current.id));
+  return resetPersistedLocalDeviceIdentity({ runtimePaths, readJson });
 }
 
 function localDeviceId() {
-  return localDeviceIdentity().id;
+  return loadLocalDeviceId({ runtimePaths, readJson });
 }
 
 function localDeviceFingerprint() {
-  const payload = JSON.stringify({
-    hostname: os.hostname(),
-    platform: os.platform(),
-    arch: os.arch(),
-    userData: app.getPath("userData")
-  });
-  return crypto.createHash("sha256").update(payload).digest("hex").slice(0, 40);
+  return computeLocalDeviceFingerprint({ app });
 }
 
 const statusBadgeAssetDefinitions = Object.fromEntries(
@@ -2747,10 +2723,6 @@ async function shouldHandleCloudConversationAi() {
 const mainBotRuntimeDispatcher = createMainBotRuntimeDispatcher({
   shouldHandle: shouldHandleCloudConversationAi,
   currentDeviceId: () => localDeviceId(),
-  currentDeviceIds: () => [
-    localDeviceId(),
-    cloudBridgeRuntime?.status?.()?.deviceId
-  ],
   listBots: () => [],
   localBotResponder,
   log: (line) => appendCloudLog(line)

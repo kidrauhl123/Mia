@@ -92,7 +92,6 @@
     return devices.find((device) => (
       String(device?.id || "") === wanted
         || String(device?.deviceId || "") === wanted
-        || (Array.isArray(device?.aliases) && device.aliases.map((id) => String(id || "")).includes(wanted))
     )) || null;
   }
 

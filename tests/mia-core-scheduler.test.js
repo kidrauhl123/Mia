@@ -84,8 +84,7 @@ test("Core scheduler fireRunner: agent task → Core sendChat (background+schedu
     runtimePaths,
     settingsStore,
     botExecution,
-    socialApi,
-    deviceId: "mia-core-device"
+    socialApi
   });
 
   // Create a real agent-mode task in the single-owner store.

@@ -53,6 +53,11 @@ const yaml = require("js-yaml");
 const { spawn: defaultSpawn } = require("node:child_process");
 
 const { createRuntimePaths } = require("../main/runtime-paths.js");
+const {
+  localDeviceId,
+  localDeviceName,
+  resetLocalDeviceIdentity
+} = require("../main/device-identity.js");
 const { createSettingsStore } = require("../main/settings-store.js");
 const { createDaemonControlServer } = require("../main/daemon/control-server.js");
 const { createEngineHealthService } = require("../main/engine-health-service.js");
@@ -942,12 +947,13 @@ function createCoreCloudRouting({
   botExecution,
   socialApi,
   emitLocalEvent = () => {},
-  deviceId = "mia-core",
+  deviceId = "",
   log = () => {}
 } = {}) {
   if (!botExecution || typeof botExecution.sendChat !== "function") {
     throw new Error("createCoreCloudRouting requires a botExecution with sendChat");
   }
+  requireCoreDeviceId(deviceId, "createCoreCloudRouting");
 
   // Real pure-node socialApi built from Core's cloud settings. Injectable for
   // tests; in production it reuses settingsStore.cloudSettings() (same shape and
@@ -971,8 +977,7 @@ function createCoreCloudRouting({
   const dispatcher = createMainBotRuntimeDispatcher({
     // Core is the single owner when running, so it always handles the turn.
     shouldHandle: () => true,
-    currentDeviceId: () => String(deviceId || ""),
-    currentDeviceIds: () => [String(deviceId || "")],
+    currentDeviceId: () => requireCoreDeviceId(deviceId, "createCoreCloudRouting"),
     // TODO(mia-core slice): wire the real owned-bots list once Core owns the bot
     // directory read-side; an empty list is correct-but-minimal — buildBotInvocation
     // falls back to the member roster / a botId snapshot, so Hermes turns still run.
@@ -988,6 +993,13 @@ function createCoreCloudRouting({
 // listening on the daemon's local feed) see the same envelope type the Electron
 // daemon emits. main.js passes IpcChannel.CloudEvent ("cloud:event").
 const CORE_CLOUD_EVENT_CHANNEL = "cloud:event";
+
+function requireCoreDeviceId(deviceId, callerName) {
+  const value = typeof deviceId === "function" ? deviceId() : deviceId;
+  const ownedDeviceId = String(value || "").trim();
+  if (!ownedDeviceId) throw new Error(`${callerName} requires deviceId`);
+  return ownedDeviceId;
+}
 
 // Wire the REAL cloud-events WebSocket client into Core, reusing the SAME
 // pure-node module main.js drives (src/main.js ~2720, no fork). It connects to
@@ -1057,21 +1069,24 @@ function createCoreCloudEvents({
 }
 
 // Build the /api/bridge WebSocket URL from Core's cloud settings. main.js's
-// cloudBridgeUrl is electron-coupled (app.getVersion(), localDeviceId(),
-// localDeviceFingerprint(), localBridgeEngineIds() reading the Electron
-// localAgentEngineService) and CANNOT be reused as-is — so it is NOT extracted.
+// cloudBridgeUrl is electron-coupled (app.getVersion(), localDeviceFingerprint(),
+// localBridgeEngineIds() reading the Electron localAgentEngineService) and CANNOT
+// be reused as-is — so it is NOT extracted.
 // Core supplies its own minimal builder over the SHARED pure-node
 // cloudWebSocketUrl("/api/bridge", ...): same address + token-protocol derivation,
-// Core's own deviceId, and a capabilities advertisement spanning all engines Core
-// now runs — hermes (HTTP) + codex / claude-code / openclaw (PART B, external CLIs
-// resolved from PATH). The actual CLI availability is probed at turn time; the
-// adapter surfaces its own "CLI not found" error if one is missing.
+// the persisted desktop device identity, and a capabilities advertisement
+// spanning all engines Core now runs — hermes (HTTP) + codex / claude-code /
+// openclaw (PART B, external CLIs resolved from PATH). The actual CLI
+// availability is probed at turn time; the adapter surfaces its own "CLI not
+// found" error if one is missing.
 const CORE_BRIDGE_ENGINE_IDS = ["hermes", "codex", "claude-code", "openclaw"];
 
-function coreCloudBridgeUrl(settings = {}, { deviceId = "mia-core", version = "" } = {}) {
+function coreCloudBridgeUrl(settings = {}, { deviceId = "", deviceName = "", version = "" } = {}) {
+  const ownedDeviceId = String(deviceId || "").trim();
+  if (!ownedDeviceId) throw new Error("coreCloudBridgeUrl requires deviceId");
   const url = cloudWebSocketUrl("/api/bridge", settings);
-  url.searchParams.set("deviceId", String(deviceId || "mia-core"));
-  url.searchParams.set("deviceName", `Mia Core (${os.hostname()})`);
+  url.searchParams.set("deviceId", ownedDeviceId);
+  url.searchParams.set("deviceName", String(deviceName || localDeviceName()));
   url.searchParams.set("engine", "hermes");
   url.searchParams.set("capabilities", JSON.stringify({
     chat: true,
@@ -1115,7 +1130,7 @@ function coreCloudBridgeUrl(settings = {}, { deviceId = "mia-core", version = ""
 //   cloudBridgeUrl              → coreCloudBridgeUrl (all-engines capabilities),
 //   createActiveCodexChatAdapter→ null (the bridge's codex slash-command path is
 //                                 unused; codex CHAT routes via botExecution.sendChat),
-//   resetLocalDeviceIdentity    → null (Core regenerates identity on reconnect),
+//   resetLocalDeviceIdentity    → Core's persisted desktop device identity reset,
 //   resolveBotCapabilities      → caller-injected (default {}),
 //   broadcast/run streams        → emitLocalEvent via the bridge adapter's emit.
 //
@@ -1127,9 +1142,11 @@ function createCoreCloudBridge({
   WebSocketImpl,
   emitLocalEvent = () => {},
   cloudBridgeUrl = null,
-  deviceId = "mia-core",
+  deviceId = "",
+  deviceName = "",
   version = "",
   resolveBotCapabilities = () => ({}),
+  resetLocalDeviceIdentity: resetDeviceIdentity = null,
   log = () => {}
 } = {}) {
   if (!botExecution || typeof botExecution.sendChat !== "function") {
@@ -1138,6 +1155,7 @@ function createCoreCloudBridge({
   if (!WebSocketImpl) {
     throw new Error("createCoreCloudBridge requires a WebSocketImpl");
   }
+  requireCoreDeviceId(deviceId, "createCoreCloudBridge");
 
   const getSettings = () => (settingsStore ? settingsStore.cloudSettings() : { enabled: false });
   const cloudEnabled = () => {
@@ -1167,7 +1185,11 @@ function createCoreCloudBridge({
 
   const buildBridgeUrl = typeof cloudBridgeUrl === "function"
     ? cloudBridgeUrl
-    : (s) => coreCloudBridgeUrl(s, { deviceId, version });
+    : (s) => coreCloudBridgeUrl(s, {
+      deviceId: requireCoreDeviceId(deviceId, "createCoreCloudBridge"),
+      deviceName,
+      version
+    });
 
   return createCloudBridgeClient({
     WebSocketImpl,
@@ -1183,10 +1205,7 @@ function createCoreCloudBridge({
     // adapter (PART B), so the slash-command hook stays null here.
     createActiveCodexChatAdapter: null,
     resolveBotCapabilities,
-    // Core regenerates its device identity on the next reconnect rather than
-    // persisting an electron-side identity file.
-    // TODO(mia-core slice): wire a persisted Core device identity reset.
-    resetLocalDeviceIdentity: null,
+    resetLocalDeviceIdentity: resetDeviceIdentity,
     randomUUID: () => crypto.randomUUID()
   });
 }
@@ -1220,7 +1239,6 @@ function createCoreScheduler({
   botExecution,
   socialApi,
   emitLocalEvent = () => {},
-  deviceId = "mia-core",
   log = () => {}
 } = {}) {
   if (!botExecution || typeof botExecution.sendChat !== "function") {
@@ -1599,6 +1617,18 @@ function createMiaCore(options = {}) {
     env
   });
 
+  function coreDeviceId() {
+    return localDeviceId({ runtimePaths, readJson });
+  }
+
+  function coreDeviceName() {
+    return localDeviceName();
+  }
+
+  function resetCoreDeviceIdentity() {
+    return resetLocalDeviceIdentity({ runtimePaths, readJson });
+  }
+
   // Daemon settings/host/port persistence reuses the real settings-store. The
   // engine/effort write deps it also accepts are never reached by the daemon
   // settings methods (verified: settings-store.js:312,356 are engine paths),
@@ -1810,6 +1840,7 @@ function createMiaCore(options = {}) {
       // The control server's local event channel: push run streams to any
       // window listening on the daemon's local event feed (ADR P0).
       emitLocalEvent: (envelope) => controlServer.publishLocalEvent?.(envelope),
+      deviceId: coreDeviceId,
       log: () => {},
       ...overrides
     });
@@ -1854,8 +1885,10 @@ function createMiaCore(options = {}) {
       // tests inject a mock socket class.
       WebSocketImpl: overrides.WebSocketImpl || require("ws"),
       emitLocalEvent: (envelope) => controlServer.publishLocalEvent?.(envelope),
-      deviceId: "mia-core",
+      deviceId: coreDeviceId,
+      deviceName: coreDeviceName(),
       version,
+      resetLocalDeviceIdentity: resetCoreDeviceIdentity,
       log: () => {},
       ...overrides
     });

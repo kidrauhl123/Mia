@@ -2253,7 +2253,7 @@ test("contact detail shows engine logo and bot device label", () => {
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
-  assert.match(mainSource, /function localDeviceName\(\)/);
+  assert.match(mainSource, /localDeviceName,/);
   assert.match(mainSource, /localDevice:\s*\{\s*name:\s*localDeviceName\(\)/);
   assert.match(botManagerSource, /function botDeviceLabel\(bot = \{\}\)/);
   assert.match(botManagerSource, /function engineLogoHtml\(engine = ""\)/);
@@ -2266,8 +2266,8 @@ test("contact detail shows engine logo and bot device label", () => {
   assert.match(botManagerSource, /status:\s*"local"/);
   assert.match(botManagerSource, /function mergeDevices\(existing, incoming/);
   assert.match(botManagerSource, /function isSameLocalDevice\(device, local\)/);
-  assert.match(botManagerSource, /aliases:\s*\[/);
-  assert.match(botManagerSource, /\(device\?\.aliases \|\| \[\]\)\.includes\(active\.deviceId\)/);
+  assert.match(botManagerSource, /device\?\.id === active\.deviceId/);
+  assert.doesNotMatch(botManagerSource, /device\?\.aliases/);
   assert.match(botManagerSource, /engine-row-logo contact-engine-logo/);
   assert.match(botManagerSource, /botDeviceLabel\(bot\)/);
   assert.match(botManagerSource, /RUNTIME_DEVICE_REFRESH_INTERVAL_MS/);

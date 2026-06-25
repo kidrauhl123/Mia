@@ -72,27 +72,28 @@ function input(value = "") {
   return { value, textContent: "", open: false };
 }
 
-function createBotDialogContext({ activeBinding }) {
+function createBotDialogContext({ activeBinding, runtime = null }) {
   const select = new FakeSelect();
   const calls = [];
+  const defaultRuntime = {
+    cloud: {
+      enabled: true,
+      devices: [{
+        id: "mac-1",
+        deviceName: "Office Mac",
+        status: "online",
+        capabilities: { engines: ["hermes", "claude-code"] }
+      }]
+    },
+    localDevice: { id: "mac-1", name: "Office Mac" },
+    agentEngines: {
+      hermes: { available: true },
+      claudeCode: { available: true }
+    },
+    preferredAgentEngine: "hermes"
+  };
   const state = {
-    runtime: {
-      cloud: {
-        enabled: true,
-        devices: [{
-          id: "mac-1",
-          deviceName: "Office Mac",
-          status: "online",
-          capabilities: { engines: ["hermes", "claude-code"] }
-        }]
-      },
-      localDevice: { id: "mac-1", name: "Office Mac" },
-      agentEngines: {
-        hermes: { available: true },
-        claudeCode: { available: true }
-      },
-      preferredAgentEngine: "hermes"
-    }
+    runtime: runtime || defaultRuntime
   };
   const els = {
     botRuntimeTarget: select,
@@ -206,4 +207,50 @@ test("editing a bot hydrates the runtime target from the active binding", async 
     targetDeviceName: "本机",
     agentEngine: "claude-code"
   });
+});
+
+test("editing a bot keeps a stale device id instead of resolving bridge aliases", async () => {
+  const { context } = createBotDialogContext({
+    runtime: {
+      cloud: {
+        enabled: true,
+        devices: [{
+          id: "mac-1",
+          aliases: ["stale-device-id"],
+          deviceName: "Office Mac",
+          status: "online",
+          capabilities: { engines: ["hermes", "claude-code"] }
+        }]
+      },
+      localDevice: { id: "mac-1", name: "Office Mac" },
+      agentEngines: {
+        hermes: { available: true },
+        claudeCode: { available: true }
+      },
+      preferredAgentEngine: "hermes"
+    },
+    activeBinding: {
+      botId: "bot_writer",
+      runtimeKind: "desktop-local",
+      enabled: true,
+      config: {
+        agentEngine: "claude-code",
+        deviceId: "stale-device-id",
+        deviceName: "Old Mac"
+      }
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog({
+    key: "bot_writer",
+    name: "写作助手",
+    sourceKinds: ["cloud"],
+    runtimeKind: "cloud-hermes",
+    agentEngine: "hermes"
+  }, "persona");
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const selected = JSON.parse(JSON.stringify(context.window.miaBotDialog.readSelectedRuntimeTarget()));
+  assert.equal(selected.targetDeviceId, "stale-device-id");
 });
