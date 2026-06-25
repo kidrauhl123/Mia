@@ -461,14 +461,50 @@ test("managed installed xiaohongshu card exposes app actions instead of setup co
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
 
-  assert.match(harness.els.skillCardGrid.innerHTML, /检测并启用/);
-  assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, /go run/);
+  const html = harness.els.skillCardGrid.innerHTML;
+  const defaultSurfaceHtml = html.replace(/<details class="mcp-advanced-diagnostics">[\s\S]*?<\/details>/, "");
+
+  assert.match(html, /检测并启用/);
+  assert.doesNotMatch(defaultSurfaceHtml, /go run/);
+  assert.match(html, /<details class="mcp-advanced-diagnostics">[\s\S]*<code>go run cmd\/login\/main\.go<\/code>[\s\S]*<code>go run \.<\/code>/);
   assert.equal(harness.els.skillCardGrid.querySelector('[data-mcp-action="sync"]'), null);
   assert.equal(harness.els.skillCardGrid.querySelector('[data-mcp-action="toggle"]'), null);
   harness.els.skillCardGrid.querySelector('[data-mcp-managed-action="test"]').click();
   await flushAsync();
 
   assert.deepEqual(actions, [["mcp_xhs", "test"]]);
+});
+
+test("installed card omits legacy setupHint self-start guidance from default surface", () => {
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "mcp_legacy",
+        name: "Legacy MCP",
+        enabled: false,
+        status: "disconnected",
+        setupHint: "Run `go run .` to start the local service before connecting.",
+        transport: { type: "http", url: "http://127.0.0.1:9090/mcp" },
+        tools: [],
+        sync: {}
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({ state });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+
+  assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, /Run `go run \.` to start the local service before connecting\./);
+  assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, /start the local service/i);
 });
 
 test("mcp-library settles empty successful responses into stable empty states", async () => {

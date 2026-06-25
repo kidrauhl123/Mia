@@ -367,6 +367,7 @@
       <details class="mcp-advanced-diagnostics">
         <summary>高级诊断</summary>
         <p>包含 ${details.length} 条本地命令诊断，默认隐藏。</p>
+        ${details.map((command) => `<code>${escapeHtml(command)}</code>`).join("")}
       </details>
     `;
   }
@@ -378,7 +379,7 @@
       || server.managedRuntime?.expectedToolCount
       || 0
     );
-    const message = String(server.connectionWizard?.message || server.setupHint || "").trim();
+    const message = String(server.connectionWizard?.message || "").trim();
     const hasSetup = message || server.homepage || url || expectedToolCount > 0;
     const isDisconnected = String(server.status || "") === "disconnected";
     if (!hasSetup && !isDisconnected) return "";
