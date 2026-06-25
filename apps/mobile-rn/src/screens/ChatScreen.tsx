@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { ActivityIndicator, View, FlatList, Pressable, StyleSheet, KeyboardAvoidingView, Platform, Text, Modal } from "react-native";
+import { ActivityIndicator, View, FlatList, Pressable, StyleSheet, KeyboardAvoidingView, Platform, Text } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
@@ -8,12 +8,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQueryClient } from "@tanstack/react-query";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
-  useBotRuntime,
   useConversationMessages,
   useConversationMembers,
   useConversations,
-  useModelCatalog,
-  useSaveBotRuntimeConfig,
   useSaveUserSettings,
   useUserSettings,
 } from "../state/queries";
@@ -28,27 +25,13 @@ import { chatKeyboardAvoidingBehavior, chatKeyboardAvoidingEnabled } from "../lo
 import MessageBubble from "../components/MessageBubble";
 import MessageActions from "../components/MessageActions";
 import ApprovalSheet from "../components/ApprovalSheet";
-import RuntimeControls from "../components/RuntimeControls";
 import Input from "../ui/Input";
 import { Sub } from "../ui/Text";
 import { color, space, hairlineWidth } from "../theme";
-import {
-  botIdForRuntimeControls,
-  EFFORT_OPTIONS,
-  modelEntriesFromCatalog,
-  patchForRuntimeField,
-  PERMISSION_OPTIONS,
-  runtimeControlState,
-  runtimeKindForControls,
-} from "../logic/runtimeControls";
 import type { ChatMessage, MessageAttachment } from "../api/types";
 import type { MessagesStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<MessagesStackParamList, "Chat">;
-
-function optionLabel(options: { value: string; label: string }[], value: string, fallback: string) {
-  return options.find((item) => item.value === value)?.label || fallback;
-}
 
 function PaperclipIcon({ tint }: { tint: string }) {
   return (
@@ -81,15 +64,6 @@ function SendIcon({ tint }: { tint: string }) {
   );
 }
 
-function TuneIcon({ tint }: { tint: string }) {
-  return (
-    <Svg width={22} height={22} viewBox="0 0 24 24">
-      <Path d="M5 7h10M19 7h0M5 17h4M13 17h6" stroke={tint} strokeWidth={2} strokeLinecap="round" />
-      <Path d="M15 5.2v3.6M9 15.2v3.6" stroke={tint} strokeWidth={2} strokeLinecap="round" />
-    </Svg>
-  );
-}
-
 export default function ChatScreen({ navigation, route }: Props) {
   const { conversationId } = route.params;
   const api = useApi();
@@ -99,12 +73,6 @@ export default function ChatScreen({ navigation, route }: Props) {
   const { data: conversations = [] } = useConversations();
   const activeConversation = conversations.find((c) => c.id === conversationId) || null;
   const activeType = activeConversation ? conversationType(activeConversation) : "";
-  const botId = botIdForRuntimeControls(activeConversation);
-  const runtimeKind = runtimeKindForControls(activeConversation);
-  const showRuntimeControls = !!botId && runtimeKind === "cloud-hermes";
-  const runtime = useBotRuntime(botId || undefined, runtimeKind);
-  const modelCatalog = useModelCatalog();
-  const saveRuntime = useSaveBotRuntimeConfig();
   const { data: messages = [] } = useConversationMessages(conversationId);
   const { data: members = [] } = useConversationMembers(conversationId);
   const { data: settings } = useUserSettings();
@@ -113,20 +81,9 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
-  const [runtimeSheetOpen, setRuntimeSheetOpen] = useState(false);
   const [sending, setSending] = useState(false);
-  const [savingField, setSavingField] = useState<"model" | "effort" | "permission" | "">("");
-  const [runtimeError, setRuntimeError] = useState("");
-  const modelEntries = modelEntriesFromCatalog(modelCatalog.data || runtime.data?.config?.modelEntries || []);
-  const controls = runtimeControlState({ binding: runtime.data, modelEntries });
   const maxSeq = lastSeenSeq(messages);
   const canSend = Boolean(text.trim() || pendingAttachments.length) && !sending;
-  const currentModelLabel = modelEntries.find((entry) => entry.value === controls.modelValue)?.label || controls.modelValue || "默认模型";
-  const runtimeSummary = [
-    currentModelLabel,
-    optionLabel(EFFORT_OPTIONS, controls.effortValue, "中强度"),
-    optionLabel(PERMISSION_OPTIONS, controls.permissionValue, "询问"),
-  ].filter(Boolean).join(" · ");
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -224,21 +181,6 @@ export default function ChatScreen({ navigation, route }: Props) {
     }
   };
 
-  const saveRuntimeField = async (field: "model" | "effort" | "permission", value: string) => {
-    if (!botId) return;
-    setRuntimeError("");
-    setSavingField(field);
-    try {
-      const patch = patchForRuntimeField(field, value, modelEntries);
-      const nextConfig = { ...(runtime.data?.config || {}), ...patch };
-      await saveRuntime.mutateAsync({ botId, runtimeKind, config: nextConfig });
-    } catch (err) {
-      setRuntimeError(String((err as Error).message || "设置保存失败"));
-    } finally {
-      setSavingField("");
-    }
-  };
-
   const copyMessage = (m: ChatMessage) => {
     Clipboard.setStringAsync(m.bodyMd || "");
   };
@@ -272,21 +214,6 @@ export default function ChatScreen({ navigation, route }: Props) {
       enabled={chatKeyboardAvoidingEnabled(Platform.OS)}
       keyboardVerticalOffset={90}
     >
-      {showRuntimeControls ? (
-        <Pressable
-          style={({ pressed }) => [styles.runtimeStrip, pressed && styles.runtimeStripPressed]}
-          onPress={() => setRuntimeSheetOpen(true)}
-        >
-          <View style={styles.runtimeDot} />
-          <View style={styles.runtimeText}>
-            <Text style={styles.runtimeTitle}>云端运行</Text>
-            <Sub numberOfLines={1} style={styles.runtimeSummary}>{runtimeSummary}</Sub>
-          </View>
-          <View style={styles.runtimeIcon}>
-            <TuneIcon tint={color.accent} />
-          </View>
-        </Pressable>
-      ) : null}
       <FlatList
         style={styles.list}
         data={data}
@@ -353,28 +280,6 @@ export default function ChatScreen({ navigation, route }: Props) {
           </Pressable>
         </View>
       </View>
-      <Modal visible={runtimeSheetOpen} transparent animationType="slide" onRequestClose={() => setRuntimeSheetOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => setRuntimeSheetOpen(false)}>
-          <Pressable style={[styles.runtimeSheet, { paddingBottom: space.lg + insets.bottom }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.sheetHead}>
-              <Text style={styles.sheetTitle}>运行设置</Text>
-              <Pressable hitSlop={10} onPress={() => setRuntimeSheetOpen(false)}>
-                <Text style={styles.sheetDone}>完成</Text>
-              </Pressable>
-            </View>
-            <RuntimeControls
-              modelEntries={modelEntries}
-              modelValue={controls.modelValue}
-              effortValue={controls.effortValue}
-              permissionValue={controls.permissionValue}
-              savingField={savingField}
-              error={runtimeError}
-              onChange={saveRuntimeField}
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
       <MessageActions
         msg={actionMsg}
         onClose={() => setActionMsg(null)}
@@ -391,26 +296,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.chatBg },
   headerAction: { color: color.accent, fontSize: 15, fontWeight: "600" },
   list: { flex: 1 },
-  runtimeStrip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.sm,
-    marginHorizontal: space.md,
-    marginTop: space.sm,
-    marginBottom: 2,
-    paddingHorizontal: space.md,
-    paddingVertical: 9,
-    borderRadius: 16,
-    backgroundColor: color.surface,
-    borderWidth: hairlineWidth,
-    borderColor: color.line,
-  },
-  runtimeStripPressed: { backgroundColor: color.surfaceMuted },
-  runtimeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.accent2 },
-  runtimeText: { flex: 1, minWidth: 0, gap: 1 },
-  runtimeTitle: { color: color.ink, fontSize: 13, fontWeight: "700" },
-  runtimeSummary: { fontSize: 12, color: color.inkMuted },
-  runtimeIcon: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: color.accentSoft },
   composer: {
     gap: space.sm,
     backgroundColor: color.surface,
@@ -462,20 +347,4 @@ const styles = StyleSheet.create({
   },
   sendIconButtonPressed: { opacity: 0.86, transform: [{ scale: 0.96 }] },
   sendIconButtonDisabled: { opacity: 0.38 },
-  sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.24)" },
-  runtimeSheet: {
-    backgroundColor: color.surface,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    paddingTop: space.sm,
-    shadowColor: "#141828",
-    shadowOpacity: 0.16,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: -8 },
-    elevation: 18,
-  },
-  sheetHandle: { alignSelf: "center", width: 42, height: 4, borderRadius: 2, backgroundColor: color.lineStrong, marginBottom: space.md },
-  sheetHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: space.lg, paddingBottom: space.sm },
-  sheetTitle: { color: color.ink, fontSize: 17, fontWeight: "700" },
-  sheetDone: { color: color.accent, fontSize: 15, fontWeight: "700" },
 });

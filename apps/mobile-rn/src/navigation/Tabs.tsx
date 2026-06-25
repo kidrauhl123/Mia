@@ -1,38 +1,13 @@
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import type { NavigationState, PartialState, Route } from "@react-navigation/native";
-import { useMemo } from "react";
 import ConversationListScreen from "../screens/ConversationListScreen";
 import ChatScreen from "../screens/ChatScreen";
-import ContactsScreen from "../screens/ContactsScreen";
-import AgentsScreen from "../screens/AgentsScreen";
-import SkillsScreen from "../screens/SkillsScreen";
-import SettingsScreen from "../screens/SettingsScreen";
-import BotDetailScreen from "../screens/BotDetailScreen";
 import GroupDetailScreen from "../screens/GroupDetailScreen";
 import BotSessionsScreen from "../screens/BotSessionsScreen";
-import AnimatedTabBar from "./AnimatedTabBar";
-import { mobileTabBadges } from "../logic/tabBadges";
-import { useConversations, useFriendRequests, useUserSettings } from "../state/queries";
-import { useAuth } from "../state/auth";
 import { color } from "../theme";
 import { conversationHomeChrome } from "../logic/conversationHomeChrome";
-import { mobileTabBarChrome } from "../logic/mobileTabBarChrome";
-import type {
-  AgentsStackParamList,
-  ContactsStackParamList,
-  MessagesStackParamList,
-  SettingsStackParamList,
-  SkillsStackParamList,
-} from "./types";
+import type { MessagesStackParamList } from "./types";
 
 const MessagesStackNav = createNativeStackNavigator<MessagesStackParamList>();
-const ContactsStackNav = createNativeStackNavigator<ContactsStackParamList>();
-const AgentsStackNav = createNativeStackNavigator<AgentsStackParamList>();
-const SkillsStackNav = createNativeStackNavigator<SkillsStackParamList>();
-const SettingsStackNav = createNativeStackNavigator<SettingsStackParamList>();
-const Tab = createBottomTabNavigator();
-const HIDE_TAB_ON_CHILD = new Set(["Chat", "GroupDetail", "BotSessions", "BotDetail"]);
 
 const headerOptions = {
   headerStyle: { backgroundColor: color.bg },
@@ -42,23 +17,6 @@ const headerOptions = {
   headerTitleAlign: "center" as const,
   contentStyle: { backgroundColor: color.bg },
 };
-
-const tabScreenOptions = {
-  ...headerOptions,
-  tabBarStyle: mobileTabBarChrome.reservedLayoutStyle,
-};
-
-function activeChildName(route: Route<string> & { state?: NavigationState | PartialState<NavigationState> }) {
-  const state = route.state;
-  if (!state || !Array.isArray(state.routes) || !state.routes.length) return "";
-  const index = typeof state.index === "number" ? state.index : 0;
-  return state.routes[index]?.name || "";
-}
-
-function shouldHideTabBar(state: NavigationState) {
-  const route = state.routes[state.index] as Route<string> & { state?: NavigationState | PartialState<NavigationState> };
-  return HIDE_TAB_ON_CHILD.has(activeChildName(route));
-}
 
 function MessagesStack() {
   return (
@@ -87,60 +45,6 @@ function MessagesStack() {
   );
 }
 
-function ContactsStack() {
-  return (
-    <ContactsStackNav.Navigator screenOptions={headerOptions}>
-      <ContactsStackNav.Screen name="ContactsHome" component={ContactsScreen} options={{ title: "联系人" }} />
-      <ContactsStackNav.Screen
-        name="BotDetail"
-        component={BotDetailScreen}
-        options={({ route }) => ({ title: route.params?.title || "Bot" })}
-      />
-    </ContactsStackNav.Navigator>
-  );
-}
-
-function AgentsStack() {
-  return (
-    <AgentsStackNav.Navigator screenOptions={headerOptions}>
-      <AgentsStackNav.Screen name="AgentsHome" component={AgentsScreen} options={{ title: "运行" }} />
-    </AgentsStackNav.Navigator>
-  );
-}
-
-function SkillsStack() {
-  return (
-    <SkillsStackNav.Navigator screenOptions={headerOptions}>
-      <SkillsStackNav.Screen name="SkillsHome" component={SkillsScreen} options={{ title: "技能" }} />
-    </SkillsStackNav.Navigator>
-  );
-}
-
-function SettingsStack() {
-  return (
-    <SettingsStackNav.Navigator screenOptions={headerOptions}>
-      <SettingsStackNav.Screen name="SettingsHome" component={SettingsScreen} options={{ title: "设置" }} />
-    </SettingsStackNav.Navigator>
-  );
-}
-
 export default function Tabs() {
-  const { session } = useAuth();
-  const { data: conversations = [] } = useConversations();
-  const { data: settings } = useUserSettings();
-  const { data: incomingRequests = [] } = useFriendRequests("incoming");
-  const selfId = session?.user?.id || "";
-  const badges = useMemo(
-    () => mobileTabBadges({ conversations, settings, incomingRequests, selfId }),
-    [conversations, settings, incomingRequests, selfId]
-  );
-  return (
-    <Tab.Navigator screenOptions={tabScreenOptions} tabBar={(props) => shouldHideTabBar(props.state) ? null : <AnimatedTabBar {...props} badges={badges} />}>
-      <Tab.Screen name="Messages" component={MessagesStack} options={{ headerShown: false, title: "消息" }} />
-      <Tab.Screen name="Contacts" component={ContactsStack} options={{ headerShown: false, title: "联系人" }} />
-      <Tab.Screen name="Agents" component={AgentsStack} options={{ headerShown: false, title: "运行" }} />
-      <Tab.Screen name="Skills" component={SkillsStack} options={{ headerShown: false, title: "技能" }} />
-      <Tab.Screen name="Settings" component={SettingsStack} options={{ headerShown: false, title: "设置" }} />
-    </Tab.Navigator>
-  );
+  return <MessagesStack />;
 }
