@@ -88,11 +88,28 @@ function createXiaohongshuManagedConnector(deps = {}) {
     if (!verifyTools) {
       throw new Error("Expected tool verification dependency is required.");
     }
-    const tools = await verifyTools();
+    const tools = extractTools(await verifyTools());
     const actualCount = Array.isArray(tools) ? tools.length : 0;
     if (actualCount < expectedToolCount) {
       throw new Error(`Xiaohongshu managed runtime expected ${expectedToolCount} tools but reported ${actualCount}.`);
     }
+  }
+
+  function extractTools(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (!payload || typeof payload !== "object") return [];
+    const candidates = [
+      payload.tools,
+      payload.data?.tools,
+      payload.data?.server?.tools,
+      payload.server?.tools,
+      payload.record?.tools,
+      payload.data?.record?.tools
+    ];
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate)) return candidate;
+    }
+    return [];
   }
 
   async function status(record = {}) {

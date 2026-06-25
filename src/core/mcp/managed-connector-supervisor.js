@@ -52,6 +52,20 @@ function createManagedConnectorSupervisor(deps = {}) {
     const connector = connectorFor(record);
     if (!connector) throw new Error("Managed connector is not supported.");
     if (action === "stop") return stop(record.id);
+    if (action === "start" && children.has(record.id)) {
+      return {
+        ok: true,
+        state: "running",
+        message: "Managed connector is already running.",
+        recordPatch: {
+          managedRuntime: {
+            ...(record.managedRuntime || {}),
+            state: "running",
+            lastAction: "start"
+          }
+        }
+      };
+    }
     let result;
     try {
       result = await connector.runAction(record, action, values);

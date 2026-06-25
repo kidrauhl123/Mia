@@ -199,6 +199,25 @@ test("test action uses the managed endpoint and marks the runtime healthy", asyn
   assert.equal(result.recordPatch.managedRuntime.installDir, withInstallDir.managedRuntime.installDir);
 });
 
+test("test action accepts service-shaped tool verification output", async (t) => {
+  const { supervisor, record } = setup(t, {
+    listTools: async () => ({
+      data: {
+        server: {
+          tools: Array.from({ length: 13 }, (_, index) => ({ name: `tool-${index}` }))
+        }
+      }
+    })
+  });
+  const installed = await supervisor.runAction(record, "install", {});
+  const withInstallDir = normalizeCoreMcpRecord({ ...record, ...installed.recordPatch, transport: record.transport });
+
+  const result = await supervisor.runAction(withInstallDir, "test", {});
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state, "healthy");
+});
+
 test("test action fails when fewer tools than expected are reported", async (t) => {
   const { supervisor, record } = setup(t, {
     listTools: async () => Array.from({ length: 12 }, (_, index) => ({ name: `tool-${index}` }))
@@ -269,6 +288,28 @@ test("ensureRunning starts enabled managed records before bridge refresh", async
 
   assert.equal(result.records[0].managedRuntime.state, "running");
   assert.deepEqual(result.errors, []);
+});
+
+test("repeated start action is idempotent while a child is already tracked", async (t) => {
+  const { calls, supervisor, record } = setup(t);
+  const installed = await supervisor.runAction(record, "install", {});
+  const withInstallDir = normalizeCoreMcpRecord({ ...record, ...installed.recordPatch, transport: record.transport });
+
+  const first = await supervisor.runAction(withInstallDir, "start", {});
+  const second = await supervisor.runAction(withInstallDir, "start", {});
+
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.equal(second.state, "running");
+  assert.match(second.message, /already running/i);
+  assert.deepEqual(second.recordPatch, {
+    managedRuntime: {
+      ...withInstallDir.managedRuntime,
+      state: "running",
+      lastAction: "start"
+    }
+  });
+  assert.equal(calls.filter((call) => call.kind === "spawn" && call.command === "go" && call.args.join(" ") === "run .").length, 1);
 });
 
 test("stop returns a canonical stopped patch when no child is tracked", async (t) => {
