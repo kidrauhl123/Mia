@@ -41,7 +41,7 @@ function createHermesChatAdapter(deps = {}) {
   const buildEnabledSkillsContext = deps.buildEnabledSkillsContext || (() => "");
   const memoryBlock = deps.memoryBlock || (() => "");
   const runtimeSystemPrompt = deps.runtimeSystemPrompt || miaRuntimeSystemPrompt;
-  const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
+  const resolveModelRuntime = deps.resolveModelRuntime || deps.resolveManagedModelRuntime || (() => null);
   const writeModelRuntimeConfig = deps.writeModelRuntimeConfig || (() => {});
 
   function resolveTurnRuntimeConfig(bot, runtimeConfig) {
@@ -50,28 +50,29 @@ function createHermesChatAdapter(deps = {}) {
       ...(botConfig && typeof botConfig === "object" ? botConfig : {}),
       ...(runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {})
     };
-    let managed = null;
+    let resolved = null;
     try {
-      managed = resolveManagedModelRuntime(merged, { engine: "hermes", bot });
+      resolved = resolveModelRuntime(merged, { engine: "hermes", bot });
     } catch (error) {
       throw error;
     }
-    if (!managed) return runtimeConfig;
-    const model = String(merged.model || managed.model || "mia-default").trim() || "mia-default";
+    if (!resolved) return runtimeConfig;
     writeModelRuntimeConfig({
-      provider: managed.provider || "mia",
-      providerLabel: managed.providerLabel || merged.providerLabel || "Mia",
-      authType: managed.authType || merged.authType || "mia_account",
-      model,
-      apiKeyEnv: managed.apiKeyEnv || merged.apiKeyEnv || "MIA_CLOUD_MODEL_TOKEN",
-      apiKey: managed.apiKey || "",
-      baseUrl: managed.baseUrl || merged.baseUrl || "",
-      apiMode: managed.apiMode || merged.apiMode || "chat_completions"
+      provider: resolved.provider,
+      providerLabel: resolved.providerLabel || resolved.provider,
+      authType: resolved.authType || "api_key",
+      model: resolved.model,
+      apiKeyEnv: resolved.apiKeyEnv || "",
+      apiKey: resolved.apiKey || "",
+      baseUrl: resolved.baseUrl || "",
+      apiMode: resolved.apiMode || ""
     });
     return {
       ...(runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {}),
-      provider: "mia",
-      model
+      provider: resolved.provider,
+      providerConnectionId: resolved.providerConnectionId || resolved.provider,
+      modelProfileId: resolved.modelProfileId || "",
+      model: resolved.model
     };
   }
 

@@ -151,9 +151,11 @@ test("writeRuntimeConfig can apply per-turn Mia managed model settings", (t) => 
   service.writeRuntimeConfig(19191, {
     modelSettings: {
       provider: "mia",
+      providerConnectionId: "mia",
       providerLabel: "Mia",
       authType: "mia_account",
       model: "mia-deepseek",
+      modelProfileId: "mia:mia-deepseek",
       apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
       apiKey: "cloud-token",
       baseUrl: "https://mia.example/api/me/model-proxy/v1",

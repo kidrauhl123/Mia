@@ -112,6 +112,10 @@ const { createAgentSessionStore } = require("./main/agent-session-store.js");
 const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
 const { createAgentPermissionProxy } = require("./main/agent-permission-proxy.js");
 const {
+  createMiaCoreModelRuntimeResolver,
+  isMiaManagedRuntime
+} = require("./main/mia-core/model-runtime-resolver.js");
+const {
   closeCodexAppServerRuntimes,
   createCodexAppServerConnection,
   runCodexAppServerTurn
@@ -561,6 +565,12 @@ const providerConnectionStore = providerConnections.store;
 const saveProviderConnection = providerConnections.save;
 const providerConnection = providerConnections.get;
 const connectedProviderSummaries = providerConnections.connectedSummaries;
+const miaCoreModelRuntimeResolver = createMiaCoreModelRuntimeResolver({
+  cloudStatus,
+  normalizeCloudUrl: settingsStore.normalizeCloudUrl,
+  providerConnection: (provider) => providerConnections.get(provider),
+  modelSettings
+});
 authService = createAuthService({
   runtimePaths,
   readJson,
@@ -1950,49 +1960,16 @@ function applyCodexModelSettings() {
 }
 
 function resolveMiaManagedModelSettings(settings = {}) {
-  const provider = String(settings?.provider || "").trim();
-  const authType = String(settings?.authType || settings?.auth_type || "").trim();
-  if (provider !== "mia" && authType !== "mia_account") return settings;
-  const cloud = cloudStatus(true);
-  if (!cloud?.enabled || !cloud.token || !cloud.url) {
-    throw new Error("请先登录 Mia Cloud，再使用 Mia 托管模型。");
-  }
-  const baseUrl = `${settingsStore.normalizeCloudUrl(cloud.url)}/api/me/model-proxy/v1`;
-  return {
-    ...settings,
-    provider: "mia",
-    providerLabel: settings.providerLabel || "Mia",
-    authType: "mia_account",
-    model: String(settings.model || "mia-default").trim() || "mia-default",
-    apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
-    apiKey: cloud.token,
-    baseUrl,
-    apiMode: settings.apiMode || "chat_completions"
-  };
+  return miaCoreModelRuntimeResolver.resolveMiaManagedModelSettings(settings);
 }
 
-function resolveManagedModelRuntime(config = {}) {
-  const provider = String(config.provider || config.modelProvider || config.model_provider || "").trim();
-  const authType = String(config.authType || config.auth_type || "").trim();
-  const profileId = String(config.modelProfileId || config.model_profile_id || "").trim();
-  const model = String(config.model || "").trim();
-  if (provider !== "mia" && authType !== "mia_account" && !profileId.startsWith("mia:")) return null;
-  const cloud = cloudStatus(true);
-  if (!cloud?.enabled || !cloud.token || !cloud.url) {
-    throw new Error("这个 Bot 使用 Mia 托管模型，请先登录 Mia Cloud。");
-  }
-  const cloudBaseUrl = settingsStore.normalizeCloudUrl(cloud.url);
-  return {
-    provider: "mia",
-    providerLabel: "Mia",
-    model: model || "mia-default",
-    authType: "mia_account",
-    apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
-    baseUrl: `${cloudBaseUrl}/api/me/model-proxy/v1`,
-    anthropicBaseUrl: `${cloudBaseUrl}/api/me/model-proxy`,
-    apiKey: cloud.token,
-    apiMode: "chat_completions"
-  };
+function resolveModelRuntime(config = {}, context = {}) {
+  return miaCoreModelRuntimeResolver.resolveModelRuntime(config, context);
+}
+
+function resolveManagedModelRuntime(config = {}, context = {}) {
+  const runtime = resolveModelRuntime(config, context);
+  return isMiaManagedRuntime(runtime) ? runtime : null;
 }
 
 async function restartEngineIfRunning() {
@@ -2060,7 +2037,7 @@ function createActiveHermesChatAdapter() {
     memoryBlock: miaMemoryService.memoryBlock,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
     writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
-    resolveManagedModelRuntime,
+    resolveModelRuntime,
     writeModelRuntimeConfig: (settings) => writeRuntimeConfig(engineState.port || readConfiguredPort(), {
       modelSettings: settings
     }),
@@ -2124,7 +2101,7 @@ function createActiveCodexChatAdapter() {
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
     readBotPersona,
-    resolveManagedModelRuntime,
+    resolveModelRuntime,
     runCodexAppServerTurn,
     setAgentSessionEntry: agentSessionStore.setEntry,
     setAgentSessionId: agentSessionStore.setId,
@@ -2154,7 +2131,7 @@ function createActiveOpenClawChatAdapter() {
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
     readBotPersona,
-    resolveManagedModelRuntime,
+    resolveModelRuntime,
     setAgentSessionId: agentSessionStore.setId,
     shellCommandPath: localAgentEngineService.shellCommandPath
   });

@@ -209,7 +209,7 @@ function createCodexChatAdapter(deps = {}) {
   const getUserMcpSpecs = deps.getUserMcpSpecs || (() => ({}));
   const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
   const ensureUserMcpReady = deps.ensureUserMcpReady || (async () => {});
-  const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
+  const resolveModelRuntime = deps.resolveModelRuntime || deps.resolveManagedModelRuntime || (() => null);
   const ensureMiaCodexProxy = deps.ensureMiaCodexProxy || null;
   const permissionCoordinator = deps.permissionCoordinator || null;
   const appendEngineLog = deps.appendEngineLog || (() => {});
@@ -304,27 +304,27 @@ function createCodexChatAdapter(deps = {}) {
     }
     if (!codexHomePath) throw new Error("Mia Codex home setup failed: missing CODEX_HOME.");
     const env = envForCodexRuntime({ ...baseEnv, CODEX_HOME: codexHomePath }, codexRuntime, commandPath);
-    const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "codex", bot });
-    let effectiveManagedModel = managedModel || null;
+    const modelRuntime = resolveModelRuntime(bot.engineConfig || {}, { engine: "codex", bot });
+    let effectiveManagedModel = modelRuntime || null;
     let miaProxySession = null;
     let releaseMiaProxyAfterTurn = true;
-    if (isMiaManagedCodexModel(managedModel || {})) {
+    if (isMiaManagedCodexModel(modelRuntime || {})) {
       if (typeof ensureMiaCodexProxy !== "function") {
         throw new Error("Mia Codex proxy is not available.");
       }
       const proxy = await timeCodexPhase("mia-model-proxy", () => createOrReuseManagedCodexProxy(
         ensureMiaCodexProxy,
-        managedModel,
+        modelRuntime,
         { engine, bot, sessionId },
         { cache: isDurableAgentSession(sessionId, shouldPersistAgentSession) }
       ));
       miaProxySession = proxy.session;
       releaseMiaProxyAfterTurn = !proxy.cached;
       effectiveManagedModel = {
-        ...(managedModel || {}),
+        ...(modelRuntime || {}),
         baseUrl: miaProxySession.baseUrl,
         apiKey: miaProxySession.apiKey,
-        model: miaProxySession.model || managedModel?.model
+        model: miaProxySession.model || modelRuntime?.model
       };
     }
     const permission = mapCodexPermissionMode(enginePermissionMode("codex") || "default");
