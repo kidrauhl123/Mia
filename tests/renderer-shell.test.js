@@ -1075,7 +1075,7 @@ test("first-run startup overlay is wired to the welcome Lottie animation", () =>
   assert.match(html, /<script src="\.\/startup\/startup-overlay\.js"><\/script>[\s\S]*<script src="\.\/app\.js"><\/script>/);
   assert.match(appSource, /window\.miaStartupOverlay\?\.init\?\.\(\{ firstRun: agentSetupLaunch \}\)/);
   assert.match(appSource, /window\.miaStartupOverlay\?\.isBlocking\?\.\(\)/);
-  assert.match(appSource, /trackStartupTask\("启动后台服务",\s*\(\) => window\.mia\.startupBackgroundServices\(\)\)/);
+  assert.match(appSource, /trackStartupTask\("启动 Mia Core",\s*\(\) => window\.mia\.startupBackgroundServices\(\)\)/);
   assert.match(appSource, /window\.miaStartupOverlay\?\.setWelcome\?\.\(\)/);
   assert.match(appSource, /window\.miaStartupOverlay\?\.finish\?\.\(\)/);
 });

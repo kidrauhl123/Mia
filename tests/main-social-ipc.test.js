@@ -57,7 +57,7 @@ test("runtime gate allows user message writes but blocks runtime social reads wh
       getRecentMessages: () => [{ id: "m_cached", seq: 1 }]
     },
     ensureRuntimeAvailable: () => {
-      const error = new Error("后台守护进程未运行，Mia 暂不可用。");
+      const error = new Error("Mia Core 未运行，Mia 暂不可用。");
       error.status = 503;
       throw error;
     }
@@ -75,7 +75,7 @@ test("runtime gate allows user message writes but blocks runtime social reads wh
   assert.deepEqual(blocked, { ok: true, data: { message: { id: "m_live" } } });
   assert.deepEqual(blockedList, {
     ok: false,
-    error: "后台守护进程未运行，Mia 暂不可用。",
+    error: "Mia Core 未运行，Mia 暂不可用。",
     status: 503
   });
   assert.deepEqual(cached, { ok: true, data: { messages: [{ id: "m_cached", seq: 1 }] } });

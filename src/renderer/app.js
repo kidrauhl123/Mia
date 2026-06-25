@@ -3020,7 +3020,7 @@ async function loadTasksFromDaemonForStartup() {
 async function runFirstRunBackgroundServices() {
   if (typeof window.mia?.startupBackgroundServices !== "function") return null;
   try {
-    return await trackStartupTask("启动后台服务", () => window.mia.startupBackgroundServices());
+    return await trackStartupTask("启动 Mia Core", () => window.mia.startupBackgroundServices());
   } catch (error) {
     console.warn("[Mia startup] failed to start background services", error);
     return { ok: false, error: error?.message || String(error || "Unknown error") };
@@ -5751,8 +5751,8 @@ function renderDaemonStatus(status = {}) {
     const port = status?.port || status?.settings?.port || "";
     const where = host && port ? ` · ${host}:${port}` : "";
     setText(els.daemonHint, running
-      ? `运行中${where}  后台服务是 Mia 的运行时核心`
-      : `未运行${where}  Mia 暂不可用，请重启后台服务`);
+      ? `运行中${where}  Mia Core 是本机运行核心`
+      : `未运行${where}  Mia 暂不可用，请重启 Mia Core`);
   }
   if (els.daemonRestart) {
     els.daemonRestart.disabled = false;
@@ -5771,12 +5771,12 @@ async function refreshDaemonControls() {
 
 els.daemonRestart?.addEventListener("click", async () => {
   els.daemonRestart.disabled = true;
-  setText(els.daemonHint, "重启中…");
+  setText(els.daemonHint, "Mia Core 重启中…");
   try {
     await window.mia.stopDaemon();
     await window.mia.startDaemon();
   } catch (error) {
-    setText(els.daemonHint, `重启失败：${error.message || error}`);
+    setText(els.daemonHint, `Mia Core 重启失败：${error.message || error}`);
   }
   await refreshDaemonControls();
 });

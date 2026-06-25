@@ -1334,7 +1334,7 @@ function daemonLocalEventsConnected() {
 }
 
 function daemonUnavailableError() {
-  const error = new Error("后台守护进程未运行，Mia 暂不可用。");
+  const error = new Error("Mia Core 未运行，Mia 暂不可用。");
   error.status = 503;
   return error;
 }
@@ -1389,8 +1389,8 @@ function cloudEventsStatus() {
       ...fallback,
       connected: localConnected && !upstreamDown,
       lastError: !localConnected
-        ? "后台守护进程未运行，Mia 暂不可用。"
-        : (upstreamDown ? (upstream?.lastError || "后台守护进程未连接云端") : "")
+        ? "Mia Core 未运行，Mia 暂不可用。"
+        : (upstreamDown ? (upstream?.lastError || "Mia Core 未连接云端") : "")
     };
   }
   return cloudEventSocketRuntime?.status?.() || fallback;
@@ -1411,8 +1411,8 @@ function cloudStatus(includeToken = false) {
       user: settings.user,
       deviceId: localConnected ? String(bridge?.deviceId || "") : "",
       lastError: !localConnected
-        ? "后台守护进程未运行，Mia 暂不可用。"
-        : (bridgeKnown ? String(bridge.lastError || "") : "等待后台守护进程上报云端连接状态"),
+        ? "Mia Core 未运行，Mia 暂不可用。"
+        : (bridgeKnown ? String(bridge.lastError || "") : "等待 Mia Core 上报云端连接状态"),
       logs,
       events: cloudEventsStatus(),
       ...(includeToken ? { token: settings.token } : {})

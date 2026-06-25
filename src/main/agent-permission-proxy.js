@@ -12,7 +12,7 @@ function createAgentPermissionProxy({
 }) {
   function requireDaemonClient() {
     if (daemonClient && typeof daemonClient.call === "function") return daemonClient;
-    throw new Error("后台守护进程未运行，权限审批无法完成。");
+    throw new Error("Mia Core 未运行，权限审批无法完成。");
   }
 
   async function respond(payload = {}) {
