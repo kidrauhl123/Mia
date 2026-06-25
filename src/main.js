@@ -115,6 +115,7 @@ const {
   createMiaCoreModelRuntimeResolver,
   isMiaManagedRuntime
 } = require("./main/mia-core/model-runtime-resolver.js");
+const { createMiaCoreRuntimeService } = require("./main/mia-core/runtime-service.js");
 const {
   closeCodexAppServerRuntimes,
   createCodexAppServerConnection,
@@ -571,6 +572,10 @@ const miaCoreModelRuntimeResolver = createMiaCoreModelRuntimeResolver({
   providerConnection: (provider) => providerConnections.get(provider),
   modelSettings
 });
+const miaCoreRuntime = createMiaCoreRuntimeService({
+  normalizeAgentEngine,
+  enginePermissionStoreTarget
+});
 authService = createAuthService({
   runtimePaths,
   readJson,
@@ -994,7 +999,7 @@ function normalizeRemoteUserMessage(input) {
 
 function resolveRemoteChatBot({ botKey, botSnapshot = null, runtimeConfig = null }) {
   initializeRuntime();
-  const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
+  const snapshotBot = miaCoreRuntime.cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
   if (snapshotBot) return { bot: snapshotBot };
   const manifest = loadBotManifest();
   const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
@@ -1994,7 +1999,7 @@ function createActiveStatelessChatEngineAdapters() {
 }
 
 async function sendChatStateless({ botKey, botSnapshot = null, runtimeConfig = null, systemPrompt, userPrompt, signal }) {
-  const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
+  const snapshotBot = miaCoreRuntime.cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
   let bot = snapshotBot;
   if (!bot) {
     const manifest = loadBotManifest();
@@ -2004,7 +2009,7 @@ async function sendChatStateless({ botKey, botSnapshot = null, runtimeConfig = n
   const chatEngine = resolveChatEngineAdapter(bot);
   return sendWithStatelessChatEngineAdapter(createActiveStatelessChatEngineAdapters(), {
     chatEngine,
-    bot: botWithRuntimeConfig(bot, normalizeTurnRuntimeConfig(runtimeConfig), { agentEngine: runtimeAgentEngine }),
+    bot: miaCoreRuntime.botWithRuntimeConfig(bot, normalizeTurnRuntimeConfig(runtimeConfig), { agentEngine: runtimeAgentEngine }),
     systemPrompt,
     userPrompt,
     signal
@@ -2176,44 +2181,6 @@ function createActiveBridgeChatAdapter(agentEngine = "codex") {
   };
 }
 
-function botWithRuntimeConfig(bot, runtimeConfig = {}, options = {}) {
-  if (!runtimeConfig || !Object.keys(runtimeConfig).length) return bot;
-  const agentEngine = normalizeAgentEngine(
-    options.agentEngine || bot?.agentEngine || bot?.agent_engine || "hermes",
-    "hermes"
-  );
-  const configForEngine = { ...runtimeConfig };
-  if (enginePermissionStoreTarget(agentEngine) !== "root-mode") delete configForEngine.permissionMode;
-  if (!Object.keys(configForEngine).length) return bot;
-  return {
-    ...bot,
-    engineConfig: {
-      ...(bot.engineConfig || bot.engine_config || {}),
-      ...configForEngine
-    }
-  };
-}
-
-function cloudBotSnapshotForTurn(snapshot = null, key = "", runtimeConfig = null) {
-  if (!snapshot || typeof snapshot !== "object") return null;
-  const botKey = String(snapshot.key || snapshot.id || key || "").trim();
-  if (!botKey) return null;
-  const requested = String(key || "").trim();
-  if (requested && botKey !== requested) return null;
-  const agentEngine = normalizeAgentEngine(
-    snapshot.agentEngine || snapshot.agent_engine || snapshot.engine || runtimeConfig?.agentEngine || runtimeConfig?.agent_engine,
-    "hermes"
-  );
-  return {
-    ...snapshot,
-    key: botKey,
-    id: String(snapshot.id || botKey),
-    name: String(snapshot.name || snapshot.displayName || snapshot.display_name || botKey),
-    agentEngine,
-    capabilities: snapshot.capabilities && typeof snapshot.capabilities === "object" ? snapshot.capabilities : {}
-  };
-}
-
 async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [], signal: externalSignal = null, abortController: externalAbortController = null }) {
   utility = Boolean(utility);
   const shouldPersistAgentSession = persistAgentSession == null
@@ -2249,7 +2216,7 @@ async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages
     : { emit: null };
   try {
     const key = botKey || botId;
-    const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, key, runtimeConfig);
+    const snapshotBot = miaCoreRuntime.cloudBotSnapshotForTurn(botSnapshot, key, runtimeConfig);
     let bot = snapshotBot;
     if (!bot) {
       const manifest = loadBotManifest();
@@ -2257,7 +2224,7 @@ async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages
     }
     const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
     const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
-    let botForTurn = botWithRuntimeConfig(bot, turnRuntimeConfig, { agentEngine: runtimeAgentEngine });
+    let botForTurn = miaCoreRuntime.botWithRuntimeConfig(bot, turnRuntimeConfig, { agentEngine: runtimeAgentEngine });
     if (runtimeAgentEngine) {
       botForTurn = {
         ...botForTurn,
