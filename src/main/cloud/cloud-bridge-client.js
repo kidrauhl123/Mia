@@ -58,6 +58,16 @@ function attachmentListFromAssistant(assistant = {}, randomUUID = () => "") {
   })).filter((attachment) => attachment.dataUrl || attachment.url);
 }
 
+function botEngineConfigFromRuntime(runtimeConfig = {}, agentEngine = "codex") {
+  return {
+    effortLevel: runtimeConfig.effortLevel || "medium",
+    ...(agentEngine === "hermes" ? { permissionMode: runtimeConfig.permissionMode || "ask" } : {}),
+    ...(runtimeConfig.providerConnectionId ? { providerConnectionId: runtimeConfig.providerConnectionId } : {}),
+    ...(runtimeConfig.modelProfileId ? { modelProfileId: runtimeConfig.modelProfileId } : {}),
+    ...(runtimeConfig.model ? { model: runtimeConfig.model } : {})
+  };
+}
+
 function createCloudBridgeClient({
   WebSocketImpl,
   getSettings,
@@ -153,11 +163,7 @@ function createCloudBridgeClient({
           agentEngine,
           bio: "",
           capabilities,
-          engineConfig: {
-            effortLevel: runtimeConfig.effortLevel || "medium",
-            ...(agentEngine === "hermes" ? { permissionMode: runtimeConfig.permissionMode || "ask" } : {}),
-            ...(runtimeConfig.model ? { model: runtimeConfig.model } : {})
-          }
+          engineConfig: botEngineConfigFromRuntime(runtimeConfig, agentEngine)
         },
         sessionId: `cloud:${String(message.conversationId || "default")}`,
         messages: [{

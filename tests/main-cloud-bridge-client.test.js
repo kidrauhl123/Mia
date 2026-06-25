@@ -324,11 +324,22 @@ test("run messages normalize cloud bridge runtime config to Core-shaped referenc
     effortLevel: "high",
     permissionMode: "bypassPermissions"
   });
+  assert.deepEqual(calls.chat[0].bot.engineConfig, {
+    providerConnectionId: "mia",
+    modelProfileId: "mia:mia-auto",
+    model: "mia-auto-override",
+    effortLevel: "high"
+  });
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "baseUrl"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "apiKeyEnv"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "apiMode"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "providerLabel"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "authType"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "baseUrl"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "apiMode"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "providerLabel"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "authType"), false);
 });
 
 test("cancel messages abort the active bridge run", async () => {

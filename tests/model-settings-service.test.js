@@ -146,3 +146,26 @@ test("saveModelSelection persists compact Mia-managed settings without transport
   assert.equal(calls.restarts, 0);
   assert.equal(calls.statuses, 1);
 });
+
+test("saveModelSelection treats profileless mia-auto as compact Mia-managed settings", async () => {
+  const { calls, service } = setup();
+
+  const result = await service.saveModelSelection({ model: "mia-auto" });
+
+  assert.deepEqual(calls.providerSaves, []);
+  assert.deepEqual(calls.modelWrites, [{
+    provider: "mia",
+    providerConnectionId: "mia",
+    providerLabel: "Mia",
+    authType: "mia_account",
+    model: "mia-auto",
+    modelProfileId: "mia:mia-auto"
+  }]);
+  assert.equal("apiKeyEnv" in calls.modelWrites[0], false);
+  assert.equal("apiKey" in calls.modelWrites[0], false);
+  assert.equal("baseUrl" in calls.modelWrites[0], false);
+  assert.equal("apiMode" in calls.modelWrites[0], false);
+  assert.deepEqual(result, { runtime: true });
+  assert.equal(calls.restarts, 0);
+  assert.equal(calls.statuses, 1);
+});

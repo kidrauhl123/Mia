@@ -12,7 +12,12 @@ function isCompactMiaManagedSettings(settings = {}) {
   const provider = firstString(settings, ["provider"]);
   const authType = firstString(settings, ["authType", "auth_type"]);
   const modelProfileId = firstString(settings, ["modelProfileId", "model_profile_id"]);
-  return provider === "mia" || authType === "mia_account" || modelProfileId.startsWith("mia:");
+  const model = firstString(settings, ["model"]);
+  return provider === "mia"
+    || authType === "mia_account"
+    || modelProfileId.startsWith("mia:")
+    || model === "mia-auto"
+    || model === "mia-default";
 }
 
 function createModelSettingsService({
