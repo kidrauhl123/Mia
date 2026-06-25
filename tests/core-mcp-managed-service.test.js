@@ -382,3 +382,42 @@ test("refreshBridge excludes ensureRunning failures from same-cycle manager refr
   assert.equal(healthy.enabled, true);
   assert.notEqual(healthy.connectionWizard.state, "managed_error");
 });
+
+test("refreshBridge returns sanitized error and persists managed_error when ensureRunning throws", async (t) => {
+  const { service } = setup(t, {
+    managedSupervisor: {
+      runAction: async (record, action) => ({
+        ok: true,
+        state: action,
+        message: action,
+        recordPatch: {
+          managedRuntime: { ...record.managedRuntime, state: action === "test" ? "running" : action }
+        }
+      }),
+      ensureRunning: async () => {
+        throw new Error("ensure failed TOKEN=secret-value");
+      }
+    },
+    manager: {
+      refresh: async () => {
+        assert.fail("manager.refresh should not run after ensureRunning throws");
+      },
+      testServer: async () => ({ ok: true, success: true, status: "connected", code: "ok", tools: [{ name: "search", inputSchema: {} }] }),
+      toolManifest: () => []
+    }
+  });
+
+  const installed = await service.installTemplate("xiaohongshu", {});
+  await service.runManagedAction(installed.data.id, "test", {});
+
+  const refreshed = await service.refreshBridge();
+  const listed = await service.list();
+
+  assert.equal(refreshed.success, true);
+  assert.equal(refreshed.data.errors.length, 1);
+  assert.equal(refreshed.data.errors[0].message, "ensure failed TOKEN=[redacted]");
+  assert.equal(listed.data.servers[0].managedRuntime.state, "error");
+  assert.equal(listed.data.servers[0].connectionWizard.state, "managed_error");
+  assert.equal(listed.data.servers[0].connectionWizard.message, "ensure failed TOKEN=[redacted]");
+  assert.equal(listed.data.servers[0].lastError, "ensure failed TOKEN=[redacted]");
+});

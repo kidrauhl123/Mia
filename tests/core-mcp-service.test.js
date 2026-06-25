@@ -412,3 +412,58 @@ test("refreshBridge excludes ensureRunning failures from same-cycle native sync 
   assert.equal(refreshed.success, true);
   assert.deepEqual(nativeSyncCalls, [["playwright"]]);
 });
+
+test("getEngineSpecs excludes managed records until connection is confirmed", async (t) => {
+  const { service } = setup(t);
+
+  await service.save({
+    id: "managed_error",
+    name: "managed-error",
+    nativeName: "managed-error",
+    managementMode: "managed",
+    enabled: true,
+    status: "disconnected",
+    transport: { type: "stdio", command: "npx", args: ["managed-error"] },
+    connectionWizard: { state: "managed_error", nextAction: "test", message: "retry" },
+    managedRuntime: { state: "error" }
+  });
+  await service.save({
+    id: "managed_disconnected",
+    name: "managed-disconnected",
+    nativeName: "managed-disconnected",
+    managementMode: "managed",
+    enabled: true,
+    status: "running",
+    lastTestStatus: "disconnected",
+    transport: { type: "stdio", command: "npx", args: ["managed-disconnected"] },
+    connectionWizard: { state: "ready_to_test", nextAction: "test", message: "test me" },
+    managedRuntime: { state: "running" }
+  });
+  await service.save({
+    id: "managed_connected",
+    name: "managed-connected",
+    nativeName: "managed-connected",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed-connected"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+  await service.save({
+    id: "native_enabled",
+    name: "native-enabled",
+    nativeName: "native-enabled",
+    managementMode: "native",
+    enabled: true,
+    transport: { type: "stdio", command: "npx", args: ["native-enabled"] }
+  });
+
+  const codexSpecs = service.getEngineSpecs("codex");
+
+  assert.equal("managed-error" in codexSpecs, false);
+  assert.equal("managed-disconnected" in codexSpecs, false);
+  assert.equal("managed-connected" in codexSpecs, true);
+  assert.equal("native-enabled" in codexSpecs, true);
+});

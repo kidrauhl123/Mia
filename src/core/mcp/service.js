@@ -301,11 +301,38 @@ function createCoreMcpService(deps = {}) {
     return matchers.failedNames.has(record.name) || matchers.failedNames.has(record.nativeName);
   }
 
-  function canEnableManagedRecord(record) {
+  function isManagedExposureReady(record) {
     if (!record || record.managementMode !== "managed") return true;
     if (String(record.status || "").trim().toLowerCase() === "connected") return true;
     if (String(record.lastTestStatus || "").trim().toLowerCase() === "connected") return true;
     return String(record?.connectionWizard?.state || "").trim().toLowerCase() === "connected";
+  }
+
+  function canEnableManagedRecord(record) {
+    return isManagedExposureReady(record);
+  }
+
+  function managedEnsureFailureRecords(records = [], error) {
+    const message = sanitizeSecretText(error?.message || error || "Managed MCP startup failed.");
+    return normalizeCoreMcpRegistry(
+      records
+        .filter((record) => record?.managementMode === "managed")
+        .map((record) => normalizeCoreMcpRecord({
+          ...record,
+          managedRuntime: {
+            ...(record?.managedRuntime && typeof record.managedRuntime === "object" ? sanitizeManagedValue(record.managedRuntime) : {}),
+            state: "error"
+          },
+          connectionWizard: managedActionFailureWizard(
+            record,
+            String(record?.connectionWizard?.nextAction || "").trim() || "start",
+            message
+          ),
+          lastError: message,
+          updatedAt: now()
+        }, { now, idFactory })),
+      { now, idFactory }
+    );
   }
 
   function applyStatuses(records, nativeResult = {}, options = {}) {
@@ -344,14 +371,28 @@ function createCoreMcpService(deps = {}) {
 
   async function refreshBridgeState(records = loadRecords()) {
     const current = normalizeCoreMcpRegistry(records, { now, idFactory });
-    const managedResult = managedSupervisor && typeof managedSupervisor.ensureRunning === "function"
-      ? await managedSupervisor.ensureRunning(enabledCoreMcpRecords(current))
-      : { records: enabledCoreMcpRecords(current), errors: [] };
+    const enabledCurrentRecords = enabledCoreMcpRecords(current);
+    let managedResult = { records: enabledCurrentRecords, errors: [] };
+    if (managedSupervisor && typeof managedSupervisor.ensureRunning === "function") {
+      try {
+        managedResult = await managedSupervisor.ensureRunning(enabledCurrentRecords);
+      } catch (error) {
+        const failedManagedRecords = managedEnsureFailureRecords(enabledCurrentRecords, error);
+        managedResult = {
+          records: failedManagedRecords,
+          errors: failedManagedRecords.map((record) => ({
+            id: record.id,
+            name: record.nativeName || record.name,
+            message: sanitizeSecretText(error?.message || error || "Managed MCP startup failed.")
+          }))
+        };
+      }
+    }
     const runtimeRecords = mergeManagedRecords(current, managedResult.records);
     const refreshFailureMatchers = managedRefreshFailureMatchers(managedResult.errors);
     const refreshableRecords = enabledCoreMcpRecords(runtimeRecords).filter((record) => !isManagedRefreshFailure(record, refreshFailureMatchers));
     const nativeSyncRecords = runtimeRecords.filter((record) => !isManagedRefreshFailure(record, refreshFailureMatchers));
-    const refreshed = manager && typeof manager.refresh === "function"
+    const refreshed = refreshableRecords.length > 0 && manager && typeof manager.refresh === "function"
       ? await manager.refresh(refreshableRecords)
       : { success: true, tools: [], errors: [] };
     if (bridge && typeof bridge.start === "function") {
@@ -864,7 +905,7 @@ function createCoreMcpService(deps = {}) {
   }
 
   function enabledRecords() {
-    return enabledCoreMcpRecords(loadRecords());
+    return enabledCoreMcpRecords(loadRecords()).filter((record) => isManagedExposureReady(record));
   }
 
   function fingerprint() {
