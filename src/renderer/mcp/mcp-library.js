@@ -38,7 +38,11 @@
         formMode: "create",
         formDraft: null,
         importOpen: false,
-        importText: ""
+        importText: "",
+        templateWizardOpen: false,
+        templateWizardBusy: false,
+        activeTemplateId: "",
+        managedBusyKey: ""
       };
     }
     if (typeof state.mcp.loaded !== "boolean") state.mcp.loaded = false;
@@ -53,6 +57,10 @@
     if (typeof state.mcp.importOpen !== "boolean") state.mcp.importOpen = false;
     if (typeof state.mcp.formMode !== "string") state.mcp.formMode = "create";
     if (typeof state.mcp.importText !== "string") state.mcp.importText = "";
+    if (typeof state.mcp.templateWizardOpen !== "boolean") state.mcp.templateWizardOpen = false;
+    if (typeof state.mcp.templateWizardBusy !== "boolean") state.mcp.templateWizardBusy = false;
+    if (typeof state.mcp.activeTemplateId !== "string") state.mcp.activeTemplateId = "";
+    if (typeof state.mcp.managedBusyKey !== "string") state.mcp.managedBusyKey = "";
     return state.mcp;
   }
 
@@ -151,6 +159,9 @@
     const mcp = mcpState();
     mcp.formOpen = false;
     mcp.importOpen = false;
+    mcp.templateWizardOpen = false;
+    mcp.templateWizardBusy = false;
+    mcp.activeTemplateId = "";
   }
 
   function bindDialogClose(overlay) {
@@ -334,20 +345,47 @@
     return `<span class="mcp-chip ${escapeHtml(className)}">${escapeHtml(label)}</span>`;
   }
 
+  function requiredInputHtml(field = {}) {
+    const key = escapeHtml(field.key || "");
+    const label = escapeHtml(field.label || field.key || "");
+    const type = field.secret ? "password" : "text";
+    return `<label>${label}<input name="${key}" type="${type}" autocomplete="off" ${field.required === false ? "" : "required"}></label>`;
+  }
+
+  function advancedDiagnosticsHtml(item = {}) {
+    const commands = [];
+    const transport = item.transport || {};
+    if (transport.type === "stdio" && transport.command) {
+      commands.push([transport.command, ...(transport.args || [])].filter(Boolean).join(" "));
+    }
+    if (Array.isArray(item.setupCommands)) {
+      item.setupCommands.filter(Boolean).forEach((command) => commands.push(String(command)));
+    }
+    const details = [...new Set(commands.map((command) => String(command || "").trim()).filter(Boolean))];
+    if (!details.length) return "";
+    return `
+      <details class="mcp-advanced-diagnostics">
+        <summary>高级诊断</summary>
+        <p>包含 ${details.length} 条本地命令诊断，默认隐藏。</p>
+      </details>
+    `;
+  }
+
   function renderServerSetupGuide(server = {}) {
-    const commands = Array.isArray(server.setupCommands) ? server.setupCommands.filter(Boolean) : [];
     const url = transportSummary(server.transport || {});
-    const expectedToolCount = Number(server.expectedToolCount || 0);
-    const hasSetup = server.setupHint || server.homepage || commands.length || expectedToolCount > 0;
+    const expectedToolCount = Number(
+      server.expectedToolCount
+      || server.managedRuntime?.expectedToolCount
+      || 0
+    );
+    const message = String(server.connectionWizard?.message || server.setupHint || "").trim();
+    const hasSetup = message || server.homepage || url || expectedToolCount > 0;
     const isDisconnected = String(server.status || "") === "disconnected";
     if (!hasSetup && !isDisconnected) return "";
     const rows = [];
-    if (isDisconnected) rows.push("<strong>需要先启动本机 MCP 服务</strong>");
-    if (server.setupHint) rows.push(`<span>${escapeHtml(server.setupHint)}</span>`);
+    if (isDisconnected && !message) rows.push("<strong>服务尚未连接</strong>");
+    if (message) rows.push(`<strong>${escapeHtml(message)}</strong>`);
     if (url) rows.push(`<span>连接地址 <code>${escapeHtml(url)}</code></span>`);
-    if (commands.length) {
-      rows.push(`<span>源码方式 <code>${commands.map((command) => escapeHtml(command)).join("</code><code>")}</code></span>`);
-    }
     if (expectedToolCount > 0) rows.push(`<span>连接成功后应发现 ${expectedToolCount} 个工具</span>`);
     if (server.homepage) rows.push(`<span>仓库 ${escapeHtml(server.homepage.replace(/^https?:\/\/github\.com\//, ""))}</span>`);
     return `<div class="mcp-setup-guide">${rows.join("")}</div>`;
@@ -379,11 +417,33 @@
     return `<button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="oauth-login" data-mcp-id="${id}" ${disabled}>${label}</button>`;
   }
 
+  function managedActionHtml(server = {}) {
+    const actions = Array.isArray(server.connectionWizard?.actions) ? server.connectionWizard.actions : [];
+    const isManaged = server.managementMode === "managed"
+      || !!server.managedRuntime?.connectorId
+      || actions.length > 0;
+    if (!isManaged || !actions.length) return "";
+    const busyKey = mcpState().managedBusyKey;
+    return `
+      <div class="mcp-managed-actions">
+        ${server.connectionWizard?.message ? `<p>${escapeHtml(server.connectionWizard.message)}</p>` : ""}
+        <div class="mcp-action-strip">
+          ${actions.map((action) => {
+            const key = `${server.id}:${action.id}`;
+            const busy = busyKey === key;
+            return `<button class="mcp-action-button ${action.id === server.connectionWizard?.nextAction ? "mcp-action-primary" : "mcp-action-secondary"}" type="button" data-mcp-managed-action="${escapeHtml(action.id)}" data-mcp-id="${escapeHtml(server.id || "")}" ${busy ? "disabled" : ""}>${escapeHtml(busy ? "处理中..." : action.label || action.id)}</button>`;
+          }).join("")}
+        </div>
+      </div>
+    `;
+  }
+
   function renderServerCard(server) {
     const syncLabel = syncStatusLabel(server);
     const description = server.description || transportSummary(server.transport) || "未配置描述";
     const id = escapeHtml(server.id || "");
     const oauthAction = oauthActionHtml(server);
+    const managedActions = managedActionHtml(server);
     return `
       <article class="skill-card mcp-card" data-mcp-id="${id}">
         <div class="skill-card-head">
@@ -403,10 +463,12 @@
           </span>
         </span>
         ${renderServerSetupGuide(server)}
+        ${managedActions}
+        ${advancedDiagnosticsHtml(server)}
         ${renderAvailabilityCheckHint()}
         <div class="mcp-card-actions mcp-server-actions" aria-label="MCP 服务操作">
           <div class="mcp-action-strip mcp-action-strip-primary">
-            <button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="test" data-mcp-id="${id}" title="检测 MCP 可用状态，不会启动外部服务">检测连接</button>
+            ${managedActions ? "" : `<button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="test" data-mcp-id="${id}" title="检测 MCP 可用状态，不会启动外部服务">检测连接</button>`}
           </div>
           <div class="mcp-action-strip mcp-action-strip-secondary ${oauthAction ? "mcp-action-strip-auth" : ""}">
             ${oauthAction}
@@ -435,7 +497,7 @@
           </span>
         </span>
         <div class="mcp-card-actions">
-          <button class="mcp-action-button mcp-action-primary" type="button" data-mcp-action="install" data-mcp-template="${escapeHtml(template.id || "")}">安装</button>
+          <button class="mcp-action-button mcp-action-primary" type="button" data-mcp-action="connect-template" data-mcp-template="${escapeHtml(template.id || "")}">连接</button>
         </div>
       </article>
     `;
@@ -571,6 +633,14 @@
         );
       });
     });
+    els.skillCardGrid.querySelectorAll("[data-mcp-managed-action]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        if (button.disabled || Object.prototype.hasOwnProperty.call(button.attributes || {}, "disabled")) return;
+        handleManagedAction(button.dataset.mcpId || "", button.dataset.mcpManagedAction || "");
+      });
+    });
   }
 
   function renderGrid(html) {
@@ -684,6 +754,64 @@
     await loadMcpServers({ force: true });
   }
 
+  function openTemplateWizard(template) {
+    if (typeof document === "undefined" || !document.body || !template) return;
+    const mcp = mcpState();
+    const fields = Array.isArray(template.requiredInputs) ? template.requiredInputs : [];
+    const managed = template.managementMode === "managed";
+    const overlay = document.createElement("section");
+    overlay.className = "mcp-dialog";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", `连接 ${template.name || template.id || "MCP"}`);
+    overlay.innerHTML = `
+      <div class="mcp-dialog-backdrop" data-mcp-close></div>
+      <form class="mcp-dialog-panel" data-mcp-template-form>
+        <header class="mcp-dialog-head">
+          <h2>${escapeHtml(template.name || template.id || "MCP 服务")}</h2>
+          <button type="button" data-mcp-close aria-label="关闭">×</button>
+        </header>
+        <p class="mcp-dialog-copy">${escapeHtml(template.description || "")}</p>
+        ${fields.map((field) => requiredInputHtml(field)).join("")}
+        ${managed ? `<p class="mcp-dialog-copy">${escapeHtml(template.connectionWizard?.message || "Mia 会管理这个 MCP 的安装、登录、启动和检测。")}</p>` : ""}
+        <footer class="mcp-dialog-actions">
+          <button type="button" data-mcp-close>取消</button>
+          <button type="submit">${managed ? "添加到 Mia" : "检测并启用"}</button>
+        </footer>
+      </form>
+    `;
+    if (!appendDialog(overlay)) return;
+    mcp.templateWizardOpen = true;
+    mcp.activeTemplateId = template.id || "";
+    const form = overlay.querySelector("[data-mcp-template-form]");
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (typeof FormData === "undefined") return;
+      if (!window.mia?.mcp?.installTemplate) {
+        alertText("MCP 模板安装暂不可用");
+        return;
+      }
+      const data = new FormData(form);
+      const values = {};
+      fields.forEach((field) => {
+        values[field.key] = String(data.get(field.key) || "").trim();
+      });
+      mcp.templateWizardBusy = true;
+      try {
+        const result = await window.mia.mcp.installTemplate(template.id, values);
+        if (!result?.success) {
+          alertText(`连接失败：${result?.error || "未知错误"}`);
+          return;
+        }
+        mcp.activeTab = "installed";
+        closeActiveDialog();
+        await loadMcpServers({ force: true });
+      } finally {
+        mcp.templateWizardBusy = false;
+      }
+    });
+  }
+
   function openImportForm() {
     if (typeof document === "undefined" || !document.body) return;
     const mcp = mcpState();
@@ -785,6 +913,24 @@
     await loadMcpServers({ force: true });
   }
 
+  async function handleManagedAction(id, action) {
+    const mcp = mcpState();
+    if (!window.mia?.mcp?.runManagedAction) {
+      alertText("MCP 托管操作暂不可用");
+      return;
+    }
+    mcp.managedBusyKey = `${id}:${action}`;
+    renderMcpLibrary();
+    try {
+      const result = await window.mia.mcp.runManagedAction(id, action, {});
+      if (!result?.success) alertText(`操作失败：${result?.error || "未知错误"}`);
+      await loadMcpServers({ force: true });
+    } finally {
+      mcp.managedBusyKey = "";
+      renderMcpLibrary();
+    }
+  }
+
   async function handleMcpOauth(id, mode) {
     const mcp = mcpState();
     const server = mcp.servers.find((item) => item.id === id);
@@ -840,6 +986,7 @@
     if (action === "sync") return syncMcpServers();
     if (action === "toggle") return toggleMcpServer(id);
     if (action === "delete") return deleteMcpServer(id);
+    if (action === "connect-template") return openTemplateWizard(mcpState().templates.find((template) => template.id === id));
     if (action === "install") return installTemplate(id);
     if (action === "oauth-login") return handleMcpOauth(id, "login");
     if (action === "oauth-logout") return handleMcpOauth(id, "logout");

@@ -416,7 +416,8 @@ test("mcp-library renders installed, marketplace, and custom tabs", () => {
   assert.equal(harness.getLayoutCalls(), 1);
 });
 
-test("mcp-library renders setup guidance for disconnected xiaohongshu MCP services", () => {
+test("managed installed xiaohongshu card exposes app actions instead of setup commands", async () => {
+  const actions = [];
   const state = {
     skillFilter: "",
     mcp: {
@@ -424,15 +425,18 @@ test("mcp-library renders setup guidance for disconnected xiaohongshu MCP servic
       servers: [{
         id: "mcp_xhs",
         name: "小红书 MCP",
-        nativeName: "xiaohongshu-mcp",
-        enabled: true,
+        nativeName: "xiaohongshu",
+        enabled: false,
         status: "disconnected",
-        lastError: "fetch failed",
-        homepage: "https://github.com/xpzouying/xiaohongshu-mcp",
-        setupHint: "来自 xpzouying/xiaohongshu-mcp；首次使用先登录，再启动本地 MCP 服务，Mia 只负责连接。",
+        managedRuntime: { connectorId: "xiaohongshu", state: "installed", expectedToolCount: 13 },
+        connectionWizard: {
+          state: "ready_to_test",
+          nextAction: "test",
+          message: "Mia 已启动服务，可以检测。",
+          actions: [{ id: "test", label: "检测并启用" }]
+        },
         setupCommands: ["go run cmd/login/main.go", "go run ."],
-        expectedToolCount: 13,
-        transport: { type: "http", url: "http://localhost:18060/mcp" },
+        transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
         tools: [],
         sync: {}
       }],
@@ -445,18 +449,26 @@ test("mcp-library renders setup guidance for disconnected xiaohongshu MCP servic
       templateError: ""
     }
   };
-  const harness = createMcpHarness({ state });
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      runManagedAction: async (id, action) => {
+        actions.push([id, action]);
+        return { success: true, data: { id, name: "小红书 MCP", enabled: true, status: "connected", transport: { type: "http" } } };
+      }
+    }
+  });
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
 
-  assert.match(harness.els.skillCardGrid.innerHTML, /需要先启动本机 MCP 服务/);
-  assert.match(harness.els.skillCardGrid.innerHTML, /http:\/\/localhost:18060\/mcp/);
-  assert.match(harness.els.skillCardGrid.innerHTML, /go run cmd\/login\/main\.go/);
-  assert.match(harness.els.skillCardGrid.innerHTML, /go run \./);
-  assert.match(harness.els.skillCardGrid.innerHTML, /13 个工具/);
-  assert.match(harness.els.skillCardGrid.innerHTML, /xpzouying\/xiaohongshu-mcp/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /检测并启用/);
+  assert.doesNotMatch(harness.els.skillCardGrid.innerHTML, /go run/);
   assert.equal(harness.els.skillCardGrid.querySelector('[data-mcp-action="sync"]'), null);
   assert.equal(harness.els.skillCardGrid.querySelector('[data-mcp-action="toggle"]'), null);
+  harness.els.skillCardGrid.querySelector('[data-mcp-managed-action="test"]').click();
+  await flushAsync();
+
+  assert.deepEqual(actions, [["mcp_xhs", "test"]]);
 });
 
 test("mcp-library settles empty successful responses into stable empty states", async () => {
@@ -886,14 +898,22 @@ test("edit form submits URL payloads with parsed headers and bearer token env va
   assert.equal(harness.getMarketplaceCalls(), 1);
 });
 
-test("marketplace install calls installTemplate(id, {}) and reloads", async () => {
+test("marketplace template cards open a no-command connection wizard", async () => {
   const installCalls = [];
   const state = {
     skillFilter: "",
     mcp: {
       activeTab: "marketplace",
       servers: [],
-      templates: [{ id: "xhs-template", name: "XHS Template", description: "Install me", transport: { type: "http" } }],
+      templates: [{
+        id: "github",
+        name: "GitHub MCP",
+        managementMode: "native",
+        description: "GitHub",
+        category: "开发",
+        transport: { type: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"], env: {} },
+        requiredInputs: [{ key: "GITHUB_PERSONAL_ACCESS_TOKEN", label: "GitHub Personal Access Token", secret: true, target: "env", required: true }]
+      }],
       loaded: true,
       loadAttempted: true,
       loading: false,
@@ -907,17 +927,24 @@ test("marketplace install calls installTemplate(id, {}) and reloads", async () =
     state,
     mcpOverrides: {
       installTemplate: async (id, values) => {
-        installCalls.push([id, JSON.parse(JSON.stringify(values))]);
-        return { success: true };
+        installCalls.push({ id, values: JSON.parse(JSON.stringify(values)) });
+        return { success: true, data: { id: "mcp_github", name: "GitHub MCP", enabled: true, status: "connected", transport: { type: "stdio" } } };
       }
     }
   });
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
-  harness.els.skillCardGrid.querySelector('[data-mcp-action="install"]').click();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-template"]').click();
+
+  const form = harness.document.body.querySelector("[data-mcp-template-form]");
+  assert.match(form.innerHTML, /GitHub Personal Access Token/);
+  assert.equal(form.querySelector('input[name="GITHUB_PERSONAL_ACCESS_TOKEN"]').getAttribute("type"), "password");
+  assert.doesNotMatch(form.innerHTML, /npx -y/);
+  form.querySelector('input[name="GITHUB_PERSONAL_ACCESS_TOKEN"]').value = "ghp_secret";
+  form.dispatch("submit");
   await flushAsync();
 
-  assert.deepEqual(installCalls, [["xhs-template", {}]]);
+  assert.deepEqual(installCalls, [{ id: "github", values: { GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_secret" } }]);
   assert.equal(harness.getListCalls(), 1);
   assert.equal(harness.getMarketplaceCalls(), 1);
   assert.equal(state.mcp.activeTab, "installed");
