@@ -122,3 +122,103 @@ test("native template stays disabled when connection test fails", async (t) => {
   assert.equal(result.data.connectionWizard.state, "test_failed");
   assert.equal(result.data.lastTestCode, "spawn_failed");
 });
+
+test("managed xiaohongshu install creates disabled record with managed actions", async (t) => {
+  const { service } = setup(t, {
+    managedSupervisor: {
+      runAction: async () => ({ ok: true, state: "installed", message: "installed", recordPatch: { managedRuntime: { state: "installed", installDir: "/tmp/xhs" } } }),
+      ensureRunning: async (records) => ({ records, errors: [] })
+    }
+  });
+
+  const installed = await service.installTemplate("xiaohongshu", {});
+
+  assert.equal(installed.success, true);
+  assert.equal(installed.data.enabled, false);
+  assert.equal(installed.data.managementMode, "managed");
+  assert.equal(installed.data.managedRuntime.connectorId, "xiaohongshu");
+  assert.equal(installed.data.connectionWizard.nextAction, "install");
+});
+
+test("runManagedAction updates xiaohongshu runtime state", async (t) => {
+  const actions = [];
+  const { service } = setup(t, {
+    managedSupervisor: {
+      runAction: async (record, action) => {
+        actions.push([record.nativeName, action]);
+        return {
+          ok: true,
+          state: action === "start" ? "running" : "installed",
+          message: action,
+          recordPatch: {
+            managedRuntime: {
+              ...record.managedRuntime,
+              state: action === "start" ? "running" : "installed",
+              installDir: "/tmp/xhs",
+              lastAction: action
+            }
+          }
+        };
+      },
+      ensureRunning: async (records) => ({ records, errors: [] })
+    }
+  });
+  const installed = await service.installTemplate("xiaohongshu", {});
+
+  const started = await service.runManagedAction(installed.data.id, "start", {});
+
+  assert.equal(started.success, true);
+  assert.equal(started.data.managedRuntime.state, "running");
+  assert.equal(started.data.connectionWizard.nextAction, "test");
+  assert.deepEqual(actions, [["xiaohongshu", "start"]]);
+});
+
+test("runManagedAction test enables xiaohongshu after successful MCP test", async (t) => {
+  const { service } = setup(t, {
+    managedSupervisor: {
+      runAction: async (record, action) => ({
+        ok: true,
+        state: action === "start" ? "running" : "installed",
+        message: action,
+        recordPatch: { managedRuntime: { ...record.managedRuntime, state: "running", installDir: "/tmp/xhs", lastAction: action } }
+      }),
+      ensureRunning: async (records) => ({ records, errors: [] })
+    }
+  });
+  const installed = await service.installTemplate("xiaohongshu", {});
+  await service.runManagedAction(installed.data.id, "start", {});
+
+  const tested = await service.runManagedAction(installed.data.id, "test", {});
+
+  assert.equal(tested.success, true);
+  assert.equal(tested.data.enabled, true);
+  assert.equal(tested.data.status, "connected");
+  assert.equal(tested.data.connectionWizard.state, "connected");
+});
+
+test("refreshBridge starts enabled managed records before manager refresh", async (t) => {
+  const calls = [];
+  const { service } = setup(t, {
+    managedSupervisor: {
+      runAction: async (record, action) => ({ ok: true, state: action, message: action, recordPatch: { managedRuntime: { ...record.managedRuntime, state: action } } }),
+      ensureRunning: async (records) => {
+        calls.push(["ensureRunning", records.map((record) => record.nativeName)]);
+        return { records: records.map((record) => ({ ...record, managedRuntime: { ...record.managedRuntime, state: "running" } })), errors: [] };
+      }
+    },
+    manager: {
+      refresh: async (records) => {
+        calls.push(["refresh", records.map((record) => `${record.nativeName}:${record.managedRuntime?.state || ""}`)]);
+        return { success: true, tools: [], errors: [] };
+      },
+      testServer: async () => ({ ok: true, success: true, status: "connected", code: "ok", tools: [{ name: "search", inputSchema: {} }] }),
+      toolManifest: () => []
+    }
+  });
+  const installed = await service.installTemplate("xiaohongshu", {});
+  await service.runManagedAction(installed.data.id, "test", {});
+  await service.refreshBridge();
+
+  assert.equal(calls.some((call) => call[0] === "ensureRunning"), true);
+  assert.equal(calls.some((call) => call[0] === "refresh" && call[1].includes("xiaohongshu:running")), true);
+});

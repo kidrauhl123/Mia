@@ -123,6 +123,7 @@ function createCoreMcpService(deps = {}) {
   const stdioProxyScriptPath = typeof deps.stdioProxyScriptPath === "function"
     ? deps.stdioProxyScriptPath
     : () => path.join(__dirname, "../../main/mcp/mcp-stdio-proxy-server.js");
+  const managedSupervisor = deps.managedSupervisor || null;
   const initializationTimeoutMs = Number.isFinite(Number(deps.initializationTimeoutMs))
     && Number(deps.initializationTimeoutMs) > 0
     ? Number(deps.initializationTimeoutMs)
@@ -263,15 +264,24 @@ function createCoreMcpService(deps = {}) {
 
   async function refreshBridgeState(records = loadRecords()) {
     const current = normalizeCoreMcpRegistry(records, { now, idFactory });
+    const managedResult = managedSupervisor && typeof managedSupervisor.ensureRunning === "function"
+      ? await managedSupervisor.ensureRunning(enabledCoreMcpRecords(current))
+      : { records: enabledCoreMcpRecords(current), errors: [] };
+    const runtimeRecords = current.map((record) => {
+      const updated = managedResult.records.find((item) => item.id === record.id);
+      return updated || record;
+    });
     const refreshed = manager && typeof manager.refresh === "function"
-      ? await manager.refresh(enabledCoreMcpRecords(current))
+      ? await manager.refresh(enabledCoreMcpRecords(runtimeRecords))
       : { success: true, tools: [], errors: [] };
     if (bridge && typeof bridge.start === "function") {
       bridgeInfo = await bridge.start();
     }
     return {
       tools: Array.isArray(refreshed?.tools) ? refreshed.tools : [],
-      errors: Array.isArray(refreshed?.errors) ? refreshed.errors.map((error) => sanitizeBridgeError(error)) : [],
+      errors: []
+        .concat(Array.isArray(refreshed?.errors) ? refreshed.errors.map((error) => sanitizeBridgeError(error)) : [])
+        .concat(Array.isArray(managedResult?.errors) ? managedResult.errors.map((error) => sanitizeBridgeError(error)) : []),
       bridge: maskedBridgeInfo(bridgeInfo)
     };
   }
@@ -631,6 +641,76 @@ function createCoreMcpService(deps = {}) {
     }
   }
 
+  function nextManagedWizard(action, result, testStatus = "") {
+    if (action === "install") {
+      return { state: "needs_managed_action", nextAction: "login", message: result.message || "Installed.", missingRequiredInputs: [], actions: [{ id: "login", label: "打开登录" }, { id: "start", label: "启动服务" }, { id: "test", label: "检测并启用" }] };
+    }
+    if (action === "login") {
+      return { state: "needs_managed_action", nextAction: "start", message: result.message || "Login started.", missingRequiredInputs: [], actions: [{ id: "start", label: "启动服务" }, { id: "test", label: "检测并启用" }] };
+    }
+    if (action === "start") {
+      return { state: "ready_to_test", nextAction: "test", message: result.message || "Service started.", missingRequiredInputs: [], actions: [{ id: "test", label: "检测并启用" }] };
+    }
+    if (action === "test" && testStatus === "connected") {
+      return { state: "connected", nextAction: "", message: "Connected and enabled.", missingRequiredInputs: [], actions: [] };
+    }
+    if (action === "test") {
+      return { state: "test_failed", nextAction: "test", message: result.message || "Connection test failed.", missingRequiredInputs: [], actions: [{ id: "test", label: "重新检测" }] };
+    }
+    return { state: "needs_managed_action", nextAction: "start", message: result.message || "", missingRequiredInputs: [], actions: [{ id: "start", label: "启动服务" }, { id: "test", label: "检测并启用" }] };
+  }
+
+  async function runManagedAction(id, action, values = {}) {
+    try {
+      const current = loadRecords();
+      const existing = resolveRecord(current, id);
+      if (!existing) throw new Error("MCP server not found.");
+      if (existing.managementMode !== "managed") throw new Error("MCP server is not managed by Mia.");
+      if (!managedSupervisor || typeof managedSupervisor.runAction !== "function") {
+        throw new Error("Managed MCP supervisor is not configured.");
+      }
+
+      let result = { ok: true, state: "", message: "", recordPatch: {} };
+      let nextRecord = existing;
+      if (action !== "test") {
+        result = await managedSupervisor.runAction(existing, action, values || {});
+        nextRecord = normalizeCoreMcpRecord({
+          ...existing,
+          ...result.recordPatch,
+          transport: existing.transport,
+          connectionWizard: nextManagedWizard(action, result),
+          enabled: false,
+          updatedAt: now()
+        }, { now, idFactory });
+      } else {
+        const tested = await testServer(existing);
+        if (!tested.success) throw new Error(tested.error || "MCP connection test failed.");
+        nextRecord = normalizeCoreMcpRecord({
+          ...existing,
+          status: tested.data.status,
+          lastTestStatus: tested.data.lastTestStatus || tested.data.status,
+          lastTestCode: tested.data.lastTestCode,
+          diagnostics: tested.data.diagnostics,
+          tools: tested.data.tools,
+          lastCheckedAt: tested.data.lastCheckedAt,
+          lastError: tested.data.lastError,
+          enabled: tested.data.status === "connected",
+          connectionWizard: nextManagedWizard(action, tested.data, tested.data.status),
+          updatedAt: now()
+        }, { now, idFactory });
+      }
+
+      const saved = saveRecords(current.map((record) => record.id === existing.id ? nextRecord : record));
+      const runtime = await applyRuntimeChanges(current, saved, {
+        availableIds: nextRecord.enabled ? new Set() : new Set([nextRecord.id]),
+        availableMessage: nextRecord.enabled ? "" : "Waiting for managed MCP setup in Mia."
+      });
+      return ok(publicRecord(resolveRecord(runtime.records, nextRecord.id) || nextRecord));
+    } catch (error) {
+      return fail(error);
+    }
+  }
+
   async function refreshBridge() {
     try {
       return ok(await refreshBridgeState(loadRecords()));
@@ -815,6 +895,7 @@ function createCoreMcpService(deps = {}) {
     },
     refreshBridge,
     removeFromAgents,
+    runManagedAction,
     save,
     setEnabled,
     sync,
