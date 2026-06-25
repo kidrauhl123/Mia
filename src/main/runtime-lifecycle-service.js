@@ -2,15 +2,12 @@
 
 function createRuntimeLifecycleService({
   appendDaemonLog,
-  appendEngineLog,
   getRuntimeStatus,
   initializeRuntimeCore,
   isDaemonProcess = false,
   refreshSystemHermesAsync,
   setDaemonLastError,
-  setEngineLastError,
   startDaemonService,
-  startEngine,
   timer
 }) {
   if (typeof initializeRuntimeCore !== "function") throw new Error("initializeRuntimeCore dependency is required.");
@@ -35,7 +32,7 @@ function createRuntimeLifecycleService({
     return status;
   };
 
-  const scheduleBackgroundStartup = ({ delayMs = 800, engineDelayMs = 1500 } = {}) => {
+  const scheduleBackgroundStartup = ({ delayMs = 800 } = {}) => {
     if (isDaemonProcess || backgroundStartupScheduled) return false;
     backgroundStartupScheduled = true;
     mark("background:scheduled", { delayMs });
@@ -55,24 +52,6 @@ function createRuntimeLifecycleService({
         .then(() => refreshSystemHermesAsync?.())
         .then(() => mark("system-hermes:refresh-done"))
         .catch(() => { /* cached lastError */ });
-
-      setTimeout(async () => {
-        try {
-          if (!getRuntimeStatus().engineInstalled) {
-            appendEngineLog?.("No Hermes available from the user's system install; waiting for manual setup.");
-            mark("engine:auto-start-skipped");
-            return;
-          }
-          mark("engine:auto-start-begin");
-          await startEngine?.();
-          mark("engine:auto-start-done");
-        } catch (error) {
-          const message = String(error?.message || error);
-          setEngineLastError?.(message);
-          appendEngineLog?.(`Auto-start failed: ${message}`);
-          mark("engine:auto-start-error", { message });
-        }
-      }, engineDelayMs);
     }, delayMs);
     return true;
   };

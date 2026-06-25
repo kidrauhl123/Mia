@@ -97,8 +97,6 @@ const els = {
   chatConversationMenu: document.getElementById("chatConversationMenu"),
   chatConversationList: document.getElementById("chatConversationList"),
   initialize: document.getElementById("initialize"),
-  startEngine: document.getElementById("startEngine"),
-  stopEngine: document.getElementById("stopEngine"),
   engineRowHermes: document.getElementById("engineRowHermes"),
   engineRowClaude: document.getElementById("engineRowClaude"),
   engineRowCodex: document.getElementById("engineRowCodex"),
@@ -5899,25 +5897,6 @@ if (window.mia.onCloudEvent) {
 }
 
 window.mia.onDesktopNotificationClick?.(openDesktopNotificationConversation);
-
-els.startEngine?.addEventListener("click", async () => {
-  els.startEngine.disabled = true;
-  els.startEngine.textContent = "Starting...";
-  try {
-    state.runtime = await window.mia.startEngine();
-    render();
-  } catch (error) {
-    window.alert(`启动失败：${error.message}`);
-    await refreshRuntime();
-  } finally {
-    els.startEngine.disabled = false;
-    els.startEngine.textContent = "Start";
-  }
-});
-els.stopEngine?.addEventListener("click", async () => {
-  state.runtime = await window.mia.stopEngine();
-  render();
-});
 
 els.codexLogin.addEventListener("click", async () => {
   els.codexLogin.disabled = true;

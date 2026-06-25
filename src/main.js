@@ -362,7 +362,6 @@ const engineHealthService = createEngineHealthService({
   fetchImpl: fetch,
   getEngineProcess: () => engineProcess,
   getEngineState: () => engineState,
-  readConfiguredPort,
   setEngineState: (next) => { engineState = next; },
   timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs)
 });
@@ -788,15 +787,12 @@ function runtimeLifecycle() {
   if (!runtimeLifecycleService) {
     runtimeLifecycleService = createRuntimeLifecycleService({
       appendDaemonLog,
-      appendEngineLog,
       getRuntimeStatus,
       initializeRuntimeCore: runtimeInitializerService.initializeRuntimeCore,
       isDaemonProcess: IS_DAEMON_PROCESS,
       refreshSystemHermesAsync: systemHermesService.refresh,
       setDaemonLastError: (message) => miaCoreControlServer?.setLastError(message),
-      setEngineLastError: (message) => { engineState.lastError = message; },
       startDaemonService,
-      startEngine,
       timer: startupTimer
     });
   }
@@ -815,6 +811,7 @@ const startupBackgroundService = createStartupBackgroundService({
   refreshSystemHermesAsync: systemHermesService.refresh,
   setDaemonLastError: (message) => miaCoreControlServer?.setLastError(message),
   setEngineLastError: (message) => { engineState.lastError = message; },
+  shouldStartEngine: () => IS_DAEMON_PROCESS,
   startDaemonService,
   startEngine
 });
@@ -1846,7 +1843,6 @@ async function startEngine() {
   }
   if (engineProcess && engineState.running) return getRuntimeStatus();
   enginePluginsService.ensureInstalled();
-  if (await engineHealthService.adoptRunningEngine()) return getRuntimeStatus();
 
   const port = await engineHealthService.choosePort();
   if (!port) throw new Error("No available local port for Mia Hermes API.");
@@ -1995,6 +1991,7 @@ function createActiveStatelessChatEngineAdapters() {
   const openClawAdapter = createActiveOpenClawChatAdapter();
   return createStatelessChatEngineAdapters({
     ensureHermesReady: ensureHermesChatEngineReady,
+    recoverHermesAfterFailure: recoverHermesChatEngineAfterFailure,
     sendClaudeCodeStateless: claudeAdapter.sendStateless,
     sendCodexStateless: codexAdapter.sendStateless,
     sendHermesStateless: hermesAdapter.sendStateless,
@@ -2021,9 +2018,22 @@ async function sendChatStateless({ botKey, botSnapshot = null, runtimeConfig = n
 }
 
 async function ensureHermesChatEngineReady() {
+  const wasMarkedRunning = Boolean(engineState.running && engineState.baseUrl);
+  const stillHealthy = await engineHealthService.refreshRunningEngineHealth();
+  if (wasMarkedRunning && !stillHealthy && engineProcess) {
+    try { engineProcess.kill("SIGTERM"); } catch { /* stale process may already be gone */ }
+    engineProcess = null;
+    appendEngineLog("Hermes API became unreachable; restarting through Mia Core.");
+  }
   if (!engineState.running || !engineState.baseUrl) {
     await startEngine();
   }
+}
+
+async function recoverHermesChatEngineAfterFailure(error) {
+  appendEngineLog(`Hermes API request failed during chat; restarting through Mia Core before retry. ${error?.message || error}`);
+  await stopEngine();
+  return startEngine();
 }
 
 // Group-context plumbing carried over from the local-group era. Cloud group
@@ -2154,6 +2164,7 @@ function createActiveChatEngineAdapters() {
   return createChatEngineAdapters({
     chatCompletionResponse,
     ensureHermesReady: ensureHermesChatEngineReady,
+    recoverHermesAfterFailure: recoverHermesChatEngineAfterFailure,
     hermesSlashCommandResponse: hermesAdapter.slashCommandResponse,
     runExternalSlashCommand: (input) => externalAgentCommandService.runSlashCommand(input),
     runHermesSlashCommand: hermesSlashCommandService.run,
@@ -2956,8 +2967,6 @@ ipcMain.handle(IpcChannel.EngineRepair, async (event) => {
     throw error;
   }
 });
-ipcMain.handle(IpcChannel.EngineStart, () => startEngine());
-ipcMain.handle(IpcChannel.EngineStop, () => stopEngine());
 ipcMain.handle(IpcChannel.EngineUninstallStandalone, () => uninstallStandaloneEngine());
 ipcMain.handle(IpcChannel.AuthCodexStart, () => authService.startCodexOAuth());
 ipcMain.handle(IpcChannel.AuthCodexCancel, () => authService.cancelCodexOAuth());

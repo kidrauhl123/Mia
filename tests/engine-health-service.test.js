@@ -81,32 +81,43 @@ test("isEngineHealthy verifies the authenticated Mia probe route", async () => {
   assert.equal(await rejected.isEngineHealthy("http://127.0.0.1:18642"), false);
 });
 
-test("adoptRunningEngine only probes remembered Mia ports and updates engine state", async () => {
-  let state = { running: false, starting: true, port: 19001, baseUrl: "", managedBy: "", lastError: "old" };
+test("engine health service does not expose orphan Hermes adoption", () => {
+  const service = createEngineHealthService();
+
+  assert.equal("adoptRunningEngine" in service, false);
+});
+
+test("refreshRunningEngineHealth clears stale running state when the remembered API is gone", async () => {
+  let state = {
+    running: true,
+    starting: false,
+    port: 19001,
+    baseUrl: "http://127.0.0.1:19001",
+    managedBy: "process",
+    lastError: ""
+  };
   const probes = [];
   const service = createEngineHealthService({
     apiKey: () => "key_1",
-    readConfiguredPort: () => 19002,
     getEngineState: () => state,
     setEngineState: (next) => { state = next; },
     fetchImpl: async (url) => {
       probes.push(url);
-      return { status: url.includes("19002") ? 404 : 401 };
+      throw new Error("connect ECONNREFUSED");
     }
   });
 
-  assert.equal(await service.adoptRunningEngine(), true);
+  assert.equal(await service.refreshRunningEngineHealth(), false);
   assert.deepEqual(probes, [
-    "http://127.0.0.1:19001/v1/runs/_mia_probe/events",
-    "http://127.0.0.1:19002/v1/runs/_mia_probe/events"
+    "http://127.0.0.1:19001/v1/runs/_mia_probe/events"
   ]);
   assert.deepEqual(state, {
-    running: true,
+    running: false,
     starting: false,
-    port: 19002,
-    baseUrl: "http://127.0.0.1:19002",
-    managedBy: "process",
-    lastError: ""
+    port: 19001,
+    baseUrl: "",
+    managedBy: "",
+    lastError: "Hermes API is no longer reachable."
   });
 });
 

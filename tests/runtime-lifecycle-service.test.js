@@ -49,12 +49,11 @@ test("runtime lifecycle initializes runtime once and reuses status", () => {
   ]);
 });
 
-test("runtime lifecycle schedules daemon and engine startup once", async () => {
+test("runtime lifecycle schedules Core startup and system refresh without foreground Hermes startup", async () => {
   const calls = [];
   const timer = createTimer();
   const service = createRuntimeLifecycleService({
     appendDaemonLog: (line) => calls.push(["daemon-log", line]),
-    appendEngineLog: (line) => calls.push(["engine-log", line]),
     getRuntimeStatus: () => ({ engineInstalled: true }),
     initializeRuntimeCore: () => ({ created: [] }),
     refreshSystemHermesAsync: async () => calls.push(["refresh-system-hermes"]),
@@ -65,21 +64,18 @@ test("runtime lifecycle schedules daemon and engine startup once", async () => {
 
   assert.equal(service.scheduleBackgroundStartup({ delayMs: 0, engineDelayMs: 0 }), true);
   assert.equal(service.scheduleBackgroundStartup({ delayMs: 0, engineDelayMs: 0 }), false);
-  await waitUntil(() => calls.some((entry) => entry[0] === "start-engine"));
+  await waitUntil(() => calls.length >= 2);
 
   assert.deepEqual(calls, [
     ["start-daemon"],
-    ["refresh-system-hermes"],
-    ["start-engine"]
+    ["refresh-system-hermes"]
   ]);
   assert.equal(service.isBackgroundStartupScheduled(), true);
   assert.deepEqual(timer.marks.map((entry) => entry.label), [
     "background:scheduled",
     "daemon:start-scheduled",
     "daemon:start-done",
-    "system-hermes:refresh-done",
-    "engine:auto-start-begin",
-    "engine:auto-start-done"
+    "system-hermes:refresh-done"
   ]);
 });
 
@@ -92,7 +88,6 @@ test("runtime lifecycle records startup errors without throwing from scheduler",
     initializeRuntimeCore: () => ({ created: [] }),
     refreshSystemHermesAsync: async () => {},
     setDaemonLastError: (message) => errors.push(["daemon-error", message]),
-    setEngineLastError: (message) => errors.push(["engine-error", message]),
     startDaemonService: async () => { throw new Error("daemon failed"); },
     startEngine: async () => { throw new Error("engine failed"); }
   });
@@ -102,8 +97,6 @@ test("runtime lifecycle records startup errors without throwing from scheduler",
 
   assert.deepEqual(errors, [
     ["daemon-error", "daemon failed"],
-    ["daemon-log", "Background daemon registration failed: daemon failed"],
-    ["engine-error", "engine failed"],
-    ["engine-log", "Auto-start failed: engine failed"]
+    ["daemon-log", "Background daemon registration failed: daemon failed"]
   ]);
 });

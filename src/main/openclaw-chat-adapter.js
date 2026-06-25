@@ -124,12 +124,12 @@ function openClawAcpSessionKey(bot, sessionId, mcpFingerprint = "") {
   ].filter(Boolean).join(":");
 }
 
-function shouldUseLegacyOpenClawTransport(bot = {}, managedModel = null) {
+function shouldUseLegacyOpenClawTransport(bot = {}) {
   const config = bot.engineConfig || {};
   const transport = String(config.openclawTransport || config.transport || "").trim().toLowerCase();
   if (transport === "acp" || transport === "gateway" || transport === "openclaw-acp") return false;
   if (transport === "legacy-agent" || transport === "openclaw-cli" || transport === "agent") return true;
-  return config.openclawLocal === true || config.local === true || isMiaManagedRuntime(managedModel);
+  return false;
 }
 
 function buildOpenClawGlobalArgs(config = {}) {
@@ -307,6 +307,13 @@ function selectedOpenClawModelOverride(config = {}, managedModel = null) {
   return String(config.model || "").trim();
 }
 
+function selectedOpenClawEffort(config = {}, managedModel = null, normalizeEffortLevel = (level) => level) {
+  const effort = normalizeEffortLevel(config.effortLevel || "medium", "openclaw");
+  const model = selectedOpenClawModelOverride(config, managedModel).toLowerCase();
+  if (isMiaManagedRuntime(managedModel) && model === "mia/mia-auto") return "off";
+  return effort;
+}
+
 function openClawMiaProviderPatch(managedModel = {}, config = {}) {
   const model = String(config.model || managedModel.model || "mia-auto").trim() || "mia-auto";
   const baseUrl = String(managedModel.baseUrl || managedModel.base_url || config.baseUrl || config.base_url || "").trim();
@@ -353,6 +360,11 @@ function decorateOpenClawAcpError(error, output = "") {
     return new Error("OpenClaw ACP 启动失败：" + raw);
   }
   return error instanceof Error ? error : new Error(message || "OpenClaw ACP 启动失败。");
+}
+
+function isOpenClawGatewayUnavailableError(error) {
+  const text = String(error?.message || error || "");
+  return /OpenClaw Gateway 没有运行|ACP bridge failed|ECONNREFUSED|gateway client error|gateway closed before ready|not connected to gateway|ACP connection closed/i.test(text);
 }
 
 function decorateOpenClawLegacyError(error) {
@@ -477,8 +489,8 @@ function createOpenClawChatAdapter(deps = {}) {
     const commandPath = shellCommandPath("openclaw") || shellCommandPath("claw");
     if (!commandPath) throw new Error("本机没有检测到 OpenClaw CLI。请先安装并确认 openclaw --version 可用。");
     const externalSessionId = persistAgentSession ? getAgentSessionId("openclaw", bot.key, sessionId) : "";
-    const effort = normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "openclaw");
     const effectiveRuntime = managedModel || resolveModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });
+    const effort = selectedOpenClawEffort(bot.engineConfig || {}, effectiveRuntime, normalizeEffortLevel);
     const forceLocal = bot.engineConfig?.openclawLocal === true || bot.engineConfig?.local === true || isMiaManagedRuntime(effectiveRuntime);
     if (isMiaManagedRuntime(effectiveRuntime)) await syncOpenClawManagedModelConfig(commandPath, effectiveRuntime, bot.engineConfig || {}, signal);
     const model = selectedOpenClawModelOverride(bot.engineConfig || {}, effectiveRuntime);
@@ -787,7 +799,7 @@ function createOpenClawChatAdapter(deps = {}) {
     const desiredSessionKey = openClawAcpSessionKey(bot, sessionId, mcpFingerprint);
     const storedSessionKey = persistAgentSession ? getAgentSessionId("openclaw", bot.key, sessionId) : "";
     const sessionKey = storedSessionKey === desiredSessionKey ? storedSessionKey : desiredSessionKey;
-    const effort = normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "openclaw");
+    const effort = selectedOpenClawEffort(bot.engineConfig || {}, effectiveRuntime, normalizeEffortLevel);
     const stdoutChunks = [];
     const stderrChunks = [];
     const outputChunks = [];
@@ -1000,13 +1012,28 @@ function createOpenClawChatAdapter(deps = {}) {
   async function runOpenClaw({ bot, sessionId, message, signal, emit = null, persistAgentSession = true } = {}) {
     const modelRuntime = resolveModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });
     const useLegacy = shouldUseLegacyOpenClawTransport(bot, modelRuntime);
-    const result = useLegacy
-      ? await runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession, managedModel: modelRuntime })
-      : await runOpenClawAcp({ bot, sessionId, message, signal, emit, persistAgentSession, managedModel: modelRuntime });
-    return {
-      ...result,
-      compatibilityTransport: useLegacy ? "openclaw-cli" : ""
-    };
+    if (useLegacy) {
+      const result = await runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession, managedModel: modelRuntime });
+      return {
+        ...result,
+        compatibilityTransport: "openclaw-cli"
+      };
+    }
+    try {
+      const result = await runOpenClawAcp({ bot, sessionId, message, signal, emit, persistAgentSession, managedModel: modelRuntime });
+      return {
+        ...result,
+        compatibilityTransport: ""
+      };
+    } catch (error) {
+      if (!isMiaManagedRuntime(modelRuntime) || !isOpenClawGatewayUnavailableError(error)) throw error;
+      appendEngineLog("OpenClaw ACP Gateway unavailable; falling back to local CLI for Mia-managed model.");
+      const result = await runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession, managedModel: modelRuntime });
+      return {
+        ...result,
+        compatibilityTransport: "openclaw-cli-fallback"
+      };
+    }
   }
 
   async function sendChat({ bot, sessionId, messages, group, signal, emit = null, utility = false, scheduledFire = false, persistAgentSession = !utility }) {

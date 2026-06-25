@@ -62,8 +62,6 @@ contextBridge.exposeInMainWorld("mia", {
   },
   onboardingComplete: () => ipcRenderer.invoke(IpcChannel.OnboardingComplete),
   repairEngine: () => ipcRenderer.invoke(IpcChannel.EngineRepair),
-  startEngine: () => ipcRenderer.invoke(IpcChannel.EngineStart),
-  stopEngine: () => ipcRenderer.invoke(IpcChannel.EngineStop),
   uninstallStandaloneEngine: () => ipcRenderer.invoke(IpcChannel.EngineUninstallStandalone),
   onEnginesChanged: (handler) => {
     const listener = () => { try { handler(); } catch { /* ignore */ } };

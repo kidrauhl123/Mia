@@ -143,6 +143,37 @@ test("hermes adapter starts runtime before normal run", async () => {
   ]);
 });
 
+test("hermes adapter restarts and retries once after local API disconnect", async () => {
+  const deps = createDeps();
+  const error = new Error("Hermes API is unreachable: fetch failed");
+  error.code = "HERMES_API_UNREACHABLE";
+  error.stage = "create_run";
+  deps.sendHermesChat = async (context) => {
+    deps.calls.push(["send-hermes", context.sessionId]);
+    if (deps.calls.filter((call) => call[0] === "send-hermes").length === 1) throw error;
+    return { engine: "hermes", recovered: true };
+  };
+  deps.recoverHermesAfterFailure = async (failure) => {
+    deps.calls.push(["recover-hermes", failure.code, failure.stage]);
+  };
+  const adapters = createChatEngineAdapters(deps);
+
+  const response = await adapters.hermes.send({
+    bot,
+    sessionId: "s-recover",
+    slashText: ""
+  });
+
+  assert.deepEqual(response, { engine: "hermes", recovered: true });
+  assert.deepEqual(deps.calls, [
+    ["ensure-hermes"],
+    ["send-hermes", "s-recover"],
+    ["recover-hermes", "HERMES_API_UNREACHABLE", "create_run"],
+    ["ensure-hermes"],
+    ["send-hermes", "s-recover"]
+  ]);
+});
+
 test("sendWithChatEngineAdapter falls back to hermes adapter", async () => {
   const deps = createDeps();
   const adapters = createChatEngineAdapters(deps);
@@ -266,6 +297,36 @@ test("stateless hermes adapter ensures runtime first", async () => {
     userPrompt: "user"
   }), { content: "hermes" });
   assert.deepEqual(deps.calls, [
+    ["ensure-hermes"],
+    ["stateless-hermes", "sys", "user"]
+  ]);
+});
+
+test("stateless hermes adapter restarts and retries once after local API disconnect", async () => {
+  const deps = createStatelessDeps();
+  const error = new Error("Hermes API is unreachable: fetch failed");
+  error.code = "HERMES_API_UNREACHABLE";
+  error.stage = "create_run";
+  deps.sendHermesStateless = async (context) => {
+    deps.calls.push(["stateless-hermes", context.systemPrompt, context.userPrompt]);
+    if (deps.calls.filter((call) => call[0] === "stateless-hermes").length === 1) throw error;
+    return { content: "recovered" };
+  };
+  deps.recoverHermesAfterFailure = async (failure) => {
+    deps.calls.push(["recover-hermes", failure.code, failure.stage]);
+  };
+  const adapters = createStatelessChatEngineAdapters(deps);
+
+  assert.deepEqual(await adapters.hermes.send({
+    chatEngine: { id: "hermes" },
+    bot,
+    systemPrompt: "sys",
+    userPrompt: "user"
+  }), { content: "recovered" });
+  assert.deepEqual(deps.calls, [
+    ["ensure-hermes"],
+    ["stateless-hermes", "sys", "user"],
+    ["recover-hermes", "HERMES_API_UNREACHABLE", "create_run"],
     ["ensure-hermes"],
     ["stateless-hermes", "sys", "user"]
   ]);

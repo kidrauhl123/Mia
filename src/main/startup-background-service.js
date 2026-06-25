@@ -16,6 +16,7 @@ function createStartupBackgroundService({
   startDaemonService,
   refreshSystemHermesAsync,
   startEngine,
+  shouldStartEngine = () => true,
   isDaemonEnabled = () => true,
   setDaemonLastError = () => {},
   setEngineLastError = () => {},
@@ -53,6 +54,10 @@ function createStartupBackgroundService({
 
   async function runEngine() {
     const runtime = getRuntimeStatus();
+    if (!shouldStartEngine()) {
+      appendEngineLog("Hermes startup skipped here; Mia Core owns local engine runs.");
+      return createStepResult(true, { skipped: true });
+    }
     if (!runtime?.engineInstalled) {
       appendEngineLog("No Hermes available from the user's system install; waiting for manual setup.");
       return createStepResult(true, { skipped: true });
