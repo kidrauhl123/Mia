@@ -82,12 +82,13 @@ test("fetchMarketplace exposes supported marketplace MCP templates", async (t) =
   assert.equal(market.success, true);
   assert.equal(templates.xiaohongshu.nativeName, "xiaohongshu");
   assert.equal(templates.xiaohongshu.homepage, "https://github.com/xpzouying/xiaohongshu-mcp");
-  assert.equal(templates.xiaohongshu.expectedToolCount, 13);
+  assert.equal(templates.xiaohongshu.managementMode, "managed");
+  assert.equal(templates.xiaohongshu.managedRuntime.expectedToolCount, 13);
   assert.match(templates.xiaohongshu.connectionWizard.message, /登录后启动并检测连接/);
   assert.deepEqual(templates.xiaohongshu.connectionWizard.actions.map((action) => action.id), ["install", "login", "start", "test"]);
   assert.deepEqual(templates.xiaohongshu.transport, {
     type: "http",
-    url: "http://localhost:18060/mcp",
+    url: "http://127.0.0.1:18060/mcp",
     headers: {}
   });
   assert.equal(templates.playwright.category, "浏览器自动化");
@@ -165,7 +166,7 @@ test("installed marketplace records inherit updated setup metadata", async (t) =
   assert.equal(server.nativeName, "xiaohongshu");
   assert.equal(server.homepage, "https://github.com/xpzouying/xiaohongshu-mcp");
   assert.equal(server.expectedToolCount, 13);
-  assert.match(server.setupHint, /启动/);
+  assert.equal(server.setupHint, "");
   assert.equal(server.sync.codex.status, "available");
   assert.equal(server.sync["claude-code"].status, "available");
 });
@@ -397,12 +398,12 @@ test("save disable sync removeFromAgents and delete refresh bridge and sync nati
   assert.equal(synced.success, true);
   assert.equal(removed.success, true);
   assert.equal(deleted.success, true);
-  assert.equal(refreshCalls.length >= 5, true);
+  assert.equal(refreshCalls.length, 1);
   assert.equal(syncCalls.length >= 5, true);
   assert.equal(syncCalls[0].currentRecords.some((record) => record.name === "xhs"), true);
   assert.equal(syncCalls[1].currentRecords.some((record) => record.name === "xhs" && record.enabled === false), true);
   assert.equal(syncCalls[3].previousRecords.some((record) => record.name === "xhs"), true);
-  assert.equal(syncCalls[3].currentRecords.some((record) => record.name === "xhs"), false);
+  assert.equal(syncCalls[3].currentRecords.some((record) => record.name === "xhs" && record.enabled === false), true);
   assert.equal(syncCalls.at(-1).previousRecords.some((record) => record.name === "xhs"), true);
 });
 
@@ -445,7 +446,7 @@ test("native sync failure redacts secrets before persisting or listing public sy
 });
 
 test("refreshBridge returns sanitized IPC errors when dependencies throw secret-bearing messages", async (t) => {
-  const { service } = setup(t, {
+  const { runtime, service } = setup(t, {
     manager: {
       testServer: async () => ({ success: true, status: "connected", tools: [], error: "" }),
       refresh: async () => {
@@ -455,6 +456,19 @@ test("refreshBridge returns sanitized IPC errors when dependencies throw secret-
       callTool: async () => ({ content: [], isError: false })
     }
   });
+  fs.mkdirSync(path.dirname(runtime.mcpServers), { recursive: true });
+  fs.writeFileSync(runtime.mcpServers, JSON.stringify([{
+    id: "mcp_bridge_throw",
+    name: "bridge-throw",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    tools: [{ name: "search_notes" }],
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} },
+    sync: {},
+    createdAt: 1,
+    updatedAt: 1
+  }], null, 2));
 
   const refreshed = await service.refreshBridge();
 
@@ -464,7 +478,7 @@ test("refreshBridge returns sanitized IPC errors when dependencies throw secret-
 });
 
 test("refreshBridge redacts bridge refresh errors before returning them", async (t) => {
-  const { service } = setup(t, {
+  const { runtime, service } = setup(t, {
     manager: {
       testServer: async () => ({ success: true, status: "connected", tools: [], error: "" }),
       refresh: async () => ({
@@ -479,6 +493,19 @@ test("refreshBridge redacts bridge refresh errors before returning them", async 
       callTool: async () => ({ content: [], isError: false })
     }
   });
+  fs.mkdirSync(path.dirname(runtime.mcpServers), { recursive: true });
+  fs.writeFileSync(runtime.mcpServers, JSON.stringify([{
+    id: "mcp_bridge_error",
+    name: "bridge-error",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    tools: [{ name: "search_notes" }],
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} },
+    sync: {},
+    createdAt: 1,
+    updatedAt: 1
+  }], null, 2));
 
   const refreshed = await service.refreshBridge();
 
@@ -707,11 +734,13 @@ test("targeted removeFromAgents does not add or re-sync other enabled servers", 
 
   assert.equal(removedFirst.success, true);
   assert.deepEqual(firstRemovalSync.previousRecords.map((record) => record.name), ["alpha"]);
-  assert.deepEqual(firstRemovalSync.currentRecords, []);
+  assert.deepEqual(firstRemovalSync.currentRecords.map((record) => record.name), ["alpha", "beta"]);
+  assert.equal(firstRemovalSync.currentRecords.find((record) => record.name === "beta").sync.codex.status, "pending");
 
   assert.equal(removedSecond.success, true);
   assert.deepEqual(secondRemovalSync.previousRecords.map((record) => record.name), ["beta"]);
-  assert.deepEqual(secondRemovalSync.currentRecords, []);
+  assert.deepEqual(secondRemovalSync.currentRecords.map((record) => record.name), ["alpha", "beta"]);
+  assert.equal(secondRemovalSync.currentRecords.find((record) => record.name === "alpha").sync.codex.status, "available");
 
   assert.equal(listed.success, true);
   assert.deepEqual(listed.data.servers.map((record) => [record.name, record.enabled]), [
@@ -901,7 +930,7 @@ test("initialize restores bridge specs for cold-start getEngineSpecs", async (t)
 
 test("getEngineSpecs triggers lazy initialization and initialize stays bounded when refresh hangs", async (t) => {
   let refreshCalls = 0;
-  const { service } = setup(t, {
+  const { runtime, service } = setup(t, {
     manager: {
       testServer: async () => ({ success: true, status: "connected", tools: [], error: "" }),
       refresh: async () => {
@@ -912,6 +941,19 @@ test("getEngineSpecs triggers lazy initialization and initialize stays bounded w
       callTool: async () => ({ content: [{ type: "text", text: "ok" }], isError: false })
     }
   });
+  fs.mkdirSync(path.dirname(runtime.mcpServers), { recursive: true });
+  fs.writeFileSync(runtime.mcpServers, JSON.stringify([{
+    id: "mcp_lazy_init",
+    name: "lazy-http",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    tools: [{ name: "search_notes" }],
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} },
+    sync: {},
+    createdAt: 1,
+    updatedAt: 1
+  }], null, 2));
 
   service.getEngineSpecs("codex");
   const startedAt = Date.now();
