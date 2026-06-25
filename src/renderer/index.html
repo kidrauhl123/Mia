@@ -125,21 +125,22 @@
           </button>
           <div class="sidebar-title">消息</div>
         </div>
-        <button id="openPersonaSearch" class="icon-button sidebar-search-trigger" type="button" title="搜索" aria-label="搜索">
+        <button id="openPersonaSearch" class="icon-button sidebar-search-trigger hidden" type="button" title="搜索" aria-label="搜索" hidden>
           <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
             <circle cx="10.8" cy="10.8" r="6.6" fill="none" stroke="currentColor" stroke-width="2"/>
             <path d="M16 16L21 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </button>
-        <div class="search-box hidden" role="search">
+        <div class="search-box conversation-search-box" role="search">
           <span class="search-box-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" focusable="false">
               <circle cx="10.8" cy="10.8" r="6.6" fill="none" stroke="currentColor" stroke-width="2"/>
               <path d="M16 16L21 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             </svg>
           </span>
-          <input id="personaSearch" autocomplete="off" placeholder="搜索">
-          <button id="personaSearchClear" class="search-clear hidden" type="button" title="清除搜索" aria-label="清除搜索">
+          <span class="search-box-label" aria-hidden="true">搜索</span>
+          <input id="personaSearch" autocomplete="off" placeholder="" aria-label="搜索会话记录">
+          <button id="personaSearchClear" class="search-clear hidden" type="button" title="关闭搜索" aria-label="关闭搜索">
             <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
               <path d="M7 7L17 17M17 7L7 17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
             </svg>

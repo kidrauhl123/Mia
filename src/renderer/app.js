@@ -1815,14 +1815,15 @@ function renderConversationSearchTools(cloudReady) {
     els.personaSearch.value = searchValue;
   }
   if (els.personaSearch) {
-    els.personaSearch.placeholder = "搜索会话记录";
+    els.personaSearch.placeholder = "";
   }
   tools?.classList.toggle("search-active", searchOpen);
-  els.personaSearchClear?.classList.toggle("hidden", !searchValue);
-  els.openPersonaSearch?.classList.toggle("hidden", searchOpen);
-  els.newPersona?.classList.toggle("hidden", searchOpen);
-  els.closePersonaSearch?.classList.toggle("hidden", !searchOpen);
-  searchBox?.classList.toggle("hidden", !searchOpen);
+  searchBox?.classList.toggle("has-query", Boolean(searchValue));
+  els.personaSearchClear?.classList.toggle("hidden", !(searchOpen || searchValue));
+  els.openPersonaSearch?.classList.add("hidden");
+  els.newPersona?.classList.remove("hidden");
+  els.closePersonaSearch?.classList.add("hidden");
+  searchBox?.classList.remove("hidden");
   tools?.classList.toggle("has-tag-filters", showFilters);
   if (!els.personaTagFilters) return;
   els.personaTagFilters.classList.toggle("hidden", !showFilters);
@@ -5483,6 +5484,9 @@ els.openPersonaSearch?.addEventListener("click", (event) => {
   event.preventDefault();
   setPersonaSearchOpen(true);
 });
+els.personaSearch.addEventListener("focus", () => {
+  if (!state.personaSearchOpen) setPersonaSearchOpen(true);
+});
 els.personaSearch.addEventListener("input", () => {
   state.personaSearchOpen = true;
   state.personaFilter = els.personaSearch.value;
@@ -5502,11 +5506,7 @@ els.personaSearch.addEventListener("keydown", (event) => {
 });
 els.personaSearchClear?.addEventListener("click", (event) => {
   event.preventDefault();
-  state.personaFilter = "";
-  if (els.personaSearch) els.personaSearch.value = "";
-  resetPersonaMessageSearch();
-  render();
-  els.personaSearch?.focus?.();
+  setPersonaSearchOpen(false);
 });
 els.closePersonaSearch?.addEventListener("click", (event) => {
   event.preventDefault();
