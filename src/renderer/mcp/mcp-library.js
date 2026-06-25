@@ -22,10 +22,14 @@
         activeTab: "installed",
         servers: [],
         templates: [],
+        agentConfigs: [],
+        agentConfigsLoaded: false,
+        agentConfigsError: "",
         loaded: false,
         loadAttempted: false,
         loading: false,
         syncing: false,
+        oauthBusyId: "",
         error: "",
         serverError: "",
         templateError: "",
@@ -41,6 +45,10 @@
     if (typeof state.mcp.loadAttempted !== "boolean") state.mcp.loadAttempted = false;
     if (typeof state.mcp.serverError !== "string") state.mcp.serverError = "";
     if (typeof state.mcp.templateError !== "string") state.mcp.templateError = "";
+    if (!Array.isArray(state.mcp.agentConfigs)) state.mcp.agentConfigs = [];
+    if (typeof state.mcp.agentConfigsLoaded !== "boolean") state.mcp.agentConfigsLoaded = false;
+    if (typeof state.mcp.agentConfigsError !== "string") state.mcp.agentConfigsError = "";
+    if (typeof state.mcp.oauthBusyId !== "string") state.mcp.oauthBusyId = "";
     if (typeof state.mcp.formOpen !== "boolean") state.mcp.formOpen = false;
     if (typeof state.mcp.importOpen !== "boolean") state.mcp.importOpen = false;
     if (typeof state.mcp.formMode !== "string") state.mcp.formMode = "create";
@@ -49,7 +57,7 @@
   }
 
   function syncAggregateError(mcp) {
-    mcp.error = String(mcp.serverError || mcp.templateError || "");
+    mcp.error = String(mcp.serverError || mcp.templateError || mcp.agentConfigsError || "");
   }
 
   function setMcpTab(tab) {
@@ -175,6 +183,9 @@
       mcp.loadAttempted = true;
       mcp.serverError = "MCP 服务暂不可用";
       mcp.templateError = "";
+      mcp.agentConfigs = [];
+      mcp.agentConfigsLoaded = true;
+      mcp.agentConfigsError = "";
       syncAggregateError(mcp);
       renderMcpLibrary();
       return Promise.resolve(mcp);
@@ -182,15 +193,23 @@
     mcp.loading = true;
     mcp.serverError = "";
     mcp.templateError = "";
+    mcp.agentConfigsError = "";
     syncAggregateError(mcp);
     renderMcpLibrary();
     activeLoadPromise = (async () => {
       try {
-        const [listResult, marketResult] = await Promise.all([
+        const agentConfigsPromise = typeof window.mia.mcp.getAgentConfigs === "function"
+          ? window.mia.mcp.getAgentConfigs().catch((error) => ({
+            success: false,
+            error: error?.message || "MCP 外部配置加载失败"
+          }))
+          : Promise.resolve({ success: true, data: { sources: [] } });
+        const [listResult, marketResult, agentConfigsResult] = await Promise.all([
           window.mia.mcp.list(),
           typeof window.mia.mcp.fetchMarketplace === "function"
             ? window.mia.mcp.fetchMarketplace()
-            : Promise.resolve({ success: true, data: { templates: [] } })
+            : Promise.resolve({ success: true, data: { templates: [] } }),
+          agentConfigsPromise
         ]);
         if (listResult?.success) {
           mcp.servers = Array.isArray(listResult.data?.servers) ? listResult.data.servers : [];
@@ -206,11 +225,22 @@
           mcp.templates = [];
           mcp.templateError = String(marketResult?.error || "MCP 模板加载失败");
         }
+        if (agentConfigsResult?.success) {
+          mcp.agentConfigs = Array.isArray(agentConfigsResult.data?.sources) ? agentConfigsResult.data.sources : [];
+          mcp.agentConfigsError = "";
+        } else {
+          mcp.agentConfigs = [];
+          mcp.agentConfigsError = String(agentConfigsResult?.error || "MCP 外部配置加载失败");
+        }
+        mcp.agentConfigsLoaded = true;
         mcp.loaded = !mcp.serverError && !mcp.templateError;
       } catch (error) {
         mcp.loaded = false;
         mcp.servers = [];
         mcp.templates = [];
+        mcp.agentConfigs = [];
+        mcp.agentConfigsLoaded = true;
+        mcp.agentConfigsError = "";
         mcp.serverError = error?.message || "MCP 服务加载失败";
         mcp.templateError = "";
       } finally {
@@ -278,12 +308,35 @@
     return `<span class="mcp-chip ${escapeHtml(className)}">${escapeHtml(label)}</span>`;
   }
 
+  function diagnosticHtml(server = {}) {
+    const code = server.diagnostics?.code || server.lastTestCode || "";
+    const error = server.lastError || server.diagnostics?.message || "";
+    if (!code && !error && !server.lastTestStatus) return "";
+    const text = [code, error || server.lastTestStatus].filter(Boolean).join(" · ");
+    return text ? `<p class="mcp-diagnostic">${escapeHtml(text)}</p>` : "";
+  }
+
+  function oauthActionHtml(server = {}) {
+    if (server.lastTestStatus !== "auth_required" && !server.oauth?.authenticated) return "";
+    const mcp = mcpState();
+    const id = escapeHtml(server.id || "");
+    const isBusy = mcp.oauthBusyId === server.id;
+    const isAuthenticated = !!server.oauth?.authenticated;
+    const label = isBusy ? "处理中..." : (isAuthenticated ? "退出登录" : "登录");
+    const disabled = isBusy ? "disabled" : "";
+    if (isAuthenticated) {
+      return `<button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="oauth-logout" data-mcp-id="${id}" ${disabled}>${label}</button>`;
+    }
+    return `<button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="oauth-login" data-mcp-id="${id}" ${disabled}>${label}</button>`;
+  }
+
   function renderServerCard(server) {
     const syncLabel = syncStatusLabel(server);
     const description = server.description || transportSummary(server.transport) || "未配置描述";
     const id = escapeHtml(server.id || "");
     const toggleLabel = server.enabled === false ? "启用" : "停用";
     const toggleClass = server.enabled === false ? "mcp-action-primary" : "mcp-action-secondary";
+    const oauthAction = oauthActionHtml(server);
     return `
       <article class="skill-card mcp-card" data-mcp-id="${id}">
         <div class="skill-card-head">
@@ -292,6 +345,7 @@
             ${server.enabled === false ? chip("mcp-chip-muted", "已停用") : ""}
           </div>
           <p>${escapeHtml(description)}</p>
+          ${diagnosticHtml(server)}
         </div>
         <span class="skill-card-source">
           <span class="mcp-inline-chips">
@@ -307,7 +361,8 @@
             <button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="sync" data-mcp-id="${id}">同步</button>
             <button class="mcp-action-button ${toggleClass}" type="button" data-mcp-action="toggle" data-mcp-id="${id}">${toggleLabel}</button>
           </div>
-          <div class="mcp-action-strip mcp-action-strip-secondary">
+          <div class="mcp-action-strip mcp-action-strip-secondary ${oauthAction ? "mcp-action-strip-auth" : ""}">
+            ${oauthAction}
             <button class="mcp-action-button mcp-action-ghost" type="button" data-mcp-action="edit" data-mcp-id="${id}">编辑</button>
             <button class="mcp-action-button mcp-action-danger" type="button" data-mcp-action="delete" data-mcp-id="${id}">删除</button>
           </div>
@@ -385,6 +440,48 @@
     `;
   }
 
+  function renderAgentConfigSources(mcp) {
+    const rows = (mcp.agentConfigs || []).flatMap((source) => (
+      (source.servers || []).map((server) => ({ source, server }))
+    ));
+    const statusHtml = mcp.agentConfigsError
+      ? `<p class="mcp-empty">${escapeHtml(mcp.agentConfigsError)}</p>`
+      : "";
+    if (!rows.length) {
+      return `
+        <section class="mcp-discovery" aria-label="外部 Agent MCP 配置">
+          <div class="mcp-discovery-head">
+            <strong>外部 Agent 配置</strong>
+            <span>${mcp.agentConfigsLoaded ? "已扫描" : "未扫描"}</span>
+          </div>
+          ${statusHtml || `<p class="mcp-empty">没有发现外部 Agent MCP 配置</p>`}
+        </section>
+      `;
+    }
+    return `
+      <section class="mcp-discovery" aria-label="外部 Agent MCP 配置">
+        <div class="mcp-discovery-head">
+          <strong>外部 Agent 配置</strong>
+          <span>${escapeHtml(`${rows.length} 项`)}</span>
+        </div>
+        ${statusHtml}
+        ${rows.map(({ source, server }) => {
+          const sourceName = String(source.source || source.name || "");
+          const serverName = String(server.name || server.id || "");
+          const importable = server.importable !== false;
+          return `
+            <article class="mcp-discovery-row">
+              <strong>${escapeHtml(sourceName)} / ${escapeHtml(serverName)}</strong>
+              <span>${escapeHtml(transportLabel(server.transport?.type))}</span>
+              <button class="mcp-action-button mcp-action-secondary" type="button" data-mcp-action="import-agent-config" data-mcp-source="${escapeHtml(sourceName)}" data-mcp-name="${escapeHtml(serverName)}" ${importable ? "" : "disabled"}>导入</button>
+              ${server.importSkipReason ? `<small>${escapeHtml(server.importSkipReason)}</small>` : ""}
+            </article>
+          `;
+        }).join("")}
+      </section>
+    `;
+  }
+
   function filteredServers() {
     return (mcpState().servers || []).filter((server) => matchesFilter([
       server.id,
@@ -419,9 +516,11 @@
       button.addEventListener("click", (event) => {
         event.preventDefault?.();
         event.stopPropagation?.();
+        if (button.disabled || Object.prototype.hasOwnProperty.call(button.attributes || {}, "disabled")) return;
         handleMcpAction(
           button.dataset.mcpAction,
-          button.dataset.mcpId || button.dataset.mcpTemplate || ""
+          button.dataset.mcpId || button.dataset.mcpTemplate || "",
+          button
         );
       });
     });
@@ -639,7 +738,54 @@
     await loadMcpServers({ force: true });
   }
 
-  async function handleMcpAction(action, id) {
+  async function handleMcpOauth(id, mode) {
+    const mcp = mcpState();
+    const server = mcp.servers.find((item) => item.id === id);
+    if (!server) return;
+    const oauth = window.mia.mcp.oauth || {};
+    const fn = mode === "logout" ? oauth.logout : oauth.login;
+    if (typeof fn !== "function") {
+      alertText("MCP OAuth 暂不可用");
+      return;
+    }
+    mcp.oauthBusyId = id;
+    renderMcpLibrary();
+    try {
+      const result = await fn({ serverId: server.id, serverUrl: server.transport?.url });
+      if (!result?.success) {
+        alertText(result?.error || "MCP OAuth 操作失败");
+        return;
+      }
+      await loadMcpServers({ force: true });
+    } finally {
+      mcp.oauthBusyId = "";
+      renderMcpLibrary();
+    }
+  }
+
+  async function handleImportAgentConfig(sourceAgent, serverName) {
+    const rows = (mcpState().agentConfigs || []).flatMap((source) => (
+      (source.servers || []).map((server) => ({ source, server }))
+    ));
+    const match = rows.find(({ source, server }) => (
+      String(source.source || source.name || "") === sourceAgent
+        && String(server.name || server.id || "") === serverName
+    ));
+    if (match?.server?.importable === false) return;
+    if (typeof window.mia.mcp.importAgentConfig !== "function") {
+      alertText("外部 MCP 配置导入暂不可用");
+      return;
+    }
+    const result = await window.mia.mcp.importAgentConfig({ sourceAgent, serverName });
+    if (!result?.success) {
+      alertText(result?.error || "导入外部 MCP 配置失败");
+      return;
+    }
+    mcpState().activeTab = "installed";
+    await loadMcpServers({ force: true });
+  }
+
+  async function handleMcpAction(action, id, button = null) {
     if (action === "create") return openMcpForm(null);
     if (action === "import") return openImportForm();
     if (action === "edit") return openMcpForm(mcpState().servers.find((server) => server.id === id));
@@ -648,6 +794,12 @@
     if (action === "toggle") return toggleMcpServer(id);
     if (action === "delete") return deleteMcpServer(id);
     if (action === "install") return installTemplate(id);
+    if (action === "oauth-login") return handleMcpOauth(id, "login");
+    if (action === "oauth-logout") return handleMcpOauth(id, "logout");
+    if (action === "import-agent-config") return handleImportAgentConfig(
+      button?.dataset?.mcpSource || "",
+      button?.dataset?.mcpName || ""
+    );
   }
 
   function renderMcpLibrary() {
@@ -661,7 +813,8 @@
         renderState("没有匹配的入口");
         return;
       }
-      renderCards(customItems, renderCustomActionCard);
+      const discoveryHtml = activeFilterText() ? "" : renderAgentConfigSources(mcp);
+      renderGrid(`${discoveryHtml}${customItems.map((item) => renderCustomActionCard(item)).join("")}`);
       return;
     }
 

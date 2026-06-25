@@ -277,6 +277,7 @@ function fakeEl(tagName = "div") {
 function createMcpHarness({ state, mcpOverrides = {}, confirmResult = true } = {}) {
   let listCalls = 0;
   let marketplaceCalls = 0;
+  let agentConfigCalls = 0;
   const alerts = [];
   const confirms = [];
   const document = createFakeDocument();
@@ -289,13 +290,22 @@ function createMcpHarness({ state, mcpOverrides = {}, confirmResult = true } = {
       marketplaceCalls += 1;
       return { success: true, data: { templates: state.mcp.templates || [] } };
     },
+    getAgentConfigs: async () => {
+      agentConfigCalls += 1;
+      return { success: true, data: { sources: state.mcp.agentConfigs || [] } };
+    },
     save: async () => ({ success: true, data: {} }),
     importJson: async () => ({ success: true, data: {} }),
+    importAgentConfig: async () => ({ success: true, data: {} }),
     test: async () => ({ success: true, data: {} }),
     sync: async () => ({ success: true, data: {} }),
     setEnabled: async () => ({ success: true, data: {} }),
     delete: async () => ({ success: true, data: {} }),
     installTemplate: async () => ({ success: true, data: {} }),
+    oauth: {
+      login: async () => ({ success: true, data: {} }),
+      logout: async () => ({ success: true, data: {} })
+    },
     ...mcpOverrides
   };
   const context = {
@@ -336,7 +346,8 @@ function createMcpHarness({ state, mcpOverrides = {}, confirmResult = true } = {
     confirms,
     getLayoutCalls: () => layoutCalls,
     getListCalls: () => listCalls,
-    getMarketplaceCalls: () => marketplaceCalls
+    getMarketplaceCalls: () => marketplaceCalls,
+    getAgentConfigCalls: () => agentConfigCalls
   };
 }
 
@@ -354,6 +365,18 @@ test("ability library exposes MCP service mode and loads MCP renderer script", (
   assert.match(html, /mcp\/mcp-library\.js/);
   assert.match(mcpCss, /\.mcp-action-strip-primary\s*\{[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(mcpCss, /\.mcp-action-button\s*\{[\s\S]*font-size:\s*12\.5px;[\s\S]*white-space:\s*nowrap/);
+});
+
+test("mcp renderer includes diagnostics oauth and discovery actions", () => {
+  const src = read("src/renderer/mcp/mcp-library.js");
+  assert.match(src, /getAgentConfigs/);
+  assert.match(src, /importAgentConfig/);
+  assert.match(src, /oauth\.login/);
+  assert.match(src, /oauth\.logout/);
+  assert.match(src, /data-mcp-action="oauth-login"/);
+  assert.match(src, /data-mcp-action="oauth-logout"/);
+  assert.match(src, /data-mcp-action="import-agent-config"/);
+  assert.match(src, /lastTestStatus|diagnostics|lastError/);
 });
 
 test("mcp-library renders installed, marketplace, and custom tabs", () => {
@@ -410,22 +433,194 @@ test("mcp-library settles empty successful responses into stable empty states", 
 
   assert.equal(harness.getListCalls(), 1);
   assert.equal(harness.getMarketplaceCalls(), 1);
+  assert.equal(harness.getAgentConfigCalls(), 1);
   assert.equal(state.mcp.loading, false);
   assert.equal(state.mcp.loaded, true);
+  assert.equal(state.mcp.agentConfigsLoaded, true);
   assert.equal(state.mcp.loadAttempted, true);
   assert.match(harness.els.skillCardGrid.innerHTML, /暂无已安装 MCP 服务/);
 
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
   assert.equal(harness.getListCalls(), 1);
   assert.equal(harness.getMarketplaceCalls(), 1);
+  assert.equal(harness.getAgentConfigCalls(), 1);
   assert.match(harness.els.skillCardGrid.innerHTML, /暂无已安装 MCP 服务/);
 
   state.mcp.activeTab = "marketplace";
   harness.context.window.miaMcpLibrary.renderMcpLibrary();
   assert.equal(harness.getListCalls(), 1);
   assert.equal(harness.getMarketplaceCalls(), 1);
+  assert.equal(harness.getAgentConfigCalls(), 1);
   assert.match(harness.els.skillCardGrid.innerHTML, /暂无可用模板/);
   assert.ok(harness.getLayoutCalls() >= 3);
+});
+
+test("installed cards render diagnostics and oauth actions", () => {
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "needs-auth",
+        name: "Needs Auth",
+        enabled: true,
+        status: "disconnected",
+        lastTestStatus: "auth_required",
+        lastTestCode: "AUTH_REQUIRED",
+        lastError: "Sign in required",
+        diagnostics: { code: "OAUTH_REQUIRED", message: "Open login" },
+        transport: { type: "http", url: "https://example.com/mcp" },
+        tools: [],
+        sync: {}
+      }, {
+        id: "authed",
+        name: "Authed MCP",
+        enabled: true,
+        status: "connected",
+        oauth: { authenticated: true },
+        diagnostics: { code: "OK" },
+        transport: { type: "http", url: "https://example.com/authed" },
+        tools: [],
+        sync: {}
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({ state });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+
+  assert.match(harness.els.skillCardGrid.innerHTML, /mcp-diagnostic/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /AUTH_REQUIRED · Sign in required/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /data-mcp-action="oauth-login"/);
+  assert.match(harness.els.skillCardGrid.innerHTML, /data-mcp-action="oauth-logout"/);
+});
+
+test("custom tab renders agent config discovery before JSON import and blocks skipped rows", () => {
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "custom",
+      servers: [],
+      templates: [],
+      agentConfigs: [{
+        source: "Claude",
+        servers: [{
+          name: "xhs",
+          importable: true,
+          transport: { type: "stdio" }
+        }, {
+          name: "existing",
+          importable: false,
+          importSkipReason: "已安装",
+          transport: { type: "http" }
+        }]
+      }],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({ state });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+
+  const html = harness.els.skillCardGrid.innerHTML;
+  assert.ok(html.indexOf("mcp-discovery") >= 0);
+  assert.ok(html.indexOf("mcp-discovery") < html.indexOf('data-mcp-action="import"'));
+  assert.match(html, /data-mcp-action="import-agent-config" data-mcp-source="Claude" data-mcp-name="xhs"/);
+  assert.match(html, /data-mcp-name="existing"[\s\S]*disabled/);
+  assert.match(html, /已安装/);
+});
+
+test("oauth and agent config import actions call preload APIs and reload", async () => {
+  const apiCalls = [];
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "auth",
+        name: "Auth MCP",
+        enabled: true,
+        status: "disconnected",
+        lastTestStatus: "auth_required",
+        transport: { type: "http", url: "https://example.com/mcp" },
+        tools: [],
+        sync: {}
+      }, {
+        id: "authed",
+        name: "Authed MCP",
+        enabled: true,
+        status: "connected",
+        oauth: { authenticated: true },
+        transport: { type: "http", url: "https://example.com/authed" },
+        tools: [],
+        sync: {}
+      }],
+      templates: [],
+      agentConfigs: [{
+        source: "Claude",
+        servers: [{ name: "xhs", importable: true, transport: { type: "stdio" } }]
+      }],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      syncing: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      oauth: {
+        login: async (payload) => {
+          apiCalls.push(["oauth.login", JSON.parse(JSON.stringify(payload))]);
+          return { success: true };
+        },
+        logout: async (payload) => {
+          apiCalls.push(["oauth.logout", JSON.parse(JSON.stringify(payload))]);
+          return { success: true };
+        }
+      },
+      importAgentConfig: async (payload) => {
+        apiCalls.push(["importAgentConfig", JSON.parse(JSON.stringify(payload))]);
+        return { success: true };
+      }
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="oauth-login"]').click();
+  await flushAsync();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="oauth-logout"]').click();
+  await flushAsync();
+  state.mcp.activeTab = "custom";
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="import-agent-config"]').click();
+  await flushAsync();
+
+  assert.deepEqual(apiCalls, [
+    ["oauth.login", { serverId: "auth", serverUrl: "https://example.com/mcp" }],
+    ["oauth.logout", { serverId: "authed", serverUrl: "https://example.com/authed" }],
+    ["importAgentConfig", { sourceAgent: "Claude", serverName: "xhs" }]
+  ]);
+  assert.equal(harness.getListCalls(), 3);
+  assert.equal(harness.getMarketplaceCalls(), 3);
+  assert.equal(harness.getAgentConfigCalls(), 3);
 });
 
 test("mcp-library keeps the custom tab stable with zero filtered records", () => {

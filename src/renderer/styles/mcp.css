@@ -98,6 +98,10 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.mcp-action-strip-auth {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .mcp-card-actions:not(.mcp-server-actions) {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -157,6 +161,87 @@
   border-color: color-mix(in srgb, var(--danger) 36%, transparent);
   background: color-mix(in srgb, var(--danger) 12%, var(--surface));
   color: var(--danger);
+}
+
+.mcp-action-button:disabled {
+  opacity: 0.55;
+}
+
+.mcp-diagnostic {
+  margin: 6px 0 0;
+  color: var(--danger, #b42318);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mcp-discovery {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 0;
+  min-width: 0;
+  padding: 2px 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mcp-discovery-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 0 8px;
+  color: var(--text);
+}
+
+.mcp-discovery-head strong {
+  min-width: 0;
+  font-size: 13px;
+}
+
+.mcp-discovery-head span,
+.mcp-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mcp-empty {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.mcp-discovery-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(54px, auto) minmax(64px, auto);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.mcp-discovery-row strong,
+.mcp-discovery-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-discovery-row strong {
+  font-size: 13px;
+}
+
+.mcp-discovery-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mcp-discovery-row small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .mcp-dialog {
@@ -230,4 +315,19 @@
 
 .mcp-import-textarea {
   min-height: 220px;
+}
+
+@media (max-width: 520px) {
+  .mcp-discovery-row {
+    grid-template-columns: minmax(0, 1fr) minmax(64px, auto);
+  }
+
+  .mcp-discovery-row span {
+    grid-column: 1;
+  }
+
+  .mcp-discovery-row button {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
 }
