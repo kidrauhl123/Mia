@@ -435,9 +435,17 @@ function enabledCoreMcpRecords(records = []) {
 
 function isCoreMcpExposureReady(record) {
   if (!record || record.managementMode !== "managed") return true;
+  const wizardState = String(record?.connectionWizard?.state || "").trim().toLowerCase();
+  const runtimeState = String(record?.managedRuntime?.state || "").trim().toLowerCase();
+  const status = String(record.status || "").trim().toLowerCase();
+  const lastTestStatus = String(record.lastTestStatus || "").trim().toLowerCase();
+  if (wizardState === "managed_error" || wizardState === "test_failed") return false;
+  if (runtimeState === "error") return false;
+  if (["disconnected", "configuration_required", "auth_required", "unknown"].includes(status)) return false;
+  if (["disconnected", "configuration_required", "auth_required", "unknown"].includes(lastTestStatus)) return false;
   if (String(record.status || "").trim().toLowerCase() === "connected") return true;
   if (String(record.lastTestStatus || "").trim().toLowerCase() === "connected") return true;
-  return String(record?.connectionWizard?.state || "").trim().toLowerCase() === "connected";
+  return wizardState === "connected";
 }
 
 function fingerprintPayload(records = []) {

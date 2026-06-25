@@ -468,6 +468,56 @@ test("getEngineSpecs excludes managed records until connection is confirmed", as
   assert.equal("native-enabled" in codexSpecs, true);
 });
 
+test("getEngineSpecs excludes stale-connected managed records after startup failure", async (t) => {
+  const { service } = setup(t);
+
+  await service.save({
+    id: "managed_stale_connected_error",
+    name: "managed-stale-connected-error",
+    nativeName: "managed-stale-connected-error",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed-stale-connected-error"] },
+    connectionWizard: { state: "managed_error", nextAction: "start", message: "startup failed" },
+    managedRuntime: { state: "error" }
+  });
+  await service.save({
+    id: "managed_connected_ok",
+    name: "managed-connected-ok",
+    nativeName: "managed-connected-ok",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed-connected-ok"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+
+  const beforeFailureFingerprint = service.fingerprint();
+  const codexSpecs = service.getEngineSpecs("codex");
+
+  assert.equal("managed-stale-connected-error" in codexSpecs, false);
+  assert.equal("managed-connected-ok" in codexSpecs, true);
+
+  await service.save({
+    id: "managed_stale_connected_error",
+    name: "managed-stale-connected-error",
+    nativeName: "managed-stale-connected-error",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed-stale-connected-error"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+
+  assert.notEqual(service.fingerprint(), beforeFailureFingerprint);
+});
+
 test("fingerprint changes when managed exposure readiness changes", async (t) => {
   const { service } = setup(t);
 

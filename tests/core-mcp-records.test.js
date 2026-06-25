@@ -5,6 +5,7 @@ const {
   publicCoreMcpRecord,
   enabledCoreMcpRecords,
   coreMcpFingerprint,
+  isCoreMcpExposureReady,
   parseCoreMcpImportJson
 } = require("../src/core/mcp/records.js");
 
@@ -151,6 +152,35 @@ test("fingerprint changes when managed exposure readiness changes without transp
 
   assert.notEqual(coreMcpFingerprint([connected]), coreMcpFingerprint([disconnected]));
   assert.equal(coreMcpFingerprint([nativeA]), coreMcpFingerprint([nativeB]));
+});
+
+test("managed failure state overrides stale connected readiness", () => {
+  const connected = normalizeCoreMcpRecord({
+    name: "managed",
+    nativeName: "managed",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed"] },
+    connectionWizard: { state: "connected", nextAction: "", message: "ready" },
+    managedRuntime: { state: "running" }
+  });
+  const staleManagedError = normalizeCoreMcpRecord({
+    name: "managed",
+    nativeName: "managed",
+    managementMode: "managed",
+    enabled: true,
+    status: "connected",
+    lastTestStatus: "connected",
+    transport: { type: "stdio", command: "npx", args: ["managed"] },
+    connectionWizard: { state: "managed_error", nextAction: "test", message: "retry" },
+    managedRuntime: { state: "error" }
+  });
+
+  assert.equal(isCoreMcpExposureReady(connected), true);
+  assert.equal(isCoreMcpExposureReady(staleManagedError), false);
+  assert.notEqual(coreMcpFingerprint([connected]), coreMcpFingerprint([staleManagedError]));
 });
 
 test("import parser accepts mcpServers and streamable-http aliases", () => {
