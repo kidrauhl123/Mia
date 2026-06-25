@@ -24,6 +24,7 @@ function setup(t, overrides = {}) {
       connectionTester: overrides.connectionTester,
       agentConfigService: overrides.agentConfigService,
       agentConfigRunner: overrides.agentConfigRunner,
+      managedSupervisor: overrides.managedSupervisor,
       oauthService: overrides.oauthService,
       now: () => 1710000000000,
       idFactory: (name) => `mcp_${name}`
@@ -347,4 +348,20 @@ test("fetchMarketplace exposes only supported native and managed templates", asy
     "firecrawl"
   ]);
   assert.equal(result.data.templates.some((item) => String(item.managementMode).includes("external")), false);
+});
+
+test("refreshBridge sanitizes managed supervisor errors", async (t) => {
+  const { service } = setup(t, {
+    managedSupervisor: {
+      ensureRunning: async () => ({
+        records: [],
+        errors: [{ message: "managed failure TOKEN=secret-value" }]
+      })
+    }
+  });
+
+  const refreshed = await service.refreshBridge();
+
+  assert.equal(refreshed.success, true);
+  assert.equal(refreshed.data.errors[0].message, "managed failure TOKEN=[redacted]");
 });

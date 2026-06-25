@@ -173,6 +173,43 @@ test("runManagedAction updates xiaohongshu runtime state", async (t) => {
   assert.deepEqual(actions, [["xiaohongshu", "start"]]);
 });
 
+test("runManagedAction returns failure and persists managed error when supervisor action fails", async (t) => {
+  const { service, runtime } = setup(t, {
+    managedSupervisor: {
+      runAction: async (record, action) => ({
+        ok: false,
+        state: "start_failed",
+        message: "start failed TOKEN=secret-value",
+        recordPatch: {
+          managedRuntime: {
+            ...record.managedRuntime,
+            state: "start_failed",
+            lastAction: action
+          },
+          connectionWizard: {
+            state: "test_failed",
+            nextAction: "test",
+            message: "should be overridden"
+          }
+        }
+      }),
+      ensureRunning: async (records) => ({ records, errors: [] })
+    }
+  });
+  const installed = await service.installTemplate("xiaohongshu", {});
+
+  const started = await service.runManagedAction(installed.data.id, "start", {});
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(started.success, false);
+  assert.equal(started.error, "start failed TOKEN=[redacted]");
+  assert.equal(stored[0].enabled, false);
+  assert.equal(stored[0].managedRuntime.state, "start_failed");
+  assert.equal(stored[0].connectionWizard.state, "managed_error");
+  assert.equal(stored[0].connectionWizard.nextAction, "start");
+  assert.equal(stored[0].connectionWizard.message, "start failed TOKEN=[redacted]");
+});
+
 test("runManagedAction test enables xiaohongshu after successful MCP test", async (t) => {
   const { service } = setup(t, {
     managedSupervisor: {
@@ -218,7 +255,45 @@ test("refreshBridge starts enabled managed records before manager refresh", asyn
   const installed = await service.installTemplate("xiaohongshu", {});
   await service.runManagedAction(installed.data.id, "test", {});
   await service.refreshBridge();
+  const listed = await service.list();
 
   assert.equal(calls.some((call) => call[0] === "ensureRunning"), true);
   assert.equal(calls.some((call) => call[0] === "refresh" && call[1].includes("xiaohongshu:running")), true);
+  assert.equal(listed.data.servers[0].managedRuntime.state, "running");
+});
+
+test("refreshBridge persists managed error patches returned by ensureRunning", async (t) => {
+  const { service } = setup(t, {
+    managedSupervisor: {
+      runAction: async (record, action) => ({
+        ok: true,
+        state: "running",
+        message: action,
+        recordPatch: { managedRuntime: { ...record.managedRuntime, state: "running" } }
+      }),
+      ensureRunning: async (records) => ({
+        records: records.map((record) => ({
+          ...record,
+          managedRuntime: { ...record.managedRuntime, state: "error" },
+          connectionWizard: {
+            ...record.connectionWizard,
+            state: "managed_error",
+            nextAction: "start",
+            message: "ensure failed API_KEY=shh"
+          }
+        })),
+        errors: []
+      })
+    }
+  });
+  const installed = await service.installTemplate("xiaohongshu", {});
+  await service.runManagedAction(installed.data.id, "test", {});
+
+  const refreshed = await service.refreshBridge();
+  const listed = await service.list();
+
+  assert.equal(refreshed.success, true);
+  assert.equal(listed.data.servers[0].managedRuntime.state, "error");
+  assert.equal(listed.data.servers[0].connectionWizard.state, "managed_error");
+  assert.equal(listed.data.servers[0].connectionWizard.message, "ensure failed API_KEY=[redacted]");
 });

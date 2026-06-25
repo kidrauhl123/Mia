@@ -86,6 +86,17 @@ function sanitizeBridgeError(error) {
   return next;
 }
 
+function sanitizeManagedValue(value) {
+  if (typeof value === "string") return sanitizeSecretText(value);
+  if (Array.isArray(value)) return value.map((item) => sanitizeManagedValue(item));
+  if (!value || typeof value !== "object") return value;
+  const next = {};
+  for (const [key, entry] of Object.entries(value)) {
+    next[key] = sanitizeManagedValue(entry);
+  }
+  return next;
+}
+
 function createCoreLocalManager({ connectionTester } = {}) {
   return {
     async refresh() {
@@ -197,6 +208,14 @@ function createCoreMcpService(deps = {}) {
     return records.map((record) => publicRecord(record));
   }
 
+  function publicBridgeState(state = {}) {
+    return {
+      tools: Array.isArray(state?.tools) ? state.tools : [],
+      errors: Array.isArray(state?.errors) ? state.errors : [],
+      bridge: maskedBridgeInfo(state?.bridge || bridgeInfo)
+    };
+  }
+
   function maskedBridgeInfo(info) {
     if (!info || typeof info !== "object") return null;
     return {
@@ -226,6 +245,37 @@ function createCoreMcpService(deps = {}) {
       isErrorStatus(statusEntry)
       || (Array.isArray(statusEntry?.commands) && statusEntry.commands.length > 0)
     ));
+  }
+
+  function mergeManagedRecordState(record, updatedRecord) {
+    if (!updatedRecord || updatedRecord.id !== record.id) return record;
+    const next = { ...record };
+    const managedKeys = [
+      "managedRuntime",
+      "connectionWizard",
+      "status",
+      "lastTestStatus",
+      "lastTestCode",
+      "diagnostics",
+      "tools",
+      "lastCheckedAt",
+      "lastError",
+      "enabled",
+      "oauth",
+      "sync"
+    ];
+    for (const key of managedKeys) {
+      if (Object.prototype.hasOwnProperty.call(updatedRecord, key)) {
+        next[key] = sanitizeManagedValue(updatedRecord[key]);
+      }
+    }
+    next.updatedAt = now();
+    return normalizeCoreMcpRecord(next, { now, idFactory }) || record;
+  }
+
+  function mergeManagedRecords(records = [], updatedRecords = []) {
+    const updates = new Map((Array.isArray(updatedRecords) ? updatedRecords : []).map((record) => [record.id, record]));
+    return normalizeCoreMcpRegistry(records.map((record) => mergeManagedRecordState(record, updates.get(record.id))), { now, idFactory });
   }
 
   function applyStatuses(records, nativeResult = {}, options = {}) {
@@ -267,10 +317,7 @@ function createCoreMcpService(deps = {}) {
     const managedResult = managedSupervisor && typeof managedSupervisor.ensureRunning === "function"
       ? await managedSupervisor.ensureRunning(enabledCoreMcpRecords(current))
       : { records: enabledCoreMcpRecords(current), errors: [] };
-    const runtimeRecords = current.map((record) => {
-      const updated = managedResult.records.find((item) => item.id === record.id);
-      return updated || record;
-    });
+    const runtimeRecords = mergeManagedRecords(current, managedResult.records);
     const refreshed = manager && typeof manager.refresh === "function"
       ? await manager.refresh(enabledCoreMcpRecords(runtimeRecords))
       : { success: true, tools: [], errors: [] };
@@ -282,7 +329,8 @@ function createCoreMcpService(deps = {}) {
       errors: []
         .concat(Array.isArray(refreshed?.errors) ? refreshed.errors.map((error) => sanitizeBridgeError(error)) : [])
         .concat(Array.isArray(managedResult?.errors) ? managedResult.errors.map((error) => sanitizeBridgeError(error)) : []),
-      bridge: maskedBridgeInfo(bridgeInfo)
+      bridge: maskedBridgeInfo(bridgeInfo),
+      records: runtimeRecords
     };
   }
 
@@ -294,10 +342,15 @@ function createCoreMcpService(deps = {}) {
 
   function startInitialization() {
     if (!initializationPromise) {
-      initializationPromise = refreshBridgeState(loadRecords()).catch((error) => {
-        initializationPromise = null;
-        throw error;
-      });
+      initializationPromise = refreshBridgeState(loadRecords())
+        .then((state) => {
+          if (Array.isArray(state?.records)) saveRecords(state.records);
+          return publicBridgeState(state);
+        })
+        .catch((error) => {
+          initializationPromise = null;
+          throw error;
+        });
       initializationPromise.catch(() => {});
     }
     return initializationPromise;
@@ -346,8 +399,8 @@ function createCoreMcpService(deps = {}) {
       ? nativeResult.statuses
       : {};
     const persistedBase = hasNativeErrors(nativeStatuses) && options.persistedRecordsOnError
-      ? normalizeCoreMcpRegistry(options.persistedRecordsOnError, { now, idFactory })
-      : storedRecords;
+      ? mergeManagedRecords(normalizeCoreMcpRegistry(options.persistedRecordsOnError, { now, idFactory }), bridgeState.records)
+      : normalizeCoreMcpRegistry(bridgeState.records || storedRecords, { now, idFactory });
     if (hasNativeErrors(nativeStatuses) && options.bridgeRecordsOnError) {
       bridgeState = await refreshBridgeState(options.bridgeRecordsOnError);
     }
@@ -358,7 +411,7 @@ function createCoreMcpService(deps = {}) {
     });
     const persisted = saveRecords(withStatuses);
     return {
-      bridgeState,
+      bridgeState: publicBridgeState(bridgeState),
       native: nativeResult || { success: true, statuses: {}, commands: [] },
       records: persisted
     };
@@ -660,6 +713,18 @@ function createCoreMcpService(deps = {}) {
     return { state: "needs_managed_action", nextAction: "start", message: result.message || "", missingRequiredInputs: [], actions: [{ id: "start", label: "启动服务" }, { id: "test", label: "检测并启用" }] };
   }
 
+  function managedActionFailureWizard(existing, action, message, patch = {}) {
+    const nextAction = String(action || "").trim() || "start";
+    return {
+      ...(existing?.connectionWizard && typeof existing.connectionWizard === "object" ? existing.connectionWizard : {}),
+      ...(patch && typeof patch === "object" ? sanitizeManagedValue(patch) : {}),
+      state: "managed_error",
+      nextAction,
+      message,
+      missingRequiredInputs: Array.isArray(patch?.missingRequiredInputs) ? sanitizeManagedValue(patch.missingRequiredInputs) : []
+    };
+  }
+
   async function runManagedAction(id, action, values = {}) {
     try {
       const current = loadRecords();
@@ -674,9 +739,29 @@ function createCoreMcpService(deps = {}) {
       let nextRecord = existing;
       if (action !== "test") {
         result = await managedSupervisor.runAction(existing, action, values || {});
+        const patch = result?.recordPatch && typeof result.recordPatch === "object"
+          ? sanitizeManagedValue(result.recordPatch)
+          : {};
+        if (result?.ok === false) {
+          const message = sanitizeSecretText(result?.message || "Managed MCP action failed.");
+          nextRecord = normalizeCoreMcpRecord({
+            ...existing,
+            ...patch,
+            transport: existing.transport,
+            enabled: false,
+            connectionWizard: managedActionFailureWizard(existing, action, message, patch.connectionWizard),
+            updatedAt: now()
+          }, { now, idFactory });
+          const saved = saveRecords(current.map((record) => record.id === existing.id ? nextRecord : record));
+          await applyRuntimeChanges(current, saved, {
+            availableIds: new Set([nextRecord.id]),
+            availableMessage: "Waiting for managed MCP setup in Mia."
+          });
+          return fail(message);
+        }
         nextRecord = normalizeCoreMcpRecord({
           ...existing,
-          ...result.recordPatch,
+          ...patch,
           transport: existing.transport,
           connectionWizard: nextManagedWizard(action, result),
           enabled: false,
@@ -713,7 +798,9 @@ function createCoreMcpService(deps = {}) {
 
   async function refreshBridge() {
     try {
-      return ok(await refreshBridgeState(loadRecords()));
+      const state = await refreshBridgeState(loadRecords());
+      if (Array.isArray(state?.records)) saveRecords(state.records);
+      return ok(publicBridgeState(state));
     } catch (error) {
       return fail(error);
     }
