@@ -25,6 +25,23 @@ test("normalizes AION-style fields and maps old status fields", () => {
   assert.equal(record.sync.codex.status, "pending");
 });
 
+test("normalizes lastTestCode numeric legacy values and string diagnostics", () => {
+  const numeric = normalizeCoreMcpRecord({
+    name: "numeric",
+    lastTestCode: "401",
+    transport: { type: "http", url: "https://example.test/mcp" }
+  });
+  const stringCode = normalizeCoreMcpRecord({
+    name: "string",
+    lastTestCode: "auth_required",
+    transport: { type: "http", url: "https://example.test/mcp" }
+  });
+
+  assert.equal(numeric.lastTestCode, 401);
+  assert.equal(stringCode.lastTestCode, "auth_required");
+  assert.equal(publicCoreMcpRecord(stringCode).lastTestCode, "auth_required");
+});
+
 test("public record redacts env headers oauth token refs and original json", () => {
   const record = normalizeCoreMcpRecord({
     name: "github",

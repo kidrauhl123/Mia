@@ -45,8 +45,31 @@ test("delete soft-deletes and list hides deleted records by default", async (t) 
   assert.equal(stored[0].enabled, false);
 });
 
+test("soft-deleted records survive later save setEnabled and import writes", async (t) => {
+  const { service, runtime } = setup(t);
+  const deletedSource = await service.save({ name: "gone", transport: { type: "stdio", command: "npx", args: ["gone"] } });
+  await service.delete(deletedSource.data.id);
+
+  const active = await service.save({ name: "active", transport: { type: "stdio", command: "npx", args: ["active"] } });
+  let stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  assert.equal(stored.some((record) => record.name === "gone" && record.deletedAt === 1710000000000), true);
+
+  await service.setEnabled(active.data.id, false);
+  stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  assert.equal(stored.some((record) => record.name === "gone" && record.deletedAt === 1710000000000), true);
+
+  await service.importJson({
+    mcpServers: {
+      imported: { type: "http", url: "https://example.com/mcp" }
+    }
+  });
+  stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  assert.equal(stored.some((record) => record.name === "gone" && record.deletedAt === 1710000000000), true);
+  assert.deepEqual(stored.map((record) => record.name).sort(), ["active", "gone", "imported"]);
+});
+
 test("failed test persists diagnostics but does not auto-disable existing server", async (t) => {
-  const { service } = setup(t, {
+  const { service, runtime } = setup(t, {
     connectionTester: {
       testConnection: async () => ({
         ok: false,
@@ -61,10 +84,15 @@ test("failed test persists diagnostics but does not auto-disable existing server
   });
   const saved = await service.save({ name: "remote", enabled: true, transport: { type: "http", url: "https://example.com/mcp" } });
   const tested = await service.test(saved.data.id);
+  const listed = await service.list();
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
 
   assert.equal(tested.success, true);
   assert.equal(tested.data.enabled, true);
   assert.equal(tested.data.lastTestStatus, "auth_required");
+  assert.equal(tested.data.lastTestCode, "auth_required");
+  assert.equal(listed.data.servers[0].lastTestCode, "auth_required");
+  assert.equal(stored[0].lastTestCode, "auth_required");
   assert.equal(tested.data.lastError, "OAuth login required");
 });
 

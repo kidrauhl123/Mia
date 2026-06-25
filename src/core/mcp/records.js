@@ -112,6 +112,15 @@ function normalizeNullableNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function normalizeNullableDiagnosticCode(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : sanitizeSecretText(text);
+}
+
 function normalizeTimestamp(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -159,7 +168,7 @@ function normalizeCoreMcpRecord(input = {}, options = {}) {
     builtin: input.builtin === true,
     status: String(input.status || "unknown").trim() || "unknown",
     lastTestStatus: String(input.lastTestStatus || input.status || "unknown").trim() || "unknown",
-    lastTestCode: normalizeNullableNumber(input.lastTestCode),
+    lastTestCode: normalizeNullableDiagnosticCode(input.lastTestCode),
     tools: normalizeTools(input.tools),
     transport,
     sync,

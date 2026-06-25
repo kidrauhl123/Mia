@@ -44,19 +44,19 @@ test("get resolves by id or name including deleted records", async (t) => {
   assert.equal((await registry.get("xhs")).id, saved.id);
 });
 
-test("registry preserves null lastTestCode and deletedAt across disk round-trip", async (t) => {
+test("registry preserves string lastTestCode and deletedAt across disk round-trip", async (t) => {
   const { registry } = setup(t);
 
   await registry.writeAll([{
-    id: "mcp_nulls",
-    name: "nulls",
+    id: "mcp_auth",
+    name: "auth",
     transport: { type: "stdio", command: "npx" },
-    lastTestCode: null,
+    lastTestCode: "auth_required",
     deletedAt: null
   }]);
 
   const [record] = await registry.readAll();
-  assert.equal(record.lastTestCode, null);
+  assert.equal(record.lastTestCode, "auth_required");
   assert.equal(record.deletedAt, null);
 });
 

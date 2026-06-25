@@ -11,7 +11,7 @@ const {
   mcpSpecsForClaudeSdk,
   mcpSpecsForCodex,
   mcpSpecsForHermes
-} = require("../../main/mcp/mcp-engine-sync.js");
+} = require("./engine-sync.js");
 const {
   MASK,
   coreMcpFingerprint,
@@ -140,7 +140,18 @@ function createCoreMcpService(deps = {}) {
   }
 
   function saveRecords(records) {
-    return registry.writeAll(records);
+    const visibleIds = new Set();
+    const visibleNames = new Set();
+    for (const record of normalizeCoreMcpRegistry(records, { now, idFactory })) {
+      visibleIds.add(record.id);
+      visibleNames.add(record.name);
+    }
+    const preservedDeleted = registry.readAll().filter((record) => (
+      record.deletedAt
+      && !visibleIds.has(record.id)
+      && !visibleNames.has(record.name)
+    ));
+    return registry.writeAll(preservedDeleted.concat(records));
   }
 
   function publicRecord(record) {

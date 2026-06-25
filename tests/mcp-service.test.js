@@ -205,7 +205,7 @@ test("save preserves masked stdio env values when editing non-secret fields", as
 });
 
 test("test failure stores diagnostic without disabling server", async (t) => {
-  const { service } = setup(t, {
+  const { runtime, service } = setup(t, {
     manager: {
       testServer: async () => ({ success: false, status: "auth_required", code: "auth_required", message: "Login required", tools: [], error: "Login required" }),
       refresh: async () => ({ success: true, tools: [], errors: [] })
@@ -213,8 +213,13 @@ test("test failure stores diagnostic without disabling server", async (t) => {
   });
   const saved = await service.save({ name: "remote", enabled: true, transport: { type: "http", url: "https://example.com/mcp" } });
   const tested = await service.test(saved.data.id);
+  const listed = await service.list();
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
   assert.equal(tested.data.enabled, true);
   assert.equal(tested.data.lastTestStatus, "auth_required");
+  assert.equal(tested.data.lastTestCode, "auth_required");
+  assert.equal(listed.data.servers[0].lastTestCode, "auth_required");
+  assert.equal(stored[0].lastTestCode, "auth_required");
 });
 
 test("importJson surfaces duplicate names before confirmed replacement", async (t) => {
