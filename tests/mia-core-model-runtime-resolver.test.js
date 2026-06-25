@@ -133,6 +133,20 @@ test("fails explicitly when a referenced provider connection is missing", () => 
     }, { engine: "hermes" }),
     /Provider connection missing-provider is not available/
   );
+  assert.throws(
+    () => resolver.resolveModelRuntime({
+      providerConnectionId: "missing-provider",
+      model: "mia-auto"
+    }, { engine: "hermes" }),
+    /Provider connection missing-provider is not available/
+  );
+  assert.throws(
+    () => resolver.resolveModelRuntime({
+      modelProfileId: "missing-provider:mia-auto",
+      model: "mia-auto"
+    }, { engine: "hermes" }),
+    /Provider connection missing-provider is not available/
+  );
 });
 
 test("resolveMiaManagedModelSettings returns compact managed references only", () => {

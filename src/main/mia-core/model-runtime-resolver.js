@@ -18,7 +18,11 @@ function isBuiltinMiaModel(model = "") {
 }
 
 function isMiaManagedReference(config = {}) {
-  const provider = firstString(config, ["providerConnectionId", "provider_connection_id", "provider", "modelProvider", "model_provider"]);
+  const explicitProviderId = explicitProviderConnectionId(config);
+  const profileProviderId = providerFromProfileId(config);
+  if (explicitProviderId) return explicitProviderId === "mia";
+  if (profileProviderId) return profileProviderId === "mia";
+  const provider = firstString(config, ["provider", "modelProvider", "model_provider"]);
   const authType = firstString(config, ["authType", "auth_type"]);
   const profileId = normalizeProfileId(firstString(config, ["modelProfileId", "model_profile_id", "profileId", "profile_id"]));
   const model = firstString(config, ["model"]);
@@ -41,13 +45,14 @@ function providerFromProfileId(config = {}) {
 
 function toMiaManagedReference(config = {}) {
   const model = firstString(config, ["model"]) || "mia-default";
+  const profileId = firstString(config, ["modelProfileId", "model_profile_id"]);
   return {
     provider: "mia",
     providerConnectionId: "mia",
     providerLabel: firstString(config, ["providerLabel", "provider_label"]) || "Mia",
     authType: "mia_account",
     model,
-    modelProfileId: firstString(config, ["modelProfileId", "model_profile_id"]) || `mia:${model}`
+    modelProfileId: profileId.startsWith("mia:") ? profileId : `mia:${model}`
   };
 }
 

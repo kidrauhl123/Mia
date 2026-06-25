@@ -4652,9 +4652,13 @@ function modelValueForRuntimeControl(context, entries = [], config = {}) {
     const entry = entries.find((item) => item.model === model || item.id === model || item.value === model);
     return entry?.id || entry?.value || model;
   }
+  const savedEntry = provider && model
+    ? entries.find((item) => (item.providerConnectionId || item.provider) === provider && item.model === model)
+    : null;
   const runtimeModel = state.runtime?.model || {};
-  return window.miaModelHelpers.catalogEntryForModel(runtimeModel)?.id
-    || entries.find((item) => (item.providerConnectionId || item.provider) === provider && item.model === model)?.id
+  return savedEntry?.id
+    || savedEntry?.value
+    || window.miaModelHelpers.catalogEntryForModel(runtimeModel)?.id
     || entries[0]?.id
     || entries[0]?.value
     || "";

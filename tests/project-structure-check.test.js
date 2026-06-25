@@ -749,6 +749,11 @@ test("desktop Hermes bot runtime controls select saved Core provider references"
   assert.match(body, /config\.providerConnectionId/);
   assert.match(body, /providerConnectionId/);
   assert.match(body, /entries\.find\(\(item\) => \(item\.providerConnectionId \|\| item\.provider\) === provider/);
+  assert.ok(
+    body.indexOf("entries.find((item) => (item.providerConnectionId || item.provider) === provider") <
+      body.indexOf("window.miaModelHelpers.catalogEntryForModel(runtimeModel)"),
+    "saved bot runtime model refs should be matched before falling back to the global runtime model"
+  );
 });
 
 test("foreground permission IPC routes through the daemon-owned permission proxy", () => {
