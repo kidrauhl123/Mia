@@ -1,10 +1,10 @@
 "use strict";
 
+const { createCoreMcpConnectionTester } = require("../../core/mcp/connection-test.js");
 const { maskMcpRecord, normalizeMcpRecord, sanitizeSecretText } = require("./mcp-records.js");
 const { MCP_TRANSPORTS } = require("../../shared/mcp-contracts.js");
 
 const CLIENT_INFO = Object.freeze({ name: "mia-mcp-client", version: "1.0.0" });
-const TEST_CLIENT_INFO = Object.freeze({ name: "mia-mcp-test", version: "1.0.0" });
 
 async function defaultLoadSdk() {
   const [{ Client }, { StdioClientTransport }, { SSEClientTransport }, { StreamableHTTPClientTransport }] = await Promise.all([
@@ -18,6 +18,15 @@ async function defaultLoadSdk() {
 
 function hasAuthorizationHeader(headers = {}) {
   return Object.keys(headers || {}).some((key) => String(key || "").trim().toLowerCase() === "authorization");
+}
+
+function mergeOAuthHeaders(headers, oauthHeaders = {}) {
+  const hasExplicitAuthorization = hasAuthorizationHeader(headers);
+  for (const [key, value] of Object.entries(oauthHeaders || {})) {
+    if (hasExplicitAuthorization && String(key || "").trim().toLowerCase() === "authorization") continue;
+    headers[key] = value;
+  }
+  return headers;
 }
 
 function requestInitForHeaders(headers = {}) {
@@ -51,6 +60,13 @@ function createMcpSdkClientManager(deps = {}) {
   const processEnvStrings = typeof deps.processEnvStrings === "function" ? deps.processEnvStrings : () => process.env;
   const appendLog = typeof deps.appendLog === "function" ? deps.appendLog : () => {};
   const authorizeToolCall = typeof deps.authorizeToolCall === "function" ? deps.authorizeToolCall : null;
+  const oauthService = deps.oauthService || null;
+  const connectionTester = deps.connectionTester || createCoreMcpConnectionTester({
+    loadSdk,
+    processEnvStrings,
+    oauthService,
+    timeoutMs: deps.connectionTestTimeoutMs || 15000
+  });
 
   const clients = new Map();
   let manifest = [];
@@ -89,6 +105,9 @@ function createMcpSdkClientManager(deps = {}) {
 
     const url = new URL(transport.url);
     const headers = { ...(transport.headers || {}) };
+    if (oauthService && typeof oauthService.authorizationHeadersForServer === "function") {
+      mergeOAuthHeaders(headers, await oauthService.authorizationHeadersForServer(record));
+    }
     const bearerTokenEnvVar = String(transport.bearerTokenEnvVar || "").trim();
     const bearerToken = bearerTokenEnvVar ? String(env[bearerTokenEnvVar] || "").trim() : "";
     if (bearerToken && !hasAuthorizationHeader(headers)) {
@@ -126,16 +145,23 @@ function createMcpSdkClientManager(deps = {}) {
     let record = null;
     try {
       record = normalizeRecord(input);
-      const { client, transport, tools } = await connectRecord(record, TEST_CLIENT_INFO);
-      await Promise.allSettled([closeResource(client), closeResource(transport)]);
-      return { success: true, status: "connected", tools, error: "" };
+      const result = await connectionTester.testConnection(record);
+      if (result?.success !== true) {
+        logMasked("test failed for server", record, result?.message || result?.error || "");
+      }
+      return result;
     } catch (error) {
       logMasked("test failed for server", record || input, error);
       return {
+        ok: false,
         success: false,
         status: "disconnected",
+        code: "connection_failed",
+        message: sanitizeSecretText(error?.message || error),
         tools: [],
-        error: sanitizeSecretText(error?.message || error)
+        error: sanitizeSecretText(error?.message || error),
+        details: {},
+        auth: { needsAuth: false, method: "", serverUrl: "" }
       };
     }
   }

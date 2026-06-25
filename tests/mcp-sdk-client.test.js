@@ -138,6 +138,61 @@ test("HTTP transports keep explicit Authorization before bearerTokenEnvVar", asy
   assert.deepEqual(events[1][2].requestInit.headers, { Authorization: "Bearer explicit" });
 });
 
+test("HTTP transports use OAuth Authorization header during refresh", async () => {
+  const events = [];
+  const manager = createMcpSdkClientManager({
+    loadSdk: fakeLoadSdk(events),
+    processEnvStrings: () => ({}),
+    oauthService: {
+      authorizationHeadersForServer: async (record) => ({
+        Authorization: `Bearer oauth-for-${record.name}`
+      })
+    }
+  });
+
+  const refreshed = await manager.refresh([
+    { name: "xhs", enabled: true, transport: { type: "http", url: "http://127.0.0.1:18060/mcp" } }
+  ]);
+
+  assert.equal(refreshed.success, true);
+  assert.deepEqual(events[1], ["connect", "streamable_http", {
+    url: "http://127.0.0.1:18060/mcp",
+    requestInit: { headers: { Authorization: "Bearer oauth-for-xhs" } }
+  }]);
+});
+
+test("HTTP transports keep explicit Authorization before OAuth Authorization", async () => {
+  const events = [];
+  const manager = createMcpSdkClientManager({
+    loadSdk: fakeLoadSdk(events),
+    processEnvStrings: () => ({}),
+    oauthService: {
+      authorizationHeadersForServer: async () => ({
+        Authorization: "Bearer oauth",
+        "X-OAuth": "present"
+      })
+    }
+  });
+
+  const refreshed = await manager.refresh([
+    {
+      name: "xhs",
+      enabled: true,
+      transport: {
+        type: "http",
+        url: "http://127.0.0.1:18060/mcp",
+        headers: { Authorization: "Bearer explicit" }
+      }
+    }
+  ]);
+
+  assert.equal(refreshed.success, true);
+  assert.deepEqual(events[1][2].requestInit.headers, {
+    Authorization: "Bearer explicit",
+    "X-OAuth": "present"
+  });
+});
+
 test("callTool checks authorizeToolCall before invoking the SDK client", async () => {
   const events = [];
   const calls = [];

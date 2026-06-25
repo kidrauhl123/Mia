@@ -26,3 +26,24 @@ test("MCP IPC channels and preload bridge are wired", () => {
   assert.match(ipc, /IpcChannel\.McpList/);
   assert.match(ipc, /IpcChannel\.McpRemoveFromAgents/);
 });
+
+test("mcp ipc registers Core AION alignment methods", () => {
+  const src = read("src/main/ipc/mcp-ipc.js");
+  assert.match(src, /McpListTools/);
+  assert.match(src, /McpAgentConfigs/);
+  assert.match(src, /McpImportAgentConfig/);
+  assert.match(src, /McpOauthCheckStatus/);
+  assert.match(src, /McpOauthLogin/);
+  assert.match(src, /McpOauthLogout/);
+});
+
+test("preload exposes oauth and discovery methods", () => {
+  const src = read("src/preload.js");
+  assert.match(src, /listTools:\s*\(\)\s*=>/);
+  assert.match(src, /getAgentConfigs:\s*\(\)\s*=>/);
+  assert.match(src, /importAgentConfig:\s*\(input\)\s*=>/);
+  assert.match(src, /oauth:\s*\{/);
+  assert.match(src, /checkStatus:\s*\(input\)\s*=>/);
+  assert.match(src, /login:\s*\(input\)\s*=>/);
+  assert.match(src, /logout:\s*\(input\)\s*=>/);
+});

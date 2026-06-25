@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { freePort } = require("./helpers/free-port.js");
-const { createDaemonControlServer } = require("../src/main/daemon/control-server.js");
+const { createDaemonControlServer, shouldReuseDaemon } = require("../src/main/daemon/control-server.js");
 
 function setup(t, overrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-daemon-control-"));
@@ -83,7 +83,8 @@ test("start serves health, protects remote routes, and delegates authorized remo
     uptime: 12,
     mode: "daemon",
     runtimeHome: path.join(dir, "home"),
-    version: ""
+    version: "",
+    daemonTarget: null
   });
   const probe = await server.ping({ host: "127.0.0.1", port }, 500, { expectedRuntimeHome: path.join(dir, "home") });
   assert.equal(probe.mode, "daemon");
@@ -186,4 +187,64 @@ test("ping rejects a daemon running from a different runtime home", async (t) =>
   const result = await server.ping(undefined, 500, { expectedRuntimeHome: path.join(dir, "home") });
 
   assert.deepEqual(result, { ok: false, baseUrl: `http://127.0.0.1:${port}` });
+});
+
+test("ping returns the answering daemon's target from /health", async (t) => {
+  const target = { kind: "node-core", command: "node", usesGuiAppIdentity: false, workingDirectory: "/repo/src/core" };
+  const { dir, server, setDaemonSettings } = setup(t, {
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ status: "ok", service: "mia-daemon", mode: "daemon", version: "1.2.3", runtimeHome: path.join(dir, "home"), daemonTarget: target })
+    })
+  });
+  const port = await freePort();
+  setDaemonSettings({ port });
+
+  const probe = await server.ping(undefined, 500, { expectedRuntimeHome: path.join(dir, "home") });
+  assert.equal(probe.ok, true);
+  assert.equal(probe.mode, "daemon");
+  assert.equal(probe.version, "1.2.3");
+  assert.deepEqual(probe.daemonTarget, target);
+});
+
+test("ping reports daemonTarget null when /health omits it", async (t) => {
+  const { dir, server, setDaemonSettings } = setup(t, {
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ status: "ok", service: "mia-daemon", mode: "daemon", runtimeHome: path.join(dir, "home") })
+    })
+  });
+  const port = await freePort();
+  setDaemonSettings({ port });
+  const probe = await server.ping(undefined, 500, { expectedRuntimeHome: path.join(dir, "home") });
+  assert.equal(probe.daemonTarget, null);
+});
+
+test("shouldReuseDaemon rejects a GUI-identity daemon and missing/version-mismatched targets", () => {
+  const v = "2.0.0";
+  // Reuse: node-core, matching version, non-GUI identity.
+  assert.equal(shouldReuseDaemon({ ok: true, mode: "daemon", version: v, daemonTarget: { kind: "node-core", usesGuiAppIdentity: false } }, v), true);
+  // Reject: GUI app identity (old Electron --daemon) → must migrate to node-core.
+  assert.equal(shouldReuseDaemon({ ok: true, mode: "daemon", version: v, daemonTarget: { kind: "legacy-gui", usesGuiAppIdentity: true } }, v), false);
+  // Reject: no daemonTarget reported (pre-migration build).
+  assert.equal(shouldReuseDaemon({ ok: true, mode: "daemon", version: v }, v), false);
+  // Reject: version mismatch.
+  assert.equal(shouldReuseDaemon({ ok: true, mode: "daemon", version: "1.0.0", daemonTarget: { kind: "node-core", usesGuiAppIdentity: false } }, v), false);
+  // Reject: not reachable / not a daemon.
+  assert.equal(shouldReuseDaemon({ ok: false }, v), false);
+  assert.equal(shouldReuseDaemon({ ok: true, mode: "desktop", version: v, daemonTarget: { kind: "node-core", usesGuiAppIdentity: false } }, v), false);
+});
+
+test("status and health report the resolved daemon target", async (t) => {
+  const target = { kind: "packaged-helper", command: "Mia Core", usesGuiAppIdentity: false, workingDirectory: "/x" };
+  const { server } = setup(t, { describeDaemonTarget: () => target });
+
+  assert.deepEqual(server.status().daemonTarget, target);
+
+  const port = await freePort();
+  await server.start({ host: "127.0.0.1", port });
+  t.after(() => server.stop());
+  const res = await fetch(`http://127.0.0.1:${port}/health`);
+  const body = await res.json();
+  assert.deepEqual(body.daemonTarget, target);
 });

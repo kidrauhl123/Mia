@@ -27,6 +27,8 @@ const {
   sendWithStatelessChatEngineAdapter
 } = require("./main/chat-engine-adapters.js");
 const { createChatEventEmitter } = require("./main/chat-events.js");
+const { createBotExecutionCore } = require("./main/bot-execution-core.js");
+const { createBotTurnHelpers } = require("./main/bot-turn-helpers.js");
 const { chatCompletionResponse, responseMessageContent } = require("./main/chat-response.js");
 const { createAgentCommandProvider } = require("./main/agent-command-provider.js");
 const { createClaudeBridgePluginService } = require("./main/claude-bridge-plugin-service.js");
@@ -80,6 +82,11 @@ const {
 } = require("./main/social/local-bot-responder.js");
 const { createMainBotRuntimeDispatcher } = require("./main/social/bot-runtime-dispatcher.js");
 const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js");
+const {
+  cloudWebSocketUrl: buildCloudWebSocketUrl,
+  cloudWebSocketProtocols: buildCloudWebSocketProtocols,
+  cloudEventsUrl: buildCloudEventsUrl
+} = require("./main/cloud/cloud-events-url.js");
 const { createCloudBridgeClient } = require("./main/cloud/cloud-bridge-client.js");
 const { createCloudDesktopSyncClient } = require("./main/cloud/desktop-sync-client.js");
 const { createCloudSettingsWriter } = require("./main/cloud/cloud-settings-writer.js");
@@ -98,8 +105,10 @@ const {
   createMiaCoreTasksClient,
   createMiaCoreLocalEventsClient,
   createMiaCoreProcessLauncher,
-  coreNeedsReplacement
+  coreNeedsReplacement,
+  shouldReuseCore
 } = require("./main/mia-core/local-process-control.js");
+const { createMiaCoreResolver } = require("./main/daemon/executable-resolver.js");
 const { windowsTitleBarOverlayForAppearance, applyWindowsTitleBarOverlay } = require("./main/windows-title-bar.js");
 const { createProviderConnections } = require("./main/provider-connections.js");
 const { createAuthService } = require("./main/auth-service.js");
@@ -140,6 +149,8 @@ const { createMcpBridgeServer } = require("./main/mcp/mcp-bridge-server.js");
 const { runNativeMcpCliSync } = require("./main/mcp/mcp-engine-sync.js");
 const { createMcpSdkClientManager } = require("./main/mcp/mcp-sdk-client.js");
 const { createMcpService } = require("./main/mcp/mcp-service.js");
+const { createCoreMcpOAuthService } = require("./core/mcp/oauth-service.js");
+const { createCoreMcpOAuthTokenStore } = require("./core/mcp/oauth-token-store.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — bot chats
 //  now sync via conversations+messages, no need for the workspace-shape mappers.)
 
@@ -151,15 +162,13 @@ const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.MIA_D
 const ALLOW_MULTIPLE_INSTANCES = process.env.MIA_ALLOW_MULTIPLE_INSTANCES === "1";
 
 app.setName("Mia");
-const defaultUserDataDir = app.getPath("userData");
+// Migration slice 5c: the daemon is the standalone node Core, not Electron, so
+// the old `if (IS_DAEMON_PROCESS)` daemon-profile userData / MIA_HOME special
+// casing was deleted here — Electron always runs as the window. A general
+// MIA_USER_DATA_DIR override is still honoured (test isolation / multi-instance).
 const isolatedUserDataDir = String(process.env.MIA_USER_DATA_DIR || "").trim();
-if (IS_DAEMON_PROCESS && !String(process.env.MIA_HOME || "").trim()) {
-  process.env.MIA_HOME = path.join(defaultUserDataDir, "runtime", "engine-home");
-}
 if (isolatedUserDataDir) {
   app.setPath("userData", path.resolve(isolatedUserDataDir));
-} else if (IS_DAEMON_PROCESS) {
-  app.setPath("userData", path.join(defaultUserDataDir, "daemon-profile"));
 }
 const startupTimer = createStartupTimer({ scope: "startup" });
 const localFileOpenService = createLocalFileOpenService({
@@ -367,10 +376,41 @@ const engineHealthService = createEngineHealthService({
   timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs)
 });
 
+const miaCoreResolver = createMiaCoreResolver({
+  runtimePaths,
+  effectiveHermesHome,
+  appPath: () => app.getAppPath(),
+  execPath: () => process.execPath,
+  defaultApp: () => Boolean(process.defaultApp),
+  platform: process.platform,
+  env: process.env,
+  resourcesPath: () => process.resourcesPath || "",
+  // Launch the standalone node Core as the daemon (slice 5c: this is now the SOLE
+  // daemon target — the legacy-gui/electron-dev GUI-identity daemons are deleted).
+  // process.execPath is the Electron GUI executable (NOT node), so we resolve an
+  // absolute node via the shared shell-path lookup. When none is found on a
+  // packaged build the resolver returns `unresolved` and assertLaunchable() fails
+  // closed rather than launching the GUI app as the daemon.
+  // DEV: process.defaultApp is true → use the system `node` (shell-path lookup)
+  // + the on-disk Core entry (unchanged behaviour). PACKAGED: process.defaultApp
+  // is false → the resolver derives the bundled node (<resources>/mia-node) and
+  // the unpacked Core entry (app.asar.unpacked/src/core/mia-core.js) from
+  // resourcesPath, because a plain node binary cannot require out of app.asar.
+  nodePath: () => {
+    if (!process.defaultApp) return "";
+    try {
+      return String(localAgentEngineService?.shellCommandPath?.("node") || "").trim();
+    } catch {
+      return "";
+    }
+  },
+  coreEntry: () => (process.defaultApp ? path.resolve(__dirname, "core", "mia-core.js") : "")
+});
 const launchdService = createLaunchdService({
   gatewayServiceLabel: MIA_GATEWAY_SERVICE_LABEL,
   daemonServiceLabel: MIA_DAEMON_SERVICE_LABEL,
   runtimePaths,
+  resolver: miaCoreResolver,
   appPath: () => app.getAppPath(),
   execPath: () => process.execPath,
   defaultApp: () => Boolean(process.defaultApp),
@@ -386,6 +426,7 @@ const launchdService = createLaunchdService({
 const miaCoreProcessLauncher = createMiaCoreProcessLauncher({
   runtimePaths,
   effectiveHermesHome,
+  resolver: miaCoreResolver,
   appPath: () => app.getAppPath(),
   execPath: () => process.execPath,
   defaultApp: () => Boolean(process.defaultApp),
@@ -618,7 +659,6 @@ let remoteControlRouter = null;
 let miaCoreControlServer = null;
 let miaCoreTasksClient = null;
 let agentPermissionProxy = null;
-let activeChatAbortController = null;
 let cloudEventSocketRuntime = null;
 let cloudBridgeRuntime = null;
 let localEventsRuntime = null;
@@ -723,9 +763,16 @@ function processEnvStrings() {
   return Object.fromEntries(Object.entries(localAgentEngineService.processEnvWithCliPath()).filter(([, value]) => typeof value === "string"));
 }
 
+const userMcpOAuthTokenStore = createCoreMcpOAuthTokenStore({ runtimePaths, fs });
+const userMcpOAuthService = createCoreMcpOAuthService({
+  tokenStore: userMcpOAuthTokenStore,
+  fetch,
+  openExternal: (url) => shell.openExternal(url)
+});
 const userMcpManager = createMcpSdkClientManager({
   processEnvStrings,
   appendLog: appendEngineLog,
+  oauthService: userMcpOAuthService,
   authorizeToolCall: async ({ args, options = {} }) => {
     const toolLabel = String(options.toolLabel || "").trim() || "mcp.tool";
     let preview = "";
@@ -768,7 +815,9 @@ const userMcpService = createMcpService({
     appendLog: appendEngineLog
   }),
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
-  stdioProxyScriptPath: () => path.join(__dirname, "main", "mcp", "mcp-stdio-proxy-server.js")
+  stdioProxyScriptPath: () => path.join(__dirname, "main", "mcp", "mcp-stdio-proxy-server.js"),
+  oauthTokenStore: userMcpOAuthTokenStore,
+  oauthService: userMcpOAuthService
 });
 const startupMcpInitializer = createStartupMcpInitializer({
   initializeMcp: () => userMcpService.initialize(),
@@ -1277,24 +1326,36 @@ async function startDaemonService() {
   if (existing.ok && existing.mode === "daemon") {
     // A KeepAlive launchd daemon survives app updates, so the freshly-updated
     // window can find an old-version daemon still owning cloud events + bot
-    // execution. Reuse it only when versions match; otherwise fall through to
-    // launchdService.startDaemon() below, which rewrites the plist and
-    // bootout+bootstraps a daemon running this app's code.
-    if (!coreNeedsReplacement(existing, app.getVersion())) {
+    // execution. Reuse it only when versions match AND it is NOT running under
+    // the GUI app identity (an old `Electron --daemon` is migrated to node-core,
+    // not kept). Otherwise fall through to launchdService.startDaemon() below,
+    // which rewrites the plist and bootout+bootstraps a daemon running this
+    // app's code as the node Core.
+    if (shouldReuseCore(existing, app.getVersion())) {
       return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
     }
-    appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
+    if (coreNeedsReplacement(existing, app.getVersion())) {
+      appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
+    } else if (existing.daemonTarget?.usesGuiAppIdentity === true || !existing.daemonTarget) {
+      appendDaemonLog(`Daemon target ${existing.daemonTarget?.kind || "(unknown)"} uses GUI app identity or is unreported; migrating to node-core.`);
+    }
   } else if (existing.ok) {
     appendDaemonLog(`Ignoring ${existing.mode || "unknown"} process on daemon port; a real daemon process is required.`);
   }
+  // Fail closed: node-core is the sole daemon target. On a degenerate packaged
+  // build that cannot resolve the bundled node Core the resolver returns
+  // `unresolved` and this throws, rather than launching the GUI app as the daemon
+  // (the deleted legacy-gui path). node-core / bundled-cli (non-darwin) pass.
+  miaCoreResolver.assertLaunchable();
   if (process.platform === "darwin") {
     await launchdService.startDaemon();
     for (let i = 0; i < 20; i += 1) {
       const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
-      // Only accept once the *replacement* answers: during bootout/kickstart the
-      // old daemon can still briefly hold the port, so require a version match
-      // (not just ok) or the stale one would be accepted and replaced again next launch.
-      if (ping.ok && ping.mode === "daemon" && !coreNeedsReplacement(ping, app.getVersion())) {
+      // Only accept once the *replacement* node-core daemon answers: during
+      // bootout/kickstart the old daemon can still briefly hold the port, so
+      // require shouldReuseCore (version match + non-GUI target) or the stale
+      // GUI-identity one would be accepted and replaced again next launch.
+      if (shouldReuseCore(ping, app.getVersion())) {
         return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
       }
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1305,7 +1366,7 @@ async function startDaemonService() {
   await miaCoreProcessLauncher.start();
   for (let i = 0; i < 20; i += 1) {
     const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
-    if (ping.ok && ping.mode === "daemon" && !coreNeedsReplacement(ping, app.getVersion())) {
+    if (shouldReuseCore(ping, app.getVersion())) {
       return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1741,24 +1802,15 @@ async function installDesktopMarketSkill(skillId) {
 }
 
 function cloudWebSocketUrl(pathname, settings = settingsStore.cloudSettings()) {
-  const url = new URL(settings.url);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = pathname;
-  url.search = "";
-  return url;
+  return buildCloudWebSocketUrl(pathname, settings);
 }
 
 function cloudWebSocketProtocols(settings = settingsStore.cloudSettings()) {
-  return [`mia-token.${settings.token}`];
+  return buildCloudWebSocketProtocols(settings);
 }
 
 function cloudEventsUrl(settings = settingsStore.cloudSettings()) {
-  const url = cloudWebSocketUrl("/api/events", settings);
-  // Tell the server where we left off so it can replay any persisted
-  // events we missed while disconnected (Phase 1.C). 0 == replay from
-  // the start (login / fresh install).
-  url.searchParams.set("since_seq", String(Number(settings.lastEventSeq) || 0));
-  return url.toString();
+  return buildCloudEventsUrl(settings);
 }
 
 function bridgeEngineIdsFromView(engines = {}) {
@@ -2185,153 +2237,49 @@ function createActiveBridgeChatAdapter(agentEngine = "codex") {
   };
 }
 
-async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [], signal: externalSignal = null, abortController: externalAbortController = null }) {
-  utility = Boolean(utility);
-  const shouldPersistAgentSession = persistAgentSession == null
-    ? !utility
-    : Boolean(persistAgentSession);
-  let abortController = externalAbortController && typeof externalAbortController.abort === "function"
-    ? externalAbortController
-    : null;
-  if (!abortController && (group || utility || background)) {
-    // Group dispatches run in parallel; each gets its own controller.
-    // Utility calls also skip the 1v1 "single active chat" semantics.
-    // Background runs (scheduled tasks) must not share the interactive
-    // single-flight controller — otherwise any foreground/web chat (or an
-    // overlapping task) aborts the task mid-generation ("生成已停止").
-    abortController = new AbortController();
-  } else if (!abortController) {
-    if (activeChatAbortController) {
-      activeChatAbortController.abort();
-    }
-    abortController = new AbortController();
-    activeChatAbortController = abortController;
-  }
-  const signal = externalSignal || abortController.signal;
-  // chat:event drives background/remote trace capture (see runRemoteChatRequest's
-  // tracedEventSink). Interactive cloud-conversation chats publish their own
-  // cloud:event stream via local-bot-responder — those
-  // callers either pass externalEmit or set utility/group/background to skip
-  // this emitter.
-  const { emit } = typeof externalEmit === "function"
-    ? { emit: externalEmit }
-    : !utility
-    ? createChatEventEmitter({ webContents, sessionId })
-    : { emit: null };
-  try {
-    const key = botKey || botId;
-    const snapshotBot = miaCoreRuntime.cloudBotSnapshotForTurn(botSnapshot, key, runtimeConfig);
-    let bot = snapshotBot;
-    if (!bot) {
-      const manifest = loadBotManifest();
-      ({ bot } = requireBot(manifest, key, "还没有可用的 bot，请先在引导里创建一个再发起对话。"));
-    }
-    const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
-    const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
-    let botForTurn = miaCoreRuntime.botWithRuntimeConfig(bot, turnRuntimeConfig, { agentEngine: runtimeAgentEngine });
-    if (runtimeAgentEngine) {
-      botForTurn = {
-        ...botForTurn,
-        agentEngine: normalizeAgentEngine(runtimeAgentEngine, botForTurn.agentEngine || botForTurn.agent_engine || "hermes")
-      };
-    }
-    const chatEngine = resolveChatEngineAdapter(botForTurn);
-    const agentEngine = chatEngine.id;
-    const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
-    const completeWithPetMessage = (response) => {
-      if (shouldNotifyPet) botPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
-      return response;
-    };
-    if (emit) {
-      emit("session_started", { botKey: botForTurn.key, engine: agentEngine });
-    }
-    // Scheduler is always an available structured capability on foreground
-    // turns. Composer "使用" chips still get an explicit directive so the agent
-    // prioritizes them for this turn.
-    const turnEnabledSkillIds = schedulerSkillIdsForTurn({ activeSkillIds, background, scheduledFire });
-    if (turnEnabledSkillIds.length) {
-      const caps = botForTurn.capabilities || {};
-      botForTurn = {
-        ...botForTurn,
-        capabilities: {
-          ...caps,
-          enabledSkills: [...new Set([...(caps.enabledSkills || []), ...turnEnabledSkillIds.map((id) => String(id))])]
-        }
-      };
-      const directive = skillsLoader.buildActiveSkillsDirective(activeSkillIds);
-      if (directive && Array.isArray(messages)) {
-        const next = messages.slice();
-        for (let i = next.length - 1; i >= 0; i--) {
-          if (next[i] && next[i].role === "user") {
-            next[i] = { ...next[i], content: `${directive}\n\n${next[i].content || ""}` };
-            break;
-          }
-        }
-        messages = next;
-      }
-    }
-    const slashText = allowSlashCommands ? hermesRunService.slashCommandText(messages) : "";
-    const response = await sendWithChatEngineAdapter(createActiveChatEngineAdapters(), {
-      chatEngine,
-      bot: botForTurn,
-      sessionId,
-      messages,
-      group,
-      signal,
-      abortController,
-      emit,
-      utility,
-      scheduledFire,
-      persistAgentSession: shouldPersistAgentSession,
-      slashText,
-      runtimeConfig: turnRuntimeConfig
-    });
-    return completeWithPetMessage(response);
-  } catch (error) {
-    if (signal.aborted) {
-      if (emit) emit("complete", { finishReason: "cancelled", aborted: true });
-      const stopped = new Error("生成已停止");
-      stopped.code = "MIA_STOPPED";
-      throw stopped;
-    }
-    if (emit) emit("error", { message: String(error?.message || error) });
-    throw error;
-  } finally {
-    if (activeChatAbortController === abortController) activeChatAbortController = null;
-  }
+// `cloudBotSnapshotForTurn` and `botWithRuntimeConfig` now live in
+// src/main/bot-turn-helpers.js so the standalone Mia Core node process builds
+// the same turn-normalization pipeline — no fork. Behaviour is byte-identical;
+// the only deps are the two shared engine-policy functions already imported.
+const { botWithRuntimeConfig, cloudBotSnapshotForTurn } = createBotTurnHelpers({
+  normalizeAgentEngine,
+  enginePermissionStoreTarget
+});
+
+// Single shared bot-execution core: `sendChat`/`stopChat` (and the single-flight
+// abort state) live in src/main/bot-execution-core.js so the standalone Mia Core
+// node process drives the exact same implementation — no fork. Late-bound deps
+// (localBotResponder, miaCoreTasksClient, settingsStore) are injected as accessors
+// because they are constructed after this point / reassigned at runtime.
+const botExecutionCore = createBotExecutionCore({
+  createChatEventEmitter,
+  cloudBotSnapshotForTurn,
+  loadBotManifest,
+  requireBot,
+  normalizeTurnRuntimeConfig,
+  botWithRuntimeConfig,
+  normalizeAgentEngine,
+  resolveChatEngineAdapter,
+  botPetService,
+  responseMessageContent,
+  schedulerSkillIdsForTurn,
+  skillsLoader,
+  hermesRunService,
+  sendWithChatEngineAdapter,
+  createActiveChatEngineAdapters,
+  localBotResponder: () => localBotResponder,
+  isDaemonProcess: IS_DAEMON_PROCESS,
+  daemonTasksClient: () => miaCoreTasksClient,
+  settingsStore: () => settingsStore,
+  appendCloudLog
+});
+
+function sendChat(payload) {
+  return botExecutionCore.sendChat(payload);
 }
 
-async function stopChat(payload = {}) {
-  let stopped = false;
-  if (activeChatAbortController) {
-    activeChatAbortController.abort();
-    activeChatAbortController = null;
-    stopped = true;
-  }
-  const localStop = localBotResponder?.stopActiveConversationRun?.(payload) || { stopped: false };
-  const result = {
-    stopped: stopped || Boolean(localStop.stopped),
-    ...(localStop.conversationId ? { conversationId: localStop.conversationId } : {}),
-    ...(localStop.runId ? { runId: localStop.runId } : {}),
-    ...(localStop.status ? { status: localStop.status } : {})
-  };
-  if (!IS_DAEMON_PROCESS && miaCoreTasksClient?.call && settingsStore.daemonSettings().enabled) {
-    try {
-      const daemonStop = await miaCoreTasksClient?.call?.("/api/chat/stop", {
-        method: "POST",
-        body: JSON.stringify(payload || {})
-      });
-      return {
-        stopped: result.stopped || Boolean(daemonStop?.stopped),
-        ...(daemonStop?.conversationId || result.conversationId ? { conversationId: daemonStop?.conversationId || result.conversationId } : {}),
-        ...(daemonStop?.runId || result.runId ? { runId: daemonStop?.runId || result.runId } : {}),
-        ...(daemonStop?.status || result.status ? { status: daemonStop?.status || result.status } : {})
-      };
-    } catch (error) {
-      appendCloudLog(`[daemon] chat stop delegation failed: ${error?.message || error}`);
-    }
-  }
-  return result;
+function stopChat(payload = {}) {
+  return botExecutionCore.stopChat(payload);
 }
 
 function shouldOpenAgentSetupWindow() {
@@ -2544,6 +2492,21 @@ miaCoreControlServer = createMiaCoreControlServer({
   serviceLabel: MIA_DAEMON_SERVICE_LABEL,
   daemonToken,
   appVersion: () => app.getVersion(),
+  describeDaemonTarget: () => {
+    // When this process IS the launched daemon, prefer the target identity the
+    // launcher stamped into env (MIA_DAEMON_TARGET_KIND) so /health reports the
+    // SAME target the resolver chose, without re-resolving process.resourcesPath.
+    const kind = String(process.env.MIA_DAEMON_TARGET_KIND || "").trim();
+    if (IS_DAEMON_PROCESS && kind) {
+      return {
+        kind,
+        command: path.basename(process.execPath),
+        usesGuiAppIdentity: String(process.env.MIA_DAEMON_USES_GUI_IDENTITY || "") === "1",
+        workingDirectory: process.cwd()
+      };
+    }
+    return miaCoreResolver.describe();
+  },
   initializeRuntime,
   choosePort: engineHealthService.choosePort,
   getDaemonSettings: () => settingsStore.daemonSettings(),
@@ -3065,51 +3028,17 @@ app.on("before-quit", () => {
 
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
-  if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
-  if (!IS_DAEMON_PROCESS) startupMcpInitializer.start();
-  if (IS_DAEMON_PROCESS) {
-    try {
-      app.dock?.hide?.();
-    } catch {
-      // Dock APIs are macOS-only.
-    }
-    try {
-      await miaCoreControlServer.start();
-    } catch (error) {
-      const message = String(error?.message || error);
-      miaCoreControlServer.setLastError(message);
-      appendDaemonLog(`Daemon start failed: ${message}`);
-      throw error;
-    }
-    // Host cloud realtime sockets so this device's local AI keeps serving
-    // requests while the UI window is closed. Bridge exposes the device to
-    // Cloud; events deliver desktop-local bot invocations into this process.
-    // The interval retries once a cloud token appears (e.g. first login happens
-    // in the foreground after the daemon is already up) and after any drop.
-    try {
-      initializeRuntime();
-    } catch (error) {
-      appendDaemonLog(`Daemon runtime init failed: ${error?.message || error}`);
-    }
-    startCloudRuntimeSockets();
-    setInterval(() => {
-      startCloudRuntimeSockets();
-      // ADR P2: keep the window honest about upstream health — local channel
-      // up + cloud socket down must not render as "connected".
-      miaCoreControlServer?.publishLocalEvent?.({
-        type: "daemon.cloud_events_status",
-        payload: cloudEventsStatus()
-      });
-      miaCoreControlServer?.publishLocalEvent?.({
-        type: "daemon.cloud_runtime_status",
-        payload: {
-          events: cloudEventsStatus(),
-          bridge: cloudBridgeRuntime?.status?.(false) || null
-        }
-      });
-    }, 10000);
-    return;
-  }
+  // Migration slice 5c: the daemon is ALWAYS the standalone node Core
+  // (src/core/mia-core.js), never the Electron GUI app. The obsolete
+  // `if (IS_DAEMON_PROCESS)` Electron daemon-boot branch (dock.hide + control
+  // server + cloud sockets + retry interval) was deleted here — node Core owns
+  // that boot in createMiaCore.startWithCloud(). Electron only ever runs as the
+  // window; IS_DAEMON_PROCESS is false-by-construction in this process now, and
+  // its remaining `!IS_DAEMON_PROCESS` arms are the window-side path. The window
+  // still constructs miaCoreControlServer and pings/forwards to the node-Core
+  // daemon over 127.0.0.1; startDaemonService launches node Core.
+  if (!shouldRunDesktopInstance) return;
+  startupMcpInitializer.start();
   const win = createWindow();
   startupTimer.mark("window:created");
   autoUpdateService.start();

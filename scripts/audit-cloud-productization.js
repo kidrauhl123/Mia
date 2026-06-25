@@ -514,7 +514,7 @@ function runAudit({ rootDir = root } = {}) {
     item("gate.same-account-bridge-control", "同账号 Web/手机端可直接调用桌面 Agent，设备鉴权不复用 Agent permission", [
       checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest[\s\S]*runtimeConfigFromMessage\(message\)[\s\S]*agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/, "desktop bridge keeps Hermes permission config local to Hermes runs"),
       checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest(?![\s\S]*?confirmCloudBridgeRun\()/, "desktop bridge run source does not call local approval gate"),
-      checkSource(rootDir, "src/main.js", /cloudWebSocketProtocols[\s\S]*mia-token\./, "desktop bridge authenticates to Cloud with account token subprotocol"),
+      checkSource(rootDir, "src/main/cloud/cloud-events-url.js", /cloudWebSocketProtocols[\s\S]*mia-token\./, "desktop bridge authenticates to Cloud with account token subprotocol (shared cloud-events-url Module)"),
       checkSource(rootDir, "scripts/serve-cloud.js", /devicesByUser[\s\S]*hub\.devicesByUser\.get\(userId\)/, "cloud bridge devices are scoped by authenticated userId"),
       checkSource(rootDir, "tests/project-structure-check.test.js", /does not add a separate local approval gate/, "regression test forbids remote-connection approval gate in bridge run"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /auto-selects the only online device|runs on the explicitly selected online device|requires explicit device selection/, "same-account bridge dispatch tests")

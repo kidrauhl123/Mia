@@ -31,7 +31,8 @@ function createDaemonControlServer({
   clearIntervalFn = clearInterval,
   // Keep-alive comments on the local SSE channel so the window's idle watchdog
   // (local-events-client) can tell a healthy idle stream from a half-open one.
-  localEventHeartbeatMs = 15000
+  localEventHeartbeatMs = 15000,
+  describeDaemonTarget = () => null
 }) {
   let controlServer = null;
   let localEventHeartbeatTimer = null;
@@ -106,6 +107,7 @@ function createDaemonControlServer({
       connectUrls: daemonConnectUrls(settings),
       runtimeHome: paths.home,
       launchAgent: paths.daemonLaunchAgent,
+      daemonTarget: describeDaemonTarget(),
       lastError: state.lastError,
       logs: state.logs.slice(-80)
     };
@@ -330,7 +332,8 @@ function createDaemonControlServer({
         uptime: Math.round(uptime()),
         mode: isDaemonProcess ? "daemon" : "desktop",
         runtimeHome: runtimePaths().home,
-        version: String(appVersion() || "")
+        version: String(appVersion() || ""),
+        daemonTarget: describeDaemonTarget()
       });
       return;
     }
@@ -512,7 +515,11 @@ function createDaemonControlServer({
           ok: true,
           baseUrl,
           version: String(body?.version || ""),
-          mode: String(body?.mode || "")
+          mode: String(body?.mode || ""),
+          // Expose the answering daemon's own target identity so callers can
+          // decide whether to migrate it (e.g. reject reuse of a GUI-identity
+          // daemon and replace it with node-core). closes NO-SHIP #2/#4.
+          daemonTarget: body && typeof body.daemonTarget === "object" ? body.daemonTarget : null
         };
       } catch {
         // Try the next candidate URL.
@@ -549,7 +556,25 @@ function daemonNeedsReplacement(probe, appVersion) {
   return String(probe.version || "").trim() !== current;
 }
 
+// Decide whether to reuse an already-running daemon instead of replacing it.
+// Versions must match (daemonNeedsReplacement), AND — for the node-core
+// migration — the answering daemon must NOT be running under the GUI app
+// identity: an old `Electron --daemon` (usesGuiAppIdentity:true) or a daemon
+// that does not report a target at all is migrated to node-core, not kept
+// (closes NO-SHIP #3). A node-core (or any non-GUI) target with a matching
+// version is reused. Reachable but non-daemon processes are never reused.
+function shouldReuseDaemon(probe, appVersion) {
+  if (!probe || !probe.ok) return false;
+  if (String(probe.mode || "") !== "daemon") return false;
+  if (daemonNeedsReplacement(probe, appVersion)) return false;
+  const target = probe.daemonTarget;
+  if (!target || typeof target !== "object") return false;
+  if (target.usesGuiAppIdentity === true) return false;
+  return true;
+}
+
 module.exports = {
   createDaemonControlServer,
-  daemonNeedsReplacement
+  daemonNeedsReplacement,
+  shouldReuseDaemon
 };

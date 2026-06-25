@@ -17,6 +17,12 @@ function registerMcpIpc({ ipcMain, mcpService }) {
   ipcMain.handle(IpcChannel.McpSync, () => mcpService.sync());
   ipcMain.handle(IpcChannel.McpRefreshBridge, () => mcpService.refreshBridge());
   ipcMain.handle(IpcChannel.McpRemoveFromAgents, (_event, recordsOrIds) => mcpService.removeFromAgents(recordsOrIds));
+  ipcMain.handle(IpcChannel.McpListTools, () => mcpService.listTools());
+  ipcMain.handle(IpcChannel.McpAgentConfigs, () => mcpService.getAgentConfigs());
+  ipcMain.handle(IpcChannel.McpImportAgentConfig, (_event, input) => mcpService.importAgentConfig(input || {}));
+  ipcMain.handle(IpcChannel.McpOauthCheckStatus, (_event, input) => mcpService.oauth.checkStatus(input || {}));
+  ipcMain.handle(IpcChannel.McpOauthLogin, (_event, input) => mcpService.oauth.login(input || {}));
+  ipcMain.handle(IpcChannel.McpOauthLogout, (_event, input) => mcpService.oauth.logout(input || {}));
 }
 
 module.exports = { registerMcpIpc };

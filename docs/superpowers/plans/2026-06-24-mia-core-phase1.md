@@ -1,7 +1,14 @@
 # Mia Core Phase 1: Independent Daemon Executable Identity — Implementation Plan
 
-> Superseded on 2026-06-25 by `docs/adr/2026-06-25-mia-core-runtime-owner.md` and `docs/superpowers/plans/2026-06-25-mia-core-runtime-cutover.md`.
-> This document is retained for historical context only; do not implement new daemon-first work from it.
+> **SUPERSEDED.** The nested-`.app`
+> Electron-helper approach below was reviewed NO-SHIP (omits Frameworks/asar →
+> crashes; unverifiable without a signed build) and abandoned in favour of a
+> real standalone Mia Core node process delivered in vertical slices. The
+> resolver-seam and diagnostics tasks here did land and are reused; the helper
+> packaging tasks (2, 6) did not. Kept for history.
+> Current follow-up sources: `docs/superpowers/plans/2026-06-24-mia-core-migration.md`,
+> `docs/adr/2026-06-25-mia-core-runtime-owner.md`, and
+> `docs/superpowers/plans/2026-06-25-mia-core-runtime-cutover.md`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

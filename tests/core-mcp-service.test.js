@@ -1,0 +1,333 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { test } = require("node:test");
+const { createCoreMcpService } = require("../src/core/mcp/service.js");
+
+function setup(t, overrides = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-mcp-service-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const runtime = { mcpServers: path.join(dir, "mia-mcp-servers.json"), runtime: dir };
+  const manager = overrides.manager || {
+    refresh: async () => ({ success: true, tools: [], errors: [] }),
+    testServer: async (record) => ({ ok: true, success: true, status: "connected", code: "ok", tools: [{ server: record.name, name: "search" }], error: "" }),
+    toolManifest: () => [{ server: "xhs", name: "search", inputSchema: {} }]
+  };
+  return {
+    service: createCoreMcpService({
+      runtimePaths: () => runtime,
+      fs,
+      manager,
+      bridge: overrides.bridge || { start: async () => ({ callbackUrl: "http://127.0.0.1:3333/mcp/execute", manifestUrl: "http://127.0.0.1:3333/mcp/manifest", secret: "sec" }) },
+      nativeSync: overrides.nativeSync || (async () => ({ success: true, statuses: {}, commands: [] })),
+      connectionTester: overrides.connectionTester,
+      agentConfigService: overrides.agentConfigService,
+      agentConfigRunner: overrides.agentConfigRunner,
+      oauthService: overrides.oauthService,
+      now: () => 1710000000000,
+      idFactory: (name) => `mcp_${name}`
+    }),
+    runtime
+  };
+}
+
+test("delete soft-deletes and list hides deleted records by default", async (t) => {
+  const { service, runtime } = setup(t);
+  const saved = await service.save({ name: "xhs", transport: { type: "http", url: "http://127.0.0.1:18060/mcp" } });
+
+  const deleted = await service.delete(saved.data.id);
+  const listed = await service.list();
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(deleted.success, true);
+  assert.deepEqual(listed.data.servers, []);
+  assert.equal(stored[0].deletedAt, 1710000000000);
+  assert.equal(stored[0].enabled, false);
+});
+
+test("soft-deleted records survive later save setEnabled and import writes", async (t) => {
+  const { service, runtime } = setup(t);
+  const deletedSource = await service.save({ name: "gone", transport: { type: "stdio", command: "npx", args: ["gone"] } });
+  await service.delete(deletedSource.data.id);
+
+  const active = await service.save({ name: "active", transport: { type: "stdio", command: "npx", args: ["active"] } });
+  let stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  assert.equal(stored.some((record) => record.name === "gone" && record.deletedAt === 1710000000000), true);
+
+  await service.setEnabled(active.data.id, false);
+  stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  assert.equal(stored.some((record) => record.name === "gone" && record.deletedAt === 1710000000000), true);
+
+  await service.importJson({
+    mcpServers: {
+      imported: { type: "http", url: "https://example.com/mcp" }
+    }
+  });
+  stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  assert.equal(stored.some((record) => record.name === "gone" && record.deletedAt === 1710000000000), true);
+  assert.deepEqual(stored.map((record) => record.name).sort(), ["active", "gone", "imported"]);
+});
+
+test("failed test persists diagnostics but does not auto-disable existing server", async (t) => {
+  const { service, runtime } = setup(t, {
+    connectionTester: {
+      testConnection: async () => ({
+        ok: false,
+        success: false,
+        status: "auth_required",
+        code: "auth_required",
+        message: "OAuth login required",
+        tools: [],
+        auth: { needsAuth: true, method: "oauth", serverUrl: "https://example.com/mcp" }
+      })
+    }
+  });
+  const saved = await service.save({ name: "remote", enabled: true, transport: { type: "http", url: "https://example.com/mcp" } });
+  const tested = await service.test(saved.data.id);
+  const listed = await service.list();
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(tested.success, true);
+  assert.equal(tested.data.enabled, true);
+  assert.equal(tested.data.lastTestStatus, "auth_required");
+  assert.equal(tested.data.lastTestCode, "auth_required");
+  assert.equal(listed.data.servers[0].lastTestCode, "auth_required");
+  assert.equal(stored[0].lastTestCode, "auth_required");
+  assert.equal(tested.data.lastError, "OAuth login required");
+});
+
+test("new methods delegate to agent discovery oauth and manager manifest", async (t) => {
+  const calls = [];
+  const { service } = setup(t, {
+    agentConfigService: {
+      getAgentConfigs: async () => [{ source: "codex", installed: true, servers: [] }],
+      importAgentConfig: async (input) => ({ imported: 1, input })
+    },
+    oauthService: {
+      checkStatus: async (input) => ({ authenticated: true, input }),
+      login: async () => ({ loginUrl: "http://127.0.0.1/login" }),
+      logout: async () => ({ authenticated: false })
+    },
+    manager: {
+      refresh: async () => ({ success: true, tools: [], errors: [] }),
+      testServer: async () => ({ ok: true, status: "connected", tools: [] }),
+      toolManifest: () => { calls.push("manifest"); return [{ server: "xhs", name: "search" }]; }
+    }
+  });
+
+  assert.equal((await service.listTools()).data.tools[0].name, "search");
+  assert.equal((await service.getAgentConfigs()).data.sources[0].source, "codex");
+  assert.equal((await service.oauth.checkStatus({ serverUrl: "https://example.com/mcp" })).data.authenticated, true);
+  assert.deepEqual(calls, ["manifest"]);
+});
+
+test("default agent discovery service uses runner", async (t) => {
+  const calls = [];
+  const { service } = setup(t, {
+    agentConfigRunner: async (command) => {
+      calls.push(command);
+      if (command === "claude") return { ok: true, stdout: "xhs: npx -y xhs - ✓ Connected", stderr: "" };
+      return { ok: false, stdout: "", stderr: "missing" };
+    }
+  });
+
+  const result = await service.getAgentConfigs();
+
+  assert.equal(result.success, true);
+  assert.deepEqual(result.data.sources.map((source) => source.source), ["claude-code", "codex", "openclaw", "hermes"]);
+  assert.equal(result.data.sources[0].servers[0].name, "xhs");
+  assert.ok(calls.includes("claude"));
+});
+
+test("getAgentConfigs masks discovered env and header secrets", async (t) => {
+  const { service } = setup(t, {
+    agentConfigRunner: async (command) => {
+      if (command === "claude") return { ok: true, stdout: "", stderr: "" };
+      if (command === "codex") {
+        return {
+          ok: true,
+          stdout: JSON.stringify([
+            {
+              name: "stdio-secret",
+              enabled: true,
+              transport: {
+                type: "stdio",
+                command: "npx",
+                args: ["-y", "secret-mcp"],
+                env: { API_TOKEN: "raw-token", SAFE_VALUE: "visible" }
+              }
+            },
+            {
+              name: "http-secret",
+              enabled: true,
+              transport: {
+                type: "http",
+                url: "https://example.com/mcp",
+                headers: { Authorization: "Bearer raw-header", Cookie: "sid=raw-cookie", "X-Trace": "visible" }
+              }
+            }
+          ]),
+          stderr: ""
+        };
+      }
+      return { ok: false, stdout: "", stderr: "" };
+    }
+  });
+
+  const result = await service.getAgentConfigs();
+  const servers = result.data.sources.find((source) => source.source === "codex").servers;
+
+  assert.equal(result.success, true);
+  assert.equal(servers.find((server) => server.name === "stdio-secret").transport.env.API_TOKEN, "••••••••");
+  assert.equal(servers.find((server) => server.name === "stdio-secret").transport.env.SAFE_VALUE, "visible");
+  assert.equal(servers.find((server) => server.name === "http-secret").transport.headers.Authorization, "••••••••");
+  assert.equal(servers.find((server) => server.name === "http-secret").transport.headers.Cookie, "••••••••");
+  assert.equal(servers.find((server) => server.name === "http-secret").transport.headers["X-Trace"], "visible");
+});
+
+test("importAgentConfig writes disabled agent-config registry record", async (t) => {
+  const { service, runtime } = setup(t, {
+    agentConfigService: {
+      getAgentConfigs: async () => [],
+      importAgentConfig: async () => ({
+        imported: 1,
+        server: {
+          source: "codex",
+          name: "pw",
+          importable: true,
+          transport: { type: "stdio", command: "npx", args: ["-y", "@playwright/mcp"], env: { API_TOKEN: "secret" } }
+        }
+      })
+    }
+  });
+
+  const imported = await service.importAgentConfig({ sourceAgent: "codex", serverName: "pw" });
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(imported.success, true);
+  assert.equal(imported.data.imported, 1);
+  assert.equal(imported.data.server.name, "pw");
+  assert.equal(imported.data.server.enabled, false);
+  assert.equal(imported.data.server.source, "agent-config");
+  assert.equal(imported.data.server.sourceAgent, "codex");
+  assert.equal(imported.data.server.transport.env.API_TOKEN, "••••••••");
+  assert.equal(stored[0].enabled, false);
+  assert.equal(stored[0].source, "agent-config");
+  assert.equal(stored[0].sourceAgent, "codex");
+  assert.equal(stored[0].transport.env.API_TOKEN, "secret");
+});
+
+test("default importAgentConfig stores raw discovered secret and returns masked record", async (t) => {
+  const { service, runtime } = setup(t, {
+    agentConfigRunner: async (command) => {
+      if (command === "codex") {
+        return {
+          ok: true,
+          stdout: JSON.stringify([
+            {
+              name: "pw",
+              enabled: true,
+              transport: {
+                type: "stdio",
+                command: "npx",
+                args: ["-y", "@playwright/mcp"],
+                env: { API_TOKEN: "raw-token" }
+              }
+            }
+          ]),
+          stderr: ""
+        };
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    }
+  });
+
+  const imported = await service.importAgentConfig({ sourceAgent: "codex", serverName: "pw" });
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(imported.success, true);
+  assert.equal(imported.data.server.transport.env.API_TOKEN, "••••••••");
+  assert.equal(stored[0].transport.env.API_TOKEN, "raw-token");
+});
+
+test("importAgentConfig rejects plugin-managed disabled and failed discoveries", async (t) => {
+  const { service } = setup(t, {
+    agentConfigRunner: async (command) => {
+      if (command === "claude") {
+        return {
+          ok: true,
+          stdout: "plugin:skip: node skip.js - ✓ Connected\nbroken: node bad.js - ✗ Failed TOKEN=raw-secret",
+          stderr: ""
+        };
+      }
+      if (command === "codex") {
+        return {
+          ok: true,
+          stdout: JSON.stringify([
+            { name: "disabled", enabled: false, transport: { type: "stdio", command: "npx", args: ["disabled"] } }
+          ]),
+          stderr: ""
+        };
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    }
+  });
+
+  const plugin = await service.importAgentConfig({ sourceAgent: "claude-code", serverName: "plugin:skip" });
+  const failed = await service.importAgentConfig({ sourceAgent: "claude-code", serverName: "broken" });
+  const disabled = await service.importAgentConfig({ sourceAgent: "codex", serverName: "disabled" });
+
+  assert.equal(plugin.success, false);
+  assert.equal(plugin.error, "Plugin-managed MCP");
+  assert.equal(failed.success, false);
+  assert.equal(failed.error, "Failed TOKEN=[redacted]");
+  assert.equal(disabled.success, false);
+  assert.equal(disabled.error, "Disabled");
+});
+
+test("default importAgentConfig rejects object-shaped disabled Codex discovery", async (t) => {
+  const { service, runtime } = setup(t, {
+    agentConfigRunner: async (command) => {
+      if (command === "codex") {
+        return {
+          ok: true,
+          stdout: JSON.stringify({
+            mcpServers: {
+              disabled: {
+                enabled: false,
+                type: "stdio",
+                command: "npx",
+                args: ["disabled"],
+                env: { API_TOKEN: "raw-secret" }
+              }
+            }
+          }),
+          stderr: ""
+        };
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    }
+  });
+
+  const disabled = await service.importAgentConfig({ sourceAgent: "codex", serverName: "disabled" });
+
+  assert.equal(disabled.success, false);
+  assert.equal(disabled.error, "Disabled");
+  assert.doesNotMatch(disabled.error, /raw-secret/);
+  assert.equal(fs.existsSync(runtime.mcpServers), false);
+});
+
+test("default oauth service stores tokens outside registry and reports status", async (t) => {
+  const { service, runtime } = setup(t);
+
+  const before = await service.oauth.checkStatus({ serverUrl: "https://example.com/mcp" });
+  const logout = await service.oauth.logout({ serverUrl: "https://example.com/mcp" });
+
+  assert.equal(before.success, true);
+  assert.equal(before.data.authenticated, false);
+  assert.equal(before.data.accessToken, undefined);
+  assert.equal(logout.success, true);
+  assert.equal(logout.data.authenticated, false);
+  assert.equal(fs.existsSync(runtime.mcpServers), false);
+});

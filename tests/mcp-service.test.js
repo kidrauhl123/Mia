@@ -68,7 +68,9 @@ test("save list test and delete persist MCP records", async (t) => {
   assert.equal(listed.data.servers[0].tools[0].name, "search_notes");
   assert.equal(listed.data.servers[0].transport.headers.Authorization, "••••••••");
   assert.equal(deleted.success, true);
-  assert.deepEqual(JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8")), []);
+  const storedAfterDelete = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  assert.equal(storedAfterDelete[0].deletedAt, 1710000000000);
+  assert.equal(storedAfterDelete[0].enabled, false);
 });
 
 test("fetchMarketplace exposes AION-style browser automation MCP templates", async (t) => {
@@ -240,6 +242,24 @@ test("save preserves masked stdio env values when editing non-secret fields", as
   assert.equal(edited.success, true);
   assert.equal(stored[0].transport.args[1], "pkg2");
   assert.equal(stored[0].transport.env.GITHUB_TOKEN, "ghp_real");
+});
+
+test("test failure stores diagnostic without disabling server", async (t) => {
+  const { runtime, service } = setup(t, {
+    manager: {
+      testServer: async () => ({ success: false, status: "auth_required", code: "auth_required", message: "Login required", tools: [], error: "Login required" }),
+      refresh: async () => ({ success: true, tools: [], errors: [] })
+    }
+  });
+  const saved = await service.save({ name: "remote", enabled: true, transport: { type: "http", url: "https://example.com/mcp" } });
+  const tested = await service.test(saved.data.id);
+  const listed = await service.list();
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  assert.equal(tested.data.enabled, true);
+  assert.equal(tested.data.lastTestStatus, "auth_required");
+  assert.equal(tested.data.lastTestCode, "auth_required");
+  assert.equal(listed.data.servers[0].lastTestCode, "auth_required");
+  assert.equal(stored[0].lastTestCode, "auth_required");
 });
 
 test("importJson surfaces duplicate names before confirmed replacement", async (t) => {
@@ -469,7 +489,7 @@ test("refreshBridge redacts bridge refresh errors before returning them", async 
   assert.doesNotMatch(refreshed.data.errors[1], /super_secret_bridge_value/);
 });
 
-test("failed test disables a server through the shared runtime-change path", async (t) => {
+test("failed test persists diagnostics without disabling or native cleanup", async (t) => {
   const syncCalls = [];
   const refreshCalls = [];
   const { runtime, service } = setup(t, {
@@ -502,13 +522,12 @@ test("failed test disables a server through the shared runtime-change path", asy
   const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
 
   assert.equal(tested.success, true);
-  assert.equal(tested.data.enabled, false);
-  assert.equal(stored[0].enabled, false);
+  assert.equal(tested.data.enabled, true);
+  assert.equal(stored[0].enabled, true);
+  assert.equal(tested.data.lastTestStatus, "disconnected");
   assert.match(stored[0].lastError, /\[redacted\]/);
-  assert.equal(refreshCalls.length >= 2, true);
-  assert.equal(syncCalls.length >= 2, true);
-  assert.equal(syncCalls.at(-1).previousRecords.some((record) => record.name === "xhs" && record.enabled === true), true);
-  assert.equal(syncCalls.at(-1).currentRecords.some((record) => record.name === "xhs" && record.enabled === false), true);
+  assert.equal(refreshCalls.length, 1);
+  assert.equal(syncCalls.length, 1);
 });
 
 test("setEnabled(false) surfaces native cleanup errors instead of synthetic available status", async (t) => {
@@ -600,7 +619,7 @@ test("targeted removeFromAgents surfaces native cleanup errors instead of synthe
   assert.match(stored[0].sync["claude-code"].message, /\[redacted\]/);
 });
 
-test("failed test cleanup surfaces native disable errors instead of synthetic available status", async (t) => {
+test("failed test stores diagnostics without native disable cleanup", async (t) => {
   let syncStep = 0;
   const { runtime, service } = setup(t, {
     manager: {
@@ -646,14 +665,14 @@ test("failed test cleanup surfaces native disable errors instead of synthetic av
   const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
 
   assert.equal(tested.success, true);
-  assert.equal(tested.data.enabled, false);
-  assert.equal(tested.data.sync.codex.status, "error");
-  assert.match(tested.data.sync.codex.message, /\[redacted\]/);
-  assert.doesNotMatch(tested.data.sync.codex.message, /Disabled in Mia after failed test\.|ghp_native_disable_secret/);
-  assert.equal(tested.data.sync["claude-code"].status, "available");
-  assert.equal(tested.data.sync["claude-code"].message, "Disabled in Mia after failed test.");
-  assert.equal(stored[0].sync.codex.status, "error");
-  assert.match(stored[0].sync.codex.message, /\[redacted\]/);
+  assert.equal(tested.data.enabled, true);
+  assert.equal(tested.data.lastTestStatus, "disconnected");
+  assert.match(tested.data.lastError, /\[redacted\]/);
+  assert.doesNotMatch(tested.data.lastError, /ghp_test_cleanup_secret/);
+  assert.equal(tested.data.sync.codex.status, "synced");
+  assert.equal(tested.data.sync["claude-code"].status, "synced");
+  assert.equal(stored[0].sync.codex.status, "synced");
+  assert.equal(syncStep, 1);
 });
 
 test("targeted removeFromAgents does not add or re-sync other enabled servers", async (t) => {
@@ -751,7 +770,7 @@ test("targeted removeFromAgents preserves non-target sync state exactly", async 
   assert.deepEqual(persistedBeta.sync, expectedBetaSync);
 });
 
-test("delete keeps the record with sanitized native cleanup errors when removal fails", async (t) => {
+test("delete soft-deletes hidden record and preserves sanitized cleanup errors", async (t) => {
   let syncStep = 0;
   const { runtime, service } = setup(t, {
     nativeSync: async () => {
@@ -786,14 +805,11 @@ test("delete keeps the record with sanitized native cleanup errors when removal 
   const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
 
   assert.equal(deleted.success, true);
-  assert.equal(deleted.data.servers.length, 1);
-  assert.equal(deleted.data.servers[0].id, saved.data.id);
-  assert.equal(deleted.data.servers[0].sync.codex.status, "error");
-  assert.match(deleted.data.servers[0].sync.codex.message, /\[redacted\]/);
-  assert.doesNotMatch(deleted.data.servers[0].sync.codex.message, /ghp_delete_secret/);
-  assert.equal(deleted.data.servers[0].sync["claude-code"].status, "synced");
+  assert.equal(deleted.data.servers.length, 0);
   assert.equal(stored.length, 1);
   assert.equal(stored[0].id, saved.data.id);
+  assert.equal(stored[0].deletedAt, 1710000000000);
+  assert.equal(stored[0].enabled, false);
   assert.equal(stored[0].sync.codex.status, "error");
   assert.match(stored[0].sync.codex.message, /\[redacted\]/);
   assert.doesNotMatch(stored[0].sync.codex.message, /ghp_delete_secret/);
@@ -839,15 +855,18 @@ test("delete persists refreshed sync status for surviving records after successf
   });
   const deleted = await service.delete(first.data.id);
   const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  const storedBeta = stored.find((record) => record.name === "beta");
+  const storedAlpha = stored.find((record) => record.name === "alpha");
 
   assert.equal(deleted.success, true);
   assert.deepEqual(deleted.data.servers.map((record) => record.name), ["beta"]);
   assert.equal(deleted.data.servers[0].sync.codex.status, "noop");
   assert.equal(deleted.data.servers[0].sync.codex.message, "delete-refresh");
-  assert.equal(stored.length, 1);
-  assert.equal(stored[0].name, "beta");
-  assert.equal(stored[0].sync.codex.status, "noop");
-  assert.equal(stored[0].sync.codex.message, "delete-refresh");
+  assert.equal(stored.length, 2);
+  assert.equal(storedAlpha.deletedAt, 1710000000000);
+  assert.equal(storedBeta.name, "beta");
+  assert.equal(storedBeta.sync.codex.status, "noop");
+  assert.equal(storedBeta.sync.codex.message, "delete-refresh");
   assert.equal(second.success, true);
 });
 

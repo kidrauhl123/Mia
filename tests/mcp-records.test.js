@@ -79,13 +79,15 @@ test("parseMcpImportJson accepts Claude Cursor Codex and generic mcpServers JSON
   const imported = parseMcpImportJson({
     mcpServers: {
       filesystem: { command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"], env: { TOKEN: "abc" } },
-      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: { Authorization: "Bearer abc" } }
+      xhs: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: { Authorization: "Bearer abc" } },
+      remote: { type: "streamable_http", url: "https://example.test/mcp" }
     }
   });
 
-  assert.deepEqual(imported.map((item) => item.name), ["filesystem", "xhs"]);
+  assert.deepEqual(imported.map((item) => item.name), ["filesystem", "xhs", "remote"]);
   assert.equal(imported[0].transport.type, "stdio");
   assert.equal(imported[1].transport.type, "http");
+  assert.equal(imported[2].transport.type, "http");
 });
 
 test("maskMcpRecord hides secrets without destroying non-secret fields", () => {
@@ -134,10 +136,35 @@ test("maskMcpRecord also masks secrets preserved in originalJson", () => {
   assert.equal(parsed.mcpServers.github.env.GITHUB_TOKEN, "••••••••");
 });
 
+test("maskMcpRecord deeply redacts diagnostic secrets", () => {
+  const masked = maskMcpRecord(normalizeMcpRecord({
+    name: "github",
+    transport: { type: "http", url: "https://example.test/mcp" },
+    diagnostics: {
+      headers: {
+        Authorization: "Bearer ghp_secret",
+        Cookie: "session=secret"
+      },
+      nested: {
+        accessToken: "access-secret",
+        refreshToken: "refresh-secret"
+      }
+    }
+  }, { now: () => 1, idFactory: () => "mcp_diag" }));
+
+  const serialized = JSON.stringify(masked.diagnostics);
+  assert.equal(masked.diagnostics.headers.Authorization, "••••••••");
+  assert.equal(masked.diagnostics.headers.Cookie, "••••••••");
+  assert.equal(masked.diagnostics.nested.accessToken, "••••••••");
+  assert.equal(masked.diagnostics.nested.refreshToken, "••••••••");
+  assert.doesNotMatch(serialized, /ghp_secret|access-secret|refresh-secret|session=secret/);
+});
+
 test("mcpFingerprint changes when enabled transport config changes", () => {
   const first = normalizeMcpRegistry([
     { name: "a", enabled: true, transport: { type: "http", url: "http://127.0.0.1:1/mcp" } },
-    { name: "b", enabled: false, transport: { type: "stdio", command: "npx", args: ["pkg"] } }
+    { name: "b", enabled: false, transport: { type: "stdio", command: "npx", args: ["pkg"] } },
+    { name: "gone", enabled: true, deletedAt: 171, transport: { type: "stdio", command: "node", args: ["server.js"] } }
   ], { now: () => 1, idFactory: (name) => `mcp_${name}` });
   const second = normalizeMcpRegistry([
     { name: "a", enabled: true, transport: { type: "http", url: "http://127.0.0.1:2/mcp" } },
@@ -146,4 +173,16 @@ test("mcpFingerprint changes when enabled transport config changes", () => {
 
   assert.notEqual(mcpFingerprint(first), mcpFingerprint(second));
   assert.deepEqual(enabledMcpRecords(first).map((record) => record.name), ["a"]);
+  assert.equal(mcpFingerprint(first), mcpFingerprint([first[0], first[2]]));
+});
+
+test("normalizeMcpRecord rejects reserved builtin names for user records", () => {
+  assert.equal(normalizeMcpRecord({
+    name: "mia-app",
+    transport: { type: "stdio", command: "node" }
+  }), null);
+  assert.equal(normalizeMcpRecord({
+    name: "mia-scheduler",
+    transport: { type: "stdio", command: "node" }
+  }), null);
 });

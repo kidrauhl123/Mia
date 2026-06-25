@@ -2,7 +2,8 @@
 
 const {
   createDaemonControlServer,
-  daemonNeedsReplacement
+  daemonNeedsReplacement,
+  shouldReuseDaemon
 } = require("../daemon/control-server.js");
 const { createDaemonTasksClient } = require("../daemon/tasks-client.js");
 const { createLocalEventsClient } = require("../daemon/local-events-client.js");
@@ -13,5 +14,6 @@ module.exports = {
   createMiaCoreTasksClient: createDaemonTasksClient,
   createMiaCoreLocalEventsClient: createLocalEventsClient,
   createMiaCoreProcessLauncher: createDaemonProcessLauncher,
-  coreNeedsReplacement: daemonNeedsReplacement
+  coreNeedsReplacement: daemonNeedsReplacement,
+  shouldReuseCore: shouldReuseDaemon
 };

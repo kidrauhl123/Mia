@@ -40,31 +40,40 @@ test("main owns cloud conversation bot invocation execution without group coordi
 
 test("cloud events execution and cursor have a single owner (ADR 2026-06-12)", () => {
   const main = read("src/main.js");
+  const core = read("src/core/mia-core.js");
   const responder = read("src/main/social/local-bot-responder.js");
+  // Migration slice 5c: the daemon is the standalone node Core, so the cloud
+  // socket boot now lives in Core's startWithCloud(), not an Electron
+  // `if (IS_DAEMON_PROCESS)` whenReady branch (deleted). Core keeps BOTH the
+  // events and bridge sockets alive when cloud is enabled with a token.
   assert.match(
-    main,
-    /function startCloudRuntimeSockets\(\) \{[\s\S]*startCloudEvents\(\);[\s\S]*startCloudBridge\(\);[\s\S]*\}/,
-    "daemon startup must keep the cloud events socket alive, not only the bridge socket"
+    core,
+    /async function startWithCloud\(\) \{[\s\S]*cloudEvents\(\)\.start\(\);[\s\S]*cloudBridge\(\)\.start\(\);[\s\S]*\}/,
+    "node Core (the daemon) must keep both the cloud events and bridge sockets alive"
   );
-  assert.match(
-    main,
-    /if \(IS_DAEMON_PROCESS\) \{[\s\S]*startCloudRuntimeSockets\(\);[\s\S]*setInterval\(\(\) => \{\s*\n\s*startCloudRuntimeSockets\(\);[\s\S]*\}, 10000\);/,
-    "daemon process must retry both cloud events and bridge sockets"
-  );
+  // The Electron process is never the daemon now: it must NOT re-host the cloud
+  // sockets behind an IS_DAEMON_PROCESS whenReady branch (the deleted GUI daemon).
   assert.doesNotMatch(
     main,
-    /startCloudEvents\(\);\n\s*setInterval\(startCloudEvents, 10000\)/,
-    "main must not use the old timer path that lets two processes race the /api/events cursor"
+    /if \(IS_DAEMON_PROCESS\) \{[\s\S]*startCloudRuntimeSockets\(\);[\s\S]*setInterval/,
+    "Electron must not boot the cloud sockets as a daemon — node Core owns that boot"
   );
   assert.match(
     responder,
     /return Boolean\(isDaemon && daemonEnabled\);/,
     "execution must have a single owner: daemon executes, window never covers a dead daemon (ADR 2026-06-12)"
   );
+  // Single-writer cursor: node Core (the daemon) persists; the Electron window
+  // is never the daemon so its persistCursor is false-by-construction.
+  assert.match(
+    core,
+    /persistCursor: \(\) => true/,
+    "node Core (the daemon) must be the single writer of the lastEventSeq cursor"
+  );
   assert.match(
     main,
     /persistCursor: \(\) => IS_DAEMON_PROCESS/,
-    "the lastEventSeq cursor must have a single writer: daemon only"
+    "the Electron window must never persist the cursor (IS_DAEMON_PROCESS is false-by-construction)"
   );
 });
 
@@ -72,7 +81,7 @@ test("desktop only manages a daemon running from the same runtime home", () => {
   const main = read("src/main.js");
   assert.match(
     main,
-    /const expectedRuntimeHome = runtimePaths\(\)\.home;[\s\S]*daemonControlServer\.ping\(settings, 500, \{ expectedRuntimeHome \}\)/,
+    /const expectedRuntimeHome = runtimePaths\(\)\.home;[\s\S]*miaCoreControlServer\.ping\(settings, 500, \{ expectedRuntimeHome \}\)/,
     "desktop must not manage a stale LaunchAgent pointed at another MIA_HOME"
   );
 });
@@ -89,10 +98,19 @@ test("cloud runtime status exposes events socket health separately from bridge h
 
 test("daemon startup does not run foreground MCP initialization before serving control API", () => {
   const main = read("src/main.js");
+  const core = read("src/core/mia-core.js");
+  // Migration slice 5c: the foreground MCP warmup is a WINDOW-only concern. The
+  // node Core daemon never imports/runs startupMcpInitializer, so its cold start
+  // serves the control server without that warmup blocking it.
   assert.match(
     main,
-    /if \(!IS_DAEMON_PROCESS\) startupMcpInitializer\.start\(\);[\s\S]*if \(IS_DAEMON_PROCESS\) \{/,
-    "daemon cold start must keep the control server responsive before optional foreground MCP warmup"
+    /startupMcpInitializer\.start\(\);\s*\n\s*const win = createWindow\(\);/,
+    "the foreground MCP warmup must run only on the window startup path"
+  );
+  assert.doesNotMatch(
+    core,
+    /startupMcpInitializer/,
+    "the node Core daemon must not run the foreground MCP warmup before serving the control API"
   );
 });
 

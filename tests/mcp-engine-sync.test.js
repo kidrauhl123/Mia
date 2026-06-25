@@ -39,6 +39,16 @@ test("mcpSpecsForClaudeSdk preserves stdio and URL transports", () => {
   assert.equal(mcpSpecsForClaudeSdk(records).stdio.command, "npx");
 });
 
+test("engine specs ignore soft-deleted records", () => {
+  const softDeleteRecords = [
+    { name: "active", enabled: true, transport: { type: "stdio", command: "npx", args: [] } },
+    { name: "deleted", enabled: true, deletedAt: 171, transport: { type: "stdio", command: "node", args: [] } }
+  ];
+  const specs = mcpSpecsForClaudeSdk(softDeleteRecords);
+
+  assert.deepEqual(Object.keys(specs), ["active"]);
+});
+
 test("mcpSpecsForCodex uses native URL for bearer-token HTTP and bridge for arbitrary headers", () => {
   const bridge = bridgeMcpSpec({ command: "/usr/local/bin/node", scriptPath: "/app/mcp-stdio-proxy-server.js", bridgeUrl: "http://127.0.0.1:3333", secret: "sec" });
   const specs = mcpSpecsForCodex(records, { bridge });
@@ -73,6 +83,16 @@ test("mcpSpecsForCodex reports bridge-required records when bridge is absent", (
       bridgeRequired: true
     }
   ]);
+});
+
+test("codex reports bridge-required status for http headers without bridge", () => {
+  const statuses = [];
+  const specs = mcpSpecsForCodex([
+    { name: "remote", enabled: true, transport: { type: "http", url: "https://example.com/mcp", headers: { Authorization: "Bearer token" } } }
+  ], { statusCollector: statuses });
+
+  assert.deepEqual(specs, {});
+  assert.equal(statuses[0].reason, "bridge_required_for_http_headers");
 });
 
 test("mcpSpecsForHermes emits direct URL when supported and bridge when URL support is disabled", () => {

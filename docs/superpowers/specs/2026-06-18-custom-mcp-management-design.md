@@ -1,5 +1,8 @@
 # Custom MCP Management Design
 
+> Superseded for architecture by `docs/superpowers/specs/2026-06-25-mia-core-mcp-aion-alignment-design.md`.
+> This document remains useful for product UI language and initial MCP bridge behavior, but Core-owned MCP is the shipping target.
+
 Date: 2026-06-18
 
 Status: proposed
