@@ -46,6 +46,10 @@ function mockClassList() {
   };
 }
 
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function loadComposer({ clipboardText = "", nativeClipboardText = null, includeNavigatorClipboard = true } = {}) {
   const source = fs.readFileSync(path.join(root, "src/renderer/chat/composer.js"), "utf8");
   const window = {
@@ -78,25 +82,28 @@ function loadComposer({ clipboardText = "", nativeClipboardText = null, includeN
   return { composer: window.miaComposer, window, navigator };
 }
 
-function initComposer(composer, input, counters = { resized: 0, rendered: 0 }) {
+function initComposer(composer, input, counters = { resized: 0, rendered: 0 }, stateOverrides = {}) {
+  const composerState = {
+    slashCommands: [],
+    fallbackSlashCommands: [],
+    agentSlashCommands: {},
+    slashFilter: "",
+    slashSelectedIndex: 0,
+    slashMenuOpen: false,
+    mentionMenuOpen: false,
+    mentionStart: -1,
+    mentionEnd: -1,
+    mentionFilter: "",
+    mentionSelectedIndex: 0,
+    skillLibrary: { skills: [] },
+    pendingAttachments: [],
+    pathPasteRefs: [],
+    pathPasteNextIndex: 1,
+    composerDrafts: new Map(),
+    ...stateOverrides
+  };
   composer.initComposer({
-    state: {
-      slashCommands: [],
-      fallbackSlashCommands: [],
-      agentSlashCommands: {},
-      slashFilter: "",
-      slashSelectedIndex: 0,
-      slashMenuOpen: false,
-      mentionMenuOpen: false,
-      mentionStart: -1,
-      mentionEnd: -1,
-      mentionFilter: "",
-      mentionSelectedIndex: 0,
-      skillLibrary: { skills: [] },
-      pendingAttachments: [],
-      pathPasteRefs: [],
-      pathPasteNextIndex: 1
-    },
+    state: composerState,
     els: {
       chatInput: input,
       slashCommandMenu: menuElement(),
@@ -112,6 +119,7 @@ function initComposer(composer, input, counters = { resized: 0, rendered: 0 }) {
     appendTransientChat: () => {},
     cryptoRandomId: () => "id"
   });
+  counters.state = composerState;
   return counters;
 }
 
@@ -223,6 +231,51 @@ test("composer path paste prefers the desktop clipboard bridge", async () => {
 
   assert.equal(await composer.pasteClipboardPathText(), true);
   assert.equal(input.value, "/Users/jung/Desktop/native path.png");
+});
+
+test("composer keeps unsent drafts isolated per conversation", () => {
+  const { composer } = loadComposer();
+  const input = mockInput("draft for alpha");
+  const state = {
+    pendingAttachments: [{ id: "file-alpha", name: "alpha.txt" }],
+    pathPasteRefs: [{ token: "IMG1", path: "/tmp/alpha.png", kind: "image" }],
+    pathPasteNextIndex: 2,
+    replyDraft: { content: "alpha quote", author: "A" },
+    slashMenuOpen: true,
+    slashFilter: "/",
+    mentionMenuOpen: true,
+    mentionFilter: "al",
+    composerDrafts: new Map()
+  };
+  const counters = initComposer(composer, input, undefined, state);
+  const composerState = counters.state;
+
+  composer.switchConversationDraft("alpha", "beta");
+
+  assert.equal(input.value, "");
+  assert.deepEqual(plain(composerState.pendingAttachments), []);
+  assert.deepEqual(plain(composerState.pathPasteRefs), []);
+  assert.equal(composerState.pathPasteNextIndex, 1);
+  assert.equal(composerState.replyDraft, null);
+  assert.equal(composerState.slashMenuOpen, false);
+  assert.equal(composerState.mentionMenuOpen, false);
+  assert.equal(counters.resized, 1);
+  assert.equal(counters.rendered, 1);
+
+  input.value = "draft for beta";
+  composerState.pendingAttachments = [{ id: "file-beta", name: "beta.txt" }];
+  composer.switchConversationDraft("beta", "alpha");
+
+  assert.equal(input.value, "draft for alpha");
+  assert.deepEqual(plain(composerState.pendingAttachments), [{ id: "file-alpha", name: "alpha.txt" }]);
+  assert.deepEqual(plain(composerState.pathPasteRefs), [{ token: "IMG1", path: "/tmp/alpha.png", kind: "image" }]);
+  assert.equal(composerState.pathPasteNextIndex, 2);
+  assert.deepEqual(plain(composerState.replyDraft), { content: "alpha quote", author: "A" });
+
+  composer.switchConversationDraft("alpha", "beta");
+
+  assert.equal(input.value, "draft for beta");
+  assert.deepEqual(plain(composerState.pendingAttachments), [{ id: "file-beta", name: "beta.txt" }]);
 });
 
 test("chat input wires the path paste shortcut before menu navigation", () => {

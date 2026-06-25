@@ -35,6 +35,20 @@
       .trim();
   }
 
+  const LEGACY_RUNTIME_MODEL_FIELDS = [
+    "provider",
+    "providerLabel",
+    "authType",
+    "apiKeyEnv",
+    "baseUrl",
+    "apiMode",
+    "provider_label",
+    "auth_type",
+    "api_key_env",
+    "base_url",
+    "api_mode"
+  ];
+
   function botIdentity() {
     if (global.miaBotIdentity) return global.miaBotIdentity;
     if (typeof require === "function") {
@@ -375,18 +389,19 @@
       enabled: true,
       config: {}
     };
+    const mergedConfig = sanitizePersistedRuntimeConfig({ ...(current.config || {}), ...(patch || {}) });
     if (typeof api?.social?.saveBotRuntime !== "function") throw new Error("Bot 运行绑定保存接口不可用。");
     const response = await api.social.saveBotRuntime(key, {
       runtimeKind: kind,
       enabled: true,
-      config: { ...(current.config || {}), ...(patch || {}) }
+      config: mergedConfig
     });
     if (!response?.ok) throw new Error(response?.error || "保存 Bot 运行绑定失败");
     const binding = response.data?.binding || {
       ...current,
       runtimeKind: kind,
       enabled: true,
-      config: { ...(current.config || {}), ...(patch || {}) }
+      config: mergedConfig
     };
     cache?.set?.(runtimeCacheKey(key, kind), binding);
     return { saved: true, binding };
@@ -418,14 +433,60 @@
     };
     for (const [key, value] of Object.entries({
       authType: String(entry.authType || entry.auth_type || "").trim(),
-      modelProfileId: String(entry.modelProfileId || entry.model_profile_id || entry.profileId || entry.profile_id || "").trim(),
-      apiKeyEnv: String(entry.apiKeyEnv || entry.api_key_env || "").trim(),
-      baseUrl: String(entry.baseUrl || entry.base_url || "").trim(),
-      apiMode: String(entry.apiMode || entry.api_mode || "").trim()
+      modelProfileId: String(entry.modelProfileId || entry.model_profile_id || entry.profileId || entry.profile_id || "").trim()
     })) {
       if (value) normalized[key] = value;
     }
     return normalized;
+  }
+
+  function shouldStripLegacyRuntimeModelFields(config = {}) {
+    return Boolean(
+      String(config?.providerConnectionId || config?.provider_connection_id || "").trim()
+      || String(config?.modelProfileId || config?.model_profile_id || "").trim()
+      || String(config?.provider || config?.modelProvider || config?.model_provider || "").trim() === "mia"
+      || String(config?.authType || config?.auth_type || "").trim() === "mia_account"
+      || String(config?.model || "").trim() === "mia-auto"
+      || String(config?.model || "").trim() === "mia-default"
+    );
+  }
+
+  function sanitizePersistedModelEntry(entry = {}) {
+    const sanitized = {
+      value: String(entry?.value || entry?.model || entry?.id || "").trim(),
+      label: String(entry?.label || entry?.model || entry?.id || entry?.value || "Default").trim(),
+      model: String(entry?.model || "").trim(),
+      provider: String(entry?.provider || "").trim(),
+      providerLabel: String(entry?.providerLabel || entry?.provider_label || "").trim()
+    };
+    const authType = String(entry?.authType || entry?.auth_type || "").trim();
+    const modelProfileId = String(entry?.modelProfileId || entry?.model_profile_id || entry?.profileId || entry?.profile_id || "").trim();
+    if (authType) sanitized.authType = authType;
+    if (modelProfileId) sanitized.modelProfileId = modelProfileId;
+    return sanitized;
+  }
+
+  function sanitizePersistedRuntimeConfig(config = {}) {
+    const next = { ...(config && typeof config === "object" ? config : {}) };
+    if (Array.isArray(next.modelEntries)) {
+      next.modelEntries = next.modelEntries.map((entry) => sanitizePersistedModelEntry(entry));
+    }
+    const model = String(next.model || "").trim();
+    const profileId = String(next.modelProfileId || next.model_profile_id || "").trim();
+    if (
+      String(next.provider || next.modelProvider || next.model_provider || "").trim() === "mia"
+      || String(next.authType || next.auth_type || "").trim() === "mia_account"
+      || profileId.startsWith("mia:")
+      || model === "mia-auto"
+      || model === "mia-default"
+    ) {
+      next.providerConnectionId = "mia";
+      if (!next.modelProfileId && model) next.modelProfileId = `mia:${model}`;
+    }
+    if (shouldStripLegacyRuntimeModelFields(next)) {
+      for (const key of LEGACY_RUNTIME_MODEL_FIELDS) delete next[key];
+    }
+    return next;
   }
 
   function localHermesModelEntries(runtime = {}, modelSettings = global?.miaModelSettings) {
@@ -444,6 +505,24 @@
     return (Array.isArray(entries) ? entries : [])
       .map((entry) => normalizeModelEntry(entry, engine))
       .filter((entry) => entry.value || entry.model === "");
+  }
+
+  function runtimeProfilePatch(entry = {}, fallbackValue = "") {
+    const provider = String(
+      entry?.providerConnectionId
+      || entry?.provider_connection_id
+      || entry?.provider
+      || entry?.modelProvider
+      || entry?.model_provider
+      || ""
+    ).trim();
+    const model = String(entry?.model || fallbackValue || "").trim();
+    const patch = { model };
+    if (provider) patch.providerConnectionId = provider;
+    const profileId = String(entry?.modelProfileId || entry?.model_profile_id || entry?.profileId || entry?.profile_id || "").trim();
+    if (profileId) patch.modelProfileId = profileId;
+    else if (provider && model) patch.modelProfileId = `${provider}:${model}`;
+    return patch;
   }
 
   function desktopLocalRuntimeConfig({
@@ -479,15 +558,20 @@
       ...(deviceName ? { deviceName } : {})
     };
     if (isExternalAgentEngine(engine, engineContracts, engineOptions)) {
-      config.model = String(engineConfig.model || "").trim();
+      const modelEntries = externalModelEntries(engine, engineOptions);
+      const modelPatch = patchForRuntimeField("model", String(engineConfig.model || "").trim(), modelEntries);
+      Object.assign(config, modelPatch);
       config.effortLevel = String(engineConfig.effortLevel || "medium").trim();
-      config.modelEntries = externalModelEntries(engine, engineOptions);
+      config.modelEntries = modelEntries;
       return config;
     }
-    config.model = String(runtime.model?.model || "").trim();
+    const modelEntries = localHermesModelEntries(runtime, modelSettings);
+    const modelPatch = patchForRuntimeField("model", String(runtime.model?.model || "").trim(), modelEntries);
+    Object.assign(config, modelPatch);
+    if (!modelPatch.providerConnectionId) Object.assign(config, runtimeProfilePatch(runtime.model, String(runtime.model?.model || "").trim()));
     config.effortLevel = String(runtime.effort?.level || "medium").trim();
     config.permissionMode = String(runtime.permissions?.mode || "ask").trim();
-    config.modelEntries = localHermesModelEntries(runtime, modelSettings);
+    config.modelEntries = modelEntries;
     return config;
   }
 
@@ -555,14 +639,7 @@
   function patchForRuntimeField(field, value, modelEntries = []) {
     if (field === "model") {
       const entry = modelEntryForValue(modelEntries, value);
-      const patch = { model: entry?.model ?? value };
-      if (entry) {
-        const hasProviderBoundary = Boolean(entry.provider);
-        for (const key of ["provider", "providerLabel", "authType", "modelProfileId", "apiKeyEnv", "baseUrl", "apiMode"]) {
-          if (entry[key] || hasProviderBoundary) patch[key] = entry[key] || "";
-        }
-      }
-      return patch;
+      return runtimeProfilePatch(entry || {}, entry?.model ?? value);
     }
     if (field === "effortLevel" || field === "permissionMode") return { [field]: value };
     return {};

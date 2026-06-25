@@ -80,6 +80,38 @@
     if (fragment) input.appendChild(fragment);
   }
 
+  function appendTextFragment(parent, text) {
+    const fragment = textFragmentForEditor(text);
+    if (fragment) parent.appendChild(fragment);
+  }
+
+  function setRichComposerDraftText(input, value) {
+    if (!isRichComposerInput(input)) return;
+    const text = String(value || "");
+    const refs = activeImagePathRefs();
+    const tokenRefs = new Map(refs
+      .filter((ref) => ref?.token && text.includes(ref.token))
+      .map((ref) => [String(ref.token), ref]));
+    if (!tokenRefs.size) {
+      setRichComposerText(input, text);
+      return;
+    }
+    input.innerHTML = "";
+    const fragment = document.createDocumentFragment();
+    const pattern = new RegExp(`(${Array.from(tokenRefs.keys()).map(escapeRegExp).join("|")})`, "g");
+    let cursor = 0;
+    for (const match of text.matchAll(pattern)) {
+      const index = match.index || 0;
+      if (index > cursor) appendTextFragment(fragment, text.slice(cursor, index));
+      const chip = createPathPasteChip(tokenRefs.get(match[0]));
+      if (chip) fragment.appendChild(chip);
+      else appendTextFragment(fragment, match[0]);
+      cursor = index + match[0].length;
+    }
+    if (cursor < text.length) appendTextFragment(fragment, text.slice(cursor));
+    input.appendChild(fragment);
+  }
+
   function selectionOffsetForPoint(input, container, offset) {
     if (!isRichComposerInput(input) || typeof document === "undefined" || !editorContainsNode(input, container)) {
       return composerInputPlainText(input).length;
@@ -441,6 +473,101 @@
       const selected = state.composerSkillSelected && index === skills.length - 1;
       return `<span class="composer-skill${selected ? " selected" : ""}" title="${window.miaMarkdown.escapeHtml(skill.name || skill.id)}">${window.miaMarkdown.escapeHtml(skill.name || skill.id)}</span>`;
     }).join("");
+  }
+
+  function composerDraftMap() {
+    if (!state) return null;
+    if (!(state.composerDrafts instanceof Map)) state.composerDrafts = new Map();
+    return state.composerDrafts;
+  }
+
+  function clonePlainObjectList(items) {
+    return (Array.isArray(items) ? items : []).map((item) => (
+      item && typeof item === "object" ? { ...item } : item
+    ));
+  }
+
+  function cloneReplyDraft(replyDraft) {
+    return replyDraft && typeof replyDraft === "object" ? { ...replyDraft } : null;
+  }
+
+  function captureComposerDraft() {
+    return {
+      text: String(els?.chatInput?.value || ""),
+      pendingAttachments: clonePlainObjectList(state?.pendingAttachments),
+      pathPasteRefs: clonePlainObjectList(state?.pathPasteRefs),
+      pathPasteNextIndex: Math.max(1, Number(state?.pathPasteNextIndex) || 1),
+      replyDraft: cloneReplyDraft(state?.replyDraft)
+    };
+  }
+
+  function composerDraftHasContent(draft) {
+    return Boolean(
+      String(draft?.text || "").trim()
+      || (Array.isArray(draft?.pendingAttachments) && draft.pendingAttachments.length)
+      || (Array.isArray(draft?.pathPasteRefs) && draft.pathPasteRefs.length)
+      || draft?.replyDraft
+    );
+  }
+
+  function saveComposerDraft(conversationId) {
+    const id = String(conversationId || "").trim();
+    const drafts = composerDraftMap();
+    if (!id || !drafts || !state || !els?.chatInput) return;
+    const draft = captureComposerDraft();
+    if (composerDraftHasContent(draft)) drafts.set(id, draft);
+    else drafts.delete(id);
+  }
+
+  function restoreComposerDraft(conversationId) {
+    const id = String(conversationId || "").trim();
+    const drafts = composerDraftMap();
+    const draft = id && drafts?.has(id)
+      ? drafts.get(id)
+      : {
+        text: "",
+        pendingAttachments: [],
+        pathPasteRefs: [],
+        pathPasteNextIndex: 1,
+        replyDraft: null
+      };
+    if (!state || !els?.chatInput) return;
+    state.pendingAttachments = clonePlainObjectList(draft.pendingAttachments);
+    state.pathPasteRefs = clonePlainObjectList(draft.pathPasteRefs);
+    state.pathPasteNextIndex = Math.max(1, Number(draft.pathPasteNextIndex) || 1);
+    state.replyDraft = cloneReplyDraft(draft.replyDraft);
+    state.slashMenuOpen = false;
+    state.slashFilter = "";
+    state.slashSelectedIndex = 0;
+    state.mentionMenuOpen = false;
+    state.mentionStart = -1;
+    state.mentionEnd = -1;
+    state.mentionFilter = "";
+    state.mentionSelectedIndex = 0;
+    if (isRichComposerInput(els.chatInput)) {
+      setRichComposerDraftText(els.chatInput, draft.text);
+      const end = String(draft.text || "").length;
+      els.chatInput.setSelectionRange?.(end, end);
+    } else {
+      els.chatInput.value = String(draft.text || "");
+      const end = els.chatInput.value.length;
+      els.chatInput.setSelectionRange?.(end, end);
+    }
+    renderComposerAttachments();
+    renderPathPasteRefs();
+    renderSlashCommandMenu();
+    renderMentionMenu();
+    window.miaMessageHelpers?.renderComposerReply?.();
+    if (typeof resizeChatInput === "function") resizeChatInput();
+    if (typeof renderSendButton === "function") renderSendButton();
+  }
+
+  function switchConversationDraft(fromConversationId, toConversationId) {
+    const fromId = String(fromConversationId || "").trim();
+    const toId = String(toConversationId || "").trim();
+    if (fromId && fromId !== toId) saveComposerDraft(fromId);
+    if (!fromId && toId && !composerDraftMap()?.has(toId)) return;
+    if (fromId !== toId) restoreComposerDraft(toId);
   }
 
   function addComposerSkill(skill) {
@@ -1249,6 +1376,9 @@
     renderComposerAddMenu,
     renderComposerAttachments,
     renderComposerSkills,
+    saveComposerDraft,
+    restoreComposerDraft,
+    switchConversationDraft,
     addComposerSkill,
     handleComposerSkillBackspace,
     closeComposerAddMenu,

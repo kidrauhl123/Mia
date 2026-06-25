@@ -78,6 +78,16 @@ test("fetchMarketplace exposes AION-style browser automation MCP templates", asy
   const templates = Object.fromEntries(market.data.templates.map((template) => [template.id, template]));
 
   assert.equal(market.success, true);
+  assert.equal(templates["xhs-local-http"].nativeName, "xiaohongshu-mcp");
+  assert.equal(templates["xhs-local-http"].homepage, "https://github.com/xpzouying/xiaohongshu-mcp");
+  assert.equal(templates["xhs-local-http"].expectedToolCount, 13);
+  assert.match(templates["xhs-local-http"].setupHint, /登录工具/);
+  assert.deepEqual(templates["xhs-local-http"].setupCommands, ["go run cmd/login/main.go", "go run ."]);
+  assert.deepEqual(templates["xhs-local-http"].transport, {
+    type: "http",
+    url: "http://localhost:18060/mcp",
+    headers: {}
+  });
   assert.equal(templates["chrome-devtools-cdp"].category, "浏览器自动化");
   assert.deepEqual(templates["chrome-devtools-cdp"].transport, {
     type: "stdio",
@@ -116,7 +126,9 @@ test("installTemplate persists browser MCP templates and syncs native agents", a
 
   assert.equal(installed.success, true);
   assert.equal(installed.data.name, "Playwright MCP");
+  assert.equal(installed.data.nativeName, "playwright-browser");
   assert.equal(stored[0].registryId, "playwright-browser");
+  assert.equal(stored[0].nativeName, "playwright-browser");
   assert.equal(stored[0].source, "marketplace");
   assert.deepEqual(stored[0].transport, {
     type: "stdio",
@@ -126,6 +138,34 @@ test("installTemplate persists browser MCP templates and syncs native agents", a
   });
   assert.equal(syncCalls.length, 1);
   assert.deepEqual(syncCalls[0].currentRecords.map((record) => record.name), ["Playwright MCP"]);
+  assert.deepEqual(syncCalls[0].currentRecords.map((record) => record.nativeName), ["playwright-browser"]);
+});
+
+test("installed marketplace records inherit updated setup metadata", async (t) => {
+  const { runtime, service } = setup(t);
+  fs.mkdirSync(path.dirname(runtime.mcpServers), { recursive: true });
+  fs.writeFileSync(runtime.mcpServers, JSON.stringify([{
+    id: "mcp_old_xhs",
+    name: "小红书 MCP",
+    registryId: "xhs-local-http",
+    source: "marketplace",
+    enabled: true,
+    transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} },
+    sync: {
+      codex: { status: "error", message: "Error: invalid server name '小红书 MCP' (use letters, numbers, '-', '_')" },
+      "claude-code": { status: "error", message: "Invalid name 小红书 MCP. Names can only contain letters, numbers, hyphens, and underscores." }
+    }
+  }]));
+
+  const listed = await service.list();
+  const server = listed.data.servers[0];
+
+  assert.equal(server.nativeName, "xiaohongshu-mcp");
+  assert.equal(server.homepage, "https://github.com/xpzouying/xiaohongshu-mcp");
+  assert.equal(server.expectedToolCount, 13);
+  assert.match(server.setupHint, /启动/);
+  assert.equal(server.sync.codex.status, "available");
+  assert.equal(server.sync["claude-code"].status, "available");
 });
 
 test("importJson saves imported servers as disabled until tested", async (t) => {

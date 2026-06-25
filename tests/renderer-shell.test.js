@@ -292,6 +292,7 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(appStateSource, /sidebarCollapsed:\s*options\.sidebarCollapsed \?\? readLocal\(storage, "mia\.sidebarCollapsed\.v1"\) === "1"/);
   assert.doesNotMatch(appStateSource, /skillPickerPluginId/);
   assert.match(html, /id="sidebarCollapseToggle" class="sidebar-collapse-toggle"[\s\S]*?aria-controls="conversationSidebar"[\s\S]*?aria-expanded="true"[\s\S]*?<\/button>\s*<div class="sidebar-title">消息<\/div>/);
+  assert.match(html, /id="sidebarRailHoverBridge" class="sidebar-rail-hover-bridge" aria-hidden="true"><\/div>\s*<button id="sidebarRailToggle"/);
   assert.match(html, /id="sidebarRailToggle" class="sidebar-rail-toggle sidebar-expand-toggle"[\s\S]*?aria-controls="conversationSidebar"[\s\S]*?aria-expanded="false"[\s\S]*?<rect x="3" y="4" width="18" height="16" rx="2\.5"/);
   assert.match(css, /--rail-column-width:\s*78px;/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) var\(--sidebar-width\) 0 minmax\(0,\s*1fr\);/);
@@ -324,10 +325,14 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(css, /\.conversation-sidebar:hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar\.sidebar-action-hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar \.sidebar-tools:focus-within \.sidebar-collapse-toggle\s*\{[\s\S]*?width:\s*28px;[\s\S]*?opacity:\s*1;/);
   assert.doesNotMatch(css, /\.sidebar-collapse-toggle:focus-visible[^{]*\{[^}]*(?:outline|box-shadow):/);
   assert.doesNotMatch(css, /\.sidebar-rail-toggle:focus-visible[^{]*\{[^}]*(?:outline|box-shadow):/);
-  assert.match(css, /\.sidebar-rail-toggle\s*\{[\s\S]*?top:\s*50%;[\s\S]*?left:\s*calc\(var\(--rail-column-width\) - 6px\);[\s\S]*?width:\s*32px;[\s\S]*?height:\s*44px;[\s\S]*?background:\s*rgba\(15,\s*23,\s*42,\s*0\.10\);[\s\S]*?color:\s*var\(--muted\);[\s\S]*?box-shadow:\s*0 6px 18px rgba\(15,\s*23,\s*42,\s*0\.08\);[\s\S]*?opacity:\s*0;[\s\S]*?transform:\s*translateY\(-50%\);/);
+  assert.match(css, /\.sidebar-rail-hover-bridge\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*0;[\s\S]*?bottom:\s*0;[\s\S]*?left:\s*var\(--rail-column-width\);[\s\S]*?width:\s*64px;[\s\S]*?display:\s*none;[\s\S]*?background:\s*transparent;[\s\S]*?-webkit-app-region:\s*no-drag;/);
+  assert.doesNotMatch(css, /\.sidebar-rail-hover-bridge\s*\{[\s\S]*?left:\s*0;[\s\S]*?width:\s*calc\(var\(--rail-column-width\) \+ 64px\);/);
+  assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\]\[data-sidebar-toggle="available"\] \.sidebar-rail-hover-bridge\s*\{[\s\S]*?display:\s*block;/);
+  assert.match(css, /\.sidebar-rail-toggle\s*\{[\s\S]*?top:\s*50%;[\s\S]*?left:\s*calc\(var\(--rail-column-width\) - 6px\);[\s\S]*?width:\s*32px;[\s\S]*?height:\s*44px;[\s\S]*?background:\s*rgba\(15,\s*23,\s*42,\s*0\.10\);[\s\S]*?color:\s*var\(--muted\);[\s\S]*?box-shadow:\s*0 6px 18px rgba\(15,\s*23,\s*42,\s*0\.08\);[\s\S]*?opacity:\s*0;[\s\S]*?transform:\s*translateY\(-50%\);[\s\S]*?pointer-events:\s*none;/);
   assert.match(css, /\.sidebar-rail-toggle:hover\s*\{[\s\S]*?background:\s*rgba\(15,\s*23,\s*42,\s*0\.14\);/);
-  assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\] \.nav-rail:hover ~ \.sidebar-rail-toggle,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:hover,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:focus-visible\s*\{[\s\S]*?opacity:\s*1;/);
-  assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-rail-toggle\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\] \.nav-rail:hover ~ \.sidebar-rail-toggle,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-hover-bridge:hover ~ \.sidebar-rail-toggle,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:hover,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle:focus-visible\s*\{[\s\S]*?opacity:\s*1;[\s\S]*?pointer-events:\s*auto;/);
+  assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-rail-hover-bridge,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-rail-toggle\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\]\[data-sidebar-toggle="available"\]\[data-auth-state="signed-out"\] \.sidebar-rail-hover-bridge,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\]\[data-sidebar-toggle="available"\]\[data-layout="workspace"\] \.sidebar-rail-hover-bridge,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\]\[data-sidebar-toggle="available"\]\[data-shell-layout="single"\] \.sidebar-rail-hover-bridge,[\s\S]*?\.app-shell\[data-sidebar-state="collapsed"\]\[data-sidebar-toggle="available"\]\[data-nav-layout="sidebar-bottom"\] \.sidebar-rail-hover-bridge\s*\{[\s\S]*?display:\s*none;/);
 });
 
 test("single-pane rail pages do not render meaningless narrow back buttons", () => {
@@ -648,6 +653,13 @@ test("custom scrollbar overlay track stays on rounded right edge straights", () 
   assert.equal(trackRect.height, 544);
 });
 
+test("custom scrollbar overlay aligns the narrower thumb to the right edge", () => {
+  const scrollbarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/scrollbar-overlay.js"), "utf8");
+
+  assert.match(scrollbarSource, /const thumbLeft = rect\.right - 8;/);
+  assert.doesNotMatch(scrollbarSource, /const thumbLeft = rect\.right - 10;/);
+});
+
 test("custom scrollbar overlay is invalidated when panes hide", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const scrollbarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/scrollbar-overlay.js"), "utf8");
@@ -657,6 +669,7 @@ test("custom scrollbar overlay is invalidated when panes hide", () => {
   assert.doesNotMatch(scrollbarSource, /settings-closing/);
   assert.match(scrollbarSource, /shell\.dataset\.sidebarState === "collapsed" && target\.closest\("\.sidebar"\)/);
   assert.match(scrollbarSource, /shell\.dataset\.narrowPane === "content" && target\.closest\("\.sidebar"\)/);
+  assert.match(scrollbarSource, /event\.target\?\.closest\?\.\("\.sidebar-tag-filter-strip"\)\) return;/);
   assert.match(scrollbarSource, /hideScrollbarOverlay\(target,\s*true\)/);
   assert.match(scrollbarSource, /new MutationObserver\(\(records\) => \{/);
   assert.match(scrollbarSource, /validateScrollbarOverlay/);
@@ -940,25 +953,78 @@ test("conversation tag filters render as persistent chat folder tabs", () => {
 
   assert.match(html, /id="personaTagFilters"[^>]+aria-label="对话分组"/);
   assert.match(appSource, /function sidebarAllConversationFilterHtml\(active\)/);
+  assert.match(appSource, /CONVERSATION_FOLDER_ORDER_KEY = "mia\.conversationFolderOrder\.v1"/);
   assert.match(appSource, /function rememberConversationFolderMotion\(nextName\)/);
   assert.match(appSource, /function updateSidebarTagIndicator\(\)/);
   assert.match(appSource, /function syncSidebarTagFilterSelection\(activeName\)/);
+  assert.match(appSource, /function orderedConversationFolderItems\(filters,\s*activeFilterName\)/);
+  assert.match(appSource, /function conversationFolderItemStorageKey\(tag = \{\}\)/);
+  assert.match(appSource, /function conversationFilterValue\(tag = \{\}\)/);
+  assert.match(appSource, /function conversationFolderLabelForFilter\(filterValue\)/);
+  assert.match(appSource, /function beginConversationFolderDrag\(event\)/);
+  assert.match(appSource, /function saveConversationFolderDomOrder\(\)/);
+  assert.match(appSource, /function conversationFolderTrack\(strip = null\)/);
+  assert.match(appSource, /function setConversationFolderScrollLeft\(strip,\s*value\)/);
+  assert.match(appSource, /function ensureActiveConversationFolderVisible\(options = \{\}\)/);
+  assert.match(appSource, /function handleConversationFolderWheel\(event\)/);
+  assert.match(appSource, /OTHER_DEVICE_CONVERSATION_FILTER/);
+  assert.match(appSource, /conversationRunsOnOtherDevice\?\.\(row\?\.conversation\)/);
   assert.match(appSource, /function syncPersonaListActiveState\(specs\)/);
   assert.match(appSource, /function renderPersonaListIfChanged\(specs,\s*emptyText,\s*activeTagFilterName\)/);
   assert.doesNotMatch(cardSignatureSource, /active:\s*Boolean\(spec\?\.active\)/);
   assert.match(searchToolsSource, /const showFilters = cloudReady && \(filters\.length > 0 \|\| activeFilterName\);/);
   assert.match(searchToolsSource, /dataset\.renderSignature !== signature/);
+  assert.match(searchToolsSource, /const folderItems = orderedConversationFolderItems\(filters,\s*activeFilterName\);/);
   assert.match(searchToolsSource, /sidebarAllConversationFilterHtml\(!activeFilterName\)/);
   assert.match(searchToolsSource, /role="tablist" aria-label="对话分组"/);
-  assert.match(searchToolsSource, /filters\.map\(sidebarTagFilterHtml\)\.join\(""\)/);
+  assert.match(searchToolsSource, /folderItems\.map\(\(item\) => item\.type === "all" \? sidebarAllConversationFilterHtml\(!activeFilterName\) : sidebarTagFilterHtml\(item\.tag\)\)\.join\(""\)/);
   assert.match(searchToolsSource, /sidebar-tag-filter-indicator/);
   assert.match(searchToolsSource, /syncSidebarTagFilterSelection\(activeFilterName\);/);
   assert.match(appSource, /animatePersonaListFolderPage\(activeTagFilterName\);/);
   assert.match(appSource, /if \(personaListRenderSignature === signature\) \{[\s\S]*?syncPersonaListActiveState\(specs\);[\s\S]*?return;/);
   assert.match(appSource, /renderPersonaListIfChanged\(sidebarSpecs,\s*emptyText,\s*activeTagFilterName\);/);
+  assert.match(appSource, /els\.personaTagFilters\?\.addEventListener\("pointerdown", beginConversationFolderDrag\);/);
+  assert.match(appSource, /els\.personaTagFilters\?\.addEventListener\("wheel", handleConversationFolderWheel, \{ passive: false \}\);/);
+  assert.match(appSource, /document\.addEventListener\("pointermove", moveConversationFolderDrag, \{ passive: false \}\);/);
+  assert.match(appSource, /const x = active\.offsetLeft - conversationFolderScrollLeft\(strip\);/);
+  assert.match(appSource, /const activeCenter = active\.offsetLeft \+ active\.offsetWidth \/ 2;/);
+  assert.match(appSource, /let nextLeft = activeCenter - strip\.clientWidth \/ 2;/);
+  assert.match(appSource, /track\.style\.setProperty\("--tag-scroll-x", `\$\{nextLeft\}px`\);/);
+  assert.match(appSource, /syncSidebarTagFilterSelection\(activeFilterName\);\s*ensureActiveConversationFolderVisible\(\);\s*scheduleSidebarTagIndicator\(\);/);
+  assert.match(appSource, /const primaryDelta = Math\.abs\(event\.deltaX\) > Math\.abs\(event\.deltaY\) \? event\.deltaX : event\.deltaY;/);
+  assert.match(appSource, /event\.preventDefault\(\);\s*event\.stopPropagation\(\);\s*setConversationFolderScrollLeft\(strip,\s*conversationFolderScrollLeft\(strip\) \+ primaryDelta \* unit\);/);
+  assert.match(searchToolsSource, /<div class="sidebar-tag-filter-track">[\s\S]*?<\/div>\s*<span class="sidebar-tag-filter-indicator" aria-hidden="true"><\/span>/);
+  assert.match(appSource, /const filterValue = String\(tag\?\.filterValue \|\| name\)\.trim\(\);/);
+  assert.match(appSource, /const folderKey = String\(tag\?\.storageKey \|\| conversationFolderStorageKey\(filterValue \|\| name\)\)\.trim\(\);/);
+  assert.match(appSource, /data-tag-name="\$\{window\.miaMarkdown\.escapeHtml\(filterValue\)\}"/);
+  assert.match(appSource, /data-folder-key="\$\{window\.miaMarkdown\.escapeHtml\(folderKey\)\}"/);
+  assert.match(appSource, /const activeTagFilterLabel = conversationFolderLabelForFilter\(activeTagFilterName\);/);
+  assert.match(appSource, /activeTagFilterLabel \? `「\$\{activeTagFilterLabel\}」分组暂无对话`/);
   assert.match(tagFilterClickSource, /const nextName = chip\.dataset\.tagName \|\| "";/);
-  assert.match(tagFilterClickSource, /if \(!rememberConversationFolderMotion\(nextName\)\) return;/);
+  assert.match(tagFilterClickSource, /if \(conversationFolderSuppressClick\) return;/);
+  assert.match(tagFilterClickSource, /if \(!rememberConversationFolderMotion\(nextName\)\) \{[\s\S]*?ensureActiveConversationFolderVisible\(\);[\s\S]*?return;[\s\S]*?\}/);
   assert.doesNotMatch(tagFilterClickSource, /personaSearchOpen\s*=\s*true/);
+});
+
+test("other-device bot conversations are hidden by default and exposed as a last folder tab only when non-empty", () => {
+  const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
+  const tagFiltersSource = extractFunctionSource(socialSource, "conversationTagFilters");
+
+  assert.match(socialSource, /const OTHER_DEVICE_CONVERSATION_FILTER = "__mia_other_devices__"/);
+  assert.match(socialSource, /const OTHER_DEVICE_CONVERSATION_LABEL = "其他设备"/);
+  assert.match(socialSource, /function conversationRunsOnOtherDevice\(conversation = \{\}\)/);
+  assert.match(socialSource, /global\.miaBotManager\?\.botRunsOnOtherDevice\?\.\(bot\)/);
+  assert.match(socialSource, /function visibleSocialConversations\(conversations,\s*options = \{\}\)[\s\S]*?const otherDeviceOnly = isOtherDeviceConversationFilter\(filterName\);/);
+  assert.match(socialSource, /function visibleSocialConversations\(conversations,\s*options = \{\}\)[\s\S]*?if \(otherDeviceOnly\) return otherDevice;/);
+  assert.match(socialSource, /function visibleSocialConversations\(conversations,\s*options = \{\}\)[\s\S]*?if \(otherDevice && options\.includeOtherDevice !== true\) return false;/);
+  assert.match(tagFiltersSource, /const otherDeviceCount = sessionHistoryShared\(\)\.sidebarConversations/);
+  assert.match(tagFiltersSource, /if \(otherDeviceCount > 0\) \{[\s\S]*?tagFilters\.push\(\{/);
+  assert.doesNotMatch(tagFiltersSource, /otherDeviceCount > 0 \|\| otherDeviceActive/);
+  assert.match(tagFiltersSource, /name:\s*OTHER_DEVICE_CONVERSATION_LABEL/);
+  assert.match(tagFiltersSource, /filterValue:\s*OTHER_DEVICE_CONVERSATION_FILTER/);
+  assert.match(tagFiltersSource, /storageKey:\s*"other-devices"/);
+  assert.match(socialSource, /OTHER_DEVICE_CONVERSATION_FILTER,[\s\S]*?OTHER_DEVICE_CONVERSATION_LABEL,[\s\S]*?initSocialModule/);
+  assert.match(socialSource, /conversationTagsFor,[\s\S]*?conversationRunsOnOtherDevice,[\s\S]*?conversationTagFilters/);
 });
 
 test("desktop lottie badges can load local TGS assets in the renderer with a preload bridge fallback", () => {
@@ -1009,7 +1075,7 @@ test("first-run startup overlay is wired to the welcome Lottie animation", () =>
   assert.match(html, /<script src="\.\/startup\/startup-overlay\.js"><\/script>[\s\S]*<script src="\.\/app\.js"><\/script>/);
   assert.match(appSource, /window\.miaStartupOverlay\?\.init\?\.\(\{ firstRun: agentSetupLaunch \}\)/);
   assert.match(appSource, /window\.miaStartupOverlay\?\.isBlocking\?\.\(\)/);
-  assert.match(appSource, /trackStartupTask\("启动后台服务",\s*\(\) => window\.mia\.startupBackgroundServices\(\)\)/);
+  assert.match(appSource, /trackStartupTask\("启动 Mia Core",\s*\(\) => window\.mia\.startupBackgroundServices\(\)\)/);
   assert.match(appSource, /window\.miaStartupOverlay\?\.setWelcome\?\.\(\)/);
   assert.match(appSource, /window\.miaStartupOverlay\?\.finish\?\.\(\)/);
 });
@@ -2010,6 +2076,25 @@ test("contacts use cloud-stored owned bot identities", () => {
   assert.doesNotMatch(socialSource, /cloudOnly:\s*(true|false)/);
   assert.match(appSource, /const syncedBotKeys = new Set/);
   assert.match(appSource, /const contactKeys = new Set/);
+});
+
+test("contacts group desktop-local bots from other devices behind a collapsed section", () => {
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+
+  assert.match(botManagerSource, /const OTHER_DEVICE_GROUP_KEY = "other-devices"/);
+  assert.match(botManagerSource, /const CONTACT_GROUP_COLLAPSED_KEY = "mia\.contactGroupCollapsed\.v1"/);
+  assert.match(botManagerSource, /function botRunsOnOtherDevice\(bot = \{\}\)/);
+  assert.match(botManagerSource, /target\.runtimeKind !== "desktop-local"/);
+  assert.match(botManagerSource, /function contactDisplayGroupKey\(bot = \{\}\)[\s\S]*OTHER_DEVICE_GROUP_KEY/);
+  assert.match(botManagerSource, /function contactGroupsForSidebar\(bots = \[\]\)/);
+  assert.match(botManagerSource, /function contactGroupCollapsedSet\(\)[\s\S]*\[OTHER_DEVICE_GROUP_KEY\]/);
+  assert.match(botManagerSource, /function isContactGroupCollapsed\(key,\s*options = \{\}\)[\s\S]*options\.forceExpanded/);
+  assert.match(botManagerSource, /function toggleContactGroupCollapsed\(key\)/);
+  assert.match(botManagerSource, /contactGroupLabel\(key\)[\s\S]*"其他设备"/);
+  assert.match(botManagerSource, /const primarySortedBots = sortBotsForSidebar\(bots\.filter\(\(bot\) => !botRunsOnOtherDevice\(bot\)\)\);/);
+  assert.match(botManagerSource, /const contactGroups = contactGroupsForSidebar\(visibleContacts\);/);
+  assert.match(botManagerSource, /const collapsed = isContactGroupCollapsed\(group\.key,\s*\{ forceExpanded: filterActive \}\);/);
+  assert.match(botManagerSource, /botRunsOnOtherDevice\(bot\) \? `<small>\$\{window\.miaMarkdown\.escapeHtml\(botDeviceLabel\(bot\)\)\}<\/small>` : ""/);
 });
 
 test("contact bot avatars resolve through shared bot identity", () => {

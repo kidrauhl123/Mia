@@ -19,6 +19,8 @@
   let runtimeDevicesLoading = false;
   let runtimeDevicesLoadedAt = 0;
   const RUNTIME_DEVICE_REFRESH_INTERVAL_MS = 15000;
+  const OTHER_DEVICE_GROUP_KEY = "other-devices";
+  const CONTACT_GROUP_COLLAPSED_KEY = "mia.contactGroupCollapsed.v1";
   const contactNameCollator = new Intl.Collator(["zh-Hans-CN-u-co-pinyin", "en"], {
     sensitivity: "base",
     numeric: true
@@ -37,6 +39,23 @@
       try { return require("../../shared/bot-identity.js"); } catch { /* fallback below */ }
     }
     return null;
+  }
+
+  function readLocalJson(key, fallback) {
+    try {
+      const raw = window.localStorage?.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function writeLocalJson(key, value) {
+    try {
+      window.localStorage?.setItem(key, JSON.stringify(value));
+    } catch {
+      // localStorage may be unavailable in restricted renderer contexts.
+    }
   }
 
   function contact() {
@@ -181,7 +200,16 @@
     return "#";
   }
 
+  function contactDisplayGroupKey(bot = {}) {
+    return botRunsOnOtherDevice(bot) ? OTHER_DEVICE_GROUP_KEY : contactGroupKey(bot);
+  }
+
+  function contactGroupLabel(key) {
+    return key === OTHER_DEVICE_GROUP_KEY ? "其他设备" : key;
+  }
+
   function contactGroupRank(key) {
+    if (key === OTHER_DEVICE_GROUP_KEY) return 100;
     if (/^[A-Z]$/.test(key)) return key.charCodeAt(0) - 64;
     return 27;
   }
@@ -201,11 +229,55 @@
       .map((item) => item.bot);
   }
 
-  function appendContactGroupHeader(label) {
-    const header = document.createElement("div");
-    header.className = "contact-group-header";
-    header.textContent = label;
-    header.setAttribute("aria-hidden", "true");
+  function contactGroupsForSidebar(bots = []) {
+    const groups = new Map();
+    for (const bot of bots) {
+      const key = contactDisplayGroupKey(bot);
+      if (!groups.has(key)) groups.set(key, { key, label: contactGroupLabel(key), bots: [] });
+      groups.get(key).bots.push(bot);
+    }
+    return [...groups.values()].sort((a, b) => {
+      const rankDiff = contactGroupRank(a.key) - contactGroupRank(b.key);
+      if (rankDiff) return rankDiff;
+      return contactNameCollator.compare(a.label, b.label);
+    });
+  }
+
+  function contactGroupCollapsedSet() {
+    const saved = readLocalJson(CONTACT_GROUP_COLLAPSED_KEY, null);
+    return new Set(Array.isArray(saved) ? saved : [OTHER_DEVICE_GROUP_KEY]);
+  }
+
+  function isContactGroupCollapsed(key, options = {}) {
+    if (options.forceExpanded) return false;
+    return contactGroupCollapsedSet().has(key);
+  }
+
+  function toggleContactGroupCollapsed(key) {
+    const collapsed = contactGroupCollapsedSet();
+    if (collapsed.has(key)) collapsed.delete(key);
+    else collapsed.add(key);
+    writeLocalJson(CONTACT_GROUP_COLLAPSED_KEY, [...collapsed]);
+  }
+
+  function appendContactGroupHeader(group, options = {}) {
+    const key = String(group?.key || group || "").trim();
+    const label = String(group?.label || contactGroupLabel(key)).trim();
+    const count = Number(group?.bots?.length) || 0;
+    const collapsed = Boolean(options.collapsed);
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = `contact-group-header contact-group-toggle${collapsed ? " collapsed" : ""}`;
+    header.dataset.contactGroupKey = key;
+    header.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    header.innerHTML = `
+      <span>${window.miaMarkdown.escapeHtml(label)}</span>
+      ${count ? `<small>${window.miaMarkdown.escapeHtml(String(count))}</small>` : ""}
+    `;
+    header.addEventListener("click", () => {
+      toggleContactGroupCollapsed(key);
+      renderContacts();
+    });
     els.contactList.appendChild(header);
   }
 
@@ -584,6 +656,32 @@
     };
   }
 
+  function botRunsOnOtherDevice(bot = {}) {
+    const target = activeRuntimeTarget(bot);
+    if (target.runtimeKind !== "desktop-local") return false;
+    const local = localDeviceCandidate();
+    const targetDeviceId = firstNonEmpty(
+      target.deviceId,
+      bot.targetDeviceId,
+      bot.target_device_id,
+      bot.deviceId,
+      bot.device_id,
+      bot.runtimeConfig?.deviceId
+    );
+    if (!local || !targetDeviceId) return false;
+    const targetDevice = normalizeDevice({
+      id: targetDeviceId,
+      deviceName: firstNonEmpty(
+        bot.targetDeviceName,
+        bot.target_device_name,
+        bot.deviceName,
+        bot.device_name,
+        bot.runtimeConfig?.deviceName
+      )
+    });
+    return Boolean(targetDevice && !isSameLocalDevice(targetDevice, local));
+  }
+
   function targetButtonHtml({ bot, runtimeKind, device = null, engine = "hermes" }) {
     const active = activeRuntimeTarget(bot);
     const selected = runtimeKind === "cloud-hermes"
@@ -689,51 +787,55 @@
     }
     const onRequests = state.activeContactKey === FRIEND_REQUESTS_KEY;
     const sortedBots = sortBotsForSidebar(bots);
+    const primarySortedBots = sortBotsForSidebar(bots.filter((bot) => !botRunsOnOtherDevice(bot)));
+    const defaultActiveBot = primarySortedBots[0] || sortedBots[0] || null;
     if (onRequests && !pendingRequests) {
       // The pending list emptied (all accepted/rejected) — fall back to a real contact.
-      state.activeContactKey = sortedBots[0]?.key || null;
+      state.activeContactKey = defaultActiveBot?.key || null;
     } else if (!onRequests && !bots.some((bot) => bot.key === state.activeContactKey)) {
-      state.activeContactKey = sortedBots[0]?.key || (pendingRequests ? FRIEND_REQUESTS_KEY : null);
+      state.activeContactKey = defaultActiveBot?.key || (pendingRequests ? FRIEND_REQUESTS_KEY : null);
     }
     const filter = state.contactFilter.trim().toLowerCase();
-    const visibleContacts = sortBotsForSidebar(filter
+    const filterActive = Boolean(filter);
+    const visibleContacts = sortBotsForSidebar(filterActive
       ? bots.filter((bot) => `${bot.name || ""} ${bot.key || ""} ${bot.bio || ""}`.toLowerCase().includes(filter))
       : sortedBots);
+    const contactGroups = contactGroupsForSidebar(visibleContacts);
     els.contactList.innerHTML = "";
     if (pendingRequests && !filter) {
       els.contactList.appendChild(buildFriendRequestRow(pendingRequests));
     }
-    let lastGroupKey = "";
-    for (const bot of visibleContacts) {
-      const groupKey = contactGroupKey(bot);
-      if (groupKey !== lastGroupKey) {
-        appendContactGroupHeader(groupKey);
-        lastGroupKey = groupKey;
+    for (const group of contactGroups) {
+      const collapsed = isContactGroupCollapsed(group.key, { forceExpanded: filterActive });
+      appendContactGroupHeader(group, { collapsed });
+      if (collapsed) continue;
+      for (const bot of group.bots) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `contact-row${bot.key === state.activeContactKey ? " active" : ""}`;
+        button.innerHTML = `
+          <span class="avatar bot-photo"></span>
+          <span class="contact-row-main">
+            <strong>${renderBotNameWithBadgeHtml(bot)}</strong>
+            ${botRunsOnOtherDevice(bot) ? `<small>${window.miaMarkdown.escapeHtml(botDeviceLabel(bot))}</small>` : ""}
+          </span>
+        `;
+        button.addEventListener("click", () => {
+          state.activeContactKey = bot.key;
+          showNarrowContent();
+          renderContacts();
+        });
+        button.addEventListener("dblclick", () => openBotChat(bot.key));
+        const avatar = avatarForBot(bot);
+        window.miaAvatar.applyAvatarMedia(
+          button.querySelector(".bot-photo"),
+          avatar.image,
+          avatar.crop,
+          avatar.color,
+          avatar.text
+        );
+        els.contactList.appendChild(button);
       }
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `contact-row${bot.key === state.activeContactKey ? " active" : ""}`;
-      button.innerHTML = `
-        <span class="avatar bot-photo"></span>
-        <span class="contact-row-main">
-          <strong>${renderBotNameWithBadgeHtml(bot)}</strong>
-        </span>
-      `;
-      button.addEventListener("click", () => {
-        state.activeContactKey = bot.key;
-        showNarrowContent();
-        renderContacts();
-      });
-      button.addEventListener("dblclick", () => openBotChat(bot.key));
-      const avatar = avatarForBot(bot);
-      window.miaAvatar.applyAvatarMedia(
-        button.querySelector(".bot-photo"),
-        avatar.image,
-        avatar.crop,
-        avatar.color,
-        avatar.text
-      );
-      els.contactList.appendChild(button);
     }
     initNameBadgeLotties(els.contactList);
     if (!visibleContacts.length && filter) {
@@ -1019,6 +1121,7 @@
     botCapabilityItems,
     capabilityChecked,
     botDeviceLabel,
+    botRunsOnOtherDevice,
     botPersonaText,
     engineLogoHtml,
     renderCapabilityCheckbox,

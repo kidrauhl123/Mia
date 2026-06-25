@@ -158,6 +158,7 @@
       agentSlashCommands: { "claude-code": [], codex: [] },
       slashMenuOpen: false,
       composerAddMenuOpen: false,
+      composerDrafts: new Map(),
       pendingAttachments: [],
       pathPasteRefs: [],
       pathPasteNextIndex: 1,

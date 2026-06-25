@@ -57,6 +57,7 @@ function createDeps(overrides = {}) {
     normalizeEffortLevel: (level, engine) => `${engine}:${level}`,
     processEnvStrings: () => overrides.env || { PATH: "/bin" },
     readBotPersona: () => "persona",
+    resolveModelRuntime: overrides.resolveModelRuntime || (() => null),
     resolveManagedModelRuntime: overrides.resolveManagedModelRuntime || (() => null),
     setAgentSessionId: (...args) => calls.push(["set-session", ...args]),
     shellCommandPath: (command) => command === "codex" ? (overrides.commandPath || "/bin/codex") : "",
@@ -183,11 +184,16 @@ test("sendChat puts the selected codex bin dir first in SDK env", async () => {
 
 test("sendChat routes Mia-managed Codex models through the proxy runtime", async () => {
   const deps = createDeps({
-    resolveManagedModelRuntime: () => ({
+    resolveModelRuntime: () => ({
       provider: "mia",
+      providerConnectionId: "mia",
       model: "mia-default",
+      modelProfileId: "mia:mia-default",
       baseUrl: "https://mia.example/api/me/model-proxy/v1",
-      apiKey: "cloud-token"
+      apiKey: "cloud-token",
+      authType: "mia_account",
+      managedByMia: true,
+      source: "mia-core"
     })
   });
   const adapter = createCodexChatAdapter(deps);
@@ -201,6 +207,17 @@ test("sendChat routes Mia-managed Codex models through the proxy runtime", async
   });
 
   assert.equal(deps.calls[1][0], "ensureMiaCodexProxy");
+  assert.deepEqual(deps.calls[1][1], {
+    provider: "mia",
+    providerConnectionId: "mia",
+    model: "mia-default",
+    modelProfileId: "mia:mia-default",
+    baseUrl: "https://mia.example/api/me/model-proxy/v1",
+    apiKey: "cloud-token",
+    authType: "mia_account",
+    managedByMia: true,
+    source: "mia-core"
+  });
   const call = deps.calls.find((entry) => entry[0] === "app-server")[1];
   assert.equal(call.codexPath, "/bin/codex");
   assert.deepEqual(call.env, { PATH: "/bin", CODEX_HOME: "/Users/test/.codex" });
@@ -547,7 +564,7 @@ test("sendChat uses Codex app-server runner for interactive approval-capable tur
 
 test("sendChat routes Mia-managed interactive Codex turns through the local proxy", async () => {
   const deps = createDeps({
-    resolveManagedModelRuntime: () => ({
+    resolveModelRuntime: () => ({
       provider: "mia",
       model: "mia-auto",
       baseUrl: "https://mia.example/api/me/model-proxy/v1",
@@ -751,7 +768,7 @@ test("sendChat uses engine-level Codex permission and does not sync config per r
 
 test("sendChat passes Mia-managed Codex model proxy to app-server runner", async () => {
   const deps = createDeps({
-    resolveManagedModelRuntime: () => ({
+    resolveModelRuntime: () => ({
       provider: "mia",
       model: "mia-default",
       baseUrl: "https://mia.example/api/me/model-proxy/v1",

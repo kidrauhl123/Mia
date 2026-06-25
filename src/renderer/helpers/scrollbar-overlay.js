@@ -191,7 +191,7 @@
     const { rect, maxScroll, trackInset, thumbHeight, travel } = metrics;
     const overlay = ensureScrollbarOverlay();
     const thumbTop = rect.top + trackInset + (target.scrollTop / maxScroll) * travel;
-    const thumbLeft = rect.right - 10;
+    const thumbLeft = rect.right - 8;
 
     overlay.style.height = `${thumbHeight}px`;
     overlay.style.transform = `translate3d(${Math.round(thumbLeft)}px, ${Math.round(thumbTop)}px, 0)`;
@@ -268,6 +268,7 @@
   function maybeShowScrollbarForPointer(event) {
     if (scrollbarDrag?.active) return;
     if (scrollbarOverlayEl?.contains(event.target)) return;
+    if (event.target?.closest?.(".sidebar-tag-filter-strip")) return;
     const target = scrollableAncestor(event.target);
     if (!target) return;
     const rect = target.getBoundingClientRect();

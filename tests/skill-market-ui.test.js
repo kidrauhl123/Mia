@@ -167,6 +167,55 @@ test("market cards do not render direct install or use actions", () => {
     addEventListener: () => {},
     getBoundingClientRect: () => ({ left: 0, width: 0, height: 0 })
   });
+  const fakeChipRow = () => {
+    const row = fakeEl();
+    let html = "";
+    let buttons = [];
+    function parseButtons(value) {
+      const parsed = [];
+      const re = /<button class="([^"]*)" type="button"([^>]*)>([\s\S]*?)<\/button>/g;
+      let match;
+      while ((match = re.exec(value))) {
+        const attrs = match[2] || "";
+        const button = {
+          className: match[1] || "",
+          dataset: {},
+          listeners: {},
+          offsetLeft: parsed.length * 80,
+          offsetWidth: 72,
+          addEventListener(type, handler) { this.listeners[type] = handler; },
+          click() { this.listeners.click?.(); },
+          getBoundingClientRect: () => ({ left: 0, width: 72, height: 28 })
+        };
+        const scope = attrs.match(/data-skill-scope="([^"]*)"/);
+        const filter = attrs.match(/data-skill-filter="([^"]*)"/);
+        if (scope) button.dataset.skillScope = scope[1];
+        if (filter) button.dataset.skillFilter = filter[1];
+        parsed.push(button);
+      }
+      return parsed;
+    }
+    Object.defineProperty(row, "innerHTML", {
+      get: () => html,
+      set: (value) => {
+        html = String(value || "");
+        buttons = parseButtons(html);
+      }
+    });
+    row.querySelectorAll = (selector) => {
+      if (selector === "[data-skill-scope]") return buttons.filter((button) => "skillScope" in button.dataset);
+      if (selector === "[data-skill-filter]") return buttons.filter((button) => "skillFilter" in button.dataset);
+      return [];
+    };
+    row.querySelector = (selector) => {
+      if (selector === "button.active") return buttons.find((button) => /\bactive\b/.test(button.className)) || null;
+      return null;
+    };
+    row.scrollWidth = 0;
+    row.clientWidth = 0;
+    row.scrollLeft = 0;
+    return row;
+  };
   const state = {
     skillFilter: "",
     skillCategoryFilter: "",
@@ -188,7 +237,7 @@ test("market cards do not render direct install or use actions", () => {
   };
   const els = {
     skillModeToggle: fakeEl(),
-    skillChipRow: fakeEl(),
+    skillChipRow: fakeChipRow(),
     skillCardGrid: fakeEl(),
     skillPageTitle: fakeEl(),
     skillContextMenu: fakeEl()
@@ -233,7 +282,7 @@ test("market cards do not render direct install or use actions", () => {
   context.window.miaSkillLibrary.renderSkillLibrary();
   assert.match(els.skillModeToggle.innerHTML, /data-skill-mode="market">技能/);
   assert.doesNotMatch(els.skillModeToggle.innerHTML, /我的技能/);
-  assert.match(els.skillChipRow.innerHTML, /data-skill-scope="market">全部<\/button>[\s\S]*data-skill-scope="mine">我的技能/);
+  assert.match(els.skillChipRow.innerHTML, /data-skill-filter="">全部<\/button>[\s\S]*data-skill-scope="mine">我的技能/);
   assert.doesNotMatch(els.skillChipRow.innerHTML, />\s*市场\s*</);
   assert.match(els.skillChipRow.innerHTML, /data-skill-scope="mine"/);
   assert.match(els.skillChipRow.innerHTML, />\s*我的技能\s*</);
@@ -243,9 +292,20 @@ test("market cards do not render direct install or use actions", () => {
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-install=/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-use=/);
 
+  els.skillChipRow.querySelectorAll("[data-skill-filter]")
+    .find((button) => button.dataset.skillFilter === "开发工程")
+    .click();
+  assert.equal(state.skillCapabilityMode, "market");
+  assert.equal(state.skillCategoryFilter, "开发工程");
+  els.skillChipRow.querySelectorAll("[data-skill-filter]")
+    .find((button) => button.dataset.skillFilter === "")
+    .click();
+  assert.equal(state.skillCapabilityMode, "market");
+  assert.equal(state.skillCategoryFilter, "");
+
   context.window.miaSkillLibrary.switchSkillMode("mine");
   assert.equal(state.skillCapabilityMode, "mine");
-  assert.match(els.skillChipRow.innerHTML, /data-skill-scope="market">全部/);
+  assert.match(els.skillChipRow.innerHTML, /data-skill-filter="">全部/);
   assert.match(els.skillChipRow.innerHTML, /data-skill-scope="mine">我的技能/);
   assert.match(els.skillChipRow.innerHTML, /开发工程/);
   assert.match(els.skillChipRow.innerHTML, /data-skill-filter="开发工程"/);
@@ -465,7 +525,7 @@ test("topbar keeps skills as one mode and moves mine into in-page filters", () =
   const html = read("src/renderer/index.html");
   assert.match(html, /id="skillModeToggle"/);
   const skillLibrary = read("src/renderer/skills/skill-library.js");
-  assert.match(skillLibrary, /data-skill-scope="market">全部/);
+  assert.match(skillLibrary, /data-skill-filter="">全部/);
   assert.match(skillLibrary, /data-skill-scope="mine">我的技能/);
   assert.doesNotMatch(skillLibrary, /label:\s*"市场"/);
   assert.match(skillLibrary, /syncChipRowIndicator\("auto"\)/);

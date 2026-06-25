@@ -10,6 +10,10 @@ function enabled(records = []) {
   return (Array.isArray(records) ? records : []).filter((record) => record?.enabled !== false);
 }
 
+function mcpNativeName(record = {}) {
+  return String(record?.nativeName || record?.native_name || record?.name || "").trim();
+}
+
 function unsupportedStatus(record = {}, engine, reason, detail = {}) {
   return {
     engine,
@@ -67,7 +71,7 @@ function toNativeSpec(record = {}) {
 }
 
 function mcpSpecsForClaudeSdk(records = []) {
-  return Object.fromEntries(enabled(records).map((record) => [record.name, toNativeSpec(record)]));
+  return Object.fromEntries(enabled(records).map((record) => [mcpNativeName(record), toNativeSpec(record)]));
 }
 
 function hasArbitraryHeaders(record = {}) {
@@ -117,7 +121,7 @@ function mcpSpecsForCodex(records = [], options = {}) {
       }
       continue;
     }
-    specs[record.name] = codexNativeSpec(record);
+    specs[mcpNativeName(record)] = codexNativeSpec(record);
   }
   if (needsBridge && bridge) specs["mia-mcp-bridge"] = bridge;
   return specs;
@@ -130,11 +134,11 @@ function mcpSpecsForHermes(records = [], options = {}) {
   for (const record of enabled(records)) {
     const transport = record.transport || {};
     if (transport.type === "stdio") {
-      specs[record.name] = toNativeSpec(record);
+      specs[mcpNativeName(record)] = toNativeSpec(record);
       continue;
     }
     if (hermesSupportsUrl) {
-      specs[record.name] = toNativeSpec(record);
+      specs[mcpNativeName(record)] = toNativeSpec(record);
       continue;
     }
     needsBridge = true;
@@ -160,7 +164,7 @@ function mcpServersForOpenClawAcp(records = [], options = {}) {
     const transport = record.transport || {};
     if (transport.type === "stdio") {
       servers.push({
-        name: record.name,
+        name: mcpNativeName(record),
         command: transport.command,
         args: Array.isArray(transport.args) ? transport.args.slice() : [],
         env: envArray(transport.env)
@@ -170,7 +174,7 @@ function mcpServersForOpenClawAcp(records = [], options = {}) {
     if ((transport.type === "http" || transport.type === "streamable_http") && supportsHttp) {
       servers.push({
         type: "http",
-        name: record.name,
+        name: mcpNativeName(record),
         url: transport.url,
         headers: headerArray(transport.headers)
       });
@@ -179,7 +183,7 @@ function mcpServersForOpenClawAcp(records = [], options = {}) {
     if (transport.type === "sse" && supportsSse) {
       servers.push({
         type: "sse",
-        name: record.name,
+        name: mcpNativeName(record),
         url: transport.url,
         headers: headerArray(transport.headers)
       });
@@ -206,28 +210,30 @@ function mcpServersForOpenClawAcp(records = [], options = {}) {
 function planCodexCliSync(records = []) {
   return enabled(records).map((record) => {
     const transport = record.transport || {};
+    const name = mcpNativeName(record);
     if (transport.type === "stdio") {
-      const args = ["mcp", "add", record.name];
+      const args = ["mcp", "add", name];
       for (const [key, value] of Object.entries(transport.env || {})) {
         args.push("--env", `${key}=${String(value)}`);
       }
       args.push("--", transport.command, ...(transport.args || []).map(String));
-      return { engine: "codex", name: record.name, args };
+      return { engine: "codex", name, args };
     }
-    const args = ["mcp", "add", record.name, "--url", transport.url];
+    const args = ["mcp", "add", name, "--url", transport.url];
     if (transport.bearerTokenEnvVar) args.push("--bearer-token-env-var", transport.bearerTokenEnvVar);
-    return { engine: "codex", name: record.name, args };
+    return { engine: "codex", name, args };
   });
 }
 
 function planClaudeCliSync(records = []) {
   return enabled(records).map((record) => {
     const transport = record.transport || {};
+    const name = mcpNativeName(record);
     if (transport.type === "stdio") {
       return {
         engine: "claude-code",
-        name: record.name,
-        args: ["mcp", "add-json", "-s", "user", record.name, JSON.stringify(toNativeSpec(record))]
+        name,
+        args: ["mcp", "add-json", "-s", "user", name, JSON.stringify(toNativeSpec(record))]
       };
     }
     const args = [
@@ -237,42 +243,43 @@ function planClaudeCliSync(records = []) {
       "user",
       "--transport",
       transport.type === "streamable_http" ? "http" : transport.type,
-      record.name,
+      name,
       transport.url
     ];
     for (const [key, value] of Object.entries(transport.headers || {})) {
       args.push("--header", `${key}: ${String(value)}`);
     }
-    return { engine: "claude-code", name: record.name, args };
+    return { engine: "claude-code", name, args };
   });
 }
 
 function planCodexCliRemove(records = []) {
   return (Array.isArray(records) ? records : []).map((record) => ({
     engine: "codex",
-    name: record.name,
-    args: ["mcp", "remove", record.name]
+    name: mcpNativeName(record),
+    args: ["mcp", "remove", mcpNativeName(record)]
   }));
 }
 
 function planClaudeCliRemove(records = []) {
   return (Array.isArray(records) ? records : []).map((record) => ({
     engine: "claude-code",
-    name: record.name,
-    args: ["mcp", "remove", "-s", "user", record.name]
+    name: mcpNativeName(record),
+    args: ["mcp", "remove", "-s", "user", mcpNativeName(record)]
   }));
 }
 
 function recordSignature(record = {}) {
   return JSON.stringify({
     enabled: record?.enabled !== false,
+    nativeName: mcpNativeName(record),
     transport: record?.transport || {}
   });
 }
 
 function diffRecords(previousRecords = [], currentRecords = []) {
-  const previousByName = new Map((Array.isArray(previousRecords) ? previousRecords : []).map((record) => [record.name, record]));
-  const currentByName = new Map((Array.isArray(currentRecords) ? currentRecords : []).map((record) => [record.name, record]));
+  const previousByName = new Map((Array.isArray(previousRecords) ? previousRecords : []).map((record) => [mcpNativeName(record), record]));
+  const currentByName = new Map((Array.isArray(currentRecords) ? currentRecords : []).map((record) => [mcpNativeName(record), record]));
 
   const toRemove = [];
   const toAdd = [];

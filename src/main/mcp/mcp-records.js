@@ -14,6 +14,52 @@ function stableId(name = "") {
   return `mcp_${slug || crypto.randomUUID()}`;
 }
 
+const SAFE_NATIVE_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+const GENERIC_NATIVE_NAME_SLUGS = new Set(["mcp", "server", "mcp-server", "mcp_server"]);
+const INVALID_NATIVE_NAME_ERROR_PATTERN = /invalid (?:server )?name|names can only contain letters, numbers, hyphens, and underscores/i;
+
+function slugNativeName(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function hashNativeName(seed = "") {
+  return `mcp_${crypto.createHash("sha256").update(String(seed || "mcp")).digest("hex").slice(0, 12)}`;
+}
+
+function normalizeNativeName(input = "", fallback = "") {
+  const raw = String(input || "").trim();
+  if (SAFE_NATIVE_NAME_PATTERN.test(raw)) return raw;
+  const slug = slugNativeName(raw);
+  if (slug && !GENERIC_NATIVE_NAME_SLUGS.has(slug)) return slug;
+  const fallbackSlug = slugNativeName(fallback);
+  if (fallbackSlug && !GENERIC_NATIVE_NAME_SLUGS.has(fallbackSlug)) return fallbackSlug;
+  return hashNativeName(`${raw}:${fallback}`);
+}
+
+function isLegacyInvalidNativeNameError(entry = {}) {
+  return String(entry.status || "") === "error"
+    && INVALID_NATIVE_NAME_ERROR_PATTERN.test(String(entry.message || entry.error || ""));
+}
+
+function migrateLegacyNativeNameErrors(sync = {}, nativeName = "", displayName = "") {
+  if (!nativeName || nativeName === displayName) return sync;
+  const next = { ...sync };
+  for (const engine of ["codex", "claude-code"]) {
+    if (isLegacyInvalidNativeNameError(next[engine])) {
+      next[engine] = {
+        status: "available",
+        message: `Ready to sync as ${nativeName}.`
+      };
+    }
+  }
+  return next;
+}
+
 function cleanObject(input = {}) {
   const out = {};
   for (const [key, value] of Object.entries(input || {})) {
@@ -86,8 +132,10 @@ function normalizeMcpRecord(input = {}, options = {}) {
   const transport = normalizeTransport(input.transport || input);
   if (!name || !transport) return null;
   const idFactory = typeof options.idFactory === "function" ? options.idFactory : stableId;
+  const id = String(input.id || idFactory(name)).trim();
+  const nativeName = normalizeNativeName(input.nativeName || input.native_name || input.registryId || name, id || name);
   const rawSync = { ...defaultSync(), ...(input.sync && typeof input.sync === "object" ? input.sync : {}) };
-  const sync = Object.fromEntries(
+  const normalizedSync = Object.fromEntries(
     Object.entries(rawSync).map(([engineId, value]) => {
       const entry = value && typeof value === "object" ? value : {};
       return [engineId, {
@@ -96,10 +144,12 @@ function normalizeMcpRecord(input = {}, options = {}) {
       }];
     })
   );
+  const sync = migrateLegacyNativeNameErrors(normalizedSync, nativeName, name);
 
   return {
-    id: String(input.id || idFactory(name)).trim(),
+    id,
     name,
+    nativeName,
     description: String(input.description || "").trim(),
     enabled: input.enabled !== false,
     status: String(input.status || "unknown").trim() || "unknown",
@@ -120,6 +170,12 @@ function normalizeMcpRecord(input = {}, options = {}) {
     lastError: sanitizeSecretText(input.lastError || ""),
     registryId: String(input.registryId || "").trim(),
     source: String(input.source || "custom").trim() || "custom",
+    homepage: String(input.homepage || "").trim(),
+    setupHint: sanitizeSecretText(input.setupHint || ""),
+    setupCommands: Array.isArray(input.setupCommands)
+      ? input.setupCommands.map((command) => sanitizeSecretText(command)).filter(Boolean)
+      : [],
+    expectedToolCount: Number.isFinite(Number(input.expectedToolCount)) ? Number(input.expectedToolCount) : 0,
     originalJson: String(input.originalJson || "")
   };
 }
@@ -216,6 +272,7 @@ function fingerprintPayload(records = []) {
   return enabledMcpRecords(records)
     .map((record) => ({
       name: record.name,
+      nativeName: record.nativeName,
       transport: record.transport
     }))
     .sort((a, b) => a.name.localeCompare(b.name));

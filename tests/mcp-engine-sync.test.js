@@ -124,6 +124,34 @@ test("native CLI planners generate safe command argument arrays", () => {
   assert.equal(planClaudeCliSync([records[0]])[0].args[0], "mcp");
 });
 
+test("native CLI planners use nativeName instead of localized display name", () => {
+  const localized = {
+    ...records[1],
+    name: "小红书 MCP",
+    nativeName: "xhs-local-http"
+  };
+
+  assert.deepEqual(planCodexCliSync([localized])[0].args, [
+    "mcp",
+    "add",
+    "xhs-local-http",
+    "--url",
+    "http://127.0.0.1:18060/mcp",
+    "--bearer-token-env-var",
+    "XHS_TOKEN"
+  ]);
+  assert.deepEqual(planClaudeCliSync([localized])[0].args, [
+    "mcp",
+    "add",
+    "-s",
+    "user",
+    "--transport",
+    "http",
+    "xhs-local-http",
+    "http://127.0.0.1:18060/mcp"
+  ]);
+});
+
 test("native CLI planners generate safe removal command argument arrays", () => {
   assert.deepEqual(planCodexCliRemove([records[1]])[0].args, ["mcp", "remove", "xhs"]);
   assert.deepEqual(planClaudeCliRemove([records[0]])[0].args, ["mcp", "remove", "-s", "user", "stdio"]);

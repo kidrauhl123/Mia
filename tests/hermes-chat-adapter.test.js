@@ -153,15 +153,19 @@ test("sendChat passes runtime config into Hermes run payload builder", async () 
 test("sendChat resolves Mia managed models into Hermes runtime config", async () => {
   const writes = [];
   const deps = createDeps({
-    resolveManagedModelRuntime: () => ({
+    resolveModelRuntime: () => ({
       provider: "mia",
+      providerConnectionId: "mia",
       providerLabel: "Mia",
       authType: "mia_account",
-      model: "mia-deepseek",
+      model: "mia-auto",
+      modelProfileId: "mia:mia-auto",
       apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
       apiKey: "cloud-token",
       baseUrl: "https://mia.example/api/me/model-proxy/v1",
-      apiMode: "chat_completions"
+      apiMode: "chat_completions",
+      managedByMia: true,
+      source: "mia-core"
     }),
     writeModelRuntimeConfig: (settings) => writes.push(settings),
     buildRunPayload: (input) => ({
@@ -175,14 +179,14 @@ test("sendChat resolves Mia managed models into Hermes runtime config", async ()
   const adapter = createHermesChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "alice", name: "Alice", engineConfig: { provider: "mia", model: "mia-deepseek" } },
+    bot: { key: "alice", name: "Alice", engineConfig: { provider: "mia", model: "mia-auto" } },
     sessionId: "s1",
     messages: [{ role: "user", content: "hi" }],
     runtimeConfig: {
       provider: "mia",
       authType: "mia_account",
-      model: "mia-deepseek",
-      modelProfileId: "mia:mia-deepseek"
+      model: "mia-auto",
+      modelProfileId: "mia:mia-auto"
     },
     signal: null
   });
@@ -191,13 +195,13 @@ test("sendChat resolves Mia managed models into Hermes runtime config", async ()
     provider: "mia",
     providerLabel: "Mia",
     authType: "mia_account",
-    model: "mia-deepseek",
+    model: "mia-auto",
     apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
     apiKey: "cloud-token",
     baseUrl: "https://mia.example/api/me/model-proxy/v1",
     apiMode: "chat_completions"
   }]);
-  assert.equal(JSON.parse(deps.fetchCalls[0].options.body).model, "mia-deepseek");
+  assert.equal(JSON.parse(deps.fetchCalls[0].options.body).model, "mia-auto");
 });
 
 test("sendChat writes scheduler MCP context for the current bot/session", async () => {

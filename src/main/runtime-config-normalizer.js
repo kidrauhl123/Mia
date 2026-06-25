@@ -13,14 +13,12 @@ function normalizeTurnRuntimeConfig(runtimeConfig = null) {
   if (!runtimeConfig || typeof runtimeConfig !== "object") return {};
   const config = {};
   const fields = [
+    ["agentEngine", ["agentEngine", "agent_engine"]],
+    ["deviceId", ["deviceId", "device_id", "targetDeviceId", "target_device_id"]],
+    ["deviceName", ["deviceName", "device_name", "targetDeviceName", "target_device_name"]],
     ["model", ["model"]],
-    ["provider", ["provider", "modelProvider", "model_provider"]],
-    ["providerLabel", ["providerLabel", "provider_label"]],
-    ["authType", ["authType", "auth_type"]],
+    ["providerConnectionId", ["providerConnectionId", "provider_connection_id", "provider", "modelProvider", "model_provider"]],
     ["modelProfileId", ["modelProfileId", "model_profile_id"]],
-    ["apiKeyEnv", ["apiKeyEnv", "api_key_env"]],
-    ["baseUrl", ["baseUrl", "base_url"]],
-    ["apiMode", ["apiMode", "api_mode"]],
     ["effortLevel", ["effortLevel", "effort_level"]],
     ["permissionMode", ["permissionMode", "permission_mode"]]
   ];

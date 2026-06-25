@@ -72,6 +72,44 @@
   margin-top: 2px;
 }
 
+.mcp-setup-guide {
+  grid-column: 1;
+  display: grid;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.mcp-setup-guide strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: var(--ui-text-max-weight, 500);
+}
+
+.mcp-setup-guide code {
+  display: inline-flex;
+  margin: 0 4px 3px 0;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.mcp-check-hint {
+  grid-column: 1;
+  color: color-mix(in srgb, var(--muted) 88%, var(--text));
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
 .mcp-dialog-actions button,
 .mcp-dialog-head button {
   min-height: 30px;

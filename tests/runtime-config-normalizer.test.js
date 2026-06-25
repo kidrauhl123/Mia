@@ -3,28 +3,26 @@ const { test } = require("node:test");
 
 const { normalizeTurnRuntimeConfig } = require("../src/main/runtime-config-normalizer.js");
 
-test("normalizeTurnRuntimeConfig preserves model provider metadata for Mia managed models", () => {
+test("normalizeTurnRuntimeConfig prefers Core profile references", () => {
   assert.deepEqual(normalizeTurnRuntimeConfig({
-    provider: "mia",
-    provider_label: "Mia",
-    auth_type: "mia_account",
-    model: "mia-deepseek",
-    model_profile_id: "mia:mia-deepseek",
-    api_key_env: "MIA_CLOUD_MODEL_TOKEN",
-    base_url: "https://mia.example/api/me/model-proxy/v1",
-    api_mode: "chat_completions",
+    provider_connection_id: "mia",
+    model_profile_id: "mia:mia-auto",
+    model: "mia-auto",
+    agent_engine: "openclaw",
+    device_id: "mac-1",
+    device_name: "MacBook Pro",
     effort_level: "medium",
     permission_mode: "ask",
+    base_url: "https://renderer-should-not-own-this.example",
+    api_key_env: "RENDERER_SHOULD_NOT_OWN_THIS",
     ignored: "value"
   }), {
-    model: "mia-deepseek",
-    provider: "mia",
-    providerLabel: "Mia",
-    authType: "mia_account",
-    modelProfileId: "mia:mia-deepseek",
-    apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
-    baseUrl: "https://mia.example/api/me/model-proxy/v1",
-    apiMode: "chat_completions",
+    agentEngine: "openclaw",
+    deviceId: "mac-1",
+    deviceName: "MacBook Pro",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:mia-auto",
+    model: "mia-auto",
     effortLevel: "medium",
     permissionMode: "ask"
   });

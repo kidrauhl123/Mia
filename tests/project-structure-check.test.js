@@ -229,16 +229,27 @@ test("runtime code composes bot conversation ids through shared bot identity hel
 
 test("cloud bridge remote run is account-authenticated and does not add a separate local approval gate", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const runtimeServiceSource = fs.readFileSync(path.join(root, "src/main/mia-core/runtime-service.js"), "utf8");
   const bridgeSource = fs.readFileSync(path.join(root, "src/main/cloud/cloud-bridge-client.js"), "utf8");
-  const body = bridgeSource.match(/async function runCloudBridgeRequest\(ws, message = \{\}\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const runStart = bridgeSource.indexOf("async function runCloudBridgeRequest");
+  const runEnd = bridgeSource.indexOf("\n  function handleMessage", runStart);
+  const body = runStart >= 0 && runEnd > runStart ? bridgeSource.slice(runStart, runEnd) : "";
+  const engineConfigHelper = bridgeSource.match(
+    /function botEngineConfigFromRuntime\(runtimeConfig = \{\}, agentEngine = "codex"\) \{[\s\S]*?\n\}/
+  )?.[0] || "";
   assert.ok(body, "runCloudBridgeRequest should exist");
+  assert.ok(engineConfigHelper, "cloud bridge should centralize bot engine config shaping");
   assert.doesNotMatch(body, /confirmCloudBridgeRun\(/);
   assert.doesNotMatch(body, /等待本机权限确认/);
   assert.match(body, /runtimeConfigFromMessage\(message\)/);
   assert.match(body, /createActiveBridgeChatAdapter\(agentEngine\)/);
-  assert.match(body, /agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/);
+  assert.match(body, /engineConfig: botEngineConfigFromRuntime\(runtimeConfig, agentEngine\)/);
+  assert.match(engineConfigHelper, /agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/);
+  assert.match(engineConfigHelper, /providerConnectionId: runtimeConfig\.providerConnectionId/);
+  assert.match(engineConfigHelper, /modelProfileId: runtimeConfig\.modelProfileId/);
+  assert.match(engineConfigHelper, /model: runtimeConfig\.model/);
   assert.doesNotMatch(body, /\n\s*permissionMode:\s*runtimeConfig\.permissionMode\s*(?:,|\n)/);
-  assert.match(mainSource, /enginePermissionStoreTarget\(agentEngine\) !== "root-mode"[\s\S]*delete configForEngine\.permissionMode/);
+  assert.match(runtimeServiceSource, /enginePermissionStoreTarget\(agentEngine\) !== "root-mode"[\s\S]*delete configForEngine\.permissionMode/);
   assert.match(mainSource, /createCloudBridgeClient/, "main must instantiate the cloud bridge Module");
   assert.match(mainSource, /createActiveBridgeChatAdapter/, "main must provide a generic bridge adapter factory");
   assert.doesNotMatch(mainSource, /async function runCloudBridgeRequest/, "main must not own bridge run implementation");
@@ -698,11 +709,13 @@ test("foreground window stays hidden until the renderer is ready to avoid startu
   assert.match(windowIpcSource, /IpcChannel\.UiFirstPaint[\s\S]*?miaShowWhenReady\(\)/, "renderer first paint IPC should reveal the real window immediately");
 });
 
-test("daemon HTTP control server lives behind a main daemon Module", () => {
+test("Core control server uses the daemon compatibility Module behind a Mia Core wrapper", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const controlSource = fs.readFileSync(path.join(root, "src/main/daemon/control-server.js"), "utf8");
+  const coreProcessSource = fs.readFileSync(path.join(root, "src/main/mia-core/local-process-control.js"), "utf8");
   assert.match(controlSource, /function createDaemonControlServer/, "daemon control server Module should exist");
-  assert.match(mainSource, /createDaemonControlServer/, "main should instantiate the daemon control server");
+  assert.match(coreProcessSource, /createMiaCoreControlServer:\s*createDaemonControlServer/, "Mia Core process wrapper should delegate to the daemon control server");
+  assert.match(mainSource, /createMiaCoreControlServer/, "main should instantiate the Mia Core control server wrapper");
   assert.doesNotMatch(mainSource, /let controlServer\b/, "main must not own the daemon HTTP server instance");
   assert.doesNotMatch(mainSource, /let controlServerState\b/, "main must not own daemon control mutable state");
   assert.doesNotMatch(mainSource, /function requestAuthToken/, "main must not own daemon auth parsing");
@@ -713,15 +726,34 @@ test("daemon HTTP control server lives behind a main daemon Module", () => {
   assert.doesNotMatch(mainSource, /function stopControlServer/, "main must not own daemon HTTP lifecycle");
 });
 
-test("daemon task HTTP client and task event stream live behind a main daemon Module", () => {
+test("Core task HTTP client and task event stream use the daemon compatibility Module behind a Mia Core wrapper", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const tasksClientSource = fs.readFileSync(path.join(root, "src/main/daemon/tasks-client.js"), "utf8");
+  const coreProcessSource = fs.readFileSync(path.join(root, "src/main/mia-core/local-process-control.js"), "utf8");
 
   assert.match(tasksClientSource, /function createDaemonTasksClient/, "daemon tasks client Module should exist");
-  assert.match(mainSource, /createDaemonTasksClient/, "main should instantiate the daemon tasks client");
+  assert.match(coreProcessSource, /createMiaCoreTasksClient:\s*createDaemonTasksClient/, "Mia Core process wrapper should delegate to the daemon tasks client");
+  assert.match(mainSource, /createMiaCoreTasksClient/, "main should instantiate the Mia Core tasks client wrapper");
   assert.doesNotMatch(mainSource, /async function callDaemonTasks/, "main must not own daemon task HTTP calls");
   assert.doesNotMatch(mainSource, /function subscribeDaemonTaskEvents/, "main must not own daemon task SSE subscription");
   assert.doesNotMatch(mainSource, /\/api\/tasks\/events/, "main must not own the daemon task event stream route");
+});
+
+test("desktop Hermes bot runtime controls select saved Core provider references", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const body = appSource.slice(
+    appSource.indexOf("function modelValueForRuntimeControl"),
+    appSource.indexOf("function permissionEntriesForRuntimeControl")
+  );
+
+  assert.match(body, /config\.providerConnectionId/);
+  assert.match(body, /providerConnectionId/);
+  assert.match(body, /entries\.find\(\(item\) => \(item\.providerConnectionId \|\| item\.provider\) === provider/);
+  assert.ok(
+    body.indexOf("entries.find((item) => (item.providerConnectionId || item.provider) === provider") <
+      body.indexOf("window.miaModelHelpers.catalogEntryForModel(runtimeModel)"),
+    "saved bot runtime model refs should be matched before falling back to the global runtime model"
+  );
 });
 
 test("foreground permission IPC routes through the daemon-owned permission proxy", () => {

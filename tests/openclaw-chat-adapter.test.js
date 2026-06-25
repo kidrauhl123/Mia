@@ -9,7 +9,8 @@ const {
   buildOpenClawGlobalArgs,
   closeOpenClawAcpRuntimes,
   createOpenClawChatAdapter,
-  parseOpenClawContent
+  parseOpenClawContent,
+  shouldUseLegacyOpenClawTransport
 } = require("../src/main/openclaw-chat-adapter.js");
 const { chatCompletionResponse } = require("../src/main/chat-response.js");
 
@@ -139,6 +140,8 @@ test("buildOpenClawArgs prefers OpenClaw default routing and only forces local w
   assert.deepEqual(args.slice(7), ["--thinking", "medium", "--json", "--timeout", "600"]);
   assert.equal(args.includes("--local"), false);
   assert.equal(buildOpenClawArgs({ message: "hello", local: true }).includes("--local"), true);
+  assert.equal(shouldUseLegacyOpenClawTransport({ engineConfig: {} }, { provider: "mia" }), true);
+  assert.equal(shouldUseLegacyOpenClawTransport({ engineConfig: { openclawTransport: "acp" } }, { provider: "mia" }), false);
 });
 
 test("OpenClaw command builders support an isolated profile before the subcommand", () => {
@@ -664,20 +667,24 @@ test("sendChat redacts legacy OpenClaw command failures instead of leaking promp
   );
 });
 
-test("sendChat syncs Mia-managed OpenClaw models and runs them through model override", async () => {
+test("sendChat syncs Mia-managed OpenClaw models and runs them locally without Gateway", async () => {
   const deps = createDeps({
-    resolveManagedModelRuntime: () => ({
+    resolveModelRuntime: () => ({
       provider: "mia",
+      providerConnectionId: "mia",
       model: "mia-auto",
+      modelProfileId: "mia:mia-auto",
       baseUrl: "https://mia.example/api/me/model-proxy/v1",
       apiKey: "cloud-token",
       providerLabel: "Mia",
-      apiMode: "chat_completions"
+      authType: "mia_account",
+      apiMode: "chat_completions",
+      managedByMia: true
     })
   });
   const adapter = createOpenClawChatAdapter(deps);
 
-  await adapter.sendChat({
+  const response = await adapter.sendChat({
     bot: { key: "claw", name: "Claw", engineConfig: { provider: "mia", model: "mia-auto" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "hello" }]
@@ -689,14 +696,14 @@ test("sendChat syncs Mia-managed OpenClaw models and runs them through model ove
   assert.match(configCall[5], /"mia-auto"/);
   assert.match(configCall[5], /"baseUrl":"https:\/\/mia\.example\/api\/me\/model-proxy\/v1"/);
 
-  const spawnCall = deps.calls.find((call) => call[0] === "spawn");
-  assert.equal(spawnCall[1], "/bin/openclaw");
-  assert.deepEqual(spawnCall[2], ["acp", "--no-prefix-cwd"]);
-  const newSessionCall = deps.calls.find((call) => call[0] === "acp-new-session");
-  assert.equal(newSessionCall[1]._meta.model, "mia/mia-auto");
-  const promptCall = deps.calls.find((call) => call[0] === "acp-prompt");
-  assert.equal(promptCall[1]._meta.model, "mia/mia-auto");
-  assert.equal(deps.calls.filter((call) => call[0] === "exec" && call[2][0] === "agent").length, 0);
+  const agentCall = deps.calls.find((call) => call[0] === "exec" && call[2][0] === "agent");
+  assert.equal(agentCall[1], "/bin/openclaw");
+  assert.equal(agentCall[2].includes("--local"), true);
+  assert.equal(agentCall[2][agentCall[2].indexOf("--model") + 1], "mia/mia-auto");
+  assert.equal(agentCall[2][agentCall[2].indexOf("--thinking") + 1], "normalized-medium");
+  assert.equal(deps.calls.some((call) => call[0] === "spawn"), false);
+  assert.equal(deps.calls.some((call) => call[0] === "acp-new-session"), false);
+  assert.equal(response.mia.compatibility_transport, "openclaw-cli");
 });
 
 test("sendChat reuses OpenClaw ACP runtime for durable conversation sessions", async (t) => {

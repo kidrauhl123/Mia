@@ -282,6 +282,66 @@ test("run messages can choose Claude Code instead of the legacy Codex bridge", a
   assert.equal(ws.sent[0].event.text, "本机 Claude Code 已开始运行。");
 });
 
+test("run messages normalize cloud bridge runtime config to Core-shaped references", async () => {
+  const { client, calls, sockets, FakeWebSocket } = setup();
+  client.start();
+  const ws = sockets[0];
+  ws.readyState = FakeWebSocket.OPEN;
+
+  client.handleMessage(ws, JSON.stringify({
+    type: "run",
+    runId: "run_normalized",
+    text: "use managed runtime",
+    model: "mia-auto-override",
+    effortLevel: "high",
+    permissionMode: "bypassPermissions",
+    runtimeConfig: {
+      agentEngine: "codex",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto",
+      effortLevel: "low",
+      permissionMode: "ask",
+      deviceId: "device-1",
+      deviceName: "MacBook Pro",
+      baseUrl: "https://should-not-cross.example/v1",
+      apiKeyEnv: "SHOULD_NOT_CROSS",
+      apiMode: "responses",
+      providerLabel: "Should Not Cross",
+      authType: "api_key"
+    }
+  }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(calls.chat[0].runtimeConfig, {
+    agentEngine: "codex",
+    deviceId: "device-1",
+    deviceName: "MacBook Pro",
+    providerConnectionId: "mia",
+    model: "mia-auto-override",
+    effortLevel: "high",
+    permissionMode: "bypassPermissions"
+  });
+  assert.deepEqual(calls.chat[0].bot.engineConfig, {
+    providerConnectionId: "mia",
+    model: "mia-auto-override",
+    effortLevel: "high"
+  });
+  assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "modelProfileId"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "modelProfileId"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "baseUrl"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "apiMode"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "providerLabel"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "authType"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "baseUrl"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "apiMode"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "providerLabel"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "authType"), false);
+});
+
 test("cancel messages abort the active bridge run", async () => {
   let resolveRun;
   const { client, calls, sockets, FakeWebSocket } = setup({

@@ -93,10 +93,13 @@ const { isSafeEntryName, MAX_UNCOMPRESSED_BYTES } = require("./shared/skill-safe
 const { createRemoteControlRouter } = require("./main/remote/remote-control-router.js");
 const { createModelSettingsService } = require("./main/model-settings-service.js");
 const { createConversationTitleService } = require("./main/conversation-title-service.js");
-const { createDaemonControlServer, daemonNeedsReplacement } = require("./main/daemon/control-server.js");
-const { createDaemonTasksClient } = require("./main/daemon/tasks-client.js");
-const { createLocalEventsClient } = require("./main/daemon/local-events-client.js");
-const { createDaemonProcessLauncher } = require("./main/daemon/process-launcher.js");
+const {
+  createMiaCoreControlServer,
+  createMiaCoreTasksClient,
+  createMiaCoreLocalEventsClient,
+  createMiaCoreProcessLauncher,
+  coreNeedsReplacement
+} = require("./main/mia-core/local-process-control.js");
 const { windowsTitleBarOverlayForAppearance, applyWindowsTitleBarOverlay } = require("./main/windows-title-bar.js");
 const { createProviderConnections } = require("./main/provider-connections.js");
 const { createAuthService } = require("./main/auth-service.js");
@@ -111,6 +114,11 @@ const { createLocalAgentEngineService } = require("./main/local-agent-engine-ser
 const { createAgentSessionStore } = require("./main/agent-session-store.js");
 const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
 const { createAgentPermissionProxy } = require("./main/agent-permission-proxy.js");
+const {
+  createMiaCoreModelRuntimeResolver,
+  isMiaManagedRuntime
+} = require("./main/mia-core/model-runtime-resolver.js");
+const { createMiaCoreRuntimeService } = require("./main/mia-core/runtime-service.js");
 const {
   closeCodexAppServerRuntimes,
   createCodexAppServerConnection,
@@ -339,7 +347,8 @@ const engineRuntimeConfigService = createEngineRuntimeConfigService({
   // exists. Lets the Hermes config.yaml carry the mia-scheduler MCP.
   getMiaAppMcpSpec: () => miaAppMcpBridge.getSpec(),
   getSchedulerMcpSpec: () => schedulerMcpBridge.getSpec(),
-  getUserMcpSpecs: () => userMcpService.getEngineSpecs("hermes", { hermesSupportsUrl: true })
+  getUserMcpSpecs: () => userMcpService.getEngineSpecs("hermes", { hermesSupportsUrl: true }),
+  resolveModelRuntime: (settings, context) => resolveModelRuntime(settings, context)
 });
 const {
   apiKey,
@@ -374,7 +383,7 @@ const launchdService = createLaunchdService({
   spawnSync,
   appendLog: appendEngineLog
 });
-const daemonProcessLauncher = createDaemonProcessLauncher({
+const miaCoreProcessLauncher = createMiaCoreProcessLauncher({
   runtimePaths,
   effectiveHermesHome,
   appPath: () => app.getAppPath(),
@@ -561,6 +570,16 @@ const providerConnectionStore = providerConnections.store;
 const saveProviderConnection = providerConnections.save;
 const providerConnection = providerConnections.get;
 const connectedProviderSummaries = providerConnections.connectedSummaries;
+const miaCoreModelRuntimeResolver = createMiaCoreModelRuntimeResolver({
+  cloudStatus,
+  normalizeCloudUrl: settingsStore.normalizeCloudUrl,
+  providerConnection: (provider) => providerConnections.get(provider),
+  modelSettings
+});
+const miaCoreRuntime = createMiaCoreRuntimeService({
+  normalizeAgentEngine,
+  enginePermissionStoreTarget
+});
 authService = createAuthService({
   runtimePaths,
   readJson,
@@ -596,8 +615,8 @@ const engineCatalogService = createEngineCatalogService({
 });
 let claudeAgentSdkModule = null;
 let remoteControlRouter = null;
-let daemonControlServer = null;
-let daemonTasksClient = null;
+let miaCoreControlServer = null;
+let miaCoreTasksClient = null;
 let agentPermissionProxy = null;
 let activeChatAbortController = null;
 let cloudEventSocketRuntime = null;
@@ -611,7 +630,7 @@ let cloudDesktopSyncRuntime = null;
 const pendingCloudLogs = [];
 const schedulerMcpBridge = createSchedulerMcpBridge({
   runtimePaths,
-  daemonStatus: () => daemonControlServer?.status() || {},
+  daemonStatus: () => miaCoreControlServer?.status() || {},
   daemonSettings: () => settingsStore.daemonSettings(),
   daemonToken,
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
@@ -620,7 +639,7 @@ const schedulerMcpBridge = createSchedulerMcpBridge({
 });
 const miaAppMcpBridge = createMiaAppMcpBridge({
   runtimePaths,
-  daemonStatus: () => daemonControlServer?.status() || {},
+  daemonStatus: () => miaCoreControlServer?.status() || {},
   daemonSettings: () => settingsStore.daemonSettings(),
   daemonToken,
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
@@ -774,7 +793,7 @@ function runtimeLifecycle() {
       initializeRuntimeCore: runtimeInitializerService.initializeRuntimeCore,
       isDaemonProcess: IS_DAEMON_PROCESS,
       refreshSystemHermesAsync: systemHermesService.refresh,
-      setDaemonLastError: (message) => daemonControlServer?.setLastError(message),
+      setDaemonLastError: (message) => miaCoreControlServer?.setLastError(message),
       setEngineLastError: (message) => { engineState.lastError = message; },
       startDaemonService,
       startEngine,
@@ -794,18 +813,18 @@ const startupBackgroundService = createStartupBackgroundService({
   getRuntimeStatus,
   isDaemonEnabled: () => settingsStore.daemonSettings().enabled,
   refreshSystemHermesAsync: systemHermesService.refresh,
-  setDaemonLastError: (message) => daemonControlServer?.setLastError(message),
+  setDaemonLastError: (message) => miaCoreControlServer?.setLastError(message),
   setEngineLastError: (message) => { engineState.lastError = message; },
   startDaemonService,
   startEngine
 });
 
 function getDaemonStatus() {
-  return daemonControlServer.status();
+  return miaCoreControlServer.status();
 }
 
 async function getObservedDaemonStatus(timeoutMs = 500) {
-  return daemonControlServer.observedStatus(timeoutMs);
+  return miaCoreControlServer.observedStatus(timeoutMs);
 }
 
 function getRuntimeStatus(created = [], options = {}) {
@@ -969,7 +988,7 @@ async function timeEngineStepAsync(label, fn) {
 }
 
 function appendDaemonLog(line) {
-  daemonControlServer.appendLog(line);
+  miaCoreControlServer.appendLog(line);
 }
 
 function normalizeRemoteUserMessage(input) {
@@ -984,7 +1003,7 @@ function normalizeRemoteUserMessage(input) {
 
 function resolveRemoteChatBot({ botKey, botSnapshot = null, runtimeConfig = null }) {
   initializeRuntime();
-  const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
+  const snapshotBot = miaCoreRuntime.cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
   if (snapshotBot) return { bot: snapshotBot };
   const manifest = loadBotManifest();
   const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
@@ -1252,16 +1271,16 @@ async function startDaemonService() {
   }
   initializeRuntime();
   const settings = settingsStore.daemonSettings();
-  if (IS_DAEMON_PROCESS) return daemonControlServer.start(settings);
+  if (IS_DAEMON_PROCESS) return miaCoreControlServer.start(settings);
   const expectedRuntimeHome = runtimePaths().home;
-  const existing = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
+  const existing = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
   if (existing.ok && existing.mode === "daemon") {
     // A KeepAlive launchd daemon survives app updates, so the freshly-updated
     // window can find an old-version daemon still owning cloud events + bot
     // execution. Reuse it only when versions match; otherwise fall through to
     // launchdService.startDaemon() below, which rewrites the plist and
     // bootout+bootstraps a daemon running this app's code.
-    if (!daemonNeedsReplacement(existing, app.getVersion())) {
+    if (!coreNeedsReplacement(existing, app.getVersion())) {
       return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
     }
     appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
@@ -1271,22 +1290,22 @@ async function startDaemonService() {
   if (process.platform === "darwin") {
     await launchdService.startDaemon();
     for (let i = 0; i < 20; i += 1) {
-      const ping = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
+      const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
       // Only accept once the *replacement* answers: during bootout/kickstart the
       // old daemon can still briefly hold the port, so require a version match
       // (not just ok) or the stale one would be accepted and replaced again next launch.
-      if (ping.ok && ping.mode === "daemon" && !daemonNeedsReplacement(ping, app.getVersion())) {
+      if (ping.ok && ping.mode === "daemon" && !coreNeedsReplacement(ping, app.getVersion())) {
         return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
       }
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
     throw new Error("Timed out waiting for Mia daemon LaunchAgent.");
   }
-  daemonControlServer.stop();
-  await daemonProcessLauncher.start();
+  miaCoreControlServer.stop();
+  await miaCoreProcessLauncher.start();
   for (let i = 0; i < 20; i += 1) {
-    const ping = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
-    if (ping.ok && ping.mode === "daemon" && !daemonNeedsReplacement(ping, app.getVersion())) {
+    const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
+    if (ping.ok && ping.mode === "daemon" && !coreNeedsReplacement(ping, app.getVersion())) {
       return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1298,7 +1317,7 @@ async function stopDaemonService() {
   if (process.platform === "darwin" && !IS_DAEMON_PROCESS) {
     await launchdService.stopDaemon();
   }
-  return daemonControlServer.stop();
+  return miaCoreControlServer.stop();
 }
 
 function appendCloudLog(line) {
@@ -1315,7 +1334,7 @@ function daemonLocalEventsConnected() {
 }
 
 function daemonUnavailableError() {
-  const error = new Error("后台守护进程未运行，Mia 暂不可用。");
+  const error = new Error("Mia Core 未运行，Mia 暂不可用。");
   error.status = 503;
   return error;
 }
@@ -1370,8 +1389,8 @@ function cloudEventsStatus() {
       ...fallback,
       connected: localConnected && !upstreamDown,
       lastError: !localConnected
-        ? "后台守护进程未运行，Mia 暂不可用。"
-        : (upstreamDown ? (upstream?.lastError || "后台守护进程未连接云端") : "")
+        ? "Mia Core 未运行，Mia 暂不可用。"
+        : (upstreamDown ? (upstream?.lastError || "Mia Core 未连接云端") : "")
     };
   }
   return cloudEventSocketRuntime?.status?.() || fallback;
@@ -1392,8 +1411,8 @@ function cloudStatus(includeToken = false) {
       user: settings.user,
       deviceId: localConnected ? String(bridge?.deviceId || "") : "",
       lastError: !localConnected
-        ? "后台守护进程未运行，Mia 暂不可用。"
-        : (bridgeKnown ? String(bridge.lastError || "") : "等待后台守护进程上报云端连接状态"),
+        ? "Mia Core 未运行，Mia 暂不可用。"
+        : (bridgeKnown ? String(bridge.lastError || "") : "等待 Mia Core 上报云端连接状态"),
       logs,
       events: cloudEventsStatus(),
       ...(includeToken ? { token: settings.token } : {})
@@ -1950,49 +1969,16 @@ function applyCodexModelSettings() {
 }
 
 function resolveMiaManagedModelSettings(settings = {}) {
-  const provider = String(settings?.provider || "").trim();
-  const authType = String(settings?.authType || settings?.auth_type || "").trim();
-  if (provider !== "mia" && authType !== "mia_account") return settings;
-  const cloud = cloudStatus(true);
-  if (!cloud?.enabled || !cloud.token || !cloud.url) {
-    throw new Error("请先登录 Mia Cloud，再使用 Mia 托管模型。");
-  }
-  const baseUrl = `${settingsStore.normalizeCloudUrl(cloud.url)}/api/me/model-proxy/v1`;
-  return {
-    ...settings,
-    provider: "mia",
-    providerLabel: settings.providerLabel || "Mia",
-    authType: "mia_account",
-    model: String(settings.model || "mia-default").trim() || "mia-default",
-    apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
-    apiKey: cloud.token,
-    baseUrl,
-    apiMode: settings.apiMode || "chat_completions"
-  };
+  return miaCoreModelRuntimeResolver.resolveMiaManagedModelSettings(settings);
 }
 
-function resolveManagedModelRuntime(config = {}) {
-  const provider = String(config.provider || config.modelProvider || config.model_provider || "").trim();
-  const authType = String(config.authType || config.auth_type || "").trim();
-  const profileId = String(config.modelProfileId || config.model_profile_id || "").trim();
-  const model = String(config.model || "").trim();
-  if (provider !== "mia" && authType !== "mia_account" && !profileId.startsWith("mia:")) return null;
-  const cloud = cloudStatus(true);
-  if (!cloud?.enabled || !cloud.token || !cloud.url) {
-    throw new Error("这个 Bot 使用 Mia 托管模型，请先登录 Mia Cloud。");
-  }
-  const cloudBaseUrl = settingsStore.normalizeCloudUrl(cloud.url);
-  return {
-    provider: "mia",
-    providerLabel: "Mia",
-    model: model || "mia-default",
-    authType: "mia_account",
-    apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
-    baseUrl: `${cloudBaseUrl}/api/me/model-proxy/v1`,
-    anthropicBaseUrl: `${cloudBaseUrl}/api/me/model-proxy`,
-    apiKey: cloud.token,
-    apiMode: "chat_completions"
-  };
+function resolveModelRuntime(config = {}, context = {}) {
+  return miaCoreModelRuntimeResolver.resolveModelRuntime(config, context);
+}
+
+function resolveManagedModelRuntime(config = {}, context = {}) {
+  const runtime = resolveModelRuntime(config, context);
+  return isMiaManagedRuntime(runtime) ? runtime : null;
 }
 
 async function restartEngineIfRunning() {
@@ -2017,7 +2003,7 @@ function createActiveStatelessChatEngineAdapters() {
 }
 
 async function sendChatStateless({ botKey, botSnapshot = null, runtimeConfig = null, systemPrompt, userPrompt, signal }) {
-  const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
+  const snapshotBot = miaCoreRuntime.cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
   let bot = snapshotBot;
   if (!bot) {
     const manifest = loadBotManifest();
@@ -2027,7 +2013,7 @@ async function sendChatStateless({ botKey, botSnapshot = null, runtimeConfig = n
   const chatEngine = resolveChatEngineAdapter(bot);
   return sendWithStatelessChatEngineAdapter(createActiveStatelessChatEngineAdapters(), {
     chatEngine,
-    bot: botWithRuntimeConfig(bot, normalizeTurnRuntimeConfig(runtimeConfig), { agentEngine: runtimeAgentEngine }),
+    bot: miaCoreRuntime.botWithRuntimeConfig(bot, normalizeTurnRuntimeConfig(runtimeConfig), { agentEngine: runtimeAgentEngine }),
     systemPrompt,
     userPrompt,
     signal
@@ -2060,7 +2046,7 @@ function createActiveHermesChatAdapter() {
     memoryBlock: miaMemoryService.memoryBlock,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
     writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
-    resolveManagedModelRuntime,
+    resolveModelRuntime,
     writeModelRuntimeConfig: (settings) => writeRuntimeConfig(engineState.port || readConfiguredPort(), {
       modelSettings: settings
     }),
@@ -2124,7 +2110,7 @@ function createActiveCodexChatAdapter() {
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
     readBotPersona,
-    resolveManagedModelRuntime,
+    resolveModelRuntime,
     runCodexAppServerTurn,
     setAgentSessionEntry: agentSessionStore.setEntry,
     setAgentSessionId: agentSessionStore.setId,
@@ -2154,7 +2140,7 @@ function createActiveOpenClawChatAdapter() {
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
     readBotPersona,
-    resolveManagedModelRuntime,
+    resolveModelRuntime,
     setAgentSessionId: agentSessionStore.setId,
     shellCommandPath: localAgentEngineService.shellCommandPath
   });
@@ -2179,7 +2165,7 @@ function createActiveChatEngineAdapters() {
 }
 
 async function createAppScheduledTask(input) {
-  const result = await daemonTasksClient.call("/api/tasks", {
+  const result = await miaCoreTasksClient.call("/api/tasks", {
     method: "POST",
     body: JSON.stringify(input)
   });
@@ -2196,44 +2182,6 @@ function createActiveBridgeChatAdapter(agentEngine = "codex") {
         chatEngine
       });
     }
-  };
-}
-
-function botWithRuntimeConfig(bot, runtimeConfig = {}, options = {}) {
-  if (!runtimeConfig || !Object.keys(runtimeConfig).length) return bot;
-  const agentEngine = normalizeAgentEngine(
-    options.agentEngine || bot?.agentEngine || bot?.agent_engine || "hermes",
-    "hermes"
-  );
-  const configForEngine = { ...runtimeConfig };
-  if (enginePermissionStoreTarget(agentEngine) !== "root-mode") delete configForEngine.permissionMode;
-  if (!Object.keys(configForEngine).length) return bot;
-  return {
-    ...bot,
-    engineConfig: {
-      ...(bot.engineConfig || bot.engine_config || {}),
-      ...configForEngine
-    }
-  };
-}
-
-function cloudBotSnapshotForTurn(snapshot = null, key = "", runtimeConfig = null) {
-  if (!snapshot || typeof snapshot !== "object") return null;
-  const botKey = String(snapshot.key || snapshot.id || key || "").trim();
-  if (!botKey) return null;
-  const requested = String(key || "").trim();
-  if (requested && botKey !== requested) return null;
-  const agentEngine = normalizeAgentEngine(
-    snapshot.agentEngine || snapshot.agent_engine || snapshot.engine || runtimeConfig?.agentEngine || runtimeConfig?.agent_engine,
-    "hermes"
-  );
-  return {
-    ...snapshot,
-    key: botKey,
-    id: String(snapshot.id || botKey),
-    name: String(snapshot.name || snapshot.displayName || snapshot.display_name || botKey),
-    agentEngine,
-    capabilities: snapshot.capabilities && typeof snapshot.capabilities === "object" ? snapshot.capabilities : {}
   };
 }
 
@@ -2272,7 +2220,7 @@ async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages
     : { emit: null };
   try {
     const key = botKey || botId;
-    const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, key, runtimeConfig);
+    const snapshotBot = miaCoreRuntime.cloudBotSnapshotForTurn(botSnapshot, key, runtimeConfig);
     let bot = snapshotBot;
     if (!bot) {
       const manifest = loadBotManifest();
@@ -2280,7 +2228,7 @@ async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages
     }
     const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
     const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
-    let botForTurn = botWithRuntimeConfig(bot, turnRuntimeConfig, { agentEngine: runtimeAgentEngine });
+    let botForTurn = miaCoreRuntime.botWithRuntimeConfig(bot, turnRuntimeConfig, { agentEngine: runtimeAgentEngine });
     if (runtimeAgentEngine) {
       botForTurn = {
         ...botForTurn,
@@ -2367,9 +2315,9 @@ async function stopChat(payload = {}) {
     ...(localStop.runId ? { runId: localStop.runId } : {}),
     ...(localStop.status ? { status: localStop.status } : {})
   };
-  if (!IS_DAEMON_PROCESS && daemonTasksClient?.call && settingsStore.daemonSettings().enabled) {
+  if (!IS_DAEMON_PROCESS && miaCoreTasksClient?.call && settingsStore.daemonSettings().enabled) {
     try {
-      const daemonStop = await daemonTasksClient?.call?.("/api/chat/stop", {
+      const daemonStop = await miaCoreTasksClient?.call?.("/api/chat/stop", {
         method: "POST",
         body: JSON.stringify(payload || {})
       });
@@ -2591,7 +2539,7 @@ remoteControlRouter = createRemoteControlRouter({
   runRemoteChatRequest
 });
 
-daemonControlServer = createDaemonControlServer({
+miaCoreControlServer = createMiaCoreControlServer({
   isDaemonProcess: IS_DAEMON_PROCESS,
   serviceLabel: MIA_DAEMON_SERVICE_LABEL,
   daemonToken,
@@ -2629,7 +2577,7 @@ daemonControlServer = createDaemonControlServer({
   timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs)
 });
 
-daemonTasksClient = createDaemonTasksClient({
+miaCoreTasksClient = createMiaCoreTasksClient({
   isDaemonProcess: IS_DAEMON_PROCESS,
   getDaemonSettings: () => settingsStore.daemonSettings(),
   getDaemonStatus,
@@ -2650,7 +2598,7 @@ agentPermissionProxy = createAgentPermissionProxy({
   isDaemonProcess: IS_DAEMON_PROCESS,
   coordinator: agentPermissionCoordinator,
   daemonClient: {
-    call: (...args) => daemonTasksClient.call(...args)
+    call: (...args) => miaCoreTasksClient.call(...args)
   }
 });
 
@@ -2811,7 +2759,7 @@ const localBotResponder = createLocalBotResponder({
     broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
     // The daemon has no windows: push run streams (typing, token deltas,
     // tool traces) to the window over the local channel (ADR P0).
-    if (IS_DAEMON_PROCESS) daemonControlServer?.publishLocalEvent?.(envelope);
+    if (IS_DAEMON_PROCESS) miaCoreControlServer?.publishLocalEvent?.(envelope);
   },
   log: (line) => appendCloudLog(line)
 });
@@ -2856,7 +2804,7 @@ cloudEventSocketRuntime = createCloudEventsClient({
   // the window renders from the forwarded feed.
   broadcastRendererEvent: (channel, envelope) => {
     broadcastRendererEvent(channel, envelope);
-    if (IS_DAEMON_PROCESS) daemonControlServer?.publishLocalEvent?.(envelope);
+    if (IS_DAEMON_PROCESS) miaCoreControlServer?.publishLocalEvent?.(envelope);
   },
   cloudEventChannel: IpcChannel.CloudEvent,
   appendCloudLog,
@@ -2870,7 +2818,7 @@ cloudEventSocketRuntime = createCloudEventsClient({
 // the envelopes to its renderers — bot run streams (typing / token deltas /
 // tool traces) and, with the daemon enabled, the entire cloud event feed.
 if (!IS_DAEMON_PROCESS) {
-  localEventsRuntime = createLocalEventsClient({
+  localEventsRuntime = createMiaCoreLocalEventsClient({
     baseUrl: () => {
       const daemonSettings = settingsStore.daemonSettings();
       return `http://${daemonSettings.host}:${daemonSettings.port}`;
@@ -3088,7 +3036,7 @@ ipcMain.handle(IpcChannel.PetGenerate, (_event, payload) => botPetService.startG
 ipcMain.handle(IpcChannel.PetPlace, (_event, key) => botPetService.place(key));
 ipcMain.handle(IpcChannel.PetRecall, (_event, key) => botPetService.recall(key));
 
-registerTasksIpc({ ipcMain, callDaemonTasks: (...args) => daemonTasksClient.call(...args) });
+registerTasksIpc({ ipcMain, callDaemonTasks: (...args) => miaCoreTasksClient.call(...args) });
 
 const autoUpdateService = createAutoUpdateService({
   // Lazy: constructs the electron-updater singleton only when the foreground
@@ -3126,10 +3074,10 @@ app.whenReady().then(async () => {
       // Dock APIs are macOS-only.
     }
     try {
-      await daemonControlServer.start();
+      await miaCoreControlServer.start();
     } catch (error) {
       const message = String(error?.message || error);
-      daemonControlServer.setLastError(message);
+      miaCoreControlServer.setLastError(message);
       appendDaemonLog(`Daemon start failed: ${message}`);
       throw error;
     }
@@ -3148,11 +3096,11 @@ app.whenReady().then(async () => {
       startCloudRuntimeSockets();
       // ADR P2: keep the window honest about upstream health — local channel
       // up + cloud socket down must not render as "connected".
-      daemonControlServer?.publishLocalEvent?.({
+      miaCoreControlServer?.publishLocalEvent?.({
         type: "daemon.cloud_events_status",
         payload: cloudEventsStatus()
       });
-      daemonControlServer?.publishLocalEvent?.({
+      miaCoreControlServer?.publishLocalEvent?.({
         type: "daemon.cloud_runtime_status",
         payload: {
           events: cloudEventsStatus(),
@@ -3165,7 +3113,7 @@ app.whenReady().then(async () => {
   const win = createWindow();
   startupTimer.mark("window:created");
   autoUpdateService.start();
-  daemonTasksClient.startEvents();
+  miaCoreTasksClient.startEvents();
   startCloudRuntimeSockets(); // foreground clients self-gate; daemon owns runtime sockets
   syncMiaCloudWorkspace().catch((error) => appendCloudLog(`Cloud workspace sync failed: ${error?.message || error}`));
   if (!win.miaSkipAutomaticBackgroundStartup && process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {

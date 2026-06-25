@@ -88,6 +88,7 @@ function appearanceControls(overrides = {}) {
     appearanceShowUserAvatar: settingsSwitch(true),
     appearanceShowAssistantAvatar: settingsSwitch(true),
     appearanceWorkspaceBackgroundColor: { value: "#f0f0f3" },
+    appearanceWorkspaceBackgroundImage: { value: "" },
     appearanceWorkspaceBackgroundPreview: { style: {} },
     appearanceSaveStatus: {
       textContent: "",
@@ -199,6 +200,21 @@ test("applyAppearance writes bottom board color and clears image variables", () 
   assert.equal(styleValues.get("--workspace-floor-image"), "none");
 });
 
+test("applyAppearance can use the temporary doodle bottom board preset", () => {
+  const { api, styleValues } = loadAppearanceModule();
+  const image = 'url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png")';
+
+  api.applyAppearance({
+    theme: "light",
+    workspaceBackgroundColor: "#f0f0f3",
+    workspaceBackgroundImage: image
+  });
+
+  assert.equal(api.normalizeWorkspaceBackgroundImage(image), image);
+  assert.equal(styleValues.get("--workspace-floor"), "#f0f0f3");
+  assert.equal(styleValues.get("--workspace-floor-image"), image);
+});
+
 test("applyAppearance keeps bottom board overrides light-mode only", () => {
   const { api, styleValues } = loadAppearanceModule();
 
@@ -267,12 +283,15 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
       appearanceWorkspaceBackgroundColor: {
         value: "#f0f0f3",
         dataset: { custom: "false" }
+      },
+      appearanceWorkspaceBackgroundImage: {
+        value: 'url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png")'
       }
     }
   });
 
   assert.equal(api.currentAppearanceDraft().workspaceBackgroundColor, "#f0f0f3");
-  assert.equal(api.currentAppearanceDraft().workspaceBackgroundImage, "");
+  assert.match(api.currentAppearanceDraft().workspaceBackgroundImage, /%E6%B6%82%E9%B8%A6\.png/);
   assert.equal(api.currentAppearanceDraft().glassOpacity, 91);
   assert.equal(api.currentAppearanceDraft().showDesktopNotifications, false);
   assert.equal(Object.hasOwn(api.currentAppearanceDraft(), "showHoverBackground"), false);
@@ -342,15 +361,16 @@ test("stale bottom board save response cannot roll back a newer color draft", as
 
 test("cloud appearance empty bottom board values do not overwrite local bottom board choices", () => {
   const { api } = loadAppearanceModule();
+  const image = 'url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png")';
 
   const merged = api.mergeCloudAppearance(
-    { theme: "light", workspaceBackgroundColor: "#2ca1ff", workspaceBackgroundImage: "data:image/png;base64,abc123" },
+    { theme: "light", workspaceBackgroundColor: "#2ca1ff", workspaceBackgroundImage: image },
     { theme: "dark", workspaceBackgroundColor: "", workspaceBackgroundImage: "" }
   );
 
   assert.equal(merged.theme, "dark");
   assert.equal(merged.workspaceBackgroundColor, "#2ca1ff");
-  assert.equal(merged.workspaceBackgroundImage, "");
+  assert.equal(merged.workspaceBackgroundImage, image);
 });
 
 test("cloud appearance stale default bottom board does not overwrite local custom color", () => {
@@ -471,25 +491,30 @@ test("desktop appearance settings expose bottom board color controls", () => {
   assert.match(htmlSource, /title="#2CA1FF"/);
   assert.match(htmlSource, /data-workspace-background-color="#0f766e"/);
   assert.match(htmlSource, /data-workspace-background-color="#1f2937"/);
+  assert.match(htmlSource, /data-workspace-background-image-preset="doodle"/);
+  assert.match(htmlSource, /data-workspace-background-image="url\(&quot;file:\/\/\/Users\/jung\/GitHub\/UI%E8%B5%84%E6%BA%90\/%E8%83%8C%E6%99%AF%E8%89%B2\/%E6%B6%82%E9%B8%A6\.png&quot;\)"/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundColor"[^>]*type="color"/);
+  assert.match(htmlSource, /id="appearanceWorkspaceBackgroundImage"[^>]*type="hidden"/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundReset"/);
   assert.doesNotMatch(htmlSource, /也可上传图片/);
-  assert.doesNotMatch(htmlSource, /appearanceWorkspaceBackgroundImage/);
   assert.doesNotMatch(htmlSource, /未选择图片/);
   assert.match(appSource, /appearanceWorkspaceBackgroundColor:\s*document\.getElementById\("appearanceWorkspaceBackgroundColor"\)/);
+  assert.match(appSource, /appearanceWorkspaceBackgroundImage:\s*document\.getElementById\("appearanceWorkspaceBackgroundImage"\)/);
   assert.match(appSource, /appearanceWorkspaceBackgroundPresets:\s*document\.getElementById\("appearanceWorkspaceBackgroundPresets"\)/);
-  assert.doesNotMatch(appSource, /appearanceWorkspaceBackgroundImage/);
   assert.doesNotMatch(appSource, /readWorkspaceBackgroundImage/);
   assert.match(appSource, /appearanceWorkspaceBackgroundColor\?\.addEventListener\("change"/);
-  assert.match(appSource, /closest\("\[data-workspace-background-color\]"\)/);
+  assert.match(appSource, /closest\("\[data-workspace-background-color\],\s*\[data-workspace-background-image-preset\]"\)/);
+  assert.match(appSource, /button\.dataset\.workspaceBackgroundImage/);
   assert.match(appSource, /mergeCloudAppearance\?\.\(\s*state\.runtime\?\.appearance/);
   assert.match(appSource, /mergeCloudAppearance\?\.\(\s*state\.runtime\.appearance,\s*runtime\.appearance/);
-  assert.match(appSource, /function saveWorkspaceBackgroundColor\(\)\s*\{\s*window\.miaSettingsAppearance\.scheduleAppearanceSave\(0\);/);
+  assert.match(appSource, /function clearWorkspaceBackgroundImageDraft\(\)/);
+  assert.match(appSource, /function saveWorkspaceBackgroundColor\(\)\s*\{[\s\S]*?clearWorkspaceBackgroundImageDraft\(\);[\s\S]*?window\.miaSettingsAppearance\.scheduleAppearanceSave\(0\);/);
   assert.doesNotMatch(appSource, /appearanceWorkspaceBackgroundColor[^;\n]+dataset\.custom/);
   assert.match(cssSource, /\.workspace-background-presets \.avatar-color-chip\.is-selected\s*\{[\s\S]*border-color:\s*rgb\(var\(--accent-rgb\) \/ 0\.38\);[\s\S]*box-shadow:\s*0 0 0 2px rgb\(var\(--accent-rgb\) \/ 0\.10\);/);
   assert.match(cssSource, /\.workspace-background-controls \.accent-swatch\s*\{[\s\S]*border-radius:\s*8px;/);
   assert.match(cssSource, /\.workspace-background-controls \.accent-swatch span\s*\{[\s\S]*border-radius:\s*6px;/);
   assert.match(cssSource, /\.workspace-background-presets \.avatar-color-chip\s*\{[\s\S]*border-radius:\s*6px;/);
+  assert.match(cssSource, /\.workspace-background-presets \.workspace-background-image-chip\s*\{[\s\S]*background-size:\s*cover;/);
 });
 
 test("desktop appearance settings expose the shared glass opacity control", () => {

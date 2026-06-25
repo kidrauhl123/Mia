@@ -1,5 +1,25 @@
 "use strict";
 
+function firstString(source = {}, keys = []) {
+  for (const key of keys) {
+    const value = String(source?.[key] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function isCompactMiaManagedSettings(settings = {}) {
+  const provider = firstString(settings, ["provider"]);
+  const authType = firstString(settings, ["authType", "auth_type"]);
+  const modelProfileId = firstString(settings, ["modelProfileId", "model_profile_id"]);
+  const model = firstString(settings, ["model"]);
+  return provider === "mia"
+    || authType === "mia_account"
+    || modelProfileId.startsWith("mia:")
+    || model === "mia-auto"
+    || model === "mia-default";
+}
+
 function createModelSettingsService({
   modelSettings,
   providerConnection,
@@ -9,6 +29,18 @@ function createModelSettingsService({
   getRuntimeStatus
 }) {
   async function saveModelSelection(settings = {}) {
+    if (isCompactMiaManagedSettings(settings)) {
+      const model = String(settings.model || "").trim();
+      writeModelSettings({
+        provider: "mia",
+        providerConnectionId: String(settings.providerConnectionId || settings.provider || "mia").trim() || "mia",
+        providerLabel: String(settings.providerLabel || "Mia").trim() || "Mia",
+        authType: String(settings.authType || "mia_account").trim() || "mia_account",
+        model,
+        modelProfileId: String(settings.modelProfileId || (model ? `mia:${model}` : "mia:mia-default")).trim() || (model ? `mia:${model}` : "mia:mia-default")
+      });
+      return getRuntimeStatus();
+    }
     const current = modelSettings();
     const nextProvider = String(settings.provider || "").trim();
     const hasApiKey = Object.prototype.hasOwnProperty.call(settings || {}, "apiKey");

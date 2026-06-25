@@ -1,5 +1,7 @@
 "use strict";
 
+const { normalizeTurnRuntimeConfig } = require("../runtime-config-normalizer.js");
+
 const DEFAULT_RECONNECT_DELAY_MS = 3000;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 20000;
 
@@ -36,10 +38,15 @@ function runtimeConfigFromMessage(message = {}) {
     message.agentEngine || message.agent_engine || message.engine || input.agentEngine || input.agent_engine,
     "codex"
   );
-  const config = { ...input, agentEngine };
+  const config = normalizeTurnRuntimeConfig({ ...input, agentEngine });
   for (const key of ["model", "effortLevel", "permissionMode"]) {
     if (message[key] != null) config[key] = message[key];
   }
+  if (message.model != null && message.modelProfileId == null && message.model_profile_id == null) {
+    delete config.modelProfileId;
+  }
+  if (message.modelProfileId != null) config.modelProfileId = message.modelProfileId;
+  if (message.model_profile_id != null) config.modelProfileId = message.model_profile_id;
   if (message.effort_level != null) config.effortLevel = message.effort_level;
   if (message.permission_mode != null) config.permissionMode = message.permission_mode;
   return config;
@@ -54,6 +61,16 @@ function attachmentListFromAssistant(assistant = {}, randomUUID = () => "") {
     dataUrl: attachment.dataUrl || attachment.thumbnailDataUrl || "",
     url: attachment.url || ""
   })).filter((attachment) => attachment.dataUrl || attachment.url);
+}
+
+function botEngineConfigFromRuntime(runtimeConfig = {}, agentEngine = "codex") {
+  return {
+    effortLevel: runtimeConfig.effortLevel || "medium",
+    ...(agentEngine === "hermes" ? { permissionMode: runtimeConfig.permissionMode || "ask" } : {}),
+    ...(runtimeConfig.providerConnectionId ? { providerConnectionId: runtimeConfig.providerConnectionId } : {}),
+    ...(runtimeConfig.modelProfileId ? { modelProfileId: runtimeConfig.modelProfileId } : {}),
+    ...(runtimeConfig.model ? { model: runtimeConfig.model } : {})
+  };
 }
 
 function createCloudBridgeClient({
@@ -151,11 +168,7 @@ function createCloudBridgeClient({
           agentEngine,
           bio: "",
           capabilities,
-          engineConfig: {
-            effortLevel: runtimeConfig.effortLevel || "medium",
-            ...(agentEngine === "hermes" ? { permissionMode: runtimeConfig.permissionMode || "ask" } : {}),
-            ...(runtimeConfig.model ? { model: runtimeConfig.model } : {})
-          }
+          engineConfig: botEngineConfigFromRuntime(runtimeConfig, agentEngine)
         },
         sessionId: `cloud:${String(message.conversationId || "default")}`,
         messages: [{
