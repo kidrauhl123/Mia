@@ -699,11 +699,13 @@ test("foreground window stays hidden until the renderer is ready to avoid startu
   assert.match(windowIpcSource, /IpcChannel\.UiFirstPaint[\s\S]*?miaShowWhenReady\(\)/, "renderer first paint IPC should reveal the real window immediately");
 });
 
-test("daemon HTTP control server lives behind a main daemon Module", () => {
+test("Core control server uses the daemon compatibility Module behind a Mia Core wrapper", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const controlSource = fs.readFileSync(path.join(root, "src/main/daemon/control-server.js"), "utf8");
+  const coreProcessSource = fs.readFileSync(path.join(root, "src/main/mia-core/local-process-control.js"), "utf8");
   assert.match(controlSource, /function createDaemonControlServer/, "daemon control server Module should exist");
-  assert.match(mainSource, /createDaemonControlServer/, "main should instantiate the daemon control server");
+  assert.match(coreProcessSource, /createMiaCoreControlServer:\s*createDaemonControlServer/, "Mia Core process wrapper should delegate to the daemon control server");
+  assert.match(mainSource, /createMiaCoreControlServer/, "main should instantiate the Mia Core control server wrapper");
   assert.doesNotMatch(mainSource, /let controlServer\b/, "main must not own the daemon HTTP server instance");
   assert.doesNotMatch(mainSource, /let controlServerState\b/, "main must not own daemon control mutable state");
   assert.doesNotMatch(mainSource, /function requestAuthToken/, "main must not own daemon auth parsing");
@@ -714,12 +716,14 @@ test("daemon HTTP control server lives behind a main daemon Module", () => {
   assert.doesNotMatch(mainSource, /function stopControlServer/, "main must not own daemon HTTP lifecycle");
 });
 
-test("daemon task HTTP client and task event stream live behind a main daemon Module", () => {
+test("Core task HTTP client and task event stream use the daemon compatibility Module behind a Mia Core wrapper", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const tasksClientSource = fs.readFileSync(path.join(root, "src/main/daemon/tasks-client.js"), "utf8");
+  const coreProcessSource = fs.readFileSync(path.join(root, "src/main/mia-core/local-process-control.js"), "utf8");
 
   assert.match(tasksClientSource, /function createDaemonTasksClient/, "daemon tasks client Module should exist");
-  assert.match(mainSource, /createDaemonTasksClient/, "main should instantiate the daemon tasks client");
+  assert.match(coreProcessSource, /createMiaCoreTasksClient:\s*createDaemonTasksClient/, "Mia Core process wrapper should delegate to the daemon tasks client");
+  assert.match(mainSource, /createMiaCoreTasksClient/, "main should instantiate the Mia Core tasks client wrapper");
   assert.doesNotMatch(mainSource, /async function callDaemonTasks/, "main must not own daemon task HTTP calls");
   assert.doesNotMatch(mainSource, /function subscribeDaemonTaskEvents/, "main must not own daemon task SSE subscription");
   assert.doesNotMatch(mainSource, /\/api\/tasks\/events/, "main must not own the daemon task event stream route");
