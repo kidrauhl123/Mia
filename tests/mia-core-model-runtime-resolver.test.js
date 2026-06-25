@@ -22,6 +22,17 @@ function createResolver(overrides = {}) {
           apiMode: "chat_completions"
         };
       }
+      if (id === "deepseek-team") {
+        return {
+          provider: "deepseek",
+          providerLabel: "DeepSeek Team",
+          authType: "api_key",
+          apiKeyEnv: "DEEPSEEK_TEAM_API_KEY",
+          apiKey: "deepseek-team-token",
+          baseUrl: "https://team.deepseek.example/v1",
+          apiMode: "chat_completions"
+        };
+      }
       return null;
     },
     modelSettings: () => ({ provider: "deepseek", model: "deepseek-chat" }),
@@ -88,4 +99,43 @@ test("requires Mia Cloud login for Mia managed profiles", () => {
     () => resolver.resolveModelRuntime({ modelProfileId: "mia:mia-auto", model: "mia-auto" }),
     /请先登录 Mia Cloud/
   );
+});
+
+test("preserves stable providerConnectionId when provider kind differs", () => {
+  const resolver = createResolver();
+
+  const runtime = resolver.resolveModelRuntime({
+    providerConnectionId: "deepseek-team",
+    model: "deepseek-chat"
+  }, { engine: "hermes" });
+
+  assert.equal(runtime.provider, "deepseek");
+  assert.equal(runtime.providerConnectionId, "deepseek-team");
+  assert.equal(runtime.modelProfileId, "deepseek-team:deepseek-chat");
+});
+
+test("resolveMiaManagedModelSettings returns compact managed references only", () => {
+  const resolver = createResolver();
+
+  const settings = resolver.resolveMiaManagedModelSettings({
+    provider: "mia",
+    model: "mia-auto",
+    apiKeyEnv: "SHOULD_BE_STRIPPED",
+    apiKey: "should-be-stripped",
+    baseUrl: "https://should-not-persist.example/v1",
+    apiMode: "responses"
+  });
+
+  assert.deepEqual(settings, {
+    provider: "mia",
+    providerConnectionId: "mia",
+    providerLabel: "Mia",
+    authType: "mia_account",
+    model: "mia-auto",
+    modelProfileId: "mia:mia-auto"
+  });
+  assert.equal("apiKeyEnv" in settings, false);
+  assert.equal("apiKey" in settings, false);
+  assert.equal("baseUrl" in settings, false);
+  assert.equal("apiMode" in settings, false);
 });

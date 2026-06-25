@@ -79,7 +79,7 @@ function createMiaCoreModelRuntimeResolver(deps = {}) {
     const model = firstString(config, ["model"]) || firstString(modelSettings(), ["model"]);
     return {
       provider: connection.provider || providerId,
-      providerConnectionId: connection.provider || providerId,
+      providerConnectionId: providerId,
       providerLabel: connection.providerLabel || connection.provider_label || connection.provider || providerId,
       authType: connection.authType || connection.auth_type || "api_key",
       model,
@@ -103,16 +103,12 @@ function createMiaCoreModelRuntimeResolver(deps = {}) {
     if (!isMiaManagedReference(settings)) return settings;
     const runtime = resolveMiaCloud(settings);
     return {
-      ...settings,
       provider: runtime.provider,
+      providerConnectionId: runtime.providerConnectionId,
       providerLabel: runtime.providerLabel,
       authType: runtime.authType,
       model: runtime.model,
-      modelProfileId: runtime.modelProfileId,
-      apiKeyEnv: runtime.apiKeyEnv,
-      apiKey: runtime.apiKey,
-      baseUrl: runtime.baseUrl,
-      apiMode: runtime.apiMode
+      modelProfileId: runtime.modelProfileId
     };
   }
 
