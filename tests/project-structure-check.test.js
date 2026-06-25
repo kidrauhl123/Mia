@@ -231,13 +231,23 @@ test("cloud bridge remote run is account-authenticated and does not add a separa
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const runtimeServiceSource = fs.readFileSync(path.join(root, "src/main/mia-core/runtime-service.js"), "utf8");
   const bridgeSource = fs.readFileSync(path.join(root, "src/main/cloud/cloud-bridge-client.js"), "utf8");
-  const body = bridgeSource.match(/async function runCloudBridgeRequest\(ws, message = \{\}\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const runStart = bridgeSource.indexOf("async function runCloudBridgeRequest");
+  const runEnd = bridgeSource.indexOf("\n  function handleMessage", runStart);
+  const body = runStart >= 0 && runEnd > runStart ? bridgeSource.slice(runStart, runEnd) : "";
+  const engineConfigHelper = bridgeSource.match(
+    /function botEngineConfigFromRuntime\(runtimeConfig = \{\}, agentEngine = "codex"\) \{[\s\S]*?\n\}/
+  )?.[0] || "";
   assert.ok(body, "runCloudBridgeRequest should exist");
+  assert.ok(engineConfigHelper, "cloud bridge should centralize bot engine config shaping");
   assert.doesNotMatch(body, /confirmCloudBridgeRun\(/);
   assert.doesNotMatch(body, /等待本机权限确认/);
   assert.match(body, /runtimeConfigFromMessage\(message\)/);
   assert.match(body, /createActiveBridgeChatAdapter\(agentEngine\)/);
-  assert.match(body, /agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/);
+  assert.match(body, /engineConfig: botEngineConfigFromRuntime\(runtimeConfig, agentEngine\)/);
+  assert.match(engineConfigHelper, /agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/);
+  assert.match(engineConfigHelper, /providerConnectionId: runtimeConfig\.providerConnectionId/);
+  assert.match(engineConfigHelper, /modelProfileId: runtimeConfig\.modelProfileId/);
+  assert.match(engineConfigHelper, /model: runtimeConfig\.model/);
   assert.doesNotMatch(body, /\n\s*permissionMode:\s*runtimeConfig\.permissionMode\s*(?:,|\n)/);
   assert.match(runtimeServiceSource, /enginePermissionStoreTarget\(agentEngine\) !== "root-mode"[\s\S]*delete configForEngine\.permissionMode/);
   assert.match(mainSource, /createCloudBridgeClient/, "main must instantiate the cloud bridge Module");
