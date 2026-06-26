@@ -1553,6 +1553,17 @@ test("sendInActiveConversation shows outgoing cloud messages before the network 
   assert.equal(entry.maxSeq, 1);
 });
 
+test("renderSendStatus hides sending state and only shows failed sends", () => {
+  const s = loadSocial();
+
+  assert.equal(s._internalCtx.renderSendStatus({ status: "sending" }), "");
+  assert.equal(s._internalCtx.renderSendStatus({ status: "sent" }), "");
+  assert.match(
+    s._internalCtx.renderSendStatus({ status: "error", error: "network down" }),
+    /message-send-status is-error[\s\S]*发送失败/
+  );
+});
+
 test("sendInActiveConversation keeps later pending messages after an earlier server echo", async () => {
   const s = loadSocial();
   const posts = [];
@@ -1754,6 +1765,113 @@ test("sendInActiveConversation reconciles the websocket echo before the POST rep
 
   assert.deepEqual(entry.messages.map((m) => m.id), ["m_server_echo"]);
   assert.equal(posted[0].body.turnId, localTurnId);
+});
+
+test("self websocket echo confirms the active pending bubble without repainting it", () => {
+  let cleared = false;
+  const bubble = {
+    dataset: { messageId: "local_1" },
+    setAttribute(name, value) {
+      if (name === "data-message-id") this.dataset.messageId = value;
+    },
+    getAttribute(name) {
+      if (name === "data-message-id") return this.dataset.messageId || "";
+      return "";
+    },
+    closest: () => target
+  };
+  const target = {
+    className: "message user",
+    dataset: { messageId: "local_1" },
+    style: {},
+    classList: { add() {}, remove() {} },
+    setAttribute(name, value) {
+      if (name === "data-message-id") this.dataset.messageId = value;
+    },
+    getAttribute(name) {
+      if (name === "data-message-id") return this.dataset.messageId || "";
+      return "";
+    },
+    querySelectorAll(selector) {
+      return selector === "[data-message-id]" ? [bubble] : [];
+    },
+    addEventListener() {},
+    removeEventListener() {}
+  };
+  const chat = {
+    children: [target],
+    dataset: {},
+    scrollTop: 860,
+    scrollHeight: 1000,
+    clientHeight: 140,
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector(selector) {
+      if (selector.includes("local_1") && bubble.dataset.messageId === "local_1") return bubble;
+      if (selector.includes("m_server_echo") && bubble.dataset.messageId === "m_server_echo") return bubble;
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === "article.message") return this.children;
+      return [];
+    },
+    set innerHTML(value) {
+      cleared = true;
+      this._html = value;
+      this.children = [];
+    },
+    get innerHTML() {
+      return this._html || "";
+    }
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  let renders = 0;
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => {
+      renders += 1;
+      s.renderConversationChat(chat);
+    },
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "g_echo";
+  s.moduleState.conversations = [{ id: "g_echo", type: "group", name: "Echo" }];
+  s.moduleState.messageCache.set("g_echo", {
+    messages: [{
+      id: "local_1",
+      seq: 0.000001,
+      turn_id: "turn_1",
+      sender_kind: "user",
+      sender_ref: "u_me",
+      body_md: "hello once",
+      status: "sending",
+      _localPending: true
+    }],
+    maxSeq: 0
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "g_echo",
+      message: {
+        id: "m_server_echo",
+        seq: 1,
+        turn_id: "turn_1",
+        sender_kind: "user",
+        sender_ref: "u_me",
+        body_md: "hello once"
+      }
+    }
+  });
+
+  const entry = s.moduleState.messageCache.get("g_echo");
+  assert.equal(renders, 1);
+  assert.equal(cleared, false, "self echo should not rebuild the just-sent bubble");
+  assert.deepEqual(entry.messages.map((m) => m.id), ["m_server_echo"]);
+  assert.equal(target.dataset.messageId, "m_server_echo");
+  assert.equal(bubble.dataset.messageId, "m_server_echo");
 });
 
 test("sendInActiveConversation reconciles a self websocket echo even when turn_id is absent", async () => {
@@ -1979,6 +2097,73 @@ test("appendMessageToActiveChat leaves history readers in place without tail ani
   assert.equal(chat.scrollTop, 420);
 });
 
+test("appendMessageToActiveChat FLIPs existing rows when bottom follow changes scroll", () => {
+  const animations = [];
+  let chat;
+  const existing = {
+    className: "message assistant",
+    dataset: { messageId: "m_old" },
+    style: {},
+    classList: { add() {}, remove() {} },
+    getAttribute(name) {
+      if (name === "data-message-id") return this.dataset.messageId || "";
+      return "";
+    },
+    getBoundingClientRect() {
+      return { top: 1050 - chat.scrollTop, height: 42 };
+    },
+    animate(keyframes, options) {
+      animations.push({ keyframes, options });
+      return {};
+    },
+    addEventListener() {},
+    removeEventListener() {}
+  };
+  chat = {
+    children: [existing],
+    dataset: {},
+    scrollTop: 850,
+    scrollHeight: 1000,
+    clientHeight: 140,
+    appendChild(child) {
+      this.children.push(child);
+      this.scrollHeight = 1090;
+      return child;
+    },
+    querySelector() { return null; },
+    querySelectorAll(selector) {
+      assert.equal(selector, "article.message");
+      return [existing];
+    }
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "dm:u_me:u_friend";
+  s.moduleState.conversations = [{ id: "dm:u_me:u_friend", type: "dm", name: "Friend" }];
+
+  const msg = {
+    id: "m_tail_shift",
+    seq: 5,
+    conversation_id: "dm:u_me:u_friend",
+    sender_kind: "user",
+    sender_ref: "u_friend",
+    body_md: "new tail shift",
+    created_at: "2026-06-22T10:02:00.000Z"
+  };
+  s.moduleState.messageCache.set("dm:u_me:u_friend", { messages: [msg], maxSeq: 5 });
+
+  s._internalCtx.appendMessageToActiveChat(msg, { stick: false });
+
+  assert.equal(animations.length, 1);
+  assert.equal(JSON.stringify(animations[0].keyframes), JSON.stringify([
+    { transform: "translateY(240px)" },
+    { transform: "translateY(0)" }
+  ]));
+  assert.equal(animations[0].options.duration, 190);
+});
+
 test("renderConversationChat layout shifts animate existing message rows after rerender", () => {
   const s = loadSocial();
   const animations = [];
@@ -2030,6 +2215,77 @@ test("renderConversationChat layout shifts animate existing message rows after r
     })),
     "cloud-agent-stream-car_1"
   );
+});
+
+test("animateRemoveMessageFromActiveChat FLIPs remaining rows into the deleted gap", async () => {
+  const animations = [];
+  let removed = false;
+  const makeArticle = (attrs = {}) => ({
+    className: attrs.className || "message assistant",
+    dataset: { messageId: attrs.messageId || "" },
+    style: {},
+    classList: { add() {}, remove() {} },
+    getAttribute(name) {
+      if (name === "data-message-id") return this.dataset.messageId || "";
+      return "";
+    },
+    getBoundingClientRect: () => ({
+      top: typeof attrs.top === "function" ? attrs.top() : attrs.top,
+      left: 24,
+      width: 320,
+      height: attrs.height || 48
+    }),
+    cloneNode() {
+      return {
+        className: this.className,
+        dataset: { ...this.dataset },
+        style: {},
+        classList: { add() {}, remove() {} },
+        setAttribute() {},
+        addEventListener() {},
+        removeEventListener() {},
+        remove() {}
+      };
+    },
+    remove() {
+      removed = true;
+    },
+    animate(keyframes, options) {
+      animations.push({ keyframes, options });
+      return {};
+    },
+    addEventListener() {},
+    removeEventListener() {}
+  });
+  const target = makeArticle({ messageId: "m_remove", top: 120, height: 52 });
+  const below = makeArticle({ messageId: "m_below", top: () => (removed ? 126 : 182), height: 44 });
+  const bubble = { closest: () => target };
+  const chat = {
+    dataset: {},
+    scrollTop: 200,
+    scrollHeight: 1000,
+    clientHeight: 400,
+    querySelector(selector) {
+      if (selector.includes("m_remove")) return bubble;
+      return null;
+    },
+    querySelectorAll(selector) {
+      assert.equal(selector, "article.message");
+      return removed ? [below] : [target, below];
+    }
+  };
+  const s = loadSocial({ elementsById: { chat } });
+
+  const animated = await s._internalCtx.animateRemoveMessageFromActiveChat("m_remove");
+
+  assert.equal(animated, true);
+  assert.equal(removed, true);
+  assert.equal(animations.length, 1);
+  assert.equal(JSON.stringify(animations[0].keyframes), JSON.stringify([
+    { transform: "translateY(56px)" },
+    { transform: "translateY(0)" }
+  ]));
+  assert.equal(animations[0].options.duration, 190);
 });
 
 test("renderConversationChat renders image attachments inside the bubble before message text", () => {
@@ -2659,6 +2915,110 @@ test("handleCloudEvent conversation.message_deleted removes the cached message",
   assert.equal(renders, 1);
 });
 
+test("deleteConversationMessage keeps the active DOM transaction fresh through the follow-up render", async () => {
+  const animations = [];
+  let removed = false;
+  let cleared = false;
+  let chat;
+  const makeArticle = (attrs = {}) => ({
+    className: "message assistant",
+    dataset: { messageId: attrs.messageId || "" },
+    style: {},
+    classList: { add() {}, remove() {} },
+    getAttribute(name) {
+      if (name === "data-message-id") return this.dataset.messageId || "";
+      return "";
+    },
+    getBoundingClientRect: () => ({
+      top: typeof attrs.top === "function" ? attrs.top() : attrs.top,
+      left: 24,
+      width: 320,
+      height: attrs.height || 48
+    }),
+    cloneNode() {
+      return {
+        className: this.className,
+        dataset: { ...this.dataset },
+        style: {},
+        classList: { add() {}, remove() {} },
+        setAttribute() {},
+        addEventListener() {},
+        removeEventListener() {},
+        remove() {}
+      };
+    },
+    remove() {
+      removed = true;
+      chat.children = chat.children.filter((child) => child !== this);
+    },
+    animate(keyframes, options) {
+      animations.push({ keyframes, options });
+      return {};
+    },
+    addEventListener() {},
+    removeEventListener() {}
+  });
+  const target = makeArticle({ messageId: "m2", top: 120, height: 52 });
+  const below = makeArticle({ messageId: "m3", top: () => (removed ? 126 : 182), height: 44 });
+  const bubble = { closest: () => target };
+  chat = {
+    children: [target, below],
+    dataset: {},
+    scrollTop: 200,
+    scrollHeight: 1000,
+    clientHeight: 400,
+    querySelector(selector) {
+      if (!removed && selector.includes("m2")) return bubble;
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector !== "article.message") return [];
+      return this.children;
+    },
+    set innerHTML(value) {
+      cleared = true;
+      this._html = value;
+      this.children = [];
+    },
+    get innerHTML() {
+      return this._html || "";
+    }
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  let renders = 0;
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => {
+      renders += 1;
+      s.renderConversationChat(chat);
+    },
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.__mockWindow.mia.social = {
+    deleteConversationMessage: async () => ({ ok: true })
+  };
+  s.moduleState.activeConversationId = "dm:u_a:u_b";
+  s.moduleState.conversations = [{ id: "dm:u_a:u_b", type: "dm", name: "Friend" }];
+  s.moduleState.messageCache.set("dm:u_a:u_b", {
+    maxSeq: 3,
+    messages: [
+      { id: "m1", seq: 1, body_md: "keep 1" },
+      { id: "m2", seq: 2, body_md: "delete me" },
+      { id: "m3", seq: 3, body_md: "keep 2" }
+    ]
+  });
+
+  await s.deleteConversationMessage("dm:u_a:u_b", "m2");
+
+  assert.equal(renders, 1);
+  assert.equal(removed, true);
+  assert.equal(cleared, false, "follow-up render should not rebuild over the in-flight removal animation");
+  assert.deepEqual(chat.children.map((child) => child.dataset.messageId), ["m3"]);
+  assert.deepEqual(s.moduleState.messageCache.get("dm:u_a:u_b").messages.map((message) => message.id), ["m1", "m3"]);
+  assert.equal(animations.length, 1);
+});
+
 test("handleCloudEvent cloud_agent_run events track transient conversation streaming state", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
@@ -3082,6 +3442,80 @@ test("renderConversationChat renders active cloud run status at the bottom of th
   assert.match(chat.children[0].innerHTML, /--agent-run-animation-age:\d+ms/);
   assert.doesNotMatch(chat.children[0].innerHTML, /正在执行 shell/);
   assert.match(chat.children[0].innerHTML, /0s/);
+});
+
+test("cloud run streaming updates the active row in place without rebuilding chat", () => {
+  const frames = [];
+  const chat = {
+    dataset: {},
+    children: [],
+    clearCount: 0,
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector(selector) {
+      if (selector === ".message.streaming") {
+        return this.children.find((child) => String(child.className || "").includes("streaming")) || null;
+      }
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === "article.message") return this.children;
+      return [];
+    },
+    set innerHTML(value) {
+      this.clearCount += 1;
+      this.children = [];
+      this._html = String(value || "");
+    },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 1000,
+    clientHeight: 400,
+  };
+  const s = loadSocial({
+    elementsById: { chat },
+    requestAnimationFrame: (fn) => {
+      frames.push(fn);
+      return frames.length;
+    }
+  });
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  const run = s._internalCtx.cloudRunFor("botc_u_a_mia", "car_1");
+  run.botId = "mia";
+  run.status = "running";
+  run.text = "hello";
+  run.displayText = "hello";
+  run.createdAt = "2026-06-22T10:00:00.000Z";
+
+  s.renderConversationChat(chat);
+  const initialClearCount = chat.clearCount;
+  const initialArticle = chat.children[0];
+  assert.match(initialArticle.innerHTML, /hello/);
+  frames.length = 0;
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "text_delta", text: " world" } },
+  });
+  assert.equal(frames.length, 1);
+  frames.shift()(16);
+
+  assert.equal(chat.clearCount, initialClearCount);
+  assert.strictEqual(chat.children[0], initialArticle);
+  assert.match(chat.children[0].innerHTML, /hello wo/);
+  assert.doesNotMatch(chat.children[0].innerHTML, /hello world/);
+
+  assert.equal(frames.length, 1);
+  frames.shift()(32);
+
+  assert.equal(chat.clearCount, initialClearCount);
+  assert.strictEqual(chat.children[0], initialArticle);
+  assert.match(chat.children[0].innerHTML, /hello world/);
 });
 
 test("phase orb opacity follows the DotmCircular6 resolver thresholds", () => {

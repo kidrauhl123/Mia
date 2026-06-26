@@ -149,11 +149,30 @@ test("new tail messages reveal like Telegram without ignoring reduced motion", (
   const webCss = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");
 
   for (const css of [chatCss, webCss]) {
+    const keyframesStart = css.indexOf("@keyframes messageTailEnter");
+    assert.notEqual(keyframesStart, -1, "missing messageTailEnter keyframes");
+    const keyframesEnd = css.indexOf(".message .avatar", keyframesStart);
+    assert.ok(keyframesEnd > keyframesStart, "messageTailEnter keyframes should end before message avatar styles");
+    const keyframesBody = css.slice(keyframesStart, keyframesEnd);
+
     assert.match(css, /\.message\.message-tail-enter\s*\{[\s\S]*?animation:\s*messageTailEnter\s*220ms/);
-    assert.match(css, /@keyframes messageTailEnter\s*\{[\s\S]*?max-height:\s*0;[\s\S]*?translateY\(16px\)/);
-    assert.match(css, /@keyframes messageTailEnter\s*\{[\s\S]*?max-height:\s*var\(--message-tail-enter-height/);
+    assert.match(css, /\.message\.message-tail-enter\s*\{[\s\S]*?will-change:\s*transform,\s*opacity;/);
+    assert.match(keyframesBody, /opacity:\s*0;[\s\S]*?translateY\(12px\) scale\(0\.985\)/);
+    assert.match(keyframesBody, /opacity:\s*1;[\s\S]*?translateY\(0\) scale\(1\)/);
+    assert.doesNotMatch(css, /--message-tail-enter-height/);
+    assert.doesNotMatch(keyframesBody, /max-height:/);
     assert.match(css, /@media \(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.message\.message-tail-enter\s*\{[\s\S]*?animation:\s*none/);
   }
+});
+
+test("deleted messages leave a ghost while remaining rows FLIP into place", () => {
+  const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
+  const ghostRule = cssRuleBody(chatCss, ".message.message-remove-ghost");
+
+  assert.match(ghostRule, /animation:\s*messageRemoveGhost\s*180ms/);
+  assert.match(ghostRule, /will-change:\s*transform,\s*opacity;/);
+  assert.match(chatCss, /@keyframes messageRemoveGhost\s*\{[\s\S]*?opacity:\s*1;[\s\S]*?translateY\(0\) scale\(1\)[\s\S]*?opacity:\s*0;[\s\S]*?translateY\(-6px\) scale\(0\.985\)/);
+  assert.match(chatCss, /@media \(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.message\.message-remove-ghost\s*\{[\s\S]*?animation:\s*none/);
 });
 
 test("agent run loading status keeps the shimmer on text without a container card", () => {

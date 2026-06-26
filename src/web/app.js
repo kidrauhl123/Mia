@@ -317,30 +317,11 @@ function removeElementClass(el, className) {
   try { el.classList?.remove?.(className); } catch {}
 }
 
-function setStyleProperty(el, name, value) {
-  if (!el?.style || !name) return;
-  if (typeof el.style.setProperty === "function") el.style.setProperty(name, value);
-  else el.style[name] = value;
-}
-
-function removeStyleProperty(el, name) {
-  if (!el?.style || !name) return;
-  if (typeof el.style.removeProperty === "function") el.style.removeProperty(name);
-  else delete el.style[name];
-}
-
-function measuredElementHeight(el) {
-  const rect = typeof el?.getBoundingClientRect === "function" ? el.getBoundingClientRect() : null;
-  return Math.max(1, Number(rect?.height) || Number(el?.offsetHeight) || 1);
-}
-
 function animateMessageTailEnter(article) {
   if (!article || prefersReducedMotion()) return false;
-  setStyleProperty(article, "--message-tail-enter-height", `${measuredElementHeight(article)}px`);
   addElementClass(article, "message-tail-enter");
   const cleanup = () => {
     removeElementClass(article, "message-tail-enter");
-    removeStyleProperty(article, "--message-tail-enter-height");
     article.removeEventListener?.("animationend", cleanup);
   };
   article.addEventListener?.("animationend", cleanup, { once: true });
@@ -348,30 +329,9 @@ function animateMessageTailEnter(article) {
   return true;
 }
 
-function easeOutQuint(progress) {
-  const t = Math.min(1, Math.max(0, Number(progress) || 0));
-  return 1 - Math.pow(1 - t, 5);
-}
-
-function animateChatTailToBottom(chatEl, startBottomGap = 0) {
+function animateChatTailToBottom(chatEl, _startBottomGap = 0) {
   if (!chatEl) return;
-  if (prefersReducedMotion() || typeof window.requestAnimationFrame !== "function") {
-    chatEl.scrollTop = chatEl.scrollHeight;
-    return;
-  }
-  const startedAt = performance.now();
-  const initialGap = Math.max(0, Number(startBottomGap) || 0);
-  const step = () => {
-    const progress = Math.min(1, (performance.now() - startedAt) / MESSAGE_TAIL_ENTER_ANIMATION_MS);
-    const gap = initialGap * (1 - easeOutQuint(progress));
-    chatEl.scrollTop = Math.max(0, (Number(chatEl.scrollHeight) || 0) - (Number(chatEl.clientHeight) || 0) - gap);
-    if (progress < 1) {
-      window.requestAnimationFrame(step);
-      return;
-    }
-    chatEl.scrollTop = chatEl.scrollHeight;
-  };
-  window.requestAnimationFrame(step);
+  chatEl.scrollTop = chatEl.scrollHeight;
 }
 
 function animateRenderedTailMessages(chatEl, tailMessageIds = [], startBottomGap = 0) {

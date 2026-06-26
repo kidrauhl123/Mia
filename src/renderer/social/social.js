@@ -707,7 +707,10 @@
           if (typeof global.clearTimeout === "function") global.clearTimeout(handle);
         },
         onUpdate: (run) => {
-          if (run?.conversationId) scheduleCloudRunRender(run.conversationId);
+          if (!run?.conversationId) return;
+          if (!updateActiveCloudRunStreamingArticle(run.conversationId)) {
+            scheduleCloudRunRender(run.conversationId);
+          }
         }
       });
     }
@@ -1660,6 +1663,14 @@
     return nextIds.slice(previousIds.length);
   }
 
+  function messageIdListsEqual(a = [], b = []) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
   function rememberRenderedConversationMessages(conversationId, messages = []) {
     _lastRenderedConversationId = conversationId;
     _lastRenderedConversationMessageCount = Array.isArray(messages) ? messages.length : 0;
@@ -1684,30 +1695,11 @@
     try { el.classList?.remove?.(className); } catch (_) {}
   }
 
-  function setStyleProperty(el, name, value) {
-    if (!el?.style || !name) return;
-    if (typeof el.style.setProperty === "function") el.style.setProperty(name, value);
-    else el.style[name] = value;
-  }
-
-  function removeStyleProperty(el, name) {
-    if (!el?.style || !name) return;
-    if (typeof el.style.removeProperty === "function") el.style.removeProperty(name);
-    else delete el.style[name];
-  }
-
-  function measuredElementHeight(el) {
-    const rect = typeof el?.getBoundingClientRect === "function" ? el.getBoundingClientRect() : null;
-    return Math.max(1, Number(rect?.height) || Number(el?.offsetHeight) || 1);
-  }
-
   function animateMessageTailEnter(article) {
     if (!article || prefersReducedMotion()) return false;
-    setStyleProperty(article, "--message-tail-enter-height", `${measuredElementHeight(article)}px`);
     addElementClass(article, "message-tail-enter");
     const cleanup = () => {
       removeElementClass(article, "message-tail-enter");
-      removeStyleProperty(article, "--message-tail-enter-height");
       article.removeEventListener?.("animationend", cleanup);
     };
     article.addEventListener?.("animationend", cleanup, { once: true });
@@ -1735,6 +1727,7 @@
     if (!containerEl || typeof containerEl.querySelectorAll !== "function") return snapshot;
     const rows = containerEl.querySelectorAll("article.message");
     Array.prototype.forEach.call(rows, (article) => {
+      if (hasElementClass(article, "message-remove-ghost") || hasElementClass(article, "streaming")) return;
       const key = messageLayoutKey(article);
       if (!key) return;
       const rect = typeof article.getBoundingClientRect === "function" ? article.getBoundingClientRect() : null;
@@ -1751,7 +1744,7 @@
     let animated = false;
     const rows = containerEl.querySelectorAll("article.message");
     Array.prototype.forEach.call(rows, (article) => {
-      if (!article || hasElementClass(article, "message-tail-enter")) return;
+      if (!article || hasElementClass(article, "message-tail-enter") || hasElementClass(article, "message-remove-ghost") || hasElementClass(article, "streaming")) return;
       const key = messageLayoutKey(article);
       const previous = key ? previousLayout.get(key) : null;
       if (!previous) return;
@@ -1788,39 +1781,57 @@
     return animated;
   }
 
-  function easeOutQuint(progress) {
-    const t = Math.min(1, Math.max(0, Number(progress) || 0));
-    return 1 - Math.pow(1 - t, 5);
+  function appendMessageRemoveGhost(target) {
+    if (!target || typeof target.cloneNode !== "function") return null;
+    const rect = typeof target.getBoundingClientRect === "function" ? target.getBoundingClientRect() : null;
+    const top = Number(rect?.top);
+    const left = Number(rect?.left);
+    const width = Number(rect?.width);
+    const height = Number(rect?.height);
+    if (![top, left, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return null;
+    let ghost = null;
+    try {
+      ghost = target.cloneNode(true);
+    } catch (_) {
+      return null;
+    }
+    if (!ghost) return null;
+    addElementClass(ghost, "message-remove-ghost");
+    try { ghost.setAttribute?.("aria-hidden", "true"); } catch (_) {}
+    const style = ghost.style || {};
+    style.position = "fixed";
+    style.top = `${top}px`;
+    style.left = `${left}px`;
+    style.width = `${width}px`;
+    style.height = `${height}px`;
+    style.margin = "0";
+    style.zIndex = "30";
+    style.pointerEvents = "none";
+    style.boxSizing = "border-box";
+    try {
+      const parent = (typeof document !== "undefined" && document.body) || target.parentElement;
+      parent?.appendChild?.(ghost);
+    } catch (_) {
+      return null;
+    }
+    return ghost;
   }
 
-  function animateChatTailToBottom(chatEl, startBottomGap = 0) {
+  function scheduleMessageRemoveGhostCleanup(ghost) {
+    if (!ghost) return;
+    const cleanup = () => {
+      ghost.removeEventListener?.("animationend", cleanup);
+      try { ghost.remove?.(); } catch (_) {}
+    };
+    ghost.addEventListener?.("animationend", cleanup, { once: true });
+    setTimeout(cleanup, MESSAGE_REMOVE_ANIMATION_MS + 80);
+  }
+
+  function animateChatTailToBottom(chatEl, _startBottomGap = 0) {
     if (!chatEl) return;
-    const schedule = typeof global.requestAnimationFrame === "function"
-      ? global.requestAnimationFrame.bind(global)
-      : null;
-    if (!schedule || prefersReducedMotion()) {
-      chatEl.scrollTop = chatEl.scrollHeight;
-      scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
-      return;
-    }
-    const now = () => {
-      if (global.performance && typeof global.performance.now === "function") return global.performance.now();
-      return Date.now();
-    };
-    const startedAt = now();
-    const initialGap = Math.max(0, Number(startBottomGap) || 0);
-    const step = () => {
-      const progress = Math.min(1, (now() - startedAt) / MESSAGE_TAIL_ENTER_ANIMATION_MS);
-      const gap = initialGap * (1 - easeOutQuint(progress));
-      chatEl.scrollTop = Math.max(0, (Number(chatEl.scrollHeight) || 0) - (Number(chatEl.clientHeight) || 0) - gap);
-      if (progress < 1) {
-        schedule(step);
-        return;
-      }
-      chatEl.scrollTop = chatEl.scrollHeight;
-      scheduleChatBottomStick(chatEl, chatEl.scrollTop, 2, false);
-    };
-    schedule(step);
+    stopChatBottomStickSession(chatEl);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
   }
 
   function scheduleFrame(fn) {
@@ -2086,12 +2097,100 @@
       : (fn) => setTimeout(fn, 16);
     _cloudRunRenderFrame = schedule(() => {
       _cloudRunRenderFrame = 0;
-      _reRenderActiveChat();
+      if (!updateActiveCloudRunStreamingArticle(conversationId)) {
+        _reRenderActiveChat();
+      }
       renderAgentPermissionBanner();
       // Header typing dots (replaces the old in-bubble "正在输入" status) — host
       // app owns the header DOM, so it provides the repaint callback via deps.
       if (deps && typeof deps.paintHeaderStatus === "function") deps.paintHeaderStatus();
     });
+  }
+
+  function findActiveStreamingArticle(chatEl) {
+    if (!chatEl) return null;
+    const direct = typeof chatEl.querySelector === "function"
+      ? chatEl.querySelector(".message.streaming")
+      : null;
+    if (direct) return direct;
+    const children = Array.isArray(chatEl.children) ? chatEl.children : Array.from(chatEl.children || []);
+    return children.find((child) => hasElementClass(child, "message") && hasElementClass(child, "streaming")) || null;
+  }
+
+  function streamingRunHasRenderableOutput(run) {
+    if (!run) return false;
+    const blocks = displayedContentBlocksPayloadFromRun(run) || [];
+    return Boolean(run.text || run.reasoning || (Array.isArray(run.tools) && run.tools.length) || blocks.length);
+  }
+
+  function copyStreamingArticleIdentity(target, source) {
+    if (!target || !source) return;
+    target.className = source.className || target.className || "";
+    const key = source.dataset?.messageLayoutKey
+      || (typeof source.getAttribute === "function" ? source.getAttribute("data-message-layout-key") : "");
+    if (!key) return;
+    try { target.setAttribute?.("data-message-layout-key", key); } catch (_) {}
+    try {
+      if (target.dataset) target.dataset.messageLayoutKey = key;
+    } catch (_) {}
+  }
+
+  function settleChatAfterStreamingUpdate(chatEl, wasNearBottom) {
+    if (!chatEl || !wasNearBottom) return;
+    chatEl.scrollTop = chatEl.scrollHeight;
+    scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
+  }
+
+  function updateActiveCloudRunStreamingArticle(conversationId) {
+    if (!conversationId || conversationId !== moduleState.activeConversationId) return false;
+    const chatEl = document.getElementById("chat");
+    if (!chatEl) return false;
+    const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
+    const existing = findActiveStreamingArticle(chatEl);
+    if (!streamingRunHasRenderableOutput(run)) {
+      if (existing && typeof existing.remove === "function") {
+        existing.remove();
+        markChatRenderFresh(chatEl, conversationId);
+        settleChatAfterStreamingUpdate(chatEl, isChatNearBottom(chatEl));
+      }
+      return true;
+    }
+    const conversation = moduleState.conversations.find((r) => r.id === conversationId);
+    const color = avatarColor(conversationId);
+    const conversationType = conversationTypeFor(conversation, conversationId);
+    const members = (conversationType === "group" || conversationType === "bot")
+      ? (_conversationMembersCache.get(conversationId) || [])
+      : [];
+    const nextArticle = _buildCloudAgentStreamingArticle(
+      conversationId,
+      color,
+      members,
+      { groupMessage: conversationType === "group" }
+    );
+    if (!nextArticle) return false;
+    const wasNearBottom = isChatNearBottom(chatEl);
+    if (!existing) {
+      chatEl.appendChild?.(nextArticle);
+      window.miaAvatar?.hydrateAvatarVideos?.(nextArticle);
+      markRenderedTraceBlocks(nextArticle);
+      startPhaseOrbAnimation(nextArticle);
+      initNameBadgeLotties(nextArticle);
+      markChatRenderFresh(chatEl, conversationId);
+      settleChatAfterStreamingUpdate(chatEl, wasNearBottom);
+      return true;
+    }
+    copyStreamingArticleIdentity(existing, nextArticle);
+    const nextHtml = String(nextArticle.innerHTML || "");
+    if (String(existing.innerHTML || "") !== nextHtml) {
+      existing.innerHTML = nextHtml;
+    }
+    window.miaAvatar?.hydrateAvatarVideos?.(existing);
+    markRenderedTraceBlocks(existing);
+    startPhaseOrbAnimation(existing);
+    initNameBadgeLotties(existing);
+    markChatRenderFresh(chatEl, conversationId);
+    settleChatAfterStreamingUpdate(chatEl, wasNearBottom);
+    return true;
   }
 
   function updateActiveCloudRunStatusLine(conversationId = moduleState.activeConversationId) {
@@ -2867,6 +2966,7 @@
       const wasBusy = isConversationRunBusy(previousRun);
       const run = cloudRunFor(conversationId, payload.runId || "");
       run.botId = payload.botId || run.botId || "";
+      const hermesEventType = eventType(hermesEvent);
       applyCloudAgentRunEvent(run, hermesEvent);
       if (run.status === "cancelled") {
         materializeCancelledCloudRun(conversationId, run);
@@ -2882,7 +2982,9 @@
       if ((!previousRun && isBusy) || wasBusy !== isBusy || previousStatus !== run.status) {
         if (deps && typeof deps.render === "function") deps.render();
       }
-      scheduleCloudRunRender(conversationId);
+      if (hermesEventType !== "message.delta" && hermesEventType !== "text_delta") {
+        scheduleCloudRunRender(conversationId);
+      }
       refreshCloudRunStatusTimer();
       return;
     }
@@ -3002,6 +3104,7 @@
       }
       if (locallyDeleting) return;
       if (conversationId === moduleState.activeConversationId) {
+        rememberRenderedConversationMessages(conversationId, entry?.messages || []);
         _animateRemoveMessageFromActiveChat(messageId).then(() => {
           if (deps && typeof deps.render === "function") deps.render();
         });
@@ -3113,10 +3216,15 @@
       && messages.length > 0;
     const previousRenderedMessageIds = isConversationSwitch ? [] : _lastRenderedConversationMessageIds;
     const currentMessageIds = messageStableIds(messages);
+    const messageIdsUnchanged = messageIdListsEqual(previousRenderedMessageIds, currentMessageIds);
     const prevScrollTop = containerEl.scrollTop;
     const startBottomGap = chatBottomGap(containerEl);
     const wasNearBottom = startBottomGap < SCROLL_STICK_THRESHOLD_PX;
     const hasPendingFocus = Boolean(pendingFocusFor(conversationId));
+    const isStreamingOnlyPaint = !isConversationSwitch
+      && !isFirstMessageHydration
+      && messageIdsUnchanged
+      && moduleState.cloudAgentRunsByConversation.has(conversationId);
     const stickToBottom = !hasPendingFocus && (
       isConversationSwitch
       || isFirstMessageHydration
@@ -3125,11 +3233,13 @@
     const shouldAnimateTail = !isConversationSwitch
       && !isFirstMessageHydration
       && !hasPendingFocus
+      && !isStreamingOnlyPaint
       && wasNearBottom
       && !prefersReducedMotion();
     const shouldAnimateLayoutShift = !isConversationSwitch
       && !isFirstMessageHydration
       && !hasPendingFocus
+      && !isStreamingOnlyPaint
       && !prefersReducedMotion();
     const previousMessageLayout = shouldAnimateLayoutShift ? captureMessageLayout(containerEl) : null;
     const tailMessageIds = shouldAnimateTail
@@ -3426,10 +3536,7 @@
 
   function renderSendStatus(msg) {
     const status = msg && msg.status;
-    if (status !== "sending" && status !== "error") return "";
-    if (status === "sending") {
-      return `<span class="message-send-status is-sending">发送中...</span>`;
-    }
+    if (status !== "error") return "";
     const errorText = String(msg.error || "发送失败");
     return `<span class="message-send-status is-error" title="${escapeHtml(errorText)}">发送失败</span>`;
   }
@@ -3489,31 +3596,22 @@
       _removeMessageFromActiveChat(messageId);
       return false;
     }
-    if (prefersReducedMotion() || target.classList?.contains?.("message-removing")) {
+    if (prefersReducedMotion() || hasElementClass(target, "message-removing")) {
       target.remove();
       markChatRenderFresh(chatEl);
       return false;
     }
-    const rect = typeof target.getBoundingClientRect === "function" ? target.getBoundingClientRect() : null;
-    const height = Math.max(1, Number(rect?.height) || Number(target.offsetHeight) || 1);
-    target.style.height = `${height}px`;
-    target.style.maxHeight = `${height}px`;
-    // Force a layout read so the browser transitions from the measured height.
-    void target.offsetHeight;
-    target.classList.add("message-removing");
-    await new Promise((resolve) => {
-      let done = false;
-      const finish = () => {
-        if (done) return;
-        done = true;
-        target.removeEventListener?.("transitionend", finish);
-        resolve();
-      };
-      target.addEventListener?.("transitionend", finish, { once: true });
-      setTimeout(finish, MESSAGE_REMOVE_ANIMATION_MS + 80);
-    });
+    const previousMessageLayout = captureMessageLayout(chatEl);
+    const wasNearBottom = chatBottomGap(chatEl) < SCROLL_STICK_THRESHOLD_PX;
+    const ghost = appendMessageRemoveGhost(target);
     target.remove();
     markChatRenderFresh(chatEl);
+    if (wasNearBottom) {
+      chatEl.scrollTop = chatEl.scrollHeight;
+      scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
+    }
+    animateMessageLayoutShift(chatEl, previousMessageLayout);
+    scheduleMessageRemoveGhostCleanup(ghost);
     return true;
   }
 
@@ -3581,10 +3679,15 @@
         return { ok: false, error: err };
       }
     })();
+    let activeChatDomRemoved = false;
     if (conversationId === moduleState.activeConversationId) {
-      await _animateRemoveMessageFromActiveChat(messageId);
+      activeChatDomRemoved = await _animateRemoveMessageFromActiveChat(messageId);
     }
     if (entry) entry.messages = entry.messages.filter((m) => m.id !== messageId);
+    if (activeChatDomRemoved && conversationId === moduleState.activeConversationId) {
+      rememberRenderedConversationMessages(conversationId, entry?.messages || []);
+      markChatRenderFresh(document.getElementById("chat"), conversationId);
+    }
     if (deps && typeof deps.render === "function") deps.render();
     let ok = false;
     const res = await request;
@@ -3632,6 +3735,7 @@
     if (!chatEl) return;
     const startBottomGap = chatBottomGap(chatEl);
     const nearBottom = startBottomGap < SCROLL_STICK_THRESHOLD_PX;
+    const previousMessageLayout = prefersReducedMotion() ? null : captureMessageLayout(chatEl);
     const conversation = moduleState.conversations.find((r) => r.id === moduleState.activeConversationId);
     const color = conversation ? avatarColor(conversation.id) : "#5e5ce6";
     const conversationType = conversationTypeFor(conversation, moduleState.activeConversationId);
@@ -3655,6 +3759,7 @@
           scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
         }
       }
+      animateMessageLayoutShift(chatEl, previousMessageLayout);
       const entry = moduleState.messageCache.get(moduleState.activeConversationId);
       rememberRenderedConversationMessages(moduleState.activeConversationId, entry?.messages || []);
     }
@@ -3719,6 +3824,15 @@
     })));
   }
 
+  function _messageVisualFingerprint(message) {
+    return jsonSignature({
+      body: message?.body_md || message?.bodyMd || "",
+      attachments: _messageAttachmentsFingerprint(message),
+      skills: message?.skills_json || "",
+      failed: message?.status === "error" || message?.failed ? String(message?.error || "发送失败") : ""
+    });
+  }
+
   function _messageLooksFromSelf(message) {
     const senderRef = String(message?.sender_ref || "").trim();
     return Boolean(senderRef && moduleState.myUserId && senderRef === moduleState.myUserId) || _isMessageFromSelf(message);
@@ -3753,6 +3867,49 @@
     return matches.length === 1 ? matches[0] : -1;
   }
 
+  function setMessageElementDataId(el, messageId) {
+    if (!el || !messageId) return;
+    try { el.setAttribute?.("data-message-id", messageId); } catch (_) {}
+    try {
+      if (el.dataset) el.dataset.messageId = messageId;
+    } catch (_) {}
+  }
+
+  function updateActiveChatMessageDomId(conversationId, previousId, nextId) {
+    if (!conversationId || conversationId !== moduleState.activeConversationId) return false;
+    const oldId = String(previousId || "");
+    const newId = String(nextId || "");
+    if (!oldId || !newId) return false;
+    const chatEl = document.getElementById("chat");
+    if (!chatEl) return false;
+    if (oldId === newId) return true;
+    const escapedOldId = cssEscapeValue(oldId);
+    const bubble = chatEl.querySelector?.(`.bubble[data-message-id="${escapedOldId}"]`) || null;
+    const target = bubble?.closest?.(".message")
+      || chatEl.querySelector?.(`.message[data-message-id="${escapedOldId}"]`)
+      || null;
+    if (!target) return false;
+    setMessageElementDataId(target, newId);
+    if (bubble) setMessageElementDataId(bubble, newId);
+    const descendants = typeof target.querySelectorAll === "function"
+      ? target.querySelectorAll("[data-message-id]")
+      : [];
+    Array.prototype.forEach.call(descendants, (el) => {
+      const current = el?.dataset?.messageId
+        || (typeof el?.getAttribute === "function" ? el.getAttribute("data-message-id") : "");
+      if (String(current || "") === oldId) setMessageElementDataId(el, newId);
+    });
+    return true;
+  }
+
+  function syncActiveChatAfterSilentMessageReconcile(conversationId, previousId, sentMsg, entry) {
+    if (!conversationId || conversationId !== moduleState.activeConversationId) return false;
+    if (!updateActiveChatMessageDomId(conversationId, previousId, sentMsg?.id)) return false;
+    rememberRenderedConversationMessages(conversationId, entry?.messages || []);
+    markChatRenderFresh(document.getElementById("chat"), conversationId);
+    return true;
+  }
+
   function _reconcileEchoedConversationMessage(conversationId, sentMsg) {
     if (!conversationId || !sentMsg || !sentMsg.id) return false;
     if (sentMsg.sender_kind !== conversationKinds().SenderKind.User || !_messageLooksFromSelf(sentMsg)) return false;
@@ -3762,11 +3919,18 @@
       ? entry.messages.findIndex((m) => m && m._localPending && m.turn_id === sentMsg.turn_id)
       : _localPendingEchoIndexWithoutTurnId(entry, sentMsg);
     if (localIdx < 0) return false;
+    const localMsg = entry.messages[localIdx];
+    const localId = localMsg?.id || "";
+    const canSilentReconcile = _messageVisualFingerprint(localMsg) === _messageVisualFingerprint(sentMsg);
     entry.messages[localIdx] = sentMsg;
     _resequencePendingMessagesAfterServerSeq(entry, sentMsg.seq);
     sortMessagesByTimelineSeq(entry.messages);
     if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
-    if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
+    const nextIdx = entry.messages.findIndex((m) => m && m.id === sentMsg.id);
+    const didSilentReconcile = canSilentReconcile
+      && nextIdx === localIdx
+      && syncActiveChatAfterSilentMessageReconcile(conversationId, localId, sentMsg, entry);
+    if (conversationId === moduleState.activeConversationId && !didSilentReconcile) _reRenderActiveChat();
     if (deps && typeof deps.render === "function") deps.render();
     return true;
   }
@@ -3779,17 +3943,29 @@
     const entry = moduleState.messageCache.get(conversationId);
     const serverIdx = entry.messages.findIndex((m) => m.id === sentMsg.id);
     const localIdx = entry.messages.findIndex((m) => m.id === localId);
+    const localMsg = localIdx >= 0 ? entry.messages[localIdx] : null;
+    const existingServerMsg = serverIdx >= 0 ? entry.messages[serverIdx] : null;
+    const previousId = localMsg?.id || existingServerMsg?.id || sentMsg.id;
+    const previousIdx = localIdx >= 0 ? localIdx : serverIdx;
+    let canSilentReconcile = Boolean(localMsg || existingServerMsg)
+      && _messageVisualFingerprint(localMsg || existingServerMsg) === _messageVisualFingerprint(sentMsg);
     if (serverIdx >= 0) {
       if (localIdx >= 0 && localIdx !== serverIdx) entry.messages.splice(localIdx, 1);
     } else if (localIdx >= 0) {
       entry.messages[localIdx] = sentMsg;
     } else {
       entry.messages.push(sentMsg);
+      canSilentReconcile = false;
     }
     _resequencePendingMessagesAfterServerSeq(entry, sentMsg.seq);
     sortMessagesByTimelineSeq(entry.messages);
     if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
-    if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
+    const nextIdx = entry.messages.findIndex((m) => m && m.id === sentMsg.id);
+    const didSilentReconcile = canSilentReconcile
+      && previousIdx >= 0
+      && nextIdx === previousIdx
+      && syncActiveChatAfterSilentMessageReconcile(conversationId, previousId, sentMsg, entry);
+    if (conversationId === moduleState.activeConversationId && !didSilentReconcile) _reRenderActiveChat();
     if (deps && typeof deps.render === "function") deps.render();
     return true;
   }
@@ -5102,6 +5278,7 @@
     renderAgentPermissionBanner,
     submitPermissionDecision,
     appendMessageToActiveChat: _appendMessageToActiveChat,
+    animateRemoveMessageFromActiveChat: _animateRemoveMessageFromActiveChat,
     messageLayoutKey,
     captureMessageLayout,
     animateMessageLayoutShift,
