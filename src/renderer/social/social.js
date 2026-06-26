@@ -4344,10 +4344,7 @@
       <article class="contact-profile contact-requests">
         <section class="contact-note contact-requests-card">
           <header class="contact-requests-head">
-            <div>
-              <strong>收到的好友请求</strong>
-              <p>同意后会自动创建私聊。</p>
-            </div>
+            <strong>收到的好友请求</strong>
             ${count ? `<span class="contact-requests-count">${unreadBadgeText(count)}</span>` : ""}
           </header>
           <div id="socialContactRequestPane" class="contact-request-list"></div>

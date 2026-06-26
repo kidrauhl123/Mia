@@ -11,6 +11,7 @@
   let renderView, render;
   let avatarTrimFrameToken = 0;
   let botRuntimeHydrateToken = 0;
+  let botDialogOpenToken = 0;
 
   function initBotDialog(deps) {
     state = deps.state;
@@ -534,11 +535,21 @@
   }
 
   function localDeviceOption(runtime = state?.runtime || {}) {
+    const capabilities = state?.engineCapabilities?.engines || {};
+    const capabilityAvailable = (engine) => {
+      const cap = capabilities?.[engine];
+      if (!cap || cap.available === false) return false;
+      return cap.available === true
+        || (Array.isArray(cap.models) && cap.models.length > 0)
+        || (Array.isArray(cap.permissionProfiles) && cap.permissionProfiles.length > 0)
+        || (Array.isArray(cap.permissionModes) && cap.permissionModes.length > 0)
+        || (Array.isArray(cap.effortLevels) && cap.effortLevels.length > 0);
+    };
     const engines = Object.entries({
-      hermes: runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed || runtime.engineInstalled || runtime.engineRunning,
-      "claude-code": runtime.agentEngines?.claudeCode?.available,
-      codex: runtime.agentEngines?.codex?.available,
-      openclaw: runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed
+      hermes: runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed || runtime.engineInstalled || runtime.engineRunning || capabilityAvailable("hermes"),
+      "claude-code": runtime.agentEngines?.claudeCode?.available || capabilityAvailable("claude-code"),
+      codex: runtime.agentEngines?.codex?.available || capabilityAvailable("codex"),
+      openclaw: runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed || capabilityAvailable("openclaw")
     }).filter(([, ok]) => ok).map(([id]) => id);
     if (!engines.length) engines.push(window.miaBotDirectory?.normalizeAgentEngine?.(state?.preferredAgentEngine || "hermes", "desktop-local") || "hermes");
     return normalizedDevice({
@@ -564,8 +575,11 @@
   }
 
   function editableBridgeDeviceOptions() {
-    const local = localDeviceOption(state?.runtime || {});
-    return local ? [local] : [];
+    return bridgeDeviceOptions().filter((device) =>
+      device?.isLocal
+      || device?.status === "local"
+      || String(device?.status || "").trim().toLowerCase() === "online"
+    );
   }
 
   function deviceStatusLabel(device = {}) {
@@ -816,6 +830,14 @@
     });
   }
 
+  function deferBotDialogWork(callback) {
+    const timer = typeof window !== "undefined" && typeof window.setTimeout === "function"
+      ? window.setTimeout.bind(window)
+      : (typeof setTimeout === "function" ? setTimeout : null);
+    if (timer) timer(callback, 0);
+    else callback();
+  }
+
   function openBotDialog(bot = null, personaText = "") {
     if (!state || !els) return;
     if (bot && bot.currentTarget) bot = null;
@@ -856,9 +878,14 @@
       agentEngine: actualBot?.agentEngine || actualBot?.agent_engine || seed?.agentEngine || state.preferredAgentEngine || "hermes"
     });
     const initialRuntimeSelectValue = els.botRuntimeTarget?.value || "";
-    refreshBridgeDevicesForDialog();
     const avatarImage = actualBot?.avatarImage || "";
-    setBotAvatarDraft(avatarImage, window.miaAvatar.avatarCropForImage(avatarImage, actualBot?.avatarCrop));
+    const avatarSrc = window.miaAvatar.canonicalAvatarSrc(avatarImage);
+    state.botAvatarDraft = {
+      image: avatarSrc,
+      crop: avatarSrc ? window.miaAvatar.normalizeCrop(window.miaAvatar.avatarCropForImage(avatarSrc, actualBot?.avatarCrop)) : null,
+      color: state.botAvatarDraft?.color || ""
+    };
+    if (els.botAvatar) els.botAvatar.value = state.botAvatarDraft.image;
     // Canonical avatar identity of the bot being edited, so the preview's
     // background matches the hashed accent color shown everywhere else (create
     // mode has no id yet → the preview follows the name field).
@@ -868,18 +895,27 @@
         : "";
       state.botAvatarDraft.color = actualBot?.color || actualBot?.avatarColor || "";
     }
-    renderBotAvatarDraft();
     els.botSeed.value = actualBot ? personaText : (seed?.bio || "");
     if (els.botPersonaDetails) els.botPersonaDetails.open = Boolean(seed);
+    const openToken = ++botDialogOpenToken;
+    const openedKey = String(actualBot?.key || "");
+    const openedMode = state.botDialogMode;
     renderView();
-    window.miaStatusBadgeControls?.syncIdentityNameText?.("bot");
-    window.miaStatusBadgeControls?.syncStatusBadgeControl?.("bot");
-    if (!actualBot) {
-      window.miaStatusBadgeControls?.beginIdentityNameEdit?.("bot");
-    } else {
-      window.miaStatusBadgeControls?.endIdentityNameEdit?.("bot");
-      hydrateActiveRuntimeTargetForDialog(actualBot, initialRuntimeSelectValue);
-    }
+    deferBotDialogWork(() => {
+      if (openToken !== botDialogOpenToken) return;
+      if (!state?.botDialogOpen || state.botDialogMode !== openedMode) return;
+      if (String(els?.botKey?.value || "") !== openedKey) return;
+      renderBotAvatarDraft();
+      refreshBridgeDevicesForDialog();
+      window.miaStatusBadgeControls?.syncIdentityNameText?.("bot");
+      window.miaStatusBadgeControls?.syncStatusBadgeControl?.("bot");
+      if (!actualBot) {
+        window.miaStatusBadgeControls?.beginIdentityNameEdit?.("bot");
+      } else {
+        window.miaStatusBadgeControls?.endIdentityNameEdit?.("bot");
+        hydrateActiveRuntimeTargetForDialog(actualBot, initialRuntimeSelectValue);
+      }
+    });
   }
 
   function refreshBridgeDevicesForDialog() {
@@ -910,6 +946,7 @@
 
   function closeBotDialog() {
     if (!state) return;
+    botDialogOpenToken += 1;
     botRuntimeHydrateToken += 1;
     state.botDialogOpen = false;
     teardownColorSwatches(document.getElementById("botAvatarColors"));

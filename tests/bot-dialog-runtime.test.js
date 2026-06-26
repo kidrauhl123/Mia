@@ -72,9 +72,10 @@ function input(value = "") {
   return { value, textContent: "", open: false };
 }
 
-function createBotDialogContext({ activeBinding, runtime = null }) {
+function createBotDialogContext({ activeBinding, runtime = null, engineCapabilities = null, listBridgeDevices = null } = {}) {
   const select = new FakeSelect();
   const calls = [];
+  const events = [];
   const defaultRuntime = {
     cloud: {
       enabled: true,
@@ -93,7 +94,8 @@ function createBotDialogContext({ activeBinding, runtime = null }) {
     preferredAgentEngine: "hermes"
   };
   const state = {
-    runtime: runtime || defaultRuntime
+    runtime: runtime || defaultRuntime,
+    engineCapabilities
   };
   const els = {
     botRuntimeTarget: select,
@@ -157,21 +159,135 @@ function createBotDialogContext({ activeBinding, runtime = null }) {
       miaContact: {
         botAvatarIdentityId: (key) => key
       },
-      mia: { social: { listBridgeDevices: null } }
+      miaEngineContracts: {
+        engineLabel(engine) {
+          return {
+            hermes: "Hermes",
+            "claude-code": "Claude Code",
+            codex: "Codex",
+            openclaw: "OpenClaw"
+          }[engine] || engine;
+        }
+      },
+      mia: {
+        social: {
+          listBridgeDevices: listBridgeDevices
+            ? (...args) => {
+                events.push("listBridgeDevices");
+                return listBridgeDevices(...args);
+              }
+            : null
+        }
+      }
     },
     document,
-    console
+    console,
+    setTimeout,
+    clearTimeout
   });
   const source = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
   vm.runInContext(source, context, { filename: "src/renderer/bot/bot-dialog.js" });
   context.window.miaBotDialog.initBotDialog({
     state,
     els,
-    renderView() {},
+    renderView() { events.push("renderView"); },
     render() {}
   });
-  return { context, calls };
+  return { context, calls, events, state, select };
 }
+
+function decodedRuntimeOptions(select) {
+  return select.options.map((option) => ({
+    label: option.textContent,
+    disabled: option.disabled,
+    ...JSON.parse(option.value)
+  }));
+}
+
+test("creating a bot exposes cloud, local engines, and online bridge devices", () => {
+  const { context, select } = createBotDialogContext({
+    runtime: {
+      cloud: {
+        enabled: true,
+        devices: [{
+          id: "mac-remote",
+          deviceName: "Studio Mac",
+          status: "online",
+          capabilities: { engines: ["codex", "openclaw"] }
+        }]
+      },
+      localDevice: { id: "mac-local", name: "Work Mac" },
+      agentEngines: {
+        hermes: { available: true },
+        claudeCode: { available: true },
+        codex: { available: true },
+        openClaw: { available: true }
+      },
+      preferredAgentEngine: "codex"
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog();
+
+  const options = decodedRuntimeOptions(select);
+  assert.ok(options.some((option) => option.runtimeKind === "cloud-hermes"), "Mia Cloud should be available");
+  assert.deepEqual(
+    options
+      .filter((option) => option.deviceId === "mac-local")
+      .map((option) => option.agentEngine)
+      .sort(),
+    ["claude-code", "codex", "hermes", "openclaw"]
+  );
+  assert.deepEqual(
+    options
+      .filter((option) => option.deviceId === "mac-remote")
+      .map((option) => option.agentEngine)
+      .sort(),
+    ["codex", "openclaw"]
+  );
+});
+
+test("creating a bot paints the dialog before refreshing bridge devices", async () => {
+  const { context, events } = createBotDialogContext({
+    listBridgeDevices: async () => ({ ok: true, data: { devices: [] } })
+  });
+
+  context.window.miaBotDialog.openBotDialog();
+
+  assert.deepEqual(events, ["renderView"]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(events[1], "listBridgeDevices");
+});
+
+test("creating a bot supplements local engines from loaded engine capabilities", () => {
+  const { context, select } = createBotDialogContext({
+    runtime: {
+      cloud: { enabled: true, devices: [] },
+      localDevice: { id: "mac-local", name: "Work Mac" },
+      agentEngines: {
+        hermes: { available: true }
+      },
+      preferredAgentEngine: "hermes"
+    },
+    engineCapabilities: {
+      engines: {
+        "claude-code": { available: true },
+        codex: { available: true },
+        openclaw: { available: true }
+      }
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog();
+
+  assert.deepEqual(
+    decodedRuntimeOptions(select)
+      .filter((option) => option.deviceId === "mac-local")
+      .map((option) => option.agentEngine)
+      .sort(),
+    ["claude-code", "codex", "hermes", "openclaw"]
+  );
+});
 
 test("editing a bot hydrates the runtime target from the active binding", async () => {
   const { context, calls } = createBotDialogContext({

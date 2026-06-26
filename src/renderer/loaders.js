@@ -23,6 +23,19 @@
     fallbackSlashCommands = deps.fallbackSlashCommands || [];
   }
 
+  function refreshOpenBotRuntimeSelector() {
+    if (!state?.botDialogOpen) return;
+    if (typeof window.miaBotDialog?.readSelectedRuntimeTarget !== "function") return;
+    if (typeof window.miaBotDialog?.renderBotRuntimeTargetSelect !== "function") return;
+    const selected = window.miaBotDialog.readSelectedRuntimeTarget();
+    window.miaBotDialog.renderBotRuntimeTargetSelect({
+      runtimeKind: selected.runtimeKind,
+      deviceId: selected.targetDeviceId,
+      deviceName: selected.targetDeviceName,
+      agentEngine: selected.agentEngine
+    }, { preservePrevious: true });
+  }
+
   async function loadModelCatalog() {
     if (!state) return;
     try {
@@ -63,6 +76,7 @@
       console.error("Failed to load engine capabilities", error);
     }
     state.engineCapabilities = caps;
+    refreshOpenBotRuntimeSelector();
     // `render()` calls syncEffortControl + syncPermissionControl which use
     // window.miaEngineOptions.effortOptions()/externalPermissionOptions()
     // — those read state.engineCapabilities.

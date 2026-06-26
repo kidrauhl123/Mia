@@ -3080,10 +3080,6 @@ button.persona-tag-chip {
   gap: 12px;
 }
 
-.contact-requests-head p {
-  margin-top: 4px;
-}
-
 .contact-requests-count {
   display: inline-grid;
   place-items: center;
