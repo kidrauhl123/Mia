@@ -23,7 +23,7 @@
   const DOWNLOADS = {
     'mac-apple': {
       href: '/downloads/mia-macos-apple-silicon-latest.dmg',
-      download: 'Mia-0.1.26-Apple-Silicon.dmg',
+      download: 'Mia-0.1.27-Apple-Silicon.dmg',
       label: '下载 macOS 版',
       shortLabel: '下载',
       icon: 'apple'
