@@ -2567,6 +2567,18 @@ test("opening a bot conversation preserves existing cloud runtime kind", () => {
   assert.match(appSource, /window\.miaSocial\.setActiveConversationId\(existingConversation\.id\)/);
 });
 
+test("discover contacts capsule exposes pending friend request badge", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
+
+  assert.match(appSource, /data-discover-unread="contacts"/);
+  assert.match(appSource, /function syncDiscoverModeUnread\(incomingCount\)/);
+  assert.match(appSource, /syncDiscoverModeUnread\(incomingCount\)/);
+  assert.match(appSource, /联系人，\$\{count\} 个新好友请求/);
+  assert.match(botStoreCss, /\.discover-mode-unread\s*\{/);
+  assert.match(botStoreCss, /\.discover-mode-unread\.hidden\s*\{/);
+});
+
 test("settings is a workspace view instead of a drawer", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 

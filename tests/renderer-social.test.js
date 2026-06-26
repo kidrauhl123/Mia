@@ -20,8 +20,8 @@ function loadSocial(options = {}) {
     querySelectorAll() { return []; },
     set innerHTML(v) { this._html = v; this.children = []; },
     get innerHTML() { return this._html || ""; },
-    set textContent(v) {},
-    get textContent() { return ""; },
+    set textContent(v) { this._text = String(v || ""); },
+    get textContent() { return this._text || ""; },
     setAttribute() {},
     getAttribute() { return ""; },
     style: {},
@@ -138,6 +138,26 @@ function deferred() {
 
 async function flushPromises(turns = 3) {
   for (let i = 0; i < turns; i += 1) await Promise.resolve();
+}
+
+function makeTestEl() {
+  return {
+    children: [],
+    classList: { add() {}, remove() {}, toggle() {} },
+    dataset: {},
+    style: {},
+    addEventListener() {},
+    removeEventListener() {},
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector() { return makeTestEl(); },
+    querySelectorAll() { return []; },
+    setAttribute() {},
+    getAttribute() { return ""; },
+    set innerHTML(value) { this._html = String(value || ""); this.children = []; },
+    get innerHTML() { return this._html || ""; },
+    set textContent(value) { this._text = String(value || ""); },
+    get textContent() { return this._text || ""; },
+  };
 }
 
 test("bootstrapAfterLogin does not import local runtime bots as cloud identities", async () => {
@@ -1309,6 +1329,32 @@ test("handleCloudEvent social.friend_request_received appends incoming", () => {
   });
   assert.equal(s.moduleState.incomingRequests.length, 1);
   assert.equal(s.moduleState.incomingRequests[0].from.username, "x");
+});
+
+test("renderRequestsInto paints actionable incoming requests in contact detail", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.incomingRequests = [
+    {
+      id: "fr_1",
+      from_user: "u_x",
+      to_user: "u_me",
+      status: "pending",
+      other: { id: "u_x", displayName: "Alice" },
+    },
+  ];
+  const pane = makeTestEl();
+  const container = makeTestEl();
+  container.querySelector = (selector) => (selector === "#socialContactRequestPane" ? pane : null);
+
+  assert.doesNotThrow(() => s.renderRequestsInto(container));
+  assert.match(container.innerHTML, /收到的好友请求/);
+  assert.equal(pane.children.length, 1);
+
+  const rowText = pane.children[0].children.map((child) => `${child.textContent || ""} ${child.innerHTML || ""}`).join("\n");
+  assert.match(rowText, /Alice/);
+  assert.match(rowText, /同意/);
+  assert.match(rowText, /拒绝/);
 });
 
 test("handleCloudEvent social.friend_added adds conversation + friend, removes from outgoing", () => {

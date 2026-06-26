@@ -3068,6 +3068,75 @@ button.persona-tag-chip {
   font-size: 14px;
 }
 
+.contact-requests-card {
+  gap: 12px;
+  padding: 14px;
+}
+
+.contact-requests-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.contact-requests-head p {
+  margin-top: 4px;
+}
+
+.contact-requests-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 11px;
+  font-weight: var(--ui-text-max-weight, 500);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+}
+
+.contact-request-list {
+  display: grid;
+  gap: 2px;
+}
+
+.contact-request-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 7px 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+}
+
+.contact-request-main {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-request-action {
+  min-height: 26px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.contact-request-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .contact-request-badge {
   display: inline-block;
   min-width: 18px;

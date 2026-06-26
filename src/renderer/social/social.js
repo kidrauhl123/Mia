@@ -468,6 +468,10 @@
     try { global.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
   }
 
+  function unreadBadgeText(count) {
+    return window.miaUnread?.unreadBadgeText?.(count) || String(count || 0);
+  }
+
   function senderTitleHtml(spec, color = "") {
     if (!spec || spec.isOwn || !spec.authorName) return "";
     const style = color ? ` style="color:${escapeHtml(color)};"` : "";
@@ -4019,34 +4023,72 @@
     });
   }
 
+  function requestOtherUser(req, direction) {
+    const fallbackId = direction === "incoming" ? req?.from_user : req?.to_user;
+    const otherUser = req?.other || (direction === "incoming" ? req?.from : req?.to) || {};
+    const displayName = otherUser.displayName || otherUser.username || otherUser.account || otherUser.id || fallbackId || "用户";
+    return { otherUser, fallbackId, displayName };
+  }
+
+  function requestAvatarText(displayName) {
+    const text = window.miaAvatar?.initials?.(displayName);
+    if (text) return text;
+    return (Array.from(String(displayName || "?"))[0] || "?").toUpperCase();
+  }
+
+  function paintRequestAvatar(avatar, otherUser, fallbackId, displayName) {
+    const color = otherUser.avatarColor
+      || otherUser.avatar_color
+      || window.miaMemberColor?.memberAccentColor?.(otherUser.id || fallbackId || displayName)
+      || "#5e5ce6";
+    const text = requestAvatarText(displayName);
+    if (typeof window.miaAvatar?.applyAvatarMedia === "function") {
+      try {
+        window.miaAvatar.applyAvatarMedia(
+          avatar,
+          otherUser.avatarImage || otherUser.avatar_image || "",
+          otherUser.avatarCrop || otherUser.avatar_crop || null,
+          color,
+          text
+        );
+        return;
+      } catch {
+        // Keep friend-request rows visible even if optional avatar media fails.
+      }
+    }
+    avatar.style.backgroundColor = color;
+    avatar.textContent = text;
+  }
+
+  function absorbAcceptedFriendResponse(res) {
+    const data = res?.data || {};
+    if (data.friend) moduleState.friends = dedup([...moduleState.friends, data.friend]);
+    if (data.conversation) upsertConversation(data.conversation);
+  }
+
   function _renderRequestList(container, requests, direction, modal) {
+    if (!container) return;
     container.innerHTML = "";
-    if (!requests.length) {
+    const list = Array.isArray(requests) ? requests : [];
+    if (!list.length) {
+      container.innerHTML = `<p class="contact-request-empty">暂无新的好友请求</p>`;
       return;
     }
-    for (const req of requests) {
+    for (const req of list) {
       const row = document.createElement("div");
-      row.style.cssText = "display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border,rgba(0,0,0,.08));";
+      row.className = `contact-request-row ${direction}`;
 
       // Cloud REST hydrates the request with `other` (the user on the
       // opposite end). Live WS events use `from` instead — accept either.
-      const otherUser = req.other || req.from || {};
-      const fallbackId = direction === "incoming" ? req.from_user : req.to_user;
-      const displayName = otherUser.displayName || otherUser.account || otherUser.id || fallbackId || "—";
+      const { otherUser, fallbackId, displayName } = requestOtherUser(req, direction);
 
       const avatar = document.createElement("span");
       avatar.className = "avatar request-avatar";
-      window.miaAvatar.applyAvatarMedia(
-        avatar,
-        otherUser.avatarImage,
-        otherUser.avatarCrop,
-        otherUser.avatarColor || window.miaMemberColor.memberAccentColor(otherUser.id || fallbackId || displayName),
-        (displayName || "?").slice(0, 1).toUpperCase()
-      );
+      paintRequestAvatar(avatar, otherUser, fallbackId, displayName);
       row.appendChild(avatar);
 
       const nameSpan = document.createElement("span");
-      nameSpan.style.cssText = "flex:1; font-weight:500;";
+      nameSpan.className = "contact-request-main";
       nameSpan.innerHTML = renderNameWithBadgeHtml({
         identity: { kind: "user", id: otherUser.id || fallbackId || "", displayName, statusBadge: statusBadgeFrom(otherUser) },
         fallbackName: displayName,
@@ -4057,8 +4099,7 @@
       if (direction === "incoming") {
         const acceptBtn = document.createElement("button");
         acceptBtn.type = "button";
-        acceptBtn.className = "button-primary";
-        acceptBtn.style.cssText = "font-size:12px; padding:3px 10px;";
+        acceptBtn.className = "button-primary contact-request-action";
         acceptBtn.textContent = "同意";
         acceptBtn.addEventListener("click", async () => {
           acceptBtn.disabled = true;
@@ -4066,6 +4107,7 @@
             const res = await window.mia.social.respondFriendRequest(req.id, "accept");
             if (!res.ok) { acceptBtn.disabled = false; return; }
             moduleState.incomingRequests = moduleState.incomingRequests.filter((r) => r.id !== req.id);
+            absorbAcceptedFriendResponse(res);
             // Re-render
             if (modal) _renderAddFriendModal(modal);
             if (deps && typeof deps.render === "function") deps.render();
@@ -4074,8 +4116,7 @@
 
         const rejectBtn = document.createElement("button");
         rejectBtn.type = "button";
-        rejectBtn.className = "button-soft";
-        rejectBtn.style.cssText = "font-size:12px; padding:3px 10px;";
+        rejectBtn.className = "button-soft contact-request-action";
         rejectBtn.textContent = "拒绝";
         rejectBtn.addEventListener("click", async () => {
           rejectBtn.disabled = true;
@@ -4093,8 +4134,7 @@
       } else {
         const cancelBtn = document.createElement("button");
         cancelBtn.type = "button";
-        cancelBtn.className = "button-soft";
-        cancelBtn.style.cssText = "font-size:12px; padding:3px 10px;";
+        cancelBtn.className = "button-soft contact-request-action";
         cancelBtn.textContent = "撤回";
         cancelBtn.addEventListener("click", async () => {
           cancelBtn.disabled = true;
@@ -4123,9 +4163,19 @@
   // reject fall back to the global render() and repaint the pane in place.
   function renderRequestsInto(container) {
     if (!container) return;
+    const count = moduleState.incomingRequests.length;
     container.innerHTML = `
       <article class="contact-profile contact-requests">
-        <section class="contact-note"><div id="socialContactRequestPane"></div></section>
+        <section class="contact-note contact-requests-card">
+          <header class="contact-requests-head">
+            <div>
+              <strong>收到的好友请求</strong>
+              <p>同意后会自动创建私聊。</p>
+            </div>
+            ${count ? `<span class="contact-requests-count">${unreadBadgeText(count)}</span>` : ""}
+          </header>
+          <div id="socialContactRequestPane" class="contact-request-list"></div>
+        </section>
       </article>
     `;
     _renderRequestList(container.querySelector("#socialContactRequestPane"), moduleState.incomingRequests, "incoming", null);

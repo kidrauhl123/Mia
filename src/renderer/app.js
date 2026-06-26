@@ -3454,6 +3454,7 @@ function renderView() {
       els.sidebarExploreUnreadBadge.classList.add("hidden");
     }
   }
+  syncDiscoverModeUnread(incomingCount);
   // Chat unread = total unread DM/group conversation messages.
   const conversationUnread = window.miaSocial?.getTotalConversationUnread?.() || 0;
   if (els.chatUnreadBadge) {
@@ -5987,11 +5988,20 @@ const DISCOVER_MODES = [
   { view: "bot-store", label: "发现 AI 助手" },
   { view: "contacts", label: "联系人" }
 ];
+
+function discoverModeUnreadHtml(mode) {
+  if (mode.view !== "contacts") return "";
+  return `<span class="discover-mode-unread hidden" data-discover-unread="contacts" aria-hidden="true">0</span>`;
+}
+
 function renderDiscoverModeToggle() {
   const host = els.discoverModeToggle;
   if (!host) return;
   host.innerHTML = DISCOVER_MODES.map((m) => `
-    <button type="button" role="tab" class="${m.view === state.activeView ? "active" : ""}" data-discover-mode="${m.view}">${m.label}</button>
+    <button type="button" role="tab" class="${m.view === state.activeView ? "active" : ""}" data-discover-mode="${m.view}" aria-label="${m.label}">
+      <span class="discover-mode-label">${m.label}</span>
+      ${discoverModeUnreadHtml(m)}
+    </button>
   `).join("");
   host.querySelectorAll("[data-discover-mode]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -6011,8 +6021,27 @@ function renderDiscoverModeToggle() {
       renderView();
     });
   });
+  syncDiscoverModeUnread(window.miaSocial?.moduleState?.incomingRequests?.length || 0);
   syncDiscoverModeIndicator();
 }
+
+function syncDiscoverModeUnread(incomingCount) {
+  const host = els.discoverModeToggle;
+  const count = Math.max(0, Number(incomingCount) || 0);
+  const button = host?.querySelector?.('[data-discover-mode="contacts"]');
+  const badge = button?.querySelector?.('[data-discover-unread="contacts"]');
+  if (!button || !badge) return;
+  if (count > 0) {
+    badge.classList.remove("hidden");
+    badge.textContent = window.miaUnread?.unreadBadgeText?.(count) || String(count);
+    button.setAttribute("aria-label", `联系人，${count} 个新好友请求`);
+  } else {
+    badge.classList.add("hidden");
+    badge.textContent = "0";
+    button.setAttribute("aria-label", "联系人");
+  }
+}
+
 function syncDiscoverModeIndicator() {
   const host = els.discoverModeToggle;
   if (!host) return;
