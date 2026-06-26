@@ -148,6 +148,19 @@ test("collector appends final text when it was not streamed as a text block", ()
   ]);
 });
 
+test("collector merges adjacent text deltas without ids into one final text block", () => {
+  const collector = createAssistantContentBlockCollector();
+
+  collector.collect("text_delta", { text: "聊" });
+  collector.collect("text_delta", { text: "的" });
+  collector.collect("text_delta", { text: "或者" });
+  collector.collect("text_delta", { text: "需要我帮忙的，随时说~" });
+
+  assert.deepEqual(collector.payload("聊的或者需要我帮忙的，随时说~"), [
+    { type: "text", id: "text_0", text: "聊的或者需要我帮忙的，随时说~" }
+  ]);
+});
+
 test("final text completion adds only the missing suffix when body includes streamed text", () => {
   assert.deepEqual(contentBlocksWithFinalText([
     { type: "text", id: "text_1", text: "我先看目录。" }

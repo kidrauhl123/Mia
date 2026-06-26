@@ -290,12 +290,13 @@
     function appendText(event = {}) {
       const text = eventText(event);
       if (!text) return;
-      const id = eventId(event, nextId("text"));
+      const explicitId = safeString(event.id || event.msg_id || event.message_id || event.item_id || "").trim();
       const last = blocks[blocks.length - 1];
-      if (last && last.type === "text" && last.id === id) {
+      if (last && last.type === "text" && (!explicitId || last.id === explicitId)) {
         last.text += text;
         return;
       }
+      const id = explicitId || nextId("text");
       blocks.push({ type: "text", id, text });
     }
 
