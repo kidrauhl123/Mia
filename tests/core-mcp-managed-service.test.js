@@ -142,7 +142,7 @@ test("managed xiaohongshu install creates disabled record with managed actions",
 
 test("runManagedAction updates xiaohongshu runtime state", async (t) => {
   const actions = [];
-  const { service } = setup(t, {
+  const { service, runtime } = setup(t, {
     managedSupervisor: {
       runAction: async (record, action) => {
         actions.push([record.nativeName, action]);
@@ -164,12 +164,16 @@ test("runManagedAction updates xiaohongshu runtime state", async (t) => {
     }
   });
   const installed = await service.installTemplate("xiaohongshu", {});
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  stored[0].lastError = "Xiaohongshu login command failed to start: spawn go ENOENT";
+  fs.writeFileSync(runtime.mcpServers, `${JSON.stringify(stored, null, 2)}\n`);
 
   const started = await service.runManagedAction(installed.data.id, "start", {});
 
   assert.equal(started.success, true);
   assert.equal(started.data.managedRuntime.state, "running");
   assert.equal(started.data.connectionWizard.nextAction, "test");
+  assert.equal(started.data.lastError, "");
   assert.deepEqual(actions, [["xiaohongshu", "start"]]);
 });
 

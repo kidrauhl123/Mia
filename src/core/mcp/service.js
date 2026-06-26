@@ -966,7 +966,8 @@ function createCoreMcpService(deps = {}) {
         }
         nextRecord = mergeManagedActionRecord(existing, patch, {
           connectionWizard: nextManagedWizard(action, result),
-          enabled: false
+          enabled: false,
+          lastError: ""
         });
       } else {
         let patch = {};
