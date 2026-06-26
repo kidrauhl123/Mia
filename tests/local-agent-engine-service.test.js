@@ -544,8 +544,10 @@ test("agentInventory ignores legacy local-source Hermes runtime", (t) => {
 
 test("scanAgentsAsync probes agents asynchronously, reports progress, and warms the cache", async (t) => {
   const progress = [];
+  const execCalls = [];
   const { service } = makeService(t, {
     execFile: (file, args, _options, cb) => {
+      execCalls.push([file, ...args]);
       if (file === "zsh" && args[1] === "command -v claude") return cb(null, "/bin/claude\n", "");
       if (file === "/bin/claude") return cb(null, "claude 9.9.9\n", "");
       return cb(new Error("not found"), "", "");
@@ -559,9 +561,35 @@ test("scanAgentsAsync probes agents asynchronously, reports progress, and warms 
   const claude = inventory.agents.find((a) => a.id === "claude-code");
   assert.equal(claude.path, "/bin/claude");
   assert.equal(claude.usableInMia, true);
+  assert.equal(claude.readiness.status, "ready");
+  assert.ok(execCalls.some((call) => call[0] === "/bin/claude" && call[1] === "--help"));
   // Cache warmed: the non-blocking read returns the same scanned inventory.
   assert.equal(service.cachedAgentInventory(), inventory);
   assert.equal(service.cachedLocalAgentEngines().claudeCode.available, true);
+});
+
+test("scanAgentsAsync marks installed agents blocked when CLI handshake fails", async (t) => {
+  const { service } = makeService(t, {
+    execFile: (file, args, _options, cb) => {
+      if (file === "zsh" && args[1] === "command -v codex") return cb(null, "/bin/codex\n", "");
+      if (file === "/bin/codex" && args[0] === "--version") return cb(null, "codex 2.3.4\n", "");
+      if (file === "/bin/codex" && args[0] === "--help") return cb(new Error("spawn failed"), "", "Cannot start Codex");
+      return cb(new Error("not found"), "", "");
+    }
+  });
+
+  const inventory = await service.scanAgentsAsync();
+  const codex = inventory.agents.find((agent) => agent.id === "codex");
+
+  assert.equal(codex.installed, true);
+  assert.equal(codex.usableInMia, false);
+  assert.equal(codex.health, "blocked");
+  assert.equal(codex.installAction, "install-codex");
+  assert.equal(codex.readiness.status, "blocked");
+  assert.match(codex.readiness.detail, /Cannot start Codex/);
+  assert.equal(inventory.summary.recommendedAction, "install-codex");
+  assert.equal(service.cachedLocalAgentEngines().codex.available, false);
+  assert.equal(service.cachedLocalAgentEngines().codex.installAction, "install-codex");
 });
 
 test("cachedAgentInventory returns the scanning placeholder before any scan", (t) => {

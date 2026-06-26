@@ -35,6 +35,7 @@ const AGENT_DEFINITIONS = Object.freeze([
     legacyKey: "claudeCode",
     label: "Claude Code",
     commands: ["claude"],
+    doctorArgs: ["--help"],
     managedProtocols: ["cli", "claude-code-cli"],
     installable: true,
     detectionOnly: false
@@ -44,6 +45,7 @@ const AGENT_DEFINITIONS = Object.freeze([
     legacyKey: "codex",
     label: "Codex",
     commands: ["codex"],
+    doctorArgs: ["--help"],
     managedProtocols: ["cli", "codex-cli", "codex-app-server"],
     installable: true,
     detectionOnly: false
@@ -53,11 +55,18 @@ const AGENT_DEFINITIONS = Object.freeze([
     legacyKey: "openClaw",
     label: "OpenClaw",
     commands: ["openclaw", "claw"],
+    doctorArgs: ["--help"],
     managedProtocols: ["cli", "openclaw-cli"],
     installable: true,
     detectionOnly: false
   }
 ]);
+
+function compactOneLine(value, max = 180) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 1))}…` : text;
+}
 
 function safeReadDir(fsImpl, dir) {
   const readDir = typeof fsImpl.readdirSync === "function" ? fsImpl.readdirSync.bind(fsImpl) : fs.readdirSync;
@@ -183,6 +192,7 @@ function createLocalAgentEngineService(deps = {}) {
     ? deps.hermesSource
     : () => "";
   const cacheMs = Number.isFinite(Number(deps.cacheMs)) ? Number(deps.cacheMs) : 15000;
+  const doctorTimeoutMs = Number.isFinite(Number(deps.doctorTimeoutMs)) ? Number(deps.doctorTimeoutMs) : 3000;
   let agentInventoryCache = { at: 0, value: null };
   let agentEngineCache = { at: 0, value: null };
   let warmScanPromise = null;
@@ -191,10 +201,10 @@ function createLocalAgentEngineService(deps = {}) {
     return new Promise((resolve) => {
       try {
         execFileExecutable(execFile, file, args, options, (error, stdout, stderr) => {
-          resolve({ error, stdout: String(stdout || ""), stderr: String(stderr || "") });
+          resolve({ error, stdout: String(stdout || ""), stderr: String(stderr || ""), code: error?.code ?? 0 });
         }, { platform });
       } catch (error) {
-        resolve({ error, stdout: "", stderr: "" });
+        resolve({ error, stdout: "", stderr: "", code: error?.code ?? 0 });
       }
     });
   }
@@ -459,6 +469,124 @@ function createLocalAgentEngineService(deps = {}) {
     return Boolean(source && isHermesInstalled());
   }
 
+  function readiness(status, summary, detail = "", action = "", checked = true) {
+    return {
+      status,
+      checked: Boolean(checked),
+      summary: String(summary || ""),
+      detail: String(detail || ""),
+      action: String(action || "")
+    };
+  }
+
+  function baseReadiness(definition, status) {
+    if (status.health === "checking" || status.source === "checking") {
+      return readiness("checking", "正在检查", "", "", false);
+    }
+    if (!status.installed) {
+      return readiness("missing", `${definition.label} 未检测到`, "", status.installAction || "", true);
+    }
+    if (definition.id === "hermes" && status.health === "broken") {
+      return readiness("repairable", "Hermes API 运行时不完整，可修复", "", status.installAction || "repair-hermes", true);
+    }
+    if (status.usableInMia) {
+      return readiness("not_checked", "等待深度自检", "", "", false);
+    }
+    return readiness("detected", `${definition.label} 已检测到，但还不能直接用于 Mia`, "", status.installAction || "", false);
+  }
+
+  function agentInstallActionId(definition) {
+    if (definition.id === "hermes") return "repair-hermes";
+    return definition.installable ? `install-${definition.id}` : "";
+  }
+
+  function withReadiness(status, nextReadiness, patch = {}) {
+    return {
+      ...status,
+      ...patch,
+      readiness: nextReadiness
+    };
+  }
+
+  async function cliHandshake(definition, status) {
+    const commandPath = String(status.path || "").trim();
+    if (!commandPath) {
+      return { ok: false, detail: "command path missing" };
+    }
+    const args = Array.isArray(definition.doctorArgs) && definition.doctorArgs.length
+      ? definition.doctorArgs
+      : ["--help"];
+    const result = await execFileAsync(commandPath, args, {
+      encoding: "utf8",
+      timeout: doctorTimeoutMs,
+      env: processEnvWithCliPath()
+    });
+    if (!result.error) {
+      return {
+        ok: true,
+        detail: compactOneLine(result.stdout || result.stderr)
+      };
+    }
+    const output = compactOneLine(result.stderr || result.stdout || result.error?.message || "");
+    return {
+      ok: false,
+      detail: output || `${path.basename(commandPath)} ${args.join(" ")} exited with code ${result.code || "unknown"}`
+    };
+  }
+
+  async function doctorAgentStatus(definition, status) {
+    if (!status.installed) {
+      return withReadiness(status, readiness("missing", `${definition.label} 未检测到`, "", status.installAction || "", true));
+    }
+    if (definition.id === "hermes") {
+      if (status.health === "broken") {
+        return withReadiness(status, readiness(
+          "repairable",
+          "Hermes API 运行时不完整，可修复",
+          "缺少 Hermes API server 依赖时，Mia 会无法连接本地 Hermes。",
+          status.installAction || "repair-hermes"
+        ));
+      }
+      if (status.usableInMia) {
+        return withReadiness(status, readiness("ready", "Hermes CLI 与 API 依赖自检通过"));
+      }
+      const action = status.installAction || "repair-hermes";
+      return withReadiness(status, readiness(
+        "repairable",
+        "Hermes 已检测到，但当前安装不能用于 Mia，可修复",
+        "",
+        action
+      ), { installAction: action });
+    }
+    if (!status.runtime?.supported) {
+      return withReadiness(status, readiness(
+        "blocked",
+        `${definition.label} runtime 协议暂不受 Mia 支持`,
+        `protocol=${status.runtime?.protocol || "unknown"}`,
+        ""
+      ), { usableInMia: false, health: "blocked" });
+    }
+    const probe = await cliHandshake(definition, status);
+    if (probe.ok) {
+      return withReadiness(status, readiness(
+        "ready",
+        `${definition.label} CLI 启动自检通过`,
+        probe.detail
+      ), { usableInMia: true, health: "ready", installAction: "" });
+    }
+    const action = agentInstallActionId(definition);
+    return withReadiness(status, readiness(
+      "blocked",
+      `${definition.label} 启动自检失败，可重新安装`,
+      probe.detail,
+      action
+    ), {
+      usableInMia: false,
+      health: "blocked",
+      installAction: action
+    });
+  }
+
   // Pure status builder shared by the sync and async detection paths.
   function buildAgentStatus(definition, probe) {
     const runtimeSource = String(probe.source || "").trim();
@@ -495,7 +623,7 @@ function createLocalAgentEngineService(deps = {}) {
           ? `install-${definition.id}`
           : ""
       : "";
-    return {
+    const status = {
       id: definition.id,
       label: definition.label,
       commands: definition.commands.slice(),
@@ -523,6 +651,10 @@ function createLocalAgentEngineService(deps = {}) {
         protocol: probe.runtime?.protocol || ""
       }
     };
+    return {
+      ...status,
+      readiness: baseReadiness(definition, status)
+    };
   }
 
   function agentStatus(definition) {
@@ -533,6 +665,7 @@ function createLocalAgentEngineService(deps = {}) {
     const installedCount = agents.filter((agent) => agent.installed).length;
     const usableCount = agents.filter((agent) => agent.usableInMia).length;
     const hasBrokenHermes = agents.some((agent) => agent.id === "hermes" && agent.health === "broken");
+    const repairable = agents.find((agent) => agent.installed && !agent.usableInMia && agent.installAction);
     return {
       generatedAt: at,
       agents,
@@ -541,7 +674,7 @@ function createLocalAgentEngineService(deps = {}) {
         usableCount,
         missingCount: agents.length - installedCount,
         hasUsableAgent: usableCount > 0,
-        recommendedAction: usableCount > 0 ? "continue" : hasBrokenHermes ? "repair-hermes" : "install-hermes"
+        recommendedAction: usableCount > 0 ? "continue" : hasBrokenHermes ? "repair-hermes" : repairable?.installAction || "install-hermes"
       }
     };
   }
@@ -567,7 +700,7 @@ function createLocalAgentEngineService(deps = {}) {
     }
     const run = () => Promise.all(AGENT_DEFINITIONS.map(async (definition) => {
       const runtimeProbe = await firstRuntimeProbeAsync(definition);
-      const status = buildAgentStatus(definition, runtimeProbe);
+      const status = await doctorAgentStatus(definition, buildAgentStatus(definition, runtimeProbe));
       try { if (typeof onProgress === "function") onProgress(status); } catch { /* ignore */ }
       return status;
     })).then((agents) => {
@@ -602,6 +735,7 @@ function createLocalAgentEngineService(deps = {}) {
       version: "",
       source: "checking",
       health: "checking",
+      readiness: readiness("checking", "正在检查", "", "", false),
       system: {
         available: false,
         path: "",
@@ -647,6 +781,9 @@ function createLocalAgentEngineService(deps = {}) {
         path: hermes.path || "",
         version: hermes.version || "",
         source: hermes.source || "missing",
+        health: hermes.health || "missing",
+        installAction: hermes.installAction || "",
+        readiness: hermes.readiness || null,
         system: hermes.system || { available: false, path: "", version: "" }
       },
       claudeCode: {
@@ -655,7 +792,10 @@ function createLocalAgentEngineService(deps = {}) {
         available: Boolean(claudeCode.usableInMia),
         installed: Boolean(claudeCode.installed),
         path: claudeCode.path || "",
-        version: claudeCode.version || ""
+        version: claudeCode.version || "",
+        health: claudeCode.health || "missing",
+        installAction: claudeCode.installAction || "",
+        readiness: claudeCode.readiness || null
       },
       codex: {
         id: "codex",
@@ -663,7 +803,10 @@ function createLocalAgentEngineService(deps = {}) {
         available: Boolean(codex.usableInMia),
         installed: Boolean(codex.installed),
         path: codex.path || "",
-        version: codex.version || ""
+        version: codex.version || "",
+        health: codex.health || "missing",
+        installAction: codex.installAction || "",
+        readiness: codex.readiness || null
       },
       openClaw: {
         id: "openclaw",
@@ -672,6 +815,9 @@ function createLocalAgentEngineService(deps = {}) {
         installed: Boolean(openClaw.installed),
         path: openClaw.path || "",
         version: openClaw.version || "",
+        health: openClaw.health || "missing",
+        installAction: openClaw.installAction || "",
+        readiness: openClaw.readiness || null,
         detectionOnly: Boolean(openClaw.detectionOnly)
       }
     };

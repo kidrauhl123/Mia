@@ -3683,6 +3683,10 @@ function detectedAgentLine(agent, engineId = agent?.id) {
   const installMessage = agentInstallMessageFor(engineId);
   if (installMessage) return installMessage;
   if (!agent) return "未检测到";
+  const readiness = agent.readiness || {};
+  const readinessText = String(readiness.summary || readiness.detail || "").trim();
+  if ((agent.health === "blocked" || readiness.status === "blocked") && readinessText) return readinessText;
+  if (readiness.status === "repairable" && readinessText) return readinessText;
   if (agent.usableInMia) {
     const parts = [agent.path || "已接入 Mia", shortAgentVersion(agent)].filter(Boolean);
     return parts.join(" · ");
@@ -3746,6 +3750,7 @@ function agentInstallLabel(agent) {
     if (agent.health === "broken" || agent.installAction === "repair-hermes") return "修复官方 Hermes";
     return "安装官方 Hermes";
   }
+  if (agent.installed && !agent.usableInMia) return `修复 ${agent.label || agent.id}`;
   return `安装 ${agent.label || agent.id}`;
 }
 
@@ -3754,7 +3759,10 @@ function agentInstallAction(agent) {
   if (agent.id === "hermes" && (agent.health === "broken" || agent.installAction === "repair-hermes")) {
     return { action: "repair-hermes", label: agentInstallLabel(agent), engineId: "hermes" };
   }
-  if (agent.usableInMia || agent.installed) return null;
+  if (agent.usableInMia) return null;
+  if (agent.installed && agent.installAction) {
+    return { action: agent.installAction, label: agentInstallLabel(agent), engineId: agent.id };
+  }
   if (agent.id === "hermes" && (agent.installable || agent.installAction)) {
     const action = agent.health === "broken" || agent.installAction === "repair-hermes"
       ? "repair-hermes"

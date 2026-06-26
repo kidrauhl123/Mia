@@ -180,6 +180,45 @@ test("setup guide allows installed Claude Code, Codex, and OpenClaw as ready eng
   assert.doesNotMatch(html, /data-setup-action="install-openclaw"/);
 });
 
+test("setup guide renders blocked installed agents with repair actions", () => {
+  const state = {
+    runtime: {
+      agentInventory: inventory([
+        {
+          id: "codex",
+          label: "Codex",
+          installed: true,
+          usableInMia: false,
+          installable: true,
+          installAction: "install-codex",
+          path: "/bin/codex",
+          version: "codex 2.3.4",
+          health: "blocked",
+          source: "system",
+          readiness: {
+            status: "blocked",
+            checked: true,
+            summary: "Codex 启动自检失败，可重新安装",
+            detail: "Cannot start Codex",
+            action: "install-codex"
+          }
+        }
+      ]),
+      fellows: []
+    },
+    onboardingStep: "engine",
+    agentSetupSkipped: false,
+    setupGuideDismissed: false
+  };
+  const guide = loadSetupGuide(state);
+  const html = guide.renderSetupGuide();
+
+  assert.match(html, /Codex 启动自检失败，可重新安装/);
+  assert.match(html, /data-setup-action="install-codex"/);
+  assert.match(html, />修复 Codex</);
+  assert.doesNotMatch(html, /setup-engine-badge ok/);
+});
+
 test("setup guide allows system Hermes without requiring Mia private install", () => {
   const state = {
     runtime: {

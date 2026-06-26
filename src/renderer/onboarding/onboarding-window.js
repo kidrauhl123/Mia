@@ -39,7 +39,7 @@
 
   function isAgentReady(id) {
     const agent = ((inventory && inventory.agents) || []).find((item) => item.id === id);
-    return Boolean(agent && (agent.usableInMia || agent.installed));
+    return Boolean(agent && (agent.usableInMia || (agent.installed && agent.detectionOnly)));
   }
 
   function esc(value) {
@@ -111,6 +111,14 @@
 
   function rowStatus(agent) {
     if (!agent) return { text: "检测中…", cls: "checking" };
+    const readiness = agent.readiness || {};
+    const readinessText = String(readiness.summary || readiness.detail || "").trim();
+    if (agent.health === "blocked" || readiness.status === "blocked") {
+      return { text: readinessText || "需修复", cls: "error" };
+    }
+    if (agent.health === "broken" || readiness.status === "repairable") {
+      return { text: readinessText || "可修复", cls: "error" };
+    }
     if (agent.id === "openclaw" && agent.installed) return { text: "已就绪", cls: "ok" };
     if (agent.usableInMia) return { text: "已就绪", cls: "ok" };
     if (agent.installed) return { text: "已检测到", cls: "" };
@@ -173,7 +181,7 @@
       const installing = install && install.status === "installing";
       const failed = install && install.status === "error";
       const { text, cls } = rowStatus(agent);
-      const canInstall = !installing && agent && agent.installable && !agent.usableInMia && !agent.installed && agent.installAction;
+      const canInstall = !installing && agent && agent.installable && !agent.usableInMia && agent.installAction;
       const installPercent = Number(install?.percent);
       const percent = Number.isFinite(installPercent) ? Math.max(0, Math.min(100, Math.round(installPercent))) : null;
       const detail = install?.message
@@ -183,7 +191,7 @@
       const right = installing
         ? `<button class="onb-row-btn" type="button" disabled>${percent === null ? "安装中" : `安装中 ${percent}%`}</button>`
         : canInstall
-        ? `<button class="onb-row-btn" type="button" data-install="${def.id}">安装</button>`
+        ? `<button class="onb-row-btn" type="button" data-install="${def.id}">${agent.installed ? "修复" : "安装"}</button>`
         : `<span class="onb-row-status">${esc(text)}</span>`;
       return `<div class="onb-row ${cls} ${installing ? "installing" : ""} ${failed ? "error" : ""}" data-row="${def.id}">
         ${agentIcon(def)}

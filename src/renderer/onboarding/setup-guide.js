@@ -94,6 +94,12 @@
     return version.split(/\s+/).slice(0, 2).join(" ");
   }
 
+  function readinessSummary(agent) {
+    const readiness = agent && agent.readiness;
+    if (!readiness || readiness.checked === false) return "";
+    return String(readiness.summary || readiness.detail || "").trim();
+  }
+
   const AGENT_ICON_PATHS = {
     hermes: "./assets/engine-icons/hermesagent.svg",
     "claude-code": "./assets/engine-icons/claudecode.svg",
@@ -119,6 +125,8 @@
       return state?.agentSetupInstallMessage || "Installing...";
     }
     if (agent.health === "checking" || agent.source === "checking") return "正在检查";
+    if (agent.health === "blocked") return readinessSummary(agent) || "启动自检失败，可修复";
+    if (agent.readiness?.status === "repairable") return readinessSummary(agent) || "状态异常，可修复";
     if (agent.usableInMia) {
       const parts = [agent.path || "已接入 Mia", versionLabel(agent)].filter(Boolean);
       return parts.join(" · ");
@@ -148,8 +156,8 @@
       }
       return null;
     }
-    if (agent.installable && agent.installAction && !agent.usableInMia && !agent.installed) {
-      return { action: agent.installAction, label: `安装 ${agent.label}` };
+    if (agent.installable && agent.installAction && !agent.usableInMia) {
+      return { action: agent.installAction, label: `${agent.installed ? "修复" : "安装"} ${agent.label}` };
     }
     return null;
   }
@@ -169,6 +177,7 @@
     }
     if (agent.usableInMia) return `<span class="setup-engine-badge ok">已就绪</span>`;
     if (agent.installed && agent.detectionOnly) return `<span class="setup-engine-badge ok">已就绪</span>`;
+    if (agent.health === "blocked" || agent.readiness?.status === "repairable") return `<span class="setup-engine-badge muted">需处理</span>`;
     return `<span class="setup-engine-badge muted">未检测到</span>`;
   }
 
