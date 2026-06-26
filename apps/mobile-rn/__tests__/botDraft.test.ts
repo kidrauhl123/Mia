@@ -35,8 +35,8 @@ test("botIdentityBody preserves persona in cloud identity fields", () => {
 });
 
 test("botRuntimeDefaultConfig uses cloud hermes defaults", () => {
-  expect(botRuntimeDefaultConfig("mia-default")).toEqual({
-    model: "mia-default",
+  expect(botRuntimeDefaultConfig()).toEqual({
+    model: "mia-auto",
     effortLevel: "medium",
     permissionMode: "ask",
   });

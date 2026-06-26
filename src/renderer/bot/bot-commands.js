@@ -37,12 +37,15 @@
 
   const LEGACY_RUNTIME_MODEL_FIELDS = [
     "provider",
+    "modelProvider",
     "providerLabel",
     "authType",
     "apiKeyEnv",
     "baseUrl",
     "apiMode",
     "provider_label",
+    "model_provider",
+    "model_profile_id",
     "auth_type",
     "api_key_env",
     "base_url",
@@ -451,16 +454,34 @@
     );
   }
 
+  function canonicalMiaModelId(model = "") {
+    const id = String(model || "").trim();
+    return id === "mia-default" ? "mia-auto" : id;
+  }
+
+  function canonicalMiaProfileId(profileId = "", model = "") {
+    const raw = String(profileId || "").trim();
+    if (!raw.startsWith("mia:")) return raw;
+    const modelId = canonicalMiaModelId(raw.slice("mia:".length)) || canonicalMiaModelId(model);
+    return modelId ? `mia:${modelId}` : raw;
+  }
+
   function sanitizePersistedModelEntry(entry = {}) {
+    const rawValue = String(entry?.value || entry?.model || entry?.id || "").trim();
+    const rawModel = String(entry?.model || "").trim();
+    const model = canonicalMiaModelId(rawModel);
     const sanitized = {
-      value: String(entry?.value || entry?.model || entry?.id || "").trim(),
+      value: canonicalMiaModelId(rawValue),
       label: String(entry?.label || entry?.model || entry?.id || entry?.value || "Default").trim(),
-      model: String(entry?.model || "").trim(),
+      model,
       provider: String(entry?.provider || "").trim(),
       providerLabel: String(entry?.providerLabel || entry?.provider_label || "").trim()
     };
     const authType = String(entry?.authType || entry?.auth_type || "").trim();
-    const modelProfileId = String(entry?.modelProfileId || entry?.model_profile_id || entry?.profileId || entry?.profile_id || "").trim();
+    const modelProfileId = canonicalMiaProfileId(
+      entry?.modelProfileId || entry?.model_profile_id || entry?.profileId || entry?.profile_id || "",
+      model || sanitized.value
+    );
     if (authType) sanitized.authType = authType;
     if (modelProfileId) sanitized.modelProfileId = modelProfileId;
     return sanitized;
@@ -471,8 +492,8 @@
     if (Array.isArray(next.modelEntries)) {
       next.modelEntries = next.modelEntries.map((entry) => sanitizePersistedModelEntry(entry));
     }
-    const model = String(next.model || "").trim();
-    const profileId = String(next.modelProfileId || next.model_profile_id || "").trim();
+    const model = canonicalMiaModelId(next.model);
+    const profileId = canonicalMiaProfileId(next.modelProfileId || next.model_profile_id || "", model);
     if (
       String(next.provider || next.modelProvider || next.model_provider || "").trim() === "mia"
       || String(next.authType || next.auth_type || "").trim() === "mia_account"
@@ -481,7 +502,9 @@
       || model === "mia-default"
     ) {
       next.providerConnectionId = "mia";
-      if (!next.modelProfileId && model) next.modelProfileId = `mia:${model}`;
+      if (model) next.model = model;
+      if (profileId) next.modelProfileId = profileId;
+      else if (model) next.modelProfileId = `mia:${model}`;
     }
     if (shouldStripLegacyRuntimeModelFields(next)) {
       for (const key of LEGACY_RUNTIME_MODEL_FIELDS) delete next[key];

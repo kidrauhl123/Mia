@@ -46,9 +46,9 @@ export function botIdentityBody(draft: BotDraft) {
   };
 }
 
-export function botRuntimeDefaultConfig(defaultModel = "mia-default"): BotRuntimeConfig {
+export function botRuntimeDefaultConfig(defaultModel = "mia-auto"): BotRuntimeConfig {
   return {
-    model: defaultModel || "mia-default",
+    model: defaultModel || "mia-auto",
     effortLevel: "medium",
     permissionMode: "ask",
   };

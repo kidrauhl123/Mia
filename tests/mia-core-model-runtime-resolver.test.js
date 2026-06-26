@@ -56,6 +56,20 @@ test("resolves profileless mia-auto binding through Mia Cloud", () => {
   assert.equal(isMiaManagedRuntime(runtime), true);
 });
 
+test("normalizes legacy mia-default references to mia-auto", () => {
+  const resolver = createResolver();
+
+  const runtime = resolver.resolveModelRuntime({
+    model: "mia-default",
+    modelProfileId: "mia:mia-default"
+  }, { engine: "hermes" });
+
+  assert.equal(runtime.provider, "mia");
+  assert.equal(runtime.model, "mia-auto");
+  assert.equal(runtime.modelProfileId, "mia:mia-auto");
+  assert.equal(runtime.baseUrl, "https://mia.example/api/me/model-proxy/v1");
+});
+
 test("resolves provider connection references without renderer credentials", () => {
   const resolver = createResolver();
 

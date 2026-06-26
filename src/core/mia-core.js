@@ -87,6 +87,10 @@ const { normalizeTurnRuntimeConfig } = require("../main/runtime-config-normalize
 const { schedulerSkillIdsForTurn } = require("../main/scheduler-skill-defaults.js");
 const { createHermesRunService } = require("../main/hermes-run-service.js");
 const { createHermesChatAdapter } = require("../main/hermes-chat-adapter.js");
+const {
+  createMiaCoreModelRuntimeResolver,
+  isMiaManagedRuntime
+} = require("../main/mia-core/model-runtime-resolver.js");
 
 // Memory + skills collaborators — the SAME pure-node factories main.js drives
 // (src/main.js ~293 createMiaMemoryService, ~525 createSkillsLoader; no fork).
@@ -485,42 +489,25 @@ function createCoreBotExecution({
     nodePath: coreNodePath
   });
 
-  // PART A — managed-model runtime (node-only reconstruction of main.js
-  // resolveManagedModelRuntime, src/main.js:2014). A Mia-managed-model bot
-  // (provider "mia" / authType "mia_account" / modelProfileId "mia:*") resolves
-  // to the Mia cloud model-proxy provider. Cloud settings (url/token) come from
-  // the SAME single-owner settings-store the Electron path reads — node, no
-  // electron coupling (main.js's cloudStatus(true) returns the identical
-  // {enabled, url, token} fields cloudSettings() exposes directly).
+  // PART A — managed-model runtime. Reuse the same resolver Electron main uses
+  // so compact platform references like bare `model: "mia-auto"` mean the same
+  // thing in Core, cloud bridge, and desktop-local paths.
   const coreCloudSettings = () => (settingsStore && typeof settingsStore.cloudSettings === "function"
     ? settingsStore.cloudSettings()
     : { enabled: false, url: "", token: "" });
   const normalizeCloudUrl = settingsStore && typeof settingsStore.normalizeCloudUrl === "function"
     ? settingsStore.normalizeCloudUrl
     : (value) => String(value || "");
+  const modelRuntimeResolver = createMiaCoreModelRuntimeResolver({
+    cloudStatus: () => coreCloudSettings(),
+    normalizeCloudUrl,
+    providerConnection: () => null,
+    modelSettings: () => ({})
+  });
 
   function resolveManagedModelRuntime(config = {}) {
-    const provider = String(config.provider || config.modelProvider || config.model_provider || "").trim();
-    const authType = String(config.authType || config.auth_type || "").trim();
-    const profileId = String(config.modelProfileId || config.model_profile_id || "").trim();
-    const model = String(config.model || "").trim();
-    if (provider !== "mia" && authType !== "mia_account" && !profileId.startsWith("mia:")) return null;
-    const cloud = coreCloudSettings();
-    if (!cloud?.enabled || !cloud.token || !cloud.url) {
-      throw new Error("这个 Bot 使用 Mia 托管模型，请先登录 Mia Cloud。");
-    }
-    const cloudBaseUrl = normalizeCloudUrl(cloud.url);
-    return {
-      provider: "mia",
-      providerLabel: "Mia",
-      model: model || "mia-auto",
-      authType: "mia_account",
-      apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
-      baseUrl: `${cloudBaseUrl}/api/me/model-proxy/v1`,
-      anthropicBaseUrl: `${cloudBaseUrl}/api/me/model-proxy`,
-      apiKey: cloud.token,
-      apiMode: "chat_completions"
-    };
+    const runtime = modelRuntimeResolver.resolveModelRuntime(config, {});
+    return isMiaManagedRuntime(runtime) ? runtime : null;
   }
 
   // PART A — writeModelRuntimeConfig. Minimal read-modify-write of the Hermes

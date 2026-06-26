@@ -25,7 +25,7 @@ export default function CreateBotPanel({ bots }: { bots: Bot[] }) {
     }
     setStatus("");
     const botId = cloudBotKeyFromName(trimmedName, bots.map(botKey));
-    const defaultModel = models.data?.[0]?.value || models.data?.[0]?.id || "mia-default";
+    const defaultModel = models.data?.[0]?.value || models.data?.[0]?.id || "mia-auto";
     try {
       await createBot.mutateAsync({ botId, draft: { name: trimmedName, personaText }, defaultModel });
       setName("");

@@ -169,3 +169,23 @@ test("saveModelSelection treats profileless mia-auto as compact Mia-managed sett
   assert.equal(calls.restarts, 0);
   assert.equal(calls.statuses, 1);
 });
+
+test("saveModelSelection canonicalizes legacy mia-default to mia-auto", async () => {
+  const { calls, service } = setup();
+
+  const result = await service.saveModelSelection({
+    model: "mia-default",
+    modelProfileId: "mia:mia-default"
+  });
+
+  assert.deepEqual(calls.providerSaves, []);
+  assert.deepEqual(calls.modelWrites, [{
+    provider: "mia",
+    providerConnectionId: "mia",
+    providerLabel: "Mia",
+    authType: "mia_account",
+    model: "mia-auto",
+    modelProfileId: "mia:mia-auto"
+  }]);
+  assert.deepEqual(result, { runtime: true });
+});

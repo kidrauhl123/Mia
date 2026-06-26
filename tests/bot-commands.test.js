@@ -528,12 +528,15 @@ test("saveBotRuntimeControl removes legacy model transport fields when switching
                 deviceId: "mac-1",
                 deviceName: "MacBook Pro",
                 provider: "legacy-provider",
+                modelProvider: "legacy-provider",
+                model_provider: "legacy-provider",
                 providerLabel: "Legacy Provider",
                 authType: "api_key",
                 apiKeyEnv: "LEGACY_API_KEY",
                 baseUrl: "https://legacy.example",
                 apiMode: "openai",
                 model: "old-model",
+                model_profile_id: "legacy-provider:old-model",
                 effortLevel: "medium",
                 permissionMode: "ask",
                 harmlessFlag: "keep-me"
@@ -740,9 +743,9 @@ test("saveBotRuntimeConfig merges patch with current cloud runtime binding", asy
   });
 
   assert.deepEqual(result.binding.config, {
-    model: "mia-default",
+    model: "mia-auto",
     providerConnectionId: "mia",
-    modelProfileId: "mia:mia-default",
+    modelProfileId: "mia:mia-auto",
     effortLevel: "high",
     permissionMode: "ask"
   });
@@ -752,9 +755,9 @@ test("saveBotRuntimeConfig merges patch with current cloud runtime binding", asy
       runtimeKind: "cloud-hermes",
       enabled: true,
       config: {
-        model: "mia-default",
+        model: "mia-auto",
         providerConnectionId: "mia",
-        modelProfileId: "mia:mia-default",
+        modelProfileId: "mia:mia-auto",
         effortLevel: "high",
         permissionMode: "ask"
       }

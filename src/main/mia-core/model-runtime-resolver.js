@@ -17,6 +17,18 @@ function isBuiltinMiaModel(model = "") {
   return id === "mia-auto" || id === "mia-default";
 }
 
+function canonicalMiaModelId(model = "") {
+  const id = String(model || "").trim();
+  return id === "mia-default" ? "mia-auto" : id;
+}
+
+function canonicalMiaProfileId(profileId = "", model = "") {
+  const raw = String(profileId || "").trim();
+  if (!raw.startsWith("mia:")) return raw;
+  const modelId = canonicalMiaModelId(raw.slice("mia:".length)) || canonicalMiaModelId(model);
+  return modelId ? `mia:${modelId}` : raw;
+}
+
 function isMiaManagedReference(config = {}) {
   const explicitProviderId = explicitProviderConnectionId(config);
   const profileProviderId = providerFromProfileId(config);
@@ -56,8 +68,10 @@ function isNativeCliProvider(engine = "", provider = "") {
 }
 
 function toMiaManagedReference(config = {}) {
-  const model = firstString(config, ["model"]) || "mia-auto";
-  const profileId = firstString(config, ["modelProfileId", "model_profile_id"]);
+  const rawProfileId = firstString(config, ["modelProfileId", "model_profile_id"]);
+  const profileModel = rawProfileId.startsWith("mia:") ? rawProfileId.slice("mia:".length) : "";
+  const model = canonicalMiaModelId(firstString(config, ["model"]) || profileModel) || "mia-auto";
+  const profileId = canonicalMiaProfileId(rawProfileId, model);
   return {
     provider: "mia",
     providerConnectionId: "mia",
@@ -153,6 +167,8 @@ function createMiaCoreModelRuntimeResolver(deps = {}) {
 }
 
 module.exports = {
+  canonicalMiaModelId,
+  canonicalMiaProfileId,
   createMiaCoreModelRuntimeResolver,
   isMiaManagedRuntime
 };

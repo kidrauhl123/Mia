@@ -1,5 +1,10 @@
 "use strict";
 
+const {
+  canonicalMiaModelId,
+  canonicalMiaProfileId
+} = require("./mia-core/model-runtime-resolver.js");
+
 function firstString(source = {}, keys = []) {
   for (const key of keys) {
     const value = String(source?.[key] || "").trim();
@@ -30,14 +35,16 @@ function createModelSettingsService({
 }) {
   async function saveModelSelection(settings = {}) {
     if (isCompactMiaManagedSettings(settings)) {
-      const model = String(settings.model || "").trim();
+      const model = canonicalMiaModelId(settings.model) || "mia-auto";
+      const rawProfileId = String(settings.modelProfileId || settings.model_profile_id || "").trim();
+      const modelProfileId = canonicalMiaProfileId(rawProfileId, model) || `mia:${model}`;
       writeModelSettings({
         provider: "mia",
         providerConnectionId: String(settings.providerConnectionId || settings.provider || "mia").trim() || "mia",
         providerLabel: String(settings.providerLabel || "Mia").trim() || "Mia",
         authType: String(settings.authType || "mia_account").trim() || "mia_account",
         model,
-        modelProfileId: String(settings.modelProfileId || (model ? `mia:${model}` : "mia:mia-auto")).trim() || (model ? `mia:${model}` : "mia:mia-auto")
+        modelProfileId
       });
       return getRuntimeStatus();
     }
