@@ -11,7 +11,9 @@ const config: ExpoConfig = {
   icon: "./assets/icon.png",
   scheme: IS_DEV ? "mia-dev" : "mia",
   userInterfaceStyle: "light",
-  runtimeVersion: "2",
+  // Bump this whenever native modules or native config change; OTA updates are
+  // only safe within the same native runtime.
+  runtimeVersion: "3",
   updates: {
     url: "https://u.expo.dev/77e99873-77e9-4e75-82c1-96143c4e846b",
   },
