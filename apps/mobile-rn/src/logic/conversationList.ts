@@ -147,18 +147,6 @@ function conversationPreview(c: Conversation, messages?: ChatMessage[]): string 
   return fallback || "暂无对话";
 }
 
-function conversationLastSeq(c: Conversation): number {
-  const value = Number(c.lastMessageSeq ?? c.last_message_seq ?? 0);
-  return Number.isFinite(value) && value > 0 ? value : 0;
-}
-
-function isLastMessageFromSelf(c: Conversation, selfId?: string): boolean {
-  if (!selfId) return false;
-  const kind = String(c.lastMessageSenderKind || c.last_message_sender_kind || "");
-  const ref = String(c.lastMessageSenderRef || c.last_message_sender_ref || "");
-  return kind === "user" && ref === selfId;
-}
-
 export function formatConversationTime(value: string | number | Date | undefined): string {
   if (!value) return "";
   const date = value instanceof Date ? value : new Date(value);
@@ -180,26 +168,8 @@ export function unreadCountsFromMessages(
   const unread: Record<string, number> = {};
   Object.entries(messagesByConv).forEach(([conversationId, messages]) => {
     const readSeq = Number(readMarks[conversationId]) || 0;
-    const maxSeq = (messages || []).reduce((max, msg) => Math.max(max, Number(msg.seq) || 0), 0);
-    if (maxSeq > readSeq) unread[conversationId] = maxSeq - readSeq;
-  });
-  return unread;
-}
-
-export function unreadCountsFromConversations(
-  conversations: Conversation[] = [],
-  readMarks: Record<string, number> = {},
-  unreadOverrides: Record<string, boolean> = {},
-  selfId?: string
-): Record<string, number> {
-  const unread: Record<string, number> = {};
-  conversations.forEach((conversation) => {
-    const readSeq = Number(readMarks[conversation.id]) || 0;
-    const lastSeq = conversationLastSeq(conversation);
-    const count = !isLastMessageFromSelf(conversation, selfId) && lastSeq > readSeq ? lastSeq - readSeq : 0;
-    if (count > 0 || unreadOverrides[conversation.id] === true) {
-      unread[conversation.id] = Math.max(count, 1);
-    }
+    const count = (messages || []).filter((msg) => !msg.isOwn && (Number(msg.seq) || 0) > readSeq).length;
+    if (count > 0) unread[conversationId] = count;
   });
   return unread;
 }
@@ -247,16 +217,18 @@ export function buildConversationListItems(deps: {
   });
   const items = aggregated.map((c) => {
     const sortTime = activityTime(c, deps.messagesByConv?.[c.id]);
+    const manual = manualUnread[c.id] === true;
+    const count = Number(unread[c.id]) || 0;
     return {
       id: c.id,
       title: titleForConversation(c, bots, ctx),
       subtitle: conversationPreview(c, deps.messagesByConv?.[c.id]),
       timeText: formatConversationTime(sortTime),
       sortTime,
-      unread: Number(unread[c.id]) || 0,
+      unread: count > 0 ? count : manual ? 1 : 0,
       pinned: pinned.has(c.id),
       muted: muted.has(c.id),
-      manualUnread: manualUnread[c.id] === true,
+      manualUnread: manual,
       tiles: conversationAvatarTiles(c, ctx),
       statusBadge: statusBadgeForConversation(c, bots, ctx) || null,
       tags: conversationTagsFor(deps.tags, c.id),

@@ -41,5 +41,5 @@ const styles = StyleSheet.create({
   image: { width: 188, height: 124, backgroundColor: color.surfaceMuted },
   meta: { paddingHorizontal: space.sm, paddingVertical: space.sm, gap: 2 },
   ownText: { color: color.userBubbleText },
-  ownSub: { color: "rgba(255,255,255,0.76)" },
+  ownSub: { color: color.inkMuted },
 });

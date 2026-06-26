@@ -15,16 +15,23 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Svg, { Circle, Path } from "react-native-svg";
 import { useBots, useConversations, useFriends, useMe, useSaveUserSettings, useUserSettings } from "../state/queries";
 import { useAuth } from "../state/auth";
-import { buildConversationListItems, unreadCountsFromConversations, type ConversationListItem } from "../logic/conversationList";
+import { buildConversationListItems, type ConversationListItem } from "../logic/conversationList";
 import {
   markConversationReadPatch,
   markConversationUnreadPatch,
   toggleMutedConversation,
   togglePinnedConversation,
 } from "../logic/settings";
+import {
+  clearUnreadCount,
+  reconcileUnreadCountsWithReadMarks,
+  unreadCountsQueryKey,
+  type UnreadCounts,
+} from "../logic/unreadState";
 import ConversationAvatar from "../components/ConversationAvatar";
 import StatusBadge from "../components/StatusBadge";
 import { Body, BodyStrong, Label, Sub, Title } from "../ui/Text";
@@ -119,6 +126,7 @@ function TagChip({ tag, index }: { tag: ConversationListItem["tags"][number]; in
 export default function ConversationListScreen({ navigation }: Props) {
   const typography = useTypography();
   const { session, apiBase } = useAuth();
+  const qc = useQueryClient();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
   const [searchActive, setSearchActive] = useState(false);
@@ -133,6 +141,12 @@ export default function ConversationListScreen({ navigation }: Props) {
   const { data: friends = [] } = useFriends();
   const { data: me } = useMe();
   const { data: settings } = useUserSettings();
+  const { data: rawUnreadCounts = {} } = useQuery<UnreadCounts>({
+    queryKey: unreadCountsQueryKey,
+    queryFn: () => ({}),
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
   const saveSettings = useSaveUserSettings();
   const selfId = me?.id || session?.user?.id || "";
 
@@ -144,8 +158,8 @@ export default function ConversationListScreen({ navigation }: Props) {
     return out;
   }, [conversations]);
   const unreadByConversation = useMemo(
-    () => unreadCountsFromConversations(conversations, settings?.readMarks || {}, settings?.unreadOverrides || {}, selfId),
-    [conversations, settings?.readMarks, settings?.unreadOverrides, selfId]
+    () => reconcileUnreadCountsWithReadMarks(rawUnreadCounts, settings?.readMarks || {}, conversations),
+    [conversations, rawUnreadCounts, settings?.readMarks]
   );
 
   // 自己:优先完整资料(带头像 + 裁剪),回退到会话里的精简 user。
@@ -265,6 +279,11 @@ export default function ConversationListScreen({ navigation }: Props) {
   function saveAndClose(patch: Parameters<typeof saveSettings.mutate>[0]) {
     saveSettings.mutate(patch);
     setActionItem(null);
+  }
+
+  function markActionItemRead(item: ConversationListItem) {
+    qc.setQueryData<UnreadCounts>(unreadCountsQueryKey, (old) => clearUnreadCount(old, item.id));
+    saveAndClose(markConversationReadPatch(settings, item.raw));
   }
 
   const refreshConversations = useCallback(() => {
@@ -456,9 +475,9 @@ export default function ConversationListScreen({ navigation }: Props) {
                 <ActionRow
                   title={actionItem.unread ? "标为已读" : "标为未读"}
                   detail={actionItem.unread ? "同步当前会话已读位置" : "在主列表保留一个未读提示"}
-                  onPress={() => saveAndClose(actionItem.unread
-                    ? markConversationReadPatch(settings, actionItem.raw)
-                    : markConversationUnreadPatch(settings, actionItem.id))}
+                  onPress={() => actionItem.unread
+                    ? markActionItemRead(actionItem)
+                    : saveAndClose(markConversationUnreadPatch(settings, actionItem.id))}
                 />
                 <Pressable style={styles.cancelAction} onPress={() => setActionItem(null)}>
                   <Body style={styles.cancelText}>取消</Body>

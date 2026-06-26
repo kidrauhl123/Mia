@@ -23,5 +23,25 @@ test("resolveMessageAuthor reads bot identity name and status badge from members
   expect(resolveMessageAuthor(msg, members)).toMatchObject({
     name: "Mia",
     statusBadge: badge,
+    avatar: { color: expect.any(String) },
   });
+});
+
+test("resolveMessageAuthor returns desktop-aligned sender color fallback", () => {
+  const msg: ChatMessage = {
+    messageId: "m1",
+    clientTraceId: "",
+    role: "user",
+    senderKind: "user",
+    senderRef: "u2",
+    bodyMd: "hi",
+    isOwn: false,
+    isPending: false,
+    createdAt: "",
+  };
+
+  const author = resolveMessageAuthor(msg, []);
+  expect(author.name).toBe("u2");
+  expect(author.color).toMatch(/^#[0-9a-f]{6}$/i);
+  expect(author.avatar.color).toBe(author.color);
 });

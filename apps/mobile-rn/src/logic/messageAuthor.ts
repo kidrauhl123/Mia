@@ -1,4 +1,6 @@
-import type { ChatMessage, Identity, Member, StatusBadge } from "../api/types";
+import type { AvatarDescriptor, ChatMessage, Identity, Member, StatusBadge } from "../api/types";
+import { identityDisplayText, resolveAvatarForContact, memberAccentColor } from "./avatar";
+import { botAvatarIdentityId } from "./contact";
 
 function firstNonEmpty(...values: unknown[]): string {
   for (const value of values) {
@@ -21,6 +23,8 @@ export interface MessageAuthor {
   name: string;
   identity?: Identity | null;
   statusBadge?: StatusBadge | null;
+  avatar: AvatarDescriptor;
+  color: string;
 }
 
 export function resolveMessageAuthor(msg: ChatMessage, members: Member[] = []): MessageAuthor {
@@ -38,9 +42,33 @@ export function resolveMessageAuthor(msg: ChatMessage, members: Member[] = []): 
     member?.username,
     senderRef
   );
+  const identityAvatar = identity.avatar || {};
+  const explicitColor = firstNonEmpty(
+    identityAvatar.color,
+    member?.bot_color,
+    member?.avatarColor,
+    member?.avatar_color
+  );
+  const color = explicitColor || memberAccentColor(senderRef || name);
+  const avatar = (identityAvatar.image || identityAvatar.color || identityAvatar.text)
+    ? {
+        image: identityAvatar.image || "",
+        crop: identityAvatar.crop || null,
+        color: identityAvatar.color || color,
+        text: identityAvatar.text || identityDisplayText(name, senderRef || "?"),
+      }
+    : resolveAvatarForContact({
+        id: senderKind === "bot" ? botAvatarIdentityId(senderRef, { ...member, id: identity.id || senderRef, member_ref: senderRef }) : identity.id || senderRef,
+        displayName: name,
+        avatarImage: member?.bot_avatar_image || "",
+        avatarCrop: member?.bot_avatar_crop || null,
+        color,
+      });
   return {
     name,
     identity: member?.identity || null,
-    statusBadge: statusBadgeFrom(msg, identity, member) || null
+    statusBadge: statusBadgeFrom(msg, identity, member) || null,
+    avatar,
+    color: avatar.color || color,
   };
 }

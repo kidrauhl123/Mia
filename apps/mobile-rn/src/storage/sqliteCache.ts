@@ -316,6 +316,7 @@ export async function saveCachedValue<T>(scope: string | undefined, key: string,
 export const sqliteCacheKeys = {
   bots: "bots",
   friends: "friends",
+  lastEventSeq: "last-event-seq",
   me: "me-full",
   settings: "settings",
 } as const;

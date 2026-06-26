@@ -5,11 +5,13 @@ export const color = {
   bg: "#FFFFFF", // 列表/设置等白底
   chatBg: "#F0F0F3", // 聊天区背景(--chat-background)
   surface: "#FFFFFF",
+  surfaceSoft: "rgba(255,255,255,0.86)", // --surface-soft
   surfaceMuted: "#F5F5F8", // --surface-muted
   field: "rgba(0,0,0,0.06)", // --field
   ink: "rgba(0,0,0,0.92)", // --text
   inkMuted: "rgba(0,0,0,0.60)", // --muted
   inkFaint: "rgba(0,0,0,0.36)", // --faint
+  floorFaint: "rgba(0,0,0,0.48)", // --floor-faint
   line: "rgba(0,0,0,0.08)", // --line
   lineStrong: "rgba(0,0,0,0.14)", // --line-strong
   accent: "#5E5CE6", // --accent
@@ -17,8 +19,8 @@ export const color = {
   accentText: "#FFFFFF",
   accent2: "#30D158", // --accent-2
   bubbleOther: "rgba(0,0,0,0.055)", // 对方气泡浅灰
-  userBubble: "#5E5CE6", // 自己气泡(对齐 web:accent 底白字)
-  userBubbleText: "#FFFFFF",
+  userBubble: "#EEFFDE", // --user-bubble, Electron 桌面默认
+  userBubbleText: "rgba(0,0,0,0.90)",
   danger: "#D14343",
   warn: "#9A5A00",
   warnBg: "#FFF6DF",

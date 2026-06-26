@@ -1,16 +1,20 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { ActivityIndicator, View, FlatList, Pressable, StyleSheet, KeyboardAvoidingView, Platform, Text } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import Svg, { Path } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { useQueryClient } from "@tanstack/react-query";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
   useConversationMessages,
   useConversationMembers,
+  useBots,
   useConversations,
+  useFriends,
+  useMe,
   useSaveUserSettings,
   useUserSettings,
 } from "../state/queries";
@@ -20,51 +24,61 @@ import { buildPendingMessage } from "../logic/optimisticSend";
 import { MAX_COMPOSER_ATTACHMENTS, normalizeAttachments, pickedAssetAttachment } from "../logic/attachments";
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
 import { patchConversationListSummary } from "../logic/conversationCache";
-import { lastSeenSeq } from "../logic/settings";
+import { lastSeenSeq, setConversationManualUnread } from "../logic/settings";
 import { conversationType } from "../logic/sessionHistory";
 import { chatKeyboardAvoidingBehavior, chatKeyboardAvoidingEnabled } from "../logic/keyboardAvoidance";
+import {
+  activeConversationIdQueryKey,
+  clearUnreadCount,
+  unreadCountsQueryKey,
+  type UnreadCounts,
+} from "../logic/unreadState";
 import MessageBubble from "../components/MessageBubble";
 import MessageActions from "../components/MessageActions";
 import ApprovalSheet from "../components/ApprovalSheet";
+import ConversationAvatar from "../components/ConversationAvatar";
 import Input from "../ui/Input";
 import { Sub } from "../ui/Text";
 import { withAndroidTextFace } from "../ui/androidTextFace";
 import { useTypography } from "../ui/TypographyProvider";
 import { color, space, hairlineWidth } from "../theme";
+import { conversationAvatarTiles } from "../logic/conversationAvatar";
 import type { ChatMessage, Conversation, MessageAttachment } from "../api/types";
 import type { MessagesStackParamList } from "../navigation/types";
 import { deleteCachedMessage, upsertCachedConversation, upsertCachedMessage } from "../storage/sqliteCache";
 
 type Props = NativeStackScreenProps<MessagesStackParamList, "Chat">;
 
-function PaperclipIcon({ tint }: { tint: string }) {
+function PlusIcon({ tint }: { tint: string }) {
   return (
-    <Svg width={23} height={23} viewBox="0 0 24 24">
-      <Path
-        d="M8.8 12.7 13.9 7.6a3.2 3.2 0 0 1 4.5 4.5l-6.2 6.2a5 5 0 0 1-7.1-7.1l6.7-6.7"
-        stroke={tint}
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-      <Path
-        d="m9.6 12 5.1-5.1"
-        stroke={tint}
-        strokeWidth={2}
-        strokeLinecap="round"
-        fill="none"
-      />
+    <Svg width={18} height={18} viewBox="0 0 24 24">
+      <Path d="M12 5V19M5 12H19" stroke={tint} strokeWidth={2.1} strokeLinecap="round" />
     </Svg>
   );
 }
 
 function SendIcon({ tint }: { tint: string }) {
   return (
-    <Svg width={22} height={22} viewBox="0 0 24 24">
-      <Path d="M4 11.7 20 4l-4.7 16-3.2-6.2L4 11.7Z" fill={tint} />
-      <Path d="m12.1 13.8 3.2-3.3" stroke={color.accent} strokeWidth={1.8} strokeLinecap="round" />
+    <Svg width={30} height={30} viewBox="0 0 24 24">
+      <Path d="M3.8 20.2L21 12L3.8 3.8L6.95 10.85L14.1 12L6.95 13.15L3.8 20.2Z" fill={tint} />
     </Svg>
+  );
+}
+
+function ChatHeaderTitle({ tiles, title, meta }: { tiles: ReturnType<typeof conversationAvatarTiles>; title: string; meta: string }) {
+  const typography = useTypography();
+  return (
+    <View style={styles.headerTitleWrap}>
+      <ConversationAvatar tiles={tiles} size={32} />
+      <View style={styles.headerTitleCopy}>
+        <Text allowFontScaling={false} numberOfLines={1} style={withAndroidTextFace([styles.headerTitleText, typography.type.listTitle], title)}>
+          {title}
+        </Text>
+        <Text allowFontScaling={false} numberOfLines={1} style={withAndroidTextFace([styles.headerMetaText, typography.type.caption], meta)}>
+          {meta}
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -76,6 +90,9 @@ export default function ChatScreen({ navigation, route }: Props) {
   const { session, apiBase } = useAuth();
   const insets = useSafeAreaInsets();
   const { data: conversations = [] } = useConversations();
+  const { data: bots = [] } = useBots();
+  const { data: friends = [] } = useFriends();
+  const { data: me } = useMe();
   const activeConversation = conversations.find((c) => c.id === conversationId) || null;
   const activeType = activeConversation ? conversationType(activeConversation) : "";
   const { data: messages = [] } = useConversationMessages(conversationId);
@@ -89,10 +106,44 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [sending, setSending] = useState(false);
   const maxSeq = lastSeenSeq(messages);
   const canSend = Boolean(text.trim() || pendingAttachments.length) && !sending;
+  const self = useMemo(
+    () => me
+      ? { id: me.id, username: me.username, avatarImage: me.avatarImage, avatarCrop: me.avatarCrop }
+      : session?.user
+        ? { id: session.user.id, username: session.user.username, avatarImage: session.user.avatarImage }
+        : undefined,
+    [me, session?.user]
+  );
+  const membersByConv = useMemo(() => ({ [conversationId]: members }), [conversationId, members]);
+  const headerTiles = useMemo(
+    () => activeConversation
+      ? conversationAvatarTiles(activeConversation, { self, bots, friends, membersByConv })
+      : [{ image: "", crop: null, color: color.accent, text: "?" }],
+    [activeConversation, bots, friends, membersByConv, self]
+  );
+  const headerTitle = route.params.title || activeConversation?.name || activeConversation?.title || "对话";
+  const headerMeta = activeType === "group" ? (members.length ? `群聊 · ${members.length} 人` : "群聊") : "私聊";
+
+  const clearCurrentUnread = useCallback(() => {
+    qc.setQueryData<UnreadCounts>(unreadCountsQueryKey, (old) => clearUnreadCount(old, conversationId));
+  }, [conversationId, qc]);
+
+  useFocusEffect(
+    useCallback(() => {
+      qc.setQueryData(activeConversationIdQueryKey, conversationId);
+      clearCurrentUnread();
+      return () => {
+        qc.setQueryData<string>(activeConversationIdQueryKey, (current) => current === conversationId ? "" : current || "");
+      };
+    }, [clearCurrentUnread, conversationId, qc])
+  );
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: route.params.title || "",
+      title: "",
+      headerTitleAlign: "left",
+      headerStyle: { backgroundColor: color.chatBg },
+      headerTitle: () => <ChatHeaderTitle tiles={headerTiles} title={headerTitle} meta={headerMeta} />,
       headerRight: () => {
         if (activeType === "group") {
           return (
@@ -111,12 +162,19 @@ export default function ChatScreen({ navigation, route }: Props) {
         return null;
       },
     });
-  }, [activeType, conversationId, navigation, route.params.title, typography.type.action]);
+  }, [activeType, conversationId, headerMeta, headerTiles, headerTitle, navigation, route.params.title, typography.type.action]);
 
   useEffect(() => {
     const current = Number(settings?.readMarks?.[conversationId]) || 0;
-    if (maxSeq > current) saveSettings.mutate({ readMarks: { [conversationId]: maxSeq } });
-  }, [conversationId, maxSeq, settings?.readMarks?.[conversationId]]);
+    const manualUnread = settings?.unreadOverrides?.[conversationId] === true;
+    clearCurrentUnread();
+    if (maxSeq > current || manualUnread) {
+      saveSettings.mutate({
+        readMarks: maxSeq > current ? { [conversationId]: maxSeq } : undefined,
+        unreadOverrides: manualUnread ? setConversationManualUnread(settings, conversationId, false) : undefined,
+      });
+    }
+  }, [clearCurrentUnread, conversationId, maxSeq, settings?.readMarks?.[conversationId], settings?.unreadOverrides?.[conversationId]]);
 
   const key = ["messages", conversationId];
   const setMsgs = (fn: (old: ChatMessage[]) => ChatMessage[]) =>
@@ -227,66 +285,78 @@ export default function ChatScreen({ navigation, route }: Props) {
         data={data}
         inverted
         keyExtractor={(m) => m.messageId}
-        contentContainerStyle={{ padding: 12 }}
+        contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item }) => <MessageBubble msg={item} apiBase={apiBase} members={members} onLongPress={setActionMsg} />}
+        renderItem={({ item }) => (
+          <MessageBubble
+            msg={item}
+            apiBase={apiBase}
+            members={members}
+            conversationKind={activeType}
+            onLongPress={setActionMsg}
+          />
+        )}
       />
       <View style={[styles.composer, { paddingBottom: space.sm + insets.bottom }]}>
-        {pendingAttachments?.length ? (
-          <View style={styles.attachmentBar}>
-            {pendingAttachments.map((attachment, index) => (
-              <View key={`${attachment.id || attachment.name || "att"}:${index}`} style={styles.attachmentChip}>
-                <Sub numberOfLines={1} style={[styles.attachmentName, typography.type.attachmentSubtitle]}>{attachment.name || "附件"}</Sub>
-                <Pressable
-                  hitSlop={8}
-                  onPress={() => setPendingAttachments((old) => (old || []).filter((_, i) => i !== index))}
-                  style={styles.attachmentRemove}
-                >
-                  <Sub style={[styles.attachmentRemoveText, typography.type.caption]}>×</Sub>
-                </Pressable>
-              </View>
-            ))}
+        <View style={styles.composerCard}>
+          {pendingAttachments?.length ? (
+            <View style={styles.attachmentBar}>
+              {pendingAttachments.map((attachment, index) => (
+                <View key={`${attachment.id || attachment.name || "att"}:${index}`} style={styles.attachmentChip}>
+                  <Sub numberOfLines={1} style={[styles.attachmentName, typography.type.attachmentSubtitle]}>{attachment.name || "附件"}</Sub>
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => setPendingAttachments((old) => (old || []).filter((_, i) => i !== index))}
+                    style={styles.attachmentRemove}
+                  >
+                    <Sub style={[styles.attachmentRemoveText, typography.type.caption]}>×</Sub>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : null}
+          <View style={styles.composerInputRow}>
+            <Input
+              style={[styles.input, typography.type.composerInput]}
+              placeholder="输入消息"
+              value={text}
+              onChangeText={setText}
+              onSubmitEditing={send}
+              blurOnSubmit={false}
+              multiline
+              returnKeyType="send"
+            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="发送"
+              onPress={send}
+              disabled={!canSend}
+              style={({ pressed }) => [
+                styles.sendIconButton,
+                !canSend && styles.sendIconButtonDisabled,
+                pressed && styles.sendIconButtonPressed,
+              ]}
+            >
+              {sending ? (
+                <ActivityIndicator color={color.accent} />
+              ) : (
+                <SendIcon tint={canSend ? color.accent : color.inkFaint} />
+              )}
+            </Pressable>
           </View>
-        ) : null}
-        {attachmentError ? <Sub style={styles.attachmentError}>{attachmentError}</Sub> : null}
-        <View style={styles.composerInputRow}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="添加附件"
-            hitSlop={8}
-            onPress={pickAttachments}
-            style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
-          >
-            <PaperclipIcon tint={color.inkMuted} />
-          </Pressable>
-          <Input
-            style={[styles.input, typography.type.composerInput]}
-            placeholder="输入消息…"
-            value={text}
-            onChangeText={setText}
-            onSubmitEditing={send}
-            blurOnSubmit={false}
-            multiline
-            returnKeyType="send"
-          />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="发送"
-            onPress={send}
-            disabled={!canSend}
-            style={({ pressed }) => [
-              styles.sendIconButton,
-              !canSend && styles.sendIconButtonDisabled,
-              pressed && styles.sendIconButtonPressed,
-            ]}
-          >
-            {sending ? (
-              <ActivityIndicator color={color.accentText} />
-            ) : (
-              <SendIcon tint={color.accentText} />
-            )}
-          </Pressable>
+          <View style={styles.composerToolbar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="添加附件"
+              hitSlop={8}
+              onPress={pickAttachments}
+              style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+            >
+              <PlusIcon tint={color.inkMuted} />
+            </Pressable>
+          </View>
         </View>
+        {attachmentError ? <Sub style={styles.attachmentError}>{attachmentError}</Sub> : null}
       </View>
       <MessageActions
         msg={actionMsg}
@@ -304,20 +374,56 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.chatBg },
   headerAction: { color: color.accent },
   list: { flex: 1 },
+  listContent: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 12 },
+  headerTitleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    minWidth: 0,
+    maxWidth: 226,
+    paddingVertical: 4,
+    paddingLeft: 5,
+    paddingRight: 12,
+    borderRadius: 20,
+    backgroundColor: color.surfaceSoft,
+  },
+  headerTitleCopy: { minWidth: 0, flex: 1 },
+  headerTitleText: { color: color.ink, fontSize: 14, lineHeight: 17, fontWeight: "500" },
+  headerMetaText: { color: color.inkMuted, fontSize: 11, lineHeight: 15 },
   composer: {
-    gap: space.sm,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    backgroundColor: color.surfaceSoft,
+  },
+  composerCard: {
+    gap: 2,
+    paddingLeft: 16,
+    paddingRight: 8,
+    paddingTop: 8,
+    paddingBottom: 7,
+    borderRadius: 22,
     backgroundColor: color.surface,
-    borderTopWidth: hairlineWidth,
-    borderTopColor: color.line,
+    shadowColor: "#0F1428",
+    shadowOpacity: 0.07,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
   composerInputRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    gap: space.sm,
-    paddingHorizontal: space.md,
-    paddingTop: space.sm,
+    alignItems: "flex-start",
+    gap: 8,
+    minWidth: 0,
   },
-  attachmentBar: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, paddingHorizontal: space.md, paddingTop: space.sm },
+  composerToolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    minWidth: 0,
+    marginTop: 1,
+  },
+  attachmentBar: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: 4 },
   attachmentChip: {
     maxWidth: "48%",
     flexDirection: "row",
@@ -336,23 +442,33 @@ const styles = StyleSheet.create({
   attachmentRemoveText: { color: color.inkMuted },
   attachmentError: { color: color.danger, paddingHorizontal: space.md },
   iconButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 30,
+    height: 30,
+    marginLeft: -6,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: color.surfaceMuted,
+    backgroundColor: "transparent",
   },
-  iconButtonPressed: { backgroundColor: color.field, transform: [{ scale: 0.96 }] },
-  input: { flex: 1, minHeight: 44, maxHeight: 118, paddingVertical: 10, borderRadius: 22 },
+  iconButtonPressed: { backgroundColor: color.field },
+  input: {
+    flex: 1,
+    minHeight: 32,
+    maxHeight: 156,
+    paddingHorizontal: 0,
+    paddingVertical: 6,
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+  },
   sendIconButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 999,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: color.accent,
+    backgroundColor: "transparent",
   },
-  sendIconButtonPressed: { opacity: 0.86, transform: [{ scale: 0.96 }] },
-  sendIconButtonDisabled: { opacity: 0.38 },
+  sendIconButtonPressed: { transform: [{ scale: 0.96 }] },
+  sendIconButtonDisabled: { opacity: 1 },
 });

@@ -1,4 +1,4 @@
-import { buildConversationListItems, unreadCountsFromConversations, unreadCountsFromMessages } from "../src/logic/conversationList";
+import { buildConversationListItems, unreadCountsFromMessages } from "../src/logic/conversationList";
 import { memberAccentColor } from "../src/logic/avatar";
 
 test("按最后活动倒序 + 未读 + 末句", () => {
@@ -90,6 +90,7 @@ test("按 readMarks 和消息 seq 计算未读数", () => {
       c1: [
         { messageId: "m1", seq: 1, role: "user", bodyMd: "a", isOwn: false, isPending: false, createdAt: "2026-06-01T12:00:00Z" },
         { messageId: "m2", seq: 4, role: "assistant", bodyMd: "b", isOwn: false, isPending: false, createdAt: "2026-06-01T12:01:00Z" },
+        { messageId: "m4", seq: 5, role: "user", bodyMd: "mine", isOwn: true, isPending: false, createdAt: "2026-06-01T12:03:00Z" },
       ],
       c2: [
         { messageId: "m3", seq: 2, role: "user", bodyMd: "c", isOwn: false, isPending: false, createdAt: "2026-06-01T12:02:00Z" },
@@ -98,10 +99,10 @@ test("按 readMarks 和消息 seq 计算未读数", () => {
     { c1: 1, c2: 2 }
   );
 
-  expect(unread).toEqual({ c1: 3 });
+  expect(unread).toEqual({ c1: 1 });
 });
 
-test("列表摘要字段驱动预览、排序和未读,无需预拉消息", () => {
+test("列表摘要字段驱动预览和排序,未读来自桌面对齐的事件计数", () => {
   const conversations = [
     {
       id: "older",
@@ -117,52 +118,38 @@ test("列表摘要字段驱动预览、排序和未读,无需预拉消息", () =
       lastMessageHasAttachments: true,
     },
   ];
-  const unread = unreadCountsFromConversations(conversations as any, { older: 2, newer: 4 });
   const items = buildConversationListItems({
     conversations: conversations as any,
-    unreadByConversation: unread,
+    unreadByConversation: { newer: 2 },
   });
 
-  expect(unread).toEqual({ newer: 3 });
   expect(items.map((item) => item.id)).toEqual(["newer", "older"]);
   expect(items[0].subtitle).toBe("[附件]");
-  expect(items[0].unread).toBe(3);
+  expect(items[0].unread).toBe(2);
   expect(items[1].subtitle).toBe("旧消息");
 });
 
 test("会话摘要未读支持手动未读覆盖", () => {
-  const conversations = [
-    { id: "read", last_message_seq: 4 },
-    { id: "real", last_message_seq: 9 },
-  ];
-  expect(unreadCountsFromConversations(conversations as any, { read: 4, real: 7 }, { read: true })).toEqual({
-    read: 1,
-    real: 2,
+  const items = buildConversationListItems({
+    conversations: [
+      { id: "read", last_message_seq: 4 },
+      { id: "real", last_message_seq: 9 },
+    ] as any,
+    unreadByConversation: { real: 2 },
+    unreadOverrides: { read: true },
   });
+  expect(items.find((item) => item.id === "read")?.unread).toBe(1);
+  expect(items.find((item) => item.id === "real")?.unread).toBe(2);
 });
 
-test("会话摘要未读不把自己发出的最后一条消息算作未读", () => {
-  const conversations = [
-    {
-      id: "own-last",
-      last_message_seq: 12,
-      last_message_sender_kind: "user",
-      last_message_sender_ref: "u1",
-    },
-    {
-      id: "other-last",
-      last_message_seq: 9,
-      last_message_sender_kind: "user",
-      last_message_sender_ref: "u2",
-    },
-  ];
-
-  expect(unreadCountsFromConversations(conversations as any, { "own-last": 11, "other-last": 6 }, {}, "u1")).toEqual({
-    "other-last": 3,
+test("会话摘要不会按 last_message_seq 反推未读", () => {
+  const items = buildConversationListItems({
+    conversations: [
+      { id: "own-last", last_message_seq: 12, last_message_sender_kind: "user", last_message_sender_ref: "u1" },
+      { id: "other-last", last_message_seq: 9, last_message_sender_kind: "user", last_message_sender_ref: "u2" },
+    ] as any,
   });
-  expect(unreadCountsFromConversations([{ id: "manual", last_message_seq: 5, last_message_sender_kind: "user", last_message_sender_ref: "u1" }] as any, { manual: 4 }, { manual: true }, "u1")).toEqual({
-    manual: 1,
-  });
+  expect(items.map((item) => item.unread)).toEqual([0, 0]);
 });
 
 test("置顶会话排在普通会话前", () => {
