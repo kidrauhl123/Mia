@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import { AppState } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { createEventsClient } from "../api/events";
 import { createApprovalQueue, type ApprovalItem } from "../logic/approvalQueue";
@@ -62,6 +63,19 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
     queue.resolve(runId);
     syncActive();
   };
+
+  useEffect(() => {
+    if (!session?.token) return undefined;
+    const refreshCrossDeviceReadState = () => {
+      qc.invalidateQueries({ queryKey: ["settings"], refetchType: "active" });
+      qc.invalidateQueries({ queryKey: ["conversations"], refetchType: "active" });
+    };
+    refreshCrossDeviceReadState();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshCrossDeviceReadState();
+    });
+    return () => subscription.remove();
+  }, [qc, session?.token, session?.user?.id]);
 
   useEffect(() => {
     if (!session?.token) return;
