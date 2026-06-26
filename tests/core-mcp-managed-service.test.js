@@ -538,6 +538,33 @@ test("runManagedAction test returns failure and skips generic test when supervis
   assert.equal(stored[0].transport.url, installed.data.transport.url);
 });
 
+test("runManagedAction test failure points xiaohongshu back to start when endpoint is down", async (t) => {
+  const { service } = setup(t, {
+    managedSupervisor: {
+      runAction: async (_record, action) => {
+        if (action === "test") {
+          throw new Error("Xiaohongshu endpoint health check failed for http://127.0.0.1:18060/mcp. fetch failed");
+        }
+        return {
+          ok: true,
+          state: action,
+          message: action,
+          recordPatch: {}
+        };
+      },
+      ensureRunning: async (records) => ({ records, errors: [] })
+    }
+  });
+  const installed = await service.installTemplate("xiaohongshu", {});
+
+  const tested = await service.runManagedAction(installed.data.id, "test", {});
+
+  assert.equal(tested.success, false);
+  assert.equal(tested.data.connectionWizard.state, "managed_error");
+  assert.equal(tested.data.connectionWizard.nextAction, "start");
+  assert.deepEqual(tested.data.connectionWizard.actions.map((action) => action.id), ["start", "test"]);
+});
+
 test("refreshBridge starts enabled managed records before manager refresh", async (t) => {
   const calls = [];
   const { service } = setup(t, {

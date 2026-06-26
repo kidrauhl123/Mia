@@ -482,6 +482,21 @@ test("managed installed xiaohongshu card exposes a single connect action", async
     mcpOverrides: {
       runManagedAction: async (id, action) => {
         actions.push([id, action]);
+        if (action === "start") {
+          return {
+            success: true,
+            data: {
+              id,
+              name: "小红书 MCP",
+              enabled: false,
+              status: "disconnected",
+              managementMode: "managed",
+              managedRuntime: { connectorId: "xiaohongshu", state: "running" },
+              connectionWizard: { nextAction: "test", actions: [{ id: "test", label: "检测并启用" }] },
+              transport: { type: "http" }
+            }
+          };
+        }
         return { success: true, data: { id, name: "小红书 MCP", enabled: true, status: "connected", transport: { type: "http" } } };
       }
     }
@@ -500,7 +515,7 @@ test("managed installed xiaohongshu card exposes a single connect action", async
   harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-server"]').click();
   await flushAsync();
 
-  assert.deepEqual(actions, [["mcp_xhs", "test"]]);
+  assert.deepEqual(actions, [["mcp_xhs", "start"], ["mcp_xhs", "test"]]);
 });
 
 test("managed error cards keep verbose command failures out of the default surface", () => {
@@ -641,6 +656,120 @@ test("missing xiaohongshu runtime alerts are concise but actionable", async () =
 
   assertMcpAlert(harness, "缺少小红书运行组件，请检查网络后重试。");
   assert.doesNotMatch(bodyDialogHtml(harness), /spawn go|ENOENT|go run/);
+});
+
+test("xiaohongshu endpoint health errors stay out of user alerts", async () => {
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "mcp_xhs",
+        name: "小红书 MCP",
+        nativeName: "xiaohongshu",
+        enabled: false,
+        status: "disconnected",
+        managedRuntime: { connectorId: "xiaohongshu", state: "error", expectedToolCount: 13 },
+        connectionWizard: {
+          state: "managed_error",
+          nextAction: "start",
+          message: "Xiaohongshu endpoint health check failed for http://127.0.0.1:18060/mcp. Status 405.",
+          actions: [{ id: "start", label: "启动服务" }]
+        },
+        transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
+        tools: [],
+        sync: {}
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      runManagedAction: async () => ({
+        success: false,
+        error: "Xiaohongshu endpoint health check failed for http://127.0.0.1:18060/mcp. Status 405."
+      })
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-server"]').click();
+  await flushAsync();
+
+  assertMcpAlert(harness, "小红书服务启动后检测失败，请重试。");
+  assert.doesNotMatch(bodyDialogHtml(harness), /127\.0\.0\.1:18060|Status 405|endpoint health check/);
+});
+
+test("xiaohongshu stale endpoint test errors restart before retesting", async () => {
+  const actions = [];
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "mcp_xhs",
+        name: "小红书 MCP",
+        nativeName: "xiaohongshu",
+        enabled: false,
+        status: "disconnected",
+        managedRuntime: { connectorId: "xiaohongshu", state: "error", expectedToolCount: 13 },
+        connectionWizard: {
+          state: "managed_error",
+          nextAction: "test",
+          message: "Xiaohongshu endpoint health check failed for http://127.0.0.1:18060/mcp. fetch failed",
+          actions: [{ id: "test", label: "检测并启用" }]
+        },
+        transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
+        tools: [],
+        sync: {}
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      runManagedAction: async (id, action) => {
+        actions.push([id, action]);
+        if (action === "start") {
+          return {
+            success: true,
+            data: {
+              id,
+              name: "小红书 MCP",
+              managementMode: "managed",
+              enabled: false,
+              status: "disconnected",
+              managedRuntime: { connectorId: "xiaohongshu", state: "running" },
+              connectionWizard: { state: "ready_to_test", nextAction: "test", actions: [{ id: "test", label: "检测并启用" }] },
+              transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
+            }
+          };
+        }
+        return { success: true, data: { id, name: "小红书 MCP", enabled: true, status: "connected", transport: { type: "http" } } };
+      }
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-server"]').click();
+  await flushAsync();
+
+  assert.deepEqual(actions, [["mcp_xhs", "start"], ["mcp_xhs", "test"]]);
+  assert.equal(harness.context.document.querySelector('[role="dialog"]'), null);
 });
 
 test("installed card omits legacy setupHint self-start guidance from default surface", () => {

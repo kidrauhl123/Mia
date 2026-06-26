@@ -238,6 +238,19 @@ test("start action keeps a running child process and stop kills it", async (t) =
   assert.equal(calls.some((call) => call.kind === "kill"), true);
 });
 
+test("start action treats MCP endpoint HTTP 405 as ready", async (t) => {
+  const { supervisor, record } = setup(t, {
+    fetch: async () => ({ ok: false, status: 405 })
+  });
+  const installed = await supervisor.runAction(record, "install", {});
+  const withInstallDir = normalizeCoreMcpRecord({ ...record, ...installed.recordPatch, transport: record.transport });
+
+  const started = await supervisor.runAction(withInstallDir, "start", {});
+
+  assert.equal(started.ok, true);
+  assert.equal(started.state, "running");
+});
+
 test("start action rejects cleanly when command spawn emits error during readiness", async (t) => {
   const { supervisor, record } = setup(t, {
     childProcessOptions: {

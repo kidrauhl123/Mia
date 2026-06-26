@@ -880,14 +880,20 @@ function createCoreMcpService(deps = {}) {
   }
 
   function managedActionFailureWizard(existing, action, message, patch = {}) {
-    const nextAction = String(action || "").trim() || "start";
+    const text = String(message || "").trim();
+    const shouldRestart = String(action || "").trim() === "test"
+      && /endpoint health check failed/i.test(text);
+    const nextAction = shouldRestart ? "start" : (String(action || "").trim() || "start");
     return {
       ...(existing?.connectionWizard && typeof existing.connectionWizard === "object" ? existing.connectionWizard : {}),
       ...(patch && typeof patch === "object" ? sanitizeManagedValue(patch) : {}),
       state: "managed_error",
       nextAction,
       message,
-      missingRequiredInputs: Array.isArray(patch?.missingRequiredInputs) ? sanitizeManagedValue(patch.missingRequiredInputs) : []
+      missingRequiredInputs: Array.isArray(patch?.missingRequiredInputs) ? sanitizeManagedValue(patch.missingRequiredInputs) : [],
+      ...(shouldRestart ? {
+        actions: [{ id: "start", label: "启动服务" }, { id: "test", label: "检测并启用" }]
+      } : {})
     };
   }
 

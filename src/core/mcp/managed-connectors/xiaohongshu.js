@@ -300,7 +300,7 @@ function createXiaohongshuManagedConnector(deps = {}) {
     for (let attempt = 1; attempt <= healthPollAttempts; attempt += 1) {
       try {
         const response = await fetch(endpoint);
-        if (response && response.ok === true) return;
+        if (response && (response.ok === true || Number(response.status) === 405)) return;
         const status = Number(response?.status);
         const detail = Number.isFinite(status) ? ` Status ${status}.` : "";
         lastError = new Error(`Xiaohongshu endpoint health check failed for ${endpoint}.${detail}`);

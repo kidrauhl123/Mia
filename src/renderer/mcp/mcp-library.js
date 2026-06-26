@@ -363,6 +363,9 @@
     if (/spawn go ENOENT|go is not installed|go missing/i.test(text)) {
       return "缺少小红书运行组件，请检查网络后重试。";
     }
+    if (/endpoint health check failed/i.test(text)) {
+      return "小红书服务启动后检测失败，请重试。";
+    }
     if (isVerboseDiagnostic(text)) return `${managedActionLabel(action)}失败，请重试。`;
     return text;
   }
@@ -479,6 +482,12 @@
     );
   }
 
+  function shouldStartManagedBeforeTest(server = {}) {
+    if (!isManagedServer(server) || isServerConnected(server)) return false;
+    const state = String(server.managedRuntime?.state || "").trim().toLowerCase();
+    return state !== "running" && state !== "healthy";
+  }
+
   function simpleConnectionLabel(server = null, template = null) {
     if (!server) return "未连接";
     const mcp = mcpState();
@@ -500,6 +509,7 @@
   function nextManagedAction(server = {}) {
     const actions = Array.isArray(server.connectionWizard?.actions) ? server.connectionWizard.actions : [];
     const preferred = String(server.connectionWizard?.nextAction || "").trim();
+    if (preferred === "test" && shouldStartManagedBeforeTest(server)) return "start";
     if (preferred && actions.some((action) => action.id === preferred)) return preferred;
     return actions[0]?.id || "";
   }
@@ -831,6 +841,15 @@
     try {
       const result = await window.mia.mcp.runManagedAction(id, action, {});
       if (!result?.success) alertText(managedFailureMessage(action, result?.error || "未知错误"));
+      if (result?.success && action === "start") {
+        const followUpAction = nextManagedAction(result.data || {});
+        if (followUpAction === "test") {
+          mcp.managedBusyKey = `${id}:test`;
+          renderMcpLibrary();
+          const tested = await window.mia.mcp.runManagedAction(id, "test", {});
+          if (!tested?.success) alertText(managedFailureMessage("test", tested?.error || "未知错误"));
+        }
+      }
       await loadMcpServers({ force: true });
     } finally {
       mcp.managedBusyKey = "";
