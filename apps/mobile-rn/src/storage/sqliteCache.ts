@@ -95,6 +95,18 @@ function jsonParse<T>(value: string): T | null {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isConversation(value: unknown): value is Conversation {
+  return isRecord(value) && typeof value.id === "string" && value.id.trim().length > 0;
+}
+
+function isMessage(value: unknown): value is ChatMessage {
+  return isRecord(value) && typeof value.messageId === "string" && value.messageId.trim().length > 0;
+}
+
 function timeMs(value: unknown): number {
   if (!value) return 0;
   const ms = Date.parse(String(value));
@@ -181,7 +193,7 @@ export async function loadCachedConversations(scope: string | undefined): Promis
       "SELECT json FROM conversations WHERE scope = ? ORDER BY sort_time DESC LIMIT ?",
       [owner, MAX_CACHED_CONVERSATIONS]
     );
-    return rows.map((row) => jsonParse<Conversation>(row.json)).filter(Boolean) as Conversation[];
+    return rows.map((row) => jsonParse<Conversation>(row.json)).filter(isConversation);
   });
 }
 
@@ -241,7 +253,7 @@ export async function loadCachedMessages(scope: string | undefined, conversation
       "SELECT json FROM messages WHERE scope = ? AND conversation_id = ? ORDER BY sort_time DESC, seq DESC LIMIT ?",
       [owner, conversationId, MAX_CACHED_MESSAGES]
     );
-    const messages = rows.map((row) => jsonParse<ChatMessage>(row.json)).filter(Boolean) as ChatMessage[];
+    const messages = rows.map((row) => jsonParse<ChatMessage>(row.json)).filter(isMessage);
     return sortMessages(messages);
   });
 }

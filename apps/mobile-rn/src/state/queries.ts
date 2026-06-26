@@ -61,6 +61,22 @@ const LIVE_CACHE_QUERY = {
   refetchOnReconnect: true,
 } as const;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function hasId(value: unknown): value is { id: string } {
+  return isRecord(value) && typeof value.id === "string" && value.id.trim().length > 0;
+}
+
+function validRecordArray<T>(value: T): boolean {
+  return Array.isArray(value) && value.every((item) => isRecord(item));
+}
+
+function validConversationArray<T>(value: T): boolean {
+  return Array.isArray(value) && value.every((item) => hasId(item));
+}
+
 function useCachedQueryHydration<T>(
   queryKey: readonly unknown[],
   enabled: boolean,
@@ -91,7 +107,7 @@ export function useConversations() {
     Boolean(cacheScope),
     [cacheScope],
     () => loadCachedConversations(cacheScope),
-    (value) => Array.isArray(value) && value.length > 0
+    (value) => validConversationArray(value) && value.length > 0
   );
   return useQuery<Conversation[]>({
     queryKey: ["conversations"],
@@ -177,7 +193,8 @@ export function useBots() {
     ["bots"],
     Boolean(cacheScope),
     [cacheScope],
-    () => loadCachedValue<Bot[]>(cacheScope, sqliteCacheKeys.bots)
+    () => loadCachedValue<Bot[]>(cacheScope, sqliteCacheKeys.bots),
+    validRecordArray
   );
   // 非 compact:带 avatarImage,列表/联系人头像才能和桌面一致显示真实头像。
   return useQuery<Bot[]>({
@@ -199,7 +216,8 @@ export function useFriends() {
     ["friends"],
     Boolean(cacheScope),
     [cacheScope],
-    () => loadCachedValue<Friend[]>(cacheScope, sqliteCacheKeys.friends)
+    () => loadCachedValue<Friend[]>(cacheScope, sqliteCacheKeys.friends),
+    validRecordArray
   );
   return useQuery<Friend[]>({
     queryKey: ["friends"],
@@ -221,7 +239,8 @@ export function useMe() {
     ["me-full"],
     Boolean(cacheScope),
     [cacheScope],
-    () => loadCachedValue<any>(cacheScope, sqliteCacheKeys.me)
+    () => loadCachedValue<any>(cacheScope, sqliteCacheKeys.me),
+    isRecord
   );
   return useQuery<any>({
     queryKey: ["me-full"],
@@ -243,7 +262,8 @@ export function useUserSettings(options: { enabled?: boolean } = {}) {
     ["settings"],
     Boolean(cacheScope && enabled),
     [cacheScope, enabled],
-    () => loadCachedValue<UserSettings>(cacheScope, sqliteCacheKeys.settings)
+    () => loadCachedValue<UserSettings>(cacheScope, sqliteCacheKeys.settings),
+    isRecord
   );
   return useQuery<UserSettings>({
     queryKey: ["settings"],

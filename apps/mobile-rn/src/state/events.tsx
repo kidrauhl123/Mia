@@ -159,6 +159,7 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
       sinceSeq: () => lastSeq.current,
       onStatus: setConn,
       onEvent: (env) => {
+        try {
         const payload = env?.payload && typeof env.payload === "object" ? env.payload : env;
         const t = String(payload?.type || env?.type || "");
         if (t === "events_ready") {
@@ -286,6 +287,9 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
             if (runId) queue.onResponded(runId);
             syncActive();
           }
+        }
+        } catch (err) {
+          console.warn("[mia] ignored malformed event", err instanceof Error ? err.message : String(err));
         }
       },
     });

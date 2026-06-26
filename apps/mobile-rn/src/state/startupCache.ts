@@ -8,6 +8,22 @@ import {
 
 const PERSISTED_CACHE_UPDATED_AT = 1;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function hasId(value: unknown): value is { id: string } {
+  return isRecord(value) && typeof value.id === "string" && value.id.trim().length > 0;
+}
+
+function validRecordArray<T>(value: T | undefined): value is T {
+  return Array.isArray(value) && value.every((item) => isRecord(item));
+}
+
+function validConversationArray<T>(value: T | undefined): value is T {
+  return Array.isArray(value) && value.every((item) => hasId(item));
+}
+
 function seedPersistedQuery<T>(
   qc: QueryClient,
   queryKey: readonly unknown[],
@@ -27,9 +43,9 @@ export async function hydrateStartupCache(qc: QueryClient, scope: string | undef
     loadCachedValue<any>(scope, sqliteCacheKeys.me),
     loadCachedValue<UserSettings>(scope, sqliteCacheKeys.settings),
   ]);
-  seedPersistedQuery<Conversation[]>(qc, ["conversations"], conversations, (next) => Array.isArray(next) && next.length > 0);
-  seedPersistedQuery(qc, ["bots"], bots);
-  seedPersistedQuery(qc, ["friends"], friends);
-  seedPersistedQuery(qc, ["me-full"], me);
-  seedPersistedQuery(qc, ["settings"], settings);
+  seedPersistedQuery<Conversation[]>(qc, ["conversations"], conversations, (next) => validConversationArray(next) && next.length > 0);
+  seedPersistedQuery(qc, ["bots"], bots, validRecordArray);
+  seedPersistedQuery(qc, ["friends"], friends, validRecordArray);
+  seedPersistedQuery(qc, ["me-full"], me, isRecord);
+  seedPersistedQuery(qc, ["settings"], settings, isRecord);
 }
