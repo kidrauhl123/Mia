@@ -56,7 +56,7 @@ import {
 const LIVE_CACHE_QUERY = {
   staleTime: 60_000,
   gcTime: 30 * 60_000,
-  refetchOnMount: false,
+  refetchOnMount: true,
   refetchOnWindowFocus: false,
   refetchOnReconnect: true,
 } as const;
@@ -90,7 +90,8 @@ export function useConversations() {
     ["conversations"],
     Boolean(cacheScope),
     [cacheScope],
-    () => loadCachedConversations(cacheScope)
+    () => loadCachedConversations(cacheScope),
+    (value) => Array.isArray(value) && value.length > 0
   );
   return useQuery<Conversation[]>({
     queryKey: ["conversations"],
