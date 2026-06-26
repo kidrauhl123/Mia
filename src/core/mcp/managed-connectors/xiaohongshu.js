@@ -21,6 +21,9 @@ function createXiaohongshuManagedConnector(deps = {}) {
   const releaseDownloadBase = String(deps.releaseDownloadBase || RELEASE_DOWNLOAD_BASE).replace(/\/+$/, "");
   const healthPollAttempts = Number.isInteger(deps.healthPollAttempts) && deps.healthPollAttempts > 0 ? deps.healthPollAttempts : 5;
   const healthPollIntervalMs = Number.isFinite(deps.healthPollIntervalMs) && deps.healthPollIntervalMs >= 0 ? deps.healthPollIntervalMs : 250;
+  const downloadTimeoutMs = Number.isFinite(Number(deps.downloadTimeoutMs)) && Number(deps.downloadTimeoutMs) > 0
+    ? Number(deps.downloadTimeoutMs)
+    : 20 * 60 * 1000;
   const sleep = typeof deps.sleep === "function"
     ? deps.sleep
     : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -218,6 +221,24 @@ function createXiaohongshuManagedConnector(deps = {}) {
     }
   }
 
+  async function fetchRuntimeArchive(url) {
+    let timeoutId = null;
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    try {
+      if (controller) {
+        timeoutId = setTimeout(() => controller.abort(), downloadTimeoutMs);
+      }
+      return await downloadFetch(url, controller ? { signal: controller.signal } : undefined);
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw new Error("Xiaohongshu runtime download timed out.");
+      }
+      throw error;
+    } finally {
+      if (timeoutId != null) clearTimeout(timeoutId);
+    }
+  }
+
   async function downloadRuntimeBundle(dir) {
     if (runtimeBinary(dir, "login") && runtimeBinary(dir, "server")) return;
     if (typeof downloadFetch !== "function") {
@@ -229,7 +250,7 @@ function createXiaohongshuManagedConnector(deps = {}) {
     const url = `${releaseDownloadBase}/${encodeURIComponent(pkg.archiveName)}`;
     fs.mkdirSync(binDir, { recursive: true });
 
-    const response = await downloadFetch(url);
+    const response = await fetchRuntimeArchive(url);
     if (!response || response.ok !== true) {
       const status = Number(response?.status);
       const detail = Number.isFinite(status) ? `HTTP ${status}` : "request failed";
@@ -262,22 +283,13 @@ function createXiaohongshuManagedConnector(deps = {}) {
       chmodExecutable(binary);
       return { command: binary, args: [] };
     }
-    try {
-      await downloadRuntimeBundle(dir);
-      const downloaded = runtimeBinary(dir, kind);
-      if (downloaded) {
-        chmodExecutable(downloaded);
-        return { command: downloaded, args: [] };
-      }
-    } catch (error) {
-      if (!hasCheckout(dir)) throw error;
+    await downloadRuntimeBundle(dir);
+    const downloaded = runtimeBinary(dir, kind);
+    if (downloaded) {
+      chmodExecutable(downloaded);
+      return { command: downloaded, args: [] };
     }
-    if (hasCheckout(dir)) {
-      return kind === "login"
-        ? { command: "go", args: ["run", "cmd/login/main.go"] }
-        : { command: "go", args: ["run", "."] };
-    }
-    throw new Error("Xiaohongshu managed runtime is not installed.");
+    throw new Error("Xiaohongshu runtime archive did not contain the expected binaries.");
   }
 
   async function checkEndpointHealth(endpoint) {
@@ -341,13 +353,13 @@ function createXiaohongshuManagedConnector(deps = {}) {
 
   async function status(record = {}) {
     const dir = installDir(record);
-    const installed = hasCheckout(dir);
+    const installed = hasCheckout(dir) || Boolean(runtimeBinary(dir, "login") && runtimeBinary(dir, "server"));
     return {
       state: installed ? String(record.managedRuntime?.state || "installed") : "not_installed",
       installed,
       running: false,
       endpoint: String(record.managedRuntime?.endpoint || DEFAULT_ENDPOINT),
-      message: installed ? "Xiaohongshu MCP checkout is present." : "Xiaohongshu MCP checkout is not installed."
+      message: installed ? "Xiaohongshu MCP runtime is present." : "Xiaohongshu MCP runtime is not installed."
     };
   }
 
@@ -360,6 +372,7 @@ function createXiaohongshuManagedConnector(deps = {}) {
       if (!hasCheckout(dir)) {
         await execFile("git", ["clone", REPO_URL, dir], { cwd: runtimePaths().runtime });
       }
+      await downloadRuntimeBundle(dir);
       return {
         ok: true,
         state: "installed",

@@ -115,6 +115,30 @@ test("install action clones xiaohongshu connector into Mia runtime", async (t) =
   });
 });
 
+test("install action prepares the xiaohongshu runtime binaries without requiring Go", async (t) => {
+  const { dir, calls, supervisor, record } = setup(t);
+  const target = runtimeTarget();
+
+  const result = await supervisor.runAction(record, "install", {});
+
+  assert.equal(result.ok, true);
+  assert.equal(fs.existsSync(path.join(dir, "managed-mcp", "xiaohongshu-mcp", ".mia-runtime", "bin", target.loginBinary)), true);
+  assert.equal(fs.existsSync(path.join(dir, "managed-mcp", "xiaohongshu-mcp", ".mia-runtime", "bin", target.serverBinary)), true);
+  assert.equal(calls.some((call) => call.kind === "execFile" && call.command === "tar"), true);
+  assert.equal(calls.some((call) => call.kind === "spawn" && call.command === "go"), false);
+});
+
+test("install action fails when the xiaohongshu runtime bundle cannot be downloaded", async (t) => {
+  const { supervisor, record } = setup(t, {
+    downloadFetch: async () => ({ ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) })
+  });
+
+  await assert.rejects(
+    () => supervisor.runAction(record, "install", {}),
+    /Xiaohongshu runtime download failed/
+  );
+});
+
 test("install action replaces stale non-checkout managed directory", async (t) => {
   const { dir, calls, supervisor, record } = setup(t);
   const staleDir = path.join(dir, "managed-mcp", "xiaohongshu-mcp");
@@ -150,18 +174,23 @@ test("login action runs the connector login command in managed directory", async
   assert.equal(calls.some((call) => call.kind === "resume" && call.stream === "stderr"), true);
 });
 
-test("login action falls back to go source when runtime download fails", async (t) => {
-  const { calls, supervisor, record } = setup(t, {
+test("login action reports runtime download failure instead of falling back to Go", async (t) => {
+  const { dir, calls, supervisor, record } = setup(t, {
     downloadFetch: async () => ({ ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) })
   });
-  const installed = await supervisor.runAction(record, "install", {});
-  const withInstallDir = normalizeCoreMcpRecord({ ...record, ...installed.recordPatch, transport: record.transport });
+  const installDir = path.join(dir, "managed-mcp", "xiaohongshu-mcp");
+  fs.mkdirSync(installDir, { recursive: true });
+  fs.writeFileSync(path.join(installDir, "go.mod"), "module xiaohongshu-mcp\n");
+  const withInstallDir = normalizeCoreMcpRecord({
+    ...record,
+    managedRuntime: { ...record.managedRuntime, installDir }
+  });
 
-  const result = await supervisor.runAction(withInstallDir, "login", {});
-
-  assert.equal(result.ok, true);
-  assert.equal(result.state, "login_started");
-  assert.equal(calls.some((call) => call.kind === "spawn" && call.command === "go" && call.args.join(" ") === "run cmd/login/main.go"), true);
+  await assert.rejects(
+    () => supervisor.runAction(withInstallDir, "login", {}),
+    /Xiaohongshu runtime download failed/
+  );
+  assert.equal(calls.some((call) => call.kind === "spawn" && call.command === "go"), false);
 });
 
 test("login action rejects cleanly when command spawn emits error", async (t) => {
