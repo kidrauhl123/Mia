@@ -5,7 +5,6 @@ export interface UserSettingsPatch {
   readMarks?: Record<string, number>;
   mutedConversations?: string[];
   unreadOverrides?: Record<string, boolean>;
-  appearance?: Record<string, unknown>;
 }
 
 function uniqueStrings(value: string[] | undefined): string[] {
@@ -31,7 +30,6 @@ export function mergeUserSettings(base: UserSettings | undefined, patch: UserSet
     unreadOverrides: patch.unreadOverrides !== undefined
       ? normalizedUnreadOverrides(patch.unreadOverrides)
       : normalizedUnreadOverrides(current.unreadOverrides),
-    appearance: patch.appearance !== undefined ? { ...(current.appearance || {}), ...patch.appearance } : current.appearance || {},
     expectedVersion: current.version || 0,
   };
 }

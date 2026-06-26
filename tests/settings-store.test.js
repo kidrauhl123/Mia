@@ -66,7 +66,7 @@ test("appearanceSettings defaults chat avatars off and desktop notifications on"
   assert.equal(appearance.showUserAvatar, false);
   assert.equal(appearance.showAssistantAvatar, false);
   assert.equal(appearance.showDesktopNotifications, true);
-  assert.equal(appearance.fontPreset, "serif");
+  assert.equal(appearance.fontPreset, "system");
   assert.equal(appearance.glassOpacity, 82);
   assert.equal(appearance.selectionStyle, "solid");
   assert.equal(Object.hasOwn(appearance, "showHoverBackground"), false);

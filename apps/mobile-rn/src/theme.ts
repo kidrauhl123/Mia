@@ -58,6 +58,20 @@ export function normalizeTelegramFontSize(value: unknown): TelegramFontSize {
   ), TELEGRAM_DEFAULT_FONT_SIZE);
 }
 
+export function localTypographyFontSizeFromStoredValue(value: unknown): TelegramFontSize {
+  const raw = String(value ?? "").trim();
+  if (!raw) return TELEGRAM_DEFAULT_FONT_SIZE;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Object.prototype.hasOwnProperty.call(parsed, "fontSize")) {
+      return normalizeTelegramFontSize((parsed as { fontSize?: unknown }).fontSize);
+    }
+  } catch {
+    // Legacy local value may be a bare number string.
+  }
+  return normalizeTelegramFontSize(raw);
+}
+
 function lineHeight(size: number, ratio = 1.32): number {
   return Math.round(size * ratio);
 }

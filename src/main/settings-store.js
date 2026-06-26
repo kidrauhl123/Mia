@@ -83,7 +83,7 @@ function createSettingsStore(deps = {}) {
   function defaultAppearanceSettings() {
     return {
       theme: "light",
-      fontPreset: "serif",
+      fontPreset: "system",
       accentColor: "#318ad3",
       userBubbleColor: "#eeffde",
       glassOpacity: DEFAULT_GLASS_OPACITY,
@@ -188,7 +188,7 @@ function createSettingsStore(deps = {}) {
     const current = appearanceSettings();
     const has = (key) => Object.prototype.hasOwnProperty.call(settings, key);
     const theme = String(settings.theme || current.theme || "light").trim();
-    const fontPreset = String(settings.fontPreset || current.fontPreset || "serif").trim();
+    const fontPreset = String(settings.fontPreset || current.fontPreset || "system").trim();
     const accentColor = String(settings.accentColor || current.accentColor || "#318ad3").trim();
     const userBubbleColor = String(settings.userBubbleColor || current.userBubbleColor || "#eeffde").trim();
     const glassOpacity = has("glassOpacity")

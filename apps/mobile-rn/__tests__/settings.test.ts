@@ -18,13 +18,12 @@ test("mergeUserSettings preserves existing bags and adds expectedVersion", () =>
       unreadOverrides: { d: true },
       appearance: { theme: "light" },
     },
-    { readMarks: { b: 2 } }
+    { readMarks: { b: 2 }, appearance: { mobileFontSize: 18 } } as any
   )).toEqual({
     pins: ["a"],
     readMarks: { a: 1, b: 2 },
     mutedConversations: ["c"],
     unreadOverrides: { d: true },
-    appearance: { theme: "light" },
     expectedVersion: 3,
   });
 });

@@ -45,6 +45,7 @@ test("putSettings whole-bag replace then read roundtrips, bumps version", () => 
       mutedConversations: ["dm:a:b"],
       unreadOverrides: { "g_abc": true, "dm:a:b": false },
       appearance: { theme: "dark", accentColor: "#5e5ce6" },
+      starterEngineBots: { seededAt: "2026-06-26T08:00:00.000Z", engineIds: ["hermes", "codex"] },
       tags: {
         items: [{ id: "work", name: "工作", color: "#16a34a" }],
         assignments: { "g_abc": ["work"] }
@@ -55,6 +56,8 @@ test("putSettings whole-bag replace then read roundtrips, bumps version", () => 
     assert.deepEqual(put.settings.pins, ["g_abc", "fellow:codex"]);
     assert.deepEqual(put.settings.mutedConversations, ["dm:a:b"]);
     assert.deepEqual(put.settings.unreadOverrides, { "g_abc": true });
+    assert.deepEqual(put.settings.appearance, {}, "appearance is a device-local preference and must not sync through cloud settings");
+    assert.deepEqual(put.settings.starterEngineBots, { seededAt: "2026-06-26T08:00:00.000Z", engineIds: ["hermes", "codex"] });
     assert.deepEqual(put.settings.tags.items.map((item) => item.name), ["工作"]);
     assert.deepEqual(put.settings.tags.assignments.g_abc, [put.settings.tags.items[0].id]);
 
@@ -71,6 +74,7 @@ test("putSettings whole-bag replace then read roundtrips, bumps version", () => 
     assert.deepEqual(read.pins, ["only-one"]);
     assert.deepEqual(read.mutedConversations, ["dm:a:b"], "older clients that omit muted conversations preserve existing mutes");
     assert.deepEqual(read.unreadOverrides, { "g_abc": true }, "older clients that omit manual unread overrides preserve existing overrides");
+    assert.deepEqual(read.starterEngineBots, { seededAt: "2026-06-26T08:00:00.000Z", engineIds: ["hermes", "codex"] }, "older clients that omit starter engine bots preserve the seeded marker");
     assert.deepEqual(read.tags.items.map((item) => item.name), ["工作"], "older clients that omit tags preserve existing tags");
     assert.equal(read.version, 2);
   } finally { ctx.cleanup(); }
@@ -128,9 +132,11 @@ test("schema: user_settings table + migration v6 and v16 tags column", () => {
     assert.ok(columns.includes("tags_json"));
     assert.ok(columns.includes("muted_conversations_json"));
     assert.ok(columns.includes("unread_overrides_json"));
+    assert.ok(columns.includes("starter_engine_bots_json"));
     const m = db.prepare("SELECT version FROM schema_migrations").all().map((r) => r.version);
     assert.ok(m.includes(6));
     assert.ok(m.includes(16));
     assert.ok(m.includes(18));
+    assert.ok(m.includes(21));
   } finally { ctx.cleanup(); }
 });

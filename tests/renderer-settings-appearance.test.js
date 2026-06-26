@@ -76,7 +76,7 @@ function settingsSwitch(checked = true) {
 function appearanceControls(overrides = {}) {
   return {
     appearanceTheme: { value: "light" },
-    appearanceFontPreset: { value: "serif" },
+    appearanceFontPreset: { value: "system" },
     appearanceAccentColor: { value: "#318ad3" },
     appearanceAccentPreview: { style: {} },
     appearanceGlassOpacity: { value: "82" },
@@ -401,10 +401,41 @@ test("applyAppearance keeps default tokens when appearance deps are missing", ()
     selectionStyle: "soft"
   });
 
-  assert.match(styleValues.get("--app-font"), /ui-serif/);
+  assert.match(styleValues.get("--app-font"), /-apple-system/);
   assert.equal(styleValues.get("--accent"), "#318ad3");
   assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-layer) 82%, transparent)");
   assert.equal(documentElement.dataset.selectionStyle, "solid");
+});
+
+test("appearance controls default missing font presets to system", () => {
+  const buttons = [
+    {
+      dataset: { fontPreset: "system" },
+      classList: { active: false, toggle(_name, active) { this.active = active; } },
+      setAttribute(name, value) { if (name === "aria-checked") this.ariaChecked = value; }
+    },
+    {
+      dataset: { fontPreset: "serif" },
+      classList: { active: false, toggle(_name, active) { this.active = active; } },
+      setAttribute(name, value) { if (name === "aria-checked") this.ariaChecked = value; }
+    }
+  ];
+  const controls = appearanceControls({ appearanceFontPreset: { value: "" } });
+  const { api } = loadAppearanceModule({
+    els: controls,
+    documentOverrides: {
+      querySelectorAll(selector) {
+        return selector === "[data-font-preset]" ? buttons : [];
+      }
+    }
+  });
+
+  api.syncAppearanceControls({});
+
+  assert.equal(controls.appearanceFontPreset.value, "system");
+  assert.equal(buttons[0].ariaChecked, "true");
+  assert.equal(buttons[1].ariaChecked, "false");
+  assert.equal(api.currentAppearanceDraft().fontPreset, "system");
 });
 
 test("syncAppearanceControls skips form controls when element deps are missing", () => {
@@ -526,7 +557,7 @@ test("desktop appearance settings expose bottom board color controls", () => {
   assert.match(appSource, /appearanceWorkspaceBackgroundColor\?\.addEventListener\("change"/);
   assert.match(appSource, /closest\("\[data-workspace-background-color\],\s*\[data-workspace-background-image-preset\]"\)/);
   assert.match(appSource, /button\.dataset\.workspaceBackgroundImage/);
-  assert.match(appSource, /mergeCloudAppearance\?\.\(\s*state\.runtime\?\.appearance/);
+  assert.doesNotMatch(appSource, /applyCloudAppearance/);
   assert.match(appSource, /mergeCloudAppearance\?\.\(\s*state\.runtime\.appearance,\s*runtime\.appearance/);
   assert.match(appSource, /function clearWorkspaceBackgroundImageDraft\(\)/);
   assert.match(appSource, /function saveWorkspaceBackgroundColor\(\)\s*\{[\s\S]*?clearWorkspaceBackgroundImageDraft\(\);[\s\S]*?window\.miaSettingsAppearance\.scheduleAppearanceSave\(0\);/);

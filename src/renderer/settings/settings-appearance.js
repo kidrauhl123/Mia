@@ -159,7 +159,7 @@
 
   function fontStackForAppearance(appearance = {}) {
     const presets = configuredFontPresets();
-    return presets[appearance.fontPreset || "serif"] || presets.serif || presets.system;
+    return presets[appearance.fontPreset || "system"] || presets.system || presets.serif;
   }
 
   function avatarToggleEnabled(value) {
@@ -238,7 +238,7 @@
     );
     return {
       theme,
-      fontPreset: controls.appearanceFontPreset?.value || "serif",
+      fontPreset: controls.appearanceFontPreset?.value || "system",
       accentColor: normalizeHexColor(controls.appearanceAccentColor?.value),
       glassOpacity: normalizeGlassOpacity(controls.appearanceGlassOpacity?.value),
       userBubbleColor: normalizeHexColor(controls.appearanceUserBubbleColor?.value, defaultUserBubbleColor()),
@@ -291,7 +291,7 @@
   function syncAppearanceControls(appearance = currentAppearanceDraft()) {
     const controls = els || {};
     const presets = configuredFontPresets();
-    const fontPreset = presets[appearance.fontPreset] ? appearance.fontPreset : "serif";
+    const fontPreset = presets[appearance.fontPreset] ? appearance.fontPreset : "system";
     if (controls.appearanceFontPreset) controls.appearanceFontPreset.value = fontPreset;
     document.querySelectorAll("[data-font-preset]").forEach((button) => {
       const active = button.dataset.fontPreset === fontPreset;

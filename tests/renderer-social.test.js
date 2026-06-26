@@ -4427,7 +4427,7 @@ test("applyCloudSettings clears auto-counted unread when peer device's readMark 
     "readMark caught up to local maxSeq → unread badge must clear");
 });
 
-test("applyCloudSettings applies appearance updates from another device", () => {
+test("applyCloudSettings ignores appearance updates from another device", () => {
   const s = loadSocial();
   const applied = [];
   s.initSocialModule({
@@ -4446,7 +4446,7 @@ test("applyCloudSettings applies appearance updates from another device", () => 
     updatedAt: "2026-05-28T00:00:00.000Z"
   });
 
-  assert.deepEqual(applied, [{ theme: "dark", accentColor: "#112233" }]);
+  assert.deepEqual(applied, []);
 });
 
 test("applyCloudSettings leaves unread alone when local has fresher messages than peer's readMark", () => {

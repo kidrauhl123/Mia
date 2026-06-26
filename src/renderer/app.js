@@ -20,6 +20,7 @@ const botRuntimeControlCache = new Map();
 const botRuntimeControlInFlight = new Set();
 const platformModelCatalog = { loaded: false, loading: false, entries: [] };
 let socialBootstrapInFlight = null;
+let starterEngineBotsInFlight = null;
 let personaSearchTimer = 0;
 let personaSearchSerial = 0;
 let shellLayoutTransitionTimer = 0;
@@ -3111,7 +3112,7 @@ function render() {
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
   const appearance = runtime.appearance || {
     theme: "light",
-    fontPreset: "serif",
+    fontPreset: "system",
     accentColor: DEFAULT_ACCENT_COLOR,
     userBubbleColor: DEFAULT_USER_BUBBLE_COLOR,
     glassOpacity: 82,
@@ -4987,15 +4988,48 @@ async function refreshRuntime() {
 function maybeBootstrapSocialAfterRuntime(runtime) {
   if (!runtime?.cloud?.enabled) return;
   if (!window.miaSocial || typeof window.miaSocial.bootstrapAfterLogin !== "function") return;
-  if (typeof window.miaSocial.isBootstrapped === "function" && window.miaSocial.isBootstrapped()) return;
+  if (typeof window.miaSocial.isBootstrapped === "function" && window.miaSocial.isBootstrapped()) {
+    maybeEnsureStarterEngineBots();
+    return;
+  }
   if (socialBootstrapInFlight) return;
   socialBootstrapInFlight = Promise.resolve(window.miaSocial.bootstrapAfterLogin())
+    .then(() => maybeEnsureStarterEngineBots())
     .catch((err) => {
       console.warn("[social] runtime bootstrap failed:", err);
     })
     .finally(() => {
       socialBootstrapInFlight = null;
     });
+}
+
+function maybeEnsureStarterEngineBots() {
+  if (!state.runtime?.cloud?.enabled) return Promise.resolve(null);
+  if (!window.miaSocial || typeof window.miaSocial.isBootstrapped !== "function" || !window.miaSocial.isBootstrapped()) {
+    return Promise.resolve(null);
+  }
+  if (!window.miaStarterEngineBots || typeof window.miaStarterEngineBots.ensureStarterEngineBots !== "function") {
+    return Promise.resolve(null);
+  }
+  if (starterEngineBotsInFlight) return starterEngineBotsInFlight;
+  starterEngineBotsInFlight = Promise.resolve(window.miaStarterEngineBots.ensureStarterEngineBots({
+    state,
+    api: window.mia,
+    social: window.miaSocial,
+    commands: window.miaBotCommands
+  }))
+    .then((result) => {
+      if (result?.created?.length) render();
+      return result;
+    })
+    .catch((err) => {
+      console.warn("[starter-engine-bots] seed failed:", err?.message || err);
+      return null;
+    })
+    .finally(() => {
+      starterEngineBotsInFlight = null;
+    });
+  return starterEngineBotsInFlight;
 }
 
 async function initializeRuntime(options = {}) {
@@ -5213,28 +5247,17 @@ async function initializeRuntime(options = {}) {
       isWindowFocused: () => desktopWindowFocused,
       showDesktopMessageNotification: (payload) => window.mia.showDesktopNotification?.(payload),
       paintHeaderStatus,
-      applyCloudAppearance: (appearance) => {
-        if (!appearance || typeof appearance !== "object") return;
-        const nextAppearance = window.miaSettingsAppearance?.mergeCloudAppearance?.(state.runtime?.appearance, appearance) || {
-          ...(state.runtime?.appearance || {}),
-          ...appearance
-        };
-        state.runtime = {
-          ...(state.runtime || {}),
-          appearance: nextAppearance
-        };
-        window.miaSettingsAppearance?.applyAppearance?.(state.runtime.appearance);
-        window.miaSettingsAppearance?.syncAppearanceControls?.(state.runtime.appearance);
-      },
     });
     // Bootstrap social data if signed in to cloud (token present).
     // (cloud.enabled, not cloud.loggedIn — the latter never existed, so
     // this used to never run; bootstrap only fired later via the WS
     // events_ready event, which is part of why the list arrived late.)
     if (state.runtime && state.runtime.cloud && state.runtime.cloud.enabled) {
-      window.miaSocial.bootstrapAfterLogin().catch((err) => {
-        console.warn("[social] boot bootstrap failed:", err);
-      });
+      window.miaSocial.bootstrapAfterLogin()
+        .then(() => maybeEnsureStarterEngineBots())
+        .catch((err) => {
+          console.warn("[social] boot bootstrap failed:", err);
+        });
     }
   }
   render();

@@ -2880,8 +2880,8 @@
       return;
     }
 
-    // Phase 3: another device wrote settings — replace local cache so
-    // pins / read marks / appearance match across devices in real time.
+    // Phase 3: another device wrote account-scoped settings — replace local
+    // cache so pins / read marks / tags match across devices in real time.
     // payload is the full envelope { type, settings, seq, ... }.
     if (type === "user_settings.updated") {
       const settings = payload && payload.settings ? payload.settings : null;
@@ -4680,6 +4680,7 @@
         readMarks: nextReadMarks,
         appearance: s.appearance,
         tags: s.tags,
+        starterEngineBots: s.starterEngineBots || {},
         mutedConversations: s.mutedConversations || [],
         unreadOverrides: nextOverrides,
         expectedVersion: s.version || 0
@@ -4731,7 +4732,11 @@
       readMarks: input.readMarks && typeof input.readMarks === "object" ? input.readMarks : {},
       appearance: input.appearance && typeof input.appearance === "object" ? input.appearance : {},
       tags,
+      starterEngineBots: input.starterEngineBots && typeof input.starterEngineBots === "object" && !Array.isArray(input.starterEngineBots)
+        ? input.starterEngineBots
+        : (prior.starterEngineBots && typeof prior.starterEngineBots === "object" ? prior.starterEngineBots : {}),
       // Older cloud settings responses only echo pins/readMarks/appearance.
+      // Appearance is ignored by consumers; keep the bag only for response compatibility.
       // Preserve these local bags so optimistic menu toggles don't flash away.
       mutedConversations: Array.isArray(input.mutedConversations)
         ? input.mutedConversations
@@ -5120,6 +5125,7 @@
       unreadOverrides,
       readMarks: s.readMarks || {},
       appearance: s.appearance || {},
+      starterEngineBots: s.starterEngineBots || {},
       tags: tags !== undefined ? conversationTagsShared().normalizeConversationTags(tags) : s.tags
     };
     if (manualUnread === true) {
@@ -5138,6 +5144,7 @@
         unreadOverrides: next.unreadOverrides,
         readMarks: next.readMarks,
         appearance: next.appearance,
+        starterEngineBots: next.starterEngineBots,
         tags: next.tags,
         expectedVersion: s.version || 0
       });
@@ -5169,9 +5176,6 @@
   function applyCloudSettings(settings) {
     if (!settings || typeof settings !== "object") return;
     moduleState.cloudSettings = normalizeCloudSettings(settings, moduleState.cloudSettings || {});
-    if (moduleState.cloudSettings.appearance && typeof deps?.applyCloudAppearance === "function") {
-      deps.applyCloudAppearance(moduleState.cloudSettings.appearance);
-    }
     reconcileUnreadFromReadMarks(moduleState.cloudSettings.readMarks);
     if (deps && typeof deps.render === "function") deps.render();
   }
