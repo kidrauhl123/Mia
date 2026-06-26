@@ -145,6 +145,35 @@ test("writeRuntimeConfig preserves user-owned Hermes config while replacing Mia-
   assert.equal(parsed.custom_providers.local.base_url, "http://localhost:1234");
 });
 
+test("writeRuntimeConfig clears stale Mia-owned Hermes model config when Mia has no selected model", (t) => {
+  const { runtime, service } = setup(t);
+  fs.mkdirSync(path.dirname(runtime.config), { recursive: true });
+  fs.writeFileSync(runtime.config, yaml.dump({
+    mia: { runtime_schema: 1 },
+    model: {
+      provider: "openai",
+      default: "gpt-x",
+      base_url: "https://gui.example/v1"
+    },
+    providers: {
+      openai: {
+        name: "OpenAI",
+        base_url: "https://gui.example/v1",
+        default_model: "gpt-x"
+      }
+    },
+    platforms: { api_server: { port: 1234 } }
+  }));
+
+  service.writeRuntimeConfig(19191);
+
+  const parsed = yaml.load(fs.readFileSync(runtime.config, "utf8"));
+  assert.equal(parsed.model, undefined);
+  assert.equal(parsed.providers?.openai, undefined);
+  assert.equal(parsed.platforms.api_server.port, 19191);
+  assert.equal(parsed.mia.runtime_schema, 1);
+});
+
 test("writeRuntimeConfig can apply per-turn Mia managed model settings", (t) => {
   const { runtime, service } = setup(t);
 

@@ -49,7 +49,47 @@ function runtimeConfigFromMessage(message = {}) {
   if (message.model_profile_id != null) config.modelProfileId = message.model_profile_id;
   if (message.effort_level != null) config.effortLevel = message.effort_level;
   if (message.permission_mode != null) config.permissionMode = message.permission_mode;
+  applyHermesManagedModelFallback(config, input);
   return config;
+}
+
+function normalizeMiaManagedModelId(value = "") {
+  const id = String(value || "").trim();
+  if (id === "mia-default") return "mia-auto";
+  return id;
+}
+
+function miaManagedEntryFromRuntimeOptions(input = {}) {
+  const entries = Array.isArray(input.modelEntries || input.model_entries)
+    ? (input.modelEntries || input.model_entries)
+    : [];
+  for (const entry of entries) {
+    const provider = String(
+      entry?.providerConnectionId
+      || entry?.provider_connection_id
+      || entry?.provider
+      || ""
+    ).trim();
+    const authType = String(entry?.authType || entry?.auth_type || "").trim();
+    const profileId = String(entry?.modelProfileId || entry?.model_profile_id || "").trim();
+    const model = normalizeMiaManagedModelId(entry?.model || entry?.id || entry?.value || "");
+    if ((provider === "mia" || authType === "mia_account" || profileId.startsWith("mia:")) && model) {
+      return { provider, authType, profileId, model };
+    }
+  }
+  return null;
+}
+
+function applyHermesManagedModelFallback(config = {}, input = {}) {
+  if (config.agentEngine !== "hermes") return;
+  if (config.model || config.providerConnectionId || config.modelProfileId) return;
+  const entry = miaManagedEntryFromRuntimeOptions(input);
+  if (!entry) return;
+  config.providerConnectionId = "mia";
+  config.model = entry.model;
+  config.modelProfileId = entry.profileId.startsWith("mia:")
+    ? `mia:${entry.model}`
+    : `mia:${entry.model}`;
 }
 
 function attachmentListFromAssistant(assistant = {}, randomUUID = () => "") {

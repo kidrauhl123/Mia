@@ -876,6 +876,57 @@ test("syncDesktopLocalBotRuntimeBinding includes Mia model ownership metadata", 
   assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "apiMode"), false);
 });
 
+test("syncDesktopLocalBotRuntimeBinding defaults empty Hermes model to only Mia Auto entry", async () => {
+  const calls = [];
+  const api = {
+    async saveBotRuntime(botId, body) {
+      calls.push(["runtime", botId, body]);
+      return { ok: true, data: { binding: { botId, ...body } } };
+    }
+  };
+
+  await commands.syncDesktopLocalBotRuntimeBinding({
+    api,
+    state: {
+      runtime: {
+        model: { provider: "", model: "" },
+        effort: { level: "medium" },
+        permissions: { mode: "ask" }
+      }
+    },
+    bot: { key: "alice", name: "Alice" },
+    modelSettings: {
+      connectedModelEntries: () => [{
+        id: "mia-auto",
+        model: "mia-auto",
+        label: "Auto",
+        provider: "mia",
+        providerLabel: "Mia",
+        authType: "mia_account",
+        modelProfileId: "mia:mia-auto"
+      }]
+    }
+  });
+
+  assert.deepEqual(calls[0][2].config, {
+    agentEngine: "hermes",
+    model: "mia-auto",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:mia-auto",
+    effortLevel: "medium",
+    permissionMode: "ask",
+    modelEntries: [{
+      value: "mia-auto",
+      label: "Auto",
+      model: "mia-auto",
+      provider: "mia",
+      providerLabel: "Mia",
+      authType: "mia_account",
+      modelProfileId: "mia:mia-auto"
+    }]
+  });
+});
+
 test("syncDesktopLocalBotRuntimeBinding preserves openclaw as a desktop target", async () => {
   const calls = [];
   const api = {

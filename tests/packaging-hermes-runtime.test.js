@@ -29,6 +29,16 @@ test("electron-builder resources exclude Hermes runtime", () => {
   assert.doesNotMatch(JSON.stringify(pkg.build.win || {}), /vendor\/hermes-runtime/);
 });
 
+test("desktop package includes OpenClaw ACP SDK runtime dependency", () => {
+  const pkg = packageJson();
+
+  assert.ok(pkg.dependencies?.["@agentclientprotocol/sdk"], "OpenClaw ACP SDK must be a production dependency");
+  assert.ok(
+    pkg.build.asarUnpack.includes("node_modules/@agentclientprotocol/sdk/**"),
+    "OpenClaw adapter imports @agentclientprotocol/sdk at runtime, so packaged apps must unpack it"
+  );
+});
+
 test("desktop auto-update uses Mia generic update source instead of GitHub", () => {
   const pkg = packageJson();
   assert.deepEqual(pkg.build.publish, {

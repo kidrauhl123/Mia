@@ -341,6 +341,52 @@ test("run messages normalize cloud bridge runtime config to Core-shaped referenc
   assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "authType"), false);
 });
 
+test("Hermes bridge run treats an empty selection with only Mia Auto entry as mia-auto", async () => {
+  const { client, calls, sockets, FakeWebSocket } = setup();
+  client.start();
+  const ws = sockets[0];
+  ws.readyState = FakeWebSocket.OPEN;
+
+  client.handleMessage(ws, JSON.stringify({
+    type: "run",
+    runId: "run_hermes_auto",
+    text: "use hermes auto",
+    runtimeConfig: {
+      agentEngine: "hermes",
+      model: "",
+      effortLevel: "medium",
+      permissionMode: "ask",
+      modelEntries: [{
+        value: "mia-auto",
+        label: "Auto",
+        model: "mia-auto",
+        provider: "mia",
+        providerLabel: "Mia",
+        authType: "mia_account",
+        modelProfileId: "mia:mia-auto"
+      }]
+    }
+  }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(calls.chat[0].runtimeConfig, {
+    agentEngine: "hermes",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:mia-auto",
+    model: "mia-auto",
+    effortLevel: "medium",
+    permissionMode: "ask"
+  });
+  assert.deepEqual(calls.chat[0].bot.engineConfig, {
+    effortLevel: "medium",
+    permissionMode: "ask",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:mia-auto",
+    model: "mia-auto"
+  });
+});
+
 test("cancel messages abort the active bridge run", async () => {
   let resolveRun;
   const { client, calls, sockets, FakeWebSocket } = setup({

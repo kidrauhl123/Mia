@@ -149,6 +149,31 @@ function createEngineRuntimeConfigService(deps = {}) {
     };
   }
 
+  function hasModelRuntimeSettings(settings = {}) {
+    return Boolean(
+      String(settings.provider || "").trim()
+      || String(settings.providerConnectionId || settings.provider_connection_id || "").trim()
+      || String(settings.modelProfileId || settings.model_profile_id || "").trim()
+      || String(settings.model || "").trim()
+      || String(settings.apiKey || settings.api_key || "").trim()
+      || String(settings.baseUrl || settings.base_url || "").trim()
+      || String(settings.apiMode || settings.api_mode || "").trim()
+    );
+  }
+
+  function clearStaleMiaOwnedModelConfig(config = {}) {
+    if (!isPlainObject(config?.mia) || Number(config.mia.runtime_schema) !== 1) return;
+    const modelConfig = isPlainObject(config.model) ? config.model : null;
+    const staleProvider = String(modelConfig?.provider || "").trim();
+    delete config.model;
+    if (staleProvider && isPlainObject(config.providers)) {
+      const providers = { ...config.providers };
+      delete providers[staleProvider];
+      if (Object.keys(providers).length) config.providers = providers;
+      else delete config.providers;
+    }
+  }
+
   function externalSkillDirs() {
     const candidates = typeof externalSkillDirsSource === "function"
       ? externalSkillDirsSource()
@@ -190,14 +215,18 @@ function createEngineRuntimeConfigService(deps = {}) {
 
     fsImpl.mkdirSync(p.home, { recursive: true });
     const config = readYamlObject(configPath);
-    const modelConfig = isPlainObject(config.model) ? { ...config.model } : {};
-    if (provider) modelConfig.provider = provider;
-    if (model) modelConfig.default = model;
-    if (baseUrl) modelConfig.base_url = baseUrl;
-    if (apiMode) modelConfig.api_mode = apiMode;
-    if (Object.keys(modelConfig).length) config.model = modelConfig;
+    if (!hasModelRuntimeSettings(settings)) {
+      clearStaleMiaOwnedModelConfig(config);
+    } else {
+      const modelConfig = isPlainObject(config.model) ? { ...config.model } : {};
+      if (provider) modelConfig.provider = provider;
+      if (model) modelConfig.default = model;
+      if (baseUrl) modelConfig.base_url = baseUrl;
+      if (apiMode) modelConfig.api_mode = apiMode;
+      if (Object.keys(modelConfig).length) config.model = modelConfig;
+    }
 
-    if (provider && baseUrl) {
+    if (hasModelRuntimeSettings(settings) && provider && baseUrl) {
       const providers = isPlainObject(config.providers) ? { ...config.providers } : {};
       const providerConfig = isPlainObject(providers[provider]) ? { ...providers[provider] } : {};
       providerConfig.name = settings.providerLabel || provider;
