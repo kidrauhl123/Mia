@@ -337,6 +337,46 @@ test("setEnabled blocks native built-ins until required inputs and connection te
   assert.equal(stored[0].enabled, false);
 });
 
+test("setEnabled allows native built-ins when the last connection test passed despite stale wizard state", async (t) => {
+  const { service, runtime } = setup(t);
+
+  const ready = await service.installTemplate("playwright", {});
+  let stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  stored[0].enabled = false;
+  stored[0].status = "connected";
+  stored[0].lastTestStatus = "connected";
+  stored[0].lastTestCode = "ok";
+  stored[0].connectionWizard = { state: "ready_to_test", nextAction: "test", message: "Old UI state.", missingRequiredInputs: [], actions: [{ id: "test", label: "Test" }] };
+  fs.writeFileSync(runtime.mcpServers, `${JSON.stringify(stored, null, 2)}\n`);
+
+  const enabled = await service.setEnabled(ready.data.id, true);
+  stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(enabled.success, true);
+  assert.equal(enabled.data.enabled, true);
+  assert.equal(stored[0].enabled, true);
+});
+
+test("test updates native built-in connection wizard after a successful connection check", async (t) => {
+  const { service, runtime } = setup(t);
+
+  const ready = await service.installTemplate("playwright", {});
+  let stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  stored[0].enabled = false;
+  stored[0].status = "disconnected";
+  stored[0].lastTestStatus = "disconnected";
+  stored[0].connectionWizard = { state: "ready_to_test", nextAction: "test", message: "Old UI state.", missingRequiredInputs: [], actions: [{ id: "test", label: "Test" }] };
+  fs.writeFileSync(runtime.mcpServers, `${JSON.stringify(stored, null, 2)}\n`);
+
+  const tested = await service.test(ready.data.id);
+  stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(tested.success, true);
+  assert.equal(tested.data.status, "connected");
+  assert.equal(tested.data.connectionWizard.state, "connected");
+  assert.equal(stored[0].connectionWizard.state, "connected");
+});
+
 test("runManagedAction test enables xiaohongshu after successful MCP test", async (t) => {
   const calls = [];
   const { service } = setup(t, {

@@ -360,10 +360,8 @@ function createCoreMcpService(deps = {}) {
   function canEnableNativeBuiltInRecord(record = {}) {
     const status = String(record.status || "").trim().toLowerCase();
     const lastTestStatus = String(record.lastTestStatus || "").trim().toLowerCase();
-    const wizardState = String(record.connectionWizard?.state || "").trim().toLowerCase();
     return status === "connected"
-      && lastTestStatus === "connected"
-      && (!wizardState || wizardState === "connected");
+      && lastTestStatus === "connected";
   }
 
   function nativeBuiltInEnableError(record = {}) {
@@ -722,10 +720,12 @@ function createCoreMcpService(deps = {}) {
           ? await manager.testServer(record)
           : { success: true, status: "connected", tools: [], error: "" };
       const diagnosticMessage = sanitizeSecretText(result?.message || result?.error || "");
+      const isBuiltInNative = record.managementMode === "native" && isMarketplaceBuiltInRecord(record);
+      const testedStatus = String(result?.status || "unknown");
       const nextRecord = {
         ...record,
-        status: String(result?.status || "unknown"),
-        lastTestStatus: String(result?.status || "unknown"),
+        status: testedStatus,
+        lastTestStatus: testedStatus,
         lastTestCode: result?.code ?? null,
         diagnostics: result && typeof result === "object" ? result : {},
         tools: Array.isArray(result?.tools) ? result.tools : [],
@@ -735,6 +735,11 @@ function createCoreMcpService(deps = {}) {
           ...(record.oauth && typeof record.oauth === "object" ? record.oauth : {}),
           authenticated: result?.auth?.authenticated === true
         },
+        ...(isBuiltInNative ? {
+          connectionWizard: testedStatus === "connected"
+            ? { state: "connected", nextAction: "", message: "Connected and enabled.", missingRequiredInputs: [], actions: [] }
+            : { state: "test_failed", nextAction: "test", message: diagnosticMessage || "Connection test failed.", missingRequiredInputs: [], actions: [{ id: "test", label: "重新检测" }] }
+        } : {}),
         updatedAt: now()
       };
       if (!existing) {
