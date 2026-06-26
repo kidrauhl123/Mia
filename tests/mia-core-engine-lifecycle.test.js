@@ -38,6 +38,10 @@ function makeFakeChild() {
   return child;
 }
 
+function spawnSyncOk() {
+  return { status: 0, stdout: "import OK\n", stderr: "" };
+}
+
 test("ensureRunning adopts an already-healthy engine without spawning", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-engine-adopt-"));
   try {
@@ -102,6 +106,7 @@ test("ensureRunning spawns the correct gateway command + env when no engine is r
         healthyAfterSpawn = true;
         return fakeChild;
       },
+      spawnSyncImpl: spawnSyncOk,
       systemHermesPython: () => "/opt/hermes/bin/python3",
       waitForHealthMs: 3000
     });
@@ -142,6 +147,38 @@ test("ensureRunning spawns the correct gateway command + env when no engine is r
     supervisor.stop();
     assert.equal(fakeChild.killed, true, "core.stop() kills a Core-spawned engine");
     assert.equal(supervisor.isManaged(), false);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("ensureRunning fails before spawn when Hermes API runtime dependency is missing", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-engine-runtime-missing-"));
+  try {
+    const hermesHome = path.join(home, ".hermes");
+    let spawnCalls = 0;
+    const supervisor = createCoreEngineSupervisor({
+      runtimePaths: makeRuntimePaths(home),
+      buildPythonPath: () => path.join(home, "runtime", "mia-plugins"),
+      hermesHome: () => hermesHome,
+      fetchImpl: async () => Promise.reject(new Error("ECONNREFUSED")),
+      spawnImpl: () => {
+        spawnCalls += 1;
+        return makeFakeChild();
+      },
+      spawnSyncImpl: () => ({
+        status: 1,
+        stdout: "",
+        stderr: "ModuleNotFoundError: No module named 'aiohttp'"
+      }),
+      systemHermesPython: () => "/opt/hermes/bin/python3"
+    });
+
+    await assert.rejects(
+      () => supervisor.ensureRunning(),
+      /Hermes API runtime is incomplete[\s\S]*aiohttp/
+    );
+    assert.equal(spawnCalls, 0, "must not spawn Hermes when API runtime imports fail");
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

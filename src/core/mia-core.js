@@ -50,7 +50,7 @@ const yaml = require("js-yaml");
   }
 })();
 
-const { spawn: defaultSpawn } = require("node:child_process");
+const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 
 const { createRuntimePaths } = require("../main/runtime-paths.js");
 const {
@@ -244,6 +244,31 @@ function coreReadHermesApiKey(hermesHome) {
   } catch {
     return "";
   }
+}
+
+const CORE_HERMES_API_RUNTIME_MODULES = Object.freeze(["hermes_cli.main", "aiohttp"]);
+
+function coreModuleImportScript(modules) {
+  return [
+    "import importlib",
+    `modules = ${JSON.stringify(modules)}`,
+    "[importlib.import_module(module) for module in modules]",
+    "print('import OK')"
+  ].join("; ");
+}
+
+function coreHermesApiRuntimeCheck({ python, env = process.env, buildPythonPath = () => "", spawnSyncImpl = defaultSpawnSync } = {}) {
+  const command = String(python || "").trim();
+  if (!command) return { ok: false, error: "Hermes Python is not available." };
+  const pythonPath = typeof buildPythonPath === "function" ? buildPythonPath() : String(buildPythonPath || "");
+  const result = spawnSyncImpl(command, ["-c", coreModuleImportScript(CORE_HERMES_API_RUNTIME_MODULES)], {
+    encoding: "utf8",
+    env: { ...env, PYTHONPATH: pythonPath },
+    timeout: 5000
+  });
+  if (!result.error && result.status === 0) return { ok: true, error: "" };
+  const output = String(result.stderr || result.stdout || result.error?.message || "").trim();
+  return { ok: false, error: output || `Python import check exited with code ${result.status ?? "unknown"}` };
 }
 
 // Minimal pure-path helper replicated from src/main.js:910 (byte-identical).
@@ -617,11 +642,7 @@ function createCoreBotExecution({
   // probe (legacy behaviour: the Electron app owns the engine).
   async function ensureHermesReady() {
     if (typeof ensureEngine === "function") {
-      try {
-        await ensureEngine();
-      } catch {
-        // Non-fatal here: the actual send below surfaces a real connection error.
-      }
+      await ensureEngine();
       return;
     }
     const url = baseUrl();
@@ -1418,6 +1439,7 @@ function createCoreEngineSupervisor({
   buildPythonPath,
   hermesHome,
   spawnImpl = defaultSpawn,
+  spawnSyncImpl = defaultSpawnSync,
   fetchImpl = fetch,
   // PATH-resolved Hermes python (system-hermes-service in production). A "" here
   // falls back to "python3" — the SAME fallback engine-install-service.enginePython
@@ -1513,6 +1535,11 @@ function createCoreEngineSupervisor({
     }
 
     const python = String(resolvePython() || "").trim() || "python3";
+    const apiRuntime = coreHermesApiRuntimeCheck({ python, env, buildPythonPath, spawnSyncImpl });
+    if (!apiRuntime.ok) {
+      const detail = apiRuntime.error ? ` ${apiRuntime.error}` : "";
+      throw new Error(`Hermes API runtime is incomplete. Please run Repair Hermes in Mia settings.${detail}`);
+    }
     enginePlugins.ensureInstalled();
 
     const port = await healthService.choosePort();
