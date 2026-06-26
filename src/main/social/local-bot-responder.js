@@ -179,6 +179,15 @@ function normalizedHistoryRole(role) {
   return "user";
 }
 
+function isGeneratedBotFailureText(content) {
+  const text = String(content || "").trim();
+  if (!text) return false;
+  if (/^我这次没能生成回复：/.test(text)) return true;
+  if (/^模型调用失败：/.test(text)) return true;
+  if (/^[^\s]+ 当前离线，打开该设备上的 Mia 后再试。$/.test(text)) return true;
+  return false;
+}
+
 function truncateHistoryContent(content) {
   const text = String(content || "").trim();
   if (text.length <= HISTORY_MESSAGE_CHAR_LIMIT) return text;
@@ -191,6 +200,7 @@ function normalizeHistoryMessages(historyMessages) {
       role: normalizedHistoryRole(message?.role),
       content: truncateHistoryContent(message?.content)
     }))
+    .filter((message) => !(message.role === "assistant" && isGeneratedBotFailureText(message.content)))
     .filter((message) => message.content)
     .slice(-HISTORY_MESSAGE_LIMIT);
   const selected = [];
@@ -598,6 +608,7 @@ module.exports = {
   activeSkillIdsFromMessage,
   clientOpIdForDedupKey,
   createLocalBotResponder,
+  isGeneratedBotFailureText,
   postedMessageFromResult,
   runIdForDedupKey,
   responseText,

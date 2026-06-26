@@ -1,7 +1,10 @@
 "use strict";
 
 const { MemberKind, SenderKind } = require("../../shared/conversation-kinds.js");
-const { activeSkillIdsFromMessage } = require("./local-bot-responder.js");
+const {
+  activeSkillIdsFromMessage,
+  isGeneratedBotFailureText
+} = require("./local-bot-responder.js");
 const { normalizeTurnRuntimeConfig } = require("../runtime-config-normalizer.js");
 
 const HISTORY_MESSAGE_LIMIT = 80;
@@ -98,6 +101,7 @@ function buildHistoryMessages({ recentMessages, triggeringMessage, groupConversa
     .filter((message) => {
       if (!message) return false;
       if (triggerId && String(message.id || "") === triggerId) return false;
+      if (String(message.sender_kind || "") === SenderKind.Bot && isGeneratedBotFailureText(message.body_md || message.bodyMd || message.content)) return false;
       return true;
     })
     .map((message) => ({

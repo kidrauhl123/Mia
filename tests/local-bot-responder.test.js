@@ -120,6 +120,28 @@ test("respond passes structured conversation history before the current user tur
   ]);
 });
 
+test("respond omits generated assistant failure bubbles from engine history", async () => {
+  const { responder, calls } = setup();
+
+  await responder.respond({
+    ...base,
+    historyMessages: [
+      { role: "user", content: "刚才怎么了" },
+      { role: "assistant", content: "我这次没能生成回复：本地模型运行失败。原因：本地模型这次没有产生任何文本回复（可能是工具权限被拒，或本轮只调用了工具）。请稍后重试或切换模型。" },
+      { role: "assistant", content: "现在恢复了。" },
+      { role: "assistant", content: "jungdeMacBook-Air-7 当前离线，打开该设备上的 Mia 后再试。" }
+    ],
+    userPrompt: "继续"
+  });
+
+  assert.deepEqual(calls.engine[0].messages, [
+    { role: "system", content: "sys" },
+    { role: "user", content: "刚才怎么了" },
+    { role: "assistant", content: "现在恢复了。" },
+    { role: "user", content: "继续" }
+  ]);
+});
+
 test("respond folds the message's skill chips into the engine turn", async () => {
   const { responder, calls } = setup();
 

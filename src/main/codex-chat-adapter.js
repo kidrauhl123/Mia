@@ -200,6 +200,7 @@ function createCodexChatAdapter(deps = {}) {
   const setAgentSessionEntry = deps.setAgentSessionEntry || ((engine, botId, localSessionId, externalId) => {
     setAgentSessionId(engine, botId, localSessionId, externalId);
   });
+  const clearAgentSessionEntry = deps.clearAgentSessionEntry || (() => false);
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
   const memoryBlock = deps.memoryBlock || (() => "");
   const ensureCodexHome = requireDependency(deps, "ensureCodexHome");
@@ -395,6 +396,9 @@ function createCodexChatAdapter(deps = {}) {
     }
     appendEngineLog(`[codex] chat total: ${elapsedMs(chatStartedAt)} transport=${transport}`);
     const imagePaths = recentGeneratedImagePaths(capturedSessionId, { env, startedAtMs });
+    if (shouldPersistAgentSession && externalSessionId && !String(turn?.finalResponse || "").trim()) {
+      try { clearAgentSessionEntry(engine, bot.key, sessionId); } catch { /* ignore session cleanup failures */ }
+    }
     if (capturedSessionId && !externalSessionId && shouldPersistAgentSession) {
       setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, mcpFingerprint);
     }

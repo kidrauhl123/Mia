@@ -65,7 +65,8 @@ function createDeps(overrides = {}) {
     writeSchedulerMcpContext: () => {},
     ...(useEntryDeps ? {
       getAgentSessionEntry: () => overrides.savedEntry || { id: "", fingerprint: "" },
-      setAgentSessionEntry: (...args) => calls.push(["set-entry", ...args])
+      setAgentSessionEntry: (...args) => calls.push(["set-entry", ...args]),
+      clearAgentSessionEntry: (...args) => calls.push(["clear-entry", ...args])
     } : {})
   };
 }
@@ -327,6 +328,30 @@ test("sendChat can persist native sessions for utility conversations", async () 
 
   assert.deepEqual(deps.calls.find((call) => call[0] === "set-session"), [
     "set-session", "codex", "kongling", "conversation:bot:u_1:kongling", "thread_native"
+  ]);
+});
+
+test("sendChat clears a resumed Codex session when the turn completes without text", async () => {
+  const deps = createDeps({
+    useEntryDeps: true,
+    savedEntry: { id: "thread_old", fingerprint: "mcp_fp" },
+    mcpFingerprint: "mcp_fp",
+    finalResponse: ""
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  const response = await adapter.sendChat({
+    bot: { key: "kongling", name: "Kongling", bio: "" },
+    sessionId: "conversation:botc_kongling",
+    messages: [{ role: "user", content: "ok" }],
+    signal: null,
+    utility: true,
+    persistAgentSession: true
+  });
+
+  assert.equal(response.choices[0].message.content, "");
+  assert.deepEqual(deps.calls.find((call) => call[0] === "clear-entry"), [
+    "clear-entry", "codex", "kongling", "conversation:botc_kongling"
   ]);
 });
 

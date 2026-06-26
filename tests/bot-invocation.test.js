@@ -70,6 +70,34 @@ test("buildBotInvocation treats bot conversations as private chats", () => {
   ]);
 });
 
+test("buildBotInvocation omits generated bot failure bubbles from assistant history", () => {
+  const args = buildBotInvocation({
+    type: "conversation.bot_invocation_requested",
+    conversationId: "botc_review",
+    conversationType: "bot",
+    botId: "reviewer",
+    triggeringMessage: {
+      id: "m_3",
+      sender_kind: "user",
+      sender_ref: "u_alice",
+      body_md: "现在呢"
+    },
+    members: [
+      { member_kind: "user", member_ref: "u_alice", username: "alice" },
+      { member_kind: "bot", member_ref: "reviewer", bot_name: "Reviewer" }
+    ],
+    recentMessages: [
+      { id: "m_1", sender_kind: "bot", sender_ref: "reviewer", body_md: "我这次没能生成回复：本地模型运行失败。原因：fetch failed。请稍后重试或切换模型。" },
+      { id: "m_2", sender_kind: "bot", sender_ref: "reviewer", body_md: "我在，现在可以继续。" },
+      { id: "m_3", sender_kind: "user", sender_ref: "u_alice", body_md: "现在呢" }
+    ]
+  }, []);
+
+  assert.deepEqual(args.historyMessages, [
+    { role: "assistant", content: "我在，现在可以继续。" }
+  ]);
+});
+
 test("buildBotInvocation uses internal scheduled task prompts without visible user message text", () => {
   const args = buildBotInvocation({
     type: "conversation.bot_invocation_requested",
