@@ -12,7 +12,7 @@ function rowToSettings(row) {
   return {
     id: row.id,
     mode: row.mode || "deepseek",
-    modelId: row.model_id || "mia-default",
+    modelId: row.model_id || "mia-auto",
     provider: row.provider || "deepseek",
     upstreamModel: row.provider === "deepseek" ? normalizeDeepSeekModel(row.upstream_model) : (row.upstream_model || ""),
     apiBase: row.api_base || "",
@@ -71,7 +71,7 @@ function createModelGatewayStore(db) {
     const hasApiBase = Object.prototype.hasOwnProperty.call(input, "apiBase");
     upsertStmt.run(
       String(input.mode || existing?.mode || "deepseek").trim() || "deepseek",
-      String(input.modelId || input.modelName || existing?.modelId || "mia-default").trim() || "mia-default",
+      String(input.modelId || input.modelName || existing?.modelId || "mia-auto").trim() || "mia-auto",
       provider,
       upstreamModel,
       String(hasApiBase ? input.apiBase : (existing?.apiBase || "")).trim().replace(/\/+$/, ""),

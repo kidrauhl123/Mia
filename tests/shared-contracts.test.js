@@ -59,7 +59,7 @@ test("engine contract owns external model and mode options for browser clients",
   assert.equal(contract.adapterForEngine("openclaw").transport, "acp-backend");
   assert.equal(contract.adapterForEngine("openclaw").agentType, "acp");
   assert.equal(contract.adapterForEngine("openclaw").backend, "openclaw");
-  assert.deepEqual(contract.externalModelEntries("claude-code").map((entry) => entry.id), ["default", "mia-default"]);
+  assert.deepEqual(contract.externalModelEntries("claude-code").map((entry) => entry.id), ["default", "mia-auto"]);
   assert.equal(contract.externalModelEntries("claude-code").find((entry) => entry.provider === "mia").authType, "mia_account");
   assert.deepEqual(
     contract.externalModelEntries("claude-code", {
@@ -74,7 +74,7 @@ test("engine contract owns external model and mode options for browser clients",
     [
       { id: "default", model: "", label: "Claude Code 默认", provider: "claude-code" },
       { id: "sonnet", model: "sonnet", label: "Sonnet alias", provider: "claude-code" },
-      { id: "mia-default", model: "mia-default", label: "Default", provider: "mia" }
+      { id: "mia-auto", model: "mia-auto", label: "Auto", provider: "mia" }
     ]
   );
   assert.equal(contract.platformModelDisplayLabel({ id: "mia-auto", label: "Mia DeepSeek" }), "Auto");
@@ -91,7 +91,7 @@ test("engine contract owns external model and mode options for browser clients",
     }).map((entry) => ({ id: entry.id, model: entry.model, label: entry.label, provider: entry.provider })),
     [
       { id: "openai/gpt-5.5", model: "openai/gpt-5.5", label: "gpt-5.5", provider: "openclaw" },
-      { id: "mia-default", model: "mia-default", label: "Default", provider: "mia" }
+      { id: "mia-auto", model: "mia-auto", label: "Auto", provider: "mia" }
     ]
   );
   assert.equal(contract.externalModelEntries("openclaw", {
@@ -119,10 +119,10 @@ test("engine contract owns external model and mode options for browser clients",
         defaultReasoningLevel: "medium",
         supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "medium" }]
       },
-      { id: "mia-default", provider: "mia", providerLabel: "Mia", model: "mia-default", label: "Default", authType: "mia_account", modelProfileId: "mia:mia-default", upstreamModel: "" }
+      { id: "mia-auto", provider: "mia", providerLabel: "Mia", model: "mia-auto", label: "Auto", authType: "mia_account", modelProfileId: "mia:mia-auto", upstreamModel: "" }
     ]
   );
-  assert.deepEqual(contract.externalModelEntries("codex").map((entry) => entry.id), ["default", "mia-default"]);
+  assert.deepEqual(contract.externalModelEntries("codex").map((entry) => entry.id), ["default", "mia-auto"]);
   assert.deepEqual(
     contract.externalPermissionOptions("claude-code", {
       engineCapabilities: { engines: { "claude-code": { permissionModes: ["default", "plan"] } } }
@@ -208,8 +208,8 @@ test("bot runtime control contract saves model, effort, and permission patches",
     botKey: "mia",
     runtimeKind: "cloud-hermes",
     field: "model",
-    value: "mia-default",
-    modelEntries: [{ value: "mia-default", model: "gpt-5.3", label: "GPT" }]
+    value: "mia-auto",
+    modelEntries: [{ value: "mia-auto", model: "gpt-5.3", label: "GPT" }]
   });
   await contract.saveBotRuntimeControl({
     api,
@@ -252,7 +252,7 @@ test("bot runtime control accepts botId for runtime reads", async () => {
           botId: "mia",
           runtimeKind: "cloud-hermes",
           enabled: true,
-          config: { model: "mia-default" }
+          config: { model: "mia-auto" }
         }
       };
     },
@@ -276,14 +276,14 @@ test("bot runtime control accepts botId for direct config saves", async () => {
     },
     botId: "mia",
     runtimeKind: "cloud-hermes",
-    patch: { model: "mia-default" }
+    patch: { model: "mia-auto" }
   });
 
   assert.equal(result.saved, true);
   assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-hermes");
   assert.equal(calls[1].url, "/api/me/bots/mia/runtime");
   assert.equal(calls[1].options.method, "PUT");
-  assert.deepEqual(calls[1].options.body.config, { model: "mia-default" });
+  assert.deepEqual(calls[1].options.body.config, { model: "mia-auto" });
 });
 
 test("main chat engine registry reuses the shared engine contract", () => {

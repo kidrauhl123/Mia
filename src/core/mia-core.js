@@ -513,7 +513,7 @@ function createCoreBotExecution({
     return {
       provider: "mia",
       providerLabel: "Mia",
-      model: model || "mia-default",
+      model: model || "mia-auto",
       authType: "mia_account",
       apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
       baseUrl: `${cloudBaseUrl}/api/me/model-proxy/v1`,

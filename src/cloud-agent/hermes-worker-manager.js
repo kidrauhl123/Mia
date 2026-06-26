@@ -53,7 +53,7 @@ function createHermesWorkerManager(options = {}) {
   );
   const internalTasksUrl = internalModelProxyKey && publicUrl ? `${publicUrl}/api/internal/tasks` : "";
   const modelProvider = String(options.modelProvider || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER || (internalModelBaseUrl ? "mia" : "mia-litellm")).trim();
-  const model = String(options.model || process.env.MIA_CLOUD_AGENT_MODEL || "mia-default").trim();
+  const model = String(options.model || process.env.MIA_CLOUD_AGENT_MODEL || "mia-auto").trim();
   const modelBaseUrl = String(options.modelBaseUrl || internalModelBaseUrl || process.env.MIA_CLOUD_AGENT_MODEL_BASE_URL || "http://litellm:4000/v1").trim();
   const usesInternalModelProxy = Boolean(internalModelProxyKey && /\/api\/internal\/model-proxy\/v1\/?$/.test(cleanBaseUrl(modelBaseUrl)));
   const modelApiMode = String(options.modelApiMode || process.env.MIA_CLOUD_AGENT_MODEL_API_MODE || "chat_completions").trim();

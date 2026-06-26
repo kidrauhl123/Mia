@@ -37,7 +37,7 @@ function createModelSettingsService({
         providerLabel: String(settings.providerLabel || "Mia").trim() || "Mia",
         authType: String(settings.authType || "mia_account").trim() || "mia_account",
         model,
-        modelProfileId: String(settings.modelProfileId || (model ? `mia:${model}` : "mia:mia-default")).trim() || (model ? `mia:${model}` : "mia:mia-default")
+        modelProfileId: String(settings.modelProfileId || (model ? `mia:${model}` : "mia:mia-auto")).trim() || (model ? `mia:${model}` : "mia:mia-auto")
       });
       return getRuntimeStatus();
     }

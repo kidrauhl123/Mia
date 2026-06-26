@@ -192,7 +192,7 @@
     const id = String(fallbackId || entry.id || entry.value || entry.model_name || entry.model || "").trim();
     const idLower = id.toLowerCase();
     if (idLower === "mia-auto") return "Auto";
-    if (idLower === "mia-default") return "Default";
+    if (idLower === "mia-default") return "Auto";
     const raw = String(entry.label || entry.name || entry.displayName || entry.display_name || id).trim() || id;
     return raw.replace(/^Mia\s+/i, "").trim() || raw || id;
   }
@@ -203,13 +203,13 @@
     return entries.length
       ? entries
       : [{
-        id: "mia-default",
+        id: "mia-auto",
         provider: MiaProviderId,
         providerLabel: "Mia",
-        model: "mia-default",
-        label: "Default",
+        model: "mia-auto",
+        label: "Auto",
         authType: "mia_account",
-        modelProfileId: "mia:mia-default",
+        modelProfileId: "mia:mia-auto",
         upstreamModel: ""
       }];
   }

@@ -113,7 +113,7 @@
   } = {}) {
     const existing = current?.config && typeof current.config === "object" ? current.config : {};
     return {
-      model: existing.model || cloudModelEntries()[0]?.id || "mia-default",
+      model: existing.model || cloudModelEntries()[0]?.id || "mia-auto",
       effortLevel: existing.effortLevel || "medium",
       permissionMode: existing.permissionMode || "ask"
     };

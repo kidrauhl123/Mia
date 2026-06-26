@@ -126,13 +126,57 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
     assert.equal(reply.sender_ref, BOT_ID);
     assert.equal(reply.body_md, "hi");
     assert.equal(hermesCalls.length, 1);
-    assert.equal(hermesCalls[0].model, "mia-default");
+    assert.equal(hermesCalls[0].model, "mia-auto");
     assert.match(hermesCalls[0].input, /正在和用户私聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群成员/);
     assert.match(hermesCalls[0].instructions, /Mia Runtime Context/);
     assert.doesNotMatch(hermesCalls[0].instructions, /schedule_create|cronjob/);
     assert.match(hermesCalls[0].instructions, /You are Alice Bot\./);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud-hermes maps old managed aliases to the worker platform model", async () => {
+  const ctx = setup();
+  const hermesCalls = [];
+  try {
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "cloud-hermes",
+      enabled: true,
+      config: { model: "mia-default" }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      workerManager: {
+        async ensureWorker(userId) {
+          return { userId, baseUrl: "http://worker", apiKey: "k", model: "mia-auto" };
+        }
+      },
+      hermesRunsClient: {
+        async runChat(args) {
+          hermesCalls.push(args);
+          return { runId: "hr_alias", content: "ok", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+
+    await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(hermesCalls.length, 1);
+    assert.equal(hermesCalls[0].model, "mia-auto");
   } finally {
     ctx.cleanup();
   }

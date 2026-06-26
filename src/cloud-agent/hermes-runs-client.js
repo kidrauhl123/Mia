@@ -238,7 +238,7 @@ function createHermesRunsClient(deps = {}) {
     const sessionId = String(args.sessionId || "").trim() || `cloud:${userId}:${key}:${conversationId}`;
     const attachments = Array.isArray(args.attachments) ? args.attachments : [];
     const body = {
-      model: args.model || "mia-default",
+      model: args.model || "mia-auto",
       input: inputForHermesRuns(args.input || "", attachments, fsImpl),
       session_id: sessionId,
       conversation_history: Array.isArray(args.conversationHistory) ? args.conversationHistory : [],

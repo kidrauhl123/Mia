@@ -182,7 +182,7 @@ function renderDeepSeekStatus(data) {
   const model = data.models?.[0] || {};
   const settings = data.settings || {};
   const configured = Boolean(data.gateway?.configured);
-  const publicModel = settings.modelId || model.id || data.modelName || "mia-default";
+  const publicModel = settings.modelId || model.id || data.modelName || "mia-auto";
   const upstreamModel = settings.upstreamModel || model.upstreamModel || "deepseek-chat";
   els.badge.textContent = configured ? "已设置" : "缺 Key";
   els.summary.textContent = configured
@@ -233,7 +233,7 @@ function renderLiteLLMStatus(data) {
   els.badge.textContent = "已设置";
   const models = Array.isArray(data.models) ? data.models : [];
   els.summary.textContent = `${models.length} 个模型：${models.map((item) => item.model_name).join("、")}`;
-  setText(els.metricGatewayDetail, model.model_name || "mia-default");
+  setText(els.metricGatewayDetail, model.model_name || "mia-auto");
   if (!els.publicModel.value && model.model_name) els.publicModel.value = model.model_name;
   if (!els.upstream.value && model.litellm_params?.model) els.upstream.value = model.litellm_params.model;
   if (model.litellm_params?.api_base) els.apiBase.value = model.litellm_params.api_base;

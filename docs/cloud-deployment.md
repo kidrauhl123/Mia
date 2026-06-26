@@ -27,7 +27,7 @@ MIA_CLOUD_HERMES_IMAGE=mia/hermes-cloud:2026.5.29
 MIA_CLOUD_HERMES_CONTAINER_PORT=8765
 MIA_CLOUD_AGENT_DOCKER_NETWORK=mia-cloud
 MIA_CLOUD_AGENT_MODEL_PROVIDER=mia
-MIA_CLOUD_AGENT_MODEL=mia-default
+MIA_CLOUD_AGENT_MODEL=mia-auto
 MIA_CLOUD_ADMIN_USERNAME=<admin username>
 MIA_CLOUD_ADMIN_PASSWORD=<admin password>
 MIA_WECHAT_MP_APP_ID=<WeChat Official Account AppID>
@@ -87,7 +87,7 @@ docker run -d --name litellm --restart unless-stopped \
   --config /app/config.yaml --host 0.0.0.0 --port 4000
 ```
 
-Use the Mia admin page at `/admin/model` to save the provider API key and the `mia-default` model alias into LiteLLM. Keep the LiteLLM UI private or disabled on the public internet. The Mia systemd unit should use a LiteLLM virtual key in `MIA_CLOUD_AGENT_MODEL_API_KEY`; Bot runs that target Cloud Hermes use this managed model gateway, and end users do not configure model providers inside the worker.
+Use the Mia admin page at `/admin/model` to save the provider API key and the `mia-auto` model alias into LiteLLM. Keep the LiteLLM UI private or disabled on the public internet. The Mia systemd unit should use a LiteLLM virtual key in `MIA_CLOUD_AGENT_MODEL_API_KEY`; Bot runs that target Cloud Hermes use this managed model gateway, and end users do not configure model providers inside the worker.
 
 ## systemd Unit
 
@@ -118,7 +118,7 @@ Environment=MIA_CLOUD_HERMES_IMAGE=mia/hermes-cloud:2026.5.29
 Environment=MIA_CLOUD_HERMES_CONTAINER_PORT=8765
 Environment=MIA_CLOUD_AGENT_DOCKER_NETWORK=mia-cloud
 Environment=MIA_CLOUD_AGENT_MODEL_PROVIDER=mia
-Environment=MIA_CLOUD_AGENT_MODEL=mia-default
+Environment=MIA_CLOUD_AGENT_MODEL=mia-auto
 EnvironmentFile=-/etc/mia-cloud/admin.env
 NoNewPrivileges=true
 PrivateTmp=true

@@ -4389,13 +4389,13 @@ function platformHermesModelEntries() {
       modelProfileId: `mia:${entry.id}`
     }))
     : [{
-      id: "mia-default",
-      label: "Default",
+      id: "mia-auto",
+      label: "Auto",
       provider: "mia",
       providerLabel: "Mia",
-      model: "mia-default",
+      model: "mia-auto",
       authType: "mia_account",
-      modelProfileId: "mia:mia-default"
+      modelProfileId: "mia:mia-auto"
     }];
 }
 
@@ -4644,7 +4644,7 @@ function modelValueForRuntimeControl(context, entries = [], config = {}) {
     const entry = entries.find((item) => (item.providerConnectionId || item.provider) === "mia" && (item.model === model || item.id === model || item.value === model));
     return entry?.id || entry?.value || model;
   }
-  if (context?.runtimeKind === "cloud-hermes") return model || entries[0]?.id || entries[0]?.value || "mia-default";
+  if (context?.runtimeKind === "cloud-hermes") return model || entries[0]?.id || entries[0]?.value || "mia-auto";
   if (isExternalAgentEngineForRuntimeControl(engine)) {
     if (!model) return "default";
     const entry = entries.find((item) => item.model === model || item.id === model || item.value === model);

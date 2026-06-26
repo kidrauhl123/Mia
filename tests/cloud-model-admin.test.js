@@ -36,7 +36,7 @@ async function startLiteLLMFake(initialModels = null) {
   const port = await freePort();
   const calls = [];
   let models = initialModels || [{
-    model_name: "mia-default",
+    model_name: "mia-auto",
     litellm_params: { model: "openai/old", api_key: "hidden" },
     model_info: { id: "old-model-id" }
   }];
@@ -72,17 +72,17 @@ async function startLiteLLMFake(initialModels = null) {
       }
       if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ model: "mia-default", choices: [{ message: { content: "mia-ok" } }] }));
+        res.end(JSON.stringify({ model: "mia-auto", choices: [{ message: { content: "mia-ok" } }] }));
         return;
       }
       if (req.method === "POST" && url.pathname === "/v1/responses") {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ model: "mia-default", output_text: "mia-ok" }));
+        res.end(JSON.stringify({ model: "mia-auto", output_text: "mia-ok" }));
         return;
       }
       if (req.method === "POST" && url.pathname === "/v1/messages") {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ model: "mia-default", content: [{ type: "text", text: "mia-claude-ok" }] }));
+        res.end(JSON.stringify({ model: "mia-auto", content: [{ type: "text", text: "mia-claude-ok" }] }));
         return;
       }
       if (req.method === "POST" && url.pathname === "/v1/messages/count_tokens") {
@@ -191,7 +191,7 @@ test("admin model gateway is protected by Basic auth", async () => {
   }
 });
 
-test("admin model gateway replaces mia-default without leaking provider key", async () => {
+test("admin model gateway replaces mia-auto without leaking provider key", async () => {
   const lite = await startLiteLLMFake();
   const cloud = await startCloud(lite.port);
   const auth = { username: "admin", password: "secret" };
@@ -208,7 +208,7 @@ test("admin model gateway replaces mia-default without leaking provider key", as
     assert.equal(saved.body.ok, true);
     assert.equal(saved.body.model.litellm_params.api_key, "configured");
     assert.equal(lite.models.length, 1);
-    assert.equal(lite.models[0].model_name, "mia-default");
+    assert.equal(lite.models[0].model_name, "mia-auto");
     assert.equal(lite.models[0].litellm_params.model, "deepseek/deepseek-chat");
     assert.equal(lite.models[0].litellm_params.api_key, "sk-provider-secret");
     assert.ok(lite.calls.some((call) => call.path === "/model/delete"));
@@ -226,7 +226,7 @@ test("admin model gateway replaces mia-default without leaking provider key", as
   }
 });
 
-test("admin model gateway can add a second platform alias without deleting mia-default", async () => {
+test("admin model gateway can add a second platform alias without deleting mia-auto", async () => {
   const lite = await startLiteLLMFake();
   const cloud = await startCloud(lite.port);
   const auth = { username: "admin", password: "secret" };
@@ -242,7 +242,7 @@ test("admin model gateway can add a second platform alias without deleting mia-d
     });
     assert.equal(saved.status, 200);
     assert.equal(saved.body.model.model_name, "mia-pro");
-    assert.deepEqual(lite.models.map((model) => model.model_name), ["mia-default", "mia-pro"]);
+    assert.deepEqual(lite.models.map((model) => model.model_name), ["mia-auto", "mia-pro"]);
   } finally {
     await stopCloud(cloud);
     await new Promise((resolve) => lite.server.close(resolve));
@@ -288,9 +288,9 @@ test("admin model page lets operators edit the public model alias", () => {
 test("authenticated users can list platform model aliases without provider secrets", async () => {
   const lite = await startLiteLLMFake([
     {
-      model_name: "mia-default",
+      model_name: "mia-auto",
       litellm_params: { model: "deepseek/deepseek-chat", api_key: "sk-default-secret" },
-      model_info: { id: "mia-default", base_model: "deepseek/deepseek-chat", provider: "deepseek", label: "Mia Default" }
+      model_info: { id: "mia-auto", base_model: "deepseek/deepseek-chat", provider: "deepseek", label: "Mia Auto" }
     },
     {
       model_name: "mia-pro",
@@ -303,8 +303,8 @@ test("authenticated users can list platform model aliases without provider secre
     const user = await register(cloud.port, "sigma");
     const catalog = await request(cloud.port, "GET", "/api/me/model-catalog", { token: user.token });
     assert.equal(catalog.status, 200);
-    assert.deepEqual(catalog.body.models.map((model) => model.id), ["mia-default", "mia-pro"]);
-    assert.equal(catalog.body.models[0].label, "Mia Default");
+    assert.deepEqual(catalog.body.models.map((model) => model.id), ["mia-auto", "mia-pro"]);
+    assert.equal(catalog.body.models[0].label, "Mia Auto");
     assert.equal(catalog.body.models[1].provider, "anthropic");
     const serialized = JSON.stringify(catalog.body);
     assert.doesNotMatch(serialized, /sk-default-secret|sk-pro-secret|api_key/);
@@ -317,9 +317,9 @@ test("authenticated users can list platform model aliases without provider secre
 test("authenticated users can call Mia model proxy without provider secrets", async () => {
   const lite = await startLiteLLMFake([
     {
-      model_name: "mia-default",
+      model_name: "mia-auto",
       litellm_params: { model: "deepseek/deepseek-chat", api_key: "sk-default-secret" },
-      model_info: { id: "mia-default", base_model: "deepseek/deepseek-chat", provider: "deepseek", label: "Mia Default" }
+      model_info: { id: "mia-auto", base_model: "deepseek/deepseek-chat", provider: "deepseek", label: "Mia Auto" }
     }
   ]);
   const cloud = await startCloud(lite.port);
@@ -327,12 +327,12 @@ test("authenticated users can call Mia model proxy without provider secrets", as
     const user = await register(cloud.port, "proxy");
     const models = await request(cloud.port, "GET", "/api/me/model-proxy/v1/models", { token: user.token });
     assert.equal(models.status, 200);
-    assert.deepEqual(models.body.data.map((model) => model.id), ["mia-default"]);
+    assert.deepEqual(models.body.data.map((model) => model.id), ["mia-auto"]);
 
     const completion = await request(cloud.port, "POST", "/api/me/model-proxy/v1/chat/completions", {
       token: user.token,
       body: {
-        model: "mia-default",
+        model: "mia-auto",
         messages: [{ role: "user", content: "hello" }]
       }
     });
@@ -344,7 +344,7 @@ test("authenticated users can call Mia model proxy without provider secrets", as
     const response = await request(cloud.port, "POST", "/api/me/model-proxy/v1/responses", {
       token: user.token,
       body: {
-        model: "mia-default",
+        model: "mia-auto",
         input: "hello"
       }
     });
@@ -355,7 +355,7 @@ test("authenticated users can call Mia model proxy without provider secrets", as
     const anthropic = await request(cloud.port, "POST", "/api/me/model-proxy/v1/messages", {
       token: user.token,
       body: {
-        model: "mia-default",
+        model: "mia-auto",
         messages: [{ role: "user", content: "hello" }],
         max_tokens: 64
       }
@@ -367,7 +367,7 @@ test("authenticated users can call Mia model proxy without provider secrets", as
     const counted = await request(cloud.port, "POST", "/api/me/model-proxy/v1/messages/count_tokens", {
       token: user.token,
       body: {
-        model: "mia-default",
+        model: "mia-auto",
         messages: [{ role: "user", content: "hello" }]
       }
     });
@@ -472,12 +472,12 @@ test("DeepSeek direct model proxy requires balance and records billable usage", 
     const user = await register(cloud.port, "paid-user");
     const catalog = await request(cloud.port, "GET", "/api/me/model-catalog", { token: user.token });
     assert.equal(catalog.status, 200);
-    assert.deepEqual(catalog.body.models.map((model) => model.id), ["mia-default"]);
+    assert.deepEqual(catalog.body.models.map((model) => model.id), ["mia-auto"]);
     assert.equal(catalog.body.models[0].provider, "deepseek");
 
     const blocked = await request(cloud.port, "POST", "/api/me/model-proxy/v1/chat/completions", {
       token: user.token,
-      body: { model: "mia-default", messages: [{ role: "user", content: "hello" }] }
+      body: { model: "mia-auto", messages: [{ role: "user", content: "hello" }] }
     });
     assert.equal(blocked.status, 402);
     assert.equal(deepseek.calls.length, 0);
@@ -498,7 +498,7 @@ test("DeepSeek direct model proxy requires balance and records billable usage", 
 
     const completion = await request(cloud.port, "POST", "/api/me/model-proxy/v1/chat/completions", {
       token: user.token,
-      body: { model: "mia-default", messages: [{ role: "user", content: "hello" }] }
+      body: { model: "mia-auto", messages: [{ role: "user", content: "hello" }] }
     });
     assert.equal(completion.status, 200);
     assert.equal(completion.body.choices[0].message.content, "deepseek-ok");
@@ -537,7 +537,7 @@ test("internal model proxy token bills the owning Mia user", async () => {
     const internalToken = createUserModelProxyToken(internalSecret, user.user.id);
     const completion = await request(cloud.port, "POST", "/api/internal/model-proxy/v1/chat/completions", {
       token: internalToken,
-      body: { model: "mia-default", messages: [{ role: "user", content: "hello from worker" }] }
+      body: { model: "mia-auto", messages: [{ role: "user", content: "hello from worker" }] }
     });
     assert.equal(completion.status, 200);
     assert.equal(completion.body.choices[0].message.content, "deepseek-ok");

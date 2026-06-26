@@ -291,7 +291,7 @@
     // dropdown contents (and labels / logos) match private chat exactly.
     const modelEntries = isCloudHermes
       ? (global.miaEngineContracts?.miaModelEntries?.({ platformModels: appState.platformModels || [] })
-        || [{ id: "mia-default", model: "mia-default", label: "Default", provider: "mia" }])
+        || [{ id: "mia-auto", model: "mia-auto", label: "Auto", provider: "mia" }])
       : isExternal
       ? (engineOptions?.externalModelEntries?.(engine) || [])
       : (modelSettings?.connectedModelEntries?.(runtime) || []);
@@ -307,7 +307,7 @@
     // Current selections.
     const currentModelEntry = (() => {
       if (isCloudHermes) {
-        const cur = config.model || "mia-default";
+        const cur = config.model || "mia-auto";
         return modelEntries.find((m) => m.model === cur || m.id === cur) || modelEntries[0] || null;
       }
       if (isExternal) {

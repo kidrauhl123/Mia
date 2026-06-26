@@ -220,7 +220,7 @@
       const platformModels = Array.isArray(state?.platformModels) ? state.platformModels : [];
       const miaEntries = typeof window.miaEngineContracts?.miaModelEntries === "function"
         ? window.miaEngineContracts.miaModelEntries({ platformModels })
-        : [{ id: "mia-default", provider: "mia", providerLabel: "Mia", model: "mia-default", label: "Default", authType: "mia_account" }];
+        : [{ id: "mia-auto", provider: "mia", providerLabel: "Mia", model: "mia-auto", label: "Auto", authType: "mia_account" }];
       for (const entry of miaEntries) {
         if (!entries.some((item) => item.id === entry.id && item.provider === entry.provider)) entries.push(entry);
       }

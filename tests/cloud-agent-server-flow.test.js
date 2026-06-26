@@ -266,6 +266,56 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
   }
 });
 
+test("cloud server workers use the active platform model alias", async () => {
+  const dataDir = tempDir("mia-cloud-agent-platform-model-");
+  const hermesCalls = [];
+  const previousBaseUrl = process.env.MIA_CLOUD_HERMES_BASE_URL;
+  const previousAgentRoot = process.env.MIA_CLOUD_AGENT_ROOT;
+  process.env.MIA_CLOUD_HERMES_BASE_URL = "http://worker";
+  process.env.MIA_CLOUD_AGENT_ROOT = path.join(dataDir, "agent-users");
+  const server = createMiaCloudServer({
+    dataDir,
+    cloudAgentMode: "static",
+    platformModelId: "mia-auto",
+    cloudAgentHermesClient: {
+      async runChat(args) {
+        hermesCalls.push(args);
+        return { runId: "hr_platform_model", content: "ok", events: [] };
+      }
+    }
+  });
+  const baseUrl = await listen(server);
+  try {
+    const account = createAccount(server, "platform_model_alice");
+    const authHeaders = { authorization: `Bearer ${account.token}` };
+    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
+    const runtime = await jsonFetch(baseUrl, "/api/me/bots/mia/runtime?kind=cloud-hermes", { headers: authHeaders });
+    assert.equal(runtime.binding.config.model, "mia-auto");
+    const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
+      method: "PUT",
+      headers: authHeaders,
+      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-hermes" }
+    });
+
+    await jsonFetch(baseUrl, `/api/conversations/${ensured.conversation.id}/messages`, {
+      method: "POST",
+      headers: authHeaders,
+      body: { bodyMd: "hi cloud", clientOpId: "op_platform_model_1" }
+    });
+    await server.mia.cloudAgentDispatcher.idle();
+
+    assert.equal(hermesCalls.length, 1);
+    assert.equal(hermesCalls[0].model, "mia-auto");
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    if (previousBaseUrl === undefined) delete process.env.MIA_CLOUD_HERMES_BASE_URL;
+    else process.env.MIA_CLOUD_HERMES_BASE_URL = previousBaseUrl;
+    if (previousAgentRoot === undefined) delete process.env.MIA_CLOUD_AGENT_ROOT;
+    else process.env.MIA_CLOUD_AGENT_ROOT = previousAgentRoot;
+  }
+});
+
 test("POST bot reminder message is handed to cloud Hermes without app-side reminder parsing", async () => {
   const dataDir = tempDir("mia-cloud-agent-reminder-");
   const hermesCalls = [];

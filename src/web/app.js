@@ -1999,7 +1999,7 @@ function selectEntriesForModel(engine, runtimeKind, config = {}) {
   if (runtimeKind === "cloud-hermes" || engine === "hermes") {
     return state.platformModels.length
       ? state.platformModels
-      : [{ value: "mia-default", label: "Default", provider: "mia", providerLabel: "Mia", model: "mia-default", authType: "mia_account", modelProfileId: "mia:mia-default" }];
+      : [{ value: "mia-auto", label: "Auto", provider: "mia", providerLabel: "Mia", model: "mia-auto", authType: "mia_account", modelProfileId: "mia:mia-auto" }];
   }
   return externalModelEntries(engine).map((entry) => ({
     value: entry.id,
@@ -2071,7 +2071,7 @@ function renderComposerControls(conversation = null) {
   const isDesktopExternal = isDesktopExternalRuntime(engine, runtimeKind);
   const modelValue = config.provider === "mia" && config.model
     ? (cloudModelEntries.find((entry) => entry.provider === "mia" && entry.model === config.model)?.value || config.model)
-    : (config.model || (isDesktopExternal ? "default" : cloudModelEntries[0]?.value || "mia-default"));
+    : (config.model || (isDesktopExternal ? "default" : cloudModelEntries[0]?.value || "mia-auto"));
   const modelLabel = setSelectOptions(els.quickModelSelect, cloudModelEntries, modelValue, config.model || "Default");
   const selectedModelEntry = cloudModelEntries.find((entry) => String(entry.value) === String(els.quickModelSelect?.value || modelValue))
     || cloudModelEntries.find((entry) => String(entry.model) === String(config.model || ""))
@@ -3423,7 +3423,7 @@ function webRuntimeTargetOptionsHtml(selectedValue = "") {
 function webRuntimeConfigForTarget(target = {}) {
   if (target.runtimeKind === "cloud-hermes") {
     return {
-      model: state.platformModels[0]?.value || "mia-default",
+      model: state.platformModels[0]?.value || "mia-auto",
       effortLevel: "medium",
       permissionMode: "ask"
     };

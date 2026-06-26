@@ -1181,7 +1181,7 @@ function publicPlatformModel(row = {}) {
 }
 
 function fallbackPlatformModels() {
-  return [{ id: "mia-default", label: "Mia Default", provider: "mia-litellm", upstreamModel: "" }];
+  return [{ id: "mia-auto", label: "Mia Auto", provider: "mia-litellm", upstreamModel: "" }];
 }
 
 function modelGatewayMode(context = {}) {
@@ -1204,7 +1204,7 @@ function deepSeekBaseUrl(context = {}) {
 }
 
 function platformModelId(context = {}) {
-  return String(context.platformModelId || modelGatewaySettings(context)?.modelId || process.env.MIA_PLATFORM_MODEL_ID || process.env.MIA_CLOUD_AGENT_MODEL || "mia-default").trim() || "mia-default";
+  return String(context.platformModelId || modelGatewaySettings(context)?.modelId || process.env.MIA_PLATFORM_MODEL_ID || process.env.MIA_CLOUD_AGENT_MODEL || "mia-auto").trim() || "mia-auto";
 }
 
 function deepSeekUpstreamModel(context = {}) {
@@ -1292,7 +1292,7 @@ function numericGatewayValue(value, fallback, label, { integer = true, min = 0 }
 function normalizeDeepSeekAdminInput(input = {}, context = {}) {
   const existing = modelGatewaySettings(context);
   const pricing = modelPricing(context);
-  const modelName = String(input.modelId || input.modelName || existing?.modelId || "mia-default").trim() || "mia-default";
+  const modelName = String(input.modelId || input.modelName || existing?.modelId || "mia-auto").trim() || "mia-auto";
   if (!/^[A-Za-z0-9_.-]{2,80}$/.test(modelName)) {
     throw new Error("Mia 模型名只能包含字母、数字、点、下划线和横线。");
   }
@@ -1401,12 +1401,12 @@ async function litellmRequest(context, pathname, { method = "GET", key = "", bod
   return data;
 }
 
-function normalizeAdminModelInput(input = {}) {
+function normalizeAdminModelInput(input = {}, context = {}) {
   const upstreamModel = String(input.upstreamModel || input.model || "").trim();
   const apiKey = String(input.apiKey || "").trim();
   const apiBase = String(input.apiBase || "").trim();
   const apiVersion = String(input.apiVersion || "").trim();
-  const modelName = String(input.modelName || "mia-default").trim() || "mia-default";
+  const modelName = String(input.modelName || platformModelId(context)).trim() || platformModelId(context);
   if (!upstreamModel) throw new Error("请填写真实模型。");
   if (!apiKey) throw new Error("请填写供应商 API Key。");
   if (!/^[A-Za-z0-9_.-]{2,80}$/.test(modelName)) {
@@ -1578,7 +1578,8 @@ async function listLiteLLMModels(context) {
 }
 
 async function listMiaLiteLLMModels(context) {
-  return (await listLiteLLMModels(context)).filter((row) => row?.model_name === "mia-default");
+  const modelId = platformModelId(context);
+  return (await listLiteLLMModels(context)).filter((row) => row?.model_name === modelId);
 }
 
 async function listPlatformModelCatalog(context) {
@@ -1738,7 +1739,7 @@ async function handleMiaModelProxy(req, res, context, url, { userId, prefix = "/
   }
   const models = await listPlatformModelCatalog(context);
   const allowed = new Set(models.map((model) => model.id));
-  const requestedModel = String(body.model || "mia-default").trim() || "mia-default";
+  const requestedModel = String(body.model || platformModelId(context)).trim() || platformModelId(context);
   if (!allowed.has(requestedModel)) {
     writeError(res, 400, "模型不可用。");
     return true;
@@ -1952,7 +1953,7 @@ async function handleAdminModelGateway(req, res, context, url) {
         adminConfigured: Boolean(litellmAdminKey(context)),
         serviceKeyConfigured: Boolean(litellmServiceKey(context))
       },
-      modelName: "mia-default",
+      modelName: platformModelId(context),
       models: models.map(redactModelInfo)
     });
   }
@@ -1979,9 +1980,13 @@ async function handleAdminModelGateway(req, res, context, url) {
         message: "模型配置已保存。"
       });
     }
-    const input = normalizeAdminModelInput(await readJson(req));
+    const body = await readJson(req);
+    const input = normalizeAdminModelInput(body, context);
+    const replacingPrimaryAlias = !String(body.modelName || body.modelId || "").trim();
     const existing = await listLiteLLMModels(context);
-    for (const row of existing.filter((item) => item?.model_name === input.modelName)) {
+    const replaceNames = new Set([input.modelName]);
+    if (replacingPrimaryAlias) replaceNames.add("mia-default");
+    for (const row of existing.filter((item) => replaceNames.has(item?.model_name))) {
       const id = String(row?.model_info?.id || row?.model_id || "").trim();
       if (id) {
         await litellmRequest(context, "/model/delete", { method: "POST", body: { id } });
@@ -2048,7 +2053,7 @@ async function handleAdminModelGateway(req, res, context, url) {
       method: "POST",
       key: serviceKey,
       body: {
-        model: "mia-default",
+        model: platformModelId(context),
         messages: [{ role: "user", content: "Reply with exactly: mia-ok" }],
         max_tokens: 20
       }
@@ -2056,7 +2061,7 @@ async function handleAdminModelGateway(req, res, context, url) {
     return writeJson(res, 200, {
       ok: true,
       reply: result?.choices?.[0]?.message?.content || "",
-      model: result?.model || "mia-default"
+      model: result?.model || platformModelId(context)
     });
   }
   writeError(res, 404, "Not found.");
@@ -4084,6 +4089,7 @@ function createMiaCloudServer(options = {}) {
     cloudAgentDispatcher: null,
     modelBillingStore: null,
     modelGatewayStore: null,
+    platformModelId: options.platformModelId || process.env.MIA_PLATFORM_MODEL_ID || "",
     internalModelProxyKey: options.internalModelProxyKey || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY || "",
     hermesSkillsSource: null,
     wechatMpAppId: options.wechatMpAppId || process.env.MIA_WECHAT_MP_APP_ID || "",
@@ -4121,8 +4127,10 @@ function createMiaCloudServer(options = {}) {
   const cloudAgentWorkerManager = options.cloudAgentWorkerManager
     || (cloudAgentMode && cloudAgentMode !== "disabled" && createHermesWorkerManager
       ? createHermesWorkerManager({
+        mode: cloudAgentMode,
         publicUrl: options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || "",
-        internalModelProxyKey: context.internalModelProxyKey
+        internalModelProxyKey: context.internalModelProxyKey,
+        model: platformModelId(context)
       })
       : null);
   const cloudAgentHermesClient = options.cloudAgentHermesClient

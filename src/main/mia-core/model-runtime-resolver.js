@@ -56,7 +56,7 @@ function isNativeCliProvider(engine = "", provider = "") {
 }
 
 function toMiaManagedReference(config = {}) {
-  const model = firstString(config, ["model"]) || "mia-default";
+  const model = firstString(config, ["model"]) || "mia-auto";
   const profileId = firstString(config, ["modelProfileId", "model_profile_id"]);
   return {
     provider: "mia",

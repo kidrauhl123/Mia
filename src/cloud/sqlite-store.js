@@ -1039,7 +1039,7 @@ function migrate(db) {
     CREATE TABLE IF NOT EXISTS model_gateway_settings (
       id                             TEXT PRIMARY KEY,
       mode                           TEXT NOT NULL DEFAULT 'deepseek',
-      model_id                       TEXT NOT NULL DEFAULT 'mia-default',
+      model_id                       TEXT NOT NULL DEFAULT 'mia-auto',
       provider                       TEXT NOT NULL DEFAULT 'deepseek',
       upstream_model                 TEXT NOT NULL DEFAULT 'deepseek-chat',
       api_base                       TEXT NOT NULL DEFAULT '',
