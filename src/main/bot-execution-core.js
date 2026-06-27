@@ -38,9 +38,6 @@ function createBotExecutionCore({
   const getDaemonTasksClient = typeof daemonTasksClient === "function"
     ? daemonTasksClient
     : () => daemonTasksClient;
-  const getSettingsStore = typeof settingsStore === "function"
-    ? settingsStore
-    : () => settingsStore;
   const isDaemon = typeof isDaemonProcess === "function"
     ? isDaemonProcess
     : () => isDaemonProcess;
@@ -177,8 +174,7 @@ function createBotExecutionCore({
       ...(localStop.status ? { status: localStop.status } : {})
     };
     const daemonTasksClient = getDaemonTasksClient();
-    const settingsStore = getSettingsStore();
-    if (!isDaemon() && daemonTasksClient?.call && settingsStore.daemonSettings().enabled) {
+    if (!isDaemon() && daemonTasksClient?.call) {
       try {
         const daemonStop = await daemonTasksClient?.call?.("/api/chat/stop", {
           method: "POST",

@@ -561,7 +561,11 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   assert.match(html, /<div id="chatConversationMenu" class="chat-conversation-menu hidden" role="listbox" aria-label="切换对话">[\s\S]*?<div id="chatConversationList" class="chat-conversation-list"><\/div>/);
   assert.match(appStateSource, /chatConversationMenuOpen:\s*false/);
   assert.match(appSource, /function renderChatConversationMenu\(rows = \[\], personas = \[\]\)/);
+  assert.match(appSource, /let chatConversationMenuRenderSignature = "";/);
+  assert.match(appSource, /function syncChatConversationMenuActiveState\(specs\)/);
   assert.match(appSource, /const compactConversationRows = cloudReady \? window\.miaBotManager\.sortMessageCardsForSidebar\(socialRows\) : \[\];[\s\S]*?renderChatConversationMenu\(compactConversationRows, personas\);/);
+  assert.match(appSource, /const signature = safeRenderSignature\(\{\s*rows: compactSpecs\.map\(sidebarCardRenderSignature\)\s*\}\);/);
+  assert.match(appSource, /if \(chatConversationMenuRenderSignature === signature\) \{[\s\S]*?syncChatConversationMenuActiveState\(compactSpecs\);[\s\S]*?return;/);
   assert.match(appSource, /state\.chatConversationMenuOpen = false;[\s\S]*?onClick\?\.\(\);/);
   assert.match(appSource, /els\.activeConversationMenuButton\?\.addEventListener\("click",[\s\S]*?state\.chatConversationMenuOpen = !state\.chatConversationMenuOpen;/);
   assert.match(styleSource, /#chatView\s*\{[\s\S]*?position:\s*relative;[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);/);

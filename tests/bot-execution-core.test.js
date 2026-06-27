@@ -113,3 +113,27 @@ test("stopChat aborts an active interactive controller", async () => {
 
   await assert.rejects(pending, (err) => err.code === "MIA_STOPPED");
 });
+
+test("stopChat delegates to daemon even when the foreground has no local run", async () => {
+  const daemonCalls = [];
+  const { core } = makeCore({
+    daemonTasksClient: () => ({
+      call: async (path, opts) => {
+        daemonCalls.push({ path, opts });
+        return { stopped: true, conversationId: "botc_1", runId: "run_1", status: "cancelling" };
+      }
+    }),
+    settingsStore: () => ({ daemonSettings: () => ({ enabled: false }) })
+  });
+
+  const result = await core.stopChat({ conversationId: "botc_1", runId: "run_1" });
+
+  assert.deepEqual(daemonCalls.map((call) => call.path), ["/api/chat/stop"]);
+  assert.deepEqual(JSON.parse(daemonCalls[0].opts.body), { conversationId: "botc_1", runId: "run_1" });
+  assert.deepEqual(result, {
+    stopped: true,
+    conversationId: "botc_1",
+    runId: "run_1",
+    status: "cancelling"
+  });
+});

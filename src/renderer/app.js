@@ -29,6 +29,7 @@ let lastConversationFolderKey = null;
 let conversationFolderMotion = { key: "", direction: 1 };
 let personaFolderAnimationTimer = 0;
 let personaListRenderSignature = "";
+let chatConversationMenuRenderSignature = "";
 let conversationFolderDrag = null;
 let conversationFolderSuppressClick = false;
 const CONVERSATION_FOLDER_ORDER_KEY = "mia.conversationFolderOrder.v1";
@@ -2410,16 +2411,17 @@ function renderChatConversationMenu(rows = [], personas = []) {
   syncTopbarClickCapture();
   if (!canOpen || !open) {
     if (els.chatConversationList) els.chatConversationList.innerHTML = "";
+    chatConversationMenuRenderSignature = "";
     return;
   }
 
-  els.chatConversationList.innerHTML = "";
   const compactRows = rows.slice(0, 18);
+  const compactSpecs = [];
   for (const row of compactRows) {
     const spec = conversationCardSpecFromRow(row, personas);
     if (!spec) continue;
     const onClick = spec.onClick;
-    const compactSpec = {
+    compactSpecs.push({
       ...spec,
       searchResult: false,
       tags: [],
@@ -2430,7 +2432,19 @@ function renderChatConversationMenu(rows = [], personas = []) {
         state.chatConversationMenuOpen = false;
         onClick?.();
       }
-    };
+    });
+  }
+
+  const signature = safeRenderSignature({
+    rows: compactSpecs.map(sidebarCardRenderSignature)
+  });
+  if (chatConversationMenuRenderSignature === signature) {
+    syncChatConversationMenuActiveState(compactSpecs);
+    return;
+  }
+  chatConversationMenuRenderSignature = signature;
+  els.chatConversationList.innerHTML = "";
+  for (const compactSpec of compactSpecs) {
     const card = createConversationCardFromSpec(compactSpec);
     card.classList.add("chat-conversation-menu-row");
     card.setAttribute("role", "option");
@@ -2449,6 +2463,14 @@ function renderChatConversationMenu(rows = [], personas = []) {
     empty.textContent = "暂无对话";
     els.chatConversationList.appendChild(empty);
   }
+}
+
+function syncChatConversationMenuActiveState(specs) {
+  const cards = Array.from(els.chatConversationList?.querySelectorAll?.(".chat-conversation-menu-row.persona") || []);
+  specs.forEach((spec, index) => {
+    cards[index]?.classList.toggle("active", Boolean(spec?.active));
+    cards[index]?.setAttribute("aria-selected", spec?.active ? "true" : "false");
+  });
 }
 
 // Paint #activeChatAvatar / #activeChatName / #activeChatMeta for the

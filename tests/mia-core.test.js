@@ -118,6 +118,31 @@ test("mia-core control server applies delegated cloud-settings writes (not 501)"
   assert.equal(persisted.enabled, true);
 });
 
+test("mia-core control server exposes chat stop for window delegation", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-chat-stop-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const port = await freePort();
+
+  const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });
+  core.writeDaemonSettings({ host: "127.0.0.1", port });
+  const status = await core.start();
+  t.after(() => core.stop());
+
+  const res = await fetch(`${status.baseUrl}/api/chat/stop`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${core.daemonToken()}`
+    },
+    body: JSON.stringify({ conversationId: "dm:userA:bot1", runId: "local_1" })
+  });
+
+  assert.notEqual(res.status, 404, "Core daemon must route /api/chat/stop");
+  assert.equal(res.status, 200);
+  const out = await res.json();
+  assert.equal(typeof out.stopped, "boolean");
+});
+
 test("mia-core derives runtime home from MIA_HOME without electron", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-paths-"));
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });

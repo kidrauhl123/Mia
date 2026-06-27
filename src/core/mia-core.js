@@ -989,6 +989,10 @@ function createCoreCloudRouting({
     log
   });
 
+  function stopChat(payload = {}) {
+    return localBotResponder.stopActiveConversationRun(payload || {});
+  }
+
   const dispatcher = createMainBotRuntimeDispatcher({
     // Core is the single owner when running, so it always handles the turn.
     shouldHandle: () => true,
@@ -1001,7 +1005,7 @@ function createCoreCloudRouting({
     log
   });
 
-  return { dispatcher, localBotResponder, socialApi: api };
+  return { dispatcher, localBotResponder, socialApi: api, stopChat };
 }
 
 // Mirror main.js's cloud event channel name so local-event consumers (windows
@@ -1766,12 +1770,32 @@ function createMiaCore(options = {}) {
     choosePort,
     // Inert until later vertical slices migrate this capability into Core.
     initializeRuntime: () => {},
-    remoteRouter: () => ({ matches: () => false, route: async () => ({ handled: false }) }),
+    remoteRouter: coreRemoteRouter,
     // REAL scheduler: the control server calls initSchedulerSubsystem() on start()
     // (arming timers) and tasksRoutes() per request to serve /api/tasks.
     initSchedulerSubsystem: () => schedulerSubsystem().initSchedulerSubsystem(),
     tasksRoutes: () => schedulerSubsystem().tasksRoutes
   });
+
+  function coreRemoteRouter() {
+    function isChatStopRoute(request = {}) {
+      const method = String(request.method || "").toUpperCase();
+      if (method !== "POST") return false;
+      const url = new URL(String(request.path || "/"), "http://127.0.0.1");
+      return url.pathname === "/api/chat/stop";
+    }
+    return {
+      matches: isChatStopRoute,
+      route: async (request = {}) => {
+        if (!isChatStopRoute(request)) return { handled: false };
+        const routing = cachedCloudRouting || cloudRouting();
+        return {
+          handled: true,
+          data: routing.stopChat(request.body || {})
+        };
+      }
+    };
+  }
 
   function start() {
     return controlServer.start(settingsStore.daemonSettings());
