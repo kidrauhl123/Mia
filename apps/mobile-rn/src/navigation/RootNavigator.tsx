@@ -1,5 +1,5 @@
 import { NavigationContainer } from "@react-navigation/native";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../state/auth";
@@ -17,17 +17,14 @@ export default function RootNavigator() {
   const qc = useQueryClient();
   const { session, ready } = useAuth();
   const userId = String(session?.user?.id || "");
-  const [hydratedUserId, setHydratedUserId] = useState("");
 
   useEffect(() => {
     if (!ready || !session?.token || !userId) {
-      setHydratedUserId("");
       return undefined;
     }
     let cancelled = false;
-    setHydratedUserId((current) => (current === userId ? current : ""));
-    hydrateStartupCache(qc, userId).finally(() => {
-      if (!cancelled) setHydratedUserId(userId);
+    hydrateStartupCache(qc, userId).catch((err) => {
+      if (!cancelled) console.warn("[mia] startup cache hydration failed", err instanceof Error ? err.message : String(err));
     });
     return () => {
       cancelled = true;
@@ -35,8 +32,6 @@ export default function RootNavigator() {
   }, [qc, ready, session?.token, userId]);
 
   if (!ready) return <StartupSurface />;
-  const cacheReady = !session?.token || !userId || hydratedUserId === userId;
-  if (!cacheReady) return <StartupSurface />;
   return (
     <NavigationContainer ref={navigationRef}>
       {session?.token ? <Tabs /> : <LoginScreen />}

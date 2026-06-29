@@ -63,6 +63,27 @@ test("does not seed empty conversation cache as a real loaded list", async () =>
   expect(qc.getQueryData(["conversations"])).toBeUndefined();
 });
 
+test("does not seed malformed persisted cache values", async () => {
+  const qc = new QueryClient();
+
+  mockedLoadCachedConversations.mockResolvedValue([{ title: "missing id" }] as any);
+  mockedLoadCachedValue.mockImplementation(async (_scope, key) => {
+    if (key === sqliteCacheKeys.bots) return { id: "not an array" } as any;
+    if (key === sqliteCacheKeys.friends) return "bad" as any;
+    if (key === sqliteCacheKeys.me) return [] as any;
+    if (key === sqliteCacheKeys.settings) return [] as any;
+    return undefined;
+  });
+
+  await hydrateStartupCache(qc, "u1");
+
+  expect(qc.getQueryData(["conversations"])).toBeUndefined();
+  expect(qc.getQueryData(["bots"])).toBeUndefined();
+  expect(qc.getQueryData(["friends"])).toBeUndefined();
+  expect(qc.getQueryData(["me-full"])).toBeUndefined();
+  expect(qc.getQueryData(["settings"])).toBeUndefined();
+});
+
 test("does not overwrite live in-memory query data with persisted cache", async () => {
   const qc = new QueryClient();
   const live = [{ id: "live", title: "实时会话" }];
