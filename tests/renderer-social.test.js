@@ -1553,6 +1553,55 @@ test("sendInActiveConversation shows outgoing cloud messages before the network 
   assert.equal(entry.maxSeq, 1);
 });
 
+test("sendInActiveConversation ensures bot conversations before posting", async () => {
+  const s = loadSocial();
+  const calls = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async (sessionId, body) => {
+      calls.push({ kind: "ensure", sessionId, body });
+      return {
+        ok: true,
+        data: {
+          conversation: {
+            id: "botc_session_probe",
+            type: "bot",
+            name: "新对话",
+            decorations: { botId: "codex", sessionId: "session_probe", runtimeKind: "desktop-local" }
+          },
+          members: [{ member_kind: "bot", member_ref: "codex" }]
+        }
+      };
+    },
+    postConversationMessage: async (conversationId, body) => {
+      calls.push({ kind: "post", conversationId, body });
+      return {
+        ok: true,
+        data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: body.bodyMd } }
+      };
+    }
+  };
+  s.moduleState.activeConversationId = "botc_session_probe";
+  s.moduleState.conversations = [{
+    id: "botc_session_probe",
+    type: "bot",
+    name: "新对话",
+    decorations: { botId: "codex", sessionId: "session_probe", runtimeKind: "desktop-local" }
+  }];
+  s.moduleState.messageCache.set("botc_session_probe", { messages: [], maxSeq: 0 });
+
+  await s.sendInActiveConversation("hello bot");
+
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), {
+    kind: "ensure",
+    sessionId: "session_probe",
+    body: { botId: "codex", title: "新对话", runtimeKind: "desktop-local" }
+  });
+  assert.equal(calls[1].conversationId, "botc_session_probe");
+  assert.equal(s.moduleState.messageCache.get("botc_session_probe").messages[0].status, undefined);
+});
+
 test("renderSendStatus hides sending state and only shows failed sends", () => {
   const s = loadSocial();
 

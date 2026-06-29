@@ -2423,6 +2423,59 @@
     }
   }
 
+  function botSessionIdForConversation(conversation = {}, conversationId = "") {
+    const decorations = conversation?.decorations || {};
+    return firstText(
+      decorations.sessionId,
+      decorations.session_id,
+      String(conversationId || "").startsWith("botc_") ? String(conversationId).slice(5) : ""
+    );
+  }
+
+  function runtimeKindForBotConversation(conversation = {}) {
+    const history = sessionHistoryShared();
+    if (typeof history.runtimeKind === "function") {
+      return history.runtimeKind(conversation, "desktop-local");
+    }
+    const decorations = conversation?.decorations || {};
+    return firstText(decorations.runtimeKind, decorations.runtime_kind, "desktop-local");
+  }
+
+  function ensuredConversationFromResult(result) {
+    return result?.data?.conversation || result?.conversation || null;
+  }
+
+  function ensuredMembersFromResult(result) {
+    const members = result?.data?.members || result?.members || null;
+    return Array.isArray(members) ? members : null;
+  }
+
+  async function ensurePostableConversation(conversationId, conversation) {
+    const id = String(conversationId || "").trim();
+    const current = conversation || moduleState.conversations.find((item) => item.id === id) || { id };
+    if (conversationTypeFor(current, id) !== "bot") return { conversationId: id, conversation: current };
+    const botId = sessionHistoryShared().botId(current);
+    const sessionId = botSessionIdForConversation(current, id);
+    const api = window.mia?.social;
+    if (!botId || !sessionId || typeof api?.ensureBotSessionConversation !== "function") {
+      return { conversationId: id, conversation: current };
+    }
+    const result = await api.ensureBotSessionConversation(sessionId, {
+      botId,
+      title: current.name || "新对话",
+      runtimeKind: runtimeKindForBotConversation(current)
+    });
+    if (result && result.ok === false) {
+      throw new Error(result.error || result.message || result.data?.error || "创建 Bot 会话失败");
+    }
+    const ensured = ensuredConversationFromResult(result);
+    if (!ensured?.id) return { conversationId: id, conversation: current };
+    const saved = upsertConversation(ensured);
+    const members = ensuredMembersFromResult(result);
+    if (members) _conversationMembersCache.set(ensured.id, members);
+    return { conversationId: ensured.id, conversation: saved || ensured };
+  }
+
   function conversationTypeFor(conversation, conversationId = "") {
     return sessionHistoryShared().conversationType(conversation, conversationId) || null;
   }
@@ -4389,8 +4442,13 @@
     }
     const localMsg = _appendLocalOutgoingConversationMessage(conversationId, prepared, skills);
     const mentions = postMentionsForConversation(conversationType, prepared.mentions);
+    let postConversationId = conversationId;
     try {
-      const res = await window.mia.social.postConversationMessage(conversationId, {
+      if (conversationType === "bot") {
+        const ensured = await ensurePostableConversation(conversationId, conversation);
+        postConversationId = ensured.conversationId || conversationId;
+      }
+      const res = await window.mia.social.postConversationMessage(postConversationId, {
         bodyMd: prepared.bodyMd,
         turnId: prepared.clientTraceId,
         ...(prepared.attachments.length ? { attachments: prepared.attachments } : {}),
@@ -4399,15 +4457,15 @@
       });
       if (!res.ok) {
         console.warn("[social] postConversationMessage failed:", res.error);
-        if (localMsg) _markLocalOutgoingConversationMessageFailed(conversationId, localMsg.id, res.error);
+        if (localMsg) _markLocalOutgoingConversationMessageFailed(postConversationId, localMsg.id, res.error);
         if (res.status === 401 && deps && typeof deps.onCloudAuthExpired === "function") deps.onCloudAuthExpired();
         return;
       }
       const sentMsg = res.data?.message;
       if (!sentMsg || !sentMsg.id) return; // server didn't return a message somehow — skip optimistic
-      _reconcileSentConversationMessage(conversationId, localMsg?.id, sentMsg);
+      _reconcileSentConversationMessage(postConversationId, localMsg?.id, sentMsg);
     } catch (err) {
-      if (localMsg) _markLocalOutgoingConversationMessageFailed(conversationId, localMsg.id, err?.message || err);
+      if (localMsg) _markLocalOutgoingConversationMessageFailed(postConversationId, localMsg.id, err?.message || err);
       console.warn("[social] sendInActiveConversation error:", err);
     }
   }
