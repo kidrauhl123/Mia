@@ -1275,8 +1275,8 @@ test("floating capsule controls keep hover hit targets stable", () => {
     const hoverRule = cssRuleBody(css, hoverSelector);
     assert.doesNotMatch(
       hoverRule,
-      /\b(?:font-weight|padding|margin|border(?:-width)?|width|height|min-width|min-height|transform|filter|box-shadow)\s*:/,
-      `${name} hover should not change layout, hit area, or compositor geometry`
+      /\b(?:background|font-weight|padding|margin|border(?:-width)?|width|height|min-width|min-height|transform|filter|box-shadow)\s*:/,
+      `${name} hover should not change painted layers, layout, hit area, or compositor geometry`
     );
   }
 });

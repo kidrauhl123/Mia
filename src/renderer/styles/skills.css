@@ -156,7 +156,6 @@
 }
 
 .skill-chip-row button:not(.active):hover {
-  background: rgb(var(--accent-rgb) / 0.07);
   color: var(--text);
 }
 
@@ -326,7 +325,6 @@
 }
 
 .skill-mode-toggle button:not(.active):hover {
-  background: rgb(var(--accent-rgb) / 0.07);
   color: var(--text);
 }
 

@@ -85,7 +85,6 @@
   transition: color 140ms ease;
 }
 .discover-mode-toggle button:not(.active):hover {
-  background: rgb(var(--accent-rgb) / 0.07);
   color: var(--text);
 }
 .discover-mode-toggle button.active {
@@ -239,7 +238,6 @@
   transition: color 140ms ease;
 }
 .bot-store-cap button:not(.active):hover {
-  background: rgb(var(--accent-rgb) / 0.07);
   color: var(--text);
 }
 .bot-store-cap button.active {

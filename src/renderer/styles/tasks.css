@@ -138,7 +138,6 @@
   transition: color 140ms ease;
 }
 .task-mode-toggle button:not(.active):hover {
-  background: rgb(var(--accent-rgb) / 0.07);
   color: var(--text);
 }
 .task-mode-toggle button.active {
@@ -230,7 +229,7 @@
   color: var(--faint);
   font-size: 12px;
 }
-.task-chip-row button:not(.active):hover { background: var(--surface); color: var(--text); }
+.task-chip-row button:not(.active):hover { color: var(--text); }
 .task-chip-row button:not(.active):hover span { color: var(--faint); }
 .task-chip-row button.active {
   background: var(--surface);
