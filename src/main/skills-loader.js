@@ -70,6 +70,18 @@ function normalizeAssistantSetup(setup = {}) {
   };
 }
 
+function normalizeAssistantAvatar(avatar = {}) {
+  const value = avatar && typeof avatar === "object" ? avatar : {};
+  const icon = String(value.icon || value.name || "").trim();
+  const image = String(value.image || value.avatarImage || "").trim();
+  const label = String(value.label || "").trim();
+  return {
+    ...(icon ? { icon } : {}),
+    ...(image ? { image } : {}),
+    ...(label ? { label } : {})
+  };
+}
+
 function createSkillsLoader(deps = {}) {
   const {
     runtimePaths,
@@ -448,6 +460,7 @@ function createSkillsLoader(deps = {}) {
           runtimeRecommendation: String(item.runtimeRecommendation || item.runtime_recommendation || "").trim(),
           handoffExamples: normalizeStringList(item.handoffExamples || item.handoff_examples, 6),
           setup: normalizeAssistantSetup(item.setup),
+          avatar: normalizeAssistantAvatar(item.avatar || { icon: item.avatarIcon || item.avatar_icon, image: item.avatarImage || item.avatar_image }),
           desc: String(item.description || item.desc || item.line || "").trim(),
           demo: String(item.demo || "").trim(),
           persona: String(item.persona || item.personaText || "").trim(),

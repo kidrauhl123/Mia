@@ -318,6 +318,7 @@ test("bundled official library exposes context-bearing assistant templates", asy
     assert.ok(rawPresets.every((preset) => !Object.prototype.hasOwnProperty.call(preset, "background")), "official bot presets should only maintain one color field");
     assert.ok(rawPresets.every((preset) => typeof preset.responsibility === "string" && preset.responsibility.trim()));
     assert.ok(rawPresets.every((preset) => preset.setup && Array.isArray(preset.setup.fields)));
+    assert.ok(rawPresets.every((preset) => preset.avatar && typeof preset.avatar.icon === "string" && preset.avatar.icon.trim()));
 
     const presets = loader.readMiaOfficialBotPresets();
     assert.equal(presets.length, 6);
@@ -334,6 +335,7 @@ test("bundled official library exposes context-bearing assistant templates", asy
     assert.ok(presets.every((preset) => /^#[0-9a-f]{6}$/i.test(preset.c1) && /^#[0-9a-f]{6}$/i.test(preset.c2)));
     assert.ok(presets.every((preset) => preset.c1.toLowerCase() !== preset.c2.toLowerCase()));
     assert.ok(presets.every((preset) => Array.isArray(preset.capabilities?.enabledSkills) && preset.capabilities.enabledSkills.length));
+    assert.ok(presets.every((preset) => preset.avatar && typeof preset.avatar.icon === "string" && preset.avatar.icon.trim()));
     assert.ok(presets.every((preset) => typeof preset.responsibility === "string" && preset.responsibility.includes("长期")));
     assert.ok(presets.every((preset) => typeof preset.setupPrompt === "string" && preset.setupPrompt.trim()));
     assert.ok(presets.every((preset) => Array.isArray(preset.contextBindings) && preset.contextBindings.length));

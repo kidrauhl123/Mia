@@ -18,6 +18,7 @@
   const FALLBACK_PRESETS = [
     {
       key: "course-tutor", cat: "学习", category: "学习", emoji: "课", c1: "#ecebfc", c2: "#5e5ce6",
+      avatar: { icon: "book-open-check" },
       name: "课程助教", tagline: "一门课的长期资料、作业、复习联系人",
       line: "长期管理一门课的资料、作业、复习和答疑。",
       responsibility: "长期管理一门课的资料、作业、复习和答疑。",
@@ -40,6 +41,7 @@
     },
     {
       key: "project-report-lead", cat: "项目", category: "项目", emoji: "报", c1: "#e1f3f6", c2: "#0891b2",
+      avatar: { icon: "presentation-chart" },
       name: "项目汇报负责人", tagline: "一个项目的组会、周报、PPT 和反馈联系人",
       line: "长期维护一个项目的汇报材料、会议结论、反馈和下次准备事项。",
       responsibility: "长期维护一个项目的汇报材料、会议结论、反馈和下次准备事项。",
@@ -63,6 +65,7 @@
     },
     {
       key: "experiment-records", cat: "项目", category: "项目", emoji: "数", c1: "#e4f3eb", c2: "#1a9d5a",
+      avatar: { icon: "chart-scatter" },
       name: "实验记录管理员", tagline: "一个实验或数据项目的数据、图表和报告联系人",
       line: "长期维护实验数据、字段说明、图表输出和报告段落。",
       responsibility: "长期维护实验数据、字段说明、图表输出和报告段落。",
@@ -86,6 +89,7 @@
     },
     {
       key: "job-search-manager", cat: "项目", category: "项目", emoji: "职", c1: "#e5ecfd", c2: "#2563eb",
+      avatar: { icon: "briefcase-search" },
       name: "求职投递管家", tagline: "一个求职方向的简历、JD、投递和面试联系人",
       line: "长期管理一个求职方向的简历版本、岗位 JD、投递状态和面试反馈。",
       responsibility: "长期管理一个求职方向的简历版本、岗位 JD、投递状态和面试反馈。",
@@ -109,6 +113,7 @@
     },
     {
       key: "personal-secretary", cat: "事务", category: "事务", emoji: "办", c1: "#eae9fc", c2: "#4f46e5",
+      avatar: { icon: "calendar-check" },
       name: "个人事务秘书", tagline: "承诺、待办、提醒和零散信息的收口联系人",
       line: "长期收口聊天、笔记和提醒里的个人承诺与待办。",
       responsibility: "长期收口聊天、笔记和提醒里的个人承诺与待办。",
@@ -131,6 +136,7 @@
     },
     {
       key: "repo-maintainer", cat: "代码", category: "代码", emoji: "库", c1: "#dcecff", c2: "#378add",
+      avatar: { icon: "code-branch" },
       name: "代码仓库维护员", tagline: "一个 repo 的测试、审查、发布和技术债联系人",
       line: "长期维护一个代码仓库的 bug、测试、PR 审查、发布记录和技术债。",
       responsibility: "长期维护一个代码仓库的 bug、测试、PR 审查、发布记录和技术债。",
@@ -192,6 +198,50 @@
     "trip-planner": "行程"
   };
 
+  const ASSISTANT_AVATAR_ICONS = Object.freeze({
+    "book-open-check": `
+      <path d="M22 28c8-3 16-2 26 4v34c-10-6-18-7-26-4V28Z"/>
+      <path d="M48 32c10-6 18-7 26-4v34c-8-3-16-2-26 4V32Z"/>
+      <path d="m33 48 6 6 10-12"/>
+    `,
+    "presentation-chart": `
+      <path d="M24 26h48v32H24z"/>
+      <path d="M48 58v12"/>
+      <path d="m36 72 12-14 12 14"/>
+      <path d="M35 48v-8"/>
+      <path d="M48 48V36"/>
+      <path d="M61 48v-16"/>
+    `,
+    "chart-scatter": `
+      <path d="M28 24v44h42"/>
+      <circle cx="39" cy="54" r="4"/>
+      <circle cx="50" cy="39" r="4"/>
+      <circle cx="62" cy="49" r="4"/>
+      <path d="m39 54 11-15 12 10"/>
+    `,
+    "briefcase-search": `
+      <path d="M30 34h36a8 8 0 0 1 8 8v22H22V42a8 8 0 0 1 8-8Z"/>
+      <path d="M40 34v-6h16v6"/>
+      <path d="M22 48h52"/>
+      <circle cx="47" cy="56" r="7"/>
+      <path d="m53 62 9 9"/>
+    `,
+    "calendar-check": `
+      <path d="M28 28h40a6 6 0 0 1 6 6v36H22V34a6 6 0 0 1 6-6Z"/>
+      <path d="M34 22v12"/>
+      <path d="M62 22v12"/>
+      <path d="M22 42h52"/>
+      <path d="m36 58 8 8 17-18"/>
+    `,
+    "code-branch": `
+      <circle cx="34" cy="28" r="7"/>
+      <circle cx="62" cy="68" r="7"/>
+      <circle cx="34" cy="68" r="7"/>
+      <path d="M34 35v26"/>
+      <path d="M34 48h16a12 12 0 0 1 12 12v1"/>
+    `
+  });
+
   function presets() {
     const official = Array.isArray(state?.skillLibrary?.botPresets) ? state.skillLibrary.botPresets : [];
     return official.length ? official : FALLBACK_PRESETS;
@@ -237,6 +287,28 @@
   function safeColor(value, fallback) {
     const color = String(value || "").trim();
     return /^#[0-9a-f]{3,8}$/i.test(color) ? color : fallback;
+  }
+
+  function assistantAvatarIconKey(f = {}) {
+    const meta = f.avatar && typeof f.avatar === "object" ? f.avatar : {};
+    return String(meta.icon || f.avatarIcon || "").trim();
+  }
+
+  function assistantAvatarSvg(f = {}) {
+    const iconKey = assistantAvatarIconKey(f);
+    const icon = ASSISTANT_AVATAR_ICONS[iconKey];
+    if (!icon) return "";
+    const bg = safeColor(f.c1, "#ecebfc");
+    const fg = safeColor(f.c2, "#5e5ce6");
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="26" fill="${bg}"/><circle cx="70" cy="24" r="18" fill="#ffffff" opacity=".34"/><circle cx="28" cy="72" r="16" fill="#ffffff" opacity=".26"/><g fill="none" stroke="${fg}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">${icon}</g></svg>`;
+  }
+
+  function assistantAvatarImage(f = {}) {
+    const meta = f.avatar && typeof f.avatar === "object" ? f.avatar : {};
+    const explicit = String(meta.image || f.avatarImage || "").trim();
+    if (explicit) return explicit;
+    const svg = assistantAvatarSvg(f);
+    return svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` : "";
   }
 
   function enabledSkillIds(f = {}) {
@@ -634,7 +706,14 @@
 
   function avatarHtml(f, extraClass) {
     const cls = extraClass ? ` ${extraClass}` : "";
-    return `<div class="bot-store-avatar${cls}" style="background:${f.c1};color:${f.c2}">${f.emoji}</div>`;
+    const c1 = safeColor(f.c1, "#ecebfc");
+    const c2 = safeColor(f.c2, "#5e5ce6");
+    const image = assistantAvatarImage(f);
+    const fallback = escapeHtml(String(f.emoji || "◇").trim() || "◇");
+    const body = image
+      ? `<img class="bot-store-avatar-img" src="${escapeHtml(image)}" alt="" aria-hidden="true">`
+      : fallback;
+    return `<div class="bot-store-avatar${cls}" style="background:${c1};color:${c2}">${body}</div>`;
   }
 
   function cardStyle(f) {
@@ -922,6 +1001,7 @@
       const key = String(plannedKey || "").trim();
       if (!key) throw new Error("AI 助手账号 ID 缺失。");
       const setupValues = readAssistantSetupValues(els.botStoreSheet);
+      const avatarImage = assistantAvatarImage(f);
       const saved = await window.miaBotCommands.saveBot({
         state,
         runtimeKind: target.runtimeKind,
@@ -933,6 +1013,8 @@
           name: f.name,
           category: defaultConversationTagName(f),
           color: f.c2,
+          avatarImage: avatarImage,
+          avatarCrop: avatarImage ? { x: 50, y: 50, zoom: 1 } : null,
           description: assistantDescription(f, setupValues),
           personaText: assistantPersonaText(f, setupValues),
           agentEngine: target.agentEngine,

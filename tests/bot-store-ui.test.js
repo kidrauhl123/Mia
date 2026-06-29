@@ -121,6 +121,7 @@ test("official assistant templates are long-lived context contacts, not skill wr
   assert.ok(presets.every((item) => typeof item.setupPrompt === "string" && item.setupPrompt.trim()));
   assert.ok(presets.every((item) => item.setup && Array.isArray(item.setup.fields)));
   assert.ok(presets.every((item) => Array.isArray(item.capabilities?.enabledSkills) && item.capabilities.enabledSkills.length > 0));
+  assert.ok(presets.every((item) => item.avatar && typeof item.avatar.icon === "string" && item.avatar.icon.trim()));
   assert.equal(presets.some((item) => ["论文搭子", "表格整理师", "汇报设计师", "文档编辑", "会议纪要官", "剧情主持"].includes(item.name)), false);
   assert.equal(presets.some((item) => item.key === "speak-partner"), false);
   assert.equal(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "tags")), true);
@@ -146,6 +147,7 @@ test("bot store fallback presets and category order match the first-release assi
   assert.match(fallbackBlock, /setup:\s*\{\s*fields:/);
   assert.match(fallbackBlock, /contextBindings:/);
   assert.match(fallbackBlock, /handoffExamples:/);
+  assert.match(fallbackBlock, /avatar:\s*\{\s*icon:/);
   assert.match(fallbackBlock, /mia-scheduler/);
 });
 
@@ -163,6 +165,16 @@ test("discover bot store presents assistant templates as context contacts", () =
   assert.match(store, /第一次需要：/);
   assert.doesNotMatch(store, /<p class="line">\$\{escapeHtml\(f\.line\)\}<\/p>/);
   assert.doesNotMatch(store, /<button type="button" class="bot-store-btn primary" data-act="prepare">添加<\/button>/);
+});
+
+test("official assistant cards use icon avatars instead of single-character placeholders", () => {
+  const store = read("src/renderer/bot/bot-store.js");
+
+  assert.match(store, /const ASSISTANT_AVATAR_ICONS = Object\.freeze/);
+  assert.match(store, /function assistantAvatarImage/);
+  assert.match(store, /data:image\/svg\+xml;charset=utf-8/);
+  assert.match(store, /<img class="bot-store-avatar-img"/);
+  assert.doesNotMatch(store, /\$\{f\.emoji\}<\/div>/);
 });
 
 test("assistant store skill chips label mia-scheduler as 定时任务 instead of exposing the raw id", () => {
@@ -186,6 +198,9 @@ test("assistant enrollment collects setup context and folds it into bot identity
   assert.match(store, /assistantDescription\(f,\s*setupValues\)/);
   assert.match(store, /description:\s*assistantDescription\(f,\s*setupValues\)/);
   assert.match(store, /personaText:\s*assistantPersonaText\(f,\s*setupValues\)/);
+  assert.match(store, /avatarImage:\s*avatarImage/);
+  assert.match(store, /avatarCrop:\s*avatarImage\s*\?\s*\{ x: 50, y: 50, zoom: 1 \}\s*:\s*null/);
+  assert.match(store, /const avatarImage = assistantAvatarImage\(f\)/);
   assert.match(store, /const setupValues = readAssistantSetupValues\(els\.botStoreSheet\)/);
   assert.match(store, /const key = String\(plannedKey \|\| ""\)\.trim\(\);\s*if \(!key\) throw new Error\("AI 助手账号 ID 缺失。"\);\s*const setupValues = readAssistantSetupValues\(els\.botStoreSheet\)/s);
   assert.doesNotMatch(store, /throw new Error\(".*课程名/);
