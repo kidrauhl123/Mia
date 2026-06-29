@@ -94,18 +94,23 @@ test("official assistant templates are long-lived context contacts, not skill wr
   const library = JSON.parse(read("resources/official-library/library.json"));
   const presets = Array.isArray(library.botPresets) ? library.botPresets : [];
 
-  assert.equal(presets.length, 6);
+  assert.equal(presets.length, 8);
   assert.deepEqual(presets.map((item) => item.name), [
     "课程助教",
     "项目汇报负责人",
     "实验记录管理员",
     "求职投递管家",
     "个人事务秘书",
-    "代码仓库维护员"
+    "代码仓库维护员",
+    "公开情报官",
+    "跑团故事主持"
   ]);
   assert.ok(presets.every((item) => typeof item.responsibility === "string" && item.responsibility.includes("长期")));
-  assert.ok(presets.every((item) => typeof item.setupPrompt === "string" && item.setupPrompt.trim()));
-  assert.ok(presets.every((item) => item.setup && Array.isArray(item.setup.fields)));
+  assert.ok(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "setupPrompt")));
+  assert.ok(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "setup")));
+  assert.ok(presets.every((item) => Array.isArray(item.contextBindings) && item.contextBindings.length > 0));
+  assert.ok(presets.every((item) => Array.isArray(item.handoffExamples) && item.handoffExamples.length >= 3));
+  assert.ok(presets.every((item) => /不要求用户填写表格|不要要求用户填写表格/.test(item.persona)));
   assert.ok(presets.every((item) => Array.isArray(item.capabilities?.enabledSkills) && item.capabilities.enabledSkills.length > 0));
   assert.ok(presets.every((item) => item.avatar && typeof item.avatar.emoji === "string" && item.avatar.emoji.trim()));
   assert.ok(presets.every((item) => item.avatar && typeof item.avatar.token === "string" && item.avatar.token.trim()));
@@ -120,9 +125,9 @@ test("bot store fallback presets and category order match the first-release assi
   const src = read("src/renderer/bot/bot-store.js");
   const fallbackBlock = src.match(/const FALLBACK_PRESETS = \[(.*?)\n  \];/s)?.[1] || "";
 
-  assert.match(src, /const CATEGORY_ORDER = \["学习", "项目", "事务", "代码", "推荐"\];/);
+  assert.match(src, /const CATEGORY_ORDER = \["学习", "项目", "事务", "代码", "情报", "娱乐", "推荐"\];/);
 
-  for (const name of ["课程助教", "项目汇报负责人", "实验记录管理员", "求职投递管家", "个人事务秘书", "代码仓库维护员"]) {
+  for (const name of ["课程助教", "项目汇报负责人", "实验记录管理员", "求职投递管家", "个人事务秘书", "代码仓库维护员", "公开情报官", "跑团故事主持"]) {
     assert.match(fallbackBlock, new RegExp(name));
   }
 
@@ -132,7 +137,8 @@ test("bot store fallback presets and category order match the first-release assi
 
   assert.match(fallbackBlock, /runtimeRecommendation:\s*"desktop-local"/);
   assert.match(fallbackBlock, /runtimeRecommendation:\s*"cloud-or-desktop"/);
-  assert.match(fallbackBlock, /setup:\s*\{\s*fields:/);
+  assert.doesNotMatch(fallbackBlock, /setupPrompt:/);
+  assert.doesNotMatch(fallbackBlock, /setup:\s*\{\s*fields:/);
   assert.match(fallbackBlock, /contextBindings:/);
   assert.match(fallbackBlock, /handoffExamples:/);
   assert.match(fallbackBlock, /avatar:\s*\{\s*emoji:/);

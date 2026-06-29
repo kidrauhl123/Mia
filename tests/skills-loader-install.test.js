@@ -371,24 +371,27 @@ test("bundled official library exposes context-bearing assistant templates", asy
     const loader = makeBundledLoader(home);
     const rawLibrary = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "resources", "official-library", "library.json"), "utf8"));
     const rawPresets = Array.isArray(rawLibrary.botPresets) ? rawLibrary.botPresets : [];
-    assert.equal(rawPresets.length, 6);
+    assert.equal(rawPresets.length, 8);
     assert.ok(rawPresets.every((preset) => !Object.prototype.hasOwnProperty.call(preset, "background")), "official bot presets should only maintain one color field");
     assert.ok(rawPresets.every((preset) => typeof preset.responsibility === "string" && preset.responsibility.trim()));
-    assert.ok(rawPresets.every((preset) => preset.setup && Array.isArray(preset.setup.fields)));
+    assert.ok(rawPresets.every((preset) => !Object.prototype.hasOwnProperty.call(preset, "setupPrompt")));
+    assert.ok(rawPresets.every((preset) => !Object.prototype.hasOwnProperty.call(preset, "setup")));
     assert.ok(rawPresets.every((preset) => preset.avatar && typeof preset.avatar.emoji === "string" && preset.avatar.emoji.trim()));
     assert.ok(rawPresets.every((preset) => preset.avatar && typeof preset.avatar.token === "string" && preset.avatar.token.trim()));
 
     const presets = loader.readMiaOfficialBotPresets();
-    assert.equal(presets.length, 6);
+    assert.equal(presets.length, 8);
     assert.deepEqual(presets.map((preset) => preset.name), [
       "课程助教",
       "项目汇报负责人",
       "实验记录管理员",
       "求职投递管家",
       "个人事务秘书",
-      "代码仓库维护员"
+      "代码仓库维护员",
+      "公开情报官",
+      "跑团故事主持"
     ]);
-    assert.deepEqual([...new Set(presets.map((preset) => preset.cat))], ["学习", "项目", "事务", "代码"]);
+    assert.deepEqual([...new Set(presets.map((preset) => preset.cat))], ["学习", "项目", "事务", "代码", "情报", "娱乐"]);
     assert.ok(presets.every((preset) => preset.name && preset.persona));
     assert.ok(presets.every((preset) => /^#[0-9a-f]{6}$/i.test(preset.c1) && /^#[0-9a-f]{6}$/i.test(preset.c2)));
     assert.ok(presets.every((preset) => preset.c1.toLowerCase() !== preset.c2.toLowerCase()));
@@ -396,10 +399,11 @@ test("bundled official library exposes context-bearing assistant templates", asy
     assert.ok(presets.every((preset) => preset.avatar && typeof preset.avatar.emoji === "string" && preset.avatar.emoji.trim()));
     assert.ok(presets.every((preset) => preset.avatar && typeof preset.avatar.token === "string" && preset.avatar.token.trim()));
     assert.ok(presets.every((preset) => typeof preset.responsibility === "string" && preset.responsibility.includes("长期")));
-    assert.ok(presets.every((preset) => typeof preset.setupPrompt === "string" && preset.setupPrompt.trim()));
+    assert.ok(presets.every((preset) => !Object.prototype.hasOwnProperty.call(preset, "setupPrompt")));
+    assert.ok(presets.every((preset) => !Object.prototype.hasOwnProperty.call(preset, "setup")));
     assert.ok(presets.every((preset) => Array.isArray(preset.contextBindings) && preset.contextBindings.length));
     assert.ok(presets.every((preset) => Array.isArray(preset.handoffExamples) && preset.handoffExamples.length >= 3));
-    assert.ok(presets.every((preset) => preset.setup.fields.every((field) => field.id && field.label && field.type)));
+    assert.ok(presets.every((preset) => /不要求用户填写表格|不要要求用户填写表格/.test(preset.persona)));
     assert.equal(presets.some((preset) => preset.name === "论文搭子"), false);
     assert.equal(presets.some((preset) => preset.name === "表格整理师"), false);
     assert.equal(presets.some((preset) => preset.name === "汇报设计师"), false);
