@@ -212,6 +212,7 @@ test("message list conversation cards paint hover backgrounds while preserving s
     "desktop message cards should paint a hover background"
   );
   assert.match(cssBlock(desktopCss, ".persona.active"), /background:\s*var\(--list-active\);/);
+  assert.match(cssBlock(desktopCss, ".persona.active"), /border-radius:\s*14px;/);
 
   assert.doesNotMatch(
     webCss,

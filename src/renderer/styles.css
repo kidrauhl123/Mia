@@ -2096,7 +2096,7 @@ body.platform-win32 .conversation-sidebar .sidebar-tools.has-tag-filters {
   bottom: -1px;
   z-index: 1;
   width: var(--tag-indicator-width, 0px);
-  height: 2px;
+  height: 2.5px;
   border-radius: 999px 999px 0 0;
   background: #2f9e67;
   opacity: var(--tag-indicator-opacity, 1);
@@ -2260,9 +2260,9 @@ body.platform-win32 .conversation-sidebar .sidebar-tools.has-tag-filters {
 .persona-list {
   display: grid;
   align-content: start;
-  gap: 2px;
+  gap: 4px;
   height: 100%;
-  padding: 6px 0;
+  padding: 2px 0 6px;
   overflow: auto;
   overflow-x: hidden;
 }
@@ -2277,11 +2277,11 @@ body.platform-win32 .conversation-sidebar .sidebar-tools.has-tag-filters {
   align-items: center;
   gap: 9px;
   width: calc(100% - 12px);
-  min-height: 66px;
+  min-height: 62px;
   margin: 0 6px;
-  padding: 7px 9px;
+  padding: 5px 9px;
   border: 0;
-  border-radius: 11px;
+  border-radius: 14px;
   background: transparent;
   color: var(--text);
   cursor: default;
@@ -2342,6 +2342,7 @@ body.platform-win32 .persona.pinned:not(.active):hover {
 
 .persona.active {
   background: var(--list-active);
+  border-radius: 14px;
 }
 
 .persona.pinned:not(.active) {

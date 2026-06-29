@@ -406,10 +406,12 @@ test("conversation tag grouping uses Telegram-style text tabs with a moving unde
   assert.match(trackRule, /gap:\s*22px;/);
   assert.match(trackRule, /width:\s*max-content;/);
   assert.match(trackRule, /min-width:\s*100%;/);
+  assert.match(trackRule, /height:\s*30px;/);
   assert.match(trackRule, /transform:\s*translateX\(calc\(var\(--tag-scroll-x,\s*0px\) \* -1\)\);/);
   assert.match(trackRule, /transition:\s*transform 220ms cubic-bezier\(0\.2,\s*0\.7,\s*0\.2,\s*1\);/);
   assert.match(baseCss, /\.sidebar-tag-filter-strip\.reordering \.sidebar-tag-filter-track\s*\{[\s\S]*?transition:\s*none;/);
   assert.match(tabRule, /height:\s*30px;/);
+  assert.match(tabRule, /line-height:\s*30px;/);
   assert.match(tabRule, /font-size:\s*var\(--capsule-tab-font-size\);/);
   assert.match(tabRule, /font-weight:\s*var\(--capsule-tab-font-weight\);/);
   assert.match(tabRule, /border-radius:\s*0;/);
@@ -419,6 +421,8 @@ test("conversation tag grouping uses Telegram-style text tabs with a moving unde
   assert.match(activeRule, /color:\s*var\(--text\);/);
   assert.match(activeRule, /font-weight:\s*var\(--capsule-tab-active-font-weight\);/);
   assert.match(indicatorRule, /width:\s*var\(--tag-indicator-width,\s*0px\);/);
+  assert.match(indicatorRule, /height:\s*2\.5px;/);
+  assert.match(indicatorRule, /bottom:\s*-1px;/);
   assert.match(indicatorRule, /z-index:\s*1;/);
   assert.match(indicatorRule, /transform:\s*translateX\(var\(--tag-indicator-x,\s*0px\)\);/);
   assert.match(indicatorRule, /transition:\s*transform 220ms/);
@@ -429,6 +433,22 @@ test("conversation tag grouping uses Telegram-style text tabs with a moving unde
   assert.match(baseCss, /\.persona-list\.folder-page-back\s*\{/);
   assert.match(baseCss, /@keyframes conversationFolderPageForward/);
   assert.match(baseCss, /@keyframes conversationFolderPageBack/);
+});
+
+test("message list cards sit close to the folder underline with slimmer chrome", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const stripRule = cssRuleBody(baseCss, ".sidebar-tag-filter-strip", baseCss.indexOf("\n.sidebar-tag-filter-strip {"));
+  const listRule = cssRuleBody(baseCss, ".persona-list", baseCss.indexOf("\n.persona-list {"));
+  const cardRule = cssRuleBody(baseCss, ".persona", baseCss.indexOf("\n.persona {"));
+
+  assert.match(stripRule, /height:\s*30px;/);
+  assert.match(stripRule, /border-bottom:\s*1px solid var\(--line\);/);
+  assert.match(listRule, /gap:\s*4px;/);
+  assert.match(listRule, /padding:\s*2px 0 6px;/);
+  assert.match(cardRule, /grid-template-columns:\s*42px minmax\(0,\s*1fr\);/);
+  assert.match(cardRule, /min-height:\s*62px;/);
+  assert.match(cardRule, /padding:\s*5px 9px;/);
+  assert.match(cardRule, /border-radius:\s*14px;/);
 });
 
 test("contact bot groups use compact collapsible headers", () => {
