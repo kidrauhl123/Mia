@@ -126,3 +126,25 @@ test("official assistant templates are long-lived context contacts, not skill wr
   assert.equal(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "tags")), true);
   assert.equal(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "roleTitle")), true);
 });
+
+test("bot store fallback presets and category order match the first-release assistant taxonomy", () => {
+  const src = read("src/renderer/bot/bot-store.js");
+  const fallbackBlock = src.match(/const FALLBACK_PRESETS = \[(.*?)\n  \];/s)?.[1] || "";
+
+  assert.match(src, /const CATEGORY_ORDER = \["学习", "项目", "事务", "代码", "推荐"\];/);
+
+  for (const name of ["课程助教", "项目汇报负责人", "实验记录管理员", "求职投递管家", "个人事务秘书", "代码仓库维护员"]) {
+    assert.match(fallbackBlock, new RegExp(name));
+  }
+
+  for (const stale of ["论文搭子", "表格整理师", "汇报设计师", "文档编辑", "会议纪要官", "剧情主持"]) {
+    assert.doesNotMatch(fallbackBlock, new RegExp(stale));
+  }
+
+  assert.match(fallbackBlock, /runtimeRecommendation:\s*"desktop-local"/);
+  assert.match(fallbackBlock, /runtimeRecommendation:\s*"cloud-or-desktop"/);
+  assert.match(fallbackBlock, /setup:\s*\{\s*fields:/);
+  assert.match(fallbackBlock, /contextBindings:/);
+  assert.match(fallbackBlock, /handoffExamples:/);
+  assert.match(fallbackBlock, /mia-scheduler/);
+});
