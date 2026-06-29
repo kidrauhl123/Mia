@@ -238,10 +238,14 @@
 
   function setTasksContentHtml(kind, html, bind) {
     const renderKey = `${kind}:${html}`;
-    if (els.tasksContent.__miaRenderKey === renderKey) return false;
+    if (els.tasksContent.__miaRenderKey === renderKey) {
+      try { window.miaLottieIcons?.init?.(els.tasksContent); } catch { /* decorative task animation is optional */ }
+      return false;
+    }
     els.tasksContent.innerHTML = html;
     els.tasksContent.__miaRenderKey = renderKey;
     if (typeof bind === "function") bind();
+    try { window.miaLottieIcons?.init?.(els.tasksContent); } catch { /* decorative task animation is optional */ }
     return true;
   }
 
@@ -387,17 +391,19 @@
   }
 
   function renderActiveEmpty() {
-    if ((state.tasks || []).length === 0) {
-      return `
-        <div class="tasks-empty">
-          <div class="tasks-empty-emoji">📅</div>
-          <h2>还没有定时任务</h2>
-          <p>回到任意聊天告诉 Mia：<br><em>"每天 9 点帮我做 X"</em><br>它会自动帮你建好任务。</p>
-          <button class="secondary" type="button" data-action="new-task">＋ 手动新建任务</button>
-        </div>
-      `;
-    }
-    return `<div class="tasks-empty"><p>没有匹配的活跃任务</p></div>`;
+    return `
+      <div class="tasks-empty tasks-empty-active">
+        <div class="tasks-empty-lottie"
+             data-lottie="task-schedule"
+             data-lottie-path="./assets/lottie/task-schedule.tgs"
+             data-lottie-format="tgs"
+             data-lottie-trigger="loop"
+             aria-hidden="true"></div>
+        <h2>还没有活跃任务</h2>
+        <p>需要 Mia 定时处理的事，可以从聊天开始，也可以手动新建。</p>
+        <button class="secondary" type="button" data-action="new-task">＋ 手动新建任务</button>
+      </div>
+    `;
   }
 
   function runCardHtml({ run, task }) {

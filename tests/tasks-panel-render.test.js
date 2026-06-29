@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const zlib = require("node:zlib");
 const { test } = require("node:test");
 
 const root = path.join(__dirname, "..");
@@ -141,6 +142,60 @@ test("tasks history unread appears on the history tab and unread run cards", () 
   state.taskMode = "history";
   panel.renderTaskView();
   assert.match(tasksContent.innerHTML, /task-run-card[\s\S]*task-card-unread/);
+});
+
+test("active tasks empty state uses the schedule lottie for any empty active list", () => {
+  const { panel } = loadTasksPanel();
+  const state = {
+    runtime: { bots: [{ id: "nhnh", key: "nhnh", name: "nhnh" }] },
+    tasks: [{
+      id: "task_1",
+      title: "已完成提醒",
+      botId: "nhnh",
+      status: "done",
+      prompt: "提醒我。",
+      trigger: { type: "oneshot", at: Date.now() - 60_000 },
+      runs: [{ id: "run_1", status: "ok", firedAt: Date.now() - 30_000, outputText: "完成。" }]
+    }],
+    taskFilter: "",
+    taskMode: "active",
+    taskHistoryFilter: "all",
+    selectedTaskId: "",
+    selectedRunId: "",
+    tasksUnread: new Map()
+  };
+  const tasksContent = new MockElement("tasksContent");
+  const tasksUnreadBadge = new MockElement("tasksUnreadBadge");
+
+  panel.initTasksPanel({
+    state,
+    els: { tasksContent, tasksUnreadBadge },
+    escapeHtml: (value) => String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;"),
+    setText: (el, value) => { if (el) el.textContent = value; },
+    formatRunTime: () => "06/02 18:20",
+    render() {},
+    renderView() {},
+    renderChat() {}
+  });
+
+  panel.renderTaskView();
+
+  assert.match(tasksContent.innerHTML, /class="tasks-empty tasks-empty-active"/);
+  assert.match(tasksContent.innerHTML, /data-lottie="task-schedule"/);
+  assert.match(tasksContent.innerHTML, /data-lottie-path="\.\/assets\/lottie\/task-schedule\.tgs"/);
+  assert.match(tasksContent.innerHTML, /data-lottie-format="tgs"/);
+  assert.match(tasksContent.innerHTML, /data-lottie-trigger="loop"/);
+  assert.match(tasksContent.innerHTML, /还没有活跃任务/);
+  assert.doesNotMatch(tasksContent.innerHTML, /tasks-empty-emoji|没有匹配的活跃任务/);
+});
+
+test("task schedule empty-state lottie asset is bundled as valid TGS", () => {
+  const assetPath = path.join(root, "src/renderer/assets/lottie/task-schedule.tgs");
+  const animation = JSON.parse(zlib.gunzipSync(fs.readFileSync(assetPath)).toString("utf8"));
+
+  assert.equal(animation.w, 512);
+  assert.equal(animation.h, 512);
+  assert.ok(Number(animation.op) > 0);
 });
 
 test("task mode and history chips are stable across unchanged renders", () => {

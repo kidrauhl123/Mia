@@ -701,20 +701,20 @@ body.platform-darwin .traffic-spacer .traffic-light {
 
 /* App icon Lotties bake colors into their JSON; repaint fills through
    currentColor so theme/accent changes still reach filled dots and solid icon
-   parts. The startup scan animation is a full-color illustration, so it is
-   excluded and keeps its source colors. */
-[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie) svg path {
+   parts. Full-color illustration/asset Lotties are excluded and keep their
+   source colors. */
+[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie):not(.tasks-empty-lottie) svg path {
   fill: currentColor !important;
 }
 
 /* Rail SVG styles set stroke on fallback icons; generated filled Lottie paths
    must clear that inheritance or dots/accent shapes gain a visible ring. */
-[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie) svg path:not([fill-opacity="0"]) {
+[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie):not(.tasks-empty-lottie) svg path:not([fill-opacity="0"]) {
   stroke: none !important;
 }
 
 /* Only hollow Lottie paths are outlines. */
-[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie) svg path[fill-opacity="0"] {
+[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie):not(.tasks-empty-lottie) svg path[fill-opacity="0"] {
   stroke: currentColor !important;
 }
 

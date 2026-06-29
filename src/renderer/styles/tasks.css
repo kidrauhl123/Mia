@@ -355,18 +355,29 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 320px;
+  min-height: min(520px, calc(100vh - 220px));
   text-align: center;
   color: var(--floor-muted);
-  gap: 12px;
-  padding: 48px 32px;
+  gap: 10px;
+  padding: 56px 32px;
 }
-.tasks-empty-emoji { font-size: var(--ui-text-max-size, 14px); opacity: 0.7; line-height: 1; }
+.tasks-empty-lottie {
+  width: clamp(132px, 16vw, 190px);
+  height: clamp(132px, 16vw, 190px);
+  margin-bottom: 2px;
+  filter: drop-shadow(0 14px 28px rgba(17, 24, 39, 0.08));
+}
+.tasks-empty-lottie svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
 .tasks-empty h2 { font-size: var(--ui-text-max-size, 14px); font-weight: var(--ui-text-max-weight, 500); margin: 0; color: var(--floor-text); }
 .tasks-empty p { margin: 0; font-size: 13px; line-height: 1.6; }
 .tasks-empty em { font-style: italic; color: var(--floor-text); }
 .tasks-empty .secondary {
-  margin-top: 4px; padding: 6px 14px; font-size: 13px; cursor: default;
+  margin-top: 8px; padding: 7px 15px; font-size: 13px; cursor: default;
   border: 0; border-radius: 8px;
   background: var(--field); color: var(--text);
 }
