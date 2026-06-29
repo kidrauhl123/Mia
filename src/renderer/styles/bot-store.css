@@ -544,6 +544,58 @@
   background-position: center;
   background-size: 26px 26px;
 }
+.bot-store-setup-fields {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--badge-card-line);
+  background: var(--badge-bar-bg);
+}
+.bot-store-setup-field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+.bot-store-setup-field span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--badge-card-muted);
+  font-size: 11px;
+}
+.bot-store-setup-field em {
+  color: var(--badge-card-faint);
+  font-style: normal;
+  font-size: 10px;
+}
+.bot-store-setup-field input,
+.bot-store-setup-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--badge-card-line);
+  border-radius: 8px;
+  background: var(--badge-card-bg);
+  color: var(--badge-card-text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  outline: none;
+}
+.bot-store-setup-field input {
+  height: 30px;
+  padding: 0 9px;
+}
+.bot-store-setup-field textarea {
+  min-height: 54px;
+  max-height: 120px;
+  padding: 7px 9px;
+  resize: vertical;
+}
+.bot-store-setup-field input:focus,
+.bot-store-setup-field textarea:focus {
+  border-color: var(--engine-accent, var(--accent));
+}
 .bot-store-badge-card {
   position: relative;
   z-index: 1;

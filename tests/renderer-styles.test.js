@@ -1255,3 +1255,12 @@ test("assistant store cards keep responsibility, setup, and skill metadata disti
   assert.match(css, /\.bot-store-card-skills\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/);
   assert.match(css, /\.bot-store-skill-chip\s*\{[^}]*border-radius:\s*999px;/);
 });
+
+test("assistant setup fields fit inside the enrollment sheet", () => {
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
+
+  assert.match(css, /\.bot-store-setup-fields\s*\{[^}]*display:\s*grid;[^}]*gap:\s*8px;/);
+  assert.match(css, /\.bot-store-setup-field\s*\{[^}]*display:\s*grid;[^}]*min-width:\s*0;/);
+  assert.match(css, /\.bot-store-setup-field input,\s*\.bot-store-setup-field textarea\s*\{[^}]*width:\s*100%;[^}]*box-sizing:\s*border-box;/);
+  assert.match(css, /\.bot-store-setup-field textarea\s*\{[^}]*resize:\s*vertical;/);
+});

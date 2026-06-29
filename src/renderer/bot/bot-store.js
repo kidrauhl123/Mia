@@ -276,6 +276,54 @@
     return typeof fn === "function" ? fn(f) : [];
   }
 
+  function assistantSetupFields(f = {}) {
+    const fn = assistantTemplates().assistantSetupFields;
+    return typeof fn === "function" ? fn(f) : [];
+  }
+
+  function assistantPersonaText(f = {}, values = {}) {
+    const fn = assistantTemplates().assistantPersonaText;
+    return typeof fn === "function" ? fn(f, values) : String(f.persona || "").trim();
+  }
+
+  function assistantDescription(f = {}, values = {}) {
+    const fn = assistantTemplates().assistantDescription;
+    return typeof fn === "function" ? fn(f, values) : String(f.line || f.desc || "").trim();
+  }
+
+  function setupFieldsHtml(f = {}) {
+    const fields = assistantSetupFields(f);
+    if (!fields.length) return "";
+    return `
+      <div class="bot-store-setup-fields" aria-label="初始化设置">
+        ${fields.map((field) => {
+          const tag = field.type === "textarea" ? "textarea" : "input";
+          const required = field.required ? " data-required=\"true\"" : "";
+          const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : "";
+          const common = `class="bot-store-setup-input" data-assistant-setup-field="${escapeHtml(field.id)}"${placeholder}${required}`;
+          return `
+            <label class="bot-store-setup-field">
+              <span>${escapeHtml(field.label)}${field.required ? "<em>建议填写</em>" : ""}</span>
+              ${tag === "textarea"
+                ? `<textarea ${common} rows="2"></textarea>`
+                : `<input ${common} autocomplete="off">`}
+            </label>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function readAssistantSetupValues(sheet) {
+    const values = {};
+    sheet?.querySelectorAll?.("[data-assistant-setup-field]")?.forEach((field) => {
+      const key = String(field.dataset.assistantSetupField || "").trim();
+      const value = String(field.value || "").trim();
+      if (key && value) values[key] = value;
+    });
+    return values;
+  }
+
   function skillChipHtml(f = {}) {
     const ids = enabledSkillIds(f);
     if (!ids.length) return `<span class="bot-store-skill-chip muted">未配置 Skill</span>`;
@@ -782,6 +830,7 @@
           </div>
           <div class="bot-store-badge-flash" aria-hidden="true"></div>
         </div>
+        ${setupFieldsHtml(f)}
       </div>
       <div class="bot-store-actions">
         <button type="button" class="bot-store-btn ghost" data-act="detail">上一步</button>
@@ -867,6 +916,7 @@
       const target = normalizeRuntimeTarget(runtimeTarget);
       const key = String(plannedKey || "").trim();
       if (!key) throw new Error("AI 助手账号 ID 缺失。");
+      const setupValues = readAssistantSetupValues(els.botStoreSheet);
       const saved = await window.miaBotCommands.saveBot({
         state,
         runtimeKind: target.runtimeKind,
@@ -878,8 +928,8 @@
           name: f.name,
           category: defaultConversationTagName(f),
           color: f.c2,
-          description: f.line,
-          personaText: f.persona,
+          description: assistantDescription(f, setupValues),
+          personaText: assistantPersonaText(f, setupValues),
           agentEngine: target.agentEngine,
           targetDeviceId: target.deviceId,
           targetDeviceName: target.deviceName,

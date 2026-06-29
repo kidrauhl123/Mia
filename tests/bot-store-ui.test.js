@@ -164,3 +164,18 @@ test("discover bot store presents assistant templates as context contacts", () =
   assert.doesNotMatch(store, /<p class="line">\$\{escapeHtml\(f\.line\)\}<\/p>/);
   assert.doesNotMatch(store, /<button type="button" class="bot-store-btn primary" data-act="prepare">添加<\/button>/);
 });
+
+test("assistant enrollment collects setup context and folds it into bot identity", () => {
+  const store = read("src/renderer/bot/bot-store.js");
+
+  assert.match(store, /function setupFieldsHtml/);
+  assert.match(store, /data-assistant-setup-field/);
+  assert.match(store, /function readAssistantSetupValues/);
+  assert.match(store, /assistantPersonaText\(f,\s*setupValues\)/);
+  assert.match(store, /assistantDescription\(f,\s*setupValues\)/);
+  assert.match(store, /description:\s*assistantDescription\(f,\s*setupValues\)/);
+  assert.match(store, /personaText:\s*assistantPersonaText\(f,\s*setupValues\)/);
+  assert.match(store, /const setupValues = readAssistantSetupValues\(els\.botStoreSheet\)/);
+  assert.doesNotMatch(store, /throw new Error\(".*课程名/);
+  assert.doesNotMatch(store, /required[^;]+checkValidity/);
+});
