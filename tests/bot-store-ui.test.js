@@ -104,18 +104,25 @@ test("discover bot store credential styles are tied to the second step", () => {
   assert.match(css, /\.bot-store-badge-stage\s*\{[\s\S]*?min-height:\s*clamp/);
 });
 
-test("official bot presets exclude voice-only coworkers until voice is available", () => {
+test("official assistant templates are long-lived context contacts, not skill wrappers", () => {
   const library = JSON.parse(read("resources/official-library/library.json"));
   const presets = Array.isArray(library.botPresets) ? library.botPresets : [];
 
+  assert.equal(presets.length, 6);
+  assert.deepEqual(presets.map((item) => item.name), [
+    "课程助教",
+    "项目汇报负责人",
+    "实验记录管理员",
+    "求职投递管家",
+    "个人事务秘书",
+    "代码仓库维护员"
+  ]);
+  assert.ok(presets.every((item) => typeof item.responsibility === "string" && item.responsibility.includes("长期")));
+  assert.ok(presets.every((item) => typeof item.setupPrompt === "string" && item.setupPrompt.trim()));
+  assert.ok(presets.every((item) => item.setup && Array.isArray(item.setup.fields)));
+  assert.ok(presets.every((item) => Array.isArray(item.capabilities?.enabledSkills) && item.capabilities.enabledSkills.length > 0));
+  assert.equal(presets.some((item) => ["论文搭子", "表格整理师", "汇报设计师", "文档编辑", "会议纪要官", "剧情主持"].includes(item.name)), false);
   assert.equal(presets.some((item) => item.key === "speak-partner"), false);
-  assert.equal(presets.some((item) => item.name === "口语陪练"), false);
-  assert.equal(presets.length, 10);
-  assert.deepEqual([...new Set(presets.map((item) => item.category))], ["学习", "办公", "写作", "求职", "娱乐"]);
-  assert.ok(["表格整理师", "汇报设计师", "文档编辑", "会议纪要官", "剧情主持"].every((name) =>
-    presets.some((item) => item.name === name)
-  ));
-  assert.equal(presets.every((item) => Array.isArray(item.capabilities?.enabledSkills) && item.capabilities.enabledSkills.length > 0), true);
   assert.equal(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "tags")), true);
   assert.equal(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "roleTitle")), true);
 });

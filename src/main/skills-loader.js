@@ -38,6 +38,38 @@ function softBackgroundForColor(color) {
   return `#${mix(channel(0))}${mix(channel(2))}${mix(channel(4))}`;
 }
 
+function normalizeStringList(value, limit = 8) {
+  return Array.isArray(value)
+    ? [...new Set(value.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, limit)
+    : [];
+}
+
+function normalizeSetupField(field = {}) {
+  const id = String(field.id || "").trim();
+  const label = String(field.label || "").trim();
+  if (!id || !label) return null;
+  const type = ["text", "textarea", "folder"].includes(String(field.type || "").trim())
+    ? String(field.type || "").trim()
+    : "text";
+  return {
+    id,
+    label,
+    type,
+    required: Boolean(field.required),
+    placeholder: String(field.placeholder || "").trim()
+  };
+}
+
+function normalizeAssistantSetup(setup = {}) {
+  const value = setup && typeof setup === "object" ? setup : {};
+  return {
+    fields: (Array.isArray(value.fields) ? value.fields : [])
+      .map(normalizeSetupField)
+      .filter(Boolean)
+      .slice(0, 8)
+  };
+}
+
 function createSkillsLoader(deps = {}) {
   const {
     runtimePaths,
@@ -409,6 +441,13 @@ function createSkillsLoader(deps = {}) {
           name,
           tagline: String(item.tagline || "").trim(),
           line: String(item.line || item.description || "").trim(),
+          responsibility: String(item.responsibility || item.line || item.description || "").trim(),
+          bestFor: String(item.bestFor || item.best_for || "").trim(),
+          setupPrompt: String(item.setupPrompt || item.setup_prompt || "").trim(),
+          contextBindings: normalizeStringList(item.contextBindings || item.context_bindings, 8),
+          runtimeRecommendation: String(item.runtimeRecommendation || item.runtime_recommendation || "").trim(),
+          handoffExamples: normalizeStringList(item.handoffExamples || item.handoff_examples, 6),
+          setup: normalizeAssistantSetup(item.setup),
           desc: String(item.description || item.desc || item.line || "").trim(),
           demo: String(item.demo || "").trim(),
           persona: String(item.persona || item.personaText || "").trim(),

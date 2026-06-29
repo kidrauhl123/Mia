@@ -259,8 +259,8 @@ test("buildEnabledSkillsContext applies bundled preset defaults for old unconfig
   try {
     const loader = makeBundledLoader(home);
     const ctx = loader.buildEnabledSkillsContext({
-      key: "old-paper",
-      name: "论文搭子",
+      key: "course-tutor",
+      name: "课程助教",
       capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
     });
 
@@ -270,35 +270,51 @@ test("buildEnabledSkillsContext applies bundled preset defaults for old unconfig
   }
 });
 
-test("bundled official library exposes first-release bot presets", async () => {
+test("bundled official library exposes context-bearing assistant templates", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {
     const loader = makeBundledLoader(home);
     const rawLibrary = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "resources", "official-library", "library.json"), "utf8"));
     const rawPresets = Array.isArray(rawLibrary.botPresets) ? rawLibrary.botPresets : [];
+    assert.equal(rawPresets.length, 6);
     assert.ok(rawPresets.every((preset) => !Object.prototype.hasOwnProperty.call(preset, "background")), "official bot presets should only maintain one color field");
+    assert.ok(rawPresets.every((preset) => typeof preset.responsibility === "string" && preset.responsibility.trim()));
+    assert.ok(rawPresets.every((preset) => preset.setup && Array.isArray(preset.setup.fields)));
 
     const presets = loader.readMiaOfficialBotPresets();
-    assert.equal(presets.length, 10);
+    assert.equal(presets.length, 6);
+    assert.deepEqual(presets.map((preset) => preset.name), [
+      "课程助教",
+      "项目汇报负责人",
+      "实验记录管理员",
+      "求职投递管家",
+      "个人事务秘书",
+      "代码仓库维护员"
+    ]);
+    assert.deepEqual([...new Set(presets.map((preset) => preset.cat))], ["学习", "项目", "事务", "代码"]);
     assert.ok(presets.every((preset) => preset.name && preset.persona));
     assert.ok(presets.every((preset) => /^#[0-9a-f]{6}$/i.test(preset.c1) && /^#[0-9a-f]{6}$/i.test(preset.c2)));
     assert.ok(presets.every((preset) => preset.c1.toLowerCase() !== preset.c2.toLowerCase()));
     assert.ok(presets.every((preset) => Array.isArray(preset.capabilities?.enabledSkills) && preset.capabilities.enabledSkills.length));
-    assert.ok(presets.some((preset) => preset.name === "论文搭子"));
-    assert.ok(presets.some((preset) => preset.name === "表格整理师"));
-    assert.ok(presets.some((preset) => preset.name === "汇报设计师"));
-    assert.ok(presets.some((preset) => preset.name === "文档编辑"));
-    assert.ok(presets.some((preset) => preset.name === "会议纪要官"));
-    assert.ok(presets.some((preset) => preset.name === "剧情主持"));
-    assert.deepEqual([...new Set(presets.map((preset) => preset.cat))], ["学习", "办公", "写作", "求职", "娱乐"]);
+    assert.ok(presets.every((preset) => typeof preset.responsibility === "string" && preset.responsibility.includes("长期")));
+    assert.ok(presets.every((preset) => typeof preset.setupPrompt === "string" && preset.setupPrompt.trim()));
+    assert.ok(presets.every((preset) => Array.isArray(preset.contextBindings) && preset.contextBindings.length));
+    assert.ok(presets.every((preset) => Array.isArray(preset.handoffExamples) && preset.handoffExamples.length >= 3));
+    assert.ok(presets.every((preset) => preset.setup.fields.every((field) => field.id && field.label && field.type)));
+    assert.equal(presets.some((preset) => preset.name === "论文搭子"), false);
+    assert.equal(presets.some((preset) => preset.name === "表格整理师"), false);
+    assert.equal(presets.some((preset) => preset.name === "汇报设计师"), false);
+    assert.equal(presets.some((preset) => preset.name === "文档编辑"), false);
+    assert.equal(presets.some((preset) => preset.name === "会议纪要官"), false);
+    assert.equal(presets.some((preset) => preset.name === "剧情主持"), false);
     assert.equal(presets.some((preset) => preset.key === "speak-partner"), false);
 
     const enabledSkillIds = new Set(presets.flatMap((preset) => preset.capabilities.enabledSkills));
-    assert.ok([...enabledSkillIds].every((id) => String(id).startsWith("mia-official:")));
+    assert.ok([...enabledSkillIds].every((id) => String(id).startsWith("mia-official:") || id === "mia-scheduler"));
     const library = await loader.loadLocalSkills();
     assert.equal(library.botPresets.length, presets.length);
     for (const id of enabledSkillIds) {
-      assert.ok(library.skills.some((skill) => skill.id === id), `missing preset skill: ${id}`);
+      assert.ok(library.skills.some((skill) => skill.id === id || skill.name === id), `missing preset skill: ${id}`);
       assert.match(loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: [id] } }), /=== Skill:/);
     }
   } finally {

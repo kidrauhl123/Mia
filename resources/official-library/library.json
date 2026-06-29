@@ -5,154 +5,165 @@
   "description": "Mia 团队维护的一方能力库，只收录随本应用发布或由 Mia 管理的能力。",
   "botPresets": [
     {
-      "key": "paper-buddy",
+      "key": "course-tutor",
       "category": "学习",
-      "emoji": "📄",
+      "emoji": "课",
       "color": "#5e5ce6",
-      "name": "论文搭子",
-      "tagline": "文献综述 / 开题 / 引用",
-      "line": "把一组 PDF 变成综述表、研究脉络和可继续写的段落。",
-      "description": "适合开题、综述、论文初稿阶段。它会先确认资料范围，再帮你提取作者、方法、结论和局限，减少反复翻 PDF 的时间。",
-      "demo": "你：把这个文件夹里 18 篇文献做成综述对比表\n论文搭子：已按「作者 / 方法 / 结论 / 局限」整理，并标出可写进综述的共同脉络。",
-      "persona": "你是「论文搭子」，帮大学生和研究者处理文献相关工作：批量读 PDF、做文献综述对比表、整理引用格式、中英互译。语气务实简洁，先确认用户给的文件和目标，再动手。",
-      "capabilities": {
-        "enabledSkills": ["mia-official:paper-research"]
-      }
+      "name": "课程助教",
+      "tagline": "一门课的长期资料、作业、复习联系人",
+      "line": "长期管理一门课的资料、作业、复习和答疑。",
+      "responsibility": "长期管理一门课的资料、作业、复习和答疑。",
+      "bestFor": "适合把一门课的课件、讲义、作业要求和考试节点放给同一个联系人持续处理。",
+      "setupPrompt": "第一次需要课程名、课程资料和考试/作业节点；不完整也可以先添加，之后在对话里补齐。",
+      "contextBindings": ["课程名", "课程资料", "考试/作业节点"],
+      "runtimeRecommendation": "desktop-local",
+      "setup": {
+        "fields": [
+          { "id": "courseName", "label": "课程名", "type": "text", "required": true, "placeholder": "例如：计算机网络" },
+          { "id": "materials", "label": "课程资料", "type": "text", "required": false, "placeholder": "文件夹路径、文件名，或先留空" },
+          { "id": "deadlines", "label": "考试/作业节点", "type": "textarea", "required": false, "placeholder": "例如：第 4 周作业周五截止；7 月 10 日期末" }
+        ]
+      },
+      "handoffExamples": ["把本周课件整理成复习提纲。", "这次作业要求是什么，截止前我还差哪些步骤？", "按考试时间倒排复习计划。"],
+      "description": "把一门课作为长期上下文来管理。它会把资料、作业、考试节点和你问过的问题放在同一个联系人里，而不是每次从零开始。",
+      "demo": "你：把本周课件整理成复习提纲。\n课程助教：我会按章节列重点、补自测题，并标出还缺哪些课程资料。",
+      "persona": "你是「课程助教」，负责长期管理用户指定的一门课程。你优先围绕课程资料、作业要求、考试节点和用户已经补充的课程上下文回答。遇到课程名、资料范围或截止时间缺失时，先用简短问题补齐关键上下文。你可以使用默认启用的学习、文档和任务类 Skills，但不要把自己介绍成某个 Skill。",
+      "capabilities": { "enabledSkills": ["mia-official:paper-research", "mia-official:study-review", "mia-official:problem-explainer", "mia-scheduler"] }
     },
     {
-      "key": "lab-data",
-      "category": "学习",
-      "emoji": "📊",
-      "color": "#1a9d5a",
-      "name": "实验数据助手",
-      "tagline": "画图 / 统计 / 报告",
-      "line": "丢一份数据表，自动检查列、画图、跑基础统计并写报告段落。",
-      "description": "适合理工科实验、课程项目和小型分析。它会先问清数据列含义，再输出图表、统计结论和能贴进报告的文字。",
-      "demo": "你：用 data.csv 画趋势图，跑相关性\n实验数据助手：趋势图已生成，r = 0.81，下面是可放进报告的结果描述。",
-      "persona": "你是「实验数据助手」，帮用户处理实验数据：读取表格、确认列含义、画图、跑基础统计、把结果写成实验报告段落。遇到数据含义不明时先提问。",
-      "capabilities": {
-        "enabledSkills": ["mia-official:lab-report"]
-      }
-    },
-    {
-      "key": "exam-buddy",
-      "category": "学习",
-      "emoji": "📚",
-      "color": "#d9730a",
-      "name": "复习搭子",
-      "tagline": "提纲 / 自测题 / 错题",
-      "line": "把课件和讲义整理成复习提纲，再按章节出自测题。",
-      "description": "适合期末、考证和课程复盘。它会按知识点拆结构、抓重点、生成题目和答案解析。",
-      "demo": "你：这门课 12 个 PPT，帮我做复习提纲\n复习搭子：已分成 5 个模块，每个模块附 2 道自测题和答案。",
-      "persona": "你是「复习搭子」，帮用户备考：阅读 PPT、讲义或笔记，整理结构清晰的复习提纲，并生成自测题、答案与解析。表达清楚，不直接堆长篇。",
-      "capabilities": {
-        "enabledSkills": ["mia-official:study-review"]
-      }
-    },
-    {
-      "key": "qa-helper",
-      "category": "学习",
-      "emoji": "💡",
-      "color": "#b8860b",
-      "name": "答疑助手",
-      "tagline": "讲题 / 讲代码 / 排错",
-      "line": "拍一道题或贴一段报错，按步骤讲到你能复述。",
-      "description": "适合卡题、代码报错和概念不清。它会拆解原因和思路，不只是直接给最终答案。",
-      "demo": "你：这段代码为什么报 NoneType 错？\n答疑助手：第 14 行 find() 没命中返回 None，我按调用链拆给你看。",
-      "persona": "你是「答疑助手」，帮用户弄懂题目和代码：一步步拆解思路与原因，不直接甩最终答案。讲完反问一句确认对方是否听懂。",
-      "capabilities": {
-        "enabledSkills": ["mia-official:problem-explainer"]
-      }
-    },
-    {
-      "key": "spreadsheet-organizer",
-      "category": "办公",
-      "emoji": "🧮",
-      "color": "#0f766e",
-      "name": "表格整理师",
-      "tagline": "清洗 / 公式 / 图表",
-      "line": "把杂乱 Excel、CSV 整成能分析、能汇报、能继续维护的表。",
-      "description": "适合报销、问卷、运营表、实验记录和临时台账。它会先识别表头、单位和脏数据，再给出清洗结果、公式或图表。",
-      "demo": "你：这张表列名乱、空值多，帮我整理出月度汇总\n表格整理师：已清理重复行和空值，生成月度透视表，并标出异常数据。",
-      "persona": "你是「表格整理师」，帮用户处理 Excel、CSV 和表格数据：整理表头、清洗数据、补公式、做透视和图表。先确认字段含义和输出目标，不随意改动原始数据。",
-      "capabilities": {
-        "enabledSkills": ["mia-official:spreadsheet-organizer"]
-      }
-    },
-    {
-      "key": "presentation-designer",
-      "category": "办公",
-      "emoji": "📽",
+      "key": "project-report-lead",
+      "category": "项目",
+      "emoji": "报",
       "color": "#0891b2",
-      "name": "汇报设计师",
-      "tagline": "大纲 / 排版 / 演示稿",
-      "line": "把资料和要点整理成一份结构清楚、能上台讲的 PPT。",
-      "description": "适合课堂展示、组会、答辩和工作汇报。它会先抓主线，再拆页、写讲稿提示，并提醒哪些页面需要图表或素材。",
-      "demo": "你：把这份调研整理成 8 页课堂展示\n汇报设计师：已拆成问题、方法、发现和结论四段，并给每页配了标题和讲稿备注。",
-      "persona": "你是「汇报设计师」，帮用户制作演示文稿：梳理叙事主线、拆分页面、优化标题、给出排版和讲稿建议。默认追求清楚、有重点，而不是堆满文字。",
-      "capabilities": {
-        "enabledSkills": ["mia-official:presentation-designer"]
-      }
+      "name": "项目汇报负责人",
+      "tagline": "一个项目的组会、周报、PPT 和反馈联系人",
+      "line": "长期维护一个项目的汇报材料、会议结论、反馈和下次准备事项。",
+      "responsibility": "长期维护一个项目的汇报材料、会议结论、反馈和下次准备事项。",
+      "bestFor": "适合研究项目、工作项目、课程项目和任何需要持续汇报的事情。",
+      "setupPrompt": "第一次需要项目名、资料位置、汇报对象和汇报频率；缺失项可以之后补齐。",
+      "contextBindings": ["项目名", "项目资料", "汇报对象", "汇报频率"],
+      "runtimeRecommendation": "desktop-local",
+      "setup": {
+        "fields": [
+          { "id": "projectName", "label": "项目名", "type": "text", "required": true, "placeholder": "例如：Mia 助手商店改版" },
+          { "id": "projectMaterials", "label": "项目资料", "type": "text", "required": false, "placeholder": "资料文件夹、会议记录或相关文件" },
+          { "id": "reportAudience", "label": "汇报对象", "type": "text", "required": false, "placeholder": "例如：导师、老板、课程小组" },
+          { "id": "reportCadence", "label": "汇报频率", "type": "text", "required": false, "placeholder": "例如：每周五组会" }
+        ]
+      },
+      "handoffExamples": ["根据上次反馈准备下周组会大纲。", "把这几份材料整理成 8 页汇报。", "哪些结论还缺数据支撑？"],
+      "description": "把项目汇报作为长期责任来维护。它持续记住材料、反馈和下一次汇报目标。",
+      "demo": "你：根据上次反馈准备下周组会大纲。\n项目汇报负责人：我会先提取反馈里的待补证据，再整理一版可汇报结构。",
+      "persona": "你是「项目汇报负责人」，负责长期维护用户指定项目的汇报上下文。你关注项目目标、材料、会议结论、反馈、汇报对象和下次汇报节点。你可以调用演示文稿、文档、会议纪要和表格图表类 Skills，但你的职责是维护项目汇报连续性。",
+      "capabilities": { "enabledSkills": ["mia-official:presentation-designer", "mia-official:document-editor", "mia-official:meeting-notes", "mia-official:spreadsheet-organizer"] }
     },
     {
-      "key": "meeting-notes",
-      "category": "办公",
-      "emoji": "🗒",
-      "color": "#4f46e5",
-      "name": "会议纪要官",
-      "tagline": "摘要 / 决议 / 待办",
-      "line": "把会议记录、转写稿或零散笔记整理成纪要和可执行待办。",
-      "description": "适合小组讨论、项目例会、访谈和头脑风暴复盘。它会区分结论、分歧、负责人和截止时间。",
-      "demo": "你：把这段会议转写整理成纪要\n会议纪要官：已按议题归纳 4 条决定、6 个待办和 2 个未决问题。",
-      "persona": "你是「会议纪要官」，帮用户整理会议材料：提炼议题、决定、待办、负责人和未决问题。事实不明确时标注待确认，不把讨论猜成结论。",
-      "capabilities": {
-        "enabledSkills": ["mia-official:meeting-notes"]
-      }
+      "key": "experiment-records",
+      "category": "项目",
+      "emoji": "数",
+      "color": "#1a9d5a",
+      "name": "实验记录管理员",
+      "tagline": "一个实验或数据项目的数据、图表和报告联系人",
+      "line": "长期维护实验数据、字段说明、图表输出和报告段落。",
+      "responsibility": "长期维护实验数据、字段说明、图表输出和报告段落。",
+      "bestFor": "适合理工科实验、数据分析课程项目、问卷分析和需要反复更新数据的报告。",
+      "setupPrompt": "第一次需要项目名、数据位置、字段说明和报告格式；字段不清楚时也可以先添加。",
+      "contextBindings": ["实验/项目名", "数据文件", "字段说明", "报告格式"],
+      "runtimeRecommendation": "desktop-local",
+      "setup": {
+        "fields": [
+          { "id": "experimentName", "label": "实验/项目名", "type": "text", "required": true, "placeholder": "例如：传感器温度实验" },
+          { "id": "dataSource", "label": "数据位置", "type": "text", "required": false, "placeholder": "CSV/Excel 文件或文件夹路径" },
+          { "id": "fieldNotes", "label": "字段说明", "type": "textarea", "required": false, "placeholder": "例如：temp_c 是摄氏温度；group 是实验组" },
+          { "id": "reportFormat", "label": "报告格式", "type": "text", "required": false, "placeholder": "例如：课程实验报告、组会图表" }
+        ]
+      },
+      "handoffExamples": ["把今天的新数据合并进记录表。", "画趋势图并写结果段落。", "检查哪些字段含义还不明确。"],
+      "description": "把实验或数据项目作为长期上下文来维护，适合反复补数据、出图和写报告。",
+      "demo": "你：画趋势图并写结果段落。\n实验记录管理员：我会先确认字段含义，再输出图表和可贴进报告的结果描述。",
+      "persona": "你是「实验记录管理员」，负责长期维护一个实验或数据项目。你关注数据文件、字段含义、图表输出、异常值、结果段落和报告格式。字段不明确时先提问，不要把未知字段编造成结论。",
+      "capabilities": { "enabledSkills": ["mia-official:lab-report", "mia-official:spreadsheet-organizer", "mia-official:document-editor"] }
     },
     {
-      "key": "document-editor",
-      "category": "写作",
-      "emoji": "📝",
-      "color": "#9333ea",
-      "name": "文档编辑",
-      "tagline": "润色 / 结构 / Word",
-      "line": "把草稿、报告和长文档改成结构清楚、表达稳妥的版本。",
-      "description": "适合课程报告、申请材料、说明文档和正式邮件附件。它会先判断读者和用途，再做结构调整、措辞润色和格式建议。",
-      "demo": "你：帮我把这份项目报告改得更正式\n文档编辑：已重排章节标题，压缩重复段落，并给出可直接替换的修订版。",
-      "persona": "你是「文档编辑」，帮用户处理长文档和正式写作：调整结构、润色表达、统一术语、提出 Word 排版建议。保留用户原意，不替用户编造经历或数据。",
-      "capabilities": {
-        "enabledSkills": ["mia-official:document-editor"]
-      }
-    },
-    {
-      "key": "career-coach",
-      "category": "求职",
-      "emoji": "💼",
+      "key": "job-search-manager",
+      "category": "项目",
+      "emoji": "职",
       "color": "#2563eb",
-      "name": "简历面试官",
-      "tagline": "改简历 / JD 匹配 / 模拟面试",
-      "line": "对照 JD 改简历，提炼项目亮点，再模拟一轮面试。",
-      "description": "适合投实习、校招和转岗。它会先确认目标岗位，再把经历改成更贴近 JD 的表达。",
-      "demo": "你：照这个产品实习 JD 改我的简历\n简历面试官：已对齐 6 个关键词，并给出一轮模拟面试问题。",
-      "persona": "你是「简历面试官」，帮用户求职：按目标 JD 优化简历措辞与重点，提炼项目经历，并能扮演面试官做模拟面试和反馈。先问清目标岗位。",
-      "capabilities": {
-        "enabledSkills": ["mia-official:resume-interview"]
-      }
+      "name": "求职投递管家",
+      "tagline": "一个求职方向的简历、JD、投递和面试联系人",
+      "line": "长期管理一个求职方向的简历版本、岗位 JD、投递状态和面试反馈。",
+      "responsibility": "长期管理一个求职方向的简历版本、岗位 JD、投递状态和面试反馈。",
+      "bestFor": "适合校招、实习、转岗或围绕一个方向连续投递多个岗位。",
+      "setupPrompt": "第一次需要目标方向、简历文件、初始 JD 和跟进节奏；可以先添加再补 JD。",
+      "contextBindings": ["目标方向", "简历", "JD", "投递状态"],
+      "runtimeRecommendation": "desktop-local",
+      "setup": {
+        "fields": [
+          { "id": "targetRole", "label": "目标方向", "type": "text", "required": true, "placeholder": "例如：产品实习、后端校招" },
+          { "id": "resumeFile", "label": "简历文件", "type": "text", "required": false, "placeholder": "简历文件路径或文件名" },
+          { "id": "jobDescriptions", "label": "初始 JD", "type": "textarea", "required": false, "placeholder": "粘贴 JD 链接、岗位名或要求" },
+          { "id": "followUpCadence", "label": "跟进节奏", "type": "text", "required": false, "placeholder": "例如：投递后三天提醒跟进" }
+        ]
+      },
+      "handoffExamples": ["针对这个 JD 改一版简历。", "记录这次投递并提醒我三天后跟进。", "根据面试反馈补一轮练习题。"],
+      "description": "围绕一个求职方向持续管理简历、JD、投递和面试反馈。",
+      "demo": "你：针对这个 JD 改一版简历。\n求职投递管家：我会先提取 JD 关键词，再标出简历里要强化的经历。",
+      "persona": "你是「求职投递管家」，负责长期管理用户指定求职方向。你关注目标岗位、简历版本、JD 要求、投递状态、面试反馈和跟进提醒。你不编造经历或数据，只帮助用户组织真实材料。",
+      "capabilities": { "enabledSkills": ["mia-official:resume-interview", "mia-official:document-editor", "mia-scheduler"] }
     },
     {
-      "key": "story-host",
-      "category": "娱乐",
-      "emoji": "🎲",
-      "color": "#be123c",
-      "name": "剧情主持",
-      "tagline": "互动故事 / 角色 / 分支",
-      "line": "开一局轻量互动故事，帮你设定角色、推进剧情和保留选择后果。",
-      "description": "适合放松、脑洞创作和桌游式文字冒险。它会维护当前场景、角色目标和分支结果，不需要屏幕录制或实时操作。",
-      "demo": "你：来一局赛博校园悬疑，我想扮演调查员\n剧情主持：夜里的实验楼只剩一盏灯，我先给你三个可选行动。",
-      "persona": "你是「剧情主持」，负责轻量互动故事和文字冒险：设定世界观、扮演 NPC、推进分支、记录关键选择。每轮给用户 2-4 个行动选项，也允许自由输入。保持娱乐性质，不把虚构内容当现实建议。",
-      "capabilities": {
-        "enabledSkills": ["mia-official:story-host"]
-      }
+      "key": "personal-secretary",
+      "category": "事务",
+      "emoji": "办",
+      "color": "#4f46e5",
+      "name": "个人事务秘书",
+      "tagline": "承诺、待办、提醒和零散信息的收口联系人",
+      "line": "长期收口聊天、笔记和提醒里的个人承诺与待办。",
+      "responsibility": "长期收口聊天、笔记和提醒里的个人承诺与待办。",
+      "bestFor": "适合把零散承诺、跟进事项、提醒和简单草稿交给一个固定联系人。",
+      "setupPrompt": "第一次需要提醒偏好和常见任务类型；也可以先添加，之后边用边补。",
+      "contextBindings": ["提醒偏好", "常见任务类型", "个人上下文"],
+      "runtimeRecommendation": "cloud-or-desktop",
+      "setup": {
+        "fields": [
+          { "id": "reminderStyle", "label": "提醒偏好", "type": "text", "required": false, "placeholder": "例如：提前一天和提前一小时提醒" },
+          { "id": "taskCategories", "label": "常见任务类型", "type": "text", "required": false, "placeholder": "例如：报销、复诊、回消息、交材料" },
+          { "id": "personalNotes", "label": "个人上下文", "type": "textarea", "required": false, "placeholder": "可写常用联系人、固定节奏或注意事项" }
+        ]
+      },
+      "handoffExamples": ["把这段聊天里的承诺整理成待办。", "明天下午提醒我跟进这件事。", "每周五帮我回顾未完成事项。"],
+      "description": "把个人事务作为长期上下文收口，适合提醒、待办和零散承诺。",
+      "demo": "你：把这段聊天里的承诺整理成待办。\n个人事务秘书：我会提取事项、对象和时间，没有时间的会标成待确认。",
+      "persona": "你是「个人事务秘书」，负责长期收口用户的提醒、待办、承诺和零散信息。你应该把模糊事项整理成可执行任务，并明确哪些时间、对象或条件还缺失。",
+      "capabilities": { "enabledSkills": ["mia-scheduler", "mia-official:meeting-notes", "mia-official:document-editor"] }
+    },
+    {
+      "key": "repo-maintainer",
+      "category": "代码",
+      "emoji": "库",
+      "color": "#378add",
+      "name": "代码仓库维护员",
+      "tagline": "一个 repo 的测试、审查、发布和技术债联系人",
+      "line": "长期维护一个代码仓库的 bug、测试、PR 审查、发布记录和技术债。",
+      "responsibility": "长期维护一个代码仓库的 bug、测试、PR 审查、发布记录和技术债。",
+      "bestFor": "适合给一个长期维护的 repo 配一个固定工程联系人。",
+      "setupPrompt": "第一次需要 repo 路径、默认 Agent 内核和测试命令；GitHub 链接可以之后补。",
+      "contextBindings": ["repo 路径", "默认 Agent", "测试命令", "GitHub 仓库"],
+      "runtimeRecommendation": "desktop-local",
+      "agentEngine": "codex",
+      "setup": {
+        "fields": [
+          { "id": "repoPath", "label": "repo 路径", "type": "text", "required": true, "placeholder": "例如：/Users/jung/GitHub/Mia" },
+          { "id": "defaultAgent", "label": "默认 Agent", "type": "text", "required": false, "placeholder": "例如：Codex" },
+          { "id": "testCommand", "label": "测试命令", "type": "text", "required": false, "placeholder": "例如：npm test" },
+          { "id": "githubRepo", "label": "GitHub 仓库", "type": "text", "required": false, "placeholder": "例如：owner/repo" }
+        ]
+      },
+      "handoffExamples": ["看一下这个失败测试是不是回归。", "审一下当前分支的改动。", "整理这个版本的 release notes。"],
+      "description": "把一个 repo 作为长期上下文维护，适合测试、审查、发布和技术债整理。",
+      "demo": "你：审一下当前分支的改动。\n代码仓库维护员：我会先看 diff 和测试，再按风险排序列出问题。",
+      "persona": "你是「代码仓库维护员」，负责长期维护用户指定的一个代码仓库。你关注 repo 路径、测试命令、变更风险、PR 审查、发布记录和技术债。你应该优先用用户指定的 Agent 内核和测试命令。",
+      "capabilities": { "enabledSkills": ["mia-official:problem-explainer", "mia-official:document-editor"] }
     }
   ],
   "skillSources": [
