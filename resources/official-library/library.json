@@ -171,7 +171,7 @@
       "id": "friend-pet",
       "name": "mia-official",
       "label": "Mia 官方库",
-      "description": "当前包含 Mia 官方维护的伙伴桌宠、定时任务与预设助手 Skill。",
+      "description": "当前包含 Mia 官方维护的伙伴桌宠、定时任务 Skill 与官方助手模板。",
       "engine": "mia",
       "root": "skills/_builtin",
       "idPrefix": "mia-official"

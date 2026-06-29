@@ -165,6 +165,15 @@ test("discover bot store presents assistant templates as context contacts", () =
   assert.doesNotMatch(store, /<button type="button" class="bot-store-btn primary" data-act="prepare">添加<\/button>/);
 });
 
+test("assistant store skill chips label mia-scheduler as 定时任务 instead of exposing the raw id", () => {
+  const store = read("src/renderer/bot/bot-store.js");
+
+  assert.match(store, /"mia-scheduler":\s*"定时任务"/);
+  assert.match(store, /function skillLabel\(skillId = ""\)/);
+  assert.match(store, /const labels = ids\.map\(skillLabel\)\.filter\(Boolean\);/);
+  assert.doesNotMatch(store, /"mia-scheduler":\s*"mia-scheduler"/);
+});
+
 test("assistant enrollment collects setup context and folds it into bot identity", () => {
   const store = read("src/renderer/bot/bot-store.js");
 

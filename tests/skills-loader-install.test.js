@@ -270,6 +270,29 @@ test("buildEnabledSkillsContext applies bundled preset defaults for old unconfig
   }
 });
 
+test("buildEnabledSkillsContext preserves legacy old-paper aliases after preset retirement", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
+  try {
+    const loader = makeBundledLoader(home);
+
+    const byKey = loader.buildEnabledSkillsContext({
+      key: "old-paper",
+      name: "旧论文助手",
+      capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+    });
+    const byName = loader.buildEnabledSkillsContext({
+      key: "legacy-paper-copy",
+      name: "论文搭子",
+      capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+    });
+
+    assert.match(byKey, /Skill: paper-research/);
+    assert.match(byName, /Skill: paper-research/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("bundled official library exposes context-bearing assistant templates", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {

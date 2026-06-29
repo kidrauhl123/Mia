@@ -10,6 +10,16 @@ const DEFAULT_BOT_CAPABILITIES = Object.freeze({
   legacyCapabilities: []
 });
 
+const LEGACY_BOT_PRESET_DEFAULTS = Object.freeze([
+  Object.freeze({
+    key: "old-paper",
+    name: "论文搭子",
+    capabilities: Object.freeze({
+      enabledSkills: Object.freeze(["mia-official:paper-research"])
+    })
+  })
+]);
+
 function firstNonEmpty(...values) {
   for (const value of values) {
     const next = String(value || "").trim();
@@ -122,6 +132,10 @@ function botIdentityMatchesPreset(bot = {}, preset = {}) {
   return botNames.some((name) => presetNames.includes(name));
 }
 
+function legacyBotPresetFor(bot = {}) {
+  return LEGACY_BOT_PRESET_DEFAULTS.find((preset) => botIdentityMatchesPreset(bot, preset)) || null;
+}
+
 function botCapabilitiesWithPresetDefaults(bot = {}, presets = []) {
   const capabilities = normalizeBotCapabilities(bot.capabilities);
   if (
@@ -131,7 +145,8 @@ function botCapabilitiesWithPresetDefaults(bot = {}, presets = []) {
   ) {
     return capabilities;
   }
-  const preset = (Array.isArray(presets) ? presets : []).find((item) => botIdentityMatchesPreset(bot, item));
+  const preset = (Array.isArray(presets) ? presets : []).find((item) => botIdentityMatchesPreset(bot, item))
+    || legacyBotPresetFor(bot);
   if (!preset) return capabilities;
   const presetCapabilities = normalizeBotCapabilities({
     ...(preset.capabilities || {}),

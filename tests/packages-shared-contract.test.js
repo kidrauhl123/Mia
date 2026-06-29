@@ -121,6 +121,24 @@ test("packages/shared bot identity applies official preset skill defaults to unc
   );
 });
 
+test("packages/shared bot identity preserves legacy old-paper aliases after preset retirement", () => {
+  const capsByKey = packageBotIdentity.botCapabilitiesWithPresetDefaults({
+    key: "old-paper",
+    name: "旧论文助手",
+    capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+  }, []);
+  const capsByName = packageBotIdentity.botCapabilitiesWithPresetDefaults({
+    key: "legacy-paper-copy",
+    name: "论文搭子",
+    capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+  }, []);
+
+  for (const caps of [capsByKey, capsByName]) {
+    assert.equal(caps.inheritEngineDefaults, false);
+    assert.ok(caps.enabledSkills.includes("mia-official:paper-research"));
+  }
+});
+
 test("packages/shared bot identity owns bot session ids and rejects prefixed ids", () => {
   assert.equal(packageBotIdentity.botConversationId("sess_1"), "botc_sess_1");
   assert.equal(packageBotIdentity.botConversationId("botc_sess_1"), "botc_sess_1");

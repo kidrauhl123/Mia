@@ -184,6 +184,7 @@
     "document-editor": "文档编辑",
     "mia-official:story-host": "剧情主持",
     "story-host": "剧情主持",
+    "mia-scheduler": "定时任务",
     "weekly-report": "周报",
     "commit-craft": "提交信息",
     "trip-planner": "行程"
