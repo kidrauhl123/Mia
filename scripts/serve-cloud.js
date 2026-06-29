@@ -2573,6 +2573,34 @@ function deleteOwnedBotAndPrivateConversations(context, userId, botId) {
   return { deletedConversationIds };
 }
 
+function removeOrphanedPrivateBotConversations(context, userId, conversations = []) {
+  const visible = [];
+  for (const conversation of Array.isArray(conversations) ? conversations : []) {
+    if (!conversation || conversation.type !== "bot") {
+      visible.push(conversation);
+      continue;
+    }
+    const botId = botIdForOwnedPrivateConversation(context.socialStore, conversation, userId);
+    if (!botId) {
+      visible.push(conversation);
+      continue;
+    }
+    const bot = context.botsStore.getBot(botId);
+    if (bot && bot.ownerUserId === userId) {
+      visible.push(conversation);
+      continue;
+    }
+    const members = context.socialStore.listConversationMembers(conversation.id);
+    context.socialStore.deleteConversation(conversation.id);
+    for (const m of members) {
+      if (m.member_kind === "user") {
+        broadcastPersistedEvent(context, m.member_ref, { type: "conversation.deleted", conversationId: conversation.id });
+      }
+    }
+  }
+  return visible;
+}
+
 function messageSearchSnippet(text, query, radius = 36) {
   const body = String(text || "").replace(/\s+/g, " ").trim();
   const needle = String(query || "").trim().toLowerCase();
@@ -3143,6 +3171,7 @@ async function handleRequest(req, res, context) {
       const includes = new Set(String(url.searchParams.get("include") || "").split(",").map((s) => s.trim()).filter(Boolean));
       const includeMembers = includes.has("members") || url.searchParams.get("includeMembers") === "1";
       let conversations = context.socialStore.listConversationsForUser(auth.user.id);
+      conversations = removeOrphanedPrivateBotConversations(context, auth.user.id, conversations);
       if (includeMembers) {
         conversations = conversations.map((conversation) => ({
           ...conversation,

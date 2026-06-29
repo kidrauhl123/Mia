@@ -348,6 +348,37 @@ test("bot conversations show up in GET /api/conversations alongside DMs and grou
   } finally { await stopServer(ctx); }
 });
 
+test("GET /api/conversations filters orphaned private bot conversations", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "orphaned-bot-conversation");
+    await saveBot(ctx.port, A.token, "sheet", "表格整理师");
+    const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/sheet", {
+      token: A.token,
+      body: { botId: "sheet", title: "表格整理师", runtimeKind: "desktop-local" }
+    });
+    assert.equal(ensured.status, 200);
+    const conversationId = ensured.body.conversation.id;
+
+    const { createCloudStore } = require("../src/cloud/sqlite-store.js");
+    const { createBotsStore } = require("../src/cloud/bots-store.js");
+    const store = createCloudStore({ dataDir: ctx.tmpDir });
+    try {
+      const botsStore = createBotsStore(store.getDb());
+      assert.equal(botsStore.deleteBot(A.user.id, "sheet"), 1);
+    } finally {
+      store.close?.();
+    }
+
+    const list = await api(ctx.port, "GET", "/api/conversations", { token: A.token });
+    assert.equal(list.status, 200);
+    assert.equal(
+      list.body.conversations.some((conversation) => conversation.id === conversationId),
+      false
+    );
+  } finally { await stopServer(ctx); }
+});
+
 test("Bot-conversation messages POST works through the unified /api/conversations/:id/messages endpoint", async () => {
   const ctx = await startServer();
   try {

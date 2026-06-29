@@ -102,6 +102,45 @@
     return result?.data?.conversation || result?.conversation || null;
   }
 
+  function deletedConversationIdsFromResult(result = {}) {
+    const ids = result?.data?.deletedConversationIds || result?.deletedConversationIds || [];
+    return Array.isArray(ids) ? ids.map((id) => String(id || "").trim()).filter(Boolean) : [];
+  }
+
+  function conversationBotId(conversation = {}) {
+    return String(
+      conversation?.decorations?.botId
+        || conversation?.decorations?.bot_id
+        || conversation?.botId
+        || conversation?.bot_id
+        || ""
+    ).trim();
+  }
+
+  function removeDeletedBotConversations(social, botKey, result = {}) {
+    if (!social?.moduleState) return;
+    const deletedIds = new Set(deletedConversationIdsFromResult(result));
+    const key = String(botKey || "").trim();
+    const conversations = Array.isArray(social.moduleState.conversations)
+      ? social.moduleState.conversations
+      : [];
+    const removedIds = [];
+    social.moduleState.conversations = conversations.filter((conversation) => {
+      const conversationId = String(conversation?.id || "");
+      const remove = deletedIds.has(conversationId)
+        || (key && conversationBotId(conversation) === key);
+      if (remove && conversationId) removedIds.push(conversationId);
+      return !remove;
+    });
+    for (const conversationId of removedIds) {
+      social.moduleState.messageCache?.delete?.(conversationId);
+      social.moduleState.unreadByConversation?.delete?.(conversationId);
+    }
+    if (removedIds.includes(String(social.moduleState.activeConversationId || ""))) {
+      social.moduleState.activeConversationId = null;
+    }
+  }
+
   function savedBotFromResult(result, fallback) {
     return result?.data?.bot || result?.bot || fallback;
   }
@@ -330,6 +369,7 @@
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
       social.moduleState.bots = bots
         .filter((item) => String(item?.key || item?.id || "") !== key);
+      removeDeletedBotConversations(social, key, result);
     }
     await social?.bootstrapAfterLogin?.();
     return { deleted: true, runtime: state.runtime };

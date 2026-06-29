@@ -397,6 +397,7 @@
     conversations: [],
     friends: [],
     bots: [],
+    botsLoaded: false,
     incomingRequests: [],
     outgoingRequests: [],
     messageCache: new Map(),
@@ -2341,6 +2342,19 @@
     return Boolean(bot && global.miaBotManager?.botRunsOnOtherDevice?.(bot));
   }
 
+  function botDirectoryAvailable() {
+    return moduleState.botsLoaded || (Array.isArray(moduleState.bots) && moduleState.bots.length > 0);
+  }
+
+  function botConversationHasKnownIdentity(conversation = {}) {
+    if (conversationTypeFor(conversation, conversation?.id || "") !== "bot") return true;
+    if (!botDirectoryAvailable()) return true;
+    const botId = sessionHistoryShared().botId(conversation);
+    if (!botId) return true;
+    return (Array.isArray(moduleState.bots) ? moduleState.bots : [])
+      .some((bot) => botKeyFromRecord(bot) === botId);
+  }
+
   function visibleSocialConversations(conversations, options = {}) {
     if (!Array.isArray(conversations)) return [];
     const keepLegacyIds = new Set([
@@ -2353,6 +2367,8 @@
     return conversations.filter((conversation) =>
       !isLegacyBotSessionConversation(conversation)
       || keepLegacyIds.has(String(conversation?.id || ""))
+    ).filter((conversation) =>
+      botConversationHasKnownIdentity(conversation)
     ).filter((conversation) => {
       const otherDevice = conversationRunsOnOtherDevice(conversation);
       if (otherDeviceOnly) return otherDevice;
@@ -2703,6 +2719,7 @@
     moduleState.conversations = snapshot.conversations;
     moduleState.friends = Array.isArray(snapshot.friends) ? snapshot.friends : [];
     moduleState.bots = Array.isArray(snapshot.bots) ? snapshot.bots : [];
+    moduleState.botsLoaded = Array.isArray(snapshot.bots);
     _conversationMembersCache.clear();
     for (const [conversationId, list] of Object.entries(snapshot.members || {})) {
       if (Array.isArray(list)) _conversationMembersCache.set(conversationId, list);
@@ -2819,7 +2836,10 @@
         moduleState.myUserId = freshUserId;
       }
       if (friendsRes.ok) moduleState.friends = friendsRes.data?.friends || [];
-      if (botsRes.ok) moduleState.bots = botsRes.data?.bots || [];
+      if (botsRes.ok) {
+        moduleState.bots = botsRes.data?.bots || [];
+        moduleState.botsLoaded = true;
+      }
       if (incomingRes.ok) moduleState.incomingRequests = incomingRes.data?.requests || [];
       if (outgoingRes.ok) moduleState.outgoingRequests = outgoingRes.data?.requests || [];
 
@@ -2955,6 +2975,20 @@
       const botId = String(payload?.botId || payload?.id || "").trim();
       if (!botId) return;
       moduleState.bots = moduleState.bots.filter((item) => String(item?.key || item?.id || "") !== botId);
+      const removedConversationIds = [];
+      moduleState.conversations = moduleState.conversations.filter((conversation) => {
+        const remove = sessionHistoryShared().botId(conversation) === botId;
+        if (remove && conversation?.id) removedConversationIds.push(String(conversation.id));
+        return !remove;
+      });
+      for (const conversationId of removedConversationIds) {
+        moduleState.messageCache.delete(conversationId);
+        moduleState.unreadByConversation.delete(conversationId);
+        _conversationMembersCache.delete(conversationId);
+      }
+      if (removedConversationIds.includes(String(moduleState.activeConversationId || ""))) {
+        moduleState.activeConversationId = null;
+      }
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }

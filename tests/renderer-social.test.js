@@ -746,6 +746,32 @@ test("renderSidebarRows collapses clean bot session history by bot id", () => {
   );
 });
 
+test("renderSidebarRows hides bot conversations whose bot identity is gone", () => {
+  const s = loadSocial();
+  s.__mockWindow.miaSessionHistory = sessionHistory;
+  s.moduleState.bots = [{ id: "sheet", name: "表格整理师" }];
+  s.moduleState.conversations = [
+    {
+      id: "botc_sheet",
+      type: "bot",
+      name: "表格整理师",
+      updatedAt: "2026-06-29T06:00:00.000Z",
+      decorations: { botId: "sheet", sessionId: "sheet" }
+    },
+    {
+      id: "botc_deleted_sheet",
+      type: "bot",
+      name: "表格整理师",
+      updatedAt: "2026-06-29T05:00:00.000Z",
+      decorations: { botId: "deleted_sheet", sessionId: "deleted_sheet" }
+    }
+  ];
+
+  const rows = s.renderSidebarRows();
+
+  assert.deepEqual(rows.map((row) => row.conversation.id), ["botc_sheet"]);
+});
+
 test("ensureBotConversation syncs external bot runtime config for web controls", async () => {
   const s = loadSocial();
   const calls = [];

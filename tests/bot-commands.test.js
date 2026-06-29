@@ -272,7 +272,13 @@ test("deleteBot removes a cloud-hermes bot through cloud identity commands", asy
       bots: [
         { id: "alice", name: "Alice" },
         { id: "mia", name: "Mia" }
-      ]
+      ],
+      conversations: [
+        { id: "botc_alice", type: "bot", decorations: { botId: "alice" } },
+        { id: "botc_mia", type: "bot", decorations: { botId: "mia" } }
+      ],
+      messageCache: new Map([["botc_alice", { messages: [] }]]),
+      unreadByConversation: new Map([["botc_alice", 1]])
     },
     async bootstrapAfterLogin() {
       calls.push(["bootstrap"]);
@@ -282,7 +288,7 @@ test("deleteBot removes a cloud-hermes bot through cloud identity commands", asy
     social: {
       async deleteBot(botId) {
         calls.push(["cloudDelete", botId]);
-        return { ok: true };
+        return { ok: true, data: { deletedConversationIds: ["botc_alice"] } };
       }
     }
   };
@@ -297,6 +303,9 @@ test("deleteBot removes a cloud-hermes bot through cloud identity commands", asy
   assert.equal(result.deleted, true);
   assert.deepEqual(calls, [["cloudDelete", "alice"], ["bootstrap"]]);
   assert.deepEqual(social.moduleState.bots.map((item) => item.id), ["mia"]);
+  assert.deepEqual(social.moduleState.conversations.map((item) => item.id), ["botc_mia"]);
+  assert.equal(social.moduleState.messageCache.has("botc_alice"), false);
+  assert.equal(social.moduleState.unreadByConversation.has("botc_alice"), false);
 });
 
 test("deleteBot removes cloud-sourced desktop bots through cloud identity commands", async () => {
