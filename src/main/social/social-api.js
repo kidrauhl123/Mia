@@ -110,6 +110,14 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async postConversationMessage(conversationId, body) {
       return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages`, body: withOpId(body) });
     },
+    async respondRunApproval(conversationId, runId, decision) {
+      return jsonFetch({
+        ...ctx(),
+        method: "POST",
+        path: `/api/conversations/${conversationId}/runs/${encodeURIComponent(runId)}/approval`,
+        body: { decision }
+      });
+    },
     async deleteConversationMessage(conversationId, messageId) {
       return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/messages/${encodeURIComponent(messageId)}` });
     },

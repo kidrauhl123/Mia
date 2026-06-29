@@ -3249,6 +3249,53 @@ test("handleCloudEvent tracks pending agent permission requests on the active ru
   assert.equal(s.moduleState.pendingPermissionsById.has("perm_1"), false);
 });
 
+test("handleCloudEvent turns Hermes approval.request into a desktop permission banner", () => {
+  const banner = {
+    dataset: {},
+    addEventListener() {},
+    classList: {
+      hidden: true,
+      add(name) { if (name === "hidden") this.hidden = true; },
+      remove(name) { if (name === "hidden") this.hidden = false; },
+      contains(name) { return name === "hidden" ? this.hidden : false; }
+    },
+    set innerHTML(value) { this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    querySelectorAll() { return []; }
+  };
+  const s = loadSocial({ elementsById: { agentPermissionBanner: banner } });
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.bots = [{ key: "mia", name: "表格整理师" }];
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_approval", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      runId: "car_approval",
+      botId: "mia",
+      event: {
+        event: "approval.request",
+        tool: "terminal",
+        command: "python3 build_excel.py"
+      }
+    },
+  });
+
+  const run = s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_mia");
+  assert.equal(run.pendingPermissions.length, 1);
+  assert.equal(run.pendingPermissions[0].kind, "cloud-run-approval");
+  assert.equal(run.pendingPermissions[0].runId, "car_approval");
+  assert.equal(run.pendingPermissions[0].conversationId, "botc_u_a_mia");
+  assert.equal(run.pendingPermissions[0].preview, "python3 build_excel.py");
+  assert.equal(banner.classList.contains("hidden"), false);
+  assert.match(banner.innerHTML, /terminal/);
+  assert.match(banner.innerHTML, /python3 build_excel\.py/);
+});
+
 test("permission banner title omits repeated actor names", () => {
   const s = loadSocial();
   const compact = s._internalCtx.compactPermissionTitle;
@@ -3293,6 +3340,48 @@ test("successful permission decision removes the pending banner after one click"
   assert.equal(run.pendingPermissions.length, 0);
   assert.equal(s.moduleState.pendingPermissionsById.has("perm_1"), false);
   assert.deepEqual(disabled.map((button) => button.disabled), [true, true]);
+});
+
+test("cloud Hermes permission decision posts to the run approval route", async () => {
+  const disabled = [];
+  const banner = {
+    dataset: {},
+    addEventListener() {},
+    classList: { add() {}, remove() {}, contains() { return false; } },
+    set innerHTML(value) { this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    querySelectorAll(selector) {
+      assert.equal(selector, "button[data-permission-decision]");
+      return disabled;
+    }
+  };
+  const s = loadSocial({ elementsById: { agentPermissionBanner: banner } });
+  disabled.push({ disabled: false }, { disabled: false });
+  const approvalCalls = [];
+  s.__mockWindow.mia.social = {
+    respondRunApproval: async (conversationId, runId, decision) => {
+      approvalCalls.push({ conversationId, runId, decision });
+      return { ok: true };
+    }
+  };
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  const run = s._internalCtx.cloudRunFor("botc_u_a_mia", "car_perm");
+  s._internalCtx.addRunPermission(run, {
+    requestId: "cloud:botc_u_a_mia:car_perm",
+    kind: "cloud-run-approval",
+    conversationId: "botc_u_a_mia",
+    runId: "car_perm",
+    engine: "hermes",
+    toolName: "terminal"
+  });
+  s._internalCtx.renderAgentPermissionBanner();
+
+  await s._internalCtx.submitPermissionDecision({ dataset: { permissionDecision: "allow_once" } });
+
+  assert.deepEqual(approvalCalls, [{ conversationId: "botc_u_a_mia", runId: "car_perm", decision: "allow_once" }]);
+  assert.equal(run.pendingPermissions.length, 0);
+  assert.equal(s.moduleState.pendingPermissionsById.has("cloud:botc_u_a_mia:car_perm"), false);
 });
 
 test("stale permission decision clears the banner instead of posting an error", async () => {

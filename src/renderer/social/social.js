@@ -639,6 +639,21 @@
     return "";
   }
 
+  function approvalPreview(event = {}) {
+    for (const key of ["command", "cmd", "preview", "reason", "detail", "description", "message"]) {
+      if (typeof event[key] === "string" && event[key].trim()) return event[key].trim();
+    }
+    const data = event.data && typeof event.data === "object" ? event.data : null;
+    if (data) return approvalPreview(data);
+    try {
+      const { event: _event, type: _type, run_id: _runId, timestamp: _timestamp, choices: _choices, ...rest } = event;
+      const json = JSON.stringify(rest);
+      return json && json !== "{}" ? json.slice(0, 400) : "";
+    } catch {
+      return "";
+    }
+  }
+
   function normalizeToolStatus(status) {
     const value = String(status || "").trim();
     if (value === "complete" || value === "completed") return "completed";
@@ -803,6 +818,10 @@
       addRunPermission(run, event);
     } else if (name === "permission_resolved") {
       removeRunPermission(run, event);
+    } else if (name === "approval.request") {
+      addCloudRunApprovalPermission(run, event);
+    } else if (name === "approval.responded") {
+      removeCloudRunApprovalPermission(run);
     }
   }
 
@@ -1532,7 +1551,11 @@
     if (!requestId) return null;
     return {
       requestId,
+      kind: String(event.kind || "local-agent-permission").trim() || "local-agent-permission",
+      conversationId: String(event.conversationId || event.conversation_id || "").trim(),
+      runId: String(event.runId || event.run_id || "").trim(),
       engine: String(event.engine || "").trim(),
+      botId: String(event.botId || event.bot_id || "").trim(),
       botKey: String(event.botKey || "").trim(),
       botName: String(event.botName || event.bot_name || "").trim(),
       sessionId: String(event.sessionId || "").trim(),
@@ -1552,6 +1575,37 @@
     moduleState.pendingPermissionsById.set(request.requestId, request);
     run.pendingPermissions = (run.pendingPermissions || []).filter((item) => item.requestId !== request.requestId);
     run.pendingPermissions.push(request);
+  }
+
+  function cloudRunApprovalRequestId(run) {
+    const conversationId = String(run?.conversationId || "").trim();
+    const runId = String(run?.runId || "").trim();
+    return conversationId && runId ? `cloud:${conversationId}:${runId}` : "";
+  }
+
+  function addCloudRunApprovalPermission(run, event = {}) {
+    if (!run) return;
+    const requestId = cloudRunApprovalRequestId(run);
+    if (!requestId) return;
+    addRunPermission(run, {
+      requestId,
+      kind: "cloud-run-approval",
+      conversationId: run.conversationId,
+      runId: run.runId,
+      engine: "hermes",
+      botId: run.botId || "",
+      toolName: event.tool || event.tool_name || event.name || event.data?.tool || "工具",
+      title: event.title || "需要权限审批",
+      description: event.description || event.reason || event.data?.description || "",
+      preview: approvalPreview(event),
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  function removeCloudRunApprovalPermission(run) {
+    const requestId = cloudRunApprovalRequestId(run);
+    if (requestId) removeRunPermission(run, { requestId });
+    else clearRunPermissions(run);
   }
 
   function removeRunPermission(run, event = {}) {
@@ -2063,13 +2117,21 @@
     const banner = document.getElementById("agentPermissionBanner");
     const requestId = banner?.dataset?.requestId || "";
     const decision = button?.dataset?.permissionDecision || "";
-    if (!requestId || !decision || !window.mia?.respondChatPermission) return;
+    if (!requestId || !decision) return;
+    const request = moduleState.pendingPermissionsById.get(requestId) || null;
+    const isCloudRunApproval = request?.kind === "cloud-run-approval";
+    const canRespond = isCloudRunApproval
+      ? typeof window.mia?.social?.respondRunApproval === "function"
+      : typeof window.mia?.respondChatPermission === "function";
+    if (!canRespond) return;
     if (_permissionDecisionInFlight.has(requestId)) return;
     _permissionDecisionInFlight.add(requestId);
     const buttons = banner.querySelectorAll("button[data-permission-decision]");
     buttons.forEach((item) => { item.disabled = true; });
     try {
-      const result = await window.mia.respondChatPermission({ requestId, decision });
+      const result = isCloudRunApproval
+        ? await window.mia.social.respondRunApproval(request.conversationId, request.runId, decision)
+        : await window.mia.respondChatPermission({ requestId, decision });
       if (!result || result.ok === false) throw new Error(result?.error || "权限审批失败");
       removePermissionRequestById(requestId);
       renderAgentPermissionBanner();
@@ -3102,9 +3164,14 @@
       const previousStatus = previousRun?.status || "";
       const wasBusy = isConversationRunBusy(previousRun);
       const run = cloudRunFor(conversationId, payload.runId || "");
+      run.runId = payload.runId || run.runId;
+      run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
       const hermesEventType = eventType(hermesEvent);
       applyCloudAgentRunEvent(run, hermesEvent);
+      if (hermesEventType === "approval.request" || hermesEventType === "approval.responded") {
+        renderAgentPermissionBanner();
+      }
       if (run.status === "cancelled") {
         materializeCancelledCloudRun(conversationId, run);
         clearRunPermissions(run);

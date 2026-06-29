@@ -150,6 +150,9 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   // execution and event sockets, but the foreground must still be able to POST
   // the user's message so it can be persisted and later picked up by the daemon.
   ipcMain.handle(IpcChannel.SocialPostConversationMessage, safeCall((conversationId, body) => socialApi.postConversationMessage(conversationId, body)));
+  ipcMain.handle(IpcChannel.SocialRespondRunApproval, cloudCall((conversationId, runId, decision) => (
+    socialApi.respondRunApproval(conversationId, runId, decision)
+  )));
   ipcMain.handle(IpcChannel.SocialDeleteConversationMessage, cloudCall(async (conversationId, messageId) => {
     const result = await socialApi.deleteConversationMessage(conversationId, messageId);
     if (messageCache && typeof messageCache.deleteMessage === "function") {

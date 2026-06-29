@@ -194,6 +194,30 @@ test("postConversationMessageAsBot sends POST to the canonical bot message route
   } finally { await teardown(ctx); }
 });
 
+test("respondRunApproval sends POST to the cloud run approval route", async () => {
+  const seen = [];
+  const ctx = await spawnFakeCloud((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      seen.push({ method: req.method, url: req.url, body });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, decision: "allow_once" }));
+    });
+  });
+  try {
+    const api = createSocialApi({
+      getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
+      normalizeUrl: (u) => u
+    });
+    const result = await api.respondRunApproval("botc_u_1_mia", "car_run_1", "allow_once");
+    assert.equal(result.ok, true);
+    assert.equal(seen[0].method, "POST");
+    assert.equal(seen[0].url, "/api/conversations/botc_u_1_mia/runs/car_run_1/approval");
+    assert.deepEqual(JSON.parse(seen[0].body), { decision: "allow_once" });
+  } finally { await teardown(ctx); }
+});
+
 test("ensureBotConversation sends PUT to the canonical bot conversation route using bot id as session", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud(async (req, res) => {

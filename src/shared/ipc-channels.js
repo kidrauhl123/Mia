@@ -134,6 +134,7 @@
     SocialGetCachedMessages: "social:get-cached-messages",
     SocialGetCachedBootstrap: "social:get-cached-bootstrap",
     SocialPostConversationMessage: "social:post-conversation-message",
+    SocialRespondRunApproval: "social:respond-run-approval",
     SocialDeleteConversationMessage: "social:delete-conversation-message",
     SocialMyIdentity: "social:my-identity",
     SocialCreateConversation: "social:create-conversation",

@@ -172,6 +172,7 @@ contextBridge.exposeInMainWorld("mia", {
     getCachedConversationMessages: (conversationId, limit) => ipcRenderer.invoke(IpcChannel.SocialGetCachedMessages, conversationId, limit),
     getCachedSocialBootstrap: (userId) => ipcRenderer.invoke(IpcChannel.SocialGetCachedBootstrap, userId),
     postConversationMessage: (conversationId, body) => ipcRenderer.invoke(IpcChannel.SocialPostConversationMessage, conversationId, body),
+    respondRunApproval: (conversationId, runId, decision) => ipcRenderer.invoke(IpcChannel.SocialRespondRunApproval, conversationId, runId, decision),
     deleteConversationMessage: (conversationId, messageId) => ipcRenderer.invoke(IpcChannel.SocialDeleteConversationMessage, conversationId, messageId),
     myIdentity: () => ipcRenderer.invoke(IpcChannel.SocialMyIdentity),
     createConversation: (payload) => ipcRenderer.invoke(IpcChannel.SocialCreateConversation, payload),

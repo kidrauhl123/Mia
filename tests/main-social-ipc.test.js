@@ -40,6 +40,31 @@ test("posting a conversation message returns the cloud envelope and runs no desk
   assert.deepEqual(result, { ok: true, data: { message } });
 });
 
+test("run approval IPC forwards the owner decision to socialApi", async () => {
+  const ipcMain = fakeIpcMain();
+  const calls = [];
+
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      respondRunApproval: async (conversationId, runId, decision) => {
+        calls.push({ conversationId, runId, decision });
+        return { ok: true, decision };
+      }
+    }
+  });
+
+  const result = await ipcMain.handlers.get(IpcChannel.SocialRespondRunApproval)(
+    null,
+    "botc_u_1_mia",
+    "car_run_1",
+    "allow_once"
+  );
+
+  assert.deepEqual(result, { ok: true, data: { ok: true, decision: "allow_once" } });
+  assert.deepEqual(calls, [{ conversationId: "botc_u_1_mia", runId: "car_run_1", decision: "allow_once" }]);
+});
+
 test("runtime gate allows user message writes but blocks runtime social reads while cached reads stay available", async () => {
   const ipcMain = fakeIpcMain();
   let posted = false;
