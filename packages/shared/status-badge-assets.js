@@ -26,6 +26,7 @@
       format: "json",
       relativePath: "assets/lottie/rainbow.json",
       loop: "always",
+      listed: false,
       bundled: true
     }),
     Object.freeze({
@@ -57,6 +58,76 @@
       relativePath: "assets/status-badges/blue-fire.tgs",
       loop: "always",
       bundled: true
+    }),
+    Object.freeze({
+      id: "green-fire",
+      kind: "lottie",
+      assetId: "green-fire",
+      label: "绿色火焰",
+      format: "tgs",
+      relativePath: "assets/status-badges/green-fire.tgs",
+      loop: "always",
+      bundled: true
+    }),
+    Object.freeze({
+      id: "pink-fire",
+      kind: "lottie",
+      assetId: "pink-fire",
+      label: "粉色火焰",
+      format: "tgs",
+      relativePath: "assets/status-badges/pink-fire.tgs",
+      loop: "always",
+      bundled: true
+    }),
+    Object.freeze({
+      id: "ice-blue-fire",
+      kind: "lottie",
+      assetId: "ice-blue-fire",
+      label: "冰蓝火焰",
+      format: "tgs",
+      relativePath: "assets/status-badges/ice-blue-fire.tgs",
+      loop: "always",
+      bundled: true
+    }),
+    Object.freeze({
+      id: "cyan-fire",
+      kind: "lottie",
+      assetId: "cyan-fire",
+      label: "青色火焰",
+      format: "tgs",
+      relativePath: "assets/status-badges/cyan-fire.tgs",
+      loop: "always",
+      bundled: true
+    }),
+    Object.freeze({
+      id: "purple-fire",
+      kind: "lottie",
+      assetId: "purple-fire",
+      label: "紫色火焰",
+      format: "tgs",
+      relativePath: "assets/status-badges/purple-fire.tgs",
+      loop: "always",
+      bundled: true
+    }),
+    Object.freeze({
+      id: "red-orange-fire",
+      kind: "lottie",
+      assetId: "red-orange-fire",
+      label: "红橙火焰",
+      format: "tgs",
+      relativePath: "assets/status-badges/red-orange-fire.tgs",
+      loop: "always",
+      bundled: true
+    }),
+    Object.freeze({
+      id: "gold-fire",
+      kind: "lottie",
+      assetId: "gold-fire",
+      label: "金色火焰",
+      format: "tgs",
+      relativePath: "assets/status-badges/gold-fire.tgs",
+      loop: "always",
+      bundled: true
     })
   ]);
 
@@ -73,8 +144,12 @@
     return asset && typeof asset === "object" ? { ...asset } : null;
   }
 
+  function listedAssets() {
+    return DEFAULT_ASSETS.filter((asset) => asset.listed !== false);
+  }
+
   function statusBadgeCatalog() {
-    return DEFAULT_ASSETS.map(cloneAsset);
+    return listedAssets().map(cloneAsset);
   }
 
   function findStatusBadgeAsset(value) {
@@ -105,7 +180,8 @@
   }
 
   function statusBadgeForValue(value) {
-    const asset = findStatusBadgeAsset(value);
+    const id = clean(value);
+    const asset = listedAssets().find((item) => item.id === id || item.assetId === id) || null;
     if (!asset) return null;
     if (asset.kind === "emoji") {
       return asset.emoji ? { kind: "emoji", emoji: asset.emoji, label: asset.label || "" } : null;
@@ -125,19 +201,19 @@
     const normalized = normalizeStatusBadge(badge);
     if (!normalized) return "";
     if (normalized.kind === "emoji") {
-      const asset = DEFAULT_ASSETS.find((item) => item.kind === "emoji" && item.emoji === normalized.emoji);
+      const asset = listedAssets().find((item) => item.kind === "emoji" && item.emoji === normalized.emoji);
       return asset?.id || "";
     }
     if (normalized.kind === "lottie" || normalized.kind === "gift") {
       const assetId = clean(normalized.assetId);
-      const asset = DEFAULT_ASSETS.find((item) => item.id === assetId || item.assetId === assetId);
+      const asset = listedAssets().find((item) => item.id === assetId || item.assetId === assetId);
       return asset?.id || "";
     }
     return "";
   }
 
   function statusBadgeChoices({ includeEmpty = false } = {}) {
-    const choices = DEFAULT_ASSETS.map((asset) => ({
+    const choices = listedAssets().map((asset) => ({
       id: asset.id,
       value: asset.id,
       label: asset.label || asset.id,
