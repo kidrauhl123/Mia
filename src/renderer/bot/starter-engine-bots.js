@@ -2,6 +2,21 @@
   "use strict";
 
   const STARTER_ENGINE_ORDER = ["hermes", "openclaw", "codex", "claude-code"];
+  const CLOUD_MIA_TAG_NAME = "云端";
+  const CLOUD_MIA_STARTER = Object.freeze({
+    engineId: "cloud-hermes",
+    keySuffix: "mia",
+    runtimeKind: "cloud-hermes",
+    agentEngine: "hermes",
+    name: "Mia",
+    color: "#16a34a",
+    bio: "云端 Hermes，随时可用，不依赖本机 Agent。",
+    description: "Mia 云端助手，默认使用云端 Hermes。",
+    personaText: "你是 Mia。用云端 Hermes 简洁、可靠地帮助用户处理日常问题、创作、信息整理和自动化请求。",
+    targetDeviceId: "",
+    targetDeviceName: "Mia Cloud",
+    tagNames: Object.freeze([CLOUD_MIA_TAG_NAME])
+  });
   const STARTER_ENGINE_META = Object.freeze({
     hermes: {
       name: "Hermes",
@@ -32,9 +47,22 @@
   function normalizeEngineId(value) {
     const raw = String(value || "").trim().toLowerCase();
     if (!raw) return "";
+    if (["cloud-hermes", "cloud_hermes", "mia-cloud", "miacloud"].includes(raw)) return "cloud-hermes";
     if (["claude", "claude_code", "claudecode"].includes(raw)) return "claude-code";
     if (["open-claw", "open_claw", "openclaw"].includes(raw)) return "openclaw";
     return raw;
+  }
+
+  function conversationTagsShared() {
+    if (global?.miaConversationTags) return global.miaConversationTags;
+    if (typeof require === "function") {
+      try { return require("../../shared/conversation-tags.js"); } catch { /* browser fallback below */ }
+    }
+    return {
+      defaultConversationTags: () => ({ items: [], assignments: {} }),
+      normalizeConversationTags: (value) => value && typeof value === "object" ? value : { items: [], assignments: {} },
+      assignTagNames: (tags) => tags && typeof tags === "object" ? tags : { items: [], assignments: {} }
+    };
   }
 
   function labelForEngine(engineId, fallback = "") {
@@ -102,6 +130,10 @@
       .filter(Boolean);
   }
 
+  function starterBotSpecs(runtime = {}) {
+    return [CLOUD_MIA_STARTER, ...starterEngineBotSpecs(runtime)];
+  }
+
   function settingsFromResponse(response) {
     if (response?.settings && typeof response.settings === "object") return response.settings;
     if (response?.data?.settings && typeof response.data.settings === "object") return response.data.settings;
@@ -112,6 +144,10 @@
   function starterMarker(settings = {}) {
     const marker = settings.starterEngineBots;
     return marker && typeof marker === "object" && !Array.isArray(marker) ? marker : {};
+  }
+
+  function seededStarterEngineIds(marker = {}) {
+    return new Set(Array.isArray(marker.engineIds) ? marker.engineIds.map(normalizeEngineId).filter(Boolean) : []);
   }
 
   function stableUserKey(userId) {
@@ -142,10 +178,23 @@
     );
   }
 
+  function botRuntimeKind(bot = {}) {
+    return String(
+      bot.runtimeKind
+      || bot.runtime_kind
+      || bot.runtimeConfig?.runtimeKind
+      || bot.runtime_config?.runtimeKind
+      || bot.runtime_config?.runtime_kind
+      || ""
+    ).trim();
+  }
+
   function hasMatchingBot(spec, bots = []) {
     return (Array.isArray(bots) ? bots : []).some((bot) =>
       botDisplayName(bot).toLowerCase() === spec.name.toLowerCase()
-      && botEngineId(bot) === spec.engineId);
+      && (spec.runtimeKind === "cloud-hermes"
+        ? botRuntimeKind(bot) === "cloud-hermes"
+        : botEngineId(bot) === spec.engineId));
   }
 
   function settingsPutBody(settings = {}, starterEngineBots = {}) {
@@ -176,10 +225,31 @@
     return settingsFromResponse(await api.social.settingsGet());
   }
 
-  async function retryMarkerOnConflict({ api, social, marker }) {
+  async function retryMarkerOnConflict({ api, social, marker, tagAssignments = [] }) {
     const latest = await fetchSettings(api);
     if (starterMarker(latest).seededAt) return latest;
-    return putStarterMarker({ api, social, settings: latest, marker });
+    const settingsForWrite = tagAssignments.length
+      ? { ...latest, tags: assignStarterConversationTags(latest, tagAssignments) }
+      : latest;
+    return putStarterMarker({ api, social, settings: settingsForWrite, marker });
+  }
+
+  function conversationIdFromSaveResult(result, fallbackKey = "") {
+    return String(result?.conversation?.id || result?.data?.conversation?.id || (fallbackKey ? `botc_${fallbackKey}` : "")).trim();
+  }
+
+  function starterKeyForSpec(userId, spec = {}) {
+    return starterBotKey(userId, spec.keySuffix || spec.engineId);
+  }
+
+  function assignStarterConversationTags(settings = {}, assignments = []) {
+    const tagApi = conversationTagsShared();
+    let tags = settings.tags && typeof settings.tags === "object" ? settings.tags : tagApi.defaultConversationTags();
+    for (const assignment of assignments) {
+      if (!assignment?.conversationId || !Array.isArray(assignment.tagNames) || !assignment.tagNames.length) continue;
+      tags = tagApi.assignTagNames(tags, assignment.conversationId, assignment.tagNames);
+    }
+    return tagApi.normalizeConversationTags(tags);
   }
 
   async function ensureStarterEngineBots({
@@ -196,9 +266,12 @@
     if (typeof commands?.saveBot !== "function") return { skipped: true, created: [] };
 
     const settings = await fetchSettings(api);
-    if (starterMarker(settings).seededAt) return { skipped: true, created: [] };
-
-    const specs = starterEngineBotSpecs(state.runtime);
+    const existingMarker = starterMarker(settings);
+    const seededIds = seededStarterEngineIds(existingMarker);
+    const allSpecs = starterBotSpecs(state.runtime);
+    const specs = existingMarker.seededAt
+      ? allSpecs.filter((spec) => spec.engineId === "cloud-hermes" && !seededIds.has(spec.engineId))
+      : allSpecs;
     if (!specs.length) return { skipped: true, created: [] };
 
     const existingBots = Array.isArray(social?.moduleState?.bots) ? social.moduleState.bots : [];
@@ -206,37 +279,53 @@
     const targetDeviceId = state.runtime?.localDevice?.id || state.runtime?.cloud?.deviceId || "";
     const targetDeviceName = state.runtime?.localDevice?.name || state.runtime?.cloud?.deviceName || "当前设备";
     const created = [];
+    const tagAssignments = [];
 
     for (const spec of specs) {
       if (hasMatchingBot(spec, existingBots)) continue;
+      const key = starterKeyForSpec(userId, spec);
+      const runtimeKind = spec.runtimeKind || "desktop-local";
       const result = await commands.saveBot({
         state,
         api,
         social,
-        runtimeKind: "desktop-local",
+        runtimeKind,
         isCreate: true,
         bot: {
-          key: starterBotKey(userId, spec.engineId),
+          key,
           name: spec.name,
           description: spec.description,
           bio: spec.bio,
           color: spec.color,
           personaText: spec.personaText,
-          agentEngine: spec.engineId,
-          targetDeviceId,
-          targetDeviceName,
+          agentEngine: spec.agentEngine || spec.engineId,
+          targetDeviceId: spec.targetDeviceId ?? targetDeviceId,
+          targetDeviceName: spec.targetDeviceName ?? targetDeviceName,
           capabilities: { inheritEngineDefaults: true }
         }
       });
-      created.push({ engineId: spec.engineId, key: result?.key || starterBotKey(userId, spec.engineId), bot: result?.bot || null });
+      if (spec.tagNames?.length) {
+        const conversationId = conversationIdFromSaveResult(result, result?.key || key);
+        if (conversationId) tagAssignments.push({ conversationId, tagNames: spec.tagNames });
+      }
+      created.push({ engineId: spec.engineId, key: result?.key || key, bot: result?.bot || null });
     }
 
-    const marker = { seededAt: now(), engineIds: specs.map((spec) => spec.engineId) };
+    const marker = {
+      seededAt: existingMarker.seededAt || now(),
+      engineIds: [...new Set([
+        ...[...seededIds],
+        ...(existingMarker.seededAt ? specs : allSpecs).map((spec) => spec.engineId)
+      ])]
+    };
+    const settingsForWrite = tagAssignments.length
+      ? { ...settings, tags: assignStarterConversationTags(settings, tagAssignments) }
+      : settings;
     try {
-      await putStarterMarker({ api, social, settings, marker });
+      await putStarterMarker({ api, social, settings: settingsForWrite, marker });
     } catch (error) {
       if (/409|version conflict/i.test(String(error?.message || ""))) {
-        await retryMarkerOnConflict({ api, social, marker });
+        await retryMarkerOnConflict({ api, social, marker, tagAssignments });
       } else {
         throw error;
       }
@@ -249,6 +338,7 @@
     STARTER_ENGINE_ORDER,
     normalizeEngineId,
     starterEngineBotSpecs,
+    starterBotSpecs,
     starterBotKey,
     ensureStarterEngineBots
   };
