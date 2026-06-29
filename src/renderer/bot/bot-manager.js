@@ -877,45 +877,49 @@
       ? bots.filter((bot) => `${bot.name || ""} ${bot.key || ""} ${bot.bio || ""}`.toLowerCase().includes(filter))
       : sortedBots);
     const contactGroups = contactGroupsForSidebar(visibleContacts);
-    els.contactList.innerHTML = "";
-    if (pendingRequests && !filter) {
-      els.contactList.appendChild(buildFriendRequestRow(pendingRequests));
-    }
-    for (const group of contactGroups) {
-      const collapsed = isContactGroupCollapsed(group.key, { forceExpanded: filterActive });
-      appendContactGroupHeader(group, { collapsed });
-      if (collapsed) continue;
-      for (const bot of group.bots) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = `contact-row${bot.key === state.activeContactKey ? " active" : ""}`;
-        button.innerHTML = `
-          <span class="avatar bot-photo"></span>
-          <span class="contact-row-main">
-            <strong>${renderBotNameWithBadgeHtml(bot)}</strong>
-            ${botRunsOnOtherDevice(bot) ? `<small>${window.miaMarkdown.escapeHtml(botDeviceLabel(bot))}</small>` : ""}
-          </span>
-        `;
-        button.addEventListener("click", () => {
-          state.activeContactKey = bot.key;
-          showNarrowContent();
-          renderContacts();
-        });
-        button.addEventListener("dblclick", () => openBotChat(bot.key));
-        const avatar = avatarForBot(bot);
-        window.miaAvatar.applyAvatarMedia(
-          button.querySelector(".bot-photo"),
-          avatar.image,
-          avatar.crop,
-          avatar.color,
-          avatar.text
-        );
-        els.contactList.appendChild(button);
+    const listRenderKey = contactListRenderKey({ pendingRequests, filter, contactGroups, filterActive });
+    if (els.contactList.__miaContactListRenderKey !== listRenderKey) {
+      els.contactList.innerHTML = "";
+      if (pendingRequests && !filter) {
+        els.contactList.appendChild(buildFriendRequestRow(pendingRequests));
       }
-    }
-    initNameBadgeLotties(els.contactList);
-    if (!visibleContacts.length && filter) {
-      els.contactList.innerHTML = `<div class="contact-empty">没有匹配的联系人</div>`;
+      for (const group of contactGroups) {
+        const collapsed = isContactGroupCollapsed(group.key, { forceExpanded: filterActive });
+        appendContactGroupHeader(group, { collapsed });
+        if (collapsed) continue;
+        for (const bot of group.bots) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `contact-row${bot.key === state.activeContactKey ? " active" : ""}`;
+          button.innerHTML = `
+            <span class="avatar bot-photo"></span>
+            <span class="contact-row-main">
+              <strong>${renderBotNameWithBadgeHtml(bot)}</strong>
+              ${botRunsOnOtherDevice(bot) ? `<small>${window.miaMarkdown.escapeHtml(botDeviceLabel(bot))}</small>` : ""}
+            </span>
+          `;
+          button.addEventListener("click", () => {
+            state.activeContactKey = bot.key;
+            showNarrowContent();
+            renderContacts();
+          });
+          button.addEventListener("dblclick", () => openBotChat(bot.key));
+          const avatar = avatarForBot(bot);
+          window.miaAvatar.applyAvatarMedia(
+            button.querySelector(".bot-photo"),
+            avatar.image,
+            avatar.crop,
+            avatar.color,
+            avatar.text
+          );
+          els.contactList.appendChild(button);
+        }
+      }
+      initNameBadgeLotties(els.contactList);
+      if (!visibleContacts.length && filter) {
+        els.contactList.innerHTML = `<div class="contact-empty">没有匹配的联系人</div>`;
+      }
+      els.contactList.__miaContactListRenderKey = listRenderKey;
     }
     if (state.activeContactKey === FRIEND_REQUESTS_KEY && pendingRequests) {
       setText(els.contactPageTitle, "新的好友");
@@ -943,6 +947,47 @@
       renderContacts();
     });
     return button;
+  }
+
+  function contactListAvatarKey(bot = {}) {
+    const avatar = avatarForBot(bot);
+    return {
+      image: avatar.image || "",
+      crop: avatar.crop || null,
+      color: avatar.color || "",
+      text: avatar.text || ""
+    };
+  }
+
+  function contactListBotKey(bot = {}) {
+    const otherDevice = botRunsOnOtherDevice(bot);
+    return {
+      key: bot.key || "",
+      active: bot.key === state.activeContactKey,
+      name: bot.name || bot.displayName || bot.display_name || bot.key || bot.id || "",
+      statusBadge: statusBadgeFrom(bot) || null,
+      otherDevice,
+      deviceLabel: otherDevice ? botDeviceLabel(bot) : "",
+      avatar: contactListAvatarKey(bot)
+    };
+  }
+
+  function contactListRenderKey({ pendingRequests, filter, contactGroups, filterActive }) {
+    return JSON.stringify({
+      activeContactKey: state.activeContactKey || "",
+      filter,
+      pendingRequests,
+      groups: contactGroups.map((group) => {
+        const collapsed = isContactGroupCollapsed(group.key, { forceExpanded: filterActive });
+        return {
+          key: group.key,
+          label: group.label,
+          count: group.bots.length,
+          collapsed,
+          bots: collapsed ? [] : group.bots.map(contactListBotKey)
+        };
+      })
+    });
   }
 
   function renderContactDetail(bot) {

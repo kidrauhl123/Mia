@@ -149,6 +149,49 @@ test("renderContacts groups bot contacts by alphabetical initial", () => {
   assert.equal(state.activeContactKey, "alpha");
 });
 
+test("renderContacts reuses unchanged contact rows so status badge lotties keep playing", () => {
+  const { manager, window } = loadBotManager();
+  const contactList = mockEl();
+  const contactDetail = mockEl();
+  const state = {
+    skillsLoading: true,
+    skillLibrary: { extensions: [], skills: [] },
+    runtime: {},
+    contactFilter: "",
+    activeContactKey: "alpha",
+    savingBotCapabilities: new Set()
+  };
+  window.miaSocial.moduleState.bots = [
+    {
+      key: "alpha",
+      id: "alpha",
+      name: "Alpha",
+      statusBadge: { kind: "lottie", assetId: "blue-fire" }
+    }
+  ];
+
+  manager.initBotManager({
+    state,
+    els: { contactList, contactDetail, contactPageTitle: mockEl(), contactPageMeta: mockEl() },
+    setText(el, value) { if (el) el.textContent = value; },
+    loadSkills: async () => {},
+    showNarrowContent() {},
+    render() {},
+    closeGroupContextMenu() {},
+    openEditBotDialog() {},
+    deleteBot() {},
+    setBotPinned() {},
+  });
+
+  manager.renderContacts();
+  const firstRow = contactList.children.find((child) => String(child.className || "").includes("contact-row"));
+  manager.renderContacts();
+  const secondRow = contactList.children.find((child) => String(child.className || "").includes("contact-row"));
+
+  assert.ok(firstRow, "contact row should render");
+  assert.equal(secondRow, firstRow, "unchanged contact rows should not be rebuilt");
+});
+
 test("contact detail exposes the contact uid", () => {
   const { manager, window } = loadBotManager();
   const contactList = mockEl();
