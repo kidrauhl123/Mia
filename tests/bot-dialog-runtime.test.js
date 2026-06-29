@@ -193,7 +193,7 @@ function createBotDialogContext({ activeBinding, runtime = null, engineCapabilit
     renderView() { events.push("renderView"); },
     render() {}
   });
-  return { context, calls, events, state, select };
+  return { context, calls, events, state, select, els };
 }
 
 function decodedRuntimeOptions(select) {
@@ -257,6 +257,64 @@ test("creating a bot paints the dialog before refreshing bridge devices", async 
   assert.deepEqual(events, ["renderView"]);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(events[1], "listBridgeDevices");
+});
+
+test("opening create after editing a bot clears the previous bot fields", () => {
+  const { context, els } = createBotDialogContext();
+
+  context.window.miaBotDialog.openBotDialog({
+    key: "codex",
+    name: "Codex",
+    sourceKinds: ["cloud"],
+    runtimeKind: "desktop-local",
+    agentEngine: "codex"
+  }, "你是 Codex。专注代码阅读、修改、调试、测试和工程自动化，先理解上下文再行动。");
+
+  context.window.miaBotDialog.openBotDialog();
+
+  assert.equal(els.botDialogTitle.textContent, "添加伙伴");
+  assert.equal(els.botKey.value, "");
+  assert.equal(els.botName.value, "");
+  assert.equal(els.botSeed.value, "");
+  assert.equal(els.botPersonaDetails.open, false);
+});
+
+test("opening an existing id-only bot edits it instead of treating it as a create seed", () => {
+  const { context, els, state } = createBotDialogContext();
+
+  context.window.miaBotDialog.openBotDialog({
+    id: "4020623",
+    name: "？？",
+    sourceKinds: ["cloud"],
+    runtimeKind: "cloud-hermes",
+    agentEngine: "hermes"
+  }, "你是 Claude Code。");
+
+  assert.equal(state.botDialogMode, "edit");
+  assert.equal(els.botDialogTitle.textContent, "编辑「？？」");
+  assert.equal(els.botKey.value, "4020623");
+  assert.equal(els.botName.value, "？？");
+  assert.equal(els.botSeed.value, "你是 Claude Code。");
+});
+
+test("closing an edited bot dialog clears hidden form fields", () => {
+  const { context, els } = createBotDialogContext();
+
+  context.window.miaBotDialog.openBotDialog({
+    key: "codex",
+    name: "Codex",
+    sourceKinds: ["cloud"],
+    runtimeKind: "desktop-local",
+    agentEngine: "codex"
+  }, "你是 Codex。专注代码阅读、修改、调试、测试和工程自动化，先理解上下文再行动。");
+
+  context.window.miaBotDialog.closeBotDialog();
+
+  assert.equal(els.botKey.value, "");
+  assert.equal(els.botName.value, "");
+  assert.equal(els.botNameText.textContent, "");
+  assert.equal(els.botSeed.value, "");
+  assert.equal(els.botPersonaDetails.open, false);
 });
 
 test("creating a bot supplements local engines from loaded engine capabilities", () => {

@@ -67,6 +67,57 @@ test("saveBot creates a cloud-hermes bot through identity, runtime, and conversa
   assert.equal(social.moduleState.bots[0].id, result.key);
 });
 
+test("saveBot strips copied local engine identity when saving cloud-hermes bots", async () => {
+  const calls = [];
+  const state = {
+    runtime: {
+      cloud: { enabled: true },
+      bots: []
+    }
+  };
+  const social = {
+    moduleState: { bots: [] },
+    upsertBotConversation(conversation) {
+      calls.push(["upsertConversation", conversation.id]);
+      return conversation;
+    }
+  };
+  const api = {
+    social: {
+      async saveBotIdentity(key, body) {
+        calls.push(["identity", key, body]);
+        return { ok: true, data: { bot: { id: key, ...body } } };
+      },
+      async saveBotRuntime(key, body) {
+        calls.push(["runtime", key, body]);
+        return { ok: true, data: { binding: { botId: key, ...body } } };
+      },
+      async ensureBotSessionConversation(key, body) {
+        calls.push(["conversation", key, body]);
+        return { ok: true, data: { conversation: { id: `botc_${key}`, type: "bot", decorations: { botId: key, runtimeKind: body.runtimeKind } } } };
+      }
+    }
+  };
+
+  await commands.saveBot({
+    state,
+    api,
+    social,
+    runtimeKind: "cloud-hermes",
+    isCreate: true,
+    bot: {
+      name: "？？",
+      bio: "你是 Claude Code。专注代码任务、重构、解释和长上下文协作，保持清晰、稳健和可验证。",
+      personaText: "你是 Claude Code。专注代码任务、重构、解释和长上下文协作，保持清晰、稳健和可验证。"
+    }
+  });
+
+  const identity = calls.find((call) => call[0] === "identity")[2];
+  assert.equal(identity.name, "？？");
+  assert.equal(identity.bio, "专注代码任务、重构、解释和长上下文协作，保持清晰、稳健和可验证。");
+  assert.equal(identity.personaText, "专注代码任务、重构、解释和长上下文协作，保持清晰、稳健和可验证。");
+});
+
 test("saveBot requires cloud identity APIs for desktop-runtime bots", async () => {
   const api = {
     async saveBot() {
@@ -346,6 +397,37 @@ test("saveBotCapabilities updates cloud-hermes identity and local bot cache", as
     ["alice", capabilities],
     ["mia", []]
   ]);
+});
+
+test("saveBotCapabilities strips copied engine identity for cloud-hermes bots", async () => {
+  const capabilities = { inheritEngineDefaults: true };
+  const calls = [];
+  const api = {
+    social: {
+      async saveBotIdentity(key, body) {
+        calls.push(["identity", key, body]);
+        return { ok: true, data: { bot: { id: key, ...body } } };
+      }
+    }
+  };
+
+  await commands.saveBotCapabilities({
+    state: { runtime: { cloud: { enabled: true } } },
+    api,
+    social: { moduleState: { bots: [] } },
+    bot: {
+      key: "4020623",
+      name: "？？",
+      runtimeKind: "cloud-hermes",
+      bio: "你是 Claude Code。专注代码任务、重构、解释和长上下文协作，保持清晰、稳健和可验证。",
+      personaText: "你是 Claude Code。专注代码任务、重构、解释和长上下文协作，保持清晰、稳健和可验证。"
+    },
+    capabilities
+  });
+
+  const identity = calls.find((call) => call[0] === "identity")[2];
+  assert.equal(identity.bio, "专注代码任务、重构、解释和长上下文协作，保持清晰、稳健和可验证。");
+  assert.equal(identity.personaText, "专注代码任务、重构、解释和长上下文协作，保持清晰、稳健和可验证。");
 });
 
 test("saveBotCapabilities updates cloud-sourced desktop identities through cloud commands", async () => {

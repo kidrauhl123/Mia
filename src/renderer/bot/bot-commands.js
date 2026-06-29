@@ -51,6 +51,7 @@
     "base_url",
     "api_mode"
   ];
+  const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "OpenClaw", "Hermes"];
 
   function botIdentity() {
     if (global.miaBotIdentity) return global.miaBotIdentity;
@@ -75,6 +76,28 @@
       : (value && typeof value === "object" ? value : { legacyCapabilities: ["chat", "files", "terminal", "code"] });
   }
 
+  function escapeRegExp(value = "") {
+    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function normalizedIdentityName(value = "") {
+    return String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, " ");
+  }
+
+  function stripCopiedEngineIdentity(text = "", name = "") {
+    let output = String(text || "").trim();
+    if (!output) return "";
+    const botName = normalizedIdentityName(name);
+    for (const engineName of ENGINE_IDENTITY_NAMES) {
+      if (normalizedIdentityName(engineName) === botName) continue;
+      const escaped = escapeRegExp(engineName).replace(/\s+/g, "\\s+");
+      output = output
+        .replace(new RegExp(`^\\s*(?:你是|你叫|你的名字是)\\s*${escaped}\\s*[。.!！]?\\s*`, "i"), "")
+        .replace(new RegExp(`^\\s*(?:You are|Your name is)\\s+${escaped}\\s*[。.!！]?\\s*`, "i"), "");
+    }
+    return output.trim();
+  }
+
   function conversationFromResult(result) {
     return result?.data?.conversation || result?.conversation || null;
   }
@@ -94,6 +117,15 @@
       bio: bot.description || bot.bio || "",
       personaText: bot.personaText || bot.persona_text || bot.description || bot.bio || "",
       capabilities: serializableCapabilities(bot.capabilities)
+    };
+  }
+
+  function cloudHermesIdentityForBot(bot = {}) {
+    const identity = cloudIdentityForBot(bot);
+    return {
+      ...identity,
+      bio: stripCopiedEngineIdentity(identity.bio, identity.name),
+      personaText: stripCopiedEngineIdentity(identity.personaText, identity.name)
     };
   }
 
@@ -144,7 +176,9 @@
     if (!state.runtime?.cloud?.enabled || typeof api?.social?.saveBotIdentity !== "function") {
       throw new Error("请先登录 Mia Cloud。");
     }
-    const identity = cloudIdentityForBot({ ...bot, key });
+    const identity = kind === "cloud-hermes"
+      ? cloudHermesIdentityForBot({ ...bot, key })
+      : cloudIdentityForBot({ ...bot, key });
     const saved = await api.social.saveBotIdentity(key, identity);
     if (saved && saved.ok === false) throw new Error(saved.error || "保存 Bot 身份失败");
 
@@ -236,7 +270,7 @@
       throw new Error("请先登录 Mia Cloud。");
     }
     const key = bot.key || generateUntypedBotId(existingBotKeys(state, social));
-    const identity = cloudIdentityForBot({ ...bot, key });
+    const identity = cloudHermesIdentityForBot({ ...bot, key });
     const saved = await api.social.saveBotIdentity(key, identity);
     if (!saved?.ok) throw new Error(saved?.error || "保存 Bot 身份失败");
     if (isCreate || activateRuntime) {
@@ -308,7 +342,7 @@
   }
 
   function identityForCapabilities(bot = {}, capabilities) {
-    return {
+    const identity = {
       name: bot.name || bot.key || bot.id,
       avatarImage: bot.avatarImage || "",
       avatarCrop: bot.avatarCrop || null,
@@ -316,6 +350,13 @@
       personaText: bot.personaText || "",
       capabilities
     };
+    return String(bot.runtimeKind || bot.runtime_kind || "").trim() === "cloud-hermes"
+      ? {
+        ...identity,
+        bio: stripCopiedEngineIdentity(identity.bio, identity.name),
+        personaText: stripCopiedEngineIdentity(identity.personaText, identity.name)
+      }
+      : identity;
   }
 
   async function saveCloudHermesBotCapabilities({

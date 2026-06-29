@@ -12,6 +12,7 @@ const { normalizeCloudHermesModel } = require("./cloud-hermes-model.js");
 const BOT_MEMBER_KIND = "bot";
 const BOT_SENDER_KIND = "bot";
 const DESKTOP_INVOCATION_HISTORY_LIMIT = 200;
+const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "OpenClaw", "Hermes"];
 
 function botForMember(member, bots) {
   const ref = member?.member_ref;
@@ -91,10 +92,45 @@ function messageInputText(message = {}) {
   return String(message.task_prompt || message.taskPrompt || message.body_md || "").trim();
 }
 
+function escapeRegExp(value = "") {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizedIdentityName(value = "") {
+  return String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, " ");
+}
+
+function stripCopiedEngineIdentity(persona = "", bot = {}) {
+  let text = String(persona || "").trim();
+  if (!text) return "";
+  const botName = normalizedIdentityName(botDisplayName(bot) || bot?.id || bot?.key || "");
+  for (const engineName of ENGINE_IDENTITY_NAMES) {
+    if (normalizedIdentityName(engineName) === botName) continue;
+    const escaped = escapeRegExp(engineName).replace(/\s+/g, "\\s+");
+    text = text
+      .replace(new RegExp(`^\\s*(?:你是|你叫|你的名字是)\\s*${escaped}\\s*[。.!！]?\\s*`, "i"), "")
+      .replace(new RegExp(`^\\s*(?:You are|Your name is)\\s+${escaped}\\s*[。.!！]?\\s*`, "i"), "");
+  }
+  return text.trim();
+}
+
+function cloudBotIdentityInstructions(bot = {}) {
+  const name = String(botDisplayName(bot) || bot?.id || bot?.key || "Bot").trim();
+  const id = String(bot?.id || bot?.key || "").trim();
+  return [
+    `你是 ${name}，Mia Cloud 里的 Bot。`,
+    id && id !== name ? `你的 Bot ID 是 ${id}。` : "",
+    `当用户询问你的名字、身份或“你是谁”时，请回答你是 ${name}。`,
+    "不要自称 Claude Code、Codex、OpenClaw 或其它底层运行引擎名称，除非用户明确询问底层运行引擎，或该名称就是你的 Bot 名。"
+  ].filter(Boolean).join("\n");
+}
+
 function cloudRuntimeInstructions(bot, message = {}) {
+  const persona = stripCopiedEngineIdentity(bot?.personaText || bot?.persona_text || "", bot);
   return [
     miaRuntimeSystemPrompt({ scheduledFire: isScheduledFireMessage(message) }),
-    String(bot?.personaText || bot?.persona_text || "").trim()
+    persona,
+    cloudBotIdentityInstructions(bot)
   ].filter(Boolean).join("\n\n");
 }
 

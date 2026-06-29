@@ -138,6 +138,73 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
   }
 });
 
+test("cloud-hermes DM pins the bot identity over a copied engine persona", async () => {
+  const ctx = setup();
+  const hermesCalls = [];
+  try {
+    ctx.botsStore.upsertBot(ctx.user.id, {
+      id: "4020623",
+      name: "？？",
+      bio: "",
+      personaText: "你是 Claude Code。专注代码任务、重构、解释和长上下文协作，保持清晰、稳健和可验证。"
+    });
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: "4020623",
+      runtimeKind: "cloud-hermes",
+      enabled: true,
+      config: { model: "mia-auto" }
+    });
+    const conversation = ctx.socialStore.createConversation({
+      id: "botc_4020623",
+      type: "bot",
+      name: "你还不",
+      decorations: { botId: "4020623", runtimeKind: "cloud-hermes" }
+    });
+    ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "user", memberRef: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: "4020623", ownerId: ctx.user.id });
+    ctx.messagesStore.appendMessage({
+      conversationId: conversation.id,
+      senderKind: "bot",
+      senderRef: "4020623",
+      senderOwnerId: ctx.user.id,
+      bodyMd: "我是 Claude Code，一个专注于代码任务的 AI 助手。"
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      hermesRunsClient: {
+        async runChat(args) {
+          hermesCalls.push(args);
+          return { runId: "hr_identity", content: "我是 ？？。", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "你到底是谁"
+    });
+
+    await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: conversation.id,
+      message
+    });
+
+    assert.equal(hermesCalls.length, 1);
+    assert.match(hermesCalls[0].instructions, /专注代码任务/);
+    assert.match(hermesCalls[0].instructions, /你是 ？？/);
+    assert.doesNotMatch(hermesCalls[0].instructions, /你是 Claude Code/);
+    assert.match(hermesCalls[0].instructions, /不要自称 Claude Code/);
+    assert.ok(
+      hermesCalls[0].instructions.lastIndexOf("你是 ？？") > hermesCalls[0].instructions.indexOf("专注代码任务"),
+      "display-name identity should be the final identity instruction"
+    );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("cloud-hermes maps old managed aliases to the worker platform model", async () => {
   const ctx = setup();
   const hermesCalls = [];
