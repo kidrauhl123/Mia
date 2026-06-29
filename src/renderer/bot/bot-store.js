@@ -257,6 +257,32 @@
     return labels.length > 3 ? `${shown} +${labels.length - 3}` : shown;
   }
 
+  function assistantTemplates() {
+    return window.miaAssistantTemplate || {};
+  }
+
+  function assistantResponsibility(f = {}) {
+    const fn = assistantTemplates().assistantResponsibility;
+    return typeof fn === "function" ? fn(f) : String(f.responsibility || f.line || "").trim();
+  }
+
+  function assistantSetupRequirement(f = {}) {
+    const fn = assistantTemplates().assistantSetupRequirement;
+    return typeof fn === "function" ? fn(f) : String(f.setupPrompt || f.tagline || "").trim();
+  }
+
+  function assistantHandoffExamples(f = {}) {
+    const fn = assistantTemplates().assistantHandoffExamples;
+    return typeof fn === "function" ? fn(f) : [];
+  }
+
+  function skillChipHtml(f = {}) {
+    const ids = enabledSkillIds(f);
+    if (!ids.length) return `<span class="bot-store-skill-chip muted">未配置 Skill</span>`;
+    return ids.slice(0, 3).map((id) => `<span class="bot-store-skill-chip">${escapeHtml(skillLabel(id))}</span>`).join("")
+      + (ids.length > 3 ? `<span class="bot-store-skill-chip muted">+${ids.length - 3}</span>` : "");
+  }
+
   function defaultConversationTagName(f = {}) {
     return String(f.cat || f.category || "推荐").trim() || "推荐";
   }
@@ -657,10 +683,11 @@
         <div class="bot-store-card-body">
           <div class="bot-store-card-head">
             <strong>${escapeHtml(f.name)}</strong>
-            <div class="tag">${escapeHtml(f.tagline)}</div>
+            <div class="tag">长期联系人</div>
           </div>
-          <p class="line">${escapeHtml(f.line)}</p>
-          <div class="bot-store-card-foot">${escapeHtml(skillSummary(f))}</div>
+          <p class="bot-store-card-responsibility">长期负责：${escapeHtml(assistantResponsibility(f))}</p>
+          <p class="bot-store-card-setup">第一次需要：${escapeHtml(assistantSetupRequirement(f))}</p>
+          <div class="bot-store-card-skills bot-store-card-foot" aria-label="默认 Skill">${skillChipHtml(f)}</div>
         </div>
       </div>`).join("");
     grid.querySelectorAll(".bot-store-card").forEach((card) => {
@@ -685,11 +712,17 @@
         ${avatarHtml(f)}
         <div><h2>${escapeHtml(f.name)}</h2><div class="tag">${escapeHtml(f.tagline)}</div></div>
       </div>
-      <p class="desc">${escapeHtml(f.desc)}</p>
-      <div class="bot-store-demo">${textWithLineBreaks(f.demo)}</div>
+      <p class="desc">${escapeHtml(assistantResponsibility(f))}</p>
+      <div class="bot-store-template-meta">
+        <div><span>第一次需要</span><strong>${escapeHtml(assistantSetupRequirement(f))}</strong></div>
+        <div><span>默认 Skill</span><strong>${escapeHtml(skillSummary(f))}</strong></div>
+      </div>
+      <div class="bot-store-demo">
+        ${assistantHandoffExamples(f).map((example) => `<p>${escapeHtml(example)}</p>`).join("") || textWithLineBreaks(f.demo)}
+      </div>
       <div class="bot-store-actions">
         <button type="button" class="bot-store-btn ghost" data-act="back">返回</button>
-        <button type="button" class="bot-store-btn primary" data-act="prepare">添加</button>
+        <button type="button" class="bot-store-btn primary" data-act="prepare">添加并设置</button>
       </div>`;
     sheet.querySelector('[data-act="back"]').addEventListener("click", closeSheet);
     sheet.querySelector('[data-act="prepare"]').addEventListener("click", () => openEnrollmentStep(f));

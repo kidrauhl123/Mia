@@ -360,7 +360,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.bot-store-card p.line {
+.bot-store-card-responsibility {
   margin: 0;
   overflow: hidden;
   display: -webkit-box;
@@ -369,6 +369,68 @@
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+.bot-store-card-setup {
+  margin: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--faint);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-store-card-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+.bot-store-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 20px;
+  padding: 2px 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bot-card-fg) 9%, transparent);
+  color: color-mix(in srgb, var(--bot-card-fg) 78%, var(--text) 22%);
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-store-skill-chip.muted {
+  background: var(--field);
+  color: var(--faint);
+}
+.bot-store-template-meta {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.bot-store-template-meta > div {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--field);
+}
+.bot-store-template-meta span {
+  color: var(--faint);
+  font-size: 12px;
+}
+.bot-store-template-meta strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: var(--ui-text-max-weight, 500);
+  line-height: 1.45;
+}
+.bot-store-demo p {
+  margin: 0;
+}
+.bot-store-demo p + p {
+  margin-top: 8px;
 }
 .bot-store-card-foot {
   min-width: 0;
@@ -876,7 +938,7 @@
   .bot-store-card-head strong {
     font-size: 14px;
   }
-  .bot-store-card p.line {
+  .bot-store-card-responsibility {
     font-size: 12.5px;
     -webkit-line-clamp: 2;
   }

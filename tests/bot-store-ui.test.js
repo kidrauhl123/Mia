@@ -148,3 +148,19 @@ test("bot store fallback presets and category order match the first-release assi
   assert.match(fallbackBlock, /handoffExamples:/);
   assert.match(fallbackBlock, /mia-scheduler/);
 });
+
+test("discover bot store presents assistant templates as context contacts", () => {
+  const store = read("src/renderer/bot/bot-store.js");
+
+  assert.match(store, /window\.miaAssistantTemplate/);
+  assert.match(store, /assistantResponsibility\(f\)/);
+  assert.match(store, /assistantSetupRequirement\(f\)/);
+  assert.match(store, /bot-store-card-responsibility/);
+  assert.match(store, /bot-store-card-setup/);
+  assert.match(store, /bot-store-skill-chip/);
+  assert.match(store, />添加并设置</);
+  assert.match(store, /长期负责：/);
+  assert.match(store, /第一次需要：/);
+  assert.doesNotMatch(store, /<p class="line">\$\{escapeHtml\(f\.line\)\}<\/p>/);
+  assert.doesNotMatch(store, /<button type="button" class="bot-store-btn primary" data-act="prepare">添加<\/button>/);
+});

@@ -1246,3 +1246,12 @@ test("chat history session menus constrain long history lists to an internal scr
     );
   }
 });
+
+test("assistant store cards keep responsibility, setup, and skill metadata distinct", () => {
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
+
+  assert.match(css, /\.bot-store-card-responsibility\s*\{[^}]*-webkit-line-clamp:\s*3;/);
+  assert.match(css, /\.bot-store-card-setup\s*\{[^}]*font-size:\s*12px;[^}]*color:\s*var\(--faint\);/);
+  assert.match(css, /\.bot-store-card-skills\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/);
+  assert.match(css, /\.bot-store-skill-chip\s*\{[^}]*border-radius:\s*999px;/);
+});
