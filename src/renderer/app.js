@@ -2235,6 +2235,10 @@ function conversationCardSpecFromRow(row, personas) {
           toggleMuted: (next) => { social.setConversationMuted(conversation.id, next); render(); },
           editTags: () => social.editConversationTags?.(conversation.id, name, render, { anchor: { x, y } }),
           remove: async () => {
+            if (isBot) {
+              await deleteBot(sessionHistory.botId(conversation));
+              return;
+            }
             if (!confirm(`确定删除与「${name}」的对话？此操作不可撤销。`)) return;
             const res = await social.deleteCloudConversation(conversation.id);
             if (!res?.ok) alert(`删除失败：${res?.error || "未知错误"}`);

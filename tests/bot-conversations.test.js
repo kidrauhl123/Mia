@@ -123,6 +123,60 @@ test("deleted bots cannot keep posting through stale bot conversation membership
   } finally { await stopServer(ctx); }
 });
 
+test("DELETE /api/me/bots/:id removes owned private bot conversations", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "delete-bot-conversation");
+    await saveBot(ctx.port, A.token, "codex", "Codex");
+    const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/codex", {
+      token: A.token,
+      body: { botId: "codex", title: "Codex", runtimeKind: "cloud-hermes" }
+    });
+    assert.equal(ensured.status, 200);
+    const conversationId = ensured.body.conversation.id;
+
+    const deleted = await api(ctx.port, "DELETE", "/api/me/bots/codex", { token: A.token });
+    assert.equal(deleted.status, 200);
+
+    const listed = await api(ctx.port, "GET", "/api/conversations", { token: A.token });
+    assert.equal(listed.status, 200);
+    assert.equal(
+      listed.body.conversations.some((conversation) => conversation.id === conversationId),
+      false
+    );
+
+    const detail = await api(ctx.port, "GET", `/api/conversations/${conversationId}`, { token: A.token });
+    assert.ok([403, 404].includes(detail.status));
+  } finally { await stopServer(ctx); }
+});
+
+test("DELETE /api/conversations/:id removes owned bot identity for private bot conversations", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "delete-conversation-bot");
+    await saveBot(ctx.port, A.token, "codex", "Codex");
+    const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/codex", {
+      token: A.token,
+      body: { botId: "codex", title: "Codex", runtimeKind: "cloud-hermes" }
+    });
+    assert.equal(ensured.status, 200);
+    const conversationId = ensured.body.conversation.id;
+
+    const deleted = await api(ctx.port, "DELETE", `/api/conversations/${conversationId}`, { token: A.token });
+    assert.equal(deleted.status, 200);
+    assert.equal(deleted.body.botDeleted, true);
+    assert.equal(deleted.body.botId, "codex");
+
+    const bot = await api(ctx.port, "GET", "/api/me/bots/codex", { token: A.token });
+    assert.equal(bot.status, 404);
+    const listed = await api(ctx.port, "GET", "/api/conversations", { token: A.token });
+    assert.equal(
+      listed.body.conversations.some((conversation) => conversation.id === conversationId),
+      false
+    );
+  } finally { await stopServer(ctx); }
+});
+
 test("PUT /api/me/bot-conversations/:sessionId creates a stable bot conversation", async () => {
   const ctx = await startServer();
   try {

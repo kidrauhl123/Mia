@@ -1664,6 +1664,92 @@ test("sidebar card specs carry identity status badges when available", () => {
   assert.equal(groupSpec.typingLabel, "Mia");
 });
 
+test("bot private conversation delete uses the bot delete path", async () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const harness = eval(`(
+    function () {
+      const state = {};
+      const calls = [];
+      let privateActions = null;
+      const window = {
+        miaSocial: {
+          getActiveConversationId: () => "",
+          isConversationPinned: () => false,
+          isConversationMuted: () => false,
+          getUnreadForConversation: () => 0,
+          conversationRun: () => null,
+          getConversationMembers: () => [{ member_kind: "bot", member_ref: "mia", bot_name: "Mia" }],
+          setActiveConversationId() {},
+          setConversationPinned() {},
+          setConversationManuallyUnread() {},
+          markConversationRead() {},
+          setConversationMuted() {},
+          deleteCloudConversation: async (conversationId) => {
+            calls.push(["deleteConversation", conversationId]);
+            return { ok: true };
+          }
+        },
+        miaContact: {
+          IdentityKind: { Bot: "bot" },
+          resolveContact: () => ({ avatar: {} })
+        },
+        miaAvatarResolve: { resolveAvatarForContact: () => ({}) },
+        miaConversationContextMenu: {
+          openPrivateConversationMenu(meta, actions) {
+            calls.push(["menu", meta.id]);
+            privateActions = actions;
+          },
+          openGroupConversationMenu() {}
+        },
+        miaGroupTiles: { resolveGroupMemberTiles: () => [] }
+      };
+      const sessionHistory = {
+        botId: (conversation) => conversation.decorations?.botId || "mia",
+        botDisplayTitle: () => "Mia"
+      };
+      const ownedBots = [{ kind: "bot", key: "mia", id: "mia", name: "Mia", displayName: "Mia" }];
+      function allOwnedBotsForIdentity() { return ownedBots; }
+      function botAvatarIdentityId() { return "bot_global"; }
+      function botMemberForConversation() { return null; }
+      function botAvatarForConversation() { return {}; }
+      function formatConversationTime() { return ""; }
+      function groupTilesCtx() { return {}; }
+      function showNarrowContent() {}
+      function render() {}
+      function openEditBotDialog() {}
+      function openConversationSearchResult() { return false; }
+      function confirm() { calls.push(["confirm"]); return true; }
+      function alert(message) { calls.push(["alert", message]); }
+      async function deleteBot(botKey) {
+        calls.push(["deleteBot", botKey]);
+        return { ok: true };
+      }
+      function conversationRunForSidebarPreview(social, conversation) {
+        const run = social?.conversationRun?.(conversation?.id);
+        return run?.status === "running" ? run : null;
+      }
+      function typingLabelForConversationRun() { return ""; }
+      ${extractFunctionSource(appSource, "firstNonEmpty")}
+      ${extractFunctionSource(appSource, "hasOwn")}
+      ${extractFunctionSource(appSource, "statusBadgeFrom")}
+      ${extractFunctionSource(appSource, "nameBadgeIdentity")}
+      ${extractFunctionSource(appSource, "conversationCardSpecFromRow")}
+      return { conversationCardSpecFromRow, calls, getPrivateActions: () => privateActions };
+    }
+  )()`);
+
+  const spec = harness.conversationCardSpecFromRow({
+    type: "private-conversation",
+    updatedAt: "",
+    conversation: { id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }
+  }, []);
+  spec.onContextMenu(12, 34);
+  await harness.getPrivateActions().remove();
+
+  assert.deepEqual(harness.calls.filter(([kind]) => kind === "deleteBot"), [["deleteBot", "mia"]]);
+  assert.equal(harness.calls.some(([kind]) => kind === "deleteConversation"), false);
+});
+
 test("desktop cloud human and group conversations hide the chat history session selector", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
