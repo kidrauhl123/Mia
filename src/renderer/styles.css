@@ -2329,6 +2329,10 @@ body.platform-win32 .persona.pinned:not(.active):hover {
   background: transparent;
 }
 
+.message-card:hover:not(.active) {
+  background: var(--hover-background);
+}
+
 .persona-name,
 .persona-key,
 .persona-time,
@@ -7330,7 +7334,7 @@ select.select-open {
 }
 
 .identity-badge-choices button:hover {
-  background: transparent;
+  background: var(--hover);
   outline: 0;
 }
 

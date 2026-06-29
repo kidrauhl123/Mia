@@ -637,6 +637,9 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(baseCss, /\.search-clear:hover\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?color:\s*var\(--muted\);/);
   assert.match(baseCss, /\.persona\.search-result\s*\{[\s\S]*?grid-template-columns:\s*34px minmax\(0,\s*1fr\);[\s\S]*?min-height:\s*50px;/);
   assert.match(baseCss, /\.persona\.search-result:hover:not\(\.active\)\s*\{[\s\S]*?background:\s*rgba\(var\(--accent-rgb\),\s*0\.08\);/);
+  const identityBadgeChoiceHoverRule = cssRuleBody(baseCss, ".identity-badge-choices button:hover");
+  assert.match(identityBadgeChoiceHoverRule, /background:\s*var\(--hover\);/);
+  assert.match(identityBadgeChoiceHoverRule, /outline:\s*0;/);
   assert.doesNotMatch(baseCss, /\.persona\.search-result\.search-selected/);
   assert.match(baseCss, /\.persona\.search-result \.persona-key\s*\{[\s\S]*?white-space:\s*nowrap;[\s\S]*?-webkit-line-clamp:\s*unset;/);
   assert.match(baseCss, /\.persona\.search-result \.persona-tag-row,\s*\.persona\.search-result \.persona-tags\s*\{[\s\S]*?display:\s*none;/);

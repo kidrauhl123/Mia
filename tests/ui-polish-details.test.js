@@ -197,7 +197,7 @@ test("sidebar bottom nav labels stay lighter than content headings", () => {
   assert.doesNotMatch(label, /font-weight:\s*(?:5[2-9]0|[6-9]\d{2});/);
 });
 
-test("message list conversation cards keep hover backgrounds off while preserving selection", () => {
+test("message list conversation cards paint hover backgrounds while preserving selection", () => {
   const desktopCss = read("src/renderer/styles.css");
   const webCss = read("src/web/styles.css");
 
@@ -206,10 +206,10 @@ test("message list conversation cards keep hover backgrounds off while preservin
     /(?:^|\n)\.persona:hover\s*(?:,|\{)/,
     "desktop sidebar personas should not receive the shared hover background"
   );
-  assert.doesNotMatch(
+  assert.match(
     desktopCss,
-    /(?:^|\n)\.message-card:hover\s*\{[\s\S]*?background:/,
-    "desktop message cards should not paint a hover background"
+    /(?:^|\n)\.message-card:hover:not\(\.active\)\s*\{[\s\S]*?background:\s*var\(--hover-background\);/,
+    "desktop message cards should paint a hover background"
   );
   assert.match(cssBlock(desktopCss, ".persona.active"), /background:\s*var\(--list-active\);/);
 
