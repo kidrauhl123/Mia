@@ -699,13 +699,24 @@ p {
   overflow: hidden;
 }
 
-.avatar-video {
+.avatar-video,
+.avatar-emoji {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
   pointer-events: none;
+}
+
+.avatar-video {
+  object-fit: cover;
+}
+
+.avatar-emoji {
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  line-height: 1;
 }
 
 /* Group composite avatar (mirrors desktop's groups.css mosaic) */

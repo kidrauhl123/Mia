@@ -6,31 +6,19 @@ const test = require("node:test");
 const root = path.join(__dirname, "..");
 const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 
-test("discover bot store uses a two-step enrollment flow before saving", () => {
+test("discover bot store adds assistants directly without an enrollment form", () => {
   const src = read("src/renderer/bot/bot-store.js");
 
-  assert.match(src, /data-act="prepare"/);
-  assert.match(src, /openEnrollmentStep\(f\)/);
-  assert.match(src, /data-act="confirm"/);
-  assert.match(src, /function openEnrollmentStep/);
+  assert.match(src, /data-act="add"/);
+  assert.match(src, /function addPresetBot/);
   assert.match(src, /function skillSummary/);
   assert.match(src, /enabledSkills/);
-  assert.match(src, /data-badge-engine/);
-  assert.match(src, /data-runtime-target-select/);
-  assert.match(src, /function targetSelectHtml/);
-  assert.match(src, /function targetOptionValue/);
-  assert.match(src, /function parseTargetOptionValue/);
-  assert.match(src, /<optgroup label=/);
   assert.match(src, /function runtimeTargetGroups/);
-  assert.match(src, /function readEnrollmentTarget/);
-  assert.match(src, /function refreshRuntimeDevicesForStore/);
-  assert.match(src, /listBridgeDevices\(\{ includeOffline: true \}\)/);
   assert.match(src, /function generateEnrollmentPrincipalId/);
   assert.match(src, /window\.miaIds\?\.generatePrincipalId/);
   assert.match(src, /function defaultConversationTagName/);
   assert.match(src, /setConversationTagNames\(\s*conversationId,\s*\[defaultConversationTagName\(f\)\]\s*\)/);
-  assert.match(src, /sheet\.dataset\.botKey = plannedKey/);
-  assert.match(src, /addBot\(f, readEnrollmentTarget\(sheet\), sheet\.dataset\.botKey \|\| plannedKey\)/);
+  assert.match(src, /addBot\(f,\s*defaultEnrollmentTarget\(f\),\s*plannedKey\)/);
   assert.match(src, /runtimeKind:\s*target\.runtimeKind/);
   assert.match(src, /agentEngine:\s*target\.agentEngine/);
   assert.match(src, /targetDeviceId:\s*target\.deviceId/);
@@ -38,9 +26,12 @@ test("discover bot store uses a two-step enrollment flow before saving", () => {
   assert.match(src, /category:\s*defaultConversationTagName\(f\)/);
   assert.match(src, /key,\s*\n\s*name: f\.name/);
   assert.match(src, /function principalId/);
-  assert.match(src, /data-badge-uid/);
-  assert.match(src, /UID · \$\{savedKey\}/);
-  assert.match(src, /UID · \$\{escapeHtml\(plannedKey\)\}/);
+  assert.doesNotMatch(src, /data-act="prepare"/);
+  assert.doesNotMatch(src, /data-act="confirm"/);
+  assert.doesNotMatch(src, /function openEnrollmentStep/);
+  assert.doesNotMatch(src, /data-runtime-target-select/);
+  assert.doesNotMatch(src, /function setupFieldsHtml/);
+  assert.doesNotMatch(src, /data-assistant-setup-field/);
   assert.doesNotMatch(src, /data-runtime-target-picker/);
   assert.doesNotMatch(src, /data-engine-toggle/);
   assert.doesNotMatch(src, /classList\.toggle\("is-engine-open"\)/);
@@ -69,39 +60,25 @@ test("discover bot store is framed as assistants, not coworkers", () => {
   assert.match(app, /label:\s*"发现 AI 助手"/);
   assert.match(html, />发现 AI 助手</);
   assert.match(html, /aria-label="AI 助手列表"/);
-  assert.match(store, /AI 助手入库/);
-  assert.match(store, /MIA · AI 助手凭证/);
 
   assert.doesNotMatch(app, /发现 AI 同事/);
   assert.doesNotMatch(html, /发现 AI 同事|AI 同事列表/);
-  assert.doesNotMatch(store, /AI 同事|入职/);
+  assert.doesNotMatch(store, /AI 同事|入职|AI 助手入库|MIA · AI 助手凭证/);
 });
 
-test("discover bot store credential styles are tied to the second step", () => {
+test("discover bot store detail sheet stays compact and form-free", () => {
   const css = read("src/renderer/styles/bot-store.css");
 
-  assert.match(css, /\.bot-store-sheet\.is-enrolling/);
-  assert.match(css, /\.bot-store-enroll-console/);
-  assert.match(css, /\.bot-store-badge-card/);
-  assert.match(css, /\.bot-store-badge-fields/);
-  assert.match(css, /\.bot-store-badge-target-select/);
-  assert.match(css, /\.bot-store-badge-target-select\s*\{[\s\S]*?position:\s*absolute;/);
-  assert.match(css, /\.bot-store-badge-target-select\s*\{[\s\S]*?opacity:\s*0;/);
-  assert.match(css, /\.bot-store-badge-stamp/);
-  assert.match(css, /bot-store-badge-stamp-slam/);
+  assert.match(css, /\.bot-store-sheet-head/);
+  assert.match(css, /\.bot-store-sheet-section/);
   assert.doesNotMatch(css, /\.bot-store-engine-picker/);
-  assert.doesNotMatch(css, /\.bot-store-badge-engine-picker/);
-  assert.doesNotMatch(css, /\.bot-store-badge-target-picker/);
-  assert.doesNotMatch(css, /\.bot-store-badge-target-group/);
-  assert.doesNotMatch(css, /\.bot-store-badge-empty/);
+  assert.doesNotMatch(css, /\.bot-store-enroll-console/);
+  assert.doesNotMatch(css, /\.bot-store-badge-/);
+  assert.doesNotMatch(css, /\.bot-store-setup-/);
+  assert.doesNotMatch(css, /\.bot-store-sheet\.is-enrolling/);
   assert.match(css, /\.bot-store-actions\s*\{[\s\S]*?justify-content:\s*flex-end;/);
   assert.match(css, /\.bot-store-btn\s*\{[\s\S]*?height:\s*38px;/);
   assert.match(css, /\.bot-store-btn\.primary\s*\{[\s\S]*?flex:\s*0 0 auto;/);
-  assert.match(css, /:root\[data-theme="dark"\] \.bot-store-enroll-console/);
-  assert.match(css, /--badge-card-bg:\s*#fffefa/);
-  assert.match(css, /--badge-card-bg:\s*#161d2e/);
-  assert.match(css, /\.bot-store-sheet\.is-enrolling\s*\{[\s\S]*?overflow:\s*hidden;/);
-  assert.match(css, /\.bot-store-badge-stage\s*\{[\s\S]*?min-height:\s*clamp/);
 });
 
 test("official assistant templates are long-lived context contacts, not skill wrappers", () => {
@@ -121,7 +98,9 @@ test("official assistant templates are long-lived context contacts, not skill wr
   assert.ok(presets.every((item) => typeof item.setupPrompt === "string" && item.setupPrompt.trim()));
   assert.ok(presets.every((item) => item.setup && Array.isArray(item.setup.fields)));
   assert.ok(presets.every((item) => Array.isArray(item.capabilities?.enabledSkills) && item.capabilities.enabledSkills.length > 0));
-  assert.ok(presets.every((item) => item.avatar && typeof item.avatar.icon === "string" && item.avatar.icon.trim()));
+  assert.ok(presets.every((item) => item.avatar && typeof item.avatar.emoji === "string" && item.avatar.emoji.trim()));
+  assert.ok(presets.every((item) => item.avatar && typeof item.avatar.token === "string" && item.avatar.token.trim()));
+  assert.ok(presets.every((item) => !/^[\u4e00-\u9fff]$/.test(item.avatar.emoji)));
   assert.equal(presets.some((item) => ["论文搭子", "表格整理师", "汇报设计师", "文档编辑", "会议纪要官", "剧情主持"].includes(item.name)), false);
   assert.equal(presets.some((item) => item.key === "speak-partner"), false);
   assert.equal(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "tags")), true);
@@ -147,7 +126,8 @@ test("bot store fallback presets and category order match the first-release assi
   assert.match(fallbackBlock, /setup:\s*\{\s*fields:/);
   assert.match(fallbackBlock, /contextBindings:/);
   assert.match(fallbackBlock, /handoffExamples:/);
-  assert.match(fallbackBlock, /avatar:\s*\{\s*icon:/);
+  assert.match(fallbackBlock, /avatar:\s*\{\s*emoji:/);
+  assert.match(fallbackBlock, /token:\s*"books"/);
   assert.match(fallbackBlock, /mia-scheduler/);
 });
 
@@ -155,25 +135,35 @@ test("discover bot store presents assistant templates as context contacts", () =
   const store = read("src/renderer/bot/bot-store.js");
 
   assert.match(store, /window\.miaAssistantTemplate/);
-  assert.match(store, /assistantResponsibility\(f\)/);
-  assert.match(store, /assistantSetupRequirement\(f\)/);
-  assert.match(store, /bot-store-card-responsibility/);
-  assert.match(store, /bot-store-card-setup/);
+  assert.match(store, /assistantDisplayDescription\(f\)/);
+  assert.match(store, /bot-store-card-description/);
   assert.match(store, /bot-store-skill-chip/);
-  assert.match(store, />添加并设置</);
-  assert.match(store, /长期负责：/);
-  assert.match(store, /第一次需要：/);
+  assert.match(store, />添加</);
+  assert.match(store, />描述</);
+  assert.match(store, />预设技能</);
+  assert.doesNotMatch(store, />添加并设置</);
+  assert.doesNotMatch(store, /长期负责：/);
+  assert.doesNotMatch(store, /第一次需要：/);
+  assert.doesNotMatch(store, /长期联系人/);
+  assert.doesNotMatch(store, /bot-store-template-meta/);
+  assert.doesNotMatch(store, /bot-store-demo/);
   assert.doesNotMatch(store, /<p class="line">\$\{escapeHtml\(f\.line\)\}<\/p>/);
   assert.doesNotMatch(store, /<button type="button" class="bot-store-btn primary" data-act="prepare">添加<\/button>/);
 });
 
-test("official assistant cards use icon avatars instead of single-character placeholders", () => {
+test("official assistant cards use visible emoji avatars instead of generated SVG placeholders", () => {
   const store = read("src/renderer/bot/bot-store.js");
 
-  assert.match(store, /const ASSISTANT_AVATAR_ICONS = Object\.freeze/);
+  assert.match(store, /function assistantAvatarEmojiToken/);
+  assert.match(store, /function assistantAvatarEmoji/);
   assert.match(store, /function assistantAvatarImage/);
-  assert.match(store, /data:image\/svg\+xml;charset=utf-8/);
-  assert.match(store, /<img class="bot-store-avatar-img"/);
+  assert.match(store, /`emoji:\$\{token\}`/);
+  assert.match(store, /bot-store-avatar-emoji/);
+  assert.doesNotMatch(store, /data-lottie=/);
+  assert.doesNotMatch(store, /bot-store-avatar-lottie/);
+  assert.doesNotMatch(store, /const ASSISTANT_AVATAR_ICONS = Object\.freeze/);
+  assert.doesNotMatch(store, /data:image\/svg\+xml;charset=utf-8/);
+  assert.doesNotMatch(store, /<img class="bot-store-avatar-img"/);
   assert.doesNotMatch(store, /\$\{f\.emoji\}<\/div>/);
 });
 
@@ -186,25 +176,25 @@ test("assistant store skill chips label mia-scheduler as 定时任务 instead of
   assert.doesNotMatch(store, /"mia-scheduler":\s*"mia-scheduler"/);
 });
 
-test("assistant enrollment collects setup context and folds it into bot identity", () => {
+test("assistant enrollment saves without asking the user to fill setup fields", () => {
   const store = read("src/renderer/bot/bot-store.js");
 
-  assert.match(store, /function setupFieldsHtml/);
-  assert.match(store, /data-assistant-setup-field/);
-  assert.match(store, /function readAssistantSetupValues/);
-  assert.match(store, /<div class="bot-store-enroll-console"[\s\S]*?\$\{setupFieldsHtml\(f\)\}[\s\S]*?<\/div>\s*<div class="bot-store-actions">/);
-  assert.match(store, /querySelector\('\[data-act="confirm"\]'\)\.addEventListener\("click",\s*\(\)\s*=>\s*\{\s*addBot\(f,\s*readEnrollmentTarget\(sheet\),\s*sheet\.dataset\.botKey\s*\|\|\s*plannedKey\);?\s*\}\s*\)/);
-  assert.match(store, /assistantPersonaText\(f,\s*setupValues\)/);
-  assert.match(store, /assistantDescription\(f,\s*setupValues\)/);
-  assert.match(store, /description:\s*assistantDescription\(f,\s*setupValues\)/);
-  assert.match(store, /personaText:\s*assistantPersonaText\(f,\s*setupValues\)/);
+  assert.match(store, /function addPresetBot/);
+  assert.match(store, /querySelector\('\[data-act="add"\]'\)\.addEventListener\("click",\s*\(\)\s*=>\s*addPresetBot\(f\)\)/);
+  assert.match(store, /assistantPersonaText\(f,\s*\{\}\)/);
+  assert.match(store, /assistantDescription\(f,\s*\{\}\)/);
+  assert.match(store, /description:\s*assistantDescription\(f,\s*\{\}\)/);
+  assert.match(store, /personaText:\s*assistantPersonaText\(f,\s*\{\}\)/);
   assert.match(store, /avatarImage:\s*avatarImage/);
-  assert.match(store, /avatarCrop:\s*avatarImage\s*\?\s*\{ x: 50, y: 50, zoom: 1 \}\s*:\s*null/);
+  assert.match(store, /avatarCrop:\s*assistantAvatarCrop\(avatarImage\)/);
   assert.match(store, /const avatarImage = assistantAvatarImage\(f\)/);
-  assert.match(store, /const setupValues = readAssistantSetupValues\(els\.botStoreSheet\)/);
-  assert.match(store, /const key = String\(plannedKey \|\| ""\)\.trim\(\);\s*if \(!key\) throw new Error\("AI 助手账号 ID 缺失。"\);\s*const setupValues = readAssistantSetupValues\(els\.botStoreSheet\)/s);
+  assert.match(store, /function assistantAvatarCrop/);
+  assert.match(store, /const key = String\(plannedKey \|\| ""\)\.trim\(\);\s*if \(!key\) throw new Error\("AI 助手账号 ID 缺失。"\);/s);
+  assert.doesNotMatch(store, /function setupFieldsHtml/);
+  assert.doesNotMatch(store, /function readAssistantSetupValues/);
+  assert.doesNotMatch(store, /data-assistant-setup-field/);
   assert.doesNotMatch(store, /throw new Error\(".*课程名/);
   assert.doesNotMatch(store, /required[^;]+checkValidity/);
-  assert.doesNotMatch(store, /setupValues\.[^;\n]+throw new Error/);
+  assert.doesNotMatch(store, /setupValues/);
   assert.doesNotMatch(store, /<textarea[^>]*\srequired(?:[=\s>])|<input[^>]*\srequired(?:[=\s>])/);
 });

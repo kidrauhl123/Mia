@@ -8,6 +8,10 @@
     mediaKind: api.mediaKind,
     isVideo: api.isVideo,
     isGif: api.isGif,
+    isEmojiAvatar: api.isEmojiAvatar,
+    emojiAvatarToken: api.emojiAvatarToken,
+    emojiAvatarGlyph: api.emojiAvatarGlyph,
+    avatarEmojiSrc: api.avatarEmojiSrc,
     normalizeTrim: api.normalizeTrim,
     trimFromCrop: api.trimFromCrop,
     cropWithTrim: api.cropWithTrim
@@ -45,6 +49,15 @@
   const VIDEO_EXT_RE = /\.(mp4|m4v|mov|webm|ogv|ogg)(?:[?#].*)?$/i;
   const GIF_EXT_RE = /\.gif(?:[?#].*)?$/i;
   const IMAGE_EXT_RE = /\.(png|jpe?g|webp|avif|svg)(?:[?#].*)?$/i;
+  const EMOJI_AVATAR_RE = /^emoji:([A-Za-z0-9_-]+)$/;
+  const EMOJI_AVATAR_GLYPHS = Object.freeze({
+    books: "📚",
+    receipt: "🧾",
+    "test-tube": "🧪",
+    briefcase: "💼",
+    check: "✅",
+    puzzle: "🧩"
+  });
 
   function hashCode(value) {
     const str = String(value || "");
@@ -64,6 +77,7 @@
   function mediaKind(value = "") {
     const src = String(value || "").trim();
     if (!src) return "";
+    if (isEmojiAvatar(src)) return "emoji";
     if (/^data:video\//i.test(src) || VIDEO_EXT_RE.test(src)) return "video";
     if (/^data:image\/gif/i.test(src) || GIF_EXT_RE.test(src)) return "gif";
     if (/^data:image\//i.test(src) || IMAGE_EXT_RE.test(src)) return "image";
@@ -76,6 +90,27 @@
 
   function isGif(value) {
     return mediaKind(value) === "gif";
+  }
+
+  function emojiAvatarToken(value = "") {
+    const match = String(value || "").trim().match(EMOJI_AVATAR_RE);
+    return match ? match[1] : "";
+  }
+
+  function emojiAvatarGlyph(value = "") {
+    const token = emojiAvatarToken(value);
+    return token ? (EMOJI_AVATAR_GLYPHS[token] || "") : "";
+  }
+
+  function isEmojiAvatar(value = "") {
+    return Boolean(emojiAvatarGlyph(value));
+  }
+
+  function avatarEmojiSrc(value = "") {
+    const raw = String(value || "").trim();
+    if (Object.prototype.hasOwnProperty.call(EMOJI_AVATAR_GLYPHS, raw)) return `emoji:${raw}`;
+    const found = Object.entries(EMOJI_AVATAR_GLYPHS).find(([, glyph]) => glyph === raw);
+    return found ? `emoji:${found[0]}` : "";
   }
 
   function normalizeTrim(trim = {}) {
@@ -202,6 +237,7 @@
   }
 
   function avatarCropForImage(image, crop) {
+    if (isEmojiAvatar(image)) return null;
     if (!normalizeAvatarImage(image)) return null;
     return crop || { ...DEFAULT_AVATAR_CROP };
   }
@@ -323,6 +359,10 @@
     mediaKind,
     isVideo,
     isGif,
+    isEmojiAvatar,
+    emojiAvatarToken,
+    emojiAvatarGlyph,
+    avatarEmojiSrc,
     normalizeTrim,
     trimFromCrop,
     cropWithTrim,

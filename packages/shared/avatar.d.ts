@@ -31,9 +31,13 @@ export const avatarPresetGroups: { human: readonly unknown[]; pet: readonly unkn
 export const avatarPresets: readonly unknown[];
 
 export function memberAccentColor(id: string): string;
-export function mediaKind(value?: string): "" | "video" | "gif" | "image";
+export function mediaKind(value?: string): "" | "video" | "gif" | "image" | "emoji";
 export function isVideo(value?: string): boolean;
 export function isGif(value?: string): boolean;
+export function isEmojiAvatar(value?: string): boolean;
+export function emojiAvatarToken(value?: string): string;
+export function emojiAvatarGlyph(value?: string): string;
+export function avatarEmojiSrc(value?: string): string;
 export function normalizeTrim(trim?: Record<string, unknown> | null): AvatarTrim;
 export function trimFromCrop(crop?: Record<string, unknown> | null): AvatarTrim;
 export function cropWithTrim(crop?: Record<string, unknown> | null, trim?: Record<string, unknown> | null): Record<string, unknown> & AvatarTrim;

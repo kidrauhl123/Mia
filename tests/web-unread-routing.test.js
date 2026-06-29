@@ -662,7 +662,14 @@ test("web app loads lottie player and renders status badge lotties from cloud as
   assert.match(app, /function renderNameWithBadgeHtml/);
   assert.match(app, /miaStatusBadgeAssets/);
   assert.match(app, /function initStatusBadgeLotties/);
+  assert.match(app, /function emojiAvatarHtml/);
+  assert.match(app, /avatarResolve\.emojiAvatarGlyph/);
+  assert.doesNotMatch(app, /function lottieAvatarHtml/);
+  assert.doesNotMatch(app, /function initAvatarLotties/);
+  assert.doesNotMatch(app, /data-avatar-lottie=/);
   assert.match(styles, /--name-badge-size:\s*max\(20px,\s*1\.12em\)/);
+  assert.match(styles, /\.avatar-emoji\s*\{[^}]*display:\s*grid;[^}]*place-items:\s*center;[^}]*font-size:\s*28px;/);
+  assert.doesNotMatch(styles, /\.avatar-lottie/);
   assert.match(styles, /--name-badge-gap:\s*0px/);
   assert.match(styles, /--name-badge-shift-x:\s*2px/);
   assert.match(styles, /--name-badge-shift-y:\s*-1px/);

@@ -9,16 +9,13 @@
   let pageTurnDirection = 0;
   let adding = false;
   let libraryRequested = false;
-  let runtimeDevicesLoading = false;
-  let runtimeDevicesLoadedAt = 0;
-  const RUNTIME_DEVICE_REFRESH_INTERVAL_MS = 15_000;
 
   // 样例预设：官方库还没加载时使用；正式数据来自 resources/official-library/library.json。
   // capabilities.enabledSkills 要和官方库保持同一套 id，保存后会进入运行时 Skill 注入链路。
   const FALLBACK_PRESETS = [
     {
       key: "course-tutor", cat: "学习", category: "学习", emoji: "课", c1: "#ecebfc", c2: "#5e5ce6",
-      avatar: { icon: "book-open-check" },
+      avatar: { emoji: "📚", token: "books" },
       name: "课程助教", tagline: "一门课的长期资料、作业、复习联系人",
       line: "长期管理一门课的资料、作业、复习和答疑。",
       responsibility: "长期管理一门课的资料、作业、复习和答疑。",
@@ -41,7 +38,7 @@
     },
     {
       key: "project-report-lead", cat: "项目", category: "项目", emoji: "报", c1: "#e1f3f6", c2: "#0891b2",
-      avatar: { icon: "presentation-chart" },
+      avatar: { emoji: "🧾", token: "receipt" },
       name: "项目汇报负责人", tagline: "一个项目的组会、周报、PPT 和反馈联系人",
       line: "长期维护一个项目的汇报材料、会议结论、反馈和下次准备事项。",
       responsibility: "长期维护一个项目的汇报材料、会议结论、反馈和下次准备事项。",
@@ -65,7 +62,7 @@
     },
     {
       key: "experiment-records", cat: "项目", category: "项目", emoji: "数", c1: "#e4f3eb", c2: "#1a9d5a",
-      avatar: { icon: "chart-scatter" },
+      avatar: { emoji: "🧪", token: "test-tube" },
       name: "实验记录管理员", tagline: "一个实验或数据项目的数据、图表和报告联系人",
       line: "长期维护实验数据、字段说明、图表输出和报告段落。",
       responsibility: "长期维护实验数据、字段说明、图表输出和报告段落。",
@@ -89,7 +86,7 @@
     },
     {
       key: "job-search-manager", cat: "项目", category: "项目", emoji: "职", c1: "#e5ecfd", c2: "#2563eb",
-      avatar: { icon: "briefcase-search" },
+      avatar: { emoji: "💼", token: "briefcase" },
       name: "求职投递管家", tagline: "一个求职方向的简历、JD、投递和面试联系人",
       line: "长期管理一个求职方向的简历版本、岗位 JD、投递状态和面试反馈。",
       responsibility: "长期管理一个求职方向的简历版本、岗位 JD、投递状态和面试反馈。",
@@ -113,7 +110,7 @@
     },
     {
       key: "personal-secretary", cat: "事务", category: "事务", emoji: "办", c1: "#eae9fc", c2: "#4f46e5",
-      avatar: { icon: "calendar-check" },
+      avatar: { emoji: "✅", token: "check" },
       name: "个人事务秘书", tagline: "承诺、待办、提醒和零散信息的收口联系人",
       line: "长期收口聊天、笔记和提醒里的个人承诺与待办。",
       responsibility: "长期收口聊天、笔记和提醒里的个人承诺与待办。",
@@ -136,7 +133,7 @@
     },
     {
       key: "repo-maintainer", cat: "代码", category: "代码", emoji: "库", c1: "#dcecff", c2: "#378add",
-      avatar: { icon: "code-branch" },
+      avatar: { emoji: "🧩", token: "puzzle" },
       name: "代码仓库维护员", tagline: "一个 repo 的测试、审查、发布和技术债联系人",
       line: "长期维护一个代码仓库的 bug、测试、PR 审查、发布记录和技术债。",
       responsibility: "长期维护一个代码仓库的 bug、测试、PR 审查、发布记录和技术债。",
@@ -198,50 +195,6 @@
     "trip-planner": "行程"
   };
 
-  const ASSISTANT_AVATAR_ICONS = Object.freeze({
-    "book-open-check": `
-      <path d="M22 28c8-3 16-2 26 4v34c-10-6-18-7-26-4V28Z"/>
-      <path d="M48 32c10-6 18-7 26-4v34c-8-3-16-2-26 4V32Z"/>
-      <path d="m33 48 6 6 10-12"/>
-    `,
-    "presentation-chart": `
-      <path d="M24 26h48v32H24z"/>
-      <path d="M48 58v12"/>
-      <path d="m36 72 12-14 12 14"/>
-      <path d="M35 48v-8"/>
-      <path d="M48 48V36"/>
-      <path d="M61 48v-16"/>
-    `,
-    "chart-scatter": `
-      <path d="M28 24v44h42"/>
-      <circle cx="39" cy="54" r="4"/>
-      <circle cx="50" cy="39" r="4"/>
-      <circle cx="62" cy="49" r="4"/>
-      <path d="m39 54 11-15 12 10"/>
-    `,
-    "briefcase-search": `
-      <path d="M30 34h36a8 8 0 0 1 8 8v22H22V42a8 8 0 0 1 8-8Z"/>
-      <path d="M40 34v-6h16v6"/>
-      <path d="M22 48h52"/>
-      <circle cx="47" cy="56" r="7"/>
-      <path d="m53 62 9 9"/>
-    `,
-    "calendar-check": `
-      <path d="M28 28h40a6 6 0 0 1 6 6v36H22V34a6 6 0 0 1 6-6Z"/>
-      <path d="M34 22v12"/>
-      <path d="M62 22v12"/>
-      <path d="M22 42h52"/>
-      <path d="m36 58 8 8 17-18"/>
-    `,
-    "code-branch": `
-      <circle cx="34" cy="28" r="7"/>
-      <circle cx="62" cy="68" r="7"/>
-      <circle cx="34" cy="68" r="7"/>
-      <path d="M34 35v26"/>
-      <path d="M34 48h16a12 12 0 0 1 12 12v1"/>
-    `
-  });
-
   function presets() {
     const official = Array.isArray(state?.skillLibrary?.botPresets) ? state.skillLibrary.botPresets : [];
     return official.length ? official : FALLBACK_PRESETS;
@@ -289,26 +242,40 @@
     return /^#[0-9a-f]{3,8}$/i.test(color) ? color : fallback;
   }
 
-  function assistantAvatarIconKey(f = {}) {
+  const ASSISTANT_AVATAR_EMOJI = Object.freeze({
+    books: "📚",
+    receipt: "🧾",
+    "test-tube": "🧪",
+    briefcase: "💼",
+    check: "✅",
+    puzzle: "🧩"
+  });
+
+  function assistantAvatarEmojiToken(f = {}) {
     const meta = f.avatar && typeof f.avatar === "object" ? f.avatar : {};
-    return String(meta.icon || f.avatarIcon || "").trim();
+    const token = String(meta.token || meta.emojiToken || f.avatarEmojiToken || "").trim();
+    if (Object.prototype.hasOwnProperty.call(ASSISTANT_AVATAR_EMOJI, token)) return token;
+    const glyph = String(meta.emoji || f.avatarEmoji || "").trim();
+    const found = Object.entries(ASSISTANT_AVATAR_EMOJI).find(([, value]) => value === glyph);
+    return found ? found[0] : "";
   }
 
-  function assistantAvatarSvg(f = {}) {
-    const iconKey = assistantAvatarIconKey(f);
-    const icon = ASSISTANT_AVATAR_ICONS[iconKey];
-    if (!icon) return "";
-    const bg = safeColor(f.c1, "#ecebfc");
-    const fg = safeColor(f.c2, "#5e5ce6");
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="26" fill="${bg}"/><circle cx="70" cy="24" r="18" fill="#ffffff" opacity=".34"/><circle cx="28" cy="72" r="16" fill="#ffffff" opacity=".26"/><g fill="none" stroke="${fg}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">${icon}</g></svg>`;
+  function assistantAvatarEmoji(f = {}) {
+    return ASSISTANT_AVATAR_EMOJI[assistantAvatarEmojiToken(f)] || "";
   }
 
   function assistantAvatarImage(f = {}) {
     const meta = f.avatar && typeof f.avatar === "object" ? f.avatar : {};
     const explicit = String(meta.image || f.avatarImage || "").trim();
     if (explicit) return explicit;
-    const svg = assistantAvatarSvg(f);
-    return svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` : "";
+    const token = assistantAvatarEmojiToken(f);
+    return token ? `emoji:${token}` : "";
+  }
+
+  function assistantAvatarCrop(avatarImage = "") {
+    return String(avatarImage || "").startsWith("emoji:")
+      ? null
+      : (avatarImage ? { x: 50, y: 50, zoom: 1 } : null);
   }
 
   function enabledSkillIds(f = {}) {
@@ -341,21 +308,6 @@
     return typeof fn === "function" ? fn(f) : String(f.responsibility || f.line || "").trim();
   }
 
-  function assistantSetupRequirement(f = {}) {
-    const fn = assistantTemplates().assistantSetupRequirement;
-    return typeof fn === "function" ? fn(f) : String(f.setupPrompt || f.tagline || "").trim();
-  }
-
-  function assistantHandoffExamples(f = {}) {
-    const fn = assistantTemplates().assistantHandoffExamples;
-    return typeof fn === "function" ? fn(f) : [];
-  }
-
-  function assistantSetupFields(f = {}) {
-    const fn = assistantTemplates().assistantSetupFields;
-    return typeof fn === "function" ? fn(f) : [];
-  }
-
   function assistantPersonaText(f = {}, values = {}) {
     const fn = assistantTemplates().assistantPersonaText;
     return typeof fn === "function" ? fn(f, values) : String(f.persona || "").trim();
@@ -366,37 +318,8 @@
     return typeof fn === "function" ? fn(f, values) : String(f.line || f.desc || "").trim();
   }
 
-  function setupFieldsHtml(f = {}) {
-    const fields = assistantSetupFields(f);
-    if (!fields.length) return "";
-    return `
-      <div class="bot-store-setup-fields" aria-label="初始化设置">
-        ${fields.map((field) => {
-          const tag = field.type === "textarea" ? "textarea" : "input";
-          const required = field.required ? " data-required=\"true\"" : "";
-          const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : "";
-          const common = `class="bot-store-setup-input" data-assistant-setup-field="${escapeHtml(field.id)}"${placeholder}${required}`;
-          return `
-            <label class="bot-store-setup-field">
-              <span>${escapeHtml(field.label)}${field.required ? "<em>建议填写</em>" : ""}</span>
-              ${tag === "textarea"
-                ? `<textarea ${common} rows="2"></textarea>`
-                : `<input ${common} autocomplete="off">`}
-            </label>
-          `;
-        }).join("")}
-      </div>
-    `;
-  }
-
-  function readAssistantSetupValues(sheet) {
-    const values = {};
-    sheet?.querySelectorAll?.("[data-assistant-setup-field]")?.forEach((field) => {
-      const key = String(field.dataset.assistantSetupField || "").trim();
-      const value = String(field.value || "").trim();
-      if (key && value) values[key] = value;
-    });
-    return values;
+  function assistantDisplayDescription(f = {}) {
+    return String(f.desc || f.description || f.line || f.responsibility || "").trim();
   }
 
   function skillChipHtml(f = {}) {
@@ -583,17 +506,6 @@
     };
   }
 
-  function runtimeTargetKey(target = {}) {
-    const t = normalizeRuntimeTarget(target);
-    return `${t.runtimeKind}:${t.deviceId}:${t.agentEngine}`;
-  }
-
-  function targetSummary(target = {}) {
-    const t = normalizeRuntimeTarget(target);
-    const device = t.runtimeKind === "cloud-hermes" ? "Mia Cloud" : (t.deviceName || "本机");
-    return `${device} · ${engineLabel(t.agentEngine)}`;
-  }
-
   function principalId(f = {}) {
     return String(f.account_id || f.accountId || f.uid || "").trim();
   }
@@ -708,10 +620,10 @@
     const cls = extraClass ? ` ${extraClass}` : "";
     const c1 = safeColor(f.c1, "#ecebfc");
     const c2 = safeColor(f.c2, "#5e5ce6");
-    const image = assistantAvatarImage(f);
+    const emoji = assistantAvatarEmoji(f);
     const fallback = escapeHtml(String(f.emoji || "◇").trim() || "◇");
-    const body = image
-      ? `<img class="bot-store-avatar-img" src="${escapeHtml(image)}" alt="" aria-hidden="true">`
+    const body = emoji
+      ? `<span class="bot-store-avatar-emoji" aria-hidden="true">${escapeHtml(emoji)}</span>`
       : fallback;
     return `<div class="bot-store-avatar${cls}" style="background:${c1};color:${c2}">${body}</div>`;
   }
@@ -722,14 +634,6 @@
     return `--bot-card-bg:${c1};--bot-card-fg:${c2}`;
   }
 
-  function textWithLineBreaks(value) {
-    return escapeHtml(
-      String(value || "")
-        .replace(/<br\s*\/?>/gi, "\n")
-        .replace(/<[^>]+>/g, "")
-    ).replace(/\n/g, "<br>");
-  }
-
   function defaultEnrollmentTarget(f = {}) {
     const wantedEngine = normalizeAgentEngine(f.agentEngine || state?.preferredAgentEngine || "hermes");
     const groups = runtimeTargetGroups({ agentEngine: wantedEngine });
@@ -738,58 +642,6 @@
       || flat.find((target) => target.runtimeKind === "desktop-local")
       || flat[0]
       || normalizeRuntimeTarget({ runtimeKind: "desktop-local", agentEngine: wantedEngine });
-  }
-
-  function targetOptionValue(target) {
-    const t = normalizeRuntimeTarget(target);
-    return encodeURIComponent(JSON.stringify({
-      runtimeKind: t.runtimeKind,
-      deviceId: t.deviceId,
-      deviceName: t.deviceName,
-      agentEngine: t.agentEngine
-    }));
-  }
-
-  function parseTargetOptionValue(value = "") {
-    try {
-      return normalizeRuntimeTarget(JSON.parse(decodeURIComponent(String(value || ""))));
-    } catch {
-      return normalizeRuntimeTarget({});
-    }
-  }
-
-  function targetSelectHtml(selectedTarget) {
-    const groups = runtimeTargetGroups(selectedTarget);
-    if (!groups.length) return `<option value="" disabled>没有可用 Agent</option>`;
-    const selectedKey = runtimeTargetKey(selectedTarget);
-    return groups.map((group) => `
-      <optgroup label="${escapeHtml(group.label)}">
-        ${group.targets.map((target) => {
-          const t = normalizeRuntimeTarget(target);
-          const selected = runtimeTargetKey(t) === selectedKey ? " selected" : "";
-          return `<option value="${escapeHtml(targetOptionValue(t))}"${selected}>${escapeHtml(targetSummary(t))}</option>`;
-        }).join("")}
-      </optgroup>
-    `).join("");
-  }
-
-  function writeEnrollmentTarget(sheet, target) {
-    const t = normalizeRuntimeTarget(target);
-    const meta = engineMeta(t.agentEngine);
-    sheet.dataset.runtimeKind = t.runtimeKind;
-    sheet.dataset.targetDeviceId = t.deviceId;
-    sheet.dataset.targetDeviceName = t.deviceName;
-    sheet.dataset.agentEngine = t.agentEngine;
-    sheet.querySelector(".bot-store-enroll-console")?.style.setProperty("--engine-accent", safeColor(meta.accent, "#5dcaa5"));
-    const engineLabelEl = sheet.querySelector("[data-badge-engine]");
-    if (engineLabelEl) engineLabelEl.textContent = targetSummary(t);
-    const select = sheet.querySelector("[data-runtime-target-select]");
-    if (select) {
-      select.innerHTML = targetSelectHtml(t);
-      const selectedOption = Array.from(select.options || []).find((option) => runtimeTargetKey(parseTargetOptionValue(option.value)) === runtimeTargetKey(t));
-      if (selectedOption) select.value = selectedOption.value;
-      select.onchange = () => selectEnrollmentTarget(sheet, parseTargetOptionValue(select.value));
-    }
   }
 
   function renderGrid() {
@@ -813,11 +665,9 @@
         <div class="bot-store-card-body">
           <div class="bot-store-card-head">
             <strong>${escapeHtml(f.name)}</strong>
-            <div class="tag">长期联系人</div>
           </div>
-          <p class="bot-store-card-responsibility">长期负责：${escapeHtml(assistantResponsibility(f))}</p>
-          <p class="bot-store-card-setup">第一次需要：${escapeHtml(assistantSetupRequirement(f))}</p>
-          <div class="bot-store-card-skills bot-store-card-foot" aria-label="默认 Skill">${skillChipHtml(f)}</div>
+          <p class="bot-store-card-description">${escapeHtml(assistantDisplayDescription(f))}</p>
+          <div class="bot-store-card-skills" aria-label="预设技能">${skillChipHtml(f)}</div>
         </div>
       </div>`).join("");
     grid.querySelectorAll(".bot-store-card").forEach((card) => {
@@ -835,34 +685,29 @@
     const scrim = els.botStoreScrim;
     if (!sheet || !scrim) return;
     adding = false;
-    sheet.classList.remove("is-enrolling");
-    sheet.classList.remove("is-stamped");
     sheet.innerHTML = `
       <div class="bot-store-sheet-head">
         ${avatarHtml(f)}
-        <div><h2>${escapeHtml(f.name)}</h2><div class="tag">${escapeHtml(f.tagline)}</div></div>
+        <div><h2>${escapeHtml(f.name)}</h2></div>
       </div>
-      <p class="desc">${escapeHtml(assistantResponsibility(f))}</p>
-      <div class="bot-store-template-meta">
-        <div><span>第一次需要</span><strong>${escapeHtml(assistantSetupRequirement(f))}</strong></div>
-        <div><span>默认 Skill</span><strong>${escapeHtml(skillSummary(f))}</strong></div>
+      <div class="bot-store-sheet-section">
+        <span>描述</span>
+        <strong>${escapeHtml(assistantDisplayDescription(f))}</strong>
       </div>
-      <div class="bot-store-demo">
-        ${assistantHandoffExamples(f).map((example) => `<p>${escapeHtml(example)}</p>`).join("") || textWithLineBreaks(f.demo)}
+      <div class="bot-store-sheet-section">
+        <span>预设技能</span>
+        <strong>${escapeHtml(skillSummary(f))}</strong>
       </div>
       <div class="bot-store-actions">
         <button type="button" class="bot-store-btn ghost" data-act="back">返回</button>
-        <button type="button" class="bot-store-btn primary" data-act="prepare">添加并设置</button>
+        <button type="button" class="bot-store-btn primary" data-act="add">添加</button>
       </div>`;
     sheet.querySelector('[data-act="back"]').addEventListener("click", closeSheet);
-    sheet.querySelector('[data-act="prepare"]').addEventListener("click", () => openEnrollmentStep(f));
+    sheet.querySelector('[data-act="add"]').addEventListener("click", () => addPresetBot(f));
     scrim.classList.add("open");
   }
 
-  function openEnrollmentStep(f, selectedTarget = null) {
-    const sheet = els.botStoreSheet;
-    const scrim = els.botStoreScrim;
-    if (!sheet || !scrim) return;
+  function addPresetBot(f = {}) {
     let plannedKey = "";
     try {
       plannedKey = generateEnrollmentPrincipalId(f);
@@ -870,101 +715,7 @@
       window.alert(error?.message || "无法生成 AI 助手账号 ID。");
       return;
     }
-    const target = normalizeRuntimeTarget(selectedTarget || defaultEnrollmentTarget(f));
-    const meta = engineMeta(target.agentEngine);
-    adding = false;
-    sheet.classList.add("is-enrolling");
-    sheet.classList.remove("is-stamped");
-    sheet.dataset.botKey = plannedKey;
-    sheet.innerHTML = `
-      <div class="bot-store-enroll-console" style="--badge-accent:${safeColor(f.c2, "#5dcaa5")};--engine-accent:${safeColor(meta.accent, "#5dcaa5")}">
-        <div class="bot-store-enroll-bar">
-          <span class="bot-store-enroll-light" aria-hidden="true"></span>
-          <span>AI 助手入库</span>
-          <span class="bot-store-enroll-status" data-enroll-status>确认位置</span>
-        </div>
-        <div class="bot-store-badge-stage">
-          <div class="bot-store-badge-card">
-            <div class="bot-store-badge-title">MIA · AI 助手凭证</div>
-            <div class="bot-store-badge-shimmer" aria-hidden="true"></div>
-            <div class="bot-store-badge-main">
-              ${avatarHtml(f, "bot-store-badge-avatar")}
-              <div class="bot-store-badge-id">
-                <span>AI 助手</span>
-                <strong>${escapeHtml(f.name)}</strong>
-                <code data-badge-uid>UID · ${escapeHtml(plannedKey)}</code>
-              </div>
-            </div>
-            <div class="bot-store-badge-fields">
-              <div><span>分类</span><strong>${escapeHtml(f.cat || f.category || "推荐")}</strong></div>
-              <div><span>技能</span><strong>${escapeHtml(skillSummary(f))}</strong></div>
-              <label class="bot-store-badge-field bot-store-badge-engine-row">
-                <span>运行位置 / Agent</span><strong data-badge-engine>${escapeHtml(targetSummary(target))}</strong>
-                <select class="bot-store-badge-target-select" data-runtime-target-select aria-label="运行位置和 Agent 内核">
-                  ${targetSelectHtml(target)}
-                </select>
-              </label>
-            </div>
-            <div class="bot-store-badge-stamp" aria-hidden="true">
-              <strong>已激活</strong>
-              <span>ACTIVATED</span>
-            </div>
-          </div>
-          <div class="bot-store-badge-flash" aria-hidden="true"></div>
-        </div>
-        ${setupFieldsHtml(f)}
-      </div>
-      <div class="bot-store-actions">
-        <button type="button" class="bot-store-btn ghost" data-act="detail">上一步</button>
-        <button type="button" class="bot-store-btn primary" data-act="confirm">确认</button>
-      </div>`;
-    sheet.querySelector('[data-act="detail"]').addEventListener("click", () => openSheet(f));
-    writeEnrollmentTarget(sheet, target);
-    sheet.querySelector('[data-act="confirm"]').addEventListener("click", () => {
-      addBot(f, readEnrollmentTarget(sheet), sheet.dataset.botKey || plannedKey);
-    });
-    scrim.classList.add("open");
-    refreshRuntimeDevicesForStore(f);
-  }
-
-  function readEnrollmentTarget(sheet) {
-    return normalizeRuntimeTarget({
-      runtimeKind: sheet?.dataset.runtimeKind || "desktop-local",
-      deviceId: sheet?.dataset.targetDeviceId || "",
-      deviceName: sheet?.dataset.targetDeviceName || "",
-      agentEngine: sheet?.dataset.agentEngine || "hermes"
-    });
-  }
-
-  function selectEnrollmentTarget(sheet, target) {
-    writeEnrollmentTarget(sheet, target);
-  }
-
-  function refreshRuntimeDevicesForStore(f) {
-    const now = Date.now();
-    if (runtimeDevicesLoading || !state?.runtime?.cloud?.enabled || typeof window.mia?.social?.listBridgeDevices !== "function") return;
-    if (now - runtimeDevicesLoadedAt < RUNTIME_DEVICE_REFRESH_INTERVAL_MS) return;
-    runtimeDevicesLoading = true;
-    runtimeDevicesLoadedAt = now;
-    window.mia.social.listBridgeDevices({ includeOffline: true })
-      .then((result) => {
-        const devices = result?.data?.devices || result?.devices || [];
-        if (!Array.isArray(devices)) return;
-        state.runtime = {
-          ...(state.runtime || {}),
-          cloud: {
-            ...(state.runtime?.cloud || {}),
-            devices
-          }
-        };
-        const sheet = els.botStoreSheet;
-        if (!sheet?.classList.contains("is-enrolling")) return;
-        const current = readEnrollmentTarget(sheet);
-        const hasExplicitTarget = current.runtimeKind === "cloud-hermes" || Boolean(current.deviceId && current.deviceId !== "current-device");
-        writeEnrollmentTarget(sheet, hasExplicitTarget ? current : defaultEnrollmentTarget(f));
-      })
-      .catch((error) => console.warn("[bot-store] bridge devices load failed:", error?.message || error))
-      .finally(() => { runtimeDevicesLoading = false; });
+    return addBot(f, defaultEnrollmentTarget(f), plannedKey);
   }
 
   function closeSheet() {
@@ -994,13 +745,12 @@
   async function addBot(f, runtimeTarget = {}, plannedKey = "") {
     if (adding) return;
     adding = true;
-    const btn = els.botStoreSheet?.querySelector('[data-act="confirm"]');
-    if (btn) { btn.disabled = true; btn.textContent = "确认中…"; }
+    const btn = els.botStoreSheet?.querySelector('[data-act="add"]');
+    if (btn) { btn.disabled = true; btn.textContent = "添加中…"; }
     try {
       const target = normalizeRuntimeTarget(runtimeTarget);
       const key = String(plannedKey || "").trim();
       if (!key) throw new Error("AI 助手账号 ID 缺失。");
-      const setupValues = readAssistantSetupValues(els.botStoreSheet);
       const avatarImage = assistantAvatarImage(f);
       const saved = await window.miaBotCommands.saveBot({
         state,
@@ -1014,9 +764,9 @@
           category: defaultConversationTagName(f),
           color: f.c2,
           avatarImage: avatarImage,
-          avatarCrop: avatarImage ? { x: 50, y: 50, zoom: 1 } : null,
-          description: assistantDescription(f, setupValues),
-          personaText: assistantPersonaText(f, setupValues),
+          avatarCrop: assistantAvatarCrop(avatarImage),
+          description: assistantDescription(f, {}),
+          personaText: assistantPersonaText(f, {}),
           agentEngine: target.agentEngine,
           targetDeviceId: target.deviceId,
           targetDeviceName: target.deviceName,
@@ -1025,14 +775,8 @@
       });
       if (saved.runtime) state.runtime = saved.runtime;
       await applyDefaultConversationTag(f, saved);
-      els.botStoreSheet?.classList.add("is-stamped");
-      const status = els.botStoreSheet?.querySelector("[data-enroll-status]");
-      if (status) status.textContent = "✓ 已激活";
       const savedKey = saved.key || saved.bot?.key || saved.bot?.id || "";
-      const uid = els.botStoreSheet?.querySelector("[data-badge-uid]");
-      if (uid && savedKey) uid.textContent = `UID · ${savedKey}`;
       if (btn) btn.textContent = "已添加";
-      await new Promise((resolve) => setTimeout(resolve, 720));
       closeSheet();
       if (savedKey && typeof openBotConversation === "function") {
         state.activeView = "chat";

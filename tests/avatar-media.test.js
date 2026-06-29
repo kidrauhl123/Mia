@@ -24,6 +24,11 @@ test("avatar-media detects image gif and video avatar sources", () => {
   assert.equal(avatarMedia.mediaKind("data:image/gif;base64,abc"), "gif");
   assert.equal(avatarMedia.mediaKind("data:video/mp4;base64,abc"), "video");
   assert.equal(avatarMedia.mediaKind("/avatars/me.webm"), "video");
+  assert.equal(avatarMedia.mediaKind("emoji:books"), "emoji");
+  assert.equal(avatarMedia.isEmojiAvatar("emoji:books"), true);
+  assert.equal(avatarMedia.emojiAvatarGlyph("emoji:books"), "📚");
+  assert.equal(avatarMedia.emojiAvatarToken("emoji:../../bad"), "");
+  assert.equal(avatarMedia.isEmojiAvatar("emoji:unknown"), false);
 });
 
 test("avatar-media normalizes video trim to a short loop", () => {
@@ -41,5 +46,7 @@ test("avatar-media contract is available in browser contexts", () => {
   const browserContract = loadBrowserGlobal();
   assert.equal(browserContract.isVideo("data:video/webm;base64,abc"), true);
   assert.equal(browserContract.isVideo("data:image/gif;base64,abc"), false);
+  assert.equal(browserContract.isEmojiAvatar("emoji:check"), true);
+  assert.equal(browserContract.emojiAvatarGlyph("emoji:check"), "✅");
   assert.deepEqual(plain(browserContract.normalizeTrim({ start: 2, duration: 3 })), { start: 2, duration: 3 });
 });

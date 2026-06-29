@@ -522,6 +522,11 @@ function initStatusBadgeLotties(root = document) {
   });
 }
 
+function emojiAvatarHtml(image = "") {
+  const glyph = avatarResolve.emojiAvatarGlyph?.(image) || "";
+  return glyph ? `<span class="avatar-emoji" aria-hidden="true">${escapeHtml(glyph)}</span>` : "";
+}
+
 function syncProfileNameText() {
   if (!els.profileNameText || !els.profileDisplayName) return;
   els.profileNameText.textContent = els.profileDisplayName.value.trim() || state.user?.displayName || state.user?.username || "Mia";
@@ -835,13 +840,24 @@ function removeAvatarVideos(el) {
   el.querySelectorAll?.(".avatar-video")?.forEach((node) => node.remove());
 }
 
+function removeAvatarEmojis(el) {
+  el.querySelectorAll?.(".avatar-emoji")?.forEach((node) => node.remove());
+}
+
 function generatedAvatarStyle(color = "#5e5ce6", text = "") {
   const image = avatarResolve.generatedAvatarDataUri?.(color || "#5e5ce6", text || "");
   if (!image) return `background-color:${color};color:#fff;display:inline-flex;align-items:center;justify-content:center;`;
   return `background-color:transparent;background-image:url('${escapeHtml(image)}');background-size:cover;background-position:center;background-repeat:no-repeat;`;
 }
 
+function emojiAvatarStyle(color = "#5e5ce6") {
+  return `background-color:${escapeHtml(color || "#5e5ce6")};`;
+}
+
 function avatarHtml({ className = "avatar", image = "", crop = null, color = "#5e5ce6", text = "", attrs = "" } = {}) {
+  if (avatarResolve.isEmojiAvatar?.(image)) {
+    return `<span class="${escapeHtml(className)}" ${attrs} style="${emojiAvatarStyle(color)}">${emojiAvatarHtml(image)}</span>`;
+  }
   const useAvatar = image && isPublicImageSrc(image);
   if (useAvatar && avatarMedia.isVideo?.(image)) {
     return `<span class="${escapeHtml(className)}" ${attrs} style="background-color:transparent;">${avatarVideoHtml(image, crop || {})}</span>`;
@@ -865,6 +881,13 @@ function avatarHtmlForConversation(item, color, label) {
 function applyAvatarMedia(el, image, crop = null, color = "#5e5ce6", text = "") {
   if (!el) return;
   removeAvatarVideos(el);
+  removeAvatarEmojis(el);
+  if (avatarResolve.isEmojiAvatar?.(image)) {
+    el.style.cssText = emojiAvatarStyle(color);
+    el.textContent = "";
+    el.insertAdjacentHTML("afterbegin", emojiAvatarHtml(image));
+    return;
+  }
   const useAvatar = image && isPublicImageSrc(image);
   if (useAvatar && avatarMedia.isVideo?.(image)) {
     el.style.cssText = "background-color:transparent;";

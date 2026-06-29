@@ -78,6 +78,24 @@ test("resolveAvatarForContact: explicit avatarImage wins and carries its crop", 
   );
 });
 
+test("resolveAvatarForContact: bundled emoji avatars are explicit media without crop", () => {
+  const result = avatarResolve.resolveAvatarForContact({
+    id: "course-tutor",
+    displayName: "课程助教",
+    avatarImage: "emoji:books",
+    avatarCrop: { x: 60, y: 20, zoom: 1.4 },
+    color: "#5e5ce6"
+  });
+
+  assert.equal(avatarResolve.isEmojiAvatar(result.image), true);
+  assert.equal(avatarResolve.emojiAvatarToken(result.image), "books");
+  assert.equal(avatarResolve.emojiAvatarGlyph(result.image), "📚");
+  assert.equal(result.image, "emoji:books");
+  assert.equal(result.crop, null);
+  assert.equal(result.color, "#5e5ce6");
+  assert.equal(result.text, "课程");
+});
+
 test("resolveAvatarForContact: empty avatarImage returns color and text fallback", () => {
   const mia = avatarResolve.resolveAvatarForContact({ id: "mia", avatarImage: "" });
   assert.equal(mia.image, "");

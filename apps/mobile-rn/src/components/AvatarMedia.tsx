@@ -1,7 +1,7 @@
 import { Image, View, Text, StyleSheet } from "react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
 import type { AvatarDescriptor } from "../api/types";
-import { isVideoAvatar, avatarCropGeometry } from "../logic/avatar";
+import { isEmojiAvatar, isVideoAvatar, emojiAvatarGlyph, avatarCropGeometry } from "../logic/avatar";
 import { withAndroidTextFace } from "../ui/androidTextFace";
 import { useTypography } from "../ui/TypographyProvider";
 
@@ -36,6 +36,16 @@ export default function AvatarMedia({ tile, size = 44, radius }: { tile: AvatarD
     return <VideoAvatar uri={image} size={size} radius={r} crop={tile.crop} color={color} />;
   }
 
+  if (image && isEmojiAvatar(image)) {
+    return (
+      <View style={[styles.box, { width: size, height: size, borderRadius: r, backgroundColor: color }]}>
+        <Text allowFontScaling={false} style={[styles.emoji, { fontSize: Math.round(size * 0.62), lineHeight: size }]}>
+          {emojiAvatarGlyph(image)}
+        </Text>
+      </View>
+    );
+  }
+
   if (!image) {
     return (
       <View style={[styles.box, { width: size, height: size, borderRadius: r, backgroundColor: color }]}>
@@ -58,5 +68,6 @@ export default function AvatarMedia({ tile, size = 44, radius }: { tile: AvatarD
 
 const styles = StyleSheet.create({
   box: { alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  emoji: { textAlign: "center" },
   letter: { color: "#fff" },
 });

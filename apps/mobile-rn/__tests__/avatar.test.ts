@@ -2,6 +2,9 @@ import {
   DEFAULT_AVATAR_COLOR,
   DEFAULT_AVATAR_CROP,
   identityDisplayText,
+  isEmojiAvatar,
+  emojiAvatarGlyph,
+  emojiAvatarToken,
   memberAccentColor,
   normalizeAvatarDescriptor,
   normalizeAvatarImage,
@@ -46,6 +49,19 @@ test("移动端真实头像保留默认裁剪", () => {
   });
   expect(avatar.image).toBe("https://cdn.example.com/a.png");
   expect(avatar.crop).toEqual(DEFAULT_AVATAR_CROP);
+});
+
+test("移动端保留官方 emoji 头像来源且不裁剪", () => {
+  const avatar = resolveAvatarForContact({
+    id: "course-tutor",
+    displayName: "课程助教",
+    avatarImage: "emoji:books",
+    avatarCrop: { x: 10, y: 20, zoom: 2 },
+  });
+  expect(isEmojiAvatar(avatar.image)).toBe(true);
+  expect(emojiAvatarToken(avatar.image)).toBe("books");
+  expect(emojiAvatarGlyph(avatar.image)).toBe("📚");
+  expect(avatar.crop).toBeNull();
 });
 
 test("Avatar 组件输入 descriptor 时也会清理旧预设 image", () => {

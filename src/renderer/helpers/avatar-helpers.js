@@ -85,6 +85,7 @@
   function avatarImageSrc(value) {
     const raw = canonicalAvatarSrc(value);
     if (!raw) return "";
+    if (avatarResolve().isEmojiAvatar?.(raw)) return raw;
     if (/^(https?:|file:|data:)/i.test(raw)) return raw;
     if (raw.startsWith("./") || raw.startsWith("../")) return raw;
     return `file://${raw}`;
@@ -119,6 +120,10 @@
 
   function removeAvatarImages(el) {
     el?.querySelectorAll?.(":scope > .avatar-image")?.forEach((node) => node.remove());
+  }
+
+  function removeAvatarEmojis(el) {
+    el?.querySelectorAll?.(":scope > .avatar-emoji")?.forEach((node) => node.remove());
   }
 
   function removeAvatarChildrenExcept(el, keepNode) {
@@ -277,6 +282,19 @@
     return imageEl;
   }
 
+  function updateAvatarEmojiElement(emojiEl, image) {
+    const glyph = avatarResolve().emojiAvatarGlyph?.(image) || "";
+    emojiEl.className = "avatar-emoji";
+    emojiEl.textContent = glyph;
+    emojiEl.setAttribute("aria-hidden", "true");
+  }
+
+  function createAvatarEmojiElement(image) {
+    const emojiEl = document.createElement("span");
+    updateAvatarEmojiElement(emojiEl, image);
+    return emojiEl;
+  }
+
   function avatarFallbackDataUri(color, fallbackText) {
     return avatarResolve().generatedAvatarDataUri(color || "#5e5ce6", fallbackText || "");
   }
@@ -297,15 +315,32 @@
     el.style.backgroundSize = "";
     el.style.backgroundPosition = "";
     el.style.backgroundRepeat = "";
+    if (avatarResolve().isEmojiAvatar?.(src)) {
+      el.classList.add("media-avatar");
+      el.classList.add("emoji-avatar");
+      el.classList.remove("video-avatar");
+      el.style.backgroundColor = color || "#5e5ce6";
+      removeAvatarVideos(el);
+      removeAvatarImages(el);
+      const emojis = Array.from(el.querySelectorAll?.(":scope > .avatar-emoji") || []);
+      const emojiEl = emojis[0] || createAvatarEmojiElement(src);
+      emojis.slice(1).forEach((node) => node.remove());
+      if (!options.preserveChildren) removeAvatarChildrenExcept(el, emojiEl);
+      updateAvatarEmojiElement(emojiEl, src);
+      if (emojiEl.parentElement !== el || emojiEl !== el.firstElementChild) el.prepend(emojiEl);
+      return;
+    }
     if (avatarMedia().isVideo(src)) {
       el.classList.add("media-avatar");
       el.classList.add("video-avatar");
+      el.classList.remove("emoji-avatar");
       el.style.backgroundColor = color || "#5e5ce6";
       el.style.backgroundImage = `url("${avatarFallbackDataUri(color, fallbackText)}")`;
       el.style.backgroundSize = "cover";
       el.style.backgroundPosition = "center";
       el.style.backgroundRepeat = "no-repeat";
       removeAvatarImages(el);
+      removeAvatarEmojis(el);
       const videos = Array.from(el.querySelectorAll?.(":scope > .avatar-video") || []);
       const video = videos[0] || adoptParkedAvatarVideo(src) || createAvatarVideoElement(src, crop);
       registerAvatarVideo(src, video);
@@ -318,12 +353,14 @@
     if (src) {
       el.classList.add("media-avatar");
       el.classList.remove("video-avatar");
+      el.classList.remove("emoji-avatar");
       el.style.backgroundColor = color || "#5e5ce6";
       el.style.backgroundImage = `url("${avatarFallbackDataUri(color, fallbackText)}")`;
       el.style.backgroundSize = "cover";
       el.style.backgroundPosition = "center";
       el.style.backgroundRepeat = "no-repeat";
       removeAvatarVideos(el);
+      removeAvatarEmojis(el);
       const images = Array.from(el.querySelectorAll?.(":scope > .avatar-image") || []);
       const imageEl = images[0] || createAvatarImageElement(src, crop);
       images.slice(1).forEach((node) => node.remove());
@@ -334,9 +371,11 @@
     }
     el.classList.remove("media-avatar");
     el.classList.remove("video-avatar");
+    el.classList.remove("emoji-avatar");
     el.style.backgroundColor = color || "#5e5ce6";
     removeAvatarVideos(el);
     removeAvatarImages(el);
+    removeAvatarEmojis(el);
     if (!options.preserveChildren) el.textContent = fallbackText || "";
     el.setAttribute("style", avatarThumbBackgroundStyle(image, crop, color));
   }
@@ -367,7 +406,12 @@
     // Real images mount via hydrateAvatarMedia. For the no-image case bake the
     // generated SVG straight into the background so it is correct even before
     // hydration and matches what applyAvatarMedia paints (same memoized URI).
-    const hasImage = Boolean(avatarImageSrc(image));
+    const src = avatarImageSrc(image);
+    if (avatarResolve().isEmojiAvatar?.(src)) {
+      const glyph = avatarResolve().emojiAvatarGlyph?.(src) || "";
+      return `<${tag} class="${escapeHtml(`${className} media-avatar emoji-avatar`)}" ${attrs} ${avatarMediaAttrs(image || "", crop, color, text)} style="background-color:${escapeHtml(color || "#5e5ce6")};"><span class="avatar-emoji" aria-hidden="true">${escapeHtml(glyph)}</span></${tag}>`;
+    }
+    const hasImage = Boolean(src);
     const style = hasImage
       ? "background-color:transparent;"
       : `background-color:transparent;background-image:url('${escapeHtml(avatarResolve().generatedAvatarDataUri(color || "#5e5ce6", text || ""))}');background-size:cover;background-position:center;background-repeat:no-repeat;`;

@@ -50,7 +50,6 @@ interface Props {
   dimmed?: boolean;
   /** While true, play the flourish segment once (e.g. on tab focus). */
   play?: boolean;
-  loop?: boolean;
   /** Absolute frame to rest on when idle (desktop rail uses 60). Default 0. */
   restFrame?: number;
   /** [start, end] absolute frames to play on focus (desktop rail uses [70, 130]).

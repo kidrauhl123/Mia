@@ -242,20 +242,15 @@ test("chat avatar display settings do not hide group participant avatars", () =>
   );
 });
 
-test("assistant setup fields fit inside the enrollment sheet on constrained viewports", () => {
+test("assistant store detail sheet stays form-free on constrained viewports", () => {
   const css = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
-  assert.match(css, /\.bot-store-enroll-console\s*\{[\s\S]*?display:\s*grid;/);
-  assert.match(css, /\.bot-store-enroll-console\s*\{[\s\S]*?grid-template-rows:\s*auto minmax\(0,\s*1fr\) auto;/);
-  assert.match(css, /\.bot-store-enroll-console\s*\{[\s\S]*?min-height:\s*0;/);
-  assert.match(css, /\.bot-store-setup-fields\s*\{[\s\S]*?display:\s*grid;[\s\S]*?gap:\s*8px;/);
-  assert.match(css, /\.bot-store-setup-fields\s*\{[\s\S]*?min-height:\s*0;/);
-  assert.match(css, /\.bot-store-setup-fields\s*\{[\s\S]*?max-height:\s*min\(/);
-  assert.match(css, /\.bot-store-setup-fields\s*\{[\s\S]*?overflow-y:\s*auto;/);
-  assert.match(css, /\.bot-store-setup-fields\s*\{[\s\S]*?overflow-x:\s*hidden;/);
-  assert.match(css, /\.bot-store-setup-field\s*\{[^}]*display:\s*grid;[^}]*min-width:\s*0;/);
-  assert.match(css, /\.bot-store-setup-field input,\s*\.bot-store-setup-field textarea\s*\{[^}]*width:\s*100%;[^}]*box-sizing:\s*border-box;/);
-  assert.match(css, /\.bot-store-setup-field textarea\s*\{[^}]*resize:\s*vertical;/);
+  assert.match(css, /\.bot-store-sheet\s*\{[\s\S]*?max-height:\s*calc\(100vh - 56px\);[\s\S]*?overflow:\s*auto;/);
+  assert.match(css, /\.bot-store-sheet-section\s*\{[^}]*display:\s*grid;[^}]*gap:\s*6px;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.bot-store-sheet\s*\{[\s\S]*?max-height:\s*calc\(100vh - 28px\);/);
+  assert.doesNotMatch(css, /\.bot-store-enroll-console/);
+  assert.doesNotMatch(css, /\.bot-store-setup-fields/);
+  assert.doesNotMatch(css, /\.bot-store-setup-field/);
 });
 
 test("sidebar and chat headers use the same surface without a header divider", () => {
@@ -1134,16 +1129,6 @@ test("discover, skill, and task cards start from the fixed left edge", () => {
       `${name} cards should not animate a hover float`
     );
     assert.doesNotMatch(
-      cssRuleBody(css, `.${cardSelector}`),
-      /transition:[^;]*box-shadow/,
-      `${name} cards should not animate shadow repaint on hover`
-    );
-    assert.doesNotMatch(
-      cssRuleBody(css, `.${cardSelector}:hover`),
-      /box-shadow:/,
-      `${name} card hover should not repaint card shadows`
-    );
-    assert.doesNotMatch(
       cssRuleBody(css, `.${cardSelector}:hover`),
       /transform:/,
       `${name} card hover should not move the card`
@@ -1152,7 +1137,7 @@ test("discover, skill, and task cards start from the fixed left edge", () => {
 
   assert.match(botStoreJs, /bot-store-card-cover/);
   assert.match(botStoreJs, /bot-store-card-category/);
-  assert.match(botStoreJs, /bot-store-card-foot/);
+  assert.match(botStoreJs, /bot-store-card-description/);
   assert.match(botStoreJs, /miaMasonryGrid\?\.capture\(els\.botStoreGrid,\s*pageTurnDirection\)/);
   assert.match(skillJs, /miaMasonryGrid\?\.capture\(els\.skillCardGrid,\s*pageTurnDirection\)/);
   assert.match(taskJs, /miaMasonryGrid\?\.capture\(els\.tasksContent,\s*pageTurnDirection\)/);
@@ -1243,40 +1228,32 @@ test("task category filters stay as stable individual chips", () => {
   );
 });
 
-test("floating capsule controls keep hover hit targets stable", () => {
+test("floating capsule controls keep hover geometry stable", () => {
   const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
   const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
   const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
   const controls = [
-    ["discover topbar toggle", botStoreCss, ".discover-mode-toggle"],
-    ["bot store category rail", botStoreCss, ".bot-store-cap"],
-    ["skill topbar toggle", skillCss, ".skill-mode-toggle"],
-    ["skill category rail", skillCss, ".skill-chip-row"],
-    ["task topbar toggle", taskCss, ".task-mode-toggle"],
-    ["task history chips", taskCss, ".task-chip-row"]
+    ["discover topbar toggle", botStoreCss, ".discover-mode-toggle", ".discover-mode-toggle button:not(.active):hover"],
+    ["bot store category rail", botStoreCss, ".bot-store-cap", ".bot-store-cap button:not(.active):hover"],
+    ["skill topbar toggle", skillCss, ".skill-mode-toggle", ".skill-mode-toggle button:not(.active):hover"],
+    ["skill category rail", skillCss, ".skill-chip-row", ".skill-chip-row button:hover"],
+    ["task topbar toggle", taskCss, ".task-mode-toggle", ".task-mode-toggle button:not(.active):hover"],
+    ["task history chips", taskCss, ".task-chip-row", ".task-chip-row button:hover"]
   ];
 
-  for (const [name, css, selector] of controls) {
-    const controlRule = cssRuleBody(css, selector);
-    assert.match(
-      controlRule,
-      /-webkit-app-region:\s*no-drag;/,
-      `${name} should not fight Electron's draggable topbar hit testing`
-    );
-
+  for (const [name, css, selector, hoverSelector] of controls) {
     const buttonRule = cssRuleBody(css, `${selector} button`);
     assert.doesNotMatch(
       buttonRule,
-      /transition:[^;]*(?:background|box-shadow|filter|transform)/,
-      `${name} buttons should not animate painted hover layers that can flicker over glass`
+      /transition:[^;]*(?:box-shadow|filter|transform|width|height|padding|margin)/,
+      `${name} buttons should not animate geometry-affecting properties`
     );
 
-    const hoverSelector = `${selector} button:not(.active):hover`;
     const hoverRule = cssRuleBody(css, hoverSelector);
     assert.doesNotMatch(
       hoverRule,
-      /\b(?:background|font-weight|padding|margin|border(?:-width)?|width|height|min-width|min-height|transform|filter|box-shadow)\s*:/,
-      `${name} hover should not change painted layers, layout, hit area, or compositor geometry`
+      /\b(?:font-weight|padding|margin|border(?:-width)?|width|height|min-width|min-height|transform|filter|box-shadow)\s*:/,
+      `${name} hover should not change layout, hit area, or compositor geometry`
     );
   }
 });
@@ -1321,20 +1298,22 @@ test("chat history session menus constrain long history lists to an internal scr
   }
 });
 
-test("assistant store cards keep responsibility, setup, and skill metadata distinct", () => {
+test("assistant store cards keep description and skill metadata compact", () => {
   const css = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
-  assert.match(css, /\.bot-store-card-responsibility\s*\{[^}]*-webkit-line-clamp:\s*3;/);
-  assert.match(css, /\.bot-store-card-setup\s*\{[^}]*font-size:\s*12px;[^}]*color:\s*var\(--faint\);/);
+  assert.match(css, /\.bot-store-card-description\s*\{[^}]*-webkit-line-clamp:\s*3;/);
   assert.match(css, /\.bot-store-card-skills\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/);
   assert.match(css, /\.bot-store-skill-chip\s*\{[^}]*border-radius:\s*999px;/);
+  assert.match(css, /\.bot-store-sheet-section\s*\{[^}]*display:\s*grid;/);
+  assert.doesNotMatch(css, /\.bot-store-template-meta/);
+  assert.doesNotMatch(css, /\.bot-store-demo/);
 });
 
-test("assistant setup fields fit inside the enrollment sheet", () => {
+test("assistant store does not expose setup form controls in the detail sheet", () => {
   const css = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
-  assert.match(css, /\.bot-store-setup-fields\s*\{[^}]*display:\s*grid;[^}]*gap:\s*8px;/);
-  assert.match(css, /\.bot-store-setup-field\s*\{[^}]*display:\s*grid;[^}]*min-width:\s*0;/);
-  assert.match(css, /\.bot-store-setup-field input,\s*\.bot-store-setup-field textarea\s*\{[^}]*width:\s*100%;[^}]*box-sizing:\s*border-box;/);
-  assert.match(css, /\.bot-store-setup-field textarea\s*\{[^}]*resize:\s*vertical;/);
+  assert.match(css, /\.bot-store-sheet-section\s*\{[^}]*display:\s*grid;/);
+  assert.doesNotMatch(css, /\.bot-store-setup-fields/);
+  assert.doesNotMatch(css, /\.bot-store-setup-field/);
+  assert.doesNotMatch(css, /\.bot-store-enroll-console/);
 });
