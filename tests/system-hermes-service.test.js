@@ -117,6 +117,7 @@ test("probe recognizes official Windows Hermes venv launcher", (t) => {
       }
       if (command === python && args[0] === "-c") {
         assert.match(args[1], /aiohttp/);
+        assert.match(args[1], /mcp/);
         return { status: 0, stdout: `${python}\n`, stderr: "" };
       }
       return { status: 1, stdout: "", stderr: "" };

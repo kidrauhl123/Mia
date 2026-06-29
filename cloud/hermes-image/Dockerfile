@@ -27,7 +27,8 @@ RUN if [ -n "$DEBIAN_APT_MIRROR" ]; then \
 
 # Hermes ≥0.15 dropped the [web] extra; the runs API server (gateway/platforms/
 # api_server.py) needs aiohttp, which now lives in the [messaging]/[slack] extras.
-# Install the base package plus aiohttp directly so the API server adapter loads.
+# Install the base package plus aiohttp and mcp directly so the API server and
+# configured MCP tools load.
 RUN set -e; \
     pip_index_args=""; \
     if [ -n "$PIP_INDEX_URL" ]; then \
@@ -38,7 +39,8 @@ RUN set -e; \
     fi; \
     python -m pip install --no-cache-dir $pip_index_args \
       "hermes-agent @ https://github.com/NousResearch/hermes-agent/archive/refs/tags/v${HERMES_VERSION}.tar.gz" \
-      "aiohttp==3.13.3"
+      "aiohttp==3.13.3" \
+      "mcp"
 
 COPY mia_plugins /opt/mia-plugins/mia_plugins
 COPY entrypoint.sh /usr/local/bin/mia-hermes-entrypoint

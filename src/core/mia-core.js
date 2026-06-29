@@ -246,7 +246,7 @@ function coreReadHermesApiKey(hermesHome) {
   }
 }
 
-const CORE_HERMES_API_RUNTIME_MODULES = Object.freeze(["hermes_cli.main", "aiohttp"]);
+const CORE_HERMES_API_RUNTIME_MODULES = Object.freeze(["hermes_cli.main", "aiohttp", "mcp"]);
 
 function coreModuleImportScript(modules) {
   return [

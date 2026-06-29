@@ -9,11 +9,13 @@ description: Create, list, update, pause, resume, and delete Mia scheduled tasks
 
 Use Mia's scheduler MCP tools for every reminder or scheduled-task request. A created task appears in Mia's 活跃任务 view and fires by sending the saved prompt back into this same conversation.
 
+Different agent runtimes may expose these MCP tools with a namespace. Treat names such as `schedule_create`, `mcp_mia_scheduler_schedule_create`, and `mcp__mia-scheduler__schedule_create` as the same create capability.
+
 ## Rules
 
-- Use `schedule_create` for new reminders and tasks.
-- Use `schedule_list` before update, delete, pause, or resume when the task id is unknown.
-- Use `schedule_update`, `schedule_delete`, `schedule_pause`, or `schedule_resume` for existing tasks.
+- Use the runtime's scheduler create tool for new reminders and tasks.
+- Use the runtime's scheduler list tool before update, delete, pause, or resume when the task id is unknown.
+- Use the runtime's scheduler update, delete, pause, or resume tools for existing tasks.
 - Do not ask which bot or engine should run the task; Mia injects the current bot and conversation.
 - Do not invent delivery channels, retries, popups, logs, or alternate rooms. Mia currently creates conversation tasks only.
 - 不要使用名为 `cronjob` 的工具，也不要使用 shell、`sleep`、`at`、`osascript`、`cron`、`launchd` 或本地临时命令来冒充 Mia 定时任务；这些不会进入 Mia 活跃任务。

@@ -4,8 +4,8 @@ const path = require("node:path");
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const { createHermesInstallSourceService } = require("./hermes-install-source-service.js");
 
-const HERMES_API_RUNTIME_MODULES = Object.freeze(["hermes_cli.main", "aiohttp"]);
-const HERMES_API_RUNTIME_REQUIREMENTS = Object.freeze(["aiohttp"]);
+const HERMES_API_RUNTIME_MODULES = Object.freeze(["hermes_cli.main", "aiohttp", "mcp"]);
+const HERMES_API_RUNTIME_REQUIREMENTS = Object.freeze(["aiohttp", "mcp"]);
 
 // Hermes is an upstream engine the user runs from their own install on PATH
 // (system-hermes-service), exactly like claude/codex. This service installs the

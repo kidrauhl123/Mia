@@ -217,7 +217,7 @@ function createSystemHermesService(deps = {}) {
     if (!command) return "";
     const result = spawnSync(command, [
       "-c",
-      "import sys; import hermes_cli.main, aiohttp; print(sys.executable)"
+      "import sys; import hermes_cli.main, aiohttp, mcp; print(sys.executable)"
     ], {
       encoding: "utf8",
       timeout: 2500,
