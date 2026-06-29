@@ -67,17 +67,19 @@ test("appearanceSettings defaults chat avatars off and desktop notifications on"
   assert.equal(appearance.showAssistantAvatar, false);
   assert.equal(appearance.showDesktopNotifications, true);
   assert.equal(appearance.fontPreset, "system");
-  assert.equal(appearance.glassOpacity, 82);
   assert.equal(appearance.selectionStyle, "solid");
+  assert.equal(Object.hasOwn(appearance, "glassOpacity"), false);
   assert.equal(Object.hasOwn(appearance, "showHoverBackground"), false);
 });
 
-test("appearanceSettings falls back from invalid glass opacity", (t) => {
+test("appearanceSettings drops legacy glass opacity", (t) => {
   const { runtime, store } = setup(t);
   fs.mkdirSync(path.dirname(runtime.appearanceSettings), { recursive: true });
-  fs.writeFileSync(runtime.appearanceSettings, JSON.stringify({ glassOpacity: "bad" }));
+  fs.writeFileSync(runtime.appearanceSettings, JSON.stringify({ glassOpacity: "bad", theme: "dark" }));
 
-  assert.equal(store.appearanceSettings().glassOpacity, 82);
+  const appearance = store.appearanceSettings();
+  assert.equal(appearance.theme, "dark");
+  assert.equal(Object.hasOwn(appearance, "glassOpacity"), false);
 });
 
 test("appearanceSettings falls back from removed font presets", (t) => {
@@ -121,7 +123,6 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     fontPreset: "system",
     accentColor: "#aabbcc",
     userBubbleColor: "#eeffde",
-    glassOpacity: 100,
     showUserAvatar: false,
     showAssistantAvatar: false,
     showDesktopNotifications: false,

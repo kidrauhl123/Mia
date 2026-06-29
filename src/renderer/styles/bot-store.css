@@ -5,7 +5,10 @@
 .app-shell[data-active-view="bot-store"] {
   grid-template-rows: minmax(0, 1fr);
   padding: 0;
-  background: var(--workspace-floor);
+  background: var(--workspace-floor-image), var(--workspace-floor);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 .discover-top-bar { display: none; }
 .app-shell[data-active-view="contacts"] .discover-top-bar,

@@ -292,6 +292,7 @@ test("desktop shell uses optional middle pane by active view", () => {
 
   assert.match(appSource, /function shellLayoutForView\(view\)/);
   assert.match(appSource, /function viewHasIndexPane\(view = state\.activeView\)/);
+  assert.match(appSource, /return view === "chat" \|\| view === "contacts" \|\| view === "settings";/);
   assert.match(appSource, /function normalizeNarrowPaneForView\(view = state\.activeView\)/);
   assert.match(appSource, /if \(state\.isNarrowWindow\) return "single";/);
   assert.match(appSource, /return viewHasIndexPane\(view\) \? "dual" : "workspace"/);
@@ -335,10 +336,34 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.doesNotMatch(appSource, /syncSettingsDrawerVisibility/);
   assert.match(css, /#chatView\s*\{[\s\S]*?grid-column:\s*4;[\s\S]*?grid-row:\s*1;/);
   assert.match(css, /--rail-glass-bg:\s*color-mix\(in srgb,\s*var\(--surface-layer\)\s*82%,\s*transparent\);/);
-  assert.match(css, /\.nav-rail\s*\{[\s\S]*?grid-template-rows:\s*var\(--traffic-spacer-height\) 44px 1px repeat\(4,\s*44px\) minmax\(0,\s*1fr\) 44px;[\s\S]*?margin:\s*8px 8px 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?background:\s*var\(--rail-glass-bg\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.16\);/);
+  assert.match(css, /\.nav-rail\s*\{[\s\S]*?grid-template-rows:\s*var\(--traffic-spacer-height\) 44px 1px repeat\(4,\s*56px\) minmax\(0,\s*1fr\) 44px;[\s\S]*?margin:\s*8px 8px 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?background:\s*var\(--rail-glass-bg\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.16\);/);
   assert.match(css, /:root\[data-theme="dark"\] \.nav-rail\s*\{[\s\S]*?background:\s*var\(--rail-glass-bg\);[\s\S]*?backdrop-filter:\s*none;/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell\[data-active-view="chat"\]\[data-layout="index-workspace"\] \.nav-rail\s*\{[\s\S]*?margin:\s*8px 0 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\) 0 0 var\(--rail-corner-radius\);[\s\S]*?background:\s*var\(--surface-layer\);[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell\[data-active-view="chat"\]\[data-layout="index-workspace"\] \.nav-rail::after\s*\{[\s\S]*?top:\s*22px;[\s\S]*?bottom:\s*22px;[\s\S]*?width:\s*1px;[\s\S]*?background:\s*var\(--line\);/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell\[data-active-view="chat"\]\[data-layout="index-workspace"\]\[data-sidebar-state="collapsed"\] \.nav-rail\s*\{[\s\S]*?margin:\s*8px 8px 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell\[data-active-view="chat"\]\[data-layout="index-workspace"\]\[data-sidebar-state="collapsed"\] \.nav-rail::after\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell\[data-active-view="chat"\]\[data-layout="index-workspace"\]\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.nav-rail\s*\{[\s\S]*?margin:\s*8px 8px 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell\[data-active-view="chat"\]\[data-layout="index-workspace"\]\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.nav-rail::after\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] \.nav-rail\s*\{[\s\S]*?margin:\s*8px 0 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\) 0 0 var\(--rail-corner-radius\);[\s\S]*?background:\s*var\(--surface-layer\);[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] \.nav-rail::after\s*\{[\s\S]*?top:\s*22px;[\s\S]*?bottom:\s*22px;[\s\S]*?width:\s*1px;[\s\S]*?background:\s*var\(--line\);/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\]\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.nav-rail\s*\{[\s\S]*?margin:\s*8px 8px 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\]\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.nav-rail::after\s*\{[\s\S]*?display:\s*none;/);
   assert.match(css, /\.traffic-spacer\s*\{[\s\S]*?height:\s*var\(--traffic-spacer-height\);/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?margin:\s*8px 8px 10px 0;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?background:\s*var\(--surface-layer\);[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell\[data-active-view="chat"\]\[data-layout="index-workspace"\] \.conversation-sidebar\s*\{[\s\S]*?border-radius:\s*0 var\(--rail-corner-radius\) var\(--rail-corner-radius\) 0;[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
+  assert.match(css, /body:not\(\.platform-win32\) \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] \.settings-sidebar\s*\{[\s\S]*?border-radius:\s*0 var\(--rail-corner-radius\) var\(--rail-corner-radius\) 0;[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
+  assert.match(css, /\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] #settingsView\s*\{[\s\S]*?grid-column:\s*4;[\s\S]*?grid-row:\s*1;/);
+  assert.match(css, /@media\s*\(min-width:\s*721px\)\s*\{[\s\S]*?\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] \.settings-layout\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);[\s\S]*?padding:\s*0;/);
+  assert.match(css, /@media\s*\(min-width:\s*721px\)\s*\{[\s\S]*?\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] \.settings-tabs\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /@media\s*\(max-width:\s*1200px\)\s*\{[\s\S]*?\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) 0 0 minmax\(0,\s*1fr\);/);
+  assert.match(css, /@media\s*\(max-width:\s*1200px\)\s*\{[\s\S]*?\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] \.settings-sidebar\s*\{[\s\S]*?display:\s*none !important;/);
+  assert.match(css, /@media\s*\(max-width:\s*1200px\)\s*\{[\s\S]*?\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] \.settings-tabs\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*row;/);
+  assert.match(css, /@media\s*\(max-width:\s*1200px\)\s*\{[\s\S]*?body\.platform-darwin \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] \.settings-layout\s*\{[\s\S]*?padding-top:\s*30px;/);
+  assert.match(css, /@media\s*\(max-width:\s*1200px\)\s*\{[\s\S]*?\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] \.settings-tabs-title\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /@media\s*\(max-width:\s*1200px\)\s*\{[\s\S]*?\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] \.settings-tab\s*\{[\s\S]*?min-height:\s*34px;[\s\S]*?border-radius:\s*14px;/);
+  assert.match(css, /@media\s*\(max-width:\s*1200px\)\s*\{[\s\S]*?\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-active-view="settings"\]\[data-layout="index-workspace"\] \.nav-layout-preview\s*\{[\s\S]*?height:\s*124px;/);
+  assert.match(css, /\.rail-button\[data-view\]\s*\{[\s\S]*?grid-template-rows:\s*24px 13px;[\s\S]*?width:\s*56px;[\s\S]*?height:\s*56px;/);
+  assert.match(css, /\.rail-button-label\s*\{[\s\S]*?font-size:\s*10\.5px;[\s\S]*?line-height:\s*12px;[\s\S]*?white-space:\s*nowrap;/);
   assert.match(appSource, /sidebarCollapseToggle:\s*document\.getElementById\("sidebarCollapseToggle"\)/);
   assert.match(appSource, /els\.sidebarCollapseToggle\?\.addEventListener\("click",\s*\(\) => \{[\s\S]*?setSidebarCollapsed\(true,\s*true\);/);
   assert.match(appSource, /els\.sidebarRailToggle\?\.addEventListener\("click",\s*\(\) => \{[\s\S]*?setSidebarCollapsed\(false,\s*true\);/);
@@ -429,16 +454,16 @@ test("sidebar-bottom navigation mode keeps the rail path and exposes four primar
   assert.match(appSource, /settingsSidebar:\s*document\.getElementById\("settingsSidebar"\)/);
   assert.match(appSource, /state\.activeView = state\.exploreSectionView \|\| "bot-store"/);
   assert.match(appSource, /state\.activeView = "settings";/);
-  assert.match(appSource, /els\.settingsSidebar\?\.classList\.toggle\("hidden",\s*!\(sidebarBottomLayout && state\.activeView === "settings"\)\)/);
+  assert.match(appSource, /els\.settingsSidebar\?\.classList\.toggle\("hidden",\s*state\.activeView !== "settings"\)/);
 
   assert.match(css, /--sidebar-bottom-nav-clearance:\s*84px;/);
   assert.match(css, /--sidebar-bottom-nav-bg:\s*color-mix\(in srgb,\s*var\(--surface\) 58%,\s*transparent\);/);
-  assert.match(css, /\.nav-layout-settings-row\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);[\s\S]*?min-height:\s*198px;[\s\S]*?padding:\s*18px 28px 22px;/);
+  assert.match(css, /\.nav-layout-settings-row\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);[\s\S]*?min-height:\s*222px;[\s\S]*?padding:\s*20px 30px 24px;/);
   assert.match(css, /\.nav-layout-choice-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[\s\S]*?justify-self:\s*center;[\s\S]*?width:\s*min\(680px,\s*100%\);/);
   assert.match(css, /\.nav-layout-choice\s*\{[\s\S]*?padding:\s*0;[\s\S]*?border:\s*0;[\s\S]*?background:\s*transparent;/);
   assert.match(css, /\.nav-layout-choice\.active\s*\{[\s\S]*?color:\s*var\(--accent\);[\s\S]*?\}/);
   assert.match(css, /\.nav-layout-choice\.active \.nav-layout-preview\s*\{[\s\S]*?border-color:\s*var\(--accent\);/);
-  assert.match(css, /\.nav-layout-preview\s*\{[\s\S]*?display:\s*flex;[\s\S]*?height:\s*150px;/);
+  assert.match(css, /\.nav-layout-preview\s*\{[\s\S]*?display:\s*flex;[\s\S]*?height:\s*168px;/);
   assert.match(css, /\.nav-layout-preview-bottom\s*\{[\s\S]*?flex-direction:\s*column;/);
   assert.match(css, /\.np-content\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;/);
   assert.match(css, /\.np-avatar\s*\{[\s\S]*?width:\s*26px;[\s\S]*?height:\s*26px;[\s\S]*?border-radius:\s*999px;/);
@@ -957,6 +982,7 @@ test("chat rail icon keeps playback without the thicker forum animation asset", 
 
   const chatButton = htmlSource.match(/<button class="rail-button active"[\s\S]*?data-view="chat"[\s\S]*?<\/button>/)?.[0] || "";
   assert.match(chatButton, /data-lottie="chat"/);
+  assert.match(chatButton, /class="rail-button-label"[^>]*>消息<\/span>/);
   assert.match(chatButton, /data-lottie-rest="60"/);
   assert.match(chatButton, /data-lottie-play="70,130"/);
   assert.doesNotMatch(chatButton, /data-lottie-trigger="static"/);
@@ -964,9 +990,18 @@ test("chat rail icon keeps playback without the thicker forum animation asset", 
 
   const contactsButton = htmlSource.match(/<button class="rail-button"[\s\S]*?data-view="contacts"[\s\S]*?<\/button>/)?.[0] || "";
   assert.match(contactsButton, /data-lottie="groups"/);
+  assert.match(contactsButton, /class="rail-button-label"[^>]*>联系人<\/span>/);
   assert.doesNotMatch(contactsButton, /data-lottie="contacts"/);
   assert.equal(groupsIcon.nm, "system-regular-96-groups");
   assert.deepEqual(groupsIcon.markers?.map((marker) => marker.cm), ["in-groups", "default:hover-groups", "morph-group-single"]);
+
+  const skillsButton = htmlSource.match(/<button class="rail-button"[\s\S]*?data-view="skills"[\s\S]*?<\/button>/)?.[0] || "";
+  assert.match(skillsButton, /title="技能"/);
+  assert.match(skillsButton, /aria-label="技能"/);
+  assert.match(skillsButton, /class="rail-button-label"[^>]*>技能<\/span>/);
+
+  const tasksButton = htmlSource.match(/<button class="rail-button"[\s\S]*?data-view="tasks"[\s\S]*?<\/button>/)?.[0] || "";
+  assert.match(tasksButton, /class="rail-button-label"[^>]*>任务<\/span>/);
 
   for (const name of ["groups", "extension", "checklist", "settings"]) {
     const pattern = new RegExp(`data-lottie="${name}"[^>]*data-lottie-rest="60"[^>]*data-lottie-play="70,130"`);

@@ -710,7 +710,7 @@ test("settings workspace lives on the app floor and adapts to narrow windows", (
     /\.settings-tabs\s*\{[\s\S]*?width:\s*max-content;[\s\S]*?min-width:\s*168px;[\s\S]*?max-width:\s*188px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?background:\s*var\(--surface-layer\);[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);[\s\S]*?backdrop-filter:\s*none;/,
     "settings navigation should use the same non-white middle-pane surface as the message sidebar"
   );
-  const settingsTitleRule = cssRuleBody(baseCss, ".settings-tabs-title");
+  const settingsTitleRule = cssRuleBody(baseCss, ".settings-tabs-title", baseCss.indexOf("\n.settings-tabs-title {"));
   assert.match(settingsTitleRule, /font-size:\s*var\(--ui-text-max-size,\s*14px\);/, "settings title should stay within the message title ceiling");
   assert.match(settingsTitleRule, /font-weight:\s*500;/, "settings title should not use heavy display weight");
   const sidebarTitleRule = cssRuleBody(baseCss, ".sidebar-title");
@@ -749,11 +749,21 @@ test("settings workspace lives on the app floor and adapts to narrow windows", (
     /\.app-shell\[data-nav-layout="sidebar-bottom"\]\[data-active-view="settings"\]\s+\.settings-tab\.active\s*\{[\s\S]*?font-weight:\s*var\(--capsule-tab-active-font-weight\);/,
     "settings bottom-nav active capsule tab should reuse the shared active weight"
   );
+  assert.match(
+    baseCss,
+    /\.settings-sidebar-tabs \.settings-tab\s*\{[\s\S]*?color:\s*var\(--text\);[\s\S]*?font-size:\s*var\(--ui-text-max-size,\s*14px\);[\s\S]*?font-weight:\s*400;/,
+    "settings sidebar inactive tabs should use normal text color instead of muted grey"
+  );
+  assert.match(
+    baseCss,
+    /\.settings-sidebar-tabs \.settings-tab\.active\s*\{[\s\S]*?color:\s*var\(--list-active-text\);[\s\S]*?font-weight:\s*400;/,
+    "settings sidebar active tabs should keep active contrast after the inactive color override"
+  );
   const narrowSettingsMatch = baseCss.match(/\.settings-layout\s*\{\s*grid-template-columns:\s*1fr;/);
   const narrowSettingsIndex = narrowSettingsMatch?.index ?? -1;
   assert.notEqual(narrowSettingsIndex, -1, "settings narrow-window media query should exist");
   const narrowSettingsTitleRule = cssRuleBody(baseCss, ".settings-tabs-title", narrowSettingsIndex);
-  assert.match(narrowSettingsTitleRule, /font-size:\s*var\(--ui-text-max-size,\s*14px\);/, "settings compact title should stay within the text ceiling");
+  assert.match(narrowSettingsTitleRule, /display:\s*none;/, "settings compact title should be hidden so the tab capsule stays slim");
   const narrowSettingsTabRule = cssRuleBody(baseCss, ".settings-tab {", narrowSettingsIndex);
   assert.match(narrowSettingsTabRule, /width:\s*auto;/, "narrow settings tabs should override the base full width");
   assert.match(narrowSettingsTabRule, /min-width:\s*0;/, "narrow settings tabs should override the base minimum width");

@@ -56,18 +56,22 @@
       <div class="rail-divider"></div>
       <button class="rail-button active" type="button" data-view="chat" title="消息" aria-label="消息">
         <span class="rail-lottie" data-lottie="chat" data-lottie-rest="60" data-lottie-play="70,130" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+        <span class="rail-button-label" aria-hidden="true">消息</span>
         <em id="personaCount">0</em>
         <span id="chatUnreadBadge" class="rail-badge hidden" aria-hidden="true">0</span>
       </button>
       <button class="rail-button" type="button" data-view="contacts" title="联系人" aria-label="联系人">
         <span class="rail-lottie" data-lottie="groups" data-lottie-rest="60" data-lottie-play="70,130" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        <span class="rail-button-label" aria-hidden="true">联系人</span>
         <span id="contactsUnreadBadge" class="rail-badge hidden" aria-hidden="true">0</span>
       </button>
-      <button class="rail-button" type="button" data-view="skills" title="能力库" aria-label="能力库">
+      <button class="rail-button" type="button" data-view="skills" title="技能" aria-label="技能">
         <span class="rail-lottie" data-lottie="extension" data-lottie-rest="60" data-lottie-play="70,130" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 7v14 M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg></span>
+        <span class="rail-button-label" aria-hidden="true">技能</span>
       </button>
       <button class="rail-button" type="button" data-view="tasks" title="任务" aria-label="任务">
         <span class="rail-lottie" data-lottie="checklist" data-lottie-rest="60" data-lottie-play="70,130" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18 M8 3v4 M16 3v4 M8 13h3 M8 17h7"/></svg></span>
+        <span class="rail-button-label" aria-hidden="true">任务</span>
         <span id="tasksUnreadBadge" class="rail-badge hidden" aria-hidden="true">0</span>
       </button>
       <div class="rail-spacer"></div>
@@ -692,16 +696,6 @@
                   </label>
                 </div>
               </section>
-              <section class="settings-row">
-                <div>
-                  <strong>玻璃不透明度</strong>
-                  <p>调整左侧 rail 和顶部胶囊浅色底的透明度。</p>
-                </div>
-                <div class="glass-opacity-control">
-                  <input id="appearanceGlassOpacity" type="range" min="60" max="100" step="1" value="82" aria-label="玻璃不透明度">
-                  <span id="appearanceGlassOpacityValue">82%</span>
-                </div>
-              </section>
               <div class="settings-section-label">聊天界面</div>
               <section class="settings-row settings-group-start">
                 <div>
@@ -724,9 +718,9 @@
 	                  </div>
 	                  <div id="appearanceWorkspaceBackgroundPresets" class="workspace-background-presets" role="radiogroup" aria-label="底板预设颜色">
 	                    <button class="avatar-color-chip" type="button" data-workspace-background-color="#f0f0f3" style="background:#f0f0f3;" title="#f0f0f3" aria-label="默认灰"></button>
-	                    <button class="avatar-color-chip workspace-background-image-chip" type="button" data-workspace-background-image-preset="doodle" data-workspace-background-image="url(&quot;file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png&quot;)" style='background-image:url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png");' title="涂鸦底纹" aria-label="涂鸦底纹"></button>
+	                    <button class="avatar-color-chip workspace-background-image-chip" type="button" data-workspace-background-image-preset="gray-doodle" data-workspace-background-image="url(&quot;file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png&quot;)" style='background-image:url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png");' title="灰色涂鸦" aria-label="灰色涂鸦"></button>
 	                    <button class="avatar-color-chip" type="button" data-workspace-background-color="#2ca1ff" style="background:#2ca1ff;" title="#2CA1FF" aria-label="亮蓝"></button>
-                    <button class="avatar-color-chip" type="button" data-workspace-background-color="#0f766e" style="background:#0f766e;" title="#0f766e" aria-label="深青"></button>
+	                    <button class="avatar-color-chip workspace-background-image-chip" type="button" data-workspace-background-image-preset="green-doodle" data-workspace-background-image="url(&quot;assets/green-doodle-wallpaper.png&quot;)" style='background-image:url("assets/green-doodle-wallpaper.png");' title="绿色涂鸦" aria-label="绿色涂鸦"></button>
                     <button class="avatar-color-chip" type="button" data-workspace-background-color="#8b5cf6" style="background:#8b5cf6;" title="#8b5cf6" aria-label="紫色"></button>
                     <button class="avatar-color-chip" type="button" data-workspace-background-color="#f97316" style="background:#f97316;" title="#f97316" aria-label="橙色"></button>
                     <button class="avatar-color-chip" type="button" data-workspace-background-color="#1f2937" style="background:#1f2937;" title="#1f2937" aria-label="深灰"></button>

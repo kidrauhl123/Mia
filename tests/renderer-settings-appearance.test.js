@@ -79,8 +79,6 @@ function appearanceControls(overrides = {}) {
     appearanceFontPreset: { value: "system" },
     appearanceAccentColor: { value: "#318ad3" },
     appearanceAccentPreview: { style: {} },
-    appearanceGlassOpacity: { value: "82" },
-    appearanceGlassOpacityValue: { textContent: "" },
     appearanceUserBubbleColor: { value: "#eeffde" },
     appearanceUserBubblePreview: { style: {} },
     appearanceSelectionStyle: { value: "solid" },
@@ -120,11 +118,6 @@ test("appearance normalizers keep the list style fixed to cards", () => {
   assert.equal(api.normalizeSelectionStyle("soft"), "solid");
   assert.equal(api.normalizeSelectionStyle("solid"), "solid");
   assert.equal(api.normalizeSelectionStyle("invalid"), "solid");
-  assert.equal(api.normalizeGlassOpacity(72.4), 72);
-  assert.equal(api.normalizeGlassOpacity("91"), 91);
-  assert.equal(api.normalizeGlassOpacity(40), 60);
-  assert.equal(api.normalizeGlassOpacity(141), 100);
-  assert.equal(api.normalizeGlassOpacity("bad"), 82);
 });
 
 test("applyAppearance writes card and solid choices to document state", () => {
@@ -148,22 +141,21 @@ test("applyAppearance writes card and solid choices to document state", () => {
     accentColor: "#318ad3",
     userBubbleColor: "#eeffde",
     listStyle: "card",
-    selectionStyle: "soft",
-    glassOpacity: 91
+    selectionStyle: "soft"
   });
 
   assert.equal(documentElement.dataset.selectionStyle, "solid");
   assert.equal(styleValues.get("--list-active"), "#318ad3");
   assert.equal(styleValues.get("--list-active-text"), "#ffffff");
-  assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-layer) 91%, transparent)");
+  assert.equal(styleValues.has("--rail-glass-bg"), false);
   assert.equal(JSON.stringify(titleBarThemes.at(-1)), JSON.stringify({ theme: "light" }));
 
-  api.applyAppearance({ theme: "light", glassOpacity: 100 });
+  api.applyAppearance({ theme: "light" });
 
-  assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-layer) 100%, transparent)");
+  assert.equal(styleValues.has("--rail-glass-bg"), false);
   assert.equal(JSON.stringify(titleBarThemes.at(-1)), JSON.stringify({ theme: "light" }));
 
-  api.applyAppearance({ theme: "dark", glassOpacity: 82 });
+  api.applyAppearance({ theme: "dark" });
 
   assert.equal(JSON.stringify(titleBarThemes.at(-1)), JSON.stringify({ theme: "dark" }));
 });
@@ -201,19 +193,29 @@ test("applyAppearance writes bottom board color and clears image variables", () 
   assert.equal(styleValues.get("--workspace-floor-image"), "none");
 });
 
-test("applyAppearance can use the temporary doodle bottom board preset", () => {
+test("applyAppearance can use the doodle bottom board presets", () => {
   const { api, styleValues } = loadAppearanceModule();
-  const image = 'url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png")';
+  const grayImage = 'url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png")';
+  const greenImage = 'url("assets/green-doodle-wallpaper.png")';
 
   api.applyAppearance({
     theme: "light",
     workspaceBackgroundColor: "#f0f0f3",
-    workspaceBackgroundImage: image
+    workspaceBackgroundImage: grayImage
   });
 
-  assert.equal(api.normalizeWorkspaceBackgroundImage(image), image);
+  assert.equal(api.normalizeWorkspaceBackgroundImage(grayImage), grayImage);
   assert.equal(styleValues.get("--workspace-floor"), "#f0f0f3");
-  assert.equal(styleValues.get("--workspace-floor-image"), image);
+  assert.equal(styleValues.get("--workspace-floor-image"), grayImage);
+
+  api.applyAppearance({
+    theme: "light",
+    workspaceBackgroundColor: "#f0f0f3",
+    workspaceBackgroundImage: greenImage
+  });
+
+  assert.equal(api.normalizeWorkspaceBackgroundImage(greenImage), greenImage);
+  assert.equal(styleValues.get("--workspace-floor-image"), greenImage);
 });
 
 test("applyAppearance keeps bottom board overrides light-mode only", () => {
@@ -275,7 +277,6 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
       appearanceTheme: { value: "light" },
       appearanceFontPreset: { value: "system" },
       appearanceAccentColor: { value: "#318ad3" },
-      appearanceGlassOpacity: { value: "91" },
       appearanceUserBubbleColor: { value: "#eeffde" },
       appearanceSelectionStyle: { value: "solid" },
       appearanceShowDesktopNotifications: { getAttribute: () => "false" },
@@ -286,15 +287,15 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
         dataset: { custom: "false" }
       },
       appearanceWorkspaceBackgroundImage: {
-        value: 'url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png")'
+        value: 'url("assets/telegram-green-doodle-wallpaper.png")'
       }
     }
   });
 
   assert.equal(api.currentAppearanceDraft().workspaceBackgroundColor, "#f0f0f3");
-  assert.match(api.currentAppearanceDraft().workspaceBackgroundImage, /%E6%B6%82%E9%B8%A6\.png/);
+  assert.equal(api.currentAppearanceDraft().workspaceBackgroundImage, 'url("assets/telegram-green-doodle-wallpaper.png")');
   assert.equal(api.currentAppearanceDraft().selectionStyle, "solid");
-  assert.equal(api.currentAppearanceDraft().glassOpacity, 91);
+  assert.equal(Object.hasOwn(api.currentAppearanceDraft(), "glassOpacity"), false);
   assert.equal(api.currentAppearanceDraft().showDesktopNotifications, false);
   assert.equal(Object.hasOwn(api.currentAppearanceDraft(), "showHoverBackground"), false);
 });
@@ -363,7 +364,7 @@ test("stale bottom board save response cannot roll back a newer color draft", as
 
 test("cloud appearance empty bottom board values do not overwrite local bottom board choices", () => {
   const { api } = loadAppearanceModule();
-  const image = 'url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png")';
+  const image = 'url("assets/telegram-green-doodle-wallpaper.png")';
 
   const merged = api.mergeCloudAppearance(
     { theme: "light", workspaceBackgroundColor: "#2ca1ff", workspaceBackgroundImage: image },
@@ -403,7 +404,7 @@ test("applyAppearance keeps default tokens when appearance deps are missing", ()
 
   assert.match(styleValues.get("--app-font"), /-apple-system/);
   assert.equal(styleValues.get("--accent"), "#318ad3");
-  assert.equal(styleValues.get("--rail-glass-bg"), "color-mix(in srgb, var(--surface-layer) 82%, transparent)");
+  assert.equal(styleValues.has("--rail-glass-bg"), false);
   assert.equal(documentElement.dataset.selectionStyle, "solid");
 });
 
@@ -541,10 +542,12 @@ test("desktop appearance settings expose bottom board color controls", () => {
   assert.match(htmlSource, /data-workspace-background-color="#f0f0f3"/);
   assert.match(htmlSource, /data-workspace-background-color="#2ca1ff"/);
   assert.match(htmlSource, /title="#2CA1FF"/);
-  assert.match(htmlSource, /data-workspace-background-color="#0f766e"/);
+  assert.doesNotMatch(htmlSource, /data-workspace-background-color="#0f766e"/);
   assert.match(htmlSource, /data-workspace-background-color="#1f2937"/);
-  assert.match(htmlSource, /data-workspace-background-image-preset="doodle"/);
+  assert.match(htmlSource, /data-workspace-background-image-preset="gray-doodle"/);
   assert.match(htmlSource, /data-workspace-background-image="url\(&quot;file:\/\/\/Users\/jung\/GitHub\/UI%E8%B5%84%E6%BA%90\/%E8%83%8C%E6%99%AF%E8%89%B2\/%E6%B6%82%E9%B8%A6\.png&quot;\)"/);
+  assert.match(htmlSource, /data-workspace-background-image-preset="green-doodle"/);
+  assert.match(htmlSource, /data-workspace-background-image="url\(&quot;assets\/green-doodle-wallpaper\.png&quot;\)"/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundColor"[^>]*type="color"/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundImage"[^>]*type="hidden"/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundReset"/);
@@ -569,16 +572,10 @@ test("desktop appearance settings expose bottom board color controls", () => {
   assert.match(cssSource, /\.workspace-background-presets \.workspace-background-image-chip\s*\{[\s\S]*background-size:\s*cover;/);
 });
 
-test("desktop appearance settings expose the shared glass opacity control", () => {
-  assert.match(htmlSource, /<strong>玻璃不透明度<\/strong>/);
-  assert.match(htmlSource, /id="appearanceGlassOpacity"[^>]*type="range"[^>]*min="60"[^>]*max="100"[^>]*value="82"/);
-  assert.match(htmlSource, /id="appearanceGlassOpacityValue">82%/);
-  assert.match(appSource, /appearanceGlassOpacity:\s*document\.getElementById\("appearanceGlassOpacity"\)/);
-  assert.match(appSource, /appearanceGlassOpacityValue:\s*document\.getElementById\("appearanceGlassOpacityValue"\)/);
-  assert.match(appSource, /appearanceGlassOpacity\?\.addEventListener\("input"/);
-  assert.match(appSource, /appearanceGlassOpacity\?\.addEventListener\("change"/);
-  assert.match(cssSource, /\.glass-opacity-control\s*\{[\s\S]*?grid-template-columns:\s*minmax\(120px,\s*1fr\)\s+44px;/);
-  assert.match(cssSource, /\.glass-opacity-control input\[type="range"\]\s*\{[\s\S]*?accent-color:\s*var\(--accent\);/);
+test("desktop appearance settings do not expose glass opacity controls", () => {
+  assert.doesNotMatch(htmlSource, /玻璃不透明度|appearanceGlassOpacity|glass-opacity-control/);
+  assert.doesNotMatch(appSource, /appearanceGlassOpacity/);
+  assert.doesNotMatch(cssSource, /\.glass-opacity-control/);
 });
 
 test("appearance settings initialize before startup modules that can render", () => {

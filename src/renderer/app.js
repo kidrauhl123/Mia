@@ -272,8 +272,6 @@ const els = {
   appearanceAccentColor: document.getElementById("appearanceAccentColor"),
   appearanceAccentPreview: document.getElementById("appearanceAccentPreview"),
   appearanceAccentReset: document.getElementById("appearanceAccentReset"),
-  appearanceGlassOpacity: document.getElementById("appearanceGlassOpacity"),
-  appearanceGlassOpacityValue: document.getElementById("appearanceGlassOpacityValue"),
   appearanceUserBubbleColor: document.getElementById("appearanceUserBubbleColor"),
   appearanceUserBubblePreview: document.getElementById("appearanceUserBubblePreview"),
   appearanceUserBubbleReset: document.getElementById("appearanceUserBubbleReset"),
@@ -1135,7 +1133,7 @@ function showNarrowSidebar() {
 }
 
 function viewHasIndexPane(view = state.activeView) {
-  return view === "chat" || view === "contacts";
+  return view === "chat" || view === "contacts" || view === "settings";
 }
 
 function activeViewHasDetail(view = state.activeView) {
@@ -3157,7 +3155,6 @@ function render() {
     fontPreset: "system",
     accentColor: DEFAULT_ACCENT_COLOR,
     userBubbleColor: DEFAULT_USER_BUBBLE_COLOR,
-    glassOpacity: 82,
     showUserAvatar: false,
     showAssistantAvatar: false,
     listStyle: "card",
@@ -3452,7 +3449,7 @@ function renderView() {
   const sidebarBottomLayout = state.navLayout === "sidebar-bottom";
   els.exploreSidebar?.classList.toggle("hidden", !(sidebarBottomLayout && (state.activeView === "bot-store" || state.activeView === "skills")));
   els.taskSidebar?.classList.toggle("hidden", !(sidebarBottomLayout && state.activeView === "tasks"));
-  els.settingsSidebar?.classList.toggle("hidden", !(sidebarBottomLayout && state.activeView === "settings"));
+  els.settingsSidebar?.classList.toggle("hidden", state.activeView !== "settings");
   els.chatView.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsView?.classList.toggle("hidden", state.activeView !== "contacts");
   els.skillsView?.classList.toggle("hidden", state.activeView !== "skills");
@@ -6543,14 +6540,6 @@ els.appearanceAccentColor?.addEventListener("input", () => {
 
 els.appearanceAccentReset?.addEventListener("click", () => {
   if (els.appearanceAccentColor) els.appearanceAccentColor.value = DEFAULT_ACCENT_COLOR;
-  window.miaSettingsAppearance.scheduleAppearanceSave(0);
-});
-
-els.appearanceGlassOpacity?.addEventListener("input", () => {
-  window.miaSettingsAppearance.scheduleAppearanceSave();
-});
-
-els.appearanceGlassOpacity?.addEventListener("change", () => {
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 

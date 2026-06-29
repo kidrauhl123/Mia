@@ -14,8 +14,8 @@
   const FALLBACK_SELECTION_STYLE = "solid";
   const FALLBACK_WORKSPACE_BACKGROUND_COLOR = "#f0f0f3";
   const FALLBACK_DARK_WORKSPACE_BACKGROUND_COLOR = "#171920";
-  const DOODLE_WORKSPACE_BACKGROUND_IMAGE = 'url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png")';
-  const FALLBACK_GLASS_OPACITY = 82;
+  const GRAY_DOODLE_WORKSPACE_BACKGROUND_IMAGE = 'url("file:///Users/jung/GitHub/UI%E8%B5%84%E6%BA%90/%E8%83%8C%E6%99%AF%E8%89%B2/%E6%B6%82%E9%B8%A6.png")';
+  const GREEN_DOODLE_WORKSPACE_BACKGROUND_IMAGE = 'url("assets/green-doodle-wallpaper.png")';
 
   let state, els, mia;
   let fontPresets, DEFAULT_ACCENT_COLOR, DEFAULT_USER_BUBBLE_COLOR, DEFAULT_SELECTION_STYLE;
@@ -79,7 +79,8 @@
 
   function normalizeWorkspaceBackgroundImage(value) {
     const raw = String(value || "").trim();
-    return raw === DOODLE_WORKSPACE_BACKGROUND_IMAGE ? raw : "";
+    if (raw === GRAY_DOODLE_WORKSPACE_BACKGROUND_IMAGE || raw === GREEN_DOODLE_WORKSPACE_BACKGROUND_IMAGE) return raw;
+    return "";
   }
 
   function normalizeListStyle(value) {
@@ -88,16 +89,6 @@
 
   function normalizeSelectionStyle(value) {
     return value === "solid" ? "solid" : defaultSelectionStyle();
-  }
-
-  function normalizeGlassOpacity(value) {
-    const number = Number(value);
-    if (!Number.isFinite(number)) return FALLBACK_GLASS_OPACITY;
-    return Math.max(60, Math.min(100, Math.round(number)));
-  }
-
-  function railGlassBackground(theme, opacity) {
-    return `color-mix(in srgb, var(--surface-layer) ${normalizeGlassOpacity(opacity)}%, transparent)`;
   }
 
   function hexToRgb(value) {
@@ -178,7 +169,6 @@
     const workspaceBackgroundImage = normalizeWorkspaceBackgroundImage(appearance.workspaceBackgroundImage);
     const resolvedWorkspaceBackgroundColor = workspaceBackgroundColor || defaultWorkspaceBackgroundColor("light");
     const floorColors = floorTextColors(hexToRgb(resolvedWorkspaceBackgroundColor));
-    const glassOpacity = normalizeGlassOpacity(appearance.glassOpacity);
     const softActive = `rgb(${rgb.r} ${rgb.g} ${rgb.b} / ${theme === "dark" ? "0.22" : "0.16"})`;
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.selectionStyle = selectionStyle;
@@ -188,7 +178,7 @@
     document.documentElement.style.setProperty("--accent", accentColor);
     document.documentElement.style.setProperty("--accent-rgb", `${rgb.r} ${rgb.g} ${rgb.b}`);
     document.documentElement.style.setProperty("--active", softActive);
-    document.documentElement.style.setProperty("--rail-glass-bg", railGlassBackground(theme, glassOpacity));
+    document.documentElement.style.removeProperty?.("--rail-glass-bg");
     document.documentElement.style.setProperty("--user-bubble", userBubbleColor);
     document.documentElement.style.setProperty("--user-bubble-text", userBubbleText);
     if (theme === "light") {
@@ -240,7 +230,6 @@
       theme,
       fontPreset: controls.appearanceFontPreset?.value || "system",
       accentColor: normalizeHexColor(controls.appearanceAccentColor?.value),
-      glassOpacity: normalizeGlassOpacity(controls.appearanceGlassOpacity?.value),
       userBubbleColor: normalizeHexColor(controls.appearanceUserBubbleColor?.value, defaultUserBubbleColor()),
       showUserAvatar: controls.appearanceShowUserAvatar?.getAttribute("aria-checked") === "true",
       showAssistantAvatar: controls.appearanceShowAssistantAvatar?.getAttribute("aria-checked") === "true",
@@ -301,9 +290,6 @@
     const accentColor = normalizeHexColor(appearance.accentColor);
     if (controls.appearanceAccentColor) controls.appearanceAccentColor.value = accentColor;
     if (controls.appearanceAccentPreview) controls.appearanceAccentPreview.style.backgroundColor = accentColor;
-    const glassOpacity = normalizeGlassOpacity(appearance.glassOpacity);
-    if (controls.appearanceGlassOpacity) controls.appearanceGlassOpacity.value = String(glassOpacity);
-    if (controls.appearanceGlassOpacityValue) controls.appearanceGlassOpacityValue.textContent = `${glassOpacity}%`;
     const userBubbleColor = normalizeHexColor(appearance.userBubbleColor, defaultUserBubbleColor());
     if (controls.appearanceUserBubbleColor) controls.appearanceUserBubbleColor.value = userBubbleColor;
     if (controls.appearanceUserBubblePreview) controls.appearanceUserBubblePreview.style.backgroundColor = userBubbleColor;
@@ -398,7 +384,6 @@
     normalizeWorkspaceBackgroundImage,
     normalizeListStyle,
     normalizeSelectionStyle,
-    normalizeGlassOpacity,
     hexToRgb,
     relativeLuminance,
     selectionTextColors,
