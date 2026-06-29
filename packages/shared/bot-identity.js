@@ -50,7 +50,7 @@ const LEGACY_BOT_PRESET_DEFAULTS = Object.freeze([
     key: "spreadsheet-organizer",
     name: "表格整理师",
     capabilities: Object.freeze({
-      enabledSkills: Object.freeze(["mia-official:spreadsheet-organizer"])
+      enabledSkills: Object.freeze(["mia-official:spreadsheet-organizer", "mia-official:xlsx"])
     })
   }),
   Object.freeze({
@@ -208,13 +208,7 @@ function legacyBotPresetFor(bot = {}) {
 
 function botCapabilitiesWithPresetDefaults(bot = {}, presets = []) {
   const capabilities = normalizeBotCapabilities(bot.capabilities);
-  if (
-    capabilities.inheritEngineDefaults === false
-    || capabilities.enabledSkills.length
-    || capabilities.disabledSkills.length
-  ) {
-    return capabilities;
-  }
+  if (capabilities.inheritEngineDefaults === false) return capabilities;
   const preset = (Array.isArray(presets) ? presets : []).find((item) => botIdentityMatchesPreset(bot, item))
     || legacyBotPresetFor(bot);
   if (!preset) return capabilities;

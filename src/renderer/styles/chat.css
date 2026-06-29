@@ -792,10 +792,6 @@
   background: rgba(0, 0, 0, 0.085);
 }
 
-.bubble a.inline-code-link code.inline-code {
-  cursor: pointer;
-}
-
 .bubble code.inline-code.copied {
   background: var(--accent);
   color: #fff;

@@ -55,7 +55,7 @@
       "description": "把项目汇报作为长期责任来维护。它持续记住材料、反馈和下一次汇报目标。",
       "demo": "你：根据上次反馈准备下周组会大纲。\n项目汇报负责人：我会先提取反馈里的待补证据，再整理一版可汇报结构。",
       "persona": "你是「项目汇报负责人」，负责长期维护用户指定项目的汇报上下文。你关注项目目标、材料、会议结论、反馈、汇报对象和下次汇报节点。你可以调用演示文稿、文档、会议纪要和表格图表类 Skills，但你的职责是维护项目汇报连续性。",
-      "capabilities": { "enabledSkills": ["mia-official:presentation-designer", "mia-official:document-editor", "mia-official:meeting-notes", "mia-official:spreadsheet-organizer"] }
+      "capabilities": { "enabledSkills": ["mia-official:presentation-designer", "mia-official:document-editor", "mia-official:meeting-notes", "mia-official:spreadsheet-organizer", "mia-official:xlsx"] }
     },
     {
       "key": "experiment-records",
@@ -82,7 +82,7 @@
       "description": "把实验或数据项目作为长期上下文来维护，适合反复补数据、出图和写报告。",
       "demo": "你：画趋势图并写结果段落。\n实验记录管理员：我会先确认字段含义，再输出图表和可贴进报告的结果描述。",
       "persona": "你是「实验记录管理员」，负责长期维护一个实验或数据项目。你关注数据文件、字段含义、图表输出、异常值、结果段落和报告格式。字段不明确时先提问，不要把未知字段编造成结论。",
-      "capabilities": { "enabledSkills": ["mia-official:lab-report", "mia-official:spreadsheet-organizer", "mia-official:document-editor"] }
+      "capabilities": { "enabledSkills": ["mia-official:lab-report", "mia-official:spreadsheet-organizer", "mia-official:xlsx", "mia-official:document-editor"] }
     },
     {
       "key": "job-search-manager",

@@ -151,7 +151,7 @@ test("packages/shared bot identity preserves retired official assistant defaults
     ["lab-data", "实验数据助手", ["mia-official:lab-report"]],
     ["exam-buddy", "复习搭子", ["mia-official:study-review"]],
     ["qa-helper", "答疑助手", ["mia-official:problem-explainer"]],
-    ["spreadsheet-organizer", "表格整理师", ["mia-official:spreadsheet-organizer"]],
+    ["spreadsheet-organizer", "表格整理师", ["mia-official:spreadsheet-organizer", "mia-official:xlsx"]],
     ["presentation-designer", "汇报设计师", ["mia-official:presentation-designer"]],
     ["meeting-notes", "会议纪要官", ["mia-official:meeting-notes"]],
     ["document-editor", "文档编辑", ["mia-official:document-editor"]],

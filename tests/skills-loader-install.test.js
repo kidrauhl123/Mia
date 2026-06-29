@@ -346,8 +346,8 @@ test("bundled official library exposes context-bearing assistant templates", asy
     assert.equal(presets.some((preset) => preset.name === "会议纪要官"), false);
     assert.equal(presets.some((preset) => preset.name === "剧情主持"), false);
     assert.equal(presets.some((preset) => preset.key === "speak-partner"), false);
-    const spreadsheetPreset = presets.find((preset) => preset.key === "spreadsheet-organizer");
-    assert.ok(spreadsheetPreset.capabilities.enabledSkills.includes("mia-official:xlsx"));
+    const experimentPreset = presets.find((preset) => preset.key === "experiment-records");
+    assert.ok(experimentPreset.capabilities.enabledSkills.includes("mia-official:xlsx"));
 
     const enabledSkillIds = new Set(presets.flatMap((preset) => preset.capabilities.enabledSkills));
     assert.ok([...enabledSkillIds].every((id) => String(id).startsWith("mia-official:") || id === "mia-scheduler"));
