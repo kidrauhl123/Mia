@@ -11,6 +11,7 @@ const {
 } = require("./agent-file-edit-events.js");
 const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
 const { schedulerDisallowedTools } = require("./scheduler-tool-guard.js");
+const { buildSkillMaterializationContext } = require("../shared/skill-materializer.js");
 
 function firstTextValue(value) {
   if (typeof value === "string") return value;
@@ -174,7 +175,6 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const shellCommandPath = requireDependency(deps, "shellCommandPath");
   const lastUserPrompt = requireDependency(deps, "lastUserPrompt");
   const expandLeadingSkillCommand = requireDependency(deps, "expandLeadingSkillCommand");
-  const buildEnabledSkillsContext = deps.buildEnabledSkillsContext || (() => "");
   const injectGroupContextForSdk = requireDependency(deps, "injectGroupContextForSdk");
   const readBotPersona = requireDependency(deps, "readBotPersona");
   const claudeAgentSdk = requireDependency(deps, "claudeAgentSdk");
@@ -200,7 +200,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
-  async function sendChat({ bot, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility, runtimeConfig = null }) {
+  async function sendChat({ bot, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility, runtimeConfig = null, skillMaterialization = null }) {
     const engine = "claude-code";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("claude");
@@ -220,7 +220,8 @@ function createClaudeCodeChatAdapter(deps = {}) {
       appendEngineLog(`Scheduler MCP context write failed: ${error?.message || error}`);
     }
     const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "native" }) || lastUser);
-    const prompt = [buildEnabledSkillsContext(bot), expandedPrompt]
+    const skillContext = buildSkillMaterializationContext(skillMaterialization);
+    const prompt = [skillContext, expandedPrompt]
       .filter(Boolean)
       .join("\n\n");
     const promptWithGroup = group && group.contextBlock

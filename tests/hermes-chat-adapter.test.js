@@ -150,6 +150,27 @@ test("sendChat passes runtime config into Hermes run payload builder", async () 
   assert.equal(JSON.parse(deps.fetchCalls[0].options.body).model, "mia-pro");
 });
 
+test("sendChat prepends materialized skill context to the last user turn", async () => {
+  const deps = createDeps();
+  const adapter = createHermesChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot,
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hi" }],
+    skillMaterialization: {
+      indexBlock: "## Available Mia Skills\n\n- demo: Demo index.",
+      loadedBlock: "## Loaded Mia Skill Guides\n\n=== Skill: demo ===\nDemo body.\n=== End Skill ==="
+    },
+    signal: null
+  });
+
+  const body = JSON.parse(deps.fetchCalls[0].options.body);
+  assert.match(body.input, /^## Available Mia Skills/);
+  assert.match(body.input, /Loaded Mia Skill Guides/);
+  assert.match(body.input, /\n\nhi$/);
+});
+
 test("sendChat resolves Mia managed models into Hermes runtime config", async () => {
   const writes = [];
   const deps = createDeps({

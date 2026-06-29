@@ -215,21 +215,29 @@ test("installMarketplaceSkill rejects an unsafe skill id", async () => {
   }
 });
 
-test("buildEnabledSkillsContext injects enabled skills' content, empty when none", async () => {
+test("skillRecordsForBot exposes enabled skill records without prompt injection", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {
     const loader = makeLoader(home);
     await loader.installMarketplaceSkill({ id: "demo-skill", zipBuffer: makeZip() });
 
-    const none = loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: [] } });
-    assert.equal(none, "");
+    assert.equal(Object.hasOwn(loader, "buildEnabledSkillsContext"), false);
+    assert.deepEqual(loader.skillRecordsForBot({ capabilities: { enabledSkills: [] } }), []);
 
-    const ctx = loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: ["demo-skill"] } });
-    assert.match(ctx, /Skill: demo-skill/);
-    assert.match(ctx, /# Demo Skill/);
+    const records = loader.skillRecordsForBot({ capabilities: { enabledSkills: ["demo-skill", "nope"] } });
+    assert.equal(records.length, 1);
+    assert.deepEqual(records[0].id, "demo-skill");
+    assert.deepEqual(records[0].name, "demo-skill");
+    assert.match(records[0].body, /# Demo Skill/);
 
-    // unknown ids are skipped
-    assert.equal(loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: ["nope"] } }), "");
+    const materialized = loader.resolveSkillMaterialization({
+      bot: { capabilities: { enabledSkills: ["demo-skill"] } },
+      activeSkillIds: [],
+      intentSkillIds: []
+    });
+    assert.match(materialized.indexBlock, /demo-skill: A demo/);
+    assert.doesNotMatch(materialized.indexBlock, /# Demo Skill/);
+    assert.equal(materialized.loadedBlock, "");
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -246,31 +254,74 @@ test("bundled library exposes a Mia scheduler skill for reminder requests", asyn
     assert.equal(skill.source, "mia-official");
     assert.match(skill.description, /提醒|定时|schedule/i);
 
-    const ctx = loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: ["mia-scheduler"] } });
-    assert.match(ctx, /schedule_create/);
-    assert.match(ctx, /不要使用 shell/);
+    const full = loader.readLocalSkill("mia-scheduler");
+    assert.match(full.body, /schedule_create/);
+    assert.match(full.body, /不要使用 shell/);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
 
-test("buildEnabledSkillsContext applies bundled preset defaults for old unconfigured official bots", async () => {
+test("resolveSkillMaterialization exposes index without full scheduler body by default", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {
     const loader = makeBundledLoader(home);
-    const ctx = loader.buildEnabledSkillsContext({
-      key: "course-tutor",
-      name: "课程助教",
-      capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+    const materialized = loader.resolveSkillMaterialization({
+      bot: { capabilities: { enabledSkills: ["mia-scheduler"] } },
+      activeSkillIds: [],
+      intentSkillIds: []
     });
 
-    assert.match(ctx, /Skill: paper-research/);
+    assert.match(materialized.indexBlock, /mia-scheduler|Mia Scheduler|scheduled tasks/i);
+    assert.doesNotMatch(materialized.indexBlock, /schedule_create|不要使用 shell/);
+    assert.equal(materialized.loadedBlock, "");
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
 
-test("buildEnabledSkillsContext preserves retired official assistant defaults", async () => {
+test("resolveSkillMaterialization loads full skill only for active or intent skill ids", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
+  try {
+    const loader = makeBundledLoader(home);
+    const byActive = loader.resolveSkillMaterialization({
+      bot: { capabilities: { enabledSkills: ["mia-scheduler"] } },
+      activeSkillIds: ["mia-scheduler"],
+      intentSkillIds: []
+    });
+    const byIntent = loader.resolveSkillMaterialization({
+      bot: { capabilities: { enabledSkills: ["mia-scheduler"] } },
+      activeSkillIds: [],
+      intentSkillIds: ["mia-scheduler"]
+    });
+
+    assert.match(byActive.loadedBlock, /schedule_create/);
+    assert.match(byIntent.loadedBlock, /schedule_create/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("resolveSkillMaterialization indexes bundled preset defaults for old unconfigured official bots", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
+  try {
+    const loader = makeBundledLoader(home);
+    const materialized = loader.resolveSkillMaterialization({
+      bot: {
+        key: "course-tutor",
+        name: "课程助教",
+        capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+      }
+    });
+
+    assert.match(materialized.indexBlock, /paper-research/);
+    assert.equal(materialized.loadedBlock, "");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("resolveSkillMaterialization preserves retired official assistant defaults as indexes", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {
     const loader = makeBundledLoader(home);
@@ -289,19 +340,25 @@ test("buildEnabledSkillsContext preserves retired official assistant defaults", 
     ];
 
     for (const [key, name, skillName] of cases) {
-      const byKey = loader.buildEnabledSkillsContext({
-        key,
-        name: `${name}旧实例`,
-        capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+      const byKey = loader.resolveSkillMaterialization({
+        bot: {
+          key,
+          name: `${name}旧实例`,
+          capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+        }
       });
-      const byName = loader.buildEnabledSkillsContext({
-        key: `legacy-${key}-copy`,
-        name,
-        capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+      const byName = loader.resolveSkillMaterialization({
+        bot: {
+          key: `legacy-${key}-copy`,
+          name,
+          capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+        }
       });
 
-      assert.match(byKey, new RegExp(`Skill: ${skillName}`), `${key} should preserve retired preset defaults by key`);
-      assert.match(byName, new RegExp(`Skill: ${skillName}`), `${name} should preserve retired preset defaults by name`);
+      assert.match(byKey.indexBlock, new RegExp(skillName), `${key} should preserve retired preset defaults by key`);
+      assert.match(byName.indexBlock, new RegExp(skillName), `${name} should preserve retired preset defaults by name`);
+      assert.equal(byKey.loadedBlock, "");
+      assert.equal(byName.loadedBlock, "");
     }
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
@@ -359,9 +416,26 @@ test("bundled official library exposes context-bearing assistant templates", asy
     assert.equal(library.botPresets.length, presets.length);
     for (const id of enabledSkillIds) {
       assert.ok(library.skills.some((skill) => skill.id === id || skill.name === id), `missing preset skill: ${id}`);
-      assert.match(loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: [id] } }), /=== Skill:/);
+      const indexed = loader.resolveSkillMaterialization({
+        bot: { capabilities: { enabledSkills: [id] } },
+        activeSkillIds: [],
+        intentSkillIds: []
+      });
+      assert.match(indexed.indexBlock, /Available Mia Skills/);
+      assert.equal(indexed.loadedBlock, "");
+
+      const loaded = loader.resolveSkillMaterialization({
+        bot: { capabilities: { enabledSkills: [id] } },
+        activeSkillIds: [id],
+        intentSkillIds: []
+      });
+      assert.match(loaded.loadedBlock, /=== Skill:/);
     }
-    const xlsxContext = loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: ["mia-official:xlsx"] } });
+    const xlsxContext = loader.resolveSkillMaterialization({
+      bot: { capabilities: { enabledSkills: ["mia-official:xlsx"] } },
+      activeSkillIds: ["mia-official:xlsx"],
+      intentSkillIds: []
+    }).loadedBlock;
     assert.match(xlsxContext, /Delivery Gate/);
     assert.match(xlsxContext, /Use Excel formulas/);
     assert.match(xlsxContext, /preserve its sheets, formatting, formulas/);

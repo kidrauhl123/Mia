@@ -109,6 +109,32 @@ test("sendChat streams partials, stores session, and returns chat response", asy
   assert.equal(emitted.at(-1).kind, "complete");
 });
 
+test("sendChat includes provided skill materialization in the Claude prompt", async () => {
+  const deps = createDeps([
+    { type: "assistant", message: { content: [{ type: "text", text: "ok" }] } }
+  ], { expandedPrompt: "expanded" });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    skillMaterialization: {
+      indexBlock: "## Available Mia Skills\n\n- demo: Demo index.",
+      loadedBlock: "## Loaded Mia Skill Guides\n\n=== Skill: demo ===\nDemo body.\n=== End Skill ==="
+    },
+    signal: null,
+    abortController: {},
+    emit: null,
+    utility: false
+  });
+
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.match(queryCall.prompt, /^## Available Mia Skills/);
+  assert.match(queryCall.prompt, /Loaded Mia Skill Guides/);
+  assert.match(queryCall.prompt, /Demo body\.[\s\S]*expanded/);
+});
+
 test("sendChat merges user MCP servers and fingerprints persisted sessions", async () => {
   const deps = createDeps([
     { session_id: "sess_1" },

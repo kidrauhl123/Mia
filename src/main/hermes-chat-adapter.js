@@ -4,6 +4,7 @@ const {
   miaRuntimeSystemPrompt,
   sanitizeMiaMemorySpoof
 } = require("./mia-runtime-context.js");
+const { buildSkillMaterializationContext } = require("../shared/skill-materializer.js");
 
 function defaultNowSeconds() {
   return Math.floor(Date.now() / 1000);
@@ -78,7 +79,6 @@ function createHermesChatAdapter(deps = {}) {
   const nowSeconds = deps.nowSeconds || defaultNowSeconds;
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const responseModel = deps.responseModel || "hermes-agent";
-  const buildEnabledSkillsContext = deps.buildEnabledSkillsContext || (() => "");
   const memoryBlock = deps.memoryBlock || (() => "");
   const runtimeSystemPrompt = deps.runtimeSystemPrompt || miaRuntimeSystemPrompt;
   const resolveModelRuntime = deps.resolveModelRuntime || deps.resolveManagedModelRuntime || (() => null);
@@ -163,7 +163,7 @@ function createHermesChatAdapter(deps = {}) {
     return runId;
   }
 
-  async function sendChat({ bot, sessionId, messages, group, signal, emit, scheduledFire = false, runtimeConfig = null }) {
+  async function sendChat({ bot, sessionId, messages, group, signal, emit, scheduledFire = false, runtimeConfig = null, skillMaterialization = null }) {
     // Tell the scheduler MCP which bot/session this turn belongs to, so a
     // schedule_create call fires the reminder back into this conversation.
     const lastUserMessage = Array.isArray(messages)
@@ -180,14 +180,13 @@ function createHermesChatAdapter(deps = {}) {
     } catch (error) {
       appendEngineLog(`Mia app MCP context write failed: ${error?.message || error}`);
     }
-    // Inject the bot's enabled skills into the user turn so Hermes uses them.
-    const enabledSkills = buildEnabledSkillsContext(bot);
-    const skillMessages = enabledSkills && lastUserMessage
+    const skillContext = buildSkillMaterializationContext(skillMaterialization);
+    const skillMessages = skillContext && lastUserMessage
       ? messages.map((m) => (m === lastUserMessage
           ? {
               ...m,
-              content: `${enabledSkills}\n\n${m.content != null ? m.content : (m.text || "")}`,
-              text: `${enabledSkills}\n\n${m.text != null ? m.text : (m.content || "")}`
+              content: `${skillContext}\n\n${m.content != null ? m.content : (m.text || "")}`,
+              text: `${skillContext}\n\n${m.text != null ? m.text : (m.content || "")}`
             }
           : m))
       : messages;

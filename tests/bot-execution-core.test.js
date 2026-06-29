@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { createBotExecutionCore } = require("../src/main/bot-execution-core.js");
 const { createChatEventEmitter } = require("../src/main/chat-events.js");
+const { XLSX_SKILL_ID } = require("../src/shared/skill-intent-detector.js");
 
 // Pure-node stub deps proving Mia Core can drive bot execution with NO electron
 // and NO webContents. Everything host-specific is injected.
@@ -84,6 +85,75 @@ test("background:true sendChat works with NO webContents and NO electron", async
   assert.equal(core.getActiveChatAbortController(), null);
   // No external emit + utility=false defaults to a null IPC emitter (no webContents).
   assert.equal(calls.adapter[0].emit, null);
+});
+
+test("sendChat passes turn skill materialization to the adapter", async () => {
+  const resolveCalls = [];
+  const { core, calls } = makeCore({
+    cloudBotSnapshotForTurn: () => ({
+      key: "bot1",
+      id: "bot1",
+      name: "Bot One",
+      agentEngine: "hermes",
+      capabilities: { enabledSkills: ["index-skill"] }
+    }),
+    schedulerSkillIdsForTurn: ({ activeSkillIds }) => activeSkillIds,
+    skillsLoader: {
+      buildActiveSkillsDirective: (ids) => `ACTIVE:${ids.join(",")}`,
+      resolveSkillMaterialization: (input) => {
+        resolveCalls.push(input);
+        return {
+          indexBlock: "INDEX",
+          loadedBlock: "LOADED",
+          loadedSkillIds: ["active-skill"]
+        };
+      }
+    }
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hi" }],
+    activeSkillIds: ["active-skill"]
+  });
+
+  assert.deepEqual(resolveCalls.map((call) => call.activeSkillIds), [["active-skill"]]);
+  assert.deepEqual(resolveCalls[0].bot.capabilities.enabledSkills, ["index-skill", "active-skill"]);
+  assert.deepEqual(calls.adapter[0].skillMaterialization, {
+    indexBlock: "INDEX",
+    loadedBlock: "LOADED",
+    loadedSkillIds: ["active-skill"]
+  });
+  assert.equal(calls.adapter[0].messages[0].content, "ACTIVE:active-skill\n\nhi");
+});
+
+test("sendChat materializes xlsx skill when the user asks for an Excel deliverable", async () => {
+  const resolveCalls = [];
+  const { core, calls } = makeCore({
+    skillsLoader: {
+      buildActiveSkillsDirective: () => "",
+      resolveSkillMaterialization: (input) => {
+        resolveCalls.push(input);
+        return {
+          indexBlock: "INDEX",
+          loadedBlock: "XLSX GUIDE",
+          loadedSkillIds: [XLSX_SKILL_ID]
+        };
+      }
+    }
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "s1",
+    messages: [{ role: "user", content: "给我生成一个写着2026年世界杯小组赛战果的Excel" }]
+  });
+
+  assert.deepEqual(resolveCalls[0].activeSkillIds, []);
+  assert.deepEqual(resolveCalls[0].intentSkillIds, [XLSX_SKILL_ID]);
+  assert.deepEqual(resolveCalls[0].bot.capabilities.enabledSkills, [XLSX_SKILL_ID]);
+  assert.equal(calls.adapter[0].skillMaterialization.loadedBlock, "XLSX GUIDE");
 });
 
 test("stopChat aborts an active interactive controller", async () => {

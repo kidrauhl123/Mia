@@ -6,6 +6,10 @@ const { MemberKind } = require("../shared/conversation-kinds.js");
 const { CloudEvent } = require("../shared/cloud-events.js");
 const { createAssistantContentBlockCollector } = require("../shared/assistant-content-blocks.js");
 const { decisionToHermesChoice } = require("../shared/agent-permissions.js");
+const {
+  buildSkillMaterializationContext,
+  materializeSkillsForTurn
+} = require("../shared/skill-materializer.js");
 const { miaRuntimeSystemPrompt } = require("../main/mia-runtime-context.js");
 const { normalizeCloudHermesModel } = require("./cloud-hermes-model.js");
 
@@ -172,55 +176,24 @@ function selectedSkillIdsFromMessage(message) {
   return ids;
 }
 
-function skillLookupKeys(id) {
-  const raw = String(id || "").trim();
-  if (!raw) return [];
-  const keys = [raw];
-  const colon = raw.includes(":") ? raw.split(":").pop() : "";
-  if (colon) keys.push(colon);
-  const slash = raw.includes("/") ? raw.split("/").filter(Boolean).pop() : "";
-  if (slash) keys.push(slash);
-  return [...new Set(keys.map((key) => String(key || "").trim()).filter(Boolean))];
+function skillRecordsFromCatalog(skillsCatalog = []) {
+  return (Array.isArray(skillsCatalog) ? skillsCatalog : []).map((skill) => ({
+    id: String(skill?.id || "").trim(),
+    name: String(skill?.name || skill?.name_zh || skill?.id || "").trim(),
+    description: String(skill?.description || "").trim(),
+    body: String(skill?.body || "").trim()
+  }));
 }
 
 function selectedSkillContext(message, skillsCatalog = []) {
-  const ids = selectedSkillIdsFromMessage(message);
-  if (!ids.length) return "";
-  const byKey = new Map();
-  for (const skill of Array.isArray(skillsCatalog) ? skillsCatalog : []) {
-    const id = String(skill?.id || "").trim();
-    const name = String(skill?.name || "").trim();
-    if (id) {
-      byKey.set(id, skill);
-      byKey.set(`mia:${id}`, skill);
-    }
-    if (name) byKey.set(name, skill);
-  }
-
-  const blocks = [];
-  const names = [];
-  const seen = new Set();
-  for (const id of ids) {
-    const found = skillLookupKeys(id).map((key) => byKey.get(key)).find(Boolean);
-    if (!found) continue;
-    const key = String(found.id || id);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const name = String(found.name || found.name_zh || id).trim() || id;
-    const body = String(found.body || "").trim();
-    if (!body) continue;
-    names.push(name);
-    blocks.push(`=== Skill: ${name} ===\n${body}\n=== End Skill ===`);
-  }
-  if (!blocks.length) return "";
-  const list = names.map((name) => `「${name}」`).join("、");
-  return [
-    "当前用户为这条消息明确选择了以下 Skill。请优先严格按这些 Skill 的指南完成本次任务：",
-    "",
-    blocks.join("\n\n"),
-    "",
-    `用户明确选择了 Skill：${list}。不要改用其它未被选择的 Skill。`
-  ].join("\n");
+  const activeSkillIds = selectedSkillIdsFromMessage(message);
+  if (!activeSkillIds.length) return "";
+  return buildSkillMaterializationContext(materializeSkillsForTurn({
+    availableSkills: skillRecordsFromCatalog(skillsCatalog),
+    activeSkillIds,
+    intentSkillIds: [],
+    mode: "none"
+  }));
 }
 
 function requireDep(deps, key) {

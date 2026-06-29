@@ -156,7 +156,7 @@ test("respond passes structured conversation history before the current user tur
     { role: "system", content: "sys" },
     { role: "user", content: "前面问：要不要去" },
     { role: "assistant", content: "建议先别表态" },
-    { role: "system", content: "这是一条系统提示" },
+    { role: "user", content: "这是一条系统提示" },
     { role: "user", content: "非法 role 当用户处理" },
     { role: "user", content: "那我选 1" }
   ]);

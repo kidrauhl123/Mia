@@ -815,13 +815,22 @@ test("foreground permission IPC routes through the daemon-owned permission proxy
   assert.doesNotMatch(listHandler, /agentPermissionCoordinator/, "foreground permission list IPC must not read local coordinator state");
 });
 
-test("foreground chat routes reminders through scheduler skill prompting", () => {
-  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const sendStart = mainSource.indexOf("async function sendChat");
-  const sendEnd = mainSource.indexOf("function stopChat", sendStart);
-  const sendBody = mainSource.slice(sendStart, sendEnd);
-  const skillIndex = sendBody.indexOf("schedulerSkillIdsForTurn");
+test("foreground chat materializes skills per turn instead of full enabled-skill injection", () => {
+  const coreSource = fs.readFileSync(path.join(root, "src/main/bot-execution-core.js"), "utf8");
+  const loaderSource = fs.readFileSync(path.join(root, "src/main/skills-loader.js"), "utf8");
+  const schedulerDefaults = fs.readFileSync(path.join(root, "src/main/scheduler-skill-defaults.js"), "utf8");
+  const adapterSource = [
+    "src/main/hermes-chat-adapter.js",
+    "src/main/claude-code-chat-adapter.js",
+    "src/main/codex-chat-adapter.js",
+    "src/main/openclaw-chat-adapter.js"
+  ].map((file) => fs.readFileSync(path.join(root, file), "utf8")).join("\n\n");
 
-  assert.doesNotMatch(sendBody, /handleReminderChatTurn|app-scheduler-reminder|reminder-intent/, "main foreground chat must not use direct reminder parsing");
-  assert.ok(skillIndex >= 0, "main foreground chat must auto-enable scheduler skills for scheduler requests");
+  assert.doesNotMatch(coreSource, /handleReminderChatTurn|app-scheduler-reminder|reminder-intent/, "foreground chat must not use direct reminder parsing");
+  assert.match(coreSource, /resolveSkillMaterialization/, "bot execution core should materialize skill context once per turn");
+  assert.match(coreSource, /skillMaterialization/, "bot execution core should pass materialized skills to adapters");
+  assert.match(adapterSource, /buildSkillMaterializationContext/, "adapters should consume materialized skill context");
+  assert.doesNotMatch(adapterSource, /buildEnabledSkillsContext/, "adapters must not inject full enabled skills directly");
+  assert.doesNotMatch(loaderSource, /function buildEnabledSkillsContext/, "skills loader must not expose full enabled-skill prompt injection");
+  assert.match(schedulerDefaults, /return dedupeSkillIds\(activeSkillIds\)/, "scheduler defaults should preserve explicit skill chips only");
 });

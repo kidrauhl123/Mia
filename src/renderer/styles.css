@@ -4150,6 +4150,49 @@ body.topbar-click-capture .topbar {
   min-width: 0;
 }
 
+.capability-add-details {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.capability-add-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 8px 0 0;
+  color: var(--accent);
+  list-style: none;
+  cursor: default;
+}
+
+.capability-add-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.capability-add-details > summary span {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.28);
+  border-radius: 50%;
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.capability-add-details > summary strong {
+  font-size: 12px;
+  font-weight: var(--ui-text-max-weight, 500);
+}
+
+.capability-list-add {
+  max-height: 220px;
+  margin-top: 6px;
+  overflow: auto;
+}
+
 .capability-row {
   position: relative;
   display: grid;

@@ -199,7 +199,7 @@ function userFacingFailureMessage(message) {
 
 function normalizedHistoryRole(role) {
   const value = String(role || "").trim();
-  if (value === "assistant" || value === "system") return value;
+  if (value === "assistant") return value;
   return "user";
 }
 

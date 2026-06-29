@@ -531,10 +531,10 @@ test("cloud-hermes DM injects selected message skill context into the run input"
     });
 
     assert.equal(hermesCalls.length, 1);
-    assert.match(hermesCalls[0].input, /用户为这条消息明确选择了以下 Skill/);
+    assert.doesNotMatch(hermesCalls[0].input, /Available Mia Skills/);
+    assert.match(hermesCalls[0].input, /Loaded Mia Skill Guides/);
     assert.match(hermesCalls[0].input, /=== Skill: Anki 记忆卡 ===/);
     assert.match(hermesCalls[0].input, /STEM Flashcard Generation/);
-    assert.match(hermesCalls[0].input, /不要改用其它未被选择的 Skill/);
     assert.match(hermesCalls[0].input, /用户消息：\n咋用/);
   } finally {
     ctx.cleanup();

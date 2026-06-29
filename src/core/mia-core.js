@@ -424,10 +424,10 @@ function createCoreBotExecution({
   // single-owner mia-memory.json under Core's runtime home.
   const miaMemoryService = createMiaMemoryService({ runtimePaths });
 
-  // REAL skills loader — node-only deps. `buildEnabledSkillsContext` /
-  // `buildActiveSkillsDirective` are pure text over runtimePaths + the bundled
-  // official library. The known light electron coupling (shell.openPath) is only
-  // reached by openLocalSkillDirectory, which Core never calls; a no-op opener is
+  // REAL skills loader — node-only deps. Skill materialization and active-skill
+  // directives are pure text over runtimePaths + the bundled official library.
+  // The known light electron coupling (shell.openPath) is only reached by
+  // openLocalSkillDirectory, which Core never calls; a no-op opener is
   // never needed because the module-level `require("electron")` already degrades
   // to a path string (shell === undefined) under plain node. getEngineState is
   // inert here (no Hermes /api/skills enable/disable probe in Core); apiKey is the
@@ -623,9 +623,6 @@ function createCoreBotExecution({
     // Core writes only when it SPAWNED the engine, see above).
     resolveManagedModelRuntime,
     writeModelRuntimeConfig,
-    // REAL enabled-skills context — injects the full content of the bot's
-    // enabled skills into the user turn, exactly like main.js (src/main.js:2064).
-    buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     appendEngineLog: () => {}
   });
 
@@ -781,7 +778,6 @@ function createCoreBotExecution({
         ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
         ensureUserMcpReady,
         expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-        buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
         clearAgentSessionEntry: agentSessionStore.deleteEntry,
         enginePermissionMode,
         ensureMiaClaudeProxy: (managedModel) => claudeCodeMiaProxy.createSession(managedModel),
@@ -810,7 +806,6 @@ function createCoreBotExecution({
   function activeCodexAdapter() {
     if (!cachedCodexAdapter) {
       cachedCodexAdapter = createCodexChatAdapter({
-        buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
         chatCompletionResponse,
         cwd: agentWorkspaceDir,
         appendEngineLog: () => {},
@@ -849,7 +844,6 @@ function createCoreBotExecution({
   function activeOpenClawAdapter() {
     if (!cachedOpenClawAdapter) {
       cachedOpenClawAdapter = createOpenClawChatAdapter({
-        buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
         chatCompletionResponse,
         cwd: agentWorkspaceDir,
         appendEngineLog: () => {},
@@ -857,6 +851,7 @@ function createCoreBotExecution({
         ensureUserMcpReady,
         expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
         getAgentSessionId: agentSessionStore.getId,
+        getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
         getMcpFingerprint: userMcpService.fingerprint,
         getUserMcpServers: (options) => userMcpService.getEngineSpecs("openclaw", options),
         injectGroupContextForSdk: (userMessage) => userMessage,

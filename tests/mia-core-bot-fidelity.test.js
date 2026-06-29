@@ -9,9 +9,9 @@ const { createRuntimePaths } = require("../src/main/runtime-paths.js");
 const { MIA_MEMORY_HEADER } = require("../src/main/mia-memory-service.js");
 
 // Functional-parity proof: a Hermes turn run via Core injects the SAME memory
-// block + enabled-skills context + active-skills directive the Electron daemon
+// block + active skill materialization + active-skills directive the Electron daemon
 // does. We do NOT fake `sendHermesChat` (that would bypass the real Hermes
-// adapter where memoryBlock + buildEnabledSkillsContext live). Instead we fake
+// adapter where memoryBlock + skill materialization live). Instead we fake
 // the lowest layer — `fetchImpl` — so the REAL hermesAdapter.sendChat runs and
 // we capture the exact `/v1/runs` POST body it builds. The captured body's
 // `instructions` (system prompt) carries the memory block, and its `input` (last
@@ -58,7 +58,7 @@ function makeTempHome() {
   return home;
 }
 
-test("a Hermes turn via Core injects the REAL memory block + enabled-skills + active directive (node-only)", async () => {
+test("a Hermes turn via Core injects the REAL memory block + active skill materialization + active directive (node-only)", async () => {
   const home = makeTempHome();
   try {
     // Real runtime paths rooted at the temp MIA_HOME (single-owner data home).
@@ -91,7 +91,7 @@ test("a Hermes turn via Core injects the REAL memory block + enabled-skills + ac
     );
 
     // Capture the run payload the REAL Hermes adapter posts. Only the HTTP layer
-    // (fetch) is faked; memoryBlock + buildEnabledSkillsContext + buildActiveSkillsDirective
+    // (fetch) is faked; memoryBlock + resolveSkillMaterialization + buildActiveSkillsDirective
     // all run for real on the path to this fetch.
     let capturedRunBody = null;
     const fetchImpl = (url, init = {}) => {
@@ -152,8 +152,8 @@ test("a Hermes turn via Core injects the REAL memory block + enabled-skills + ac
       "seeded bot memory missing"
     );
 
-    // (b) Enabled-skills context is applied: the seeded skill's body is injected
-    // into the user input — proving buildEnabledSkillsContext is the real loader,
+    // (b) Active skill materialization is applied: the seeded skill's body is
+    // injected into the user input — proving resolveSkillMaterialization is the real loader,
     // not the () => "" stub.
     assert.ok(
       capturedRunBody.input.includes("UNIQUE_SKILL_BODY_MARKER"),

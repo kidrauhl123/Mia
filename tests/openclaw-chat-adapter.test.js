@@ -86,7 +86,6 @@ function createDeps(overrides = {}) {
   const sessions = new Map();
   return {
     calls,
-    buildEnabledSkillsContext: () => "技能上下文",
     chatCompletionResponse,
     cwd: () => "/tmp/mia-workspace",
     expandLeadingSkillCommand: (text) => text,
@@ -351,7 +350,11 @@ test("sendChat runs OpenClaw through ACP backend and stores the stable session k
   const response = await adapter.sendChat({
     bot: { key: "claw", name: "Claw", engineConfig: { effortLevel: "high" } },
     sessionId: "mia-session",
-    messages: [{ role: "user", content: "帮我整理文件" }]
+    messages: [{ role: "user", content: "帮我整理文件" }],
+    skillMaterialization: {
+      indexBlock: "## Available Mia Skills\n\n- file-helper: 整理文件。",
+      loadedBlock: "## Loaded Mia Skill Guides\n\n=== Skill: file-helper ===\n整理文件正文\n=== End Skill ==="
+    }
   });
 
   const spawnCall = deps.calls.find((call) => call[0] === "spawn");
@@ -376,7 +379,8 @@ test("sendChat runs OpenClaw through ACP backend and stores the stable session k
   assert.match(promptCall[1].prompt[0].text, /## Mia Runtime Context/);
   assert.match(promptCall[1].prompt[0].text, /Claw 的人设/);
   assert.match(promptCall[1].prompt[0].text, /Mia 记忆/);
-  assert.match(promptCall[1].prompt[0].text, /技能上下文/);
+  assert.match(promptCall[1].prompt[0].text, /Available Mia Skills/);
+  assert.match(promptCall[1].prompt[0].text, /Loaded Mia Skill Guides/);
   assert.match(promptCall[1].prompt[0].text, /用户消息：\n帮我整理文件/);
   assert.deepEqual(promptCall[1]._meta, {
     thinking: "normalized-high",
@@ -442,6 +446,44 @@ test("ACP newSession defaults MCP injection to stdio plus bridge fallback when c
   ]);
   assert.deepEqual(newSession.mcpServers, [{ name: "xhs", command: "node", args: ["/proxy.js"], env: [{ name: "A", value: "1" }] }]);
   assert.deepEqual(deps.calls.find((call) => call[0] === "set-session"), ["set-session", "openclaw", "bot", "s1", "openclaw:mia:bot:s1:mcp_fp"]);
+});
+
+test("ACP MCP injection includes the Mia app built-in server", async () => {
+  const specCalls = [];
+  const deps = createDeps({
+    getMiaAppMcpSpec: (context) => {
+      specCalls.push(context);
+      return {
+        type: "stdio",
+        command: "/opt/node",
+        args: ["/tmp/mia-app-mcp-server.js"],
+        env: { MIA_APP_CONTEXT_FILE: "/tmp/mia-app-context.json" }
+      };
+    },
+    userMcpServers: [
+      { name: "mia-app", command: "/bad/node", args: ["/bad.js"], env: [] },
+      { name: "xhs", command: "node", args: ["/proxy.js"], env: [] }
+    ]
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "bot", name: "Bot", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", id: "m1", content: "hi" }]
+  });
+
+  const newSession = deps.calls.find((call) => call[0] === "acp-new-session")[1];
+  assert.deepEqual(specCalls[0], { botId: "bot", sessionId: "s1", originMessageId: "m1" });
+  assert.deepEqual(newSession.mcpServers, [
+    { name: "xhs", command: "node", args: ["/proxy.js"], env: [] },
+    {
+      name: "mia-app",
+      command: "/opt/node",
+      args: ["/tmp/mia-app-mcp-server.js"],
+      env: [{ name: "MIA_APP_CONTEXT_FILE", value: "/tmp/mia-app-context.json" }]
+    }
+  ]);
 });
 
 test("ACP MCP injection uses initialized transport capabilities when available", async () => {

@@ -320,7 +320,7 @@
   }
 
   // "使用" a skill from the skills page: enable it on the chosen Bot (so the
-  // engine actually gets it, via buildEnabledSkillsContext) and open that chat.
+  // engine actually gets it through turn skill materialization) and open that chat.
   async function useSkillOnBot(botKey, skillId) {
     if (!botKey || !skillId || !state) return;
     const bot = allOwnedBots().find((item) => item.key === botKey);
@@ -437,13 +437,74 @@
     );
   }
 
-  function botCapabilityItems(bot = {}) {
-    if (!state) return { skills: [] };
+  function skillLookupKey(value = "") {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function skillIdLookupKeys(id = "") {
+    const value = String(id || "").trim();
+    const suffix = value.includes(":") ? value.split(":").pop() : "";
+    return [value, suffix]
+      .map(skillLookupKey)
+      .filter((item, index, arr) => item && arr.indexOf(item) === index);
+  }
+
+  function skillItemLookupKeys(item = {}) {
+    const id = String(item.id || "").trim();
+    const name = String(item.name || "").trim();
+    const relPath = String(item.relPath || item.rel_path || "").trim();
+    const relBase = relPath ? relPath.split(/[\\/]/).filter(Boolean).pop() : "";
+    const idBase = id.includes(":") ? id.split(":").pop() : "";
+    const source = String(item.source || item.pluginId || item.plugin_id || "").trim();
+    return [
+      id,
+      idBase,
+      name,
+      relPath,
+      relBase,
+      item.marketId,
+      item.market_id,
+      source && name ? `${source}:${name}` : "",
+      source && relPath ? `${source}:${relPath}` : ""
+    ].map(skillLookupKey).filter((value, index, arr) => value && arr.indexOf(value) === index);
+  }
+
+  function skillMatchesCapabilityId(item = {}, id = "") {
+    const targets = new Set(skillIdLookupKeys(id));
+    return skillItemLookupKeys(item).some((key) => targets.has(key));
+  }
+
+  function skillForCapabilityId(id = "", skills = []) {
+    const target = String(id || "").trim();
+    if (!target) return null;
+    return skills.find((item) => String(item.id || "").trim() === target)
+      || skills.find((item) => skillMatchesCapabilityId(item, target))
+      || null;
+  }
+
+  function availableSkillItemsForBot(bot = {}) {
+    if (!state) return [];
     const engine = bot.agentEngine || bot.agent_engine || "hermes";
-    const skills = (state.skillLibrary.skills || [])
-      .filter((item) => capabilityForEngine(item, engine))
-      .slice(0, 32);
-    return { skills };
+    return (state.skillLibrary.skills || []).filter((item) => capabilityForEngine(item, engine));
+  }
+
+  function botCapabilityItems(bot = {}) {
+    const availableSkills = availableSkillItemsForBot(bot);
+    const capabilities = botCapabilities(bot);
+    const disabled = new Set(normalizeCapabilityIds(capabilities.disabledSkills));
+    const enabledIds = normalizeCapabilityIds(capabilities.enabledSkills).filter((id) => !disabled.has(id));
+    const enabledKeys = new Set();
+    const skills = enabledIds.map((id) => {
+      for (const key of skillIdLookupKeys(id)) enabledKeys.add(key);
+      const matched = skillForCapabilityId(id, availableSkills);
+      if (matched) {
+        for (const key of skillItemLookupKeys(matched)) enabledKeys.add(key);
+        return { ...matched, capabilityId: id };
+      }
+      return { id, capabilityId: id, name: String(id || "").replace(/^mia-official:/, ""), missing: true };
+    });
+    const addableSkills = availableSkills.filter((item) => !skillItemLookupKeys(item).some((key) => enabledKeys.has(key)));
+    return { skills, addableSkills, availableSkills };
   }
 
   function capabilityChecked(capabilities, id, enabledKey, disabledKey) {
@@ -464,11 +525,13 @@
     return item.label || item.name || item.id;
   }
 
-  function renderCapabilityCheckbox({ item, checked, type }) {
+  function renderCapabilityCheckbox({ item, checked, type, className = "" }) {
     const title = capabilityTitle(item, type);
+    const capabilityId = item.capabilityId || item.id;
+    const rowClass = ["capability-row", className].filter(Boolean).join(" ");
     return `
-      <label class="capability-row">
-        <input type="checkbox" data-capability-type="${window.miaMarkdown.escapeHtml(type)}" data-capability-id="${window.miaMarkdown.escapeHtml(item.id)}" ${checked ? "checked" : ""}>
+      <label class="${window.miaMarkdown.escapeHtml(rowClass)}">
+        <input type="checkbox" data-capability-type="${window.miaMarkdown.escapeHtml(type)}" data-capability-id="${window.miaMarkdown.escapeHtml(capabilityId)}" ${checked ? "checked" : ""}>
         <span class="capability-copy">
           <strong>${window.miaMarkdown.escapeHtml(title)}</strong>
         </span>
@@ -478,26 +541,44 @@
   }
 
   function renderBotCapabilitiesPanel(bot) {
-    const capabilities = botCapabilities(bot);
-    const { skills } = botCapabilityItems(bot);
+    const { skills, addableSkills } = botCapabilityItems(bot);
     const panelOpen = state?.openCapabilityPanelKeys?.has?.(bot?.key);
+    const summary = state?.skillsLoading
+      ? "正在加载技能"
+      : skills.length
+        ? `${skills.length} 个默认技能`
+        : "未设置默认技能";
     return `
       <details class="contact-capabilities accordion-details" data-capabilities-panel-key="${window.miaMarkdown.escapeHtml(bot?.key || "")}"${panelOpen ? " open" : ""}>
         <summary>
           <div>
             <strong>能力</strong>
-            <p>${skills.length} 技能</p>
+            <p>${window.miaMarkdown.escapeHtml(summary)}</p>
           </div>
           <span class="runtime-target-chevron" aria-hidden="true">⌄</span>
         </summary>
         <div class="accordion-body">
-          <div class="capability-list">
+          <div class="capability-list capability-list-enabled">
             ${skills.length ? skills.map((item) => renderCapabilityCheckbox({
               item,
-              checked: capabilityChecked(capabilities, item.id, "enabledSkills", "disabledSkills"),
-              type: "skill"
-            })).join("") : `<div class="capability-empty">当前引擎没有可选技能</div>`}
+              checked: true,
+              type: "skill",
+              className: "enabled"
+            })).join("") : `<div class="capability-empty">这个 Bot 还没有默认启用的技能</div>`}
           </div>
+          ${addableSkills.length ? `
+            <details class="capability-add-details">
+              <summary><span aria-hidden="true">+</span><strong>添加技能</strong></summary>
+              <div class="capability-list capability-list-add">
+                ${addableSkills.map((item) => renderCapabilityCheckbox({
+                  item,
+                  checked: false,
+                  type: "skill",
+                  className: "addable"
+                })).join("")}
+              </div>
+            </details>
+          ` : ""}
         </div>
       </details>
     `;

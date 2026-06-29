@@ -2086,7 +2086,6 @@ function createActiveHermesChatAdapter() {
   return createHermesChatAdapter({
     apiKey,
     baseUrl: () => engineState.baseUrl,
-    buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     buildGroupHeader: _noopGroupHeader,
     buildRunPayload: hermesRunService.buildRunPayload,
     normalizeError: hermesRunService.normalizeError,
@@ -2112,7 +2111,6 @@ function createActiveClaudeCodeChatAdapter() {
     ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
     ensureUserMcpReady: () => ensureUserMcpReady("Claude Code chat"),
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-    buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     clearAgentSessionEntry: agentSessionStore.deleteEntry,
     enginePermissionMode: settingsStore.enginePermissionMode,
     ensureMiaClaudeProxy: (managedModel) => claudeCodeMiaProxy.createSession(managedModel),
@@ -2137,7 +2135,6 @@ function createActiveClaudeCodeChatAdapter() {
 
 function createActiveCodexChatAdapter() {
   return createCodexChatAdapter({
-    buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     chatCompletionResponse,
     cwd: agentWorkspaceDir,
     appendEngineLog,
@@ -2172,7 +2169,6 @@ function createActiveCodexChatAdapter() {
 
 function createActiveOpenClawChatAdapter() {
   return createOpenClawChatAdapter({
-    buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     chatCompletionResponse,
     cwd: agentWorkspaceDir,
     appendEngineLog,
@@ -2180,6 +2176,7 @@ function createActiveOpenClawChatAdapter() {
     ensureUserMcpReady: () => ensureUserMcpReady("OpenClaw chat"),
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionId: agentSessionStore.getId,
+    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     getMcpFingerprint: userMcpService.fingerprint,
     getUserMcpServers: (options) => userMcpService.getEngineSpecs("openclaw", options),
     injectGroupContextForSdk: _passthroughGroupContext,

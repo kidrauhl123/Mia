@@ -5,6 +5,8 @@
 // reassigns at runtime (or constructs after this factory) are injected as
 // accessor functions so the late binding still resolves.
 
+const { intentSkillIdsForMessages } = require("../shared/skill-intent-detector.js");
+
 function createBotExecutionCore({
   createChatEventEmitter,
   cloudBotSnapshotForTurn,
@@ -102,10 +104,13 @@ function createBotExecutionCore({
       if (emit) {
         emit("session_started", { botKey: botForTurn.key, engine: agentEngine });
       }
-      // Scheduler is always an available structured capability on foreground
-      // turns. Composer "使用" chips still get an explicit directive so the agent
-      // prioritizes them for this turn.
-      const turnEnabledSkillIds = schedulerSkillIdsForTurn({ activeSkillIds, background, scheduledFire });
+      // Composer "使用" chips are turn-local: make them resolvable for this turn,
+      // then materialize full skill bodies only for those explicit selections.
+      const intentSkillIds = intentSkillIdsForMessages(messages);
+      const turnEnabledSkillIds = [
+        ...schedulerSkillIdsForTurn({ activeSkillIds, background, scheduledFire }),
+        ...intentSkillIds
+      ];
       if (turnEnabledSkillIds.length) {
         const caps = botForTurn.capabilities || {};
         botForTurn = {
@@ -127,6 +132,14 @@ function createBotExecutionCore({
           messages = next;
         }
       }
+      const skillMaterialization = typeof skillsLoader?.resolveSkillMaterialization === "function"
+        ? skillsLoader.resolveSkillMaterialization({
+            bot: botForTurn,
+            activeSkillIds,
+            intentSkillIds,
+            mode: "index"
+          })
+        : null;
       const slashText = allowSlashCommands ? hermesRunService.slashCommandText(messages) : "";
       const response = await sendWithChatEngineAdapter(createActiveChatEngineAdapters(), {
         chatEngine,
@@ -141,7 +154,8 @@ function createBotExecutionCore({
         scheduledFire,
         persistAgentSession: shouldPersistAgentSession,
         slashText,
-        runtimeConfig: turnRuntimeConfig
+        runtimeConfig: turnRuntimeConfig,
+        skillMaterialization
       });
       return completeWithPetMessage(response);
     } catch (error) {

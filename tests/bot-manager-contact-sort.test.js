@@ -51,11 +51,14 @@ function loadBotManager() {
       escapeHtml: (value) => String(value || ""),
       iconParkIcon: () => ""
     },
+    miaBotIdentity: require(path.join(root, "packages/shared/bot-identity.js")),
     miaSkillHelpers: {
       skillDisplayName: (skill) => ({
         "document-editor": "文档编辑",
         "lab-report": "实验报告",
-        "meeting-notes": "会议纪要"
+        "meeting-notes": "会议纪要",
+        "spreadsheet-organizer": "表格整理",
+        "xlsx": "Excel 文件"
       }[skill.name] || skill.name_zh || skill.name || skill.title || "Skill")
     },
     miaAvatar: { applyAvatarMedia() {} },
@@ -234,9 +237,75 @@ test("contact detail keeps capability rows stable across unchanged renders", () 
   manager.renderContactDetail(bot);
 
   assert.equal(contactDetail.innerHTMLWrites, writes);
-  assert.match(contactDetail.innerHTML, /class="capability-row"/);
+  assert.match(contactDetail.innerHTML, /class="capability-row enabled"/);
   assert.match(contactDetail.innerHTML, />文档编辑</);
-  const capabilityListHtml = contactDetail.innerHTML.match(/<div class="capability-list">([\s\S]*?)<\/div>/)?.[1] || "";
-  assert.doesNotMatch(capabilityListHtml, /Mia 官方库/);
-  assert.doesNotMatch(capabilityListHtml, /<small>/);
+  const enabledListHtml = contactDetail.innerHTML.match(/<div class="capability-list capability-list-enabled">([\s\S]*?)<\/div>/)?.[1] || "";
+  const addListHtml = contactDetail.innerHTML.match(/<div class="capability-list capability-list-add">([\s\S]*?)<\/div>/)?.[1] || "";
+  assert.match(enabledListHtml, />文档编辑</);
+  assert.doesNotMatch(enabledListHtml, />实验报告</);
+  assert.match(addListHtml, />实验报告</);
+  assert.doesNotMatch(enabledListHtml, /Mia 官方库/);
+  assert.doesNotMatch(enabledListHtml, /<small>/);
+});
+
+test("contact detail shows inherited preset skills as defaults and keeps other skills in add list", () => {
+  const { manager, window } = loadBotManager();
+  const contactList = mockEl();
+  const contactDetail = mockEl();
+  const state = {
+    skillsLoading: false,
+    skillLibrary: {
+      extensions: [],
+      botPresets: [
+        {
+          key: "spreadsheet-organizer",
+          name: "表格整理师",
+          capabilities: {
+            enabledSkills: ["mia-official:spreadsheet-organizer", "mia-official:xlsx"]
+          }
+        }
+      ],
+      skills: [
+        { id: "mia-official:spreadsheet-organizer", name: "spreadsheet-organizer", sourceLabel: "Mia 官方库" },
+        { id: "mia-official:xlsx", name: "xlsx", sourceLabel: "Mia 官方库" },
+        { id: "mia-official:lab-report", name: "lab-report", sourceLabel: "Mia 官方库" }
+      ]
+    },
+    runtime: {},
+    contactFilter: "",
+    activeContactKey: "spreadsheet-organizer",
+    savingBotCapabilities: new Set(),
+    openCapabilityPanelKeys: new Set(["spreadsheet-organizer"])
+  };
+  const bot = {
+    key: "spreadsheet-organizer",
+    id: "spreadsheet-organizer",
+    name: "表格整理师",
+    agentEngine: "hermes",
+    capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+  };
+  window.miaSocial.moduleState.bots = [bot];
+
+  manager.initBotManager({
+    state,
+    els: { contactList, contactDetail, contactPageTitle: mockEl(), contactPageMeta: mockEl() },
+    setText(el, value) { if (el) el.textContent = value; },
+    loadSkills: async () => {},
+    showNarrowContent() {},
+    render() {},
+    closeGroupContextMenu() {},
+    openEditBotDialog() {},
+    deleteBot() {},
+    setBotPinned() {},
+  });
+
+  manager.renderContactDetail(bot);
+
+  const enabledListHtml = contactDetail.innerHTML.match(/<div class="capability-list capability-list-enabled">([\s\S]*?)<\/div>/)?.[1] || "";
+  const addListHtml = contactDetail.innerHTML.match(/<div class="capability-list capability-list-add">([\s\S]*?)<\/div>/)?.[1] || "";
+  assert.match(contactDetail.innerHTML, />2 个默认技能</);
+  assert.match(enabledListHtml, />表格整理</);
+  assert.match(enabledListHtml, />Excel 文件</);
+  assert.doesNotMatch(enabledListHtml, />实验报告</);
+  assert.match(addListHtml, />实验报告</);
 });

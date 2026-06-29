@@ -12,12 +12,8 @@ function dedupeSkillIds(ids = []) {
   return out;
 }
 
-function schedulerSkillIdsForTurn({ activeSkillIds = [], background = false, scheduledFire = false } = {}) {
-  const ids = dedupeSkillIds(activeSkillIds);
-  if (!background && !scheduledFire && !ids.includes(MIA_SCHEDULER_SKILL_ID)) {
-    ids.push(MIA_SCHEDULER_SKILL_ID);
-  }
-  return ids;
+function schedulerSkillIdsForTurn({ activeSkillIds = [] } = {}) {
+  return dedupeSkillIds(activeSkillIds);
 }
 
 module.exports = {

@@ -14,7 +14,9 @@ const READ_TOOLS = new Set([
   "schedule_list",
   "skill_search",
   "skill_show",
-  "conversation_list"
+  "conversation_list",
+  "web_search",
+  "web_fetch"
 ]);
 const WRITE_TOOLS = new Set([
   "schedule_create",
@@ -40,7 +42,31 @@ function toolDefinitions() {
     { name: "skill_install", description: "Install a Mia skill for the current user.", inputSchema: { type: "object" } },
     { name: "conversation_list", description: "List Mia conversations available to the current user.", inputSchema: { type: "object" } },
     { name: "conversation_create_group", description: "Create a Mia group conversation.", inputSchema: { type: "object" } },
-    { name: "conversation_post_message", description: "Post a message into a Mia conversation.", inputSchema: { type: "object" } }
+    { name: "conversation_post_message", description: "Post a message into a Mia conversation.", inputSchema: { type: "object" } },
+    {
+      name: "web_search",
+      description: "Search the public web and return concise result titles, URLs, and snippets.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query." },
+          limit: { type: "number", description: "Maximum number of results, 1-10." }
+        },
+        required: ["query"]
+      }
+    },
+    {
+      name: "web_fetch",
+      description: "Fetch a public HTTP(S) page and return cleaned text for reading cited sources.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Public http:// or https:// URL to fetch." },
+          maxChars: { type: "number", description: "Maximum cleaned text characters, 1000-20000." }
+        },
+        required: ["url"]
+      }
+    }
   ];
 }
 
@@ -101,6 +127,213 @@ function daemonFetch(method, urlPath, body) {
     if (bodyStr != null) req.write(bodyStr);
     req.end();
   });
+}
+
+function clampNumber(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
+
+function isBlockedPublicWebHost(hostname = "") {
+  const host = String(hostname || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host) return true;
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
+  if (host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
+  if (/^127\./.test(host) || /^10\./.test(host) || /^0\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  const match172 = host.match(/^172\.(\d+)\./);
+  if (match172 && Number(match172[1]) >= 16 && Number(match172[1]) <= 31) return true;
+  if (/^169\.254\./.test(host)) return true;
+  return false;
+}
+
+function assertPublicHttpUrl(value = "") {
+  let parsed;
+  try {
+    parsed = new URL(String(value || "").trim());
+  } catch {
+    throw new Error("url must be a valid http:// or https:// URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("url must use http:// or https://");
+  }
+  if (isBlockedPublicWebHost(parsed.hostname)) {
+    throw new Error("refusing to fetch local or private network URL");
+  }
+  parsed.hash = "";
+  return parsed;
+}
+
+function requestPublicText(url, { timeoutMs = 12000, maxBytes = 1024 * 1024, redirects = 3, headers = {} } = {}) {
+  const parsed = assertPublicHttpUrl(url);
+  return new Promise((resolve, reject) => {
+    const transport = parsed.protocol === "https:" ? https : http;
+    const req = transport.request({
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: "GET",
+      timeout: timeoutMs,
+      headers: {
+        "User-Agent": "MiaBot/0.1 (+https://mia.local)",
+        Accept: "text/html,application/xhtml+xml,application/json,text/plain;q=0.9,*/*;q=0.5",
+        ...headers
+      }
+    }, (res) => {
+      const status = res.statusCode || 0;
+      const location = res.headers.location;
+      if (status >= 300 && status < 400 && location && redirects > 0) {
+        res.resume();
+        const next = new URL(location, parsed).toString();
+        requestPublicText(next, { timeoutMs, maxBytes, redirects: redirects - 1, headers }).then(resolve, reject);
+        return;
+      }
+      if (status < 200 || status >= 300) {
+        res.resume();
+        reject(new Error(`HTTP ${status}`));
+        return;
+      }
+      const chunks = [];
+      let bytes = 0;
+      res.on("data", (chunk) => {
+        bytes += chunk.length;
+        if (bytes > maxBytes) {
+          req.destroy(new Error("response too large"));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on("end", () => resolve({
+        url: parsed.toString(),
+        status,
+        contentType: String(res.headers["content-type"] || ""),
+        text: Buffer.concat(chunks).toString("utf8")
+      }));
+    });
+    req.on("timeout", () => req.destroy(new Error("request timed out")));
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+function decodeHtmlEntities(text = "") {
+  return String(text || "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_m, code) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_m, code) => {
+      const n = Number.parseInt(code, 16);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
+    });
+}
+
+function stripHtml(text = "") {
+  return decodeHtmlEntities(String(text || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<[^>]+>/g, " "))
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .trim();
+}
+
+function duckDuckGoResultUrl(rawHref = "") {
+  const href = decodeHtmlEntities(rawHref);
+  try {
+    const parsed = new URL(href, "https://duckduckgo.com");
+    const uddg = parsed.searchParams.get("uddg");
+    return uddg ? new URL(uddg).toString() : parsed.toString();
+  } catch {
+    return "";
+  }
+}
+
+function parseDuckDuckGoHtml(html = "", limit = 5) {
+  const out = [];
+  const blocks = String(html || "").match(/<div[^>]+class="[^"]*\bresult\b[^"]*"[\s\S]*?(?=<div[^>]+class="[^"]*\bresult\b|$)/gi) || [];
+  for (const block of blocks) {
+    if (out.length >= limit) break;
+    const anchor = block.match(/<a[^>]+class="[^"]*\bresult__a\b[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+    if (!anchor) continue;
+    const url = duckDuckGoResultUrl(anchor[1]);
+    const title = stripHtml(anchor[2]);
+    if (!url || !title || /duckduckgo\.com\/y\.js/i.test(url)) continue;
+    const snippetMatch = block.match(/<a[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/a>/i)
+      || block.match(/<div[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    const snippet = snippetMatch ? stripHtml(snippetMatch[1]) : "";
+    if (!out.some((item) => item.url === url)) out.push({ title, url, snippet });
+  }
+  return out;
+}
+
+function relatedTopicsFromDuckDuckGo(topics = [], out = []) {
+  for (const topic of Array.isArray(topics) ? topics : []) {
+    if (topic?.FirstURL && topic?.Text) {
+      out.push({ title: String(topic.Text).split(" - ")[0], url: String(topic.FirstURL), snippet: String(topic.Text) });
+    }
+    if (Array.isArray(topic?.Topics)) relatedTopicsFromDuckDuckGo(topic.Topics, out);
+  }
+  return out;
+}
+
+async function webSearch(args = {}) {
+  const query = String(args.query || args.q || "").trim();
+  if (!query) throw new Error("query is required");
+  const limit = clampNumber(args.limit, 1, 10, 5);
+  const searchUrl = `https://duckduckgo.com/html/${queryString({ q: query })}`;
+  let results = [];
+  let source = "duckduckgo-html";
+  try {
+    const response = await requestPublicText(searchUrl, { maxBytes: 2 * 1024 * 1024 });
+    results = parseDuckDuckGoHtml(response.text, limit);
+  } catch {
+    results = [];
+  }
+  if (!results.length) {
+    source = "duckduckgo-instant-answer";
+    const apiUrl = `https://api.duckduckgo.com/${queryString({ q: query, format: "json", no_html: 1, skip_disambig: 1 })}`;
+    const response = await requestPublicText(apiUrl, { headers: { Accept: "application/json" } });
+    const data = JSON.parse(response.text || "{}");
+    if (data.AbstractURL && data.AbstractText) {
+      results.push({ title: data.Heading || query, url: data.AbstractURL, snippet: data.AbstractText });
+    }
+    results.push(...relatedTopicsFromDuckDuckGo(data.RelatedTopics, []));
+    results = results.filter((item, index, arr) => item.url && arr.findIndex((other) => other.url === item.url) === index).slice(0, limit);
+  }
+  return {
+    query,
+    source,
+    results: results.slice(0, limit)
+  };
+}
+
+function parseWebPageText(html = "", sourceUrl = "", maxChars = 12000) {
+  const titleMatch = String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = titleMatch ? stripHtml(titleMatch[1]) : "";
+  const cleaned = stripHtml(html).slice(0, maxChars);
+  return {
+    url: sourceUrl,
+    title,
+    text: cleaned,
+    truncated: stripHtml(html).length > maxChars
+  };
+}
+
+async function webFetch(args = {}) {
+  const url = String(args.url || "").trim();
+  if (!url) throw new Error("url is required");
+  const maxChars = clampNumber(args.maxChars, 1000, 20000, 12000);
+  const response = await requestPublicText(url, { maxBytes: 2 * 1024 * 1024 });
+  return parseWebPageText(response.text, response.url, maxChars);
 }
 
 function nextFireForTask(task = {}) {
@@ -212,6 +445,10 @@ async function callTool(name, args = {}) {
       return daemonJson("POST", `/api/conversations/${encodeURIComponent(args.conversationId)}/messages`, {
         bodyMd: args.bodyMd || args.body || args.message || ""
       });
+    case "web_search":
+      return webSearch(args);
+    case "web_fetch":
+      return webFetch(args);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -282,6 +519,8 @@ if (require.main === module) startServer();
 
 module.exports = {
   callTool,
+  parseDuckDuckGoHtml,
+  parseWebPageText,
   permissionClassForTool,
   toolDefinitions
 };

@@ -9,6 +9,7 @@ const {
   withMiaRuntimeContext
 } = require("./mia-runtime-context.js");
 const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
+const { buildSkillMaterializationContext } = require("../shared/skill-materializer.js");
 
 const CODEX_MANAGED_PROTOCOLS = Object.freeze(["cli", "codex-cli", "codex-app-server"]);
 
@@ -185,7 +186,6 @@ function createCodexChatAdapter(deps = {}) {
   const agentRuntimeEnv = deps.agentRuntimeEnv || null;
   const lastUserPrompt = requireDependency(deps, "lastUserPrompt");
   const expandLeadingSkillCommand = requireDependency(deps, "expandLeadingSkillCommand");
-  const buildEnabledSkillsContext = deps.buildEnabledSkillsContext || (() => "");
   const injectGroupContextForSdk = requireDependency(deps, "injectGroupContextForSdk");
   const readBotPersona = requireDependency(deps, "readBotPersona");
   const runCodexAppServerTurn = requireDependency(deps, "runCodexAppServerTurn");
@@ -243,7 +243,7 @@ function createCodexChatAdapter(deps = {}) {
     return envWithExecutableDirFirst(baseEnv, commandPath);
   }
 
-  async function sendChat({ bot, sessionId, messages, group, signal, emit = null, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
+  async function sendChat({ bot, sessionId, messages, group, signal, emit = null, utility = false, scheduledFire = false, persistAgentSession = !utility, skillMaterialization = null }) {
     const chatStartedAt = Date.now();
     const engine = "codex";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
@@ -272,7 +272,8 @@ function createCodexChatAdapter(deps = {}) {
     const runtimeContext = externalSessionId && (!utility || group) ? miaRuntimeSystemPrompt({ scheduledFire }) : "";
     const runtimeInstructions = !externalSessionId ? runtimeContext : appendMiaMemoryBlock(runtimeContext, miaMemory);
     const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "inline" }) || lastUser);
-    const userText = [runtimeInstructions, buildEnabledSkillsContext(bot), expandedPrompt]
+    const skillContext = buildSkillMaterializationContext(skillMaterialization);
+    const userText = [runtimeInstructions, skillContext, expandedPrompt]
       .filter(Boolean)
       .join("\n\n");
     const persona = !externalSessionId

@@ -60,6 +60,29 @@ test("desktop responds when the cloud requests a bot invocation", async () => {
   ]);
 });
 
+test("desktop bot invocation omits historical system rows from model history", async () => {
+  const { dispatcher, calls } = setup({ currentDeviceId: () => "device_mac" });
+
+  await dispatcher.handleCloudEvent({
+    type: "conversation.bot_invocation_requested",
+    conversationId: "g_1",
+    conversationType: "group",
+    botId: "codex",
+    targetDeviceId: "device_mac",
+    runtimeConfig: { deviceId: "device_mac", agentEngine: "codex" },
+    triggeringMessage: { id: "m_2", body_md: "@codex 继续", sender_kind: "user", sender_ref: "u_1" },
+    recentMessages: [
+      { id: "m_0", sender_kind: "system", sender_ref: "mia.internal", body_md: "internal system rule" },
+      { id: "m_1", sender_kind: "user", sender_ref: "u_1", body_md: "可见前情" }
+    ]
+  });
+
+  assert.equal(calls.responder.length, 1);
+  assert.deepEqual(calls.responder[0].historyMessages, [
+    { role: "user", content: "[user:u_1] 可见前情" }
+  ]);
+});
+
 test("desktop ignores bot invocations without a target device", async () => {
   const { dispatcher, calls } = setup({ currentDeviceId: () => "device_mac" });
 

@@ -145,6 +145,28 @@ test("sendChat starts new thread with persona on first turn", async () => {
   assert.equal(response.choices[0].message.content, "codex out");
 });
 
+test("sendChat includes provided skill materialization in the Codex prompt", async () => {
+  const deps = createDeps({ expandedPrompt: "expanded" });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    skillMaterialization: {
+      indexBlock: "## Available Mia Skills\n\n- demo: Demo index.",
+      loadedBlock: "## Loaded Mia Skill Guides\n\n=== Skill: demo ===\nDemo body.\n=== End Skill ==="
+    },
+    signal: null,
+    utility: false
+  });
+
+  const call = deps.calls.find((entry) => entry[0] === "app-server")[1];
+  assert.match(call.prompt, /Available Mia Skills/);
+  assert.match(call.prompt, /Loaded Mia Skill Guides/);
+  assert.match(call.prompt, /Demo body\.[\s\S]*expanded/);
+});
+
 test("sendChat waits for user MCP readiness before reading Codex MCP specs", async () => {
   let ready = false;
   const deps = createDeps({

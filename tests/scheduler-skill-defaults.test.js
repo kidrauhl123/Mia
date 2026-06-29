@@ -6,18 +6,18 @@ const {
   schedulerSkillIdsForTurn
 } = require("../src/main/scheduler-skill-defaults.js");
 
-test("schedulerSkillIdsForTurn makes Mia scheduler available without parsing user text", () => {
+test("schedulerSkillIdsForTurn does not auto-inject scheduler on ordinary foreground turns", () => {
   assert.deepEqual(
     schedulerSkillIdsForTurn({
       messages: [{ role: "user", content: "5分钟后提醒我吃饭" }]
     }),
-    [MIA_SCHEDULER_SKILL_ID]
+    []
   );
   assert.deepEqual(
     schedulerSkillIdsForTurn({
       messages: [{ role: "user", content: "你知道啥是 Mia 吗" }]
     }),
-    [MIA_SCHEDULER_SKILL_ID]
+    []
   );
 });
 
