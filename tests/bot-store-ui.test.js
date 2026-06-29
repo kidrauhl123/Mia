@@ -6,7 +6,7 @@ const test = require("node:test");
 const root = path.join(__dirname, "..");
 const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 
-test("discover bot store adds assistants directly without an enrollment form", () => {
+test("discover bot store uses a badge confirmation step without an enrollment form", () => {
   const src = read("src/renderer/bot/bot-store.js");
 
   assert.match(src, /data-act="add"/);
@@ -19,10 +19,11 @@ test("discover bot store adds assistants directly without an enrollment form", (
   assert.match(src, /function defaultConversationTagName/);
   assert.match(src, /setConversationTagNames\(\s*conversationId,\s*\[defaultConversationTagName\(f\)\]\s*\)/);
   assert.match(src, /const target = normalizeRuntimeTarget\(defaultEnrollmentTarget\(f\)\)/);
-  assert.match(src, /return addBot\(f,\s*target,\s*plannedKey\)/);
   assert.match(src, /bot-store-badge-card/);
   assert.match(src, /MIA · AI 助手凭证/);
-  assert.match(src, /data-act="add-progress"/);
+  assert.match(src, /data-act="confirm"/);
+  assert.match(src, /querySelector\('\[data-act="confirm"\]'\)\.addEventListener\("click",\s*\(\)\s*=>\s*addBot\(f,\s*target,\s*sheet\.dataset\.botKey \|\| plannedKey\)\)/);
+  assert.doesNotMatch(src, /return addBot\(f,\s*target,\s*plannedKey\)/);
   assert.match(src, /runtimeKind:\s*target\.runtimeKind/);
   assert.match(src, /agentEngine:\s*target\.agentEngine/);
   assert.match(src, /targetDeviceId:\s*target\.deviceId/);
@@ -31,7 +32,7 @@ test("discover bot store adds assistants directly without an enrollment form", (
   assert.match(src, /key,\s*\n\s*name: f\.name/);
   assert.match(src, /function principalId/);
   assert.doesNotMatch(src, /data-act="prepare"/);
-  assert.doesNotMatch(src, /data-act="confirm"/);
+  assert.doesNotMatch(src, /data-act="add-progress"/);
   assert.doesNotMatch(src, /function openEnrollmentStep/);
   assert.doesNotMatch(src, /data-runtime-target-select/);
   assert.doesNotMatch(src, /function setupFieldsHtml/);
@@ -192,6 +193,8 @@ test("assistant enrollment saves without asking the user to fill setup fields", 
   assert.match(store, /bot-store-enroll-console/);
   assert.match(store, /bot-store-badge-card/);
   assert.match(store, /data-badge-uid/);
+  assert.match(store, /data-act="confirm"/);
+  assert.match(store, />确认</);
   assert.match(store, /classList\.add\("is-stamped"\)/);
   assert.match(store, /data-enroll-status/);
   assert.match(store, /assistantPersonaText\(f,\s*\{\}\)/);

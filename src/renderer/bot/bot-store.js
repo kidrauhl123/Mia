@@ -736,7 +736,7 @@
         <div class="bot-store-enroll-bar">
           <span class="bot-store-enroll-light" aria-hidden="true"></span>
           <span>AI 助手入库</span>
-          <span class="bot-store-enroll-status" data-enroll-status>正在激活</span>
+          <span class="bot-store-enroll-status" data-enroll-status>确认信息</span>
         </div>
         <div class="bot-store-badge-stage">
           <div class="bot-store-badge-card">
@@ -764,13 +764,12 @@
         </div>
       </div>
       <div class="bot-store-actions">
-        <button type="button" class="bot-store-btn ghost" data-act="detail">返回</button>
-        <button type="button" class="bot-store-btn primary" data-act="add-progress" disabled>添加中…</button>
+        <button type="button" class="bot-store-btn ghost" data-act="detail">上一步</button>
+        <button type="button" class="bot-store-btn primary" data-act="confirm">确认</button>
       </div>`;
     sheet.querySelector('[data-act="detail"]').addEventListener("click", () => openSheet(f));
-    sheet.querySelector('[data-act="add-progress"]').addEventListener("click", () => addBot(f, target, sheet.dataset.botKey || plannedKey));
+    sheet.querySelector('[data-act="confirm"]').addEventListener("click", () => addBot(f, target, sheet.dataset.botKey || plannedKey));
     scrim.classList.add("open");
-    return addBot(f, target, plannedKey);
   }
 
   function closeSheet() {
@@ -800,8 +799,8 @@
   async function addBot(f, runtimeTarget = {}, plannedKey = "") {
     if (adding) return;
     adding = true;
-    const btn = els.botStoreSheet?.querySelector('[data-act="add"], [data-act="add-progress"]');
-    if (btn) { btn.disabled = true; btn.textContent = "添加中…"; }
+    const btn = els.botStoreSheet?.querySelector('[data-act="add"], [data-act="confirm"]');
+    if (btn) { btn.disabled = true; btn.textContent = "确认中…"; }
     try {
       const target = normalizeRuntimeTarget(runtimeTarget);
       const key = String(plannedKey || "").trim();
@@ -832,7 +831,7 @@
       await applyDefaultConversationTag(f, saved);
       els.botStoreSheet?.classList.add("is-stamped");
       const status = els.botStoreSheet?.querySelector("[data-enroll-status]");
-      if (status) status.textContent = "已激活";
+      if (status) status.textContent = "✓ 已激活";
       const savedKey = saved.key || saved.bot?.key || saved.bot?.id || "";
       const uid = els.botStoreSheet?.querySelector("[data-badge-uid]");
       if (uid && savedKey) uid.textContent = `UID · ${savedKey}`;
@@ -850,7 +849,7 @@
     } catch (error) {
       const status = els.botStoreSheet?.querySelector("[data-enroll-status]");
       if (status) status.textContent = "添加失败";
-      if (btn) { btn.disabled = false; btn.textContent = "重试"; }
+      if (btn) { btn.disabled = false; btn.textContent = "确认"; }
       adding = false;
       window.alert(`添加失败：${error?.message || error}`);
       return;
