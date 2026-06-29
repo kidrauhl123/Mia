@@ -11,19 +11,22 @@
 .app-shell[data-active-view="contacts"] .discover-top-bar,
 .app-shell[data-active-view="bot-store"] .discover-top-bar {
   position: absolute;
-  top: 16px;
+  top: 0;
   right: 22px;
   left: calc(var(--rail-column-width) + 22px);
   z-index: 12;
   display: flex;
   align-items: center;
-  padding: 0;
+  box-sizing: border-box;
+  height: 84px;
+  padding: 16px 0 0;
   background: transparent;
-  pointer-events: none;
+  pointer-events: auto;
+  -webkit-app-region: drag;
 }
 .discover-mode-toggle {
   pointer-events: auto;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
 }
 /* rail / 列表 / 详情 / 网格都在同一个地板行；发现模式无中栏可拖 */
 .app-shell[data-active-view="contacts"] .nav-rail,
@@ -82,6 +85,7 @@
   font-weight: var(--capsule-tab-font-weight);
   white-space: nowrap;
   cursor: default;
+  -webkit-app-region: no-drag;
   transition: color 140ms ease;
 }
 .discover-mode-toggle button:not(.active):hover {
@@ -830,14 +834,18 @@
     backdrop-filter: blur(18px) saturate(1.08);
   }
   .app-shell[data-active-view="contacts"] .discover-top-bar {
-    top: 12px;
+    top: 0;
     right: 14px;
     left: calc(var(--rail-column-width) + 66px);
+    height: 64px;
+    padding-top: 12px;
   }
   .app-shell[data-active-view="bot-store"] .discover-top-bar {
-    top: 12px;
+    top: 0;
     right: 14px;
     left: calc(var(--rail-column-width) + 14px);
+    height: 64px;
+    padding-top: 12px;
   }
   .app-shell[data-active-view="contacts"] .contacts-layout {
     padding: 64px 14px 18px;
@@ -953,7 +961,9 @@
 
 body.platform-win32 .app-shell[data-active-view="contacts"] .discover-top-bar,
 body.platform-win32 .app-shell[data-active-view="bot-store"] .discover-top-bar {
-  top: calc(var(--win-titlebar-height) + 12px);
+  top: var(--win-titlebar-height);
+  height: 70px;
+  padding-top: 12px;
 }
 
 body.platform-win32 .app-shell[data-active-view="contacts"] .contacts-sidebar {

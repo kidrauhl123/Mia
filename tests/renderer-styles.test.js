@@ -274,20 +274,32 @@ test("sidebar and chat headers use the same surface without a header divider", (
     "sidebar body should not draw a second adjacent divider that can drift from the topbar line"
   );
   const conversationSidebarToolsRule = cssRuleBody(baseCss, ".conversation-sidebar .sidebar-tools");
+  const conversationSidebarToolsWithFiltersRule = cssRuleBody(baseCss, ".conversation-sidebar .sidebar-tools.has-tag-filters");
+  const contactsSidebarToolsRule = cssRuleBody(baseCss, ".contacts-sidebar .sidebar-tools");
   assert.match(
     conversationSidebarToolsRule,
     /-webkit-app-region:\s*drag;/,
     "conversation sidebar header should be a draggable window region"
   );
   assert.match(
-    baseCss,
-    /\.conversation-sidebar \.sidebar-tools\.has-tag-filters\s*\{[^}]*-webkit-app-region:\s*no-drag;/,
-    "conversation folder header gap should keep hover active instead of becoming a drag-only dead zone"
+    conversationSidebarToolsWithFiltersRule,
+    /-webkit-app-region:\s*drag;/,
+    "conversation folder header gaps should stay draggable even when folder tabs are visible"
+  );
+  assert.match(
+    contactsSidebarToolsRule,
+    /-webkit-app-region:\s*drag;/,
+    "contacts sidebar header should match task-like top drag behavior"
   );
   assert.match(
     baseCss,
-    /\.conversation-sidebar \.sidebar-tools button,\s*\.conversation-sidebar \.sidebar-tools input,\s*\.conversation-sidebar \.sidebar-tools \.search-box,\s*\.conversation-sidebar \.sidebar-tools \.create-menu,\s*\.conversation-sidebar \.sidebar-tools \.sidebar-tag-filters\s*\{[^}]*-webkit-app-region:\s*no-drag;/,
+    /\.conversation-sidebar \.sidebar-tools button,\s*\.conversation-sidebar \.sidebar-tools input,\s*\.conversation-sidebar \.sidebar-tools \.search-box,\s*\.conversation-sidebar \.sidebar-tools \.create-menu,\s*\.conversation-sidebar \.sidebar-tools \.sidebar-tag-filters,[\s\S]*?\.contacts-sidebar \.sidebar-tools \.create-menu\s*\{[^}]*-webkit-app-region:\s*no-drag;/,
     "conversation sidebar header controls should remain clickable instead of dragging the window"
+  );
+  assert.match(
+    baseCss,
+    /\.contacts-sidebar \.sidebar-tools button,\s*\.contacts-sidebar \.sidebar-tools input,\s*\.contacts-sidebar \.sidebar-tools \.search-box,\s*\.contacts-sidebar \.sidebar-tools \.create-menu\s*\{[^}]*-webkit-app-region:\s*no-drag;/,
+    "contacts sidebar header controls should remain clickable instead of dragging the window"
   );
 });
 
@@ -975,13 +987,18 @@ test("discover, skill, and task controls float over one continuous workspace flo
   );
   assert.match(
     botStoreCss,
-    /\.app-shell\[data-active-view="contacts"\]\s+\.discover-top-bar,\s*\.app-shell\[data-active-view="bot-store"\]\s+\.discover-top-bar\s*\{[^}]*position:\s*absolute;[^}]*pointer-events:\s*none;/,
-    "discover topbar container should float over the floor without eating floor clicks"
+    /\.app-shell\[data-active-view="contacts"\]\s+\.discover-top-bar,\s*\.app-shell\[data-active-view="bot-store"\]\s+\.discover-top-bar\s*\{[^}]*position:\s*absolute;[^}]*top:\s*0;[^}]*height:\s*84px;[^}]*padding:\s*16px 0 0;[^}]*pointer-events:\s*auto;[^}]*-webkit-app-region:\s*drag;/,
+    "discover topbar container should provide a real draggable top strip while preserving the visual offset"
   );
   assert.match(
     botStoreCss,
-    /\.discover-mode-toggle\s*\{[^}]*pointer-events:\s*auto;/,
-    "discover mode toggle itself should remain clickable"
+    /\.discover-mode-toggle\s*\{[^}]*pointer-events:\s*auto;[^}]*-webkit-app-region:\s*drag;/,
+    "discover mode toggle gaps should also be draggable"
+  );
+  assert.match(
+    botStoreCss,
+    /\.discover-mode-toggle button\s*\{[^}]*-webkit-app-region:\s*no-drag;/,
+    "discover mode toggle buttons should remain clickable instead of dragging the window"
   );
   assert.match(
     botStoreCss,

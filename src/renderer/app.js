@@ -1008,6 +1008,25 @@ function setConversationSidebarActionHover(active) {
   els.conversationSidebar?.classList.toggle("sidebar-action-hover", Boolean(active));
 }
 
+function pointerIsInsideConversationSidebar(event) {
+  const sidebar = els.conversationSidebar;
+  if (!sidebar || sidebar.classList.contains("hidden")) return false;
+  const x = Number(event?.clientX);
+  const y = Number(event?.clientY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  const rect = sidebar.getBoundingClientRect();
+  const tolerance = 2;
+  return x >= rect.left - tolerance && x <= rect.right + tolerance && y >= rect.top - tolerance && y <= rect.bottom + tolerance;
+}
+
+function updateConversationSidebarActionHoverFromPointer(event) {
+  if (!sidebarCollapseSupported(state.activeView)) {
+    setConversationSidebarActionHover(false);
+    return;
+  }
+  setConversationSidebarActionHover(pointerIsInsideConversationSidebar(event));
+}
+
 function setSidebarCollapsed(collapsed, persist = false) {
   state.sidebarCollapsed = Boolean(collapsed);
   if (persist) {
@@ -5660,7 +5679,14 @@ document.querySelectorAll("[data-task-sidebar-mode]").forEach((button) => {
 });
 
 els.conversationSidebar?.addEventListener("pointerenter", () => setConversationSidebarActionHover(true));
-els.conversationSidebar?.addEventListener("pointerleave", () => setConversationSidebarActionHover(false));
+els.conversationSidebar?.addEventListener("pointermove", updateConversationSidebarActionHoverFromPointer);
+els.conversationSidebar?.addEventListener("pointerleave", (event) => {
+  if (!pointerIsInsideConversationSidebar(event)) setConversationSidebarActionHover(false);
+});
+document.addEventListener("pointermove", (event) => {
+  if (!els.conversationSidebar?.classList.contains("sidebar-action-hover")) return;
+  updateConversationSidebarActionHoverFromPointer(event);
+});
 
 els.sidebarCollapseToggle?.addEventListener("click", () => {
   if (!sidebarCollapseSupported(state.activeView)) return;

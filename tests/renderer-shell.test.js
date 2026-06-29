@@ -254,7 +254,7 @@ test("desktop window controls use Windows overlay title bar off macOS", () => {
   assert.match(css, /body\.platform-win32 \[class~="sidebar-tools"\]\s*\{[\s\S]*?background:\s*var\(--win-sidebar-bg\);[\s\S]*?border-bottom:\s*1px solid var\(--win-panel-border\);/);
   assert.match(css, /body\.platform-win32 \.conversation-sidebar \.sidebar-tools\.has-tag-filters\s*\{[\s\S]*?border-bottom:\s*0;/);
   assert.match(css, /body\.platform-win32 \.persona\s*\{[\s\S]*?width:\s*calc\(100% - 12px\);[\s\S]*?margin:\s*0 6px;[\s\S]*?border-radius:\s*8px;/);
-  assert.match(botStoreCss, /body\.platform-win32 \.app-shell\[data-active-view="contacts"\] \.discover-top-bar,[\s\S]*?body\.platform-win32 \.app-shell\[data-active-view="bot-store"\] \.discover-top-bar\s*\{[\s\S]*?top:\s*calc\(var\(--win-titlebar-height\) \+ 12px\);/);
+  assert.match(botStoreCss, /body\.platform-win32 \.app-shell\[data-active-view="contacts"\] \.discover-top-bar,[\s\S]*?body\.platform-win32 \.app-shell\[data-active-view="bot-store"\] \.discover-top-bar\s*\{[\s\S]*?top:\s*var\(--win-titlebar-height\);[\s\S]*?height:\s*70px;[\s\S]*?padding-top:\s*12px;/);
   assert.match(botStoreCss, /body\.platform-win32 \.app-shell\[data-active-view="contacts"\] \.contacts-sidebar\s*\{[\s\S]*?margin:\s*calc\(var\(--win-titlebar-height\) \+ 58px\) 8px 10px 0;[\s\S]*?border:\s*1px solid var\(--win-panel-border\);[\s\S]*?border-radius:\s*8px;[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/);
   assert.match(css, /--mac-rail-column-width:\s*82px;/);
   assert.match(css, /body\.platform-darwin\s*\{[\s\S]*?--rail-column-width:\s*var\(--mac-rail-column-width\);[\s\S]*?--traffic-spacer-height:\s*var\(--mac-traffic-spacer-height\);/);
@@ -343,10 +343,14 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(appSource, /els\.sidebarCollapseToggle\?\.addEventListener\("click",\s*\(\) => \{[\s\S]*?setSidebarCollapsed\(true,\s*true\);/);
   assert.match(appSource, /els\.sidebarRailToggle\?\.addEventListener\("click",\s*\(\) => \{[\s\S]*?setSidebarCollapsed\(false,\s*true\);/);
   assert.match(appSource, /function setConversationSidebarActionHover\(active\)/);
+  assert.match(appSource, /function pointerIsInsideConversationSidebar\(event\)[\s\S]*?getBoundingClientRect\(\)/);
+  assert.match(appSource, /function updateConversationSidebarActionHoverFromPointer\(event\)[\s\S]*?pointerIsInsideConversationSidebar\(event\)/);
   assert.match(appSource, /els\.conversationSidebar\?\.addEventListener\("pointerenter",\s*\(\) => setConversationSidebarActionHover\(true\)\)/);
-  assert.match(appSource, /els\.conversationSidebar\?\.addEventListener\("pointerleave",\s*\(\) => setConversationSidebarActionHover\(false\)\)/);
+  assert.match(appSource, /els\.conversationSidebar\?\.addEventListener\("pointermove",\s*updateConversationSidebarActionHoverFromPointer\)/);
+  assert.match(appSource, /els\.conversationSidebar\?\.addEventListener\("pointerleave",\s*\(event\) => \{[\s\S]*?if \(!pointerIsInsideConversationSidebar\(event\)\) setConversationSidebarActionHover\(false\);[\s\S]*?\}\)/);
+  assert.match(appSource, /document\.addEventListener\("pointermove",\s*\(event\) => \{[\s\S]*?updateConversationSidebarActionHoverFromPointer\(event\);[\s\S]*?\}\)/);
   assert.match(css, /\.sidebar-title-row\s*\{[\s\S]*?display:\s*flex;[\s\S]*?align-items:\s*center;[\s\S]*?-webkit-app-region:\s*no-drag;/);
-  assert.match(css, /\.sidebar-collapse-toggle\s*\{[\s\S]*?width:\s*0;[\s\S]*?opacity:\s*0;[\s\S]*?overflow:\s*hidden;/);
+  assert.match(css, /\.sidebar-collapse-toggle\s*\{[\s\S]*?width:\s*0;[\s\S]*?opacity:\s*0;[\s\S]*?overflow:\s*hidden;[\s\S]*?-webkit-app-region:\s*no-drag;/);
   assert.match(css, /\.conversation-sidebar:hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar\.sidebar-action-hover \.sidebar-collapse-toggle,[\s\S]*?\.conversation-sidebar \.sidebar-tools:focus-within \.sidebar-collapse-toggle\s*\{[\s\S]*?width:\s*28px;[\s\S]*?opacity:\s*1;/);
   assert.match(css, /\.sidebar-collapse-toggle\[hidden\],[\s\S]*?\.app-shell\[data-sidebar-toggle="hidden"\] \.sidebar-collapse-toggle,[\s\S]*?\.app-shell\[data-shell-layout="single"\] \.sidebar-collapse-toggle,[\s\S]*?\.app-shell\[data-nav-layout="sidebar-bottom"\] \.sidebar-collapse-toggle\s*\{[\s\S]*?display:\s*none;/);
   assert.doesNotMatch(css, /\.sidebar-collapse-toggle:focus-visible[^{]*\{[^}]*(?:outline|box-shadow):/);

@@ -1617,18 +1617,26 @@ body.sidebar-resizing * {
 }
 
 .conversation-sidebar .sidebar-tools.has-tag-filters {
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
 }
 
 body.platform-win32 .conversation-sidebar .sidebar-tools.has-tag-filters {
   border-bottom: 0;
 }
 
+.contacts-sidebar .sidebar-tools {
+  -webkit-app-region: drag;
+}
+
 .conversation-sidebar .sidebar-tools button,
 .conversation-sidebar .sidebar-tools input,
 .conversation-sidebar .sidebar-tools .search-box,
 .conversation-sidebar .sidebar-tools .create-menu,
-.conversation-sidebar .sidebar-tools .sidebar-tag-filters {
+.conversation-sidebar .sidebar-tools .sidebar-tag-filters,
+.contacts-sidebar .sidebar-tools button,
+.contacts-sidebar .sidebar-tools input,
+.contacts-sidebar .sidebar-tools .search-box,
+.contacts-sidebar .sidebar-tools .create-menu {
   -webkit-app-region: no-drag;
 }
 
@@ -1665,6 +1673,7 @@ body.platform-win32 .conversation-sidebar .sidebar-tools.has-tag-filters {
   padding: 0;
   opacity: 0;
   overflow: hidden;
+  -webkit-app-region: no-drag;
   border: 0;
   border-radius: 8px;
   background: transparent;
