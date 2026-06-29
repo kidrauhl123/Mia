@@ -1,4 +1,3 @@
-const fallbackSlashCommands = window.miaAppState.fallbackSlashCommands;
 const SETUP_GUIDE_DISMISSED_KEY = window.miaAppState.SETUP_GUIDE_DISMISSED_KEY;
 const AGENT_SETUP_SKIPPED_KEY = window.miaAppState.AGENT_SETUP_SKIPPED_KEY;
 const { ConversationKind, MemberKind, SenderKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../shared/conversation-kinds");
@@ -5146,14 +5145,13 @@ async function initializeRuntime(options = {}) {
     });
   }
   if (window.miaLoaders && window.miaLoaders.initLoaders) {
-    window.miaLoaders.initLoaders({ state, render, fallbackSlashCommands });
+    window.miaLoaders.initLoaders({ state, render });
   }
   if (window.miaComposer && window.miaComposer.initComposer) {
     window.miaComposer.initComposer({
       state,
       els,
       mia: window.mia,
-      fallbackSlashCommands,
       loadSkills: () => window.miaLoaders.loadSkills(),
       renderAttachmentThumb,
       renderSendButton,

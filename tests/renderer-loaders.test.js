@@ -6,6 +6,10 @@ const vm = require("node:vm");
 
 const root = path.join(__dirname, "..");
 
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 test("loadEngineCapabilities refreshes an open bot runtime selector", async () => {
   const refreshes = [];
   let renderCalls = 0;
@@ -31,7 +35,7 @@ test("loadEngineCapabilities refreshes an open bot runtime selector", async () =
         renderBotRuntimeTargetSelect: (target, options) => refreshes.push({ target, options })
       }
     },
-    console
+    console: { error() {} }
   });
   const source = fs.readFileSync(path.join(root, "src/renderer/loaders.js"), "utf8");
   vm.runInContext(source, context, { filename: "src/renderer/loaders.js" });
@@ -63,4 +67,65 @@ test("loadEngineCapabilities refreshes an open bot runtime selector", async () =
     },
     options: { preservePrevious: true }
   }]);
+});
+
+test("loadSlashCommands keeps Hermes catalog empty instead of using placeholder commands", async () => {
+  const context = vm.createContext({
+    window: {
+      mia: {
+        loadSlashCommands: async () => [],
+        loadAgentCommands: async ({ engine }) => ({ rows: [{ command: `${engine}-native`, description: engine }] })
+      }
+    },
+    console: { error() {} }
+  });
+  const source = fs.readFileSync(path.join(root, "src/renderer/loaders.js"), "utf8");
+  vm.runInContext(source, context, { filename: "src/renderer/loaders.js" });
+
+  const state = {
+    slashCommands: [{ command: "/stale", description: "old" }],
+    agentSlashCommands: { "claude-code": [], codex: [], openclaw: [] }
+  };
+  context.window.miaLoaders.initLoaders({
+    state,
+    render: () => {},
+    fallbackSlashCommands: [{ command: "/placeholder", description: "placeholder" }]
+  });
+
+  await context.window.miaLoaders.loadSlashCommands();
+
+  assert.deepEqual(plain(state.slashCommands), []);
+  assert.deepEqual(plain(state.agentSlashCommands["claude-code"]), [{ command: "/claude-code-native", description: "claude-code" }]);
+  assert.deepEqual(plain(state.agentSlashCommands.codex), [{ command: "/codex-native", description: "codex" }]);
+  assert.deepEqual(plain(state.agentSlashCommands.openclaw), [{ command: "/openclaw-native", description: "openclaw" }]);
+});
+
+test("loadSlashCommands keeps Hermes catalog empty when discovery fails", async () => {
+  const context = vm.createContext({
+    window: {
+      mia: {
+        loadSlashCommands: async () => {
+          throw new Error("offline");
+        },
+        loadAgentCommands: async () => ({ rows: [] })
+      }
+    },
+    console: { error() {} }
+  });
+  const source = fs.readFileSync(path.join(root, "src/renderer/loaders.js"), "utf8");
+  vm.runInContext(source, context, { filename: "src/renderer/loaders.js" });
+
+  const state = {
+    slashCommands: [{ command: "/stale", description: "old" }],
+    agentSlashCommands: { "claude-code": [], codex: [], openclaw: [] }
+  };
+  context.window.miaLoaders.initLoaders({
+    state,
+    render: () => {},
+    fallbackSlashCommands: [{ command: "/placeholder", description: "placeholder" }]
+  });
+
+  await context.window.miaLoaders.loadSlashCommands();
+
+  assert.deepEqual(plain(state.slashCommands), []);
 });

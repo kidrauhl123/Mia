@@ -7,6 +7,10 @@ const vm = require("node:vm");
 const root = path.join(__dirname, "..");
 const rawReadFileSync = fs.readFileSync.bind(fs);
 
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 fs.readFileSync = function readFileSyncWithNormalizedText(file, options, ...args) {
   const value = rawReadFileSync(file, options, ...args);
   const encoding = typeof options === "string" ? options : options?.encoding;
@@ -2720,6 +2724,6 @@ test("renderer app state factory owns default mutable state", () => {
   assert.equal(state.onboardingStep, "model");
   assert.equal(state.isNarrowWindow, true);
   assert.equal(state.sidebarWidth, 300);
-  assert.equal(state.slashCommands[0].command, "/new");
-  assert.notEqual(state.slashCommands, sandbox.window.miaAppState.fallbackSlashCommands);
+  assert.deepEqual(plain(state.slashCommands), []);
+  assert.deepEqual(plain(state.agentSlashCommands), { "claude-code": [], codex: [], openclaw: [] });
 });
