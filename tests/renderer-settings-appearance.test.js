@@ -287,13 +287,13 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
         dataset: { custom: "false" }
       },
       appearanceWorkspaceBackgroundImage: {
-        value: 'url("assets/telegram-green-doodle-wallpaper.png")'
+        value: 'url("assets/green-doodle-wallpaper.png")'
       }
     }
   });
 
   assert.equal(api.currentAppearanceDraft().workspaceBackgroundColor, "#f0f0f3");
-  assert.equal(api.currentAppearanceDraft().workspaceBackgroundImage, 'url("assets/telegram-green-doodle-wallpaper.png")');
+  assert.equal(api.currentAppearanceDraft().workspaceBackgroundImage, 'url("assets/green-doodle-wallpaper.png")');
   assert.equal(api.currentAppearanceDraft().selectionStyle, "solid");
   assert.equal(Object.hasOwn(api.currentAppearanceDraft(), "glassOpacity"), false);
   assert.equal(api.currentAppearanceDraft().showDesktopNotifications, false);
@@ -364,7 +364,7 @@ test("stale bottom board save response cannot roll back a newer color draft", as
 
 test("cloud appearance empty bottom board values do not overwrite local bottom board choices", () => {
   const { api } = loadAppearanceModule();
-  const image = 'url("assets/telegram-green-doodle-wallpaper.png")';
+  const image = 'url("assets/green-doodle-wallpaper.png")';
 
   const merged = api.mergeCloudAppearance(
     { theme: "light", workspaceBackgroundColor: "#2ca1ff", workspaceBackgroundImage: image },

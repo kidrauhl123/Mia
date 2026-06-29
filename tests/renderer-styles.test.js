@@ -997,6 +997,11 @@ test("discover, skill, and task controls float over one continuous workspace flo
   );
   assert.match(
     botStoreCss,
+    /\.app-shell\[data-active-view="contacts"\],\s*\.app-shell\[data-active-view="bot-store"\]\s*\{[^}]*background:\s*var\(--workspace-floor-image\),\s*var\(--workspace-floor\);/,
+    "contacts and discover should preserve the selected workspace background image"
+  );
+  assert.match(
+    botStoreCss,
     /\.app-shell\[data-active-view="contacts"\]\s+\.discover-top-bar,\s*\.app-shell\[data-active-view="bot-store"\]\s+\.discover-top-bar\s*\{[^}]*position:\s*absolute;[^}]*top:\s*0;[^}]*height:\s*84px;[^}]*padding:\s*16px 0 0;[^}]*pointer-events:\s*auto;[^}]*-webkit-app-region:\s*drag;/,
     "discover topbar container should provide a real draggable top strip while preserving the visual offset"
   );
