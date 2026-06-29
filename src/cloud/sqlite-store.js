@@ -11,6 +11,22 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const MAX_IMAGE_BYTES = 18 * 1024 * 1024;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const ALLOWED_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const ALLOWED_FILE_DATA_URL_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/json",
+  "application/zip",
+  "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel.sheet.macroenabled.12",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "text/tab-separated-values"
+]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -139,6 +155,24 @@ function fileExtensionForMime(mimeType) {
   return ".jpg";
 }
 
+function fileExtensionForDataUrlMime(mimeType) {
+  if (mimeType === "application/pdf") return ".pdf";
+  if (mimeType === "application/json") return ".json";
+  if (mimeType === "application/zip") return ".zip";
+  if (mimeType === "application/vnd.ms-excel") return ".xls";
+  if (mimeType === "application/vnd.ms-powerpoint") return ".ppt";
+  if (mimeType === "application/msword") return ".doc";
+  if (mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return ".xlsx";
+  if (mimeType === "application/vnd.ms-excel.sheet.macroenabled.12") return ".xlsm";
+  if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return ".docx";
+  if (mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation") return ".pptx";
+  if (mimeType === "text/markdown") return ".md";
+  if (mimeType === "text/csv") return ".csv";
+  if (mimeType === "text/tab-separated-values") return ".tsv";
+  if (mimeType === "text/plain") return ".txt";
+  return "";
+}
+
 function sanitizeStoredFileName(value, fallback = "file") {
   const base = path.basename(String(value || fallback)).replace(/[\x00-\x1f\x7f]/g, "").trim();
   const cleaned = base.replace(/[^\w.\- ()\[\]\u4e00-\u9fff]/g, "_").slice(0, 160);
@@ -176,6 +210,23 @@ function rowToFile(row) {
     url: `/api/files/${row.id}`,
     createdAt: row.created_at
   };
+}
+
+function parseFileDataUrl(dataUrl) {
+  const raw = String(dataUrl || "");
+  const match = raw.match(/^data:([^;,]+);base64,(.+)$/);
+  if (!match) throw new Error("Invalid file payload.");
+  const mimeType = String(match[1] || "").toLowerCase();
+  const buffer = Buffer.from(match[2], "base64");
+  if (!buffer.length || buffer.length > MAX_FILE_BYTES) throw new Error("Invalid file size.");
+  return { mimeType, buffer };
+}
+
+function typeForStoredFile(mimeType, name = "") {
+  if (ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) return "image";
+  if (mimeType === "application/pdf" || /\.pdf$/i.test(name)) return "pdf";
+  if (mimeType.startsWith("text/") || /\.(txt|md|markdown|json|csv|tsv|log)$/i.test(name)) return "text";
+  return "file";
 }
 
 function rowToDevice(row) {
@@ -415,6 +466,35 @@ function createCloudStore(options = {}) {
       INSERT INTO files (id, user_id, type, name, mime_type, path, size, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(fileId, userId, "image", String(attachment.name || path.basename(filePath)), mimeType, filePath, buffer.length, now());
+    return rowToFile(db.prepare("SELECT * FROM files WHERE id = ?").get(fileId));
+  }
+
+  function saveFileDataUrl(userId, attachment = {}) {
+    if (!getUserById(userId)) throw new Error("用户不存在。");
+    const { mimeType, buffer } = parseFileDataUrl(attachment.dataUrl);
+    if (mimeType.startsWith("image/")) return saveImageDataUrl(userId, attachment);
+    if (!ALLOWED_FILE_DATA_URL_MIME_TYPES.has(mimeType)) throw new Error("Unsupported file type.");
+    const fileId = id("file");
+    const userDir = path.join(uploadDir, userId);
+    fs.mkdirSync(userDir, { recursive: true, mode: 0o700 });
+    const fallbackName = `${fileId}${fileExtensionForDataUrlMime(mimeType)}`;
+    const name = sanitizeStoredFileName(attachment.name || fallbackName, fallbackName);
+    const ext = path.extname(name) || fileExtensionForDataUrlMime(mimeType);
+    const filePath = path.join(userDir, `${fileId}${ext || ""}`);
+    fs.writeFileSync(filePath, buffer, { mode: 0o600 });
+    db.prepare(`
+      INSERT INTO files (id, user_id, type, name, mime_type, path, size, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      fileId,
+      userId,
+      typeForStoredFile(mimeType, name),
+      name,
+      mimeType,
+      filePath,
+      buffer.length,
+      now()
+    );
     return rowToFile(db.prepare("SELECT * FROM files WHERE id = ?").get(fileId));
   }
 
@@ -666,6 +746,7 @@ function createCloudStore(options = {}) {
     logoutSession,
     authenticateToken,
     saveImageDataUrl,
+    saveFileDataUrl,
     saveLocalFileForUser,
     getFileForUser,
     listBridgeDevices,
@@ -926,6 +1007,7 @@ function migrate(db) {
       unread_overrides_json TEXT NOT NULL DEFAULT '{}',
       appearance_json  TEXT NOT NULL DEFAULT '{}',
       tags_json        TEXT NOT NULL DEFAULT '{"items":[],"assignments":{}}',
+      starter_engine_bots_json TEXT NOT NULL DEFAULT '{}',
       version          INTEGER NOT NULL DEFAULT 0,
       updated_at       TEXT NOT NULL
     );
@@ -1261,6 +1343,13 @@ function migrate(db) {
     db.exec("ALTER TABLE messages ADD COLUMN content_blocks_json TEXT");
   }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (20, ?)")
+    .run(nowIso());
+  // v21: account-level marker for one-time starter bots generated from the
+  // user's usable local agent engines.
+  if (!hasColumn(db, "user_settings", "starter_engine_bots_json")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN starter_engine_bots_json TEXT NOT NULL DEFAULT '{}'");
+  }
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (21, ?)")
     .run(nowIso());
 }
 

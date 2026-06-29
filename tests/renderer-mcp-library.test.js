@@ -772,6 +772,63 @@ test("xiaohongshu stale endpoint test errors restart before retesting", async ()
   assert.equal(harness.context.document.querySelector('[role="dialog"]'), null);
 });
 
+test("xiaohongshu managed error with empty actions still uses nextAction", async () => {
+  const actions = [];
+  const state = {
+    skillFilter: "",
+    mcp: {
+      activeTab: "installed",
+      servers: [{
+        id: "mcp_xhs",
+        name: "小红书 MCP",
+        nativeName: "xiaohongshu",
+        enabled: false,
+        status: "disconnected",
+        managedRuntime: { connectorId: "xiaohongshu", state: "running", expectedToolCount: 13 },
+        connectionWizard: {
+          state: "managed_error",
+          nextAction: "start",
+          message: "Xiaohongshu MCP service failed to start: spawn go ENOENT",
+          actions: []
+        },
+        transport: { type: "http", url: "http://127.0.0.1:18060/mcp" },
+        tools: [],
+        sync: {}
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({
+    state,
+    mcpOverrides: {
+      runManagedAction: async (id, action) => {
+        actions.push([id, action]);
+        return {
+          success: false,
+          error: "Xiaohongshu MCP service failed to start: spawn go ENOENT"
+        };
+      },
+      test: async () => {
+        actions.push(["generic-test"]);
+        return { success: false, error: "fetch failed" };
+      }
+    }
+  });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-server"]').click();
+  await flushAsync();
+
+  assert.deepEqual(actions, [["mcp_xhs", "start"]]);
+  assertMcpAlert(harness, "缺少小红书运行组件，请检查网络后重试。");
+});
+
 test("installed card omits legacy setupHint self-start guidance from default surface", () => {
   const state = {
     skillFilter: "",

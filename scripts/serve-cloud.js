@@ -2753,7 +2753,7 @@ function sanitizeMessageSkills(raw) {
 
 function persistCloudAttachments(cloudStore, userId, attachments = []) {
   return attachments.map((attachment) => {
-    if (attachment?.dataUrl) return clientFile(cloudStore.saveImageDataUrl(userId, attachment));
+    if (attachment?.dataUrl) return clientFile(cloudStore.saveFileDataUrl(userId, attachment));
     const url = safeAttachmentUrl(attachment?.url);
     const cloudFileId = url.match(/^\/api\/files\/([a-zA-Z0-9_-]+)$/)?.[1] || "";
     if (cloudFileId) {
@@ -3830,6 +3830,7 @@ async function handleRequest(req, res, context) {
         unreadOverrides: body.unreadOverrides,
         appearance: body.appearance,
         tags: body.tags,
+        starterEngineBots: body.starterEngineBots,
         expectedVersion: body.expectedVersion
       });
       if (!out.ok) {
@@ -3988,7 +3989,7 @@ async function handleRequest(req, res, context) {
 
     if (req.method === "POST" && url.pathname === "/api/files") {
       const body = await readJson(req);
-      const file = cloudStore.saveImageDataUrl(auth.user.id, { name: body.name, dataUrl: body.dataUrl });
+      const file = cloudStore.saveFileDataUrl(auth.user.id, { name: body.name, dataUrl: body.dataUrl });
       return writeJson(res, 201, { file: clientFile(file) });
     }
 

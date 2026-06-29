@@ -292,6 +292,8 @@ test("bundled official library exposes first-release bot presets", async () => {
     assert.ok(presets.some((preset) => preset.name === "剧情主持"));
     assert.deepEqual([...new Set(presets.map((preset) => preset.cat))], ["学习", "办公", "写作", "求职", "娱乐"]);
     assert.equal(presets.some((preset) => preset.key === "speak-partner"), false);
+    const spreadsheetPreset = presets.find((preset) => preset.key === "spreadsheet-organizer");
+    assert.ok(spreadsheetPreset.capabilities.enabledSkills.includes("mia-official:xlsx"));
 
     const enabledSkillIds = new Set(presets.flatMap((preset) => preset.capabilities.enabledSkills));
     assert.ok([...enabledSkillIds].every((id) => String(id).startsWith("mia-official:")));
@@ -301,6 +303,10 @@ test("bundled official library exposes first-release bot presets", async () => {
       assert.ok(library.skills.some((skill) => skill.id === id), `missing preset skill: ${id}`);
       assert.match(loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: [id] } }), /=== Skill:/);
     }
+    const xlsxContext = loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: ["mia-official:xlsx"] } });
+    assert.match(xlsxContext, /Delivery Gate/);
+    assert.match(xlsxContext, /Use Excel formulas/);
+    assert.match(xlsxContext, /preserve its sheets, formatting, formulas/);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

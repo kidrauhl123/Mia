@@ -20,7 +20,16 @@ function mockEl() {
     classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
     dataset: {},
     children: [],
-    addEventListener() {}, removeEventListener() {},
+    _listeners: {},
+    addEventListener(type, handler) {
+      if (!type || typeof handler !== "function") return;
+      if (!this._listeners[type]) this._listeners[type] = [];
+      this._listeners[type].push(handler);
+    },
+    removeEventListener(type, handler) {
+      if (!type || typeof handler !== "function" || !this._listeners[type]) return;
+      this._listeners[type] = this._listeners[type].filter((item) => item !== handler);
+    },
     appendChild(c) { this.children.push(c); return c; },
     insertAdjacentHTML() {},
     querySelector() { return null; },
@@ -46,6 +55,10 @@ function scrollEl({ scrollTop, scrollHeight, clientHeight }) {
   el.scrollHeight = scrollHeight;
   el.clientHeight = clientHeight;
   return el;
+}
+
+function dispatchMockScroll(el) {
+  for (const handler of el?._listeners?.scroll || []) handler({ target: el });
 }
 
 function loadSocial(options = {}) {
@@ -157,6 +170,36 @@ test("renderConversationChat keeps a new conversation pinned after first-paint l
   for (const frame of frames) frame();
 
   assert.equal(c.scrollTop, 1000, "initial open must stay pinned after async layout increases height");
+});
+
+test("renderConversationChat stops bottom stick when the user nudges upward from the bottom", () => {
+  const frames = [];
+  const { social } = loadSocial({
+    requestAnimationFrame: (fn) => {
+      frames.push(fn);
+      return frames.length;
+    }
+  });
+  const c = scrollEl({ scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+  social.renderConversationChat(c);
+
+  frames.shift()?.();
+  c.scrollTop = 988;
+  frames.shift()?.();
+
+  assert.equal(c.scrollTop, 988, "a small upward user scroll must cancel the active bottom-stick session");
+});
+
+test("renderConversationChat preserves a small upward user scroll during near-bottom background rerenders", () => {
+  const { social } = loadSocial();
+  const c = scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+  social.renderConversationChat(c);
+
+  c.scrollTop = 590;
+  dispatchMockScroll(c);
+  social.renderConversationChat(c);
+
+  assert.equal(c.scrollTop, 590, "background rerenders must not treat a small upward user scroll as bottom-pinned");
 });
 
 test("renderConversationChat keeps a new conversation pinned after delayed narrow-pane layout growth", () => {

@@ -259,6 +259,7 @@ let eventsSocket = null;
 let eventsReconnectTimer = 0;
 let eventsReconnectAttempts = 0;
 let cloudRunTextSmoother = null;
+const chatScrollIntents = new WeakMap();
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -280,6 +281,55 @@ function chatBottomGap(chatEl) {
 
 function isChatNearBottom(chatEl) {
   return chatBottomGap(chatEl) < CHAT_SCROLL_STICK_THRESHOLD_PX;
+}
+
+function installChatScrollIntentTracker(chatEl) {
+  if (!chatEl) return null;
+  let intent = chatScrollIntents.get(chatEl);
+  if (!intent) {
+    intent = {
+      installed: false,
+      lastScrollTop: Number(chatEl.scrollTop) || 0,
+      userMovedAwayFromBottom: false
+    };
+    chatScrollIntents.set(chatEl, intent);
+  }
+  if (intent.installed || typeof chatEl.addEventListener !== "function") return intent;
+  intent.installed = true;
+  chatEl.addEventListener("scroll", () => {
+    const currentTop = Number(chatEl.scrollTop) || 0;
+    const previousTop = Number(intent.lastScrollTop) || 0;
+    if (chatBottomGap(chatEl) <= 1) {
+      intent.userMovedAwayFromBottom = false;
+    } else if (currentTop < previousTop - 1) {
+      intent.userMovedAwayFromBottom = true;
+    }
+    intent.lastScrollTop = currentTop;
+  }, { passive: true });
+  return intent;
+}
+
+function markChatProgrammaticBottom(chatEl) {
+  const intent = installChatScrollIntentTracker(chatEl);
+  if (!intent) return;
+  intent.userMovedAwayFromBottom = false;
+  intent.lastScrollTop = Number(chatEl.scrollTop) || 0;
+}
+
+function scrollChatToBottom(chatEl) {
+  if (!chatEl) return;
+  chatEl.scrollTop = chatEl.scrollHeight;
+  markChatProgrammaticBottom(chatEl);
+}
+
+function isChatPinnedToBottom(chatEl) {
+  if (!chatEl) return false;
+  const intent = installChatScrollIntentTracker(chatEl);
+  if (chatBottomGap(chatEl) <= 1) {
+    if (intent) intent.userMovedAwayFromBottom = false;
+    return true;
+  }
+  return !intent?.userMovedAwayFromBottom && isChatNearBottom(chatEl);
 }
 
 function messageStableId(message) {
@@ -331,7 +381,7 @@ function animateMessageTailEnter(article) {
 
 function animateChatTailToBottom(chatEl, _startBottomGap = 0) {
   if (!chatEl) return;
-  chatEl.scrollTop = chatEl.scrollHeight;
+  scrollChatToBottom(chatEl);
 }
 
 function animateRenderedTailMessages(chatEl, tailMessageIds = [], startBottomGap = 0) {
@@ -2983,7 +3033,7 @@ function renderActiveChat() {
     const currentMessageIds = messageStableIds(messages);
     const prevScrollTop = els.chat.scrollTop;
     const startBottomGap = chatBottomGap(els.chat);
-    const nearBottom = isChatNearBottom(els.chat);
+    const nearBottom = isChatPinnedToBottom(els.chat);
     const stickToBottom = isConversationSwitch || isFirstMessageHydration || nearBottom;
     const shouldAnimateTail = !isConversationSwitch
       && !isFirstMessageHydration
@@ -3006,7 +3056,7 @@ function renderActiveChat() {
       if (shouldAnimateTail && tailMessageIds.length) {
         animateRenderedTailMessages(els.chat, tailMessageIds, startBottomGap);
       } else if (stickToBottom) {
-        els.chat.scrollTop = els.chat.scrollHeight;
+        scrollChatToBottom(els.chat);
       } else {
         els.chat.scrollTop = prevScrollTop;
       }

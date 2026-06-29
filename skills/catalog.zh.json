@@ -18,14 +18,6 @@
       "order": 2
     },
     {
-      "id": "xlsx",
-      "name_zh": "Excel 表格",
-      "summary_zh": "读写 Excel 表格，套公式、做透视和图表、批量整理数据。适合算账、统计、把杂乱数据整理成规整表。",
-      "category_zh": "文档处理",
-      "source_label": "Anthropic 官方",
-      "order": 3
-    },
-    {
       "id": "pptx",
       "name_zh": "PPT 幻灯片",
       "summary_zh": "把要点整理成结构清晰的 PowerPoint 幻灯片，自动排版、配图、统一风格。适合课堂展示、答辩、工作汇报。",

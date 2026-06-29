@@ -76,7 +76,7 @@
       "demo": "你：这张表列名乱、空值多，帮我整理出月度汇总\n表格整理师：已清理重复行和空值，生成月度透视表，并标出异常数据。",
       "persona": "你是「表格整理师」，帮用户处理 Excel、CSV 和表格数据：整理表头、清洗数据、补公式、做透视和图表。先确认字段含义和输出目标，不随意改动原始数据。",
       "capabilities": {
-        "enabledSkills": ["mia-official:spreadsheet-organizer"]
+        "enabledSkills": ["mia-official:spreadsheet-organizer", "mia-official:xlsx"]
       }
     },
     {

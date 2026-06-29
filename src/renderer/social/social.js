@@ -162,6 +162,7 @@
   let _pendingMessageFocus = null;
   let _suppressPendingMessageFocus = false;
   const _chatBottomStickSessions = new WeakMap();
+  const _chatScrollIntents = new WeakMap();
 
   function jsonSignature(value) {
     try {
@@ -554,7 +555,7 @@
       && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
     const imageSrc = String(attachment.dataUrl || attachment.previewDataUrl || attachment.thumbnailDataUrl || attachment.thumbnail || "").trim();
     const imageSrcAttr = imageSrc.startsWith("data:image/") ? ` data-image-src="${escapeHtml(imageSrc)}"` : "";
-    const href = String(attachment.url || attachment.dataUrl || "").trim();
+    const href = String(attachment.dataUrl || attachment.url || "").trim();
     const safeHref = /^(\/api\/files\/[A-Za-z0-9_-]+|data:[^"'<>]+)$/i.test(href) ? href : "";
     const tag = safeHref ? "a" : "span";
     const download = safeHref ? ` href="${escapeHtml(safeHref)}" download="${escapeHtml(attachment.name || "attachment")}"` : "";
@@ -605,9 +606,8 @@
 
   function hydrateAttachmentPreview(attachment = {}) {
     if (!attachment || typeof attachment !== "object" || attachmentHasInlinePreview(attachment)) return attachment;
-    const kind = String(attachment.kind || attachmentKind(attachment));
     const key = attachmentPreviewKey(attachment);
-    if (kind !== "image" || !key || typeof window.mia?.fetchFileAttachment !== "function") return attachment;
+    if (!key || typeof window.mia?.fetchFileAttachment !== "function") return attachment;
     const cached = moduleState.attachmentPreviewCache.get(key);
     if (cached?.status === "ready" && cached.attachment) {
       return { ...attachment, ...cached.attachment };
@@ -1828,10 +1828,59 @@
     setTimeout(cleanup, MESSAGE_REMOVE_ANIMATION_MS + 80);
   }
 
+  function installChatScrollIntentTracker(chatEl) {
+    if (!chatEl) return null;
+    let intent = _chatScrollIntents.get(chatEl);
+    if (!intent) {
+      intent = {
+        installed: false,
+        lastScrollTop: Number(chatEl.scrollTop) || 0,
+        userMovedAwayFromBottom: false
+      };
+      _chatScrollIntents.set(chatEl, intent);
+    }
+    if (intent.installed || typeof chatEl.addEventListener !== "function") return intent;
+    intent.installed = true;
+    chatEl.addEventListener("scroll", () => {
+      const currentTop = Number(chatEl.scrollTop) || 0;
+      const previousTop = Number(intent.lastScrollTop) || 0;
+      if (chatBottomGap(chatEl) <= 1) {
+        intent.userMovedAwayFromBottom = false;
+      } else if (currentTop < previousTop - 1) {
+        intent.userMovedAwayFromBottom = true;
+      }
+      intent.lastScrollTop = currentTop;
+    }, { passive: true });
+    return intent;
+  }
+
+  function markChatProgrammaticBottom(chatEl) {
+    const intent = installChatScrollIntentTracker(chatEl);
+    if (!intent) return;
+    intent.userMovedAwayFromBottom = false;
+    intent.lastScrollTop = Number(chatEl.scrollTop) || 0;
+  }
+
+  function scrollChatToBottom(chatEl) {
+    if (!chatEl) return;
+    chatEl.scrollTop = chatEl.scrollHeight;
+    markChatProgrammaticBottom(chatEl);
+  }
+
+  function isChatPinnedToBottom(chatEl) {
+    if (!chatEl) return false;
+    const intent = installChatScrollIntentTracker(chatEl);
+    if (chatBottomGap(chatEl) <= 1) {
+      if (intent) intent.userMovedAwayFromBottom = false;
+      return true;
+    }
+    return !intent?.userMovedAwayFromBottom && isChatNearBottom(chatEl);
+  }
+
   function animateChatTailToBottom(chatEl, _startBottomGap = 0) {
     if (!chatEl) return;
     stopChatBottomStickSession(chatEl);
-    chatEl.scrollTop = chatEl.scrollHeight;
+    scrollChatToBottom(chatEl);
     scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
   }
 
@@ -1845,7 +1894,7 @@
   function bottomStickUserMovedAway(chatEl, expectedScrollTop) {
     const currentTop = Number(chatEl?.scrollTop) || 0;
     const expectedTop = Number(expectedScrollTop) || 0;
-    return Math.abs(currentTop - expectedTop) > 1 && !isChatNearBottom(chatEl);
+    return currentTop < expectedTop - 1;
   }
 
   function stopChatBottomStickSession(chatEl, session = _chatBottomStickSessions.get(chatEl)) {
@@ -1914,7 +1963,7 @@
         stopChatBottomStickSession(chatEl, session);
         return;
       }
-      chatEl.scrollTop = chatEl.scrollHeight;
+      scrollChatToBottom(chatEl);
       session.expectedScrollTop = Number(chatEl.scrollTop) || 0;
       if (session.remainingFrames > 0) {
         session.remainingFrames -= 1;
@@ -1957,7 +2006,7 @@
       ? global.requestAnimationFrame.bind(global)
       : (fn) => setTimeout(fn, 16);
     schedule(() => {
-      chatEl.scrollTop = chatEl.scrollHeight;
+      scrollChatToBottom(chatEl);
     });
   }
 
@@ -1965,7 +2014,7 @@
     const banner = document.getElementById("agentPermissionBanner");
     if (!banner) return;
     const chatEl = document.getElementById("chat");
-    const shouldStickChat = isChatNearBottom(chatEl);
+    const shouldStickChat = isChatPinnedToBottom(chatEl);
     const request = activePermissionRequest();
     if (!request) {
       banner.classList.add("hidden");
@@ -2138,7 +2187,7 @@
 
   function settleChatAfterStreamingUpdate(chatEl, wasNearBottom) {
     if (!chatEl || !wasNearBottom) return;
-    chatEl.scrollTop = chatEl.scrollHeight;
+    scrollChatToBottom(chatEl);
     scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
   }
 
@@ -2152,7 +2201,7 @@
       if (existing && typeof existing.remove === "function") {
         existing.remove();
         markChatRenderFresh(chatEl, conversationId);
-        settleChatAfterStreamingUpdate(chatEl, isChatNearBottom(chatEl));
+        settleChatAfterStreamingUpdate(chatEl, isChatPinnedToBottom(chatEl));
       }
       return true;
     }
@@ -2169,7 +2218,7 @@
       { groupMessage: conversationType === "group" }
     );
     if (!nextArticle) return false;
-    const wasNearBottom = isChatNearBottom(chatEl);
+    const wasNearBottom = isChatPinnedToBottom(chatEl);
     if (!existing) {
       chatEl.appendChild?.(nextArticle);
       window.miaAvatar?.hydrateAvatarVideos?.(nextArticle);
@@ -3035,6 +3084,7 @@
       const wasBusy = isConversationRunBusy(previousRun);
       const run = cloudRunFor(conversationId, payload.runId || "");
       run.runId = payload.runId || run.runId;
+      run.turnId = payload.turnId || payload.turn_id || run.turnId || "";
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
       run.status = "running";
@@ -3306,7 +3356,7 @@
     const messageIdsUnchanged = messageIdListsEqual(previousRenderedMessageIds, currentMessageIds);
     const prevScrollTop = containerEl.scrollTop;
     const startBottomGap = chatBottomGap(containerEl);
-    const wasNearBottom = startBottomGap < SCROLL_STICK_THRESHOLD_PX;
+    const wasNearBottom = isChatPinnedToBottom(containerEl);
     const hasPendingFocus = Boolean(pendingFocusFor(conversationId));
     const isStreamingOnlyPaint = !isConversationSwitch
       && !isFirstMessageHydration
@@ -3341,7 +3391,7 @@
         if (tailMessageIds.length) {
           animateChatTailToBottom(containerEl, startBottomGap);
         } else {
-          containerEl.scrollTop = containerEl.scrollHeight;
+          scrollChatToBottom(containerEl);
           scheduleChatBottomStick(
             containerEl,
             containerEl.scrollTop,
@@ -3689,12 +3739,12 @@
       return false;
     }
     const previousMessageLayout = captureMessageLayout(chatEl);
-    const wasNearBottom = chatBottomGap(chatEl) < SCROLL_STICK_THRESHOLD_PX;
+    const wasNearBottom = isChatPinnedToBottom(chatEl);
     const ghost = appendMessageRemoveGhost(target);
     target.remove();
     markChatRenderFresh(chatEl);
     if (wasNearBottom) {
-      chatEl.scrollTop = chatEl.scrollHeight;
+      scrollChatToBottom(chatEl);
       scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
     }
     animateMessageLayoutShift(chatEl, previousMessageLayout);
@@ -3821,7 +3871,7 @@
     const chatEl = document.getElementById("chat");
     if (!chatEl) return;
     const startBottomGap = chatBottomGap(chatEl);
-    const nearBottom = startBottomGap < SCROLL_STICK_THRESHOLD_PX;
+    const nearBottom = isChatPinnedToBottom(chatEl);
     const previousMessageLayout = prefersReducedMotion() ? null : captureMessageLayout(chatEl);
     const conversation = moduleState.conversations.find((r) => r.id === moduleState.activeConversationId);
     const color = conversation ? avatarColor(conversation.id) : "#5e5ce6";
@@ -3842,7 +3892,7 @@
         if (shouldAnimateTail) {
           animateChatTailToBottom(chatEl, startBottomGap);
         } else {
-          chatEl.scrollTop = chatEl.scrollHeight;
+          scrollChatToBottom(chatEl);
           scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
         }
       }

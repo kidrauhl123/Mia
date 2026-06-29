@@ -262,6 +262,8 @@ test("runManagedAction returns failure and persists managed error when superviso
   assert.equal(stored[0].connectionWizard.state, "managed_error");
   assert.equal(stored[0].connectionWizard.nextAction, "start");
   assert.equal(stored[0].connectionWizard.message, "start failed TOKEN=[redacted]");
+  assert.equal(stored[0].connectionWizard.actions.some((action) => action.id === "start"), true);
+  assert.equal(stored[0].connectionWizard.actions.some((action) => action.id === "test"), true);
 });
 
 test("runManagedAction persists managed error when a non-test supervisor action throws", async (t) => {
@@ -290,8 +292,38 @@ test("runManagedAction persists managed error when a non-test supervisor action 
   assert.equal(started.data.lastError, "spawn failed TOKEN=[redacted]");
   assert.equal(stored[0].enabled, false);
   assert.equal(stored[0].connectionWizard.state, "managed_error");
+  assert.equal(stored[0].connectionWizard.actions.some((action) => action.id === "start"), true);
+  assert.equal(stored[0].connectionWizard.actions.some((action) => action.id === "test"), true);
   assert.equal(stored[0].managedRuntime.state, "error");
   assert.equal(stored[0].lastError, "spawn failed TOKEN=[redacted]");
+});
+
+test("runManagedAction repairs empty managed error actions on failure", async (t) => {
+  const { service, runtime } = setup(t, {
+    managedSupervisor: {
+      runAction: async () => {
+        throw new Error("spawn failed TOKEN=secret-value");
+      },
+      ensureRunning: async (records) => ({ records, errors: [] })
+    }
+  });
+  const installed = await service.installTemplate("xiaohongshu", {});
+  const storedBefore = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+  storedBefore[0].connectionWizard = {
+    state: "managed_error",
+    nextAction: "start",
+    message: "old failure",
+    missingRequiredInputs: [],
+    actions: []
+  };
+  fs.writeFileSync(runtime.mcpServers, `${JSON.stringify(storedBefore, null, 2)}\n`);
+
+  const started = await service.runManagedAction(installed.data.id, "start", {});
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
+
+  assert.equal(started.success, false);
+  assert.equal(stored[0].connectionWizard.state, "managed_error");
+  assert.deepEqual(stored[0].connectionWizard.actions.map((action) => action.id), ["start", "test"]);
 });
 
 test("setEnabled blocks managed enable until a connected test already exists", async (t) => {

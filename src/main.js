@@ -1885,9 +1885,13 @@ async function startEngine() {
   writeRuntimeConfig(port);
   const settings = modelSettings();
   const dotenv = systemHermesService.loadDotenv();
+  const modelRuntimeEnv = typeof engineRuntimeConfigService.modelRuntimeEnv === "function"
+    ? engineRuntimeConfigService.modelRuntimeEnv()
+    : {};
   const env = {
     ...process.env,
     ...dotenv,
+    ...modelRuntimeEnv,
     HERMES_HOME: effectiveHermesHome(),
     MIA_HOME: p.home,
     HERMES_ACCEPT_HOOKS: "1",
@@ -2718,7 +2722,8 @@ const localBotResponder = createLocalBotResponder({
     // tool traces) to the window over the local channel (ADR P0).
     if (IS_DAEMON_PROCESS) miaCoreControlServer?.publishLocalEvent?.(envelope);
   },
-  log: (line) => appendCloudLog(line)
+  log: (line) => appendCloudLog(line),
+  artifactWorkspaceDir: agentWorkspaceDir
 });
 async function shouldHandleCloudConversationAi() {
   const daemonSettings = settingsStore.daemonSettings();

@@ -123,6 +123,18 @@ test("sqlite store enforces file ownership", () => {
     assert.equal(store.getFileForUser(alice.id, saved.id).id, saved.id);
     assert.equal(store.getFileForUser(bob.id, saved.id), null);
 
+    const workbookBytes = Buffer.from("workbook bytes");
+    const workbook = store.saveFileDataUrl(alice.id, {
+      name: "../world-cup.xlsx",
+      dataUrl: `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${workbookBytes.toString("base64")}`
+    });
+    assert.equal(workbook.type, "file");
+    assert.equal(workbook.name, "world-cup.xlsx");
+    assert.equal(workbook.mimeType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    assert.equal(workbook.url, `/api/files/${workbook.id}`);
+    assert.equal(fs.readFileSync(workbook.path, "utf8"), "workbook bytes");
+    assert.equal(store.getFileForUser(bob.id, workbook.id), null);
+
     const localPath = path.join(paths.dataDir, "report.txt");
     fs.writeFileSync(localPath, "generated report", { mode: 0o600 });
     const generated = store.saveLocalFileForUser(alice.id, {

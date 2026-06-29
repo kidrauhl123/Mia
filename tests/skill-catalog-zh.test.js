@@ -23,6 +23,13 @@ test("real market listing is non-empty and fully localized", () => {
   }
 });
 
+test("real market listing does not expose the duplicate Anthropic xlsx skill", () => {
+  const repoRoot = path.join(__dirname, "..");
+  const list = loadLocalSkillMarket();
+  assert.equal(fs.existsSync(path.join(repoRoot, "skills", "xlsx")), false);
+  assert.equal(list.some((skill) => skill.id === "xlsx"), false);
+});
+
 test("real market listing keeps a broad curated catalog with quality-gated bodies", () => {
   const list = loadLocalSkillMarket();
   assert.ok(list.length >= 20, "market should stay broad, not shrink to a tiny shelf");

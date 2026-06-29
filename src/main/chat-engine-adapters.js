@@ -30,6 +30,10 @@ function isHermesApiUnreachable(error) {
   return error?.code === "HERMES_API_UNREACHABLE" && error?.stage === "create_run";
 }
 
+function isHermesRecoverableModelConfigError(error) {
+  return error?.code === "HERMES_MODEL_CONFIG_UNAVAILABLE" && error?.stage === "run_events";
+}
+
 async function sendWithHermesRecovery(deps, context, send) {
   const runOnce = async () => {
     await deps.ensureHermesReady();
@@ -38,7 +42,11 @@ async function sendWithHermesRecovery(deps, context, send) {
   try {
     return await runOnce();
   } catch (error) {
-    if (!isHermesApiUnreachable(error) || typeof deps.recoverHermesAfterFailure !== "function" || context?.signal?.aborted) {
+    if (
+      (!isHermesApiUnreachable(error) && !isHermesRecoverableModelConfigError(error))
+      || typeof deps.recoverHermesAfterFailure !== "function"
+      || context?.signal?.aborted
+    ) {
       throw error;
     }
     await deps.recoverHermesAfterFailure(error);

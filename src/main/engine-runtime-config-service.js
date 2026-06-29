@@ -130,22 +130,14 @@ function createEngineRuntimeConfigService(deps = {}) {
     );
   }
 
-  function runtimeResolvedModelSettings(settings = {}) {
-    if (!isCompactRuntimeReference(settings)) return settings;
-    const runtime = resolveModelRuntime(settings, { engine: "hermes" });
-    if (!runtime) return settings;
+  function defaultMiaAutoRuntimeReference() {
     return {
-      ...settings,
-      provider: runtime.provider || settings.provider || "",
-      providerConnectionId: runtime.providerConnectionId || settings.providerConnectionId || runtime.provider || "",
-      providerLabel: runtime.providerLabel || settings.providerLabel || runtime.provider || settings.provider || "",
-      authType: runtime.authType || settings.authType || "api_key",
-      model: runtime.model || settings.model || "",
-      modelProfileId: runtime.modelProfileId || settings.modelProfileId || "",
-      apiKeyEnv: runtime.apiKeyEnv || "",
-      apiKey: runtime.apiKey || "",
-      baseUrl: runtime.baseUrl || "",
-      apiMode: runtime.apiMode || ""
+      provider: "mia",
+      providerConnectionId: "mia",
+      providerLabel: "Mia",
+      authType: "mia_account",
+      model: "mia-auto",
+      modelProfileId: "mia:mia-auto"
     };
   }
 
@@ -159,6 +151,38 @@ function createEngineRuntimeConfigService(deps = {}) {
       || String(settings.baseUrl || settings.base_url || "").trim()
       || String(settings.apiMode || settings.api_mode || "").trim()
     );
+  }
+
+  function resolveRuntimeSettings(settings = {}, { optional = false } = {}) {
+    if (!isCompactRuntimeReference(settings)) return settings;
+    try {
+      const runtime = resolveModelRuntime(settings, { engine: "hermes" });
+      if (!runtime) return settings;
+      return {
+        ...settings,
+        provider: runtime.provider || settings.provider || "",
+        providerConnectionId: runtime.providerConnectionId || settings.providerConnectionId || runtime.provider || "",
+        providerLabel: runtime.providerLabel || settings.providerLabel || runtime.provider || settings.provider || "",
+        authType: runtime.authType || settings.authType || "api_key",
+        model: runtime.model || settings.model || "",
+        modelProfileId: runtime.modelProfileId || settings.modelProfileId || "",
+        apiKeyEnv: runtime.apiKeyEnv || "",
+        apiKey: runtime.apiKey || "",
+        baseUrl: runtime.baseUrl || "",
+        apiMode: runtime.apiMode || ""
+      };
+    } catch (error) {
+      if (optional) return settings;
+      throw error;
+    }
+  }
+
+  function runtimeResolvedModelSettings(settings = {}) {
+    if (!hasModelRuntimeSettings(settings)) {
+      const auto = resolveRuntimeSettings(defaultMiaAutoRuntimeReference(), { optional: true });
+      return hasModelRuntimeSettings(auto) && String(auto.baseUrl || "").trim() ? auto : settings;
+    }
+    return resolveRuntimeSettings(settings);
   }
 
   function clearStaleMiaOwnedModelConfig(config = {}) {
@@ -312,6 +336,13 @@ function createEngineRuntimeConfigService(deps = {}) {
     atomicWriteFile(configPath, yaml.dump(config, { lineWidth: 100, noRefs: true }), 0o600);
   }
 
+  function modelRuntimeEnv(overrides = null) {
+    const settings = runtimeResolvedModelSettings(modelSettings(overrides));
+    const key = String(settings.apiKeyEnv || "").trim();
+    const value = String(settings.apiKey || "").trim();
+    return key && value ? { [key]: value } : {};
+  }
+
   function readConfiguredPort() {
     const configPath = path.join(effectiveHermesHome(), "config.yaml");
     if (!fsImpl.existsSync(configPath)) return 18642;
@@ -331,6 +362,7 @@ function createEngineRuntimeConfigService(deps = {}) {
     effectiveHermesHome,
     externalSkillDirs,
     modelSettings,
+    modelRuntimeEnv,
     readConfiguredPort,
     writeRuntimeConfig
   };

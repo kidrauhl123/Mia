@@ -2921,8 +2921,6 @@ function hydrateAttachmentPreview(attachment = {}) {
   const filePath = String(attachment.path || "").trim();
   const cloudUrl = String(attachment.url || "").trim();
   if ((!filePath && !cloudUrl) || attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return attachment;
-  const kind = String(attachment.kind || window.miaFormat.attachmentKind(attachment));
-  if (kind !== "image") return attachment;
   if (cloudUrl) {
     const entry = state.generatedFiles.get(cloudUrl);
     if (entry?.status === "ready" && entry.attachment) {
@@ -2944,7 +2942,7 @@ function attachmentPreviewPaths(messages = []) {
       const cloudUrl = String(attachment.url || "").trim();
       if (!filePath && !cloudUrl) return false;
       if (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return false;
-      return String(attachment.kind || window.miaFormat.attachmentKind(attachment)) === "image";
+      return true;
     })
     .map((attachment) => String(attachment.path || attachment.url).trim());
 }
@@ -6936,7 +6934,8 @@ els.sendChat.addEventListener("click", async (event) => {
   event.stopPropagation();
   await window.mia.stopChat?.({
     conversationId: window.miaSocial?.getActiveConversationId?.() || "",
-    runId: activeRun?.runId || ""
+    runId: activeRun?.runId || "",
+    turnId: activeRun?.turnId || ""
   });
   renderSendButton();
 });

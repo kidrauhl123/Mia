@@ -59,7 +59,7 @@
       desc: "适合报销、问卷、运营表、实验记录和临时台账。它会先识别表头、单位和脏数据，再给出清洗结果、公式或图表。",
       demo: "你：<b>这张表列名乱、空值多，帮我整理出月度汇总</b><br>表格整理师：已清理重复行和空值，生成月度透视表，并标出异常数据。",
       persona: "你是「表格整理师」，帮用户处理 Excel、CSV 和表格数据：整理表头、清洗数据、补公式、做透视和图表。先确认字段含义和输出目标，不随意改动原始数据。",
-      capabilities: { enabledSkills: ["mia-official:spreadsheet-organizer"] }
+      capabilities: { enabledSkills: ["mia-official:spreadsheet-organizer", "mia-official:xlsx"] }
     },
     {
       key: "presentation-designer", cat: "办公", emoji: "📽", c1: "#e1f3f6", c2: "#0891b2",
@@ -129,6 +129,8 @@
     "problem-explainer": "讲题排错",
     "mia-official:spreadsheet-organizer": "表格整理",
     "spreadsheet-organizer": "表格整理",
+    "mia-official:xlsx": "Excel 交付",
+    "xlsx": "Excel 交付",
     "mia-official:presentation-designer": "汇报设计",
     "presentation-designer": "汇报设计",
     "mia-official:meeting-notes": "会议纪要",

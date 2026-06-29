@@ -511,6 +511,7 @@
     const preferred = String(server.connectionWizard?.nextAction || "").trim();
     if (preferred === "test" && shouldStartManagedBeforeTest(server)) return "start";
     if (preferred && actions.some((action) => action.id === preferred)) return preferred;
+    if (isManagedServer(server) && ["install", "login", "start", "test", "stop"].includes(preferred)) return preferred;
     return actions[0]?.id || "";
   }
 

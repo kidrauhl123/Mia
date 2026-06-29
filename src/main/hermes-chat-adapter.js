@@ -28,6 +28,32 @@ function isAbortError(error, signal) {
   return Boolean(signal?.aborted) || error?.name === "AbortError" || error?.code === "ABORT_ERR";
 }
 
+function runtimeConfigValue(config = {}, keys = []) {
+  for (const key of keys) {
+    const value = String(config?.[key] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function hasRuntimeModelReference(config = {}) {
+  return Boolean(
+    runtimeConfigValue(config, ["providerConnectionId", "provider_connection_id", "provider", "modelProvider", "model_provider"])
+    || runtimeConfigValue(config, ["modelProfileId", "model_profile_id"])
+    || runtimeConfigValue(config, ["model"])
+    || runtimeConfigValue(config, ["authType", "auth_type"])
+  );
+}
+
+function defaultMiaAutoRuntimeReference(config = {}) {
+  return {
+    ...config,
+    providerConnectionId: "mia",
+    modelProfileId: "mia:mia-auto",
+    model: "mia-auto"
+  };
+}
+
 function hermesApiUnreachableError(error, stage) {
   const message = String(error?.message || error || "unknown error");
   const wrapped = new Error(`Hermes API is unreachable: ${message}`);
@@ -64,9 +90,12 @@ function createHermesChatAdapter(deps = {}) {
       ...(botConfig && typeof botConfig === "object" ? botConfig : {}),
       ...(runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {})
     };
+    const runtimeInput = Object.keys(merged).length && !hasRuntimeModelReference(merged)
+      ? defaultMiaAutoRuntimeReference(merged)
+      : merged;
     let resolved = null;
     try {
-      resolved = resolveModelRuntime(merged, { engine: "hermes", bot });
+      resolved = resolveModelRuntime(runtimeInput, { engine: "hermes", bot });
     } catch (error) {
       throw error;
     }
@@ -83,6 +112,7 @@ function createHermesChatAdapter(deps = {}) {
     });
     return {
       ...(runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {}),
+      ...(runtimeInput && typeof runtimeInput === "object" ? runtimeInput : {}),
       provider: resolved.provider,
       providerConnectionId: resolved.providerConnectionId || resolved.provider,
       modelProfileId: resolved.modelProfileId || "",
@@ -109,7 +139,7 @@ function createHermesChatAdapter(deps = {}) {
     };
   }
 
-  async function createRun({ body, headers, signal }) {
+  async function createRun({ body, headers, signal, runtimeContext = {} }) {
     let response;
     try {
       response = await fetchImpl(`${baseUrl()}/v1/runs`, {
@@ -125,7 +155,7 @@ function createHermesChatAdapter(deps = {}) {
     const text = await response.text();
     if (!response.ok) {
       const message = parseErrorMessage(text);
-      throw new Error(normalizeError(message) || `${response.status} ${response.statusText}`);
+      throw new Error(normalizeError(message, runtimeContext) || `${response.status} ${response.statusText}`);
     }
     const run = JSON.parse(text);
     const runId = run.run_id || run.id;
@@ -190,8 +220,8 @@ function createHermesChatAdapter(deps = {}) {
     if (group && group.contextBlock) {
       headers["X-Mia-Group-Context"] = buildGroupHeader(group.contextBlock);
     }
-    const runId = await createRun({ body: runBody, headers, signal });
-    const stream = await readRunEventStream({ runId, signal, emit });
+    const runId = await createRun({ body: runBody, headers, signal, runtimeContext: effectiveRuntimeConfig });
+    const stream = await readRunEventStream({ runId, signal, emit, runtimeContext: effectiveRuntimeConfig });
     if (emit) emit("complete", { finishReason: stream.finishReason || "stop", aborted: false });
     return {
       id: runId,

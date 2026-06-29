@@ -97,6 +97,7 @@ test("active conversation stop passes the conversation id through preload to mai
   assert.match(clickBody, /const activeRun = window\.miaSocial\?\.activeConversationRun\?\.\(\);/);
   assert.match(clickBody, /window\.mia\.stopChat\?\.\(\{\s*conversationId:\s*window\.miaSocial\?\.getActiveConversationId\?\.\(\)/);
   assert.match(clickBody, /runId:\s*activeRun\?\.runId \|\| ""/);
+  assert.match(clickBody, /turnId:\s*activeRun\?\.turnId \|\| ""/);
   assert.match(preloadSource, /stopChat:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.ChatStop,\s*payload\)/);
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.ChatStop,\s*\(_event,\s*payload\)\s*=>\s*stopChat\(payload\s*\|\|\s*\{\}\)\)/);
   // stopChat's implementation now lives in the shared bot-execution-core Module

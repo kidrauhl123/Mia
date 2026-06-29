@@ -204,6 +204,76 @@ test("sendChat resolves Mia managed models into Hermes runtime config", async ()
   assert.equal(JSON.parse(deps.fetchCalls[0].options.body).model, "mia-auto");
 });
 
+test("sendChat defaults unconfigured Hermes bot turns to Mia Auto", async () => {
+  const writes = [];
+  const resolveCalls = [];
+  const deps = createDeps({
+    resolveModelRuntime: (config) => {
+      resolveCalls.push(config);
+      if (config.providerConnectionId !== "mia" || config.model !== "mia-auto") return null;
+      return {
+        provider: "mia",
+        providerConnectionId: "mia",
+        providerLabel: "Mia",
+        authType: "mia_account",
+        model: "mia-auto",
+        modelProfileId: "mia:mia-auto",
+        apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+        apiKey: "cloud-token",
+        baseUrl: "https://mia.example/api/me/model-proxy/v1",
+        apiMode: "chat_completions",
+        managedByMia: true
+      };
+    },
+    writeModelRuntimeConfig: (settings) => writes.push(settings),
+    buildRunPayload: (input) => ({
+      model: input.model,
+      input: input.messages?.at(-1)?.content || "",
+      session_id: input.sessionId || "default",
+      account_id: input.bot.key,
+      metadata: { bot_id: input.bot.key }
+    })
+  });
+  const adapter = createHermesChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice" },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hi" }],
+    runtimeConfig: { agentEngine: "hermes", effortLevel: "medium", permissionMode: "ask" },
+    signal: null
+  });
+
+  assert.deepEqual(resolveCalls[0], {
+    agentEngine: "hermes",
+    effortLevel: "medium",
+    permissionMode: "ask",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:mia-auto",
+    model: "mia-auto"
+  });
+  assert.deepEqual(writes, [{
+    provider: "mia",
+    providerLabel: "Mia",
+    authType: "mia_account",
+    model: "mia-auto",
+    apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+    apiKey: "cloud-token",
+    baseUrl: "https://mia.example/api/me/model-proxy/v1",
+    apiMode: "chat_completions"
+  }]);
+  assert.equal(JSON.parse(deps.fetchCalls[0].options.body).model, "mia-auto");
+  assert.deepEqual(deps.streamCalls[0].runtimeContext, {
+    agentEngine: "hermes",
+    effortLevel: "medium",
+    permissionMode: "ask",
+    provider: "mia",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:mia-auto",
+    model: "mia-auto"
+  });
+});
+
 test("sendChat writes scheduler MCP context for the current bot/session", async () => {
   const deps = createDeps();
   const adapter = createHermesChatAdapter(deps);

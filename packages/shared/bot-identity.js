@@ -124,13 +124,7 @@ function botIdentityMatchesPreset(bot = {}, preset = {}) {
 
 function botCapabilitiesWithPresetDefaults(bot = {}, presets = []) {
   const capabilities = normalizeBotCapabilities(bot.capabilities);
-  if (
-    capabilities.inheritEngineDefaults === false
-    || capabilities.enabledSkills.length
-    || capabilities.disabledSkills.length
-  ) {
-    return capabilities;
-  }
+  if (capabilities.inheritEngineDefaults === false) return capabilities;
   const preset = (Array.isArray(presets) ? presets : []).find((item) => botIdentityMatchesPreset(bot, item));
   if (!preset) return capabilities;
   const presetCapabilities = normalizeBotCapabilities({
@@ -138,11 +132,20 @@ function botCapabilitiesWithPresetDefaults(bot = {}, presets = []) {
     inheritEngineDefaults: false
   });
   if (!presetCapabilities.enabledSkills.length && !presetCapabilities.disabledSkills.length) return capabilities;
+  const disabledSkills = [
+    ...capabilities.disabledSkills,
+    ...presetCapabilities.disabledSkills
+  ].filter((id, index, arr) => arr.indexOf(id) === index);
+  const disabled = new Set(disabledSkills);
+  const enabledSkills = [
+    ...capabilities.enabledSkills,
+    ...presetCapabilities.enabledSkills.filter((id) => !disabled.has(id))
+  ].filter((id, index, arr) => arr.indexOf(id) === index);
   return {
     ...capabilities,
     inheritEngineDefaults: false,
-    enabledSkills: presetCapabilities.enabledSkills,
-    disabledSkills: presetCapabilities.disabledSkills
+    enabledSkills,
+    disabledSkills
   };
 }
 
