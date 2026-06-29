@@ -270,24 +270,39 @@ test("buildEnabledSkillsContext applies bundled preset defaults for old unconfig
   }
 });
 
-test("buildEnabledSkillsContext preserves legacy old-paper aliases after preset retirement", async () => {
+test("buildEnabledSkillsContext preserves retired official assistant defaults", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {
     const loader = makeBundledLoader(home);
+    const cases = [
+      ["old-paper", "论文搭子", "paper-research"],
+      ["paper-buddy", "论文搭子", "paper-research"],
+      ["lab-data", "实验数据助手", "lab-report"],
+      ["exam-buddy", "复习搭子", "study-review"],
+      ["qa-helper", "答疑助手", "problem-explainer"],
+      ["spreadsheet-organizer", "表格整理师", "spreadsheet-organizer"],
+      ["presentation-designer", "汇报设计师", "presentation-designer"],
+      ["meeting-notes", "会议纪要官", "meeting-notes"],
+      ["document-editor", "文档编辑", "document-editor"],
+      ["career-coach", "简历面试官", "resume-interview"],
+      ["story-host", "剧情主持", "story-host"]
+    ];
 
-    const byKey = loader.buildEnabledSkillsContext({
-      key: "old-paper",
-      name: "旧论文助手",
-      capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
-    });
-    const byName = loader.buildEnabledSkillsContext({
-      key: "legacy-paper-copy",
-      name: "论文搭子",
-      capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
-    });
+    for (const [key, name, skillName] of cases) {
+      const byKey = loader.buildEnabledSkillsContext({
+        key,
+        name: `${name}旧实例`,
+        capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+      });
+      const byName = loader.buildEnabledSkillsContext({
+        key: `legacy-${key}-copy`,
+        name,
+        capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+      });
 
-    assert.match(byKey, /Skill: paper-research/);
-    assert.match(byName, /Skill: paper-research/);
+      assert.match(byKey, new RegExp(`Skill: ${skillName}`), `${key} should preserve retired preset defaults by key`);
+      assert.match(byName, new RegExp(`Skill: ${skillName}`), `${name} should preserve retired preset defaults by name`);
+    }
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

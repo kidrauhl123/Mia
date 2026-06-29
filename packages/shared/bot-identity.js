@@ -17,6 +17,76 @@ const LEGACY_BOT_PRESET_DEFAULTS = Object.freeze([
     capabilities: Object.freeze({
       enabledSkills: Object.freeze(["mia-official:paper-research"])
     })
+  }),
+  Object.freeze({
+    key: "paper-buddy",
+    name: "论文搭子",
+    capabilities: Object.freeze({
+      enabledSkills: Object.freeze(["mia-official:paper-research"])
+    })
+  }),
+  Object.freeze({
+    key: "lab-data",
+    name: "实验数据助手",
+    capabilities: Object.freeze({
+      enabledSkills: Object.freeze(["mia-official:lab-report"])
+    })
+  }),
+  Object.freeze({
+    key: "exam-buddy",
+    name: "复习搭子",
+    capabilities: Object.freeze({
+      enabledSkills: Object.freeze(["mia-official:study-review"])
+    })
+  }),
+  Object.freeze({
+    key: "qa-helper",
+    name: "答疑助手",
+    capabilities: Object.freeze({
+      enabledSkills: Object.freeze(["mia-official:problem-explainer"])
+    })
+  }),
+  Object.freeze({
+    key: "spreadsheet-organizer",
+    name: "表格整理师",
+    capabilities: Object.freeze({
+      enabledSkills: Object.freeze(["mia-official:spreadsheet-organizer"])
+    })
+  }),
+  Object.freeze({
+    key: "presentation-designer",
+    name: "汇报设计师",
+    capabilities: Object.freeze({
+      enabledSkills: Object.freeze(["mia-official:presentation-designer"])
+    })
+  }),
+  Object.freeze({
+    key: "meeting-notes",
+    name: "会议纪要官",
+    capabilities: Object.freeze({
+      enabledSkills: Object.freeze(["mia-official:meeting-notes"])
+    })
+  }),
+  Object.freeze({
+    key: "document-editor",
+    name: "文档编辑",
+    capabilities: Object.freeze({
+      enabledSkills: Object.freeze(["mia-official:document-editor"])
+    })
+  }),
+  Object.freeze({
+    key: "career-coach",
+    name: "简历面试官",
+    capabilities: Object.freeze({
+      enabledSkills: Object.freeze(["mia-official:resume-interview"])
+    })
+  }),
+  Object.freeze({
+    key: "story-host",
+    name: "剧情主持",
+    capabilities: Object.freeze({
+      enabledSkills: Object.freeze(["mia-official:story-host"])
+    })
   })
 ]);
 

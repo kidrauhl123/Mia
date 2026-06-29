@@ -121,21 +121,37 @@ test("packages/shared bot identity applies official preset skill defaults to unc
   );
 });
 
-test("packages/shared bot identity preserves legacy old-paper aliases after preset retirement", () => {
-  const capsByKey = packageBotIdentity.botCapabilitiesWithPresetDefaults({
-    key: "old-paper",
-    name: "旧论文助手",
-    capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
-  }, []);
-  const capsByName = packageBotIdentity.botCapabilitiesWithPresetDefaults({
-    key: "legacy-paper-copy",
-    name: "论文搭子",
-    capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
-  }, []);
+test("packages/shared bot identity preserves retired official assistant defaults", () => {
+  const cases = [
+    ["old-paper", "论文搭子", ["mia-official:paper-research"]],
+    ["paper-buddy", "论文搭子", ["mia-official:paper-research"]],
+    ["lab-data", "实验数据助手", ["mia-official:lab-report"]],
+    ["exam-buddy", "复习搭子", ["mia-official:study-review"]],
+    ["qa-helper", "答疑助手", ["mia-official:problem-explainer"]],
+    ["spreadsheet-organizer", "表格整理师", ["mia-official:spreadsheet-organizer"]],
+    ["presentation-designer", "汇报设计师", ["mia-official:presentation-designer"]],
+    ["meeting-notes", "会议纪要官", ["mia-official:meeting-notes"]],
+    ["document-editor", "文档编辑", ["mia-official:document-editor"]],
+    ["career-coach", "简历面试官", ["mia-official:resume-interview"]],
+    ["story-host", "剧情主持", ["mia-official:story-host"]]
+  ];
 
-  for (const caps of [capsByKey, capsByName]) {
-    assert.equal(caps.inheritEngineDefaults, false);
-    assert.ok(caps.enabledSkills.includes("mia-official:paper-research"));
+  for (const [key, name, enabledSkills] of cases) {
+    const capsByKey = packageBotIdentity.botCapabilitiesWithPresetDefaults({
+      key,
+      name: `${name}旧实例`,
+      capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+    }, []);
+    const capsByName = packageBotIdentity.botCapabilitiesWithPresetDefaults({
+      key: `legacy-${key}-copy`,
+      name,
+      capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+    }, []);
+
+    assert.equal(capsByKey.inheritEngineDefaults, false, `${key} should disable inheritance after defaults apply`);
+    assert.deepEqual(capsByKey.enabledSkills, enabledSkills, `${key} should preserve retired preset defaults by key`);
+    assert.equal(capsByName.inheritEngineDefaults, false, `${name} should disable inheritance after defaults apply`);
+    assert.deepEqual(capsByName.enabledSkills, enabledSkills, `${name} should preserve retired preset defaults by name`);
   }
 });
 
