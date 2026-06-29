@@ -1110,6 +1110,16 @@ test("discover, skill, and task cards start from the fixed left edge", () => {
       `${name} cards should not animate a hover float`
     );
     assert.doesNotMatch(
+      cssRuleBody(css, `.${cardSelector}`),
+      /transition:[^;]*box-shadow/,
+      `${name} cards should not animate shadow repaint on hover`
+    );
+    assert.doesNotMatch(
+      cssRuleBody(css, `.${cardSelector}:hover`),
+      /box-shadow:/,
+      `${name} card hover should not repaint card shadows`
+    );
+    assert.doesNotMatch(
       cssRuleBody(css, `.${cardSelector}:hover`),
       /transform:/,
       `${name} card hover should not move the card`
