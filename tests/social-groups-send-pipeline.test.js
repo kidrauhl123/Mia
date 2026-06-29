@@ -9,12 +9,56 @@ const ROOT = path.join(__dirname, "..");
 function loadSocialGroups(options = {}) {
   const delegated = [];
   const renderCalls = [];
-  const mockEl = () => ({
+  const elementsById = new Map();
+  const mockEl = (tag = "div") => ({
+    tagName: String(tag || "div").toUpperCase(),
     className: "",
+    type: "",
+    value: "",
+    disabled: false,
+    dataset: {},
+    style: {},
+    children: [],
     _html: "",
+    _text: "",
+    classList: {
+      add() {},
+      remove() {},
+      contains() { return false; }
+    },
+    appendChild(child) {
+      this.children.push(child);
+      child.parentElement = this;
+      return child;
+    },
+    setAttribute(name, value) {
+      this[name] = String(value);
+    },
+    addEventListener() {},
+    removeEventListener() {},
+    closest() { return this; },
+    querySelector(selector) {
+      if (selector === ".group-create-member-row") {
+        return this.children.find((child) => child.className === "group-create-member-row") || null;
+      }
+      return null;
+    },
+    focus() {},
     set innerHTML(value) { this._html = value; },
     get innerHTML() { return this._html; },
+    set textContent(value) { this._text = value; },
+    get textContent() { return this._text; },
   });
+  const documentMock = {
+    createElement: (tag) => mockEl(tag),
+    getElementById(id) {
+      if (!elementsById.has(id)) elementsById.set(id, mockEl("div"));
+      return elementsById.get(id);
+    },
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  documentMock.getElementById("groupCreateName").value = "";
   const mockWindow = {
     mia: {
       social: {
@@ -30,7 +74,8 @@ function loadSocialGroups(options = {}) {
           activeConversationId: "g_1",
           myUserId: "u_me",
           messageCache: new Map([["g_1", { messages: [], maxSeq: 0 }]]),
-          friends: []
+          friends: [],
+          ...(options.moduleState || {})
         },
         deps: options.deps || { render: () => renderCalls.push("render") },
         conversationMembersCache: new Map(),
@@ -43,6 +88,16 @@ function loadSocialGroups(options = {}) {
     },
     miaConversationKinds: require("../src/shared/conversation-kinds.js"),
     miaMemberColor: require("../src/shared/member-color.js"),
+    miaAvatar: {
+      paintAvatar(el, avatar) {
+        el._avatar = avatar;
+      }
+    },
+    miaAvatarResolve: {
+      resolveAvatarForContact(contact) {
+        return { color: contact.color || "#888", image: contact.avatarImage || "", crop: contact.avatarCrop || null, text: String(contact.displayName || "?").slice(0, 2) };
+      }
+    },
     miaTraceBlocks: {
       renderTraceBlocks({ reasoning, tools }) {
         return `<div class="trace"><span>${String(reasoning || "")}</span>${(tools || []).map((tool) => `<span>${tool.name}</span>`).join("")}</div>`;
@@ -52,10 +107,11 @@ function loadSocialGroups(options = {}) {
   const context = vm.createContext({
     window: mockWindow,
     globalThis: mockWindow,
-    document: { createElement: () => mockEl() },
+    document: documentMock,
     console,
     Map,
     Set,
+    setTimeout: (fn) => fn(),
     Date,
     JSON,
     String,
@@ -67,7 +123,7 @@ function loadSocialGroups(options = {}) {
   });
   const src = fs.readFileSync(path.join(ROOT, "src/renderer/social/social-groups.js"), "utf8");
   vm.runInContext(src, context);
-  return { groups: mockWindow.miaSocialGroups, delegated, renderCalls, mockWindow };
+  return { groups: mockWindow.miaSocialGroups, delegated, renderCalls, mockWindow, documentMock };
 }
 
 test("sendInActiveGroupConversation delegates to the unified social send path", async () => {
@@ -131,4 +187,25 @@ test("fetchAndCacheConversationMembers rerenders after sidebar member cache fill
 
   assert.equal(mockWindow.miaSocial._internalCtx.conversationMembersCache.get("g_1").length, 2);
   assert.deepEqual(renderCalls, ["render"]);
+});
+
+test("openCreateGroupDialog shows friend display names instead of WeChat hash usernames", () => {
+  const { groups, documentMock } = loadSocialGroups({
+    moduleState: {
+      friends: [{
+        id: "u_friend",
+        username: "wx_dab93e8a6744",
+        account: "wx_dab93e8a6744",
+        displayName: "Jung"
+      }]
+    }
+  });
+
+  groups.openCreateGroupDialog();
+
+  const membersBox = documentMock.getElementById("groupCreateMembers");
+  const row = membersBox.children.find((child) => child.className === "group-create-member-row");
+  const nameEl = row.children.find((child) => child.className === "member-name");
+  assert.equal(nameEl.innerHTML, "Jung");
+  assert.doesNotMatch(nameEl.innerHTML, /wx_dab93e8a6744/);
 });

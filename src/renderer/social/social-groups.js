@@ -159,6 +159,29 @@
     return undefined;
   }
 
+  function cleanDisplayText(value) {
+    return String(value || "").trim();
+  }
+
+  function friendDisplayName(friend = {}, adapterCtx = {}) {
+    const explicitName = cleanDisplayText(
+      friend.displayName
+      || friend.display_name
+      || friend.nickname
+      || friend.nickName
+      || friend.nick_name
+      || friend.name
+      || friend.identity?.displayName
+      || friend.identity?.display_name
+    );
+    if (explicitName) return explicitName;
+    const contact = global.miaContact?.resolveContact?.(
+      { kind: global.miaContact.IdentityKind?.User || "user", ref: friend.id },
+      { ...adapterCtx, friends: [friend] }
+    );
+    return cleanDisplayText(contact?.displayName || friend.username || friend.account || friend.id);
+  }
+
   function initNameBadgeLotties(root) {
     try { global.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
   }
@@ -396,7 +419,7 @@
       membersBox.appendChild(empty);
     }
     for (const friend of friends) {
-      const name = friend.username || friend.account || friend.id;
+      const name = friendDisplayName(friend, { friends, bots: ownedBots });
       const avatar = window.miaAvatarResolve.resolveAvatarForContact({
         id: friend.id,
         displayName: name,
