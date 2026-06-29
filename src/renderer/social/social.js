@@ -4963,6 +4963,25 @@
     return response;
   }
 
+  function stableCloudJson(value) {
+    if (Array.isArray(value)) return `[${value.map(stableCloudJson).join(",")}]`;
+    if (value && typeof value === "object") {
+      return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableCloudJson(value[key])}`).join(",")}}`;
+    }
+    return JSON.stringify(value);
+  }
+
+  function cloudSettingsRenderSignature(settings = {}) {
+    return stableCloudJson({
+      pins: settings.pins || [],
+      mutedConversations: settings.mutedConversations || [],
+      unreadOverrides: settings.unreadOverrides || {},
+      readMarks: settings.readMarks || {},
+      tags: settings.tags || conversationTagsShared().defaultConversationTags(),
+      starterEngineBots: settings.starterEngineBots || {}
+    });
+  }
+
   function _ensureCloudSettings() {
     moduleState.cloudSettings = normalizeCloudSettings(moduleState.cloudSettings || {}, moduleState.cloudSettings || {});
     return moduleState.cloudSettings;
@@ -5384,9 +5403,13 @@
 
   function applyCloudSettings(settings) {
     if (!settings || typeof settings !== "object") return;
-    moduleState.cloudSettings = normalizeCloudSettings(settings, moduleState.cloudSettings || {});
-    reconcileUnreadFromReadMarks(moduleState.cloudSettings.readMarks);
-    if (deps && typeof deps.render === "function") deps.render();
+    const previous = normalizeCloudSettings(moduleState.cloudSettings || {}, moduleState.cloudSettings || {});
+    const previousSignature = cloudSettingsRenderSignature(previous);
+    const next = normalizeCloudSettings(settings, previous);
+    const nextSignature = cloudSettingsRenderSignature(next);
+    moduleState.cloudSettings = next;
+    const unreadChanged = reconcileUnreadFromReadMarks(next.readMarks);
+    if ((previousSignature !== nextSignature || unreadChanged) && deps && typeof deps.render === "function") deps.render();
   }
 
   // Another device pushed new readMarks. For each conversation whose readMark
@@ -5397,15 +5420,17 @@
   // cloudSettings.unreadOverrides and are unaffected; auto-counted unread
   // is what this resets.
   function reconcileUnreadFromReadMarks(readMarks) {
-    if (!readMarks || typeof readMarks !== "object") return;
+    if (!readMarks || typeof readMarks !== "object") return false;
+    let changed = false;
     for (const [id, mark] of Object.entries(readMarks)) {
       const readSeq = Number(mark) || 0;
       if (readSeq <= 0) continue;
       const maxSeq = Number(moduleState.messageCache.get(id)?.maxSeq) || 0;
       if (readSeq >= maxSeq) {
-        moduleState.unreadByConversation.delete(id);
+        if (moduleState.unreadByConversation.delete(id)) changed = true;
       }
     }
+    return changed;
   }
 
   // PATCH /api/conversations/:id — rename the cloud conversation (groups only; DM rename

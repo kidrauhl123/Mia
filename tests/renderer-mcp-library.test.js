@@ -88,10 +88,12 @@ class FakeNode {
     };
     this.listeners = new Map();
     this._innerHTML = "";
+    this.innerHTMLWrites = 0;
     this._parsedNodes = [];
   }
 
   set innerHTML(value) {
+    this.innerHTMLWrites += 1;
     this._innerHTML = String(value || "");
     this._parsedNodes = parseHtml(this._innerHTML, this.document);
     for (const node of this._parsedNodes) node.parentNode = this;
@@ -442,6 +444,37 @@ test("mcp-library renders one flat connection list without category capsules", (
   assert.match(harness.els.skillChipRow.innerHTML, /自定义/);
   assert.match(harness.els.skillChipRow.innerHTML, /data-mcp-toolbar-action="create"/);
   assert.equal(harness.getLayoutCalls(), 1);
+});
+
+test("mcp-library keeps connection card nodes stable across unchanged renders", () => {
+  const state = {
+    skillFilter: "",
+    mcp: {
+      servers: [{
+        id: "mcp_xhs",
+        name: "小红书 MCP",
+        enabled: false,
+        status: "disconnected",
+        managedRuntime: { connectorId: "xiaohongshu", state: "installed" }
+      }],
+      templates: [],
+      loaded: true,
+      loadAttempted: true,
+      loading: false,
+      error: "",
+      serverError: "",
+      templateError: ""
+    }
+  };
+  const harness = createMcpHarness({ state });
+
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+  const firstButton = harness.els.skillCardGrid.querySelector("[data-mcp-action]");
+  const writes = harness.els.skillCardGrid.innerHTMLWrites;
+  harness.context.window.miaMcpLibrary.renderMcpLibrary();
+
+  assert.equal(harness.els.skillCardGrid.innerHTMLWrites, writes);
+  assert.equal(harness.els.skillCardGrid.querySelector("[data-mcp-action]"), firstButton);
 });
 
 test("managed installed xiaohongshu card exposes a single connect action", async () => {

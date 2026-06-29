@@ -13,6 +13,7 @@ class MockElement {
     this.dataset = {};
     this.style = { setProperty() {} };
     this._html = "";
+    this.innerHTMLWrites = 0;
     this.classList = {
       add() {},
       remove() {},
@@ -21,7 +22,10 @@ class MockElement {
     };
   }
 
-  set innerHTML(value) { this._html = String(value || ""); }
+  set innerHTML(value) {
+    this.innerHTMLWrites += 1;
+    this._html = String(value || "");
+  }
   get innerHTML() { return this._html; }
   set textContent(value) { this._text = String(value || ""); }
   get textContent() { return this._text || ""; }
@@ -137,6 +141,52 @@ test("tasks history unread appears on the history tab and unread run cards", () 
   state.taskMode = "history";
   panel.renderTaskView();
   assert.match(tasksContent.innerHTML, /task-run-card[\s\S]*task-card-unread/);
+});
+
+test("task mode and history chips are stable across unchanged renders", () => {
+  const { panel, elements } = loadTasksPanel();
+  const state = {
+    runtime: { bots: [{ id: "nhnh", key: "nhnh", name: "nhnh" }] },
+    tasks: [{
+      id: "task_1",
+      title: "吃饭提醒",
+      botId: "nhnh",
+      status: "active",
+      prompt: "提醒我吃饭。",
+      trigger: { type: "oneshot", at: Date.now() + 60_000 },
+      nextFireAt: Date.now() + 60_000,
+      runs: [{ id: "run_1", status: "ok", firedAt: Date.now() - 30_000, outputText: "该吃饭了。" }]
+    }],
+    taskFilter: "",
+    taskMode: "history",
+    taskHistoryFilter: "all",
+    selectedTaskId: "",
+    selectedRunId: "",
+    tasksUnread: new Map()
+  };
+  const tasksContent = new MockElement("tasksContent");
+  const tasksUnreadBadge = new MockElement("tasksUnreadBadge");
+
+  panel.initTasksPanel({
+    state,
+    els: { tasksContent, tasksUnreadBadge },
+    escapeHtml: (value) => String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;"),
+    setText: (el, value) => { if (el) el.textContent = value; },
+    formatRunTime: () => "06/02 18:20",
+    render() {},
+    renderView() {},
+    renderChat() {}
+  });
+
+  panel.renderTaskView();
+  const modeWrites = elements.get("taskModeToggle").innerHTMLWrites;
+  const chipWrites = elements.get("taskChipRow").innerHTMLWrites;
+  const contentWrites = tasksContent.innerHTMLWrites;
+  panel.renderTaskView();
+
+  assert.equal(elements.get("taskModeToggle").innerHTMLWrites, modeWrites);
+  assert.equal(elements.get("taskChipRow").innerHTMLWrites, chipWrites);
+  assert.equal(tasksContent.innerHTMLWrites, contentWrites);
 });
 
 test("direct delivery task detail shows delivery text instead of scheduling prompt", () => {

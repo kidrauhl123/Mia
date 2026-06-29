@@ -4633,7 +4633,8 @@ test("opening a conversation removes cached messages missing from the cloud over
 
 test("applyCloudSettings clears auto-counted unread when peer device's readMark catches up", () => {
   const s = loadSocial();
-  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  let renders = 0;
+  s.initSocialModule({ getState: () => ({}), render: () => { renders += 1; }, els: {}, appendTransientChat: () => {} });
   // Local state: a conversation we've cached up to seq=4 with 2 auto-counted unread.
   s.moduleState.messageCache.set("dm:u_a:u_b", { messages: [], maxSeq: 4 });
   s.moduleState.unreadByConversation.set("dm:u_a:u_b", 2);
@@ -4647,14 +4648,24 @@ test("applyCloudSettings clears auto-counted unread when peer device's readMark 
   });
   assert.equal(s.moduleState.unreadByConversation.has("dm:u_a:u_b"), false,
     "readMark caught up to local maxSeq → unread badge must clear");
+  assert.equal(renders, 1);
+  s.applyCloudSettings({
+    pins: [],
+    readMarks: { "dm:u_a:u_b": 4 },
+    appearance: {},
+    version: 3,
+    updatedAt: "2026-05-28T00:00:01.000Z"
+  });
+  assert.equal(renders, 1, "duplicate readMark broadcasts should not rerender once unread is already cleared");
 });
 
 test("applyCloudSettings ignores appearance updates from another device", () => {
   const s = loadSocial();
   const applied = [];
+  let renders = 0;
   s.initSocialModule({
     getState: () => ({}),
-    render: () => {},
+    render: () => { renders += 1; },
     els: {},
     appendTransientChat: () => {},
     applyCloudAppearance: (appearance) => applied.push(appearance)
@@ -4669,6 +4680,41 @@ test("applyCloudSettings ignores appearance updates from another device", () => 
   });
 
   assert.deepEqual(applied, []);
+  assert.equal(renders, 0);
+});
+
+test("applyCloudSettings skips render for duplicate cloud settings metadata updates", () => {
+  const s = loadSocial();
+  let renders = 0;
+  s.initSocialModule({ getState: () => ({}), render: () => { renders += 1; }, els: {}, appendTransientChat: () => {} });
+
+  s.applyCloudSettings({
+    pins: ["dm:u_a:u_b"],
+    mutedConversations: [],
+    unreadOverrides: {},
+    readMarks: {},
+    appearance: {},
+    tags: { items: [], assignments: {} },
+    starterEngineBots: {},
+    version: 2,
+    updatedAt: "2026-05-28T00:00:00.000Z"
+  });
+  assert.equal(renders, 1);
+
+  s.applyCloudSettings({
+    pins: ["dm:u_a:u_b"],
+    mutedConversations: [],
+    unreadOverrides: {},
+    readMarks: {},
+    appearance: { theme: "dark", accentColor: "#112233" },
+    tags: { assignments: {}, items: [] },
+    starterEngineBots: {},
+    version: 3,
+    updatedAt: "2026-05-28T00:00:01.000Z"
+  });
+
+  assert.equal(renders, 1);
+  assert.equal(s.moduleState.cloudSettings.version, 3);
 });
 
 test("applyCloudSettings leaves unread alone when local has fresher messages than peer's readMark", () => {

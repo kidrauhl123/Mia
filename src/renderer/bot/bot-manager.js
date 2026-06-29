@@ -450,15 +450,27 @@
     return capabilities[enabledKey].includes(id);
   }
 
+  function capabilityTitle(item = {}, type = "") {
+    if (type === "skill") {
+      const skill = {
+        ...item,
+        name: item.name || String(item.id || "").replace(/^mia-official:/, ""),
+        source: item.source || (String(item.id || "").startsWith("mia-official:") ? "mia-official" : "")
+      };
+      const title = window.miaSkillHelpers?.skillDisplayName?.(skill);
+      if (title) return title;
+      return item.marketNameZh || item.name_zh || item.title || item.name || item.label || item.id;
+    }
+    return item.label || item.name || item.id;
+  }
+
   function renderCapabilityCheckbox({ item, checked, type }) {
-    const title = item.label || item.name || item.id;
-    const meta = item.engineLabel || item.sourceLabel || item.category || item.status || "";
+    const title = capabilityTitle(item, type);
     return `
       <label class="capability-row">
         <input type="checkbox" data-capability-type="${window.miaMarkdown.escapeHtml(type)}" data-capability-id="${window.miaMarkdown.escapeHtml(item.id)}" ${checked ? "checked" : ""}>
         <span class="capability-copy">
           <strong>${window.miaMarkdown.escapeHtml(title)}</strong>
-          ${meta ? `<small>${window.miaMarkdown.escapeHtml(meta)}</small>` : ""}
         </span>
         <span class="capability-check" aria-hidden="true"></span>
       </label>
@@ -763,6 +775,8 @@
     const pendingRequests = window.miaSocial?.pendingRequestCount?.() || 0;
     if (!bots.length && !pendingRequests) {
       els.contactList.innerHTML = `<div class="contact-empty">还没有联系人</div>`;
+      els.contactDetail.__miaContactDetailHtmlKey = "";
+      els.contactDetail.__miaContactDetailAvatarKey = "";
       els.contactDetail.innerHTML = `<div class="contact-empty detail-empty">添加一个伙伴后会显示在这里</div>`;
       return;
     }
@@ -825,6 +839,8 @@
     if (state.activeContactKey === FRIEND_REQUESTS_KEY && pendingRequests) {
       setText(els.contactPageTitle, "新的好友");
       setText(els.contactPageMeta, "");
+      els.contactDetail.__miaContactDetailHtmlKey = "";
+      els.contactDetail.__miaContactDetailAvatarKey = "";
       window.miaSocial.renderRequestsInto(els.contactDetail);
     } else {
       renderContactDetail(sortedBots.find((bot) => bot.key === state.activeContactKey) || visibleContacts[0] || sortedBots[0]);
@@ -856,7 +872,14 @@
     setText(els.contactPageMeta, botDeviceLabel(bot));
     const canEditBot = bot.canEditIdentity !== false;
     const canDeleteBot = bot.canDelete !== false;
-    els.contactDetail.innerHTML = `
+    const avatar = avatarForBot(bot);
+    const avatarKey = JSON.stringify({
+      image: avatar.image || "",
+      crop: avatar.crop || null,
+      color: avatar.color || "",
+      text: avatar.text || ""
+    });
+    const html = `
       <article class="contact-profile">
         <header class="contact-profile-head">
           <button class="contact-profile-avatar" type="button" ${canEditBot ? 'data-contact-action="edit" title="编辑联系人头像"' : 'title="联系人头像"'}></button>
@@ -884,25 +907,32 @@
         </section>
       </article>
     `;
-    initNameBadgeLotties(els.contactDetail);
-    const avatar = avatarForBot(bot);
-    window.miaAvatar.applyAvatarMedia(
-      els.contactDetail.querySelector(".contact-profile-avatar"),
-      avatar.image,
-      avatar.crop,
-      avatar.color,
-      avatar.text
-    );
-    els.contactDetail.querySelector('[data-contact-action="message"]')?.addEventListener("click", () => openBotChat(bot.key));
-    els.contactDetail.querySelectorAll('[data-contact-action="edit"]').forEach((button) => {
-      button.addEventListener("click", () => openEditBotDialog(bot.key));
-    });
-    els.contactDetail.querySelector('[data-contact-action="delete"]')?.addEventListener("click", async () => {
-      await deleteBot(bot.key);
-    });
-    if (bot.canConfigureCapabilities !== false) wireBotCapabilities(bot);
-    wireBotPersonaPanel(bot);
-    wireBotRuntimeTargets(bot);
+    const htmlChanged = els.contactDetail.__miaContactDetailHtmlKey !== html;
+    if (htmlChanged) {
+      els.contactDetail.innerHTML = html;
+      els.contactDetail.__miaContactDetailHtmlKey = html;
+      initNameBadgeLotties(els.contactDetail);
+      els.contactDetail.querySelector('[data-contact-action="message"]')?.addEventListener("click", () => openBotChat(bot.key));
+      els.contactDetail.querySelectorAll('[data-contact-action="edit"]').forEach((button) => {
+        button.addEventListener("click", () => openEditBotDialog(bot.key));
+      });
+      els.contactDetail.querySelector('[data-contact-action="delete"]')?.addEventListener("click", async () => {
+        await deleteBot(bot.key);
+      });
+      if (bot.canConfigureCapabilities !== false) wireBotCapabilities(bot);
+      wireBotPersonaPanel(bot);
+      wireBotRuntimeTargets(bot);
+    }
+    if (htmlChanged || els.contactDetail.__miaContactDetailAvatarKey !== avatarKey) {
+      window.miaAvatar.applyAvatarMedia(
+        els.contactDetail.querySelector(".contact-profile-avatar"),
+        avatar.image,
+        avatar.crop,
+        avatar.color,
+        avatar.text
+      );
+      els.contactDetail.__miaContactDetailAvatarKey = avatarKey;
+    }
     refreshRuntimeDevicesForContacts();
   }
 

@@ -12,13 +12,18 @@ function mockEl() {
     classList: { add() {}, remove() {}, toggle() {} },
     dataset: {},
     style: {},
+    innerHTMLWrites: 0,
     addEventListener() {},
     appendChild(child) { this.children.push(child); return child; },
     querySelector() { return mockEl(); },
     querySelectorAll() { return []; },
     setAttribute() {},
     getAttribute() { return ""; },
-    set innerHTML(value) { this._html = String(value || ""); this.children = []; },
+    set innerHTML(value) {
+      this.innerHTMLWrites += 1;
+      this._html = String(value || "");
+      this.children = [];
+    },
     get innerHTML() { return this._html || ""; },
     set textContent(value) { this._text = String(value || ""); },
     get textContent() { return this._text || ""; }
@@ -45,6 +50,13 @@ function loadBotManager() {
     miaMarkdown: {
       escapeHtml: (value) => String(value || ""),
       iconParkIcon: () => ""
+    },
+    miaSkillHelpers: {
+      skillDisplayName: (skill) => ({
+        "document-editor": "文档编辑",
+        "lab-report": "实验报告",
+        "meeting-notes": "会议纪要"
+      }[skill.name] || skill.name_zh || skill.name || skill.title || "Skill")
     },
     miaAvatar: { applyAvatarMedia() {} },
     miaContact: {
@@ -174,4 +186,57 @@ test("contact detail exposes the contact uid", () => {
   assert.match(contactDetail.innerHTML, /class="contact-profile-uid"/);
   assert.match(contactDetail.innerHTML, />UID</);
   assert.match(contactDetail.innerHTML, /review-bot/);
+});
+
+test("contact detail keeps capability rows stable across unchanged renders", () => {
+  const { manager, window } = loadBotManager();
+  const contactList = mockEl();
+  const contactDetail = mockEl();
+  const state = {
+    skillsLoading: true,
+    skillLibrary: {
+      extensions: [],
+      skills: [
+        { id: "mia-official:document-editor", label: "document-editor", sourceLabel: "Mia 官方库" },
+        { id: "mia-official:lab-report", label: "lab-report", sourceLabel: "Mia 官方库" }
+      ]
+    },
+    runtime: {},
+    contactFilter: "",
+    activeContactKey: "spreadsheet-bot",
+    savingBotCapabilities: new Set(),
+    openCapabilityPanelKeys: new Set(["spreadsheet-bot"])
+  };
+  const bot = {
+    key: "spreadsheet-bot",
+    id: "spreadsheet-bot",
+    name: "表格整理师",
+    agentEngine: "hermes",
+    capabilities: { enabledSkills: ["mia-official:document-editor"], disabledSkills: [] }
+  };
+  window.miaSocial.moduleState.bots = [bot];
+
+  manager.initBotManager({
+    state,
+    els: { contactList, contactDetail, contactPageTitle: mockEl(), contactPageMeta: mockEl() },
+    setText(el, value) { if (el) el.textContent = value; },
+    loadSkills: async () => {},
+    showNarrowContent() {},
+    render() {},
+    closeGroupContextMenu() {},
+    openEditBotDialog() {},
+    deleteBot() {},
+    setBotPinned() {},
+  });
+
+  manager.renderContactDetail(bot);
+  const writes = contactDetail.innerHTMLWrites;
+  manager.renderContactDetail(bot);
+
+  assert.equal(contactDetail.innerHTMLWrites, writes);
+  assert.match(contactDetail.innerHTML, /class="capability-row"/);
+  assert.match(contactDetail.innerHTML, />文档编辑</);
+  const capabilityListHtml = contactDetail.innerHTML.match(/<div class="capability-list">([\s\S]*?)<\/div>/)?.[1] || "";
+  assert.doesNotMatch(capabilityListHtml, /Mia 官方库/);
+  assert.doesNotMatch(capabilityListHtml, /<small>/);
 });

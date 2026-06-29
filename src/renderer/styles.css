@@ -4146,22 +4146,22 @@ body.topbar-click-capture .topbar {
 
 .capability-list {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
 .capability-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 17px;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  gap: 10px;
   align-items: center;
   min-width: 0;
-  min-height: 44px;
+  min-height: 34px;
   margin: 0 -8px;
-  padding: 10px 8px;
+  padding: 6px 8px 6px 18px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   cursor: default;
   transition: background 120ms ease;
@@ -4181,7 +4181,7 @@ body.topbar-click-capture .topbar {
 
 .capability-copy {
   display: grid;
-  gap: 3px;
+  gap: 0;
   min-width: 0;
 }
 
@@ -4189,8 +4189,8 @@ body.topbar-click-capture .topbar {
   justify-self: end;
   display: grid;
   place-items: center;
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
   border: 1.5px solid var(--line-strong);
   border-radius: 50%;
   background: transparent;
@@ -4232,6 +4232,7 @@ body.topbar-click-capture .topbar {
   color: var(--text);
   font-size: 13px;
   font-weight: 430;
+  line-height: 1.35;
 }
 
 .capability-row small,

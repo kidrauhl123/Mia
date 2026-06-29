@@ -294,12 +294,16 @@
     if (!row) return;
     row.classList?.add?.("mcp-toolbar-row");
     row.setAttribute?.("aria-label", "MCP 操作");
-    row.innerHTML = `
+    const renderKey = "mcp-toolbar:create";
+    if (row.__miaRenderKey !== renderKey) {
+      row.innerHTML = `
       <button type="button" data-mcp-toolbar-action="create">自定义 MCP</button>
     `;
-    row.querySelectorAll("[data-mcp-toolbar-action]").forEach((button) => {
-      button.addEventListener("click", () => handleMcpAction(button.dataset.mcpToolbarAction || "", ""));
-    });
+      row.__miaRenderKey = renderKey;
+      row.querySelectorAll("[data-mcp-toolbar-action]").forEach((button) => {
+        button.addEventListener("click", () => handleMcpAction(button.dataset.mcpToolbarAction || "", ""));
+      });
+    }
     syncMcpTabsIndicator();
   }
 
@@ -582,18 +586,24 @@
     });
   }
 
-  function renderGrid(html) {
+  function renderGrid(kind, html) {
+    const renderKey = `${kind}:${html}`;
+    if (els.skillCardGrid.__miaRenderKey === renderKey) {
+      layoutCards();
+      return;
+    }
     els.skillCardGrid.innerHTML = html;
+    els.skillCardGrid.__miaRenderKey = renderKey;
     bindMcpActionHandlers();
     layoutCards();
   }
 
   function renderState(text) {
-    renderGrid(`<div class="skill-empty-state">${escapeHtml(text)}</div>`);
+    renderGrid("mcp-state", `<div class="skill-empty-state">${escapeHtml(text)}</div>`);
   }
 
   function renderCards(items, renderItem) {
-    renderGrid(items.map((item) => renderItem(item)).join(""));
+    renderGrid("mcp-cards", items.map((item) => renderItem(item)).join(""));
   }
 
   function toggleTransportFields(form, type) {

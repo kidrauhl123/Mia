@@ -158,15 +158,31 @@ test("market cards render compact source logos beside source labels", () => {
 
 test("market cards do not render direct install or use actions", () => {
   const src = read("src/renderer/skills/skill-library.js");
-  const fakeEl = () => ({
-    innerHTML: "",
-    style: { setProperty: () => {} },
-    classList: { toggle: () => {}, add: () => {}, remove: () => {} },
-    querySelector: () => null,
-    querySelectorAll: () => [],
-    addEventListener: () => {},
-    getBoundingClientRect: () => ({ left: 0, width: 0, height: 0 })
-  });
+  const fakeEl = () => {
+    const classes = new Set();
+    const attrs = {};
+    return {
+      innerHTML: "",
+      style: { setProperty: () => {} },
+      classList: {
+        add: (...names) => names.forEach((name) => classes.add(name)),
+        remove: (...names) => names.forEach((name) => classes.delete(name)),
+        contains: (name) => classes.has(name),
+        toggle: (name, force) => {
+          const shouldAdd = force === undefined ? !classes.has(name) : !!force;
+          if (shouldAdd) classes.add(name);
+          else classes.delete(name);
+          return shouldAdd;
+        }
+      },
+      setAttribute: (name, value) => { attrs[name] = String(value || ""); },
+      getAttribute: (name) => attrs[name],
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {},
+      getBoundingClientRect: () => ({ left: 0, width: 0, height: 0 })
+    };
+  };
   const fakeChipRow = () => {
     const row = fakeEl();
     let html = "";
@@ -281,6 +297,8 @@ test("market cards do not render direct install or use actions", () => {
 
   context.window.miaSkillLibrary.renderSkillLibrary();
   assert.match(els.skillModeToggle.innerHTML, /data-skill-mode="market">技能/);
+  assert.equal(els.skillChipRow.classList.contains("mcp-toolbar-row"), false);
+  assert.equal(els.skillChipRow.getAttribute("aria-label"), "Skill 分类");
   assert.doesNotMatch(els.skillModeToggle.innerHTML, /我的技能/);
   assert.match(els.skillChipRow.innerHTML, /data-skill-filter="">全部<\/button>[\s\S]*data-skill-scope="mine">我的技能/);
   assert.doesNotMatch(els.skillChipRow.innerHTML, />\s*市场\s*</);
@@ -291,6 +309,14 @@ test("market cards do not render direct install or use actions", () => {
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /skill-card-action/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-install=/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-use=/);
+  const firstAllChip = els.skillChipRow.querySelectorAll("[data-skill-filter]")
+    .find((button) => button.dataset.skillFilter === "");
+  const firstModeHtml = els.skillModeToggle.innerHTML;
+  context.window.miaSkillLibrary.renderSkillLibrary();
+  const secondAllChip = els.skillChipRow.querySelectorAll("[data-skill-filter]")
+    .find((button) => button.dataset.skillFilter === "");
+  assert.equal(secondAllChip, firstAllChip, "unchanged skill filters should keep the same DOM nodes across render");
+  assert.equal(els.skillModeToggle.innerHTML, firstModeHtml);
 
   els.skillChipRow.querySelectorAll("[data-skill-filter]")
     .find((button) => button.dataset.skillFilter === "开发工程")
@@ -314,8 +340,12 @@ test("market cards do not render direct install or use actions", () => {
   assert.match(els.skillCardGrid.innerHTML, /data-skill-select="mia-official:skill-creator"/);
 
   context.window.miaSkillLibrary.switchSkillMode("market");
+  els.skillChipRow.classList.add("mcp-toolbar-row");
+  els.skillChipRow.setAttribute("aria-label", "MCP 操作");
   state.skillLibrary.skills.push({ id: "mia:skill-creator", source: "mia", fromMarket: true, marketId: "skill-creator", name: "skill-creator" });
   context.window.miaSkillLibrary.renderSkillLibrary();
+  assert.equal(els.skillChipRow.classList.contains("mcp-toolbar-row"), false);
+  assert.equal(els.skillChipRow.getAttribute("aria-label"), "Skill 分类");
   assert.match(els.skillCardGrid.innerHTML, /data-market-id="skill-creator"/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /skill-card-action/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-install=/);

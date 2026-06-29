@@ -193,22 +193,32 @@
         .filter((task) => (task.runs || []).length > 0)
         .reduce((n, task) => n + taskUnreadCount(task), 0)
     };
-    host.innerHTML = MODES.map((m) => `
+    const renderKey = JSON.stringify({
+      kind: "task-mode-toggle",
+      mode,
+      counts,
+      unreadCounts
+    });
+    const html = MODES.map((m) => `
       <button type="button" role="tab" class="${m.key === mode ? "active" : ""}" data-mode="${m.key}">
         ${escapeHtml(m.label)}<span class="task-mode-count">${counts[m.key]}</span>${modeUnreadBadgeHtml(unreadCounts[m.key])}
       </button>
     `).join("");
-    host.querySelectorAll("[data-mode]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (state.taskMode === btn.dataset.mode) return;
-        const fromIndex = Math.max(0, MODES.findIndex((item) => item.key === state.taskMode));
-        const toIndex = Math.max(0, MODES.findIndex((item) => item.key === btn.dataset.mode));
-        pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
-        window.miaMasonryGrid?.capture(els.tasksContent, pageTurnDirection);
-        state.taskMode = btn.dataset.mode;
-        renderTaskView();
+    if (host.__miaRenderKey !== renderKey) {
+      host.innerHTML = html;
+      host.__miaRenderKey = renderKey;
+      host.querySelectorAll("[data-mode]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (state.taskMode === btn.dataset.mode) return;
+          const fromIndex = Math.max(0, MODES.findIndex((item) => item.key === state.taskMode));
+          const toIndex = Math.max(0, MODES.findIndex((item) => item.key === btn.dataset.mode));
+          pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
+          window.miaMasonryGrid?.capture(els.tasksContent, pageTurnDirection);
+          state.taskMode = btn.dataset.mode;
+          renderTaskView();
+        });
       });
-    });
+    }
     syncModeToggleIndicator(host);
   }
 
@@ -226,25 +236,43 @@
     return badge ? badge.replace('class="unread-badge"', 'class="task-card-unread"') : "";
   }
 
+  function setTasksContentHtml(kind, html, bind) {
+    const renderKey = `${kind}:${html}`;
+    if (els.tasksContent.__miaRenderKey === renderKey) return false;
+    els.tasksContent.innerHTML = html;
+    els.tasksContent.__miaRenderKey = renderKey;
+    if (typeof bind === "function") bind();
+    return true;
+  }
+
   function renderActiveView() {
     const chipRow = document.getElementById("taskChipRow");
-    if (chipRow) { chipRow.innerHTML = ""; chipRow.hidden = true; }
+    if (chipRow) {
+      if (chipRow.__miaRenderKey !== "task-chip-row:hidden") {
+        chipRow.innerHTML = "";
+        chipRow.__miaRenderKey = "task-chip-row:hidden";
+      }
+      chipRow.hidden = true;
+    }
     const tasks = filterTasks(activeTasks(state.tasks), state.taskFilter);
     if (tasks.length === 0) {
-      els.tasksContent.innerHTML = renderActiveEmpty();
-      els.tasksContent.querySelector("[data-action='new-task']")
-        ?.addEventListener("click", openTaskCreate);
+      setTasksContentHtml("task-active-empty", renderActiveEmpty(), () => {
+        els.tasksContent.querySelector("[data-action='new-task']")
+          ?.addEventListener("click", openTaskCreate);
+      });
       layoutTaskCards();
       return;
     }
-    els.tasksContent.innerHTML = tasks.map(cardHtml).join("");
-    els.tasksContent.querySelectorAll("[data-task-id]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        state.selectedTaskId = btn.dataset.taskId;
-        state.selectedRunId = "";
-        state.tasksUnread.delete(state.selectedTaskId);
-        updateTasksRailBadge();
-        renderTaskView();
+    const html = tasks.map(cardHtml).join("");
+    setTasksContentHtml("task-active-cards", html, () => {
+      els.tasksContent.querySelectorAll("[data-task-id]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.selectedTaskId = btn.dataset.taskId;
+          state.selectedRunId = "";
+          state.tasksUnread.delete(state.selectedTaskId);
+          updateTasksRailBadge();
+          renderTaskView();
+        });
       });
     });
     layoutTaskCards();
@@ -265,39 +293,50 @@
       const counts = Object.fromEntries(
         HISTORY_FILTERS.map((f) => [f.key, allEntries.filter((e) => f.match(e.run)).length])
       );
-      chipRow.innerHTML = HISTORY_FILTERS.map((f) => `
+      const renderKey = JSON.stringify({
+        kind: "task-history-chips",
+        filterKey,
+        counts
+      });
+      const html = HISTORY_FILTERS.map((f) => `
         <button type="button" class="${f.key === filterKey ? "active" : ""}" data-history-filter="${f.key}">
           ${escapeHtml(f.label)}<span>${counts[f.key]}</span>
         </button>
       `).join("");
-      chipRow.querySelectorAll("[data-history-filter]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const next = btn.dataset.historyFilter || "all";
-          if ((state.taskHistoryFilter || "all") === next) return;
-          const fromIndex = Math.max(0, HISTORY_FILTERS.findIndex((item) => item.key === (state.taskHistoryFilter || "all")));
-          const toIndex = Math.max(0, HISTORY_FILTERS.findIndex((item) => item.key === next));
-          pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
-          window.miaMasonryGrid?.capture(els.tasksContent, pageTurnDirection);
-          state.taskHistoryFilter = next;
-          renderTaskView();
+      if (chipRow.__miaRenderKey !== renderKey) {
+        chipRow.innerHTML = html;
+        chipRow.__miaRenderKey = renderKey;
+        chipRow.querySelectorAll("[data-history-filter]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const next = btn.dataset.historyFilter || "all";
+            if ((state.taskHistoryFilter || "all") === next) return;
+            const fromIndex = Math.max(0, HISTORY_FILTERS.findIndex((item) => item.key === (state.taskHistoryFilter || "all")));
+            const toIndex = Math.max(0, HISTORY_FILTERS.findIndex((item) => item.key === next));
+            pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
+            window.miaMasonryGrid?.capture(els.tasksContent, pageTurnDirection);
+            state.taskHistoryFilter = next;
+            renderTaskView();
+          });
         });
-      });
+      }
     }
     const match = (HISTORY_FILTERS.find((f) => f.key === filterKey) || HISTORY_FILTERS[0]).match;
     const visible = allEntries.filter((e) => match(e.run));
     if (visible.length === 0) {
-      els.tasksContent.innerHTML = `<div class="tasks-empty"><p>当前筛选下没有运行记录</p></div>`;
+      setTasksContentHtml("task-history-empty", `<div class="tasks-empty"><p>当前筛选下没有运行记录</p></div>`);
       layoutTaskCards();
       return;
     }
-    els.tasksContent.innerHTML = visible.map(runCardHtml).join("");
-    els.tasksContent.querySelectorAll("[data-run-card]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        state.selectedTaskId = btn.dataset.taskId;
-        state.selectedRunId = btn.dataset.runId;
-        state.tasksUnread.delete(state.selectedTaskId);
-        updateTasksRailBadge();
-        renderTaskView();
+    const html = visible.map(runCardHtml).join("");
+    setTasksContentHtml("task-history-cards", html, () => {
+      els.tasksContent.querySelectorAll("[data-run-card]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.selectedTaskId = btn.dataset.taskId;
+          state.selectedRunId = btn.dataset.runId;
+          state.tasksUnread.delete(state.selectedTaskId);
+          updateTasksRailBadge();
+          renderTaskView();
+        });
       });
     });
     layoutTaskCards();

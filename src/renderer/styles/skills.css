@@ -106,7 +106,6 @@
   box-shadow: var(--segmented-control-shadow);
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
   backdrop-filter: blur(24px) saturate(1.16);
-  -webkit-app-region: no-drag;
   isolation: isolate;
 }
 
@@ -146,7 +145,7 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   cursor: default;
-  transition: color 140ms ease;
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .skill-chip-row button span {
@@ -155,11 +154,12 @@
   font-size: 12px;
 }
 
-.skill-chip-row button:not(.active):hover {
+.skill-chip-row button:hover {
+  background: rgb(var(--accent-rgb) / 0.07);
   color: var(--text);
 }
 
-.skill-chip-row button:not(.active):hover span {
+.skill-chip-row button:hover span {
   color: var(--faint);
 }
 
@@ -208,11 +208,12 @@
   background: var(--surface);
   box-shadow: 0 1px 2px rgba(17, 24, 39, 0.035), 0 6px 18px rgba(17, 24, 39, 0.035);
   cursor: default;
-  transition: border-color 0.16s ease;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .skill-card:hover {
   border-color: rgba(17, 24, 39, 0.08);
+  box-shadow: 0 2px 6px rgba(17, 24, 39, 0.06), 0 12px 26px rgba(17, 24, 39, 0.08);
 }
 
 .skill-card.featured {
@@ -289,7 +290,6 @@
   box-shadow: var(--segmented-control-shadow);
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
   backdrop-filter: blur(24px) saturate(1.16);
-  -webkit-app-region: no-drag;
   isolation: isolate;
 }
 
@@ -321,10 +321,11 @@
   font-size: var(--capsule-tab-font-size);
   font-weight: var(--capsule-tab-font-weight);
   cursor: default;
-  transition: color 140ms ease;
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .skill-mode-toggle button:not(.active):hover {
+  background: rgb(var(--accent-rgb) / 0.07);
   color: var(--text);
 }
 

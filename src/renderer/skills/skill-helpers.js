@@ -63,6 +63,7 @@
     "literature-review": "文献综述",
     "mcp-builder": "MCP 服务搭建",
     "meeting-notes": "会议纪要",
+    "document-editor": "文档编辑",
     pdf: "PDF 文档处理",
     "paper-notes": "论文阅读笔记",
     pptx: "PPT 幻灯片",
@@ -78,6 +79,7 @@
     "study-review": "复习规划",
     "resume-interview": "简历面试",
     "problem-explainer": "讲题排错",
+    "spreadsheet-organizer": "表格整理",
     "pet-generator": "桌宠生成",
     "skill-creator": "技能创作"
   };

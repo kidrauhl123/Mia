@@ -218,17 +218,35 @@
     });
   }
 
+  function setSkillCardGridHtml(kind, html, bind) {
+    const renderKey = `${kind}:${html}`;
+    if (els.skillCardGrid.__miaRenderKey === renderKey) return false;
+    els.skillCardGrid.innerHTML = html;
+    els.skillCardGrid.__miaRenderKey = renderKey;
+    if (typeof bind === "function") bind();
+    return true;
+  }
+
   function renderChips(entries) {
+    const wasMcpToolbar = els.skillChipRow.classList?.contains?.("mcp-toolbar-row") === true;
+    els.skillChipRow.classList?.remove?.("mcp-toolbar-row");
+    els.skillChipRow.setAttribute?.("aria-label", "Skill 分类");
     const mode = currentSkillMode();
     const categoryEntries = entries.slice(0, 12);
     const chipKeys = ["", "__mine__", ...categoryEntries.map(([category]) => category)];
+    const renderKey = JSON.stringify({
+      kind: "skill-chips",
+      mode,
+      filter: state.skillCategoryFilter || "",
+      categories: categoryEntries
+    });
     const scopeChips = isSkillCollectionMode(mode)
       ? [
           `<button class="${mode === "market" && !state.skillCategoryFilter ? "active" : ""}" type="button" data-skill-filter="">全部</button>`,
           `<button class="${mode === "mine" ? "active" : ""}" type="button" data-skill-scope="mine">我的技能</button>`
         ]
       : [];
-    els.skillChipRow.innerHTML = [
+    const html = [
       ...scopeChips,
       ...categoryEntries.map(([category, count]) => `
         <button class="${mode === "market" && state.skillCategoryFilter === category ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(category)}" aria-label="${escapeHtml(count ? `${category}，${count} 个技能` : category)}">
@@ -236,26 +254,30 @@
         </button>
       `)
     ].join("");
-    els.skillChipRow.querySelectorAll("[data-skill-scope]").forEach((button) => {
-      button.addEventListener("click", () => switchSkillMode(button.dataset.skillScope));
-    });
-    els.skillChipRow.querySelectorAll("[data-skill-filter]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const next = button.dataset.skillFilter || "";
-        const modeNow = currentSkillMode();
-        if (modeNow === "market" && state.skillCategoryFilter === next) return;
-        const fromKey = modeNow === "mine" ? "__mine__" : (state.skillCategoryFilter || "");
-        const fromIndex = Math.max(0, chipKeys.indexOf(fromKey));
-        const toIndex = Math.max(0, chipKeys.indexOf(next));
-        pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
-        window.miaMasonryGrid?.capture(els.skillCardGrid, pageTurnDirection);
-        state.skillCapabilityMode = "market";
-        state.skillMarketMode = true;
-        state.skillCategoryFilter = next;
-        closeSkillContextMenu();
-        renderSkillLibrary();
+    if (els.skillChipRow.__miaRenderKey !== renderKey || wasMcpToolbar) {
+      els.skillChipRow.innerHTML = html;
+      els.skillChipRow.__miaRenderKey = renderKey;
+      els.skillChipRow.querySelectorAll("[data-skill-scope]").forEach((button) => {
+        button.addEventListener("click", () => switchSkillMode(button.dataset.skillScope));
       });
-    });
+      els.skillChipRow.querySelectorAll("[data-skill-filter]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const next = button.dataset.skillFilter || "";
+          const modeNow = currentSkillMode();
+          if (modeNow === "market" && state.skillCategoryFilter === next) return;
+          const fromKey = modeNow === "mine" ? "__mine__" : (state.skillCategoryFilter || "");
+          const fromIndex = Math.max(0, chipKeys.indexOf(fromKey));
+          const toIndex = Math.max(0, chipKeys.indexOf(next));
+          pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
+          window.miaMasonryGrid?.capture(els.skillCardGrid, pageTurnDirection);
+          state.skillCapabilityMode = "market";
+          state.skillMarketMode = true;
+          state.skillCategoryFilter = next;
+          closeSkillContextMenu();
+          renderSkillLibrary();
+        });
+      });
+    }
     syncChipRowIndicator("auto");
   }
 
@@ -273,13 +295,18 @@
     if (!els.skillModeToggle) return;
     const mode = currentSkillMode();
     const skillActive = isSkillCollectionMode(mode);
-    els.skillModeToggle.innerHTML = `
+    const renderKey = JSON.stringify({ kind: "skill-mode-toggle", mode, skillActive });
+    const html = `
       <button class="${skillActive ? "active" : ""}" type="button" role="tab" data-skill-mode="${skillActive ? mode : "market"}">技能</button>
       <button class="${mode === "mcp" ? "active" : ""}" type="button" role="tab" data-skill-mode="mcp">MCP 服务</button>
     `;
-    els.skillModeToggle.querySelectorAll("[data-skill-mode]").forEach((button) => {
-      button.addEventListener("click", () => switchSkillMode(button.dataset.skillMode));
-    });
+    if (els.skillModeToggle.__miaRenderKey !== renderKey) {
+      els.skillModeToggle.innerHTML = html;
+      els.skillModeToggle.__miaRenderKey = renderKey;
+      els.skillModeToggle.querySelectorAll("[data-skill-mode]").forEach((button) => {
+        button.addEventListener("click", () => switchSkillMode(button.dataset.skillMode));
+      });
+    }
     syncModeToggleIndicator(els.skillModeToggle);
   }
 
@@ -357,14 +384,16 @@
     setText(els.skillPageTitle, state.skillsLoading ? "正在扫描能力" : "技能");
     renderChips(marketCategoryEntries());
     const shown = visibleSkills();
-    els.skillCardGrid.innerHTML = shown.length
+    const html = shown.length
       ? shown.map((skill) => renderSkillCard(skill)).join("")
       : `<div class="skill-empty-state">${skillEmptyText()}</div>`;
-    els.skillCardGrid.querySelectorAll("[data-skill-select]").forEach((card) => {
-      card.addEventListener("click", () => selectSkill(card.dataset.skillSelect));
-      card.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        openSkillContextMenu(card.dataset.skillSelect, event.clientX, event.clientY);
+    setSkillCardGridHtml("skill-local-grid", html, () => {
+      els.skillCardGrid.querySelectorAll("[data-skill-select]").forEach((card) => {
+        card.addEventListener("click", () => selectSkill(card.dataset.skillSelect));
+        card.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          openSkillContextMenu(card.dataset.skillSelect, event.clientX, event.clientY);
+        });
       });
     });
     layoutSkillCards();
@@ -615,24 +644,26 @@
       return;
     }
     if (state.skillMarket.loading && !state.skillMarket.loaded) {
-      els.skillCardGrid.innerHTML = `<div class="skill-empty-state">正在加载技能...</div>`;
+      setSkillCardGridHtml("skill-market-loading", `<div class="skill-empty-state">正在加载技能...</div>`);
       layoutSkillCards();
       return;
     }
     if (state.skillMarket.error && !(state.skillMarket.skills || []).length) {
-      els.skillCardGrid.innerHTML = `<div class="skill-empty-state">技能加载失败，请稍后重试。</div>`;
+      setSkillCardGridHtml("skill-market-error", `<div class="skill-empty-state">技能加载失败，请稍后重试。</div>`);
       layoutSkillCards();
       return;
     }
     const shown = visibleMarketSkills();
-    els.skillCardGrid.innerHTML = shown.length
+    const html = shown.length
       ? shown.map((skill) => renderMarketCard(skill)).join("")
       : `<div class="skill-empty-state">没有匹配的技能</div>`;
-    els.skillCardGrid.querySelectorAll("[data-market-id]").forEach((card) => {
-      card.addEventListener("click", () => openMarketModal(card.dataset.marketId));
-      card.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        reportMarketSkill(card.dataset.marketId);
+    setSkillCardGridHtml("skill-market-grid", html, () => {
+      els.skillCardGrid.querySelectorAll("[data-market-id]").forEach((card) => {
+        card.addEventListener("click", () => openMarketModal(card.dataset.marketId));
+        card.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          reportMarketSkill(card.dataset.marketId);
+        });
       });
     });
     layoutSkillCards();
