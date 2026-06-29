@@ -247,10 +247,13 @@ test("assistant store detail sheet stays form-free on constrained viewports", ()
 
   assert.match(css, /\.bot-store-sheet\s*\{[\s\S]*?max-height:\s*calc\(100vh - 56px\);[\s\S]*?overflow:\s*auto;/);
   assert.match(css, /\.bot-store-sheet-section\s*\{[^}]*display:\s*grid;[^}]*gap:\s*6px;/);
-  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.bot-store-sheet\s*\{[\s\S]*?max-height:\s*calc\(100vh - 28px\);/);
-  assert.doesNotMatch(css, /\.bot-store-enroll-console/);
+  assert.match(css, /\.bot-store-sheet\.is-enrolling\s*\{[\s\S]*?overflow:\s*hidden;/);
+  assert.match(css, /\.bot-store-enroll-console\s*\{[\s\S]*?display:\s*grid;[\s\S]*?overflow:\s*hidden;/);
+  assert.match(css, /\.bot-store-badge-stage\s*\{[\s\S]*?place-items:\s*center;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.bot-store-sheet,\s*\.bot-store-sheet\.is-enrolling\s*\{[\s\S]*?max-height:\s*calc\(100vh - 28px\);/);
   assert.doesNotMatch(css, /\.bot-store-setup-fields/);
   assert.doesNotMatch(css, /\.bot-store-setup-field/);
+  assert.doesNotMatch(css, /\.bot-store-badge-target-select/);
 });
 
 test("sidebar and chat headers use the same surface without a header divider", () => {
@@ -1313,7 +1316,10 @@ test("assistant store does not expose setup form controls in the detail sheet", 
   const css = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
   assert.match(css, /\.bot-store-sheet-section\s*\{[^}]*display:\s*grid;/);
+  assert.match(css, /\.bot-store-badge-card/);
+  assert.match(css, /\.bot-store-badge-stamp/);
+  assert.match(css, /@keyframes bot-store-badge-stamp-slam/);
   assert.doesNotMatch(css, /\.bot-store-setup-fields/);
   assert.doesNotMatch(css, /\.bot-store-setup-field/);
-  assert.doesNotMatch(css, /\.bot-store-enroll-console/);
+  assert.doesNotMatch(css, /\.bot-store-badge-target-select/);
 });

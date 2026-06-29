@@ -18,7 +18,11 @@ test("discover bot store adds assistants directly without an enrollment form", (
   assert.match(src, /window\.miaIds\?\.generatePrincipalId/);
   assert.match(src, /function defaultConversationTagName/);
   assert.match(src, /setConversationTagNames\(\s*conversationId,\s*\[defaultConversationTagName\(f\)\]\s*\)/);
-  assert.match(src, /addBot\(f,\s*defaultEnrollmentTarget\(f\),\s*plannedKey\)/);
+  assert.match(src, /const target = normalizeRuntimeTarget\(defaultEnrollmentTarget\(f\)\)/);
+  assert.match(src, /return addBot\(f,\s*target,\s*plannedKey\)/);
+  assert.match(src, /bot-store-badge-card/);
+  assert.match(src, /MIA · AI 助手凭证/);
+  assert.match(src, /data-act="add-progress"/);
   assert.match(src, /runtimeKind:\s*target\.runtimeKind/);
   assert.match(src, /agentEngine:\s*target\.agentEngine/);
   assert.match(src, /targetDeviceId:\s*target\.deviceId/);
@@ -63,19 +67,23 @@ test("discover bot store is framed as assistants, not coworkers", () => {
 
   assert.doesNotMatch(app, /发现 AI 同事/);
   assert.doesNotMatch(html, /发现 AI 同事|AI 同事列表/);
-  assert.doesNotMatch(store, /AI 同事|入职|AI 助手入库|MIA · AI 助手凭证/);
+  assert.match(store, /AI 助手入库/);
+  assert.match(store, /MIA · AI 助手凭证/);
+  assert.doesNotMatch(store, /AI 同事|入职/);
 });
 
-test("discover bot store detail sheet stays compact and form-free", () => {
+test("discover bot store detail sheet stays compact, form-free, and keeps the badge flow", () => {
   const css = read("src/renderer/styles/bot-store.css");
 
   assert.match(css, /\.bot-store-sheet-head/);
   assert.match(css, /\.bot-store-sheet-section/);
+  assert.match(css, /\.bot-store-enroll-console/);
+  assert.match(css, /\.bot-store-badge-card/);
+  assert.match(css, /\.bot-store-badge-stamp/);
+  assert.match(css, /\.bot-store-sheet\.is-enrolling/);
   assert.doesNotMatch(css, /\.bot-store-engine-picker/);
-  assert.doesNotMatch(css, /\.bot-store-enroll-console/);
-  assert.doesNotMatch(css, /\.bot-store-badge-/);
   assert.doesNotMatch(css, /\.bot-store-setup-/);
-  assert.doesNotMatch(css, /\.bot-store-sheet\.is-enrolling/);
+  assert.doesNotMatch(css, /\.bot-store-badge-target-select/);
   assert.match(css, /\.bot-store-actions\s*\{[\s\S]*?justify-content:\s*flex-end;/);
   assert.match(css, /\.bot-store-btn\s*\{[\s\S]*?height:\s*38px;/);
   assert.match(css, /\.bot-store-btn\.primary\s*\{[\s\S]*?flex:\s*0 0 auto;/);
@@ -181,6 +189,11 @@ test("assistant enrollment saves without asking the user to fill setup fields", 
 
   assert.match(store, /function addPresetBot/);
   assert.match(store, /querySelector\('\[data-act="add"\]'\)\.addEventListener\("click",\s*\(\)\s*=>\s*addPresetBot\(f\)\)/);
+  assert.match(store, /bot-store-enroll-console/);
+  assert.match(store, /bot-store-badge-card/);
+  assert.match(store, /data-badge-uid/);
+  assert.match(store, /classList\.add\("is-stamped"\)/);
+  assert.match(store, /data-enroll-status/);
   assert.match(store, /assistantPersonaText\(f,\s*\{\}\)/);
   assert.match(store, /assistantDescription\(f,\s*\{\}\)/);
   assert.match(store, /description:\s*assistantDescription\(f,\s*\{\}\)/);
@@ -193,6 +206,7 @@ test("assistant enrollment saves without asking the user to fill setup fields", 
   assert.doesNotMatch(store, /function setupFieldsHtml/);
   assert.doesNotMatch(store, /function readAssistantSetupValues/);
   assert.doesNotMatch(store, /data-assistant-setup-field/);
+  assert.doesNotMatch(store, /data-runtime-target-select/);
   assert.doesNotMatch(store, /throw new Error\(".*课程名/);
   assert.doesNotMatch(store, /required[^;]+checkValidity/);
   assert.doesNotMatch(store, /setupValues/);

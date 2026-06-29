@@ -506,6 +506,12 @@
     };
   }
 
+  function targetSummary(target = {}) {
+    const t = normalizeRuntimeTarget(target);
+    const device = t.runtimeKind === "cloud-hermes" ? "Mia Cloud" : (t.deviceName || "本机");
+    return `${device} · ${engineLabel(t.agentEngine)}`;
+  }
+
   function principalId(f = {}) {
     return String(f.account_id || f.accountId || f.uid || "").trim();
   }
@@ -685,6 +691,8 @@
     const scrim = els.botStoreScrim;
     if (!sheet || !scrim) return;
     adding = false;
+    sheet.classList.remove("is-enrolling");
+    sheet.classList.remove("is-stamped");
     sheet.innerHTML = `
       <div class="bot-store-sheet-head">
         ${avatarHtml(f)}
@@ -708,6 +716,9 @@
   }
 
   function addPresetBot(f = {}) {
+    const sheet = els.botStoreSheet;
+    const scrim = els.botStoreScrim;
+    if (!sheet || !scrim) return;
     let plannedKey = "";
     try {
       plannedKey = generateEnrollmentPrincipalId(f);
@@ -715,7 +726,51 @@
       window.alert(error?.message || "无法生成 AI 助手账号 ID。");
       return;
     }
-    return addBot(f, defaultEnrollmentTarget(f), plannedKey);
+    const target = normalizeRuntimeTarget(defaultEnrollmentTarget(f));
+    const meta = engineMeta(target.agentEngine);
+    sheet.classList.add("is-enrolling");
+    sheet.classList.remove("is-stamped");
+    sheet.dataset.botKey = plannedKey;
+    sheet.innerHTML = `
+      <div class="bot-store-enroll-console" style="--badge-accent:${safeColor(f.c2, "#5dcaa5")};--engine-accent:${safeColor(meta.accent, "#5dcaa5")}">
+        <div class="bot-store-enroll-bar">
+          <span class="bot-store-enroll-light" aria-hidden="true"></span>
+          <span>AI 助手入库</span>
+          <span class="bot-store-enroll-status" data-enroll-status>正在激活</span>
+        </div>
+        <div class="bot-store-badge-stage">
+          <div class="bot-store-badge-card">
+            <div class="bot-store-badge-title">MIA · AI 助手凭证</div>
+            <div class="bot-store-badge-shimmer" aria-hidden="true"></div>
+            <div class="bot-store-badge-main">
+              ${avatarHtml(f, "bot-store-badge-avatar")}
+              <div class="bot-store-badge-id">
+                <span>AI 助手</span>
+                <strong>${escapeHtml(f.name)}</strong>
+                <code data-badge-uid>UID · ${escapeHtml(plannedKey)}</code>
+              </div>
+            </div>
+            <div class="bot-store-badge-fields">
+              <div><span>分类</span><strong>${escapeHtml(f.cat || f.category || "推荐")}</strong></div>
+              <div><span>技能</span><strong>${escapeHtml(skillSummary(f))}</strong></div>
+              <div><span>运行位置 / Agent</span><strong data-badge-engine>${escapeHtml(targetSummary(target))}</strong></div>
+            </div>
+            <div class="bot-store-badge-stamp" aria-hidden="true">
+              <strong>已激活</strong>
+              <span>ACTIVATED</span>
+            </div>
+          </div>
+          <div class="bot-store-badge-flash" aria-hidden="true"></div>
+        </div>
+      </div>
+      <div class="bot-store-actions">
+        <button type="button" class="bot-store-btn ghost" data-act="detail">返回</button>
+        <button type="button" class="bot-store-btn primary" data-act="add-progress" disabled>添加中…</button>
+      </div>`;
+    sheet.querySelector('[data-act="detail"]').addEventListener("click", () => openSheet(f));
+    sheet.querySelector('[data-act="add-progress"]').addEventListener("click", () => addBot(f, target, sheet.dataset.botKey || plannedKey));
+    scrim.classList.add("open");
+    return addBot(f, target, plannedKey);
   }
 
   function closeSheet() {
@@ -745,7 +800,7 @@
   async function addBot(f, runtimeTarget = {}, plannedKey = "") {
     if (adding) return;
     adding = true;
-    const btn = els.botStoreSheet?.querySelector('[data-act="add"]');
+    const btn = els.botStoreSheet?.querySelector('[data-act="add"], [data-act="add-progress"]');
     if (btn) { btn.disabled = true; btn.textContent = "添加中…"; }
     try {
       const target = normalizeRuntimeTarget(runtimeTarget);
@@ -775,8 +830,16 @@
       });
       if (saved.runtime) state.runtime = saved.runtime;
       await applyDefaultConversationTag(f, saved);
+      els.botStoreSheet?.classList.add("is-stamped");
+      const status = els.botStoreSheet?.querySelector("[data-enroll-status]");
+      if (status) status.textContent = "已激活";
       const savedKey = saved.key || saved.bot?.key || saved.bot?.id || "";
+      const uid = els.botStoreSheet?.querySelector("[data-badge-uid]");
+      if (uid && savedKey) uid.textContent = `UID · ${savedKey}`;
       if (btn) btn.textContent = "已添加";
+      if (els.botStoreSheet?.classList.contains("is-enrolling")) {
+        await new Promise((resolve) => setTimeout(resolve, 720));
+      }
       closeSheet();
       if (savedKey && typeof openBotConversation === "function") {
         state.activeView = "chat";
@@ -785,7 +848,9 @@
         render();
       }
     } catch (error) {
-      if (btn) { btn.disabled = false; btn.textContent = "确认"; }
+      const status = els.botStoreSheet?.querySelector("[data-enroll-status]");
+      if (status) status.textContent = "添加失败";
+      if (btn) { btn.disabled = false; btn.textContent = "重试"; }
       adding = false;
       window.alert(`添加失败：${error?.message || error}`);
       return;
