@@ -417,6 +417,11 @@ test("sidebar-bottom navigation mode keeps the rail path and exposes four primar
   assert.match(appSource, /els\.navLayoutChoices\?\.forEach\(\(button\) => \{[\s\S]*?button\.classList\.toggle\("active", active\);[\s\S]*?button\.setAttribute\("aria-checked", active \? "true" : "false"\);/);
   assert.match(appSource, /els\.navLayoutChoices\?\.forEach\(\(button\) => \{[\s\S]*?button\.addEventListener\("click", \(\) => \{[\s\S]*?setNavLayout\(button\.dataset\.navLayoutChoice, true\);[\s\S]*?renderView\(\);/);
   assert.match(appSource, /document\.querySelectorAll\("\[data-primary-nav\]"\)/);
+  assert.match(
+    appSource,
+    /document\.querySelectorAll\("\[data-view\]"\)\.forEach\(\(button\) => \{[\s\S]*?const nextView =[\s\S]*?if \(nextView === "chat"\) setPersonaSearchOpen\(false\);[\s\S]*?state\.activeView = nextView;/,
+    "clicking the chat rail entry should exit conversation search before showing messages"
+  );
   assert.match(appSource, /settingsSidebar:\s*document\.getElementById\("settingsSidebar"\)/);
   assert.match(appSource, /state\.activeView = state\.exploreSectionView \|\| "bot-store"/);
   assert.match(appSource, /state\.activeView = "settings";/);

@@ -5603,6 +5603,7 @@ document.querySelectorAll("[data-view]").forEach((button) => {
     const nextView = button.dataset.view === "contacts"
       ? (state.discoverSectionView || "bot-store")
       : button.dataset.view;
+    if (nextView === "chat") setPersonaSearchOpen(false);
     if (nextView === "contacts" || nextView === "bot-store" || nextView === "skills") {
       state.exploreSectionView = nextView;
     }
