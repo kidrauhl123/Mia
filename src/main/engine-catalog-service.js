@@ -760,34 +760,6 @@ print(json.dumps(result))
     };
   }
 
-  function fallbackSlashCommands() {
-    return [
-      { command: "/new", description: "Start a new session (fresh session ID + history)" },
-      { command: "/topic", description: "Enable or inspect Telegram DM topic sessions" },
-      { command: "/retry", description: "Retry the last message (resend to agent)" },
-      { command: "/undo", description: "Remove the last user/assistant exchange" },
-      { command: "/title", description: "Set a title for the current session" },
-      { command: "/branch", description: "Branch the current session (explore a different path)" },
-      { command: "/compress", description: "Manually compress conversation context" },
-      { command: "/rollback", description: "List or restore filesystem checkpoints" },
-      { command: "/stop", description: "Kill all running background processes" },
-      { command: "/status", description: "Show session info" },
-      { command: "/model", description: "Switch model for this session" },
-      { command: "/personality", description: "Set a predefined personality" },
-      { command: "/reasoning", description: "Manage reasoning effort and display" },
-      { command: "/fast", description: "Toggle fast mode" },
-      { command: "/yolo", description: "Toggle YOLO mode" },
-      { command: "/voice", description: "Toggle voice mode" },
-      { command: "/agents", description: "Show active agents and running tasks" },
-      { command: "/goal", description: "Set a standing goal Hermes works on across turns" },
-      { command: "/subgoal", description: "Add or manage checklist items on the active goal" },
-      { command: "/usage", description: "Show token usage and rate limits for the current session" },
-      { command: "/insights", description: "Show usage insights and analytics" },
-      { command: "/commands", description: "Browse all commands and skills" },
-      { command: "/help", description: "Show available commands" }
-    ];
-  }
-
   async function loadHermesSlashCommands() {
     initializeRuntime();
     return timeEngineStepAsync("Load Hermes slash commands", () => loadHermesSlashCommandsInner());
@@ -817,23 +789,21 @@ print(json.dumps(rows, ensure_ascii=False))
       timeout: 15000
     });
     if (result.status !== 0) {
-      appendEngineLog(`Slash command fallback: ${result.stderr || `python exited ${result.status}`}`);
-      return fallbackSlashCommands();
+      appendEngineLog(`Slash command discovery unavailable: ${result.stderr || `python exited ${result.status}`}`);
+      return [];
     }
     try {
       const rows = JSON.parse(String(result.stdout || "[]"));
-      if (Array.isArray(rows) && rows.length) {
-        return rows
-          .filter((item) => item && item.command && item.description)
-          .map((item) => ({
-            command: String(item.command).startsWith("/") ? String(item.command) : `/${item.command}`,
-            description: String(item.description)
-          }));
-      }
+      return (Array.isArray(rows) ? rows : [])
+        .filter((item) => item && item.command && item.description)
+        .map((item) => ({
+          command: String(item.command).startsWith("/") ? String(item.command) : `/${item.command}`,
+          description: String(item.description)
+        }));
     } catch (error) {
       appendEngineLog(`Slash command parse failed: ${error.message}`);
     }
-    return fallbackSlashCommands();
+    return [];
   }
 
   return {
@@ -841,7 +811,6 @@ print(json.dumps(rows, ensure_ascii=False))
     loadHermesModelCatalog,
     loadCodexModels,
     loadEngineCapabilities,
-    fallbackSlashCommands,
     loadHermesSlashCommands
   };
 }

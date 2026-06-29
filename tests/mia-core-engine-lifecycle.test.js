@@ -99,6 +99,16 @@ test("ensureRunning spawns the correct gateway command + env when no engine is r
       buildPythonPath: () => path.join(home, "runtime", "mia-plugins"),
       hermesHome: () => hermesHome,
       env: { CUSTOM: "1" },
+      modelEnv: () => ({ MIA_CLOUD_MODEL_TOKEN: "cloud-token" }),
+      modelRuntimeConfig: () => ({
+        provider: "mia",
+        providerLabel: "Mia",
+        model: "mia-auto",
+        apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+        apiKey: "cloud-token",
+        baseUrl: "https://mia.example/api/me/model-proxy/v1",
+        apiMode: "chat_completions"
+      }),
       fetchImpl,
       spawnImpl: (command, args, options) => {
         recorded = { command, args, options };
@@ -132,6 +142,7 @@ test("ensureRunning spawns the correct gateway command + env when no engine is r
     assert.equal(env.HERMES_ACCEPT_HOOKS, "1");
     assert.equal(env.PYTHONPATH, path.join(home, "runtime", "mia-plugins"));
     assert.equal(env.CUSTOM, "1", "base env is preserved");
+    assert.equal(env.MIA_CLOUD_MODEL_TOKEN, "cloud-token");
     assert.equal(recorded.options.cwd, path.join(home, "runtime", "hermes-engine"));
 
     // The api key + minimal config.yaml were persisted under hermesHome.
@@ -139,6 +150,10 @@ test("ensureRunning spawns the correct gateway command + env when no engine is r
     const config = require("js-yaml").load(fs.readFileSync(path.join(hermesHome, "config.yaml"), "utf8"));
     assert.equal(config.platforms.api_server.port, result.port);
     assert.equal(config.platforms.api_server.key, env.API_SERVER_KEY);
+    assert.equal(config.model.provider, "mia");
+    assert.equal(config.model.default, "mia-auto");
+    assert.equal(config.providers.mia.key_env, "MIA_CLOUD_MODEL_TOKEN");
+    assert.equal(config.providers.mia.api_key, "cloud-token");
 
     // The mia_plugins overlay was written (so `-m mia_plugins` can import).
     assert.ok(fs.existsSync(path.join(home, "runtime", "mia-plugins", "mia_plugins", "__init__.py")));

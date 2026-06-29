@@ -746,6 +746,32 @@ test("renderSidebarRows collapses clean bot session history by bot id", () => {
   );
 });
 
+test("renderSidebarRows hides bot conversations whose bot identity is gone", () => {
+  const s = loadSocial();
+  s.__mockWindow.miaSessionHistory = sessionHistory;
+  s.moduleState.bots = [{ id: "sheet", name: "表格整理师" }];
+  s.moduleState.conversations = [
+    {
+      id: "botc_sheet",
+      type: "bot",
+      name: "表格整理师",
+      updatedAt: "2026-06-29T06:00:00.000Z",
+      decorations: { botId: "sheet", sessionId: "sheet" }
+    },
+    {
+      id: "botc_deleted_sheet",
+      type: "bot",
+      name: "表格整理师",
+      updatedAt: "2026-06-29T05:00:00.000Z",
+      decorations: { botId: "deleted_sheet", sessionId: "deleted_sheet" }
+    }
+  ];
+
+  const rows = s.renderSidebarRows();
+
+  assert.deepEqual(rows.map((row) => row.conversation.id), ["botc_sheet"]);
+});
+
 test("ensureBotConversation syncs external bot runtime config for web controls", async () => {
   const s = loadSocial();
   const calls = [];
@@ -1551,6 +1577,55 @@ test("sendInActiveConversation shows outgoing cloud messages before the network 
 
   assert.deepEqual(entry.messages.map((m) => m.id), ["m_server"]);
   assert.equal(entry.maxSeq, 1);
+});
+
+test("sendInActiveConversation ensures bot conversations before posting", async () => {
+  const s = loadSocial();
+  const calls = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async (sessionId, body) => {
+      calls.push({ kind: "ensure", sessionId, body });
+      return {
+        ok: true,
+        data: {
+          conversation: {
+            id: "botc_session_probe",
+            type: "bot",
+            name: "新对话",
+            decorations: { botId: "codex", sessionId: "session_probe", runtimeKind: "desktop-local" }
+          },
+          members: [{ member_kind: "bot", member_ref: "codex" }]
+        }
+      };
+    },
+    postConversationMessage: async (conversationId, body) => {
+      calls.push({ kind: "post", conversationId, body });
+      return {
+        ok: true,
+        data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: body.bodyMd } }
+      };
+    }
+  };
+  s.moduleState.activeConversationId = "botc_session_probe";
+  s.moduleState.conversations = [{
+    id: "botc_session_probe",
+    type: "bot",
+    name: "新对话",
+    decorations: { botId: "codex", sessionId: "session_probe", runtimeKind: "desktop-local" }
+  }];
+  s.moduleState.messageCache.set("botc_session_probe", { messages: [], maxSeq: 0 });
+
+  await s.sendInActiveConversation("hello bot");
+
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), {
+    kind: "ensure",
+    sessionId: "session_probe",
+    body: { botId: "codex", title: "新对话", runtimeKind: "desktop-local" }
+  });
+  assert.equal(calls[1].conversationId, "botc_session_probe");
+  assert.equal(s.moduleState.messageCache.get("botc_session_probe").messages[0].status, undefined);
 });
 
 test("renderSendStatus hides sending state and only shows failed sends", () => {
@@ -2390,6 +2465,63 @@ test("renderConversationChat hydrates cloud image URL previews before rendering 
   assert.ok(html.indexOf("message-attachments") < html.indexOf("remote image"));
 });
 
+test("renderConversationChat hydrates cloud spreadsheet URLs into download links", async () => {
+  const chat = {
+    children: [],
+    dataset: {},
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  installCloudConversationSource(s.__mockWindow);
+  const fetched = [];
+  const dataUrl = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,eGxzeA==";
+  s.__mockWindow.mia.fetchFileAttachment = async (request) => {
+    fetched.push(request);
+    return {
+      id: "att_xlsx",
+      kind: "file",
+      name: "world-cup.xlsx",
+      url: request.url,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      dataUrl
+    };
+  };
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "dm_u_me_u_them";
+  s.moduleState.conversations = [{ id: "dm_u_me_u_them", type: "dm", name: "DM" }];
+  s.moduleState.messageCache.set("dm_u_me_u_them", {
+    messages: [{
+      id: "msg_xlsx_1",
+      sender_kind: "bot",
+      sender_ref: "spreadsheet-organizer",
+      body_md: "已生成 Excel。",
+      created_at: "2026-06-18T10:02:00.000Z",
+      attachments: [{
+        id: "att_xlsx",
+        kind: "file",
+        name: "world-cup.xlsx",
+        url: "/api/files/file_xlsx"
+      }]
+    }],
+    maxSeq: 1
+  });
+
+  s.renderConversationChat(chat);
+  assert.equal(fetched.length, 1);
+  assert.equal(fetched[0]?.url, "/api/files/file_xlsx");
+  await flushPromises();
+
+  const html = chat.children[0]?.innerHTML || "";
+  assert.match(html, /download="world-cup\.xlsx"/);
+  assert.match(html, /href="data:application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet;base64,eGxzeA=="/);
+  assert.ok(html.indexOf("message-attachments") < html.indexOf("已生成 Excel"));
+});
+
 test("renderConversationChat resolves self and bot avatars from one contact context", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
@@ -3024,7 +3156,7 @@ test("handleCloudEvent cloud_agent_run events track transient conversation strea
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { conversationId: "botc_u_a_mia", runId: "car_1", hermesRunId: "hr_1", botId: "mia" },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", turnId: "turn_1", hermesRunId: "hr_1", botId: "mia" },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
@@ -3035,6 +3167,7 @@ test("handleCloudEvent cloud_agent_run events track transient conversation strea
     payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool.started", tool: "shell" } },
   });
   const run = s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_mia");
+  assert.equal(run.turnId, "turn_1");
   assert.equal(run.hermesRunId, "hr_1");
   assert.equal(run.text, "hello ");
   assert.equal(run.tools.map((tool) => tool.name).join(","), "shell");
@@ -4427,7 +4560,7 @@ test("applyCloudSettings clears auto-counted unread when peer device's readMark 
     "readMark caught up to local maxSeq → unread badge must clear");
 });
 
-test("applyCloudSettings applies appearance updates from another device", () => {
+test("applyCloudSettings ignores appearance updates from another device", () => {
   const s = loadSocial();
   const applied = [];
   s.initSocialModule({
@@ -4446,7 +4579,7 @@ test("applyCloudSettings applies appearance updates from another device", () => 
     updatedAt: "2026-05-28T00:00:00.000Z"
   });
 
-  assert.deepEqual(applied, [{ theme: "dark", accentColor: "#112233" }]);
+  assert.deepEqual(applied, []);
 });
 
 test("applyCloudSettings leaves unread alone when local has fresher messages than peer's readMark", () => {

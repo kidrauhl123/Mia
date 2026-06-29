@@ -1,7 +1,7 @@
 import { Pressable, View, StyleSheet } from "react-native";
 import { useAuth } from "../state/auth";
 import { usePush } from "../notifications/PushProvider";
-import { useMe, useSaveUserSettings, useUserSettings } from "../state/queries";
+import { useMe } from "../state/queries";
 import { resolveAvatar } from "../logic/avatar";
 import { resolveMeProfile } from "../logic/meProfile";
 import AvatarMedia from "../components/AvatarMedia";
@@ -9,7 +9,7 @@ import StatusBadge from "../components/StatusBadge";
 import { useUpdateStatus } from "../updates/UpdateProvider";
 import Button from "../ui/Button";
 import { BodyStrong, Brand, Label, Sub } from "../ui/Text";
-import { useTypography } from "../ui/TypographyProvider";
+import { useTypography, useTypographyPreference } from "../ui/TypographyProvider";
 import {
   color,
   hairlineWidth,
@@ -25,17 +25,16 @@ export default function MeScreen() {
   const { session } = useAuth();
   const { logout } = usePush();
   const { data: me } = useMe();
-  const settings = useUserSettings();
-  const saveSettings = useSaveUserSettings();
   const updates = useUpdateStatus();
+  const typographyPreference = useTypographyPreference();
   const profile = resolveMeProfile(me, session?.user);
   const avatar = resolveAvatar(profile.uid, profile.displayName, profile.avatarImage, profile.avatarCrop);
   const apiBase = session?.apiBase || "";
-  const fontSize = normalizeTelegramFontSize(settings.data?.appearance?.mobileFontSize);
+  const fontSize = normalizeTelegramFontSize(typographyPreference.fontSize);
 
   const setFontSize = (next: TelegramFontSize) => {
     if (next === fontSize) return;
-    saveSettings.mutate({ appearance: { mobileFontSize: next } });
+    typographyPreference.setFontSize(next);
   };
 
   return (
@@ -62,8 +61,8 @@ export default function MeScreen() {
                 <Pressable
                   key={option.value}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: active, disabled: saveSettings.isPending }}
-                  disabled={saveSettings.isPending}
+                  accessibilityState={{ selected: active, disabled: typographyPreference.saving }}
+                  disabled={typographyPreference.saving}
                   onPress={() => setFontSize(option.value)}
                   style={({ pressed }) => [
                     styles.segment,

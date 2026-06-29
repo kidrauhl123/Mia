@@ -1,6 +1,9 @@
 const crypto = require("node:crypto");
 const { fileEditPayloadsFromToolPayload } = require("./agent-file-edit-events.js");
 
+const MIA_MANAGED_PROVIDER_ID = "mia";
+const MIA_AUTO_MODEL_ID = "mia-auto";
+
 function cleanRunSessionId(value, botKey) {
   const raw = String(value || "").trim();
   const fallback = `${botKey || "mia"}:default`;
@@ -23,15 +26,50 @@ function firstTextValue(value) {
   return "";
 }
 
-function normalizeHermesError(message) {
+function contextString(source = {}, keys = []) {
+  for (const key of keys) {
+    const value = String(source?.[key] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function isMiaManagedRuntimeContext(context = {}) {
+  if (!context || typeof context !== "object") return false;
+  const provider = contextString(context, ["providerConnectionId", "provider_connection_id", "provider", "modelProvider", "model_provider"]);
+  const authType = contextString(context, ["authType", "auth_type"]);
+  const profileId = contextString(context, ["modelProfileId", "model_profile_id"]);
+  const model = contextString(context, ["model"]);
+  return provider === MIA_MANAGED_PROVIDER_ID
+    || authType === "mia_account"
+    || profileId.startsWith(`${MIA_MANAGED_PROVIDER_ID}:`)
+    || model === MIA_AUTO_MODEL_ID
+    || model === "mia-default";
+}
+
+function normalizeHermesError(message, runtimeContext = {}) {
   const text = String(message || "").trim();
   if (text.includes("No inference provider configured") || text.includes("no API key was found")) {
-    if (/\bmia\b|mia cloud|model-proxy|MIA_CLOUD_MODEL_TOKEN/i.test(text)) {
-      return "Mia Hermes 已启动，但 Mia 官方模型还不能调用。请确认已登录 Mia Cloud，或稍后重试。";
+    if (isMiaManagedRuntimeContext(runtimeContext) || /\bmia\b|mia cloud|model-proxy|MIA_CLOUD_MODEL_TOKEN/i.test(text)) {
+      return "Mia Hermes 已启动，但 Mia 官方模型（Auto）暂时不能调用。请确认已登录 Mia Cloud；Mia 会自动使用平台模型，不需要填写 API key，稍后重试。";
     }
-    return "Mia Hermes 已启动，但模型还不能调用。请在右侧 Model 选择 preset，填 API key，保存后再发送。";
+    return "Mia Hermes 已启动，但当前模型缺少可用的推理凭据。请检查模型连接配置，或切换到 Auto。";
   }
   return text;
+}
+
+function hermesRunFailureError(message, runtimeContext = {}) {
+  const normalized = normalizeHermesError(message, runtimeContext);
+  const error = new Error(normalized);
+  if (
+    normalized.includes("Mia 官方模型（Auto）暂时不能调用")
+    || (isMiaManagedRuntimeContext(runtimeContext) && /Mia Hermes 已启动/.test(normalized))
+  ) {
+    error.code = "HERMES_MODEL_CONFIG_UNAVAILABLE";
+    error.stage = "run_events";
+    error.retryable = true;
+  }
+  return error;
 }
 
 function eventText(eventName, payload) {
@@ -173,7 +211,7 @@ function createHermesRunService(deps = {}) {
     return `${roleLabel(message.role)}：${content}`;
   }
 
-  async function readRunEventStream({ runId, signal, emit }) {
+  async function readRunEventStream({ runId, signal, emit, runtimeContext = {} }) {
     if (typeof baseUrl !== "function") throw new Error("baseUrl dependency is required.");
     if (typeof apiKey !== "function") throw new Error("apiKey dependency is required.");
     const response = await fetchImpl(`${baseUrl()}/v1/runs/${encodeURIComponent(runId)}/events`, {
@@ -284,7 +322,7 @@ function createHermesRunService(deps = {}) {
       }
       if (name === "run.failed") {
         const error = firstTextValue(payload.error) || firstTextValue(payload.message) || "Hermes run failed.";
-        throw new Error(normalizeHermesError(error));
+        throw hermesRunFailureError(error, runtimeContext);
       }
       return false;
     };
@@ -349,6 +387,7 @@ function createHermesRunService(deps = {}) {
     buildRunPayload,
     cleanRunSessionId,
     lastUserPrompt,
+    hermesRunFailureError,
     normalizeError: normalizeHermesError,
     normalizeRunMessages,
     parseSseFrame,

@@ -102,6 +102,10 @@ test("packages/shared bot identity applies official preset skill defaults to unc
     key: "paper-buddy",
     name: "论文搭子",
     capabilities: { enabledSkills: ["mia-official:paper-research"] }
+  }, {
+    key: "spreadsheet-organizer",
+    name: "表格整理师",
+    capabilities: { enabledSkills: ["mia-official:spreadsheet-organizer", "mia-official:xlsx"] }
   }];
   const caps = packageBotIdentity.botCapabilitiesWithPresetDefaults({
     key: "old-local-paper",
@@ -119,6 +123,25 @@ test("packages/shared bot identity applies official preset skill defaults to unc
     }, presets).enabledSkills,
     []
   );
+  assert.deepEqual(
+    packageBotIdentity.botCapabilitiesWithPresetDefaults({
+      key: "spreadsheet-organizer",
+      name: "表格整理师",
+      capabilities: { inheritEngineDefaults: true, enabledSkills: ["mia-official:spreadsheet-organizer"], disabledSkills: [] }
+    }, presets).enabledSkills,
+    ["mia-official:spreadsheet-organizer", "mia-official:xlsx"]
+  );
+  const xlsxDisabled = packageBotIdentity.botCapabilitiesWithPresetDefaults({
+    key: "spreadsheet-organizer",
+    name: "表格整理师",
+    capabilities: {
+      inheritEngineDefaults: true,
+      enabledSkills: ["mia-official:spreadsheet-organizer"],
+      disabledSkills: ["mia-official:xlsx"]
+    }
+  }, presets);
+  assert.deepEqual(xlsxDisabled.enabledSkills, ["mia-official:spreadsheet-organizer"]);
+  assert.deepEqual(xlsxDisabled.disabledSkills, ["mia-official:xlsx"]);
 });
 
 test("packages/shared bot identity preserves retired official assistant defaults", () => {

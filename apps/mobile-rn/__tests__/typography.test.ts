@@ -1,4 +1,4 @@
-import { createTelegramTypography, normalizeTelegramFontSize } from "../src/theme";
+import { createTelegramTypography, localTypographyFontSizeFromStoredValue, normalizeTelegramFontSize } from "../src/theme";
 
 test("telegram typography defaults to regular 16px chat text", () => {
   const typography = createTelegramTypography();
@@ -30,4 +30,10 @@ test("telegram font size setting snaps to compact standard and large", () => {
   expect(normalizeTelegramFontSize(13)).toBe(14);
   expect(normalizeTelegramFontSize(17)).toBe(16);
   expect(normalizeTelegramFontSize(19)).toBe(18);
+});
+
+test("local typography preference reads only device-local stored values", () => {
+  expect(localTypographyFontSizeFromStoredValue("18")).toBe(18);
+  expect(localTypographyFontSizeFromStoredValue(JSON.stringify({ fontSize: 14 }))).toBe(14);
+  expect(localTypographyFontSizeFromStoredValue(JSON.stringify({ appearance: { mobileFontSize: 18 } }))).toBe(16);
 });

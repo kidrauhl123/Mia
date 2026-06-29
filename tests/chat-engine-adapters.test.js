@@ -174,6 +174,37 @@ test("hermes adapter restarts and retries once after local API disconnect", asyn
   ]);
 });
 
+test("hermes adapter restarts and retries once after managed model config failure", async () => {
+  const deps = createDeps();
+  const error = new Error("Mia Hermes 已启动，但 Mia 官方模型（Auto）暂时不能调用。");
+  error.code = "HERMES_MODEL_CONFIG_UNAVAILABLE";
+  error.stage = "run_events";
+  deps.sendHermesChat = async (context) => {
+    deps.calls.push(["send-hermes", context.sessionId]);
+    if (deps.calls.filter((call) => call[0] === "send-hermes").length === 1) throw error;
+    return { engine: "hermes", recovered: true };
+  };
+  deps.recoverHermesAfterFailure = async (failure) => {
+    deps.calls.push(["recover-hermes", failure.code, failure.stage]);
+  };
+  const adapters = createChatEngineAdapters(deps);
+
+  const response = await adapters.hermes.send({
+    bot,
+    sessionId: "s-managed-recover",
+    slashText: ""
+  });
+
+  assert.deepEqual(response, { engine: "hermes", recovered: true });
+  assert.deepEqual(deps.calls, [
+    ["ensure-hermes"],
+    ["send-hermes", "s-managed-recover"],
+    ["recover-hermes", "HERMES_MODEL_CONFIG_UNAVAILABLE", "run_events"],
+    ["ensure-hermes"],
+    ["send-hermes", "s-managed-recover"]
+  ]);
+});
+
 test("sendWithChatEngineAdapter falls back to hermes adapter", async () => {
   const deps = createDeps();
   const adapters = createChatEngineAdapters(deps);

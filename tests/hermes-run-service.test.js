@@ -195,7 +195,7 @@ test("readRunEventStream emits Hermes result_display file diffs as file_edit eve
   }]);
 });
 
-test("readRunEventStream normalizes run.failed provider configuration errors", async () => {
+test("readRunEventStream normalizes generic provider configuration errors without stale UI directions", async () => {
   const runs = service({
     fetchImpl: async () => streamResponse([
       "event: run.failed",
@@ -207,7 +207,42 @@ test("readRunEventStream normalizes run.failed provider configuration errors", a
 
   await assert.rejects(
     () => runs.readRunEventStream({ runId: "run_1", signal: null, emit: null }),
-    /请在右侧 Model 选择.*API key/
+    (error) => {
+      assert.match(error.message, /模型/);
+      assert.doesNotMatch(error.message, /右侧 Model/);
+      return true;
+    }
+  );
+});
+
+test("readRunEventStream treats bare missing-key errors as Mia Cloud failures when runtime is Mia managed", async () => {
+  const runs = service({
+    fetchImpl: async () => streamResponse([
+      "event: run.failed",
+      "data: {\"error\":\"no API key was found\"}",
+      "",
+      ""
+    ].join("\n"))
+  });
+
+  await assert.rejects(
+    () => runs.readRunEventStream({
+      runId: "run_1",
+      signal: null,
+      emit: null,
+      runtimeContext: {
+        providerConnectionId: "mia",
+        modelProfileId: "mia:mia-auto",
+        model: "mia-auto"
+      }
+    }),
+    (error) => {
+      assert.match(error.message, /Mia Cloud/);
+      assert.match(error.message, /Auto/);
+      assert.doesNotMatch(error.message, /填 API key/);
+      assert.doesNotMatch(error.message, /右侧 Model/);
+      return true;
+    }
   );
 });
 

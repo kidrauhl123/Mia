@@ -108,7 +108,7 @@ test("loadCodexModels reads the Codex cache, filters hidden rows, and sorts by p
   ]);
 });
 
-test("loadEngineCapabilities and loadHermesSlashCommands parse runtime output with fallbacks", async () => {
+test("loadEngineCapabilities and loadHermesSlashCommands parse runtime output", async () => {
   const { service } = createHarness({
     runPythonScript: async (args) => {
       const script = String(args[1] || "");
@@ -158,6 +158,26 @@ test("loadEngineCapabilities and loadHermesSlashCommands parse runtime output wi
     }
   });
   assert.deepEqual(await service.loadHermesSlashCommands(), [{ command: "/goal", description: "Set goal" }]);
+});
+
+test("loadHermesSlashCommands returns an empty catalog when runtime discovery is unavailable", async () => {
+  const { calls, service } = createHarness({
+    runPythonScript: async (args) => {
+      calls.python.push({ args });
+      return { status: 1, stdout: "", stderr: "missing hermes_cli" };
+    }
+  });
+
+  assert.deepEqual(await service.loadHermesSlashCommands(), []);
+  assert.match(calls.logs[0], /Slash command discovery unavailable/);
+});
+
+test("loadHermesSlashCommands returns an empty catalog when runtime reports no commands", async () => {
+  const { service } = createHarness({
+    runPythonScript: async () => ({ status: 0, stdout: "[]", stderr: "" })
+  });
+
+  assert.deepEqual(await service.loadHermesSlashCommands(), []);
 });
 
 test("choicesFromHelp parses Claude Code and OpenClaw CLI choice text", () => {

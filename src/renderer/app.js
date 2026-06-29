@@ -1,4 +1,3 @@
-const fallbackSlashCommands = window.miaAppState.fallbackSlashCommands;
 const SETUP_GUIDE_DISMISSED_KEY = window.miaAppState.SETUP_GUIDE_DISMISSED_KEY;
 const AGENT_SETUP_SKIPPED_KEY = window.miaAppState.AGENT_SETUP_SKIPPED_KEY;
 const { ConversationKind, MemberKind, SenderKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../shared/conversation-kinds");
@@ -20,6 +19,7 @@ const botRuntimeControlCache = new Map();
 const botRuntimeControlInFlight = new Set();
 const platformModelCatalog = { loaded: false, loading: false, entries: [] };
 let socialBootstrapInFlight = null;
+let starterEngineBotsInFlight = null;
 let personaSearchTimer = 0;
 let personaSearchSerial = 0;
 let shellLayoutTransitionTimer = 0;
@@ -28,6 +28,7 @@ let lastConversationFolderKey = null;
 let conversationFolderMotion = { key: "", direction: 1 };
 let personaFolderAnimationTimer = 0;
 let personaListRenderSignature = "";
+let chatConversationMenuRenderSignature = "";
 let conversationFolderDrag = null;
 let conversationFolderSuppressClick = false;
 const CONVERSATION_FOLDER_ORDER_KEY = "mia.conversationFolderOrder.v1";
@@ -2233,6 +2234,10 @@ function conversationCardSpecFromRow(row, personas) {
           toggleMuted: (next) => { social.setConversationMuted(conversation.id, next); render(); },
           editTags: () => social.editConversationTags?.(conversation.id, name, render, { anchor: { x, y } }),
           remove: async () => {
+            if (isBot) {
+              await deleteBot(sessionHistory.botId(conversation));
+              return;
+            }
             if (!confirm(`确定删除与「${name}」的对话？此操作不可撤销。`)) return;
             const res = await social.deleteCloudConversation(conversation.id);
             if (!res?.ok) alert(`删除失败：${res?.error || "未知错误"}`);
@@ -2409,16 +2414,17 @@ function renderChatConversationMenu(rows = [], personas = []) {
   syncTopbarClickCapture();
   if (!canOpen || !open) {
     if (els.chatConversationList) els.chatConversationList.innerHTML = "";
+    chatConversationMenuRenderSignature = "";
     return;
   }
 
-  els.chatConversationList.innerHTML = "";
   const compactRows = rows.slice(0, 18);
+  const compactSpecs = [];
   for (const row of compactRows) {
     const spec = conversationCardSpecFromRow(row, personas);
     if (!spec) continue;
     const onClick = spec.onClick;
-    const compactSpec = {
+    compactSpecs.push({
       ...spec,
       searchResult: false,
       tags: [],
@@ -2429,7 +2435,19 @@ function renderChatConversationMenu(rows = [], personas = []) {
         state.chatConversationMenuOpen = false;
         onClick?.();
       }
-    };
+    });
+  }
+
+  const signature = safeRenderSignature({
+    rows: compactSpecs.map(sidebarCardRenderSignature)
+  });
+  if (chatConversationMenuRenderSignature === signature) {
+    syncChatConversationMenuActiveState(compactSpecs);
+    return;
+  }
+  chatConversationMenuRenderSignature = signature;
+  els.chatConversationList.innerHTML = "";
+  for (const compactSpec of compactSpecs) {
     const card = createConversationCardFromSpec(compactSpec);
     card.classList.add("chat-conversation-menu-row");
     card.setAttribute("role", "option");
@@ -2448,6 +2466,14 @@ function renderChatConversationMenu(rows = [], personas = []) {
     empty.textContent = "暂无对话";
     els.chatConversationList.appendChild(empty);
   }
+}
+
+function syncChatConversationMenuActiveState(specs) {
+  const cards = Array.from(els.chatConversationList?.querySelectorAll?.(".chat-conversation-menu-row.persona") || []);
+  specs.forEach((spec, index) => {
+    cards[index]?.classList.toggle("active", Boolean(spec?.active));
+    cards[index]?.setAttribute("aria-selected", spec?.active ? "true" : "false");
+  });
 }
 
 // Paint #activeChatAvatar / #activeChatName / #activeChatMeta for the
@@ -2895,8 +2921,6 @@ function hydrateAttachmentPreview(attachment = {}) {
   const filePath = String(attachment.path || "").trim();
   const cloudUrl = String(attachment.url || "").trim();
   if ((!filePath && !cloudUrl) || attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return attachment;
-  const kind = String(attachment.kind || window.miaFormat.attachmentKind(attachment));
-  if (kind !== "image") return attachment;
   if (cloudUrl) {
     const entry = state.generatedFiles.get(cloudUrl);
     if (entry?.status === "ready" && entry.attachment) {
@@ -2918,7 +2942,7 @@ function attachmentPreviewPaths(messages = []) {
       const cloudUrl = String(attachment.url || "").trim();
       if (!filePath && !cloudUrl) return false;
       if (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return false;
-      return String(attachment.kind || window.miaFormat.attachmentKind(attachment)) === "image";
+      return true;
     })
     .map((attachment) => String(attachment.path || attachment.url).trim());
 }
@@ -3111,7 +3135,7 @@ function render() {
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
   const appearance = runtime.appearance || {
     theme: "light",
-    fontPreset: "serif",
+    fontPreset: "system",
     accentColor: DEFAULT_ACCENT_COLOR,
     userBubbleColor: DEFAULT_USER_BUBBLE_COLOR,
     glassOpacity: 82,
@@ -4987,15 +5011,48 @@ async function refreshRuntime() {
 function maybeBootstrapSocialAfterRuntime(runtime) {
   if (!runtime?.cloud?.enabled) return;
   if (!window.miaSocial || typeof window.miaSocial.bootstrapAfterLogin !== "function") return;
-  if (typeof window.miaSocial.isBootstrapped === "function" && window.miaSocial.isBootstrapped()) return;
+  if (typeof window.miaSocial.isBootstrapped === "function" && window.miaSocial.isBootstrapped()) {
+    maybeEnsureStarterEngineBots();
+    return;
+  }
   if (socialBootstrapInFlight) return;
   socialBootstrapInFlight = Promise.resolve(window.miaSocial.bootstrapAfterLogin())
+    .then(() => maybeEnsureStarterEngineBots())
     .catch((err) => {
       console.warn("[social] runtime bootstrap failed:", err);
     })
     .finally(() => {
       socialBootstrapInFlight = null;
     });
+}
+
+function maybeEnsureStarterEngineBots() {
+  if (!state.runtime?.cloud?.enabled) return Promise.resolve(null);
+  if (!window.miaSocial || typeof window.miaSocial.isBootstrapped !== "function" || !window.miaSocial.isBootstrapped()) {
+    return Promise.resolve(null);
+  }
+  if (!window.miaStarterEngineBots || typeof window.miaStarterEngineBots.ensureStarterEngineBots !== "function") {
+    return Promise.resolve(null);
+  }
+  if (starterEngineBotsInFlight) return starterEngineBotsInFlight;
+  starterEngineBotsInFlight = Promise.resolve(window.miaStarterEngineBots.ensureStarterEngineBots({
+    state,
+    api: window.mia,
+    social: window.miaSocial,
+    commands: window.miaBotCommands
+  }))
+    .then((result) => {
+      if (result?.created?.length) render();
+      return result;
+    })
+    .catch((err) => {
+      console.warn("[starter-engine-bots] seed failed:", err?.message || err);
+      return null;
+    })
+    .finally(() => {
+      starterEngineBotsInFlight = null;
+    });
+  return starterEngineBotsInFlight;
 }
 
 async function initializeRuntime(options = {}) {
@@ -5086,14 +5143,13 @@ async function initializeRuntime(options = {}) {
     });
   }
   if (window.miaLoaders && window.miaLoaders.initLoaders) {
-    window.miaLoaders.initLoaders({ state, render, fallbackSlashCommands });
+    window.miaLoaders.initLoaders({ state, render });
   }
   if (window.miaComposer && window.miaComposer.initComposer) {
     window.miaComposer.initComposer({
       state,
       els,
       mia: window.mia,
-      fallbackSlashCommands,
       loadSkills: () => window.miaLoaders.loadSkills(),
       renderAttachmentThumb,
       renderSendButton,
@@ -5213,28 +5269,17 @@ async function initializeRuntime(options = {}) {
       isWindowFocused: () => desktopWindowFocused,
       showDesktopMessageNotification: (payload) => window.mia.showDesktopNotification?.(payload),
       paintHeaderStatus,
-      applyCloudAppearance: (appearance) => {
-        if (!appearance || typeof appearance !== "object") return;
-        const nextAppearance = window.miaSettingsAppearance?.mergeCloudAppearance?.(state.runtime?.appearance, appearance) || {
-          ...(state.runtime?.appearance || {}),
-          ...appearance
-        };
-        state.runtime = {
-          ...(state.runtime || {}),
-          appearance: nextAppearance
-        };
-        window.miaSettingsAppearance?.applyAppearance?.(state.runtime.appearance);
-        window.miaSettingsAppearance?.syncAppearanceControls?.(state.runtime.appearance);
-      },
     });
     // Bootstrap social data if signed in to cloud (token present).
     // (cloud.enabled, not cloud.loggedIn — the latter never existed, so
     // this used to never run; bootstrap only fired later via the WS
     // events_ready event, which is part of why the list arrived late.)
     if (state.runtime && state.runtime.cloud && state.runtime.cloud.enabled) {
-      window.miaSocial.bootstrapAfterLogin().catch((err) => {
-        console.warn("[social] boot bootstrap failed:", err);
-      });
+      window.miaSocial.bootstrapAfterLogin()
+        .then(() => maybeEnsureStarterEngineBots())
+        .catch((err) => {
+          console.warn("[social] boot bootstrap failed:", err);
+        });
     }
   }
   render();
@@ -6889,7 +6934,8 @@ els.sendChat.addEventListener("click", async (event) => {
   event.stopPropagation();
   await window.mia.stopChat?.({
     conversationId: window.miaSocial?.getActiveConversationId?.() || "",
-    runId: activeRun?.runId || ""
+    runId: activeRun?.runId || "",
+    turnId: activeRun?.turnId || ""
   });
   renderSendButton();
 });

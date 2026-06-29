@@ -13,14 +13,26 @@
 (function () {
   "use strict";
 
+  const AGENT_SLASH_COMMAND_ENGINES = Object.freeze(["claude-code", "codex", "openclaw"]);
+
   let state;
   let render;
-  let fallbackSlashCommands = [];
+
+  function normalizeSlashCommandRows(rows = []) {
+    return (Array.isArray(rows) ? rows : [])
+      .filter((item) => item?.command || item?.name)
+      .map((item) => ({
+        ...item,
+        command: String(item.command || item.name || "").startsWith("/")
+          ? String(item.command || item.name || "")
+          : `/${item.command || item.name}`,
+        description: String(item.description || "")
+      }));
+  }
 
   function initLoaders(deps) {
     state = deps.state;
     render = deps.render;
-    fallbackSlashCommands = deps.fallbackSlashCommands || [];
   }
 
   function refreshOpenBotRuntimeSelector() {
@@ -87,24 +99,16 @@
     if (!state) return;
     try {
       const rows = await window.mia.loadSlashCommands();
-      state.slashCommands = Array.isArray(rows) && rows.length ? rows : fallbackSlashCommands;
+      state.slashCommands = normalizeSlashCommandRows(rows);
     } catch (error) {
       console.error("Failed to load Hermes slash commands", error);
-      state.slashCommands = fallbackSlashCommands;
+      state.slashCommands = [];
     }
-    await Promise.allSettled(["claude-code", "codex"].map(async (engine) => {
+    await Promise.allSettled(AGENT_SLASH_COMMAND_ENGINES.map(async (engine) => {
       try {
         const registry = await window.mia.loadAgentCommands?.({ engine });
         const rows = Array.isArray(registry?.rows) ? registry.rows : (Array.isArray(registry) ? registry : []);
-        state.agentSlashCommands[engine] = rows
-          .filter((item) => item?.command || item?.name)
-          .map((item) => ({
-            ...item,
-            command: String(item.command || item.name || "").startsWith("/")
-              ? String(item.command || item.name || "")
-              : `/${item.command || item.name}`,
-            description: String(item.description || "")
-          }));
+        state.agentSlashCommands[engine] = normalizeSlashCommandRows(rows);
       } catch (error) {
         console.error(`Failed to load ${engine} slash commands`, error);
         state.agentSlashCommands[engine] = [];

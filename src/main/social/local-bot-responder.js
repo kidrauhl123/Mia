@@ -1,5 +1,9 @@
 "use strict";
 
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+const { fileURLToPath } = require("node:url");
 const { CloudEvent } = require("../../shared/cloud-events.js");
 const { createAssistantContentBlockCollector } = require("../../shared/assistant-content-blocks.js");
 
@@ -8,6 +12,26 @@ const CANCEL_DRAIN_TIMEOUT_MS = 15000;
 const HISTORY_MESSAGE_LIMIT = 80;
 const HISTORY_MESSAGE_CHAR_LIMIT = 4000;
 const HISTORY_TOTAL_CHAR_LIMIT = 24000;
+const MAX_GENERATED_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+const ARTIFACT_SCAN_MAX_DEPTH = 6;
+const ARTIFACT_SCAN_MAX_FILES = 5000;
+const GENERATED_ARTIFACT_EXTENSIONS = new Set([
+  ".csv",
+  ".doc",
+  ".docx",
+  ".json",
+  ".md",
+  ".pdf",
+  ".ppt",
+  ".pptx",
+  ".tsv",
+  ".txt",
+  ".xls",
+  ".xlsm",
+  ".xlsx",
+  ".zip"
+]);
+const ARTIFACT_SKIP_DIRS = new Set([".git", "node_modules", "__pycache__"]);
 
 function shouldHandleLocalCloudConversationAi({ isDaemon, daemonEnabled }) {
   // Single owner (ADR 2026-06-12 desktop-single-owner-daemon): only the daemon
@@ -221,6 +245,246 @@ function normalizeResponderAttachments(attachments = []) {
     .slice(0, 20);
 }
 
+function artifactMimeForPath(filePath = "", explicit = "") {
+  const value = String(explicit || "").trim();
+  if (value) return value;
+  const ext = path.extname(String(filePath || "")).toLowerCase();
+  const map = {
+    ".csv": "text/csv",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".json": "application/json",
+    ".md": "text/markdown",
+    ".pdf": "application/pdf",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".tsv": "text/tab-separated-values",
+    ".txt": "text/plain",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsm": "application/vnd.ms-excel.sheet.macroenabled.12",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".zip": "application/zip"
+  };
+  return map[ext] || "application/octet-stream";
+}
+
+function artifactKind({ mimeType = "", name = "" } = {}) {
+  const mime = String(mimeType || "").toLowerCase();
+  const fileName = String(name || "").toLowerCase();
+  if (mime.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/.test(fileName)) return "image";
+  if (mime === "application/pdf" || /\.pdf$/.test(fileName)) return "pdf";
+  if (mime.startsWith("text/") || /\.(txt|md|markdown|json|csv|tsv|log)$/.test(fileName)) return "text";
+  return "file";
+}
+
+function sanitizeArtifactName(value, fallback = "artifact") {
+  const base = path.basename(String(value || fallback)).replace(/[\x00-\x1f\x7f]/g, "").trim();
+  const cleaned = base.replace(/[^\w.\- ()\[\]\u4e00-\u9fff]/g, "_").slice(0, 160);
+  return cleaned || fallback;
+}
+
+function artifactIdFor(key) {
+  return `generated:${crypto.createHash("sha1").update(String(key || "")).digest("hex").slice(0, 16)}`;
+}
+
+function parseDataUrlAttachment(input = {}) {
+  const dataUrl = String(input.dataUrl || input.thumbnailDataUrl || "").trim();
+  const match = dataUrl.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) return null;
+  const buffer = Buffer.from(match[2].replace(/\s+/g, ""), "base64");
+  if (!buffer.length || buffer.length > MAX_GENERATED_ATTACHMENT_BYTES) return null;
+  const mimeType = String(input.mimeType || input.mime || match[1] || "application/octet-stream").trim();
+  const name = sanitizeArtifactName(input.name || input.filename || "artifact");
+  const kind = String(input.kind || input.type || "").trim() || artifactKind({ mimeType, name });
+  return {
+    id: String(input.id || artifactIdFor(`${name}:${buffer.length}:${match[2].slice(0, 64)}`)),
+    type: kind,
+    name,
+    mimeType,
+    mime: mimeType,
+    size: buffer.length,
+    kind,
+    ...(kind === "image" ? { thumbnailDataUrl: dataUrl } : {}),
+    dataUrl
+  };
+}
+
+function localPathFromArtifact(input = {}) {
+  const raw = String(input.path || input.filePath || input.file_path || input.hostPath || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return "";
+  if (/^file:/i.test(raw)) {
+    try {
+      return fileURLToPath(raw);
+    } catch {
+      return "";
+    }
+  }
+  return raw;
+}
+
+function normalizeGeneratedAttachment(input = {}, fsImpl = fs) {
+  if (!input || typeof input !== "object") return null;
+  const dataUrlOnly = parseDataUrlAttachment(input);
+  const rawPath = localPathFromArtifact(input);
+  if (!rawPath) return dataUrlOnly;
+  const filePath = path.resolve(rawPath);
+  let stat = null;
+  try {
+    stat = fsImpl.statSync(filePath);
+  } catch {
+    return dataUrlOnly;
+  }
+  if (!stat.isFile() || !stat.size || stat.size > MAX_GENERATED_ATTACHMENT_BYTES) return dataUrlOnly;
+  const name = sanitizeArtifactName(input.name || input.filename || input.file_name || path.basename(filePath));
+  const mimeType = artifactMimeForPath(name || filePath, input.mimeType || input.mime || input.content_type);
+  const kind = String(input.kind || input.type || "").trim() || artifactKind({ mimeType, name });
+  let dataUrl = String(input.dataUrl || "").trim();
+  if (!dataUrl) {
+    try {
+      dataUrl = `data:${mimeType};base64,${fsImpl.readFileSync(filePath).toString("base64")}`;
+    } catch {
+      dataUrl = "";
+    }
+  }
+  return {
+    id: String(input.id || artifactIdFor(filePath)),
+    type: kind,
+    name,
+    path: filePath,
+    mimeType,
+    mime: mimeType,
+    size: stat.size,
+    kind,
+    ...(kind === "image" && dataUrl ? { thumbnailDataUrl: dataUrl } : {}),
+    ...(dataUrl ? { dataUrl } : {})
+  };
+}
+
+function walkArtifactObjects(value, out = []) {
+  if (!value || out.length >= 40) return out;
+  if (Array.isArray(value)) {
+    for (const item of value) walkArtifactObjects(item, out);
+    return out;
+  }
+  if (typeof value !== "object") return out;
+  if (
+    typeof (value.path || value.filePath || value.file_path || value.hostPath || value.dataUrl || value.thumbnailDataUrl) === "string"
+  ) {
+    out.push(value);
+  }
+  for (const key of ["attachments", "artifacts", "files", "generated_files", "generatedFiles", "outputs"]) {
+    if (value[key]) walkArtifactObjects(value[key], out);
+  }
+  return out;
+}
+
+function resultArtifactInputs(result = {}) {
+  const inputs = [];
+  const message = result?.choices?.[0]?.message || result?.message || {};
+  walkArtifactObjects(message.attachments, inputs);
+  walkArtifactObjects(result.attachments, inputs);
+  walkArtifactObjects(result.artifacts, inputs);
+  walkArtifactObjects(result.files, inputs);
+  walkArtifactObjects(result.generated_files, inputs);
+  walkArtifactObjects(result.generatedFiles, inputs);
+  for (const event of Array.isArray(result.events) ? result.events : []) walkArtifactObjects(event, inputs);
+  return inputs;
+}
+
+function resolveArtifactWorkspaceDir(provider) {
+  try {
+    const value = typeof provider === "function" ? provider() : provider;
+    const dir = String(value || "").trim();
+    return dir ? path.resolve(dir) : "";
+  } catch {
+    return "";
+  }
+}
+
+function isArtifactCandidate(filePath) {
+  return GENERATED_ARTIFACT_EXTENSIONS.has(path.extname(String(filePath || "")).toLowerCase());
+}
+
+function scanArtifactWorkspace(workspaceDir, fsImpl = fs) {
+  const root = resolveArtifactWorkspaceDir(workspaceDir);
+  if (!root) return [];
+  let rootStat = null;
+  try {
+    rootStat = fsImpl.statSync(root);
+  } catch {
+    return [];
+  }
+  if (!rootStat.isDirectory()) return [];
+  const files = [];
+  function walk(dir, depth) {
+    if (depth > ARTIFACT_SCAN_MAX_DEPTH || files.length >= ARTIFACT_SCAN_MAX_FILES) return;
+    let entries = [];
+    try {
+      entries = fsImpl.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (files.length >= ARTIFACT_SCAN_MAX_FILES) return;
+      if (!entry || entry.isSymbolicLink?.()) continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!ARTIFACT_SKIP_DIRS.has(entry.name)) walk(fullPath, depth + 1);
+        continue;
+      }
+      if (!entry.isFile() || !isArtifactCandidate(fullPath)) continue;
+      try {
+        const stat = fsImpl.statSync(fullPath);
+        if (stat.isFile() && stat.size > 0 && stat.size <= MAX_GENERATED_ATTACHMENT_BYTES) {
+          files.push({ path: path.resolve(fullPath), mtimeMs: stat.mtimeMs, size: stat.size });
+        }
+      } catch {
+        // Ignore files that disappear while the agent is still writing.
+      }
+    }
+  }
+  walk(root, 0);
+  return files;
+}
+
+function snapshotArtifactWorkspace(workspaceDir, fsImpl = fs) {
+  const snapshot = new Map();
+  for (const file of scanArtifactWorkspace(workspaceDir, fsImpl)) {
+    snapshot.set(file.path, { mtimeMs: file.mtimeMs, size: file.size });
+  }
+  return snapshot;
+}
+
+function workspaceArtifactInputs({ workspaceDir, beforeSnapshot, startedAtMs, fsImpl = fs } = {}) {
+  const before = beforeSnapshot instanceof Map ? beforeSnapshot : new Map();
+  const threshold = Number(startedAtMs || 0) - 5000;
+  return scanArtifactWorkspace(workspaceDir, fsImpl).filter((file) => {
+    const previous = before.get(file.path);
+    if (previous && previous.mtimeMs === file.mtimeMs && previous.size === file.size) return false;
+    return file.mtimeMs >= threshold;
+  }).map((file) => ({ path: file.path }));
+}
+
+function collectGeneratedAttachments({ result, workspaceDir, beforeSnapshot, startedAtMs, fsImpl = fs } = {}) {
+  const inputs = [
+    ...resultArtifactInputs(result || {}),
+    ...workspaceArtifactInputs({ workspaceDir, beforeSnapshot, startedAtMs, fsImpl })
+  ];
+  const attachments = [];
+  const seen = new Set();
+  for (const input of inputs) {
+    if (attachments.length >= 20) break;
+    const attachment = normalizeGeneratedAttachment(input, fsImpl);
+    if (!attachment) continue;
+    const key = attachment.path || attachment.dataUrl || attachment.id || attachment.name;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    attachments.push(attachment);
+  }
+  return attachments;
+}
+
 // Composer "使用" chips travel with the user's cloud message (skills_json). Pull
 // the selected skill ids off the triggering message so the responder can drive
 // the agent with them — one source of truth, works across devices.
@@ -277,7 +541,7 @@ function hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId
   return false;
 }
 
-function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {} }) {
+function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {}, artifactWorkspaceDir = null }) {
   const processed = new Set();
   const inFlight = new Set();
   const activeRunsByConversation = new Map();
@@ -364,6 +628,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       stopped: true,
       conversationId: entry.conversationId,
       runId: entry.runId,
+      ...(entry.turnId ? { turnId: entry.turnId } : {}),
       status: "cancelling"
     };
   }
@@ -371,10 +636,15 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
   function stopActiveConversationRun(payload = {}) {
     const conversationId = String(payload?.conversationId || "").trim();
     const runId = String(payload?.runId || "").trim();
+    const turnId = String(payload?.turnId || payload?.turn_id || "").trim();
     const candidates = conversationId
       ? [activeRunsByConversation.get(conversationId)].filter(Boolean)
       : [...activeRunsByConversation.values()];
-    const entry = candidates.find((item) => item && (!runId || item.runId === runId) && !item.finalized);
+    const entry = candidates.find((item) => {
+      if (!item || item.finalized) return false;
+      if (turnId) return item.turnId === turnId;
+      return !runId || item.runId === runId;
+    });
     if (!entry) return { stopped: false };
     if (entry.status === "cancelling" || entry.abortController.signal.aborted) {
       return stoppedRunResult(entry);
@@ -456,12 +726,14 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     }
 
     let text = "";
+    let generatedAttachments = [];
     const runId = runIdForDedupKey(dedupKey);
     const abortController = new AbortController();
     const { signal } = abortController;
     const runEntry = {
       conversationId,
       runId,
+      turnId: String(turnId || ""),
       botId,
       dedupKey,
       abortController,
@@ -478,11 +750,17 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     emitCloudEvent({
       type: "cloud_agent_run_started",
       runId,
+      turnId,
       conversationId,
       botId,
       triggerMessageId: resolvedTriggerMessageId
     });
     try {
+      const artifactWorkspace = resolveArtifactWorkspaceDir(artifactWorkspaceDir);
+      const artifactStartedAt = Date.now();
+      const artifactSnapshot = artifactWorkspace
+        ? snapshotArtifactWorkspace(artifactWorkspace)
+        : new Map();
       const currentUserMessage = { role: "user", content: userPrompt || "" };
       const currentUserAttachments = normalizeResponderAttachments(userAttachments);
       if (currentUserAttachments.length) currentUserMessage.attachments = currentUserAttachments;
@@ -536,6 +814,12 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         finishCancelledRun(runEntry);
         return true;
       }
+      generatedAttachments = collectGeneratedAttachments({
+        result,
+        workspaceDir: artifactWorkspace,
+        beforeSnapshot: artifactSnapshot,
+        startedAtMs: artifactStartedAt
+      });
       text = responseText(result);
     } catch (error) {
       if (runEntry.finalized) return true;
@@ -559,6 +843,10 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       return didPostFailure;
     }
     if (runEntry.finalized) return true;
+    if (!text && generatedAttachments.length) {
+      text = "已生成文件。";
+    }
+
     if (!text) {
       emitRunEvent(runEntry, { type: "run.failed", error: "empty response" });
       // The engine ran but produced no text (e.g. a tool permission was denied
@@ -585,6 +873,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         bodyMd: text,
         turnId,
         clientOpId: clientOpIdForDedupKey(dedupKey),
+        ...(generatedAttachments.length ? { attachments: generatedAttachments } : {}),
         ...(tracePayload ? { trace: tracePayload } : {}),
         ...(contentBlocksPayload.length ? { contentBlocks: contentBlocksPayload } : {})
       });

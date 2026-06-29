@@ -1158,6 +1158,12 @@ test("src/web/app.js animates only newly appended tail messages near the bottom"
   assert.match(helper[0], /data-message-id="\$\{escapeHtml\(messageStableId\(msg\)\)\}"/);
   assert.match(source, /function animateMessageTailEnter\(/, "web must define the tail message reveal helper");
   assert.match(source, /function animateChatTailToBottom\(/, "web must define the smooth bottom-follow helper");
+  assert.match(source, /function isChatPinnedToBottom\(/, "web must track whether the user is still pinned to the bottom");
+  assert.match(
+    source,
+    /const nearBottom = isChatPinnedToBottom\(els\.chat\);/,
+    "renderActiveChat must not treat a small upward user scroll as bottom-pinned"
+  );
   assert.match(
     source,
     /const tailMessageIds = shouldAnimateTail[\s\S]*?tailMessageIdsAddedToEnd/,

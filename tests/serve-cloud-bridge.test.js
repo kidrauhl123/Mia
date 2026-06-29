@@ -524,6 +524,38 @@ test("cloud accepts image uploads at the documented eighteen megabyte limit", as
   }
 });
 
+test("cloud accepts spreadsheet file uploads as authenticated files", async () => {
+  const dataDir = tempDataDir();
+  const server = createMiaCloudServer({ dataDir });
+  const baseUrl = await listen(server);
+  try {
+    const account = createAccount(server, "xlsx-upload");
+    const workbook = Buffer.from("workbook bytes");
+    const upload = await jsonFetch(baseUrl, "/api/files", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${account.token}` },
+      body: {
+        name: "../world-cup.xlsx",
+        dataUrl: `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${workbook.toString("base64")}`
+      }
+    });
+    assert.equal(upload.file.type, "file");
+    assert.equal(upload.file.name, "world-cup.xlsx");
+    assert.equal(upload.file.mimeType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    assert.match(upload.file.url, /^\/api\/files\/file_/);
+
+    const downloaded = await rawFetch(baseUrl, upload.file.url, {
+      headers: { Authorization: `Bearer ${account.token}` }
+    });
+    assert.equal(downloaded.status, 200);
+    assert.equal(downloaded.headers.get("content-type"), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    assert.equal(await downloaded.text(), "workbook bytes");
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("cloud rejects active-content image uploads", async () => {
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({ dataDir });

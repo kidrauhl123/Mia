@@ -7,6 +7,10 @@ const vm = require("node:vm");
 const root = path.join(__dirname, "..");
 const rawReadFileSync = fs.readFileSync.bind(fs);
 
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 fs.readFileSync = function readFileSyncWithNormalizedText(file, options, ...args) {
   const value = rawReadFileSync(file, options, ...args);
   const encoding = typeof options === "string" ? options : options?.encoding;
@@ -93,6 +97,7 @@ test("active conversation stop passes the conversation id through preload to mai
   assert.match(clickBody, /const activeRun = window\.miaSocial\?\.activeConversationRun\?\.\(\);/);
   assert.match(clickBody, /window\.mia\.stopChat\?\.\(\{\s*conversationId:\s*window\.miaSocial\?\.getActiveConversationId\?\.\(\)/);
   assert.match(clickBody, /runId:\s*activeRun\?\.runId \|\| ""/);
+  assert.match(clickBody, /turnId:\s*activeRun\?\.turnId \|\| ""/);
   assert.match(preloadSource, /stopChat:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.ChatStop,\s*payload\)/);
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.ChatStop,\s*\(_event,\s*payload\)\s*=>\s*stopChat\(payload\s*\|\|\s*\{\}\)\)/);
   // stopChat's implementation now lives in the shared bot-execution-core Module
@@ -561,7 +566,11 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   assert.match(html, /<div id="chatConversationMenu" class="chat-conversation-menu hidden" role="listbox" aria-label="切换对话">[\s\S]*?<div id="chatConversationList" class="chat-conversation-list"><\/div>/);
   assert.match(appStateSource, /chatConversationMenuOpen:\s*false/);
   assert.match(appSource, /function renderChatConversationMenu\(rows = \[\], personas = \[\]\)/);
+  assert.match(appSource, /let chatConversationMenuRenderSignature = "";/);
+  assert.match(appSource, /function syncChatConversationMenuActiveState\(specs\)/);
   assert.match(appSource, /const compactConversationRows = cloudReady \? window\.miaBotManager\.sortMessageCardsForSidebar\(socialRows\) : \[\];[\s\S]*?renderChatConversationMenu\(compactConversationRows, personas\);/);
+  assert.match(appSource, /const signature = safeRenderSignature\(\{\s*rows: compactSpecs\.map\(sidebarCardRenderSignature\)\s*\}\);/);
+  assert.match(appSource, /if \(chatConversationMenuRenderSignature === signature\) \{[\s\S]*?syncChatConversationMenuActiveState\(compactSpecs\);[\s\S]*?return;/);
   assert.match(appSource, /state\.chatConversationMenuOpen = false;[\s\S]*?onClick\?\.\(\);/);
   assert.match(appSource, /els\.activeConversationMenuButton\?\.addEventListener\("click",[\s\S]*?state\.chatConversationMenuOpen = !state\.chatConversationMenuOpen;/);
   assert.match(styleSource, /#chatView\s*\{[\s\S]*?position:\s*relative;[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);/);
@@ -1660,6 +1669,92 @@ test("sidebar card specs carry identity status badges when available", () => {
   assert.equal(groupSpec.typingLabel, "Mia");
 });
 
+test("bot private conversation delete uses the bot delete path", async () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const harness = eval(`(
+    function () {
+      const state = {};
+      const calls = [];
+      let privateActions = null;
+      const window = {
+        miaSocial: {
+          getActiveConversationId: () => "",
+          isConversationPinned: () => false,
+          isConversationMuted: () => false,
+          getUnreadForConversation: () => 0,
+          conversationRun: () => null,
+          getConversationMembers: () => [{ member_kind: "bot", member_ref: "mia", bot_name: "Mia" }],
+          setActiveConversationId() {},
+          setConversationPinned() {},
+          setConversationManuallyUnread() {},
+          markConversationRead() {},
+          setConversationMuted() {},
+          deleteCloudConversation: async (conversationId) => {
+            calls.push(["deleteConversation", conversationId]);
+            return { ok: true };
+          }
+        },
+        miaContact: {
+          IdentityKind: { Bot: "bot" },
+          resolveContact: () => ({ avatar: {} })
+        },
+        miaAvatarResolve: { resolveAvatarForContact: () => ({}) },
+        miaConversationContextMenu: {
+          openPrivateConversationMenu(meta, actions) {
+            calls.push(["menu", meta.id]);
+            privateActions = actions;
+          },
+          openGroupConversationMenu() {}
+        },
+        miaGroupTiles: { resolveGroupMemberTiles: () => [] }
+      };
+      const sessionHistory = {
+        botId: (conversation) => conversation.decorations?.botId || "mia",
+        botDisplayTitle: () => "Mia"
+      };
+      const ownedBots = [{ kind: "bot", key: "mia", id: "mia", name: "Mia", displayName: "Mia" }];
+      function allOwnedBotsForIdentity() { return ownedBots; }
+      function botAvatarIdentityId() { return "bot_global"; }
+      function botMemberForConversation() { return null; }
+      function botAvatarForConversation() { return {}; }
+      function formatConversationTime() { return ""; }
+      function groupTilesCtx() { return {}; }
+      function showNarrowContent() {}
+      function render() {}
+      function openEditBotDialog() {}
+      function openConversationSearchResult() { return false; }
+      function confirm() { calls.push(["confirm"]); return true; }
+      function alert(message) { calls.push(["alert", message]); }
+      async function deleteBot(botKey) {
+        calls.push(["deleteBot", botKey]);
+        return { ok: true };
+      }
+      function conversationRunForSidebarPreview(social, conversation) {
+        const run = social?.conversationRun?.(conversation?.id);
+        return run?.status === "running" ? run : null;
+      }
+      function typingLabelForConversationRun() { return ""; }
+      ${extractFunctionSource(appSource, "firstNonEmpty")}
+      ${extractFunctionSource(appSource, "hasOwn")}
+      ${extractFunctionSource(appSource, "statusBadgeFrom")}
+      ${extractFunctionSource(appSource, "nameBadgeIdentity")}
+      ${extractFunctionSource(appSource, "conversationCardSpecFromRow")}
+      return { conversationCardSpecFromRow, calls, getPrivateActions: () => privateActions };
+    }
+  )()`);
+
+  const spec = harness.conversationCardSpecFromRow({
+    type: "private-conversation",
+    updatedAt: "",
+    conversation: { id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }
+  }, []);
+  spec.onContextMenu(12, 34);
+  await harness.getPrivateActions().remove();
+
+  assert.deepEqual(harness.calls.filter(([kind]) => kind === "deleteBot"), [["deleteBot", "mia"]]);
+  assert.equal(harness.calls.some(([kind]) => kind === "deleteConversation"), false);
+});
+
 test("desktop cloud human and group conversations hide the chat history session selector", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
@@ -2479,6 +2574,7 @@ test("bot creation dialog combines runtime location and agent engine into one gr
   const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
 
   assert.match(html, /id="botRuntimeTarget"/);
+  assert.doesNotMatch(html, /当前设备 · Hermes/);
   assert.match(html, /helpers\/accordion\.js/);
   assert.match(html, /class="persona-details accordion-details"/);
   assert.match(html, /class="accordion-body"/);
@@ -2629,6 +2725,6 @@ test("renderer app state factory owns default mutable state", () => {
   assert.equal(state.onboardingStep, "model");
   assert.equal(state.isNarrowWindow, true);
   assert.equal(state.sidebarWidth, 300);
-  assert.equal(state.slashCommands[0].command, "/new");
-  assert.notEqual(state.slashCommands, sandbox.window.miaAppState.fallbackSlashCommands);
+  assert.deepEqual(plain(state.slashCommands), []);
+  assert.deepEqual(plain(state.agentSlashCommands), { "claude-code": [], codex: [], openclaw: [] });
 });

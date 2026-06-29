@@ -177,7 +177,7 @@
     return null;
   }
 
-  function messageLinkHtml(link) {
+  function messageLinkAnchorHtml(link, options = {}) {
     const title = link.kind === "local-file" && link.line
       ? `${link.target}:${link.line}${link.column ? `:${link.column}` : ""}`
       : link.target;
@@ -187,7 +187,11 @@
     const attr = link.kind === "local-file"
       ? `data-local-file-path="${escapeHtml(link.target)}"${lineAttr}`
       : `data-external-link="${escapeHtml(link.target)}"`;
-    return `<a class="message-link" ${attr} role="link" tabindex="0" title="${escapeHtml(title)}">${escapeHtml(link.text)}</a>`;
+    return `<a class="${escapeHtml(options.className || "message-link")}" ${attr} role="link" tabindex="0" title="${escapeHtml(title)}">${options.innerHtml || escapeHtml(link.text)}</a>`;
+  }
+
+  function messageLinkHtml(link) {
+    return messageLinkAnchorHtml(link);
   }
 
   function splitBareExternalUrl(value) {
@@ -209,6 +213,12 @@
       return closeCount > openCount;
     };
     while (target) {
+      const boldMarker = target.indexOf("**");
+      if (boldMarker > 0) {
+        suffix = target.slice(boldMarker) + suffix;
+        target = target.slice(0, boldMarker);
+        continue;
+      }
       const last = target[target.length - 1];
       if (/[.,;:!?，。！？、]/.test(last) || hasUnmatchedCloser(target, last)) {
         suffix = last + suffix;
@@ -222,6 +232,37 @@
 
   function previewLinkHtml(link) {
     return `<span class="sidebar-preview-link" title="${escapeHtml(link.target)}">${escapeHtml(link.text)}</span>`;
+  }
+
+  function inlineCodeHtml(code) {
+    const raw = String(code || "");
+    let suffix = "";
+    let link = null;
+    if (raw && raw === raw.trim()) {
+      const bare = splitBareExternalUrl(raw);
+      if (/^https?:\/\/[^\s]+$/i.test(bare.target)) {
+        link = { kind: "external", text: bare.target, target: bare.target };
+        suffix = bare.suffix || "";
+      } else {
+        const localFile = localFileSpecFromLinkTarget(raw);
+        if (localFile?.path) {
+          link = {
+            kind: "local-file",
+            text: raw,
+            target: localFile.path,
+            line: localFile.line || "",
+            column: localFile.column || ""
+          };
+        }
+      }
+    }
+    if (link) {
+      return messageLinkAnchorHtml(link, {
+        className: "message-link inline-code-link",
+        innerHtml: `<code class="inline-code">${escapeHtml(link.text)}</code>`
+      }) + escapeHtml(suffix);
+    }
+    return `<code class="inline-code" tabindex="0" title="点击复制">${escapeHtml(raw)}</code>`;
   }
 
   function renderInlineMarkdown(value, options = {}) {
@@ -254,12 +295,12 @@
       });
     }
     let html = escapeHtml(protectedText);
-    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    html = html.replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
     html = html.replace(/\n/g, "<br>");
     for (let index = 0; index < codes.length; index++) {
       html = html.replace(
         `@@MIA_INLINE_CODE_${index}@@`,
-        `<code class="inline-code" tabindex="0" title="点击复制">${escapeHtml(codes[index])}</code>`
+        inlineCodeHtml(codes[index])
       );
     }
     for (let index = 0; index < links.length; index++) {
@@ -563,6 +604,21 @@
         flushTextBlocks();
         const level = heading[1].length;
         html.push(`<h${level}>${renderInlineMarkdown(heading[2], { pathRefs })}</h${level}>`);
+        continue;
+      }
+      const quote = line.match(/^\s{0,3}>\s?(.*)$/);
+      if (quote) {
+        flushTextBlocks();
+        const quoteLines = [quote[1]];
+        let j = i + 1;
+        while (j < lines.length) {
+          const nextQuote = lines[j].match(/^\s{0,3}>\s?(.*)$/);
+          if (!nextQuote) break;
+          quoteLines.push(nextQuote[1]);
+          j++;
+        }
+        html.push(`<blockquote>${renderInlineMarkdown(quoteLines.join("\n"), { pathRefs })}</blockquote>`);
+        i = j - 1;
         continue;
       }
       const unordered = line.match(/^\s*[-*]\s+(.+)$/);

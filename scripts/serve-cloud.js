@@ -2515,6 +2515,92 @@ function userIsMemberOfConversation(socialStore, conversationId, userId) {
   );
 }
 
+function botConversationMatchesOwner(socialStore, conversation, userId, botId) {
+  if (!conversation || conversation.type !== "bot") return false;
+  const decorations = conversation.decorations && typeof conversation.decorations === "object"
+    ? conversation.decorations
+    : {};
+  if (String(decorations.botId || "") === botId) return true;
+  const members = socialStore.listConversationMembers(conversation.id);
+  return members.some((m) => (
+    m.member_kind === "bot"
+      && String(m.member_ref || "") === botId
+      && (!m.owner_id || String(m.owner_id) === userId)
+  ));
+}
+
+function botIdForOwnedPrivateConversation(socialStore, conversation, userId) {
+  if (!conversation || conversation.type !== "bot") return "";
+  const members = socialStore.listConversationMembers(conversation.id);
+  const member = members.find((m) => (
+    m.member_kind === "bot"
+      && (!m.owner_id || String(m.owner_id) === userId)
+      && m.member_ref
+  ));
+  if (member) return String(member.member_ref);
+  const decorations = conversation.decorations && typeof conversation.decorations === "object"
+    ? conversation.decorations
+    : {};
+  return String(decorations.botId || "");
+}
+
+function ownedBotConversationIds(context, userId, botId) {
+  const normalizedBotId = String(botId || "");
+  if (!normalizedBotId) return [];
+  const ids = new Set();
+  for (const conversation of context.socialStore.listConversationsForUser(userId)) {
+    if (botConversationMatchesOwner(context.socialStore, conversation, userId, normalizedBotId)) {
+      ids.add(conversation.id);
+    }
+  }
+  return [...ids];
+}
+
+function deleteOwnedBotAndPrivateConversations(context, userId, botId) {
+  const deletedConversationIds = [];
+  for (const conversationId of ownedBotConversationIds(context, userId, botId)) {
+    const members = context.socialStore.listConversationMembers(conversationId);
+    context.socialStore.deleteConversation(conversationId);
+    deletedConversationIds.push(conversationId);
+    for (const m of members) {
+      if (m.member_kind === "user") {
+        broadcastPersistedEvent(context, m.member_ref, { type: "conversation.deleted", conversationId });
+      }
+    }
+  }
+  context.botsStore.deleteBot(userId, botId);
+  broadcastPersistedEvent(context, userId, { type: "bot.deleted", botId });
+  return { deletedConversationIds };
+}
+
+function removeOrphanedPrivateBotConversations(context, userId, conversations = []) {
+  const visible = [];
+  for (const conversation of Array.isArray(conversations) ? conversations : []) {
+    if (!conversation || conversation.type !== "bot") {
+      visible.push(conversation);
+      continue;
+    }
+    const botId = botIdForOwnedPrivateConversation(context.socialStore, conversation, userId);
+    if (!botId) {
+      visible.push(conversation);
+      continue;
+    }
+    const bot = context.botsStore.getBot(botId);
+    if (bot && bot.ownerUserId === userId) {
+      visible.push(conversation);
+      continue;
+    }
+    const members = context.socialStore.listConversationMembers(conversation.id);
+    context.socialStore.deleteConversation(conversation.id);
+    for (const m of members) {
+      if (m.member_kind === "user") {
+        broadcastPersistedEvent(context, m.member_ref, { type: "conversation.deleted", conversationId: conversation.id });
+      }
+    }
+  }
+  return visible;
+}
+
 function messageSearchSnippet(text, query, radius = 36) {
   const body = String(text || "").replace(/\s+/g, " ").trim();
   const needle = String(query || "").trim().toLowerCase();
@@ -2667,7 +2753,7 @@ function sanitizeMessageSkills(raw) {
 
 function persistCloudAttachments(cloudStore, userId, attachments = []) {
   return attachments.map((attachment) => {
-    if (attachment?.dataUrl) return clientFile(cloudStore.saveImageDataUrl(userId, attachment));
+    if (attachment?.dataUrl) return clientFile(cloudStore.saveFileDataUrl(userId, attachment));
     const url = safeAttachmentUrl(attachment?.url);
     const cloudFileId = url.match(/^\/api\/files\/([a-zA-Z0-9_-]+)$/)?.[1] || "";
     if (cloudFileId) {
@@ -3085,6 +3171,7 @@ async function handleRequest(req, res, context) {
       const includes = new Set(String(url.searchParams.get("include") || "").split(",").map((s) => s.trim()).filter(Boolean));
       const includeMembers = includes.has("members") || url.searchParams.get("includeMembers") === "1";
       let conversations = context.socialStore.listConversationsForUser(auth.user.id);
+      conversations = removeOrphanedPrivateBotConversations(context, auth.user.id, conversations);
       if (includeMembers) {
         conversations = conversations.map((conversation) => ({
           ...conversation,
@@ -3373,6 +3460,16 @@ async function handleRequest(req, res, context) {
       let body = {};
       try { body = await readJson(req); } catch { /* empty body is fine */ }
       if (replayIfCached(context, res, auth.user.id, body)) return;
+      if (existing.type === "bot") {
+        const botId = botIdForOwnedPrivateConversation(context.socialStore, existing, auth.user.id);
+        const bot = botId ? context.botsStore.getBot(botId) : null;
+        if (bot && bot.ownerUserId === auth.user.id) {
+          const { deletedConversationIds } = deleteOwnedBotAndPrivateConversations(context, auth.user.id, botId);
+          const payload = { ok: true, botDeleted: true, botId, deletedConversationIds };
+          rememberOp(context, auth.user.id, body, 200, payload);
+          return writeJson(res, 200, payload);
+        }
+      }
       const members = context.socialStore.listConversationMembers(conversationId);
       context.socialStore.deleteConversation(conversationId);
       // Broadcast conversation.deleted BEFORE removing connections — let clients
@@ -3733,6 +3830,7 @@ async function handleRequest(req, res, context) {
         unreadOverrides: body.unreadOverrides,
         appearance: body.appearance,
         tags: body.tags,
+        starterEngineBots: body.starterEngineBots,
         expectedVersion: body.expectedVersion
       });
       if (!out.ok) {
@@ -3756,9 +3854,8 @@ async function handleRequest(req, res, context) {
       const existing = context.botsStore.getBot(id);
       if (!existing) return writeError(res, 404, "bot not found");
       if (existing.ownerUserId !== auth.user.id) return writeError(res, 403, "you can only delete your own bots");
-      context.botsStore.deleteBot(auth.user.id, id);
-      broadcastPersistedEvent(context, auth.user.id, { type: "bot.deleted", botId: id });
-      const payload = { ok: true };
+      const { deletedConversationIds } = deleteOwnedBotAndPrivateConversations(context, auth.user.id, id);
+      const payload = { ok: true, deletedConversationIds };
       rememberOp(context, auth.user.id, body, 200, payload);
       return writeJson(res, 200, payload);
     }
@@ -3892,7 +3989,7 @@ async function handleRequest(req, res, context) {
 
     if (req.method === "POST" && url.pathname === "/api/files") {
       const body = await readJson(req);
-      const file = cloudStore.saveImageDataUrl(auth.user.id, { name: body.name, dataUrl: body.dataUrl });
+      const file = cloudStore.saveFileDataUrl(auth.user.id, { name: body.name, dataUrl: body.dataUrl });
       return writeJson(res, 201, { file: clientFile(file) });
     }
 

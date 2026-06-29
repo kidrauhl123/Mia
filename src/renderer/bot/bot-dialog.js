@@ -838,13 +838,28 @@
     else callback();
   }
 
+  function resetBotDialogFields() {
+    if (!state || !els) return;
+    els.botForm?.reset?.();
+    if (els.botKey) els.botKey.value = "";
+    if (els.botName) els.botName.value = "";
+    if (els.botNameText) els.botNameText.textContent = "";
+    if (els.botStatusBadge) els.botStatusBadge.value = "";
+    if (els.botSeed) els.botSeed.value = "";
+    if (els.botPersonaDetails) els.botPersonaDetails.open = false;
+    if (els.botAvatar) els.botAvatar.value = "";
+    state.botAvatarDraft = { image: "", crop: null, color: "", identityId: "" };
+  }
+
   function openBotDialog(bot = null, personaText = "") {
     if (!state || !els) return;
     if (bot && bot.currentTarget) bot = null;
+    resetBotDialogFields();
+    const botKey = firstNonEmpty(bot?.key, bot?.id);
     // Allow a seed object in place of `bot` to prefill create mode (used by
-    // initial-onboarding flow). Detected by absence of a real key.
-    const seed = bot && !bot.key && (bot.name || bot.agentEngine || bot.bio) ? bot : null;
-    const actualBot = seed ? null : bot;
+    // initial-onboarding flow). Existing cloud identities may have only `id`.
+    const seed = bot && !botKey && (bot.name || bot.agentEngine || bot.bio || bot.personaText || bot.persona_text) ? bot : null;
+    const actualBot = seed ? null : (botKey ? bot : null);
     state.botMenuOpen = false;
     state.botDialogMode = actualBot ? "edit" : "create";
     state.botDialogOpen = true;
@@ -852,7 +867,7 @@
     if (els.botDialogTitle) els.botDialogTitle.textContent = actualBot
       ? `编辑「${titleName || "伙伴"}」`
       : (seed ? "创建你的第一个伙伴" : "添加伙伴");
-    if (els.botKey) els.botKey.value = actualBot?.key || "";
+    if (els.botKey) els.botKey.value = firstNonEmpty(actualBot?.key, actualBot?.id);
     els.botName.value = actualBot?.name || seed?.name || "";
     if (els.botStatusBadge) els.botStatusBadge.value = window.miaStatusBadgeControls?.statusBadgePresetValue?.(actualBot?.statusBadge || actualBot?.status_badge) || "";
     const runtimeKind = window.miaBotDirectory?.normalizeRuntimeKind?.(
@@ -891,14 +906,14 @@
     // mode has no id yet → the preview follows the name field).
     if (state.botAvatarDraft) {
       state.botAvatarDraft.identityId = actualBot
-        ? (window.miaContact?.botAvatarIdentityId?.(actualBot.key || actualBot.id, actualBot) || actualBot.key || actualBot.id || "")
+        ? (window.miaContact?.botAvatarIdentityId?.(botKey, actualBot) || botKey)
         : "";
       state.botAvatarDraft.color = actualBot?.color || actualBot?.avatarColor || "";
     }
-    els.botSeed.value = actualBot ? personaText : (seed?.bio || "");
+    els.botSeed.value = actualBot ? personaText : (seed?.personaText || seed?.persona_text || seed?.bio || "");
     if (els.botPersonaDetails) els.botPersonaDetails.open = Boolean(seed);
     const openToken = ++botDialogOpenToken;
-    const openedKey = String(actualBot?.key || "");
+    const openedKey = String(firstNonEmpty(actualBot?.key, actualBot?.id));
     const openedMode = state.botDialogMode;
     renderView();
     deferBotDialogWork(() => {
@@ -949,6 +964,7 @@
     botDialogOpenToken += 1;
     botRuntimeHydrateToken += 1;
     state.botDialogOpen = false;
+    resetBotDialogFields();
     teardownColorSwatches(document.getElementById("botAvatarColors"));
     renderView();
   }

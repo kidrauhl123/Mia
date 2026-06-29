@@ -93,25 +93,8 @@ function createCloudDesktopSyncClient({
   }
 
   async function saveAppearanceSettings(settingsInput = {}) {
-    const saved = typeof writeAppearanceSettings === "function"
-      ? writeAppearanceSettings(settingsInput)
-      : settingsInput;
-    const current = settings();
-    if (!current.enabled || !current.token) return status(false);
-    try {
-      const remote = await getUserSettings();
-      const nextSettings = {
-        pins: remote.pins || [],
-        readMarks: remote.readMarks || {},
-        appearance: saved || {},
-        expectedVersion: remote.version
-      };
-      if (Object.prototype.hasOwnProperty.call(remote, "tags")) {
-        nextSettings.tags = remote.tags;
-      }
-      await putUserSettings(nextSettings);
-    } catch (error) {
-      log(`Mia Cloud appearance sync failed: ${error?.message || error}`);
+    if (typeof writeAppearanceSettings === "function") {
+      writeAppearanceSettings(settingsInput);
     }
     return status(false);
   }
@@ -130,7 +113,13 @@ function createCloudDesktopSyncClient({
 
   async function getUserSettings() {
     const data = await cloudApi("/api/me/settings", { method: "GET" });
-    return data && data.settings ? data.settings : { pins: [], readMarks: {}, appearance: {}, tags: { items: [], assignments: {} } };
+    return data && data.settings ? data.settings : {
+      pins: [],
+      readMarks: {},
+      appearance: {},
+      tags: { items: [], assignments: {} },
+      starterEngineBots: {}
+    };
   }
 
   async function putUserSettings(nextSettings) {

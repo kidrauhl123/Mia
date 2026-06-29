@@ -176,6 +176,8 @@
     "problem-explainer": "讲题排错",
     "mia-official:spreadsheet-organizer": "表格整理",
     "spreadsheet-organizer": "表格整理",
+    "mia-official:xlsx": "Excel 交付",
+    "xlsx": "Excel 交付",
     "mia-official:presentation-designer": "汇报设计",
     "presentation-designer": "汇报设计",
     "mia-official:meeting-notes": "会议纪要",

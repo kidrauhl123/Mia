@@ -346,6 +346,8 @@ test("bundled official library exposes context-bearing assistant templates", asy
     assert.equal(presets.some((preset) => preset.name === "会议纪要官"), false);
     assert.equal(presets.some((preset) => preset.name === "剧情主持"), false);
     assert.equal(presets.some((preset) => preset.key === "speak-partner"), false);
+    const spreadsheetPreset = presets.find((preset) => preset.key === "spreadsheet-organizer");
+    assert.ok(spreadsheetPreset.capabilities.enabledSkills.includes("mia-official:xlsx"));
 
     const enabledSkillIds = new Set(presets.flatMap((preset) => preset.capabilities.enabledSkills));
     assert.ok([...enabledSkillIds].every((id) => String(id).startsWith("mia-official:") || id === "mia-scheduler"));
@@ -355,6 +357,10 @@ test("bundled official library exposes context-bearing assistant templates", asy
       assert.ok(library.skills.some((skill) => skill.id === id || skill.name === id), `missing preset skill: ${id}`);
       assert.match(loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: [id] } }), /=== Skill:/);
     }
+    const xlsxContext = loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: ["mia-official:xlsx"] } });
+    assert.match(xlsxContext, /Delivery Gate/);
+    assert.match(xlsxContext, /Use Excel formulas/);
+    assert.match(xlsxContext, /preserve its sheets, formatting, formulas/);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

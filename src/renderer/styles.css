@@ -1753,6 +1753,12 @@ body.platform-win32 .conversation-sidebar .sidebar-tools.has-tag-filters {
   animation: none;
 }
 
+:root[data-theme="dark"] .conversation-sidebar .search-box {
+  background: #000;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
 .app-shell[data-nav-layout="sidebar-bottom"] .sidebar-tools {
   min-height: 52px;
   padding: 9px 12px 8px;
@@ -6013,8 +6019,8 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 }
 
 .message.user .message-skill-chip {
-  background: rgba(255, 255, 255, 0.22);
-  color: #fff;
+  background: color-mix(in srgb, var(--user-bubble-text) 9%, transparent);
+  color: var(--user-bubble-text);
 }
 
 .agent-run-status {

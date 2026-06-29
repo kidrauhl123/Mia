@@ -223,11 +223,20 @@ function botCapabilitiesWithPresetDefaults(bot = {}, presets = []) {
     inheritEngineDefaults: false
   });
   if (!presetCapabilities.enabledSkills.length && !presetCapabilities.disabledSkills.length) return capabilities;
+  const disabledSkills = [
+    ...capabilities.disabledSkills,
+    ...presetCapabilities.disabledSkills
+  ].filter((id, index, arr) => arr.indexOf(id) === index);
+  const disabled = new Set(disabledSkills);
+  const enabledSkills = [
+    ...capabilities.enabledSkills,
+    ...presetCapabilities.enabledSkills.filter((id) => !disabled.has(id))
+  ].filter((id, index, arr) => arr.indexOf(id) === index);
   return {
     ...capabilities,
     inheritEngineDefaults: false,
-    enabledSkills: presetCapabilities.enabledSkills,
-    disabledSkills: presetCapabilities.disabledSkills
+    enabledSkills,
+    disabledSkills
   };
 }
 

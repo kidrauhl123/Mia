@@ -162,6 +162,7 @@
   let _pendingMessageFocus = null;
   let _suppressPendingMessageFocus = false;
   const _chatBottomStickSessions = new WeakMap();
+  const _chatScrollIntents = new WeakMap();
 
   function jsonSignature(value) {
     try {
@@ -397,6 +398,7 @@
     conversations: [],
     friends: [],
     bots: [],
+    botsLoaded: false,
     incomingRequests: [],
     outgoingRequests: [],
     messageCache: new Map(),
@@ -553,7 +555,7 @@
       && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
     const imageSrc = String(attachment.dataUrl || attachment.previewDataUrl || attachment.thumbnailDataUrl || attachment.thumbnail || "").trim();
     const imageSrcAttr = imageSrc.startsWith("data:image/") ? ` data-image-src="${escapeHtml(imageSrc)}"` : "";
-    const href = String(attachment.url || attachment.dataUrl || "").trim();
+    const href = String(attachment.dataUrl || attachment.url || "").trim();
     const safeHref = /^(\/api\/files\/[A-Za-z0-9_-]+|data:[^"'<>]+)$/i.test(href) ? href : "";
     const tag = safeHref ? "a" : "span";
     const download = safeHref ? ` href="${escapeHtml(safeHref)}" download="${escapeHtml(attachment.name || "attachment")}"` : "";
@@ -604,9 +606,8 @@
 
   function hydrateAttachmentPreview(attachment = {}) {
     if (!attachment || typeof attachment !== "object" || attachmentHasInlinePreview(attachment)) return attachment;
-    const kind = String(attachment.kind || attachmentKind(attachment));
     const key = attachmentPreviewKey(attachment);
-    if (kind !== "image" || !key || typeof window.mia?.fetchFileAttachment !== "function") return attachment;
+    if (!key || typeof window.mia?.fetchFileAttachment !== "function") return attachment;
     const cached = moduleState.attachmentPreviewCache.get(key);
     if (cached?.status === "ready" && cached.attachment) {
       return { ...attachment, ...cached.attachment };
@@ -1827,10 +1828,59 @@
     setTimeout(cleanup, MESSAGE_REMOVE_ANIMATION_MS + 80);
   }
 
+  function installChatScrollIntentTracker(chatEl) {
+    if (!chatEl) return null;
+    let intent = _chatScrollIntents.get(chatEl);
+    if (!intent) {
+      intent = {
+        installed: false,
+        lastScrollTop: Number(chatEl.scrollTop) || 0,
+        userMovedAwayFromBottom: false
+      };
+      _chatScrollIntents.set(chatEl, intent);
+    }
+    if (intent.installed || typeof chatEl.addEventListener !== "function") return intent;
+    intent.installed = true;
+    chatEl.addEventListener("scroll", () => {
+      const currentTop = Number(chatEl.scrollTop) || 0;
+      const previousTop = Number(intent.lastScrollTop) || 0;
+      if (chatBottomGap(chatEl) <= 1) {
+        intent.userMovedAwayFromBottom = false;
+      } else if (currentTop < previousTop - 1) {
+        intent.userMovedAwayFromBottom = true;
+      }
+      intent.lastScrollTop = currentTop;
+    }, { passive: true });
+    return intent;
+  }
+
+  function markChatProgrammaticBottom(chatEl) {
+    const intent = installChatScrollIntentTracker(chatEl);
+    if (!intent) return;
+    intent.userMovedAwayFromBottom = false;
+    intent.lastScrollTop = Number(chatEl.scrollTop) || 0;
+  }
+
+  function scrollChatToBottom(chatEl) {
+    if (!chatEl) return;
+    chatEl.scrollTop = chatEl.scrollHeight;
+    markChatProgrammaticBottom(chatEl);
+  }
+
+  function isChatPinnedToBottom(chatEl) {
+    if (!chatEl) return false;
+    const intent = installChatScrollIntentTracker(chatEl);
+    if (chatBottomGap(chatEl) <= 1) {
+      if (intent) intent.userMovedAwayFromBottom = false;
+      return true;
+    }
+    return !intent?.userMovedAwayFromBottom && isChatNearBottom(chatEl);
+  }
+
   function animateChatTailToBottom(chatEl, _startBottomGap = 0) {
     if (!chatEl) return;
     stopChatBottomStickSession(chatEl);
-    chatEl.scrollTop = chatEl.scrollHeight;
+    scrollChatToBottom(chatEl);
     scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
   }
 
@@ -1844,7 +1894,7 @@
   function bottomStickUserMovedAway(chatEl, expectedScrollTop) {
     const currentTop = Number(chatEl?.scrollTop) || 0;
     const expectedTop = Number(expectedScrollTop) || 0;
-    return Math.abs(currentTop - expectedTop) > 1 && !isChatNearBottom(chatEl);
+    return currentTop < expectedTop - 1;
   }
 
   function stopChatBottomStickSession(chatEl, session = _chatBottomStickSessions.get(chatEl)) {
@@ -1913,7 +1963,7 @@
         stopChatBottomStickSession(chatEl, session);
         return;
       }
-      chatEl.scrollTop = chatEl.scrollHeight;
+      scrollChatToBottom(chatEl);
       session.expectedScrollTop = Number(chatEl.scrollTop) || 0;
       if (session.remainingFrames > 0) {
         session.remainingFrames -= 1;
@@ -1956,7 +2006,7 @@
       ? global.requestAnimationFrame.bind(global)
       : (fn) => setTimeout(fn, 16);
     schedule(() => {
-      chatEl.scrollTop = chatEl.scrollHeight;
+      scrollChatToBottom(chatEl);
     });
   }
 
@@ -1964,7 +2014,7 @@
     const banner = document.getElementById("agentPermissionBanner");
     if (!banner) return;
     const chatEl = document.getElementById("chat");
-    const shouldStickChat = isChatNearBottom(chatEl);
+    const shouldStickChat = isChatPinnedToBottom(chatEl);
     const request = activePermissionRequest();
     if (!request) {
       banner.classList.add("hidden");
@@ -2137,7 +2187,7 @@
 
   function settleChatAfterStreamingUpdate(chatEl, wasNearBottom) {
     if (!chatEl || !wasNearBottom) return;
-    chatEl.scrollTop = chatEl.scrollHeight;
+    scrollChatToBottom(chatEl);
     scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
   }
 
@@ -2151,7 +2201,7 @@
       if (existing && typeof existing.remove === "function") {
         existing.remove();
         markChatRenderFresh(chatEl, conversationId);
-        settleChatAfterStreamingUpdate(chatEl, isChatNearBottom(chatEl));
+        settleChatAfterStreamingUpdate(chatEl, isChatPinnedToBottom(chatEl));
       }
       return true;
     }
@@ -2168,7 +2218,7 @@
       { groupMessage: conversationType === "group" }
     );
     if (!nextArticle) return false;
-    const wasNearBottom = isChatNearBottom(chatEl);
+    const wasNearBottom = isChatPinnedToBottom(chatEl);
     if (!existing) {
       chatEl.appendChild?.(nextArticle);
       window.miaAvatar?.hydrateAvatarVideos?.(nextArticle);
@@ -2341,6 +2391,19 @@
     return Boolean(bot && global.miaBotManager?.botRunsOnOtherDevice?.(bot));
   }
 
+  function botDirectoryAvailable() {
+    return moduleState.botsLoaded || (Array.isArray(moduleState.bots) && moduleState.bots.length > 0);
+  }
+
+  function botConversationHasKnownIdentity(conversation = {}) {
+    if (conversationTypeFor(conversation, conversation?.id || "") !== "bot") return true;
+    if (!botDirectoryAvailable()) return true;
+    const botId = sessionHistoryShared().botId(conversation);
+    if (!botId) return true;
+    return (Array.isArray(moduleState.bots) ? moduleState.bots : [])
+      .some((bot) => botKeyFromRecord(bot) === botId);
+  }
+
   function visibleSocialConversations(conversations, options = {}) {
     if (!Array.isArray(conversations)) return [];
     const keepLegacyIds = new Set([
@@ -2353,6 +2416,8 @@
     return conversations.filter((conversation) =>
       !isLegacyBotSessionConversation(conversation)
       || keepLegacyIds.has(String(conversation?.id || ""))
+    ).filter((conversation) =>
+      botConversationHasKnownIdentity(conversation)
     ).filter((conversation) => {
       const otherDevice = conversationRunsOnOtherDevice(conversation);
       if (otherDeviceOnly) return otherDevice;
@@ -2421,6 +2486,59 @@
       console.warn("[social] ensure bot conversation failed", botKey, error);
       return null;
     }
+  }
+
+  function botSessionIdForConversation(conversation = {}, conversationId = "") {
+    const decorations = conversation?.decorations || {};
+    return firstText(
+      decorations.sessionId,
+      decorations.session_id,
+      String(conversationId || "").startsWith("botc_") ? String(conversationId).slice(5) : ""
+    );
+  }
+
+  function runtimeKindForBotConversation(conversation = {}) {
+    const history = sessionHistoryShared();
+    if (typeof history.runtimeKind === "function") {
+      return history.runtimeKind(conversation, "desktop-local");
+    }
+    const decorations = conversation?.decorations || {};
+    return firstText(decorations.runtimeKind, decorations.runtime_kind, "desktop-local");
+  }
+
+  function ensuredConversationFromResult(result) {
+    return result?.data?.conversation || result?.conversation || null;
+  }
+
+  function ensuredMembersFromResult(result) {
+    const members = result?.data?.members || result?.members || null;
+    return Array.isArray(members) ? members : null;
+  }
+
+  async function ensurePostableConversation(conversationId, conversation) {
+    const id = String(conversationId || "").trim();
+    const current = conversation || moduleState.conversations.find((item) => item.id === id) || { id };
+    if (conversationTypeFor(current, id) !== "bot") return { conversationId: id, conversation: current };
+    const botId = sessionHistoryShared().botId(current);
+    const sessionId = botSessionIdForConversation(current, id);
+    const api = window.mia?.social;
+    if (!botId || !sessionId || typeof api?.ensureBotSessionConversation !== "function") {
+      return { conversationId: id, conversation: current };
+    }
+    const result = await api.ensureBotSessionConversation(sessionId, {
+      botId,
+      title: current.name || "新对话",
+      runtimeKind: runtimeKindForBotConversation(current)
+    });
+    if (result && result.ok === false) {
+      throw new Error(result.error || result.message || result.data?.error || "创建 Bot 会话失败");
+    }
+    const ensured = ensuredConversationFromResult(result);
+    if (!ensured?.id) return { conversationId: id, conversation: current };
+    const saved = upsertConversation(ensured);
+    const members = ensuredMembersFromResult(result);
+    if (members) _conversationMembersCache.set(ensured.id, members);
+    return { conversationId: ensured.id, conversation: saved || ensured };
   }
 
   function conversationTypeFor(conversation, conversationId = "") {
@@ -2650,6 +2768,7 @@
     moduleState.conversations = snapshot.conversations;
     moduleState.friends = Array.isArray(snapshot.friends) ? snapshot.friends : [];
     moduleState.bots = Array.isArray(snapshot.bots) ? snapshot.bots : [];
+    moduleState.botsLoaded = Array.isArray(snapshot.bots);
     _conversationMembersCache.clear();
     for (const [conversationId, list] of Object.entries(snapshot.members || {})) {
       if (Array.isArray(list)) _conversationMembersCache.set(conversationId, list);
@@ -2766,7 +2885,10 @@
         moduleState.myUserId = freshUserId;
       }
       if (friendsRes.ok) moduleState.friends = friendsRes.data?.friends || [];
-      if (botsRes.ok) moduleState.bots = botsRes.data?.bots || [];
+      if (botsRes.ok) {
+        moduleState.bots = botsRes.data?.bots || [];
+        moduleState.botsLoaded = true;
+      }
       if (incomingRes.ok) moduleState.incomingRequests = incomingRes.data?.requests || [];
       if (outgoingRes.ok) moduleState.outgoingRequests = outgoingRes.data?.requests || [];
 
@@ -2880,8 +3002,8 @@
       return;
     }
 
-    // Phase 3: another device wrote settings — replace local cache so
-    // pins / read marks / appearance match across devices in real time.
+    // Phase 3: another device wrote account-scoped settings — replace local
+    // cache so pins / read marks / tags match across devices in real time.
     // payload is the full envelope { type, settings, seq, ... }.
     if (type === "user_settings.updated") {
       const settings = payload && payload.settings ? payload.settings : null;
@@ -2902,6 +3024,20 @@
       const botId = String(payload?.botId || payload?.id || "").trim();
       if (!botId) return;
       moduleState.bots = moduleState.bots.filter((item) => String(item?.key || item?.id || "") !== botId);
+      const removedConversationIds = [];
+      moduleState.conversations = moduleState.conversations.filter((conversation) => {
+        const remove = sessionHistoryShared().botId(conversation) === botId;
+        if (remove && conversation?.id) removedConversationIds.push(String(conversation.id));
+        return !remove;
+      });
+      for (const conversationId of removedConversationIds) {
+        moduleState.messageCache.delete(conversationId);
+        moduleState.unreadByConversation.delete(conversationId);
+        _conversationMembersCache.delete(conversationId);
+      }
+      if (removedConversationIds.includes(String(moduleState.activeConversationId || ""))) {
+        moduleState.activeConversationId = null;
+      }
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
@@ -2948,6 +3084,7 @@
       const wasBusy = isConversationRunBusy(previousRun);
       const run = cloudRunFor(conversationId, payload.runId || "");
       run.runId = payload.runId || run.runId;
+      run.turnId = payload.turnId || payload.turn_id || run.turnId || "";
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
       run.status = "running";
@@ -3219,7 +3356,7 @@
     const messageIdsUnchanged = messageIdListsEqual(previousRenderedMessageIds, currentMessageIds);
     const prevScrollTop = containerEl.scrollTop;
     const startBottomGap = chatBottomGap(containerEl);
-    const wasNearBottom = startBottomGap < SCROLL_STICK_THRESHOLD_PX;
+    const wasNearBottom = isChatPinnedToBottom(containerEl);
     const hasPendingFocus = Boolean(pendingFocusFor(conversationId));
     const isStreamingOnlyPaint = !isConversationSwitch
       && !isFirstMessageHydration
@@ -3254,7 +3391,7 @@
         if (tailMessageIds.length) {
           animateChatTailToBottom(containerEl, startBottomGap);
         } else {
-          containerEl.scrollTop = containerEl.scrollHeight;
+          scrollChatToBottom(containerEl);
           scheduleChatBottomStick(
             containerEl,
             containerEl.scrollTop,
@@ -3602,12 +3739,12 @@
       return false;
     }
     const previousMessageLayout = captureMessageLayout(chatEl);
-    const wasNearBottom = chatBottomGap(chatEl) < SCROLL_STICK_THRESHOLD_PX;
+    const wasNearBottom = isChatPinnedToBottom(chatEl);
     const ghost = appendMessageRemoveGhost(target);
     target.remove();
     markChatRenderFresh(chatEl);
     if (wasNearBottom) {
-      chatEl.scrollTop = chatEl.scrollHeight;
+      scrollChatToBottom(chatEl);
       scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
     }
     animateMessageLayoutShift(chatEl, previousMessageLayout);
@@ -3734,7 +3871,7 @@
     const chatEl = document.getElementById("chat");
     if (!chatEl) return;
     const startBottomGap = chatBottomGap(chatEl);
-    const nearBottom = startBottomGap < SCROLL_STICK_THRESHOLD_PX;
+    const nearBottom = isChatPinnedToBottom(chatEl);
     const previousMessageLayout = prefersReducedMotion() ? null : captureMessageLayout(chatEl);
     const conversation = moduleState.conversations.find((r) => r.id === moduleState.activeConversationId);
     const color = conversation ? avatarColor(conversation.id) : "#5e5ce6";
@@ -3755,7 +3892,7 @@
         if (shouldAnimateTail) {
           animateChatTailToBottom(chatEl, startBottomGap);
         } else {
-          chatEl.scrollTop = chatEl.scrollHeight;
+          scrollChatToBottom(chatEl);
           scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
         }
       }
@@ -4389,8 +4526,13 @@
     }
     const localMsg = _appendLocalOutgoingConversationMessage(conversationId, prepared, skills);
     const mentions = postMentionsForConversation(conversationType, prepared.mentions);
+    let postConversationId = conversationId;
     try {
-      const res = await window.mia.social.postConversationMessage(conversationId, {
+      if (conversationType === "bot") {
+        const ensured = await ensurePostableConversation(conversationId, conversation);
+        postConversationId = ensured.conversationId || conversationId;
+      }
+      const res = await window.mia.social.postConversationMessage(postConversationId, {
         bodyMd: prepared.bodyMd,
         turnId: prepared.clientTraceId,
         ...(prepared.attachments.length ? { attachments: prepared.attachments } : {}),
@@ -4399,15 +4541,15 @@
       });
       if (!res.ok) {
         console.warn("[social] postConversationMessage failed:", res.error);
-        if (localMsg) _markLocalOutgoingConversationMessageFailed(conversationId, localMsg.id, res.error);
+        if (localMsg) _markLocalOutgoingConversationMessageFailed(postConversationId, localMsg.id, res.error);
         if (res.status === 401 && deps && typeof deps.onCloudAuthExpired === "function") deps.onCloudAuthExpired();
         return;
       }
       const sentMsg = res.data?.message;
       if (!sentMsg || !sentMsg.id) return; // server didn't return a message somehow — skip optimistic
-      _reconcileSentConversationMessage(conversationId, localMsg?.id, sentMsg);
+      _reconcileSentConversationMessage(postConversationId, localMsg?.id, sentMsg);
     } catch (err) {
-      if (localMsg) _markLocalOutgoingConversationMessageFailed(conversationId, localMsg.id, err?.message || err);
+      if (localMsg) _markLocalOutgoingConversationMessageFailed(postConversationId, localMsg.id, err?.message || err);
       console.warn("[social] sendInActiveConversation error:", err);
     }
   }
@@ -4680,6 +4822,7 @@
         readMarks: nextReadMarks,
         appearance: s.appearance,
         tags: s.tags,
+        starterEngineBots: s.starterEngineBots || {},
         mutedConversations: s.mutedConversations || [],
         unreadOverrides: nextOverrides,
         expectedVersion: s.version || 0
@@ -4731,7 +4874,11 @@
       readMarks: input.readMarks && typeof input.readMarks === "object" ? input.readMarks : {},
       appearance: input.appearance && typeof input.appearance === "object" ? input.appearance : {},
       tags,
+      starterEngineBots: input.starterEngineBots && typeof input.starterEngineBots === "object" && !Array.isArray(input.starterEngineBots)
+        ? input.starterEngineBots
+        : (prior.starterEngineBots && typeof prior.starterEngineBots === "object" ? prior.starterEngineBots : {}),
       // Older cloud settings responses only echo pins/readMarks/appearance.
+      // Appearance is ignored by consumers; keep the bag only for response compatibility.
       // Preserve these local bags so optimistic menu toggles don't flash away.
       mutedConversations: Array.isArray(input.mutedConversations)
         ? input.mutedConversations
@@ -5120,6 +5267,7 @@
       unreadOverrides,
       readMarks: s.readMarks || {},
       appearance: s.appearance || {},
+      starterEngineBots: s.starterEngineBots || {},
       tags: tags !== undefined ? conversationTagsShared().normalizeConversationTags(tags) : s.tags
     };
     if (manualUnread === true) {
@@ -5138,6 +5286,7 @@
         unreadOverrides: next.unreadOverrides,
         readMarks: next.readMarks,
         appearance: next.appearance,
+        starterEngineBots: next.starterEngineBots,
         tags: next.tags,
         expectedVersion: s.version || 0
       });
@@ -5169,9 +5318,6 @@
   function applyCloudSettings(settings) {
     if (!settings || typeof settings !== "object") return;
     moduleState.cloudSettings = normalizeCloudSettings(settings, moduleState.cloudSettings || {});
-    if (moduleState.cloudSettings.appearance && typeof deps?.applyCloudAppearance === "function") {
-      deps.applyCloudAppearance(moduleState.cloudSettings.appearance);
-    }
     reconcileUnreadFromReadMarks(moduleState.cloudSettings.readMarks);
     if (deps && typeof deps.render === "function") deps.render();
   }

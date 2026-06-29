@@ -51,6 +51,7 @@
     "base_url",
     "api_mode"
   ];
+  const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "OpenClaw", "Hermes"];
 
   function botIdentity() {
     if (global.miaBotIdentity) return global.miaBotIdentity;
@@ -75,8 +76,69 @@
       : (value && typeof value === "object" ? value : { legacyCapabilities: ["chat", "files", "terminal", "code"] });
   }
 
+  function escapeRegExp(value = "") {
+    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function normalizedIdentityName(value = "") {
+    return String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, " ");
+  }
+
+  function stripCopiedEngineIdentity(text = "", name = "") {
+    let output = String(text || "").trim();
+    if (!output) return "";
+    const botName = normalizedIdentityName(name);
+    for (const engineName of ENGINE_IDENTITY_NAMES) {
+      if (normalizedIdentityName(engineName) === botName) continue;
+      const escaped = escapeRegExp(engineName).replace(/\s+/g, "\\s+");
+      output = output
+        .replace(new RegExp(`^\\s*(?:你是|你叫|你的名字是)\\s*${escaped}\\s*[。.!！]?\\s*`, "i"), "")
+        .replace(new RegExp(`^\\s*(?:You are|Your name is)\\s+${escaped}\\s*[。.!！]?\\s*`, "i"), "");
+    }
+    return output.trim();
+  }
+
   function conversationFromResult(result) {
     return result?.data?.conversation || result?.conversation || null;
+  }
+
+  function deletedConversationIdsFromResult(result = {}) {
+    const ids = result?.data?.deletedConversationIds || result?.deletedConversationIds || [];
+    return Array.isArray(ids) ? ids.map((id) => String(id || "").trim()).filter(Boolean) : [];
+  }
+
+  function conversationBotId(conversation = {}) {
+    return String(
+      conversation?.decorations?.botId
+        || conversation?.decorations?.bot_id
+        || conversation?.botId
+        || conversation?.bot_id
+        || ""
+    ).trim();
+  }
+
+  function removeDeletedBotConversations(social, botKey, result = {}) {
+    if (!social?.moduleState) return;
+    const deletedIds = new Set(deletedConversationIdsFromResult(result));
+    const key = String(botKey || "").trim();
+    const conversations = Array.isArray(social.moduleState.conversations)
+      ? social.moduleState.conversations
+      : [];
+    const removedIds = [];
+    social.moduleState.conversations = conversations.filter((conversation) => {
+      const conversationId = String(conversation?.id || "");
+      const remove = deletedIds.has(conversationId)
+        || (key && conversationBotId(conversation) === key);
+      if (remove && conversationId) removedIds.push(conversationId);
+      return !remove;
+    });
+    for (const conversationId of removedIds) {
+      social.moduleState.messageCache?.delete?.(conversationId);
+      social.moduleState.unreadByConversation?.delete?.(conversationId);
+    }
+    if (removedIds.includes(String(social.moduleState.activeConversationId || ""))) {
+      social.moduleState.activeConversationId = null;
+    }
   }
 
   function savedBotFromResult(result, fallback) {
@@ -94,6 +156,15 @@
       bio: bot.description || bot.bio || "",
       personaText: bot.personaText || bot.persona_text || bot.description || bot.bio || "",
       capabilities: serializableCapabilities(bot.capabilities)
+    };
+  }
+
+  function cloudHermesIdentityForBot(bot = {}) {
+    const identity = cloudIdentityForBot(bot);
+    return {
+      ...identity,
+      bio: stripCopiedEngineIdentity(identity.bio, identity.name),
+      personaText: stripCopiedEngineIdentity(identity.personaText, identity.name)
     };
   }
 
@@ -144,7 +215,9 @@
     if (!state.runtime?.cloud?.enabled || typeof api?.social?.saveBotIdentity !== "function") {
       throw new Error("请先登录 Mia Cloud。");
     }
-    const identity = cloudIdentityForBot({ ...bot, key });
+    const identity = kind === "cloud-hermes"
+      ? cloudHermesIdentityForBot({ ...bot, key })
+      : cloudIdentityForBot({ ...bot, key });
     const saved = await api.social.saveBotIdentity(key, identity);
     if (saved && saved.ok === false) throw new Error(saved.error || "保存 Bot 身份失败");
 
@@ -236,7 +309,7 @@
       throw new Error("请先登录 Mia Cloud。");
     }
     const key = bot.key || generateUntypedBotId(existingBotKeys(state, social));
-    const identity = cloudIdentityForBot({ ...bot, key });
+    const identity = cloudHermesIdentityForBot({ ...bot, key });
     const saved = await api.social.saveBotIdentity(key, identity);
     if (!saved?.ok) throw new Error(saved?.error || "保存 Bot 身份失败");
     if (isCreate || activateRuntime) {
@@ -296,6 +369,7 @@
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
       social.moduleState.bots = bots
         .filter((item) => String(item?.key || item?.id || "") !== key);
+      removeDeletedBotConversations(social, key, result);
     }
     await social?.bootstrapAfterLogin?.();
     return { deleted: true, runtime: state.runtime };
@@ -308,7 +382,7 @@
   }
 
   function identityForCapabilities(bot = {}, capabilities) {
-    return {
+    const identity = {
       name: bot.name || bot.key || bot.id,
       avatarImage: bot.avatarImage || "",
       avatarCrop: bot.avatarCrop || null,
@@ -316,6 +390,13 @@
       personaText: bot.personaText || "",
       capabilities
     };
+    return String(bot.runtimeKind || bot.runtime_kind || "").trim() === "cloud-hermes"
+      ? {
+        ...identity,
+        bio: stripCopiedEngineIdentity(identity.bio, identity.name),
+        personaText: stripCopiedEngineIdentity(identity.personaText, identity.name)
+      }
+      : identity;
   }
 
   async function saveCloudHermesBotCapabilities({

@@ -1,5 +1,8 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const {
   createLocalBotResponder,
@@ -93,6 +96,45 @@ test("respond runs the local engine and posts the reply as the bot", async () =>
       clientOpId: "op_bot_reply_m_1_codex"
     }
   }]);
+});
+
+test("respond attaches workspace-created spreadsheet artifacts to the bot message", async (t) => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mia-local-artifacts-"));
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
+  const filePath = path.join(workspace, "world-cup.xlsx");
+  const bytes = Buffer.from("fake workbook bytes");
+  const { responder, calls } = setup({
+    artifactWorkspaceDir: () => workspace,
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      fs.writeFileSync(filePath, bytes);
+      return { choices: [{ message: { content: "已生成 Excel。" } }] };
+    }
+  });
+
+  await responder.respond(base);
+
+  assert.equal(calls.post.length, 1);
+  assert.equal(calls.post[0].body.bodyMd, "已生成 Excel。");
+  assert.equal(calls.post[0].body.attachments.length, 1);
+  assert.deepEqual(
+    {
+      name: calls.post[0].body.attachments[0].name,
+      path: calls.post[0].body.attachments[0].path,
+      mimeType: calls.post[0].body.attachments[0].mimeType,
+      kind: calls.post[0].body.attachments[0].kind,
+      size: calls.post[0].body.attachments[0].size,
+      dataUrl: calls.post[0].body.attachments[0].dataUrl
+    },
+    {
+      name: "world-cup.xlsx",
+      path: filePath,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      kind: "file",
+      size: bytes.length,
+      dataUrl: `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${bytes.toString("base64")}`
+    }
+  );
 });
 
 test("respond passes structured conversation history before the current user turn", async () => {
@@ -296,6 +338,7 @@ test("stopActiveConversationRun aborts the in-flight local engine turn without p
     stopped: true,
     conversationId: "g_1",
     runId: calls.cloudEvents[0].runId,
+    turnId: "t_1",
     status: "cancelling"
   });
   assert.equal(handled, true);
@@ -332,9 +375,51 @@ test("stopActiveConversationRun is idempotent while the local turn is cancelling
     stopped: true,
     conversationId: "g_1",
     runId: first.runId,
+    turnId: "t_1",
     status: "cancelling"
   });
   assert.equal(calls.cloudEvents.filter((event) => event.event?.type === "run.cancelling").length, 1);
+
+  await responsePromise;
+});
+
+test("stopActiveConversationRun matches the active turn id even when run ids differ", async () => {
+  const { responder, calls } = setup({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      return new Promise((_resolve, reject) => {
+        args.signal.addEventListener("abort", () => {
+          const stopped = new Error("生成已停止");
+          stopped.code = "MIA_STOPPED";
+          reject(stopped);
+        }, { once: true });
+      });
+    }
+  });
+
+  const responsePromise = responder.respond(base);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(calls.engine.length, 1);
+  const staleRun = responder.stopActiveConversationRun({
+    conversationId: "g_1",
+    runId: "cloud_run_mismatch",
+    turnId: "wrong_turn"
+  });
+  assert.deepEqual(staleRun, { stopped: false });
+  assert.equal(calls.engine[0].signal.aborted, false);
+
+  const stopResult = responder.stopActiveConversationRun({
+    conversationId: "g_1",
+    runId: "cloud_run_mismatch",
+    turnId: "t_1"
+  });
+
+  assert.equal(stopResult.stopped, true);
+  assert.equal(stopResult.runId, calls.cloudEvents[0].runId);
+  assert.equal(stopResult.turnId, "t_1");
+  assert.equal(calls.engine[0].signal.aborted, true);
 
   await responsePromise;
 });

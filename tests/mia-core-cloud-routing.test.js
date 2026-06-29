@@ -115,6 +115,49 @@ test("cloud → dispatcher → responder → Core sendChat (Hermes) → socialAp
   assert.ok(localEvents.length >= 1);
 });
 
+test("core cloud routing stopChat aborts the active conversation run", async () => {
+  const deviceId = "device_core_fixture";
+  const seenSignals = [];
+
+  const botExecution = {
+    sendChat: async (context) => {
+      seenSignals.push(context.signal);
+      return new Promise((_resolve, reject) => {
+        context.signal.addEventListener("abort", () => {
+          const stopped = new Error("生成已停止");
+          stopped.code = "MIA_STOPPED";
+          reject(stopped);
+        }, { once: true });
+      });
+    }
+  };
+  const socialApi = {
+    postConversationMessageAsBot: async () => ({ ok: true }),
+    listConversationMessages: async () => ({ messages: [] })
+  };
+  const localEvents = [];
+  const routing = createCoreCloudRouting({
+    botExecution,
+    socialApi,
+    emitLocalEvent: (envelope) => localEvents.push(envelope),
+    deviceId,
+    log: () => {}
+  });
+
+  const pending = routing.dispatcher.handleCloudEvent(botInvocationEvent({ deviceId }));
+  for (let i = 0; i < 20 && seenSignals.length === 0; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.equal(seenSignals.length, 1);
+  assert.equal(seenSignals[0].aborted, false);
+  const result = routing.stopChat({ conversationId: "dm:userA:bot1" });
+  assert.equal(result.stopped, true);
+  assert.equal(seenSignals[0].aborted, true);
+  await pending;
+  assert.equal(localEvents.at(-1).payload.event.type, "run.cancelled");
+});
+
 test("dispatcher ignores an invocation targeting a different device (single-owner)", async () => {
   const botExecution = createCoreBotExecution({
     runtimePaths: makeRuntimePaths(),

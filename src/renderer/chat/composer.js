@@ -14,7 +14,6 @@
   const { MemberKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../../shared/conversation-kinds.js");
 
   let state, els, mia;
-  let fallbackSlashCommands;
   let loadSkills, renderAttachmentThumb, renderSendButton, resizeChatInput, openImagePreview;
   let appendTransientChat, cryptoRandomId;
 
@@ -25,7 +24,6 @@
     state = deps.state;
     els = deps.els;
     mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
-    fallbackSlashCommands = deps.fallbackSlashCommands || [];
     loadSkills = deps.loadSkills;
     renderAttachmentThumb = deps.renderAttachmentThumb;
     renderSendButton = deps.renderSendButton;
@@ -282,7 +280,7 @@
     const engine = window.miaEngineOptions.activeAgentEngine();
     const commands = window.miaEngineOptions.isExternalAgentEngine(engine)
       ? (state.agentSlashCommands[engine] || [])
-      : (state.slashCommands || fallbackSlashCommands);
+      : (state.slashCommands || []);
     if (!filter) return commands;
     return commands.filter((item) => `${item.command} ${item.description}`.toLowerCase().includes(filter));
   }

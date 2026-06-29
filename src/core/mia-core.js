@@ -961,6 +961,7 @@ function createCoreCloudRouting({
   settingsStore,
   botExecution,
   socialApi,
+  artifactWorkspaceDir = null,
   emitLocalEvent = () => {},
   deviceId = "",
   log = () => {}
@@ -986,8 +987,13 @@ function createCoreCloudRouting({
     // to the Core control server's local event channel. The caller injects the
     // sink; a no-op/collector is fine until the local-events fan-out lands.
     emitCloudEvent: (message) => emitLocalEvent({ type: message.type, payload: message }),
-    log
+    log,
+    artifactWorkspaceDir: artifactWorkspaceDir || (() => runtimePaths?.().workspace)
   });
+
+  function stopChat(payload = {}) {
+    return localBotResponder.stopActiveConversationRun(payload || {});
+  }
 
   const dispatcher = createMainBotRuntimeDispatcher({
     // Core is the single owner when running, so it always handles the turn.
@@ -1001,7 +1007,7 @@ function createCoreCloudRouting({
     log
   });
 
-  return { dispatcher, localBotResponder, socialApi: api };
+  return { dispatcher, localBotResponder, socialApi: api, stopChat };
 }
 
 // Mirror main.js's cloud event channel name so local-event consumers (windows
@@ -1446,6 +1452,8 @@ function createCoreEngineSupervisor({
   // uses (src/main/engine-install-service.js:173).
   systemHermesPython = null,
   env = process.env,
+  modelEnv = () => ({}),
+  modelRuntimeConfig = () => null,
   log = () => {},
   // Health timeout knobs (kept short-overridable for tests).
   waitForHealthMs = 45000
@@ -1490,6 +1498,62 @@ function createCoreEngineSupervisor({
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     const tmpPath = `${configPath}.${process.pid}.tmp`;
     fs.writeFileSync(tmpPath, yaml.dump(parsed), { mode: 0o600 });
+    fs.renameSync(tmpPath, configPath);
+  }
+
+  function modelRuntimeSettings() {
+    try {
+      const settings = typeof modelRuntimeConfig === "function" ? modelRuntimeConfig() : modelRuntimeConfig;
+      return settings && typeof settings === "object" ? settings : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function modelEnvSettings() {
+    try {
+      const settings = typeof modelEnv === "function" ? modelEnv() : modelEnv;
+      return settings && typeof settings === "object" ? settings : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeModelConfig(settings = {}) {
+    const provider = String(settings.provider || "").trim();
+    const model = String(settings.model || "").trim();
+    const baseUrl = String(settings.baseUrl || "").trim();
+    if (!provider || !model || !baseUrl) return;
+    const configPath = path.join(hermesHomePath(), "config.yaml");
+    let parsed = {};
+    try {
+      if (fs.existsSync(configPath)) parsed = yaml.load(fs.readFileSync(configPath, "utf8")) || {};
+    } catch {
+      parsed = {};
+    }
+    if (!parsed || typeof parsed !== "object") parsed = {};
+    const apiKeyEnv = String(settings.apiKeyEnv || "").trim();
+    const apiMode = String(settings.apiMode || "").trim();
+    const modelConfig = parsed.model && typeof parsed.model === "object" ? { ...parsed.model } : {};
+    modelConfig.provider = provider;
+    modelConfig.default = model;
+    modelConfig.base_url = baseUrl;
+    if (apiMode) modelConfig.api_mode = apiMode;
+    parsed.model = modelConfig;
+
+    const providers = parsed.providers && typeof parsed.providers === "object" ? { ...parsed.providers } : {};
+    const providerConfig = providers[provider] && typeof providers[provider] === "object" ? { ...providers[provider] } : {};
+    providerConfig.name = settings.providerLabel || provider;
+    providerConfig.base_url = baseUrl;
+    if (apiKeyEnv) providerConfig.key_env = apiKeyEnv;
+    if (settings.apiKey) providerConfig.api_key = settings.apiKey;
+    providerConfig.default_model = model;
+    if (apiMode) providerConfig.api_mode = apiMode;
+    providers[provider] = providerConfig;
+    parsed.providers = providers;
+
+    const tmpPath = `${configPath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, yaml.dump(parsed, { lineWidth: 100, noRefs: true }), { mode: 0o600 });
     fs.renameSync(tmpPath, configPath);
   }
 
@@ -1547,10 +1611,12 @@ function createCoreEngineSupervisor({
 
     const key = ensureApiKey();
     writeMinimalConfig(port, key);
+    writeModelConfig(modelRuntimeSettings() || {});
 
     const baseUrl = `http://127.0.0.1:${port}`;
     const spawnEnv = {
       ...env,
+      ...modelEnvSettings(),
       HERMES_HOME: hermesHomePath(),
       MIA_HOME: runtimePaths().home,
       HERMES_ACCEPT_HOOKS: "1",
@@ -1766,12 +1832,32 @@ function createMiaCore(options = {}) {
     choosePort,
     // Inert until later vertical slices migrate this capability into Core.
     initializeRuntime: () => {},
-    remoteRouter: () => ({ matches: () => false, route: async () => ({ handled: false }) }),
+    remoteRouter: coreRemoteRouter,
     // REAL scheduler: the control server calls initSchedulerSubsystem() on start()
     // (arming timers) and tasksRoutes() per request to serve /api/tasks.
     initSchedulerSubsystem: () => schedulerSubsystem().initSchedulerSubsystem(),
     tasksRoutes: () => schedulerSubsystem().tasksRoutes
   });
+
+  function coreRemoteRouter() {
+    function isChatStopRoute(request = {}) {
+      const method = String(request.method || "").toUpperCase();
+      if (method !== "POST") return false;
+      const url = new URL(String(request.path || "/"), "http://127.0.0.1");
+      return url.pathname === "/api/chat/stop";
+    }
+    return {
+      matches: isChatStopRoute,
+      route: async (request = {}) => {
+        if (!isChatStopRoute(request)) return { handled: false };
+        const routing = cachedCloudRouting || cloudRouting();
+        return {
+          handled: true,
+          data: routing.stopChat(request.body || {})
+        };
+      }
+    };
+  }
 
   function start() {
     return controlServer.start(settingsStore.daemonSettings());
@@ -1808,6 +1894,24 @@ function createMiaCore(options = {}) {
       buildPythonPath,
       hermesHome: () => runtimePaths().hermesHome,
       env,
+      modelEnv: () => {
+        const cloud = settingsStore.cloudSettings();
+        return cloud.enabled && cloud.token ? { MIA_CLOUD_MODEL_TOKEN: cloud.token } : {};
+      },
+      modelRuntimeConfig: () => {
+        const cloud = settingsStore.cloudSettings();
+        if (!cloud.enabled || !cloud.token || !cloud.url) return null;
+        const cloudBaseUrl = settingsStore.normalizeCloudUrl(cloud.url);
+        return {
+          provider: "mia",
+          providerLabel: "Mia",
+          model: "mia-auto",
+          apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+          apiKey: cloud.token,
+          baseUrl: `${cloudBaseUrl}/api/me/model-proxy/v1`,
+          apiMode: "chat_completions"
+        };
+      },
       log: () => {},
       ...overrides
     });

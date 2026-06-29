@@ -135,6 +135,14 @@ test("chat floor overlay text uses the adaptive floor palette", () => {
   assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.message-time/);
 });
 
+test("user message skill chips remain readable on light user bubbles", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const userSkillChipRule = cssRuleBody(baseCss, ".message.user .message-skill-chip");
+
+  assert.match(userSkillChipRule, /color:\s*var\(--user-bubble-text\);/);
+  assert.doesNotMatch(userSkillChipRule, /color:\s*#fff\b/);
+});
+
 test("custom scrollbar overlay uses a narrow thumb", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
@@ -285,12 +293,14 @@ test("sidebar and chat headers use the same surface without a header divider", (
   );
 });
 
-test("conversation search uses a white field without focus highlight", () => {
+test("conversation search uses a theme-aware field without focus highlight", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const conversationSearchRule = cssRuleBody(baseCss, ".conversation-sidebar .search-box");
+  const darkConversationSearchRule = cssRuleBody(baseCss, ':root[data-theme="dark"] .conversation-sidebar .search-box');
   const searchFocusRule = cssRuleBody(baseCss, ".search-box:focus-within");
 
   assert.match(conversationSearchRule, /background:\s*#fff;/);
+  assert.match(darkConversationSearchRule, /background:\s*#000;/);
   assert.match(conversationSearchRule, /grid-column:\s*1\s*\/\s*-1;/);
   assert.match(conversationSearchRule, /height:\s*32px;/);
   assert.match(searchFocusRule, /box-shadow:\s*none;/);
@@ -1122,6 +1132,16 @@ test("discover, skill, and task cards start from the fixed left edge", () => {
       cssRuleBody(css, `.${cardSelector}`),
       /transition:[^;]*transform|transform:/,
       `${name} cards should not animate a hover float`
+    );
+    assert.doesNotMatch(
+      cssRuleBody(css, `.${cardSelector}`),
+      /transition:[^;]*box-shadow/,
+      `${name} cards should not animate shadow repaint on hover`
+    );
+    assert.doesNotMatch(
+      cssRuleBody(css, `.${cardSelector}:hover`),
+      /box-shadow:/,
+      `${name} card hover should not repaint card shadows`
     );
     assert.doesNotMatch(
       cssRuleBody(css, `.${cardSelector}:hover`),

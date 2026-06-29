@@ -257,6 +257,63 @@ test("writeRuntimeConfig resolves compact global Mia model settings through Core
   assert.equal(parsed.providers.mia.default_model, "mia-auto");
 });
 
+test("writeRuntimeConfig defaults empty global model settings to Mia Auto when Cloud is available", (t) => {
+  const { runtime, service } = setup(t, {
+    resolveModelRuntime: (settings, context) => {
+      assert.equal(context.engine, "hermes");
+      assert.deepEqual(settings, {
+        provider: "mia",
+        providerConnectionId: "mia",
+        providerLabel: "Mia",
+        authType: "mia_account",
+        model: "mia-auto",
+        modelProfileId: "mia:mia-auto"
+      });
+      return {
+        provider: "mia",
+        providerConnectionId: "mia",
+        providerLabel: "Mia",
+        authType: "mia_account",
+        model: "mia-auto",
+        modelProfileId: "mia:mia-auto",
+        apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+        apiKey: "cloud-token",
+        baseUrl: "https://mia.example/api/me/model-proxy/v1",
+        apiMode: "chat_completions",
+        managedByMia: true
+      };
+    }
+  });
+
+  service.writeRuntimeConfig(19191);
+
+  const parsed = yaml.load(fs.readFileSync(runtime.config, "utf8"));
+  assert.equal(parsed.model.provider, "mia");
+  assert.equal(parsed.model.default, "mia-auto");
+  assert.equal(parsed.providers.mia.key_env, "MIA_CLOUD_MODEL_TOKEN");
+  assert.equal(parsed.providers.mia.api_key, "cloud-token");
+  assert.equal(parsed.providers.mia.default_model, "mia-auto");
+});
+
+test("modelRuntimeEnv exposes resolved Mia Auto token for Hermes spawn", (t) => {
+  const { service } = setup(t, {
+    resolveModelRuntime: () => ({
+      provider: "mia",
+      providerConnectionId: "mia",
+      authType: "mia_account",
+      model: "mia-auto",
+      modelProfileId: "mia:mia-auto",
+      apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+      apiKey: "cloud-token",
+      baseUrl: "https://mia.example/api/me/model-proxy/v1",
+      apiMode: "chat_completions",
+      managedByMia: true
+    })
+  });
+
+  assert.deepEqual(service.modelRuntimeEnv(), { MIA_CLOUD_MODEL_TOKEN: "cloud-token" });
+});
+
 test("writeRuntimeConfig adds the mia-scheduler MCP server when a spec is available", (t) => {
   const { runtime, service } = setup(t, {
     getMiaAppMcpSpec: () => ({
