@@ -121,7 +121,8 @@ release/
 - 发版必须先 **bump `package.json` 的 `version`**，并新增 `docs/releases/<version>.md`。发布脚本会把这份说明写进 `latest-mac.yml` / `latest.yml` 的 `releaseNotes`，桌面更新弹窗会展示摘要；缺失时发布会直接失败，避免旧客户端版本号不变或变更说明遗漏。
 - 当前更新通道 = **generic HTTPS**（`build.publish` = `generic`, `url` = `https://mia.gifgif.cn/updates/`）；客户端用 electron-updater 在 macOS 拉 `latest-mac.yml`，在 Windows 拉 `latest.yml`。
 - 客户端检查到新版本后是强制更新：主界面会被更新遮罩锁定，下载进度来自 `download-progress`，下载完成后自动进入安装并重启。进入安装态时只能锁页面交互，不能继续用 native `setClosable(false)` 锁窗口；macOS 的 Squirrel quit/install 路径需要窗口可关闭，否则可能出现进度到 100% 但 App 不退出，用户强制退出后才完成更新。
-- macOS 正式分发前必须公证并装订票据。一次性保存凭据：`xcrun notarytool store-credentials mia --apple-id <apple-id> --team-id S4NWU843M5`；然后执行 `npm run notarize:mac` 或 `npm run notarize:mac:intel`。若 Apple 返回 `403 Invalid or inaccessible developer team ID`，说明该 Apple ID 没有 `S4NWU843M5` 团队的公证权限，需要换有权限的账号或 App Store Connect API Key。
+- macOS 正式分发前应尽量公证并装订票据。一次性保存凭据：`xcrun notarytool store-credentials mia --apple-id <apple-id> --team-id S4NWU843M5`；然后执行 `npm run notarize:mac` 或 `npm run notarize:mac:intel`。若 Apple 返回 `403 Invalid or inaccessible developer team ID`，说明该 Apple ID 没有 `S4NWU843M5` 团队的公证权限，需要换有权限的账号或 App Store Connect API Key。
+- 临时例外：如果构建机缺少 notarytool profile、Apple 团队权限或 App Store Connect API Key，允许继续把已签名但未公证的 DMG/ZIP 正常推送到官网更新源和 GitHub Release，并继续部署 Cloud/Web。该状态属于分发凭据暂时不可用，不应阻断正常发布；发布记录和交接说明里必须保留“未公证/无法公证”的事实，后续补齐凭据后再重新公证并覆盖同版本资产。
 
 > **旧包迁移限制**：已经安装的 GitHub-provider 旧包只会去 GitHub release 检查更新。第一次迁移要发一个桥接版本：同一个新版本同时发布到 GitHub release 和 `mia.gifgif.cn/updates/`。旧包从 GitHub 升到桥接版本后，桥接版本内置的 generic provider 会让之后更新完全走 `mia.gifgif.cn/updates/`。
 

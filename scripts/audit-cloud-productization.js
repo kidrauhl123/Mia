@@ -151,6 +151,10 @@ function extractAsarText(archivePath, filePath) {
 }
 
 function resolvePackagedAppAsar(rootDir) {
+  const unpackedAuditFiles = [
+    "src/main.js",
+    "src/main/cloud/cloud-bridge-client.js"
+  ];
   const unpackedPath = path.join(rootDir, "release", "mac-arm64", "Mia.app", "Contents", "Resources", "app.asar");
   if (fs.existsSync(unpackedPath)) {
     return {
@@ -194,6 +198,13 @@ function resolvePackagedAppAsar(rootDir) {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-asar-"));
     const archivePath = path.join(tempDir, "app.asar");
     fs.writeFileSync(archivePath, entry.getData());
+    for (const file of unpackedAuditFiles) {
+      const unpackedEntry = zip.getEntry(`${productName}.app/Contents/Resources/app.asar.unpacked/${file}`);
+      if (!unpackedEntry) continue;
+      const target = path.join(tempDir, "app.asar.unpacked", file);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, unpackedEntry.getData());
+    }
     return {
       archivePath,
       label: `release/${zipName}::${entryName}`,
