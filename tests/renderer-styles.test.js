@@ -135,6 +135,14 @@ test("chat floor overlay text uses the adaptive floor palette", () => {
   assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.message-time/);
 });
 
+test("user message skill chips remain readable on light user bubbles", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const userSkillChipRule = cssRuleBody(baseCss, ".message.user .message-skill-chip");
+
+  assert.match(userSkillChipRule, /color:\s*var\(--user-bubble-text\);/);
+  assert.doesNotMatch(userSkillChipRule, /color:\s*#fff\b/);
+});
+
 test("custom scrollbar overlay uses a narrow thumb", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 

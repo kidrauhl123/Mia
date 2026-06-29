@@ -2483,6 +2483,7 @@ test("bot creation dialog combines runtime location and agent engine into one gr
   const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
 
   assert.match(html, /id="botRuntimeTarget"/);
+  assert.doesNotMatch(html, /当前设备 · Hermes/);
   assert.match(html, /helpers\/accordion\.js/);
   assert.match(html, /class="persona-details accordion-details"/);
   assert.match(html, /class="accordion-body"/);
