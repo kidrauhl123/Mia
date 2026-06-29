@@ -102,6 +102,7 @@
   box-shadow: var(--segmented-control-shadow);
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
   backdrop-filter: blur(24px) saturate(1.16);
+  -webkit-app-region: no-drag;
   isolation: isolate;
 }
 .task-mode-toggle::before {
@@ -134,7 +135,7 @@
   font-size: var(--capsule-tab-font-size);
   font-weight: var(--capsule-tab-font-weight);
   cursor: default;
-  transition: background 140ms ease, color 140ms ease;
+  transition: color 140ms ease;
 }
 .task-mode-toggle button:not(.active):hover {
   background: rgb(var(--accent-rgb) / 0.07);
@@ -204,6 +205,7 @@
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+  -webkit-app-region: no-drag;
   flex-wrap: wrap;
 }
 .task-chip-row button {
@@ -228,8 +230,8 @@
   color: var(--faint);
   font-size: 12px;
 }
-.task-chip-row button:hover { background: var(--surface); color: var(--text); }
-.task-chip-row button:hover span { color: var(--faint); }
+.task-chip-row button:not(.active):hover { background: var(--surface); color: var(--text); }
+.task-chip-row button:not(.active):hover span { color: var(--faint); }
 .task-chip-row button.active {
   background: var(--surface);
   color: var(--text);

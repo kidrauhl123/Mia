@@ -1243,6 +1243,44 @@ test("task category filters stay as stable individual chips", () => {
   );
 });
 
+test("floating capsule controls keep hover hit targets stable", () => {
+  const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
+  const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
+  const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
+  const controls = [
+    ["discover topbar toggle", botStoreCss, ".discover-mode-toggle"],
+    ["bot store category rail", botStoreCss, ".bot-store-cap"],
+    ["skill topbar toggle", skillCss, ".skill-mode-toggle"],
+    ["skill category rail", skillCss, ".skill-chip-row"],
+    ["task topbar toggle", taskCss, ".task-mode-toggle"],
+    ["task history chips", taskCss, ".task-chip-row"]
+  ];
+
+  for (const [name, css, selector] of controls) {
+    const controlRule = cssRuleBody(css, selector);
+    assert.match(
+      controlRule,
+      /-webkit-app-region:\s*no-drag;/,
+      `${name} should not fight Electron's draggable topbar hit testing`
+    );
+
+    const buttonRule = cssRuleBody(css, `${selector} button`);
+    assert.doesNotMatch(
+      buttonRule,
+      /transition:[^;]*(?:background|box-shadow|filter|transform)/,
+      `${name} buttons should not animate painted hover layers that can flicker over glass`
+    );
+
+    const hoverSelector = `${selector} button:not(.active):hover`;
+    const hoverRule = cssRuleBody(css, hoverSelector);
+    assert.doesNotMatch(
+      hoverRule,
+      /\b(?:font-weight|padding|margin|border(?:-width)?|width|height|min-width|min-height|transform|filter|box-shadow)\s*:/,
+      `${name} hover should not change layout, hit area, or compositor geometry`
+    );
+  }
+});
+
 test("task preview dialog uses a structured inspector layout", () => {
   const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
   const taskPanel = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");

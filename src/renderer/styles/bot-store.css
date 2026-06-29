@@ -82,7 +82,7 @@
   font-weight: var(--capsule-tab-font-weight);
   white-space: nowrap;
   cursor: default;
-  transition: background 140ms ease, color 140ms ease;
+  transition: color 140ms ease;
 }
 .discover-mode-toggle button:not(.active):hover {
   background: rgb(var(--accent-rgb) / 0.07);
@@ -200,6 +200,7 @@
   box-shadow: var(--segmented-control-shadow);
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
   backdrop-filter: blur(24px) saturate(1.16);
+  -webkit-app-region: no-drag;
   isolation: isolate;
 }
 .bot-store-cap::-webkit-scrollbar {
@@ -235,7 +236,7 @@
   font-weight: var(--capsule-tab-font-weight);
   white-space: nowrap;
   cursor: default;
-  transition: background 140ms ease, color 140ms ease;
+  transition: color 140ms ease;
 }
 .bot-store-cap button:not(.active):hover {
   background: rgb(var(--accent-rgb) / 0.07);

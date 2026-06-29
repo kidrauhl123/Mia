@@ -106,6 +106,7 @@
   box-shadow: var(--segmented-control-shadow);
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
   backdrop-filter: blur(24px) saturate(1.16);
+  -webkit-app-region: no-drag;
   isolation: isolate;
 }
 
@@ -145,7 +146,7 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   cursor: default;
-  transition: background 140ms ease, color 140ms ease;
+  transition: color 140ms ease;
 }
 
 .skill-chip-row button span {
@@ -154,12 +155,12 @@
   font-size: 12px;
 }
 
-.skill-chip-row button:hover {
+.skill-chip-row button:not(.active):hover {
   background: rgb(var(--accent-rgb) / 0.07);
   color: var(--text);
 }
 
-.skill-chip-row button:hover span {
+.skill-chip-row button:not(.active):hover span {
   color: var(--faint);
 }
 
@@ -289,6 +290,7 @@
   box-shadow: var(--segmented-control-shadow);
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
   backdrop-filter: blur(24px) saturate(1.16);
+  -webkit-app-region: no-drag;
   isolation: isolate;
 }
 
@@ -320,7 +322,7 @@
   font-size: var(--capsule-tab-font-size);
   font-weight: var(--capsule-tab-font-weight);
   cursor: default;
-  transition: background 140ms ease, color 140ms ease;
+  transition: color 140ms ease;
 }
 
 .skill-mode-toggle button:not(.active):hover {
