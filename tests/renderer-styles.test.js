@@ -234,6 +234,22 @@ test("chat avatar display settings do not hide group participant avatars", () =>
   );
 });
 
+test("assistant setup fields fit inside the enrollment sheet on constrained viewports", () => {
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
+
+  assert.match(css, /\.bot-store-enroll-console\s*\{[\s\S]*?display:\s*grid;/);
+  assert.match(css, /\.bot-store-enroll-console\s*\{[\s\S]*?grid-template-rows:\s*auto minmax\(0,\s*1fr\) auto;/);
+  assert.match(css, /\.bot-store-enroll-console\s*\{[\s\S]*?min-height:\s*0;/);
+  assert.match(css, /\.bot-store-setup-fields\s*\{[\s\S]*?display:\s*grid;[\s\S]*?gap:\s*8px;/);
+  assert.match(css, /\.bot-store-setup-fields\s*\{[\s\S]*?min-height:\s*0;/);
+  assert.match(css, /\.bot-store-setup-fields\s*\{[\s\S]*?max-height:\s*min\(/);
+  assert.match(css, /\.bot-store-setup-fields\s*\{[\s\S]*?overflow-y:\s*auto;/);
+  assert.match(css, /\.bot-store-setup-fields\s*\{[\s\S]*?overflow-x:\s*hidden;/);
+  assert.match(css, /\.bot-store-setup-field\s*\{[^}]*display:\s*grid;[^}]*min-width:\s*0;/);
+  assert.match(css, /\.bot-store-setup-field input,\s*\.bot-store-setup-field textarea\s*\{[^}]*width:\s*100%;[^}]*box-sizing:\s*border-box;/);
+  assert.match(css, /\.bot-store-setup-field textarea\s*\{[^}]*resize:\s*vertical;/);
+});
+
 test("sidebar and chat headers use the same surface without a header divider", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 

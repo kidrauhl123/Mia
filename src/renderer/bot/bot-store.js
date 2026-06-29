@@ -838,7 +838,9 @@
       </div>`;
     sheet.querySelector('[data-act="detail"]').addEventListener("click", () => openSheet(f));
     writeEnrollmentTarget(sheet, target);
-    sheet.querySelector('[data-act="confirm"]').addEventListener("click", () => addBot(f, readEnrollmentTarget(sheet), sheet.dataset.botKey || plannedKey));
+    sheet.querySelector('[data-act="confirm"]').addEventListener("click", () => {
+      addBot(f, readEnrollmentTarget(sheet), sheet.dataset.botKey || plannedKey);
+    });
     scrim.classList.add("open");
     refreshRuntimeDevicesForStore(f);
   }

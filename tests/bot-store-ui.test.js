@@ -171,11 +171,16 @@ test("assistant enrollment collects setup context and folds it into bot identity
   assert.match(store, /function setupFieldsHtml/);
   assert.match(store, /data-assistant-setup-field/);
   assert.match(store, /function readAssistantSetupValues/);
+  assert.match(store, /<div class="bot-store-enroll-console"[\s\S]*?\$\{setupFieldsHtml\(f\)\}[\s\S]*?<\/div>\s*<div class="bot-store-actions">/);
+  assert.match(store, /querySelector\('\[data-act="confirm"\]'\)\.addEventListener\("click",\s*\(\)\s*=>\s*\{\s*addBot\(f,\s*readEnrollmentTarget\(sheet\),\s*sheet\.dataset\.botKey\s*\|\|\s*plannedKey\);?\s*\}\s*\)/);
   assert.match(store, /assistantPersonaText\(f,\s*setupValues\)/);
   assert.match(store, /assistantDescription\(f,\s*setupValues\)/);
   assert.match(store, /description:\s*assistantDescription\(f,\s*setupValues\)/);
   assert.match(store, /personaText:\s*assistantPersonaText\(f,\s*setupValues\)/);
   assert.match(store, /const setupValues = readAssistantSetupValues\(els\.botStoreSheet\)/);
+  assert.match(store, /const key = String\(plannedKey \|\| ""\)\.trim\(\);\s*if \(!key\) throw new Error\("AI 助手账号 ID 缺失。"\);\s*const setupValues = readAssistantSetupValues\(els\.botStoreSheet\)/s);
   assert.doesNotMatch(store, /throw new Error\(".*课程名/);
   assert.doesNotMatch(store, /required[^;]+checkValidity/);
+  assert.doesNotMatch(store, /setupValues\.[^;\n]+throw new Error/);
+  assert.doesNotMatch(store, /<textarea[^>]*\srequired(?:[=\s>])|<input[^>]*\srequired(?:[=\s>])/);
 });

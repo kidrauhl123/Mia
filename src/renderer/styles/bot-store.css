@@ -481,6 +481,9 @@
 }
 .bot-store-sheet.is-enrolling {
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 14px;
   width: min(520px, 100%);
   max-height: calc(100vh - 56px);
   overflow: hidden;
@@ -498,6 +501,9 @@
   --badge-card-line: rgba(23, 25, 35, 0.12);
   --badge-card-chip-bg: rgba(23, 25, 35, 0.055);
   --badge-card-chip-text: rgba(23, 25, 35, 0.88);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
   overflow: hidden;
   border-radius: 16px;
   background: var(--badge-console-bg);
@@ -546,7 +552,14 @@
 }
 .bot-store-setup-fields {
   display: grid;
+  align-content: start;
   gap: 8px;
+  min-height: 0;
+  max-height: min(208px, 30vh);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 12px;
   border-top: 1px solid var(--badge-card-line);
   background: var(--badge-bar-bg);
