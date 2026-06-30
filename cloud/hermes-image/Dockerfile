@@ -37,11 +37,20 @@ RUN set -e; \
     if [ -n "$PIP_EXTRA_INDEX_URL" ]; then \
       pip_index_args="$pip_index_args --extra-index-url $PIP_EXTRA_INDEX_URL"; \
     fi; \
+    hermes_archive="/tmp/hermes-agent-${HERMES_VERSION}.tar.gz"; \
+    hermes_url="https://github.com/NousResearch/hermes-agent/archive/refs/tags/v${HERMES_VERSION}.tar.gz"; \
+    for attempt in 1 2 3 4 5; do \
+      curl -fL --connect-timeout 30 --retry 3 --retry-delay 5 -o "$hermes_archive" "$hermes_url" && break; \
+      rm -f "$hermes_archive"; \
+      if [ "$attempt" = "5" ]; then exit 1; fi; \
+      sleep $((attempt * 5)); \
+    done; \
     python -m pip install --no-cache-dir $pip_index_args \
-      "hermes-agent @ https://github.com/NousResearch/hermes-agent/archive/refs/tags/v${HERMES_VERSION}.tar.gz" \
+      "$hermes_archive" \
       "aiohttp==3.13.3" \
       "mcp" \
-      "ddgs"
+      "ddgs"; \
+    rm -f "$hermes_archive"
 
 COPY mia_plugins /opt/mia-plugins/mia_plugins
 COPY entrypoint.sh /usr/local/bin/mia-hermes-entrypoint
