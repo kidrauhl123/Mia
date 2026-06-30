@@ -1,0 +1,119 @@
+/* JungUI GSAP large CTA, loaded last so the final action remains a real button. */
+.final-experience-cta {
+  --font: var(--app-font);
+  --mia-gsap-stage: #ffffff;
+  --mia-gsap-ink: #151513;
+  background: #ffffff;
+  isolation: isolate;
+  overflow: visible;
+  padding: clamp(14px, 2vw, 24px) 0 clamp(18px, 2.4vw, 30px);
+  position: relative;
+  z-index: 20;
+}
+
+.final-experience-cta .wrap {
+  display: grid;
+  overflow: visible;
+  place-items: center;
+}
+
+.final-experience-cta .gsap-mini-stage,
+.final-experience-cta .gsap-large-stage {
+  width: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  overflow: visible;
+}
+
+.final-experience-cta .gsap-large-stage {
+  min-height: 112px;
+  background: var(--mia-gsap-stage);
+  color: var(--mia-gsap-ink);
+  position: relative;
+  z-index: 1;
+}
+
+.final-experience-cta .gsap-svg-noise {
+  height: 0;
+  overflow: hidden;
+  position: absolute;
+  width: 0;
+}
+
+.final-experience-cta .gsap-large-wrap {
+  position: relative;
+  color: var(--mia-gsap-ink);
+  isolation: isolate;
+  overflow: visible;
+  z-index: 1;
+}
+
+.final-experience-cta .gsap-large-button {
+  align-items: center;
+  background:
+    linear-gradient(var(--mia-gsap-stage), var(--mia-gsap-stage)) padding-box,
+    var(--mia-gsap-ink) border-box;
+  background-color: var(--mia-gsap-stage);
+  border: 2px solid transparent;
+  border-radius: 100px;
+  box-shadow: inset 0 0 0 2px var(--mia-gsap-ink);
+  color: var(--mia-gsap-ink);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font);
+  font-size: 22px;
+  font-weight: 650;
+  gap: .32em;
+  justify-content: center;
+  letter-spacing: -.01em;
+  line-height: 1.05;
+  min-width: 220px;
+  overflow: hidden;
+  padding: 15px 24px;
+  position: relative;
+  text-decoration: none;
+  z-index: 1;
+}
+
+.final-experience-cta .gsap-large-word {
+  position: relative;
+  z-index: 3;
+  will-change: transform;
+}
+
+.final-experience-cta .gsap-large-word {
+  display: flex;
+  line-height: 0;
+}
+
+.final-experience-cta .gsap-large-flair {
+  left: 40%;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translateY(10px) scale(0);
+  transform-origin: 0 0;
+  z-index: 0;
+}
+
+.final-experience-cta .gsap-large-flair svg {
+  display: block;
+  transform: translate(-50%) translateY(-50%);
+}
+
+@media (max-width: 680px) {
+  .final-experience-cta {
+    padding: 12px 0 24px;
+  }
+
+  .final-experience-cta .gsap-large-stage {
+    min-height: 104px;
+  }
+
+  .final-experience-cta .gsap-large-button {
+    min-width: 196px;
+    font-size: 19px;
+    padding: 13px 20px;
+  }
+}

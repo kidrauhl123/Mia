@@ -80,13 +80,18 @@ body[data-palette="brand"] {
 }
 
 /* ---- hero stage ---- */
-.hero { isolation: isolate; z-index: 2; }
+.hero {
+  isolation: isolate;
+  z-index: 2;
+  background: #ffffff;
+}
 .hero-bg {
   position: absolute;
   inset: 0;
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
+  display: none;
 }
 .hg-mesh {
   position: absolute;
@@ -148,7 +153,7 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background: var(--amb, none);
-  opacity: 0.09;
+  opacity: 0;
 }
 /* unify section bases: let the ambient show through everywhere */
 section.block,

@@ -10,7 +10,12 @@
    the background snaps light->dark instantly, then the heading fades
    in dead-centre while the card flies off the top.
    ============================================================ */
-.hero-track { position: relative; height: 720vh; }
+.hero-track {
+  position: relative;
+  height: 910vh;
+  background: #ffffff;
+  z-index: 0;
+}
 .hero.hero-pin {
   position: sticky;
   top: 0;
@@ -35,6 +40,9 @@
   flex: 0 1 var(--mia-window-width);
 }
 .hero.hero-pin .hero-product .miawin-grid { height: var(--mia-window-height); }
+.hero.hero-pin .hero-product .hero-sky-window .miawin-grid {
+  height: var(--hero-sky-window-height);
+}
 /* artistic gradient only at the TOP; it fades to the white homepage below,
    so the snap reads as a clean WHITE -> dark (not a gradient) */
 .hero.hero-pin .hg-mesh,
@@ -90,6 +98,263 @@
 .hero-demo .mw-rail-btn { color: rgba(255,255,255,0.62); }
 .hero-demo .mw-rail-btn.on { background: rgba(255,255,255,0.16); color: #ffffff; }
 .hero-demo .mw-rail-div { background: rgba(255,255,255,0.18); }
+.hero-demo--squad {
+  inset: 0;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100svh;
+  opacity: 0;
+  transform: none;
+  perspective: 1200px;
+  overflow: hidden;
+}
+.squad-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+}
+.squad-flip-stage {
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+  width: 100%;
+  will-change: transform;
+}
+.squad-flip-face {
+  align-items: center;
+  backface-visibility: hidden;
+  display: flex;
+  height: 100%;
+  justify-content: center;
+  left: 0;
+  overflow: hidden;
+  position: absolute;
+  top: 0;
+  transform-style: preserve-3d;
+  width: 100%;
+}
+.squad-flip-face--back { transform: rotateY(180deg); }
+.squad-card-scene {
+  height: 100%;
+  position: relative;
+  width: 100%;
+}
+.squad-service-layer {
+  align-items: center;
+  backface-visibility: hidden;
+  display: flex;
+  height: 100svh;
+  justify-content: center;
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 100%;
+  will-change: transform;
+}
+.squad-stack-hit {
+  color: inherit;
+  display: block;
+  pointer-events: auto;
+}
+.squad-stack-nudge {
+  display: block;
+  will-change: transform;
+}
+.squad-card {
+  --card-bg: #fd4401;
+  --card-title: #fff2b7;
+  --card-text: #ffffff;
+  align-items: stretch;
+  background: var(--card-bg);
+  color: var(--card-text);
+  width: 388px;
+  height: 424px;
+  box-sizing: border-box;
+  border-radius: 26px;
+  padding: 44px 38px 36px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  border: 0;
+  box-shadow: 0 24px 70px rgba(20,24,40,0.22);
+  text-align: left;
+  transform-origin: center;
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+}
+.squad-card > * {
+  position: relative;
+  z-index: 1;
+}
+.squad-stack-title {
+  color: var(--card-title);
+  display: block;
+  font-family: var(--serif);
+  font-size: 42px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 0.92;
+  margin: 0;
+  max-width: 8.4ch;
+  text-wrap: balance;
+}
+.squad-stack-desc {
+  color: var(--card-text);
+  display: block;
+  font-size: 14.5px;
+  font-weight: 680;
+  line-height: 1.5;
+  letter-spacing: 0;
+  max-width: 286px;
+  opacity: 0.9;
+  text-wrap: balance;
+}
+.squad-stack-art {
+  color: var(--card-title);
+  display: block;
+  height: 142px;
+  margin: 10px 0 12px;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+.squad-stack-art svg {
+  display: block;
+  height: 100%;
+  overflow: visible;
+  width: 100%;
+}
+.squad-viz-bars rect {
+  animation: squad-bars 2.4s ease-in-out infinite;
+  fill: currentColor;
+  opacity: 0.92;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.squad-viz-dots circle {
+  animation: squad-dot-pulse 2.2s ease-in-out infinite;
+  fill: currentColor;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.squad-viz-ripple path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+.squad-viz-type text {
+  fill: currentColor;
+  font: 760 20px/1 var(--mono);
+  letter-spacing: 0.02em;
+}
+.squad-viz-orbit .orbit-ring {
+  animation: squad-orbit-spin 7s linear infinite;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 3;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.squad-viz-orbit .orbit-ring:nth-child(2) { animation-duration: 11s; animation-direction: reverse; opacity: 0.72; }
+.squad-viz-orbit .orbit-dot { fill: currentColor; opacity: 0.92; }
+.squad-card--cover {
+  align-items: center;
+  background: #fd4401;
+  color: #ffffff;
+  height: 424px;
+  left: 50%;
+  padding: 42px 38px 36px;
+  position: absolute;
+  text-align: center;
+  top: calc(100svh + 24px);
+  transform: translateX(-50%);
+  width: 388px;
+  z-index: 9;
+}
+.squad-cover-title {
+  color: #fff2b7;
+  display: block;
+  font-family: var(--serif);
+  font-size: 38px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  max-width: 8ch;
+  text-wrap: balance;
+}
+.squad-cover-age {
+  color: rgba(255,255,255,0.78);
+  display: block;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 760;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.squad-cover-art {
+  align-items: center;
+  display: flex;
+  height: 126px;
+  justify-content: center;
+  width: 100%;
+}
+.squad-cover-art--mia img {
+  border-radius: 29px;
+  display: block;
+  height: 104px;
+  object-fit: contain;
+  width: 104px;
+}
+.squad-cover-copy {
+  color: rgba(255,255,255,0.82);
+  display: block;
+  font-size: 18px;
+  font-weight: 820;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+  max-width: 270px;
+}
+.squad-card--mint {
+  --card-bg: #00b351;
+  --card-title: #fdcb40;
+  --card-text: #ffffff;
+  z-index: 5;
+}
+.squad-card--violet {
+  --card-bg: #2668fd;
+  --card-title: #fdcb40;
+  --card-text: #ffffff;
+  z-index: 4;
+}
+.squad-card--paper {
+  --card-bg: #f5f3ef;
+  --card-title: #2b2723;
+  --card-text: rgba(43,39,35,0.68);
+  z-index: 3;
+}
+.squad-card--amber {
+  --card-bg: #fd4401;
+  --card-title: #fff2b7;
+  --card-text: #ffffff;
+  z-index: 2;
+}
+@keyframes squad-bars {
+  0%, 100% { transform: scaleY(0.34); }
+  45% { transform: scaleY(0.96); }
+  70% { transform: scaleY(0.54); }
+}
+@keyframes squad-dot-pulse {
+  0%, 100% { opacity: 0.18; transform: scale(0.82); }
+  50% { opacity: 0.95; transform: scale(1); }
+}
+@keyframes squad-orbit-spin {
+  to { transform: rotate(360deg); }
+}
 .hero-pin-heading .hph-kicker {
   color: rgba(255,255,255,0.5);
   font-size: 14px; font-weight: 600; letter-spacing: 0.03em;
@@ -136,6 +401,18 @@
   .hero.hero-pin { position: static; height: auto; min-height: 0; padding: 92px 0 60px; display: block; }
   .hero-snapbg { display: none; }
   .hero-pin-heading { position: static; opacity: 1; padding: 60px 24px 10px; }
+  .hero-demo--squad {
+    position: relative;
+    left: auto;
+    top: auto;
+    width: min(820px, 92vw);
+    height: 520px;
+    margin: 28px auto 70px;
+    opacity: 1;
+    transform: none;
+  }
+  .squad-card--cover { opacity: 0; }
+  .squad-card[data-squad-card] { opacity: 1; }
 }
 /* fixed full-viewport colour layer: the deep, high-impact dark section behind
    the scrollytelling (Phantom-style light → dark journey). Fades in over #work. */
@@ -437,7 +714,7 @@
 }
 
 /* the journey ends on white */
-.footer { background: #ffffff; border-top-color: rgba(40,30,90,0.08); }
+.footer { background: #ffffff; border-top: 0; }
 
 /* ============================================================
    CARD MODE — steps 3 & 4 drop the app chrome and show a clean

@@ -5,18 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f6f5f1">
 <meta name="apple-mobile-web-app-title" content="Mia">
-<meta name="description" content="Mia 让你在一个地方调用不同 AI，处理学习、创作、求职、日程和灵感整理。多端同步，多模型可选。">
-<title>Mia — 不同 AI，处理不同事</title>
+<meta name="description" content="Mia 是每个人的 Agent 之家。给 Agent 安放人设、记忆、模型和权限，在桌面端把学习、创作、求职和日程推进下去。">
+<title>Mia — 每个人的 Agent 之家</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/mia.css?v=20260625-realchat">
-<link rel="stylesheet" href="assets/mia-gradient.css?v=20260625-realchat">
-<link rel="stylesheet" href="assets/mia-scroll.css?v=20260625-realchat">
-<link rel="stylesheet" href="assets/mia-feature.css?v=20260625-realchat">
-<link rel="stylesheet" href="assets/mia-mobile.css?v=20260625-realchat">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/mia.css?v=20260630-squad-stack-24">
+<link rel="stylesheet" href="assets/mia-gradient.css?v=20260630-squad-stack-24">
+<link rel="stylesheet" href="assets/mia-scroll.css?v=20260630-squad-stack-24">
+<link rel="stylesheet" href="assets/mia-feature.css?v=20260630-squad-stack-24">
+<link rel="stylesheet" href="assets/mia-mobile.css?v=20260630-squad-stack-24">
+<link rel="stylesheet" href="assets/mia-cta.css?v=20260630-squad-stack-24">
 </head>
 <body data-palette="sunset" data-grad="medium">
 <div class="work-bg" id="workBg" aria-hidden="true"></div>
@@ -50,8 +51,8 @@
       <source src="assets/mia-logo-anim.mp4" type="video/mp4">
     </video>
     <h1 class="hero-sub reveal">MIA</h1>
-    <p class="hero-line reveal" style="--d:.06s">不同 AI，处理不同事。</p>
-    <div class="eyebrow reveal" style="--d:.12s">学习、创作、求职、日程和灵感整理</div>
+    <p class="hero-line reveal" style="--d:.06s">每个人的 Agent 之家。</p>
+    <div class="eyebrow reveal" style="--d:.12s">人设、记忆、模型、权限，各自归位</div>
     <div class="hero-ctas reveal" style="--d:.22s">
       <div class="download-cluster" data-download-cluster>
         <a class="btn btn-primary" data-primary-download href="/downloads/mia-macos-apple-silicon-latest.dmg" download="Mia-0.1.27-Apple-Silicon.dmg">
@@ -75,14 +76,16 @@
           </div>
         </div>
       </div>
-      <a class="btn btn-ghost" href="/app/">
-        打开网页版
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7m0 0H8m9 0v9"/></svg>
-      </a>
     </div>
     </div>
 
     <div class="hero-product reveal" style="--d:.2s">
+    <div class="hero-sky-frame programmatic-sky" data-programmatic-sky data-sky-warmth="0.7" data-sky-clouds="0.23" data-sky-drift="0.4" aria-label="Mia Agent 会话示意">
+      <canvas class="programmatic-sky__canvas"></canvas>
+      <div class="programmatic-sky__fallback"></div>
+      <div class="programmatic-sky__haze"></div>
+      <div class="programmatic-sky__grain"></div>
+      <div class="hero-sky-window">
     <div class="miawin" id="heroWin">
       <div class="miawin-grid">
         <!-- rail -->
@@ -117,39 +120,39 @@
           </div>
           <div class="mw-search"><span>⌕</span>搜索</div>
           <div class="mw-rows">
-            <div class="mw-row on">
-              <div class="mw-av av av--teal"><svg viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/></svg></div>
-              <div class="mw-row-main">
-                <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">阿研</span><span class="mw-role">学习</span></span><span class="mw-time">现在</span></div>
-                <div class="mw-prev">资料重点已经整理好 →</div>
-              </div>
-            </div>
-            <div class="mw-row">
+            <div class="mw-row on" data-hero-conversation="research" role="button" tabindex="0" aria-pressed="true">
               <div class="mw-av av av--indigo"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.2"/><path d="M20.5 20.5 16 16"/></svg></div>
               <div class="mw-row-main">
-                <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">阿文</span><span class="mw-role">写作</span></span><span class="mw-time">2 分钟</span></div>
-                <div class="mw-row-top"><span class="mw-prev">展示稿三版开头给你了…</span><span class="mw-badge">2</span></div>
+                <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">阿研</span><span class="mw-role">研究</span></span><span class="mw-time">现在</span></div>
+                <div class="mw-prev">资料已整理成展示结构 →</div>
               </div>
             </div>
-            <div class="mw-row">
+            <div class="mw-row" data-hero-conversation="writing" role="button" tabindex="0" aria-pressed="false">
+              <div class="mw-av av av--amber"><svg viewBox="0 0 24 24"><path d="M14.5 5.5l4 4"/><path d="M4 20l1-4L16 5a2.12 2.12 0 0 1 3 3L8 19l-4 1z"/></svg></div>
+              <div class="mw-row-main">
+                <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">阿文</span><span class="mw-role">写作</span></span><span class="mw-time">2 分钟</span></div>
+                <div class="mw-row-top"><span class="mw-prev">开头语气改了三版…</span><span class="mw-badge">2</span></div>
+              </div>
+            </div>
+            <div class="mw-row" data-hero-conversation="career" role="button" tabindex="0" aria-pressed="false">
               <div class="mw-av av av--violet"><svg viewBox="0 0 24 24"><path d="M5 20V13"/><path d="M10 20V6"/><path d="M15 20v-9"/><path d="M20 20V9"/></svg></div>
               <div class="mw-row-main">
                 <div class="mw-row-top"><span class="mw-name">求职小组</span><span class="mw-time">10:24</span></div>
-                <div class="mw-prev">简历项目经历更清楚了</div>
+                <div class="mw-prev">简历项目经历待确认</div>
               </div>
             </div>
-            <div class="mw-row">
+            <div class="mw-row" data-hero-conversation="creative" role="button" tabindex="0" aria-pressed="false">
               <div class="mw-av av av--rose"><svg viewBox="0 0 24 24"><path d="M12 4l1.7 4.8L18.5 10l-4.8 1.7L12 16.5l-1.7-4.8L5.5 10l4.8-1.7z"/></svg></div>
               <div class="mw-row-main">
                 <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">小映</span><span class="mw-role">创意</span></span><span class="mw-time">昨天</span></div>
-                <div class="mw-prev">封面和标题给你三版</div>
+                <div class="mw-prev">封面方向已收敛</div>
               </div>
             </div>
-            <div class="mw-row">
-              <div class="mw-av av av--amber"><svg viewBox="0 0 24 24"><path d="M14.5 5.5l4 4"/><path d="M4 20l1-4L16 5a2.12 2.12 0 0 1 3 3L8 19l-4 1z"/></svg></div>
+            <div class="mw-row" data-hero-conversation="schedule" role="button" tabindex="0" aria-pressed="false">
+              <div class="mw-av av av--amber"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18 M8 3v4 M16 3v4"/></svg></div>
               <div class="mw-row-main">
                 <div class="mw-row-top"><span class="mw-name-wrap"><span class="mw-name">小序</span><span class="mw-role">计划</span></span><span class="mw-time">昨天</span></div>
-                <div class="mw-prev">今晚 22:00 复习提醒已排好</div>
+                <div class="mw-prev">明晚 22:00 已提醒</div>
               </div>
             </div>
           </div>
@@ -158,11 +161,10 @@
         <!-- chat -->
         <div class="mw-chat">
           <div class="mw-top">
-            <div class="mw-av av av--teal"><svg viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/></svg></div>
+            <div class="mw-av av av--indigo" id="heroTopAvatar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.2"/><path d="M20.5 20.5 16 16"/></svg></div>
             <div>
-              <div class="mw-top-name">Mia 学习</div>
-              <div class="mw-top-meta">
-</div>
+              <div class="mw-top-name" id="heroTopName">阿研</div>
+              <div class="mw-top-meta" id="heroTopMeta">研究助理 · 独立记忆</div>
             </div>
           </div>
           <div class="mw-body" id="heroBody"><!-- messages injected by JS --></div>
@@ -172,13 +174,18 @@
               <span class="field" id="heroField">输入消息,Enter 发送…</span>
               <span class="send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M17 7H9M17 7v8"/></svg></span>
             </div>
-            <div class="mw-composer-foot">
-              <span class="mw-chip"><svg viewBox="0 0 24 24" width="12" height="12" fill="#d97706" style="flex:none"><path clip-rule="evenodd" fill-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg>Claude Opus 4.8</span>
-              <span>·</span><span>Medium</span>
-              <span>·</span><span class="mw-chip">Ask</span>
+            <div class="mw-composer-foot" id="heroComposerFoot">
+              <span class="mw-chip" id="heroModelChip">
+                <img class="mw-model-icon" id="heroModelIcon" src="assets/mia-logo.png" alt="">
+                <span id="heroModelLabel">Auto</span>
+              </span>
+              <span data-composer-control>·</span><span id="heroEffortLabel" data-composer-control>Medium</span>
+              <span data-composer-control>·</span><span class="mw-chip" id="heroPermissionLabel" data-composer-control>Ask</span>
             </div>
           </div>
         </div>
+      </div>
+    </div>
       </div>
     </div>
 
@@ -188,42 +195,73 @@
     </div>
   </div>
   <div class="hero-pin-heading" id="heroPinHeading">
-    <h2>从资料到讲稿，到待办清单。</h2>
+    <h2>一个人开口，一群 AI 开工。</h2>
   </div>
 
-  <!-- act 2: group-relay demo card, rides on the dark purple -->
-  <div class="hero-demo" id="heroDemo" aria-hidden="true">
-    <div class="miawin miawin--2">
-      <div class="miawin-grid">
-        <div class="mw-rail">
-          <div class="mw-traffic"><i></i><i></i><i></i></div>
-          <div class="mw-rail-avatar">B</div>
-          <div class="mw-rail-div"></div>
-          <div class="mw-rail-btn on">
-            <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          </div>
-          <div class="mw-rail-btn">
-            <svg viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"/></svg>
-          </div>
-          <div class="mw-rail-btn">
-            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18 M8 3v4 M16 3v4"/></svg>
-          </div>
-          <div class="mw-rail-sp"></div>
+  <!-- act 2: Mia work-squad card stack, rides on the dark purple -->
+  <div class="hero-demo hero-demo--squad" id="heroDemo" aria-hidden="true">
+    <div class="squad-stack" id="squadStack">
+      <div class="squad-flip-stage" data-squad-flip-stage>
+        <div class="squad-flip-face squad-flip-face--front">
+          <article class="squad-card squad-card--cover" data-squad-cover>
+            <span class="squad-cover-title">Mia Work Squad</span>
+            <span class="squad-cover-age">Desktop Agent Hub</span>
+            <span class="squad-cover-art squad-cover-art--mia">
+              <img src="assets/mia-logo.png" alt="">
+            </span>
+            <span class="squad-cover-copy">Agent之家</span>
+          </article>
         </div>
-        <div class="mw-chat">
-          <div class="mw-top">
-            <div class="mw-av av av--violet"><svg viewBox="0 0 24 24"><path d="M5 20V13"/><path d="M10 20V6"/><path d="M15 20v-9"/><path d="M20 20V9"/></svg></div>
-            <div>
-              <div class="mw-top-name">展示准备小组</div>
-              <div class="mw-top-meta">你 + 3 位 · 周五前交稿</div>
+
+        <div class="squad-flip-face squad-flip-face--back">
+          <div class="squad-card-scene">
+            <div class="squad-service-layer" data-squad-layer style="z-index:5">
+              <div class="squad-stack-hit">
+                <div class="squad-stack-nudge" data-squad-nudge>
+                  <article class="squad-card squad-card--mint" data-squad-card>
+                    <span class="squad-stack-title">Bot Contacts</span>
+                    <span class="squad-stack-art" data-squad-viz="bars" aria-hidden="true"></span>
+                    <span class="squad-stack-desc">赋予你的 Agent 多个人设，以及记忆隔离。</span>
+                  </article>
+                </div>
+              </div>
             </div>
-            <span class="mw-tag" style="margin-left:auto;">群聊</span>
-          </div>
-          <div class="mw-body">
-            <div class="mw-msg me"><div><div class="mw-bubble me"><span class="mention">@阿研</span> 整理文献重点,<span class="mention">@阿文</span> 压一版 5 分钟讲稿</div></div></div>
-            <div class="mw-msg"><div class="mw-av av av--indigo"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.2"/><path d="M20.5 20.5 16 16"/></svg></div><div><div class="demo-sender">阿研 · 资料</div><div class="mw-bubble">三篇文章的核心观点和可引用句子整理好了。</div></div></div>
-            <div class="mw-msg"><div class="mw-av av av--violet"><svg viewBox="0 0 24 24"><path d="M5 20V13"/><path d="M10 20V6"/><path d="M15 20v-9"/><path d="M20 20V9"/></svg></div><div><div class="demo-sender">阿析 · 数据</div><div class="mw-bubble">问卷数据我做成两张图，结论会更直观。</div></div></div>
-            <div class="mw-msg"><div class="mw-av av av--teal"><svg viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/></svg></div><div><div class="demo-sender">阿文 · 写作</div><div class="mw-bubble">讲稿已经压到 5 分钟，结尾更有记忆点。</div></div></div>
+
+            <div class="squad-service-layer" data-squad-layer style="z-index:4">
+              <div class="squad-stack-hit">
+                <div class="squad-stack-nudge" data-squad-nudge>
+                  <article class="squad-card squad-card--violet" data-squad-card>
+                    <span class="squad-stack-title">Group Dispatch</span>
+                    <span class="squad-stack-art" data-squad-viz="dots" aria-hidden="true"></span>
+                    <span class="squad-stack-desc">在群聊里，有专门的 AI 协调者，帮你分工，各个 Agent 各司其职。</span>
+                  </article>
+                </div>
+              </div>
+            </div>
+
+            <div class="squad-service-layer" data-squad-layer style="z-index:3">
+              <div class="squad-stack-hit">
+                <div class="squad-stack-nudge" data-squad-nudge>
+                  <article class="squad-card squad-card--paper" data-squad-card>
+                    <span class="squad-stack-title">Local Runs</span>
+                    <span class="squad-stack-art" data-squad-viz="type" data-squad-type="> npm test && git diff_" aria-hidden="true"></span>
+                    <span class="squad-stack-desc">读文件、跑命令、写代码都发生在你的桌面环境里。项目、CLI、工作区留在本机。</span>
+                  </article>
+                </div>
+              </div>
+            </div>
+
+            <div class="squad-service-layer" data-squad-layer style="z-index:2">
+              <div class="squad-stack-hit">
+                <div class="squad-stack-nudge" data-squad-nudge>
+                  <article class="squad-card squad-card--amber" data-squad-card>
+                    <span class="squad-stack-title">Agent Controls</span>
+                    <span class="squad-stack-art" data-squad-viz="orbit" aria-hidden="true"></span>
+                    <span class="squad-stack-desc">模型、推理强度、权限等级，随时调整。</span>
+                  </article>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -263,6 +301,88 @@
   </div>
 </header>
 </div>
+
+<section class="final-experience-cta" aria-label="立即体验 Mia">
+  <div class="wrap">
+    <div class="gsap-large-stage">
+      <svg class="gsap-svg-noise" aria-hidden="true">
+        <defs>
+          <image id="jungui-gsap-svg-noise" width="500" height="500" href="assets/gsap-noise.png" />
+        </defs>
+      </svg>
+      <div class="gsap-large-wrap" data-gsap-large-button>
+        <span class="gsap-large-flair gsap-large-flair--circles">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" width="23" height="23" viewBox="0 0 23 23" aria-hidden="true">
+            <path fill="url(#jungui-gsap-circles-gradient)" fill-rule="evenodd" d="M7.959 10.053a4.368 4.368 0 0 1-.889-.17c-2.327-.7-3.64-3.174-2.933-5.527C4.845 2.002 7.305.662 9.632 1.36c2.327.7 3.64 3.174 2.933 5.528-.06.197-.131.387-.214.57l.46.138c.032-.198.078-.396.137-.593.707-2.353 3.167-3.694 5.494-2.995 2.328.7 3.64 3.175 2.933 5.528-.707 2.353-3.167 3.694-5.494 2.995a4.377 4.377 0 0 1-.745-.3l-.1.333c.261.029.525.082.786.16 2.328.7 3.64 3.175 2.933 5.528-.707 2.353-3.167 3.694-5.494 2.995-2.327-.7-3.64-3.175-2.933-5.528a4.51 4.51 0 0 1 .35-.845l-.54-.163c-.03.265-.085.531-.164.796-.708 2.353-3.168 3.694-5.495 2.994-2.327-.7-3.64-3.174-2.933-5.527.708-2.354 3.168-3.694 5.495-2.995.295.089.574.206.835.349l.083-.276Z" clip-rule="evenodd" />
+            <path fill="url(#jungui-gsap-circles-noise)" fill-opacity=".6" fill-rule="evenodd" d="M7.959 10.053a4.368 4.368 0 0 1-.889-.17c-2.327-.7-3.64-3.174-2.933-5.527C4.845 2.002 7.305.662 9.632 1.36c2.327.7 3.64 3.174 2.933 5.528-.06.197-.131.387-.214.57l.46.138c.032-.198.078-.396.137-.593.707-2.353 3.167-3.694 5.494-2.995 2.328.7 3.64 3.175 2.933 5.528-.707 2.353-3.167 3.694-5.494 2.995a4.377 4.377 0 0 1-.745-.3l-.1.333c.261.029.525.082.786.16 2.328.7 3.64 3.175 2.933 5.528-.707 2.353-3.167 3.694-5.494 2.995-2.327-.7-3.64-3.175-2.933-5.528a4.51 4.51 0 0 1 .35-.845l-.54-.163c-.03.265-.085.531-.164.796-.708 2.353-3.168 3.694-5.495 2.994-2.327-.7-3.64-3.174-2.933-5.527.708-2.354 3.168-3.694 5.495-2.995.295.089.574.206.835.349l.083-.276Z" clip-rule="evenodd" />
+            <defs>
+              <radialGradient id="jungui-gsap-circles-gradient" cx="0" cy="0" r="1" gradientTransform="rotate(-31.559 22.628 3.049) scale(17.064 11.3981)" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#FFD9B0" />
+                <stop offset=".807" stop-color="#FD9F3B" />
+                <stop offset="1" stop-color="#FF8709" />
+              </radialGradient>
+              <pattern id="jungui-gsap-circles-noise" width="5.556" height="5.556" patternContentUnits="objectBoundingBox">
+                <use href="#jungui-gsap-svg-noise" transform="scale(.01111)" />
+              </pattern>
+            </defs>
+          </svg>
+        </span>
+        <span class="gsap-large-flair gsap-large-flair--windmill">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" width="62" height="63" viewBox="0 0 62 63" aria-hidden="true">
+            <path fill="url(#jungui-gsap-windmill-gradient)" d="m34.246 27.525 10.197-13.201a.26.26 0 0 1 .362-.047L61.76 27.372a.26.26 0 0 1 .046.366c-7.386 9.336-20.882 11.074-30.391 3.919l16.975 13.112c.112.087.133.25.046.362L35.34 62.085a.26.26 0 0 1-.365.046c-9.41-7.444-11.1-21.093-3.746-30.616l-13.255 17.16a.259.259 0 0 1-.362.046L.658 35.626a.26.26 0 0 1-.046-.365c7.386-9.337 20.881-11.074 30.391-3.92l-16.935-13.08a.259.259 0 0 1-.047-.363L27.117.944a.26.26 0 0 1 .365-.046c8.08 6.393 10.469 17.361 6.326 26.362-.129.278.25.508.439.264l-.001.001Z" />
+            <path fill="url(#jungui-gsap-windmill-noise)" fill-opacity=".6" d="m34.246 27.525 10.197-13.201a.26.26 0 0 1 .362-.047L61.76 27.372a.26.26 0 0 1 .046.366c-7.386 9.336-20.882 11.074-30.391 3.919l16.975 13.112c.112.087.133.25.046.362L35.34 62.085a.26.26 0 0 1-.365.046c-9.41-7.444-11.1-21.093-3.746-30.616l-13.255 17.16a.259.259 0 0 1-.362.046L.658 35.626a.26.26 0 0 1-.046-.365c7.386-9.337 20.881-11.074 30.391-3.92l-16.935-13.08a.259.259 0 0 1-.047-.363L27.117.944a.26.26 0 0 1 .365-.046c8.08 6.393 10.469 17.361 6.326 26.362-.129.278.25.508.439.264l-.001.001Z" />
+            <defs>
+              <radialGradient id="jungui-gsap-windmill-gradient" cx="0" cy="0" r="1" gradientTransform="rotate(-142.317 24.316 16.274) scale(34.5669)" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#F0FCFF" />
+                <stop offset=".672" stop-color="#9BEDFF" />
+                <stop offset=".76" stop-color="#98ECFF" />
+                <stop offset=".849" stop-color="#5BE1FF" />
+                <stop offset=".948" stop-color="#00BAE2" />
+              </radialGradient>
+              <pattern id="jungui-gsap-windmill-noise" width="2.279" height="2.279" patternContentUnits="objectBoundingBox">
+                <use href="#jungui-gsap-svg-noise" transform="scale(.00456)" />
+              </pattern>
+            </defs>
+          </svg>
+        </span>
+        <span class="gsap-large-flair gsap-large-flair--square">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" width="19" height="19" viewBox="0 0 19 19" aria-hidden="true">
+            <path fill="url(#jungui-gsap-square-gradient)" d="M.27 7.683a1 1 0 0 1 .372-1.364L10.995.409a1 1 0 0 1 1.364.373l5.91 10.352a1 1 0 0 1-.373 1.365l-10.353 5.91a1 1 0 0 1-1.364-.373L.27 7.683Z" />
+            <path fill="url(#jungui-gsap-square-noise)" fill-opacity=".6" d="M.27 7.683a1 1 0 0 1 .372-1.364L10.995.409a1 1 0 0 1 1.364.373l5.91 10.352a1 1 0 0 1-.373 1.365l-10.353 5.91a1 1 0 0 1-1.364-.373L.27 7.683Z" />
+            <defs>
+              <linearGradient id="jungui-gsap-square-gradient" x1="24.297" x2="3.329" y1="7.113" y2="17.933" gradientUnits="userSpaceOnUse">
+                <stop offset=".144" stop-color="#FFE9FE" />
+                <stop offset="1" stop-color="#FF96F9" />
+              </linearGradient>
+              <pattern id="jungui-gsap-square-noise" width="5.08" height="5.08" patternContentUnits="objectBoundingBox">
+                <use href="#jungui-gsap-svg-noise" transform="scale(.01016)" />
+              </pattern>
+            </defs>
+          </svg>
+        </span>
+        <span class="gsap-large-flair gsap-large-flair--star">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+            <path fill="url(#jungui-gsap-star-gradient)" fill-rule="evenodd" d="m6.324 7.326-4.936-.849a1.078 1.078 0 0 0-.374 2.124l4.93.887-4.091 2.89a1.078 1.078 0 0 0 1.238 1.766l4.112-2.858-.849 4.936a1.078 1.078 0 0 0 2.124.374l.887-4.93 2.89 4.09a1.078 1.078 0 0 0 1.766-1.238l-2.858-4.111 4.936.848a1.078 1.078 0 0 0 .374-2.124l-4.93-.887 4.09-2.89a1.078 1.078 0 0 0-1.238-1.766l-4.111 2.858.848-4.935a1.078 1.078 0 0 0-2.124-.374l-.886 4.93-2.89-4.091a1.078 1.078 0 0 0-1.766 1.238l2.858 4.112Z" clip-rule="evenodd" />
+            <path fill="url(#jungui-gsap-star-noise)" fill-opacity=".6" fill-rule="evenodd" d="m6.324 7.326-4.936-.849a1.078 1.078 0 0 0-.374 2.124l4.93.887-4.091 2.89a1.078 1.078 0 0 0 1.238 1.766l4.112-2.858-.849 4.936a1.078 1.078 0 0 0 2.124.374l.887-4.93 2.89 4.09a1.078 1.078 0 0 0 1.766-1.238l-2.858-4.111 4.936.848a1.078 1.078 0 0 0 .374-2.124l-4.93-.887 4.09-2.89a1.078 1.078 0 0 0-1.238-1.766l-4.111 2.858.848-4.935a1.078 1.078 0 0 0-2.124-.374l-.886 4.93-2.89-4.091a1.078 1.078 0 0 0-1.766 1.238l2.858 4.112Z" clip-rule="evenodd" style="mix-blend-mode:multiply" />
+            <defs>
+              <linearGradient id="jungui-gsap-star-gradient" x1="24.729" x2="25.351" y1="8.665" y2="20.075" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#0AE448" />
+                <stop offset="1" stop-color="#0085D0" />
+              </linearGradient>
+              <pattern id="jungui-gsap-star-noise" width="11.452" height="11.452" patternContentUnits="objectBoundingBox">
+                <use href="#jungui-gsap-svg-noise" transform="scale(.0229)" />
+              </pattern>
+            </defs>
+          </svg>
+        </span>
+        <a class="gsap-large-button" data-primary-download href="/downloads/mia-macos-apple-silicon-latest.dmg" download="Mia-0.1.27-Apple-Silicon.dmg">
+          <span class="gsap-large-word" data-word="get">立即体验</span>
+          <span class="gsap-large-word" data-word="gsap">MIA</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- ============ COLLAB + CONTROL (merged) ============ -->
 <section class="block" id="group" hidden>
@@ -393,7 +513,11 @@
   </div>
 </footer>
 
-<script src="assets/mia.js?v=20260625-realchat"></script>
-<script src="assets/mia-scroll.js?v=20260625-realchat"></script>
+<script src="assets/vendor/gsap.min.js?v=20260630-squad-stack-24"></script>
+<script src="assets/vendor/CustomEase.min.js?v=20260630-squad-stack-24"></script>
+<script src="assets/vendor/ScrollTrigger.min.js?v=20260630-squad-stack-24"></script>
+<script src="assets/programmatic-sky.js?v=20260630-squad-stack-24"></script>
+<script src="assets/mia.js?v=20260630-squad-stack-24"></script>
+<script src="assets/mia-scroll.js?v=20260630-squad-stack-24"></script>
 </body>
 </html>

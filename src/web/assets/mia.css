@@ -48,6 +48,8 @@
 
   --app-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC",
     "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --serif: "Fraunces", "Songti SC", "STSong", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
   --maxw: 1160px;
   --radius: 22px;
@@ -390,6 +392,83 @@ h1.hero-title {
   max-width: var(--mia-window-width);
 }
 .hero-product .miawin { width: 100%; }
+.hero-sky-frame {
+  width: 100%;
+  height: var(--mia-window-height);
+  border-radius: var(--mia-window-radius);
+  box-shadow: var(--shadow-window);
+  overflow: hidden;
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 72% 18%, rgba(255,255,255,.72), transparent 22%),
+    radial-gradient(ellipse at 18% 54%, rgba(255,255,255,.5), transparent 24%),
+    linear-gradient(180deg, #f0c3a0 0%, #e2d3d4 56%, #f4f0ea 100%);
+}
+.programmatic-sky__canvas,
+.programmatic-sky__fallback,
+.programmatic-sky__haze,
+.programmatic-sky__grain {
+  position: absolute;
+  inset: 0;
+}
+.programmatic-sky__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+.programmatic-sky__fallback {
+  background:
+    radial-gradient(ellipse at 78% 18%, rgba(255,255,255,.74), transparent 18%),
+    radial-gradient(ellipse at 18% 52%, rgba(255,255,255,.6), transparent 18%),
+    radial-gradient(ellipse at 42% 38%, rgba(255,255,255,.68), transparent 22%),
+    radial-gradient(ellipse at 86% 68%, rgba(255,255,255,.5), transparent 24%),
+    linear-gradient(180deg, #ddab83 0%, #e3c5c2 48%, #f0eee7 100%);
+  filter: blur(.2px);
+  z-index: 0;
+}
+.programmatic-sky__haze {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.12), transparent 28%, rgba(255,255,255,.42) 100%),
+    radial-gradient(ellipse at 50% 112%, rgba(255,255,255,.54), transparent 42%);
+  pointer-events: none;
+  z-index: 2;
+}
+.programmatic-sky__grain {
+  background-image:
+    radial-gradient(circle at 15% 35%, rgba(255,255,255,.2) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 74% 52%, rgba(0,0,0,.07) 0 .8px, transparent 1.4px);
+  background-size: 31px 29px, 43px 37px;
+  mix-blend-mode: soft-light;
+  opacity: .18;
+  pointer-events: none;
+  z-index: 3;
+}
+.hero-sky-window {
+  --hero-sky-window-height: 540px;
+  --hero-sky-sidebar-width: 250px;
+  --mia-window-radius: 24px;
+  --mia-rail-corner-radius: 18px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  width: min(78%, 760px);
+  height: var(--hero-sky-window-height);
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+}
+.hero-sky-window .miawin {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  box-shadow: 0 34px 90px rgba(22,28,44,.18), 0 8px 26px rgba(22,28,44,.1);
+}
+.hero-sky-window .miawin-grid {
+  grid-template-columns: var(--hero-sky-sidebar-width) minmax(0, 1fr);
+  height: var(--hero-sky-window-height);
+}
 .floaty {
   position: absolute;
   width: var(--s, 92px);
@@ -535,6 +614,10 @@ h1.hero-title {
 }
 .mw-row.on { background: rgb(var(--accent-rgb) / 0.16); }
 .mw-row:hover:not(.on) { background: rgba(0,0,0,0.04); }
+.mw-row:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb) / 0.32);
+  outline-offset: 2px;
+}
 .mw-av {
   width: 38px; height: 38px; border-radius: 50%;
   background: var(--bg-soft) center/cover no-repeat;
@@ -659,6 +742,113 @@ h1.hero-title {
 .mw-typing i:nth-child(3) { animation-delay: 0.36s; }
 @keyframes typing { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
 
+/* desktop-style trace preview inside the hero conversation */
+.mw-msg--trace {
+  align-items: flex-start;
+}
+.mw-msg--trace > div:not(.mw-av) {
+  max-width: min(520px, calc(100% - 50px));
+}
+.mw-trace {
+  width: 100%;
+  min-width: min(430px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 9px;
+  border-radius: 14px;
+  border: 1px solid rgba(30, 32, 38, 0.07);
+  background: rgba(255,255,255,0.72);
+  box-shadow: 0 1px 2px rgba(16,20,39,0.04), inset 0 0 0 1px rgba(255,255,255,0.56);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: rgba(26,25,23,0.62);
+}
+.mw-trace-row {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.mw-trace-row.trace-anim-enter {
+  animation: traceRowEnter 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes traceRowEnter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.mw-trace-row > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 5px 2px 1px;
+  border-radius: 5px;
+  list-style: none;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.mw-trace-row > summary::-webkit-details-marker { display: none; }
+.mw-trace-chevron {
+  flex: 0 0 auto;
+  width: 10px;
+  color: rgba(26,25,23,0.26);
+  transition: transform 120ms ease;
+}
+.mw-trace-row[open] > summary > .mw-trace-chevron {
+  transform: rotate(90deg);
+}
+.mw-trace-glyph {
+  flex: 0 0 auto;
+  width: 10px;
+  text-align: center;
+  font-weight: 500;
+}
+.mw-trace-row[data-status="run"] > summary > .mw-trace-glyph {
+  color: var(--accent);
+  animation: traceGlyphPulse 1.2s ease-in-out infinite;
+}
+.mw-trace-row[data-status="ok"] > summary > .mw-trace-glyph {
+  color: #16a34a;
+}
+@keyframes traceGlyphPulse {
+  0%, 100% { opacity: 0.46; }
+  50% { opacity: 1; }
+}
+.mw-trace-cmd {
+  flex: 0 0 auto;
+  color: rgba(26,25,23,0.86);
+  font-weight: 500;
+}
+.mw-trace-arg {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(26,25,23,0.58);
+}
+.mw-trace-row[open] > summary > .mw-trace-arg {
+  display: none;
+}
+.mw-trace-meta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 10.5px;
+  color: rgba(26,25,23,0.36);
+}
+.mw-trace-body {
+  margin: 2px 0 6px 18px;
+  padding: 5px 8px;
+  border-left: 2px solid rgba(26,25,23,0.12);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 11px;
+  color: rgba(26,25,23,0.52);
+}
+
 /* permission banner inside chat */
 .mw-perm {
   flex: 0 0 auto;
@@ -704,8 +894,16 @@ h1.hero-title {
 .mw-composer .send { width: 32px; height: 32px; border-radius: 12px; background: var(--accent); color: #fff; display: grid; place-items: center; flex: none; }
 .mw-composer .send svg { width: 15px; height: 15px; }
 .mw-composer-foot { display: flex; align-items: center; gap: 6px; margin-top: 1px; font-size: 11px; color: var(--ink-3); }
+.mw-composer-foot[hidden] { display: none; }
 .mw-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 6px; background: rgba(0,0,0,0.045); }
 .mw-chip .swatch { width: 11px; height: 11px; border-radius: 3px; }
+.mw-model-icon {
+  width: 12px;
+  height: 12px;
+  object-fit: contain;
+  flex: none;
+  border-radius: 3px;
+}
 
 /* ============================================================
    SECTION SCAFFOLD
@@ -1019,11 +1217,42 @@ h2.h2 {
 .final-note { font-size: 13px; color: rgba(246,245,241,0.5); margin-top: 20px; }
 
 /* ============================================================
+   JUNGUI GSAP CTA
+   ============================================================ */
+.final-experience-cta {
+  --font: var(--app-font);
+  --mia-gsap-stage: #ffffff;
+  --mia-gsap-ink: #151513;
+  background: #ffffff;
+  padding: clamp(42px, 5vw, 72px) 0 clamp(44px, 5vw, 72px);
+}
+.final-experience-cta .wrap {
+  display: grid;
+  place-items: center;
+}
+.gsap-mini-stage,.gsap-large-stage{width:100%;display:grid;place-items:center;border-radius:22px;overflow:hidden}
+.gsap-large-stage{min-height:190px;background:var(--mia-gsap-stage, #ffe9fe);color:var(--mia-gsap-ink, #0e100f);position:relative}
+.gsap-svg-noise{height:0;overflow:hidden;position:absolute;width:0}
+.gsap-large-wrap{position:relative;color:var(--mia-gsap-ink, #0e100f);isolation:isolate}
+.gsap-large-button{
+  align-items:center;background:linear-gradient(var(--mia-gsap-stage, #ffe9fe),var(--mia-gsap-stage, #ffe9fe)) padding-box,var(--mia-gsap-ink, #0e100f) border-box;border:2px solid transparent;
+  border-radius:100px;color:var(--mia-gsap-ink, #0e100f);cursor:pointer;display:inline-flex;font-family:var(--font);font-size:22px;font-weight:650;
+  gap:.32em;justify-content:center;letter-spacing:-.01em;line-height:1.05;min-width:220px;overflow:hidden;padding:15px 24px;
+  position:relative;z-index:1;text-decoration:none;
+}
+.gsap-large-word{position:relative;z-index:3;will-change:transform}
+.gsap-large-word{display:flex;line-height:0}
+.gsap-large-flair{left:40%;pointer-events:none;position:absolute;top:50%;transform:translateY(10px) scale(0);transform-origin:0 0;z-index:0}
+.gsap-large-flair svg{display:block;transform:translate(-50%) translateY(-50%)}
+
+/* ============================================================
    FOOTER
    ============================================================ */
 .footer {
-  padding: 56px 0 64px;
-  border-top: 1px solid var(--line);
+  margin-top: 0;
+  padding: 34px 0 48px;
+  border-top: 0;
+  background: #ffffff;
   font-size: 13.5px;
   color: var(--ink-3);
 }
@@ -1046,6 +1275,11 @@ h2.h2 {
   .hero { padding: 110px 0 60px; }
   .hero-inner { gap: 40px; }
   .hero-copy { max-width: 600px; }
+  .hero-sky-window {
+    --hero-sky-window-height: 510px;
+    --hero-sky-sidebar-width: 224px;
+    width: min(86%, 700px);
+  }
   .split { grid-template-columns: 1fr; gap: 40px; }
   .split.flip .split-visual { order: 0; }
   .bots { grid-template-columns: repeat(2, 1fr); }
@@ -1058,8 +1292,29 @@ h2.h2 {
   .wrap { padding: 0 20px; }
   section.block { padding: 80px 0; }
   .bots { grid-template-columns: 1fr; }
+  .hero-sky-frame {
+    display: block;
+    height: min(560px, 68vh);
+    min-height: 440px;
+    border-radius: 28px;
+  }
+  .hero-sky-window {
+    --hero-sky-window-height: 500px;
+    --hero-sky-sidebar-width: 210px;
+    left: 20px;
+    top: 42px;
+    width: 640px;
+    transform: none;
+  }
+  .hero-sky-window .miawin {
+    display: block;
+  }
+  .hero-sky-window .miawin-grid {
+    grid-template-columns: var(--hero-sky-sidebar-width) minmax(0, 1fr);
+    height: var(--hero-sky-window-height);
+  }
   .miawin { display: none; }
-  .miawin-mobile-note { display: block; }
+  .miawin-mobile-note { display: none; }
   .hero-stage { max-width: 420px; }
   .floaty, .float-chip { display: none; }
 }

@@ -1,5 +1,5 @@
 /* ============================================================
-   Mia — Mobile / narrow-screen layer  (≤900px tablet, ≤680px phone)
+   Mia — Mobile / narrow-screen layer  (≤1100px narrow desktop, ≤680px phone)
    The hero is a pinned scroll sequence: the content scrubs up, the
    background SNAPS from white to dark, and the heading fades in centred.
    On phones the desktop 3-column app window collapses to a single chat
@@ -11,14 +11,114 @@
 /* the bespoke per-step visual is mobile-only */
 .sstep-viz { display: none; }
 
+@media (max-width: 1100px) {
+  /* Narrow desktop should read like the phone composition: same sky frame,
+     but a top-anchored single-column app window instead of a cropped desktop
+     layout drifting into the bottom of the sky. */
+  .miawin-mobile-note { display: none !important; }
+  .hero-sky-frame {
+    display: block !important;
+  }
+  .hero-sky-window {
+    --hero-sky-window-height: 432px;
+    --hero-sky-sidebar-width: 0px;
+    --mia-window-radius: 20px;
+    --mia-rail-corner-radius: 16px;
+    left: 50% !important;
+    top: 24px !important;
+    width: calc(100% - 28px);
+    height: var(--hero-sky-window-height);
+    transform: translateX(-50%) !important;
+  }
+  .hero-sky-window .miawin {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .hero-sky-window .miawin-grid,
+  .hero.hero-pin .hero-product .hero-sky-window .miawin-grid {
+    grid-template-columns: 1fr;
+    height: var(--hero-sky-window-height);
+  }
+  .hero-sky-window .mw-rail,
+  .hero-sky-window .mw-list {
+    display: none;
+  }
+  .hero-sky-window .mw-chat {
+    border-radius: 16px;
+    grid-template-rows: 72px minmax(0, 1fr) auto;
+  }
+  .hero-sky-window .mw-top {
+    align-self: start;
+    max-width: calc(100% - 48px);
+    height: 40px;
+    min-height: 40px;
+    margin: 16px 24px 10px;
+    padding: 3px 12px 3px 5px;
+    border-radius: 20px;
+    overflow: hidden;
+  }
+}
+
 @media (max-width: 900px) {
   /* hero pinned sequence stays ON — just size it for a phone viewport */
-  .hero-track { height: 700vh; }
+  .hero-track { height: 910vh; }
   /* group-relay demo card: single-column chat on phones (rail hidden above) */
   .hero-demo { width: 92vw; }
   .hero-demo .miawin--2 .miawin-grid { grid-template-columns: 1fr; height: min(62vh, 440px); }
   .hero-demo .mw-rail { display: none; }
   .hero-demo .mw-top { padding-top: 14px; }
+  .hero-demo--squad {
+    inset: 0;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100svh;
+  }
+  .squad-card {
+    width: min(78vw, 316px);
+    height: 390px;
+    border-radius: 24px;
+    padding: 28px 24px 24px;
+  }
+  .squad-card--cover {
+    height: 390px;
+    padding: 28px 24px 24px;
+    top: calc(100svh + 24px);
+    width: min(78vw, 316px);
+  }
+  .squad-stack-title {
+    font-size: clamp(30px, 8vw, 38px);
+    line-height: 0.96;
+  }
+  .squad-cover-title {
+    font-size: clamp(34px, 10vw, 42px);
+  }
+  .squad-stack-desc,
+  .squad-cover-copy {
+    font-size: 13.5px;
+    line-height: 1.48;
+    margin-top: 14px;
+  }
+  .squad-cover-copy {
+    font-size: 16px;
+    line-height: 1.35;
+  }
+  .squad-cover-age {
+    font-size: 11px;
+  }
+  .squad-cover-art {
+    height: 108px;
+  }
+  .squad-cover-art--mia img {
+    width: 82px;
+    height: 82px;
+    border-radius: 23px;
+  }
+  .squad-stack-art {
+    height: 124px;
+    margin: 8px 0 10px;
+  }
   .hero.hero-pin {
     padding-top: 72px;
     min-height: 0;
@@ -227,7 +327,8 @@
     transform: rotate(45deg);
   }
 
-  /* show a believable mobile chat instead of "view on a bigger screen" */
+  /* show the same sky-framed product moment on phones, with a real
+     single-column Mia layout instead of a scaled-down desktop screenshot */
   .miawin { display: block !important; }
   .miawin-mobile-note { display: none !important; }
   .hero-product {
@@ -238,8 +339,26 @@
     height: auto !important;
     display: block !important;
   }
+  .hero-sky-frame {
+    display: block !important;
+    height: clamp(480px, 62svh, 540px);
+    border-radius: 24px;
+  }
+  .hero-sky-window {
+    --hero-sky-window-height: 432px;
+    --hero-sky-sidebar-width: 0px;
+    --mia-window-radius: 20px;
+    --mia-rail-corner-radius: 16px;
+    left: 50%;
+    width: calc(100% - 26px);
+    top: 22px;
+    transform: translateX(-50%);
+  }
   .hero-product .miawin {
     width: 100%;
+  }
+  .hero-sky-window .miawin {
+    height: 100%;
   }
   .hero.hero-pin .hero-product .miawin {
     width: 100%;
@@ -250,14 +369,24 @@
     grid-template-columns: 1fr;
     height: 432px;            /* shorter so the whole hero fits one screen */
   }
-  .hero.hero-pin .hero-product .miawin-grid {
-    height: 432px;
+  .hero.hero-pin .hero-product .miawin-grid,
+  .hero.hero-pin .hero-product .hero-sky-window .miawin-grid {
+    height: var(--hero-sky-window-height, 432px);
   }
   .mw-rail,
   .mw-list { display: none; }
   .mw-chat { border-radius: 16px; }
-  /* the chat header loses the rail's traffic lights, so add a little air */
-  .mw-top { padding-top: 16px; }
+  .hero-sky-window .mw-chat {
+    grid-template-rows: 70px minmax(0, 1fr) auto;
+  }
+  .hero-sky-window .mw-top {
+    max-width: calc(100% - 32px);
+    height: 40px;
+    min-height: 40px;
+    margin: 14px 16px 10px;
+    padding: 3px 12px 3px 5px;
+    border-radius: 20px;
+  }
   .mw-msg { max-width: 100%; }
   .mw-bubble { overflow-wrap: break-word; }
 }

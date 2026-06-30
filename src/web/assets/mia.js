@@ -13,11 +13,17 @@
     analyst:  '<path d="M5 20V13"/><path d="M10 20V6"/><path d="M15 20v-9"/><path d="M20 20V9"/>',
     camera:   '<path d="M12 4l1.7 4.8L18.5 10l-4.8 1.7L12 16.5l-1.7-4.8L5.5 10l4.8-1.7z"/>',
     coffee:   '<path d="M14.5 5.5l4 4"/><path d="M4 20l1-4L16 5a2.12 2.12 0 0 1 3 3L8 19l-4 1z"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M8 3v4"/><path d="M16 3v4"/>',
   };
-  const HUE = { coder: 'teal', detective: 'indigo', analyst: 'violet', camera: 'rose', coffee: 'amber' };
-  const AV = { coder: 'coder', detective: 'detective', analyst: 'analyst', camera: 'camera', coffee: 'coffee' };
+  const HUE = { coder: 'teal', detective: 'indigo', analyst: 'violet', camera: 'rose', coffee: 'amber', calendar: 'amber' };
+  const AV = { coder: 'coder', detective: 'detective', analyst: 'analyst', camera: 'camera', coffee: 'coffee', calendar: 'calendar' };
   const avHTML = (role) =>
     `<div class="mw-av av av--${HUE[role] || 'indigo'}"><svg viewBox="0 0 24 24">${ICON[role] || ICON.coder}</svg></div>`;
+  function paintAvatar(node, role) {
+    if (!node) return;
+    node.className = `mw-av av av--${HUE[role] || 'indigo'}`;
+    node.innerHTML = `<svg viewBox="0 0 24 24">${ICON[role] || ICON.coder}</svg>`;
+  }
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const DOWNLOADS = {
@@ -184,6 +190,92 @@
 
   patchAndroidDownloadFromManifest();
 
+  function setupGsapLargeButton() {
+    const gsap = window.gsap;
+    const CustomEase = window.CustomEase;
+    const roots = document.querySelectorAll('[data-gsap-large-button]');
+    if (!gsap || !CustomEase || !roots.length || reduceMotion) return;
+
+    gsap.registerPlugin(CustomEase);
+
+    const largeButtonEases = {
+      airtime: CustomEase.create('junguiButtonAirtime', 'M0,0 C0.05,0.356 0.377,0.435 0.5,0.5 0.61,0.558 0.948,0.652 1,1 '),
+      rotaaaaate: CustomEase.create('junguiButtonRotate', 'M0,0 C0.148,0.346 0.254,0.444 0.5,0.5 0.751,0.557 0.852,0.646 1,1 '),
+    };
+
+    roots.forEach((root) => {
+      const getWord = root.querySelector('[data-word="get"]');
+      const gsapWord = root.querySelector('[data-word="gsap"]');
+      const flairs = root.querySelectorAll('.gsap-large-flair');
+      if (!getWord || !gsapWord || !flairs.length) return;
+
+      let playing = false;
+      const tl = gsap.timeline({
+        defaults: { duration: 1 },
+        paused: true,
+        onStart: () => {
+          playing = true;
+        },
+        onComplete: () => {
+          playing = false;
+        },
+      });
+
+      gsap.set(flairs, { scale: 0, transformOrigin: '0 0' });
+
+      tl.set(flairs, { scale: 0, x: 0, y: 10, rotateZ: 0, zIndex: 2 })
+        .to(getWord, {
+          keyframes: [
+            { x: -30, ease: 'power4.out' },
+            { x: 0, ease: 'power4.in' },
+          ],
+        })
+        .to(
+          gsapWord,
+          {
+            keyframes: [
+              { x: 30, ease: 'power4.out' },
+              { x: 0, ease: 'power4.in' },
+            ],
+          },
+          '<',
+        )
+        .to(
+          flairs,
+          {
+            keyframes: [
+              { scale: 0, zIndex: 2, duration: 0 },
+              { y: () => gsap.utils.random(-80, -120), scale: 1 },
+              { zIndex: -1, duration: 0.05 },
+              { y: 0, scale: 0.3 },
+            ],
+            ease: largeButtonEases.airtime,
+            stagger: 0.15,
+          },
+          '<',
+        )
+        .to(
+          flairs,
+          {
+            x: (index) => index === 1 ? gsap.utils.random(-42, -8) : gsap.utils.random(-50, 100),
+            rotateZ: -360,
+            ease: largeButtonEases.rotaaaaate,
+            stagger: 0.15,
+          },
+          '<',
+        );
+
+      const onEnter = () => {
+        if (playing) return;
+        tl.invalidate().play(0);
+      };
+
+      root.addEventListener('mouseenter', onEnter);
+    });
+  }
+
+  setupGsapLargeButton();
+
   /* ---------- nav: shadow + auto-hide (reveal on scroll up, like Marvis) ---------- */
   const nav = document.getElementById('nav');
   let lastY = window.scrollY;
@@ -291,28 +383,128 @@
      ============================================================ */
   const heroBody = document.getElementById('heroBody');
   const heroField = document.getElementById('heroField');
+  const heroTopAvatar = document.getElementById('heroTopAvatar');
+  const heroTopName = document.getElementById('heroTopName');
+  const heroTopMeta = document.getElementById('heroTopMeta');
+  const heroRows = Array.from(document.querySelectorAll('[data-hero-conversation]'));
+  const heroComposerFoot = document.getElementById('heroComposerFoot');
+  const heroModelIcon = document.getElementById('heroModelIcon');
+  const heroModelLabel = document.getElementById('heroModelLabel');
+  const heroEffortLabel = document.getElementById('heroEffortLabel');
+  const heroPermissionLabel = document.getElementById('heroPermissionLabel');
+  let activeHeroConversation = 'research';
+  let heroPlaybackToken = 0;
 
-  const heroScript = [
-    { type: 'user', html: '帮我把课程资料整理成 5 分钟展示稿,再列一下待办' },
-    { type: 'typing', av: AV.detective, ms: 1200 },
-    { type: 'bot', av: AV.detective, html: '我先把 18 页资料压成重点: 3 个观点、4 条引用、2 个可讲案例。' },
-    { type: 'typing', av: AV.analyst, ms: 1000 },
-    { type: 'bot', av: AV.analyst, html: '我把材料分成背景、问题、方法、结论,顺手标出最适合放进 PPT 的句子。' },
-    { type: 'typing', av: AV.coffee, ms: 1000 },
-    { type: 'bot', av: AV.coffee, html: '展示稿结构好了: 开场 30 秒、问题 1 分钟、方法 2 分钟、结论 90 秒。' },
-    { type: 'typing', av: AV.analyst, ms: 900 },
-    { type: 'bot', av: AV.analyst, html: '我把待办也排好了: 补一张图表、练两遍开场、明晚复习一次。要创建提醒吗?' },
-    { type: 'perm' },
-    { type: 'user', html: '允许，继续生成', mini: true },
-    { type: 'typing', av: AV.analyst, ms: 850 },
-    { type: 'bot', av: AV.analyst, html: '已创建提醒。明晚 22:00 我会提醒你复习展示稿。' },
-    { type: 'typing', av: AV.coffee, ms: 1100 },
-    { type: 'bot', av: AV.coffee, html: '我把讲稿结构、待办和提醒都留在这条对话里。你继续改展示稿时,不用重新交代背景。' },
-    { type: 'typing', av: AV.detective, ms: 900 },
-    { type: 'bot', av: AV.detective, html: '我还把可引用句子和图表建议放在草稿旁边,你改表达风格就能用了。' },
-    { type: 'typing', av: AV.analyst, ms: 900 },
-    { type: 'bot', av: AV.analyst, html: '<b>下一步只剩三件事</b><br><code>今晚</code> 换成你的口吻 · <code>明晚</code> 练 2 遍 · <code>周五</code> 交稿。' },
-  ];
+  const heroConversations = {
+    research: {
+      name: '阿研',
+      meta: '研究助理 · 独立记忆',
+      avatar: AV.detective,
+      field: '问阿研，Enter 发送…',
+      model: { label: 'Auto', icon: 'assets/mia-logo.png' },
+      effort: 'Medium',
+      permission: 'Ask',
+      script: [
+        { type: 'user', html: '阿研，把这 18 页资料整理成明天展示能用的版本。' },
+        { type: 'typing', av: AV.detective, ms: 1100 },
+        { type: 'bot', av: AV.detective, html: '我先按你的课程展示偏好整理: 3 个论点、4 条可引用句、2 个例子。' },
+        {
+          type: 'trace',
+          av: AV.detective,
+          rows: [
+            { status: 'ok', cmd: 'memory', arg: '课程展示偏好 / 上次口吻', meta: 'read', body: '偏好: 先给结构，再给可以直接放进 PPT 的句子。' },
+            { status: 'ok', cmd: 'read', arg: '18 页课程资料', meta: '0.8s' },
+            { status: 'ok', cmd: 'extract', arg: '3 个论点 · 4 条引用 · 2 个例子', meta: '1.2s' },
+            { status: 'run', cmd: 'draft', arg: '课程展示 / outline.md', meta: 'pending' },
+          ]
+        },
+        { type: 'typing', av: AV.detective, ms: 950 },
+        { type: 'bot', av: AV.detective, html: '草稿结构好了: 背景、问题、方法、结论。每段我都标了适合放进 PPT 的句子。' },
+        { type: 'perm' },
+        { type: 'user', html: '允许，写入草稿', mini: true },
+        { type: 'typing', av: AV.detective, ms: 850 },
+        { type: 'bot', av: AV.detective, html: '已写入草稿。下次继续这份展示时，我会沿用这条会话里的背景和口吻。' },
+      ]
+    },
+    writing: {
+      name: '阿文',
+      meta: '写作助理 · 记住你的语气',
+      avatar: AV.coffee,
+      field: '问阿文，Enter 发送…',
+      model: { label: 'Claude Opus 4.8', icon: 'assets/icons/claude.svg' },
+      effort: 'High',
+      permission: 'Ask',
+      script: [
+        { type: 'user', html: '阿文，这段开头太像论文了，帮我改得像口头展示。' },
+        { type: 'typing', av: AV.coffee, ms: 850 },
+        { type: 'bot', av: AV.coffee, html: '我保留核心观点，把第一句改成更像你会说的话。' },
+        { type: 'typing', av: AV.coffee, ms: 850 },
+        { type: 'bot', av: AV.coffee, html: '给你三版: 稳一点、轻松一点、直接一点。你上次更喜欢第二种语气。' },
+      ]
+    },
+    career: {
+      name: '求职小组',
+      meta: '阿研 + 阿文 + 小序 · 协同中',
+      avatar: AV.analyst,
+      field: '在求职小组里发消息…',
+      group: true,
+      script: [
+        { type: 'user', html: '这段项目经历怎么写才不像流水账?' },
+        { type: 'typing', av: AV.analyst, ms: 850 },
+        { type: 'bot', av: AV.analyst, sender: '阿研 · 分析', html: '先把结果放前面: 留存提升、转化提升、负责范围。' },
+        { type: 'typing', av: AV.coffee, ms: 900 },
+        { type: 'bot', av: AV.coffee, sender: '阿文 · 表达', html: '我把它压成两行简历句子，面试版再保留细节。' },
+        { type: 'typing', av: AV.analyst, ms: 850 },
+        { type: 'bot', av: AV.analyst, sender: '小序 · 计划', html: '还差一项: 补具体数字。要我今晚提醒你查数据吗?' },
+      ]
+    },
+    creative: {
+      name: '小映',
+      meta: '创意助理 · 封面与标题',
+      avatar: AV.camera,
+      field: '问小映，Enter 发送…',
+      model: { label: 'GPT-5.5', icon: 'assets/icons/codex.svg' },
+      effort: 'Medium',
+      permission: 'Ask',
+      script: [
+        { type: 'user', html: '小映，封面别太模板，想要更像个人作品。' },
+        { type: 'typing', av: AV.camera, ms: 900 },
+        { type: 'bot', av: AV.camera, html: '我收敛成两个方向: 干净截图流、手写批注流。' },
+        { type: 'typing', av: AV.camera, ms: 820 },
+        { type: 'bot', av: AV.camera, html: '标题建议用动作句，不用抽象口号。比如: “把资料变成能讲的稿”。' },
+      ]
+    },
+    schedule: {
+      name: '小序',
+      meta: '计划助理 · 日程权限仅本次',
+      avatar: AV.calendar,
+      field: '问小序，Enter 发送…',
+      model: { label: 'Auto', icon: 'assets/mia-logo.png' },
+      effort: 'Low',
+      permission: 'Ask',
+      script: [
+        { type: 'user', html: '小序，明晚提醒我练两遍展示开场。' },
+        { type: 'typing', av: AV.calendar, ms: 850 },
+        { type: 'bot', av: AV.calendar, html: '可以。我会创建一个 22:00 的复习提醒。' },
+        { type: 'typing', av: AV.calendar, ms: 760 },
+        { type: 'bot', av: AV.calendar, html: '已安排。提醒只关联这条展示会话，不会混到你的求职计划里。' },
+      ]
+    }
+  };
+
+  function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    })[ch]);
+  }
+
+  function stripHTML(value) {
+    return String(value || '').replace(/<[^>]*>/g, '');
+  }
 
   function heroPerm() {
     const node = document.createElement('div');
@@ -324,9 +516,9 @@
       <div class="mw-perm-head">
         <span class="pulse"></span>
         <span class="mw-perm-kick">需要你的允许</span>
-        <span class="mw-perm-meta">Mia · 日程</span>
+        <span class="mw-perm-meta">Mia · 文件权限</span>
       </div>
-      <div class="mw-perm-cmd">创建提醒: 明晚 22:00 复习展示稿</div>
+      <div class="mw-perm-cmd">写入文件: 课程展示 / outline.md</div>
       <div class="mw-perm-actions">
         <span class="ghost">拒绝</span>
         <button class="mw-pbtn">仅这次</button>
@@ -335,66 +527,188 @@
     return node;
   }
 
-  async function playHero() {
-    if (reduceMotion) {
-      // static fallback: render a couple of messages
-      heroBody.appendChild(show2(bubble({ me: true, html: heroScript[0].html })));
-      heroBody.appendChild(show2(bubble({ av: AV.detective, html: heroScript[2].html })));
-      heroBody.appendChild(show2(bubble({ av: AV.coffee, html: heroScript[6].html })));
-      heroBody.appendChild(show2(bubble({ av: AV.coffee, html: heroScript[14].html })));
+  function setHeroChrome(id) {
+    const conversation = heroConversations[id] || heroConversations.research;
+    activeHeroConversation = id;
+    paintAvatar(heroTopAvatar, conversation.avatar);
+    if (heroTopName) heroTopName.textContent = conversation.name;
+    if (heroTopMeta) heroTopMeta.textContent = conversation.meta;
+    if (heroField) {
+      heroField.textContent = conversation.field || '输入消息，Enter 发送…';
+      heroField.style.color = '';
+    }
+    heroRows.forEach((row) => {
+      const on = row.dataset.heroConversation === id;
+      row.classList.toggle('on', on);
+      row.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    updateHeroComposer(conversation);
+  }
+
+  function updateHeroComposer(conversation) {
+    if (!heroComposerFoot) return;
+    if (conversation.group) {
+      heroComposerFoot.hidden = true;
       return;
     }
-    while (true) {
-      heroBody.innerHTML = '';
-      for (const step of heroScript) {
-        if (step.type === 'user') {
-          if (step.mini) {
-            // typed in the field then "sent"
-            await typeField('允许，继续生成');
-            await wait(250);
-            heroField.textContent = '输入消息,Enter 发送…';
-          }
-          const n = bubble({ me: true, html: step.html, mini: step.mini });
-          heroBody.appendChild(n);
-          show(n);
-          scrollChat(heroBody);
-          await wait(900);
-        } else if (step.type === 'typing') {
-          const t = typingBubble(step.av);
-          heroBody.appendChild(t);
-          show(t);
-          scrollChat(heroBody);
-          await wait(step.ms || 1000);
-          t.remove();
-        } else if (step.type === 'bot') {
-          const n = bubble({ av: step.av, html: '' });
-          heroBody.appendChild(n);
-          show(n);
-          scrollChat(heroBody);
-          await streamBubble(n, step.html, heroBody);
-          await wait(520);
-        } else if (step.type === 'perm') {
-          const p = heroPerm();
-          heroBody.appendChild(p);
-          show(p);
-          scrollChat(heroBody);
-          await wait(1400);
-          const allow = p.querySelector('.mw-pbtn.primary');
-          allow.textContent = '已允许 ✓';
-          allow.style.background = 'var(--green)';
-          await wait(600);
-          p.style.transition = 'opacity .4s, transform .4s, max-height .4s';
-          p.style.maxHeight = p.offsetHeight + 'px';
-          await wait(20);
-          p.style.opacity = '0';
-          p.style.transform = 'translateY(-6px)';
-          p.style.maxHeight = '0';
-          p.style.overflow = 'hidden';
-          await wait(420);
-          p.remove();
-        }
+
+    const model = conversation.model || heroConversations.research.model;
+    heroComposerFoot.hidden = false;
+    if (heroModelIcon) {
+      if (model?.icon) {
+        heroModelIcon.hidden = false;
+        heroModelIcon.src = model.icon;
+      } else {
+        heroModelIcon.hidden = true;
       }
+    }
+    if (heroModelLabel) heroModelLabel.textContent = model?.label || 'Auto';
+    if (heroEffortLabel) heroEffortLabel.textContent = conversation.effort || 'Medium';
+    if (heroPermissionLabel) heroPermissionLabel.textContent = conversation.permission || 'Ask';
+  }
+
+  function renderHeroMessages(messages) {
+    if (!heroBody) return;
+    heroBody.innerHTML = '';
+    messages.forEach((message) => {
+      heroBody.appendChild(show2(bubble(message)));
+    });
+    scrollChat(heroBody);
+  }
+
+  function renderHeroStatic(id) {
+    heroPlaybackToken += 1;
+    setHeroChrome(id);
+    const conversation = heroConversations[id] || heroConversations.research;
+    renderHeroMessages(conversation.script.filter((step) => step.type === 'user' || step.type === 'bot').map((step) => ({
+      me: step.type === 'user',
+      av: step.type === 'bot' ? (step.av || conversation.avatar) : undefined,
+      sender: step.sender,
+      mini: step.mini,
+      html: step.html
+    })));
+  }
+
+  function heroStillPlaying(token, id) {
+    return token === heroPlaybackToken && activeHeroConversation === id;
+  }
+
+  function traceRowHTML(row) {
+    const status = row.status || 'ok';
+    const body = row.body
+      ? `<div class="mw-trace-body">${escapeHTML(row.body)}</div>`
+      : '';
+    return `
+      <details class="mw-trace-row trace-anim-enter" data-status="${escapeHTML(status)}"${row.body ? ' open' : ''}>
+        <summary>
+          <span class="mw-trace-chevron">›</span>
+          <span class="mw-trace-glyph">${status === 'run' ? '◇' : '✓'}</span>
+          <span class="mw-trace-cmd">${escapeHTML(row.cmd)}</span>
+          <span class="mw-trace-arg">${escapeHTML(row.arg)}</span>
+          <span class="mw-trace-meta">${escapeHTML(row.meta || '')}</span>
+        </summary>
+        ${body}
+      </details>`;
+  }
+
+  function traceBlock(step, conversation) {
+    const wrap = document.createElement('div');
+    wrap.className = 'mw-msg mw-msg--trace';
+    wrap.style.opacity = '0';
+    wrap.style.transform = 'translateY(10px)';
+    wrap.style.transition = 'opacity .42s cubic-bezier(.16,1,.3,1), transform .42s cubic-bezier(.16,1,.3,1)';
+    wrap.innerHTML = `${avHTML(step.av || conversation.avatar)}<div><div class="mw-trace" role="presentation"></div></div>`;
+    return wrap;
+  }
+
+  async function playTrace(step, conversation, token, id) {
+    const node = traceBlock(step, conversation);
+    const list = node.querySelector('.mw-trace');
+    heroBody.appendChild(node);
+    show(node);
+    scrollChat(heroBody);
+    for (const row of step.rows || []) {
+      if (!heroStillPlaying(token, id)) return;
+      await wait(row.delay || 240);
+      list.insertAdjacentHTML('beforeend', traceRowHTML(row));
+      scrollChat(heroBody);
+    }
+    await wait(step.ms || 520);
+  }
+
+  async function playHeroStep(step, conversation, token, id) {
+    if (step.type === 'user') {
+      if (step.mini) {
+        await typeField(step.compose || stripHTML(step.html));
+        if (!heroStillPlaying(token, id)) return;
+        await wait(250);
+        if (heroField) heroField.textContent = conversation.field;
+      }
+      const n = bubble({ me: true, html: step.html, mini: step.mini });
+      heroBody.appendChild(n);
+      show(n);
+      scrollChat(heroBody);
+      await wait(step.wait || 900);
+    } else if (step.type === 'typing') {
+      const t = typingBubble(step.av || conversation.avatar);
+      heroBody.appendChild(t);
+      show(t);
+      scrollChat(heroBody);
+      await wait(step.ms || 1000);
+      t.remove();
+    } else if (step.type === 'bot') {
+      const n = bubble({ av: step.av || conversation.avatar, sender: step.sender, html: '' });
+      heroBody.appendChild(n);
+      show(n);
+      scrollChat(heroBody);
+      await streamBubble(n, step.html, heroBody);
+      await wait(step.wait || 520);
+    } else if (step.type === 'trace') {
+      await playTrace(step, conversation, token, id);
+    } else if (step.type === 'perm') {
+      const p = heroPerm();
+      heroBody.appendChild(p);
+      show(p);
+      scrollChat(heroBody);
+      await wait(1400);
+      if (!heroStillPlaying(token, id)) return;
+      const allow = p.querySelector('.mw-pbtn.primary');
+      allow.textContent = '已允许 ✓';
+      allow.style.background = 'var(--green)';
+      await wait(600);
+      p.style.transition = 'opacity .4s, transform .4s, max-height .4s';
+      p.style.maxHeight = p.offsetHeight + 'px';
+      await wait(20);
+      p.style.opacity = '0';
+      p.style.transform = 'translateY(-6px)';
+      p.style.maxHeight = '0';
+      p.style.overflow = 'hidden';
+      await wait(420);
+      p.remove();
+    }
+  }
+
+  async function playHeroConversation(id, options = {}) {
+    if (!heroBody) return;
+    const token = heroPlaybackToken + 1;
+    heroPlaybackToken = token;
+    const conversation = heroConversations[id] || heroConversations.research;
+    setHeroChrome(id);
+    if (reduceMotion) {
+      renderHeroStatic(id);
+      return;
+    }
+    const loop = Boolean(options.loop);
+    while (heroStillPlaying(token, id)) {
+      heroBody.innerHTML = '';
+      for (const step of conversation.script) {
+        if (!heroStillPlaying(token, id)) return;
+        await playHeroStep(step, conversation, token, id);
+        if (!heroStillPlaying(token, id)) return;
+      }
+      if (!loop) return;
       await wait(3400);
+      if (!heroStillPlaying(token, id)) return;
       // fade out before looping
       heroBody.style.transition = 'opacity .5s';
       heroBody.style.opacity = '0';
@@ -403,7 +717,12 @@
     }
   }
 
+  function playHero() {
+    return playHeroConversation('research', { loop: true });
+  }
+
   async function typeField(text) {
+    if (!heroField) return;
     heroField.style.color = 'var(--ink)';
     for (let i = 1; i <= text.length; i++) {
       heroField.textContent = text.slice(0, i);
@@ -414,11 +733,24 @@
   }
 
   function scrollChat(el) {
+    if (!el) return;
     requestAnimationFrame(() => {
       el.scrollTop = el.scrollHeight;
     });
   }
   function show2(n) { n.style.opacity = '1'; n.style.transform = 'none'; return n; }
+
+  heroRows.forEach((row) => {
+    const id = row.dataset.heroConversation;
+    row.addEventListener('click', () => {
+      playHeroConversation(id, { loop: id === 'research' });
+    });
+    row.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      playHeroConversation(id, { loop: id === 'research' });
+    });
+  });
 
   /* ============================================================
      GROUP DEMO — cascade when in view (loops)
