@@ -3,10 +3,21 @@
   "use strict";
 
   let state, els;
+  let fetchModelBalance = null;
+  let balanceState = {
+    accountKey: "",
+    fetchedAt: 0,
+    inFlight: null,
+    payload: null,
+    error: ""
+  };
+  const BALANCE_TTL_MS = 30000;
+  const BALANCE_ERROR_TTL_MS = 30000;
 
   function initSettingsRemote(deps) {
     state = deps.state;
     els = deps.els;
+    fetchModelBalance = deps.fetchModelBalance || window.miaCloud?.fetchModelBalance || window.mia?.cloudModelBalance || null;
   }
 
   function firstNonEmpty(...values) {
@@ -15,6 +26,118 @@
       if (text) return text;
     }
     return "";
+  }
+
+  function formatUsdFromMicro(value) {
+    const usd = Number(value || 0) / 1_000_000;
+    if (!usd) return "$0";
+    return `$${usd.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
+  }
+
+  function cloudAccountKey(cloud = {}) {
+    const user = cloud.user || {};
+    return [
+      cloud.url || "",
+      user.id || user.userId || user.user_id || "",
+      user.username || ""
+    ].join("|");
+  }
+
+  function setModelBalanceVisible(visible) {
+    els?.cloudModelBalanceRow?.classList.toggle("hidden", !visible);
+  }
+
+  function renderModelBalanceSignedOut() {
+    setModelBalanceVisible(false);
+    if (els?.cloudModelBalanceAmount) els.cloudModelBalanceAmount.textContent = "";
+    if (els?.cloudModelBalanceMeta) els.cloudModelBalanceMeta.textContent = "登录后可查看 Mia 模型额度。";
+  }
+
+  function renderModelBalancePayload(payload) {
+    const balance = payload?.balance || {};
+    const usage = Array.isArray(payload?.recentUsage) ? payload.recentUsage[0] : null;
+    const amount = Number(balance.balanceMicrousd || 0);
+    const charge = Number(usage?.chargeMicrousd || 0);
+    setModelBalanceVisible(true);
+    if (els?.cloudModelBalanceAmount) els.cloudModelBalanceAmount.textContent = formatUsdFromMicro(amount);
+    if (els?.cloudModelBalanceMeta) {
+      els.cloudModelBalanceMeta.textContent = charge > 0
+        ? `最近扣费 ${formatUsdFromMicro(charge)}`
+        : "暂无模型调用扣费记录。";
+    }
+  }
+
+  function renderModelBalanceLoading() {
+    setModelBalanceVisible(true);
+    if (els?.cloudModelBalanceAmount) els.cloudModelBalanceAmount.textContent = "读取中…";
+    if (els?.cloudModelBalanceMeta) els.cloudModelBalanceMeta.textContent = "正在读取 Mia 模型额度。";
+  }
+
+  function modelBalanceErrorCopy(error) {
+    const message = error?.message || String(error || "");
+    if (/No handler registered|cloud:model-balance|remote method/i.test(message)) {
+      return {
+        amount: "暂不可用",
+        meta: "重启 Mia 后可读取模型额度。"
+      };
+    }
+    return {
+      amount: "读取失败",
+      meta: message || "额度读取失败。"
+    };
+  }
+
+  function renderModelBalanceError(error) {
+    const copy = modelBalanceErrorCopy(error);
+    setModelBalanceVisible(true);
+    if (els?.cloudModelBalanceAmount) els.cloudModelBalanceAmount.textContent = copy.amount;
+    if (els?.cloudModelBalanceMeta) els.cloudModelBalanceMeta.textContent = copy.meta;
+  }
+
+  async function refreshModelBalance(cloud = {}) {
+    if (!els?.cloudModelBalanceRow) return null;
+    if (!cloud.enabled) {
+      renderModelBalanceSignedOut();
+      balanceState = { accountKey: "", fetchedAt: 0, inFlight: null, payload: null, error: "" };
+      return null;
+    }
+    const key = cloudAccountKey(cloud);
+    if (balanceState.accountKey !== key) {
+      balanceState = { accountKey: key, fetchedAt: 0, inFlight: null, payload: null, error: "" };
+    }
+    if (balanceState.payload && Date.now() - balanceState.fetchedAt < BALANCE_TTL_MS) {
+      renderModelBalancePayload(balanceState.payload);
+      return balanceState.payload;
+    }
+    if (balanceState.error && Date.now() - balanceState.fetchedAt < BALANCE_ERROR_TTL_MS) {
+      renderModelBalanceError(balanceState.error);
+      return null;
+    }
+    if (balanceState.inFlight) return balanceState.inFlight;
+    if (typeof fetchModelBalance !== "function") {
+      renderModelBalanceError(new Error("当前版本暂不能读取模型额度。"));
+      return null;
+    }
+    renderModelBalanceLoading();
+    balanceState.inFlight = Promise.resolve()
+      .then(() => fetchModelBalance())
+      .then((payload) => {
+        balanceState.payload = payload || {};
+        balanceState.fetchedAt = Date.now();
+        balanceState.error = "";
+        renderModelBalancePayload(balanceState.payload);
+        return balanceState.payload;
+      })
+      .catch((error) => {
+        balanceState.error = error || new Error("额度读取失败。");
+        balanceState.fetchedAt = Date.now();
+        renderModelBalanceError(error);
+        return null;
+      })
+      .finally(() => {
+        balanceState.inFlight = null;
+      });
+    return balanceState.inFlight;
   }
 
   function renderCloudAccountProfile(cloud, enabled) {
@@ -76,7 +199,7 @@
     }
   }
 
-  function renderCloudAccount(cloud = state?.runtime?.cloud || {}) {
+  async function renderCloudAccount(cloud = state?.runtime?.cloud || {}) {
     if (!state || !els || !els.cloudAccountHint) return;
     const connected = Boolean(cloud.connected);
     const connecting = Boolean(cloud.connecting);
@@ -84,19 +207,16 @@
     const username = cloud.user?.username || cloud.user?.email || "";
     renderCloudAccountProfile(cloud, enabled);
     if (enabled) {
-      const syncText = cloud.workspaceRevision
-        ? `Cloud revision ${cloud.workspaceRevision} · ${cloud.conversationCount || 0} 个会话`
-        : "Cloud workspace 待同步";
       els.cloudAccountHint.textContent = connected
-        ? `${username || "当前账号"} 已登录，自动同步中。${syncText}`
+        ? `${username || "当前账号"} 已登录，账号数据会自动同步。`
         : connecting
-          ? `${username || "当前账号"} 已登录，正在连接 Mia Cloud。${syncText}`
-          : `${username || "当前账号"} 已登录，等待 Mia Cloud：${cloud.lastError || "未连接"}。${syncText}`;
+          ? `${username || "当前账号"} 已登录，正在连接云端同步。`
+          : `${username || "当前账号"} 已登录，云同步暂未连接。`;
     } else {
       els.cloudAccountHint.textContent = "登录后，这台电脑会自动作为本机 Agent 出现在 Web 和手机端。";
     }
-    els.cloudSync?.classList.toggle("hidden", !enabled);
     els.cloudLogout?.classList.toggle("hidden", !enabled);
+    await refreshModelBalance({ ...cloud, enabled });
   }
 
   window.miaSettingsRemote = {

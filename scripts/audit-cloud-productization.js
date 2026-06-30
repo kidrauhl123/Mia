@@ -512,10 +512,10 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "tests/sync-replay.test.js", /reconnect with since_seq replays/, "since_seq replay test guards offline drop")
     ]),
     item("cloud.desktop-sync", "桌面端同账号云同步和 Bridge 自动接入", [
-      checkSource(rootDir, "src/main.js", /cloudLogin|syncMiaCloudWorkspace|startCloudBridge/, "desktop login/sync/bridge IPC path"),
+      checkSource(rootDir, "src/main.js", /cloudLogin|syncWorkspace\(\)|startCloudBridge/, "desktop login/sync/bridge path"),
       checkSource(rootDir, "src/main/cloud/desktop-sync-client.js", /async function syncWorkspace\(\)[\s\S]*cloudApi\("\/api\/me"\)[\s\S]*writeCloudSettings/, "desktop sync refreshes cloud account identity"),
       checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace refreshes the cloud user without syncing local manifest bots/, "desktop sync no longer backfills local sessions on login"),
-      checkSource(rootDir, "src/preload.js", /cloudStatus[\s\S]*cloudLogin[\s\S]*cloudSync|cloudLogin[\s\S]*cloudSync[\s\S]*cloudLogout/, "preload exposes cloud account actions"),
+      checkSource(rootDir, "src/preload.js", /cloudStatus[\s\S]*cloudModelBalance[\s\S]*cloudLogin[\s\S]*cloudLogout/, "preload exposes cloud account actions"),
       checkSource(rootDir, "src/renderer/app.js", /sendInActiveConversation\(conversationText\b[\s\S]*?return;/, "renderer sends active cloud conversations through the unified social path"),
       checkSourceAbsent(rootDir, "src/renderer/app.js", /pushCloudMessageQuietly|cloudPushMessage/, "renderer does not mirror local sends through legacy cloud push"),
       checkSourceAbsent(rootDir, "src/preload.js", /cloudPushMessage/, "preload omits legacy cloud push bridge"),

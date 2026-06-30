@@ -1456,7 +1456,7 @@ function cloudStatus(includeToken = false) {
       deviceId: localConnected ? String(bridge?.deviceId || "") : "",
       lastError: !localConnected
         ? "Mia Core 未运行，Mia 暂不可用。"
-        : (bridgeKnown ? String(bridge.lastError || "") : "等待 Mia Core 上报云端连接状态"),
+        : (bridgeKnown ? String(bridge.lastError || "") : "云同步暂未连接。"),
       logs,
       events: cloudEventsStatus(),
       ...(includeToken ? { token: settings.token } : {})
@@ -1488,10 +1488,6 @@ function cloudDesktopSync() {
   return cloudDesktopSyncRuntime;
 }
 
-function syncMiaCloudWorkspace() {
-  return cloudDesktopSync().syncWorkspace();
-}
-
 function loginMiaCloud(payload = {}) {
   return cloudDesktopSync().login(payload);
 }
@@ -1506,6 +1502,23 @@ function cloudSettingsGet() {
 
 function cloudSettingsPut(settings = {}) {
   return cloudDesktopSync().putUserSettings(settings);
+}
+
+async function fetchCloudModelBalance() {
+  const settings = settingsStore.cloudSettings();
+  if (!settings.enabled || !settings.token || !settings.url) {
+    throw new Error("请先登录 Mia Cloud。");
+  }
+  const baseUrl = String(settings.url || "").replace(/\/+$/, "");
+  const response = await fetch(`${baseUrl}/api/me/model-balance`, {
+    headers: { Authorization: `Bearer ${settings.token}` },
+    signal: AbortSignal.timeout(10000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || `Mia Cloud ${response.status}`);
+  }
+  return payload;
 }
 
 function hasCjkText(value) {
@@ -2613,15 +2626,11 @@ ipcMain.handle(IpcChannel.UtilOpenExternal, async (_event, url) => {
 });
 ipcMain.handle(IpcChannel.StatusBadgeAssetLoad, (_event, assetId) => loadStatusBadgeAsset(assetId));
 ipcMain.handle(IpcChannel.CloudStatus, () => cloudStatus(false));
+ipcMain.handle(IpcChannel.CloudModelBalance, () => fetchCloudModelBalance());
 ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {
   requireDaemonRuntimeAvailable();
   const result = await loginMiaCloud(payload || {});
   if (result?.kind === "wechat-login-start" || result?.kind === "wechat-login-pending") return result;
-  return getRuntimeStatus();
-});
-ipcMain.handle(IpcChannel.CloudSync, async () => {
-  requireDaemonRuntimeAvailable();
-  await syncMiaCloudWorkspace();
   return getRuntimeStatus();
 });
 // Phase 3: cross-device settings (pin / read marks / appearance). Renderer
@@ -3037,7 +3046,7 @@ app.whenReady().then(async () => {
   autoUpdateService.start();
   miaCoreTasksClient.startEvents();
   startCloudRuntimeSockets(); // foreground clients self-gate; daemon owns runtime sockets
-  syncMiaCloudWorkspace().catch((error) => appendCloudLog(`Cloud workspace sync failed: ${error?.message || error}`));
+  cloudDesktopSync().syncWorkspace().catch((error) => appendCloudLog(`云同步刷新失败：${error?.message || error}`));
   if (!win.miaSkipAutomaticBackgroundStartup && process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
     win.webContents.once("did-finish-load", () => {
       setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);

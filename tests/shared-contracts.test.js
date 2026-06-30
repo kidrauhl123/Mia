@@ -301,7 +301,12 @@ test("IPC registration and preload calls use the shared channel contract", () =>
     "src/main.js",
     "src/main/social/social-ipc.js"
   ].map((relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8")).join("\n");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const exposedCloudMethods = [...preloadSource.matchAll(/^\s{2}(cloud[A-Z]\w+):/gm)].map((match) => match[1]);
 
+  assert.deepEqual(exposedCloudMethods, ["cloudStatus", "cloudModelBalance", "cloudLogin", "cloudLogout"]);
+  assert.match(source, /cloudModelBalance:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.CloudModelBalance\)/);
+  assert.match(source, /ipcMain\.handle\(IpcChannel\.CloudModelBalance,\s*\(\) => fetchCloudModelBalance\(\)\)/);
   assert.doesNotMatch(source, /ipcRenderer\.(invoke|send|on|removeListener)\("[^"]+"/);
   assert.doesNotMatch(source, /ipcMain\.(handle|on)\("[^"]+"/);
 });

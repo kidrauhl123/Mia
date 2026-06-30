@@ -878,9 +878,17 @@
                     </div>
                   </div>
                   <div class="cloud-actions">
-                    <button id="cloudSync" class="secondary hidden" type="button" title="强制重拉一次云端数据。正常情况下消息、置顶、设置都会自动同步，本按钮仅作为兜底排错使用。">强制刷新</button>
                     <button id="cloudLogout" class="secondary hidden" type="button">退出登录</button>
                   </div>
+                </div>
+              </section>
+              <section id="cloudModelBalanceRow" class="connection-row cloud-model-balance-row hidden">
+                <div class="connection-row-head">
+                  <div class="cloud-account-status-copy">
+                    <strong>模型额度</strong>
+                    <p id="cloudModelBalanceMeta">登录后可查看 Mia 模型额度。</p>
+                  </div>
+                  <div class="cloud-model-balance-amount" id="cloudModelBalanceAmount" aria-live="polite"></div>
                 </div>
               </section>
             </div>

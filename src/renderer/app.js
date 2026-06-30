@@ -305,7 +305,9 @@ const els = {
   cloudAccountAvatar: document.getElementById("cloudAccountAvatar"),
   cloudAccountName: document.getElementById("cloudAccountName"),
   cloudAccountUid: document.getElementById("cloudAccountUid"),
-  cloudSync: document.getElementById("cloudSync"),
+  cloudModelBalanceRow: document.getElementById("cloudModelBalanceRow"),
+  cloudModelBalanceAmount: document.getElementById("cloudModelBalanceAmount"),
+  cloudModelBalanceMeta: document.getElementById("cloudModelBalanceMeta"),
   cloudLogout: document.getElementById("cloudLogout"),
   checkUpdates: document.getElementById("checkUpdates"),
   daemonRestart: document.getElementById("daemonRestart"),
@@ -5092,6 +5094,7 @@ async function initializeRuntime(options = {}) {
       state,
       els,
       setText,
+      fetchModelBalance: () => window.mia.cloudModelBalance(),
     });
   }
   if (window.miaSkillHelpers && window.miaSkillHelpers.initSkillHelpers) {
@@ -5769,17 +5772,6 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
   });
 });
 
-els.cloudSync?.addEventListener("click", async () => {
-  els.cloudSync.disabled = true;
-  try {
-    state.runtime = await window.mia.cloudSync();
-    render();
-  } catch (error) {
-    setText(els.cloudAccountHint, `同步失败：${error.message || error}`);
-  } finally {
-    els.cloudSync.disabled = false;
-  }
-});
 els.cloudLogout?.addEventListener("click", async () => {
   els.cloudLogout.disabled = true;
   try {

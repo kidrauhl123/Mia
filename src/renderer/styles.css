@@ -8778,6 +8778,22 @@ select.select-open {
   min-width: 0;
 }
 
+.cloud-model-balance-row {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.cloud-model-balance-amount {
+  flex: 0 0 auto;
+  min-width: 98px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 560;
+  line-height: 1.2;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .connection-row-head strong {
   font-size: 13px;
   font-weight: 400;

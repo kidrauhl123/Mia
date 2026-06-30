@@ -11,8 +11,8 @@ contextBridge.exposeInMainWorld("mia", {
   stopDaemon: () => ipcRenderer.invoke(IpcChannel.DaemonStop),
   saveDaemonSettings: (settings) => ipcRenderer.invoke(IpcChannel.DaemonSettingsSave, settings),
   cloudStatus: () => ipcRenderer.invoke(IpcChannel.CloudStatus),
+  cloudModelBalance: () => ipcRenderer.invoke(IpcChannel.CloudModelBalance),
   cloudLogin: (payload) => ipcRenderer.invoke(IpcChannel.CloudLogin, payload),
-  cloudSync: () => ipcRenderer.invoke(IpcChannel.CloudSync),
   cloudLogout: () => ipcRenderer.invoke(IpcChannel.CloudLogout),
   checkForUpdates: () => ipcRenderer.invoke(IpcChannel.UpdateCheck),
   onUpdateEvent: (callback) => {

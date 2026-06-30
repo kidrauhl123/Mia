@@ -2457,7 +2457,12 @@ test("profile and account surfaces expose uid fields", () => {
   assert.match(html, /id="cloudAccountAvatar"/);
   assert.match(html, /id="cloudAccountName"/);
   assert.match(html, /id="cloudAccountUid"/);
+  assert.match(html, /id="cloudModelBalanceRow"/);
+  assert.match(html, /id="cloudModelBalanceAmount"/);
+  assert.match(html, /id="cloudModelBalanceMeta"/);
   assert.match(appSource, /profileUidValue:\s*document\.getElementById\("profileUidValue"\)/);
+  assert.match(appSource, /cloudModelBalanceAmount:\s*document\.getElementById\("cloudModelBalanceAmount"\)/);
+  assert.match(appSource, /fetchModelBalance:\s*\(\) => window\.mia\.cloudModelBalance\(\)/);
   assert.match(appSource, /closeProfilePopoverFromOutside/);
   assert.match(appSource, /function profileDraftPayload/);
   assert.match(appSource, /async function saveProfileDraft/);
@@ -2473,6 +2478,7 @@ test("profile and account surfaces expose uid fields", () => {
   assert.match(appSource, /function setNameWithBadge/);
   assert.match(appSource, /els\.profileUidValue\.textContent = user\.id/);
   assert.match(remoteSettingsSource, /cloudAccountUid/);
+  assert.match(remoteSettingsSource, /refreshModelBalance/);
   assert.match(remoteSettingsSource, /renderNameWithBadge/);
   assert.match(remoteSettingsSource, /applyAvatarMedia|paintAvatar/);
   assert.match(botManagerSource, /contact-profile-uid/);
