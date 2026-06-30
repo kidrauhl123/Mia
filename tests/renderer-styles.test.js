@@ -98,6 +98,16 @@ test("group create member picker uses compact filled contact rows", () => {
   assert.match(groupsCss, /\.group-create-member-row\.is-selected \.member-check\s*\{[\s\S]*?background:\s*var\(--accent\);/);
 });
 
+test("narrow conversation lists keep active rows hoverable", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(
+    baseCss,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell\[data-shell-layout="single"\]\s+\.persona\.active,\s*\.app-shell\[data-shell-layout="single"\]\s+\.contact-row\.active\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?\.app-shell\[data-shell-layout="single"\]\s+\.persona\.active:hover,\s*\.app-shell\[data-shell-layout="single"\]\s+\.contact-row\.active:hover\s*\{[\s\S]*?background:\s*var\(--hover-background\);/,
+    "single-pane active rows must still show the normal hover background"
+  );
+});
+
 test("chat workspace uses the shared continuous floor", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");

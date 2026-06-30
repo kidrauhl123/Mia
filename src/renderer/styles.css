@@ -10190,6 +10190,11 @@ pre {
     background: transparent;
   }
 
+  .app-shell[data-shell-layout="single"] .persona.active:hover,
+  .app-shell[data-shell-layout="single"] .contact-row.active:hover {
+    background: var(--hover-background);
+  }
+
   .app-shell[data-shell-layout="single"] .persona.active .persona-name,
   .app-shell[data-shell-layout="single"] .contact-row.active .contact-row-main strong {
     color: var(--text);
