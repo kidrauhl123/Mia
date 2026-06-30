@@ -40,8 +40,7 @@ RUN set -e; \
     hermes_archive="/tmp/hermes-agent-${HERMES_VERSION}.tar.gz"; \
     hermes_url="https://github.com/NousResearch/hermes-agent/archive/refs/tags/v${HERMES_VERSION}.tar.gz"; \
     for attempt in 1 2 3 4 5; do \
-      curl -fL --connect-timeout 30 --retry 3 --retry-delay 5 -o "$hermes_archive" "$hermes_url" && break; \
-      rm -f "$hermes_archive"; \
+      curl -fL --http1.1 --continue-at - --connect-timeout 30 --retry 3 --retry-delay 5 -o "$hermes_archive" "$hermes_url" && break; \
       if [ "$attempt" = "5" ]; then exit 1; fi; \
       sleep $((attempt * 5)); \
     done; \
