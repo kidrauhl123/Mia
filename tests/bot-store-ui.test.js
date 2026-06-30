@@ -191,6 +191,16 @@ test("assistant store skill chips label mia-scheduler as 定时任务 instead of
   assert.doesNotMatch(store, /"mia-scheduler":\s*"mia-scheduler"/);
 });
 
+test("assistant store cards show every preset skill instead of ambiguous +N chips", () => {
+  const store = read("src/renderer/bot/bot-store.js");
+
+  assert.match(store, /function skillChipHtml\(f = \{\}\)/);
+  assert.match(store, /ids\.map\(\(id\) => `<span class="bot-store-skill-chip">/);
+  assert.doesNotMatch(store, /ids\.slice\(0,\s*3\)/);
+  assert.doesNotMatch(store, />\+\$\{ids\.length - 3\}</);
+  assert.doesNotMatch(store, /bot-store-skill-chip muted">\\\+\$\{/);
+});
+
 test("assistant enrollment saves without asking the user to fill setup fields", () => {
   const store = read("src/renderer/bot/bot-store.js");
 

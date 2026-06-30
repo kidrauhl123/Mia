@@ -305,8 +305,7 @@
   function skillChipHtml(f = {}) {
     const ids = enabledSkillIds(f);
     if (!ids.length) return `<span class="bot-store-skill-chip muted">未配置 Skill</span>`;
-    return ids.slice(0, 3).map((id) => `<span class="bot-store-skill-chip">${escapeHtml(skillLabel(id))}</span>`).join("")
-      + (ids.length > 3 ? `<span class="bot-store-skill-chip muted">+${ids.length - 3}</span>` : "");
+    return ids.map((id) => `<span class="bot-store-skill-chip">${escapeHtml(skillLabel(id))}</span>`).join("");
   }
 
   function defaultConversationTagName(f = {}) {
