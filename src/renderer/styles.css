@@ -8787,8 +8787,8 @@ select.select-open {
   flex: 0 0 auto;
   min-width: 98px;
   color: var(--text);
-  font-size: 16px;
-  font-weight: 560;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1.2;
   text-align: right;
   white-space: nowrap;
