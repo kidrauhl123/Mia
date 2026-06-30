@@ -23,7 +23,7 @@ test("pluginFiles exposes the Mia gateway wrapper and bot overlay plugin", (t) =
   const { service } = setup(t);
   const files = service.pluginFiles();
 
-  assert.deepEqual(Object.keys(files).sort(), ["__init__.py", "__main__.py", "bot_overlay.py", "scheduler_mcp.py"]);
+  assert.deepEqual(Object.keys(files).sort(), ["__init__.py", "__main__.py", "bot_overlay.py", "scheduler_mcp.py", "web_search_mcp.py"]);
   assert.match(files["__main__.py"], /_load_mia_env/);
   assert.match(files["__main__.py"], /mia-model\.json/);
   assert.match(files["bot_overlay.py"], /X-Mia-Bot/);
@@ -35,6 +35,9 @@ test("pluginFiles exposes the Mia gateway wrapper and bot overlay plugin", (t) =
   assert.match(files["scheduler_mcp.py"], /1m/);
   assert.match(files["scheduler_mcp.py"], /fireMode/);
   assert.match(files["scheduler_mcp.py"], /deliveryText/);
+  assert.match(files["web_search_mcp.py"], /web_search/);
+  assert.match(files["web_search_mcp.py"], /web_fetch/);
+  assert.match(files["web_search_mcp.py"], /duckduckgo/);
 });
 
 test("ensureInstalled writes plugin files under runtime plugins and removes legacy engine copy", (t) => {
@@ -50,5 +53,6 @@ test("ensureInstalled writes plugin files under runtime plugins and removes lega
   assert.equal(fs.existsSync(path.join(result.pluginDir, "__main__.py")), true);
   assert.equal(fs.existsSync(path.join(result.pluginDir, "bot_overlay.py")), true);
   assert.equal(fs.existsSync(path.join(result.pluginDir, "scheduler_mcp.py")), true);
+  assert.equal(fs.existsSync(path.join(result.pluginDir, "web_search_mcp.py")), true);
   assert.equal(fs.existsSync(legacyDir), false);
 });

@@ -11,6 +11,7 @@ const { createBotsStore } = require("../src/cloud/bots-store.js");
 const { createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindings-store.js");
 const { createCloudAgentRunsStore } = require("../src/cloud-agent/cloud-agent-runs-store.js");
 const { createCloudAgentDispatcher } = require("../src/cloud-agent/dispatcher.js");
+const { createAttachmentMaterializer } = require("../src/cloud-agent/attachment-materializer.js");
 const { createCloudUser } = require("./helpers/cloud-auth.js");
 
 const BOT_ID = "alice_bot";
@@ -135,6 +136,125 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
     assert.match(hermesCalls[0].instructions, /You are Alice Bot\./);
   } finally {
     ctx.cleanup();
+  }
+});
+
+
+test("cloud-hermes archives generated worker file paths and hides server paths", async () => {
+  const ctx = setup();
+  const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-worker-files-"));
+  const workerPaths = {
+    root: workerRoot,
+    home: path.join(workerRoot, "home"),
+    workspace: path.join(workerRoot, "workspace"),
+    attachments: path.join(workerRoot, "attachments"),
+    hermesHome: path.join(workerRoot, "hermes-home")
+  };
+  try {
+    fs.mkdirSync(workerPaths.home, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(workerPaths.home, "report.xlsx"), "xlsx bytes", { mode: 0o600 });
+    const dispatcher = makeDispatcher(ctx, {
+      workerManager: {
+        async ensureWorker(userId) {
+          return { userId, baseUrl: "http://worker", apiKey: "k", paths: workerPaths };
+        }
+      },
+      attachmentMaterializer: createAttachmentMaterializer({ cloudStore: ctx.cloudStore }),
+      hermesRunsClient: {
+        async runChat(args) {
+          args.onEvent?.({ type: "text_delta", text: "Excel 文件已生成！路径是：/data/home/report.xlsx" });
+          return {
+            runId: "hr_file",
+            content: "Excel 文件已生成！路径是：/data/home/report.xlsx",
+            events: []
+          };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "生成 xlsx"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    const attachments = JSON.parse(reply.attachments_json || "[]");
+    assert.equal(attachments.length, 1);
+    assert.equal(attachments[0].name, "report.xlsx");
+    assert.match(attachments[0].url, /^\/api\/files\/file_/);
+    assert.equal(reply.body_md, "Excel 文件已生成！路径是：附件「report.xlsx」");
+    assert.doesNotMatch(reply.body_md, /\/data\/home/);
+    assert.doesNotMatch(reply.content_blocks_json || "", /\/data\/home/);
+  } finally {
+    ctx.cleanup();
+    fs.rmSync(workerRoot, { recursive: true, force: true });
+  }
+});
+
+test("cloud-hermes archives generated files mentioned only in streamed events", async () => {
+  const ctx = setup();
+  const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-worker-stream-files-"));
+  const workerPaths = {
+    root: workerRoot,
+    home: path.join(workerRoot, "home"),
+    workspace: path.join(workerRoot, "workspace"),
+    attachments: path.join(workerRoot, "attachments"),
+    hermesHome: path.join(workerRoot, "hermes-home")
+  };
+  const transientEvents = [];
+  try {
+    fs.mkdirSync(workerPaths.home, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(workerPaths.home, "stream-only.xlsx"), "xlsx bytes", { mode: 0o600 });
+    const dispatcher = makeDispatcher(ctx, {
+      workerManager: {
+        async ensureWorker(userId) {
+          return { userId, baseUrl: "http://worker", apiKey: "k", paths: workerPaths };
+        }
+      },
+      attachmentMaterializer: createAttachmentMaterializer({ cloudStore: ctx.cloudStore }),
+      hermesRunsClient: {
+        async runChat(args) {
+          args.onEvent?.({ type: "text_delta", text: "Excel 文件已生成！路径是：/data/home/stream-only.xlsx" });
+          return {
+            runId: "hr_stream_file",
+            content: "Excel 文件已生成。",
+            events: []
+          };
+        }
+      },
+      broadcastTransientEvent(userId, event) {
+        transientEvents.push({ userId, event });
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "生成 xlsx"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    const attachments = JSON.parse(reply.attachments_json || "[]");
+    assert.equal(attachments.length, 1);
+    assert.equal(attachments[0].name, "stream-only.xlsx");
+    assert.match(attachments[0].url, /^\/api\/files\/file_/);
+    assert.equal(reply.body_md, "Excel 文件已生成。");
+    assert.doesNotMatch(reply.content_blocks_json || "", /\/data\/home/);
+    assert.doesNotMatch(JSON.stringify(transientEvents), /\/data\/home/);
+  } finally {
+    ctx.cleanup();
+    fs.rmSync(workerRoot, { recursive: true, force: true });
   }
 });
 

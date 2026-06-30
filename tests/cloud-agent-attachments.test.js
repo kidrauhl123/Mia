@@ -9,7 +9,8 @@ const { createCloudUser } = require("./helpers/cloud-auth.js");
 const {
   createAttachmentMaterializer,
   parseAttachmentsFromMessage,
-  hostPathForWorkerArtifact
+  hostPathForWorkerArtifact,
+  redactGeneratedArtifactPaths
 } = require("../src/cloud-agent/attachment-materializer.js");
 
 function setup() {
@@ -147,6 +148,66 @@ test("attachment materializer archives only worker-root generated artifacts", ()
     assert.match(archived[0].url, /^\/api\/files\/file_/);
     assert.equal(fs.readFileSync(ctx.cloudStore.getFileForUser(ctx.alice.id, archived[0].id).path, "utf8"), "answer");
     assert.equal(ctx.cloudStore.getFileForUser(ctx.bob.id, archived[0].id), null);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("attachment materializer archives generated files mentioned only in assistant text", () => {
+  const ctx = setup();
+  try {
+    fs.mkdirSync(path.join(ctx.workerPaths.root, "home"), { recursive: true, mode: 0o700 });
+    const generatedPath = path.join(ctx.workerPaths.root, "home", "2026_世界杯模拟小组赛战果表.xlsx");
+    fs.writeFileSync(generatedPath, "xlsx bytes", { mode: 0o600 });
+
+    const materializer = createAttachmentMaterializer({ cloudStore: ctx.cloudStore });
+    const archived = materializer.archiveGeneratedAttachments({
+      userId: ctx.alice.id,
+      workerPaths: ctx.workerPaths,
+      result: {
+        content: "Excel 文件已生成！路径是：/data/home/2026_世界杯模拟小组赛战果表.xlsx"
+      }
+    });
+
+    assert.equal(archived.length, 1);
+    assert.equal(archived[0].name, "2026_世界杯模拟小组赛战果表.xlsx");
+    assert.equal(archived[0].type, "file");
+    assert.match(archived[0].url, /^\/api\/files\/file_/);
+    assert.equal(fs.readFileSync(ctx.cloudStore.getFileForUser(ctx.alice.id, archived[0].id).path, "utf8"), "xlsx bytes");
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("redactGeneratedArtifactPaths removes worker paths from user-visible text", () => {
+  const text = "Excel 文件已生成！路径是：/data/home/report.xlsx";
+
+  const redacted = redactGeneratedArtifactPaths(text, [{ name: "report.xlsx" }]);
+
+  assert.equal(redacted, "Excel 文件已生成！路径是：附件「report.xlsx」");
+  assert.doesNotMatch(redacted, /\/data\/home/);
+});
+
+test("attachment materializer does not archive internal worker config paths mentioned in text", () => {
+  const ctx = setup();
+  try {
+    fs.mkdirSync(path.join(ctx.workerPaths.root, "hermes-home"), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(ctx.workerPaths.root, "hermes-home", "config.yaml"), "secret: no", { mode: 0o600 });
+
+    const materializer = createAttachmentMaterializer({ cloudStore: ctx.cloudStore });
+    const archived = materializer.archiveGeneratedAttachments({
+      userId: ctx.alice.id,
+      workerPaths: ctx.workerPaths,
+      result: {
+        content: "内部配置在 /data/hermes-home/config.yaml"
+      }
+    });
+
+    assert.deepEqual(archived, []);
+    assert.equal(
+      redactGeneratedArtifactPaths("内部配置在 /data/hermes-home/config.yaml", archived),
+      "内部配置在 内部文件"
+    );
   } finally {
     ctx.cleanup();
   }

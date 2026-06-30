@@ -101,11 +101,20 @@ function createHermesWorkerManager(options = {}) {
     return env;
   }
 
-  function renderSchedulerMcpConfig(userId) {
+  function renderWebSearchMcpServerConfig() {
+    return [
+      "  mia-web-search:",
+      "    command: \"python\"",
+      "    args:",
+      "      - \"-m\"",
+      "      - \"mia_plugins.web_search_mcp\""
+    ];
+  }
+
+  function renderSchedulerMcpServerConfig(userId) {
     const token = createUserModelProxyToken(internalModelProxyKey, userId);
     if (!internalTasksUrl || !token) return [];
     return [
-      "mcp_servers:",
       "  mia-scheduler:",
       "    command: \"python\"",
       "    args:",
@@ -114,9 +123,16 @@ function createHermesWorkerManager(options = {}) {
       "    env:",
       `      MIA_CLOUD_TASKS_URL: ${JSON.stringify(internalTasksUrl)}`,
       `      MIA_CLOUD_TASKS_TOKEN: ${JSON.stringify(token)}`,
-      "      MIA_SCHEDULER_CONTEXT_FILE: \"/data/hermes-home/mia-scheduler-context.json\"",
-      ""
+      "      MIA_SCHEDULER_CONTEXT_FILE: \"/data/hermes-home/mia-scheduler-context.json\""
     ];
+  }
+
+  function renderMcpConfig(userId) {
+    const servers = [
+      ...renderWebSearchMcpServerConfig(),
+      ...renderSchedulerMcpServerConfig(userId)
+    ];
+    return servers.length ? ["mcp_servers:", ...servers, ""] : [];
   }
 
   function renderHermesConfig(userId = "") {
@@ -157,7 +173,7 @@ function createHermesWorkerManager(options = {}) {
       "  disabled_toolsets:",
       "    - cronjob",
       "",
-      ...renderSchedulerMcpConfig(userId),
+      ...renderMcpConfig(userId),
       "mia:",
       "  runtime_schema: 1",
       ""

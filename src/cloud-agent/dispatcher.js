@@ -1,6 +1,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { parseAttachmentsFromMessage } = require("./attachment-materializer.js");
+const {
+  parseAttachmentsFromMessage,
+  redactGeneratedArtifactPaths,
+  redactGeneratedArtifactPathsInValue
+} = require("./attachment-materializer.js");
 const { createGroupOrchestrator } = require("./group-orchestrator.js");
 const { MemberKind } = require("../shared/conversation-kinds.js");
 const { CloudEvent } = require("../shared/cloud-events.js");
@@ -465,6 +469,7 @@ function createCloudAgentDispatcher(deps = {}) {
           attachments: parseAttachmentsFromMessage(message)
         })
         : { attachments: [], input: inputText };
+      const runEvents = [];
       const result = await hermesRunsClient.runChat({
         baseUrl: worker.baseUrl,
         apiKey: worker.apiKey,
@@ -498,6 +503,7 @@ function createCloudAgentDispatcher(deps = {}) {
           });
         },
         onEvent(event) {
+          runEvents.push(event);
           trace.collect(event);
           contentBlocks.collect(event);
           broadcastTransientEvent(ownerId, {
@@ -505,27 +511,40 @@ function createCloudAgentDispatcher(deps = {}) {
             runId: run.id,
             conversationId,
             botId,
-            event
+            event: redactGeneratedArtifactPathsInValue(event, [])
           });
         }
       });
+      const resultForArtifacts = {
+        ...(result || {}),
+        events: [
+          ...(Array.isArray(result?.events) ? result.events : []),
+          ...runEvents
+        ]
+      };
       const replyAttachments = attachmentMaterializer?.archiveGeneratedAttachments
         ? attachmentMaterializer.archiveGeneratedAttachments({
           userId: ownerId,
           workerPaths: worker.paths || {},
-          result
+          result: resultForArtifacts
         })
         : [];
+      const replyContent = redactGeneratedArtifactPaths(result.content || "", replyAttachments);
+      const replyContentBlocks = redactGeneratedArtifactPathsInValue(
+        contentBlocks.payload(replyContent),
+        replyAttachments
+      );
+      const replyTrace = redactGeneratedArtifactPathsInValue(trace.payload(), replyAttachments);
       if (result.runId) cloudAgentRunsStore.markRunning(run.id, result.runId);
       const reply = messagesStore.appendMessage({
         conversationId,
         senderKind: BOT_SENDER_KIND,
         senderRef: bot.id,
         senderOwnerId: ownerId,
-        bodyMd: result.content || "",
+        bodyMd: replyContent,
         attachments: replyAttachments.length ? replyAttachments : null,
-        trace: trace.payload(),
-        contentBlocks: contentBlocks.payload(result.content || ""),
+        trace: replyTrace,
+        contentBlocks: replyContentBlocks,
         status: "complete"
       });
       cloudAgentRunsStore.markComplete(run.id);

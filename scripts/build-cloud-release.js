@@ -617,6 +617,7 @@ function verifyRelease() {
     "hermes-image/mia_plugins/__main__.py",
     "hermes-image/mia_plugins/bot_overlay.py",
     "hermes-image/mia_plugins/scheduler_mcp.py",
+    "hermes-image/mia_plugins/web_search_mcp.py",
     "nginx/mia-websocket-map.conf",
     "nginx/mia-cloud-site.conf",
     "manifest.json"

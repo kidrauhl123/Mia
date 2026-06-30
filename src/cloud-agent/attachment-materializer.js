@@ -3,6 +3,9 @@ const path = require("node:path");
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_TEXT_PREVIEW_BYTES = 1024 * 1024;
+const WORKER_FILE_PATH_PATTERN = /\/data\/(?:workspace|home|attachments|hermes-home)\/[^\s"'`<>\])]+/gu;
+const WORKER_GENERATED_FILE_PATH_PATTERN = /\/data\/(?:workspace|home)\/[^\s"'`<>\])]+/gu;
+const TRAILING_PATH_PUNCTUATION = /[.,，。:：;；!?！？]+$/u;
 
 function sanitizeAttachmentName(value, fallback = "attachment") {
   const base = path.basename(String(value || "").replace(/[\x00-\x1f\x7f]/g, "").trim());
@@ -102,6 +105,40 @@ function inputWithAttachmentContext(text, attachments = [], fsImpl = fs) {
   return [String(text || ""), context ? `附件上下文：\n${context}` : ""].filter(Boolean).join("\n\n");
 }
 
+function trimWorkerFilePath(value = "") {
+  let candidate = String(value || "").trim();
+  while (candidate && TRAILING_PATH_PUNCTUATION.test(candidate)) {
+    candidate = candidate.slice(0, -1);
+  }
+  return candidate;
+}
+
+function workerFilePathsFromText(text = "", pattern = WORKER_FILE_PATH_PATTERN) {
+  const out = [];
+  const seen = new Set();
+  for (const match of String(text || "").matchAll(pattern)) {
+    const candidate = trimWorkerFilePath(match[0]);
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    out.push(candidate);
+  }
+  return out;
+}
+
+function collectWorkerFilePathMentions(value, out = []) {
+  if (typeof value === "string") {
+    for (const filePath of workerFilePathsFromText(value, WORKER_GENERATED_FILE_PATH_PATTERN)) out.push({ path: filePath });
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectWorkerFilePathMentions(item, out);
+    return out;
+  }
+  if (!value || typeof value !== "object") return out;
+  for (const item of Object.values(value)) collectWorkerFilePathMentions(item, out);
+  return out;
+}
+
 function walkArtifacts(value, out = []) {
   if (!value || out.length >= 20) return out;
   if (Array.isArray(value)) {
@@ -132,6 +169,7 @@ function resultArtifacts(result = {}) {
   for (const event of Array.isArray(result.events) ? result.events : []) {
     walkArtifacts(event, artifacts);
   }
+  collectWorkerFilePathMentions(result, artifacts);
   const seen = new Set();
   return artifacts.filter((item) => {
     const key = String(item.path || "").trim();
@@ -271,6 +309,31 @@ function createAttachmentMaterializer(deps = {}) {
   return { materialize, archiveGeneratedAttachments };
 }
 
+function redactGeneratedArtifactPaths(text = "", attachments = []) {
+  const names = (Array.isArray(attachments) ? attachments : [])
+    .map((item) => String(item?.name || "").trim())
+    .filter(Boolean);
+  let index = 0;
+  return String(text || "").replace(WORKER_FILE_PATH_PATTERN, (match) => {
+    const candidate = trimWorkerFilePath(match);
+    const suffix = match.slice(candidate.length);
+    const name = names[index] || names[0] || "";
+    index += 1;
+    return `${name ? `附件「${name}」` : "内部文件"}${suffix}`;
+  });
+}
+
+function redactGeneratedArtifactPathsInValue(value, attachments = []) {
+  if (typeof value === "string") return redactGeneratedArtifactPaths(value, attachments);
+  if (Array.isArray(value)) return value.map((item) => redactGeneratedArtifactPathsInValue(item, attachments));
+  if (!value || typeof value !== "object") return value;
+  const out = {};
+  for (const [key, item] of Object.entries(value)) {
+    out[key] = redactGeneratedArtifactPathsInValue(item, attachments);
+  }
+  return out;
+}
+
 function mimeForName(name) {
   const ext = path.extname(String(name || "")).toLowerCase();
   if (ext === ".png") return "image/png";
@@ -288,5 +351,7 @@ module.exports = {
   attachmentContext,
   inputWithAttachmentContext,
   resultArtifacts,
-  hostPathForWorkerArtifact
+  hostPathForWorkerArtifact,
+  redactGeneratedArtifactPaths,
+  redactGeneratedArtifactPathsInValue
 };

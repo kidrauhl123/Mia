@@ -65,6 +65,8 @@ test("worker manager writes platform LiteLLM config per user", () => {
   assert.match(config, /key_env: "MIA_CLOUD_AGENT_MODEL_API_KEY"/);
   assert.match(config, /key: worker-api-key/);
   assert.match(config, /disabled_toolsets:\n    - cronjob/);
+  assert.match(config, /mia-web-search:/);
+  assert.match(config, /mia_plugins\.web_search_mcp/);
   assert.doesNotMatch(config, /mia-scheduler/);
   assert.doesNotMatch(config, /sk-litellm/);
   assert.equal(manager.envForUser("user_a").MIA_CLOUD_AGENT_MODEL_API_KEY, "sk-litellm");
@@ -88,6 +90,8 @@ test("worker manager can route user workers through Mia internal billing proxy",
   assert.match(config, /provider: "mia"/);
   assert.match(config, /base_url: "https:\/\/mia\.example\/api\/internal\/model-proxy\/v1"/);
   assert.match(config, /key_env: "MIA_CLOUD_AGENT_MODEL_API_KEY"/);
+  assert.match(config, /mia-web-search:/);
+  assert.match(config, /mia_plugins\.web_search_mcp/);
   assert.match(config, /mia-scheduler:/);
   assert.match(config, /python/);
   assert.match(config, /mia_plugins\.scheduler_mcp/);
