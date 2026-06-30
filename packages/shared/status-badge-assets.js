@@ -128,6 +128,16 @@
       relativePath: "assets/status-badges/gold-fire.tgs",
       loop: "always",
       bundled: true
+    }),
+    Object.freeze({
+      id: "rainbow-fire",
+      kind: "lottie",
+      assetId: "rainbow-fire",
+      label: "七彩火焰",
+      format: "tgs",
+      relativePath: "assets/status-badges/rainbow-fire.tgs",
+      loop: "always",
+      bundled: true
     })
   ]);
 

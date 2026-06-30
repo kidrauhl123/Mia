@@ -3,6 +3,13 @@
 
   const STARTER_ENGINE_ORDER = ["hermes", "openclaw", "codex", "claude-code"];
   const CLOUD_MIA_TAG_NAME = "云端";
+  const STARTER_STATUS_BADGE_IDS = Object.freeze({
+    "cloud-hermes": "rainbow-fire",
+    hermes: "blue-fire",
+    openclaw: "pink-fire",
+    codex: "cyan-fire",
+    "claude-code": "red-orange-fire"
+  });
   const CLOUD_MIA_STARTER = Object.freeze({
     engineId: "cloud-hermes",
     keySuffix: "mia",
@@ -65,6 +72,21 @@
     };
   }
 
+  function statusBadgeAssetsShared() {
+    if (global?.miaStatusBadgeAssets) return global.miaStatusBadgeAssets;
+    if (typeof require === "function") {
+      try { return require("../../../packages/shared/status-badge-assets.js"); } catch { /* browser fallback below */ }
+    }
+    return null;
+  }
+
+  function starterStatusBadge(engineId) {
+    const assetId = STARTER_STATUS_BADGE_IDS[normalizeEngineId(engineId)] || "";
+    if (!assetId) return null;
+    const badge = statusBadgeAssetsShared()?.statusBadgeForValue?.(assetId);
+    return badge || { kind: "lottie", assetId, loop: "always" };
+  }
+
   function labelForEngine(engineId, fallback = "") {
     return STARTER_ENGINE_META[engineId]?.name || String(fallback || engineId || "").trim();
   }
@@ -124,14 +146,15 @@
           color: meta.color,
           bio: meta.bio,
           description: meta.bio,
-          personaText: meta.personaText
+          personaText: meta.personaText,
+          statusBadge: starterStatusBadge(engineId)
         };
       })
       .filter(Boolean);
   }
 
   function starterBotSpecs(runtime = {}) {
-    return [CLOUD_MIA_STARTER, ...starterEngineBotSpecs(runtime)];
+    return [{ ...CLOUD_MIA_STARTER, statusBadge: starterStatusBadge("cloud-hermes") }, ...starterEngineBotSpecs(runtime)];
   }
 
   function settingsFromResponse(response) {
@@ -190,11 +213,69 @@
   }
 
   function hasMatchingBot(spec, bots = []) {
-    return (Array.isArray(bots) ? bots : []).some((bot) =>
+    return Boolean(matchingBotForSpec(spec, bots));
+  }
+
+  function matchingBotForSpec(spec, bots = []) {
+    return (Array.isArray(bots) ? bots : []).find((bot) =>
       botDisplayName(bot).toLowerCase() === spec.name.toLowerCase()
       && (spec.runtimeKind === "cloud-hermes"
         ? botRuntimeKind(bot) === "cloud-hermes"
-        : botEngineId(bot) === spec.engineId));
+        : botEngineId(bot) === spec.engineId)) || null;
+  }
+
+  function botKey(bot = {}) {
+    return String(bot.key || bot.id || bot.accountId || bot.account_id || "").trim();
+  }
+
+  function botStatusBadge(bot = {}) {
+    if (Object.prototype.hasOwnProperty.call(bot, "statusBadge")) return bot.statusBadge;
+    if (Object.prototype.hasOwnProperty.call(bot, "status_badge")) return bot.status_badge;
+    return null;
+  }
+
+  function botIdentityForBadgeBackfill(bot = {}, spec = {}) {
+    const bio = String(bot.bio || bot.description || "").trim();
+    return {
+      name: botDisplayName(bot) || spec.name,
+      avatarImage: bot.avatarImage || bot.avatar_image || "",
+      avatarCrop: Object.prototype.hasOwnProperty.call(bot, "avatarCrop")
+        ? bot.avatarCrop
+        : (Object.prototype.hasOwnProperty.call(bot, "avatar_crop") ? bot.avatar_crop : null),
+      color: bot.color || bot.avatarColor || bot.avatar_color || spec.color || "",
+      statusBadge: spec.statusBadge || null,
+      bio,
+      personaText: String(bot.personaText || bot.persona_text || bio || spec.personaText || "").trim(),
+      capabilities: bot.capabilities || { inheritEngineDefaults: true }
+    };
+  }
+
+  async function backfillStarterStatusBadges({ api, social, specs = [], existingBots = [] } = {}) {
+    if (typeof api?.social?.saveBotIdentity !== "function") return [];
+    const updated = [];
+    for (const spec of specs) {
+      if (!spec?.statusBadge) continue;
+      const bot = matchingBotForSpec(spec, existingBots);
+      if (!bot || botStatusBadge(bot)) continue;
+      const key = botKey(bot);
+      if (!key) continue;
+      const response = await api.social.saveBotIdentity(key, botIdentityForBadgeBackfill(bot, spec));
+      if (response && response.ok === false) throw new Error(response.error || "保存 Bot 徽章失败");
+      const savedBot = response?.data?.bot || response?.bot || null;
+      const nextBot = {
+        ...bot,
+        ...(savedBot || {}),
+        key: savedBot?.key || savedBot?.id || key,
+        id: savedBot?.id || savedBot?.key || key,
+        statusBadge: savedBot?.statusBadge || savedBot?.status_badge || spec.statusBadge
+      };
+      if (Array.isArray(social?.moduleState?.bots)) {
+        const index = social.moduleState.bots.indexOf(bot);
+        if (index >= 0) social.moduleState.bots[index] = nextBot;
+      }
+      updated.push({ engineId: spec.engineId, key, bot: nextBot });
+    }
+    return updated;
   }
 
   function settingsPutBody(settings = {}, starterEngineBots = {}) {
@@ -269,12 +350,15 @@
     const existingMarker = starterMarker(settings);
     const seededIds = seededStarterEngineIds(existingMarker);
     const allSpecs = starterBotSpecs(state.runtime);
+    const existingBots = Array.isArray(social?.moduleState?.bots) ? social.moduleState.bots : [];
+    const updated = await backfillStarterStatusBadges({ api, social, specs: allSpecs, existingBots });
     const specs = existingMarker.seededAt
       ? allSpecs.filter((spec) => spec.engineId === "cloud-hermes" && !seededIds.has(spec.engineId))
       : allSpecs;
-    if (!specs.length) return { skipped: true, created: [] };
+    if (!specs.length) {
+      return updated.length ? { skipped: false, created: [], updated } : { skipped: true, created: [] };
+    }
 
-    const existingBots = Array.isArray(social?.moduleState?.bots) ? social.moduleState.bots : [];
     const userId = social?.moduleState?.myUserId || state.runtime?.cloud?.user?.id || state.runtime?.cloud?.userId || "";
     const targetDeviceId = state.runtime?.localDevice?.id || state.runtime?.cloud?.deviceId || "";
     const targetDeviceName = state.runtime?.localDevice?.name || state.runtime?.cloud?.deviceName || "当前设备";
@@ -297,6 +381,7 @@
           description: spec.description,
           bio: spec.bio,
           color: spec.color,
+          statusBadge: spec.statusBadge || null,
           personaText: spec.personaText,
           agentEngine: spec.agentEngine || spec.engineId,
           targetDeviceId: spec.targetDeviceId ?? targetDeviceId,
@@ -331,7 +416,7 @@
       }
     }
 
-    return { skipped: false, created };
+    return updated.length ? { skipped: false, created, updated } : { skipped: false, created };
   }
 
   const api = {
