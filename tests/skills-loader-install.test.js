@@ -415,7 +415,9 @@ test("bundled official library exposes context-bearing assistant templates", asy
     assert.ok(presets.every((preset) => Array.isArray(preset.capabilities?.enabledSkills) && preset.capabilities.enabledSkills.length));
     assert.ok(presets.every((preset) => preset.avatar && typeof preset.avatar.emoji === "string" && preset.avatar.emoji.trim()));
     assert.ok(presets.every((preset) => preset.avatar && typeof preset.avatar.token === "string" && preset.avatar.token.trim()));
-    assert.ok(presets.every((preset) => typeof preset.responsibility === "string" && preset.responsibility.includes("长期")));
+    assert.ok(presets.every((preset) => typeof preset.responsibility === "string" && preset.responsibility.trim()));
+    assert.ok(presets.every((preset) => !/长期上下文/.test(`${preset.line} ${preset.responsibility} ${preset.description || preset.desc || ""}`)));
+    assert.ok(presets.filter((preset) => /长期/.test(`${preset.line} ${preset.responsibility} ${preset.description || preset.desc || ""}`)).length <= 2);
     assert.ok(presets.every((preset) => !Object.prototype.hasOwnProperty.call(preset, "setupPrompt")));
     assert.ok(presets.every((preset) => !Object.prototype.hasOwnProperty.call(preset, "setup")));
     assert.ok(presets.every((preset) => Array.isArray(preset.contextBindings) && preset.contextBindings.length));

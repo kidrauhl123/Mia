@@ -38,10 +38,10 @@
     if (base) sections.push(base);
     const context = ["## Mia Assistant Template Context"];
     if (text(template.name)) context.push(`模板：${text(template.name)}`);
-    if (responsibility) context.push(`长期负责：${responsibility}`);
-    if (bindings.length) context.push(`长期关注上下文：${bindings.join("、")}`);
+    if (responsibility) context.push(`职责：${responsibility}`);
+    if (bindings.length) context.push(`关注线索：${bindings.join("、")}`);
     if (examples.length) {
-      context.push("典型交接：");
+      context.push("常见请求：");
       for (const example of examples.slice(0, 3)) context.push(`- ${example}`);
     }
     sections.push(context.join("\n"));

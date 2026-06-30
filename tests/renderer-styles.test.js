@@ -1371,13 +1371,16 @@ test("chat history session menus constrain long history lists to an internal scr
   }
 });
 
-test("assistant store cards keep real skill metadata compact", () => {
+test("assistant store cards stay compact and detail copy uses normal body text", () => {
   const css = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
   assert.match(css, /\.bot-store-card-description\s*\{[^}]*-webkit-line-clamp:\s*3;/);
-  assert.match(css, /\.bot-store-card-skills\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/);
-  assert.match(css, /\.bot-store-skill-chip\s*\{[^}]*border-radius:\s*999px;/);
   assert.match(css, /\.bot-store-sheet-section\s*\{[^}]*display:\s*grid;/);
+  assert.match(css, /\.bot-store-sheet-section p\s*\{[^}]*font-weight:\s*400;/);
+  assert.match(css, /\.bot-store-sheet-skills\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/);
+  assert.match(css, /\.bot-store-skill-chip\s*\{[^}]*border-radius:\s*999px;/);
+  assert.doesNotMatch(css, /\.bot-store-card-skills/);
+  assert.doesNotMatch(css, /\.bot-store-sheet-section strong/);
   assert.doesNotMatch(css, /\.bot-store-template-meta/);
   assert.doesNotMatch(css, /\.bot-store-demo/);
 });

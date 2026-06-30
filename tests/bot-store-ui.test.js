@@ -89,7 +89,7 @@ test("discover bot store detail sheet stays compact, form-free, and keeps the ba
   assert.match(css, /\.bot-store-btn\.primary\s*\{[\s\S]*?flex:\s*0 0 auto;/);
 });
 
-test("official assistant templates are long-lived context contacts, not skill wrappers", () => {
+test("official assistant templates are natural assistants, not skill wrappers", () => {
   const library = JSON.parse(read("resources/official-library/library.json"));
   const presets = Array.isArray(library.botPresets) ? library.botPresets : [];
 
@@ -104,7 +104,9 @@ test("official assistant templates are long-lived context contacts, not skill wr
     "公开情报官",
     "跑团故事主持"
   ]);
-  assert.ok(presets.every((item) => typeof item.responsibility === "string" && item.responsibility.includes("长期")));
+  assert.ok(presets.every((item) => typeof item.responsibility === "string" && item.responsibility.trim()));
+  assert.ok(presets.every((item) => !/长期上下文/.test(`${item.line} ${item.responsibility} ${item.description}`)));
+  assert.ok(presets.filter((item) => /长期/.test(`${item.line} ${item.responsibility} ${item.description}`)).length <= 2);
   assert.ok(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "setupPrompt")));
   assert.ok(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "setup")));
   assert.ok(presets.every((item) => Array.isArray(item.contextBindings) && item.contextBindings.length > 0));
@@ -151,13 +153,18 @@ test("discover bot store presents assistant templates as context contacts", () =
   assert.match(store, /window\.miaAssistantTemplate/);
   assert.match(store, /assistantDisplayDescription\(f\)/);
   assert.match(store, /bot-store-card-description/);
-  assert.match(store, /bot-store-card-skills/);
-  assert.match(store, /bot-store-skill-chip/);
   assert.match(store, />添加</);
   assert.match(store, />描述</);
-  assert.match(store, />适合</);
-  assert.match(store, />预设技能</);
+  assert.match(store, />技能</);
+  assert.match(store, /bot-store-sheet-skills/);
+  assert.match(store, /bot-store-skill-chip/);
   assert.doesNotMatch(store, />添加并设置</);
+  assert.doesNotMatch(store, />适合</);
+  assert.doesNotMatch(store, />预设技能</);
+  assert.doesNotMatch(store, /bot-store-card-skills/);
+  assert.doesNotMatch(store, /assistantBestFor/);
+  assert.doesNotMatch(store, /bestFor:/);
+  assert.doesNotMatch(store, /"bestFor"/);
   assert.doesNotMatch(store, /长期负责：/);
   assert.doesNotMatch(store, /第一次需要：/);
   assert.doesNotMatch(store, /长期联系人/);
@@ -183,7 +190,7 @@ test("official assistant cards use visible emoji avatars instead of generated SV
   assert.doesNotMatch(store, /\$\{f\.emoji\}<\/div>/);
 });
 
-test("assistant store renders only real resolved preset skills as visible tags", () => {
+test("assistant store renders only real resolved preset skills as visible detail chips", () => {
   const library = JSON.parse(read("resources/official-library/library.json"));
   const store = read("src/renderer/bot/bot-store.js");
 
@@ -197,13 +204,16 @@ test("assistant store renders only real resolved preset skills as visible tags",
   assert.match(store, /window\.miaSkillHelpers\?\.skillDisplayName/);
   assert.match(store, /function skillSummary\(f = \{\}\)/);
   assert.match(store, /function skillChipHtml\(f = \{\}\)/);
-  assert.match(store, /bot-store-card-skills/);
+  assert.match(store, /bot-store-sheet-skills/);
   assert.match(store, /bot-store-skill-chip/);
-  assert.match(store, />预设技能</);
   assert.match(store, />技能</);
+  assert.doesNotMatch(store, /bot-store-card-skills/);
+  assert.doesNotMatch(store, />预设技能</);
   assert.doesNotMatch(store, /const SKILL_LABELS/);
   assert.doesNotMatch(store, /未配置 Skill/);
   assert.doesNotMatch(store, /SKILL_LABELS\[id\]/);
+  assert.doesNotMatch(store, /bot-store-skill-more/);
+  assert.doesNotMatch(store, />\+\$\{/);
 });
 
 test("assistant enrollment saves without asking the user to fill setup fields", () => {

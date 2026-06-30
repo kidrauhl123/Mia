@@ -383,12 +383,6 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
-.bot-store-card-skills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  min-width: 0;
-}
 .bot-store-skill-chip {
   display: inline-flex;
   align-items: center;
@@ -397,8 +391,8 @@
   padding: 2px 7px;
   overflow: hidden;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--bot-card-fg) 9%, transparent);
-  color: color-mix(in srgb, var(--bot-card-fg) 78%, var(--text) 22%);
+  background: color-mix(in srgb, var(--bot-card-fg, var(--accent)) 9%, transparent);
+  color: color-mix(in srgb, var(--bot-card-fg, var(--accent)) 78%, var(--text) 22%);
   font-size: 11px;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -740,11 +734,18 @@
   color: var(--faint);
   font-size: 12px;
 }
-.bot-store-sheet-section strong {
+.bot-store-sheet-section p {
+  margin: 0;
   color: var(--text);
   font-size: var(--ui-text-max-size, 14px);
-  font-weight: var(--ui-text-max-weight, 500);
+  font-weight: 400;
   line-height: 1.55;
+}
+.bot-store-sheet-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
 }
 .bot-store-actions {
   display: flex;
