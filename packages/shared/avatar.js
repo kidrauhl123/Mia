@@ -56,7 +56,9 @@
     "test-tube": "🧪",
     briefcase: "💼",
     check: "✅",
-    puzzle: "🧩"
+    puzzle: "🧩",
+    satellite: "🛰️",
+    dice: "🎲"
   });
 
   function hashCode(value) {

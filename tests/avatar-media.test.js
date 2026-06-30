@@ -27,6 +27,10 @@ test("avatar-media detects image gif and video avatar sources", () => {
   assert.equal(avatarMedia.mediaKind("emoji:books"), "emoji");
   assert.equal(avatarMedia.isEmojiAvatar("emoji:books"), true);
   assert.equal(avatarMedia.emojiAvatarGlyph("emoji:books"), "📚");
+  assert.equal(avatarMedia.isEmojiAvatar("emoji:satellite"), true);
+  assert.equal(avatarMedia.emojiAvatarGlyph("emoji:satellite"), "🛰️");
+  assert.equal(avatarMedia.isEmojiAvatar("emoji:dice"), true);
+  assert.equal(avatarMedia.emojiAvatarGlyph("emoji:dice"), "🎲");
   assert.equal(avatarMedia.emojiAvatarToken("emoji:../../bad"), "");
   assert.equal(avatarMedia.isEmojiAvatar("emoji:unknown"), false);
 });
@@ -48,5 +52,7 @@ test("avatar-media contract is available in browser contexts", () => {
   assert.equal(browserContract.isVideo("data:image/gif;base64,abc"), false);
   assert.equal(browserContract.isEmojiAvatar("emoji:check"), true);
   assert.equal(browserContract.emojiAvatarGlyph("emoji:check"), "✅");
+  assert.equal(browserContract.isEmojiAvatar("emoji:dice"), true);
+  assert.equal(browserContract.emojiAvatarGlyph("emoji:dice"), "🎲");
   assert.deepEqual(plain(browserContract.normalizeTrim({ start: 2, duration: 3 })), { start: 2, duration: 3 });
 });
