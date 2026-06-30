@@ -1184,6 +1184,13 @@ function fallbackPlatformModels() {
   return [{ id: "mia-auto", label: "Mia Auto", provider: "mia-litellm", upstreamModel: "" }];
 }
 
+const DEEPSEEK_FALLBACK_MODEL_OPTIONS = [
+  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+  { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+  { id: "deepseek-chat", label: "deepseek-chat", deprecated: true },
+  { id: "deepseek-reasoner", label: "deepseek-reasoner", deprecated: true }
+];
+
 function modelGatewayMode(context = {}) {
   const explicit = String(context.modelGatewayMode || process.env.MIA_MODEL_GATEWAY || "").trim().toLowerCase();
   if (explicit === "deepseek" || explicit === "direct-deepseek") return "deepseek";
@@ -1222,6 +1229,60 @@ function directDeepSeekModels(context = {}) {
     upstreamModel: deepSeekUpstreamModel(context),
     configured: Boolean(deepSeekApiKey(context))
   }];
+}
+
+function deepSeekModelOption(raw, source = "known") {
+  const id = modelGatewayStoreModule.normalizeDeepSeekModel(raw?.id || raw?.model || raw);
+  if (!id) return null;
+  const fallback = DEEPSEEK_FALLBACK_MODEL_OPTIONS.find((item) => item.id === id);
+  return {
+    id,
+    label: String(raw?.label || fallback?.label || id).trim() || id,
+    source,
+    deprecated: Boolean(raw?.deprecated ?? fallback?.deprecated)
+  };
+}
+
+function uniqueDeepSeekModelOptions(items) {
+  const seen = new Set();
+  const options = [];
+  for (const item of items) {
+    const option = deepSeekModelOption(item, item?.source || "known");
+    if (!option || seen.has(option.id)) continue;
+    seen.add(option.id);
+    options.push(option);
+  }
+  return options;
+}
+
+async function fetchDeepSeekModelOptions(context = {}) {
+  const apiKey = deepSeekApiKey(context);
+  if (!apiKey) return [];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2500);
+  try {
+    const response = await fetch(`${deepSeekBaseUrl(context)}/models`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal
+    });
+    if (!response.ok) return [];
+    const payload = await response.json().catch(() => ({}));
+    const rows = Array.isArray(payload?.data) ? payload.data : [];
+    return rows.map((row) => deepSeekModelOption(row, "deepseek")).filter(Boolean);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function listDeepSeekModelOptions(context = {}) {
+  const discovered = await fetchDeepSeekModelOptions(context);
+  return uniqueDeepSeekModelOptions([
+    ...discovered,
+    ...DEEPSEEK_FALLBACK_MODEL_OPTIONS
+  ]);
 }
 
 function modelPricing(context = {}) {
@@ -1930,6 +1991,7 @@ async function handleAdminModelGateway(req, res, context, url) {
   }
   if (req.method === "GET" && url.pathname === "/api/admin/model-gateway") {
     if (modelGatewayMode(context) === "deepseek") {
+      const modelOptions = await listDeepSeekModelOptions(context);
       return writeJson(res, 200, {
         ok: true,
         gateway: {
@@ -1941,6 +2003,7 @@ async function handleAdminModelGateway(req, res, context, url) {
         },
         modelName: platformModelId(context),
         models: directDeepSeekModels(context),
+        modelOptions,
         settings: publicDeepSeekGatewaySettings(context),
         pricing: modelPricing(context)
       });
@@ -1964,6 +2027,7 @@ async function handleAdminModelGateway(req, res, context, url) {
       }
       const input = normalizeDeepSeekAdminInput(await readJson(req), context);
       const saved = context.modelGatewayStore.saveSettings(input);
+      const modelOptions = await listDeepSeekModelOptions(context);
       return writeJson(res, 200, {
         ok: true,
         gateway: {
@@ -1976,6 +2040,7 @@ async function handleAdminModelGateway(req, res, context, url) {
         model: modelGatewayStoreModule.publicSettings(saved),
         settings: publicDeepSeekGatewaySettings(context),
         models: directDeepSeekModels(context),
+        modelOptions,
         pricing: modelPricing(context),
         message: "模型配置已保存。"
       });

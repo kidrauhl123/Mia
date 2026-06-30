@@ -98,7 +98,10 @@ async function startLiteLLMFake(initialModels = null) {
   return { port, calls, server, get models() { return models; } };
 }
 
-async function startDeepSeekFake() {
+async function startDeepSeekFake({ models = [
+  { id: "deepseek-v4-flash", object: "model", owned_by: "deepseek" },
+  { id: "deepseek-v4-pro", object: "model", owned_by: "deepseek" }
+] } = {}) {
   const port = await freePort();
   const calls = [];
   const server = http.createServer((req, res) => {
@@ -110,6 +113,11 @@ async function startDeepSeekFake() {
       if (req.headers.authorization !== "Bearer deepseek-key") {
         res.writeHead(401, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: { message: "unauthorized" } }));
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/v1/models") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ object: "list", data: models }));
         return;
       }
       if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
@@ -253,6 +261,9 @@ test("admin model page lets operators edit the public model alias", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "src/web/admin-model.html"), "utf8");
   const js = fs.readFileSync(path.join(__dirname, "..", "src/web/admin-model.js"), "utf8");
   assert.match(html, /id="publicModelInput"/);
+  assert.match(html, /id="upstreamModelSelect"/);
+  assert.match(html, /id="upstreamCustomWrap"/);
+  assert.match(html, /data-custom-value="__custom__"/);
   assert.match(html, /admin-model\.css\?v=20260612-row-credit/);
   assert.match(html, /class="console-sidebar"/);
   assert.match(html, /data-admin-nav="overview"/);
@@ -272,7 +283,11 @@ test("admin model page lets operators edit the public model alias", () => {
   assert.match(html, /留空则保留已保存 key/);
   assert.doesNotMatch(html, /id="publicModelInput"[^>]*readonly/);
   assert.match(js, /publicModel/);
+  assert.match(js, /renderUpstreamModelOptions/);
+  assert.match(js, /selectedUpstreamModel/);
+  assert.match(js, /modelOptions/);
   assert.match(js, /modelName:\s*els\.publicModel\.value/);
+  assert.match(js, /upstreamModel:\s*selectedUpstreamModel\(\)/);
   assert.match(js, /inputMicrousdPerMillion:\s*els\.inputPrice\.value/);
   assert.match(js, /model-usage-summary/);
   assert.match(js, /data-admin-nav/);
@@ -416,6 +431,14 @@ test("DeepSeek gateway settings can be saved in admin without leaking the API ke
     assert.equal(status.body.gateway.configuredFrom, "database");
     assert.equal(status.body.settings.modelId, "mia-admin");
     assert.equal(status.body.settings.hasApiKey, true);
+    assert.deepEqual(status.body.modelOptions.map((model) => model.id), [
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "deepseek-chat",
+      "deepseek-reasoner"
+    ]);
+    assert.equal(status.body.modelOptions[0].source, "deepseek");
+    assert.equal(status.body.modelOptions.find((model) => model.id === "deepseek-chat").deprecated, true);
     assert.doesNotMatch(JSON.stringify(status.body), /deepseek-key/);
 
     const tested = await request(cloud.port, "POST", "/api/admin/model-gateway/test", { auth, body: {} });

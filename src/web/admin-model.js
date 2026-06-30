@@ -4,6 +4,7 @@
  * Copyright (c) 2023 JustSong
  */
 const MICRO_USD = 1_000_000;
+const CUSTOM_UPSTREAM_MODEL_VALUE = "__custom__";
 
 const PAGE_META = {
   overview: { eyebrow: "Dashboard", title: "总览" },
@@ -32,6 +33,9 @@ const els = {
   form: document.getElementById("modelAdminForm"),
   publicModel: document.getElementById("publicModelInput"),
   provider: document.getElementById("providerSelect"),
+  upstreamSelect: document.getElementById("upstreamModelSelect"),
+  upstreamCustomWrap: document.getElementById("upstreamCustomWrap"),
+  upstreamCustomLabel: document.getElementById("upstreamCustomLabel"),
   upstream: document.getElementById("upstreamModelInput"),
   apiKey: document.getElementById("apiKeyInput"),
   apiBase: document.getElementById("apiBaseInput"),
@@ -127,7 +131,7 @@ function selectedPresetModel() {
 
 function applyProviderPreset() {
   const model = selectedPresetModel();
-  if (model) els.upstream.value = model;
+  if (model) setUpstreamRawValue(model);
 }
 
 function setFieldValue(element, value) {
@@ -139,6 +143,71 @@ function setFieldVisible(name, visible) {
   document.querySelectorAll(`[data-admin-field="${name}"]`).forEach((node) => {
     node.hidden = !visible;
   });
+}
+
+function setUpstreamRawValue(value) {
+  setFieldValue(els.upstream, value);
+}
+
+function upstreamModelLabel(option = {}) {
+  const id = String(option.id || "").trim();
+  const label = String(option.label || id).trim() || id;
+  const notes = [];
+  if (option.source === "deepseek") notes.push("API");
+  if (option.deprecated) notes.push("旧别名");
+  return notes.length ? `${label} (${notes.join(" · ")})` : label;
+}
+
+function setDeepSeekPickerVisible(visible, customVisible = false) {
+  if (els.upstreamSelect) els.upstreamSelect.parentElement.hidden = !visible;
+  if (els.upstreamCustomWrap) els.upstreamCustomWrap.hidden = visible ? !customVisible : false;
+  setText(els.upstreamCustomLabel, visible ? "自定义模型 ID" : "真实模型");
+}
+
+function syncUpstreamCustomVisibility() {
+  const custom = els.upstreamSelect?.value === CUSTOM_UPSTREAM_MODEL_VALUE;
+  setDeepSeekPickerVisible(true, custom);
+  if (!custom) setUpstreamRawValue(els.upstreamSelect?.value || "");
+}
+
+function renderUpstreamModelOptions(modelOptions, selectedValue) {
+  const selected = String(selectedValue || "").trim();
+  const options = Array.isArray(modelOptions) ? modelOptions.filter((item) => String(item?.id || "").trim()) : [];
+  const rows = options.length ? options : [
+    { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+    { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+    { id: "deepseek-chat", label: "deepseek-chat", deprecated: true },
+    { id: "deepseek-reasoner", label: "deepseek-reasoner", deprecated: true }
+  ];
+  const known = new Set(rows.map((item) => String(item.id).trim()));
+  els.upstreamSelect.innerHTML = [
+    ...rows.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(upstreamModelLabel(item))}</option>`),
+    `<option value="${CUSTOM_UPSTREAM_MODEL_VALUE}" data-custom-value="${CUSTOM_UPSTREAM_MODEL_VALUE}">自定义模型 ID</option>`
+  ].join("");
+  if (selected && known.has(selected)) {
+    els.upstreamSelect.value = selected;
+    setUpstreamRawValue(selected);
+    setDeepSeekPickerVisible(true, false);
+    return;
+  }
+  if (selected) {
+    els.upstreamSelect.value = CUSTOM_UPSTREAM_MODEL_VALUE;
+    setUpstreamRawValue(selected);
+    setDeepSeekPickerVisible(true, true);
+    return;
+  }
+  els.upstreamSelect.value = rows[0]?.id || CUSTOM_UPSTREAM_MODEL_VALUE;
+  syncUpstreamCustomVisibility();
+}
+
+function selectedUpstreamModel() {
+  const pickerVisible = els.upstreamSelect && !els.upstreamSelect.parentElement.hidden;
+  const value = pickerVisible && els.upstreamSelect.value !== CUSTOM_UPSTREAM_MODEL_VALUE
+    ? els.upstreamSelect.value
+    : els.upstream.value;
+  const normalized = String(value || "").trim();
+  if (!normalized) throw new Error("请选择真实模型。");
+  return normalized;
 }
 
 function setActivePage(page) {
@@ -193,8 +262,8 @@ function renderDeepSeekStatus(data) {
   els.provider.value = "deepseek";
   setFieldVisible("provider", false);
   setFieldVisible("apiVersion", false);
+  renderUpstreamModelOptions(data.modelOptions, upstreamModel);
   setFieldValue(els.publicModel, publicModel);
-  setFieldValue(els.upstream, upstreamModel);
   setFieldValue(els.apiBase, settings.apiBase || data.gateway?.baseUrl || "https://api.deepseek.com/v1");
   setFieldValue(els.inputPrice, settings.inputMicrousdPerMillion ?? data.pricing?.inputMicrousdPerMillion ?? 140000);
   setFieldValue(els.outputPrice, settings.outputMicrousdPerMillion ?? data.pricing?.outputMicrousdPerMillion ?? 280000);
@@ -207,6 +276,7 @@ function renderDeepSeekStatus(data) {
 function renderLiteLLMStatus(data) {
   setFieldVisible("provider", true);
   setFieldVisible("apiVersion", true);
+  setDeepSeekPickerVisible(false);
   els.apiKey.required = true;
   els.apiKey.placeholder = "保存时必须填写";
   els.apiVersion.disabled = false;
@@ -235,7 +305,7 @@ function renderLiteLLMStatus(data) {
   els.summary.textContent = `${models.length} 个模型：${models.map((item) => item.model_name).join("、")}`;
   setText(els.metricGatewayDetail, model.model_name || "mia-auto");
   if (!els.publicModel.value && model.model_name) els.publicModel.value = model.model_name;
-  if (!els.upstream.value && model.litellm_params?.model) els.upstream.value = model.litellm_params.model;
+  if (!els.upstream.value && model.litellm_params?.model) setUpstreamRawValue(model.litellm_params.model);
   if (model.litellm_params?.api_base) els.apiBase.value = model.litellm_params.api_base;
   if (model.litellm_params?.api_version) els.apiVersion.value = model.litellm_params.api_version;
 }
@@ -485,7 +555,7 @@ async function saveGateway(event) {
       body: JSON.stringify({
         modelName: els.publicModel.value,
         provider: els.provider.value,
-        upstreamModel: els.upstream.value,
+        upstreamModel: selectedUpstreamModel(),
         apiKey: els.apiKey.value,
         apiBase: els.apiBase.value,
         apiVersion: els.apiVersion.value,
@@ -620,6 +690,7 @@ els.jumpButtons.forEach((button) => {
 
 window.addEventListener("hashchange", () => setActivePage(initialPage()));
 els.provider.addEventListener("change", applyProviderPreset);
+els.upstreamSelect.addEventListener("change", syncUpstreamCustomVisibility);
 els.form.addEventListener("submit", saveGateway);
 els.test.addEventListener("click", testGateway);
 els.refreshUsage.addEventListener("click", refreshAll);

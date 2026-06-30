@@ -223,7 +223,16 @@
 
                 <label data-admin-field="upstream">
                   真实模型
-                  <input id="upstreamModelInput" autocomplete="off" spellcheck="false" placeholder="deepseek-chat" required>
+                  <select id="upstreamModelSelect" required>
+                    <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
+                    <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
+                    <option value="__custom__" data-custom-value="__custom__">自定义模型 ID</option>
+                  </select>
+                </label>
+
+                <label id="upstreamCustomWrap" class="upstream-custom-wrap" hidden>
+                  <span id="upstreamCustomLabel">自定义模型 ID</span>
+                  <input id="upstreamModelInput" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-flash">
                 </label>
               </div>
 
