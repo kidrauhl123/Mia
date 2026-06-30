@@ -562,6 +562,7 @@ function verifyRelease() {
     "api/packages/shared/identity.js",
     "api/src/shared/session-history.js",
     "api/packages/shared/session-history.js",
+    "api/src/shared/skill-load-protocol.js",
     "api/src/shared/skill-materializer.js",
     "api/src/shared/skill-safety.js",
     "api/src/shared/scheduled-task-mode.js",
@@ -657,6 +658,7 @@ function verifyRelease() {
     "api/packages/shared/identity.js",
     "api/src/shared/session-history.js",
     "api/packages/shared/session-history.js",
+    "api/src/shared/skill-load-protocol.js",
     "api/src/shared/skill-materializer.js",
     "api/src/shared/skill-safety.js",
     "api/src/shared/scheduled-task-mode.js",
@@ -862,6 +864,7 @@ function main() {
   copyFile("packages/shared/identity.js", path.join(apiDir, "packages", "shared", "identity.js"));
   copyFile("src/shared/session-history.js", path.join(apiDir, "src", "shared", "session-history.js"));
   copyFile("packages/shared/session-history.js", path.join(apiDir, "packages", "shared", "session-history.js"));
+  copyFile("src/shared/skill-load-protocol.js", path.join(apiDir, "src", "shared", "skill-load-protocol.js"));
   copyFile("src/shared/skill-materializer.js", path.join(apiDir, "src", "shared", "skill-materializer.js"));
   copyFile("src/shared/skill-safety.js", path.join(apiDir, "src", "shared", "skill-safety.js"));
   copyFile("src/shared/scheduled-task-mode.js", path.join(apiDir, "src", "shared", "scheduled-task-mode.js"));
