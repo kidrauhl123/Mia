@@ -13,6 +13,7 @@ const hermesImageDir = path.join(distDir, "hermes-image");
 const rootPackage = require("../package.json");
 const { pluginFiles } = require("../src/main/engine-plugins-service.js");
 const releaseAssetStamp = new Date().toISOString().replace(/[^0-9A-Za-z]/g, "").slice(0, 14);
+const hermesVersion = rootPackage.hermes?.version || "2026.5.7";
 
 function copyFile(source, target) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -27,6 +28,18 @@ function copyDir(source, target) {
   fs.rmSync(target, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.cpSync(path.join(root, source), target, { recursive: true, filter: shouldCopyReleaseEntry });
+}
+
+function hermesArchiveSource(version) {
+  const fileName = `hermes-agent-${version}.tar.gz`;
+  const candidates = [
+    process.env.MIA_HERMES_ARCHIVE,
+    path.join("/tmp", fileName),
+    path.join(root, "dist", fileName),
+    path.join(root, "cloud", "hermes-image", "hermes-agent-archive", fileName)
+  ].filter(Boolean);
+
+  return candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile()) || "";
 }
 
 function newestReleaseArtifact(sourcePatterns) {
@@ -241,11 +254,18 @@ function writeHermesImageContext() {
     fs.writeFileSync(path.join(pluginDir, fileName), content);
   }
 
+  const archiveDir = path.join(hermesImageDir, "hermes-agent-archive");
+  fs.mkdirSync(archiveDir, { recursive: true });
+  const archiveSource = hermesArchiveSource(hermesVersion);
+  if (archiveSource) {
+    fs.copyFileSync(archiveSource, path.join(archiveDir, `hermes-agent-${hermesVersion}.tar.gz`));
+  }
+
   const dockerfile = path.join(hermesImageDir, "Dockerfile");
   const source = fs.readFileSync(dockerfile, "utf8");
   fs.writeFileSync(
     dockerfile,
-    source.replace(/ARG HERMES_VERSION=.*/, `ARG HERMES_VERSION=${rootPackage.hermes?.version || "2026.5.7"}`)
+    source.replace(/ARG HERMES_VERSION=.*/, `ARG HERMES_VERSION=${hermesVersion}`)
   );
 }
 

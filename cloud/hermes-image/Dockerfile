@@ -29,6 +29,8 @@ RUN if [ -n "$DEBIAN_APT_MIRROR" ]; then \
 # api_server.py) needs aiohttp, which now lives in the [messaging]/[slack] extras.
 # Install the base package plus aiohttp and mcp directly so the API server and
 # configured MCP tools load.
+COPY hermes-agent-archive /tmp/hermes-agent-archive
+
 RUN set -e; \
     pip_index_args=""; \
     if [ -n "$PIP_INDEX_URL" ]; then \
@@ -39,17 +41,22 @@ RUN set -e; \
     fi; \
     hermes_archive="/tmp/hermes-agent-${HERMES_VERSION}.tar.gz"; \
     hermes_url="https://github.com/NousResearch/hermes-agent/archive/refs/tags/v${HERMES_VERSION}.tar.gz"; \
-    for attempt in 1 2 3 4 5 6 7 8 9 10; do \
-      curl -fL --http1.1 --continue-at - --connect-timeout 30 --speed-limit 1024 --speed-time 60 --retry 3 --retry-delay 5 -o "$hermes_archive" "$hermes_url" && break; \
-      if [ "$attempt" = "10" ]; then exit 1; fi; \
-      sleep $((attempt * 5)); \
-    done; \
+    bundled_archive="/tmp/hermes-agent-archive/hermes-agent-${HERMES_VERSION}.tar.gz"; \
+    if [ -f "$bundled_archive" ]; then \
+      cp "$bundled_archive" "$hermes_archive"; \
+    else \
+      for attempt in 1 2 3 4 5 6 7 8 9 10; do \
+        curl -fL --http1.1 --continue-at - --connect-timeout 30 --speed-limit 1024 --speed-time 60 --retry 3 --retry-delay 5 -o "$hermes_archive" "$hermes_url" && break; \
+        if [ "$attempt" = "10" ]; then exit 1; fi; \
+        sleep $((attempt * 5)); \
+      done; \
+    fi; \
     python -m pip install --no-cache-dir $pip_index_args \
       "$hermes_archive" \
       "aiohttp==3.13.3" \
       "mcp" \
       "ddgs"; \
-    rm -f "$hermes_archive"
+    rm -rf "$hermes_archive" /tmp/hermes-agent-archive
 
 COPY mia_plugins /opt/mia-plugins/mia_plugins
 COPY entrypoint.sh /usr/local/bin/mia-hermes-entrypoint
