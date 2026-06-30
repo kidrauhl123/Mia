@@ -1576,6 +1576,10 @@ function createCoreEngineSupervisor({
     return Boolean(engineProcess) && spawnedByCore;
   }
 
+  function refreshModelConfig() {
+    writeModelConfig(modelRuntimeSettings() || {});
+  }
+
   // Adopt an already-running engine (the GUI's, or any reachable one) so Core
   // never double-starts. Returns true if one was adopted.
   async function adopt() {
@@ -1587,9 +1591,13 @@ function createCoreEngineSupervisor({
   async function ensureRunning() {
     if (isManaged() && engineProcess.exitCode === null) {
       const baseUrl = coreHermesBaseUrl(hermesHomePath());
-      if (await healthService.isEngineHealthy(baseUrl)) return { adopted: false, spawned: false, baseUrl };
+      if (await healthService.isEngineHealthy(baseUrl)) {
+        refreshModelConfig();
+        return { adopted: false, spawned: false, baseUrl };
+      }
     }
     if (await adopt()) {
+      refreshModelConfig();
       return { adopted: true, spawned: false, baseUrl: coreHermesBaseUrl(hermesHomePath()) };
     }
 
@@ -1606,7 +1614,7 @@ function createCoreEngineSupervisor({
 
     const key = ensureApiKey();
     writeMinimalConfig(port, key);
-    writeModelConfig(modelRuntimeSettings() || {});
+    refreshModelConfig();
 
     const baseUrl = `http://127.0.0.1:${port}`;
     const spawnEnv = {

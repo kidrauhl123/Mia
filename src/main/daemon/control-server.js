@@ -563,18 +563,37 @@ function daemonNeedsReplacement(probe, appVersion) {
 // that does not report a target at all is migrated to node-core, not kept
 // (closes NO-SHIP #3). A node-core (or any non-GUI) target with a matching
 // version is reused. Reachable but non-daemon processes are never reused.
-function shouldReuseDaemon(probe, appVersion) {
+function daemonTargetMatchesExpected(target = {}, expected = {}) {
+  if (!expected || typeof expected !== "object") return true;
+  const expectedKind = String(expected.kind || "").trim();
+  const expectedCommand = String(expected.command || "").trim();
+  const expectedWorkingDirectory = String(expected.workingDirectory || "").trim();
+  if (expectedKind && String(target.kind || "").trim() !== expectedKind) return false;
+  if (expectedCommand && String(target.command || "").trim() !== expectedCommand) return false;
+  if (expectedWorkingDirectory && String(target.workingDirectory || "").trim() !== expectedWorkingDirectory) return false;
+  if (
+    Object.prototype.hasOwnProperty.call(expected, "usesGuiAppIdentity")
+    && Boolean(target.usesGuiAppIdentity) !== Boolean(expected.usesGuiAppIdentity)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function shouldReuseDaemon(probe, appVersion, options = {}) {
   if (!probe || !probe.ok) return false;
   if (String(probe.mode || "") !== "daemon") return false;
   if (daemonNeedsReplacement(probe, appVersion)) return false;
   const target = probe.daemonTarget;
   if (!target || typeof target !== "object") return false;
   if (target.usesGuiAppIdentity === true) return false;
+  if (!daemonTargetMatchesExpected(target, options.expectedDaemonTarget)) return false;
   return true;
 }
 
 module.exports = {
   createDaemonControlServer,
   daemonNeedsReplacement,
+  daemonTargetMatchesExpected,
   shouldReuseDaemon
 };

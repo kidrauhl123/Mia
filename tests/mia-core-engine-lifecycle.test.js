@@ -77,6 +77,61 @@ test("ensureRunning adopts an already-healthy engine without spawning", async ()
   }
 });
 
+test("ensureRunning refreshes Mia-managed model config when adopting an engine", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-engine-adopt-model-"));
+  try {
+    const hermesHome = path.join(home, ".hermes");
+    fs.mkdirSync(hermesHome, { recursive: true });
+    fs.writeFileSync(path.join(hermesHome, "mia-api-server.key"), "adopt-key\n");
+    fs.writeFileSync(path.join(hermesHome, "config.yaml"), [
+      "platforms:",
+      "  api_server:",
+      "    port: 18642",
+      "model:",
+      "  provider: openai",
+      "  default: gpt-x",
+      "  base_url: https://gui.example/v1",
+      ""
+    ].join("\n"));
+
+    let spawnCalls = 0;
+    const supervisor = createCoreEngineSupervisor({
+      runtimePaths: makeRuntimePaths(home),
+      buildPythonPath: () => "/x/mia-plugins",
+      hermesHome: () => hermesHome,
+      modelRuntimeConfig: () => ({
+        provider: "mia",
+        providerLabel: "Mia",
+        model: "mia-auto",
+        apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+        apiKey: "cloud-token",
+        baseUrl: "https://mia.example/api/me/model-proxy/v1",
+        apiMode: "chat_completions"
+      }),
+      fetchImpl: async (url) => (String(url).includes("/v1/runs/") ? { status: 404 } : { ok: true, status: 200 }),
+      spawnImpl: () => { spawnCalls += 1; return makeFakeChild(); },
+      systemHermesPython: () => "/usr/bin/python3"
+    });
+
+    const result = await supervisor.ensureRunning();
+    assert.equal(result.adopted, true);
+    assert.equal(result.spawned, false);
+    assert.equal(spawnCalls, 0);
+
+    const config = require("js-yaml").load(fs.readFileSync(path.join(hermesHome, "config.yaml"), "utf8"));
+    assert.equal(config.platforms.api_server.port, 18642);
+    assert.equal(config.model.provider, "mia");
+    assert.equal(config.model.default, "mia-auto");
+    assert.equal(config.model.base_url, "https://mia.example/api/me/model-proxy/v1");
+    assert.equal(config.model.api_mode, "chat_completions");
+    assert.equal(config.providers.mia.key_env, "MIA_CLOUD_MODEL_TOKEN");
+    assert.equal(config.providers.mia.api_key, "cloud-token");
+    assert.equal(config.providers.mia.default_model, "mia-auto");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("ensureRunning spawns the correct gateway command + env when no engine is reachable", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-engine-spawn-"));
   try {

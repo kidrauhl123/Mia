@@ -222,8 +222,15 @@ test("ping reports daemonTarget null when /health omits it", async (t) => {
 
 test("shouldReuseDaemon rejects a GUI-identity daemon and missing/version-mismatched targets", () => {
   const v = "2.0.0";
+  const target = { kind: "node-core", command: "node", usesGuiAppIdentity: false, workingDirectory: "/repo/src/core" };
   // Reuse: node-core, matching version, non-GUI identity.
   assert.equal(shouldReuseDaemon({ ok: true, mode: "daemon", version: v, daemonTarget: { kind: "node-core", usesGuiAppIdentity: false } }, v), true);
+  assert.equal(shouldReuseDaemon({ ok: true, mode: "daemon", version: v, daemonTarget: target }, v, { expectedDaemonTarget: target }), true);
+  assert.equal(shouldReuseDaemon(
+    { ok: true, mode: "daemon", version: v, daemonTarget: { ...target, workingDirectory: "/Applications/Mia.app/Contents/Resources/app.asar.unpacked/src/core" } },
+    v,
+    { expectedDaemonTarget: target }
+  ), false);
   // Reject: GUI app identity (old Electron --daemon) → must migrate to node-core.
   assert.equal(shouldReuseDaemon({ ok: true, mode: "daemon", version: v, daemonTarget: { kind: "legacy-gui", usesGuiAppIdentity: true } }, v), false);
   // Reject: no daemonTarget reported (pre-migration build).

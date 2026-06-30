@@ -90,6 +90,7 @@
       "package.json",
       "resources/official-library/**",
       "node_modules/ws/**",
+      "node_modules/zod/**",
       "node_modules/adm-zip/**",
       "node_modules/cron-parser/**",
       "node_modules/luxon/**",

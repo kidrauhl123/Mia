@@ -1302,6 +1302,7 @@ async function startDaemonService() {
   const settings = settingsStore.daemonSettings();
   if (IS_DAEMON_PROCESS) return miaCoreControlServer.start(settings);
   const expectedRuntimeHome = runtimePaths().home;
+  const expectedDaemonTarget = miaCoreResolver.describe();
   const existing = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
   if (existing.ok && existing.mode === "daemon") {
     // A KeepAlive launchd daemon survives app updates, so the freshly-updated
@@ -1311,13 +1312,15 @@ async function startDaemonService() {
     // not kept). Otherwise fall through to launchdService.startDaemon() below,
     // which rewrites the plist and bootout+bootstraps a daemon running this
     // app's code as the node Core.
-    if (shouldReuseCore(existing, app.getVersion())) {
+    if (shouldReuseCore(existing, app.getVersion(), { expectedDaemonTarget })) {
       return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
     }
     if (coreNeedsReplacement(existing, app.getVersion())) {
       appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
     } else if (existing.daemonTarget?.usesGuiAppIdentity === true || !existing.daemonTarget) {
       appendDaemonLog(`Daemon target ${existing.daemonTarget?.kind || "(unknown)"} uses GUI app identity or is unreported; migrating to node-core.`);
+    } else {
+      appendDaemonLog(`Daemon target ${existing.daemonTarget?.workingDirectory || existing.daemonTarget?.command || "(unknown)"} != expected ${expectedDaemonTarget.workingDirectory || expectedDaemonTarget.command || "(unknown)"}; replacing.`);
     }
   } else if (existing.ok) {
     appendDaemonLog(`Ignoring ${existing.mode || "unknown"} process on daemon port; a real daemon process is required.`);
@@ -1335,7 +1338,7 @@ async function startDaemonService() {
       // bootout/kickstart the old daemon can still briefly hold the port, so
       // require shouldReuseCore (version match + non-GUI target) or the stale
       // GUI-identity one would be accepted and replaced again next launch.
-      if (shouldReuseCore(ping, app.getVersion())) {
+      if (shouldReuseCore(ping, app.getVersion(), { expectedDaemonTarget })) {
         return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
       }
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1346,7 +1349,7 @@ async function startDaemonService() {
   await miaCoreProcessLauncher.start();
   for (let i = 0; i < 20; i += 1) {
     const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
-    if (shouldReuseCore(ping, app.getVersion())) {
+    if (shouldReuseCore(ping, app.getVersion(), { expectedDaemonTarget })) {
       return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
