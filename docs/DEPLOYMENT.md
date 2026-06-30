@@ -37,6 +37,7 @@ Cloud data:       /var/lib/mia-cloud
 Agent user roots: /var/lib/mia-cloud-agent-users
 Web root:         /var/www/mia-web
 Public origin:    https://mia.gifgif.cn
+Apex alias:       https://gifgif.cn
 Local API:        127.0.0.1:4175
 systemd service:  mia-cloud
 ```
@@ -166,7 +167,7 @@ SSH 可用时，真实部署：
 npm run cloud:deploy
 ```
 
-默认目标是 `root@mia.gifgif.cn` 和 `https://mia.gifgif.cn`。覆盖目标：
+默认目标是 `root@mia.gifgif.cn` 和 `https://mia.gifgif.cn`，并把 `https://gifgif.cn` 作为同站点别名加入 nginx `server_name` 和 Cloud allowed origins。覆盖目标：
 
 ```bash
 MIA_DEPLOY_REMOTE=deploy@example.com \

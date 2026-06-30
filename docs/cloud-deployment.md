@@ -8,7 +8,7 @@ This document is the production checklist for the official Mia Cloud/Web host.
 - Cloud data: `/var/lib/mia-cloud`
 - Web root: `/var/www/mia-web`
 - Desktop update root: `/var/www/mia-updates`
-- Public origin: `https://mia.gifgif.cn`
+- Public origin: `https://mia.gifgif.cn`; apex alias: `https://gifgif.cn`
 - Local API listener: `127.0.0.1:4175`
 
 ## Required Environment
@@ -18,7 +18,7 @@ MIA_CLOUD_HOST=127.0.0.1
 MIA_CLOUD_PORT=4175
 MIA_CLOUD_DATA=/var/lib/mia-cloud
 MIA_CLOUD_PUBLIC_URL=https://mia.gifgif.cn
-MIA_CLOUD_ALLOWED_ORIGINS=https://mia.gifgif.cn
+MIA_CLOUD_ALLOWED_ORIGINS=https://mia.gifgif.cn,https://gifgif.cn
 MIA_BRIDGE_RUN_TIMEOUT_MS=300000
 MIA_CLOUD_VERSION=2026-05-20
 MIA_CLOUD_AGENT_MODE=docker
@@ -139,13 +139,13 @@ map $http_upgrade $connection_upgrade {
 
 server {
     listen 80;
-    server_name mia.gifgif.cn;
+    server_name mia.gifgif.cn gifgif.cn;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name mia.gifgif.cn;
+    server_name mia.gifgif.cn gifgif.cn;
 
     ssl_certificate /etc/letsencrypt/live/mia.gifgif.cn/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/mia.gifgif.cn/privkey.pem;

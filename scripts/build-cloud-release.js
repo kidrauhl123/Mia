@@ -361,13 +361,13 @@ function writeNginxConfigs() {
 `);
   fs.writeFileSync(path.join(nginxDir, "mia-cloud-site.conf"), `server {
     listen 80;
-    server_name mia.gifgif.cn;
+    server_name mia.gifgif.cn gifgif.cn;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name mia.gifgif.cn;
+    server_name mia.gifgif.cn gifgif.cn;
 
     ssl_certificate /etc/letsencrypt/live/mia.gifgif.cn/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/mia.gifgif.cn/privkey.pem;
@@ -738,6 +738,9 @@ function verifyRelease() {
   }
   if (!/location\s+\/admin\/\s+\{[\s\S]*proxy_pass\s+http:\/\/127\.0\.0\.1:4175/.test(nginxSite)) {
     throw new Error("Release nginx site must proxy /admin/ to the Mia Cloud API.");
+  }
+  if (!/server_name\s+mia\.gifgif\.cn\s+gifgif\.cn;/.test(nginxSite)) {
+    throw new Error("Release nginx site must serve both mia.gifgif.cn and gifgif.cn.");
   }
   if (
     !/ssl_certificate\s+\/etc\/letsencrypt\/live\/mia\.gifgif\.cn\/fullchain\.pem/.test(nginxSite) ||

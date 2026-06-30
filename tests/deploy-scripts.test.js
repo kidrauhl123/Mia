@@ -36,6 +36,8 @@ test("server-local installer restores data backups during rollback", () => {
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODEL_BASE_URL=\$AGENT_MODEL_BASE_URL/);
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODEL_API_KEY=\$AGENT_MODEL_API_KEY/);
   assert.match(source, /Environment=MIA_CLOUD_PUBLIC_URL=\$PUBLIC_URL/);
+  assert.match(source, /EXTRA_ALLOWED_ORIGINS="\$\{MIA_CLOUD_EXTRA_ALLOWED_ORIGINS:-https:\/\/gifgif\.cn\}"/);
+  assert.match(source, /Environment=MIA_CLOUD_ALLOWED_ORIGINS=\$ALLOWED_ORIGINS/);
   assert.match(source, /require_command id/);
   assert.match(source, /require_command chown/);
   assert.match(source, /require_command docker/);
@@ -104,6 +106,8 @@ test("ssh deploy script restores data backups during install and public verifica
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODEL_BASE_URL=\$AGENT_MODEL_BASE_URL/);
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODEL_API_KEY=\$AGENT_MODEL_API_KEY/);
   assert.match(source, /Environment=MIA_CLOUD_PUBLIC_URL=\$PUBLIC_URL/);
+  assert.match(source, /EXTRA_ALLOWED_ORIGINS="\$\{MIA_CLOUD_EXTRA_ALLOWED_ORIGINS:-https:\/\/gifgif\.cn\}"/);
+  assert.match(source, /Environment=MIA_CLOUD_ALLOWED_ORIGINS=\$ALLOWED_ORIGINS/);
   assert.match(source, /run_as_root chown -R "\\\$SERVICE_USER:\\\$SERVICE_USER" "\$DATA_DIR"/);
   assert.match(source, /sync_web_release\(\) \{[\s\S]*?\$REMOTE_RELEASE_DIR\/web\/downloads[\s\S]*?rsync -a --delete --exclude '\/downloads\/' "\$REMOTE_RELEASE_DIR\/web\/" "\$WEB_DIR\/"/);
   assert.match(source, /run_as_root cp "\$REMOTE_RELEASE_DIR\/nginx\/mia-websocket-map\.conf" "\$NGINX_MAP_CONF"/);
@@ -172,6 +176,7 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /application\/manifest\+json webmanifest/);
   assert.match(source, /client_max_body_size 18m/);
   assert.match(source, /add_header Strict-Transport-Security/);
+  assert.match(source, /server_name mia\.gifgif\.cn gifgif\.cn/);
   assert.match(source, /ssl_certificate \/etc\/letsencrypt\/live\/mia\.gifgif\.cn\/fullchain\.pem/);
   assert.match(source, /ssl_certificate_key \/etc\/letsencrypt\/live\/mia\.gifgif\.cn\/privkey\.pem/);
   assert.match(source, /return 301 https:\/\/\$host\$request_uri/);
@@ -219,6 +224,7 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /Release nginx site must serve \/favicon\.ico as a real static icon/);
   assert.match(source, /Release nginx site must serve \/manifest\.webmanifest with application\/manifest\+json/);
   assert.match(source, /Release nginx site must include TLS certificate paths/);
+  assert.match(source, /Release nginx site must serve both mia\.gifgif\.cn and gifgif\.cn/);
   assert.match(source, /Release nginx site must redirect HTTP to HTTPS/);
 });
 
