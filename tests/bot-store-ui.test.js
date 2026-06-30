@@ -11,7 +11,6 @@ test("discover bot store uses a badge confirmation step without an enrollment fo
 
   assert.match(src, /data-act="add"/);
   assert.match(src, /function addPresetBot/);
-  assert.match(src, /function skillSummary/);
   assert.match(src, /enabledSkills/);
   assert.match(src, /function runtimeTargetGroups/);
   assert.match(src, /function generateEnrollmentPrincipalId/);
@@ -152,9 +151,11 @@ test("discover bot store presents assistant templates as context contacts", () =
   assert.match(store, /window\.miaAssistantTemplate/);
   assert.match(store, /assistantDisplayDescription\(f\)/);
   assert.match(store, /bot-store-card-description/);
+  assert.match(store, /bot-store-card-skills/);
   assert.match(store, /bot-store-skill-chip/);
   assert.match(store, />添加</);
   assert.match(store, />描述</);
+  assert.match(store, />适合</);
   assert.match(store, />预设技能</);
   assert.doesNotMatch(store, />添加并设置</);
   assert.doesNotMatch(store, /长期负责：/);
@@ -182,23 +183,27 @@ test("official assistant cards use visible emoji avatars instead of generated SV
   assert.doesNotMatch(store, /\$\{f\.emoji\}<\/div>/);
 });
 
-test("assistant store skill chips label mia-scheduler as 定时任务 instead of exposing the raw id", () => {
+test("assistant store renders only real resolved preset skills as visible tags", () => {
+  const library = JSON.parse(read("resources/official-library/library.json"));
   const store = read("src/renderer/bot/bot-store.js");
 
-  assert.match(store, /"mia-scheduler":\s*"定时任务"/);
-  assert.match(store, /function skillLabel\(skillId = ""\)/);
-  assert.match(store, /const labels = ids\.map\(skillLabel\)\.filter\(Boolean\);/);
-  assert.doesNotMatch(store, /"mia-scheduler":\s*"mia-scheduler"/);
-});
-
-test("assistant store cards show every preset skill instead of ambiguous +N chips", () => {
-  const store = read("src/renderer/bot/bot-store.js");
-
+  const presets = Array.isArray(library.botPresets) ? library.botPresets : [];
+  assert.ok(presets.every((item) => Array.isArray(item.capabilities?.enabledSkills) && item.capabilities.enabledSkills.length > 0));
+  assert.match(store, /capabilities:\s*f\.capabilities \|\| \{\}/);
+  assert.match(store, /function enabledSkillIds\(f = \{\}\)/);
+  assert.match(store, /function resolvedSkillRecords\(f = \{\}\)/);
+  assert.match(store, /state\?\.skillLibrary\?\.skills/);
+  assert.match(store, /item\.id === id \|\| item\.name === id/);
+  assert.match(store, /window\.miaSkillHelpers\?\.skillDisplayName/);
+  assert.match(store, /function skillSummary\(f = \{\}\)/);
   assert.match(store, /function skillChipHtml\(f = \{\}\)/);
-  assert.match(store, /ids\.map\(\(id\) => `<span class="bot-store-skill-chip">/);
-  assert.doesNotMatch(store, /ids\.slice\(0,\s*3\)/);
-  assert.doesNotMatch(store, />\+\$\{ids\.length - 3\}</);
-  assert.doesNotMatch(store, /bot-store-skill-chip muted">\\\+\$\{/);
+  assert.match(store, /bot-store-card-skills/);
+  assert.match(store, /bot-store-skill-chip/);
+  assert.match(store, />预设技能</);
+  assert.match(store, />技能</);
+  assert.doesNotMatch(store, /const SKILL_LABELS/);
+  assert.doesNotMatch(store, /未配置 Skill/);
+  assert.doesNotMatch(store, /SKILL_LABELS\[id\]/);
 });
 
 test("assistant enrollment saves without asking the user to fill setup fields", () => {

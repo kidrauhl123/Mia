@@ -404,11 +404,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.bot-store-skill-chip.muted {
-  background: var(--field);
-  color: var(--faint);
-}
-
 .bot-store-empty {
   grid-column: 1 / -1;
   padding: 48px 12px;
@@ -605,7 +600,6 @@
 }
 .bot-store-badge-fields > div:nth-child(1) { animation-delay: 520ms; }
 .bot-store-badge-fields > div:nth-child(2) { animation-delay: 640ms; }
-.bot-store-badge-fields > div:nth-child(3) { animation-delay: 760ms; }
 .bot-store-badge-fields span {
   color: var(--badge-card-muted);
   font-size: 11px;

@@ -91,6 +91,14 @@ test("local skill helpers prefer market and official Chinese display metadata", 
     "Excel 表格"
   );
   assert.equal(
+    context.window.miaSkillHelpers.skillDisplayName({ source: "mia-official", name: "presentation-designer" }),
+    "汇报设计"
+  );
+  assert.equal(
+    context.window.miaSkillHelpers.skillDisplayName({ source: "mia-official", name: "story-host" }),
+    "剧情主持"
+  );
+  assert.equal(
     context.window.miaSkillHelpers.skillDisplayCategory({ source: "mia-official", name: "xlsx", category: "uncategorized" }),
     "文档处理"
   );

@@ -144,35 +144,6 @@
   };
   const CATEGORY_ORDER = ["学习", "项目", "事务", "代码", "情报", "娱乐", "推荐"];
 
-  const SKILL_LABELS = {
-    "mia-official:paper-research": "文献研究",
-    "paper-research": "文献研究",
-    "mia-official:lab-report": "实验报告",
-    "lab-report": "实验报告",
-    "mia-official:study-review": "复习规划",
-    "study-review": "复习规划",
-    "mia-official:resume-interview": "简历面试",
-    "resume-interview": "简历面试",
-    "mia-official:problem-explainer": "讲题排错",
-    "problem-explainer": "讲题排错",
-    "mia-official:spreadsheet-organizer": "表格整理",
-    "spreadsheet-organizer": "表格整理",
-    "mia-official:xlsx": "Excel 交付",
-    "xlsx": "Excel 交付",
-    "mia-official:presentation-designer": "汇报设计",
-    "presentation-designer": "汇报设计",
-    "mia-official:meeting-notes": "会议纪要",
-    "meeting-notes": "会议纪要",
-    "mia-official:document-editor": "文档编辑",
-    "document-editor": "文档编辑",
-    "mia-official:story-host": "剧情主持",
-    "story-host": "剧情主持",
-    "mia-scheduler": "定时任务",
-    "weekly-report": "周报",
-    "commit-craft": "提交信息",
-    "trip-planner": "行程"
-  };
-
   function presets() {
     const official = Array.isArray(state?.skillLibrary?.botPresets) ? state.skillLibrary.botPresets : [];
     return official.length ? official : FALLBACK_PRESETS;
@@ -265,18 +236,24 @@
       : [];
   }
 
-  function skillLabel(skillId = "") {
-    const id = String(skillId || "").trim();
-    const skill = (state?.skillLibrary?.skills || []).find((item) => item.id === id || item.name === id);
-    return SKILL_LABELS[id] || skill?.label || skill?.name || id;
+  function resolvedSkillRecords(f = {}) {
+    const skills = Array.isArray(state?.skillLibrary?.skills) ? state.skillLibrary.skills : [];
+    return enabledSkillIds(f)
+      .map((id) => {
+        const skill = skills.find((item) => item && (item.id === id || item.name === id));
+        return skill ? { ...skill, requestedId: id } : null;
+      })
+      .filter(Boolean);
+  }
+
+  function skillLabel(skill = {}) {
+    const displayName = window.miaSkillHelpers?.skillDisplayName;
+    if (typeof displayName === "function") return displayName(skill);
+    return String(skill.name || skill.title || skill.id || "").trim();
   }
 
   function skillSummary(f = {}) {
-    const ids = enabledSkillIds(f);
-    if (!ids.length) return "未配置";
-    const labels = ids.map(skillLabel).filter(Boolean);
-    const shown = labels.slice(0, 3).join(" / ");
-    return labels.length > 3 ? `${shown} +${labels.length - 3}` : shown;
+    return resolvedSkillRecords(f).map(skillLabel).filter(Boolean).join(" / ");
   }
 
   function assistantTemplates() {
@@ -302,10 +279,14 @@
     return String(f.desc || f.description || f.line || f.responsibility || "").trim();
   }
 
+  function assistantBestFor(f = {}) {
+    return String(f.bestFor || f.tagline || f.responsibility || f.line || "").trim();
+  }
+
   function skillChipHtml(f = {}) {
-    const ids = enabledSkillIds(f);
-    if (!ids.length) return `<span class="bot-store-skill-chip muted">未配置 Skill</span>`;
-    return ids.map((id) => `<span class="bot-store-skill-chip">${escapeHtml(skillLabel(id))}</span>`).join("");
+    return resolvedSkillRecords(f)
+      .map((skill) => `<span class="bot-store-skill-chip" data-skill-id="${escapeHtml(skill.id || skill.requestedId || "")}">${escapeHtml(skillLabel(skill))}</span>`)
+      .join("");
   }
 
   function defaultConversationTagName(f = {}) {
@@ -641,20 +622,23 @@
       pageTurnDirection = 0;
       return;
     }
-    grid.innerHTML = list.map((f) => `
-      <div class="bot-store-card" data-key="${escapeHtml(f.key)}" style="${cardStyle(f)}">
-        <div class="bot-store-card-cover">
-          <span class="bot-store-card-category">${escapeHtml(f.cat || f.category || "推荐")}</span>
-          ${avatarHtml(f, "bot-store-cover-avatar")}
-        </div>
-        <div class="bot-store-card-body">
-          <div class="bot-store-card-head">
-            <strong>${escapeHtml(f.name)}</strong>
+    grid.innerHTML = list.map((f) => {
+      const skills = skillChipHtml(f);
+      return `
+        <div class="bot-store-card" data-key="${escapeHtml(f.key)}" style="${cardStyle(f)}">
+          <div class="bot-store-card-cover">
+            <span class="bot-store-card-category">${escapeHtml(f.cat || f.category || "推荐")}</span>
+            ${avatarHtml(f, "bot-store-cover-avatar")}
           </div>
-          <p class="bot-store-card-description">${escapeHtml(assistantDisplayDescription(f))}</p>
-          <div class="bot-store-card-skills" aria-label="预设技能">${skillChipHtml(f)}</div>
-        </div>
-      </div>`).join("");
+          <div class="bot-store-card-body">
+            <div class="bot-store-card-head">
+              <strong>${escapeHtml(f.name)}</strong>
+            </div>
+            <p class="bot-store-card-description">${escapeHtml(assistantDisplayDescription(f))}</p>
+            ${skills ? `<div class="bot-store-card-skills" aria-label="预设技能">${skills}</div>` : ""}
+          </div>
+        </div>`;
+    }).join("");
     grid.querySelectorAll(".bot-store-card").forEach((card) => {
       card.addEventListener("click", () => {
         const f = presets().find((x) => x.key === card.dataset.key);
@@ -672,6 +656,7 @@
     adding = false;
     sheet.classList.remove("is-enrolling");
     sheet.classList.remove("is-stamped");
+    const skills = skillSummary(f);
     sheet.innerHTML = `
       <div class="bot-store-sheet-head">
         ${avatarHtml(f)}
@@ -682,9 +667,14 @@
         <strong>${escapeHtml(assistantDisplayDescription(f))}</strong>
       </div>
       <div class="bot-store-sheet-section">
-        <span>预设技能</span>
-        <strong>${escapeHtml(skillSummary(f))}</strong>
+        <span>适合</span>
+        <strong>${escapeHtml(assistantBestFor(f))}</strong>
       </div>
+      ${skills ? `
+        <div class="bot-store-sheet-section">
+          <span>预设技能</span>
+          <strong>${escapeHtml(skills)}</strong>
+        </div>` : ""}
       <div class="bot-store-actions">
         <button type="button" class="bot-store-btn ghost" data-act="back">返回</button>
         <button type="button" class="bot-store-btn primary" data-act="add">添加</button>
@@ -707,6 +697,7 @@
     }
     const target = normalizeRuntimeTarget(defaultEnrollmentTarget(f));
     const meta = engineMeta(target.agentEngine);
+    const skills = skillSummary(f);
     sheet.classList.add("is-enrolling");
     sheet.classList.remove("is-stamped");
     sheet.dataset.botKey = plannedKey;
@@ -731,7 +722,7 @@
             </div>
             <div class="bot-store-badge-fields">
               <div><span>分类</span><strong>${escapeHtml(f.cat || f.category || "推荐")}</strong></div>
-              <div><span>技能</span><strong>${escapeHtml(skillSummary(f))}</strong></div>
+              ${skills ? `<div><span>技能</span><strong>${escapeHtml(skills)}</strong></div>` : ""}
               <div><span>运行位置 / Agent</span><strong data-badge-engine>${escapeHtml(targetSummary(target))}</strong></div>
             </div>
             <div class="bot-store-badge-stamp" aria-hidden="true">

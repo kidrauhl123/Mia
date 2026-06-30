@@ -1371,7 +1371,7 @@ test("chat history session menus constrain long history lists to an internal scr
   }
 });
 
-test("assistant store cards keep description and skill metadata compact", () => {
+test("assistant store cards keep real skill metadata compact", () => {
   const css = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
   assert.match(css, /\.bot-store-card-description\s*\{[^}]*-webkit-line-clamp:\s*3;/);
