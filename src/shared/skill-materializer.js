@@ -47,8 +47,12 @@ function buildSkillIndexBlock(skills = []) {
     "## Available Mia Skills",
     "",
     "这些是当前 Bot 可用的能力索引。只有当用户请求明显匹配时才使用；不要向用户复述这个索引。",
+    "如果完成当前请求需要某个 Skill 的完整指南，请只输出 `[LOAD_SKILL: skill-id]`，Mia 会为你加载后继续执行。",
     "",
-    ...rows.map((skill) => `- ${skill.name}: ${skill.description || "No description."}`)
+    ...rows.map((skill) => {
+      const label = skill.id === skill.name ? skill.id : `${skill.id} (${skill.name})`;
+      return `- ${label}: ${skill.description || "No description."}`;
+    })
   ].join("\n");
 }
 
@@ -61,7 +65,7 @@ function buildLoadedSkillBlocks(skills = []) {
   return [
     "## Loaded Mia Skill Guides",
     "",
-    "以下 Skill 是本轮被用户显式选择或被明确意图触发的指南。只在完成当前请求需要时使用；不要向用户解释内部 Skill 选择。",
+    "以下 Skill 是本轮被用户显式选择、被明确意图触发或由你按需请求加载的指南。只在完成当前请求需要时使用；不要向用户解释内部 Skill 选择。",
     "",
     blocks.join("\n\n")
   ].join("\n");
@@ -74,13 +78,20 @@ function buildSkillMaterializationContext(materialization = {}) {
   ].map((block) => cleanText(block)).filter(Boolean).join("\n\n");
 }
 
-function materializeSkillsForTurn({ availableSkills = [], activeSkillIds = [], intentSkillIds = [], mode = "index" } = {}) {
+function materializeSkillsForTurn({ availableSkills = [], activeSkillIds = [], intentSkillIds = [], requestedSkillIds = [], mode = "index" } = {}) {
   const records = (Array.isArray(availableSkills) ? availableSkills : [])
     .map(normalizeSkillRecord)
     .filter(Boolean);
   const lookup = skillLookupMap(records);
-  const loadIds = uniqueSkillIds([...activeSkillIds, ...intentSkillIds]);
-  const loaded = loadIds.map((id) => lookup.get(id)).filter(Boolean);
+  const loadIds = uniqueSkillIds([...activeSkillIds, ...intentSkillIds, ...requestedSkillIds]);
+  const loaded = [];
+  const seenLoaded = new Set();
+  for (const id of loadIds) {
+    const skill = lookup.get(id);
+    if (!skill || seenLoaded.has(skill.id)) continue;
+    seenLoaded.add(skill.id);
+    loaded.push(skill);
+  }
   return {
     indexBlock: mode === "none" ? "" : buildSkillIndexBlock(records),
     loadedBlock: buildLoadedSkillBlocks(loaded),

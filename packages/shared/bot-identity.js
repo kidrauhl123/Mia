@@ -10,6 +10,14 @@ const DEFAULT_BOT_CAPABILITIES = Object.freeze({
   legacyCapabilities: []
 });
 
+const MANUAL_BOT_DEFAULT_ENABLED_SKILLS = Object.freeze([
+  "mia-scheduler",
+  "mia-official:document-editor",
+  "mia-official:meeting-notes",
+  "mia-official:spreadsheet-organizer",
+  "mia-official:xlsx"
+]);
+
 const LEGACY_BOT_PRESET_DEFAULTS = Object.freeze([
   Object.freeze({
     key: "old-paper",
@@ -185,6 +193,12 @@ function normalizeBotCapabilities(input = {}) {
   };
 }
 
+function manualBotDefaultCapabilities() {
+  return normalizeBotCapabilities({
+    enabledSkills: [...MANUAL_BOT_DEFAULT_ENABLED_SKILLS]
+  });
+}
+
 function botIdentityMatchesPreset(bot = {}, preset = {}) {
   const botKeys = [bot.key, bot.id, bot.account_id, bot.accountId]
     .map((value) => String(value || "").trim())
@@ -269,6 +283,7 @@ function normalizeBotIdentity(input = {}, options = {}) {
 
 module.exports = {
   DEFAULT_BOT_CAPABILITIES,
+  MANUAL_BOT_DEFAULT_ENABLED_SKILLS,
   firstNonEmpty,
   normalizeBotId,
   botConversationId,
@@ -276,6 +291,7 @@ module.exports = {
   normalizeBotAvatarCrop,
   normalizeCapabilityIds,
   normalizeBotCapabilities,
+  manualBotDefaultCapabilities,
   botCapabilitiesWithPresetDefaults,
   normalizeBotIdentity
 };

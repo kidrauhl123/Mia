@@ -144,6 +144,20 @@ test("packages/shared bot identity applies official preset skill defaults to unc
   assert.deepEqual(xlsxDisabled.disabledSkills, ["mia-official:xlsx"]);
 });
 
+test("packages/shared bot identity exposes manual new-bot default skills", () => {
+  const expected = [
+    "mia-scheduler",
+    "mia-official:document-editor",
+    "mia-official:meeting-notes",
+    "mia-official:spreadsheet-organizer",
+    "mia-official:xlsx"
+  ];
+
+  assert.deepEqual(packageBotIdentity.MANUAL_BOT_DEFAULT_ENABLED_SKILLS, expected);
+  assert.deepEqual(packageBotIdentity.manualBotDefaultCapabilities().enabledSkills, expected);
+  assert.deepEqual(legacyBotIdentity.manualBotDefaultCapabilities().enabledSkills, expected);
+});
+
 test("packages/shared bot identity preserves retired official assistant defaults", () => {
   const cases = [
     ["old-paper", "论文搭子", ["mia-official:paper-research"]],

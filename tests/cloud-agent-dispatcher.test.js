@@ -139,7 +139,6 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
   }
 });
 
-
 test("cloud-hermes archives generated worker file paths and hides server paths", async () => {
   const ctx = setup();
   const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-worker-files-"));
@@ -656,6 +655,69 @@ test("cloud-hermes DM injects selected message skill context into the run input"
     assert.match(hermesCalls[0].input, /=== Skill: Anki 记忆卡 ===/);
     assert.match(hermesCalls[0].input, /STEM Flashcard Generation/);
     assert.match(hermesCalls[0].input, /用户消息：\n咋用/);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud-hermes handles LOAD_SKILL requests as an internal skill-loading retry", async () => {
+  const ctx = setup();
+  const hermesCalls = [];
+  const transientEvents = [];
+  try {
+    ctx.botsStore.upsertBot(ctx.user.id, {
+      id: BOT_ID,
+      displayName: "Alice Bot",
+      personaText: "You are Alice Bot.",
+      capabilities: { enabledSkills: ["flashcards"] }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      skillsCatalog: [{
+        id: "flashcards",
+        name: "Anki 记忆卡",
+        description: "生成记忆卡。",
+        body: "---\nname: generating-stem-flashcards\n---\n# STEM Flashcard Generation\nUse this for Anki cards."
+      }],
+      hermesRunsClient: {
+        async runChat(args) {
+          hermesCalls.push(args);
+          if (hermesCalls.length === 1) {
+            args.onEvent?.({ type: "text_delta", text: "[LOAD_SKILL: flashcards]" });
+            return { runId: "hr_skill_probe", content: "[LOAD_SKILL: flashcards]", events: [] };
+          }
+          args.onEvent?.({ type: "text_delta", text: "skill reply" });
+          return { runId: "hr_skill_final", content: "skill reply", events: [] };
+        }
+      },
+      broadcastTransientEvent(userId, event) {
+        transientEvents.push({ userId, event });
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "做几张卡片"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(reply.body_md, "skill reply");
+    assert.equal(hermesCalls.length, 2);
+    assert.match(hermesCalls[0].input, /Available Mia Skills/);
+    assert.doesNotMatch(hermesCalls[0].input, /STEM Flashcard Generation/);
+    assert.match(hermesCalls[1].input, /Loaded Mia Skill Guides/);
+    assert.match(hermesCalls[1].input, /STEM Flashcard Generation/);
+    const broadcastText = transientEvents
+      .filter((item) => item.event.type === "cloud_agent_run_event")
+      .map((item) => item.event.event?.text || "")
+      .join("\n");
+    assert.doesNotMatch(broadcastText, /LOAD_SKILL/);
+    assert.match(broadcastText, /skill reply/);
   } finally {
     ctx.cleanup();
   }

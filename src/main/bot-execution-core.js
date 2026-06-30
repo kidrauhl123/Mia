@@ -6,6 +6,36 @@
 // accessor functions so the late binding still resolves.
 
 const { intentSkillIdsForMessages } = require("../shared/skill-intent-detector.js");
+const {
+  createSkillLoadRequestGate,
+  extractLoadSkillRequests,
+  stripLoadSkillRequests
+} = require("../shared/skill-load-protocol.js");
+
+const MAX_SKILL_LOAD_ROUNDS = 3;
+
+function responseWithMessageContent(response, content) {
+  const text = String(content || "").trim();
+  if (!response || typeof response !== "object") return { text, finishReason: "stop" };
+  if (Array.isArray(response.choices) && response.choices[0]?.message) {
+    const choices = response.choices.slice();
+    choices[0] = {
+      ...choices[0],
+      message: {
+        ...choices[0].message,
+        content: text
+      }
+    };
+    return { ...response, choices };
+  }
+  if (Object.prototype.hasOwnProperty.call(response, "text")) return { ...response, text };
+  return { ...response, text };
+}
+
+function fallbackForUnresolvedSkillLoad(ids = []) {
+  const label = ids.length ? ids.join("、") : "对应 Skill";
+  return `我没能加载到 ${label} 的完整指南。请确认这个 Skill 已安装或已添加到这个 Bot 的能力列表。`;
+}
 
 function createBotExecutionCore({
   createChatEventEmitter,
@@ -132,32 +162,69 @@ function createBotExecutionCore({
           messages = next;
         }
       }
-      const skillMaterialization = typeof skillsLoader?.resolveSkillMaterialization === "function"
+      let requestedSkillIds = [];
+      const resolveSkillMaterialization = () => (typeof skillsLoader?.resolveSkillMaterialization === "function"
         ? skillsLoader.resolveSkillMaterialization({
             bot: botForTurn,
             activeSkillIds,
             intentSkillIds,
+            requestedSkillIds,
             mode: "index"
           })
-        : null;
+        : null);
+      let skillMaterialization = resolveSkillMaterialization();
       const slashText = allowSlashCommands ? hermesRunService.slashCommandText(messages) : "";
-      const response = await sendWithChatEngineAdapter(createActiveChatEngineAdapters(), {
-        chatEngine,
-        bot: botForTurn,
-        sessionId,
-        messages,
-        group,
-        signal,
-        abortController,
-        emit,
-        utility,
-        scheduledFire,
-        persistAgentSession: shouldPersistAgentSession,
-        slashText,
-        runtimeConfig: turnRuntimeConfig,
-        skillMaterialization
-      });
-      return completeWithPetMessage(response);
+      for (let round = 0; round <= MAX_SKILL_LOAD_ROUNDS; round += 1) {
+        const eventGate = createSkillLoadRequestGate(emit);
+        const response = await sendWithChatEngineAdapter(createActiveChatEngineAdapters(), {
+          chatEngine,
+          bot: botForTurn,
+          sessionId,
+          messages,
+          group,
+          signal,
+          abortController,
+          emit: eventGate.emit,
+          utility,
+          scheduledFire,
+          persistAgentSession: shouldPersistAgentSession,
+          slashText,
+          runtimeConfig: turnRuntimeConfig,
+          skillMaterialization
+        });
+        const content = responseMessageContent(response);
+        const loadRequests = extractLoadSkillRequests(content);
+        if (!loadRequests.length) {
+          eventGate.replay();
+          return completeWithPetMessage(response);
+        }
+
+        const known = new Set(requestedSkillIds);
+        const nextRequests = loadRequests.filter((id) => !known.has(id));
+        if (nextRequests.length && round < MAX_SKILL_LOAD_ROUNDS) {
+          const previousLoadedCount = Array.isArray(skillMaterialization?.loadedSkillIds)
+            ? skillMaterialization.loadedSkillIds.length
+            : 0;
+          requestedSkillIds = [...requestedSkillIds, ...nextRequests];
+          const nextMaterialization = resolveSkillMaterialization();
+          const nextLoadedCount = Array.isArray(nextMaterialization?.loadedSkillIds)
+            ? nextMaterialization.loadedSkillIds.length
+            : 0;
+          if (nextLoadedCount > previousLoadedCount) {
+            eventGate.discard();
+            skillMaterialization = nextMaterialization;
+            continue;
+          }
+        }
+
+        eventGate.discard();
+        const stripped = stripLoadSkillRequests(content);
+        return completeWithPetMessage(responseWithMessageContent(
+          response,
+          stripped || fallbackForUnresolvedSkillLoad(loadRequests)
+        ));
+      }
+      throw new Error("Skill loading did not converge.");
     } catch (error) {
       if (signal.aborted) {
         if (emit) emit("complete", { finishReason: "cancelled", aborted: true });

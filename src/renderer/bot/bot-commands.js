@@ -76,6 +76,30 @@
       : (value && typeof value === "object" ? value : { legacyCapabilities: ["chat", "files", "terminal", "code"] });
   }
 
+  function manualBotDefaultCapabilities() {
+    const identity = botIdentity();
+    if (typeof identity?.manualBotDefaultCapabilities === "function") {
+      return identity.manualBotDefaultCapabilities();
+    }
+    return serializableCapabilities({
+      enabledSkills: [
+        "mia-scheduler",
+        "mia-official:document-editor",
+        "mia-official:meeting-notes",
+        "mia-official:spreadsheet-organizer",
+        "mia-official:xlsx"
+      ]
+    });
+  }
+
+  function botWithManualCreateDefaults(bot = {}, isCreate = false) {
+    if (!isCreate || Object.prototype.hasOwnProperty.call(bot, "capabilities")) return bot;
+    return {
+      ...bot,
+      capabilities: manualBotDefaultCapabilities()
+    };
+  }
+
   function escapeRegExp(value = "") {
     return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
@@ -208,6 +232,7 @@
     modelSettings = global?.miaModelSettings,
     engineOptions = global?.miaEngineOptions
   } = {}) {
+    bot = botWithManualCreateDefaults(bot, isCreate);
     const explicitKey = String(bot.key || bot.id || "").trim();
     const key = explicitKey || (isCreate ? generateUntypedBotId(existingBotKeys(state, social)) : "");
     const kind = String(runtimeKind || "desktop-local").trim() === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
@@ -308,6 +333,7 @@
     if (!state.runtime?.cloud?.enabled || typeof api?.social?.saveBotIdentity !== "function") {
       throw new Error("请先登录 Mia Cloud。");
     }
+    bot = botWithManualCreateDefaults(bot, isCreate);
     const key = bot.key || generateUntypedBotId(existingBotKeys(state, social));
     const identity = cloudHermesIdentityForBot({ ...bot, key });
     const saved = await api.social.saveBotIdentity(key, identity);

@@ -156,6 +156,57 @@ test("sendChat materializes xlsx skill when the user asks for an Excel deliverab
   assert.equal(calls.adapter[0].skillMaterialization.loadedBlock, "XLSX GUIDE");
 });
 
+test("sendChat handles LOAD_SKILL requests as an internal skill-loading retry", async () => {
+  const resolveCalls = [];
+  const visibleEvents = [];
+  const { core, calls } = makeCore({
+    cloudBotSnapshotForTurn: () => ({
+      key: "bot1",
+      id: "bot1",
+      name: "Bot One",
+      agentEngine: "hermes",
+      capabilities: { enabledSkills: ["demo-skill"] }
+    }),
+    skillsLoader: {
+      buildActiveSkillsDirective: () => "",
+      resolveSkillMaterialization: (input) => {
+        resolveCalls.push(input);
+        const requested = input.requestedSkillIds || [];
+        return {
+          indexBlock: "## Available Mia Skills\n\n- demo-skill: Demo skill.\n\n需要完整指南时输出 [LOAD_SKILL: demo-skill]",
+          loadedBlock: requested.includes("demo-skill") ? "## Loaded Mia Skill Guides\n\n=== Skill: demo-skill ===\nDEMO GUIDE\n=== End Skill ===" : "",
+          loadedSkillIds: requested.includes("demo-skill") ? ["demo-skill"] : []
+        };
+      }
+    },
+    sendWithChatEngineAdapter: async (_adapters, context) => {
+      calls.adapter.push(context);
+      if (calls.adapter.length === 1) {
+        if (context.emit) context.emit("text_delta", { text: "[LOAD_SKILL: demo-skill]" });
+        return { text: "[LOAD_SKILL: demo-skill]", finishReason: "stop" };
+      }
+      assert.match(context.skillMaterialization.loadedBlock, /DEMO GUIDE/);
+      if (context.emit) context.emit("text_delta", { text: "used demo" });
+      return { text: "used demo", finishReason: "stop" };
+    }
+  });
+
+  const response = await core.sendChat({
+    botKey: "bot1",
+    sessionId: "s1",
+    messages: [{ role: "user", content: "帮我处理一下" }],
+    emit: (kind, data) => visibleEvents.push({ kind, data })
+  });
+
+  assert.equal(response.text, "used demo");
+  assert.equal(calls.adapter.length, 2);
+  assert.deepEqual(resolveCalls.map((call) => call.requestedSkillIds || []), [[], ["demo-skill"]]);
+  assert.deepEqual(
+    visibleEvents.filter((event) => event.kind === "text_delta").map((event) => event.data.text),
+    ["used demo"]
+  );
+});
+
 test("stopChat aborts an active interactive controller", async () => {
   const { core } = makeCore({
     // Block the adapter so a foreground turn stays in-flight while we stop it.

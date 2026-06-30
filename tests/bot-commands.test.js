@@ -62,6 +62,13 @@ test("saveBot creates a cloud-hermes bot through identity, runtime, and conversa
   assert.equal(calls[0][1], result.key);
   assert.equal(calls[1][1], result.key);
   assert.equal(calls[2][1], result.key);
+  assert.deepEqual(calls[0][2].capabilities.enabledSkills, [
+    "mia-scheduler",
+    "mia-official:document-editor",
+    "mia-official:meeting-notes",
+    "mia-official:spreadsheet-organizer",
+    "mia-official:xlsx"
+  ]);
   assert.equal(calls[1][2].config.model, "mia-fast");
   assert.equal(calls[2][2].runtimeKind, "cloud-hermes");
   assert.equal(social.moduleState.bots[0].id, result.key);
@@ -190,10 +197,64 @@ test("saveBot creates desktop-runtime bots as cloud identities when cloud is ava
 
   assert.equal(ids.isPublicId(result.key), true);
   assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
+  assert.deepEqual(calls[0][2].capabilities.enabledSkills, [
+    "mia-scheduler",
+    "mia-official:document-editor",
+    "mia-official:meeting-notes",
+    "mia-official:spreadsheet-organizer",
+    "mia-official:xlsx"
+  ]);
   assert.equal(calls[1][2].runtimeKind, "desktop-local");
   assert.equal(calls[1][2].config.agentEngine, "codex");
   assert.equal(calls[1][2].config.deviceId, "mac-1");
   assert.deepEqual(result.bot.sourceKinds, ["cloud"]);
+});
+
+test("saveBot preserves explicit capabilities when creating desktop-runtime bots", async () => {
+  const calls = [];
+  const state = {
+    runtime: {
+      cloud: { enabled: true },
+      localDevice: { id: "mac-1", name: "Mac" }
+    }
+  };
+  const social = {
+    moduleState: { bots: [] },
+    upsertBotConversation(conversation) {
+      calls.push(["upsertConversation", conversation.id]);
+      return conversation;
+    }
+  };
+  const api = {
+    social: {
+      async saveBotIdentity(key, body) {
+        calls.push(["identity", key, body]);
+        return { ok: true, data: { bot: { id: key, key, ...body } } };
+      },
+      async saveBotRuntime(key, body) {
+        calls.push(["runtime", key, body]);
+        return { ok: true, data: { binding: { botId: key, ...body } } };
+      },
+      async ensureBotSessionConversation(key, body) {
+        calls.push(["conversation", key, body]);
+        return { ok: true, data: { conversation: { id: `botc_${key}`, type: "bot" } } };
+      }
+    }
+  };
+
+  await commands.saveBot({
+    state,
+    api,
+    social,
+    runtimeKind: "desktop-local",
+    isCreate: true,
+    bot: {
+      name: "Preset Bot",
+      capabilities: { enabledSkills: ["mia-official:paper-research"] }
+    }
+  });
+
+  assert.deepEqual(calls[0][2].capabilities.enabledSkills, ["mia-official:paper-research"]);
 });
 
 test("saveBot retargets cloud-sourced desktop bots through cloud runtime binding only", async () => {

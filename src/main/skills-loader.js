@@ -627,11 +627,45 @@ function createSkillsLoader(deps = {}) {
     return records;
   }
 
-  function resolveSkillMaterialization({ bot, activeSkillIds = [], intentSkillIds = [], mode = "index" } = {}) {
+  function skillRecordFromResolved(key, found) {
+    return {
+      id: found.skill?.id || key,
+      name: found.skill?.name || key,
+      description: found.skill?.description || "",
+      body: String(found.raw || "").trim()
+    };
+  }
+
+  function appendRequestedSkillRecords(records, requestedSkillIds = []) {
+    const out = Array.isArray(records) ? records.slice() : [];
+    const seen = new Set();
+    for (const record of out) {
+      for (const value of [record?.id, record?.name, record?.id && String(record.id).split(":").pop()]) {
+        const key = String(value || "").trim();
+        if (key) seen.add(key);
+      }
+    }
+    for (const id of Array.isArray(requestedSkillIds) ? requestedSkillIds : []) {
+      const key = String(id || "").trim();
+      if (!key || seen.has(key)) continue;
+      const found = resolveLocalSkill(key);
+      if (!found) continue;
+      const record = skillRecordFromResolved(key, found);
+      out.push(record);
+      for (const value of [record.id, record.name, record.id && String(record.id).split(":").pop(), key]) {
+        const alias = String(value || "").trim();
+        if (alias) seen.add(alias);
+      }
+    }
+    return out;
+  }
+
+  function resolveSkillMaterialization({ bot, activeSkillIds = [], intentSkillIds = [], requestedSkillIds = [], mode = "index" } = {}) {
     return materializeSkillsForTurn({
-      availableSkills: skillRecordsForBot(bot || {}),
+      availableSkills: appendRequestedSkillRecords(skillRecordsForBot(bot || {}), requestedSkillIds),
       activeSkillIds,
       intentSkillIds,
+      requestedSkillIds,
       mode
     });
   }

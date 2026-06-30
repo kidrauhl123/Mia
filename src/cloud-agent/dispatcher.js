@@ -14,6 +14,10 @@ const {
   buildSkillMaterializationContext,
   materializeSkillsForTurn
 } = require("../shared/skill-materializer.js");
+const {
+  extractLoadSkillRequests,
+  stripLoadSkillRequests
+} = require("../shared/skill-load-protocol.js");
 const { miaRuntimeSystemPrompt } = require("../main/mia-runtime-context.js");
 const { normalizeCloudHermesModel } = require("./cloud-hermes-model.js");
 
@@ -21,6 +25,7 @@ const BOT_MEMBER_KIND = "bot";
 const BOT_SENDER_KIND = "bot";
 const DESKTOP_INVOCATION_HISTORY_LIMIT = 200;
 const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "OpenClaw", "Hermes"];
+const MAX_SKILL_LOAD_ROUNDS = 3;
 
 function botForMember(member, bots) {
   const ref = member?.member_ref;
@@ -189,15 +194,56 @@ function skillRecordsFromCatalog(skillsCatalog = []) {
   }));
 }
 
+function skillCatalogLookup(records = []) {
+  const map = new Map();
+  for (const skill of Array.isArray(records) ? records : []) {
+    if (!skill?.id && !skill?.name) continue;
+    const id = String(skill.id || skill.name || "").trim();
+    const name = String(skill.name || id).trim();
+    for (const key of [id, name, id && `mia:${id}`, id && id.split(":").pop()]) {
+      const alias = String(key || "").trim();
+      if (alias && !map.has(alias)) map.set(alias, skill);
+    }
+  }
+  return map;
+}
+
+function cloudSkillMaterialization({ bot = {}, message = {}, skillsCatalog = [], requestedSkillIds = [] } = {}) {
+  const records = skillRecordsFromCatalog(skillsCatalog);
+  const lookup = skillCatalogLookup(records);
+  const activeSkillIds = selectedSkillIdsFromMessage(message);
+  const enabledSkillIds = Array.isArray(bot?.capabilities?.enabledSkills)
+    ? bot.capabilities.enabledSkills.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  const availableSkills = [];
+  const seen = new Set();
+  for (const id of [...enabledSkillIds, ...activeSkillIds, ...(Array.isArray(requestedSkillIds) ? requestedSkillIds : [])]) {
+    const skill = lookup.get(String(id || "").trim());
+    if (!skill || seen.has(skill.id)) continue;
+    seen.add(skill.id);
+    availableSkills.push(skill);
+  }
+  return materializeSkillsForTurn({
+    availableSkills,
+    activeSkillIds,
+    intentSkillIds: [],
+    requestedSkillIds,
+    mode: enabledSkillIds.length ? "index" : "none"
+  });
+}
+
 function selectedSkillContext(message, skillsCatalog = []) {
   const activeSkillIds = selectedSkillIdsFromMessage(message);
   if (!activeSkillIds.length) return "";
-  return buildSkillMaterializationContext(materializeSkillsForTurn({
-    availableSkills: skillRecordsFromCatalog(skillsCatalog),
-    activeSkillIds,
-    intentSkillIds: [],
-    mode: "none"
+  return buildSkillMaterializationContext(cloudSkillMaterialization({
+    message,
+    skillsCatalog
   }));
+}
+
+function unresolvedSkillLoadText(ids = []) {
+  const label = ids.length ? ids.join("、") : "对应 Skill";
+  return `我没能加载到 ${label} 的完整指南。请确认这个 Skill 已安装或已添加到这个 Bot 的能力列表。`;
 }
 
 function requireDep(deps, key) {
@@ -264,6 +310,44 @@ function createCloudAgentDispatcher(deps = {}) {
     }
     const data = event.data && typeof event.data === "object" ? event.data : null;
     return data ? eventText(data) : "";
+  }
+
+  function createSkillLoadEventGate(onEvent) {
+    const buffered = [];
+    let textPrefix = "";
+    let passthrough = false;
+    let discarded = false;
+    const markerPrefix = "[LOAD_SKILL:";
+
+    function replay() {
+      if (discarded) return;
+      for (const event of buffered.splice(0)) onEvent(event);
+      passthrough = true;
+    }
+
+    return {
+      collect(event) {
+        if (discarded) return;
+        if (passthrough) {
+          onEvent(event);
+          return;
+        }
+        buffered.push(event);
+        const text = eventText(event);
+        if (!text) return;
+        textPrefix += text;
+        const probe = textPrefix.trimStart().toUpperCase();
+        if (!probe) return;
+        if (markerPrefix.startsWith(probe)) return;
+        if (probe.startsWith(markerPrefix)) return;
+        replay();
+      },
+      replay,
+      discard() {
+        discarded = true;
+        buffered.length = 0;
+      }
+    };
   }
 
   function createTraceCollector() {
@@ -469,41 +553,19 @@ function createCloudAgentDispatcher(deps = {}) {
           attachments: parseAttachmentsFromMessage(message)
         })
         : { attachments: [], input: inputText };
-      const runEvents = [];
-      const result = await hermesRunsClient.runChat({
-        baseUrl: worker.baseUrl,
-        apiKey: worker.apiKey,
-        userId: ownerId,
-        bot,
-        conversationId,
-        instructions: cloudRuntimeInstructions(bot, message),
-        model: normalizeCloudHermesModel(runtimeConfig.model, { defaultModel: worker.model }),
-        effortLevel: runtimeConfig.effortLevel || "medium",
-        permissionMode: runtimeConfig.permissionMode || "ask",
-        input: [
-          selectedSkillContext(message, skillsCatalog),
-          inputWithConversationContext(materialized.input || inputText, {
-            conversationType,
-            members: rosterMembers,
-            bots: rosterBots,
-            bot
-          })
-        ].filter(Boolean).join("\n\n"),
-        attachments: materialized.attachments || [],
-        conversationHistory: conversationHistory(conversationId),
-        onRunCreated(hermesRunId) {
-          cloudAgentRunsStore.markRunning(run.id, hermesRunId || "");
-          broadcastTransientEvent(ownerId, {
-            type: "cloud_agent_run_started",
-            runId: run.id,
-            hermesRunId,
-            conversationId,
-            botId,
-            triggerMessageId: message.id
-          });
-        },
-        onEvent(event) {
-          runEvents.push(event);
+      const conversationInput = inputWithConversationContext(materialized.input || inputText, {
+        conversationType,
+        members: rosterMembers,
+        bots: rosterBots,
+        bot
+      });
+      let requestedSkillIds = [];
+      let skillMaterialization = cloudSkillMaterialization({ bot, message, skillsCatalog, requestedSkillIds });
+      let result = null;
+      let finalRunEvents = [];
+      for (let round = 0; round <= MAX_SKILL_LOAD_ROUNDS; round += 1) {
+        const roundRunEvents = [];
+        const eventGate = createSkillLoadEventGate((event) => {
           trace.collect(event);
           contentBlocks.collect(event);
           broadcastTransientEvent(ownerId, {
@@ -513,13 +575,75 @@ function createCloudAgentDispatcher(deps = {}) {
             botId,
             event: redactGeneratedArtifactPathsInValue(event, [])
           });
+        });
+        result = await hermesRunsClient.runChat({
+          baseUrl: worker.baseUrl,
+          apiKey: worker.apiKey,
+          userId: ownerId,
+          bot,
+          conversationId,
+          instructions: cloudRuntimeInstructions(bot, message),
+          model: normalizeCloudHermesModel(runtimeConfig.model, { defaultModel: worker.model }),
+          effortLevel: runtimeConfig.effortLevel || "medium",
+          permissionMode: runtimeConfig.permissionMode || "ask",
+          input: [
+            buildSkillMaterializationContext(skillMaterialization),
+            conversationInput
+          ].filter(Boolean).join("\n\n"),
+          attachments: materialized.attachments || [],
+          conversationHistory: conversationHistory(conversationId),
+          onRunCreated(hermesRunId) {
+            cloudAgentRunsStore.markRunning(run.id, hermesRunId || "");
+            broadcastTransientEvent(ownerId, {
+              type: "cloud_agent_run_started",
+              runId: run.id,
+              hermesRunId,
+              conversationId,
+              botId,
+              triggerMessageId: message.id
+            });
+          },
+          onEvent(event) {
+            roundRunEvents.push(event);
+            eventGate.collect(event);
+          }
+        });
+        const loadRequests = extractLoadSkillRequests(result?.content || "");
+        if (!loadRequests.length) {
+          finalRunEvents = roundRunEvents;
+          eventGate.replay();
+          break;
         }
-      });
+        const known = new Set(requestedSkillIds);
+        const nextRequests = loadRequests.filter((id) => !known.has(id));
+        if (nextRequests.length && round < MAX_SKILL_LOAD_ROUNDS) {
+          const previousLoadedCount = Array.isArray(skillMaterialization?.loadedSkillIds)
+            ? skillMaterialization.loadedSkillIds.length
+            : 0;
+          requestedSkillIds = [...requestedSkillIds, ...nextRequests];
+          const nextMaterialization = cloudSkillMaterialization({ bot, message, skillsCatalog, requestedSkillIds });
+          const nextLoadedCount = Array.isArray(nextMaterialization?.loadedSkillIds)
+            ? nextMaterialization.loadedSkillIds.length
+            : 0;
+          if (nextLoadedCount > previousLoadedCount) {
+            eventGate.discard();
+            skillMaterialization = nextMaterialization;
+            continue;
+          }
+        }
+        eventGate.discard();
+        finalRunEvents = roundRunEvents;
+        result = {
+          ...(result || {}),
+          content: stripLoadSkillRequests(result?.content || "") || unresolvedSkillLoadText(loadRequests)
+        };
+        break;
+      }
       const resultForArtifacts = {
         ...(result || {}),
         events: [
           ...(Array.isArray(result?.events) ? result.events : []),
-          ...runEvents
+          ...finalRunEvents
         ]
       };
       const replyAttachments = attachmentMaterializer?.archiveGeneratedAttachments

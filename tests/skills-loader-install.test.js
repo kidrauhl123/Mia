@@ -302,6 +302,23 @@ test("resolveSkillMaterialization loads full skill only for active or intent ski
   }
 });
 
+test("resolveSkillMaterialization loads requested installed skills even when not preset-enabled", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
+  try {
+    const loader = makeBundledLoader(home);
+    const materialized = loader.resolveSkillMaterialization({
+      bot: { capabilities: { enabledSkills: [] } },
+      requestedSkillIds: ["mia-scheduler"]
+    });
+
+    assert.match(materialized.indexBlock, /LOAD_SKILL/);
+    assert.match(materialized.loadedBlock, /schedule_create/);
+    assert.deepEqual(materialized.loadedSkillIds, ["mia-official:mia-scheduler"]);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("resolveSkillMaterialization indexes bundled preset defaults for old unconfigured official bots", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {
