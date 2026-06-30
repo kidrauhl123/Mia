@@ -15,6 +15,7 @@ test("Mia app MCP spec exposes stdio command and scoped daemon token", (t) => {
     daemonStatus: () => ({ baseUrl: "http://127.0.0.1:18000" }),
     daemonToken: () => "daemon-token",
     nodePath: () => "/opt/node",
+    ddgsPythonPath: () => "/opt/hermes/bin/python",
     serverScriptPath: () => sourceServer
   });
 
@@ -25,6 +26,7 @@ test("Mia app MCP spec exposes stdio command and scoped daemon token", (t) => {
   assert.equal(spec.env.MIA_DAEMON_URL, "http://127.0.0.1:18000");
   assert.equal(spec.env.MIA_DAEMON_TOKEN, "daemon-token");
   assert.equal(spec.env.MIA_APP_CONTEXT_FILE.endsWith("context.json"), true);
+  assert.equal(spec.env.MIA_DDGS_PYTHON, "/opt/hermes/bin/python");
   assert.deepEqual(spec.args, [path.join(dir, "runtime", "mia-app-mcp", "mia-app-mcp-server.js")]);
   assert.deepEqual(JSON.parse(fs.readFileSync(spec.env.MIA_APP_CONTEXT_FILE, "utf8")), {
     botId: "mei",

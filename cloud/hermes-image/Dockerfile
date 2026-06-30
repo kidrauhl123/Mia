@@ -40,7 +40,8 @@ RUN set -e; \
     python -m pip install --no-cache-dir $pip_index_args \
       "hermes-agent @ https://github.com/NousResearch/hermes-agent/archive/refs/tags/v${HERMES_VERSION}.tar.gz" \
       "aiohttp==3.13.3" \
-      "mcp"
+      "mcp" \
+      "ddgs"
 
 COPY mia_plugins /opt/mia-plugins/mia_plugins
 COPY entrypoint.sh /usr/local/bin/mia-hermes-entrypoint

@@ -314,7 +314,8 @@ test("installFromOfficialPackage installs --user from the mirror, retries base p
     ["/opt/python3.11", "-m", "pip", "install", "--user", "--upgrade", "hermes-agent[web]", "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"],
     ["/opt/python3.11", "-m", "pip", "install", "--user", "--upgrade", "hermes-agent", "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"],
     ["/opt/python3.11", "-m", "pip", "install", "--user", "--upgrade", "aiohttp", "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"],
-    ["/opt/python3.11", "-m", "pip", "install", "--user", "--upgrade", "mcp", "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"]
+    ["/opt/python3.11", "-m", "pip", "install", "--user", "--upgrade", "mcp", "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"],
+    ["/opt/python3.11", "-m", "pip", "install", "--user", "--upgrade", "ddgs", "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"]
   ]);
   assert.match(logs.join("\n"), /retrying base package/);
   const types = calls.map((call) => call.type);
@@ -342,6 +343,7 @@ test("installFromOfficialPackage falls back to the official index when the mirro
 
   assert.deepEqual(indexes, [
     "https://pypi.tuna.tsinghua.edu.cn/simple",
+    "https://pypi.org/simple",
     "https://pypi.org/simple",
     "https://pypi.org/simple",
     "https://pypi.org/simple"
@@ -376,13 +378,11 @@ test("installFromOfficialPackageAsync retries PEP 668 user installs with break-s
 
   const status = await service.installFromOfficialPackageAsync({ onProgress: (payload) => progress.push(payload) });
 
-  assert.equal(pipArgs.length, 6);
-  assert.equal(pipArgs[0].includes("--break-system-packages"), false);
-  assert.equal(pipArgs[1].includes("--break-system-packages"), true);
-  assert.equal(pipArgs[2].includes("--break-system-packages"), false);
-  assert.equal(pipArgs[3].includes("--break-system-packages"), true);
-  assert.equal(pipArgs[4].includes("--break-system-packages"), false);
-  assert.equal(pipArgs[5].includes("--break-system-packages"), true);
+  assert.equal(pipArgs.length, 8);
+  for (let i = 0; i < pipArgs.length; i += 2) {
+    assert.equal(pipArgs[i].includes("--break-system-packages"), false);
+    assert.equal(pipArgs[i + 1].includes("--break-system-packages"), true);
+  }
   assert.match(progress.map((payload) => payload.message).join("\n"), /用户目录兼容模式/);
   assert.deepEqual(status, { created: ["hermes"], engineInstalled: true });
 });
@@ -425,7 +425,8 @@ test("repair reinstalls the official package", (t) => {
   assert.deepEqual(installs, [
     { requirement: "hermes-agent", index: "https://pypi.tuna.tsinghua.edu.cn/simple" },
     { requirement: "aiohttp", index: "https://pypi.tuna.tsinghua.edu.cn/simple" },
-    { requirement: "mcp", index: "https://pypi.tuna.tsinghua.edu.cn/simple" }
+    { requirement: "mcp", index: "https://pypi.tuna.tsinghua.edu.cn/simple" },
+    { requirement: "ddgs", index: "https://pypi.tuna.tsinghua.edu.cn/simple" }
   ]);
 });
 

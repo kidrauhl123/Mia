@@ -5,10 +5,12 @@ const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
 const readline = require("node:readline");
+const { spawn: defaultSpawn } = require("node:child_process");
 
 const DAEMON_URL = (process.env.MIA_DAEMON_URL || "http://127.0.0.1:27861").replace(/\/$/, "");
 const DAEMON_TOKEN = process.env.MIA_DAEMON_TOKEN || "";
 const CONTEXT_FILE = process.env.MIA_APP_CONTEXT_FILE || "";
+const DDGS_TIMEOUT_MS = 35000;
 
 const READ_TOOLS = new Set([
   "schedule_list",
@@ -275,6 +277,246 @@ function parseDuckDuckGoHtml(html = "", limit = 5) {
   return out;
 }
 
+const DDGS_PYTHON_SCRIPT = String.raw`
+from __future__ import annotations
+
+import concurrent.futures as _cf
+import json
+import sys
+
+_SEARCH_TIMEOUT_SECS = 30
+
+def _run_ddgs_search(query: str, safe_limit: int) -> list[dict]:
+    from ddgs import DDGS  # type: ignore
+
+    results = []
+    with DDGS(timeout=10) as client:
+        for i, hit in enumerate(client.text(query, max_results=safe_limit)):
+            if i >= safe_limit:
+                break
+            url = str(hit.get("href") or hit.get("url") or "")
+            results.append({
+                "title": str(hit.get("title", "")),
+                "url": url,
+                "description": str(hit.get("body", "")),
+                "position": i + 1,
+            })
+    return results
+
+def main() -> None:
+    payload = json.loads(sys.stdin.read() or "{}")
+    query = str(payload.get("query") or "").strip()
+    if not query:
+        raise RuntimeError("query is required")
+    try:
+        safe_limit = max(1, int(payload.get("limit") or 5))
+    except Exception:
+        safe_limit = 5
+
+    try:
+        import ddgs  # type: ignore  # noqa: F401
+    except ImportError:
+        print(json.dumps({
+            "success": False,
+            "error": "ddgs package is not installed - run pip install ddgs",
+        }, ensure_ascii=False))
+        return
+
+    pool = _cf.ThreadPoolExecutor(max_workers=1)
+    try:
+        future = pool.submit(_run_ddgs_search, query, safe_limit)
+        try:
+            web_results = future.result(timeout=_SEARCH_TIMEOUT_SECS)
+        except _cf.TimeoutError:
+            print(json.dumps({
+                "success": False,
+                "error": (
+                    f"DuckDuckGo search timed out after {_SEARCH_TIMEOUT_SECS}s - "
+                    "DuckDuckGo may be rate-limiting or slow. Try again later "
+                    "or switch to a different search provider."
+                ),
+            }, ensure_ascii=False))
+            return
+    except Exception as exc:
+        print(json.dumps({
+            "success": False,
+            "error": f"DuckDuckGo search failed: {exc}",
+        }, ensure_ascii=False))
+        return
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    print(json.dumps({"success": True, "data": {"web": web_results}}, ensure_ascii=False))
+
+if __name__ == "__main__":
+    main()
+`;
+
+function ddgsPythonCandidates() {
+  return [
+    process.env.MIA_DDGS_PYTHON,
+    process.env.MIA_PYTHON,
+    process.env.PYTHON,
+    process.platform === "win32" ? "python" : "python3",
+    process.platform === "win32" ? "python3" : "python"
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function normalizeDdgsResults(providerResult = {}, limit = 5) {
+  const web = Array.isArray(providerResult?.data?.web) ? providerResult.data.web : [];
+  return dedupeResults(web.map((item, index) => ({
+    title: String(item?.title || ""),
+    url: String(item?.url || ""),
+    snippet: String(item?.description || item?.snippet || ""),
+    position: Number.isFinite(Number(item?.position)) ? Number(item.position) : index + 1
+  })), limit);
+}
+
+function runDdgsSearch(query, limit, { spawn = defaultSpawn, timeoutMs = DDGS_TIMEOUT_MS } = {}) {
+  const candidates = ddgsPythonCandidates();
+  if (!candidates.length) {
+    return Promise.resolve({
+      success: false,
+      error: "No Python runtime configured for ddgs search. Install or repair Hermes so Mia can use its Python runtime."
+    });
+  }
+
+  return new Promise((resolve) => {
+    let index = 0;
+
+    function tryNext(lastError = "") {
+      const python = candidates[index++];
+      if (!python) {
+        resolve({
+          success: false,
+          error: lastError || "No usable Python runtime found for ddgs search."
+        });
+        return;
+      }
+      const child = spawn(python, ["-c", DDGS_PYTHON_SCRIPT], {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: process.env
+      });
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { child.kill("SIGTERM"); } catch { /* ignore */ }
+        resolve({
+          success: false,
+          error: `DuckDuckGo search timed out after ${Math.round(timeoutMs / 1000)}s`
+        });
+      }, timeoutMs);
+
+      child.stdout?.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
+      child.stderr?.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+      child.once("error", (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        tryNext(error.message);
+      });
+      child.once("exit", (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (code !== 0) {
+          tryNext(String(stderr || stdout || `Python exited with code ${code}`).trim());
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout || "{}");
+          const parsedError = String(parsed?.error || "");
+          if (parsed?.success === false && /ddgs package is not installed|No module named ['"]ddgs['"]/i.test(parsedError)) {
+            tryNext(parsedError);
+            return;
+          }
+          resolve(parsed);
+        } catch (error) {
+          resolve({
+            success: false,
+            error: `Could not parse ddgs response: ${error.message}`
+          });
+        }
+      });
+      child.stdin?.end(JSON.stringify({ query, limit }));
+    }
+
+    tryNext();
+  });
+}
+
+function isDuckDuckGoChallengePage(html = "") {
+  const text = String(html || "");
+  return /Unfortunately,\s*bots use DuckDuckGo too|anomaly\.js|challenge-form|anomaly-modal|\/anomaly/i.test(text);
+}
+
+function xmlTag(block = "", tag = "") {
+  const pattern = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
+  const match = String(block || "").match(pattern);
+  return match ? match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1") : "";
+}
+
+function parseRssItems(xml = "", limit = 5) {
+  const out = [];
+  const blocks = String(xml || "").match(/<item\b[\s\S]*?<\/item>/gi) || [];
+  for (const block of blocks) {
+    if (out.length >= limit) break;
+    const title = stripHtml(xmlTag(block, "title"));
+    const url = stripHtml(xmlTag(block, "link"));
+    const snippet = stripHtml(xmlTag(block, "description"));
+    if (!title || !url) continue;
+    const sourceName = stripHtml(xmlTag(block, "source"));
+    const publishedAt = stripHtml(xmlTag(block, "pubDate"));
+    out.push({
+      title,
+      url,
+      snippet,
+      ...(sourceName ? { sourceName } : {}),
+      ...(publishedAt ? { publishedAt } : {})
+    });
+  }
+  return out;
+}
+
+function dedupeResults(results = [], limit = 5) {
+  const out = [];
+  const seen = new Set();
+  for (const item of results) {
+    const url = String(item?.url || "").trim();
+    const title = String(item?.title || "").trim();
+    if (!url || !title) continue;
+    const key = `${url.toLowerCase()}\n${title.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function looksLikeNewsQuery(query = "") {
+  return /新闻|资讯|动态|进展|最新|近期|日报|周报|情报|news|latest|recent|today|weekly|daily|20\d{2}/i.test(String(query || ""));
+}
+
+async function rssSearch(source, url, limit) {
+  const response = await requestPublicText(url, {
+    maxBytes: 1024 * 1024,
+    headers: { Accept: "application/rss+xml,application/xml,text/xml,text/plain;q=0.8,*/*;q=0.5" }
+  });
+  return { source, results: parseRssItems(response.text, limit) };
+}
+
+function bingRssUrl(query) {
+  return `https://www.bing.com/search${queryString({ q: query, format: "rss" })}`;
+}
+
+function googleNewsRssUrl(query) {
+  return `https://news.google.com/rss/search${queryString({ q: query, hl: "zh-CN", gl: "CN", ceid: "CN:zh-Hans" })}`;
+}
+
 function relatedTopicsFromDuckDuckGo(topics = [], out = []) {
   for (const topic of Array.isArray(topics) ? topics : []) {
     if (topic?.FirstURL && topic?.Text) {
@@ -289,30 +531,79 @@ async function webSearch(args = {}) {
   const query = String(args.query || args.q || "").trim();
   if (!query) throw new Error("query is required");
   const limit = clampNumber(args.limit, 1, 10, 5);
-  const searchUrl = `https://duckduckgo.com/html/${queryString({ q: query })}`;
   let results = [];
-  let source = "duckduckgo-html";
+  const sources = [];
+  const warnings = [];
+
+  const ddgs = await runDdgsSearch(query, limit);
+  if (ddgs?.success) {
+    results = normalizeDdgsResults(ddgs, limit);
+    if (results.length) sources.push("ddgs");
+  } else if (ddgs?.error) {
+    warnings.push(`ddgs failed: ${ddgs.error}`);
+  }
+
+  // Last-resort diagnostic path only. Primary search is ddgs; direct DDG HTML
+  // is known to return challenge pages for Mia's bot UA in some environments.
+  const searchUrl = `https://duckduckgo.com/html/${queryString({ q: query })}`;
   try {
-    const response = await requestPublicText(searchUrl, { maxBytes: 2 * 1024 * 1024 });
-    results = parseDuckDuckGoHtml(response.text, limit);
-  } catch {
-    results = [];
-  }
-  if (!results.length) {
-    source = "duckduckgo-instant-answer";
-    const apiUrl = `https://api.duckduckgo.com/${queryString({ q: query, format: "json", no_html: 1, skip_disambig: 1 })}`;
-    const response = await requestPublicText(apiUrl, { headers: { Accept: "application/json" } });
-    const data = JSON.parse(response.text || "{}");
-    if (data.AbstractURL && data.AbstractText) {
-      results.push({ title: data.Heading || query, url: data.AbstractURL, snippet: data.AbstractText });
+    if (!results.length) {
+      const response = await requestPublicText(searchUrl, { maxBytes: 2 * 1024 * 1024 });
+      if (isDuckDuckGoChallengePage(response.text)) {
+        warnings.push("duckduckgo-html returned an anti-bot challenge");
+      } else {
+        results = parseDuckDuckGoHtml(response.text, limit);
+        if (results.length) sources.push("duckduckgo-html");
+      }
     }
-    results.push(...relatedTopicsFromDuckDuckGo(data.RelatedTopics, []));
-    results = results.filter((item, index, arr) => item.url && arr.findIndex((other) => other.url === item.url) === index).slice(0, limit);
+  } catch (error) {
+    if (!results.length) warnings.push(`duckduckgo-html failed: ${error.message}`);
   }
+
+  const fallbackSearches = looksLikeNewsQuery(query)
+    ? [
+      ["google-news-rss", googleNewsRssUrl(query)],
+      ["bing-rss", bingRssUrl(query)]
+    ]
+    : [
+      ["bing-rss", bingRssUrl(query)],
+      ["google-news-rss", googleNewsRssUrl(query)]
+    ];
+  for (const [fallbackSource, fallbackUrl] of fallbackSearches) {
+    if (results.length >= limit) break;
+    try {
+      const fallback = await rssSearch(fallbackSource, fallbackUrl, limit);
+      const before = results.length;
+      results = dedupeResults([...results, ...fallback.results], limit);
+      if (results.length > before) sources.push(fallback.source);
+    } catch (error) {
+      warnings.push(`${fallbackSource} failed: ${error.message}`);
+    }
+  }
+
+  if (!results.length) {
+    const apiUrl = `https://api.duckduckgo.com/${queryString({ q: query, format: "json", no_html: 1, skip_disambig: 1 })}`;
+    try {
+      const response = await requestPublicText(apiUrl, { headers: { Accept: "application/json" } });
+      const data = JSON.parse(response.text || "{}");
+      if (data.AbstractURL && data.AbstractText) {
+        results.push({ title: data.Heading || query, url: data.AbstractURL, snippet: data.AbstractText });
+      }
+      results.push(...relatedTopicsFromDuckDuckGo(data.RelatedTopics, []));
+      results = dedupeResults(results, limit);
+      if (results.length) sources.push("duckduckgo-instant-answer");
+    } catch (error) {
+      warnings.push(`duckduckgo-instant-answer failed: ${error.message}`);
+    }
+  }
+
   return {
     query,
-    source,
-    results: results.slice(0, limit)
+    success: Boolean(results.length),
+    source: sources.length ? sources.join("+") : "none",
+    results: results.slice(0, limit),
+    ...(!results.length && warnings.length ? { error: warnings[0] } : {}),
+    ...(warnings.length ? { warnings } : {})
   };
 }
 
@@ -519,8 +810,14 @@ if (require.main === module) startServer();
 
 module.exports = {
   callTool,
+  DDGS_PYTHON_SCRIPT,
+  isDuckDuckGoChallengePage,
+  normalizeDdgsResults,
   parseDuckDuckGoHtml,
+  parseRssItems,
   parseWebPageText,
   permissionClassForTool,
-  toolDefinitions
+  runDdgsSearch,
+  toolDefinitions,
+  webSearch
 };

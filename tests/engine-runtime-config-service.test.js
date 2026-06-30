@@ -323,7 +323,8 @@ test("writeRuntimeConfig adds the mia-scheduler MCP server when a spec is availa
       env: {
         MIA_DAEMON_URL: "http://127.0.0.1:8765",
         MIA_DAEMON_TOKEN: "tok-123",
-        MIA_APP_CONTEXT_FILE: "/tmp/mia-app-ctx.json"
+        MIA_APP_CONTEXT_FILE: "/tmp/mia-app-ctx.json",
+        MIA_DDGS_PYTHON: "/opt/hermes/bin/python"
       },
       alwaysLoad: true
     }),
@@ -350,7 +351,8 @@ test("writeRuntimeConfig adds the mia-scheduler MCP server when a spec is availa
     env: {
       MIA_DAEMON_URL: "http://127.0.0.1:8765",
       MIA_DAEMON_TOKEN: "tok-123",
-      MIA_APP_CONTEXT_FILE: "/tmp/mia-app-ctx.json"
+      MIA_APP_CONTEXT_FILE: "/tmp/mia-app-ctx.json",
+      MIA_DDGS_PYTHON: "/opt/hermes/bin/python"
     }
   });
   assert.deepEqual(parsed.mcp_servers["mia-scheduler"], {

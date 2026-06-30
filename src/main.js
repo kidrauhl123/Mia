@@ -659,6 +659,7 @@ const miaAppMcpBridge = createMiaAppMcpBridge({
   daemonSettings: () => settingsStore.daemonSettings(),
   daemonToken,
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
+  ddgsPythonPath: () => systemHermesService.pythonPath() || engineInstallService.enginePython(),
   serverScriptPath: () => path.join(__dirname, "main", "mia-app-mcp-server.js")
 });
 

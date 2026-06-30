@@ -10,6 +10,7 @@ function createMiaAppMcpBridge(deps = {}) {
   const daemonSettings = typeof deps.daemonSettings === "function" ? deps.daemonSettings : () => ({});
   const daemonToken = typeof deps.daemonToken === "function" ? deps.daemonToken : () => "";
   const nodePath = typeof deps.nodePath === "function" ? deps.nodePath : () => "";
+  const ddgsPythonPath = typeof deps.ddgsPythonPath === "function" ? deps.ddgsPythonPath : () => "";
   const serverScriptPath = typeof deps.serverScriptPath === "function"
     ? deps.serverScriptPath
     : () => path.join(__dirname, "mia-app-mcp-server.js");
@@ -82,6 +83,7 @@ function createMiaAppMcpBridge(deps = {}) {
     const command = resolveNodePath();
     if (!command) return null;
     writeContext(context);
+    const ddgsPython = String(ddgsPythonPath() || "").trim();
     return {
       type: "stdio",
       command,
@@ -89,7 +91,8 @@ function createMiaAppMcpBridge(deps = {}) {
       env: {
         MIA_DAEMON_URL: baseUrl,
         MIA_DAEMON_TOKEN: daemonToken(),
-        MIA_APP_CONTEXT_FILE: contextPath()
+        MIA_APP_CONTEXT_FILE: contextPath(),
+        ...(ddgsPython ? { MIA_DDGS_PYTHON: ddgsPython } : {})
       },
       alwaysLoad: true
     };
