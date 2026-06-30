@@ -533,6 +533,10 @@ function createCloudStore(options = {}) {
     return rowToFile(db.prepare("SELECT * FROM files WHERE id = ? AND user_id = ?").get(String(fileId || ""), userId));
   }
 
+  function getFile(fileId) {
+    return rowToFile(db.prepare("SELECT * FROM files WHERE id = ?").get(String(fileId || "")));
+  }
+
   function listBridgeDevices(userId, options = {}) {
     const includeOffline = Boolean(options.includeOffline || options.includeAll);
     if (includeOffline) {
@@ -748,6 +752,7 @@ function createCloudStore(options = {}) {
     saveImageDataUrl,
     saveFileDataUrl,
     saveLocalFileForUser,
+    getFile,
     getFileForUser,
     listBridgeDevices,
     upsertBridgeDevice,

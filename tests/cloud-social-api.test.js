@@ -73,6 +73,29 @@ function api(port, method, pathStr, { body, token } = {}) {
   });
 }
 
+function rawApi(port, method, pathStr, { token } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      host: "127.0.0.1", port, path: pathStr, method,
+      headers: {
+        ...(token ? { authorization: "Bearer " + token } : {}),
+      },
+    }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => { chunks.push(c); });
+      res.on("end", () => {
+        resolve({
+          status: res.statusCode,
+          headers: res.headers,
+          body: Buffer.concat(chunks)
+        });
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 async function register(port, username) {
   const dataDir = dataDirsByPort.get(port);
   if (!dataDir) throw new Error("missing test cloud data dir for port " + port);
@@ -356,6 +379,46 @@ test("POST /api/conversations/:id/messages sends to DM conversation, server assi
       token: bob.token, body: { bodyMd: "sup" }
     });
     assert.equal(m2.body.message.seq, 2);
+  } finally { await stopServer(ctx); }
+});
+
+test("conversation attachments are visible and downloadable by conversation members", async () => {
+  const ctx = await startServer();
+  try {
+    const alice = await register(ctx.port, "alice");
+    const bob = await register(ctx.port, "bob");
+    const charlie = await register(ctx.port, "charlie");
+    const conversation = await friendUp(ctx.port, alice, bob);
+    const bytes = Buffer.from("workbook bytes");
+    const posted = await api(ctx.port, "POST", "/api/conversations/" + conversation.id + "/messages", {
+      token: alice.token,
+      body: {
+        bodyMd: "发你一个表格",
+        attachments: [{
+          name: "世界杯赛果汇总.xlsx",
+          mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          dataUrl: `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${bytes.toString("base64")}`
+        }]
+      }
+    });
+    assert.equal(posted.status, 201);
+    const messageAttachments = JSON.parse(posted.body.message.attachments_json || "[]");
+    assert.equal(messageAttachments.length, 1);
+    assert.equal(messageAttachments[0].name, "世界杯赛果汇总.xlsx");
+    assert.match(messageAttachments[0].url, /^\/api\/files\/file_/);
+
+    const listed = await api(ctx.port, "GET", "/api/conversations/" + conversation.id + "/messages?since_seq=0", { token: bob.token });
+    assert.equal(listed.status, 200);
+    const listedAttachments = JSON.parse(listed.body.messages[0].attachments_json || "[]");
+    assert.equal(listedAttachments[0].url, messageAttachments[0].url);
+
+    const downloaded = await rawApi(ctx.port, "GET", messageAttachments[0].url, { token: bob.token });
+    assert.equal(downloaded.status, 200);
+    assert.equal(downloaded.body.toString("utf8"), "workbook bytes");
+    assert.equal(downloaded.headers["content-type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+    const blocked = await rawApi(ctx.port, "GET", messageAttachments[0].url, { token: charlie.token });
+    assert.equal(blocked.status, 404);
   } finally { await stopServer(ctx); }
 });
 

@@ -2,6 +2,7 @@
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { fileURLToPath } = require("node:url");
 const { CloudEvent } = require("../../shared/cloud-events.js");
@@ -243,6 +244,70 @@ function normalizeResponderAttachments(attachments = []) {
   return (Array.isArray(attachments) ? attachments : [])
     .filter((attachment) => attachment && typeof attachment === "object")
     .slice(0, 20);
+}
+
+function cloudFileUrlFromAttachment(attachment = {}) {
+  const url = String(attachment.url || attachment.path || "").trim();
+  return /^\/api\/files\/[A-Za-z0-9_-]+$/.test(url) ? url : "";
+}
+
+function dataUrlBuffer(value = "") {
+  const match = String(value || "").trim().match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) return null;
+  const buffer = Buffer.from(match[2].replace(/\s+/g, ""), "base64");
+  if (!buffer.length || buffer.length > MAX_GENERATED_ATTACHMENT_BYTES) return null;
+  return { mimeType: match[1] || "application/octet-stream", buffer };
+}
+
+function materializeFetchedAttachment(attachment = {}, fetched = {}, dir = "", index = 0) {
+  const data = dataUrlBuffer(fetched.dataUrl);
+  if (!data || !dir) return null;
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const name = sanitizeArtifactName(fetched.name || attachment.name || `attachment-${index + 1}`);
+  const target = path.join(dir, `${index + 1}-${name}`);
+  fs.writeFileSync(target, data.buffer, { mode: 0o600 });
+  const mimeType = String(fetched.mimeType || fetched.mime || attachment.mimeType || attachment.mime || data.mimeType).trim();
+  const kind = String(fetched.kind || attachment.kind || "").trim() || artifactKind({ mimeType, name });
+  return {
+    ...attachment,
+    ...fetched,
+    name,
+    path: target,
+    hostPath: target,
+    mimeType,
+    mime: mimeType,
+    kind,
+    type: fetched.type || attachment.type || kind,
+    size: data.buffer.length
+  };
+}
+
+async function materializeResponderAttachments(attachments = [], { fetchFileAttachment = null, dedupKey = "", log = () => {} } = {}) {
+  const incoming = normalizeResponderAttachments(attachments);
+  if (!incoming.length || typeof fetchFileAttachment !== "function") return incoming;
+  const dir = path.join(os.tmpdir(), "mia-local-bot-attachments", sanitizeArtifactName(dedupKey || crypto.randomUUID(), "run"));
+  const out = [];
+  for (const [index, attachment] of incoming.entries()) {
+    if (attachment.path || attachment.dataUrl || attachment.hostPath) {
+      out.push(attachment);
+      continue;
+    }
+    const url = cloudFileUrlFromAttachment(attachment);
+    if (!url) {
+      out.push(attachment);
+      continue;
+    }
+    try {
+      const fetched = await fetchFileAttachment({ url, name: attachment.name, id: attachment.id });
+      if (fetched?.error) throw new Error(fetched.message || "fetch failed");
+      const materialized = materializeFetchedAttachment(attachment, fetched, dir, index);
+      out.push(materialized || attachment);
+    } catch (error) {
+      log(`[local-bot-responder] failed to materialize attachment ${url}: ${error?.message || error}`);
+      out.push(attachment);
+    }
+  }
+  return out;
 }
 
 function artifactMimeForPath(filePath = "", explicit = "") {
@@ -541,7 +606,7 @@ function hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId
   return false;
 }
 
-function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {}, artifactWorkspaceDir = null }) {
+function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {}, artifactWorkspaceDir = null, fetchFileAttachment = null }) {
   const processed = new Set();
   const inFlight = new Set();
   const activeRunsByConversation = new Map();
@@ -762,7 +827,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         ? snapshotArtifactWorkspace(artifactWorkspace)
         : new Map();
       const currentUserMessage = { role: "user", content: userPrompt || "" };
-      const currentUserAttachments = normalizeResponderAttachments(userAttachments);
+      const currentUserAttachments = await materializeResponderAttachments(userAttachments, { fetchFileAttachment, dedupKey, log });
       if (currentUserAttachments.length) currentUserMessage.attachments = currentUserAttachments;
       const chatArgs = {
         botKey: botId,

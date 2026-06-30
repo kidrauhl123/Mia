@@ -2885,14 +2885,46 @@ function sanitizeCommandResult(commandResult) {
 //  attachment sanitization still happens via sanitizeCloudMessageAttachments
 //  above and persistCloudAttachments at the conversation-message POST path.)
 
-function serveAuthorizedFile(req, res, cloudStore, auth, pathname) {
+function attachmentJsonReferencesFile(value, fileId) {
+  if (!value) return false;
+  let attachments = [];
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    attachments = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return false;
+  }
+  const expectedUrl = `/api/files/${fileId}`;
+  return attachments.some((attachment) => String(attachment?.url || "").trim() === expectedUrl);
+}
+
+function conversationMemberCanReadFile(context, userId, fileId) {
+  const db = context?.cloudStore?.getDb?.();
+  if (!db || !userId || !fileId) return false;
+  const rows = db.prepare(`
+    SELECT m.attachments_json
+    FROM messages m
+    INNER JOIN conversation_members cm
+      ON cm.conversation_id = m.conversation_id
+      AND cm.member_kind = 'user'
+      AND cm.member_ref = ?
+    WHERE m.attachments_json IS NOT NULL
+      AND instr(m.attachments_json, ?) > 0
+  `).all(String(userId), `/api/files/${fileId}`);
+  return rows.some((row) => attachmentJsonReferencesFile(row.attachments_json, fileId));
+}
+
+function serveAuthorizedFile(req, res, context, auth, pathname) {
   const match = pathname.match(/^\/api\/files\/([a-zA-Z0-9_-]+)$/);
   if (!match) return false;
   if (!auth) {
     writeError(res, 401, "请先登录。");
     return true;
   }
-  const file = cloudStore.getFileForUser(auth.user.id, match[1]);
+  const cloudStore = context.cloudStore;
+  const fileId = match[1];
+  const file = cloudStore.getFileForUser(auth.user.id, fileId)
+    || (conversationMemberCanReadFile(context, auth.user.id, fileId) && cloudStore.getFile?.(fileId));
   if (!file) {
     writeError(res, 404, "File not found.");
     return true;
@@ -3018,7 +3050,7 @@ async function handleRequest(req, res, context) {
     }
 
     const auth = cloudStore.authenticateToken(tokenFromRequest(req));
-    if (req.method === "GET" && serveAuthorizedFile(req, res, cloudStore, auth, url.pathname)) return;
+    if (req.method === "GET" && serveAuthorizedFile(req, res, context, auth, url.pathname)) return;
     if (!auth) return writeError(res, 401, "请先登录。");
 
     if (await handleUserModelProxy(req, res, context, url, auth.user.id)) return;

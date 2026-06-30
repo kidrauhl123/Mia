@@ -257,6 +257,62 @@ test("cloud-hermes archives generated files mentioned only in streamed events", 
   }
 });
 
+test("cloud-hermes attaches worker files requested directly by the user", async () => {
+  const ctx = setup();
+  const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-worker-request-files-"));
+  const workerPaths = {
+    root: workerRoot,
+    home: path.join(workerRoot, "home"),
+    workspace: path.join(workerRoot, "workspace"),
+    attachments: path.join(workerRoot, "attachments"),
+    hermesHome: path.join(workerRoot, "hermes-home")
+  };
+  try {
+    fs.mkdirSync(workerPaths.home, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(workerPaths.home, "世界杯赛果汇总.xlsx"), "xlsx bytes", { mode: 0o600 });
+    const dispatcher = makeDispatcher(ctx, {
+      workerManager: {
+        async ensureWorker(userId) {
+          return { userId, baseUrl: "http://worker", apiKey: "k", paths: workerPaths };
+        }
+      },
+      attachmentMaterializer: createAttachmentMaterializer({ cloudStore: ctx.cloudStore }),
+      hermesRunsClient: {
+        async runChat() {
+          return {
+            runId: "hr_requested_file",
+            content: "文件存在。但我没法直接通过聊天把文件发给你。",
+            events: []
+          };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "/data/home/世界杯赛果汇总.xlsx 把这个发给我"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    const attachments = JSON.parse(reply.attachments_json || "[]");
+    assert.equal(attachments.length, 1);
+    assert.equal(attachments[0].name, "世界杯赛果汇总.xlsx");
+    assert.match(attachments[0].url, /^\/api\/files\/file_/);
+    assert.equal(reply.body_md, "已附上文件「世界杯赛果汇总.xlsx」。");
+    assert.doesNotMatch(reply.body_md, /没法|接收方式|S3|API/);
+    assert.equal(ctx.cloudStore.getFileForUser(ctx.user.id, attachments[0].id)?.name, "世界杯赛果汇总.xlsx");
+  } finally {
+    ctx.cleanup();
+    fs.rmSync(workerRoot, { recursive: true, force: true });
+  }
+});
+
 test("cloud-hermes DM pins the bot identity over a copied engine persona", async () => {
   const ctx = setup();
   const hermesCalls = [];

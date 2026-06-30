@@ -5,6 +5,7 @@ const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_TEXT_PREVIEW_BYTES = 1024 * 1024;
 const WORKER_FILE_PATH_PATTERN = /\/data\/(?:workspace|home|attachments|hermes-home)\/[^\s"'`<>\])]+/gu;
 const WORKER_GENERATED_FILE_PATH_PATTERN = /\/data\/(?:workspace|home)\/[^\s"'`<>\])]+/gu;
+const FILE_DELIVERY_REQUEST_PATTERN = /(?:发给我|发我|发一下|发来|给我|传给我|发送|分享|下载|导出|send|share|attach|download)/iu;
 const TRAILING_PATH_PUNCTUATION = /[.,，。:：;；!?！？]+$/u;
 
 function sanitizeAttachmentName(value, fallback = "attachment") {
@@ -139,6 +140,13 @@ function collectWorkerFilePathMentions(value, out = []) {
   return out;
 }
 
+function workerFileArtifactsForDeliveryRequest(text = "") {
+  const input = String(text || "");
+  if (!FILE_DELIVERY_REQUEST_PATTERN.test(input)) return [];
+  return workerFilePathsFromText(input, WORKER_GENERATED_FILE_PATH_PATTERN)
+    .map((filePath) => ({ path: filePath }));
+}
+
 function walkArtifacts(value, out = []) {
   if (!value || out.length >= 20) return out;
   if (Array.isArray(value)) {
@@ -193,6 +201,14 @@ function hostPathForWorkerArtifact(workerPaths = {}, artifactPath = "") {
   const relative = path.relative(root, resolved);
   if (relative.startsWith("..") || path.isAbsolute(relative)) return "";
   return resolved;
+}
+
+function attachmentNameForArchivedArtifact(artifact = {}, realPath = "") {
+  const rawExplicit = String(artifact.name || "").trim();
+  const explicit = rawExplicit ? sanitizeAttachmentName(rawExplicit, "") : "";
+  const basename = realPath ? sanitizeAttachmentName(path.basename(String(realPath || "")), "") : "";
+  if (!explicit || /^file_[A-Za-z0-9_-]+$/.test(explicit)) return basename || explicit || "attachment";
+  return explicit;
 }
 
 function createAttachmentMaterializer(deps = {}) {
@@ -285,7 +301,7 @@ function createAttachmentMaterializer(deps = {}) {
       const relative = path.relative(rootReal, realPath);
       if (relative.startsWith("..") || path.isAbsolute(relative)) continue;
       if (!stat.isFile() || !stat.size || stat.size > MAX_ATTACHMENT_BYTES) continue;
-      const name = sanitizeAttachmentName(artifact.name || path.basename(realPath));
+      const name = attachmentNameForArchivedArtifact(artifact, realPath);
       const mimeType = String(artifact.mimeType || "").trim() || mimeForName(name);
       const kind = attachmentKind({ mimeType, name });
       const saved = cloudStore.saveLocalFileForUser(userId, {
@@ -352,6 +368,7 @@ module.exports = {
   inputWithAttachmentContext,
   resultArtifacts,
   hostPathForWorkerArtifact,
+  workerFileArtifactsForDeliveryRequest,
   redactGeneratedArtifactPaths,
   redactGeneratedArtifactPathsInValue
 };

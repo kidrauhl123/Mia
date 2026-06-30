@@ -556,7 +556,7 @@
     const imageSrc = String(attachment.dataUrl || attachment.previewDataUrl || attachment.thumbnailDataUrl || attachment.thumbnail || "").trim();
     const imageSrcAttr = imageSrc.startsWith("data:image/") ? ` data-image-src="${escapeHtml(imageSrc)}"` : "";
     const href = String(attachment.dataUrl || attachment.url || "").trim();
-    const safeHref = /^(\/api\/files\/[A-Za-z0-9_-]+|data:[^"'<>]+)$/i.test(href) ? href : "";
+    const safeHref = /^data:[^"'<>]+$/i.test(href) ? href : "";
     const tag = safeHref ? "a" : "span";
     const download = safeHref ? ` href="${escapeHtml(safeHref)}" download="${escapeHtml(attachment.name || "attachment")}"` : "";
     if (image) {
@@ -589,6 +589,95 @@
       .filter((attachment) => !isInlinePathRefAttachment(attachment));
     if (!visible.length) return "";
     return `<div class="message-attachments">${visible.map(hydrateAttachmentPreview).map(renderAttachmentChip).join("")}</div>`;
+  }
+
+  function isCloudFileUrl(value = "") {
+    return /^\/api\/files\/[A-Za-z0-9_-]+$/.test(String(value || "").trim());
+  }
+
+  function outgoingAttachmentName(attachment = {}) {
+    return String(attachment.name || attachment.filename || attachment.file_name || attachment.path || "附件")
+      .split(/[\\/]/)
+      .pop()
+      || "附件";
+  }
+
+  function stripLocalPathForTransfer(attachment = {}) {
+    const next = { ...attachment };
+    const localPath = String(next.path || next.filePath || next.file_path || "").trim();
+    if (localPath && !isCloudFileUrl(localPath) && (next.dataUrl || next.url)) {
+      delete next.path;
+      delete next.filePath;
+      delete next.file_path;
+    }
+    return next;
+  }
+
+  function mergeFetchedOutgoingAttachment(original = {}, fetched = {}) {
+    const next = {
+      ...original,
+      ...fetched,
+      name: fetched.name || original.name || outgoingAttachmentName(original),
+      mime: fetched.mime || fetched.mimeType || original.mime || original.mimeType || "",
+      mimeType: fetched.mimeType || fetched.mime || original.mimeType || original.mime || "",
+      kind: fetched.kind || original.kind || "",
+      size: fetched.size || original.size || 0
+    };
+    return stripLocalPathForTransfer(next);
+  }
+
+  function outgoingAttachmentNeedsMaterialization(attachment = {}) {
+    if (!attachment || typeof attachment !== "object") return false;
+    if (attachment.dataUrl || attachment.url) return false;
+    return Boolean(String(attachment.path || attachment.filePath || attachment.file_path || "").trim());
+  }
+
+  function transferReadyOutgoingAttachments(attachments = []) {
+    return (Array.isArray(attachments) ? attachments.filter(Boolean).slice(0, 20) : [])
+      .map((attachment) => {
+        if (!attachment || typeof attachment !== "object") return attachment;
+        const localPath = String(attachment.path || attachment.filePath || attachment.file_path || "").trim();
+        if (localPath && !isCloudFileUrl(localPath) && (attachment.dataUrl || attachment.url)) {
+          return stripLocalPathForTransfer(attachment);
+        }
+        return attachment;
+      });
+  }
+
+  async function materializeOutgoingAttachments(attachments = []) {
+    const out = [];
+    const incoming = Array.isArray(attachments) ? attachments.filter(Boolean).slice(0, 20) : [];
+    for (const item of incoming) {
+      if (!item || typeof item !== "object") continue;
+      const attachment = { ...item };
+      if (attachment.dataUrl || attachment.url) {
+        out.push(stripLocalPathForTransfer(attachment));
+        continue;
+      }
+      const filePath = String(attachment.path || attachment.filePath || attachment.file_path || "").trim();
+      if (!filePath) {
+        out.push(attachment);
+        continue;
+      }
+      if (typeof window.mia?.fetchFileAttachment !== "function") {
+        throw new Error(`附件「${outgoingAttachmentName(attachment)}」无法读取。`);
+      }
+      const request = isCloudFileUrl(filePath) ? { url: filePath } : { path: filePath };
+      const fetched = await window.mia.fetchFileAttachment(request);
+      if (!fetched || fetched.error) {
+        throw new Error(`附件「${outgoingAttachmentName(attachment)}」读取失败: ${fetched?.message || "文件不可用"}`);
+      }
+      out.push(mergeFetchedOutgoingAttachment(attachment, fetched));
+    }
+    return out;
+  }
+
+  function prepareOutgoingAttachmentsForTransfer(attachments = []) {
+    const incoming = Array.isArray(attachments) ? attachments.filter(Boolean).slice(0, 20) : [];
+    if (!incoming.some(outgoingAttachmentNeedsMaterialization)) {
+      return transferReadyOutgoingAttachments(incoming);
+    }
+    return materializeOutgoingAttachments(incoming);
   }
 
   function attachmentHasInlinePreview(attachment = {}) {
@@ -4577,19 +4666,21 @@
     const skills = Array.isArray(options.skills) && options.skills.length
       ? options.skills.map((s) => ({ id: String(s.id || ""), name: String(s.name || s.id || "") })).filter((s) => s.id)
       : null;
-    const attachments = Array.isArray(options.attachments)
-      ? options.attachments.filter(Boolean).slice(0, 20)
-      : [];
     let prepared;
     try {
+      const maybeAttachments = prepareOutgoingAttachmentsForTransfer(options.attachments);
+      const attachments = maybeAttachments && typeof maybeAttachments.then === "function"
+        ? await maybeAttachments
+        : maybeAttachments;
       prepared = sendPipelineShared().prepareOutgoingMessage(
         { text, attachments },
         { members: sendPipelineMembersForConversation(conversationType, members) }
       );
     } catch (err) {
       if (err && err.code === "EMPTY_MESSAGE") return;
+      deps?.appendTransientChat?.("assistant", err?.message || "附件读取失败。");
       console.warn("[social] sendInActiveConversation prepare failed:", err?.message || err);
-      return;
+      return { ok: false, error: err?.message || String(err || "send failed") };
     }
     const localMsg = _appendLocalOutgoingConversationMessage(conversationId, prepared, skills);
     const mentions = postMentionsForConversation(conversationType, prepared.mentions);

@@ -212,6 +212,47 @@ test("respond passes trigger attachments on the current user turn", async () => 
   });
 });
 
+test("respond materializes cloud file URL attachments for the local engine", async () => {
+  const fetched = [];
+  const { responder, calls } = setup({
+    fetchFileAttachment: async (request) => {
+      fetched.push(request);
+      return {
+        id: "file_sheet",
+        name: "世界杯赛果汇总.xlsx",
+        url: request.url,
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        kind: "file",
+        size: 14,
+        dataUrl: `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${Buffer.from("workbook bytes").toString("base64")}`
+      };
+    }
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_file:bot",
+    userPrompt: "看这个表格",
+    userAttachments: [{
+      id: "file_sheet",
+      name: "世界杯赛果汇总.xlsx",
+      url: "/api/files/file_sheet",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      kind: "file",
+      size: 14
+    }]
+  });
+
+  assert.equal(fetched.length, 1);
+  assert.equal(fetched[0].url, "/api/files/file_sheet");
+  const attachment = calls.engine[0].messages.at(-1).attachments[0];
+  assert.equal(attachment.name, "世界杯赛果汇总.xlsx");
+  assert.equal(attachment.url, "/api/files/file_sheet");
+  assert.ok(attachment.path.endsWith("世界杯赛果汇总.xlsx"));
+  assert.equal(fs.readFileSync(attachment.path, "utf8"), "workbook bytes");
+  fs.rmSync(path.dirname(attachment.path), { recursive: true, force: true });
+});
+
 test("respond sends explicit reminder requests through the engine scheduler path", async () => {
   const { responder, calls } = setup();
 

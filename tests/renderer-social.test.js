@@ -1785,6 +1785,66 @@ test("sendInActiveConversation posts and previews attachment-only messages", asy
   assert.deepEqual(entry.messages[0].attachments, [attachment]);
 });
 
+test("sendInActiveConversation uploads desktop path-only attachments before posting", async () => {
+  const s = loadSocial();
+  const posted = [];
+  const fetched = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.mia.fetchFileAttachment = async (request) => {
+    fetched.push(request);
+    return {
+      id: "local_xlsx",
+      name: "世界赛果.xlsx",
+      path: request.path,
+      kind: "file",
+      mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      size: 8,
+      dataUrl: "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,eGxzeA=="
+    };
+  };
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async (conversationId, body) => {
+      posted.push({ conversationId, body });
+      return {
+        ok: true,
+        data: {
+          message: {
+            id: "m_attachment",
+            seq: 1,
+            sender_kind: "user",
+            sender_ref: "u_me",
+            body_md: body.bodyMd,
+            attachments: body.attachments
+          }
+        }
+      };
+    }
+  };
+  s.moduleState.activeConversationId = "g_path_attachment";
+  s.moduleState.conversations = [{ id: "g_path_attachment", type: "group", name: "Attach" }];
+  s.moduleState.messageCache.set("g_path_attachment", { messages: [], maxSeq: 0 });
+
+  await s.sendInActiveConversation("看这个", {
+    attachments: [{
+      id: "local_xlsx",
+      name: "世界赛果.xlsx",
+      kind: "file",
+      mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      size: 8,
+      path: "/Users/jung/Downloads/世界赛果.xlsx"
+    }]
+  });
+
+  assert.equal(fetched.length, 1);
+  assert.equal(fetched[0]?.path, "/Users/jung/Downloads/世界赛果.xlsx");
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].conversationId, "g_path_attachment");
+  assert.equal(posted[0].body.attachments.length, 1);
+  assert.equal(posted[0].body.attachments[0].name, "世界赛果.xlsx");
+  assert.equal(posted[0].body.attachments[0].dataUrl, "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,eGxzeA==");
+  assert.equal(posted[0].body.attachments[0].path, undefined);
+});
+
 test("sendInActiveConversation reconciles the websocket echo before the POST reply resolves", async () => {
   const s = loadSocial();
   const post = deferred();
@@ -2514,6 +2574,8 @@ test("renderConversationChat hydrates cloud spreadsheet URLs into download links
   s.renderConversationChat(chat);
   assert.equal(fetched.length, 1);
   assert.equal(fetched[0]?.url, "/api/files/file_xlsx");
+  const initialHtml = chat.children[0]?.innerHTML || "";
+  assert.doesNotMatch(initialHtml, /href="\/api\/files\/file_xlsx"/);
   await flushPromises();
 
   const html = chat.children[0]?.innerHTML || "";

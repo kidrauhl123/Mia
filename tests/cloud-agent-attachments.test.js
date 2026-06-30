@@ -10,6 +10,7 @@ const {
   createAttachmentMaterializer,
   parseAttachmentsFromMessage,
   hostPathForWorkerArtifact,
+  workerFileArtifactsForDeliveryRequest,
   redactGeneratedArtifactPaths
 } = require("../src/cloud-agent/attachment-materializer.js");
 
@@ -186,6 +187,17 @@ test("redactGeneratedArtifactPaths removes worker paths from user-visible text",
 
   assert.equal(redacted, "Excel 文件已生成！路径是：附件「report.xlsx」");
   assert.doesNotMatch(redacted, /\/data\/home/);
+});
+
+test("workerFileArtifactsForDeliveryRequest only captures explicit send requests", () => {
+  assert.deepEqual(
+    workerFileArtifactsForDeliveryRequest("/data/home/世界杯赛果汇总.xlsx 把这个发给我"),
+    [{ path: "/data/home/世界杯赛果汇总.xlsx" }]
+  );
+  assert.deepEqual(
+    workerFileArtifactsForDeliveryRequest("看看 /data/home/世界杯赛果汇总.xlsx 是否存在"),
+    []
+  );
 });
 
 test("attachment materializer does not archive internal worker config paths mentioned in text", () => {

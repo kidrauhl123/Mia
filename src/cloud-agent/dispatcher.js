@@ -3,7 +3,8 @@ const path = require("node:path");
 const {
   parseAttachmentsFromMessage,
   redactGeneratedArtifactPaths,
-  redactGeneratedArtifactPathsInValue
+  redactGeneratedArtifactPathsInValue,
+  workerFileArtifactsForDeliveryRequest
 } = require("./attachment-materializer.js");
 const { createGroupOrchestrator } = require("./group-orchestrator.js");
 const { MemberKind } = require("../shared/conversation-kinds.js");
@@ -244,6 +245,20 @@ function selectedSkillContext(message, skillsCatalog = []) {
 function unresolvedSkillLoadText(ids = []) {
   const label = ids.length ? ids.join("、") : "对应 Skill";
   return `我没能加载到 ${label} 的完整指南。请确认这个 Skill 已安装或已添加到这个 Bot 的能力列表。`;
+}
+
+function fileDeliveryReplyText(attachments = []) {
+  const names = (Array.isArray(attachments) ? attachments : [])
+    .map((item) => String(item?.name || "").trim())
+    .filter(Boolean);
+  if (!names.length) return "已附上文件。";
+  return `已附上文件${names.map((name) => `「${name}」`).join("、")}。`;
+}
+
+function shouldReplaceWithFileDeliveryReply(text = "") {
+  const content = String(text || "").trim();
+  if (!content) return true;
+  return /(?:没法|无法|不能|不支持|没有办法).{0,24}(?:发|发送|上传|直接|聊天|附件)|需要.{0,24}(?:S3|API|接收方式)|(?:can't|cannot|can not|unable to).{0,24}(?:send|attach|upload)/iu.test(content);
 }
 
 function requireDep(deps, key) {
@@ -641,6 +656,10 @@ function createCloudAgentDispatcher(deps = {}) {
       }
       const resultForArtifacts = {
         ...(result || {}),
+        files: [
+          ...(Array.isArray(result?.files) ? result.files : []),
+          ...workerFileArtifactsForDeliveryRequest(inputText)
+        ],
         events: [
           ...(Array.isArray(result?.events) ? result.events : []),
           ...finalRunEvents
@@ -659,16 +678,20 @@ function createCloudAgentDispatcher(deps = {}) {
         replyAttachments
       );
       const replyTrace = redactGeneratedArtifactPathsInValue(trace.payload(), replyAttachments);
+      const hasRequestedFileDelivery = workerFileArtifactsForDeliveryRequest(inputText).length > 0;
+      const finalReplyContent = hasRequestedFileDelivery && replyAttachments.length && shouldReplaceWithFileDeliveryReply(replyContent)
+        ? fileDeliveryReplyText(replyAttachments)
+        : replyContent;
       if (result.runId) cloudAgentRunsStore.markRunning(run.id, result.runId);
       const reply = messagesStore.appendMessage({
         conversationId,
         senderKind: BOT_SENDER_KIND,
         senderRef: bot.id,
         senderOwnerId: ownerId,
-        bodyMd: replyContent,
+        bodyMd: finalReplyContent,
         attachments: replyAttachments.length ? replyAttachments : null,
         trace: replyTrace,
-        contentBlocks: replyContentBlocks,
+        contentBlocks: finalReplyContent === replyContent ? replyContentBlocks : null,
         status: "complete"
       });
       cloudAgentRunsStore.markComplete(run.id);
