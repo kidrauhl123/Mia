@@ -319,8 +319,16 @@
         : options.codexPermissionProfiles;
       return codexPermissionOptionsFromProfiles(profiles);
     }
+    if (engine === EngineId.OpenClaw) return [
+      { value: "default", label: "Ask", title: "OpenClaw asks Mia before tool use.", aliases: [] },
+      {
+        value: "bypassPermissions",
+        label: "Full Access",
+        title: "OpenClaw may use tools without Mia asking first.",
+        aliases: ["yolo", "off", "never"]
+      }
+    ];
     if (engine === EngineId.ClaudeCode) return [{ value: "default", label: "Ask Permissions", title: "Claude Code 默认权限。" }];
-    if (engine === EngineId.OpenClaw) return [{ value: "default", label: "Ask", title: "OpenClaw 默认权限。" }];
     return [];
   }
 

@@ -145,6 +145,13 @@ test("engine contract owns external model and mode options for browser clients",
     }).map((item) => ({ value: item.value, label: item.label })),
     [{ value: "readOnly", label: "Read" }]
   );
+  assert.deepEqual(
+    contract.externalPermissionOptions("openclaw").map((item) => ({ value: item.value, label: item.label, aliases: item.aliases })),
+    [
+      { value: "default", label: "Ask", aliases: [] },
+      { value: "bypassPermissions", label: "Full Access", aliases: ["yolo", "off", "never"] }
+    ]
+  );
   assert.deepEqual(contract.effortOptions("codex", {
     codexModels: [{ supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "high" }] }]
   }), [
