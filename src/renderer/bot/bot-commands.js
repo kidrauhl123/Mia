@@ -690,8 +690,10 @@
     if (isExternalAgentEngine(engine, engineContracts, engineOptions)) {
       const modelEntries = externalModelEntries(engine, engineOptions);
       const modelPatch = patchForRuntimeField("model", String(engineConfig.model || "").trim(), modelEntries);
+      const effortEntries = typeof engineOptions?.effortOptions === "function" ? engineOptions.effortOptions(engine) : [];
+      const defaultEffort = effortEntries.find((entry) => entry.value === "medium")?.value || effortEntries[0]?.value || "medium";
       Object.assign(config, modelPatch);
-      config.effortLevel = String(engineConfig.effortLevel || "medium").trim();
+      config.effortLevel = String(engineConfig.effortLevel || defaultEffort).trim();
       config.modelEntries = modelEntries;
       return config;
     }

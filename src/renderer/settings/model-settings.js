@@ -52,10 +52,14 @@
     if (!state || !els || !els.effortSelect || !els.effortLabel) return;
     const engine = window.miaEngineOptions.activeAgentEngine();
     const external = isExternalEngine(engine);
-    const level = external ? (window.miaEngineOptions.engineConfigForPersona().effortLevel || "medium") : (runtime?.effort?.level || "medium");
+    const level = external
+      ? (window.miaEngineOptions.engineConfigForPersona().effortLevel || window.miaEngineOptions.effortOptions(engine)[0]?.value || "medium")
+      : (runtime?.effort?.level || "medium");
     if (document.activeElement !== els.effortSelect) setEffortSelectOptions(engine, level);
     if (document.activeElement !== els.effortSelect) {
-      els.effortSelect.value = [...els.effortSelect.options].some((option) => option.value === level) ? level : "medium";
+      const optionValues = [...els.effortSelect.options].map((option) => option.value);
+      const fallback = optionValues.includes("medium") ? "medium" : optionValues[0] || "";
+      els.effortSelect.value = optionValues.includes(level) ? level : fallback;
     }
     setText(els.effortLabel, window.miaEngineOptions.effortLabelForLevel(els.effortSelect.value));
     els.effortSelect.title = `推理强度：${window.miaEngineOptions.effortLabelForLevel(els.effortSelect.value)}`;

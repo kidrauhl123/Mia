@@ -31,10 +31,13 @@ const CLAUDE_PERMISSION_TITLES = Object.freeze({
 });
 
 const OPENCLAW_PERMISSION_OPTIONS = Object.freeze([
-  { value: "default", label: "Ask", title: "OpenClaw 通过 Mia 权限弹窗逐次确认工具调用。" },
-  { value: "acceptEdits", label: "Edits", title: "OpenClaw 自动接受编辑类工具调用，其他危险操作仍按规则处理。" },
-  { value: "readOnly", label: "Read", title: "OpenClaw 只读模式。" },
-  { value: "bypassPermissions", label: "YOLO", title: "OpenClaw 自动允许工具调用，只在完全信任时使用。" }
+  { value: "default", label: "Ask", title: "OpenClaw asks Mia before tool use.", aliases: [] },
+  {
+    value: "bypassPermissions",
+    label: "Full Access",
+    title: "OpenClaw may use tools without Mia asking first.",
+    aliases: ["yolo", "off", "never"]
+  }
 ]);
 
 function normalizeCodexReasoningOption(option) {

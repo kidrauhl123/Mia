@@ -375,7 +375,9 @@
       }
       if (dynamic.length) return dynamic;
     }
-    if (engine === EngineId.ClaudeCode || engine === EngineId.Codex || engine === EngineId.OpenClaw) {
+    if (engine === EngineId.OpenClaw) {
+      levels = ["off"];
+    } else if (engine === EngineId.ClaudeCode || engine === EngineId.Codex) {
       levels = ["medium"];
     } else {
       levels = (Array.isArray(options.effortLevels) && options.effortLevels.length)

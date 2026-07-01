@@ -581,7 +581,7 @@ function selectedOpenClawModelOverride(config = {}, managedModel = null) {
 }
 
 function selectedOpenClawEffort(config = {}, managedModel = null, normalizeEffortLevel = (level) => level) {
-  const effort = normalizeEffortLevel(config.effortLevel || "medium", "openclaw");
+  const effort = normalizeEffortLevel(config.effortLevel || "off", "openclaw");
   const model = selectedOpenClawModelOverride(config, managedModel).toLowerCase();
   if (isMiaManagedRuntime(managedModel) && model === "mia/mia-auto") return "off";
   return effort;

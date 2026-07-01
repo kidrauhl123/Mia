@@ -144,12 +144,10 @@ test("loadEngineCapabilities and loadHermesSlashCommands parse runtime output", 
         models: [],
         effortLevels: [],
         effortOptions: [],
-        permissionModes: ["default", "acceptEdits", "readOnly", "bypassPermissions"],
+        permissionModes: ["default", "bypassPermissions"],
         permissionOptions: [
-          { value: "default", label: "Ask", title: "OpenClaw 通过 Mia 权限弹窗逐次确认工具调用。", source: "mia-acp-adapter" },
-          { value: "acceptEdits", label: "Edits", title: "OpenClaw 自动接受编辑类工具调用，其他危险操作仍按规则处理。", source: "mia-acp-adapter" },
-          { value: "readOnly", label: "Read", title: "OpenClaw 只读模式。", source: "mia-acp-adapter" },
-          { value: "bypassPermissions", label: "YOLO", title: "OpenClaw 自动允许工具调用，只在完全信任时使用。", source: "mia-acp-adapter" }
+          { value: "default", label: "Ask", title: "OpenClaw asks Mia before tool use.", aliases: [], source: "mia-acp-adapter" },
+          { value: "bypassPermissions", label: "Full Access", title: "OpenClaw may use tools without Mia asking first.", aliases: ["yolo", "off", "never"], source: "mia-acp-adapter" }
         ],
         permissionSource: "mia-acp-adapter",
         source: "openclaw",
@@ -282,7 +280,7 @@ test("loadEngineCapabilities probes OpenClaw models and thinking levels from the
   ]);
   assert.equal(openclaw.available, true);
   assert.deepEqual(openclaw.effortLevels, ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"]);
-  assert.deepEqual(openclaw.permissionModes, ["default", "acceptEdits", "readOnly", "bypassPermissions"]);
+  assert.deepEqual(openclaw.permissionModes, ["default", "bypassPermissions"]);
   assert.equal(openclaw.models[0].model, "openai/gpt-5.6");
 });
 

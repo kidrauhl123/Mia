@@ -1094,11 +1094,17 @@ test("syncDesktopLocalBotRuntimeBinding preserves openclaw as a desktop target",
   await commands.syncDesktopLocalBotRuntimeBinding({
     api,
     state: { runtime: { localDevice: { id: "mac-1", name: "Mac" } } },
-    bot: { key: "claw", name: "Claw", agentEngine: "openclaw" }
+    bot: { key: "claw", name: "Claw", agentEngine: "openclaw" },
+    engineOptions: {
+      externalModelEntries: () => [],
+      effortOptions: () => [{ value: "off", label: "Off" }],
+      isExternalAgentEngine: (engine) => engine !== "hermes"
+    }
   });
 
   assert.equal(calls[0][2].config.agentEngine, "openclaw");
   assert.equal(calls[0][2].config.deviceId, "mac-1");
+  assert.equal(calls[0][2].config.effortLevel, "off");
 });
 
 test("ensureDesktopLocalBotConversation creates conversation and syncs external engine runtime config", async () => {

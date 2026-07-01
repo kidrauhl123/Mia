@@ -2112,8 +2112,10 @@ function renderComposerControls(conversation = null) {
   setModelAvatar(engine, selectedModelEntry, config);
   setText(els.quickModelLabel, modelLabel || "Default");
 
-  const effort = config.effortLevel || "medium";
-  const effortLabel = setSelectOptions(els.effortSelect, effortOptions(engine), effort, "Medium");
+  const effortEntries = effortOptions(engine);
+  const defaultEffort = effortEntries.find((entry) => entry.value === "medium")?.value || effortEntries[0]?.value || "medium";
+  const effort = config.effortLevel || defaultEffort;
+  const effortLabel = setSelectOptions(els.effortSelect, effortEntries, effort, "Medium");
   setText(els.effortLabel, effortLabel || "Medium");
 
   const permission = isDesktopExternal ? "default" : (config.permissionMode || "ask");
@@ -3462,12 +3464,14 @@ function webRuntimeConfigForTarget(target = {}) {
     };
   }
   const engine = normalizeAgentEngine(target.agentEngine || "hermes");
+  const effortEntries = effortOptions(engine);
+  const defaultEffort = effortEntries.find((entry) => entry.value === "medium")?.value || effortEntries[0]?.value || "medium";
   const config = {
     agentEngine: engine,
     deviceId: String(target.deviceId || "").trim(),
     deviceName: webCompactDeviceName(target.deviceName || ""),
     model: "",
-    effortLevel: "medium"
+    effortLevel: defaultEffort
   };
   if (!isExternalAgentEngine(engine)) config.permissionMode = "ask";
   return config;

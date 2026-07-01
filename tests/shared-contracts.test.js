@@ -165,7 +165,7 @@ test("engine contract owns external model and mode options for browser clients",
     }).map((item) => item.value),
     ["off", "adaptive", "max"]
   );
-  assert.deepEqual(contract.effortOptions("openclaw").map((item) => item.value), ["medium"]);
+  assert.deepEqual(contract.effortOptions("openclaw").map((item) => item.value), ["off"]);
   assert.deepEqual(
     contract.effortOptions("hermes", { effortLevels: ["low", "high"], effortLabels: { high: "High" } }),
     [{ value: "low", label: "low" }, { value: "high", label: "High" }]

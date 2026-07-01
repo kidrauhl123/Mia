@@ -320,7 +320,7 @@ function createSettingsStore(deps = {}) {
         : engineId === "openclaw"
           ? ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"]
           : ["none", "minimal", "low", "medium", "high", "xhigh"];
-    return valid.includes(openClawValue) ? openClawValue : "medium";
+    return valid.includes(openClawValue) ? openClawValue : (engineId === "openclaw" ? "off" : "medium");
   }
 
   function normalizeStoredEffortLevel(value) {

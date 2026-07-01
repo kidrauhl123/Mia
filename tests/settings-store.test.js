@@ -183,6 +183,7 @@ test("normalizeEffortLevel keeps OpenClaw CLI thinking levels", (t) => {
   assert.equal(store.normalizeEffortLevel("adaptive", "openclaw"), "adaptive");
   assert.equal(store.normalizeEffortLevel("max", "openclaw"), "max");
   assert.equal(store.normalizeEffortLevel("none", "openclaw"), "off");
+  assert.equal(store.normalizeEffortLevel("", "openclaw"), "off");
   assert.equal(store.normalizeStoredEffortLevel("adaptive"), "adaptive");
   assert.equal(store.normalizeStoredEffortLevel("off"), "off");
 });

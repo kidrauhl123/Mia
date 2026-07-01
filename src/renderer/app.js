@@ -4745,10 +4745,12 @@ function syncConversationBotRuntimeControls() {
     || modelEntries[0]
     || {};
   setComposerModelAvatar(selectedModelEntry, engine);
+  const effortEntries = window.miaEngineOptions.effortOptions(engine);
+  const defaultEffort = effortEntries.find((entry) => entry.value === "medium")?.value || effortEntries[0]?.value || "medium";
   const effortLabel = setComposerSelectOptions(
     els.effortSelect,
-    window.miaEngineOptions.effortOptions(engine),
-    config.effortLevel || "medium"
+    effortEntries,
+    config.effortLevel || defaultEffort
   );
   setText(els.effortLabel, effortLabel || "Medium");
   const permissionEntries = permissionEntriesForRuntimeControl(controlContext);

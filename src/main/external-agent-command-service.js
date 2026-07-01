@@ -150,7 +150,7 @@ function createExternalAgentCommandService(deps = {}) {
     const config = normalizeBotEngineConfig(bot.engineConfig);
     const model = config.model || defaultModelLabel(engine);
     const permission = enginePermissionMode(engine) || "default";
-    const effort = normalizeEffortLevel(config.effortLevel || "medium", engine);
+    const effort = normalizeEffortLevel(config.effortLevel || (engine === "openclaw" ? "off" : "medium"), engine);
     const externalSessionId = getAgentSessionId(engine, bot.key, sessionId) || "尚未创建";
     const label = localEngineLabel(engine);
     return [
