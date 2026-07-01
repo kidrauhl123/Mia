@@ -9,6 +9,10 @@
 
   const root = document.getElementById("onb-root");
   const mia = window.mia || {};
+  const rendererPlatform = String(mia.platform || "unknown");
+  document.body.classList.toggle("platform-win32", rendererPlatform === "win32");
+  document.body.classList.toggle("platform-darwin", rendererPlatform === "darwin");
+  document.body.classList.toggle("platform-linux", rendererPlatform === "linux");
   const AGENTS = [
     { id: "hermes", label: "Hermes" },
     { id: "claude-code", label: "Claude Code" },
@@ -231,6 +235,48 @@
     mia.window?.setNativeControlsVisible?.(shouldShow);
   }
 
+  function wireWindowControls() {
+    const controls = document.getElementById("onbWindowControls");
+    const api = mia.window;
+    if (!controls || !api) return;
+    const maximizeButton = controls.querySelector('[data-window-action="maximize"]');
+    const applyMaximized = (maximized) => {
+      document.body.classList.toggle("window-maximized", Boolean(maximized));
+      if (!maximizeButton) return;
+      const label = maximized ? "还原" : "最大化";
+      maximizeButton.setAttribute("aria-label", label);
+      maximizeButton.title = label;
+    };
+    const applyFocus = (focused) => {
+      document.body.classList.toggle("window-blurred", !focused);
+    };
+    controls.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-window-action]");
+      if (!btn) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const action = btn.dataset.windowAction;
+      if (action === "close") api.close?.();
+      else if (action === "minimize") api.minimize?.();
+      else if (action === "maximize") {
+        Promise.resolve(api.maximize?.() || api.green?.()).then((state) => {
+          if (state && Object.prototype.hasOwnProperty.call(state, "maximized")) applyMaximized(state.maximized);
+        }).catch(() => {});
+      }
+    });
+    controls.addEventListener("pointerdown", (event) => {
+      if (!event.target.closest("[data-window-action]")) return;
+      event.stopPropagation();
+    });
+    api.onFocusState?.(applyFocus);
+    api.onMaximized?.(applyMaximized);
+    api.state?.().then((state) => {
+      if (!state) return;
+      applyFocus(state.focused);
+      applyMaximized(state.maximized);
+    }).catch(() => {});
+  }
+
   function setHint(text) {
     hint = text;
     const el = root.querySelector("[data-hint]");
@@ -384,5 +430,6 @@
     });
   }
 
+  wireWindowControls();
   render();
 })();

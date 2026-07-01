@@ -76,8 +76,7 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
     w.setMinimumSize(360, 560);
     w.setSize(1040, 700);
     w.center();
-    // Main app uses the native macOS traffic lights. Renderer-drawn controls are
-    // only a fallback for non-mac shells and web/mock surfaces.
+    // Main app uses native macOS traffic lights and renderer-drawn Windows controls.
     if (typeof w.setBackgroundColor === "function") {
       w.setBackgroundColor(process.platform === "darwin" ? "#00000000" : "#f0f0f3");
     }
@@ -93,9 +92,8 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
     w.setMinimumSize(onboardingWindowBounds.minWidth, onboardingWindowBounds.minHeight);
     w.setSize(onboardingWindowBounds.width, onboardingWindowBounds.height);
     w.center();
-    // The onboarding view has no custom topbar controls, so it must read as a
-    // real native window: white base (no grey band) + native traffic lights so
-    // there's a close button. Reverted by window:show-main.
+    // The onboarding view keeps the same chrome model: native macOS traffic
+    // lights, renderer-drawn Windows controls, and a white base.
     if (typeof w.setBackgroundColor === "function") {
       w.setBackgroundColor(process.platform === "darwin" ? "#00000000" : "#ffffff");
     }

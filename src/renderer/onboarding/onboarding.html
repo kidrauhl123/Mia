@@ -11,6 +11,11 @@
   <!-- Dedicated lightweight onboarding window. Loads none of the main app, so it
        opens instantly (no startup beachall) and reads as a clean native window. -->
   <div class="onb-drag" aria-hidden="true"></div>
+  <div class="onb-window-controls" id="onbWindowControls" aria-label="窗口控制">
+    <button class="onb-window-control minimize" type="button" data-window-action="minimize" aria-label="最小化" title="最小化"></button>
+    <button class="onb-window-control maximize" type="button" data-window-action="maximize" aria-label="最大化" title="最大化"></button>
+    <button class="onb-window-control close" type="button" data-window-action="close" aria-label="关闭" title="关闭"></button>
+  </div>
   <main id="onb-root" class="onb"></main>
   <script src="./onboarding-window.js"></script>
 </body>

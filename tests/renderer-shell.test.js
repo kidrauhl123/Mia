@@ -192,7 +192,7 @@ test("cloud conversation send and render do not depend on activeKey being empty"
   assert.doesNotMatch(appSource, /activeConversationId && !state\.activeKey/);
 });
 
-test("desktop window controls use Windows overlay title bar off macOS", () => {
+test("desktop window controls use frameless Windows chrome off macOS", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
@@ -205,14 +205,15 @@ test("desktop window controls use Windows overlay title bar off macOS", () => {
 
   assert.doesNotMatch(html, /id="windowControls"/);
   assert.match(html, /class="window-drag-strip"/);
-  assert.match(mainSource, /process\.platform === "win32"[\s\S]*titleBarStyle:\s*"hidden"[\s\S]*titleBarOverlay:\s*initialWindowsTitleBarOverlay/);
+  assert.match(mainSource, /process\.platform === "win32"[\s\S]*frame:\s*false[\s\S]*thickFrame:\s*true/);
   assert.match(titleBarSource, /const WINDOWS_TITLE_BAR_HEIGHT = 32;/);
-  assert.match(titleBarSource, /const WINDOWS_TITLE_BAR_OVERLAY_HEIGHT = WINDOWS_TITLE_BAR_HEIGHT - 1;/);
+  assert.match(titleBarSource, /const WINDOWS_TITLE_BAR_OVERLAY_HEIGHT = WINDOWS_TITLE_BAR_HEIGHT;/);
   assert.match(titleBarSource, /const WINDOWS_LIGHT_TITLE_BAR_COLOR = "#f2f4f7";/);
   assert.match(titleBarSource, /const WINDOWS_DARK_TITLE_BAR_COLOR = "#20232a";/);
   assert.doesNotMatch(titleBarSource, /workspaceBackgroundColor/);
   assert.match(titleBarSource, /height:\s*WINDOWS_TITLE_BAR_OVERLAY_HEIGHT/);
   assert.match(titleBarSource, /symbolColor:\s*theme === "dark" \? WINDOWS_DARK_SYMBOL_COLOR : WINDOWS_LIGHT_SYMBOL_COLOR/);
+  assert.doesNotMatch(titleBarSource, /setTitleBarOverlay/);
   assert.match(mainSource, /transparent:\s*process\.platform === "darwin"/);
   assert.match(mainSource, /backgroundColor:\s*onboarding[\s\S]*\?\s*"#ffffff"[\s\S]*initialWindowsTitleBarOverlay\.color/);
   assert.match(mainSource, /autoHideMenuBar:\s*process\.platform !== "darwin"/);
@@ -230,7 +231,9 @@ test("desktop window controls use Windows overlay title bar off macOS", () => {
   assert.match(windowIpcSource, /setBackgroundColor\(process\.platform === "darwin"\s*\?\s*"#00000000"\s*:\s*"#f0f0f3"\)/);
   assert.match(windowIpcSource, /setMacNativeControlsVisible\(w,\s*true\)/);
   assert.match(windowIpcSource, /IpcChannel\.WindowTitleBarTheme[\s\S]*applyWindowsTitleBarOverlay\(BrowserWindow\.fromWebContents\(event\.sender\),\s*appearance\)/);
-  assert.match(css, /body\.platform-win32 \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
+  assert.match(css, /body\.platform-win32 \.traffic-spacer\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?right:\s*0;[\s\S]*?grid-template-columns:\s*repeat\(3,\s*46px\);/);
+  assert.match(css, /body\.platform-win32 \.traffic-spacer \.traffic-light\s*\{[\s\S]*?display:\s*grid;[\s\S]*?width:\s*46px;[\s\S]*?background-image:\s*none;/);
+  assert.match(css, /body\.platform-win32 \.traffic-light\.close::before,[\s\S]*?body\.platform-win32 \.traffic-light\.close::after/);
   assert.match(css, /body\.platform-darwin \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
   assert.match(css, /--traffic-spacer-height:\s*52px;/);
   assert.match(css, /--mac-traffic-spacer-height:\s*64px;/);
@@ -1962,6 +1965,7 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   const standaloneSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-window.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const indexHtml = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const standaloneHtml = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding.html"), "utf8");
   const standaloneStyles = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding.css"), "utf8");
   const appStyles = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
@@ -1978,7 +1982,13 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   assert.match(standaloneSource, /wechat-login-cta/);
   assert.match(standaloneSource, /data-action="back"/);
   assert.match(standaloneSource, /setNativeControlsVisible/);
+  assert.match(standaloneSource, /classList\.toggle\("platform-win32",\s*rendererPlatform === "win32"\)/);
+  assert.match(standaloneSource, /function wireWindowControls\(\)/);
+  assert.match(standaloneSource, /data-window-action/);
+  assert.match(standaloneHtml, /id="onbWindowControls"/);
+  assert.match(standaloneHtml, /data-window-action="maximize"/);
   assert.match(standaloneStyles, /\.onb\[data-step="done"\]/);
+  assert.match(standaloneStyles, /body\.platform-win32 \.onb-window-controls\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*46px\);/);
   assert.match(standaloneSource, /action:\s*"start"/);
   assert.match(standaloneSource, /action:\s*"complete"/);
   assert.match(standaloneSource, /onb-qr-card/);

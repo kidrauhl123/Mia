@@ -1,5 +1,5 @@
 const WINDOWS_TITLE_BAR_HEIGHT = 32;
-const WINDOWS_TITLE_BAR_OVERLAY_HEIGHT = WINDOWS_TITLE_BAR_HEIGHT - 1;
+const WINDOWS_TITLE_BAR_OVERLAY_HEIGHT = WINDOWS_TITLE_BAR_HEIGHT;
 const WINDOWS_LIGHT_TITLE_BAR_COLOR = "#f2f4f7";
 const WINDOWS_DARK_TITLE_BAR_COLOR = "#20232a";
 const WINDOWS_LIGHT_SYMBOL_COLOR = "#24262d";
@@ -17,9 +17,6 @@ function windowsTitleBarOverlayForAppearance(appearance = {}) {
 function applyWindowsTitleBarOverlay(win, appearance = {}) {
   if (process.platform !== "win32" || !win || win.isDestroyed?.()) return;
   const overlay = windowsTitleBarOverlayForAppearance(appearance);
-  if (typeof win.setTitleBarOverlay === "function") {
-    try { win.setTitleBarOverlay(overlay); } catch { /* ignore unsupported overlays */ }
-  }
   if (typeof win.setBackgroundColor === "function") {
     try { win.setBackgroundColor(overlay.color); } catch { /* ignore unsupported background updates */ }
   }

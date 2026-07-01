@@ -2356,8 +2356,8 @@ function createWindow() {
     ? { titleBarStyle: "hidden" }
     : process.platform === "win32"
       ? {
-          titleBarStyle: "hidden",
-          titleBarOverlay: initialWindowsTitleBarOverlay
+          frame: false,
+          thickFrame: true
         }
       : { frame: true };
   const win = new BrowserWindow({

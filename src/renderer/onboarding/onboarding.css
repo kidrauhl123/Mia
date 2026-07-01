@@ -12,6 +12,14 @@
   --onb-ink-hover: #303137;
   --onb-ok: #1fab5a;
   --wechat-green: #07c160;
+  --win-titlebar-height: 32px;
+  --win-titlebar-control-width: 138px;
+  --win-titlebar-bg: #ffffff;
+  --win-titlebar-symbol: #24262d;
+  --win-titlebar-control-hover: rgba(0, 0, 0, 0.08);
+  --win-titlebar-control-active: rgba(0, 0, 0, 0.14);
+  --win-titlebar-close-hover: #e81123;
+  --win-titlebar-close-active: #f1707a;
   --ui-text-max-size: 14px;
   --ui-text-max-weight: 500;
 }
@@ -41,8 +49,7 @@ html, body {
   user-select: none;
 }
 
-/* Full-width drag strip at the very top so the window moves like a native one
-   (titleBarStyle is "hidden"; native traffic lights sit on top of this). */
+/* Full-width drag strip at the very top so the window moves like a native one. */
 .onb-drag {
   position: fixed;
   top: 0;
@@ -51,6 +58,114 @@ html, body {
   height: 40px;
   -webkit-app-region: drag;
   z-index: 1;
+}
+
+.onb-window-controls {
+  display: none;
+}
+
+body.platform-win32 .onb-drag {
+  right: var(--win-titlebar-control-width);
+  height: var(--win-titlebar-height);
+  background: var(--win-titlebar-bg);
+}
+
+body.platform-win32 .onb-window-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: repeat(3, 46px);
+  width: var(--win-titlebar-control-width);
+  height: var(--win-titlebar-height);
+  background: var(--win-titlebar-bg);
+  -webkit-app-region: no-drag;
+}
+
+.onb-window-control {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: var(--win-titlebar-height);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--win-titlebar-symbol);
+  -webkit-app-region: no-drag;
+}
+
+.onb-window-control:hover {
+  background: var(--win-titlebar-control-hover);
+}
+
+.onb-window-control:active {
+  background: var(--win-titlebar-control-active);
+}
+
+.onb-window-control.close:hover {
+  background: var(--win-titlebar-close-hover);
+  color: #fff;
+}
+
+.onb-window-control.close:active {
+  background: var(--win-titlebar-close-active);
+  color: #fff;
+}
+
+.onb-window-control::before,
+.onb-window-control::after {
+  content: "";
+  position: absolute;
+  display: block;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.onb-window-control.minimize::before {
+  width: 10px;
+  height: 1px;
+  background: currentColor;
+}
+
+.onb-window-control.maximize::before {
+  width: 10px;
+  height: 10px;
+  border: 1px solid currentColor;
+}
+
+body.window-maximized .onb-window-control.maximize::before {
+  width: 9px;
+  height: 9px;
+  transform: translate(-2px, 2px);
+}
+
+body.window-maximized .onb-window-control.maximize::after {
+  width: 9px;
+  height: 9px;
+  border: 1px solid currentColor;
+  transform: translate(2px, -2px);
+}
+
+.onb-window-control.close::before,
+.onb-window-control.close::after {
+  width: 13px;
+  height: 1px;
+  background: currentColor;
+}
+
+.onb-window-control.close::before {
+  transform: rotate(45deg);
+}
+
+.onb-window-control.close::after {
+  transform: rotate(-45deg);
+}
+
+body.window-blurred .onb-window-control:not(:hover) {
+  color: rgba(36, 38, 45, 0.42);
 }
 
 .onb {
