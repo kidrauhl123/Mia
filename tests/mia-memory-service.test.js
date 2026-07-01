@@ -24,7 +24,9 @@ test("memory block combines shared and per-Bot memory with stable boundaries", (
   assert.match(block, /conversation: s1/);
   assert.match(block, /用户喜欢中文简洁回答/);
   assert.match(block, /Mei 喜欢先确认风险/);
-  assert.equal(fs.statSync(path.join(dir, "memory.json")).mode & 0o777, 0o600);
+  if (process.platform !== "win32") {
+    assert.equal(fs.statSync(path.join(dir, "memory.json")).mode & 0o777, 0o600);
+  }
 });
 
 test("memory block is escaped and bounded", (t) => {

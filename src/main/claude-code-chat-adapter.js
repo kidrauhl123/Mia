@@ -1,5 +1,7 @@
+const { spawn: defaultSpawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const path = require("node:path");
+const { spawnExecutable } = require("./agent-runtime/process-launcher.js");
 const {
   appendMiaMemoryBlock,
   sanitizeMiaMemorySpoof,
@@ -171,6 +173,34 @@ function requireDependency(deps, key) {
   return deps[key];
 }
 
+function createClaudeCodeProcessSpawner({
+  appendEngineLog = () => {},
+  platform = process.platform,
+  spawn = defaultSpawn
+} = {}) {
+  return ({ command, args = [], cwd, env, signal } = {}) => {
+    const debug = Boolean(env?.DEBUG_CLAUDE_AGENT_SDK || env?.DEBUG);
+    const options = {
+      cwd,
+      env,
+      stdio: ["pipe", "pipe", debug ? "pipe" : "ignore"]
+    };
+    if (signal) options.signal = signal;
+    if (platform === "win32") options.windowsHide = true;
+    const child = spawnExecutable(spawn, command, args, {
+      ...options
+    }, { platform });
+    if (debug && child.stderr) {
+      child.stderr.on("data", (chunk) => {
+        for (const line of String(chunk).split(/\r?\n/).filter(Boolean)) {
+          appendEngineLog(`[ClaudeCode] ${line}`);
+        }
+      });
+    }
+    return child;
+  };
+}
+
 function createClaudeCodeChatAdapter(deps = {}) {
   const shellCommandPath = requireDependency(deps, "shellCommandPath");
   const lastUserPrompt = requireDependency(deps, "lastUserPrompt");
@@ -199,6 +229,11 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const enginePermissionMode = deps.enginePermissionMode || (() => "default");
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
+  const spawnClaudeCodeProcess = deps.spawnClaudeCodeProcess || createClaudeCodeProcessSpawner({
+    appendEngineLog,
+    platform: deps.platform || process.platform,
+    spawn: deps.spawn || defaultSpawn
+  });
 
   async function sendChat({ bot, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility, runtimeConfig = null, skillMaterialization = null }) {
     const engine = "claude-code";
@@ -299,6 +334,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       cwd: cwd(),
       pathToClaudeCodeExecutable: commandPath,
       env,
+      spawnClaudeCodeProcess,
       tools: { type: "preset", preset: "claude_code" },
       disallowedTools: schedulerDisallowedTools(),
       settingSources: ["project", "user", "local"],
@@ -515,6 +551,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       cwd: cwd(),
       pathToClaudeCodeExecutable: commandPath,
       env: envWithExecutableDirFirst(processEnvStrings(), commandPath),
+      spawnClaudeCodeProcess,
       tools: { type: "preset", preset: "claude_code" },
       settingSources: ["project", "user", "local"],
       systemPrompt: { type: "preset", preset: "claude_code" }
@@ -538,6 +575,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
 module.exports = {
   claudeMessageText,
   closeManagedClaudeProxySessions,
+  createClaudeCodeProcessSpawner,
   createClaudeCodeChatAdapter,
   isMiaManagedClaudeModel,
   normalizeClaudePermissionMode

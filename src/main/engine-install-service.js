@@ -32,6 +32,13 @@ function createEngineInstallService(deps = {}) {
   const getRuntimeStatus = deps.getRuntimeStatus || ((created) => ({ created }));
   const shellCommandPath = typeof deps.shellCommandPath === "function" ? deps.shellCommandPath : () => "";
 
+  function spawnSyncOptions(options = {}) {
+    return {
+      ...(options || {}),
+      ...(platform === "win32" ? { windowsHide: true } : {})
+    };
+  }
+
   function configuredValue(depName, envName, fallback) {
     if (Object.prototype.hasOwnProperty.call(deps, depName)) return deps[depName];
     return env[envName] || fallback;
@@ -92,7 +99,7 @@ function createEngineInstallService(deps = {}) {
     const result = spawnSync(command, [
       "-c",
       "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
-    ], { encoding: "utf8" });
+    ], spawnSyncOptions({ encoding: "utf8" }));
     if (result.error || result.status !== 0) return null;
     const version = String(result.stdout || "").trim();
     const [major, minor] = version.split(".").map((part) => Number(part));
@@ -152,11 +159,11 @@ function createEngineInstallService(deps = {}) {
   function hermesApiRuntimeCheck(python = enginePython()) {
     const command = String(python || "").trim();
     if (!command) return { ok: false, error: "Hermes Python is not available." };
-    const result = spawnSync(command, ["-c", moduleImportScript(HERMES_API_RUNTIME_MODULES)], {
+    const result = spawnSync(command, ["-c", moduleImportScript(HERMES_API_RUNTIME_MODULES)], spawnSyncOptions({
       encoding: "utf8",
       env: { ...env, PYTHONPATH: buildPythonPath() },
       timeout: 5000
-    });
+    }));
     if (!result.error && result.status === 0) return { ok: true, error: "" };
     const output = String(result.stderr || result.stdout || result.error?.message || "").trim();
     return { ok: false, error: output || `Python import check exited with code ${result.status ?? "unknown"}` };
@@ -236,11 +243,11 @@ function createEngineInstallService(deps = {}) {
 
   function runInstallCommand(command, args, cwd) {
     appendLog(`$ ${command} ${args.join(" ")}`);
-    const result = spawnSync(command, args, {
+    const result = spawnSync(command, args, spawnSyncOptions({
       cwd,
       env: { ...env, PIP_DISABLE_PIP_VERSION_CHECK: "1", PYTHONPATH: buildPythonPath() },
       encoding: "utf8"
-    });
+    }));
     appendCommandOutput(result.stdout);
     appendCommandOutput(result.stderr);
     if (result.error) throw result.error;
@@ -595,7 +602,7 @@ function createEngineInstallService(deps = {}) {
     const result = spawnSync(
       python,
       ["-c", "import sysconfig; print(sysconfig.get_path('scripts', sysconfig.get_preferred_scheme('user')))"],
-      { encoding: "utf8" }
+      spawnSyncOptions({ encoding: "utf8" })
     );
     if (result.error || result.status !== 0) return "";
     return String(result.stdout || "").trim();

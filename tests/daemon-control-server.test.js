@@ -140,6 +140,40 @@ test("daemon permission routes resolve and list coordinator-owned requests", asy
   ]);
 });
 
+test("daemon exposes authorized scoped Mia context snapshots for MCP tools", async (t) => {
+  const port = await freePort();
+  const snapshotCalls = [];
+  const { server } = setup(t, {
+    getMiaContextSnapshot: (scope) => {
+      snapshotCalls.push(scope);
+      return {
+        botId: scope.botId,
+        sessionId: scope.sessionId,
+        originMessageId: scope.originMessageId,
+        persona: "persona",
+        memory: "memory"
+      };
+    }
+  });
+  t.after(() => server.stop());
+  const status = await server.start({ host: "127.0.0.1", port });
+
+  const unauthorized = await fetch(`${status.baseUrl}/api/mia/context?botId=mei&sessionId=s1`);
+  assert.equal(unauthorized.status, 401);
+
+  const authorized = await fetch(`${status.baseUrl}/api/mia/context?botId=mei&sessionId=s1&originMessageId=m1`, {
+    headers: { Authorization: "Bearer secret-token" }
+  });
+  assert.deepEqual(await authorized.json(), {
+    botId: "mei",
+    sessionId: "s1",
+    originMessageId: "m1",
+    persona: "persona",
+    memory: "memory"
+  });
+  assert.deepEqual(snapshotCalls, [{ botId: "mei", sessionId: "s1", originMessageId: "m1" }]);
+});
+
 test("cloud task proxy forwards daemon task calls without starting local scheduler", async (t) => {
   const port = await freePort();
   const upstream = [];

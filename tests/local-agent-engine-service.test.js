@@ -95,8 +95,8 @@ test("shellCommandPath uses `where` on Windows and prefers native executables", 
   const calls = [];
   const { service } = makeService(t, {
     platform: "win32",
-    spawnSync: (command, args) => {
-      calls.push([command, args]);
+    spawnSync: (command, args, options) => {
+      calls.push([command, args, options]);
       if (command === "where" && args[0] === "claude") {
         return {
           status: 0,
@@ -111,15 +111,16 @@ test("shellCommandPath uses `where` on Windows and prefers native executables", 
   // Prefer the real executable over npm cmd shims when both are visible.
   assert.equal(service.shellCommandPath("claude"), "C:\\other\\claude.exe");
   assert.equal(calls.filter((call) => call[0] === "zsh").length, 0);
-  assert.deepEqual(calls, [["where", ["claude"]]]);
+  assert.deepEqual(calls.map((call) => [call[0], call[1]]), [["where", ["claude"]]]);
+  assert.equal(calls[0][2].windowsHide, true);
 });
 
 test("shellCommandPath ignores extensionless Windows npm shims from where output", (t) => {
   const calls = [];
   const { service } = makeService(t, {
     platform: "win32",
-    spawnSync: (command, args) => {
-      calls.push([command, args]);
+    spawnSync: (command, args, options) => {
+      calls.push([command, args, options]);
       if (command === "where" && args[0] === "codex") {
         return {
           status: 0,
@@ -143,6 +144,7 @@ test("shellCommandPath ignores extensionless Windows npm shims from where output
   assert.equal(commandPath, "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd");
   assert.equal(service.commandVersion(commandPath), "codex-cli 0.142.0");
   assert.deepEqual(calls.map((call) => call[0]), ["where", "cmd.exe"]);
+  assert.equal(calls.every((call) => call[2].windowsHide === true), true);
 });
 
 test("shellCommandPath scans official Windows agent install directories before PATH lookup", (t) => {
@@ -161,8 +163,8 @@ test("shellCommandPath scans official Windows agent install directories before P
         return fs.accessSync(p, mode);
       }
     },
-    spawnSync: (command, args) => {
-      calls.push([command, args]);
+    spawnSync: (command, args, options) => {
+      calls.push([command, args, options]);
       return { status: 1, stdout: "", stderr: "" };
     }
   });
@@ -280,14 +282,15 @@ test("shellCommandPath returns empty on Windows when `where` finds nothing", (t)
   const calls = [];
   const { service } = makeService(t, {
     platform: "win32",
-    spawnSync: (command, args) => {
-      calls.push([command, args]);
+    spawnSync: (command, args, options) => {
+      calls.push([command, args, options]);
       return { status: 1, stdout: "", stderr: "" };
     }
   });
 
   assert.equal(service.shellCommandPath("codex"), "");
   assert.equal(calls.filter((call) => call[0] === "zsh").length, 0);
+  assert.equal(calls[0][2].windowsHide, true);
 });
 
 test("commandVersion returns the first version line from stdout or stderr", (t) => {
@@ -566,6 +569,31 @@ test("scanAgentsAsync probes agents asynchronously, reports progress, and warms 
   // Cache warmed: the non-blocking read returns the same scanned inventory.
   assert.equal(service.cachedAgentInventory(), inventory);
   assert.equal(service.cachedLocalAgentEngines().claudeCode.available, true);
+});
+
+test("scanAgentsAsync hides Windows async CLI probes", async (t) => {
+  const execCalls = [];
+  const hermes = "C:\\Hermes\\hermes.exe";
+  const { service } = makeService(t, {
+    platform: "win32",
+    isHermesInstalled: () => true,
+    isHermesApiRuntimeReady: () => true,
+    hermesSource: () => "system",
+    execFile: (file, args, options, cb) => {
+      execCalls.push({ file, args, options });
+      if (file === "where" && args[0] === "hermes") return cb(null, `${hermes}\r\n`, "");
+      if (file === hermes && args[0] === "--version") return cb(null, "Hermes Agent v0.11.0\n", "");
+      if (file === hermes && args[0] === "--help") return cb(null, "Hermes help\n", "");
+      return cb(new Error("not found"), "", "");
+    }
+  });
+
+  const inventory = await service.scanAgentsAsync();
+  const hermesAgent = inventory.agents.find((agent) => agent.id === "hermes");
+
+  assert.equal(hermesAgent.usableInMia, true);
+  assert.ok(execCalls.some((call) => call.file === hermes && call.args[0] === "--version"));
+  assert.equal(execCalls.every((call) => call.options.windowsHide === true), true);
 });
 
 test("scanAgentsAsync marks installed agents blocked when CLI handshake fails", async (t) => {

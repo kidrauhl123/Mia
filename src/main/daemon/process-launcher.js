@@ -46,7 +46,8 @@ function createDaemonProcessLauncher(deps = {}) {
       cwd: daemonWorkingDirectory(),
       detached: true,
       stdio: "ignore",
-      env: daemonEnvironment()
+      env: daemonEnvironment(),
+      ...(process.platform === "win32" ? { windowsHide: true } : {})
     });
     if (typeof child.unref === "function") child.unref();
     appendLog(`Started Mia daemon process pid ${child.pid || "(unknown)"}.`);

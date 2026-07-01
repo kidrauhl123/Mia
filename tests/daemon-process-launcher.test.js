@@ -57,6 +57,7 @@ test("detached daemon launcher starts the node Core as a real daemon process", a
   assert.deepEqual(calls[0].args, [path.join(dir, "src", "core", "mia-core.js"), "--daemon"]);
   assert.equal(calls[0].options.detached, true);
   assert.equal(calls[0].options.stdio, "ignore");
+  assert.equal(calls[0].options.windowsHide, process.platform === "win32" ? true : undefined);
   assert.equal(calls[0].options.cwd, path.join(dir, "src", "core"));
   assert.equal(calls[0].options.env.MIA_DAEMON, "1");
   assert.equal(calls[0].options.env.MIA_HOME, runtime.home);
@@ -97,6 +98,7 @@ test("detached launcher delegates command and env overlay to an injected resolve
   assert.equal(calls[0].command, "/opt/mia/Mia Core");
   assert.deepEqual(calls[0].args, ["--daemon"]);
   assert.equal(calls[0].options.cwd, "/opt/mia");
+  assert.equal(calls[0].options.windowsHide, process.platform === "win32" ? true : undefined);
   assert.equal(calls[0].options.env.MIA_DAEMON, "1");
   assert.equal(calls[0].options.env.CUSTOM_ENV, "kept"); // parent env still spread through
 });

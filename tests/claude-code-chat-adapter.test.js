@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   claudeMessageText,
+  createClaudeCodeProcessSpawner,
   createClaudeCodeChatAdapter,
   normalizeClaudePermissionMode
 } = require("../src/main/claude-code-chat-adapter.js");
@@ -354,6 +355,137 @@ test("sendChat puts the selected Claude Code bin dir first in SDK env", async ()
 
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
   assert.equal(queryCall.options.env.PATH, "/opt/claude-node/bin:/bad-node/bin:/usr/bin");
+});
+
+test("sendChat gives the Claude SDK a hidden Windows shim process spawner", async () => {
+  const spawnCalls = [];
+  const fakeChild = {
+    stdin: {},
+    stdout: {},
+    stderr: null,
+    killed: false,
+    exitCode: null,
+    kill() {},
+    on() {},
+    once() {},
+    off() {}
+  };
+  const deps = createDeps([
+    { type: "assistant", message: { content: [{ text: "ok" }] } }
+  ], {
+    platform: "win32",
+    processEnvStrings: () => ({ PATH: "C:\\Users\\me\\AppData\\Roaming\\npm;C:\\Windows\\System32" }),
+    shellCommandPath: (command) => command === "claude" ? "C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd" : "",
+    spawn: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      return fakeChild;
+    }
+  });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "" },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    abortController: {},
+    utility: false
+  });
+
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.equal(queryCall.options.pathToClaudeCodeExecutable, "C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd");
+  assert.equal(typeof queryCall.options.spawnClaudeCodeProcess, "function");
+
+  const child = queryCall.options.spawnClaudeCodeProcess({
+    command: queryCall.options.pathToClaudeCodeExecutable,
+    args: ["--version"],
+    cwd: "C:\\repo",
+    env: queryCall.options.env,
+    signal: null
+  });
+
+  assert.equal(child, fakeChild);
+  assert.equal(spawnCalls[0].command, "cmd.exe");
+  assert.deepEqual(spawnCalls[0].args, [
+    "/d",
+    "/s",
+    "/c",
+    "call",
+    "C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd",
+    "--version"
+  ]);
+  assert.equal(spawnCalls[0].options.cwd, "C:\\repo");
+  assert.equal(Object.prototype.hasOwnProperty.call(spawnCalls[0].options, "signal"), false);
+  assert.equal(spawnCalls[0].options.windowsHide, true);
+  assert.deepEqual(spawnCalls[0].options.stdio, ["pipe", "pipe", "ignore"]);
+});
+
+test("createClaudeCodeProcessSpawner runs direct executables hidden", () => {
+  const spawnCalls = [];
+  const fakeChild = {
+    stdin: {},
+    stdout: {},
+    stderr: null,
+    killed: false,
+    exitCode: null,
+    kill() {},
+    on() {},
+    once() {},
+    off() {}
+  };
+  const spawner = createClaudeCodeProcessSpawner({
+    platform: "win32",
+    spawn: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      return fakeChild;
+    }
+  });
+
+  const child = spawner({
+    command: "C:\\Program Files\\Claude\\claude.exe",
+    args: ["--version"],
+    cwd: "C:\\repo",
+    env: { PATH: "C:\\Program Files\\Claude" }
+  });
+
+  assert.equal(child, fakeChild);
+  assert.equal(spawnCalls[0].command, "C:\\Program Files\\Claude\\claude.exe");
+  assert.deepEqual(spawnCalls[0].args, ["--version"]);
+  assert.equal(spawnCalls[0].options.windowsHide, true);
+});
+
+test("createClaudeCodeProcessSpawner leaves non-Windows executables unwrapped", () => {
+  const spawnCalls = [];
+  const fakeChild = {
+    stdin: {},
+    stdout: {},
+    stderr: null,
+    killed: false,
+    exitCode: null,
+    kill() {},
+    on() {},
+    once() {},
+    off() {}
+  };
+  const spawner = createClaudeCodeProcessSpawner({
+    platform: "darwin",
+    spawn: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      return fakeChild;
+    }
+  });
+
+  const child = spawner({
+    command: "/opt/homebrew/bin/claude",
+    args: ["--version"],
+    cwd: "/repo",
+    env: { PATH: "/opt/homebrew/bin" }
+  });
+
+  assert.equal(child, fakeChild);
+  assert.equal(spawnCalls[0].command, "/opt/homebrew/bin/claude");
+  assert.deepEqual(spawnCalls[0].args, ["--version"]);
+  assert.equal(spawnCalls[0].options.windowsHide, undefined);
 });
 
 test("sendChat resumes only when bridge and MCP fingerprints match", async () => {

@@ -51,7 +51,7 @@ test("buildRunPayload normalizes messages into Hermes run input, history, and me
   assert.deepEqual(payload, {
     model: "hermes-agent",
     input: "last\n\n附件上下文：\nctx:last.png",
-    session_id: "bad_session_id_",
+    session_id: "mia:alice:bad_session_id_",
     account_id: "acct",
     metadata: {
       bot_id: "alice",
@@ -66,6 +66,45 @@ test("buildRunPayload normalizes messages into Hermes run input, history, and me
       { role: "assistant", content: "reply" }
     ]
   });
+});
+
+test("buildRunPayload can omit visible history for native Hermes sessions", () => {
+  const runs = service();
+  const payload = runs.buildRunPayload({
+    bot: {
+      key: "alice",
+      name: "Alice"
+    },
+    sessionId: "s1",
+    includeConversationHistory: false,
+    messages: [
+      { role: "user", content: "first" },
+      { role: "assistant", content: "reply" },
+      { role: "user", content: "last" }
+    ]
+  });
+
+  assert.equal(payload.input, "last");
+  assert.equal(payload.conversation_history, undefined);
+  assert.equal(payload.session_id, "mia:alice:s1");
+});
+
+test("buildRunPayload can keep legacy conversation-only Hermes session ids", () => {
+  const runs = service();
+  const payload = runs.buildRunPayload({
+    bot: {
+      key: "alice",
+      name: "Alice",
+      engineConfig: { hermesSessionScope: "conversation" }
+    },
+    sessionId: "s1",
+    includeConversationHistory: false,
+    messages: [
+      { role: "user", content: "last" }
+    ]
+  });
+
+  assert.equal(payload.session_id, "s1");
 });
 
 test("buildRunPayload applies per-turn runtime model and control metadata", () => {

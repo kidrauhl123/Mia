@@ -448,6 +448,24 @@ test("hermesApiRuntimeCheck requires the API server dependency", (t) => {
   assert.equal(service.isApiRuntimeReady(), false);
 });
 
+test("hermesApiRuntimeCheck hides the Windows runtime probe", (t) => {
+  const calls = [];
+  const { service } = setup(t, {
+    platform: "win32",
+    systemHermesPython: () => "C:\\Hermes\\python.exe",
+    spawnSync: (command, args, options) => {
+      calls.push({ command, args, options });
+      return dashCResult(args);
+    }
+  });
+
+  const check = service.hermesApiRuntimeCheck();
+
+  assert.equal(check.ok, true);
+  assert.equal(calls[0].command, "C:\\Hermes\\python.exe");
+  assert.equal(calls[0].options.windowsHide, true);
+});
+
 test("install throws a user-visible cancellation error when signal is aborted", (t) => {
   const controller = new AbortController();
   controller.abort();

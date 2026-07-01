@@ -16,6 +16,7 @@ const {
 test("mia-app MCP exposes scheduler, skills, and social tools", () => {
   const names = toolDefinitions().map((tool) => tool.name).sort();
   assert.deepEqual(names, [
+    "context_snapshot",
     "conversation_create_group",
     "conversation_list",
     "conversation_post_message",
@@ -35,6 +36,7 @@ test("mia-app MCP exposes scheduler, skills, and social tools", () => {
 
 test("write tools require permission", () => {
   assert.equal(permissionClassForTool("schedule_list"), "read");
+  assert.equal(permissionClassForTool("context_snapshot"), "read");
   assert.equal(permissionClassForTool("skill_search"), "read");
   assert.equal(permissionClassForTool("web_search"), "read");
   assert.equal(permissionClassForTool("web_fetch"), "read");

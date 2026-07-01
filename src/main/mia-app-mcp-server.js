@@ -14,6 +14,7 @@ const DDGS_TIMEOUT_MS = 35000;
 
 const READ_TOOLS = new Set([
   "schedule_list",
+  "context_snapshot",
   "skill_search",
   "skill_show",
   "conversation_list",
@@ -39,6 +40,17 @@ function toolDefinitions() {
     { name: "schedule_delete", description: "Delete a Mia scheduled task.", inputSchema: { type: "object" } },
     { name: "schedule_pause", description: "Pause a Mia scheduled task.", inputSchema: { type: "object" } },
     { name: "schedule_resume", description: "Resume a Mia scheduled task.", inputSchema: { type: "object" } },
+    {
+      name: "context_snapshot",
+      description: "Read the current Mia bot/session context, including scoped persona and memory.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          botId: { type: "string", description: "Optional Mia bot id. Defaults to the current MCP context." },
+          sessionId: { type: "string", description: "Optional Mia conversation session id. Defaults to the current MCP context." }
+        }
+      }
+    },
     { name: "skill_search", description: "Search Mia skill marketplace.", inputSchema: { type: "object" } },
     { name: "skill_show", description: "Show Mia skill details.", inputSchema: { type: "object" } },
     { name: "skill_install", description: "Install a Mia skill for the current user.", inputSchema: { type: "object" } },
@@ -715,6 +727,12 @@ async function callTool(name, args = {}) {
     case "schedule_resume":
       if (!args.id) throw new Error("id is required");
       return daemonJson("POST", `/api/tasks/${encodeURIComponent(args.id)}/resume`, {});
+    case "context_snapshot": {
+      const botId = args.botId || ctx.botId || "";
+      const sessionId = args.sessionId || ctx.sessionId || "";
+      const originMessageId = args.originMessageId || ctx.originMessageId || "";
+      return daemonJson("GET", `/api/mia/context${queryString({ botId, sessionId, originMessageId })}`, null);
+    }
     case "skill_search":
       return daemonJson("GET", `/api/skills${queryString({ q: args.query, category: args.category, limit: args.limit })}`, null);
     case "skill_show":

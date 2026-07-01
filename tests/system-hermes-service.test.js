@@ -107,7 +107,7 @@ test("probe recognizes official Windows Hermes venv launcher", (t) => {
     homeDir: () => root,
     env: { PATH: "", LOCALAPPDATA: localAppData, APPDATA: path.join(root, "AppData", "Roaming") },
     spawnSync: (command, args, options) => {
-      spawnCalls.push({ command, args, path: options?.env?.PATH || "" });
+      spawnCalls.push({ command, args, path: options?.env?.PATH || "", windowsHide: options?.windowsHide });
       if (command === "where" && args[0] === "hermes") {
         assert.match(options.env.PATH, /hermes[\\\/]hermes-agent[\\\/]venv[\\\/]Scripts/i);
         return { status: 0, stdout: `${hermes}\r\n`, stderr: "" };
@@ -131,6 +131,7 @@ test("probe recognizes official Windows Hermes venv launcher", (t) => {
   assert.equal(status.pythonPath, python);
   assert.equal(status.version, "Hermes Agent v0.11.0");
   assert.equal(spawnCalls.some((call) => call.command === "python"), false);
+  assert.equal(spawnCalls.every((call) => call.windowsHide === true), true);
 });
 
 test("system Hermes never leaks legacy user Hermes home or dotenv values", (t) => {

@@ -4,6 +4,20 @@ const {
   miaRuntimeSystemPrompt,
   sanitizeMiaMemorySpoof
 } = require("./mia-runtime-context.js");
+const {
+  buildContextBudgetLogLine,
+  messageTextChars,
+  messagesAttachmentStats,
+  messagesTextChars,
+  textCharCount
+} = require("./agent-context-budget.js");
+const { memoryBlockForNativeSession } = require("./native-memory-context.js");
+const { skillMaterializationForNativeSession } = require("./native-skill-context.js");
+const {
+  contextSnapshotInstruction,
+  nativeContextModeFromConfig,
+  selectNativeContextMode
+} = require("./native-context-snapshot.js");
 const { buildSkillMaterializationContext } = require("../shared/skill-materializer.js");
 
 function defaultNowSeconds() {
@@ -55,6 +69,71 @@ function defaultMiaAutoRuntimeReference(config = {}) {
   };
 }
 
+function normalizeHermesHistoryMode(value = "") {
+  const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  if (["bridge", "legacy", "replay", "conversation-history"].includes(raw)) return "bridge";
+  if (["native", "session", "off", "none", "disabled", "no-history"].includes(raw)) return "native";
+  return "auto";
+}
+
+function hermesHistoryModeFromConfig(bot = {}, runtimeConfig = null) {
+  const botConfig = bot?.engineConfig || bot?.engine_config || {};
+  const runtime = runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {};
+  return normalizeHermesHistoryMode(
+    runtime.hermesHistoryMode
+    || runtime.hermes_history_mode
+    || runtime.historyMode
+    || runtime.history_mode
+    || botConfig.hermesHistoryMode
+    || botConfig.hermes_history_mode
+    || botConfig.historyMode
+    || botConfig.history_mode
+  );
+}
+
+function shouldIncludeHermesConversationHistory({ bot, runtimeConfig, persistAgentSession = true } = {}) {
+  const mode = hermesHistoryModeFromConfig(bot, runtimeConfig);
+  if (mode === "bridge") return true;
+  if (mode === "native") return false;
+  return !persistAgentSession;
+}
+
+function hermesSkillIndexModeFromConfig(bot = {}, runtimeConfig = null) {
+  const botConfig = bot?.engineConfig || bot?.engine_config || {};
+  const runtime = runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {};
+  return runtime.hermesSkillIndexMode
+    || runtime.hermes_skill_index_mode
+    || runtime.nativeSkillIndexMode
+    || runtime.native_skill_index_mode
+    || runtime.skillIndexMode
+    || runtime.skill_index_mode
+    || botConfig.hermesSkillIndexMode
+    || botConfig.hermes_skill_index_mode
+    || botConfig.nativeSkillIndexMode
+    || botConfig.native_skill_index_mode
+    || botConfig.skillIndexMode
+    || botConfig.skill_index_mode
+    || "";
+}
+
+function hermesMemoryInjectionModeFromConfig(bot = {}, runtimeConfig = null) {
+  const botConfig = bot?.engineConfig || bot?.engine_config || {};
+  const runtime = runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {};
+  return runtime.hermesMemoryInjectionMode
+    || runtime.hermes_memory_injection_mode
+    || runtime.nativeMemoryInjectionMode
+    || runtime.native_memory_injection_mode
+    || runtime.memoryInjectionMode
+    || runtime.memory_injection_mode
+    || botConfig.hermesMemoryInjectionMode
+    || botConfig.hermes_memory_injection_mode
+    || botConfig.nativeMemoryInjectionMode
+    || botConfig.native_memory_injection_mode
+    || botConfig.memoryInjectionMode
+    || botConfig.memory_injection_mode
+    || "";
+}
+
 function hermesApiUnreachableError(error, stage) {
   const message = String(error?.message || error || "unknown error");
   const wrapped = new Error(`Hermes API is unreachable: ${message}`);
@@ -74,6 +153,7 @@ function createHermesChatAdapter(deps = {}) {
   const readRunEventStream = requireDependency(deps, "readRunEventStream");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const writeMiaAppMcpContext = deps.writeMiaAppMcpContext || (() => {});
+  const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
   const appendEngineLog = deps.appendEngineLog || (() => {});
   const fetchImpl = deps.fetch || fetch;
   const nowSeconds = deps.nowSeconds || defaultNowSeconds;
@@ -163,7 +243,7 @@ function createHermesChatAdapter(deps = {}) {
     return runId;
   }
 
-  async function sendChat({ bot, sessionId, messages, group, signal, emit, scheduledFire = false, runtimeConfig = null, skillMaterialization = null }) {
+  async function sendChat({ bot, sessionId, messages, group, signal, emit, scheduledFire = false, persistAgentSession = true, runtimeConfig = null, skillMaterialization = null }) {
     // Tell the scheduler MCP which bot/session this turn belongs to, so a
     // schedule_create call fires the reminder back into this conversation.
     const lastUserMessage = Array.isArray(messages)
@@ -180,7 +260,25 @@ function createHermesChatAdapter(deps = {}) {
     } catch (error) {
       appendEngineLog(`Mia app MCP context write failed: ${error?.message || error}`);
     }
-    const skillContext = buildSkillMaterializationContext(skillMaterialization);
+    const effectiveRuntimeConfig = resolveTurnRuntimeConfig(bot, runtimeConfig);
+    const nativeSessionCacheKey = [
+      effectiveRuntimeConfig?.hermesSessionScope
+      || effectiveRuntimeConfig?.hermes_session_scope
+      || effectiveRuntimeConfig?.sessionScope
+      || effectiveRuntimeConfig?.session_scope
+      || "bot-conversation",
+      sessionId
+    ].join(":");
+    const effectiveSkillMaterialization = skillMaterializationForNativeSession({
+      engine: "hermes",
+      botId: bot.key,
+      sessionId,
+      nativeSessionId: nativeSessionCacheKey,
+      persistAgentSession,
+      skillMaterialization,
+      skillIndexMode: hermesSkillIndexModeFromConfig(bot, effectiveRuntimeConfig)
+    });
+    const skillContext = buildSkillMaterializationContext(effectiveSkillMaterialization);
     const skillMessages = skillContext && lastUserMessage
       ? messages.map((m) => (m === lastUserMessage
           ? {
@@ -196,20 +294,89 @@ function createHermesChatAdapter(deps = {}) {
       ...(typeof message?.text === "string" ? { text: sanitizeMiaMemorySpoof(message.text) } : {})
     }));
     const runtimeContext = String(runtimeSystemPrompt({ scheduledFire }) || "").trim();
-    const miaMemory = memoryBlock({ botId: bot.key, sessionId });
-    const systemContext = appendMiaMemoryBlock(runtimeContext, miaMemory);
+    const requestedContextMode = nativeContextModeFromConfig(bot, effectiveRuntimeConfig, "hermes");
+    const miaAppMcpAvailable = (() => {
+      try {
+        return Boolean(getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }));
+      } catch {
+        return false;
+      }
+    })();
+    const nativeContextMode = selectNativeContextMode({
+      requestedMode: requestedContextMode,
+      mcpAvailable: miaAppMcpAvailable
+    });
+    const snapshotContext = nativeContextMode === "mcp"
+      ? contextSnapshotInstruction({ engine: "hermes", botId: bot.key, sessionId })
+      : "";
+    const baseSystemContext = [runtimeContext, snapshotContext].filter(Boolean).join("\n\n");
+    const rawMiaMemory = nativeContextMode === "prompt"
+      ? memoryBlock({ botId: bot.key, sessionId })
+      : "";
+    const miaMemory = memoryBlockForNativeSession({
+      engine: "hermes",
+      botId: bot.key,
+      sessionId,
+      nativeSessionId: nativeSessionCacheKey,
+      persistAgentSession,
+      memoryBlock: rawMiaMemory,
+      memoryInjectionMode: hermesMemoryInjectionModeFromConfig(bot, effectiveRuntimeConfig)
+    });
+    const systemContext = appendMiaMemoryBlock(baseSystemContext, miaMemory);
     const runMessages = systemContext
       ? [{ role: "system", content: systemContext }, ...sanitizedMessages]
       : sanitizedMessages;
-    const effectiveRuntimeConfig = resolveTurnRuntimeConfig(bot, runtimeConfig);
+    const includeConversationHistory = shouldIncludeHermesConversationHistory({
+      bot,
+      runtimeConfig: effectiveRuntimeConfig,
+      persistAgentSession
+    });
     const runBody = buildRunPayload({
       bot,
       sessionId,
       messages: runMessages,
       model: effectiveRuntimeConfig?.model,
       effortLevel: effectiveRuntimeConfig?.effortLevel,
-      permissionMode: effectiveRuntimeConfig?.permissionMode
+      permissionMode: effectiveRuntimeConfig?.permissionMode,
+      sessionScope: effectiveRuntimeConfig?.hermesSessionScope
+        || effectiveRuntimeConfig?.hermes_session_scope
+        || effectiveRuntimeConfig?.sessionScope
+        || effectiveRuntimeConfig?.session_scope,
+      includeConversationHistory
     });
+    let lastUserIndex = -1;
+    for (let index = sanitizedMessages.length - 1; index >= 0; index -= 1) {
+      if (sanitizedMessages[index]?.role === "user") {
+        lastUserIndex = index;
+        break;
+      }
+    }
+    const visibleHistoryMessages = lastUserIndex >= 0
+      ? sanitizedMessages.filter((_, index) => index !== lastUserIndex)
+      : sanitizedMessages.slice(0, -1);
+    const currentUserChars = lastUserIndex >= 0
+      ? messageTextChars(sanitizedMessages[lastUserIndex])
+      : messageTextChars(sanitizedMessages.at(-1));
+    const visibleHistoryChars = messagesTextChars(visibleHistoryMessages);
+    const attachments = messagesAttachmentStats(sanitizedMessages);
+    appendEngineLog(buildContextBudgetLogLine({
+      engine: "hermes",
+      botId: bot.key,
+      sessionId,
+      nativeSessionId: runBody.session_id || sessionId,
+      historyMode: includeConversationHistory ? "bridge" : "native",
+      nativeHistory: !includeConversationHistory && persistAgentSession,
+      promptChars: textCharCount(systemContext) + currentUserChars + (includeConversationHistory ? visibleHistoryChars : 0),
+      currentUserChars,
+      systemChars: textCharCount(systemContext),
+      memoryChars: textCharCount(miaMemory),
+      skillIndexChars: textCharCount(effectiveSkillMaterialization?.indexBlock),
+      loadedSkillChars: textCharCount(effectiveSkillMaterialization?.loadedBlock),
+      visibleHistoryChars,
+      includedHistoryChars: includeConversationHistory ? visibleHistoryChars : 0,
+      attachmentCount: attachments.count,
+      attachmentBytes: attachments.bytes
+    }));
     const headers = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey()}`,

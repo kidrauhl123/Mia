@@ -94,11 +94,22 @@ function createCloudEventsClient({
     return typeof getSettings === "function" ? getSettings() : {};
   }
 
+  function tryWriteCloudSettings(patch, context) {
+    try {
+      return writeCloudSettings(patch);
+    } catch (error) {
+      const message = String(error?.message || error);
+      eventState.lastError = message;
+      log(`[cloud-events] ${context} persistence failed: ${message}`);
+      return null;
+    }
+  }
+
   function saveLastEventSeq(nextSeq) {
     const n = Number(nextSeq);
     if (!Number.isFinite(n)) return;
     const current = Number(settings().lastEventSeq) || 0;
-    if (n > current) writeCloudSettings({ lastEventSeq: n });
+    if (n > current) tryWriteCloudSettings({ lastEventSeq: n }, "cursor");
   }
 
   function ownsCursor() {
@@ -113,7 +124,7 @@ function createCloudEventsClient({
     }
     if (message.type !== CloudEvent.EventsReady) return;
     if (message.resetTo != null && Number.isFinite(Number(message.resetTo))) {
-      writeCloudSettings({ lastEventSeq: Number(message.resetTo) });
+      tryWriteCloudSettings({ lastEventSeq: Number(message.resetTo) }, "cursor reset");
     }
   }
 
@@ -157,7 +168,7 @@ function createCloudEventsClient({
     }
     if (message.type === CloudEvent.UserProfileUpdated) {
       if (message.user && typeof message.user === "object") {
-        writeCloudSettings({ user: message.user });
+        tryWriteCloudSettings({ user: message.user }, "user profile");
       }
       emitToRenderer({ type: message.type, payload: message, cloud: cloudUiStatus() });
       return;

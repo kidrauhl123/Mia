@@ -34,6 +34,20 @@ if not exist "node_modules\electron" (
 echo Starting Mia in development mode...
 echo Project: %CD%
 echo.
+if /i "%MIA_FOREGROUND%"=="1" goto run_foreground
+
+powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath 'node.exe' -ArgumentList @('node_modules\electron\cli.js','.') -WorkingDirectory '%CD%' -WindowStyle Hidden"
+set "MIA_EXIT_CODE=%ERRORLEVEL%"
+
+if not "%MIA_EXIT_CODE%"=="0" (
+  echo.
+  echo Failed to start Mia. PowerShell exited with code %MIA_EXIT_CODE%.
+  pause
+)
+
+exit /b %MIA_EXIT_CODE%
+
+:run_foreground
 call npm run open
 set "MIA_EXIT_CODE=%ERRORLEVEL%"
 

@@ -361,3 +361,31 @@ test("writeCloudSettings replaces the file atomically without tmp leftovers", (t
   const leftovers = fs.readdirSync(path.dirname(runtime.cloudSettings)).filter((name) => name.includes(".tmp"));
   assert.deepEqual(leftovers, []);
 });
+
+test("writeCloudSettings retries transient Windows atomic replace locks", (t) => {
+  const renameCalls = [];
+  const sleeps = [];
+  const fsImpl = Object.create(fs);
+  fsImpl.renameSync = (from, to) => {
+    renameCalls.push({ from, to });
+    if (renameCalls.length < 3) {
+      const error = new Error("locked by another process");
+      error.code = "EPERM";
+      throw error;
+    }
+    return fs.renameSync(from, to);
+  };
+  const { runtime, store } = setup(t, {
+    fsImpl,
+    sleepSync: (ms) => sleeps.push(ms)
+  });
+
+  const next = store.writeCloudSettings({ enabled: true, token: "tok_alive", user: { id: "u1" }, lastEventSeq: 7 });
+
+  assert.equal(next.lastEventSeq, 7);
+  assert.equal(readJson(runtime.cloudSettings, {}).token, "tok_alive");
+  assert.equal(renameCalls.length, 3);
+  assert.deepEqual(sleeps, [25, 50]);
+  const leftovers = fs.readdirSync(path.dirname(runtime.cloudSettings)).filter((name) => name.includes(".tmp"));
+  assert.deepEqual(leftovers, []);
+});

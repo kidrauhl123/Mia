@@ -264,7 +264,8 @@ function coreHermesApiRuntimeCheck({ python, env = process.env, buildPythonPath 
   const result = spawnSyncImpl(command, ["-c", coreModuleImportScript(CORE_HERMES_API_RUNTIME_MODULES)], {
     encoding: "utf8",
     env: { ...env, PYTHONPATH: pythonPath },
-    timeout: 5000
+    timeout: 5000,
+    ...(process.platform === "win32" ? { windowsHide: true } : {})
   });
   if (!result.error && result.status === 0) return { ok: true, error: "" };
   const output = String(result.stderr || result.stdout || result.error?.message || "").trim();
@@ -423,6 +424,28 @@ function createCoreBotExecution({
   // Hermes adapter `memoryBlock` main.js passes (src/main.js:2070), reading the
   // single-owner mia-memory.json under Core's runtime home.
   const miaMemoryService = createMiaMemoryService({ runtimePaths });
+  const readBotPersona = botManifest.readBotPersona;
+
+  function miaContextSnapshot({ botId = "", sessionId = "", originMessageId = "" } = {}) {
+    const key = String(botId || "mia").trim() || "mia";
+    const localSessionId = String(sessionId || "default").trim() || "default";
+    let bot = null;
+    try {
+      bot = (botManifest.loadBotManifest().bots || []).find((item) => String(item?.key || item?.id || "") === key) || null;
+    } catch {
+      bot = null;
+    }
+    const name = bot?.name || key;
+    const bio = bot?.bio || "";
+    return {
+      botId: key,
+      sessionId: localSessionId,
+      originMessageId: String(originMessageId || ""),
+      generatedAt: Date.now(),
+      persona: readBotPersona(key, name, bio),
+      memory: miaMemoryService.memoryBlock({ botId: key, sessionId: localSessionId })
+    };
+  }
 
   // REAL skills loader — node-only deps. Skill materialization and active-skill
   // directives are pure text over runtimePaths + the bundled official library.
@@ -617,6 +640,7 @@ function createCoreBotExecution({
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
     // REAL Mia app MCP context write — same per-turn context under Core's home.
     writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
+    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     // PART A — REAL managed-model runtime. resolveManagedModelRuntime returns the
     // Mia cloud model-proxy provider for a Mia-managed-model bot; writeModelRuntimeConfig
     // writes ONLY the model/provider block into config.yaml (single-owner gated:
@@ -756,7 +780,6 @@ function createCoreBotExecution({
     return dir;
   }
 
-  const readBotPersona = botManifest.readBotPersona;
   const enginePermissionMode = settingsStore && typeof settingsStore.enginePermissionMode === "function"
     ? settingsStore.enginePermissionMode
     : () => "default";
@@ -1636,7 +1659,8 @@ function createCoreEngineSupervisor({
     const child = spawnImpl(python, args, {
       cwd: runtimePaths().engine,
       env: spawnEnv,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
+      ...(process.platform === "win32" ? { windowsHide: true } : {})
     });
     engineProcess = child;
     spawnedByCore = true;
@@ -1733,6 +1757,34 @@ function createMiaCore(options = {}) {
     MIA_CLOUD_DEFAULT_URL: cloudUrl,
     env
   });
+  const coreBotManifest = createBotManifest({
+    runtimePaths,
+    readJson,
+    normalizeAgentEngine,
+    settingsStore
+  });
+  const coreMiaMemoryService = createMiaMemoryService({ runtimePaths });
+
+  function miaContextSnapshot({ botId = "", sessionId = "", originMessageId = "" } = {}) {
+    const key = String(botId || "mia").trim() || "mia";
+    const localSessionId = String(sessionId || "default").trim() || "default";
+    let bot = null;
+    try {
+      bot = (coreBotManifest.loadBotManifest().bots || []).find((item) => String(item?.key || item?.id || "") === key) || null;
+    } catch {
+      bot = null;
+    }
+    const name = bot?.name || key;
+    const bio = bot?.bio || "";
+    return {
+      botId: key,
+      sessionId: localSessionId,
+      originMessageId: String(originMessageId || ""),
+      generatedAt: Date.now(),
+      persona: coreBotManifest.readBotPersona(key, name, bio),
+      memory: coreMiaMemoryService.memoryBlock({ botId: key, sessionId: localSessionId })
+    };
+  }
 
   // Real port selection (probes for a free port from the configured one),
   // reusing the pure-node health service the Electron path uses.
@@ -1839,7 +1891,8 @@ function createMiaCore(options = {}) {
     // REAL scheduler: the control server calls initSchedulerSubsystem() on start()
     // (arming timers) and tasksRoutes() per request to serve /api/tasks.
     initSchedulerSubsystem: () => schedulerSubsystem().initSchedulerSubsystem(),
-    tasksRoutes: () => schedulerSubsystem().tasksRoutes
+    tasksRoutes: () => schedulerSubsystem().tasksRoutes,
+    getMiaContextSnapshot: miaContextSnapshot
   });
 
   function coreRemoteRouter() {

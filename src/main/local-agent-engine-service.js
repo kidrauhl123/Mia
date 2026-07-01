@@ -197,10 +197,17 @@ function createLocalAgentEngineService(deps = {}) {
   let agentEngineCache = { at: 0, value: null };
   let warmScanPromise = null;
 
+  function childProcessOptions(options = {}) {
+    return {
+      ...(options || {}),
+      ...(platform === "win32" ? { windowsHide: true } : {})
+    };
+  }
+
   function execFileAsync(file, args, options) {
     return new Promise((resolve) => {
       try {
-        execFileExecutable(execFile, file, args, options, (error, stdout, stderr) => {
+        execFileExecutable(execFile, file, args, childProcessOptions(options), (error, stdout, stderr) => {
           resolve({ error, stdout: String(stdout || ""), stderr: String(stderr || ""), code: error?.code ?? 0 });
         }, { platform });
       } catch (error) {
@@ -306,11 +313,11 @@ function createLocalAgentEngineService(deps = {}) {
   // Node cannot spawn those scripts directly, so accept only real Windows
   // executables or cmd/bat wrappers.
   function windowsCommandPath(name) {
-    const result = spawnSync("where", [name], {
+    const result = spawnSync("where", [name], childProcessOptions({
       encoding: "utf8",
       timeout: 1500,
       env: processEnvWithCliPath()
-    });
+    }));
     if (!result.error && result.status === 0) {
       const found = bestWindowsCommandPath(result.stdout);
       if (found) return found;
@@ -351,11 +358,11 @@ function createLocalAgentEngineService(deps = {}) {
     // full profile and was the main first-launch stall (run once per agent). We
     // only fall back to it when direct resolution fails, so a CLI on a custom,
     // profile-only PATH is still found.
-    const result = spawnSync("zsh", ["-lc", `command -v ${name}`], {
+    const result = spawnSync("zsh", ["-lc", `command -v ${name}`], childProcessOptions({
       encoding: "utf8",
       timeout: 1500,
       env: processEnvWithCliPath()
-    });
+    }));
     if (!result.error && result.status === 0) {
       const found = String(result.stdout || "").split(/\r?\n/)[0]?.trim() || "";
       if (found) return found;
@@ -365,11 +372,11 @@ function createLocalAgentEngineService(deps = {}) {
 
   function commandVersion(commandPath) {
     if (!commandPath) return "";
-    const result = spawnSyncExecutable(spawnSync, commandPath, ["--version"], {
+    const result = spawnSyncExecutable(spawnSync, commandPath, ["--version"], childProcessOptions({
       encoding: "utf8",
       timeout: 2000,
       env: processEnvWithCliPath()
-    }, { platform });
+    }), { platform });
     if (result.error) return "";
     return String(result.stdout || result.stderr || "").split(/\r?\n/)[0]?.trim() || "";
   }

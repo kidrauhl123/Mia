@@ -22,6 +22,7 @@ function createDaemonControlServer({
   agentPermissionCoordinator = null,
   initSchedulerSubsystem,
   tasksRoutes,
+  getMiaContextSnapshot = null,
   getCloudSettings = null,
   normalizeCloudUrl = (value) => String(value || "").replace(/\/+$/, ""),
   writeCloudSettings = null,
@@ -358,6 +359,18 @@ function createDaemonControlServer({
         }
         const sessionId = url.searchParams.get("sessionId") || "";
         writeJson(res, 200, { requests: agentPermissionCoordinator.listPending({ sessionId }) });
+        return;
+      }
+      if (url.pathname === "/api/mia/context" && req.method === "GET") {
+        if (typeof getMiaContextSnapshot !== "function") {
+          writeJson(res, 501, { error: "Mia context snapshot unavailable" });
+          return;
+        }
+        writeJson(res, 200, getMiaContextSnapshot({
+          botId: url.searchParams.get("botId") || "",
+          sessionId: url.searchParams.get("sessionId") || "",
+          originMessageId: url.searchParams.get("originMessageId") || ""
+        }));
         return;
       }
       const routePath = `${url.pathname}${url.search || ""}`;

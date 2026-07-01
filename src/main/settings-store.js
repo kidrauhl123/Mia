@@ -18,6 +18,52 @@ const {
 } = require("../shared/agent-engine-policy");
 
 const APPEARANCE_FONT_PRESETS = ["system", "serif"];
+const ATOMIC_REPLACE_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+function defaultSleepSync(delayMs) {
+  const ms = Math.max(0, Number(delayMs) || 0);
+  if (!ms) return;
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { /* fallback sleep */ }
+  }
+}
+
+function isRetryableAtomicReplaceError(error) {
+  return ATOMIC_REPLACE_RETRY_CODES.has(String(error?.code || ""));
+}
+
+function atomicReplaceJsonSync({
+  fsImpl,
+  targetPath,
+  value,
+  mode = 0o600,
+  retries = 8,
+  retryDelayMs = 25,
+  sleepSync = defaultSleepSync
+}) {
+  const dir = path.dirname(targetPath);
+  fsImpl.mkdirSync(dir, { recursive: true });
+  const tmpPath = path.join(
+    dir,
+    `.${path.basename(targetPath)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
+  );
+  fsImpl.writeFileSync(tmpPath, JSON.stringify(value, null, 2) + "\n", { mode });
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fsImpl.renameSync(tmpPath, targetPath);
+      return;
+    } catch (error) {
+      if (attempt >= retries || !isRetryableAtomicReplaceError(error)) {
+        try { fsImpl.unlinkSync(tmpPath); } catch { /* best effort */ }
+        throw error;
+      }
+      sleepSync(retryDelayMs * (attempt + 1));
+    }
+  }
+}
 
 function normalizeAppearanceFontPreset(value) {
   const preset = String(value || "").trim();
@@ -47,6 +93,8 @@ function createSettingsStore(deps = {}) {
     MIA_CLOUD_DEFAULT_URL,
     normalizeAvatarCrop = (crop) => crop || defaultUserProfile().avatarCrop,
     env = process.env,
+    fsImpl = fs,
+    sleepSync = defaultSleepSync,
   } = deps;
 
   function defaultModelSettings() {
@@ -461,13 +509,19 @@ function createSettingsStore(deps = {}) {
       // login replays from 0 instead of trying to resume someone else's.
       next.lastEventSeq = 0;
     }
-    fs.mkdirSync(path.dirname(p.cloudSettings), { recursive: true });
     // Atomic replace: a plain writeFileSync truncates first, so the other
     // process reading in that window sees partial JSON, falls back to empty
     // defaults, and its next cursor write would have persisted the wipe.
-    const tmpPath = `${p.cloudSettings}.${process.pid}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-    fs.renameSync(tmpPath, p.cloudSettings);
+    // Windows can transiently lock the destination during file indexing,
+    // antivirus scans, or a near-simultaneous owner handoff. Retry only the
+    // atomic rename; auth-changing writes still fail if the lock persists.
+    atomicReplaceJsonSync({
+      fsImpl,
+      targetPath: p.cloudSettings,
+      value: next,
+      mode: 0o600,
+      sleepSync
+    });
     return next;
   }
 

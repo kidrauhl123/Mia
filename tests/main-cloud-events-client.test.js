@@ -448,6 +448,26 @@ test("persistCursor owner still advances lastEventSeq on events", () => {
   assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 9 }]);
 });
 
+test("cursor persistence failures do not crash the cloud events client", () => {
+  const { client, calls, sockets, FakeWebSocket } = setup({
+    writeCloudSettings: () => {
+      const error = new Error("EPERM: operation not permitted, rename");
+      error.code = "EPERM";
+      throw error;
+    }
+  });
+
+  client.start();
+  sockets[0].readyState = FakeWebSocket.OPEN;
+
+  assert.doesNotThrow(() => {
+    sockets[0].emit("message", JSON.stringify({ type: "user_settings.updated", seq: 9 }));
+  });
+  assert.equal(client.status().lastError, "EPERM: operation not permitted, rename");
+  assert.match(calls.logs.at(-1), /cursor persistence failed: EPERM/);
+  assert.equal(calls.broadcasts[0].envelope.type, "user_settings.updated");
+});
+
 test("window never hosts the /api/events socket", () => {
   const { client, sockets, FakeWebSocket } = setup({
     isDaemonProcess: false,

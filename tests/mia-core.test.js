@@ -143,6 +143,40 @@ test("mia-core control server exposes chat stop for window delegation", async (t
   assert.equal(typeof out.stopped, "boolean");
 });
 
+test("mia-core exposes scoped Mia context snapshots from runtime persona and memory", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-context-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const port = await freePort();
+
+  const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });
+  const paths = core.runtimePaths();
+  fs.mkdirSync(paths.botDir, { recursive: true });
+  fs.writeFileSync(path.join(paths.botDir, "mei.md"), "mei persona", "utf8");
+  fs.mkdirSync(path.dirname(paths.memory), { recursive: true });
+  fs.writeFileSync(paths.memory, JSON.stringify({
+    shared: ["shared memory"],
+    bots: { mei: ["bot memory"] }
+  }), "utf8");
+
+  core.writeDaemonSettings({ host: "127.0.0.1", port });
+  const status = await core.start();
+  t.after(() => core.stop());
+
+  const res = await fetch(`${status.baseUrl}/api/mia/context?botId=mei&sessionId=s1&originMessageId=m1`, {
+    headers: { Authorization: `Bearer ${core.daemonToken()}` }
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.botId, "mei");
+  assert.equal(body.sessionId, "s1");
+  assert.equal(body.originMessageId, "m1");
+  assert.equal(body.persona, "mei persona");
+  assert.match(body.memory, /bot: mei/);
+  assert.match(body.memory, /conversation: s1/);
+  assert.match(body.memory, /shared memory/);
+  assert.match(body.memory, /bot memory/);
+});
+
 test("mia-core derives runtime home from MIA_HOME without electron", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-paths-"));
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });

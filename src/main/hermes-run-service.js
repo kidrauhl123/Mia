@@ -12,6 +12,32 @@ function cleanRunSessionId(value, botKey) {
     .slice(0, 120) || fallback;
 }
 
+function normalizeHermesSessionScope(value = "") {
+  const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  if (["legacy", "conversation", "conversation-only", "session"].includes(raw)) return "conversation";
+  return "bot-conversation";
+}
+
+function hermesSessionScope(bot = {}, explicitScope = "") {
+  const config = bot?.engineConfig || bot?.engine_config || {};
+  return normalizeHermesSessionScope(
+    explicitScope
+    || config.hermesSessionScope
+    || config.hermes_session_scope
+    || config.sessionScope
+    || config.session_scope
+  );
+}
+
+function scopedHermesRunSessionId(bot = {}, sessionId = "", explicitScope = "") {
+  const botKey = cleanRunSessionId(bot?.key || bot?.id || "bot", "bot");
+  const legacySessionId = cleanRunSessionId(sessionId, botKey);
+  if (hermesSessionScope(bot, explicitScope) === "conversation") return legacySessionId;
+  const localSessionId = String(sessionId || "").trim() ? legacySessionId : "default";
+  if (localSessionId.startsWith(`mia:${botKey}:`)) return localSessionId;
+  return cleanRunSessionId(`mia:${botKey}:${localSessionId}`, botKey);
+}
+
 function firstTextValue(value) {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
@@ -131,7 +157,16 @@ function createHermesRunService(deps = {}) {
       .filter((message) => message.content || message.attachments.length);
   }
 
-  function buildRunPayload({ bot, sessionId, messages, model = "", effortLevel = "", permissionMode = "" }) {
+  function buildRunPayload({
+    bot,
+    sessionId,
+    messages,
+    model = "",
+    effortLevel = "",
+    permissionMode = "",
+    sessionScope = "",
+    includeConversationHistory = true
+  }) {
     const normalized = normalizeRunMessages(messages);
     const instructions = normalized
       .filter((message) => message.role === "system")
@@ -165,7 +200,7 @@ function createHermesRunService(deps = {}) {
     const body = {
       model: selectedModel,
       input,
-      session_id: cleanRunSessionId(sessionId, bot.key),
+      session_id: scopedHermesRunSessionId(bot, sessionId, sessionScope),
       account_id: accountId,
       metadata: {
         bot_id: bot.key,
@@ -178,7 +213,7 @@ function createHermesRunService(deps = {}) {
     if (selectedEffort) body.metadata.effort_level = selectedEffort;
     if (selectedPermission) body.metadata.permission_mode = selectedPermission;
     if (instructions) body.instructions = instructions;
-    if (conversationHistory.length) body.conversation_history = conversationHistory;
+    if (includeConversationHistory && conversationHistory.length) body.conversation_history = conversationHistory;
     return body;
   }
 

@@ -143,6 +143,13 @@ function createSystemHermesService(deps = {}) {
     };
   }
 
+  function spawnSyncOptions(options = {}) {
+    return {
+      ...(options || {}),
+      ...(platform === "win32" ? { windowsHide: true } : {})
+    };
+  }
+
   function executablePath(filePath) {
     try {
       fsImpl.accessSync(filePath, fs.constants.X_OK);
@@ -153,11 +160,11 @@ function createSystemHermesService(deps = {}) {
   }
 
   function windowsCommandPath(name) {
-    const result = spawnSync("where", [name], {
+    const result = spawnSync("where", [name], spawnSyncOptions({
       encoding: "utf8",
       timeout: 1500,
       env: processEnvWithCliPath()
-    });
+    }));
     if (!result.error && result.status === 0) {
       return String(result.stdout || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
     }
@@ -179,11 +186,11 @@ function createSystemHermesService(deps = {}) {
       const found = executablePath(path.join(dir, name));
       if (found) return found;
     }
-    const result = spawnSync("zsh", ["-lc", `command -v ${name}`], {
+    const result = spawnSync("zsh", ["-lc", `command -v ${name}`], spawnSyncOptions({
       encoding: "utf8",
       timeout: 1500,
       env: processEnvWithCliPath()
-    });
+    }));
     if (!result.error && result.status === 0) {
       const found = String(result.stdout || "").split(/\r?\n/)[0]?.trim() || "";
       if (found) return found;
@@ -193,11 +200,11 @@ function createSystemHermesService(deps = {}) {
 
   function commandVersion(commandPath) {
     if (!commandPath) return "";
-    const result = spawnSync(commandPath, ["--version"], {
+    const result = spawnSync(commandPath, ["--version"], spawnSyncOptions({
       encoding: "utf8",
       timeout: 2000,
       env: processEnvWithCliPath()
-    });
+    }));
     if (result.error) return "";
     return String(result.stdout || result.stderr || "").split(/\r?\n/)[0]?.trim() || "";
   }
@@ -218,11 +225,11 @@ function createSystemHermesService(deps = {}) {
     const result = spawnSync(command, [
       "-c",
       "import sys; import hermes_cli.main, aiohttp, mcp; print(sys.executable)"
-    ], {
+    ], spawnSyncOptions({
       encoding: "utf8",
       timeout: 2500,
       env: processEnvWithCliPath()
-    });
+    }));
     if (result.error || result.status !== 0) return "";
     return String(result.stdout || "").split(/\r?\n/)[0]?.trim() || command;
   }

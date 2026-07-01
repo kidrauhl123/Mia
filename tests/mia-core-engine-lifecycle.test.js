@@ -199,6 +199,7 @@ test("ensureRunning spawns the correct gateway command + env when no engine is r
     assert.equal(env.CUSTOM, "1", "base env is preserved");
     assert.equal(env.MIA_CLOUD_MODEL_TOKEN, "cloud-token");
     assert.equal(recorded.options.cwd, path.join(home, "runtime", "hermes-engine"));
+    assert.equal(recorded.options.windowsHide, process.platform === "win32" ? true : undefined);
 
     // The api key + minimal config.yaml were persisted under hermesHome.
     assert.ok(fs.existsSync(path.join(hermesHome, "mia-api-server.key")));

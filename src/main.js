@@ -446,6 +446,27 @@ const {
   readBotPersona,
 } = botManifestModule;
 
+function miaContextSnapshot({ botId = "", sessionId = "", originMessageId = "" } = {}) {
+  const key = String(botId || "mia").trim() || "mia";
+  const localSessionId = String(sessionId || "default").trim() || "default";
+  let bot = null;
+  try {
+    bot = (loadBotManifest().bots || []).find((item) => String(item?.key || item?.id || "") === key) || null;
+  } catch {
+    bot = null;
+  }
+  const name = bot?.name || key;
+  const bio = bot?.bio || "";
+  return {
+    botId: key,
+    sessionId: localSessionId,
+    originMessageId: String(originMessageId || ""),
+    generatedAt: Date.now(),
+    persona: readBotPersona(key, name, bio),
+    memory: miaMemoryService.memoryBlock({ botId: key, sessionId: localSessionId })
+  };
+}
+
 const agentSessionStore = createAgentSessionStore({
   runtimePaths,
   readJson,
@@ -699,7 +720,7 @@ function execFileAsPromise(file, args, _meta = {}) {
         {
           encoding: "utf8",
           env: processEnvStrings(),
-          windowsHide: true
+          ...(process.platform === "win32" ? { windowsHide: true } : {})
         },
         (error, stdout, stderr) => {
           resolve(resultFrom(error, stdout, stderr));
@@ -959,7 +980,8 @@ function runPythonScript(args, options = {}) {
     const child = spawn(engineInstallService.enginePython(), args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
+      ...(process.platform === "win32" ? { windowsHide: true } : {})
     });
     let stdout = "";
     let stderr = "";
@@ -1941,7 +1963,8 @@ async function startEngine() {
   engineProcess = spawn(engineInstallService.enginePython(), launchdService.gatewayProgramArguments().slice(1), {
     cwd: p.engine,
     env,
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
+    ...(process.platform === "win32" ? { windowsHide: true } : {})
   });
 
   engineProcess.stdout.on("data", (chunk) => {
@@ -2111,6 +2134,7 @@ function createActiveHermesChatAdapter() {
     memoryBlock: miaMemoryService.memoryBlock,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
     writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
+    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     resolveModelRuntime,
     writeModelRuntimeConfig: (settings) => writeRuntimeConfig(engineState.port || readConfiguredPort(), {
       modelSettings: settings
@@ -2204,6 +2228,7 @@ function createActiveOpenClawChatAdapter() {
     processEnvStrings,
     readBotPersona,
     resolveModelRuntime,
+    runtimePaths,
     setAgentSessionId: agentSessionStore.setId,
     shellCommandPath: localAgentEngineService.shellCommandPath
   });
@@ -2546,6 +2571,7 @@ miaCoreControlServer = createMiaCoreControlServer({
   agentPermissionCoordinator,
   initSchedulerSubsystem,
   tasksRoutes: () => tasksRoutes,
+  getMiaContextSnapshot: miaContextSnapshot,
   getCloudSettings: () => settingsStore.cloudSettings(),
   normalizeCloudUrl: settingsStore.normalizeCloudUrl,
   fetchImpl: fetch,
