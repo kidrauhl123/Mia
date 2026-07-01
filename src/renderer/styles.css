@@ -654,6 +654,21 @@ body.platform-win32 .traffic-spacer .traffic-light {
   color: var(--win-titlebar-symbol);
 }
 
+body.platform-win32 .traffic-spacer:hover .traffic-light.close,
+body.platform-win32 .traffic-spacer:hover .traffic-light.minimize,
+body.platform-win32 .traffic-spacer:hover .traffic-light.green,
+body.platform-win32 .traffic-light.close:active,
+body.platform-win32 .traffic-light.minimize:active,
+body.platform-win32 .traffic-light.green:active,
+body.platform-win32.window-blurred .traffic-light.close,
+body.platform-win32.window-blurred .traffic-light.minimize,
+body.platform-win32.window-blurred .traffic-light.green,
+body.platform-win32.window-blurred .traffic-spacer:hover .traffic-light.close,
+body.platform-win32.window-blurred .traffic-spacer:hover .traffic-light.minimize,
+body.platform-win32.window-blurred .traffic-spacer:hover .traffic-light.green {
+  background-image: none;
+}
+
 body.platform-win32 .traffic-spacer .traffic-light:hover {
   background: var(--win-titlebar-control-hover);
 }

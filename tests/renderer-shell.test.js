@@ -233,6 +233,7 @@ test("desktop window controls use frameless Windows chrome off macOS", () => {
   assert.match(windowIpcSource, /IpcChannel\.WindowTitleBarTheme[\s\S]*applyWindowsTitleBarOverlay\(BrowserWindow\.fromWebContents\(event\.sender\),\s*appearance\)/);
   assert.match(css, /body\.platform-win32 \.traffic-spacer\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?right:\s*0;[\s\S]*?grid-template-columns:\s*repeat\(3,\s*46px\);/);
   assert.match(css, /body\.platform-win32 \.traffic-spacer \.traffic-light\s*\{[\s\S]*?display:\s*grid;[\s\S]*?width:\s*46px;[\s\S]*?background-image:\s*none;/);
+  assert.match(css, /body\.platform-win32 \.traffic-spacer:hover \.traffic-light\.close,[\s\S]*?body\.platform-win32\.window-blurred \.traffic-spacer:hover \.traffic-light\.green\s*\{[\s\S]*?background-image:\s*none;/);
   assert.match(css, /body\.platform-win32 \.traffic-light\.close::before,[\s\S]*?body\.platform-win32 \.traffic-light\.close::after/);
   assert.match(css, /body\.platform-darwin \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
   assert.match(css, /--traffic-spacer-height:\s*52px;/);
