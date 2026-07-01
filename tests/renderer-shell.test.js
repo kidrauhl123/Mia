@@ -125,11 +125,14 @@ test("composer pending attachments are thumbnail-first and open the image editor
 
   assert.match(composerSource, /data-attachment-preview/);
   assert.match(composerSource, /classList\?\.toggle\("has-attachments", attachments\.length > 0\)/);
-  assert.doesNotMatch(composerSource, /composer-attachment-name/);
-  assert.doesNotMatch(composerSource, /composer-attachment-size/);
+  assert.match(composerSource, /composer-attachment-kind/);
+  assert.match(composerSource, /composer-attachment-name/);
+  assert.match(composerSource, /composer-attachment-size/);
   assert.match(styleSource, /\.composer-card\.has-attachments\s*\{/);
   assert.match(styleSource, /@keyframes composerAttachmentsOpen/);
   assert.match(styleSource, /\.composer-attachment\.image\s*\{[\s\S]*?width:\s*136px;[\s\S]*?height:\s*86px;/);
+  assert.match(styleSource, /\.composer-attachment\.file\s*\{[\s\S]*?grid-template-columns:\s*34px minmax\(0,\s*1fr\);/);
+  assert.match(styleSource, /\.composer-attachment\.file\s+\.composer-attachment-remove\s*\{[\s\S]*?opacity:\s*0;/);
   assert.match(styleSource, /\.composer-attachment-thumb\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
 });
 

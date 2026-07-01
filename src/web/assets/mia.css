@@ -615,8 +615,8 @@ h1.hero-title {
 .mw-row.on { background: rgb(var(--accent-rgb) / 0.16); }
 .mw-row:hover:not(.on) { background: rgba(0,0,0,0.04); }
 .mw-row:focus-visible {
-  outline: 2px solid rgb(var(--accent-rgb) / 0.32);
-  outline-offset: 2px;
+  outline: 0;
+  outline-offset: 0;
 }
 .mw-av {
   width: 38px; height: 38px; border-radius: 50%;
@@ -1236,7 +1236,7 @@ h2.h2 {
 .gsap-large-wrap{position:relative;color:var(--mia-gsap-ink, #0e100f);isolation:isolate}
 .gsap-large-button{
   align-items:center;background:linear-gradient(var(--mia-gsap-stage, #ffe9fe),var(--mia-gsap-stage, #ffe9fe)) padding-box,var(--mia-gsap-ink, #0e100f) border-box;border:2px solid transparent;
-  border-radius:100px;color:var(--mia-gsap-ink, #0e100f);cursor:pointer;display:inline-flex;font-family:var(--font);font-size:22px;font-weight:650;
+  border-radius:100px;color:var(--mia-gsap-ink, #0e100f);cursor:default;display:inline-flex;font-family:var(--font);font-size:22px;font-weight:650;
   gap:.32em;justify-content:center;letter-spacing:-.01em;line-height:1.05;min-width:220px;overflow:hidden;padding:15px 24px;
   position:relative;z-index:1;text-decoration:none;
 }

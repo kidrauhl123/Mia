@@ -86,6 +86,21 @@ test("readLocalFileAttachment and safeFetchFileAttachment handle local files and
   }
 });
 
+test("readLocalFileAttachment preserves Office MIME types for cloud upload", (t) => {
+  const { attachments } = setup(t);
+  const filePath = path.join(os.tmpdir(), `mia-local-${process.pid}.xlsx`);
+  fs.writeFileSync(filePath, "xlsx bytes", "utf8");
+  try {
+    const local = attachments.readLocalFileAttachment({ path: filePath });
+
+    assert.equal(local.name, path.basename(filePath));
+    assert.equal(local.mime, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    assert.match(local.dataUrl, /^data:application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet;base64,/);
+  } finally {
+    fs.rmSync(filePath, { force: true });
+  }
+});
+
 test("fetchCloudFileAttachment uses account settings without leaking token into URL", async (t) => {
   let request = null;
   const { attachments } = setup(t, {

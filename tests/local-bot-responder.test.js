@@ -253,6 +253,47 @@ test("respond materializes cloud file URL attachments for the local engine", asy
   fs.rmSync(path.dirname(attachment.path), { recursive: true, force: true });
 });
 
+test("respond materializes cloud file URLs carried in the attachment path field", async () => {
+  const fetched = [];
+  const { responder, calls } = setup({
+    fetchFileAttachment: async (request) => {
+      fetched.push(request);
+      return {
+        id: "file_doc",
+        name: "业务信息调查表.docx",
+        url: request.url,
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        kind: "file",
+        size: 9,
+        dataUrl: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${Buffer.from("doc bytes").toString("base64")}`
+      };
+    }
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_doc:bot",
+    userPrompt: "看这个文档",
+    userAttachments: [{
+      id: "file_doc",
+      name: "业务信息调查表.docx",
+      path: "/api/files/file_doc",
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      kind: "file",
+      size: 9
+    }]
+  });
+
+  assert.equal(fetched.length, 1);
+  assert.equal(fetched[0].url, "/api/files/file_doc");
+  const attachment = calls.engine[0].messages.at(-1).attachments[0];
+  assert.equal(attachment.name, "业务信息调查表.docx");
+  assert.equal(attachment.url, "/api/files/file_doc");
+  assert.ok(attachment.path.endsWith("业务信息调查表.docx"));
+  assert.equal(fs.readFileSync(attachment.path, "utf8"), "doc bytes");
+  fs.rmSync(path.dirname(attachment.path), { recursive: true, force: true });
+});
+
 test("respond sends explicit reminder requests through the engine scheduler path", async () => {
   const { responder, calls } = setup();
 

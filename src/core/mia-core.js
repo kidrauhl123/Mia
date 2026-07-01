@@ -105,10 +105,9 @@ const { createSkillsLoader } = require("../main/skills-loader.js");
 // Attachments + MCP context bridges — the SAME pure-node factories main.js drives
 // (src/main.js ~453 createChatAttachments, ~631/640 the scheduler/Mia-app MCP
 // bridges; no fork). All three are constructed from runtimePaths + fs/path only:
-//   - createChatAttachments: the two methods Core needs (normalizeAttachments,
-//     attachmentContext) are pure fs/path. The save/read/cloud-fetch methods
-//     (which alone touch initializeRuntime/getCloudSettings) are never reached on
-//     the hermes-run-service payload path, so node sinks for those deps are safe.
+//   - createChatAttachments: Core uses normalizeAttachments + attachmentContext
+//     on the engine payload path, and safeFetchFileAttachment on the cloud bot
+//     routing path to turn persisted /api/files attachments into local temp files.
 //   - createSchedulerMcpBridge / createMiaAppMcpBridge: writeContext is a pure fs
 //     write of {botId, sessionId, originMessageId} to context.json under Core's
 //     own runtime home. Core owns that home AND the daemon control server the MCP
@@ -980,6 +979,9 @@ function createCoreCloudRouting({
   botExecution,
   socialApi,
   artifactWorkspaceDir = null,
+  fetchFileAttachment = null,
+  fetchImpl = fetch,
+  timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs),
   emitLocalEvent = () => {},
   deviceId = "",
   log = () => {}
@@ -996,11 +998,26 @@ function createCoreCloudRouting({
     getSettings: () => (settingsStore ? settingsStore.cloudSettings() : { enabled: false }),
     normalizeUrl: settingsStore ? settingsStore.normalizeCloudUrl : (value) => String(value || "")
   });
+  const attachmentTransfer = typeof fetchFileAttachment === "function"
+    ? fetchFileAttachment
+    : createChatAttachments({
+        initializeRuntime: () => {},
+        runtimePaths: runtimePaths || (() => ({})),
+        getCloudSettings: () => (settingsStore && typeof settingsStore.cloudSettings === "function"
+          ? settingsStore.cloudSettings()
+          : { enabled: false }),
+        normalizeCloudUrl: settingsStore && typeof settingsStore.normalizeCloudUrl === "function"
+          ? settingsStore.normalizeCloudUrl
+          : (value) => String(value || ""),
+        fetchImpl,
+        timeoutSignal
+      }).safeFetchFileAttachment;
 
   const localBotResponder = createLocalBotResponder({
     sendChat: botExecution.sendChat,
     postConversationMessageAsBot: (conversationId, body) => api.postConversationMessageAsBot(conversationId, body),
     listConversationMessages: (conversationId, sinceSeq, limit) => api.listConversationMessages(conversationId, sinceSeq, limit),
+    fetchFileAttachment: attachmentTransfer,
     // Run streams (typing, token deltas, tool traces) + posted-message echoes go
     // to the Core control server's local event channel. The caller injects the
     // sink; a no-op/collector is fine until the local-events fan-out lands.

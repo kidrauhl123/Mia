@@ -1210,6 +1210,27 @@ function deepSeekBaseUrl(context = {}) {
   return String(context.deepSeekBaseUrl || modelGatewaySettings(context)?.apiBase || process.env.MIA_DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").trim().replace(/\/+$/, "");
 }
 
+function normalizeDeepSeekAnthropicBaseUrl(value = "") {
+  const base = String(value || "").trim().replace(/\/+$/, "");
+  if (!base) return "";
+  if (/\/anthropic\/v1$/i.test(base)) return base;
+  if (/\/anthropic$/i.test(base)) return `${base}/v1`;
+  if (/\/v1$/i.test(base)) return base.replace(/\/v1$/i, "/anthropic/v1");
+  return `${base}/anthropic/v1`;
+}
+
+function deepSeekAnthropicBaseUrl(context = {}) {
+  const settings = modelGatewaySettings(context);
+  const explicit = String(
+    context.deepSeekAnthropicBaseUrl ||
+    settings?.anthropicApiBase ||
+    settings?.anthropicBaseUrl ||
+    process.env.MIA_DEEPSEEK_ANTHROPIC_BASE_URL ||
+    ""
+  ).trim();
+  return normalizeDeepSeekAnthropicBaseUrl(explicit || deepSeekBaseUrl(context));
+}
+
 function platformModelId(context = {}) {
   return String(context.platformModelId || modelGatewaySettings(context)?.modelId || process.env.MIA_PLATFORM_MODEL_ID || process.env.MIA_CLOUD_AGENT_MODEL || "mia-auto").trim() || "mia-auto";
 }
@@ -1658,14 +1679,27 @@ async function listPlatformModelCatalog(context) {
   }
 }
 
-async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, prefix }) {
+const DEEPSEEK_MODEL_PROXY_PATHS = new Set([
+  "/chat/completions",
+  "/messages",
+  "/messages/count_tokens"
+]);
+
+function deepSeekProxyPathUrl(context, proxyPath) {
+  if (proxyPath === "/chat/completions") return `${deepSeekBaseUrl(context)}/chat/completions`;
+  if (proxyPath === "/messages") return `${deepSeekAnthropicBaseUrl(context)}/messages`;
+  if (proxyPath === "/messages/count_tokens") return `${deepSeekAnthropicBaseUrl(context)}/messages/count_tokens`;
+  return "";
+}
+
+async function proxyDeepSeekModelRequest(req, res, context, url, { userId, prefix }) {
   if (!context.modelBillingStore) {
     writeError(res, 503, "Mia 模型账本未初始化。");
     return true;
   }
   const proxyPath = url.pathname.slice(prefix.length);
-  if (req.method !== "POST" || proxyPath !== "/chat/completions") {
-    writeError(res, 404, "当前托管 DeepSeek 模型只支持 /chat/completions。");
+  if (req.method !== "POST" || !DEEPSEEK_MODEL_PROXY_PATHS.has(proxyPath)) {
+    writeError(res, 404, "Not found.");
     return true;
   }
   const apiKey = deepSeekApiKey(context);
@@ -1688,7 +1722,8 @@ async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, pre
     writeError(res, 400, "模型不可用。");
     return true;
   }
-  if (!context.modelBillingStore.hasPositiveBalance(userId)) {
+  const billable = proxyPath !== "/messages/count_tokens";
+  if (billable && !context.modelBillingStore.hasPositiveBalance(userId)) {
     context.modelBillingStore.recordUsage({
       userId,
       modelId: selected.id,
@@ -1707,11 +1742,11 @@ async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, pre
   const upstreamBody = {
     ...body,
     model: selected.upstreamModel,
-    ...(body.stream === true
+    ...(proxyPath === "/chat/completions" && body.stream === true
       ? { stream_options: { ...(body.stream_options || {}), include_usage: true } }
       : {})
   };
-  const upstream = await fetch(`${deepSeekBaseUrl(context)}/chat/completions`, {
+  const upstream = await fetch(deepSeekProxyPathUrl(context, proxyPath), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -1722,7 +1757,7 @@ async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, pre
   const payload = Buffer.from(await upstream.arrayBuffer());
   const parsed = parseJsonBuffer(payload);
   const contentType = upstream.headers.get("content-type") || "application/json";
-  if (upstream.ok) {
+  if (billable && upstream.ok) {
     context.modelBillingStore.recordUsage({
       userId,
       modelId: selected.id,
@@ -1733,7 +1768,7 @@ async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, pre
       pricing: modelPricing(context),
       status: "succeeded"
     });
-  } else {
+  } else if (billable) {
     context.modelBillingStore.recordUsage({
       userId,
       modelId: selected.id,
@@ -1771,7 +1806,7 @@ async function handleMiaModelProxy(req, res, context, url, { userId, prefix = "/
     return true;
   }
   if (modelGatewayMode(context) === "deepseek") {
-    return proxyDeepSeekChatCompletion(req, res, context, url, { userId, prefix });
+    return proxyDeepSeekModelRequest(req, res, context, url, { userId, prefix });
   }
 
   const serviceKey = litellmServiceKey(context) || litellmAdminKey(context);

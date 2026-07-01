@@ -18,3 +18,9 @@ test("Mia runtime context keeps scheduler routing out of the global prompt", () 
   assert.doesNotMatch(MIA_RUNTIME_CONTEXT, /定时任务规则|Hermes cron|不要使用 shell|cronjob/);
   assert.doesNotMatch(miaRuntimeSystemPrompt(), /schedule_create|定时任务规则/);
 });
+
+test("Mia runtime context keeps web search routing out of the global prompt", () => {
+  const prompt = miaRuntimeSystemPrompt();
+  assert.doesNotMatch(prompt, /web_search|web_fetch/);
+  assert.doesNotMatch(prompt, /terminal|curl|Python 网络探测/);
+});

@@ -28,6 +28,14 @@ test("web cloud conversation rendering surfaces cloud agent streams and attachme
   assert.match(release, /src\/shared\/conversation-kinds\.js/);
 });
 
+test("web cloud attachment chips use specific document glyph labels", () => {
+  const source = read("src/web/app.js");
+  assert.match(source, /return "XLS"/);
+  assert.match(source, /return "DOC"/);
+  assert.match(source, /return "PPT"/);
+  assert.match(source, /return "ZIP"/);
+});
+
 test("desktop cloud conversation rendering surfaces cloud agent streams and attachments", () => {
   const social = read("src/renderer/social/social.js");
   const groups = read("src/renderer/social/social-groups.js");

@@ -374,6 +374,18 @@
     `;
   }
 
+  function composerAttachmentGlyph(attachment = {}) {
+    const glyph = window.miaFormat?.attachmentGlyph?.(attachment);
+    if (glyph) return glyph;
+    const kind = attachment.kind || window.miaFormat?.attachmentKind?.(attachment) || "file";
+    return String(kind || "file").slice(0, 4).toUpperCase();
+  }
+
+  function composerAttachmentSize(attachment = {}) {
+    const size = window.miaFormat?.formatBytes?.(attachment.size);
+    return String(size || "").trim();
+  }
+
   function renderComposerAttachments() {
     if (!state || !els || !els.composerAttachments) return;
     const attachments = state.pendingAttachments;
@@ -384,18 +396,34 @@
     els.chatForm?.classList?.toggle("has-attachments", attachments.length > 0);
     els.composerAttachments.classList.toggle("hidden", attachments.length === 0);
     els.composerAttachments.innerHTML = attachments.map((attachment) => {
-      const kind = attachment.kind || window.miaFormat.attachmentKind(attachment);
+      const kind = attachment.kind || window.miaFormat?.attachmentKind?.(attachment) || "file";
       const image = kind === "image" && (attachment.dataUrl || attachment.thumbnailDataUrl || attachment.previewDataUrl);
-      return `
-      <div class="composer-attachment${image ? " image" : ""}" title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "附件")}">
-        <button class="composer-attachment-preview" type="button" data-attachment-preview="${window.miaMarkdown.escapeHtml(attachment.id)}" aria-label="预览附件">
-          ${renderAttachmentThumb(attachment, "composer-attachment-thumb")}
-        </button>
+      const title = window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "附件");
+      const removeButton = `
         <button class="composer-attachment-remove" type="button" data-attachment-remove="${window.miaMarkdown.escapeHtml(attachment.id)}" title="移除附件" aria-label="移除附件">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M6.75 6.75L17.25 17.25M17.25 6.75L6.75 17.25" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
           </svg>
         </button>
+      `;
+      if (!image) {
+        return `
+      <div class="composer-attachment file" title="${title}">
+        <span class="composer-attachment-kind" aria-hidden="true">${window.miaMarkdown.escapeHtml(composerAttachmentGlyph(attachment))}</span>
+        <span class="composer-attachment-meta">
+          <strong class="composer-attachment-name">${window.miaMarkdown.escapeHtml(attachment.name || "附件")}</strong>
+          <em class="composer-attachment-size">${window.miaMarkdown.escapeHtml(composerAttachmentSize(attachment))}</em>
+        </span>
+        ${removeButton}
+      </div>
+    `;
+      }
+      return `
+      <div class="composer-attachment image" title="${title}">
+        <button class="composer-attachment-preview" type="button" data-attachment-preview="${window.miaMarkdown.escapeHtml(attachment.id)}" aria-label="预览附件">
+          ${renderAttachmentThumb(attachment, "composer-attachment-thumb")}
+        </button>
+        ${removeButton}
       </div>
     `;
     }).join("");

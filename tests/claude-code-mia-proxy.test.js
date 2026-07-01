@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   anthropicToOpenAiChatBody,
+  convertOpenAiMessageToAnthropic,
   createClaudeCodeMiaProxy
 } = require("../src/main/claude-code-mia-proxy.js");
 
@@ -100,6 +101,108 @@ test("Mia Claude proxy forwards Anthropic messages to chat completions", async (
   assert.deepEqual(upstreamCall.body.messages, [{ role: "user", content: "hello" }]);
 });
 
+test("Mia Claude proxy forwards Anthropic messages directly when an Anthropic base URL is available", async (t) => {
+  let upstreamCall = null;
+  const proxy = createClaudeCodeMiaProxy({
+    appendLog: () => {},
+    fetch: async (url, options = {}) => {
+      upstreamCall = {
+        url: String(url),
+        headers: options.headers || {},
+        body: JSON.parse(String(options.body || "{}"))
+      };
+      return jsonResponse({
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        model: "deepseek-v4-pro",
+        content: [{ type: "tool_use", id: "toolu_1", name: "WebSearch", input: { query: "近期国际新闻" } }],
+        stop_reason: "tool_use",
+        stop_sequence: null,
+        usage: { input_tokens: 5, output_tokens: 2 }
+      });
+    }
+  });
+  t.after(() => proxy.stop());
+
+  const session = await proxy.createSession({
+    baseUrl: "https://mia.example/api/me/model-proxy/v1",
+    anthropicBaseUrl: "https://mia.example/api/me/model-proxy",
+    apiKey: "cloud-token",
+    model: "mia-auto"
+  });
+  const response = await fetch(`${session.baseUrl}/v1/messages`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${session.authToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "claude-opus-4-8",
+      max_tokens: 64,
+      messages: [{ role: "user", content: "搜索近期国际新闻" }],
+      tools: [{
+        name: "WebSearch",
+        description: "Search the web",
+        input_schema: {
+          type: "object",
+          properties: { query: { type: "string" } },
+          required: ["query"],
+          additionalProperties: false
+        }
+      }]
+    })
+  });
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.content[0].type, "tool_use");
+  assert.equal(payload.content[0].input.query, "近期国际新闻");
+  assert.equal(upstreamCall.url, "https://mia.example/api/me/model-proxy/v1/messages");
+  assert.equal(upstreamCall.headers.authorization, "Bearer cloud-token");
+  assert.equal(upstreamCall.body.model, "mia-auto");
+  assert.equal(upstreamCall.body.tools[0].input_schema.required[0], "query");
+  assert.equal(upstreamCall.body.tools[0].function, undefined);
+});
+
+test("Mia Claude proxy turns malformed Auto tool calls into a text failure", () => {
+  const converted = convertOpenAiMessageToAnthropic({
+    id: "chatcmpl_bad_tool",
+    model: "mia-auto",
+    choices: [{
+      message: {
+        role: "assistant",
+        content: null,
+        tool_calls: [{
+          id: "call_bad",
+          type: "function",
+          function: { name: "Bash", arguments: "{}" }
+        }]
+      },
+      finish_reason: "tool_calls"
+    }],
+    usage: { prompt_tokens: 5, completion_tokens: 2 }
+  }, {
+    model: "claude-opus-4-8",
+    tools: [{
+      name: "Bash",
+      description: "Run a shell command",
+      input_schema: {
+        type: "object",
+        properties: { command: { type: "string" } },
+        required: ["command"],
+        additionalProperties: false
+      }
+    }]
+  }, { model: "mia-auto" });
+
+  assert.equal(converted.stop_reason, "end_turn");
+  assert.equal(converted.content.some((block) => block.type === "tool_use"), false);
+  assert.equal(converted.content[0].type, "text");
+  assert.match(converted.content[0].text, /Bash/);
+  assert.match(converted.content[0].text, /command/);
+});
+
 test("Mia Claude proxy converts OpenAI chat streams to Anthropic SSE", async (t) => {
   const encoder = new TextEncoder();
   const proxy = createClaudeCodeMiaProxy({
@@ -147,4 +250,62 @@ test("Mia Claude proxy converts OpenAI chat streams to Anthropic SSE", async (t)
   assert.match(text, /event: message_delta/);
   assert.match(text, /"output_tokens":2/);
   assert.match(text, /event: message_stop/);
+});
+
+test("Mia Claude proxy keeps malformed streaming Auto tool calls out of Anthropic tool_use", async (t) => {
+  const encoder = new TextEncoder();
+  const proxy = createClaudeCodeMiaProxy({
+    appendLog: () => {},
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => "text/event-stream" },
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_bad\",\"function\":{\"name\":\"Bash\",\"arguments\":\"{}\"}}]}}]}\n\n"));
+          controller.enqueue(encoder.encode("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2}}\n\n"));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        }
+      })
+    })
+  });
+  t.after(() => proxy.stop());
+
+  const session = await proxy.createSession({
+    baseUrl: "https://mia.example/api/me/model-proxy/v1",
+    apiKey: "cloud-token",
+    model: "mia-auto"
+  });
+  const response = await fetch(`${session.baseUrl}/v1/messages`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${session.authToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      stream: true,
+      model: "claude-sonnet-4-5",
+      max_tokens: 64,
+      messages: [{ role: "user", content: "what time is it" }],
+      tools: [{
+        name: "Bash",
+        description: "Run a shell command",
+        input_schema: {
+          type: "object",
+          properties: { command: { type: "string" } },
+          required: ["command"],
+          additionalProperties: false
+        }
+      }]
+    })
+  });
+  const text = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.doesNotMatch(text, /"type":"tool_use"/);
+  assert.match(text, /invalid tool call/);
+  assert.match(text, /Bash/);
+  assert.match(text, /command/);
+  assert.match(text, /"stop_reason":"end_turn"/);
 });

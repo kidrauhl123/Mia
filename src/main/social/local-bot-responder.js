@@ -288,11 +288,16 @@ async function materializeResponderAttachments(attachments = [], { fetchFileAtta
   const dir = path.join(os.tmpdir(), "mia-local-bot-attachments", sanitizeArtifactName(dedupKey || crypto.randomUUID(), "run"));
   const out = [];
   for (const [index, attachment] of incoming.entries()) {
-    if (attachment.path || attachment.dataUrl || attachment.hostPath) {
+    const url = cloudFileUrlFromAttachment(attachment);
+    if (!url && (attachment.path || attachment.hostPath)) {
       out.push(attachment);
       continue;
     }
-    const url = cloudFileUrlFromAttachment(attachment);
+    if (!url && attachment.dataUrl) {
+      const materialized = materializeFetchedAttachment(attachment, attachment, dir, index);
+      out.push(materialized || attachment);
+      continue;
+    }
     if (!url) {
       out.push(attachment);
       continue;
@@ -304,7 +309,8 @@ async function materializeResponderAttachments(attachments = [], { fetchFileAtta
       out.push(materialized || attachment);
     } catch (error) {
       log(`[local-bot-responder] failed to materialize attachment ${url}: ${error?.message || error}`);
-      out.push(attachment);
+      const materialized = attachment.dataUrl ? materializeFetchedAttachment(attachment, attachment, dir, index) : null;
+      out.push(materialized || attachment);
     }
   }
   return out;

@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { execFile: execFileCb } = require("node:child_process");
 const { promisify } = require("node:util");
 const { createUserModelProxyToken } = require("../cloud/model-proxy-auth.js");
@@ -12,6 +13,8 @@ const CONTAINER_ENV = Object.freeze({
 });
 
 const MODEL_API_KEY_ENV = "MIA_CLOUD_AGENT_MODEL_API_KEY";
+const CONFIG_SHA_LABEL = "ai.mia.config-sha";
+const DEFAULT_CAPABILITIES = Object.freeze({ webSearch: true });
 
 function atomicWriteFile(filePath, content, mode = 0o600) {
   const dir = path.dirname(filePath);
@@ -30,6 +33,10 @@ function assertSafeUserId(userId) {
 
 function cleanBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function sha256Hex(value = "") {
+  return crypto.createHash("sha256").update(String(value || "")).digest("hex");
 }
 
 function createHermesWorkerManager(options = {}) {
@@ -182,7 +189,9 @@ function createHermesWorkerManager(options = {}) {
   }
 
   function writeHermesConfig(paths) {
-    atomicWriteFile(path.join(paths.hermesHome, "config.yaml"), renderHermesConfig(paths.userId), 0o600);
+    const content = renderHermesConfig(paths.userId);
+    atomicWriteFile(path.join(paths.hermesHome, "config.yaml"), content, 0o600);
+    return sha256Hex(content);
   }
 
   function ensureUserDirs(userId) {
@@ -190,14 +199,14 @@ function createHermesWorkerManager(options = {}) {
     for (const dir of [paths.root, paths.hermesHome, paths.home, paths.workspace, paths.attachments, paths.logs]) {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
-    writeHermesConfig(paths);
+    paths.configSha = writeHermesConfig(paths);
     return paths;
   }
 
   async function ensureWorker(userId) {
     const paths = ensureUserDirs(userId);
     if (mode === "static" && staticBaseUrl) {
-      return { userId: paths.userId, baseUrl: staticBaseUrl.replace(/\/+$/, ""), apiKey, model, paths, env: envForUser(userId) };
+      return { userId: paths.userId, baseUrl: staticBaseUrl.replace(/\/+$/, ""), apiKey, model, paths, env: envForUser(userId), capabilities: DEFAULT_CAPABILITIES };
     }
     if (mode === "docker") {
       return ensureDockerWorker(paths);
@@ -223,6 +232,19 @@ function createHermesWorkerManager(options = {}) {
     } catch {
       return false;
     }
+  }
+
+  async function dockerContainerConfigSha(name) {
+    try {
+      const out = await docker(["inspect", "-f", `{{ index .Config.Labels ${JSON.stringify(CONFIG_SHA_LABEL)} }}`, name]);
+      return String(out.stdout || "").trim();
+    } catch {
+      return "";
+    }
+  }
+
+  async function stopDockerWorker(name) {
+    await docker(["stop", name]);
   }
 
   async function dockerPort(name) {
@@ -255,7 +277,15 @@ function createHermesWorkerManager(options = {}) {
   async function ensureDockerWorker(paths) {
     if (!image) throw new Error("MIA_CLOUD_HERMES_IMAGE is required for docker cloud Hermes workers.");
     const name = containerName(paths.userId);
-    const running = await dockerRunning(name);
+    let running = await dockerRunning(name);
+    if (running) {
+      const currentConfigSha = String(paths.configSha || "").trim();
+      const runningConfigSha = await dockerContainerConfigSha(name);
+      if (!runningConfigSha || runningConfigSha !== currentConfigSha) {
+        await stopDockerWorker(name);
+        running = false;
+      }
+    }
     if (!running) {
       const env = envForUser(paths.userId);
       await docker([
@@ -269,6 +299,7 @@ function createHermesWorkerManager(options = {}) {
         "--memory=1024m",
         "--pids-limit=256",
         "--security-opt", "no-new-privileges",
+        "--label", `${CONFIG_SHA_LABEL}=${paths.configSha || ""}`,
         "-p", `127.0.0.1::${containerPort}`,
         "--mount", `type=bind,src=${paths.root},dst=/data`,
         "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
@@ -297,6 +328,7 @@ function createHermesWorkerManager(options = {}) {
       model,
       paths,
       env: envForUser(paths.userId),
+      capabilities: DEFAULT_CAPABILITIES,
       containerName: name
     };
   }

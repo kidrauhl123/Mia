@@ -173,8 +173,10 @@ function createChatAttachments({
       ".pdf": "application/pdf",
       ".txt": "text/plain",
       ".md": "text/markdown",
+      ".markdown": "text/markdown",
       ".json": "application/json",
       ".csv": "text/csv",
+      ".tsv": "text/tab-separated-values",
       ".log": "text/plain",
       ".js": "text/javascript",
       ".ts": "text/typescript",
@@ -183,6 +185,13 @@ function createChatAttachments({
       ".py": "text/x-python",
       ".html": "text/html",
       ".css": "text/css",
+      ".xls": "application/vnd.ms-excel",
+      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ".xlsm": "application/vnd.ms-excel.sheet.macroenabled.12",
+      ".doc": "application/msword",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".ppt": "application/vnd.ms-powerpoint",
+      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
       ".zip": "application/zip"
     };
     return map[ext] || "application/octet-stream";

@@ -6656,6 +6656,64 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   height: 86px;
 }
 
+.composer-attachment.file {
+  place-items: initial;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: clamp(178px, 22vw, 238px);
+  height: 42px;
+  padding: 5px 32px 5px 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--field) 88%, var(--surface));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 52%, transparent);
+}
+
+.composer-attachment-kind {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: var(--ui-text-max-weight, 500);
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.composer-attachment-meta {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.composer-attachment-name,
+.composer-attachment-size {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+}
+
+.composer-attachment-name {
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: var(--ui-text-max-weight, 500);
+  line-height: 1.15;
+}
+
+.composer-attachment-size {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 400;
+  line-height: 1.1;
+}
+
 @keyframes composerAttachmentThumbIn {
   from {
     opacity: 0;
@@ -6704,6 +6762,12 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   color: #fff;
   opacity: 0;
   transition: opacity 140ms ease, background 140ms ease;
+}
+
+.composer-attachment.file .composer-attachment-remove {
+  top: 10px;
+  right: 7px;
+  opacity: 0;
 }
 
 .composer-attachment-remove svg {

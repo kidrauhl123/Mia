@@ -1628,6 +1628,64 @@ test("sendInActiveConversation ensures bot conversations before posting", async 
   assert.equal(s.moduleState.messageCache.get("botc_session_probe").messages[0].status, undefined);
 });
 
+test("sendInActiveConversation moves pending bot messages when ensure returns a canonical conversation id", async () => {
+  const s = loadSocial();
+  const calls = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async (sessionId, body) => {
+      calls.push({ kind: "ensure", sessionId, body });
+      return {
+        ok: true,
+        data: {
+          conversation: {
+            id: "botc_session_probe",
+            type: "bot",
+            name: "新对话",
+            decorations: { botId: "codex", sessionId: "session_probe", runtimeKind: "desktop-local" }
+          },
+          members: [{ member_kind: "bot", member_ref: "codex" }]
+        }
+      };
+    },
+    postConversationMessage: async (conversationId, body) => {
+      calls.push({ kind: "post", conversationId, body });
+      return {
+        ok: true,
+        data: {
+          message: {
+            id: "m_server",
+            seq: 1,
+            turn_id: body.turnId,
+            sender_kind: "user",
+            sender_ref: "u_me",
+            body_md: body.bodyMd
+          }
+        }
+      };
+    }
+  };
+  s.moduleState.activeConversationId = "botc_legacy_probe";
+  s.moduleState.conversations = [{
+    id: "botc_legacy_probe",
+    type: "bot",
+    name: "旧对话",
+    decorations: { botId: "codex", sessionId: "session_probe", runtimeKind: "desktop-local" }
+  }];
+  s.moduleState.messageCache.set("botc_legacy_probe", { messages: [], maxSeq: 0 });
+
+  await s.sendInActiveConversation("hello bot");
+
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
+  assert.equal(calls[1].conversationId, "botc_session_probe");
+  assert.equal(s.moduleState.activeConversationId, "botc_session_probe");
+  assert.deepEqual(JSON.parse(JSON.stringify(s.moduleState.messageCache.get("botc_legacy_probe").messages)), []);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(s.moduleState.messageCache.get("botc_session_probe").messages.map((message) => message.id))),
+    ["m_server"]
+  );
+});
+
 test("renderSendStatus hides sending state and only shows failed sends", () => {
   const s = loadSocial();
 
@@ -2582,6 +2640,80 @@ test("renderConversationChat hydrates cloud spreadsheet URLs into download links
   assert.match(html, /download="world-cup\.xlsx"/);
   assert.match(html, /href="data:application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet;base64,eGxzeA=="/);
   assert.ok(html.indexOf("message-attachments") < html.indexOf("已生成 Excel"));
+});
+
+test("renderConversationChat preserves cloud attachment names while hydrating previews", async () => {
+  const chat = {
+    children: [],
+    dataset: {},
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  installCloudConversationSource(s.__mockWindow);
+  const fetched = [];
+  const dataUrl = "data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,ZG9jeA==";
+  s.__mockWindow.mia.fetchFileAttachment = async (request) => {
+    fetched.push(request);
+    return {
+      id: "file_N5DI6hi8g_6fXP5h",
+      kind: "file",
+      name: request.name || "file_N5DI6hi8g_6fXP5h",
+      url: request.url,
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      dataUrl
+    };
+  };
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "dm_u_me_u_them";
+  s.moduleState.conversations = [{ id: "dm_u_me_u_them", type: "dm", name: "DM" }];
+  s.moduleState.messageCache.set("dm_u_me_u_them", {
+    messages: [{
+      id: "msg_docx_1",
+      sender_kind: "user",
+      sender_ref: "u_me",
+      body_md: "你看看",
+      created_at: "2026-07-01T07:49:00.000Z",
+      attachments: [{
+        id: "file_N5DI6hi8g_6fXP5h",
+        kind: "file",
+        name: "业务信息调查表.docx",
+        url: "/api/files/file_N5DI6hi8g_6fXP5h",
+        size: 11264
+      }]
+    }],
+    maxSeq: 1
+  });
+
+  s.renderConversationChat(chat);
+  assert.equal(fetched.length, 1);
+  assert.equal(fetched[0]?.name, "业务信息调查表.docx");
+  await flushPromises();
+
+  const html = chat.children[0]?.innerHTML || "";
+  assert.match(html, /业务信息调查表\.docx/);
+  assert.match(html, /download="业务信息调查表\.docx"/);
+  assert.doesNotMatch(html, /<strong>file_N5DI6hi8g_6fXP5h<\/strong>/);
+});
+
+test("renderAttachmentChips uses specific glyphs for common document formats", () => {
+  const s = loadSocial();
+
+  const html = s._internalCtx.renderAttachmentChips([
+    { id: "doc", name: "业务信息调查表.docx", kind: "file", size: 10 },
+    { id: "sheet", name: "赛果.xlsx", kind: "file", size: 10 },
+    { id: "slides", name: "方案.pptx", kind: "file", size: 10 },
+    { id: "zip", name: "资料.zip", kind: "file", size: 10 }
+  ]);
+
+  assert.match(html, /<span>DOC<\/span>/);
+  assert.match(html, /<span>XLS<\/span>/);
+  assert.match(html, /<span>PPT<\/span>/);
+  assert.match(html, /<span>ZIP<\/span>/);
 });
 
 test("renderConversationChat resolves self and bot avatars from one contact context", () => {

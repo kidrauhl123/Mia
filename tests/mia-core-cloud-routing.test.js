@@ -115,6 +115,76 @@ test("cloud → dispatcher → responder → Core sendChat (Hermes) → socialAp
   assert.ok(localEvents.length >= 1);
 });
 
+test("core cloud routing materializes cloud attachments before local bot execution", async () => {
+  const deviceId = "device_core_fixture";
+  const sendChatSeen = [];
+  const posts = [];
+  const fetchCalls = [];
+  const docBytes = Buffer.from("doc bytes");
+  const docMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const socialApi = {
+    postConversationMessageAsBot: async (conversationId, body) => {
+      posts.push({ conversationId, body });
+      return { ok: true, message: { id: "posted_1", body_md: body.bodyMd } };
+    },
+    listConversationMessages: async () => ({ messages: [] })
+  };
+  const settingsStore = {
+    cloudSettings: () => ({ enabled: true, url: "https://mia.test", token: "token_1" }),
+    normalizeCloudUrl: (value) => String(value || "").replace(/\/+$/, "")
+  };
+
+  const { dispatcher } = createCoreCloudRouting({
+    runtimePaths: makeRuntimePaths(),
+    settingsStore,
+    botExecution: {
+      sendChat: async (context) => {
+        sendChatSeen.push(context);
+        return fakeHermesResponse("看到了文档");
+      }
+    },
+    socialApi,
+    fetchImpl: async (url, options = {}) => {
+      fetchCalls.push({ url: String(url), headers: options.headers || {} });
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (name) => String(name || "").toLowerCase() === "content-type" ? docMime : null },
+        arrayBuffer: async () => docBytes.buffer.slice(docBytes.byteOffset, docBytes.byteOffset + docBytes.byteLength)
+      };
+    },
+    timeoutSignal: () => undefined,
+    emitLocalEvent: () => {},
+    deviceId,
+    log: () => {}
+  });
+
+  const event = botInvocationEvent({ deviceId });
+  event.triggeringMessage.attachments_json = JSON.stringify([{
+    id: "file_doc",
+    name: "业务信息调查表.docx",
+    url: "/api/files/file_doc",
+    mimeType: docMime,
+    kind: "file",
+    size: docBytes.length
+  }]);
+
+  const handled = await dispatcher.handleCloudEvent(event);
+
+  assert.equal(handled, true);
+  assert.equal(fetchCalls.length, 1);
+  assert.equal(fetchCalls[0].url, "https://mia.test/api/files/file_doc");
+  assert.equal(fetchCalls[0].headers.Authorization, "Bearer token_1");
+  assert.equal(sendChatSeen.length, 1);
+  const attachment = sendChatSeen[0].messages.at(-1).attachments[0];
+  assert.equal(attachment.name, "业务信息调查表.docx");
+  assert.equal(attachment.url, "/api/files/file_doc");
+  assert.ok(path.isAbsolute(attachment.path));
+  assert.equal(fs.readFileSync(attachment.path, "utf8"), "doc bytes");
+  assert.equal(posts[0].body.bodyMd, "看到了文档");
+  fs.rmSync(path.dirname(attachment.path), { recursive: true, force: true });
+});
+
 test("core cloud routing stopChat aborts the active conversation run", async () => {
   const deviceId = "device_core_fixture";
   const seenSignals = [];

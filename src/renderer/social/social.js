@@ -526,12 +526,29 @@
     return "file";
   }
 
+  function attachmentExtension(attachment = {}) {
+    const value = String(attachment.name || attachment.filename || attachment.path || attachment.url || "").trim().toLowerCase();
+    const match = value.match(/\.([a-z0-9]+)(?:[?#].*)?$/);
+    return match ? match[1] : "";
+  }
+
   function attachmentGlyph(attachment = {}) {
+    const mime = String(attachment.mimeType || attachment.mime || attachment.type || "").toLowerCase();
+    const ext = attachmentExtension(attachment);
     const kind = attachment.kind || attachmentKind(attachment);
     if (kind === "image") return "IMG";
     if (kind === "video") return "VID";
     if (kind === "audio") return "AUD";
-    if (kind === "pdf") return "PDF";
+    if (kind === "pdf" || mime.includes("pdf") || ext === "pdf") return "PDF";
+    if (mime.includes("spreadsheet") || mime === "application/vnd.ms-excel" || ["xls", "xlsx", "xlsm"].includes(ext)) return "XLS";
+    if (mime.includes("wordprocessingml") || mime === "application/msword" || ["doc", "docx"].includes(ext)) return "DOC";
+    if (mime.includes("presentationml") || mime === "application/vnd.ms-powerpoint" || ["ppt", "pptx"].includes(ext)) return "PPT";
+    if (mime.includes("zip") || ext === "zip") return "ZIP";
+    if (mime.includes("json") || ext === "json") return "JSON";
+    if (ext === "csv") return "CSV";
+    if (ext === "tsv") return "TSV";
+    if (["md", "markdown"].includes(ext)) return "MD";
+    if (["html", "css", "js", "jsx", "ts", "tsx", "py"].includes(ext)) return "CODE";
     if (kind === "text") return "TXT";
     return "FILE";
   }
@@ -688,9 +705,19 @@
     return String(attachment.url || attachment.path || "").trim();
   }
 
-  function fetchAttachmentPreviewRequest(key) {
-    if (/^(\/api\/files\/|https?:\/\/)/i.test(key)) return { url: key };
-    return { path: key };
+  function fetchAttachmentPreviewRequest(attachment = {}, key) {
+    const request = /^(\/api\/files\/|https?:\/\/)/i.test(key) ? { url: key } : { path: key };
+    for (const field of ["id", "name", "mime", "mimeType", "kind", "size"]) {
+      if (attachment[field] !== undefined && attachment[field] !== null && attachment[field] !== "") request[field] = attachment[field];
+    }
+    return request;
+  }
+
+  function mergeHydratedAttachment(original = {}, preview = {}) {
+    const merged = { ...original, ...preview };
+    if (original.name) merged.name = original.name;
+    if (original.id) merged.id = original.id;
+    return merged;
   }
 
   function hydrateAttachmentPreview(attachment = {}) {
@@ -699,11 +726,11 @@
     if (!key || typeof window.mia?.fetchFileAttachment !== "function") return attachment;
     const cached = moduleState.attachmentPreviewCache.get(key);
     if (cached?.status === "ready" && cached.attachment) {
-      return { ...attachment, ...cached.attachment };
+      return mergeHydratedAttachment(attachment, cached.attachment);
     }
     if (cached?.status) return attachment;
     moduleState.attachmentPreviewCache.set(key, { status: "loading" });
-    window.mia.fetchFileAttachment(fetchAttachmentPreviewRequest(key))
+    window.mia.fetchFileAttachment(fetchAttachmentPreviewRequest(attachment, key))
       .then((preview) => {
         if (preview?.error) throw new Error(preview.message || "File not found.");
         moduleState.attachmentPreviewCache.set(key, { status: "ready", attachment: preview });
@@ -4101,6 +4128,29 @@
     return true;
   }
 
+  function _moveLocalOutgoingConversationMessage(fromConversationId, toConversationId, localId) {
+    const fromId = String(fromConversationId || "").trim();
+    const toId = String(toConversationId || "").trim();
+    if (!fromId || !toId || fromId === toId || !localId) return null;
+    const fromEntry = moduleState.messageCache.get(fromId);
+    if (!fromEntry || !Array.isArray(fromEntry.messages)) return null;
+    const localIdx = fromEntry.messages.findIndex((message) => message && message.id === localId);
+    if (localIdx < 0) return null;
+    const [message] = fromEntry.messages.splice(localIdx, 1);
+    ensureConversationMessageCache(toId);
+    const toEntry = moduleState.messageCache.get(toId);
+    message.seq = nextLocalTimelineSeq(toEntry);
+    toEntry.messages.push(message);
+    sortMessagesByTimelineSeq(fromEntry.messages);
+    sortMessagesByTimelineSeq(toEntry.messages);
+    if (moduleState.activeConversationId === fromId) {
+      moduleState.activeConversationId = toId;
+      rememberBotConversation(toId);
+    }
+    if (deps && typeof deps.render === "function") deps.render();
+    return message;
+  }
+
   function _messageAttachmentsFingerprint(message) {
     const raw = Array.isArray(message?.attachments)
       ? message.attachments
@@ -4689,6 +4739,9 @@
       if (conversationType === "bot") {
         const ensured = await ensurePostableConversation(conversationId, conversation);
         postConversationId = ensured.conversationId || conversationId;
+        if (postConversationId !== conversationId && localMsg) {
+          _moveLocalOutgoingConversationMessage(conversationId, postConversationId, localMsg.id);
+        }
       }
       const res = await window.mia.social.postConversationMessage(postConversationId, {
         bodyMd: prepared.bodyMd,
