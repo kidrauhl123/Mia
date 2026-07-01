@@ -535,6 +535,13 @@
   }
 
   function localDeviceOption(runtime = state?.runtime || {}) {
+    const agentInventory = new Map();
+    for (const agent of Array.isArray(runtime.agentInventory?.agents) ? runtime.agentInventory.agents : []) {
+      const rawId = String(agent?.id || "").trim();
+      if (!rawId) continue;
+      const id = window.miaBotDirectory?.normalizeAgentEngine?.(rawId, "desktop-local") || "";
+      if (id && !agentInventory.has(id)) agentInventory.set(id, agent);
+    }
     const capabilities = state?.engineCapabilities?.engines || {};
     const capabilityAvailable = (engine) => {
       const cap = capabilities?.[engine];
@@ -545,12 +552,14 @@
         || (Array.isArray(cap.permissionModes) && cap.permissionModes.length > 0)
         || (Array.isArray(cap.effortLevels) && cap.effortLevels.length > 0);
     };
-    const engines = Object.entries({
-      hermes: runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed || runtime.engineInstalled || runtime.engineRunning || capabilityAvailable("hermes"),
-      "claude-code": runtime.agentEngines?.claudeCode?.available || capabilityAvailable("claude-code"),
-      codex: runtime.agentEngines?.codex?.available || capabilityAvailable("codex"),
-      openclaw: runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed || capabilityAvailable("openclaw")
-    }).filter(([, ok]) => ok).map(([id]) => id);
+    const engineSources = {
+      hermes: runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed || runtime.engineInstalled || runtime.engineRunning,
+      "claude-code": runtime.agentEngines?.claudeCode?.available,
+      codex: runtime.agentEngines?.codex?.available,
+      openclaw: runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed
+    };
+    const engines = ["hermes", "claude-code", "codex", "openclaw"]
+      .filter((id) => agentInventory.get(id)?.usableInMia === true || engineSources[id] || capabilityAvailable(id));
     if (!engines.length) engines.push(window.miaBotDirectory?.normalizeAgentEngine?.(state?.preferredAgentEngine || "hermes", "desktop-local") || "hermes");
     return normalizedDevice({
       id: runtime.localDevice?.id || runtime.cloud?.deviceId || "current-device",

@@ -1237,6 +1237,7 @@ test("refreshRuntime bootstraps social when cloud status arrives after startup",
   const maybeBootstrap = extractFunctionSource(appSource, "maybeBootstrapSocialAfterRuntime");
 
   assert.match(refreshRuntime, /maybeBootstrapSocialAfterRuntime\(runtime\)/);
+  assert.match(refreshRuntime, /renderBotRuntimeTargetSelect/);
   assert.match(maybeBootstrap, /runtime\?\.cloud\?\.enabled/);
   assert.match(maybeBootstrap, /window\.miaSocial\.isBootstrapped/);
   assert.match(maybeBootstrap, /socialBootstrapInFlight/);

@@ -346,13 +346,27 @@
     };
   }
 
+  function localRuntimeEngineIds(runtime = {}) {
+    const inventory = new Map();
+    for (const agent of Array.isArray(runtime.agentInventory?.agents) ? runtime.agentInventory.agents : []) {
+      const rawId = String(agent?.id || "").trim();
+      if (!rawId) continue;
+      const id = normalizeAgentEngine(rawId);
+      if (id && !inventory.has(id)) inventory.set(id, agent);
+    }
+    const legacySources = {
+      hermes: runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed || runtime.engineInstalled || runtime.engineRunning,
+      "claude-code": runtime.agentEngines?.claudeCode?.available,
+      codex: runtime.agentEngines?.codex?.available,
+      openclaw: runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed
+    };
+    return ["hermes", "claude-code", "codex", "openclaw"]
+      .filter((id) => inventory.get(id)?.usableInMia === true || legacySources[id]);
+  }
+
   function localDeviceCandidate() {
     const runtime = state?.runtime || {};
-    const engines = [];
-    if (runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed || runtime.engineInstalled || runtime.engineRunning) engines.push("hermes");
-    if (runtime.agentEngines?.claudeCode?.available) engines.push("claude-code");
-    if (runtime.agentEngines?.codex?.available) engines.push("codex");
-    if (runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed) engines.push("openclaw");
+    const engines = localRuntimeEngineIds(runtime);
     if (!engines.length) engines.push(normalizeAgentEngine(state?.preferredAgentEngine || "hermes"));
     return normalizeDevice({
       id: firstNonEmpty(runtime.localDevice?.id, runtime.cloud?.deviceId, "current-device"),

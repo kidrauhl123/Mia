@@ -262,6 +262,36 @@ test("creating a bot keeps local runtime options before device ids load", () => 
   }]);
 });
 
+test("creating a bot uses normalized local agent inventory for engine choices", () => {
+  const { context, select } = createBotDialogContext({
+    runtime: {
+      cloud: { enabled: false, devices: [] },
+      localDevice: { id: "win-local", name: "Windows PC" },
+      agentEngines: {
+        hermes: { available: true }
+      },
+      agentInventory: {
+        agents: [
+          { id: "hermes", usableInMia: true },
+          { id: "claude-code", usableInMia: true },
+          { id: "codex", usableInMia: true },
+          { id: "openclaw", usableInMia: true }
+        ]
+      },
+      preferredAgentEngine: "hermes"
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog();
+
+  assert.deepEqual(
+    decodedRuntimeOptions(select)
+      .filter((option) => option.deviceId === "win-local")
+      .map((option) => option.agentEngine),
+    ["hermes", "claude-code", "codex", "openclaw"]
+  );
+});
+
 test("creating a bot paints the dialog before refreshing bridge devices", async () => {
   const { context, events } = createBotDialogContext({
     listBridgeDevices: async () => ({ ok: true, data: { devices: [] } })

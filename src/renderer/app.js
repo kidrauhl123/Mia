@@ -5024,6 +5024,17 @@ async function refreshRuntime() {
   }
   state.runtime = runtime;
   state.petJobs = state.runtime?.petJobs || state.petJobs;
+  if (state.botDialogOpen
+    && typeof window.miaBotDialog?.readSelectedRuntimeTarget === "function"
+    && typeof window.miaBotDialog?.renderBotRuntimeTargetSelect === "function") {
+    const selected = window.miaBotDialog.readSelectedRuntimeTarget();
+    window.miaBotDialog.renderBotRuntimeTargetSelect({
+      runtimeKind: selected.runtimeKind,
+      deviceId: selected.targetDeviceId,
+      deviceName: selected.targetDeviceName,
+      agentEngine: selected.agentEngine
+    }, { preservePrevious: true });
+  }
   maybeBootstrapSocialAfterRuntime(runtime);
   render();
 }
