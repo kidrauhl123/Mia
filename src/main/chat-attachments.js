@@ -128,6 +128,7 @@ function createChatAttachments({
     if (!normalized.length) return "";
     const lines = [
       "本轮用户附带了以下本地附件。可以直接读取本地路径；如果当前引擎不能读取二进制图片，请根据文件名、类型和用户文字继续处理，并说明限制。",
+      "必须使用上面列出的“本地路径”逐字读取附件；不要根据文件名猜测 /Users、Downloads 或当前工作目录中的路径。",
       ...normalized.map(attachmentSummaryLine)
     ];
     const previews = normalized

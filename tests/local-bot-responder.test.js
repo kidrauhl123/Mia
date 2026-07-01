@@ -8,6 +8,9 @@ const {
   createLocalBotResponder,
   shouldHandleLocalCloudConversationAi
 } = require("../src/main/social/local-bot-responder.js");
+const { createChatAttachments } = require("../src/main/chat-attachments.js");
+const { createHermesChatAdapter } = require("../src/main/hermes-chat-adapter.js");
+const { createHermesRunService } = require("../src/main/hermes-run-service.js");
 
 function setup(overrides = {}) {
   const calls = { engine: [], post: [], log: [], cloudEvents: [], task: [] };
@@ -54,12 +57,79 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+function hermesJsonResponse(body) {
+  return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    text: async () => JSON.stringify(body)
+  };
+}
+
+function hermesSseResponse(frames) {
+  const text = frames.map((frame) => [
+    `event: ${frame.event}`,
+    `data: ${JSON.stringify(frame.data || {})}`,
+    "",
+    ""
+  ].join("\n")).join("");
+  const encoder = new TextEncoder();
+  return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(text));
+        controller.close();
+      }
+    })
+  };
+}
+
 async function waitFor(predicate, timeoutMs = 1000) {
   const started = Date.now();
   while (!predicate()) {
     if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for condition.");
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
+}
+
+function createHermesAdapterForLocalResponder(fetchImpl) {
+  const chatAttachments = createChatAttachments({
+    initializeRuntime: () => {},
+    runtimePaths: () => ({ attachmentsDir: path.join(os.tmpdir(), "mia-test-chat-attachments") }),
+    getCloudSettings: () => ({ enabled: false }),
+    normalizeCloudUrl: (value) => String(value || ""),
+    fetchImpl,
+    timeoutSignal: () => undefined,
+    randomUUID: () => "uuid_attachment",
+    now: () => 1770000000000
+  });
+  const runService = createHermesRunService({
+    normalizeAttachments: chatAttachments.normalizeAttachments,
+    attachmentContext: chatAttachments.attachmentContext,
+    baseUrl: () => "http://hermes.test",
+    apiKey: () => "secret",
+    fetchImpl,
+    randomUUID: () => "uuid_hermes"
+  });
+  return createHermesChatAdapter({
+    apiKey: () => "secret",
+    baseUrl: () => "http://hermes.test",
+    buildGroupHeader: () => "",
+    buildRunPayload: runService.buildRunPayload,
+    normalizeError: runService.normalizeError,
+    readRunEventStream: runService.readRunEventStream,
+    submitRunApproval: runService.submitRunApproval,
+    responseModel: "hermes-agent",
+    memoryBlock: () => "",
+    writeSchedulerMcpContext: () => {},
+    writeMiaAppMcpContext: () => {},
+    getMiaAppMcpSpec: () => null,
+    appendEngineLog: () => {},
+    fetch: fetchImpl
+  });
 }
 
 test("respond runs the local engine and posts the reply as the bot", async () => {
@@ -292,6 +362,76 @@ test("respond materializes cloud file URLs carried in the attachment path field"
   assert.ok(attachment.path.endsWith("业务信息调查表.docx"));
   assert.equal(fs.readFileSync(attachment.path, "utf8"), "doc bytes");
   fs.rmSync(path.dirname(attachment.path), { recursive: true, force: true });
+});
+
+test("respond sends materialized docx attachment paths into the Hermes run input", async (t) => {
+  const docMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  let capturedRunBody = null;
+  let materializedPath = "";
+  const fetchImpl = async (url, options = {}) => {
+    const value = String(url);
+    if (value === "http://hermes.test/v1/runs") {
+      capturedRunBody = JSON.parse(options.body);
+      return hermesJsonResponse({ run_id: "run_docx" });
+    }
+    if (value === "http://hermes.test/v1/runs/run_docx/events") {
+      return hermesSseResponse([{ event: "run.completed", data: { content: "解析完成" } }]);
+    }
+    throw new Error(`unexpected fetch ${value}`);
+  };
+  const hermesAdapter = createHermesAdapterForLocalResponder(fetchImpl);
+  const { responder, calls } = setup({
+    sendChat: (args) => hermesAdapter.sendChat({
+      bot: { key: args.botKey || args.botId, name: "Hermes", agentEngine: "hermes" },
+      sessionId: args.sessionId,
+      messages: args.messages,
+      group: args.group,
+      signal: args.signal,
+      emit: args.emit,
+      utility: args.utility,
+      persistAgentSession: args.persistAgentSession,
+      runtimeConfig: { permissionMode: "ask" }
+    }),
+    fetchFileAttachment: async (request) => ({
+      id: "file_doc",
+      name: "业务信息调查表.docx",
+      url: request.url,
+      mimeType: docMime,
+      kind: "file",
+      size: 9,
+      dataUrl: `data:${docMime};base64,${Buffer.from("doc bytes").toString("base64")}`
+    })
+  });
+  t.after(() => {
+    if (materializedPath) fs.rmSync(path.dirname(materializedPath), { recursive: true, force: true });
+  });
+
+  await responder.respond({
+    ...base,
+    conversationId: "botc_docx",
+    botId: "hermes",
+    dedupKey: "m_docx:hermes",
+    userPrompt: "请读取这份调查表",
+    userAttachments: [{
+      id: "file_doc",
+      name: "业务信息调查表.docx",
+      url: "/api/files/file_doc",
+      mimeType: docMime,
+      kind: "file",
+      size: 9
+    }]
+  });
+
+  assert.equal(calls.post[0].body.bodyMd, "解析完成");
+  assert.ok(capturedRunBody, "expected Hermes /v1/runs body to be captured");
+  assert.match(capturedRunBody.input, /附件上下文/);
+  assert.match(capturedRunBody.input, /本地路径：/);
+  assert.match(capturedRunBody.input, /业务信息调查表\.docx/);
+  assert.doesNotMatch(capturedRunBody.input, /\/Users\/jung\/业务信息调查表\.docx/);
+  const match = capturedRunBody.input.match(/本地路径：([^；\n]+)/);
+  materializedPath = match ? match[1] : "";
+  assert.ok(materializedPath && path.isAbsolute(materializedPath), "expected an absolute materialized attachment path");
+  assert.equal(fs.readFileSync(materializedPath, "utf8"), "doc bytes");
 });
 
 test("respond sends explicit reminder requests through the engine scheduler path", async () => {

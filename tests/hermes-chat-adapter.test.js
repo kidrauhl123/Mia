@@ -124,6 +124,104 @@ test("sendChat posts Hermes run with bot and group headers", async () => {
   ]);
 });
 
+test("sendChat resolves Hermes approval requests through the permission coordinator", async () => {
+  const permissionCalls = [];
+  const approvalPosts = [];
+  const deps = createDeps({
+    permissionCoordinator: {
+      requestPermission: async (request) => {
+        permissionCalls.push(request);
+        return { decision: "allow", scope: "once" };
+      }
+    },
+    submitRunApproval: async (input) => {
+      approvalPosts.push(input);
+      return { ok: true };
+    },
+    readRunEventStream: async ({ runId, onApprovalRequest }) => {
+      await onApprovalRequest({
+        runId,
+        event: {
+          event: "approval.request",
+          run_id: runId,
+          tool: "terminal",
+          command: "python3 read_docx.py"
+        }
+      });
+      return { content: "done", finishReason: "stop", events: [] };
+    }
+  });
+  const adapter = createHermesChatAdapter(deps);
+  const emitted = [];
+
+  const result = await adapter.sendChat({
+    bot,
+    sessionId: "s1",
+    messages: [{ role: "user", content: "read file" }],
+    signal: null,
+    emit: (kind, data) => emitted.push({ kind, data })
+  });
+
+  assert.equal(result.choices[0].message.content, "done");
+  assert.equal(permissionCalls.length, 1);
+  assert.equal(permissionCalls[0].engine, "hermes");
+  assert.equal(permissionCalls[0].botKey, "alice");
+  assert.equal(permissionCalls[0].sessionId, "s1");
+  assert.equal(permissionCalls[0].toolName, "terminal");
+  assert.equal(permissionCalls[0].input.command, "python3 read_docx.py");
+  assert.equal(typeof permissionCalls[0].emit, "function");
+  assert.deepEqual(approvalPosts, [{ runId: "run_1", choice: "once", signal: null }]);
+});
+
+test("sendChat maps Hermes non-ask approval modes without waiting for hidden UI prompts", async () => {
+  async function runWithPermissionMode(permissionMode) {
+    const permissionCalls = [];
+    const approvalPosts = [];
+    const deps = createDeps({
+      permissionCoordinator: {
+        requestPermission: async (request) => {
+          permissionCalls.push(request);
+          return { decision: "allow", scope: "once" };
+        }
+      },
+      submitRunApproval: async (input) => {
+        approvalPosts.push(input);
+        return { ok: true };
+      },
+      readRunEventStream: async ({ runId, onApprovalRequest }) => {
+        await onApprovalRequest({
+          runId,
+          event: {
+            event: "approval.request",
+            run_id: runId,
+            tool: "terminal",
+            command: "python3 read_docx.py"
+          }
+        });
+        return { content: "done", finishReason: "stop", events: [] };
+      }
+    });
+    const adapter = createHermesChatAdapter(deps);
+    await adapter.sendChat({
+      bot,
+      sessionId: "s1",
+      messages: [{ role: "user", content: "read file" }],
+      runtimeConfig: { permissionMode },
+      signal: null,
+      emit: () => {}
+    });
+    return { permissionCalls, approvalPosts };
+  }
+
+  const yolo = await runWithPermissionMode("yolo");
+  assert.equal(yolo.permissionCalls.length, 0);
+  assert.deepEqual(yolo.approvalPosts, [{ runId: "run_1", choice: "once", signal: null }]);
+
+  const denied = await runWithPermissionMode("deny");
+  assert.equal(denied.permissionCalls.length, 0);
+  assert.deepEqual(denied.approvalPosts, [{ runId: "run_1", choice: "deny", signal: null }]);
+});
+
 test("sendChat passes runtime config into Hermes run payload builder", async () => {
   const buildCalls = [];
   const deps = createDeps({

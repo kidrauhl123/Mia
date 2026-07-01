@@ -494,6 +494,7 @@ function createCoreBotExecution({
     fetchImpl,
     randomUUID: () => crypto.randomUUID()
   });
+  const agentPermissionCoordinator = createAgentPermissionCoordinator({ runtimePaths, readJson });
 
   // PART B — local agent engine service (pure node). Provides the PATH-resolved
   // CLI lookup (shellCommandPath: claude/codex/openclaw/node), the codex runtime
@@ -629,11 +630,13 @@ function createCoreBotExecution({
     buildRunPayload: hermesRunService.buildRunPayload,
     normalizeError: hermesRunService.normalizeError,
     readRunEventStream: hermesRunService.readRunEventStream,
+    submitRunApproval: hermesRunService.submitRunApproval,
     responseModel: adapterForEngine("hermes").responseModel,
     fetch: fetchImpl,
     // REAL memory block — Core owns the same single-owner mia-memory.json, so
     // a Hermes turn run via Core injects the same memory the Electron daemon does.
     memoryBlock: miaMemoryService.memoryBlock,
+    permissionCoordinator: agentPermissionCoordinator,
     // REAL scheduler MCP context write — Core owns the scheduler subsystem, so a
     // schedule_create from this turn fires the reminder back into this conversation.
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
@@ -691,7 +694,6 @@ function createCoreBotExecution({
 
   // Per-engine permission policy + cross-turn agent-session map: pure JSON I/O
   // under Core's single-owner runtime home — the SAME stores main.js drives.
-  const agentPermissionCoordinator = createAgentPermissionCoordinator({ runtimePaths, readJson });
   const agentSessionStore = createAgentSessionStore({
     runtimePaths,
     readJson,

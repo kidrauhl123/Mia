@@ -123,3 +123,22 @@ test("fetchCloudFileAttachment uses account settings without leaking token into 
   assert.equal(file.size, 10);
   assert.equal(file.dataUrl, `data:text/plain;base64,${Buffer.from("cloud file").toString("base64")}`);
 });
+
+test("attachmentContext tells agents to use listed local paths instead of guessing paths", (t) => {
+  const { attachments, dir } = setup(t);
+  const filePath = path.join(dir, "业务信息调查表.docx");
+  fs.writeFileSync(filePath, "doc bytes", "utf8");
+
+  const context = attachments.attachmentContext([{
+    name: "业务信息调查表.docx",
+    path: filePath,
+    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    kind: "file"
+  }]);
+
+  assert.match(context, /本地路径：/);
+  assert.match(context, /必须使用/);
+  assert.match(context, /不要.*猜测.*\/Users/);
+  assert.match(context, /Downloads/);
+  assert.match(context, /当前工作目录/);
+});

@@ -134,6 +134,14 @@ function parseSseFrame(frame) {
   };
 }
 
+function safeJson(text) {
+  try {
+    return JSON.parse(String(text || ""));
+  } catch {
+    return null;
+  }
+}
+
 function createHermesRunService(deps = {}) {
   const normalizeAttachments = deps.normalizeAttachments || (() => []);
   const attachmentContext = deps.attachmentContext || (() => "");
@@ -246,7 +254,7 @@ function createHermesRunService(deps = {}) {
     return `${roleLabel(message.role)}：${content}`;
   }
 
-  async function readRunEventStream({ runId, signal, emit, runtimeContext = {} }) {
+  async function readRunEventStream({ runId, signal, emit, runtimeContext = {}, onApprovalRequest = null }) {
     if (typeof baseUrl !== "function") throw new Error("baseUrl dependency is required.");
     if (typeof apiKey !== "function") throw new Error("apiKey dependency is required.");
     const response = await fetchImpl(`${baseUrl()}/v1/runs/${encodeURIComponent(runId)}/events`, {
@@ -282,7 +290,7 @@ function createHermesRunService(deps = {}) {
     let finishReason = "stop";
 
     let textBlockId = null;
-    const consumeFrame = (frame) => {
+    const consumeFrame = async (frame) => {
       const parsed = parseSseFrame(frame);
       if (!parsed) return false;
       const payload = parsed.data && typeof parsed.data === "object" ? parsed.data : { data: parsed.data };
@@ -346,6 +354,15 @@ function createHermesRunService(deps = {}) {
         }
         return false;
       }
+      if (name === "approval.request") {
+        if (typeof onApprovalRequest === "function") {
+          await onApprovalRequest({ runId, event: payload });
+        }
+        return false;
+      }
+      if (name === "approval.responded") {
+        return false;
+      }
       if (name === "run.completed") {
         finalContent = eventText(name, payload) || finalContent || content;
         finishReason = "stop";
@@ -371,7 +388,7 @@ function createHermesRunService(deps = {}) {
         while (splitIndex >= 0) {
           const frame = buffer.slice(0, splitIndex);
           buffer = buffer.slice(splitIndex + 2);
-          if (consumeFrame(frame)) {
+          if (await consumeFrame(frame)) {
             try {
               await reader.cancel();
             } catch {
@@ -383,7 +400,7 @@ function createHermesRunService(deps = {}) {
         }
       }
       const tail = buffer.trim();
-      if (tail) consumeFrame(tail);
+      if (tail) await consumeFrame(tail);
     } finally {
       signal?.removeEventListener("abort", cancelReader);
       try {
@@ -393,6 +410,31 @@ function createHermesRunService(deps = {}) {
       }
     }
     return { content: finalContent || content, finishReason, events };
+  }
+
+  async function submitRunApproval({ runId, choice, all = false, signal } = {}) {
+    if (typeof baseUrl !== "function") throw new Error("baseUrl dependency is required.");
+    if (typeof apiKey !== "function") throw new Error("apiKey dependency is required.");
+    const id = String(runId || "").trim();
+    if (!id) throw new Error("Hermes run id is required.");
+    const selectedChoice = String(choice || "").trim();
+    if (!selectedChoice) throw new Error("Hermes approval choice is required.");
+    const response = await fetchImpl(`${baseUrl()}/v1/runs/${encodeURIComponent(id)}/approval`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey()}`
+      },
+      body: JSON.stringify({ choice: selectedChoice, ...(all ? { all: true } : {}) }),
+      signal
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      const parsed = safeJson(text);
+      const message = firstTextValue(parsed?.error) || firstTextValue(parsed) || text || `Hermes approval failed: ${response.status}`;
+      throw new Error(message);
+    }
+    return safeJson(text) || { ok: true };
   }
 
   function lastUserPrompt(messages) {
@@ -427,6 +469,7 @@ function createHermesRunService(deps = {}) {
     normalizeRunMessages,
     parseSseFrame,
     readRunEventStream,
+    submitRunApproval,
     slashCommandText
   };
 }
@@ -436,5 +479,6 @@ module.exports = {
   createHermesRunService,
   firstTextValue,
   normalizeHermesError,
-  parseSseFrame
+  parseSseFrame,
+  safeJson
 };

@@ -144,6 +144,40 @@ function hermesApiUnreachableError(error, stage) {
   return wrapped;
 }
 
+function approvalPreview(event = {}) {
+  for (const key of ["command", "cmd", "preview", "reason", "detail", "description", "message"]) {
+    if (typeof event?.[key] === "string" && event[key].trim()) return event[key].trim();
+  }
+  const data = event?.data && typeof event.data === "object" ? event.data : null;
+  return data ? approvalPreview(data) : "";
+}
+
+function approvalDescription(event = {}) {
+  for (const key of ["description", "reason", "status", "message"]) {
+    if (typeof event?.[key] === "string" && event[key].trim()) return event[key].trim();
+  }
+  const data = event?.data && typeof event.data === "object" ? event.data : null;
+  return data ? approvalDescription(data) : "";
+}
+
+function approvalToolName(event = {}) {
+  return String(event?.tool || event?.tool_name || event?.name || event?.data?.tool || "tool").trim() || "tool";
+}
+
+function hermesChoiceForPermissionDecision(decision = {}) {
+  if (decision?.decision !== "allow") return "deny";
+  if (decision.scope === "always") return "always";
+  if (decision.scope === "session") return "session";
+  return "once";
+}
+
+function automaticHermesApprovalChoice(permissionMode = "") {
+  const mode = String(permissionMode || "").trim().toLowerCase();
+  if (["yolo", "off", "allow", "bypass", "bypasspermissions", "never"].includes(mode)) return "once";
+  if (["deny", "denied"].includes(mode)) return "deny";
+  return "";
+}
+
 function createHermesChatAdapter(deps = {}) {
   const apiKey = requireDependency(deps, "apiKey");
   const baseUrl = requireDependency(deps, "baseUrl");
@@ -163,6 +197,8 @@ function createHermesChatAdapter(deps = {}) {
   const runtimeSystemPrompt = deps.runtimeSystemPrompt || miaRuntimeSystemPrompt;
   const resolveModelRuntime = deps.resolveModelRuntime || deps.resolveManagedModelRuntime || (() => null);
   const writeModelRuntimeConfig = deps.writeModelRuntimeConfig || (() => {});
+  const permissionCoordinator = deps.permissionCoordinator || null;
+  const submitRunApproval = deps.submitRunApproval || null;
 
   function resolveTurnRuntimeConfig(bot, runtimeConfig) {
     const botConfig = bot?.engineConfig || bot?.engine_config || {};
@@ -387,7 +423,45 @@ function createHermesChatAdapter(deps = {}) {
       headers["X-Mia-Group-Context"] = buildGroupHeader(group.contextBlock);
     }
     const runId = await createRun({ body: runBody, headers, signal, runtimeContext: effectiveRuntimeConfig });
-    const stream = await readRunEventStream({ runId, signal, emit, runtimeContext: effectiveRuntimeConfig });
+    const onApprovalRequest = async ({ runId: approvalRunId, event }) => {
+      if (!submitRunApproval || typeof submitRunApproval !== "function") {
+        throw new Error("Hermes requested tool approval, but approval submission is unavailable.");
+      }
+      const automaticChoice = automaticHermesApprovalChoice(effectiveRuntimeConfig?.permissionMode);
+      if (automaticChoice) {
+        await submitRunApproval({ runId: approvalRunId, choice: automaticChoice, signal });
+        return;
+      }
+      if (!permissionCoordinator || typeof permissionCoordinator.requestPermission !== "function") {
+        await submitRunApproval({ runId: approvalRunId, choice: "deny", signal });
+        return;
+      }
+      const preview = approvalPreview(event);
+      const toolName = approvalToolName(event);
+      const decision = await permissionCoordinator.requestPermission({
+        engine: "hermes",
+        botId: bot.key,
+        botKey: bot.key,
+        botName: bot.name,
+        sessionId,
+        signal,
+        emit,
+        toolName,
+        title: event?.title || "",
+        description: approvalDescription(event),
+        preview,
+        input: {
+          command: preview,
+          approval: event
+        }
+      });
+      await submitRunApproval({
+        runId: approvalRunId,
+        choice: hermesChoiceForPermissionDecision(decision),
+        signal
+      });
+    };
+    const stream = await readRunEventStream({ runId, signal, emit, runtimeContext: effectiveRuntimeConfig, onApprovalRequest });
     if (emit) emit("complete", { finishReason: stream.finishReason || "stop", aborted: false });
     return {
       id: runId,
