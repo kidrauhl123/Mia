@@ -553,7 +553,7 @@
     }).filter(([, ok]) => ok).map(([id]) => id);
     if (!engines.length) engines.push(window.miaBotDirectory?.normalizeAgentEngine?.(state?.preferredAgentEngine || "hermes", "desktop-local") || "hermes");
     return normalizedDevice({
-      id: runtime.localDevice?.id || runtime.cloud?.deviceId || "",
+      id: runtime.localDevice?.id || runtime.cloud?.deviceId || "current-device",
       deviceName: runtime.localDevice?.name || runtime.cloud?.deviceName || "当前设备",
       status: "local",
       isLocal: true,
@@ -575,11 +575,8 @@
   }
 
   function editableBridgeDeviceOptions() {
-    return bridgeDeviceOptions().filter((device) =>
-      device?.isLocal
-      || device?.status === "local"
-      || String(device?.status || "").trim().toLowerCase() === "online"
-    );
+    const local = localDeviceOption(state?.runtime || {});
+    return local ? [local] : [];
   }
 
   function deviceStatusLabel(device = {}) {
@@ -776,6 +773,7 @@
     const select = els.botRuntimeTarget;
     const previous = select.value;
     const currentDeviceId = String(current.deviceId || "").trim();
+    const localDevice = localDeviceOption(state?.runtime || {});
     const canonicalDevice = currentDeviceId
       ? bridgeDeviceOptions().find((device) => device.id === currentDeviceId)
       : null;
@@ -783,8 +781,8 @@
       ? { runtimeKind: "cloud-hermes", agentEngine: "hermes" }
       : {
         runtimeKind: "desktop-local",
-        deviceId: canonicalDevice?.id || current.deviceId || state?.runtime?.localDevice?.id || state?.runtime?.cloud?.deviceId || "",
-        deviceName: canonicalDevice ? runtimeDeviceDisplayName(canonicalDevice) : (current.deviceName || state?.runtime?.localDevice?.name || "当前设备"),
+        deviceId: canonicalDevice?.id || current.deviceId || localDevice?.id || "current-device",
+        deviceName: canonicalDevice ? runtimeDeviceDisplayName(canonicalDevice) : (current.deviceName || localDevice?.deviceName || "当前设备"),
         agentEngine: current.agentEngine || state?.preferredAgentEngine || "hermes"
       });
     const groups = runtimeTargetGroups(current);

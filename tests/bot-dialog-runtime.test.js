@@ -204,7 +204,7 @@ function decodedRuntimeOptions(select) {
   }));
 }
 
-test("creating a bot exposes cloud, local engines, and online bridge devices", () => {
+test("creating a bot exposes only Mia Cloud and local engines", () => {
   const { context, select } = createBotDialogContext({
     runtime: {
       cloud: {
@@ -238,13 +238,28 @@ test("creating a bot exposes cloud, local engines, and online bridge devices", (
       .sort(),
     ["claude-code", "codex", "hermes", "openclaw"]
   );
-  assert.deepEqual(
-    options
-      .filter((option) => option.deviceId === "mac-remote")
-      .map((option) => option.agentEngine)
-      .sort(),
-    ["codex", "openclaw"]
-  );
+  assert.equal(options.some((option) => option.deviceId === "mac-remote"), false);
+});
+
+test("creating a bot keeps local runtime options before device ids load", () => {
+  const { context, select } = createBotDialogContext({
+    runtime: {
+      cloud: { enabled: false, devices: [] },
+      agentEngines: {},
+      preferredAgentEngine: "hermes"
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog();
+
+  assert.deepEqual(decodedRuntimeOptions(select), [{
+    label: "Hermes",
+    disabled: false,
+    runtimeKind: "desktop-local",
+    deviceId: "current-device",
+    deviceName: "本机",
+    agentEngine: "hermes"
+  }]);
 });
 
 test("creating a bot paints the dialog before refreshing bridge devices", async () => {
