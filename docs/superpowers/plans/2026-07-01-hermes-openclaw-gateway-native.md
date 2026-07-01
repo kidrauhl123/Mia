@@ -67,7 +67,7 @@ Hermes/OpenClaw Gateway
 ### Phase 1: Stop Replaying History On Native Sessions
 
 - Hermes: default persistent bot turns to native session history; do not send `conversation_history`.
-- Hermes: keep explicit `hermesHistoryMode: "bridge"` and `persistAgentSession: false` compatibility behavior.
+- Hermes: remove explicit `hermesHistoryMode: "bridge"` compatibility behavior; only non-persistent one-shot turns may bridge visible history.
 - OpenClaw: keep ACP/Gateway as the default path; local embedded fallback remains explicit only.
 - Tests: prove history policy, runtime control preservation, and OpenClaw fallback guard.
 

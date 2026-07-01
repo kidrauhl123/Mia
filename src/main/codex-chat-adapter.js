@@ -8,6 +8,7 @@ const {
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
 } = require("./mia-runtime-context.js");
+const { promptMessagesForNativeSession } = require("./agent-prompt-messages.js");
 const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
 const { buildSkillMaterializationContext } = require("../shared/skill-materializer.js");
 
@@ -259,7 +260,7 @@ function createCodexChatAdapter(deps = {}) {
     const externalSessionId = savedEntry.id && savedEntry.fingerprint === mcpFingerprint
       ? savedEntry.id
       : "";
-    const lastUser = lastUserPrompt(messages);
+    const lastUser = lastUserPrompt(promptMessagesForNativeSession(messages, shouldPersistAgentSession));
     // Best-effort: grab id from last user message for scheduler context
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;
     const originMessageId = String(lastUserMessage?.id || "");

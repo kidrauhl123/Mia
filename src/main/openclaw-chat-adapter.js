@@ -29,6 +29,7 @@ const {
   selectNativeContextMode
 } = require("./native-context-snapshot.js");
 const { fileEditPayloadsFromAcpContent } = require("./agent-file-edit-events.js");
+const { promptMessagesForNativeSession } = require("./agent-prompt-messages.js");
 const { isMiaManagedRuntime } = require("./mia-core/model-runtime-resolver.js");
 const { isForbiddenSchedulerToolName } = require("./scheduler-tool-guard.js");
 const { buildSkillMaterializationContext } = require("../shared/skill-materializer.js");
@@ -1855,7 +1856,7 @@ function createOpenClawChatAdapter(deps = {}) {
   async function sendChat({ bot, sessionId, messages, group, signal, emit = null, utility = false, scheduledFire = false, persistAgentSession = !utility, skillMaterialization = null }) {
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;
     const originMessageId = String(lastUserMessage?.id || "");
-    const lastUser = lastUserPrompt(messages);
+    const lastUser = lastUserPrompt(promptMessagesForNativeSession(messages, persistAgentSession));
     const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "inline" }) || lastUser);
     const memoryMcpFingerprint = getMcpFingerprint();
     const modelRuntime = resolveModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });

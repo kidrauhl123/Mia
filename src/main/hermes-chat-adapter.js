@@ -69,32 +69,7 @@ function defaultMiaAutoRuntimeReference(config = {}) {
   };
 }
 
-function normalizeHermesHistoryMode(value = "") {
-  const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
-  if (["bridge", "legacy", "replay", "conversation-history"].includes(raw)) return "bridge";
-  if (["native", "session", "off", "none", "disabled", "no-history"].includes(raw)) return "native";
-  return "auto";
-}
-
-function hermesHistoryModeFromConfig(bot = {}, runtimeConfig = null) {
-  const botConfig = bot?.engineConfig || bot?.engine_config || {};
-  const runtime = runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {};
-  return normalizeHermesHistoryMode(
-    runtime.hermesHistoryMode
-    || runtime.hermes_history_mode
-    || runtime.historyMode
-    || runtime.history_mode
-    || botConfig.hermesHistoryMode
-    || botConfig.hermes_history_mode
-    || botConfig.historyMode
-    || botConfig.history_mode
-  );
-}
-
-function shouldIncludeHermesConversationHistory({ bot, runtimeConfig, persistAgentSession = true } = {}) {
-  const mode = hermesHistoryModeFromConfig(bot, runtimeConfig);
-  if (mode === "bridge") return true;
-  if (mode === "native") return false;
+function shouldIncludeHermesConversationHistory({ persistAgentSession = true } = {}) {
   return !persistAgentSession;
 }
 

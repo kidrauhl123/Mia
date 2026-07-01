@@ -11,6 +11,7 @@ const {
   fileEditPayloadFromUnifiedDiff,
   fileEditPayloadsFromAcpContent
 } = require("./agent-file-edit-events.js");
+const { promptMessagesForNativeSession } = require("./agent-prompt-messages.js");
 const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
 const { schedulerDisallowedTools } = require("./scheduler-tool-guard.js");
 const { buildSkillMaterializationContext } = require("../shared/skill-materializer.js");
@@ -245,7 +246,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
     } catch (error) {
       appendEngineLog(`MCP bridge initialization incomplete before Claude Code chat: ${error?.message || error}`);
     }
-    const lastUser = lastUserPrompt(messages);
+    const lastUser = lastUserPrompt(promptMessagesForNativeSession(messages, shouldPersistAgentSession));
     // Best-effort: grab id from last user message for scheduler context
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;
     const originMessageId = String(lastUserMessage?.id || "");

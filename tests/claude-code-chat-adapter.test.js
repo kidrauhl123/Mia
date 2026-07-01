@@ -591,6 +591,41 @@ test("sendChat disables Claude cronjob so reminders route through Mia scheduler"
   assert.deepEqual(Object.keys(queryCall.options.mcpServers), ["mia-scheduler"]);
 });
 
+test("sendChat omits visible history from native Claude prompt", async () => {
+  let promptMessages = null;
+  const deps = createDeps([
+    { session_id: "sess_native" },
+    { type: "assistant", message: { content: [{ text: "ok" }] } }
+  ], {
+    lastUserPrompt: (messages) => {
+      promptMessages = messages;
+      return messages.map((message) => message.content).join("\n");
+    }
+  });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "" },
+    sessionId: "conversation:alice",
+    messages: [
+      { role: "system", content: "system rules" },
+      { role: "user", content: "old user" },
+      { role: "assistant", content: "old reply" },
+      { role: "user", content: "hello" }
+    ],
+    signal: null,
+    abortController: {},
+    emit: null,
+    utility: false,
+    persistAgentSession: true
+  });
+
+  assert.deepEqual(promptMessages.map((message) => message.content), ["system rules", "hello"]);
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.doesNotMatch(queryCall.prompt, /old user|old reply/);
+  assert.match(queryCall.prompt, /hello/);
+});
+
 test("sendChat can persist native sessions for utility turns", async () => {
   const deps = createDeps([
     { session_id: "sess_native" },

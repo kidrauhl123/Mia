@@ -343,7 +343,7 @@ test("sendChat logs Hermes context budget without prompt bodies", async () => {
   assert.doesNotMatch(budget, /secret-/);
 });
 
-test("sendChat can explicitly bridge visible history for Hermes compatibility turns", async () => {
+test("sendChat ignores legacy Hermes bridge history config for persistent native turns", async () => {
   const deps = createDeps({
     buildRunPayload: hermesRunPayloadBuilder()
   });
@@ -362,10 +362,8 @@ test("sendChat can explicitly bridge visible history for Hermes compatibility tu
   });
 
   const body = JSON.parse(deps.fetchCalls[0].options.body);
-  assert.deepEqual(body.conversation_history, [
-    { role: "user", content: "first" },
-    { role: "assistant", content: "reply" }
-  ]);
+  assert.equal(body.input, "last");
+  assert.equal(body.conversation_history, undefined);
 });
 
 test("sendChat bridges visible history when Hermes native persistence is disabled", async () => {
