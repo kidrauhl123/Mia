@@ -6,12 +6,13 @@
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ---------------------------------------------------------
-     0) HERO MASCOT — watercolor logo-formation video. Plays once on
-        load; replays when scrolled back into view. Holds last frame.
+     0) HERO MASCOT — optional video playback controller. Static or
+        self-animated image mascots do not need JS playback.
      --------------------------------------------------------- */
   (function () {
     var m = document.getElementById('heroMascot');
     if (!m) return;
+    if (typeof m.play !== 'function') return;
     if (reduce) { try { m.currentTime = m.duration || 0; } catch (e) {} return; }
     var playing = false;
     function play() {

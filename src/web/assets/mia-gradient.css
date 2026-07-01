@@ -165,7 +165,7 @@ section.tint,
 /* mascot logo in the nav */
 .brand-logo { height: 30px; width: auto; display: block; }
 /* animated watercolor mascot that paints the logo in on load.
-   transparent WebM (mp4 fallback) — real alpha, sits on any background. */
+   transparent WebM with static image fallback, sits on any background. */
 .hero-mascot {
   display: block;
   width: clamp(132px, 15vw, 188px);
