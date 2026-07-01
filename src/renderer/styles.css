@@ -648,6 +648,17 @@ body.platform-win32 .window-controls {
   -webkit-app-region: no-drag;
 }
 
+body.platform-win32 .window-controls::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--win-panel-border);
+  pointer-events: none;
+}
+
 body.platform-win32 .window-controls[data-fullscreen="true"] {
   display: none;
 }
