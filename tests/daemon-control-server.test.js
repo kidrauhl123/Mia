@@ -151,7 +151,8 @@ test("daemon exposes authorized scoped Mia context snapshots for MCP tools", asy
         sessionId: scope.sessionId,
         originMessageId: scope.originMessageId,
         persona: "persona",
-        memory: "memory"
+        memory: "",
+        memoryTools: { enabled: true, search: "memory_search", remember: "memory_remember", update: "memory_update", forget: "memory_forget" }
       };
     }
   });
@@ -169,9 +170,347 @@ test("daemon exposes authorized scoped Mia context snapshots for MCP tools", asy
     sessionId: "s1",
     originMessageId: "m1",
     persona: "persona",
-    memory: "memory"
+    memory: "",
+    memoryTools: { enabled: true, search: "memory_search", remember: "memory_remember", update: "memory_update", forget: "memory_forget" }
   });
   assert.deepEqual(snapshotCalls, [{ botId: "mei", sessionId: "s1", originMessageId: "m1" }]);
+});
+
+test("daemon exposes current-bot scoped Mia skill routes for MCP tools", async (t) => {
+  const port = await freePort();
+  const skillCalls = [];
+  const { server } = setup(t, {
+    getMiaCurrentSkills: (scope) => {
+      skillCalls.push(scope);
+      if (scope.skillId === "missing") throw new Error("Skill is not enabled for the current bot.");
+      if (scope.skillId) {
+        return {
+          botId: scope.botId || "mia",
+          skill: {
+            id: scope.skillId,
+            name: "Demo Skill",
+            description: "Demo.",
+            bodyChars: 13,
+            body: "# Demo Skill"
+          }
+        };
+      }
+      return {
+        botId: scope.botId || "mia",
+        skills: [{ id: "demo", name: "Demo Skill", description: "Demo.", bodyChars: 13 }]
+      };
+    }
+  });
+  t.after(() => server.stop());
+  const status = await server.start({ host: "127.0.0.1", port });
+
+  const unauthorized = await fetch(`${status.baseUrl}/api/mia/skills/current?botId=mei`);
+  assert.equal(unauthorized.status, 401);
+
+  const list = await fetch(`${status.baseUrl}/api/mia/skills/current?botId=mei`, {
+    headers: { Authorization: "Bearer secret-token" }
+  });
+  assert.deepEqual(await list.json(), {
+    botId: "mei",
+    skills: [{ id: "demo", name: "Demo Skill", description: "Demo.", bodyChars: 13 }]
+  });
+
+  const read = await fetch(`${status.baseUrl}/api/mia/skills/current/read?botId=mei&id=demo`, {
+    headers: { Authorization: "Bearer secret-token" }
+  });
+  assert.deepEqual(await read.json(), {
+    botId: "mei",
+    skill: {
+      id: "demo",
+      name: "Demo Skill",
+      description: "Demo.",
+      bodyChars: 13,
+      body: "# Demo Skill"
+    }
+  });
+
+  const missing = await fetch(`${status.baseUrl}/api/mia/skills/current/read?botId=mei&id=missing`, {
+    headers: { Authorization: "Bearer secret-token" }
+  });
+  assert.equal(missing.status, 404);
+  assert.match((await missing.json()).error, /not enabled/);
+
+  assert.deepEqual(skillCalls, [
+    { botId: "mei" },
+    { botId: "mei", skillId: "demo" },
+    { botId: "mei", skillId: "missing" }
+  ]);
+});
+
+test("daemon memory search prefers async deep search when available", async (t) => {
+  const port = await freePort();
+  const memoryCalls = [];
+  const { server } = setup(t, {
+    miaMemoryService: {
+      searchMemories: () => {
+        throw new Error("sync search should not be used");
+      },
+      searchMemoriesDeep: async (input) => {
+        memoryCalls.push(input);
+        return [{ id: "mem_semantic", text: "semantic memory", scope: "bot" }];
+      }
+    }
+  });
+  t.after(() => server.stop());
+  const status = await server.start({ host: "127.0.0.1", port });
+
+  const response = await fetch(`${status.baseUrl}/api/mia/memory/search`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer secret-token",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      context: { userId: "u_ctx", botId: "mei", sessionId: "s1" },
+      botId: "malicious-bot",
+      sessionId: "malicious-session",
+      query: "food preference",
+      limit: 7
+    })
+  });
+
+  assert.deepEqual(await response.json(), {
+    memories: [{ id: "mem_semantic", text: "semantic memory", scope: "bot" }]
+  });
+  assert.deepEqual(memoryCalls, [{
+    query: "food preference",
+    limit: 7,
+    scopes: undefined,
+    kinds: undefined,
+    status: "active",
+    userId: "u_ctx",
+    botId: "mei",
+    sessionId: "s1"
+  }]);
+});
+
+test("daemon Mia memory tools no-op when Mia memory is disabled", async (t) => {
+  const port = await freePort();
+  const memoryCalls = [];
+  const { server } = setup(t, {
+    isMemoryEnabled: () => false,
+    miaMemoryService: {
+      searchMemories: (input) => {
+        memoryCalls.push({ type: "search", input });
+        return [];
+      },
+      rememberMemory: (input) => {
+        memoryCalls.push({ type: "remember", input });
+        return { status: "active" };
+      },
+      updateMemory: (input) => {
+        memoryCalls.push({ type: "update", input });
+        return { status: "active" };
+      },
+      forgetMemory: (input) => {
+        memoryCalls.push({ type: "forget", input });
+        return { status: "deleted" };
+      }
+    }
+  });
+  t.after(() => server.stop());
+  const status = await server.start({ host: "127.0.0.1", port });
+
+  async function post(pathname, body) {
+    return fetch(`${status.baseUrl}${pathname}`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer secret-token",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    }).then((response) => response.json());
+  }
+
+  assert.deepEqual(await post("/api/mia/memory/search", { query: "food" }), {
+    memories: [],
+    disabled: true,
+    reason: "mia_memory_disabled"
+  });
+
+  const disabled = {
+    status: "disabled",
+    disabled: true,
+    reason: "mia_memory_disabled",
+    error: "Mia memory is disabled."
+  };
+  assert.deepEqual(await post("/api/mia/memory/remember", { text: "remember this" }), disabled);
+  assert.deepEqual(await post("/api/mia/memory/update", { memoryId: "mem_1", text: "updated" }), disabled);
+  assert.deepEqual(await post("/api/mia/memory/forget", { memoryId: "mem_1" }), disabled);
+  assert.deepEqual(memoryCalls, []);
+});
+
+test("daemon exposes scoped Mia memory routes for MCP tools", async (t) => {
+  const port = await freePort();
+  const memoryCalls = [];
+  const { server } = setup(t, {
+    miaMemoryService: {
+      searchMemories: (input) => {
+        memoryCalls.push({ type: "search", input });
+        return [{ id: "mem_1", text: "visible memory", scope: "bot" }];
+      },
+      rememberMemory: (input) => {
+        memoryCalls.push({ type: "remember", input });
+        return { status: "active", effectiveScope: input.scope, memoryId: "mem_2" };
+      },
+      updateMemory: (input) => {
+        memoryCalls.push({ type: "update", input });
+        return { status: "active", effectiveScope: "bot", memoryId: input.memoryId };
+      },
+      forgetMemory: (input) => {
+        memoryCalls.push({ type: "forget", input });
+        return { status: "deleted", effectiveScope: "bot", memoryId: input.memoryId };
+      }
+    }
+  });
+  t.after(() => server.stop());
+  const status = await server.start({ host: "127.0.0.1", port });
+
+  const search = await fetch(`${status.baseUrl}/api/mia/memory/search`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer secret-token",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      context: { userId: "u_ctx", botId: "mei", sessionId: "s1", originMessageId: "msg_1" },
+      botId: "malicious-bot",
+      sessionId: "malicious-session",
+      query: "memory",
+      scopes: ["bot"],
+      limit: 5
+    })
+  });
+  assert.deepEqual(await search.json(), { memories: [{ id: "mem_1", text: "visible memory", scope: "bot" }] });
+
+  const remember = await fetch(`${status.baseUrl}/api/mia/memory/remember`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer secret-token",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      context: { userId: "u_ctx", botId: "mei", sessionId: "s1", originMessageId: "msg_1", engine: "hermes" },
+      botId: "malicious-bot",
+      sessionId: "malicious-session",
+      text: "remember this",
+      scope: "bot",
+      kind: "fact",
+      confidence: 0.9,
+      priority: 25
+    })
+  });
+  assert.deepEqual(await remember.json(), { status: "active", effectiveScope: "bot", memoryId: "mem_2" });
+
+  const update = await fetch(`${status.baseUrl}/api/mia/memory/update`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer secret-token",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      context: { userId: "u_ctx", botId: "mei", sessionId: "s1", originMessageId: "msg_2", engine: "hermes" },
+      botId: "malicious-bot",
+      sessionId: "malicious-session",
+      memoryId: "mem_2",
+      text: "updated memory",
+      kind: "preference",
+      confidence: 0.8,
+      priority: 40
+    })
+  });
+  assert.deepEqual(await update.json(), { status: "active", effectiveScope: "bot", memoryId: "mem_2" });
+
+  const forget = await fetch(`${status.baseUrl}/api/mia/memory/forget`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer secret-token",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      context: { userId: "u_ctx", botId: "mei", sessionId: "s1", originMessageId: "msg_4" },
+      botId: "malicious-bot",
+      sessionId: "malicious-session",
+      memoryId: "mem_2",
+      reason: "obsolete"
+    })
+  });
+  assert.deepEqual(await forget.json(), { status: "deleted", effectiveScope: "bot", memoryId: "mem_2" });
+
+  assert.deepEqual(memoryCalls, [
+    {
+      type: "search",
+      input: {
+        query: "memory",
+        limit: 5,
+        scopes: ["bot"],
+        kinds: undefined,
+        status: "active",
+        userId: "u_ctx",
+        botId: "mei",
+        sessionId: "s1"
+      }
+    },
+    {
+      type: "remember",
+      input: {
+        text: "remember this",
+        scope: "bot",
+        kind: "fact",
+        confidence: 0.9,
+        priority: 25,
+        reason: undefined,
+        source: "agent_tool",
+        originEngine: "hermes",
+        originNativeSessionId: "",
+        sourceMessageIds: ["msg_1"],
+        linkedMemoryIds: undefined,
+        metadata: {},
+        userId: "u_ctx",
+        botId: "mei",
+        sessionId: "s1"
+      }
+    },
+    {
+      type: "update",
+      input: {
+        memoryId: "mem_2",
+        oldText: undefined,
+        text: "updated memory",
+        scope: undefined,
+        kind: "preference",
+        confidence: 0.8,
+        priority: 40,
+        reason: undefined,
+        source: "agent_tool",
+        originEngine: "hermes",
+        originNativeSessionId: "",
+        sourceMessageIds: ["msg_2"],
+        linkedMemoryIds: undefined,
+        metadata: {},
+        userId: "u_ctx",
+        botId: "mei",
+        sessionId: "s1"
+      }
+    },
+    {
+      type: "forget",
+      input: {
+        memoryId: "mem_2",
+        oldText: undefined,
+        scope: undefined,
+        reason: "obsolete",
+        userId: "u_ctx",
+        botId: "mei",
+        sessionId: "s1"
+      }
+    }
+  ]);
 });
 
 test("cloud task proxy forwards daemon task calls without starting local scheduler", async (t) => {

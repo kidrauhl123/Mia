@@ -146,7 +146,6 @@ test("Hermes runs client sends Bot headers and returns final text", async () => 
     permissionMode: "auto",
     input: "hi",
     attachments: [{ id: "file_1", name: "note.txt", mimeType: "text/plain", size: 12, kind: "text", path: "/data/attachments/run/note.txt" }],
-    conversationHistory: [{ role: "user", content: "hi" }],
     onRunCreated(runId) {
       callbacks.push({ type: "run", runId });
     },
@@ -168,7 +167,7 @@ test("Hermes runs client sends Bot headers and returns final text", async () => 
   const body = JSON.parse(calls[0].body);
   assert.equal(body.model, "hermes-agent");
   assert.equal(body.session_id, "cloud:u1:bot_mia:botc_u1_bot_mia");
-  assert.deepEqual(body.conversation_history, [{ role: "user", content: "hi" }]);
+  assert.equal(body.conversation_history, undefined);
   assert.deepEqual(body.attachments, [{ id: "file_1", name: "note.txt", mimeType: "text/plain", size: 12, kind: "text", path: "/data/attachments/run/note.txt" }]);
   assert.equal(body.metadata.account_id, "u1");
   assert.equal(body.metadata.bot_id, "bot_mia");
@@ -278,7 +277,6 @@ test("docker worker mode starts one isolated container per user", async () => {
   const worker = await manager.ensureWorker("user_a");
 
   assert.equal(worker.baseUrl, "http://127.0.0.1:49152");
-  assert.deepEqual(worker.capabilities, { webSearch: true });
   const runCall = execCalls.find((call) => call.args[0] === "run");
   assert.ok(runCall, "docker run should be called when container is missing");
   assert.ok(runCall.args.includes("--network"));
@@ -299,18 +297,14 @@ test("docker worker mode starts one isolated container per user", async () => {
   assert.equal(runCall.args.some((arg) => String(arg).includes("docker.sock")), false);
 });
 
-test("docker worker mode recreates a running container when the Hermes config fingerprint changes", async () => {
+test("docker worker mode removes stale same-name container before starting", async () => {
   const execCalls = [];
   const fakeExecFile = async (bin, args) => {
     execCalls.push({ bin, args });
-    if (args[0] === "inspect" && args[1] === "-f" && args[2] === "{{.State.Running}}") {
-      return { stdout: "true\n", stderr: "" };
-    }
-    if (args[0] === "inspect" && args[1] === "-f" && String(args[2]).includes("ai.mia.config-sha")) {
-      return { stdout: "old-config\n", stderr: "" };
-    }
-    if (args[0] === "stop") return { stdout: "mia-hermes-user_a\n", stderr: "" };
-    if (args[0] === "run") return { stdout: "new-container\n", stderr: "" };
+    const command = args.slice(0, 2).join(" ");
+    if (command === "inspect -f") return { stdout: "false\texited\n", stderr: "" };
+    if (args[0] === "rm") return { stdout: "removed\n", stderr: "" };
+    if (args[0] === "run") return { stdout: "container-id\n", stderr: "" };
     if (args[0] === "port") return { stdout: "127.0.0.1:49153\n", stderr: "" };
     throw new Error(`unexpected docker command: ${args.join(" ")}`);
   };
@@ -325,10 +319,39 @@ test("docker worker mode recreates a running container when the Hermes config fi
   const worker = await manager.ensureWorker("user_a");
 
   assert.equal(worker.baseUrl, "http://127.0.0.1:49153");
-  assert.ok(execCalls.some((call) => call.args[0] === "stop" && call.args[1] === "mia-hermes-user_a"));
-  const runCall = execCalls.find((call) => call.args[0] === "run");
-  assert.ok(runCall, "stale worker container should be recreated");
-  const labelIndex = runCall.args.indexOf("--label");
-  assert.notEqual(labelIndex, -1);
-  assert.match(runCall.args[labelIndex + 1], /^ai\.mia\.config-sha=/);
+  assert.deepEqual(execCalls.map((call) => call.args[0]), ["inspect", "rm", "run", "port"]);
+  assert.deepEqual(execCalls[1].args, ["rm", "-f", "mia-hermes-user_a"]);
+});
+
+test("docker worker mode reuses container created by concurrent start", async () => {
+  const execCalls = [];
+  let inspectCount = 0;
+  const fakeExecFile = async (bin, args) => {
+    execCalls.push({ bin, args });
+    const command = args.slice(0, 2).join(" ");
+    if (command === "inspect -f") {
+      inspectCount += 1;
+      if (inspectCount === 1) throw new Error("not found");
+      return { stdout: "true\trunning\n", stderr: "" };
+    }
+    if (args[0] === "run") {
+      const error = new Error("docker: Error response from daemon: Conflict. The container name \"/mia-hermes-user_a\" is already in use.");
+      error.stderr = error.message;
+      throw error;
+    }
+    if (args[0] === "port") return { stdout: "127.0.0.1:49154\n", stderr: "" };
+    throw new Error(`unexpected docker command: ${args.join(" ")}`);
+  };
+  const manager = createHermesWorkerManager({
+    rootDir: "/tmp/mia-agents",
+    mode: "docker",
+    image: "mia/hermes-cloud:test",
+    healthTimeoutMs: 0,
+    execFile: fakeExecFile
+  });
+
+  const worker = await manager.ensureWorker("user_a");
+
+  assert.equal(worker.baseUrl, "http://127.0.0.1:49154");
+  assert.deepEqual(execCalls.map((call) => call.args[0]), ["inspect", "run", "inspect", "port"]);
 });

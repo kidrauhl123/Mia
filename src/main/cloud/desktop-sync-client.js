@@ -21,6 +21,7 @@ function createCloudDesktopSyncClient({
   startCloudBridge,
   stopCloudEvents,
   stopCloudBridge,
+  memoryService = null,
   skillMarketCache = null,
   skillMarketCacheTtlMs = DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
   now = () => Date.now(),
@@ -108,7 +109,107 @@ function createCloudDesktopSyncClient({
     } catch (error) {
       log(`Mia Cloud /api/me refresh failed: ${error?.message || error}`);
     }
+    try {
+      await syncMemories();
+    } catch (error) {
+      log(`Mia Cloud memory sync failed: ${error?.message || error}`);
+    }
     return status(false);
+  }
+
+  function memorySyncAvailable(current = settings()) {
+    return Boolean(
+      current.enabled
+      && current.token
+      && memoryService
+      && typeof memoryService.listSyncMemories === "function"
+      && typeof memoryService.applySyncedMemories === "function"
+    );
+  }
+
+  function memoryEntryForCloud(entry = {}) {
+    return {
+      id: entry.id,
+      botId: entry.botId || "",
+      sessionId: entry.sessionId || "",
+      scope: entry.scope || "bot",
+      kind: entry.kind || "fact",
+      text: entry.text || "",
+      status: entry.status || "active",
+      confidence: Number.isFinite(Number(entry.confidence)) ? Number(entry.confidence) : 1,
+      source: entry.source || "mia",
+      originEngine: entry.originEngine || "",
+      originNativeSessionId: entry.originNativeSessionId || "",
+      sourceMessageIds: Array.isArray(entry.sourceMessageIds) ? entry.sourceMessageIds : [],
+      linkedMemoryIds: Array.isArray(entry.linkedMemoryIds) ? entry.linkedMemoryIds : [],
+      policyResult: entry.policyResult && typeof entry.policyResult === "object" ? entry.policyResult : {},
+      priority: Number.isFinite(Number(entry.priority)) ? Number(entry.priority) : 0,
+      pinned: Boolean(entry.pinned),
+      createdAt: entry.createdAt || "",
+      updatedAt: entry.updatedAt || "",
+      lastUsedAt: entry.lastUsedAt || "",
+      expiresAt: entry.expiresAt || "",
+      metadata: entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {},
+      deletedAt: entry.deletedAt || "",
+      revision: Number.isFinite(Number(entry.revision)) ? Number(entry.revision) : 1
+    };
+  }
+
+  function memorySyncClientOpId(current, since = "") {
+    const userId = String(current?.user?.id || current?.user?.username || "user").replace(/[^A-Za-z0-9_-]+/g, "_");
+    return `memory-sync-${userId}-${since || "full"}-${now()}`;
+  }
+
+  async function syncMemories(options = {}) {
+    const current = settings();
+    if (!memorySyncAvailable(current)) return { ok: false, skipped: true };
+    const since = options.full ? "" : String(current.lastMemorySyncAt || "");
+    const localEntries = memoryService.listSyncMemories({
+      since,
+      includeDeleted: true,
+      limit: options.limit || 1000
+    }).map(memoryEntryForCloud);
+    const summary = {
+      ok: true,
+      pushed: 0,
+      pulled: 0,
+      conflicts: 0,
+      errors: 0,
+      serverTime: ""
+    };
+
+    if (localEntries.length) {
+      const pushed = await cloudApi("/api/me/memory/push", {
+        method: "POST",
+        body: {
+          clientOpId: memorySyncClientOpId(current, since),
+          entries: localEntries
+        }
+      });
+      summary.pushed = Array.isArray(pushed.memories) ? pushed.memories.length : 0;
+      summary.conflicts += Array.isArray(pushed.conflicts) ? pushed.conflicts.length : 0;
+      summary.errors += Array.isArray(pushed.errors) ? pushed.errors.length : 0;
+      if (Array.isArray(pushed.conflicts) && pushed.conflicts.length) {
+        const applied = memoryService.applySyncedMemories(pushed.conflicts, { force: true });
+        summary.pulled += applied.applied.length;
+        summary.errors += applied.errors.length;
+      }
+    }
+
+    const query = new URLSearchParams();
+    if (since) query.set("since", since);
+    const data = await cloudApi(`/api/me/memory${query.toString() ? `?${query}` : ""}`, { method: "GET" });
+    const remoteMemories = Array.isArray(data.memories) ? data.memories : [];
+    if (remoteMemories.length) {
+      const applied = memoryService.applySyncedMemories(remoteMemories);
+      summary.pulled += applied.applied.length;
+      summary.conflicts += applied.conflicts.length;
+      summary.errors += applied.errors.length;
+    }
+    const serverTime = String(data.serverTime || new Date(now()).toISOString());
+    summary.serverTime = serverTime;
+    await writeCloudSettings({ lastMemorySyncAt: serverTime });
+    return summary;
   }
 
   async function getUserSettings() {
@@ -264,9 +365,20 @@ function createCloudDesktopSyncClient({
     }
     if (result.status === "failed" || result.ok === false) throw new Error(result.error || "微信登录失败。");
     if (!result?.token) throw new Error("微信登录结果缺少 token，请重新扫码。");
-    await writeCloudSettings({ url: normalizeCloudUrl(settings().url), enabled: true, token: result.token, user: result.user || null });
+    await writeCloudSettings({
+      url: normalizeCloudUrl(settings().url),
+      enabled: true,
+      token: result.token,
+      user: result.user || null,
+      lastMemorySyncAt: ""
+    });
     startCloudEvents();
     startCloudBridge();
+    try {
+      await syncMemories({ full: true });
+    } catch (error) {
+      log(`Mia Cloud memory sync failed: ${error?.message || error}`);
+    }
     return { kind: "wechat-login-complete", status: "complete" };
   }
 
@@ -317,6 +429,7 @@ function createCloudDesktopSyncClient({
     pushUserProfile,
     saveAppearanceSettings,
     saveUserProfile,
+    syncMemories,
     syncWorkspace
   };
 }

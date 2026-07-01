@@ -234,6 +234,35 @@ test("bot invocation events are dispatched to main; raw message events are not",
   assert.equal(calls.broadcasts.map((item) => item.envelope.type).join(","), "conversation.bot_invocation_requested,conversation.message_appended");
 });
 
+test("memory cloud events trigger memory sync and are forwarded to renderers", async () => {
+  const memoryEvents = [];
+  const { client, calls } = setup({
+    memorySync: async (message) => memoryEvents.push(message)
+  });
+
+  client.handleMessage(JSON.stringify({
+    type: "memory.updated",
+    seq: 8,
+    memory: { id: "mem_1" }
+  }));
+  await Promise.resolve();
+
+  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 8 }]);
+  assert.equal(memoryEvents.length, 1);
+  assert.equal(memoryEvents[0].memory.id, "mem_1");
+  assert.deepEqual(calls.broadcasts[0], {
+    channel: "cloud:event",
+    envelope: {
+      type: "memory.updated",
+      payload: {
+        type: "memory.updated",
+        seq: 8,
+        memory: { id: "mem_1" }
+      }
+    }
+  });
+});
+
 test("conversation.message_appended events are written through to the local message cache", async () => {
   const cached = [];
   const { client, calls } = setup({

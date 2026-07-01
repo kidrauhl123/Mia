@@ -583,6 +583,7 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   assert.match(build, /api\/src\/shared\/engine-contracts\.js/);
   assert.match(build, /api\/src\/shared\/member-color\.js/);
   assert.match(build, /api\/src\/shared\/avatar-media\.js/);
+  assert.match(build, /api\/src\/cloud\/memory-store\.js/);
   assert.match(build, /api\/packages\/shared\/avatar\.js/);
   assert.match(build, /api\/src\/shared\/bot-identity\.js/);
   assert.match(build, /api\/src\/shared\/identity\.js/);

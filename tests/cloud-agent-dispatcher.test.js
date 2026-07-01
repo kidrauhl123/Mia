@@ -133,52 +133,7 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
     assert.doesNotMatch(hermesCalls[0].input, /群成员/);
     assert.match(hermesCalls[0].instructions, /Mia Runtime Context/);
     assert.doesNotMatch(hermesCalls[0].instructions, /schedule_create|cronjob/);
-    assert.doesNotMatch(hermesCalls[0].instructions, /web_search|web_fetch/);
     assert.match(hermesCalls[0].instructions, /You are Alice Bot\./);
-  } finally {
-    ctx.cleanup();
-  }
-});
-
-test("cloud-hermes injects web search routing only when the worker exposes web search", async () => {
-  const ctx = setup();
-  const hermesCalls = [];
-  try {
-    const dispatcher = makeDispatcher(ctx, {
-      workerManager: {
-        async ensureWorker(userId) {
-          return {
-            userId,
-            baseUrl: "http://worker",
-            apiKey: "k",
-            capabilities: { webSearch: true }
-          };
-        }
-      },
-      hermesRunsClient: {
-        async runChat(args) {
-          hermesCalls.push(args);
-          return { runId: "hr_web_search", content: "reply", events: [] };
-        }
-      }
-    });
-    const message = ctx.messagesStore.appendMessage({
-      conversationId: ctx.conversation.id,
-      senderKind: "user",
-      senderRef: ctx.user.id,
-      bodyMd: "给我最新世界杯战果"
-    });
-
-    await dispatcher.handleUserMessage({
-      userId: ctx.user.id,
-      conversationId: ctx.conversation.id,
-      message
-    });
-
-    assert.equal(hermesCalls.length, 1);
-    assert.match(hermesCalls[0].instructions, /web_search/);
-    assert.match(hermesCalls[0].instructions, /web_fetch/);
-    assert.match(hermesCalls[0].instructions, /最新|实时|current|latest/i);
   } finally {
     ctx.cleanup();
   }

@@ -169,6 +169,14 @@ const els = {
   botStoreScrim: document.getElementById("botStoreScrim"),
   botStoreSheet: document.getElementById("botStoreSheet"),
   settingsView: document.getElementById("settingsView"),
+  settingsMemoryEnabled: document.getElementById("settingsMemoryEnabled"),
+  settingsMemoryList: document.getElementById("settingsMemoryList"),
+  settingsMemoryDraftKind: document.getElementById("settingsMemoryDraftKind"),
+  settingsMemoryDraftText: document.getElementById("settingsMemoryDraftText"),
+  settingsMemoryEditorTitle: document.getElementById("settingsMemoryEditorTitle"),
+  settingsMemoryEditorMeta: document.getElementById("settingsMemoryEditorMeta"),
+  settingsMemorySave: document.getElementById("settingsMemorySave"),
+  settingsMemoryCancelEdit: document.getElementById("settingsMemoryCancelEdit"),
   engineStatus: document.getElementById("engineStatus"),
   hermesHome: document.getElementById("hermesHome"),
   manifestPath: document.getElementById("manifestPath"),
@@ -3543,6 +3551,13 @@ function renderView() {
   document.querySelectorAll("[data-settings-panel]").forEach((panel) => {
     panel.classList.toggle("hidden", panel.dataset.settingsPanel !== state.activeSettingsTab);
   });
+  window.miaSettingsMemory?.renderMemorySettings?.();
+  if (state.activeView === "settings" && state.activeSettingsTab === "memory") {
+    const memoryPanel = state.settingsMemory || {};
+    if (!memoryPanel.loaded && !memoryPanel.loading) {
+      window.miaSettingsMemory?.loadMemorySettings?.();
+    }
+  }
   window.miaSkillLibrary.renderSkillLibrary();
   window.miaBotManager.renderContacts();
   window.miaTasksPanel?.renderTaskView();
@@ -4904,6 +4919,27 @@ function appendTransientChat(role, content) {
   setTimeout(() => toast.remove(), 3600);
 }
 
+let visibleMemoryRefreshTimer = 0;
+
+function refreshVisibleMemoryPanels(memory = {}) {
+  clearTimeout(visibleMemoryRefreshTimer);
+  visibleMemoryRefreshTimer = setTimeout(() => {
+    visibleMemoryRefreshTimer = 0;
+    if (state.activeView === "settings" && state.activeSettingsTab === "memory") {
+      window.miaSettingsMemory?.loadMemorySettings?.();
+    }
+    if (memory.botId) {
+      window.miaBotManager?.refreshContactMemoryForBot?.(memory.botId);
+    }
+  }, 120);
+}
+
+function handleMemoryEvent(envelope = {}) {
+  const payload = envelope.payload || {};
+  const memory = payload.memory || {};
+  refreshVisibleMemoryPanels(memory);
+}
+
 
 async function createNewSessionForActive() {
   const cloudConversation = activeCloudConversationForSessionMenu();
@@ -5125,6 +5161,13 @@ async function initializeRuntime(options = {}) {
       DEFAULT_ACCENT_COLOR,
       DEFAULT_USER_BUBBLE_COLOR,
       DEFAULT_SELECTION_STYLE,
+    });
+  }
+  if (window.miaSettingsMemory && window.miaSettingsMemory.initSettingsMemory) {
+    window.miaSettingsMemory.initSettingsMemory({
+      state,
+      els,
+      renderView,
     });
   }
   if (window.miaModelHelpers && window.miaModelHelpers.initModelHelpers) {
@@ -5923,6 +5966,10 @@ if (window.mia.onCloudEvent) {
         botRuntimeCacheKey(runtimeBinding.botId, runtimeBinding.runtimeKind),
         runtimeBinding
       );
+    }
+    if (envelope.type === "memory.updated" || envelope.type === "memory.deleted") {
+      handleMemoryEvent(envelope);
+      return;
     }
     if (String(envelope.type || "").startsWith("task.")) {
       window.miaTasksPanel?.handleTaskEvent?.(envelope);

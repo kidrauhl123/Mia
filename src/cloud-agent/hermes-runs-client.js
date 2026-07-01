@@ -241,7 +241,6 @@ function createHermesRunsClient(deps = {}) {
       model: args.model || "mia-auto",
       input: inputForHermesRuns(args.input || "", attachments, fsImpl),
       session_id: sessionId,
-      conversation_history: Array.isArray(args.conversationHistory) ? args.conversationHistory : [],
       attachments: attachments
         .map((attachment) => ({
           id: attachment.id,

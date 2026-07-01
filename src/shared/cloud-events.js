@@ -25,6 +25,8 @@
     BridgeRunUpdated: "bridge_run_updated",
     CloudAgentRunStarted: "cloud_agent_run_started",
     CloudAgentRunEvent: "cloud_agent_run_event",
+    MemoryUpdated: "memory.updated",
+    MemoryDeleted: "memory.deleted",
     DeviceUpdated: "device_updated",
     EventsReady: "events_ready"
   });

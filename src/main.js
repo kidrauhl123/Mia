@@ -8,6 +8,7 @@ const zlib = require("node:zlib");
 const AdmZip = require("adm-zip");
 const WebSocket = require("ws");
 const { IpcChannel } = require("./shared/ipc-channels");
+const { memoryChangedEnvelope } = require("./shared/memory-events.js");
 const { MemberKind } = require("./shared/conversation-kinds");
 const { botConversationId } = require("./shared/bot-identity");
 const statusBadgeAssets = require("../packages/shared/status-badge-assets");
@@ -51,6 +52,7 @@ const {
   createOpenClawChatAdapter
 } = require("./main/openclaw-chat-adapter.js");
 const { normalizeTurnRuntimeConfig } = require("./main/runtime-config-normalizer.js");
+const { createMiaMemoryProvider } = require("./main/mia-memory-provider.js");
 const { createMiaMemoryService } = require("./main/mia-memory-service.js");
 const { createRuntimeInitializerService } = require("./main/runtime-initializer-service.js");
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
@@ -276,7 +278,20 @@ const {
 } = runtimePathsModule;
 
 let settingsStore = null;
-const miaMemoryService = createMiaMemoryService({ runtimePaths });
+function currentMiaUserId() {
+  try {
+    const cloudUser = settingsStore?.cloudSettings?.()?.user || null;
+    return String(cloudUser?.id || cloudUser?.username || "").trim() || "local";
+  } catch {
+    return "local";
+  }
+}
+const miaMemoryProvider = createMiaMemoryProvider({ env: process.env, fetchImpl: fetch });
+const miaMemoryService = createMiaMemoryService({
+  runtimePaths,
+  currentUserId: currentMiaUserId,
+  memoryProvider: miaMemoryProvider
+});
 const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
 const claudeCodeMiaProxy = createClaudeCodeMiaProxy({ appendLog: appendEngineLog, fetch });
 const codexMiaProxy = createCodexMiaProxy({ appendLog: appendEngineLog, fetch });
@@ -446,6 +461,19 @@ const {
   readBotPersona,
 } = botManifestModule;
 
+function miaMemoryEnabled() {
+  try {
+    return settingsStore.memorySettings().enabled !== false;
+  } catch {
+    return true;
+  }
+}
+
+function syncNativeMemoryFilesForAgent(input = {}) {
+  if (miaMemoryEnabled()) return miaMemoryService.syncNativeMemoryFiles(input);
+  return miaMemoryService.syncNativeMemoryFiles({ ...input, entries: [] });
+}
+
 function miaContextSnapshot({ botId = "", sessionId = "", originMessageId = "" } = {}) {
   const key = String(botId || "mia").trim() || "mia";
   const localSessionId = String(sessionId || "default").trim() || "default";
@@ -458,13 +486,145 @@ function miaContextSnapshot({ botId = "", sessionId = "", originMessageId = "" }
   const name = bot?.name || key;
   const bio = bot?.bio || "";
   return {
+    userId: miaMemoryService.currentUserId(),
     botId: key,
     sessionId: localSessionId,
     originMessageId: String(originMessageId || ""),
     generatedAt: Date.now(),
     persona: readBotPersona(key, name, bio),
-    memory: miaMemoryService.memoryBlock({ botId: key, sessionId: localSessionId })
+    memory: "",
+    memoryTools: {
+      enabled: miaMemoryEnabled(),
+      search: "memory_search",
+      remember: "memory_remember",
+      update: "memory_update",
+      forget: "memory_forget"
+    },
+    skillTools: {
+      listCurrent: "skill_list_current",
+      readCurrent: "skill_read_current"
+    }
   };
+}
+
+function botForMiaContext(botId = "") {
+  const key = String(botId || "mia").trim() || "mia";
+  try {
+    const bot = (loadBotManifest().bots || []).find((item) => String(item?.key || item?.id || "") === key) || null;
+    return bot || { key, id: key, name: key, capabilities: { enabledSkills: [] } };
+  } catch {
+    return { key, id: key, name: key, capabilities: { enabledSkills: [] } };
+  }
+}
+
+function miaCurrentSkills({ botId = "", skillId = "" } = {}) {
+  const bot = botForMiaContext(botId);
+  const key = String(bot?.key || bot?.id || botId || "mia").trim() || "mia";
+  if (skillId) {
+    return {
+      botId: key,
+      skill: skillsLoader.readCurrentBotSkill(bot, skillId)
+    };
+  }
+  return {
+    botId: key,
+    skills: skillsLoader.listCurrentBotSkills(bot)
+  };
+}
+
+function rendererMemoryBase(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  const botId = String(source.botId || source.botKey || "mia").trim() || "mia";
+  const sessionId = String(source.sessionId || "default").trim() || "default";
+  return { botId, sessionId };
+}
+
+function rendererMemoryListInput(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  const scopes = Array.isArray(source.scopes)
+    ? source.scopes
+    : (source.scope ? [source.scope] : []);
+  const kinds = Array.isArray(source.kinds)
+    ? source.kinds
+    : (source.kind ? [source.kind] : []);
+  return {
+    ...rendererMemoryBase(source),
+    query: String(source.query || "").trim(),
+    status: String(source.status || "active").trim() || "active",
+    scopes,
+    kinds,
+    limit: Math.max(1, Math.min(100, Math.floor(Number(source.limit) || 80)))
+  };
+}
+
+function rendererMemoryManagementInput(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  const scopes = Array.isArray(source.scopes)
+    ? source.scopes
+    : (source.scope ? [source.scope] : []);
+  const kinds = Array.isArray(source.kinds)
+    ? source.kinds
+    : (source.kind ? [source.kind] : []);
+  return {
+    query: String(source.query || "").trim(),
+    scopes,
+    kinds,
+    botId: String(source.botId || source.botKey || "").trim(),
+    sessionId: String(source.sessionId || "").trim(),
+    limit: Math.max(1, Math.min(5000, Math.floor(Number(source.limit) || 250)))
+  };
+}
+
+function rendererRememberMemoryInput(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    ...rendererMemoryBase(source),
+    scope: String(source.scope || "bot").trim() || "bot",
+    kind: String(source.kind || "fact").trim() || "fact",
+    text: String(source.text || source.content || "").trim(),
+    confidence: 1,
+    source: "manual",
+    trusted: true,
+    metadata: { source: "mia-ui" }
+  };
+}
+
+function rendererUpdateMemoryInput(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    ...rendererMemoryBase(source),
+    memoryId: String(source.memoryId || source.id || "").trim(),
+    oldText: String(source.oldText || "").trim(),
+    kind: String(source.kind || "fact").trim() || "fact",
+    text: String(source.text || source.content || source.newText || "").trim(),
+    confidence: 1,
+    source: "manual",
+    trusted: true,
+    metadata: { source: "mia-ui" }
+  };
+}
+
+function rendererForgetMemoryInput(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    ...rendererMemoryBase(source),
+    memoryId: String(source.memoryId || source.id || "").trim(),
+    oldText: String(source.oldText || source.query || "").trim(),
+    scope: String(source.scope || "").trim()
+  };
+}
+
+function rendererMemoryIdInput(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    memoryId: String(source.memoryId || source.id || "").trim(),
+    actor: "user"
+  };
+}
+
+function publishRendererMemoryEvent(reason = "memory", result = {}, scope = {}) {
+  const envelope = memoryChangedEnvelope(reason, result, { eventSource: "ui", ...scope });
+  broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
 }
 
 const agentSessionStore = createAgentSessionStore({
@@ -928,6 +1088,7 @@ function getRuntimeStatus(created = [], options = {}) {
     auth: codexAuth,
     user: settingsStore.userProfile(),
     appearance: settingsStore.appearanceSettings(),
+    memory: settingsStore.memorySettings(),
     agentInventory,
     agentEngines,
     permissions: settingsStore.permissionStatus(),
@@ -1525,6 +1686,22 @@ function cloudSettingsGet() {
 
 function cloudSettingsPut(settings = {}) {
   return cloudDesktopSync().putUserSettings(settings);
+}
+
+let cloudMemorySyncTimer = null;
+function scheduleCloudMemorySync(reason = "memory") {
+  if (cloudMemorySyncTimer) clearTimeout(cloudMemorySyncTimer);
+  cloudMemorySyncTimer = setTimeout(() => {
+    cloudMemorySyncTimer = null;
+    try {
+      cloudDesktopSync().syncMemories().catch((error) => {
+        appendCloudLog(`Cloud memory sync failed (${reason}): ${error?.message || error}`);
+      });
+    } catch (error) {
+      appendCloudLog(`Cloud memory sync unavailable (${reason}): ${error?.message || error}`);
+    }
+  }, 1000);
+  if (cloudMemorySyncTimer && typeof cloudMemorySyncTimer.unref === "function") cloudMemorySyncTimer.unref();
 }
 
 async function fetchCloudModelBalance() {
@@ -2130,10 +2307,7 @@ function createActiveHermesChatAdapter() {
     buildRunPayload: hermesRunService.buildRunPayload,
     normalizeError: hermesRunService.normalizeError,
     readRunEventStream: hermesRunService.readRunEventStream,
-    submitRunApproval: hermesRunService.submitRunApproval,
     responseModel: adapterForEngine("hermes").responseModel,
-    memoryBlock: miaMemoryService.memoryBlock,
-    permissionCoordinator: agentPermissionCoordinator,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
     writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
     getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
@@ -2164,7 +2338,6 @@ function createActiveClaudeCodeChatAdapter() {
     getUserMcpSpecs: () => userMcpService.getEngineSpecs("claude-code"),
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
-    memoryBlock: miaMemoryService.memoryBlock,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
@@ -2194,7 +2367,6 @@ function createActiveCodexChatAdapter() {
     getUserMcpSpecs: () => userMcpService.getEngineSpecs("codex"),
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
-    memoryBlock: miaMemoryService.memoryBlock,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
@@ -2224,7 +2396,6 @@ function createActiveOpenClawChatAdapter() {
     getUserMcpServers: (options) => userMcpService.getEngineSpecs("openclaw", options),
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
-    memoryBlock: miaMemoryService.memoryBlock,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
@@ -2232,7 +2403,8 @@ function createActiveOpenClawChatAdapter() {
     resolveModelRuntime,
     runtimePaths,
     setAgentSessionId: agentSessionStore.setId,
-    shellCommandPath: localAgentEngineService.shellCommandPath
+    shellCommandPath: localAgentEngineService.shellCommandPath,
+    syncNativeMemoryFiles: syncNativeMemoryFilesForAgent
   });
 }
 
@@ -2310,7 +2482,10 @@ const botExecutionCore = createBotExecutionCore({
   isDaemonProcess: IS_DAEMON_PROCESS,
   daemonTasksClient: () => miaCoreTasksClient,
   settingsStore: () => settingsStore,
-  appendCloudLog
+  appendCloudLog,
+  miaMemoryService,
+  isMemoryEnabled: miaMemoryEnabled,
+  onMemoryExtracted: (result, scope) => publishRendererMemoryEvent("remember", result, scope)
 });
 
 function sendChat(payload) {
@@ -2571,9 +2746,13 @@ miaCoreControlServer = createMiaCoreControlServer({
   runtimePaths,
   remoteRouter: () => remoteControlRouter,
   agentPermissionCoordinator,
+  miaMemoryService,
+  isMemoryEnabled: miaMemoryEnabled,
+  onMemoryChanged: scheduleCloudMemorySync,
   initSchedulerSubsystem,
   tasksRoutes: () => tasksRoutes,
   getMiaContextSnapshot: miaContextSnapshot,
+  getMiaCurrentSkills: miaCurrentSkills,
   getCloudSettings: () => settingsStore.cloudSettings(),
   normalizeCloudUrl: settingsStore.normalizeCloudUrl,
   fetchImpl: fetch,
@@ -2727,6 +2906,7 @@ cloudDesktopSyncRuntime = createCloudDesktopSyncClient({
   startCloudBridge,
   stopCloudEvents,
   stopCloudBridge,
+  memoryService: miaMemoryService,
   skillMarketCache
 });
 cloudBridgeRuntime = createCloudBridgeClient({
@@ -2806,6 +2986,7 @@ cloudEventSocketRuntime = createCloudEventsClient({
   cloudEventChannel: IpcChannel.CloudEvent,
   appendCloudLog,
   botRuntimeDispatcher: mainBotRuntimeDispatcher,
+  memorySync: () => cloudDesktopSync().syncMemories(),
   messageCache: conversationMessageCache,
   persistCursor: () => IS_DAEMON_PROCESS,
   isDaemonProcess: IS_DAEMON_PROCESS,
@@ -2968,6 +3149,40 @@ ipcMain.handle(IpcChannel.ChatFileFetch, (_event, payload) => safeFetchFileAttac
 ipcMain.handle(IpcChannel.CommandsSlash, () => engineCatalogService.loadHermesSlashCommands());
 ipcMain.handle(IpcChannel.CommandsAgentList, async (_event, payload) => externalAgentCommandService.loadCommands(payload));
 ipcMain.handle(IpcChannel.CommandsAgentExecute, (_event, payload) => externalAgentCommandService.executeCommand(payload));
+ipcMain.handle(IpcChannel.MemoryList, (_event, payload) => miaMemoryService.listMemories(rendererMemoryListInput(payload)));
+ipcMain.handle(IpcChannel.MemoryListAll, (_event, payload) => miaMemoryService.listAllMemories(rendererMemoryManagementInput(payload)));
+ipcMain.handle(IpcChannel.MemoryRemember, (_event, payload) => {
+  const input = rendererRememberMemoryInput(payload);
+  const result = miaMemoryService.rememberMemory(input);
+  scheduleCloudMemorySync("remember");
+  publishRendererMemoryEvent("remember", result, input);
+  return result;
+});
+ipcMain.handle(IpcChannel.MemoryUpdate, (_event, payload) => {
+  const input = rendererUpdateMemoryInput(payload);
+  const result = miaMemoryService.updateMemory(input);
+  scheduleCloudMemorySync("update");
+  publishRendererMemoryEvent("update", result, input);
+  return result;
+});
+ipcMain.handle(IpcChannel.MemoryForget, (_event, payload) => {
+  const input = rendererForgetMemoryInput(payload);
+  const result = miaMemoryService.forgetMemory(input);
+  scheduleCloudMemorySync("forget");
+  publishRendererMemoryEvent("forget", result, input);
+  return result;
+});
+ipcMain.handle(IpcChannel.MemoryDelete, (_event, payload) => {
+  const input = rendererMemoryIdInput(payload);
+  const result = miaMemoryService.deleteMemory(input);
+  scheduleCloudMemorySync("delete");
+  publishRendererMemoryEvent("delete", result, input);
+  return result;
+});
+ipcMain.handle(IpcChannel.MemorySettingsSave, (_event, settings) => {
+  settingsStore.writeMemorySettings(settings || {});
+  return getRuntimeStatus();
+});
 ipcMain.handle(IpcChannel.ConversationTitleGenerate, (_event, payload) => conversationTitleService.generateTitle(payload));
 ipcMain.handle(IpcChannel.ModelCatalog, () => engineCatalogService.loadHermesModelCatalog());
 ipcMain.handle(IpcChannel.CodexListModels, () => engineCatalogService.loadCodexModels());

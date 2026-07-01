@@ -3,11 +3,20 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const {
-  appendMiaMemoryBlock,
   miaRuntimeSystemPrompt,
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
 } = require("./mia-runtime-context.js");
+const {
+  buildContextBudgetLogLine,
+  messagesAttachmentStats,
+  messagesTextChars,
+  textCharCount
+} = require("./agent-context-budget.js");
+const { skillMaterializationForNativeSession } = require("./native-skill-context.js");
+const {
+  buildMiaContextResource
+} = require("./mia-context-resource.js");
 const { promptMessagesForNativeSession } = require("./agent-prompt-messages.js");
 const { mergeMcpServersWithReservedBuiltIns } = require("./mcp-reserved-servers.js");
 const { buildSkillMaterializationContext } = require("../shared/skill-materializer.js");
@@ -203,7 +212,6 @@ function createCodexChatAdapter(deps = {}) {
   });
   const clearAgentSessionEntry = deps.clearAgentSessionEntry || (() => false);
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
-  const memoryBlock = deps.memoryBlock || (() => "");
   const ensureCodexHome = requireDependency(deps, "ensureCodexHome");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
@@ -244,10 +252,14 @@ function createCodexChatAdapter(deps = {}) {
     return envWithExecutableDirFirst(baseEnv, commandPath);
   }
 
-  async function sendChat({ bot, sessionId, messages, group, signal, emit = null, utility = false, scheduledFire = false, persistAgentSession = !utility, skillMaterialization = null }) {
+  async function sendChat({ bot, sessionId, messages, group, signal, emit = null, utility = false, scheduledFire = false, persistAgentSession = !utility, runtimeConfig = null, skillMaterialization = null }) {
     const chatStartedAt = Date.now();
     const engine = "codex";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
+    const turnConfig = {
+      ...(bot.engineConfig && typeof bot.engineConfig === "object" ? bot.engineConfig : {}),
+      ...(runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : {})
+    };
     const { runtime: codexRuntime, commandPath } = resolveCodexRuntimeCommand();
     if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
     try {
@@ -260,6 +272,13 @@ function createCodexChatAdapter(deps = {}) {
     const externalSessionId = savedEntry.id && savedEntry.fingerprint === mcpFingerprint
       ? savedEntry.id
       : "";
+    const nativeSessionCacheKey = [
+      engine,
+      String(bot.key || bot.id || "bot"),
+      String(sessionId || "default"),
+      String(mcpFingerprint || "")
+    ].join(":");
+    const resetNativeSession = Boolean(savedEntry.id && !externalSessionId);
     const lastUser = lastUserPrompt(promptMessagesForNativeSession(messages, shouldPersistAgentSession));
     // Best-effort: grab id from last user message for scheduler context
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;
@@ -269,19 +288,53 @@ function createCodexChatAdapter(deps = {}) {
     } catch {
       // Non-fatal; scheduler MCP context missing means tool works without context defaults
     }
-    const miaMemory = memoryBlock({ botId: bot.key, sessionId });
-    const runtimeContext = externalSessionId && (!utility || group) ? miaRuntimeSystemPrompt({ scheduledFire }) : "";
-    const runtimeInstructions = !externalSessionId ? runtimeContext : appendMiaMemoryBlock(runtimeContext, miaMemory);
+    const schedulerMcpSpec = (() => {
+      try { return getSchedulerMcpSpec(); } catch { return null; }
+    })();
+    const miaAppMcpSpec = (() => {
+      try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
+    })();
+    const runtimeContext = String(miaRuntimeSystemPrompt({ scheduledFire }) || "").trim();
+    const miaContext = buildMiaContextResource({
+      engine,
+      bot,
+      sessionId,
+      runtimeConfig: turnConfig,
+      modePrefix: "codex",
+      mcpAvailable: Boolean(miaAppMcpSpec),
+      runtimePrompt: runtimeContext
+    });
+    const nativeContextMode = miaContext.nativeContextMode;
+    const miaMemory = miaContext.memory.prompt;
+    const snapshotContext = miaContext.mcp.snapshotInstruction;
+    const runtimeInstructions = (() => {
+      const parts = [];
+      if (externalSessionId && (!utility || group)) parts.push(runtimeContext);
+      if (snapshotContext) {
+        if (!parts.length) parts.push(runtimeContext);
+        parts.push(snapshotContext);
+      }
+      return parts.filter(Boolean).join("\n\n");
+    })();
     const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "inline" }) || lastUser);
-    const skillContext = buildSkillMaterializationContext(skillMaterialization);
+    const effectiveSkillMaterialization = skillMaterializationForNativeSession({
+      engine,
+      botId: bot.key,
+      sessionId,
+      nativeSessionId: nativeSessionCacheKey,
+      persistAgentSession: shouldPersistAgentSession,
+      skillMaterialization,
+      resetNativeSession
+    });
+    const skillDeliveryMode = miaContext.skills.deliveryMode;
+    const skillContext = buildSkillMaterializationContext(effectiveSkillMaterialization, {
+      deliveryMode: skillDeliveryMode
+    });
     const userText = [runtimeInstructions, skillContext, expandedPrompt]
       .filter(Boolean)
       .join("\n\n");
-    const persona = !externalSessionId
-      ? appendMiaMemoryBlock(
-          withMiaRuntimeContext(readBotPersona(bot.key, bot.name, bot.bio), { scheduledFire }),
-          miaMemory
-        ).trim()
+    const persona = nativeContextMode === "prompt" && !externalSessionId
+      ? withMiaRuntimeContext(readBotPersona(bot.key, bot.name, bot.bio), { scheduledFire }).trim()
       : "";
     const prompt = (() => {
       if (!persona) return userText;
@@ -307,7 +360,7 @@ function createCodexChatAdapter(deps = {}) {
     }
     if (!codexHomePath) throw new Error("Mia Codex home setup failed: missing CODEX_HOME.");
     const env = envForCodexRuntime({ ...baseEnv, CODEX_HOME: codexHomePath }, codexRuntime, commandPath);
-    const modelRuntime = resolveModelRuntime(bot.engineConfig || {}, { engine: "codex", bot });
+    const modelRuntime = resolveModelRuntime(turnConfig, { engine: "codex", bot });
     let effectiveManagedModel = modelRuntime || null;
     let miaProxySession = null;
     let releaseMiaProxyAfterTurn = true;
@@ -334,12 +387,6 @@ function createCodexChatAdapter(deps = {}) {
     const effectivePermission = typeof emit === "function"
       ? permission
       : { ...permission, approvalPolicy: "never" };
-    const schedulerMcpSpec = (() => {
-      try { return getSchedulerMcpSpec(); } catch { return null; }
-    })();
-    const miaAppMcpSpec = (() => {
-      try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
-    })();
     const mcpServers = mergeMcpServersWithReservedBuiltIns({
       userServers: getUserMcpSpecs(),
       builtInServers: {
@@ -350,10 +397,10 @@ function createCodexChatAdapter(deps = {}) {
     const threadOptions = {
       workingDirectory: cwd(),
       skipGitRepoCheck: true,
-      modelReasoningEffort: normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "codex"),
+      modelReasoningEffort: normalizeEffortLevel(turnConfig.effortLevel || "medium", "codex"),
       ...effectivePermission
     };
-    if (effectiveManagedModel?.model || bot.engineConfig?.model) threadOptions.model = String(effectiveManagedModel?.model || bot.engineConfig.model);
+    if (effectiveManagedModel?.model || turnConfig.model) threadOptions.model = String(effectiveManagedModel?.model || turnConfig.model);
     const startedAtMs = Date.now();
     let turn;
     let capturedSessionId = externalSessionId;
@@ -368,11 +415,36 @@ function createCodexChatAdapter(deps = {}) {
           String(commandPath || ""),
           String(effectiveManagedModel?.baseUrl || ""),
           secretDigest(effectiveManagedModel?.apiKey || ""),
-          String(effectiveManagedModel?.model || bot.engineConfig?.model || "")
+          String(effectiveManagedModel?.model || turnConfig.model || "")
         ].join("|")
       : "";
     try {
-      appendEngineLog(`[codex] turn dispatch transport=${transport} model=${String(effectiveManagedModel?.model || bot.engineConfig?.model || "default")} effort=${String(threadOptions.modelReasoningEffort || "")}`);
+      const visibleHistoryMessages = Array.isArray(messages)
+        ? messages.filter((message) => message !== lastUserMessage)
+        : [];
+      const attachments = messagesAttachmentStats(messages);
+      appendEngineLog(buildContextBudgetLogLine({
+        engine,
+        botId: bot.key,
+        sessionId,
+        nativeSessionId: externalSessionId || nativeSessionCacheKey,
+        transport,
+        historyMode: "native",
+        nativeHistory: shouldPersistAgentSession,
+        promptChars: textCharCount(codexPrompt),
+        currentUserChars: textCharCount(expandedPrompt),
+        systemChars: textCharCount(runtimeInstructions),
+        personaChars: textCharCount(persona),
+        memoryChars: textCharCount(miaMemory),
+        skillIndexChars: textCharCount(effectiveSkillMaterialization?.indexBlock),
+        loadedSkillChars: skillDeliveryMode === "mcp" ? 0 : textCharCount(effectiveSkillMaterialization?.loadedBlock),
+        visibleHistoryChars: messagesTextChars(visibleHistoryMessages),
+        includedHistoryChars: 0,
+        groupChars: textCharCount(group?.contextBlock),
+        attachmentCount: attachments.count,
+        attachmentBytes: attachments.bytes
+      }));
+      appendEngineLog(`[codex] turn dispatch transport=${transport} model=${String(effectiveManagedModel?.model || turnConfig.model || "default")} effort=${String(threadOptions.modelReasoningEffort || "")}`);
       turn = await timeCodexPhase("app-server-turn", () => runCodexAppServerTurn({
         codexPath: commandPath,
         env,

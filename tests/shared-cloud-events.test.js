@@ -18,6 +18,8 @@ test("CloudEvent has known event types", () => {
   assert.equal(CloudEvent.BridgeRunUpdated, "bridge_run_updated");
   assert.equal(CloudEvent.CloudAgentRunStarted, "cloud_agent_run_started");
   assert.equal(CloudEvent.CloudAgentRunEvent, "cloud_agent_run_event");
+  assert.equal(CloudEvent.MemoryUpdated, "memory.updated");
+  assert.equal(CloudEvent.MemoryDeleted, "memory.deleted");
   assert.equal(CloudEvent.DeviceUpdated, "device_updated");
   assert.equal(CloudEvent.EventsReady, "events_ready");
 });

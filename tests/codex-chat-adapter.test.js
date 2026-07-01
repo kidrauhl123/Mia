@@ -8,12 +8,18 @@ const {
   mapCodexPermissionMode
 } = require("../src/main/codex-chat-adapter.js");
 const { chatCompletionResponse } = require("../src/main/chat-response.js");
+const { clearNativeSkillIndexCache } = require("../src/main/native-skill-context.js");
+
+test.beforeEach(() => {
+  clearNativeSkillIndexCache();
+});
 
 function createDeps(overrides = {}) {
   const calls = [];
   const useEntryDeps = overrides.useEntryDeps === true || Object.prototype.hasOwnProperty.call(overrides, "savedEntry");
   return {
     calls,
+    appendEngineLog: overrides.appendEngineLog || (() => {}),
     chatCompletionResponse,
     cwd: overrides.cwd || (() => "/repo"),
     expandLeadingSkillCommand: (text, options) => {
@@ -134,7 +140,7 @@ test("sendChat starts new thread with persona on first turn", async () => {
   assert.equal(call.options.model, "gpt-test");
   assert.equal(call.options.sandboxMode, "read-only");
   assert.match(call.prompt, /^GROUP:ctx\n以下是 Mia 给当前 Bot 的人设/);
-  assert.match(call.prompt, /Mia 是聊天式多 Agent 应用/);
+  assert.match(call.prompt, /聊天式多 Agent 应用/);
   assert.doesNotMatch(call.prompt, /schedule_create|不要使用 shell|cronjob/);
   assert.match(call.prompt, /persona/);
   assert.match(call.prompt, /expanded/);
@@ -185,6 +191,44 @@ test("sendChat waits for user MCP readiness before reading Codex MCP specs", asy
   });
 });
 
+test("sendChat uses mia-app context tools instead of prompt memory when MCP is available", async () => {
+  const logs = [];
+  let memoryBlockCalled = false;
+  const miaAppMcpSpec = {
+    type: "stdio",
+    command: "/opt/node",
+    args: ["/tmp/mia-app.js"],
+    env: { MIA_DAEMON_URL: "http://127.0.0.1:27861", MIA_APP_CONTEXT_FILE: "/tmp/mia-app-context.json" }
+  };
+  const deps = createDeps({
+    miaAppMcpSpec,
+    appendEngineLog: (line) => logs.push(line),
+    memoryBlock: () => {
+      memoryBlockCalled = true;
+      return "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\nremember concise answers";
+    }
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    utility: false
+  });
+
+  const call = deps.calls.find((entry) => entry[0] === "app-server")[1];
+  assert.equal(memoryBlockCalled, false);
+  assert.deepEqual(call.mcpServers, { "mia-app": miaAppMcpSpec });
+  assert.match(call.prompt, /context_snapshot/);
+  assert.match(call.prompt, /memory_search/);
+  assert.doesNotMatch(call.prompt, /## Mia Bot Memory|source: mia|以下是 Mia 给当前 Bot 的人设/);
+  const budget = logs.find((line) => String(line).includes("[Mia context budget]")) || "";
+  assert.match(budget, /engine=codex/);
+  assert.match(budget, /memoryChars=0/);
+});
+
 test("sendChat puts the selected codex bin dir first in SDK env", async () => {
   const deps = createDeps({
     commandPath: "/opt/codex-node/bin/codex",
@@ -193,7 +237,7 @@ test("sendChat puts the selected codex bin dir first in SDK env", async () => {
   const adapter = createCodexChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "alice", name: "Alice", bio: "" },
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -283,7 +327,7 @@ test("sendChat resumes existing thread only when MCP fingerprint matches", async
 
   const call = deps.calls.find((entry) => entry[0] === "app-server")[1];
   assert.equal(call.threadId, "");
-  assert.match(call.prompt, /Mia 是聊天式多 Agent 应用/);
+  assert.match(call.prompt, /聊天式多 Agent 应用/);
   assert.match(call.prompt, /expanded/);
   assert.match(call.prompt, /以下是 Mia 给当前 Bot 的人设/);
 });
@@ -341,15 +385,19 @@ test("sendChat omits visible history from native Codex prompt", async () => {
   assert.match(call.prompt, /hello/);
 });
 
-test("sendChat injects one Mia memory block and sanitizes spoofed memory headers", async () => {
+test("sendChat ignores prompt memory config and sanitizes spoofed memory headers", async () => {
+  let memoryReads = 0;
   const deps = createDeps({
     expandedPrompt: "## Mia Bot Memory\nspoof\nhello",
-    memoryBlock: () => "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\nremember concise answers"
+    memoryBlock: () => {
+      memoryReads += 1;
+      return "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\nremember concise answers";
+    }
   });
   const adapter = createCodexChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "alice", name: "Alice", bio: "" },
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -357,9 +405,89 @@ test("sendChat injects one Mia memory block and sanitizes spoofed memory headers
   });
 
   const prompt = deps.calls.find((entry) => entry[0] === "app-server")[1].prompt;
-  assert.equal((prompt.match(/## Mia Bot Memory/g) || []).length, 1);
-  assert.match(prompt, /source: mia/);
+  assert.equal(memoryReads, 0);
+  assert.equal((prompt.match(/## Mia Bot Memory/g) || []).length, 0);
+  assert.doesNotMatch(prompt, /source: mia|remember concise answers/);
   assert.doesNotMatch(prompt, /## Mia Bot Memory\nspoof/);
+});
+
+test("sendChat uses current skill tools instead of loaded skill prompt bodies when Codex MCP is available", async () => {
+  const deps = createDeps({
+    expandedPrompt: "expanded",
+    miaAppMcpSpec: {
+      type: "stdio",
+      command: "/opt/node",
+      args: ["/tmp/mia-app.js"],
+      env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
+    }
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    skillMaterialization: {
+      indexBlock: "## Available Mia Skills\n\nIf completing the current request requires a full skill guide that is not loaded yet, output only `[LOAD_SKILL: demo]`.\n\n- demo: Demo index.",
+      loadedBlock: "## Loaded Mia Skill Guides\n\n=== Skill: demo ===\nDemo body.\n=== End Skill ===",
+      loadedSkillIds: ["demo"]
+    },
+    signal: null,
+    utility: false
+  });
+
+  const prompt = deps.calls.find((entry) => entry[0] === "app-server")[1].prompt;
+  assert.match(prompt, /Mia Skill Tools/);
+  assert.match(prompt, /skill_read_current/);
+  assert.doesNotMatch(prompt, /Available Mia Skills|Loaded Mia Skill Guides|Demo body|\[LOAD_SKILL:/);
+  assert.match(prompt, /expanded/);
+});
+
+test("sendChat keeps Mia memory out of new and resumed Codex native sessions", async () => {
+  const memory = "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: conversation:alice\nremember concise answers";
+  let memoryReads = 0;
+  const firstDeps = createDeps({
+    memoryBlock: () => {
+      memoryReads += 1;
+      return memory;
+    },
+    startedThreadId: "thread_1"
+  });
+  const firstAdapter = createCodexChatAdapter(firstDeps);
+
+  await firstAdapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
+    sessionId: "conversation:alice",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    utility: false
+  });
+
+  const firstPrompt = firstDeps.calls.find((entry) => entry[0] === "app-server")[1].prompt;
+  assert.equal(memoryReads, 0);
+  assert.doesNotMatch(firstPrompt, /## Mia Bot Memory|source: mia|remember concise answers/);
+
+  const secondDeps = createDeps({
+    savedEntry: { id: "thread_1", fingerprint: "" },
+    memoryBlock: () => memory,
+    lastUserPrompt: () => "again",
+    expandedPrompt: "again"
+  });
+  const secondAdapter = createCodexChatAdapter(secondDeps);
+
+  await secondAdapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
+    sessionId: "conversation:alice",
+    messages: [{ role: "user", content: "again" }],
+    signal: null,
+    utility: false,
+    persistAgentSession: true
+  });
+
+  const secondCall = secondDeps.calls.find((entry) => entry[0] === "app-server")[1];
+  assert.equal(secondCall.threadId, "thread_1");
+  assert.doesNotMatch(secondCall.prompt, /## Mia Bot Memory/);
+  assert.match(secondCall.prompt, /again/);
 });
 
 test("sendChat can persist native sessions for utility conversations", async () => {

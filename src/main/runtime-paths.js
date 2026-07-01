@@ -51,6 +51,8 @@ function createRuntimePaths(deps = {}) {
       userProfile: path.join(home, "mia-user.json"),
       modelSettings: path.join(home, "mia-model.json"),
       memory: path.join(home, "mia-memory.json"),
+      memoryDb: path.join(home, "mia-memory.sqlite"),
+      memorySettings: path.join(home, "mia-memory-settings.json"),
       providerConnections: path.join(home, "mia-providers.json"),
       permissionSettings: path.join(home, "mia-permissions.json"),
       agentPermissionRules: path.join(home, "mia-agent-permissions.json"),

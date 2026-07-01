@@ -230,6 +230,21 @@ test("skillRecordsForBot exposes enabled skill records without prompt injection"
     assert.deepEqual(records[0].name, "demo-skill");
     assert.match(records[0].body, /# Demo Skill/);
 
+    const currentList = loader.listCurrentBotSkills({ capabilities: { enabledSkills: ["demo-skill", "nope"] } });
+    assert.deepEqual(currentList, [{
+      id: "demo-skill",
+      name: "demo-skill",
+      description: "A demo.",
+      bodyChars: records[0].body.length
+    }]);
+    const currentSkill = loader.readCurrentBotSkill({ capabilities: { enabledSkills: ["demo-skill"] } }, "demo-skill");
+    assert.match(currentSkill.body, /# Demo Skill/);
+    assert.equal(currentSkill.bodyChars, records[0].body.length);
+    assert.throws(
+      () => loader.readCurrentBotSkill({ capabilities: { enabledSkills: [] } }, "demo-skill"),
+      /not enabled/
+    );
+
     const materialized = loader.resolveSkillMaterialization({
       bot: { capabilities: { enabledSkills: ["demo-skill"] } },
       activeSkillIds: [],

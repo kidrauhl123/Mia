@@ -65,9 +65,9 @@
 
   const EXTERNAL_PERMISSION_LABELS = Object.freeze({
     default: "Ask",
-    acceptEdits: "Edits",
-    auto: "Auto Mode",
-    bypassPermissions: "YOLO",
+    acceptEdits: "Accept Edits",
+    auto: "Auto",
+    bypassPermissions: "Bypass Permissions",
     dontAsk: "Don't Ask",
     plan: "Plan Mode",
     readOnly: "Read",
@@ -328,7 +328,19 @@
         aliases: ["yolo", "off", "never"]
       }
     ];
-    if (engine === EngineId.ClaudeCode) return [{ value: "default", label: "Ask Permissions", title: "Claude Code 默认权限。" }];
+    if (engine === EngineId.ClaudeCode) return [
+      { value: "default", label: "Ask Permissions", title: "Claude Code asks Mia before tool use.", aliases: [] },
+      { value: "acceptEdits", label: "Accept Edits", title: "Claude Code can apply edit tools without asking first.", aliases: [] },
+      { value: "auto", label: "Auto", title: "Claude Code uses its native automatic permission mode.", aliases: [] },
+      { value: "plan", label: "Plan Mode", title: "Claude Code plans without applying changes.", aliases: [] },
+      { value: "dontAsk", label: "Don't Ask", title: "Claude Code uses its native don't-ask mode.", aliases: [] },
+      {
+        value: "bypassPermissions",
+        label: "Bypass Permissions",
+        title: "Claude Code may use tools without Mia asking first.",
+        aliases: [":danger-full-access", "danger-full-access", "yolo", "off", "never"]
+      }
+    ];
     return [];
   }
 

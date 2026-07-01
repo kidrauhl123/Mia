@@ -292,6 +292,35 @@ test("creating a bot uses normalized local agent inventory for engine choices", 
   );
 });
 
+test("creating a bot keeps local engine choices while agent scan is still running", () => {
+  const { context, select } = createBotDialogContext({
+    runtime: {
+      cloud: { enabled: false, devices: [] },
+      localDevice: { id: "win-local", name: "Windows PC" },
+      agentEngines: {},
+      agentInventory: {
+        summary: { scanning: true },
+        agents: [
+          { id: "hermes", health: "checking", source: "checking", usableInMia: false },
+          { id: "claude-code", health: "checking", source: "checking", usableInMia: false },
+          { id: "codex", health: "checking", source: "checking", usableInMia: false },
+          { id: "openclaw", health: "checking", source: "checking", usableInMia: false }
+        ]
+      },
+      preferredAgentEngine: "hermes"
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog();
+
+  assert.deepEqual(
+    decodedRuntimeOptions(select)
+      .filter((option) => option.deviceId === "win-local")
+      .map((option) => option.agentEngine),
+    ["hermes", "claude-code", "codex", "openclaw"]
+  );
+});
+
 test("creating a bot paints the dialog before refreshing bridge devices", async () => {
   const { context, events } = createBotDialogContext({
     listBridgeDevices: async () => ({ ok: true, data: { devices: [] } })

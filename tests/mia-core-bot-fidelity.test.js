@@ -6,7 +6,6 @@ const path = require("node:path");
 
 const { createCoreBotExecution } = require("../src/core/mia-core.js");
 const { createRuntimePaths } = require("../src/main/runtime-paths.js");
-const { MIA_MEMORY_HEADER } = require("../src/main/mia-memory-service.js");
 
 // Functional-parity proof: a Hermes turn run via Core injects the SAME memory
 // block + active skill materialization + active-skills directive the Electron daemon
@@ -58,8 +57,9 @@ function makeTempHome() {
   return home;
 }
 
-test("a Hermes turn via Core injects the REAL memory block + active skill materialization + active directive (node-only)", async () => {
+test("a Hermes turn via Core omits memory prompt by default and applies active skills (node-only)", async () => {
   const home = makeTempHome();
+  let core = null;
   try {
     // Real runtime paths rooted at the temp MIA_HOME (single-owner data home).
     const { runtimePaths } = createRuntimePaths({
@@ -108,7 +108,7 @@ test("a Hermes turn via Core injects the REAL memory block + active skill materi
       return Promise.resolve(jsonResponse({}));
     };
 
-    const core = createCoreBotExecution({
+    core = createCoreBotExecution({
       runtimePaths,
       settingsStore: { daemonSettings: () => ({ enabled: false }) },
       hermesBaseUrl: "http://hermes.local",
@@ -136,21 +136,11 @@ test("a Hermes turn via Core injects the REAL memory block + active skill materi
     assert.equal(response.choices[0].message.content, "done");
     assert.ok(capturedRunBody, "expected the real Hermes adapter to POST a run body");
 
-    // (a) Memory block is applied: the system instructions carry the Mia memory
-    // header and the seeded shared + bot memory — proving memoryBlock is the real
-    // service, not the () => "" stub.
-    assert.ok(
-      capturedRunBody.instructions && capturedRunBody.instructions.includes(MIA_MEMORY_HEADER),
-      "memory block missing from run instructions"
-    );
-    assert.ok(
-      capturedRunBody.instructions.includes("用户偏好简洁的中文回复"),
-      "seeded shared memory missing"
-    );
-    assert.ok(
-      capturedRunBody.instructions.includes("这个 Bot 负责论文写作"),
-      "seeded bot memory missing"
-    );
+    // (a) Memory prompt injection is legacy opt-in now. The default Core path
+    // must not stuff seeded Mia memories into Hermes instructions.
+    assert.doesNotMatch(capturedRunBody.instructions || "", /## Mia Bot Memory/);
+    assert.doesNotMatch(capturedRunBody.instructions || "", /用户偏好简洁的中文回复/);
+    assert.doesNotMatch(capturedRunBody.instructions || "", /这个 Bot 负责论文写作/);
 
     // (b) Active skill materialization is applied: the seeded skill's body is
     // injected into the user input — proving resolveSkillMaterialization is the real loader,
@@ -172,6 +162,7 @@ test("a Hermes turn via Core injects the REAL memory block + active skill materi
       "active-skills directive missing the selected skill name"
     );
   } finally {
+    try { await core?.closeAgentEngines?.(); } catch { /* best effort */ }
     fs.rmSync(home, { recursive: true, force: true });
   }
 });

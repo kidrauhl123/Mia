@@ -139,23 +139,10 @@ function cloudBotIdentityInstructions(bot = {}) {
   ].filter(Boolean).join("\n");
 }
 
-function workerSupportsWebSearch(worker = {}) {
-  return worker?.capabilities?.webSearch === true;
-}
-
-function cloudRuntimeToolInstructions(worker = {}) {
-  if (!workerSupportsWebSearch(worker)) return "";
-  return [
-    "## Available Mia Runtime Tools",
-    "此云端运行已加载 web_search 和 web_fetch。用户需要最新、实时或 current/latest 信息时，使用 web_search 查询公开网页；需要核对来源时再用 web_fetch 阅读页面。"
-  ].join("\n");
-}
-
-function cloudRuntimeInstructions(bot, message = {}, worker = {}) {
+function cloudRuntimeInstructions(bot, message = {}) {
   const persona = stripCopiedEngineIdentity(bot?.personaText || bot?.persona_text || "", bot);
   return [
     miaRuntimeSystemPrompt({ scheduledFire: isScheduledFireMessage(message) }),
-    cloudRuntimeToolInstructions(worker),
     persona,
     cloudBotIdentityInstructions(bot)
   ].filter(Boolean).join("\n\n");
@@ -316,13 +303,6 @@ function createCloudAgentDispatcher(deps = {}) {
     getUserPublic,
     log
   });
-
-  function conversationHistory(conversationId) {
-    return messagesStore.listMessagesSince(conversationId, 0, 200).map((row) => ({
-      role: messageRole(row),
-      content: row.body_md || ""
-    }));
-  }
 
   function recentMessagesForDesktopInvocation(conversationId) {
     return messagesStore.listMessagesSince(conversationId, 0, DESKTOP_INVOCATION_HISTORY_LIMIT);
@@ -610,7 +590,7 @@ function createCloudAgentDispatcher(deps = {}) {
           userId: ownerId,
           bot,
           conversationId,
-          instructions: cloudRuntimeInstructions(bot, message, worker),
+          instructions: cloudRuntimeInstructions(bot, message),
           model: normalizeCloudHermesModel(runtimeConfig.model, { defaultModel: worker.model }),
           effortLevel: runtimeConfig.effortLevel || "medium",
           permissionMode: runtimeConfig.permissionMode || "ask",
@@ -619,7 +599,6 @@ function createCloudAgentDispatcher(deps = {}) {
             conversationInput
           ].filter(Boolean).join("\n\n"),
           attachments: materialized.attachments || [],
-          conversationHistory: conversationHistory(conversationId),
           onRunCreated(hermesRunId) {
             cloudAgentRunsStore.markRunning(run.id, hermesRunId || "");
             broadcastTransientEvent(ownerId, {

@@ -315,6 +315,7 @@
           <button class="settings-tab active" type="button" data-settings-tab="account">账号与同步</button>
           <button class="settings-tab" type="button" data-settings-tab="appearance">外观</button>
           <button class="settings-tab" type="button" data-settings-tab="model">模型</button>
+          <button class="settings-tab" type="button" data-settings-tab="memory">记忆</button>
         </div>
       </section>
     </aside>
@@ -575,6 +576,7 @@
             <button class="settings-tab active" type="button" data-settings-tab="account">账号与同步</button>
             <button class="settings-tab" type="button" data-settings-tab="appearance">外观</button>
             <button class="settings-tab" type="button" data-settings-tab="model">模型</button>
+            <button class="settings-tab" type="button" data-settings-tab="memory">记忆</button>
           </aside>
 
           <div class="settings-content">
@@ -861,6 +863,42 @@
             </section>
           </section>
 
+          <section class="settings-panel hidden" data-settings-panel="memory">
+            <div class="settings-section-label">Mia 记忆</div>
+            <section class="settings-row settings-group-start settings-group-end">
+              <div>
+                <strong>启用 Mia 记忆工具</strong>
+                <p>关闭后，本机 Agent 不会通过 Mia 记忆工具读取或写入；已有记忆仍可在这里管理。各引擎自己的原生记忆不受此开关影响。</p>
+              </div>
+              <button id="settingsMemoryEnabled" class="settings-switch" type="button" role="switch" aria-checked="true" aria-label="启用 Mia 记忆工具"><span></span></button>
+            </section>
+            <section class="settings-row settings-memory-editor settings-group-start settings-group-end">
+              <div>
+                <strong id="settingsMemoryEditorTitle">新增全局记忆</strong>
+                <p id="settingsMemoryEditorMeta">这里管理当前 Mia 用户的全局记忆；单个 Bot 的记忆放在联系人详情里。</p>
+              </div>
+              <div class="settings-memory-editor-fields">
+                <select id="settingsMemoryDraftKind" aria-label="记忆类型">
+                  <option value="fact">事实</option>
+                  <option value="preference">偏好</option>
+                  <option value="relationship">关系</option>
+                  <option value="instruction">指令</option>
+                  <option value="plan">计划</option>
+                  <option value="procedural">流程</option>
+                  <option value="episodic">事件</option>
+                </select>
+                <textarea id="settingsMemoryDraftText" rows="3" placeholder="写入或编辑记忆"></textarea>
+                <div class="settings-memory-actions">
+                  <button id="settingsMemoryCancelEdit" class="secondary hidden" type="button">取消编辑</button>
+                  <button id="settingsMemorySave" class="primary" type="button">保存记忆</button>
+                </div>
+              </div>
+            </section>
+
+            <div class="settings-section-label">全局记忆</div>
+            <section id="settingsMemoryList" class="settings-memory-list" aria-live="polite"></section>
+          </section>
+
           <section class="settings-panel" data-settings-panel="account">
             <div class="runtime-card cloud-account-card">
               <section class="connection-row">
@@ -1014,7 +1052,7 @@
           <summary>人设</summary>
           <div class="accordion-body">
             <label>
-              <span>保存在 Hermes bots/&lt;id&gt;.md，会作为该 Bot 的系统人设注入。</span>
+              <span>这段人设保存在 Mia 的 Bot 身份里，会作为该 Bot 的原生会话上下文使用。</span>
               <textarea id="botSeed" placeholder="可留空，后续在对话中慢慢形成"></textarea>
             </label>
           </div>
@@ -1321,6 +1359,7 @@
   <script src="./settings/model-settings.js"></script>
   <script src="./settings/settings-appearance.js"></script>
   <script src="./settings/settings-remote.js"></script>
+  <script src="./settings/settings-memory.js"></script>
   <script src="./skills/skill-helpers.js"></script>
   <script src="./mcp/mcp-library.js"></script>
   <script src="./skills/skill-library.js"></script>

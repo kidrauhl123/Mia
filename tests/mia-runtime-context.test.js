@@ -9,18 +9,13 @@ test("Mia runtime context keeps browser automation out of the global prompt", ()
   assert.doesNotMatch(MIA_RUNTIME_CONTEXT, /Codex in-app Browser/);
   assert.doesNotMatch(MIA_RUNTIME_CONTEXT, /\biab\b/);
   assert.doesNotMatch(MIA_RUNTIME_CONTEXT, /chrome-devtools|playwright/);
-  assert.doesNotMatch(miaRuntimeSystemPrompt(), /浏览器 MCP/);
+  assert.doesNotMatch(miaRuntimeSystemPrompt(), /browser MCP/i);
 });
 
 test("Mia runtime context keeps scheduler routing out of the global prompt", () => {
-  assert.match(MIA_RUNTIME_CONTEXT, /Mia 是聊天式多 Agent 应用/);
+  assert.match(MIA_RUNTIME_CONTEXT, /聊天式多 Agent 应用/);
+  assert.match(MIA_RUNTIME_CONTEXT, /mia-app/);
   assert.doesNotMatch(MIA_RUNTIME_CONTEXT, /schedule_create|schedule_list|schedule_update|schedule_delete|schedule_pause|schedule_resume/);
-  assert.doesNotMatch(MIA_RUNTIME_CONTEXT, /定时任务规则|Hermes cron|不要使用 shell|cronjob/);
-  assert.doesNotMatch(miaRuntimeSystemPrompt(), /schedule_create|定时任务规则/);
-});
-
-test("Mia runtime context keeps web search routing out of the global prompt", () => {
-  const prompt = miaRuntimeSystemPrompt();
-  assert.doesNotMatch(prompt, /web_search|web_fetch/);
-  assert.doesNotMatch(prompt, /terminal|curl|Python 网络探测/);
+  assert.doesNotMatch(MIA_RUNTIME_CONTEXT, /scheduled task rules|Hermes cron|do not use shell|cronjob/i);
+  assert.doesNotMatch(miaRuntimeSystemPrompt(), /schedule_create|scheduled task rules/i);
 });

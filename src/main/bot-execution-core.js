@@ -13,6 +13,8 @@ const {
 } = require("../shared/skill-load-protocol.js");
 
 const MAX_SKILL_LOAD_ROUNDS = 3;
+const MAX_MEMORY_EXTRACTION_MESSAGES = 12;
+const MAX_MEMORY_EXTRACTION_MESSAGE_CHARS = 4000;
 
 function responseWithMessageContent(response, content) {
   const text = String(content || "").trim();
@@ -37,6 +39,110 @@ function fallbackForUnresolvedSkillLoad(ids = []) {
   return `我没能加载到 ${label} 的完整指南。请确认这个 Skill 已安装或已添加到这个 Bot 的能力列表。`;
 }
 
+function textContent(value = "") {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    return value
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object") return part.text || part.content || "";
+        return "";
+      })
+      .join("\n")
+      .trim();
+  }
+  if (value && typeof value === "object") return String(value.text || value.content || "").trim();
+  return "";
+}
+
+function memoryExtractionRole(role = "") {
+  const normalized = String(role || "").trim().toLowerCase();
+  if (normalized === "assistant" || normalized === "model") return "assistant";
+  if (normalized === "user" || normalized === "human") return "user";
+  return "";
+}
+
+function boundedMemoryExtractionMessages(messages = [], assistantText = "") {
+  const rows = [];
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const role = memoryExtractionRole(message?.role);
+    if (!role) continue;
+    const content = textContent(message?.content || message?.text || "");
+    if (!content) continue;
+    rows.push({
+      role,
+      content: content.slice(0, MAX_MEMORY_EXTRACTION_MESSAGE_CHARS),
+      id: String(message?.id || message?.messageId || "").trim()
+    });
+  }
+  const finalAssistantText = textContent(assistantText);
+  if (finalAssistantText) {
+    rows.push({
+      role: "assistant",
+      content: finalAssistantText.slice(0, MAX_MEMORY_EXTRACTION_MESSAGE_CHARS),
+      id: ""
+    });
+  }
+  return rows.slice(-MAX_MEMORY_EXTRACTION_MESSAGES);
+}
+
+function scheduleMemoryExtraction({
+  miaMemoryService,
+  isMemoryEnabled,
+  onMemoryExtracted,
+  appendCloudLog,
+  bot,
+  sessionId,
+  messages,
+  assistantText,
+  agentEngine,
+  group = false,
+  utility = false,
+  background = false,
+  scheduledFire = false
+} = {}) {
+  const text = textContent(assistantText);
+  if (!text || utility || background || scheduledFire) return false;
+  if (String(sessionId || "").startsWith("title:")) return false;
+  if (!miaMemoryService || typeof miaMemoryService.extractMemoriesFromMessages !== "function") return false;
+  try {
+    if (typeof isMemoryEnabled === "function" && isMemoryEnabled() === false) return false;
+  } catch {
+    return false;
+  }
+
+  const extractionMessages = boundedMemoryExtractionMessages(messages, text);
+  if (extractionMessages.length < 2) return false;
+  const sourceMessageIds = extractionMessages.map((message) => message.id).filter(Boolean);
+  const input = {
+    botId: String(bot?.key || bot?.id || "mia").trim() || "mia",
+    sessionId: String(sessionId || "default").trim() || "default",
+    scope: group ? "session" : "bot",
+    messages: extractionMessages.map(({ role, content }) => ({ role, content })),
+    originEngine: String(agentEngine || bot?.agentEngine || bot?.agent_engine || "").trim(),
+    sourceMessageIds,
+    metadata: {
+      source: "bot_execution_core",
+      group: Boolean(group)
+    }
+  };
+
+  Promise.resolve().then(async () => {
+    const result = await miaMemoryService.extractMemoriesFromMessages(input);
+    if (typeof onMemoryExtracted === "function" && Array.isArray(result?.memories)) {
+      for (const memoryResult of result.memories) {
+        onMemoryExtracted(memoryResult, { ...input, eventSource: "agent_extract" });
+      }
+    }
+    if (result?.status === "ok" && Array.isArray(result.memories) && result.memories.length) {
+      appendCloudLog?.(`[Mia memory] extracted ${result.memories.length} memories for bot=${input.botId} session=${input.sessionId}`);
+    }
+  }).catch((error) => {
+    appendCloudLog?.(`[Mia memory] extraction failed: ${String(error?.message || error)}`);
+  });
+  return true;
+}
+
 function createBotExecutionCore({
   createChatEventEmitter,
   cloudBotSnapshotForTurn,
@@ -58,7 +164,10 @@ function createBotExecutionCore({
   isDaemonProcess,
   daemonTasksClient,
   settingsStore,
-  appendCloudLog
+  appendCloudLog,
+  miaMemoryService = null,
+  isMemoryEnabled = null,
+  onMemoryExtracted = null
 }) {
   // Single-flight interactive chat controller — factory state, not a module
   // global. Group/utility/background turns keep their own controllers.
@@ -131,6 +240,24 @@ function createBotExecutionCore({
         if (shouldNotifyPet) botPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
         return response;
       };
+      const completeSuccessfulTurn = (response) => {
+        scheduleMemoryExtraction({
+          miaMemoryService,
+          isMemoryEnabled,
+          onMemoryExtracted,
+          appendCloudLog,
+          bot: botForTurn,
+          sessionId,
+          messages,
+          assistantText: responseMessageContent(response),
+          agentEngine,
+          group,
+          utility,
+          background,
+          scheduledFire
+        });
+        return completeWithPetMessage(response);
+      };
       if (emit) {
         emit("session_started", { botKey: botForTurn.key, engine: agentEngine });
       }
@@ -196,7 +323,7 @@ function createBotExecutionCore({
         const loadRequests = extractLoadSkillRequests(content);
         if (!loadRequests.length) {
           eventGate.replay();
-          return completeWithPetMessage(response);
+          return completeSuccessfulTurn(response);
         }
 
         const known = new Set(requestedSkillIds);
@@ -219,7 +346,7 @@ function createBotExecutionCore({
 
         eventGate.discard();
         const stripped = stripLoadSkillRequests(content);
-        return completeWithPetMessage(responseWithMessageContent(
+        return completeSuccessfulTurn(responseWithMessageContent(
           response,
           stripped || fallbackForUnresolvedSkillLoad(loadRequests)
         ));
@@ -281,4 +408,8 @@ function createBotExecutionCore({
   };
 }
 
-module.exports = { createBotExecutionCore };
+module.exports = {
+  boundedMemoryExtractionMessages,
+  createBotExecutionCore,
+  scheduleMemoryExtraction
+};

@@ -261,8 +261,7 @@ function createGroupOrchestrator({
         effortLevel: "medium",
         permissionMode: "ask",
         input: dispatchPrompt,
-        attachments: [],
-        conversationHistory: []
+        attachments: []
       });
       return parseDispatchSpeak(result.content || "");
     } catch (error) {

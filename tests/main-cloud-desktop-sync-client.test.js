@@ -116,7 +116,8 @@ test("login normalizes the cloud URL, starts WeChat auth, then starts sockets wi
     url: "https://new.example",
     enabled: true,
     token: "tok_new",
-    user: { id: "u_new", username: "jung" }
+    user: { id: "u_new", username: "jung" },
+    lastMemorySyncAt: ""
   });
   assert.equal(calls.startedEvents, 1);
   assert.equal(calls.startedBridge, 1);
@@ -135,6 +136,90 @@ test("syncWorkspace refreshes the cloud user without syncing local manifest bots
   assert.equal(calls.fetch[0].headers.Authorization, "Bearer tok_1");
   assert.equal(calls.fetch[0].body, null);
   assert.deepEqual(calls.writes.at(-1), { user: { id: "u_1", username: "refreshed" } });
+});
+
+test("syncMemories pushes local scoped changes, applies cloud conflicts, and advances cursor", async () => {
+  const applied = [];
+  const { client, calls } = setup({
+    initialSettings: {
+      enabled: true,
+      token: "tok_1",
+      url: "https://cloud.example/",
+      user: { id: "u_1", username: "jung" },
+      lastMemorySyncAt: "2026-01-01T00:00:00.000Z"
+    },
+    memoryService: {
+      listSyncMemories: (input) => {
+        assert.deepEqual(input, {
+          since: "2026-01-01T00:00:00.000Z",
+          includeDeleted: true,
+          limit: 1000
+        });
+        return [{
+          id: "mem_local_deleted",
+          botId: "mei",
+          scope: "bot",
+          text: "",
+          status: "archived",
+          updatedAt: "2026-01-02T00:00:00.000Z",
+          deletedAt: "2026-01-02T00:00:00.000Z",
+          revision: 2
+        }];
+      },
+      applySyncedMemories: (entries, options = {}) => {
+        applied.push({ entries, options });
+        return { applied: entries, conflicts: [], errors: [] };
+      }
+    },
+    responses: [
+      jsonResponse({
+        memories: [],
+        conflicts: [{
+          id: "mem_conflict",
+          botId: "mei",
+          scope: "bot",
+          text: "Cloud has the newer memory",
+          updatedAt: "2026-01-03T00:00:00.000Z",
+          revision: 4
+        }],
+        errors: [],
+        serverTime: "2026-01-04T00:00:00.000Z"
+      }),
+      jsonResponse({
+        memories: [{
+          id: "mem_remote",
+          botId: "mei",
+          scope: "bot",
+          text: "Remote memory pulled down",
+          updatedAt: "2026-01-04T00:00:00.000Z",
+          revision: 1
+        }],
+        serverTime: "2026-01-05T00:00:00.000Z"
+      })
+    ]
+  });
+
+  const result = await client.syncMemories();
+
+  assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
+    ["POST", "https://cloud.example/api/me/memory/push"],
+    ["GET", "https://cloud.example/api/me/memory?since=2026-01-01T00%3A00%3A00.000Z"]
+  ]);
+  assert.equal(calls.fetch[0].body.entries[0].id, "mem_local_deleted");
+  assert.equal(calls.fetch[0].body.entries[0].deletedAt, "2026-01-02T00:00:00.000Z");
+  assert.equal(applied.length, 2);
+  assert.equal(applied[0].entries[0].id, "mem_conflict");
+  assert.deepEqual(applied[0].options, { force: true });
+  assert.equal(applied[1].entries[0].id, "mem_remote");
+  assert.deepEqual(calls.writes.at(-1), { lastMemorySyncAt: "2026-01-05T00:00:00.000Z" });
+  assert.deepEqual(result, {
+    ok: true,
+    pushed: 0,
+    pulled: 2,
+    conflicts: 1,
+    errors: 0,
+    serverTime: "2026-01-05T00:00:00.000Z"
+  });
 });
 
 test("saveUserProfile writes the local profile and immediately syncs it to Mia Cloud", async () => {

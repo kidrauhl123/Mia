@@ -107,8 +107,18 @@
       });
     }
     const normalized = engineContracts.normalizeAgentEngine ? engineContracts.normalizeAgentEngine(engine) : engine;
-    if (normalized === "claude-code" || normalized === "codex" || normalized === "openclaw") {
-      return [{ value: "default", label: normalized === "claude-code" ? "Ask Permissions" : "Ask", title: "" }];
+    if (normalized === "claude-code") {
+      return [
+        { value: "default", label: "Ask Permissions", title: "Claude Code asks Mia before tool use." },
+        { value: "acceptEdits", label: "Accept Edits", title: "Claude Code can apply edit tools without asking first." },
+        { value: "auto", label: "Auto", title: "Claude Code uses its native automatic permission mode." },
+        { value: "plan", label: "Plan Mode", title: "Claude Code plans without applying changes." },
+        { value: "dontAsk", label: "Don't Ask", title: "Claude Code uses its native don't-ask mode." },
+        { value: "bypassPermissions", label: "Bypass Permissions", title: "Claude Code may use tools without Mia asking first." }
+      ];
+    }
+    if (normalized === "codex" || normalized === "openclaw") {
+      return [{ value: "default", label: "Ask", title: "" }];
     }
     // Hermes — pull from real engine capabilities (probed via SETTINGS_SCHEMA).
     // Defaults to the upstream ask/yolo/deny set if the probe hasn't completed.

@@ -1,15 +1,35 @@
-const MIA_RUNTIME_CONTEXT = [
-  "## Mia Runtime Context",
-  "",
-  "Mia 是聊天式多 Agent 应用。用户正在 Mia 里和当前 Bot 对话，Bot 的回复会回到这个 Mia 会话。"
-].join("\n");
-const MIA_MEMORY_HEADER = "## Mia Bot Memory";
+const fs = require("node:fs");
+const path = require("node:path");
 
-const MIA_SCHEDULED_FIRE_CONTEXT = [
+const FALLBACK_RUNTIME_CONTEXT = [
   "## Mia Runtime Context",
   "",
-  "Mia 是聊天式多 Agent 应用。用户正在 Mia 里和当前 Bot 对话，Bot 的回复会回到这个 Mia 会话。"
+  "Mia 是聊天式多 Agent 应用。用户正在 Mia 里和当前 Bot 对话，Bot 的回复会回到这个 Mia 会话。",
+  "请把 Bot 人设、Mia 记忆和会话状态限制在当前 Mia Bot 与当前会话内。"
 ].join("\n");
+
+const FALLBACK_SCHEDULED_FIRE_CONTEXT = [
+  "## Mia Runtime Context",
+  "",
+  "Mia 是聊天式多 Agent 应用。本轮由当前 Bot/会话的定时或主动事件触发。",
+  "请把 Bot 人设、Mia 记忆和会话状态限制在当前 Mia Bot 与当前会话内。"
+].join("\n");
+
+function promptPath(fileName = "") {
+  return path.join(__dirname, "prompts", fileName);
+}
+
+function readPromptFile(fileName = "", fallback = "") {
+  try {
+    const text = fs.readFileSync(promptPath(fileName), "utf8").trim();
+    return text || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const MIA_RUNTIME_CONTEXT = readPromptFile("mia-runtime.md", FALLBACK_RUNTIME_CONTEXT);
+const MIA_SCHEDULED_FIRE_CONTEXT = readPromptFile("mia-scheduled-runtime.md", FALLBACK_SCHEDULED_FIRE_CONTEXT);
 
 function miaRuntimeSystemPrompt(opts = {}) {
   return opts && opts.scheduledFire ? MIA_SCHEDULED_FIRE_CONTEXT : MIA_RUNTIME_CONTEXT;
@@ -24,23 +44,12 @@ function withMiaRuntimeContext(persona = "", opts = {}) {
 
 function sanitizeMiaMemorySpoof(value = "") {
   return String(value || "")
-    .replace(/## Mia Bot Memory/g, "Mia Bot Memory")
     .replace(/## Mia Bot Memory/g, "Mia Bot Memory");
 }
 
-function appendMiaMemoryBlock(base = "", memoryBlock = "") {
-  const text = String(base || "").trim();
-  const addition = String(memoryBlock || "").trim();
-  if (!addition) return text;
-  if (text.includes(`${MIA_MEMORY_HEADER}\nsource: mia`)) return text;
-  return [text, addition].filter(Boolean).join("\n\n");
-}
-
 module.exports = {
-  MIA_MEMORY_HEADER,
   MIA_RUNTIME_CONTEXT,
   MIA_SCHEDULED_FIRE_CONTEXT,
-  appendMiaMemoryBlock,
   miaRuntimeSystemPrompt,
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext

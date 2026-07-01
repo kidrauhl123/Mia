@@ -15,6 +15,7 @@ function createCloudEventsClient({
   cloudEventChannel,
   appendCloudLog,
   botRuntimeDispatcher,
+  memorySync = null,
   messageCache = null,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
@@ -174,6 +175,15 @@ function createCloudEventsClient({
       return;
     }
     if (message.type && message.type.startsWith("task.")) {
+      emitToRenderer({ type: message.type, payload: message });
+      return;
+    }
+    if (message.type === CloudEvent.MemoryUpdated || message.type === CloudEvent.MemoryDeleted) {
+      if (typeof memorySync === "function") {
+        Promise.resolve(memorySync(message)).catch((error) => {
+          log(`Mia Cloud memory event sync failed: ${error?.message || error}`);
+        });
+      }
       emitToRenderer({ type: message.type, payload: message });
       return;
     }

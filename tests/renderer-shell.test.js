@@ -125,14 +125,11 @@ test("composer pending attachments are thumbnail-first and open the image editor
 
   assert.match(composerSource, /data-attachment-preview/);
   assert.match(composerSource, /classList\?\.toggle\("has-attachments", attachments\.length > 0\)/);
-  assert.match(composerSource, /composer-attachment-kind/);
-  assert.match(composerSource, /composer-attachment-name/);
-  assert.match(composerSource, /composer-attachment-size/);
+  assert.doesNotMatch(composerSource, /composer-attachment-name/);
+  assert.doesNotMatch(composerSource, /composer-attachment-size/);
   assert.match(styleSource, /\.composer-card\.has-attachments\s*\{/);
   assert.match(styleSource, /@keyframes composerAttachmentsOpen/);
   assert.match(styleSource, /\.composer-attachment\.image\s*\{[\s\S]*?width:\s*136px;[\s\S]*?height:\s*86px;/);
-  assert.match(styleSource, /\.composer-attachment\.file\s*\{[\s\S]*?grid-template-columns:\s*34px minmax\(0,\s*1fr\);/);
-  assert.match(styleSource, /\.composer-attachment\.file\s+\.composer-attachment-remove\s*\{[\s\S]*?opacity:\s*0;/);
   assert.match(styleSource, /\.composer-attachment-thumb\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
 });
 
@@ -2608,7 +2605,7 @@ test("contact capability checkboxes use official preset default capabilities", (
   assert.match(botManagerSource, /state\?\.skillLibrary\?\.botPresets/);
 });
 
-test("bot-only contact detail renders capabilities and persona as compact accordions", () => {
+test("bot-only contact detail renders capabilities, persona, and memory as compact accordions", () => {
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
@@ -2620,9 +2617,89 @@ test("bot-only contact detail renders capabilities and persona as compact accord
   assert.match(botManagerSource, /<details class="contact-persona-card accordion-details"/);
   assert.match(botManagerSource, /botPersonaText\(bot\)/);
   assert.match(botManagerSource, /renderBotPersonaPanel\(bot\)/);
+  assert.match(botManagerSource, /function renderContactMemoryPanel\(bot\)/);
+  assert.match(botManagerSource, /<details class="contact-memory-card accordion-details"/);
+  assert.match(botManagerSource, /window\.mia\.memory\.remember/);
+  assert.match(botManagerSource, /window\.mia\.memory\.update/);
+  assert.match(botManagerSource, /window\.mia\.memory\.delete/);
+  assert.match(botManagerSource, /refreshContactMemoryForBot/);
   assert.doesNotMatch(botManagerSource, /renderHumanPersonaPanel/);
   assert.match(styleSource, /\.contact-persona-card/);
+  assert.match(styleSource, /\.contact-memory-card/);
   assert.match(styleSource, /\.contact-persona-text/);
+});
+
+test("bot edit dialog keeps memory out of the create/edit modal", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
+
+  assert.doesNotMatch(htmlSource, /id="botMemoryDetails"/);
+  assert.doesNotMatch(htmlSource, /id="botMemoryDraftScope"/);
+  assert.doesNotMatch(appSource, /botMemoryDetails: document\.getElementById/);
+  assert.doesNotMatch(dialogSource, /function loadBotMemoryEntries\(\)/);
+  assert.doesNotMatch(dialogSource, /window\.mia\.memory\.promote/);
+  assert.match(htmlSource, /这段人设保存在 Mia 的 Bot 身份里/);
+});
+
+test("settings exposes account-level memory governance", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const memorySource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-memory.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const coreSource = fs.readFileSync(path.join(root, "src/core/mia-core.js"), "utf8");
+
+  assert.match(htmlSource, /data-settings-tab="memory"/);
+  assert.match(htmlSource, /data-settings-panel="memory"/);
+  assert.match(htmlSource, /id="settingsMemoryList"/);
+  assert.match(htmlSource, /id="settingsMemoryEnabled"/);
+  assert.doesNotMatch(htmlSource, /id="settingsMemoryExportText"/);
+  assert.doesNotMatch(htmlSource, /id="settingsMemoryDeleteAll"/);
+  assert.doesNotMatch(htmlSource, /id="settingsMemoryStatus"/);
+  assert.doesNotMatch(htmlSource, /id="settingsMemoryQuery"/);
+  assert.match(htmlSource, /<script src="\.\/settings\/settings-memory\.js"><\/script>/);
+  assert.match(appSource, /settingsMemoryEnabled: document\.getElementById\("settingsMemoryEnabled"\)/);
+  assert.match(appSource, /settingsMemoryList: document\.getElementById\("settingsMemoryList"\)/);
+  assert.doesNotMatch(appSource, /settingsMemoryDeleteAll: document\.getElementById/);
+  assert.match(appSource, /window\.miaSettingsMemory\?\.loadMemorySettings/);
+  assert.match(memorySource, /window\.mia\.saveMemorySettings/);
+  assert.match(memorySource, /function saveMemoryEnabled\(enabled\)/);
+  assert.match(memorySource, /window\.mia\.memory\.listAll/);
+  assert.doesNotMatch(memorySource, /window\.mia\.memory\.activate/);
+  assert.doesNotMatch(memorySource, /window\.mia\.memory\.promote/);
+  assert.match(memorySource, /window\.mia\.memory\.delete/);
+  assert.doesNotMatch(memorySource, /window\.mia\.memory\.deleteAll/);
+  assert.doesNotMatch(memorySource, /function memoryProvenanceParts/);
+  assert.doesNotMatch(memorySource, /function promoteTargetForEntry/);
+  assert.doesNotMatch(memorySource, /data-memory-action="promote"/);
+  assert.doesNotMatch(memorySource, /function deleteAllMatchingMemories\(\)/);
+  assert.doesNotMatch(memorySource, /window\.mia\.memory\.exportAll/);
+  assert.match(styleSource, /\.settings-memory-list/);
+  assert.match(mainSource, /IpcChannel\.MemoryListAll/);
+  assert.doesNotMatch(mainSource, /IpcChannel\.MemoryPromote/);
+  assert.doesNotMatch(mainSource, /IpcChannel\.MemoryDeleteAll/);
+  assert.doesNotMatch(mainSource, /IpcChannel\.MemoryExport/);
+  assert.match(mainSource, /IpcChannel\.MemorySettingsSave/);
+  assert.match(mainSource, /function syncNativeMemoryFilesForAgent\(input = \{\}\)/);
+  assert.doesNotMatch(mainSource, /miaMemoryBlock|memoryBlock:\s*/);
+  assert.doesNotMatch(mainSource, /syncNativeMemoryFiles:\s*miaMemoryService\.syncNativeMemoryFiles/);
+  assert.match(coreSource, /function syncNativeMemoryFilesForAgent\(input = \{\}\)/);
+  assert.doesNotMatch(coreSource, /miaMemoryBlock|memoryBlock:\s*/);
+  assert.doesNotMatch(coreSource, /syncNativeMemoryFiles:\s*miaMemoryService\.syncNativeMemoryFiles/);
+});
+
+test("renderer handles memory events as lightweight UI refreshes, not chat messages", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const memoryStart = appSource.indexOf("let visibleMemoryRefreshTimer");
+  const memoryEnd = appSource.indexOf("\n\nasync function createNewSessionForActive", memoryStart);
+  const memoryHandlerBlock = appSource.slice(memoryStart, memoryEnd);
+
+  assert.match(appSource, /envelope\.type === "memory\.updated" \|\| envelope\.type === "memory\.deleted"/);
+  assert.match(appSource, /handleMemoryEvent\(envelope\);\s*return;/);
+  assert.match(memoryHandlerBlock, /window\.miaSettingsMemory\?\.loadMemorySettings\?\.\(\)/);
+  assert.match(memoryHandlerBlock, /window\.miaBotManager\?\.refreshContactMemoryForBot\?\./);
+  assert.doesNotMatch(memoryHandlerBlock, /appendTransientChat|chatStore|appendMessage|sendInActiveConversation/);
 });
 
 test("social keeps desktop-local bot runtime binding explicit", () => {

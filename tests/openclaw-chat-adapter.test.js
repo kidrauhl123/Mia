@@ -8,15 +8,11 @@ const { PassThrough } = require("node:stream");
 const {
   acpPermissionFallback,
   buildOpenClawAcpArgs,
-  buildOpenClawArgs,
   buildOpenClawGlobalArgs,
   closeOpenClawAcpRuntimes,
-  createOpenClawChatAdapter,
-  parseOpenClawContent,
-  shouldUseLegacyOpenClawTransport
+  createOpenClawChatAdapter
 } = require("../src/main/openclaw-chat-adapter.js");
 const { chatCompletionResponse } = require("../src/main/chat-response.js");
-const { clearNativeMemoryCache } = require("../src/main/native-memory-context.js");
 const { clearNativePersonaCache } = require("../src/main/native-persona-context.js");
 const { clearNativeSkillIndexCache } = require("../src/main/native-skill-context.js");
 
@@ -108,9 +104,11 @@ function createDeps(overrides = {}) {
     injectGroupContextForSdk: (prompt, contextBlock) => `${contextBlock}\n\n${prompt}`,
     lastUserPrompt: (messages) => [...messages].reverse().find((message) => message.role === "user")?.content || "",
     memoryBlock: () => "Mia 记忆",
+    syncNativeMemoryFiles: overrides.syncNativeMemoryFiles,
+    syncNativeContextFiles: overrides.syncNativeContextFiles,
     normalizeEffortLevel: (level) => `normalized-${level}`,
     processEnvStrings: () => ({ PATH: "/usr/local/bin" }),
-    readBotPersona: (key, name) => `${name} 的人设`,
+    readBotPersona: overrides.readBotPersona || ((key, name) => `${name} 的人设`),
     runtimePaths: () => ({ home: path.join(os.tmpdir(), "mia-openclaw-test-home") }),
     setAgentSessionId: (engine, botKey, sessionId, externalId) => {
       sessions.set(`${engine}:${botKey}:${sessionId}`, externalId);
@@ -154,38 +152,8 @@ function createDeps(overrides = {}) {
   };
 }
 
-test("buildOpenClawArgs prefers OpenClaw default routing and only forces local when requested", () => {
-  const args = buildOpenClawArgs({
-    bot: { key: "mia" },
-    sessionId: "s1",
-    message: "hello",
-    effort: "medium"
-  });
-
-  assert.equal(args[0], "agent");
-  assert.equal(args[1], "--agent");
-  assert.equal(args[2], "main");
-  assert.equal(args[3], "--message");
-  assert.equal(args[4], "hello");
-  assert.deepEqual(args.slice(5), ["--thinking", "medium", "--json", "--timeout", "600"]);
-  assert.equal(args.includes("--session-key"), false);
-  assert.equal(args.includes("--model"), false);
-  assert.equal(args.includes("--local"), false);
-  assert.equal(buildOpenClawArgs({ message: "hello", local: true }).includes("--local"), true);
-  assert.equal(shouldUseLegacyOpenClawTransport({ engineConfig: {} }, { provider: "mia" }), false);
-  assert.equal(shouldUseLegacyOpenClawTransport({ engineConfig: { openclawTransport: "acp" } }, { provider: "mia" }), false);
-  assert.equal(shouldUseLegacyOpenClawTransport({ engineConfig: { openclawLocal: true } }, { provider: "mia" }), false);
-  assert.equal(shouldUseLegacyOpenClawTransport({ engineConfig: { openclawTransport: "legacy-agent" } }, { provider: "mia" }), true);
-});
-
 test("OpenClaw command builders support an isolated profile before the subcommand", () => {
   assert.deepEqual(buildOpenClawGlobalArgs({ openclawProfile: "mia" }), ["--profile", "mia"]);
-  assert.deepEqual(buildOpenClawArgs({
-    bot: { key: "claw", engineConfig: { openclawProfile: "mia" } },
-    sessionId: "s1",
-    message: "hello",
-    effort: "medium"
-  }).slice(0, 5), ["--profile", "mia", "agent", "--agent", "main"]);
   assert.deepEqual(buildOpenClawAcpArgs({
     engineConfig: {
       openclawProfile: "mia",
@@ -203,25 +171,6 @@ test("OpenClaw command builders support an isolated profile before the subcomman
     "/tmp/token"
   ]);
   assert.throws(() => buildOpenClawGlobalArgs({ openclawProfile: "../default" }), /profile 名称/);
-});
-
-test("parseOpenClawContent accepts OpenClaw JSON and plain text", () => {
-  assert.deepEqual(parseOpenClawContent(JSON.stringify({
-    response: "hello",
-    meta: { session_id: "s2" }
-  })), { content: "hello", sessionId: "s2" });
-  assert.deepEqual(parseOpenClawContent(JSON.stringify({
-    payloads: [{ text: "payload reply" }],
-    meta: { agentMeta: { sessionId: "agent-session" } }
-  })), { content: "payload reply", sessionId: "agent-session" });
-  assert.deepEqual(parseOpenClawContent([
-    "[plugins] plugins.allow is empty; discovered non-bundled plugins may auto-load: openclaw-weixin",
-    JSON.stringify({
-      payloads: [{ text: "warning-safe reply" }],
-      meta: { agentMeta: { sessionId: "warning-session" } }
-    })
-  ].join("\n")), { content: "warning-safe reply", sessionId: "warning-session" });
-  assert.deepEqual(parseOpenClawContent("plain reply"), { content: "plain reply", sessionId: "" });
 });
 
 test("acpPermissionFallback never grants tools unless the bot is explicitly yolo", () => {
@@ -385,7 +334,6 @@ test("sendChat rejects OpenClaw cronjob permission even in bypass mode", async (
 });
 
 test("sendChat runs OpenClaw through ACP backend and stores the stable session key", async () => {
-  clearNativeMemoryCache();
   clearNativePersonaCache();
   clearNativeSkillIndexCache();
   const deps = createDeps();
@@ -421,7 +369,7 @@ test("sendChat runs OpenClaw through ACP backend and stores the stable session k
   const promptCall = deps.calls.find((call) => call[0] === "acp-prompt");
   assert.match(promptCall[1].prompt[0].text, /## Mia Runtime Context/);
   assert.match(promptCall[1].prompt[0].text, /Claw 的人设/);
-  assert.match(promptCall[1].prompt[0].text, /Mia 记忆/);
+  assert.doesNotMatch(promptCall[1].prompt[0].text, /## Mia Bot Memory|fallback memory/);
   assert.match(promptCall[1].prompt[0].text, /Available Mia Skills/);
   assert.match(promptCall[1].prompt[0].text, /Loaded Mia Skill Guides/);
   assert.match(promptCall[1].prompt[0].text, /用户消息：\n帮我整理文件/);
@@ -451,8 +399,97 @@ test("sendChat runs OpenClaw through ACP backend and stores the stable session k
   assert.equal(deps.calls.some((call) => call[0] === "exec" && call[2][0] === "agent"), false);
 });
 
+test("sendChat syncs OpenClaw native memory files only for explicit workspaces", async () => {
+  const skippedCalls = [];
+  const skippedDeps = createDeps({
+    syncNativeMemoryFiles: async (input) => skippedCalls.push(input)
+  });
+  const skippedAdapter = createOpenClawChatAdapter(skippedDeps);
+  await skippedAdapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: { openclawNativeMemoryFiles: true } },
+    sessionId: "mia-session",
+    messages: [{ role: "user", content: "hello" }]
+  });
+  assert.equal(skippedCalls.length, 0);
+  assert.equal(skippedDeps.calls.some((call) => call[0] === "log" && /explicit per-bot OpenClaw Mia workspace/.test(call[1])), true);
+
+  const nativeCalls = [];
+  const deps = createDeps({
+    syncNativeMemoryFiles: async (input) => {
+      nativeCalls.push(input);
+      return { ok: true, count: 2, memoryPath: path.join(input.workspaceDir, "MEMORY.md") };
+    }
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+  await adapter.sendChat({
+    bot: {
+      key: "claw",
+      name: "Claw",
+      engineConfig: {
+        openclawNativeMemoryFiles: true,
+        openclawMiaWorkspace: "/tmp/mia-openclaw-claw"
+      }
+    },
+    sessionId: "mia-session",
+    messages: [{ role: "user", content: "hello" }]
+  });
+
+  assert.deepEqual(nativeCalls, [{
+    engine: "openclaw",
+    botId: "claw",
+    sessionId: "mia-session",
+    workspaceDir: "/tmp/mia-openclaw-claw",
+    includeSession: true
+  }]);
+  assert.equal(deps.calls.some((call) => call[0] === "log" && /wrote 2 memories/.test(call[1])), true);
+});
+
+test("sendChat can use OpenClaw native context files instead of prompt persona and skill bodies", async () => {
+  clearNativePersonaCache();
+  clearNativeSkillIndexCache();
+  const nativeContextCalls = [];
+  const deps = createDeps({
+    readBotPersona: () => "secret native-file persona",
+    syncNativeContextFiles: async (input) => {
+      nativeContextCalls.push(input);
+      return { ok: true, count: 2, workspaceDir: input.workspaceDir, files: [] };
+    }
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: {
+      key: "claw",
+      name: "Claw",
+      engineConfig: {
+        openclawNativeContextFiles: true,
+        openclawMiaWorkspace: "/tmp/mia-openclaw-claw"
+      }
+    },
+    sessionId: "mia-session",
+    messages: [{ role: "user", content: "hello" }],
+    skillMaterialization: {
+      indexBlock: "## Available Mia Skills\n\n- demo: Demo summary.",
+      loadedBlock: "## Loaded Mia Skill Guides\n\nsecret skill body",
+      loadedSkillIds: ["demo"]
+    }
+  });
+
+  assert.equal(nativeContextCalls.length, 1);
+  assert.equal(nativeContextCalls[0].workspaceDir, "/tmp/mia-openclaw-claw");
+  assert.equal(nativeContextCalls[0].personaText, "secret native-file persona");
+  assert.match(nativeContextCalls[0].skillMaterialization.indexBlock, /Demo summary/);
+  const promptCall = deps.calls.find((call) => call[0] === "acp-prompt");
+  const promptText = promptCall?.[1]?.prompt?.[0]?.text || "";
+  assert.match(promptText, /用户消息：\nhello/);
+  assert.doesNotMatch(promptText, /secret native-file persona/);
+  assert.doesNotMatch(promptText, /secret skill body|Available Mia Skills|Mia Skill Tools/);
+  const budget = deps.calls.find((call) => call[0] === "log" && /^\[Mia context budget\]/.test(call[1]))?.[1] || "";
+  assert.match(budget, /personaChars=0/);
+  assert.match(budget, /loadedSkillChars=0/);
+});
+
 test("sendChat logs OpenClaw context budget without prompt bodies or visible history injection", async () => {
-  clearNativeMemoryCache();
   clearNativePersonaCache();
   clearNativeSkillIndexCache();
   const deps = createDeps({
@@ -462,7 +499,7 @@ test("sendChat logs OpenClaw context budget without prompt bodies or visible his
   const adapter = createOpenClawChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [
       { role: "user", content: "secret-history" },
@@ -483,7 +520,7 @@ test("sendChat logs OpenClaw context budget without prompt bodies or visible his
   assert.match(budget, /includedHistoryChars=0/);
   assert.match(budget, /nativeSession=openclaw:mia:claw:mia-session/);
   assert.match(budget, /personaChars=[1-9]\d*/);
-  assert.match(budget, /memoryChars=[1-9]\d*/);
+  assert.match(budget, /memoryChars=0/);
   assert.match(budget, /skillIndexChars=[1-9]\d*/);
   assert.match(budget, /loadedSkillChars=[1-9]\d*/);
   assert.doesNotMatch(budget, /secret-/);
@@ -494,7 +531,6 @@ test("sendChat logs OpenClaw context budget without prompt bodies or visible his
 });
 
 test("sendChat injects OpenClaw persona only when native session persona changes", async () => {
-  clearNativeMemoryCache();
   clearNativePersonaCache();
   clearNativeSkillIndexCache();
   const deps = createDeps({
@@ -505,18 +541,18 @@ test("sendChat injects OpenClaw persona only when native session persona changes
   const adapter = createOpenClawChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "first" }]
   });
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "second" }]
   });
   deps.persona = "persona v2";
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "third" }]
   });
@@ -535,40 +571,43 @@ test("sendChat injects OpenClaw persona only when native session persona changes
   assert.match(budgets[2][1], /personaChars=[1-9]\d*/);
 });
 
-test("sendChat injects OpenClaw memory only when native session memory changes", async () => {
-  clearNativeMemoryCache();
+test("sendChat keeps Mia memory out of OpenClaw prompts across repeated turns", async () => {
   clearNativePersonaCache();
+  let memoryReads = 0;
   const deps = createDeps({
-    memoryBlock: () => deps.memory
+    memoryBlock: () => {
+      memoryReads += 1;
+      return deps.memory;
+    }
   });
   deps.memory = "## Mia Bot Memory\nsource: mia\nbot: claw\nconversation: mia-session\nmemory v1";
   const adapter = createOpenClawChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "first" }]
   });
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "second" }]
   });
   deps.memory = "## Mia Bot Memory\nsource: mia\nbot: claw\nconversation: mia-session\nmemory v2";
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "third" }]
   });
 
   const promptCalls = deps.calls.filter((call) => call[0] === "acp-prompt");
-  assert.match(promptCalls[0][1].prompt[0].text, /memory v1/);
+  assert.equal(memoryReads, 0);
+  assert.doesNotMatch(promptCalls[0][1].prompt[0].text, /## Mia Bot Memory|memory v1|memory v2/);
   assert.doesNotMatch(promptCalls[1][1].prompt[0].text, /## Mia Bot Memory/);
-  assert.match(promptCalls[2][1].prompt[0].text, /memory v2/);
+  assert.doesNotMatch(promptCalls[2][1].prompt[0].text, /## Mia Bot Memory|memory v1|memory v2/);
 });
 
 test("sendChat auto-selects OpenClaw context_snapshot when the Mia app MCP server is available", async () => {
-  clearNativeMemoryCache();
   clearNativePersonaCache();
   clearNativeSkillIndexCache();
   let memoryReads = 0;
@@ -591,7 +630,7 @@ test("sendChat auto-selects OpenClaw context_snapshot when the Mia app MCP serve
   const adapter = createOpenClawChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", id: "m1", content: "hi" }]
   });
@@ -612,8 +651,38 @@ test("sendChat auto-selects OpenClaw context_snapshot when the Mia app MCP serve
   assert.match(budget, /memoryChars=0/);
 });
 
+test("sendChat uses current skill tools instead of loaded skill prompt bodies when OpenClaw MCP is available", async () => {
+  clearNativePersonaCache();
+  clearNativeSkillIndexCache();
+  const deps = createDeps({
+    getMiaAppMcpSpec: () => ({
+      type: "stdio",
+      command: "/opt/node",
+      args: ["/tmp/mia-app-mcp-server.js"]
+    })
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    sessionId: "mia-session",
+    messages: [{ role: "user", id: "m1", content: "hi" }],
+    skillMaterialization: {
+      indexBlock: "## Available Mia Skills\n\nIf completing the current request requires a full skill guide that is not loaded yet, output only `[LOAD_SKILL: demo]`.\n\n- demo: Demo index.",
+      loadedBlock: "## Loaded Mia Skill Guides\n\n=== Skill: demo ===\nDemo body.\n=== End Skill ===",
+      loadedSkillIds: ["demo"]
+    }
+  });
+
+  const prompt = deps.calls.find((call) => call[0] === "acp-prompt")[1].prompt[0].text;
+  assert.match(prompt, /Mia Skill Tools/);
+  assert.match(prompt, /skill_read_current/);
+  assert.doesNotMatch(prompt, /Available Mia Skills|Loaded Mia Skill Guides|Demo body|\[LOAD_SKILL:/);
+  const budget = deps.calls.find((call) => call[0] === "log" && call[1].includes("[Mia context budget]"))?.[1];
+  assert.match(budget, /loadedSkillChars=0/);
+});
+
 test("sendChat auto-falls back to OpenClaw prompt context when per-session MCP is unavailable", async () => {
-  clearNativeMemoryCache();
   clearNativePersonaCache();
   clearNativeSkillIndexCache();
   const specCalls = [];
@@ -648,16 +717,15 @@ test("sendChat auto-falls back to OpenClaw prompt context when per-session MCP i
   const prompt = deps.calls.find((call) => call[0] === "acp-prompt")[1].prompt[0].text;
   assert.match(prompt, /## Mia Runtime Context/);
   assert.match(prompt, /fallback persona/);
-  assert.match(prompt, /## Mia Bot Memory/);
-  assert.match(prompt, /fallback memory/);
+  assert.doesNotMatch(prompt, /## Mia Bot Memory/);
+  assert.doesNotMatch(prompt, /fallback memory/);
   assert.doesNotMatch(prompt, /context_snapshot/);
   const budget = deps.calls.find((call) => call[0] === "log" && call[1].includes("[Mia context budget]"))?.[1];
   assert.match(budget, /personaChars=[1-9]\d*/);
-  assert.match(budget, /memoryChars=[1-9]\d*/);
+  assert.match(budget, /memoryChars=0/);
 });
 
 test("sendChat can use Mia MCP context_snapshot instead of prompt-injecting OpenClaw persona or memory", async () => {
-  clearNativeMemoryCache();
   clearNativePersonaCache();
   let memoryReads = 0;
   let personaReads = 0;
@@ -703,11 +771,14 @@ test("sendChat can use Mia MCP context_snapshot instead of prompt-injecting Open
   assert.equal(newSession.mcpServers.some((server) => server.name === "mia-app"), true);
 });
 
-test("sendChat can keep legacy every-turn OpenClaw memory injection", async () => {
-  clearNativeMemoryCache();
+test("sendChat ignores legacy every-turn OpenClaw memory injection", async () => {
   clearNativePersonaCache();
+  let memoryReads = 0;
   const deps = createDeps({
-    memoryBlock: () => "## Mia Bot Memory\nsource: mia\nbot: claw\nconversation: mia-session\nmemory"
+    memoryBlock: () => {
+      memoryReads += 1;
+      return "## Mia Bot Memory\nsource: mia\nbot: claw\nconversation: mia-session\nmemory";
+    }
   });
   const adapter = createOpenClawChatAdapter(deps);
 
@@ -723,12 +794,12 @@ test("sendChat can keep legacy every-turn OpenClaw memory injection", async () =
   });
 
   const promptCalls = deps.calls.filter((call) => call[0] === "acp-prompt");
-  assert.match(promptCalls[0][1].prompt[0].text, /## Mia Bot Memory/);
-  assert.match(promptCalls[1][1].prompt[0].text, /## Mia Bot Memory/);
+  assert.equal(memoryReads, 0);
+  assert.doesNotMatch(promptCalls[0][1].prompt[0].text, /## Mia Bot Memory|source: mia/);
+  assert.doesNotMatch(promptCalls[1][1].prompt[0].text, /## Mia Bot Memory|source: mia/);
 });
 
 test("sendChat injects OpenClaw skill index once per native session but keeps loaded skills", async () => {
-  clearNativeMemoryCache();
   clearNativePersonaCache();
   clearNativeSkillIndexCache();
   const deps = createDeps();
@@ -739,13 +810,13 @@ test("sendChat injects OpenClaw skill index once per native session but keeps lo
   };
 
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "first" }],
     skillMaterialization
   });
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "second" }],
     skillMaterialization
@@ -761,7 +832,6 @@ test("sendChat injects OpenClaw skill index once per native session but keeps lo
 });
 
 test("sendChat reinjects OpenClaw native context after session reset", async () => {
-  clearNativeMemoryCache();
   clearNativePersonaCache();
   clearNativeSkillIndexCache();
   const deps = createDeps({
@@ -774,19 +844,19 @@ test("sendChat reinjects OpenClaw native context after session reset", async () 
   };
 
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "first" }],
     skillMaterialization
   });
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "second" }],
     skillMaterialization
   });
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: { openclawResetSession: true } },
+    bot: { key: "claw", name: "Claw", engineConfig: { openclawResetSession: true, memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "third" }],
     skillMaterialization
@@ -794,13 +864,13 @@ test("sendChat reinjects OpenClaw native context after session reset", async () 
 
   const promptCalls = deps.calls.filter((call) => call[0] === "acp-prompt");
   assert.match(promptCalls[0][1].prompt[0].text, /## Mia Runtime Context/);
-  assert.match(promptCalls[0][1].prompt[0].text, /## Mia Bot Memory/);
+  assert.doesNotMatch(promptCalls[0][1].prompt[0].text, /## Mia Bot Memory/);
   assert.match(promptCalls[0][1].prompt[0].text, /Available Mia Skills/);
   assert.doesNotMatch(promptCalls[1][1].prompt[0].text, /## Mia Runtime Context/);
   assert.doesNotMatch(promptCalls[1][1].prompt[0].text, /## Mia Bot Memory/);
   assert.doesNotMatch(promptCalls[1][1].prompt[0].text, /Available Mia Skills/);
   assert.match(promptCalls[2][1].prompt[0].text, /## Mia Runtime Context/);
-  assert.match(promptCalls[2][1].prompt[0].text, /## Mia Bot Memory/);
+  assert.doesNotMatch(promptCalls[2][1].prompt[0].text, /## Mia Bot Memory/);
   assert.match(promptCalls[2][1].prompt[0].text, /Available Mia Skills/);
   const resetSessionCall = deps.calls
     .filter((call) => call[0] === "acp-new-session")
@@ -809,7 +879,6 @@ test("sendChat reinjects OpenClaw native context after session reset", async () 
 });
 
 test("sendChat reinjects OpenClaw native context when the ACP session key changes", async () => {
-  clearNativeMemoryCache();
   clearNativePersonaCache();
   clearNativeSkillIndexCache();
   let managed = false;
@@ -836,20 +905,20 @@ test("sendChat reinjects OpenClaw native context when the ACP session key change
   };
 
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "first" }],
     skillMaterialization
   });
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "second" }],
     skillMaterialization
   });
   managed = true;
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: { provider: "mia", model: "mia-auto" } },
+    bot: { key: "claw", name: "Claw", engineConfig: { provider: "mia", model: "mia-auto", memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "third" }],
     skillMaterialization
@@ -857,13 +926,13 @@ test("sendChat reinjects OpenClaw native context when the ACP session key change
 
   const promptCalls = deps.calls.filter((call) => call[0] === "acp-prompt");
   assert.match(promptCalls[0][1].prompt[0].text, /## Mia Runtime Context/);
-  assert.match(promptCalls[0][1].prompt[0].text, /## Mia Bot Memory/);
+  assert.doesNotMatch(promptCalls[0][1].prompt[0].text, /## Mia Bot Memory/);
   assert.match(promptCalls[0][1].prompt[0].text, /Available Mia Skills/);
   assert.doesNotMatch(promptCalls[1][1].prompt[0].text, /## Mia Runtime Context/);
   assert.doesNotMatch(promptCalls[1][1].prompt[0].text, /## Mia Bot Memory/);
   assert.doesNotMatch(promptCalls[1][1].prompt[0].text, /Available Mia Skills/);
   assert.match(promptCalls[2][1].prompt[0].text, /## Mia Runtime Context/);
-  assert.match(promptCalls[2][1].prompt[0].text, /## Mia Bot Memory/);
+  assert.doesNotMatch(promptCalls[2][1].prompt[0].text, /## Mia Bot Memory/);
   assert.match(promptCalls[2][1].prompt[0].text, /Available Mia Skills/);
 
   const budgets = deps.calls.filter((call) => call[0] === "log" && call[1].includes("[Mia context budget]"));
@@ -1143,30 +1212,7 @@ test("sendChat puts the selected OpenClaw bin dir first in ACP env", async () =>
   assert.equal(spawnCall[4], "/opt/openclaw-node/bin:/bad-node/bin:/usr/bin");
 });
 
-test("sendChat can explicitly fall back to the legacy OpenClaw agent CLI", async () => {
-  const deps = createDeps();
-  const adapter = createOpenClawChatAdapter(deps);
-  const response = await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: { effortLevel: "high", openclawTransport: "legacy-agent" } },
-    sessionId: "mia-session",
-    messages: [{ role: "user", content: "帮我整理文件" }]
-  });
-
-  const execCall = deps.calls.find((call) => call[0] === "exec");
-  assert.equal(execCall[1], "/bin/openclaw");
-  assert.equal(execCall[2][0], "agent");
-  assert.equal(execCall[2][1], "--agent");
-  assert.equal(execCall[2][2], "main");
-  assert.equal(execCall[2][3], "--message");
-  assert.equal(execCall[2].includes("--session-key"), false);
-  assert.equal(execCall[2].includes("--model"), false);
-  assert.deepEqual(execCall[2].slice(5), ["--thinking", "normalized-high", "--json", "--timeout", "600"]);
-  assert.equal(response.choices[0].message.content, "OpenClaw reply");
-  assert.equal(response.mia.compatibility_transport, "openclaw-cli");
-  assert.equal(deps.calls.some((call) => call[0] === "spawn"), false);
-});
-
-test("sendChat runs a Windows OpenClaw npm shim through node without cmd.exe", async (t) => {
+test("sendChat runs a Windows OpenClaw npm shim through node without cmd.exe on ACP", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mia-openclaw-shim-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const commandPath = path.join(root, "openclaw.cmd");
@@ -1183,17 +1229,17 @@ test("sendChat runs a Windows OpenClaw npm shim through node without cmd.exe", a
   const adapter = createOpenClawChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: { openclawTransport: "legacy-agent" } },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "hello\nwith & shell chars" }]
   });
 
-  const execCall = deps.calls.find((call) => call[0] === "exec");
-  assert.equal(execCall[1], "C:\\Node\\node.exe");
-  assert.equal(execCall[2][0], scriptPath);
-  assert.equal(execCall[2][1], "agent");
-  assert.equal(execCall[2].includes(commandPath), false);
-  assert.equal(execCall[6], true);
+  const spawnCall = deps.calls.find((call) => call[0] === "spawn");
+  assert.equal(spawnCall[1], "C:\\Node\\node.exe");
+  assert.equal(spawnCall[2][0], scriptPath);
+  assert.equal(spawnCall[2][1], "acp");
+  assert.equal(spawnCall[2].includes(commandPath), false);
+  assert.equal(spawnCall[5], true);
 });
 
 test("sendChat starts the local OpenClaw Gateway on Windows when probe fails", async (t) => {
@@ -1205,7 +1251,7 @@ test("sendChat starts the local OpenClaw Gateway on Windows when probe fails", a
   const adapter = createOpenClawChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "mia-session",
     messages: [{ role: "user", content: "hello" }]
   });
@@ -1282,33 +1328,6 @@ test("sendChat explains OpenClaw Gateway pairing requirements", async () => {
       messages: [{ role: "user", content: "hello" }]
     }),
     /devices approve --latest/
-  );
-});
-
-test("sendChat redacts legacy OpenClaw command failures instead of leaking prompts", async () => {
-  const deps = createDeps({
-    execFile: (file, args, options, callback) => {
-      deps.calls.push(["exec", file, args, options.cwd, options.env.PATH, options.input || ""]);
-      const error = new Error("Command failed: /bin/openclaw agent --message SECRET_PROMPT --json");
-      callback(error, "", "Error: Pass --to <E.164>, --session-key, --session-id, or --agent to choose a session");
-      return { kill() {} };
-    }
-  });
-  const adapter = createOpenClawChatAdapter(deps);
-
-  await assert.rejects(
-    () => adapter.sendChat({
-      bot: { key: "claw", name: "Claw", engineConfig: { openclawTransport: "legacy-agent" } },
-      sessionId: "mia-session",
-      messages: [{ role: "user", content: "SECRET_PROMPT" }]
-    }),
-    (error) => {
-      assert.match(error.message, /OpenClaw agent 运行失败/);
-      assert.match(error.message, /Pass --to/);
-      assert.doesNotMatch(error.message, /SECRET_PROMPT/);
-      assert.doesNotMatch(error.message, /--message/);
-      return true;
-    }
   );
 });
 
@@ -1550,67 +1569,10 @@ test("sendChat does not auto-fallback to local OpenClaw CLI for Mia-managed mode
       sessionId: "mia-session",
       messages: [{ role: "user", content: "hello" }]
     }),
-    /没有自动降级[\s\S]*高 token 消耗/
+    /不会降级[\s\S]*高 token 消耗/
   );
 
   assert.equal(deps.calls.some((call) => call[0] === "exec" && call[2][0] === "agent"), false);
-});
-
-test("sendChat falls back to local OpenClaw CLI only when explicitly enabled", async () => {
-  let deps;
-  class FailingClientSideConnection {
-    constructor(toClient, stream) {
-      deps.calls.push(["acp-connect", Boolean(stream?.readable), Boolean(stream?.writable)]);
-      this.handlers = toClient(this);
-    }
-
-    async initialize() {
-      throw new Error("ACP connection closed");
-    }
-  }
-  deps = createDeps({
-    importAcpSdk: () => new Promise((resolve) => setImmediate(() => resolve({
-      ClientSideConnection: FailingClientSideConnection,
-      PROTOCOL_VERSION: 1,
-      ndJsonStream: (writable, readable) => ({ writable, readable })
-    }))),
-    resolveModelRuntime: () => ({
-      provider: "mia",
-      providerConnectionId: "mia",
-      model: "mia-auto",
-      modelProfileId: "mia:mia-auto",
-      baseUrl: "https://mia.example/api/me/model-proxy/v1",
-      apiKey: "cloud-token",
-      providerLabel: "Mia",
-      authType: "mia_account",
-      apiMode: "chat_completions",
-      managedByMia: true
-    }),
-    spawn: (file, args, options) => {
-      deps.calls.push(["spawn", file, args, options.cwd]);
-      const child = fakeChildProcess(deps.calls);
-      process.nextTick(() => {
-        child.stdout.write("ACP bridge failed: connect ECONNREFUSED 127.0.0.1:18789");
-      });
-      return child;
-    }
-  });
-  const adapter = createOpenClawChatAdapter(deps);
-
-  const response = await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: { provider: "mia", model: "mia-auto", openclawAllowLocalFallback: true } },
-    sessionId: "mia-session",
-    messages: [{ role: "user", content: "hello" }]
-  });
-
-  assert.equal(deps.calls.some((call) => call[0] === "spawn"), true);
-  const agentCall = deps.calls.find((call) => call[0] === "exec" && call[2][0] === "agent");
-  assert.equal(agentCall[1], "/bin/openclaw");
-  assert.equal(agentCall[2].includes("--local"), true);
-  assert.equal(agentCall[2].includes("--model"), false);
-  assert.equal(agentCall[2][agentCall[2].indexOf("--thinking") + 1], "off");
-  assert.equal(response.choices[0].message.content, "OpenClaw reply");
-  assert.equal(response.mia.compatibility_transport, "openclaw-cli-fallback");
 });
 
 test("sendChat reuses OpenClaw ACP runtime for durable conversation sessions", async (t) => {
@@ -1619,7 +1581,7 @@ test("sendChat reuses OpenClaw ACP runtime for durable conversation sessions", a
   const adapter = createOpenClawChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "claw", name: "Claw", engineConfig: {} },
+    bot: { key: "claw", name: "Claw", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "conversation:bot:u_1:claw",
     messages: [{ role: "user", content: "hello" }]
   });

@@ -551,6 +551,7 @@ function verifyRelease() {
     "api/src/cloud/sqlite-store.js",
     "api/src/cloud/social-store.js",
     "api/src/cloud/messages-store.js",
+    "api/src/cloud/memory-store.js",
     "api/src/cloud/dm-conversation.js",
     "api/src/cloud/desktop-bridge-permission.js",
     "api/src/cloud/hermes-skills-source.js",
@@ -589,6 +590,8 @@ function verifyRelease() {
     "api/src/shared/schedule-expression.js",
     "api/src/shared/agent-permissions.js",
     "api/src/main/mia-runtime-context.js",
+    "api/src/main/prompts/mia-runtime.md",
+    "api/src/main/prompts/mia-scheduled-runtime.md",
     "api/src/permission-modes.js",
     "api/skills/pdf/SKILL.md",
     "web/index.html",
@@ -650,6 +653,7 @@ function verifyRelease() {
     "api/src/cloud/sqlite-store.js",
     "api/src/cloud/social-store.js",
     "api/src/cloud/messages-store.js",
+    "api/src/cloud/memory-store.js",
     "api/src/cloud/dm-conversation.js",
     "api/src/cloud/desktop-bridge-permission.js",
     "api/src/cloud/hermes-skills-source.js",
@@ -685,6 +689,8 @@ function verifyRelease() {
     "api/src/shared/schedule-expression.js",
     "api/src/shared/agent-permissions.js",
     "api/src/main/mia-runtime-context.js",
+    "api/src/main/prompts/mia-runtime.md",
+    "api/src/main/prompts/mia-scheduled-runtime.md",
     "api/src/permission-modes.js",
     "web/app.js",
     "web/admin-model.js",
@@ -826,6 +832,7 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud/sqlite-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/social-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/messages-store.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud/memory-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/dm-conversation.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/desktop-bridge-permission.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/model-billing-store.js"))});
@@ -894,6 +901,7 @@ function main() {
   copyFile("src/shared/schedule-expression.js", path.join(apiDir, "src", "shared", "schedule-expression.js"));
   copyFile("src/shared/agent-permissions.js", path.join(apiDir, "src", "shared", "agent-permissions.js"));
   copyFile("src/main/mia-runtime-context.js", path.join(apiDir, "src", "main", "mia-runtime-context.js"));
+  copyDir("src/main/prompts", path.join(apiDir, "src", "main", "prompts"));
   copyFile("src/permission-modes.js", path.join(apiDir, "src", "permission-modes.js"));
   copyDir("skills", path.join(apiDir, "skills"));
   copyDir("src/web", webDir);

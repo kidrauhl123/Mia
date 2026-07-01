@@ -15,6 +15,10 @@ const DDGS_TIMEOUT_MS = 35000;
 const READ_TOOLS = new Set([
   "schedule_list",
   "context_snapshot",
+  "memory_search",
+  "memory_list",
+  "skill_list_current",
+  "skill_read_current",
   "skill_search",
   "skill_show",
   "conversation_list",
@@ -28,9 +32,39 @@ const WRITE_TOOLS = new Set([
   "schedule_pause",
   "schedule_resume",
   "skill_install",
+  "memory_remember",
+  "memory_update",
+  "memory_forget",
   "conversation_create_group",
   "conversation_post_message"
 ]);
+const DESTRUCTIVE_TOOLS = new Set([
+  "schedule_delete",
+  "memory_forget"
+]);
+const OPEN_WORLD_TOOLS = new Set([
+  "web_search",
+  "web_fetch"
+]);
+
+function toolAnnotationsFor(name) {
+  const permission = permissionClassForTool(name);
+  const readOnly = permission === "read";
+  const destructive = DESTRUCTIVE_TOOLS.has(name);
+  return {
+    readOnlyHint: readOnly,
+    destructiveHint: destructive,
+    idempotentHint: readOnly || destructive,
+    openWorldHint: OPEN_WORLD_TOOLS.has(name)
+  };
+}
+
+function withToolAnnotations(tool) {
+  return {
+    ...tool,
+    annotations: toolAnnotationsFor(tool.name)
+  };
+}
 
 function toolDefinitions() {
   return [
@@ -42,13 +76,124 @@ function toolDefinitions() {
     { name: "schedule_resume", description: "Resume a Mia scheduled task.", inputSchema: { type: "object" } },
     {
       name: "context_snapshot",
-      description: "Read the current Mia bot/session context, including scoped persona and memory.",
+      description: "Read the current Mia bot/session metadata and persona. Use memory_search for scoped memories.",
       inputSchema: {
         type: "object",
         properties: {
           botId: { type: "string", description: "Optional Mia bot id. Defaults to the current MCP context." },
           sessionId: { type: "string", description: "Optional Mia conversation session id. Defaults to the current MCP context." }
         }
+      }
+    },
+    {
+      name: "memory_search",
+      description: "Search Mia-owned scoped memories visible to the current bot and conversation session.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search text. Empty returns recent visible memories." },
+          limit: { type: "number", description: "Maximum number of memories, 1-100." },
+          scopes: {
+            type: "array",
+            items: { type: "string", enum: ["user", "bot", "session"] },
+            description: "Optional scope filter."
+          },
+          kinds: {
+            type: "array",
+            items: { type: "string", enum: ["preference", "fact", "relationship", "instruction", "plan", "procedural", "episodic"] },
+            description: "Optional memory kind filter."
+          }
+        }
+      }
+    },
+    {
+      name: "memory_list",
+      description: "List recent Mia-owned memories visible to the current bot and conversation session.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Maximum number of memories, 1-100." },
+          scopes: {
+            type: "array",
+            items: { type: "string", enum: ["user", "bot", "session"] },
+            description: "Optional scope filter."
+          },
+          kinds: {
+            type: "array",
+            items: { type: "string", enum: ["preference", "fact", "relationship", "instruction", "plan", "procedural", "episodic"] },
+            description: "Optional memory kind filter."
+          }
+        }
+      }
+    },
+    {
+      name: "memory_remember",
+      description: "Ask Mia to store a new durable scoped memory for the current bot/session. Search first when avoiding duplicates matters.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "Memory text to store." },
+          scope: { type: "string", enum: ["user", "bot", "session"], description: "Requested memory scope. Defaults to bot." },
+          kind: { type: "string", enum: ["preference", "fact", "relationship", "instruction", "plan", "procedural", "episodic"] },
+          confidence: { type: "number", description: "Model confidence from 0 to 1." },
+          priority: { type: "number", description: "Optional retrieval priority from -100 to 100. Use sparingly for clearly important memories." },
+          reason: { type: "string", description: "Why this should be remembered." },
+          sourceMessageIds: { type: "array", items: { type: "string" } },
+          linkedMemoryIds: { type: "array", items: { type: "string" } },
+          metadata: { type: "object" }
+        },
+        required: ["text"]
+      }
+    },
+    {
+      name: "memory_update",
+      description: "Replace an existing visible Mia memory. Use memoryId from memory_search/list when possible; otherwise provide a short unique oldText substring.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          memoryId: { type: "string", description: "ID from memory_search or memory_list." },
+          oldText: { type: "string", description: "Short unique substring of the existing memory when memoryId is unavailable." },
+          text: { type: "string", description: "Replacement memory text." },
+          scope: { type: "string", enum: ["user", "bot", "session"], description: "Optional scope hint for oldText matching." },
+          kind: { type: "string", enum: ["preference", "fact", "relationship", "instruction", "plan", "procedural", "episodic"] },
+          confidence: { type: "number", description: "Model confidence from 0 to 1." },
+          priority: { type: "number", description: "Optional retrieval priority from -100 to 100. Use sparingly for clearly important memories." },
+          reason: { type: "string", description: "Why this memory changed." },
+          metadata: { type: "object" }
+        },
+        required: ["text"]
+      }
+    },
+    {
+      name: "memory_forget",
+      description: "Delete an existing visible Mia memory when the user asks to forget it or it is obsolete. Use memoryId when possible; otherwise provide a short unique oldText substring.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          memoryId: { type: "string", description: "ID from memory_search or memory_list." },
+          oldText: { type: "string", description: "Short unique substring of the existing memory when memoryId is unavailable." },
+          scope: { type: "string", enum: ["user", "bot", "session"], description: "Optional scope hint for oldText matching." },
+          reason: { type: "string", description: "Why this memory should be forgotten." }
+        }
+      }
+    },
+    {
+      name: "skill_list_current",
+      description: "List skills enabled for the current Mia bot. Returns summaries only; use skill_read_current for the full guide.",
+      inputSchema: {
+        type: "object",
+        properties: {}
+      }
+    },
+    {
+      name: "skill_read_current",
+      description: "Read the full guide for a skill enabled on the current Mia bot. This cannot read skills outside the current bot capability set.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Skill id or enabled skill alias from skill_list_current." }
+        },
+        required: ["id"]
       }
     },
     { name: "skill_search", description: "Search Mia skill marketplace.", inputSchema: { type: "object" } },
@@ -81,7 +226,7 @@ function toolDefinitions() {
         required: ["url"]
       }
     }
-  ];
+  ].map(withToolAnnotations);
 }
 
 function permissionClassForTool(name) {
@@ -733,6 +878,73 @@ async function callTool(name, args = {}) {
       const originMessageId = args.originMessageId || ctx.originMessageId || "";
       return daemonJson("GET", `/api/mia/context${queryString({ botId, sessionId, originMessageId })}`, null);
     }
+    case "memory_search":
+      return daemonJson("POST", "/api/mia/memory/search", {
+        context: ctx,
+        query: args.query || args.q || "",
+        limit: args.limit,
+        scopes: args.scopes,
+        kinds: args.kinds,
+        status: "active"
+      });
+    case "memory_list":
+      return daemonJson("POST", "/api/mia/memory/search", {
+        context: ctx,
+        query: "",
+        limit: args.limit,
+        scopes: args.scopes,
+        kinds: args.kinds,
+        status: args.status || "active"
+      });
+    case "memory_remember":
+      if (!args.text) throw new Error("text is required");
+      return daemonJson("POST", "/api/mia/memory/remember", {
+        context: ctx,
+        text: args.text,
+        scope: args.scope,
+        kind: args.kind,
+        confidence: args.confidence,
+        priority: args.priority,
+        reason: args.reason,
+        sourceMessageIds: Array.isArray(args.sourceMessageIds)
+          ? args.sourceMessageIds
+          : (ctx.originMessageId ? [ctx.originMessageId] : []),
+        linkedMemoryIds: args.linkedMemoryIds,
+        metadata: args.metadata
+      });
+    case "memory_update":
+      if (!args.text) throw new Error("text is required");
+      if (!args.memoryId && !args.oldText) throw new Error("memoryId or oldText is required");
+      return daemonJson("POST", "/api/mia/memory/update", {
+        context: ctx,
+        memoryId: args.memoryId || args.id,
+        oldText: args.oldText || args.old_text,
+        text: args.text,
+        scope: args.scope,
+        kind: args.kind,
+        confidence: args.confidence,
+        priority: args.priority,
+        reason: args.reason,
+        sourceMessageIds: Array.isArray(args.sourceMessageIds)
+          ? args.sourceMessageIds
+          : (ctx.originMessageId ? [ctx.originMessageId] : []),
+        linkedMemoryIds: args.linkedMemoryIds,
+        metadata: args.metadata
+      });
+    case "memory_forget":
+      if (!args.memoryId && !args.oldText) throw new Error("memoryId or oldText is required");
+      return daemonJson("POST", "/api/mia/memory/forget", {
+        context: ctx,
+        memoryId: args.memoryId || args.id,
+        oldText: args.oldText || args.old_text,
+        scope: args.scope,
+        reason: args.reason
+      });
+    case "skill_list_current":
+      return daemonJson("GET", `/api/mia/skills/current${queryString({ botId: ctx.botId || "" })}`, null);
+    case "skill_read_current":
+      if (!args.id) throw new Error("id is required");
+      return daemonJson("GET", `/api/mia/skills/current/read${queryString({ botId: ctx.botId || "", id: args.id })}`, null);
     case "skill_search":
       return daemonJson("GET", `/api/skills${queryString({ q: args.query, category: args.category, limit: args.limit })}`, null);
     case "skill_show":

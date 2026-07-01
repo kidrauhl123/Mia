@@ -14,5 +14,8 @@ test("promptMessagesForNativeSession keeps only system and current user for nati
     { role: "system", content: "system rules" },
     { role: "user", content: "hello" }
   ]);
-  assert.equal(promptMessagesForNativeSession(messages, false), messages);
+  assert.deepEqual(promptMessagesForNativeSession(messages, false), [
+    { role: "system", content: "system rules" },
+    { role: "user", content: "hello" }
+  ]);
 });

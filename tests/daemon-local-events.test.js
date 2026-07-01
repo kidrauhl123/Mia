@@ -78,6 +78,65 @@ test("window receives daemon-published envelopes over the local channel", async 
   assert.equal(received[1].payload.event.text, "想");
 });
 
+test("daemon memory writes publish compact local memory events", async (t) => {
+  const port = await freePort();
+  const { server } = setupServer(t, {
+    miaMemoryService: {
+      searchMemories: () => [],
+      rememberMemory: (input) => ({
+        status: "active",
+        effectiveScope: input.scope,
+        memoryId: "mem_1",
+        memory: {
+          id: "mem_1",
+          text: "private memory text",
+          scope: input.scope,
+          botId: input.botId,
+          sessionId: input.sessionId
+        }
+      })
+    }
+  });
+  const status = await server.start({ host: "127.0.0.1", port });
+  t.after(() => server.stop());
+
+  const received = [];
+  const client = createLocalEventsClient({
+    baseUrl: () => status.baseUrl,
+    daemonToken: () => "secret-token",
+    onEnvelope: (envelope) => received.push(envelope)
+  });
+  t.after(() => client.stop());
+  client.start();
+  await waitFor(() => client.status().connected);
+
+  const response = await fetch(`${status.baseUrl}/api/mia/memory/remember`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer secret-token",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      context: { userId: "u_1", botId: "mei", sessionId: "s1" },
+      text: "private memory text",
+      scope: "bot"
+    })
+  });
+  assert.equal(response.status, 200);
+  await waitFor(() => received.some((event) => event.type === "memory.updated"));
+
+  const memoryEvent = received.find((event) => event.type === "memory.updated");
+  assert.equal(memoryEvent.payload.source, "agent_tool");
+  assert.deepEqual(memoryEvent.payload.memory, {
+    id: "mem_1",
+    status: "active",
+    scope: "bot",
+    botId: "mei",
+    sessionId: "s1"
+  });
+  assert.doesNotMatch(JSON.stringify(memoryEvent), /private memory text/);
+});
+
 test("daemon emits SSE heartbeats so a healthy idle stream stays alive", async (t) => {
   const port = await freePort();
   let heartbeatFn = null;

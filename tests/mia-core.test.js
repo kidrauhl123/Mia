@@ -12,16 +12,42 @@ const { createMiaCoreResolver } = require("../src/main/daemon/executable-resolve
 
 const CORE_ENTRY = path.resolve(__dirname, "..", "src", "core", "mia-core.js");
 
+function removeHome(home) {
+  fs.rmSync(home, { recursive: true, force: true });
+}
+
+function stopCoreAndRemoveHome(t, core, home) {
+  t.after(async () => {
+    try { await core?.stop?.(); } catch { /* best effort */ }
+    removeHome(home);
+  });
+}
+
+function killChildAndRemoveHome(t, child, home) {
+  t.after(async () => {
+    try {
+      if (!child.killed) child.kill("SIGKILL");
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 1000);
+        child.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    } catch { /* best effort */ }
+    removeHome(home);
+  });
+}
+
 test("mia-core node process serves health/status with node-core identity", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-home-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const port = await freePort();
 
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "9.9.9" });
+  stopCoreAndRemoveHome(t, core, home);
   core.writeDaemonSettings({ host: "127.0.0.1", port });
 
   const status = await core.start();
-  t.after(() => core.stop());
 
   assert.equal(status.running, true);
   assert.equal(status.baseUrl, `http://127.0.0.1:${port}`);
@@ -42,7 +68,6 @@ test("dev integration: launching the resolver's node-core command answers /healt
   // --daemon` (command + args from the resolver) and confirm the spawned process
   // is the daemon answering /health. nodePath uses the test runner's own node.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-launch-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const port = await freePort();
 
   const resolver = createMiaCoreResolver({
@@ -69,7 +94,7 @@ test("dev integration: launching the resolver's node-core command answers /healt
     stdio: "ignore",
     detached: false
   });
-  t.after(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } });
+  killChildAndRemoveHome(t, child, home);
 
   // Poll /health until the launched node-core daemon answers.
   let health = null;
@@ -92,13 +117,12 @@ test("mia-core control server applies delegated cloud-settings writes (not 501)"
   // POST /api/cloud-settings, so the window's delegated login/logout/profile-refresh
   // writes FAIL against Core. Assert the route persists to mia-cloud.json.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-cloud-write-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const port = await freePort();
 
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });
+  stopCoreAndRemoveHome(t, core, home);
   core.writeDaemonSettings({ host: "127.0.0.1", port });
   const status = await core.start();
-  t.after(() => core.stop());
 
   const token = core.daemonToken();
   const res = await fetch(`${status.baseUrl}/api/cloud-settings`, {
@@ -120,13 +144,12 @@ test("mia-core control server applies delegated cloud-settings writes (not 501)"
 
 test("mia-core control server exposes chat stop for window delegation", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-chat-stop-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const port = await freePort();
 
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });
+  stopCoreAndRemoveHome(t, core, home);
   core.writeDaemonSettings({ host: "127.0.0.1", port });
   const status = await core.start();
-  t.after(() => core.stop());
 
   const res = await fetch(`${status.baseUrl}/api/chat/stop`, {
     method: "POST",
@@ -143,12 +166,12 @@ test("mia-core control server exposes chat stop for window delegation", async (t
   assert.equal(typeof out.stopped, "boolean");
 });
 
-test("mia-core exposes scoped Mia context snapshots from runtime persona and memory", async (t) => {
+test("mia-core exposes scoped Mia context snapshots with memory tools", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-context-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const port = await freePort();
 
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });
+  stopCoreAndRemoveHome(t, core, home);
   const paths = core.runtimePaths();
   fs.mkdirSync(paths.botDir, { recursive: true });
   fs.writeFileSync(path.join(paths.botDir, "mei.md"), "mei persona", "utf8");
@@ -160,7 +183,6 @@ test("mia-core exposes scoped Mia context snapshots from runtime persona and mem
 
   core.writeDaemonSettings({ host: "127.0.0.1", port });
   const status = await core.start();
-  t.after(() => core.stop());
 
   const res = await fetch(`${status.baseUrl}/api/mia/context?botId=mei&sessionId=s1&originMessageId=m1`, {
     headers: { Authorization: `Bearer ${core.daemonToken()}` }
@@ -171,40 +193,54 @@ test("mia-core exposes scoped Mia context snapshots from runtime persona and mem
   assert.equal(body.sessionId, "s1");
   assert.equal(body.originMessageId, "m1");
   assert.equal(body.persona, "mei persona");
-  assert.match(body.memory, /bot: mei/);
-  assert.match(body.memory, /conversation: s1/);
-  assert.match(body.memory, /shared memory/);
-  assert.match(body.memory, /bot memory/);
+  assert.equal(body.memory, "");
+  assert.deepEqual(body.memoryTools, {
+    enabled: true,
+    search: "memory_search",
+    remember: "memory_remember",
+    update: "memory_update",
+    forget: "memory_forget"
+  });
 });
 
-test("mia-core derives runtime home from MIA_HOME without electron", () => {
+test("mia-core derives runtime home from MIA_HOME without electron", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-paths-"));
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });
-  assert.equal(core.runtimePaths().home, path.resolve(home));
-  fs.rmSync(home, { recursive: true, force: true });
+  try {
+    assert.equal(core.runtimePaths().home, path.resolve(home));
+  } finally {
+    await core.stop();
+    removeHome(home);
+  }
 });
 
-test("mia-core honors injected env for daemon host (no global process.env read)", () => {
+test("mia-core honors injected env for daemon host (no global process.env read)", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-env-"));
   const core = createMiaCore({ env: { MIA_HOME: home, MIA_DAEMON_HOST: "0.0.0.0" }, version: "1.0.0" });
-  assert.equal(core.daemonSettings().host, "0.0.0.0");
-  fs.rmSync(home, { recursive: true, force: true });
+  try {
+    assert.equal(core.daemonSettings().host, "0.0.0.0");
+  } finally {
+    await core.stop();
+    removeHome(home);
+  }
 });
 
 test("mia-core picks a free port when the configured one is taken", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-port-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const taken = await freePort();
 
   // Occupy the configured port; the core must probe forward to a free one.
   const blocker = require("node:net").createServer();
   await new Promise((resolve) => blocker.listen(taken, "127.0.0.1", resolve));
-  t.after(() => new Promise((resolve) => blocker.close(resolve)));
 
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });
+  t.after(async () => {
+    try { await core.stop(); } catch { /* best effort */ }
+    try { await new Promise((resolve) => blocker.close(resolve)); } catch { /* best effort */ }
+    removeHome(home);
+  });
   core.writeDaemonSettings({ host: "127.0.0.1", port: taken });
   const status = await core.start();
-  t.after(() => core.stop());
 
   assert.equal(status.running, true);
   assert.notEqual(status.port, taken);

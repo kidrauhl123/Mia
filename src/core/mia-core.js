@@ -99,15 +99,17 @@ const {
 // the bundled official-library files. The loader top-level `require("electron")`
 // resolves to a path string under plain node, so `shell` is undefined — only
 // openLocalSkillDirectory touches it, and Core never calls that.
+const { createMiaMemoryProvider } = require("../main/mia-memory-provider.js");
 const { createMiaMemoryService } = require("../main/mia-memory-service.js");
 const { createSkillsLoader } = require("../main/skills-loader.js");
 
 // Attachments + MCP context bridges — the SAME pure-node factories main.js drives
 // (src/main.js ~453 createChatAttachments, ~631/640 the scheduler/Mia-app MCP
 // bridges; no fork). All three are constructed from runtimePaths + fs/path only:
-//   - createChatAttachments: Core uses normalizeAttachments + attachmentContext
-//     on the engine payload path, and safeFetchFileAttachment on the cloud bot
-//     routing path to turn persisted /api/files attachments into local temp files.
+//   - createChatAttachments: the two methods Core needs (normalizeAttachments,
+//     attachmentContext) are pure fs/path. The save/read/cloud-fetch methods
+//     (which alone touch initializeRuntime/getCloudSettings) are never reached on
+//     the hermes-run-service payload path, so node sinks for those deps are safe.
 //   - createSchedulerMcpBridge / createMiaAppMcpBridge: writeContext is a pure fs
 //     write of {botId, sessionId, originMessageId} to context.json under Core's
 //     own runtime home. Core owns that home AND the daemon control server the MCP
@@ -161,6 +163,7 @@ const { createMainBotRuntimeDispatcher } = require("../main/social/bot-runtime-d
 // connects to /api/events, applies the resume cursor, and routes
 // ConversationBotInvocationRequested to botRuntimeDispatcher.handleCloudEvent.
 const { createCloudEventsClient } = require("../main/cloud/cloud-events-client.js");
+const { createCloudDesktopSyncClient } = require("../main/cloud/desktop-sync-client.js");
 const {
   cloudEventsUrl: buildCloudEventsUrl,
   cloudWebSocketUrl,
@@ -361,6 +364,7 @@ function coreResolveOfficialLibraryRoot(root = "") {
 // `sendHermesChat` is host-injectable (real adapter.sendChat in production; a fake
 // in tests) so only the engine HTTP layer is replaced while the graph stays real.
 function createCoreBotExecution({
+  env = process.env,
   runtimePaths,
   settingsStore,
   hermesBaseUrl,
@@ -419,11 +423,37 @@ function createCoreBotExecution({
     enginePermissionStoreTarget
   });
 
-  // REAL memory service — pure node (runtimePaths + fs). Yields the same
-  // Hermes adapter `memoryBlock` main.js passes (src/main.js:2070), reading the
-  // single-owner mia-memory.json under Core's runtime home.
-  const miaMemoryService = createMiaMemoryService({ runtimePaths });
+  // REAL memory service — pure node (runtimePaths + fs). Chat adapters no
+  // longer receive prompt-rendered Mia memory; this service backs MCP tools,
+  // UI governance, Cloud sync, and optional native-file bridge output.
+  function currentMiaUserId() {
+    try {
+      const cloudUser = settingsStore?.cloudSettings?.()?.user || null;
+      return String(cloudUser?.id || cloudUser?.username || "").trim() || "local";
+    } catch {
+      return "local";
+    }
+  }
+  const miaMemoryProvider = createMiaMemoryProvider({ env, fetchImpl: fetch });
+  const miaMemoryService = createMiaMemoryService({
+    runtimePaths,
+    currentUserId: currentMiaUserId,
+    memoryProvider: miaMemoryProvider
+  });
   const readBotPersona = botManifest.readBotPersona;
+
+  function miaMemoryEnabled() {
+    try {
+      return settingsStore.memorySettings().enabled !== false;
+    } catch {
+      return true;
+    }
+  }
+
+  function syncNativeMemoryFilesForAgent(input = {}) {
+    if (miaMemoryEnabled()) return miaMemoryService.syncNativeMemoryFiles(input);
+    return miaMemoryService.syncNativeMemoryFiles({ ...input, entries: [] });
+  }
 
   function miaContextSnapshot({ botId = "", sessionId = "", originMessageId = "" } = {}) {
     const key = String(botId || "mia").trim() || "mia";
@@ -437,12 +467,24 @@ function createCoreBotExecution({
     const name = bot?.name || key;
     const bio = bot?.bio || "";
     return {
+      userId: miaMemoryService.currentUserId(),
       botId: key,
       sessionId: localSessionId,
       originMessageId: String(originMessageId || ""),
       generatedAt: Date.now(),
       persona: readBotPersona(key, name, bio),
-      memory: miaMemoryService.memoryBlock({ botId: key, sessionId: localSessionId })
+      memory: "",
+      memoryTools: {
+        enabled: miaMemoryEnabled(),
+        search: "memory_search",
+        remember: "memory_remember",
+        update: "memory_update",
+        forget: "memory_forget"
+      },
+      skillTools: {
+        listCurrent: "skill_list_current",
+        readCurrent: "skill_read_current"
+      }
     };
   }
 
@@ -464,6 +506,31 @@ function createCoreBotExecution({
     appendEngineLog: () => {},
     isChildPath
   });
+
+  function botForMiaContext(botId = "") {
+    const key = String(botId || "mia").trim() || "mia";
+    try {
+      const bot = (botManifest.loadBotManifest().bots || []).find((item) => String(item?.key || item?.id || "") === key) || null;
+      return bot || { key, id: key, name: key, capabilities: { enabledSkills: [] } };
+    } catch {
+      return { key, id: key, name: key, capabilities: { enabledSkills: [] } };
+    }
+  }
+
+  function miaCurrentSkills({ botId = "", skillId = "" } = {}) {
+    const bot = botForMiaContext(botId);
+    const key = String(bot?.key || bot?.id || botId || "mia").trim() || "mia";
+    if (skillId) {
+      return {
+        botId: key,
+        skill: skillsLoader.readCurrentBotSkill(bot, skillId)
+      };
+    }
+    return {
+      botId: key,
+      skills: skillsLoader.listCurrentBotSkills(bot)
+    };
+  }
 
   // REAL chat-attachments — pure node (fs/path) for the two methods the run
   // service uses. normalizeAttachments + attachmentContext read local file
@@ -494,7 +561,6 @@ function createCoreBotExecution({
     fetchImpl,
     randomUUID: () => crypto.randomUUID()
   });
-  const agentPermissionCoordinator = createAgentPermissionCoordinator({ runtimePaths, readJson });
 
   // PART B — local agent engine service (pure node). Provides the PATH-resolved
   // CLI lookup (shellCommandPath: claude/codex/openclaw/node), the codex runtime
@@ -630,13 +696,8 @@ function createCoreBotExecution({
     buildRunPayload: hermesRunService.buildRunPayload,
     normalizeError: hermesRunService.normalizeError,
     readRunEventStream: hermesRunService.readRunEventStream,
-    submitRunApproval: hermesRunService.submitRunApproval,
     responseModel: adapterForEngine("hermes").responseModel,
     fetch: fetchImpl,
-    // REAL memory block — Core owns the same single-owner mia-memory.json, so
-    // a Hermes turn run via Core injects the same memory the Electron daemon does.
-    memoryBlock: miaMemoryService.memoryBlock,
-    permissionCoordinator: agentPermissionCoordinator,
     // REAL scheduler MCP context write — Core owns the scheduler subsystem, so a
     // schedule_create from this turn fires the reminder back into this conversation.
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
@@ -694,6 +755,7 @@ function createCoreBotExecution({
 
   // Per-engine permission policy + cross-turn agent-session map: pure JSON I/O
   // under Core's single-owner runtime home — the SAME stores main.js drives.
+  const agentPermissionCoordinator = createAgentPermissionCoordinator({ runtimePaths, readJson });
   const agentSessionStore = createAgentSessionStore({
     runtimePaths,
     readJson,
@@ -812,7 +874,6 @@ function createCoreBotExecution({
         getUserMcpSpecs: () => userMcpService.getEngineSpecs("claude-code"),
         injectGroupContextForSdk: (userMessage) => userMessage,
         lastUserPrompt: hermesRunService.lastUserPrompt,
-        memoryBlock: miaMemoryService.memoryBlock,
         normalizeEffortLevel,
         permissionCoordinator: agentPermissionCoordinator,
         processEnvStrings,
@@ -846,7 +907,6 @@ function createCoreBotExecution({
         getUserMcpSpecs: () => userMcpService.getEngineSpecs("codex"),
         injectGroupContextForSdk: (userMessage) => userMessage,
         lastUserPrompt: hermesRunService.lastUserPrompt,
-        memoryBlock: miaMemoryService.memoryBlock,
         normalizeEffortLevel,
         permissionCoordinator: agentPermissionCoordinator,
         processEnvStrings,
@@ -880,14 +940,14 @@ function createCoreBotExecution({
         getUserMcpServers: (options) => userMcpService.getEngineSpecs("openclaw", options),
         injectGroupContextForSdk: (userMessage) => userMessage,
         lastUserPrompt: hermesRunService.lastUserPrompt,
-        memoryBlock: miaMemoryService.memoryBlock,
         normalizeEffortLevel,
         permissionCoordinator: agentPermissionCoordinator,
         processEnvStrings,
         readBotPersona,
         resolveManagedModelRuntime,
         setAgentSessionId: agentSessionStore.setId,
-        shellCommandPath: localAgentEngineService.shellCommandPath
+        shellCommandPath: localAgentEngineService.shellCommandPath,
+        syncNativeMemoryFiles: syncNativeMemoryFilesForAgent
       });
     }
     return cachedOpenClawAdapter;
@@ -941,7 +1001,9 @@ function createCoreBotExecution({
     isDaemonProcess: true,
     daemonTasksClient: () => null,
     settingsStore: () => (settingsStore || { daemonSettings: () => ({ enabled: false }) }),
-    appendCloudLog: () => {}
+    appendCloudLog: () => {},
+    miaMemoryService,
+    isMemoryEnabled: miaMemoryEnabled
   });
 
   // PART B teardown: the user-MCP bridge (createMcpBridgeServer) opens a loopback
@@ -956,9 +1018,10 @@ function createCoreBotExecution({
     // have opened (createSession). Mirrors main.js quit (src/main.js:3027-3028).
     try { if (claudeCodeMiaProxy && typeof claudeCodeMiaProxy.stop === "function") await claudeCodeMiaProxy.stop(); } catch { /* best effort */ }
     try { if (codexMiaProxy && typeof codexMiaProxy.stop === "function") await codexMiaProxy.stop(); } catch { /* best effort */ }
+    try { if (miaMemoryService && typeof miaMemoryService.close === "function") miaMemoryService.close(); } catch { /* best effort */ }
   }
 
-  return Object.assign(botExecutionCore, { closeAgentEngines });
+  return Object.assign(botExecutionCore, { closeAgentEngines, miaCurrentSkills });
 }
 
 // Wire the CLOUD bot-invocation routing into Core, reusing the SAME pure-node
@@ -981,9 +1044,6 @@ function createCoreCloudRouting({
   botExecution,
   socialApi,
   artifactWorkspaceDir = null,
-  fetchFileAttachment = null,
-  fetchImpl = fetch,
-  timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs),
   emitLocalEvent = () => {},
   deviceId = "",
   log = () => {}
@@ -1000,26 +1060,11 @@ function createCoreCloudRouting({
     getSettings: () => (settingsStore ? settingsStore.cloudSettings() : { enabled: false }),
     normalizeUrl: settingsStore ? settingsStore.normalizeCloudUrl : (value) => String(value || "")
   });
-  const attachmentTransfer = typeof fetchFileAttachment === "function"
-    ? fetchFileAttachment
-    : createChatAttachments({
-        initializeRuntime: () => {},
-        runtimePaths: runtimePaths || (() => ({})),
-        getCloudSettings: () => (settingsStore && typeof settingsStore.cloudSettings === "function"
-          ? settingsStore.cloudSettings()
-          : { enabled: false }),
-        normalizeCloudUrl: settingsStore && typeof settingsStore.normalizeCloudUrl === "function"
-          ? settingsStore.normalizeCloudUrl
-          : (value) => String(value || ""),
-        fetchImpl,
-        timeoutSignal
-      }).safeFetchFileAttachment;
 
   const localBotResponder = createLocalBotResponder({
     sendChat: botExecution.sendChat,
     postConversationMessageAsBot: (conversationId, body) => api.postConversationMessageAsBot(conversationId, body),
     listConversationMessages: (conversationId, sinceSeq, limit) => api.listConversationMessages(conversationId, sinceSeq, limit),
-    fetchFileAttachment: attachmentTransfer,
     // Run streams (typing, token deltas, tool traces) + posted-message echoes go
     // to the Core control server's local event channel. The caller injects the
     // sink; a no-op/collector is fine until the local-events fan-out lands.
@@ -1083,6 +1128,7 @@ function createCoreCloudEvents({
   WebSocketImpl,
   emitLocalEvent = () => {},
   cloudEventsUrl = buildCloudEventsUrl,
+  memorySync = null,
   log = () => {}
 } = {}) {
   if (!cloudRouting || !cloudRouting.dispatcher) {
@@ -1116,6 +1162,7 @@ function createCoreCloudEvents({
     cloudEventChannel: CORE_CLOUD_EVENT_CHANNEL,
     appendCloudLog: (line) => log(line),
     botRuntimeDispatcher: cloudRouting.dispatcher,
+    memorySync,
     // TODO(mia-core slice): wire the local message cache once Core owns it.
     messageCache: null,
     // Core is the daemon owner of /api/events when it runs, so it persists the
@@ -1782,7 +1829,28 @@ function createMiaCore(options = {}) {
     normalizeAgentEngine,
     settingsStore
   });
-  const coreMiaMemoryService = createMiaMemoryService({ runtimePaths });
+  function currentCoreMiaUserId() {
+    try {
+      const cloudUser = settingsStore.cloudSettings()?.user || null;
+      return String(cloudUser?.id || cloudUser?.username || "").trim() || "local";
+    } catch {
+      return "local";
+    }
+  }
+  const coreMiaMemoryProvider = createMiaMemoryProvider({ env, fetchImpl: fetch });
+  const coreMiaMemoryService = createMiaMemoryService({
+    runtimePaths,
+    currentUserId: currentCoreMiaUserId,
+    memoryProvider: coreMiaMemoryProvider
+  });
+
+  function miaMemoryEnabled() {
+    try {
+      return settingsStore.memorySettings().enabled !== false;
+    } catch {
+      return true;
+    }
+  }
 
   function miaContextSnapshot({ botId = "", sessionId = "", originMessageId = "" } = {}) {
     const key = String(botId || "mia").trim() || "mia";
@@ -1796,12 +1864,24 @@ function createMiaCore(options = {}) {
     const name = bot?.name || key;
     const bio = bot?.bio || "";
     return {
+      userId: coreMiaMemoryService.currentUserId(),
       botId: key,
       sessionId: localSessionId,
       originMessageId: String(originMessageId || ""),
       generatedAt: Date.now(),
       persona: coreBotManifest.readBotPersona(key, name, bio),
-      memory: coreMiaMemoryService.memoryBlock({ botId: key, sessionId: localSessionId })
+      memory: "",
+      memoryTools: {
+        enabled: miaMemoryEnabled(),
+        search: "memory_search",
+        remember: "memory_remember",
+        update: "memory_update",
+        forget: "memory_forget"
+      },
+      skillTools: {
+        listCurrent: "skill_list_current",
+        readCurrent: "skill_read_current"
+      }
     };
   }
 
@@ -1868,6 +1948,42 @@ function createMiaCore(options = {}) {
     return cachedScheduler;
   }
 
+  let cachedCloudDesktopSync = null;
+  function coreCloudDesktopSync() {
+    if (cachedCloudDesktopSync) return cachedCloudDesktopSync;
+    cachedCloudDesktopSync = createCloudDesktopSyncClient({
+      getCloudSettings: () => settingsStore.cloudSettings(),
+      writeCloudSettings: (patch) => settingsStore.writeCloudSettings(patch),
+      normalizeCloudUrl: settingsStore.normalizeCloudUrl,
+      cloudStatus: () => ({ enabled: settingsStore.cloudSettings().enabled }),
+      appendLog: () => {},
+      fetchImpl: fetch,
+      timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs),
+      runtimePaths,
+      readJson,
+      startCloudEvents: () => cloudEvents().start(),
+      startCloudBridge: () => cloudBridge().start(),
+      stopCloudEvents: () => cachedCloudEvents?.stop?.(),
+      stopCloudBridge: () => cachedCloudBridge?.stop?.(),
+      memoryService: coreMiaMemoryService
+    });
+    return cachedCloudDesktopSync;
+  }
+
+  let coreMemorySyncTimer = null;
+  function scheduleCoreMemorySync(reason = "memory") {
+    if (coreMemorySyncTimer) clearTimeout(coreMemorySyncTimer);
+    coreMemorySyncTimer = setTimeout(() => {
+      coreMemorySyncTimer = null;
+      try {
+        coreCloudDesktopSync().syncMemories().catch(() => {});
+      } catch {
+        // Cloud sync is opportunistic; local memory writes must not fail.
+      }
+    }, 1000);
+    if (coreMemorySyncTimer && typeof coreMemorySyncTimer.unref === "function") coreMemorySyncTimer.unref();
+  }
+
   const controlServer = createDaemonControlServer({
     isDaemonProcess: true,
     serviceLabel: MIA_DAEMON_SERVICE_LABEL,
@@ -1893,6 +2009,7 @@ function createMiaCore(options = {}) {
           if (next.enabled && next.token) {
             cloudEvents().start();
             cloudBridge().start();
+            scheduleCoreMemorySync("cloud-login");
           } else {
             if (cachedCloudEvents) cachedCloudEvents.stop();
             if (cachedCloudBridge) cachedCloudBridge.stop();
@@ -1907,11 +2024,15 @@ function createMiaCore(options = {}) {
     // Inert until later vertical slices migrate this capability into Core.
     initializeRuntime: () => {},
     remoteRouter: coreRemoteRouter,
+    miaMemoryService: coreMiaMemoryService,
+    isMemoryEnabled: miaMemoryEnabled,
+    onMemoryChanged: scheduleCoreMemorySync,
     // REAL scheduler: the control server calls initSchedulerSubsystem() on start()
     // (arming timers) and tasksRoutes() per request to serve /api/tasks.
     initSchedulerSubsystem: () => schedulerSubsystem().initSchedulerSubsystem(),
     tasksRoutes: () => schedulerSubsystem().tasksRoutes,
-    getMiaContextSnapshot: miaContextSnapshot
+    getMiaContextSnapshot: miaContextSnapshot,
+    getMiaCurrentSkills: (scope) => botExecution().miaCurrentSkills(scope)
   });
 
   function coreRemoteRouter() {
@@ -1998,6 +2119,7 @@ function createMiaCore(options = {}) {
   function botExecution(overrides = {}) {
     if (cachedBotExecution && !Object.keys(overrides).length) return cachedBotExecution;
     const built = createCoreBotExecution({
+      env,
       runtimePaths,
       settingsStore,
       hermesBaseUrl: resolveHermesBaseUrl,
@@ -2063,6 +2185,7 @@ function createMiaCore(options = {}) {
       // tests inject a mock socket class.
       WebSocketImpl: overrides.WebSocketImpl || require("ws"),
       emitLocalEvent: (envelope) => controlServer.publishLocalEvent?.(envelope),
+      memorySync: () => coreCloudDesktopSync().syncMemories(),
       log: () => {},
       ...overrides
     });
@@ -2105,6 +2228,7 @@ function createMiaCore(options = {}) {
     if (cloud.enabled && cloud.token) {
       cloudEvents().start();
       cloudBridge().start();
+      scheduleCoreMemorySync("startup");
     }
     return status;
   }
@@ -2117,6 +2241,8 @@ function createMiaCore(options = {}) {
       // node --test exits). No-op if they were never built/connected.
       if (cachedCloudEvents) cachedCloudEvents.stop();
       if (cachedCloudBridge) cachedCloudBridge.stop();
+      if (coreMemorySyncTimer) clearTimeout(coreMemorySyncTimer);
+      coreMemorySyncTimer = null;
       // Clear any armed scheduler timer so node --test (and a clean shutdown)
       // exits; if the subsystem was never built this is a no-op.
       if (cachedScheduler) cachedScheduler.stopScheduler();
@@ -2130,6 +2256,7 @@ function createMiaCore(options = {}) {
       if (cachedBotExecution && typeof cachedBotExecution.closeAgentEngines === "function") {
         try { await cachedBotExecution.closeAgentEngines(); } catch { /* best effort */ }
       }
+      try { if (coreMiaMemoryService && typeof coreMiaMemoryService.close === "function") coreMiaMemoryService.close(); } catch { /* best effort */ }
       return controlServer.stop();
     },
     status: () => controlServer.status(),

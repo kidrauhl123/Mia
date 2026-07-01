@@ -10,11 +10,6 @@ function trimTrailingSlash(value = "") {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
-function anthropicV1Url(baseUrl = "", path = "") {
-  const base = trimTrailingSlash(baseUrl).replace(/\/v1$/i, "");
-  return `${base}/v1${path.startsWith("/") ? path : `/${path}`}`;
-}
-
 function randomToken() {
   return `mia_claude_${crypto.randomBytes(24).toString("base64url")}`;
 }
@@ -106,37 +101,6 @@ function normalizeJsonValue(value, fallback = {}) {
 function normalizeToolParameters(schema) {
   const value = schema && typeof schema === "object" ? schema : {};
   return Object.keys(value).length ? value : { type: "object", properties: {} };
-}
-
-function schemaForAnthropicTool(requestBody = {}, name = "") {
-  const target = String(name || "").trim();
-  if (!target || !Array.isArray(requestBody.tools)) return null;
-  const tool = requestBody.tools.find((item) => String(item?.name || "").trim() === target);
-  if (!tool || typeof tool !== "object") return null;
-  const schema = tool.input_schema || tool.inputSchema || tool.parameters;
-  return schema && typeof schema === "object" ? schema : null;
-}
-
-function missingRequiredToolInputs(requestBody = {}, name = "", input = {}) {
-  const schema = schemaForAnthropicTool(requestBody, name);
-  const required = Array.isArray(schema?.required)
-    ? schema.required.map((key) => String(key || "").trim()).filter(Boolean)
-    : [];
-  if (!required.length) return [];
-  const value = input && typeof input === "object" && !Array.isArray(input) ? input : {};
-  return required.filter((key) => {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) return true;
-    const item = value[key];
-    if (item == null) return true;
-    return typeof item === "string" && !item.trim();
-  });
-}
-
-function invalidToolCallText(invalids = []) {
-  const details = invalids
-    .map((item) => `${item.name}: missing ${item.missing.join(", ")}`)
-    .join("; ");
-  return `The selected Mia model returned an invalid tool call (${details}). Mia did not pass it to Claude Code because it would fail before running. Retry, or switch this bot to the Claude Code default model for tool-heavy tasks.`;
 }
 
 function convertAnthropicTools(tools) {
@@ -293,36 +257,22 @@ function convertOpenAiMessageToAnthropic(payload = {}, requestBody = {}, session
   const content = [];
   const text = typeof message.content === "string" ? message.content : contentText(message.content);
   if (text) content.push({ type: "text", text });
-  const invalidToolCalls = [];
-  let validToolCalls = 0;
   for (const call of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
     if (!call) continue;
-    const name = String(call.function?.name || call.name || "tool");
-    const input = normalizeJsonValue(call.function?.arguments || call.arguments);
-    const missing = missingRequiredToolInputs(requestBody, name, input);
-    if (missing.length) {
-      invalidToolCalls.push({ name, missing });
-      continue;
-    }
-    validToolCalls += 1;
     content.push({
       type: "tool_use",
       id: String(call.id || `toolu_${crypto.randomBytes(8).toString("base64url")}`),
-      name,
-      input
+      name: String(call.function?.name || call.name || "tool"),
+      input: normalizeJsonValue(call.function?.arguments || call.arguments)
     });
   }
-  if (invalidToolCalls.length) content.push({ type: "text", text: invalidToolCallText(invalidToolCalls) });
-  const stopReason = validToolCalls
-    ? mapFinishReason(choice.finish_reason)
-    : (invalidToolCalls.length ? "end_turn" : mapFinishReason(choice.finish_reason));
   return {
     id: anthropicMessageId(payload.id),
     type: "message",
     role: "assistant",
     model: requestBody.model || session.model || payload.model || "",
     content,
-    stop_reason: stopReason,
+    stop_reason: mapFinishReason(choice.finish_reason),
     stop_sequence: null,
     usage: usageFromOpenAi(payload.usage || {})
   };
@@ -456,44 +406,7 @@ async function pipeOpenAiStreamAsAnthropic(upstream, res, requestBody = {}, sess
   stopTextBlock();
 
   let index = textBlockStarted ? 1 : 0;
-  const invalidToolCalls = [];
-  const validToolCalls = [];
   for (const call of [...toolCalls.values()].sort((a, b) => a.index - b.index)) {
-    const name = call.name || "tool";
-    const input = normalizeJsonValue(call.arguments);
-    const missing = missingRequiredToolInputs(requestBody, name, input);
-    if (missing.length) {
-      invalidToolCalls.push({ name, missing });
-      continue;
-    }
-    validToolCalls.push({ ...call, name, input });
-  }
-  if (invalidToolCalls.length) {
-    if (textBlockStopped) {
-      res.write(sseFrame("content_block_start", {
-        type: "content_block_start",
-        index,
-        content_block: { type: "text", text: "" }
-      }));
-      res.write(sseFrame("content_block_delta", {
-        type: "content_block_delta",
-        index,
-        delta: { type: "text_delta", text: invalidToolCallText(invalidToolCalls) }
-      }));
-      res.write(sseFrame("content_block_stop", { type: "content_block_stop", index }));
-      index += 1;
-    } else {
-      ensureTextBlock();
-      res.write(sseFrame("content_block_delta", {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "text_delta", text: invalidToolCallText(invalidToolCalls) }
-      }));
-      stopTextBlock();
-      index = 1;
-    }
-  }
-  for (const call of validToolCalls) {
     res.write(sseFrame("content_block_start", {
       type: "content_block_start",
       index,
@@ -501,58 +414,20 @@ async function pipeOpenAiStreamAsAnthropic(upstream, res, requestBody = {}, sess
         type: "tool_use",
         id: call.id || `toolu_${crypto.randomBytes(8).toString("base64url")}`,
         name: call.name || "tool",
-        input: call.input
+        input: normalizeJsonValue(call.arguments)
       }
     }));
     res.write(sseFrame("content_block_stop", { type: "content_block_stop", index }));
     index += 1;
   }
 
-  const effectiveFinishReason = validToolCalls.length
-    ? finishReason
-    : (invalidToolCalls.length ? "end_turn" : finishReason);
   res.write(sseFrame("message_delta", {
     type: "message_delta",
-    delta: { stop_reason: effectiveFinishReason, stop_sequence: null },
+    delta: { stop_reason: finishReason, stop_sequence: null },
     usage: { output_tokens: outputTokens }
   }));
   res.write(doneFrame());
   res.end();
-}
-
-async function writeBufferedUpstreamResponse(upstream, res) {
-  const payload = Buffer.from(await upstream.arrayBuffer());
-  const headers = {
-    "content-type": upstream.headers.get("content-type") || "application/json",
-    "cache-control": upstream.headers.get("cache-control") || "no-store",
-    "content-length": payload.length
-  };
-  res.writeHead(upstream.status, headers);
-  res.end(payload);
-}
-
-async function pipeUpstreamStream(upstream, res) {
-  res.writeHead(upstream.status, {
-    "content-type": upstream.headers.get("content-type") || "text/event-stream; charset=utf-8",
-    "cache-control": upstream.headers.get("cache-control") || "no-store",
-    "connection": "keep-alive"
-  });
-  const reader = upstream.body.getReader();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    if (value) res.write(Buffer.from(value));
-  }
-  res.end();
-}
-
-async function writeUpstreamResponse(upstream, res) {
-  const contentType = upstream.headers.get("content-type") || "";
-  if (/event-stream/i.test(contentType) && upstream.body?.getReader) {
-    await pipeUpstreamStream(upstream, res);
-    return;
-  }
-  await writeBufferedUpstreamResponse(upstream, res);
 }
 
 function roughTokenCount(body = {}) {
@@ -595,26 +470,6 @@ function createClaudeCodeMiaProxy(options = {}) {
     const body = parseJsonBuffer(raw);
     if (!body) {
       writeError(res, 400, "Invalid JSON.");
-      return;
-    }
-    if (session.anthropicBaseUrl) {
-      const upstreamBody = {
-        ...body,
-        model: session.model || body.model
-      };
-      const headers = {
-        authorization: `Bearer ${session.apiKey}`,
-        "content-type": "application/json"
-      };
-      for (const name of ["anthropic-version", "anthropic-beta"]) {
-        if (req.headers[name]) headers[name] = req.headers[name];
-      }
-      const upstream = await fetchImpl(anthropicV1Url(session.anthropicBaseUrl, "/messages"), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(upstreamBody)
-      });
-      await writeUpstreamResponse(upstream, res);
       return;
     }
     const upstreamBody = anthropicToOpenAiChatBody(body, session);
@@ -706,7 +561,6 @@ function createClaudeCodeMiaProxy(options = {}) {
 
   async function createSession(managedModel = {}) {
     const baseUrl = trimTrailingSlash(managedModel.baseUrl || managedModel.base_url);
-    const anthropicBaseUrl = trimTrailingSlash(managedModel.anthropicBaseUrl || managedModel.anthropic_base_url);
     const apiKey = String(managedModel.apiKey || managedModel.api_key || "").trim();
     const model = String(managedModel.model || "").trim();
     if (!baseUrl || !apiKey || !model) {
@@ -716,7 +570,6 @@ function createClaudeCodeMiaProxy(options = {}) {
     const token = randomToken();
     sessions.set(token, {
       baseUrl,
-      anthropicBaseUrl,
       apiKey,
       model,
       expiresAt: now() + ttlMs

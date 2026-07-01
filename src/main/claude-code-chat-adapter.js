@@ -3,10 +3,22 @@ const crypto = require("node:crypto");
 const path = require("node:path");
 const { spawnExecutable } = require("./agent-runtime/process-launcher.js");
 const {
-  appendMiaMemoryBlock,
+  miaRuntimeSystemPrompt,
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
 } = require("./mia-runtime-context.js");
+const {
+  buildContextBudgetLogLine,
+  messagesAttachmentStats,
+  messagesTextChars,
+  textCharCount
+} = require("./agent-context-budget.js");
+const { personaBlockForNativeSession } = require("./native-persona-context.js");
+const { skillMaterializationForNativeSession } = require("./native-skill-context.js");
+const {
+  buildMiaContextResource,
+  mcpContextPrompt
+} = require("./mia-context-resource.js");
 const {
   fileEditPayloadFromUnifiedDiff,
   fileEditPayloadsFromAcpContent
@@ -217,7 +229,6 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const processEnvStrings = requireDependency(deps, "processEnvStrings");
   const normalizeEffortLevel = requireDependency(deps, "normalizeEffortLevel");
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
-  const memoryBlock = deps.memoryBlock || (() => "");
   const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
   const getSchedulerMcpSpec = requireDependency(deps, "getSchedulerMcpSpec");
   const getUserMcpSpecs = deps.getUserMcpSpecs || (() => ({}));
@@ -256,18 +267,28 @@ function createClaudeCodeChatAdapter(deps = {}) {
       appendEngineLog(`Scheduler MCP context write failed: ${error?.message || error}`);
     }
     const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "native" }) || lastUser);
-    const skillContext = buildSkillMaterializationContext(skillMaterialization);
-    const prompt = [skillContext, expandedPrompt]
-      .filter(Boolean)
-      .join("\n\n");
-    const promptWithGroup = group && group.contextBlock
-      ? injectGroupContextForSdk(prompt, group.contextBlock)
-      : prompt;
-    const miaMemory = memoryBlock({ botId: bot.key, sessionId });
-    const persona = appendMiaMemoryBlock(
-      withMiaRuntimeContext(readBotPersona(bot.key, bot.name, bot.bio), { scheduledFire }),
-      miaMemory
-    ).trim();
+    const schedulerMcpSpec = (() => {
+      try { return getSchedulerMcpSpec(); } catch { return null; }
+    })();
+    const miaAppMcpSpec = (() => {
+      try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
+    })();
+    const runtimeContext = String(miaRuntimeSystemPrompt({ scheduledFire }) || "").trim();
+    const miaContext = buildMiaContextResource({
+      engine,
+      bot,
+      sessionId,
+      runtimeConfig,
+      modePrefix: "claude",
+      mcpAvailable: Boolean(miaAppMcpSpec),
+      runtimePrompt: runtimeContext
+    });
+    const nativeContextMode = miaContext.nativeContextMode;
+    const rawPersona = nativeContextMode === "mcp"
+      ? mcpContextPrompt(miaContext, { includeRuntime: true })
+      : nativeContextMode === "prompt"
+        ? withMiaRuntimeContext(readBotPersona(bot.key, bot.name, bot.bio), { scheduledFire })
+        : "";
     const { query } = await claudeAgentSdk();
     let bridgePluginPath = "";
     let bridgeFingerprint = "";
@@ -284,12 +305,51 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const externalSessionId = savedEntry.id && savedEntry.fingerprint === sessionFingerprint
       ? savedEntry.id
       : "";
-    const schedulerMcpSpec = (() => {
-      try { return getSchedulerMcpSpec(); } catch { return null; }
-    })();
-    const miaAppMcpSpec = (() => {
-      try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
-    })();
+    const nativeSessionCacheKey = [
+      engine,
+      String(bot.key || bot.id || "bot"),
+      String(sessionId || "default"),
+      String(sessionFingerprint || "")
+    ].join(":");
+    const resetNativeSession = Boolean(savedEntry.id && !externalSessionId);
+    function nativeSystemParts({ reset = false } = {}) {
+      const nativePersona = personaBlockForNativeSession({
+        engine,
+        botId: bot.key,
+        sessionId,
+        nativeSessionId: nativeSessionCacheKey,
+        persistAgentSession: shouldPersistAgentSession,
+        personaBlock: rawPersona,
+        resetNativeSession: reset
+      });
+      const nativeMemory = "";
+      return {
+        nativePersona,
+        nativeMemory,
+        systemAppend: nativePersona.trim()
+      };
+    }
+    const initialNativeSystem = nativeSystemParts({ reset: resetNativeSession });
+    const systemAppend = initialNativeSystem.systemAppend;
+    const effectiveSkillMaterialization = skillMaterializationForNativeSession({
+      engine,
+      botId: bot.key,
+      sessionId,
+      nativeSessionId: nativeSessionCacheKey,
+      persistAgentSession: shouldPersistAgentSession,
+      skillMaterialization,
+      resetNativeSession
+    });
+    const skillDeliveryMode = miaContext.skills.deliveryMode;
+    const skillContext = buildSkillMaterializationContext(effectiveSkillMaterialization, {
+      deliveryMode: skillDeliveryMode
+    });
+    const prompt = [skillContext, expandedPrompt]
+      .filter(Boolean)
+      .join("\n\n");
+    const promptWithGroup = group && group.contextBlock
+      ? injectGroupContextForSdk(prompt, group.contextBlock)
+      : prompt;
     const userMcpServers = getUserMcpSpecs();
     const turnConfig = {
       ...(bot.engineConfig && typeof bot.engineConfig === "object" ? bot.engineConfig : {}),
@@ -343,7 +403,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: persona
+        append: systemAppend
       },
       includePartialMessages: Boolean(emit),
       ...(bridgePluginPath ? { plugins: [{ type: "local", path: bridgePluginPath }], skills: "all" } : {}),
@@ -385,6 +445,31 @@ function createClaudeCodeChatAdapter(deps = {}) {
         };
       };
     }
+    const visibleHistoryMessages = Array.isArray(messages)
+      ? messages.filter((message) => message !== lastUserMessage)
+      : [];
+    const attachments = messagesAttachmentStats(messages);
+    appendEngineLog(buildContextBudgetLogLine({
+      engine,
+      botId: bot.key,
+      sessionId,
+      nativeSessionId: externalSessionId || nativeSessionCacheKey,
+      transport: "claude-agent-sdk",
+      historyMode: shouldPersistAgentSession ? "native" : "stateless",
+      nativeHistory: shouldPersistAgentSession,
+      promptChars: textCharCount(systemAppend) + textCharCount(promptWithGroup),
+      currentUserChars: textCharCount(expandedPrompt),
+      systemChars: textCharCount(systemAppend),
+      personaChars: textCharCount(initialNativeSystem.nativePersona),
+      memoryChars: textCharCount(initialNativeSystem.nativeMemory),
+      skillIndexChars: textCharCount(effectiveSkillMaterialization?.indexBlock),
+      loadedSkillChars: skillDeliveryMode === "mcp" ? 0 : textCharCount(effectiveSkillMaterialization?.loadedBlock),
+      visibleHistoryChars: messagesTextChars(visibleHistoryMessages),
+      includedHistoryChars: 0,
+      groupChars: textCharCount(group?.contextBlock),
+      attachmentCount: attachments.count,
+      attachmentBytes: attachments.bytes
+    }));
 
     let capturedSessionId = externalSessionId;
     const chunks = [];
@@ -508,7 +593,13 @@ function createClaudeCodeChatAdapter(deps = {}) {
           capturedSessionId = "";
           activeTextId = null;
           blockIndex.clear();
-          const retryOptions = { ...options };
+          const retryOptions = {
+            ...options,
+            systemPrompt: {
+              ...options.systemPrompt,
+              append: nativeSystemParts({ reset: true }).systemAppend
+            }
+          };
           delete retryOptions.resume;
           await consumeClaudeStream(retryOptions);
         } else {

@@ -22,6 +22,7 @@ function setup(t, overrides = {}) {
     appearanceSettings: path.join(home, "mia-appearance.json"),
     userProfile: path.join(home, "mia-user.json"),
     effortSettings: path.join(home, "mia-effort.json"),
+    memorySettings: path.join(home, "mia-memory-settings.json"),
     permissionSettings: path.join(home, "mia-permissions.json"),
     daemonSettings: path.join(home, "mia-daemon.json"),
     cloudSettings: path.join(home, "mia-cloud.json"),
@@ -350,6 +351,39 @@ test("explicit logout still clears credentials and resets the cursor", (t) => {
   assert.equal(next.user, null);
   assert.equal(next.lastEventSeq, 0);
   assert.deepEqual(readJson(runtime.cloudSettings, {}).token, "");
+});
+
+test("writeCloudSettings preserves and clears the memory sync cursor with cloud auth", (t) => {
+  const { runtime, store } = setup(t);
+  store.writeCloudSettings({
+    enabled: true,
+    token: "tok_alive",
+    user: { id: "u1" },
+    lastMemorySyncAt: "2026-07-01T00:00:00.000Z"
+  });
+
+  const cursorOnly = store.writeCloudSettings({ lastEventSeq: 12 });
+  assert.equal(cursorOnly.lastMemorySyncAt, "2026-07-01T00:00:00.000Z");
+  assert.equal(readJson(runtime.cloudSettings, {}).lastMemorySyncAt, "2026-07-01T00:00:00.000Z");
+
+  const loggedOut = store.writeCloudSettings({ enabled: false, token: "", user: null });
+  assert.equal(loggedOut.lastMemorySyncAt, "");
+});
+
+test("memorySettings defaults on and persists explicit off", (t) => {
+  const { runtime, store } = setup(t);
+
+  assert.deepEqual(store.memorySettings(), { enabled: true });
+
+  const off = store.writeMemorySettings({ enabled: false });
+  assert.deepEqual(off, { enabled: false });
+  assert.deepEqual(readJson(runtime.memorySettings, {}), { enabled: false });
+
+  const unchanged = store.writeMemorySettings({});
+  assert.deepEqual(unchanged, { enabled: false });
+
+  const on = store.writeMemorySettings({ enabled: true });
+  assert.deepEqual(on, { enabled: true });
 });
 
 test("writeCloudSettings replaces the file atomically without tmp leftovers", (t) => {

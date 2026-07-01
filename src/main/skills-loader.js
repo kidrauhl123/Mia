@@ -627,6 +627,45 @@ function createSkillsLoader(deps = {}) {
     return records;
   }
 
+  function skillRecordAliases(record = {}) {
+    return [
+      record.id,
+      record.name,
+      record.id && String(record.id).split(":").pop()
+    ].map((value) => String(value || "").trim()).filter(Boolean);
+  }
+
+  function skillRecordMatches(record = {}, skillId = "") {
+    const target = String(skillId || "").trim();
+    if (!target) return false;
+    return skillRecordAliases(record).some((alias) => alias === target);
+  }
+
+  function publicSkillRecord(record = {}) {
+    const body = String(record.body || "");
+    return {
+      id: String(record.id || "").trim(),
+      name: String(record.name || record.id || "").trim(),
+      description: String(record.description || "").trim(),
+      bodyChars: body.length
+    };
+  }
+
+  function listCurrentBotSkills(bot) {
+    return skillRecordsForBot(bot || {}).map(publicSkillRecord);
+  }
+
+  function readCurrentBotSkill(bot, skillId) {
+    const target = String(skillId || "").trim();
+    if (!target) throw new Error("Skill id is required.");
+    const record = skillRecordsForBot(bot || {}).find((item) => skillRecordMatches(item, target));
+    if (!record) throw new Error("Skill is not enabled for the current bot.");
+    return {
+      ...publicSkillRecord(record),
+      body: String(record.body || "").trim()
+    };
+  }
+
   function skillRecordFromResolved(key, found) {
     return {
       id: found.skill?.id || key,
@@ -752,6 +791,8 @@ function createSkillsLoader(deps = {}) {
     installMarketplaceSkill,
     packageLocalSkill,
     skillRecordsForBot,
+    listCurrentBotSkills,
+    readCurrentBotSkill,
     resolveSkillMaterialization,
     buildActiveSkillsDirective,
     botCapabilitiesWithPresetDefaults: (bot) => botCapabilitiesWithPresetDefaults(bot, readMiaOfficialBotPresets()),

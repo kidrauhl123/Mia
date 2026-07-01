@@ -539,21 +539,29 @@ test("external Agent session binding persistence lives behind a main agent-sessi
   assert.doesNotMatch(mainSource, /function setAgentSessionEntry/, "main must not own external Agent session entry writes");
 });
 
-test("Mia memory lives behind a main memory service and adapters only receive bounded memory blocks", () => {
+test("Mia memory lives behind a scoped service and adapters avoid native memory files", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const runtimePathsSource = fs.readFileSync(path.join(root, "src/main/runtime-paths.js"), "utf8");
   const memorySource = fs.readFileSync(path.join(root, "src/main/mia-memory-service.js"), "utf8");
   const adapterSource = [
     "src/main/hermes-chat-adapter.js",
     "src/main/claude-code-chat-adapter.js",
-    "src/main/codex-chat-adapter.js"
+    "src/main/codex-chat-adapter.js",
+    "src/main/openclaw-chat-adapter.js"
   ].map((relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8")).join("\n");
 
   assert.match(memorySource, /function createMiaMemoryService/, "Mia memory service should exist");
-  assert.match(runtimePathsSource, /mia-memory\.json/, "runtime paths should own Mia memory storage path");
+  assert.match(runtimePathsSource, /mia-memory\.json/, "runtime paths should retain the legacy Mia memory migration path");
+  assert.match(runtimePathsSource, /mia-memory\.sqlite/, "runtime paths should own the scoped Mia memory database path");
   assert.match(mainSource, /createMiaMemoryService/, "main should instantiate Mia memory service");
-  assert.match(mainSource, /memoryBlock: miaMemoryService\.memoryBlock/, "main should inject bounded memory blocks into adapters");
+  assert.match(mainSource, /miaMemoryService/, "main should route Mia memory through the shared service");
+  assert.match(memorySource, /rememberMemory/, "Mia memory service should expose scoped write requests");
+  assert.match(memorySource, /searchMemories/, "Mia memory service should expose scoped search");
   assert.match(adapterSource, /sanitizeMiaMemorySpoof/, "adapters should neutralize user-spoofed Mia memory headers");
+  assert.equal(fs.existsSync(path.join(root, "src/main/native-memory-context.js")), false, "old prompt-rendered native memory helper must stay deleted");
+  assert.doesNotMatch(adapterSource, /memoryBlock/, "chat adapters must not accept or call a prompt-rendered memoryBlock hook");
+  assert.doesNotMatch(adapterSource, /memoryInjectionMode|nativeMemoryInjectionMode/, "chat adapters must ignore legacy prompt memory injection mode config");
+  assert.doesNotMatch(adapterSource, /native-memory-context/, "chat adapters must not import the deleted native memory prompt helper");
   assert.doesNotMatch(adapterSource, /\.codex[\s\S]{0,80}memory/, "adapters must not read native Codex memory files");
   assert.doesNotMatch(adapterSource, /CLAUDE\.md/, "adapters must not read native Claude memory files");
 });

@@ -20,6 +20,11 @@ test("mia-app MCP exposes scheduler, skills, and social tools", () => {
     "conversation_create_group",
     "conversation_list",
     "conversation_post_message",
+    "memory_forget",
+    "memory_list",
+    "memory_remember",
+    "memory_search",
+    "memory_update",
     "schedule_create",
     "schedule_delete",
     "schedule_list",
@@ -27,6 +32,8 @@ test("mia-app MCP exposes scheduler, skills, and social tools", () => {
     "schedule_resume",
     "schedule_update",
     "skill_install",
+    "skill_list_current",
+    "skill_read_current",
     "skill_search",
     "skill_show",
     "web_fetch",
@@ -38,12 +45,62 @@ test("write tools require permission", () => {
   assert.equal(permissionClassForTool("schedule_list"), "read");
   assert.equal(permissionClassForTool("context_snapshot"), "read");
   assert.equal(permissionClassForTool("skill_search"), "read");
+  assert.equal(permissionClassForTool("skill_list_current"), "read");
+  assert.equal(permissionClassForTool("skill_read_current"), "read");
+  assert.equal(permissionClassForTool("memory_search"), "read");
+  assert.equal(permissionClassForTool("memory_list"), "read");
   assert.equal(permissionClassForTool("web_search"), "read");
   assert.equal(permissionClassForTool("web_fetch"), "read");
   assert.equal(permissionClassForTool("skill_install"), "write");
+  assert.equal(permissionClassForTool("memory_remember"), "write");
+  assert.equal(permissionClassForTool("memory_update"), "write");
+  assert.equal(permissionClassForTool("memory_forget"), "write");
   assert.equal(permissionClassForTool("conversation_create_group"), "write");
   assert.equal(permissionClassForTool("conversation_post_message"), "write");
   assert.equal(permissionClassForTool("unknown"), "unknown");
+});
+
+test("memory write tools expose bounded retrieval priority", () => {
+  const byName = new Map(toolDefinitions().map((tool) => [tool.name, tool]));
+  for (const name of ["memory_remember", "memory_update"]) {
+    const priority = byName.get(name)?.inputSchema?.properties?.priority;
+    assert.equal(priority?.type, "number");
+    assert.match(priority?.description || "", /-100 to 100/);
+  }
+});
+
+test("memory MCP tools expose read/write annotations from the same permission classes", () => {
+  const byName = new Map(toolDefinitions().map((tool) => [tool.name, tool]));
+  assert.deepEqual(byName.get("memory_search")?.annotations, {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false
+  });
+  assert.deepEqual(byName.get("memory_list")?.annotations, {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false
+  });
+  assert.deepEqual(byName.get("memory_remember")?.annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false
+  });
+  assert.deepEqual(byName.get("memory_update")?.annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false
+  });
+  assert.deepEqual(byName.get("memory_forget")?.annotations, {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false
+  });
 });
 
 test("parseDuckDuckGoHtml extracts result URLs and snippets", () => {

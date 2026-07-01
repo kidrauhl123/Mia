@@ -46,8 +46,8 @@ function buildSkillIndexBlock(skills = []) {
   return [
     "## Available Mia Skills",
     "",
-    "这些是当前 Bot 可用的能力索引。只有当用户请求明显匹配时才使用；不要向用户复述这个索引。",
-    "如果完成当前请求需要某个 Skill 的完整指南，请只输出 `[LOAD_SKILL: skill-id]`，Mia 会为你加载后继续执行。",
+    "These are capability indexes available to the current Mia bot. Use a skill only when the user's request clearly matches it, and do not repeat this index to the user.",
+    "If completing the current request requires a full skill guide that is not loaded yet, output only `[LOAD_SKILL: skill-id]`; Mia will load it and continue the turn.",
     "",
     ...rows.map((skill) => {
       const label = skill.id === skill.name ? skill.id : `${skill.id} (${skill.name})`;
@@ -65,13 +65,33 @@ function buildLoadedSkillBlocks(skills = []) {
   return [
     "## Loaded Mia Skill Guides",
     "",
-    "以下 Skill 是本轮被用户显式选择、被明确意图触发或由你按需请求加载的指南。只在完成当前请求需要时使用；不要向用户解释内部 Skill 选择。",
+    "The following skills were explicitly selected by the user, matched by intent, or loaded after a `[LOAD_SKILL: skill-id]` request. Use them only when needed for the current request, and do not explain internal skill selection to the user.",
     "",
     blocks.join("\n\n")
   ].join("\n");
 }
 
-function buildSkillMaterializationContext(materialization = {}) {
+function buildMcpSkillMaterializationContext(materialization = {}) {
+  const loadedIds = uniqueSkillIds(materialization?.loadedSkillIds);
+  const hasSkillIndex = Boolean(cleanText(materialization?.indexBlock));
+  if (!hasSkillIndex && !loadedIds.length) return "";
+  const lines = [
+    "## Mia Skill Tools",
+    "",
+    "Use `skill_list_current` to list skills enabled for the current Mia bot, then use `skill_read_current` to read a full skill guide only when needed. Do not use the text-based skill loading protocol in MCP-capable turns.",
+    loadedIds.length
+      ? `For this turn, prioritize these selected or inferred skills and read their guide with \`skill_read_current\`: ${loadedIds.join(", ")}.`
+      : ""
+  ].map((block) => cleanText(block)).filter(Boolean);
+  return lines.join("\n\n");
+}
+
+function buildSkillMaterializationContext(materialization = {}, options = {}) {
+  const deliveryMode = cleanText(options.deliveryMode || options.mode || "prompt").toLowerCase();
+  if (deliveryMode === "mcp" || deliveryMode === "tools") {
+    return buildMcpSkillMaterializationContext(materialization);
+  }
+  if (deliveryMode === "file" || deliveryMode === "native-file" || deliveryMode === "native") return "";
   return [
     materialization?.indexBlock,
     materialization?.loadedBlock
@@ -101,6 +121,7 @@ function materializeSkillsForTurn({ availableSkills = [], activeSkillIds = [], i
 
 module.exports = {
   buildLoadedSkillBlocks,
+  buildMcpSkillMaterializationContext,
   buildSkillMaterializationContext,
   buildSkillIndexBlock,
   materializeSkillsForTurn,

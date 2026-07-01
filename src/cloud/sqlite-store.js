@@ -1194,6 +1194,51 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_task ON scheduled_task_runs(task_id, fired_at);
     CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_user ON scheduled_task_runs(user_id, fired_at);
+
+    -- v22: account-scoped Mia memory sync. Engine-native sessions remain
+    -- engine-owned; this table stores only policy-scoped Mia memory entries
+    -- that have already been assigned to user / bot / session scope locally.
+    CREATE TABLE IF NOT EXISTS memory_entries (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      bot_id TEXT NOT NULL DEFAULT '',
+      session_id TEXT NOT NULL DEFAULT '',
+      scope TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'fact',
+      text TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 1,
+      source TEXT NOT NULL DEFAULT '',
+      origin_engine TEXT NOT NULL DEFAULT '',
+      origin_native_session_id TEXT NOT NULL DEFAULT '',
+      source_message_ids_json TEXT NOT NULL DEFAULT '[]',
+      linked_memory_ids_json TEXT NOT NULL DEFAULT '[]',
+      policy_result_json TEXT NOT NULL DEFAULT '{}',
+      hash TEXT NOT NULL DEFAULT '',
+      text_normalized TEXT NOT NULL DEFAULT '',
+      priority INTEGER NOT NULL DEFAULT 0,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_used_at TEXT NOT NULL DEFAULT '',
+      expires_at TEXT NOT NULL DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      deleted_at TEXT NOT NULL DEFAULT '',
+      revision INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_user_updated ON memory_entries(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_scope ON memory_entries(user_id, scope, bot_id, session_id, status);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_deleted ON memory_entries(user_id, deleted_at);
+
+    CREATE TABLE IF NOT EXISTS memory_events (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      memory_id TEXT NOT NULL,
+      event TEXT NOT NULL,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_events_user_created ON memory_events(user_id, created_at);
   `);
   if (!hasColumn(db, "bridge_runs", "request_attachments_json")) {
     db.exec("ALTER TABLE bridge_runs ADD COLUMN request_attachments_json TEXT NOT NULL DEFAULT '[]'");
@@ -1355,6 +1400,17 @@ function migrate(db) {
     db.exec("ALTER TABLE user_settings ADD COLUMN starter_engine_bots_json TEXT NOT NULL DEFAULT '{}'");
   }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (21, ?)")
+    .run(nowIso());
+  // v22: cloud memory sync metadata. Existing self-hosted databases may have
+  // been created before tombstones/revisions were added, so keep the additive
+  // column checks even though the CREATE TABLE above covers fresh databases.
+  if (!hasColumn(db, "memory_entries", "deleted_at")) {
+    db.exec("ALTER TABLE memory_entries ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''");
+  }
+  if (!hasColumn(db, "memory_entries", "revision")) {
+    db.exec("ALTER TABLE memory_entries ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
+  }
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (22, ?)")
     .run(nowIso());
 }
 

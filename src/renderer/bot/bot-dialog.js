@@ -552,14 +552,26 @@
         || (Array.isArray(cap.permissionModes) && cap.permissionModes.length > 0)
         || (Array.isArray(cap.effortLevels) && cap.effortLevels.length > 0);
     };
+    const engineStatus = (engine) => {
+      if (engine === "claude-code") return runtime.agentEngines?.claudeCode || runtime.agentEngines?.["claude-code"] || {};
+      if (engine === "openclaw") return runtime.agentEngines?.openClaw || runtime.agentEngines?.openclaw || {};
+      return runtime.agentEngines?.[engine] || {};
+    };
+    const scanInProgress = Boolean(runtime.agentInventory?.summary?.scanning);
+    const inventoryUsable = (engine) => {
+      const agent = agentInventory.get(engine);
+      if (!agent) return false;
+      if (agent.usableInMia === true) return true;
+      return scanInProgress && (agent.health === "checking" || agent.source === "checking");
+    };
     const engineSources = {
-      hermes: runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed || runtime.engineInstalled || runtime.engineRunning,
-      "claude-code": runtime.agentEngines?.claudeCode?.available,
-      codex: runtime.agentEngines?.codex?.available,
-      openclaw: runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed
+      hermes: engineStatus("hermes").available || engineStatus("hermes").installed || runtime.engineInstalled || runtime.engineRunning,
+      "claude-code": engineStatus("claude-code").available || engineStatus("claude-code").installed,
+      codex: engineStatus("codex").available || engineStatus("codex").installed,
+      openclaw: engineStatus("openclaw").available || engineStatus("openclaw").installed
     };
     const engines = ["hermes", "claude-code", "codex", "openclaw"]
-      .filter((id) => agentInventory.get(id)?.usableInMia === true || engineSources[id] || capabilityAvailable(id));
+      .filter((id) => inventoryUsable(id) || engineSources[id] || capabilityAvailable(id));
     if (!engines.length) engines.push(window.miaBotDirectory?.normalizeAgentEngine?.(state?.preferredAgentEngine || "hermes", "desktop-local") || "hermes");
     return normalizedDevice({
       id: runtime.localDevice?.id || runtime.cloud?.deviceId || "current-device",

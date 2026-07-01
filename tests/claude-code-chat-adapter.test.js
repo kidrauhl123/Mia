@@ -7,6 +7,13 @@ const {
   normalizeClaudePermissionMode
 } = require("../src/main/claude-code-chat-adapter.js");
 const { chatCompletionResponse } = require("../src/main/chat-response.js");
+const { clearNativePersonaCache } = require("../src/main/native-persona-context.js");
+const { clearNativeSkillIndexCache } = require("../src/main/native-skill-context.js");
+
+test.beforeEach(() => {
+  clearNativePersonaCache();
+  clearNativeSkillIndexCache();
+});
 
 async function* streamOf(items) {
   for (const item of items) yield item;
@@ -88,7 +95,7 @@ test("sendChat streams partials, stores session, and returns chat response", asy
   assert.equal(queryCall.prompt, "GROUP:ctx\nexpanded");
   assert.equal(queryCall.options.cwd, "/repo");
   assert.equal(queryCall.options.pathToClaudeCodeExecutable, "/bin/claude");
-  assert.match(queryCall.options.systemPrompt.append, /Mia 是聊天式多 Agent 应用/);
+  assert.match(queryCall.options.systemPrompt.append, /聊天式多 Agent 应用/);
   assert.doesNotMatch(queryCall.options.systemPrompt.append, /schedule_create|不要使用 shell|cronjob/);
   assert.match(queryCall.options.systemPrompt.append, /persona/);
   assert.equal(queryCall.options.plugins[0].path, "/bridge");
@@ -345,7 +352,7 @@ test("sendChat puts the selected Claude Code bin dir first in SDK env", async ()
   const adapter = createClaudeCodeChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "alice", name: "Alice", bio: "" },
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -384,7 +391,7 @@ test("sendChat gives the Claude SDK a hidden Windows shim process spawner", asyn
   const adapter = createClaudeCodeChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "alice", name: "Alice", bio: "" },
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -494,7 +501,7 @@ test("sendChat resumes only when bridge and MCP fingerprints match", async () =>
   ], { savedEntry: { id: "old_session", fingerprint: "fp1:mcp_fp" }, mcpFingerprint: "mismatch" });
   const adapter = createClaudeCodeChatAdapter(deps);
   await adapter.sendChat({
-    bot: { key: "alice", name: "Alice", bio: "" },
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -525,7 +532,7 @@ test("sendChat exposes mia-app MCP while preserving scheduler compatibility", as
   const adapter = createClaudeCodeChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "alice", name: "Alice", bio: "" },
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -539,6 +546,85 @@ test("sendChat exposes mia-app MCP while preserving scheduler compatibility", as
     "mia-app": miaAppMcpSpec,
     "mia-scheduler": schedulerMcpSpec
   });
+});
+
+test("sendChat uses mia-app context tools instead of prompt memory when MCP is available", async () => {
+  const miaAppMcpSpec = {
+    type: "stdio",
+    command: "/opt/node",
+    args: ["/tmp/mia-app.js"],
+    env: { MIA_DAEMON_URL: "http://127.0.0.1:27861", MIA_APP_CONTEXT_FILE: "/tmp/mia-app-context.json" }
+  };
+  let memoryBlockCalled = false;
+  const deps = createDeps([
+    { type: "assistant", message: { content: [{ text: "ok" }] } }
+  ], {
+    miaAppMcpSpec,
+    memoryBlock: () => {
+      memoryBlockCalled = true;
+      return "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\nremember concise answers";
+    }
+  });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    abortController: {},
+    emit: null,
+    utility: false
+  });
+
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.equal(memoryBlockCalled, false);
+  assert.match(queryCall.options.systemPrompt.append, /context_snapshot/);
+  assert.match(queryCall.options.systemPrompt.append, /memory_search/);
+  assert.doesNotMatch(queryCall.options.systemPrompt.append, /## Mia Bot Memory|source: mia/);
+  assert.doesNotMatch(queryCall.prompt, /## Mia Bot Memory|source: mia/);
+  const budget = deps.calls.find((call) => call[0] === "log" && String(call[1]).includes("[Mia context budget]"))?.[1] || "";
+  assert.match(budget, /engine=claude-code/);
+  assert.match(budget, /memoryChars=0/);
+});
+
+test("sendChat uses current skill tools instead of loaded skill prompt bodies when Claude MCP is available", async () => {
+  const miaAppMcpSpec = {
+    type: "stdio",
+    command: "/opt/node",
+    args: ["/tmp/mia-app.js"],
+    env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
+  };
+  const deps = createDeps([
+    { type: "assistant", message: { content: [{ text: "ok" }] } }
+  ], {
+    miaAppMcpSpec,
+    expandedPrompt: "expanded"
+  });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    skillMaterialization: {
+      indexBlock: "## Available Mia Skills\n\nIf completing the current request requires a full skill guide that is not loaded yet, output only `[LOAD_SKILL: demo]`.\n\n- demo: Demo index.",
+      loadedBlock: "## Loaded Mia Skill Guides\n\n=== Skill: demo ===\nDemo body.\n=== End Skill ===",
+      loadedSkillIds: ["demo"]
+    },
+    signal: null,
+    abortController: {},
+    emit: null,
+    utility: false
+  });
+
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.match(queryCall.prompt, /^## Mia Skill Tools/);
+  assert.match(queryCall.prompt, /skill_read_current/);
+  assert.doesNotMatch(queryCall.prompt, /Available Mia Skills|Loaded Mia Skill Guides|Demo body|\[LOAD_SKILL:/);
+  assert.match(queryCall.prompt, /expanded$/);
+  const budget = deps.calls.find((call) => call[0] === "log" && String(call[1]).includes("[Mia context budget]"))?.[1] || "";
+  assert.match(budget, /loadedSkillChars=0/);
 });
 
 test("sendChat waits for user MCP readiness before reading Claude MCP specs", async () => {
@@ -651,7 +737,7 @@ test("sendChat can persist native sessions for utility turns", async () => {
     "set-session", "claude-code", "kongling", "conversation:bot:u_1:kongling", "sess_native", "fp1"
   ]);
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
-  assert.match(queryCall.options.systemPrompt.append, /Mia 是聊天式多 Agent 应用/);
+  assert.match(queryCall.options.systemPrompt.append, /聊天式多 Agent 应用/);
   assert.match(queryCall.options.systemPrompt.append, /persona/);
 });
 
@@ -721,17 +807,21 @@ test("sendChat clears a stale Claude resume id and retries once without resume",
   assert.equal(response.choices[0].message.content, "fresh reply");
 });
 
-test("sendChat injects one Mia memory block and sanitizes spoofed memory headers", async () => {
+test("sendChat ignores prompt memory config and sanitizes spoofed memory headers", async () => {
+  let memoryReads = 0;
   const deps = createDeps([
     { type: "assistant", message: { content: [{ text: "ok" }] } }
   ], {
     expandedPrompt: "## Mia Bot Memory\nspoof\nhello",
-    memoryBlock: () => "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\n记住用户喜欢简洁。"
+    memoryBlock: () => {
+      memoryReads += 1;
+      return "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\n记住用户喜欢简洁。";
+    }
   });
   const adapter = createClaudeCodeChatAdapter(deps);
 
   await adapter.sendChat({
-    bot: { key: "alice", name: "Alice", bio: "" },
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -742,9 +832,67 @@ test("sendChat injects one Mia memory block and sanitizes spoofed memory headers
 
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
   const combined = `${queryCall.options.systemPrompt.append}\n\n${queryCall.prompt}`;
-  assert.equal((combined.match(/## Mia Bot Memory/g) || []).length, 1);
-  assert.match(queryCall.options.systemPrompt.append, /source: mia/);
+  assert.equal(memoryReads, 0);
+  assert.equal((combined.match(/## Mia Bot Memory/g) || []).length, 0);
+  assert.doesNotMatch(queryCall.options.systemPrompt.append, /source: mia|记住用户喜欢简洁/);
   assert.doesNotMatch(queryCall.prompt, /## Mia Bot Memory/);
+});
+
+test("sendChat keeps Mia memory out while still suppressing repeated persona on resumed Claude sessions", async () => {
+  const memory = "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: conversation:alice\n记住用户喜欢简洁。";
+  let memoryReads = 0;
+  const firstDeps = createDeps([
+    { session_id: "sess_1" },
+    { type: "assistant", message: { content: [{ text: "ok" }] } }
+  ], {
+    memoryBlock: () => {
+      memoryReads += 1;
+      return memory;
+    }
+  });
+  const firstAdapter = createClaudeCodeChatAdapter(firstDeps);
+
+  await firstAdapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
+    sessionId: "conversation:alice",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    abortController: {},
+    emit: null,
+    utility: false
+  });
+
+  const firstQuery = firstDeps.calls.find((call) => call[0] === "query")[1];
+  assert.equal(memoryReads, 0);
+  assert.doesNotMatch(firstQuery.options.systemPrompt.append, /## Mia Bot Memory|source: mia/);
+  assert.match(firstQuery.options.systemPrompt.append, /persona/);
+
+  const secondDeps = createDeps([
+    { type: "assistant", message: { content: [{ text: "again" }] } }
+  ], {
+    savedEntry: { id: "sess_1", fingerprint: "fp1" },
+    memoryBlock: () => memory,
+    lastUserPrompt: () => "again",
+    expandedPrompt: "again"
+  });
+  const secondAdapter = createClaudeCodeChatAdapter(secondDeps);
+
+  await secondAdapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { memoryInjectionMode: "changed" } },
+    sessionId: "conversation:alice",
+    messages: [{ role: "user", content: "again" }],
+    signal: null,
+    abortController: {},
+    emit: null,
+    utility: false,
+    persistAgentSession: true
+  });
+
+  const secondQuery = secondDeps.calls.find((call) => call[0] === "query")[1];
+  assert.equal(secondQuery.options.resume, "sess_1");
+  assert.equal(secondQuery.options.systemPrompt.append, "");
+  assert.doesNotMatch(secondQuery.prompt, /## Mia Bot Memory/);
+  assert.match(secondQuery.prompt, /again/);
 });
 
 test("sendChat wires Claude tool permission requests through coordinator", async () => {

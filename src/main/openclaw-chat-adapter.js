@@ -10,7 +10,6 @@ const {
   spawnExecutable
 } = require("./agent-runtime/process-launcher.js");
 const {
-  appendMiaMemoryBlock,
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
 } = require("./mia-runtime-context.js");
@@ -20,18 +19,16 @@ const {
   messagesTextChars,
   textCharCount
 } = require("./agent-context-budget.js");
-const { memoryBlockForNativeSession } = require("./native-memory-context.js");
 const { personaBlockForNativeSession } = require("./native-persona-context.js");
 const { skillMaterializationForNativeSession } = require("./native-skill-context.js");
 const {
-  contextSnapshotInstruction,
-  nativeContextModeFromConfig,
-  selectNativeContextMode
-} = require("./native-context-snapshot.js");
+  buildMiaContextResource
+} = require("./mia-context-resource.js");
 const { fileEditPayloadsFromAcpContent } = require("./agent-file-edit-events.js");
 const { promptMessagesForNativeSession } = require("./agent-prompt-messages.js");
 const { isMiaManagedRuntime } = require("./mia-core/model-runtime-resolver.js");
 const { isForbiddenSchedulerToolName } = require("./scheduler-tool-guard.js");
+const { syncNativeContextFiles: defaultSyncNativeContextFiles } = require("./mia-native-context-bridge.js");
 const { buildSkillMaterializationContext } = require("../shared/skill-materializer.js");
 
 const OPENCLAW_MIA_AGENT_ID = "mia";
@@ -133,35 +130,6 @@ function jsonFragmentFromText(text = "") {
   return null;
 }
 
-function parseOpenClawContent(stdout = "") {
-  const raw = String(stdout || "").trim();
-  if (!raw) return { content: "", sessionId: "" };
-  try {
-    const parsed = JSON.parse(jsonFragmentFromText(raw) || raw);
-    const payloadText = Array.isArray(parsed?.payloads)
-      ? parsed.payloads.map((item) => firstTextValue(item)).filter(Boolean).join("\n")
-      : "";
-    const content = payloadText
-      || firstTextValue(parsed?.result)
-      || firstTextValue(parsed?.data)
-      || firstTextValue(parsed);
-    const sessionId = String(
-      parsed?.sessionId
-      || parsed?.session_id
-      || parsed?.result?.sessionId
-      || parsed?.result?.session_id
-      || parsed?.meta?.sessionId
-      || parsed?.meta?.session_id
-      || parsed?.meta?.agentMeta?.sessionId
-      || parsed?.meta?.agentMeta?.session_id
-      || ""
-    ).trim();
-    return { content: String(content || "").trim(), sessionId };
-  } catch {
-    return { content: raw, sessionId: "" };
-  }
-}
-
 function childProcessOptions(options = {}, platform = process.platform) {
   const next = { ...(options || {}) };
   if (!next.signal) delete next.signal;
@@ -239,19 +207,6 @@ function openClawAcpSessionKey(bot, sessionId, mcpFingerprint = "", options = {}
   return ["openclaw", ...body].join(":");
 }
 
-function shouldUseLegacyOpenClawTransport(bot = {}) {
-  const config = bot.engineConfig || {};
-  const transport = String(config.openclawTransport || config.transport || "").trim().toLowerCase();
-  if (transport === "acp" || transport === "gateway" || transport === "openclaw-acp") return false;
-  if (transport === "legacy-agent" || transport === "openclaw-cli" || transport === "agent") return true;
-  return false;
-}
-
-function shouldAllowOpenClawLocalFallback(bot = {}) {
-  const config = bot.engineConfig || {};
-  return config.openclawAllowLocalFallback === true || config.allowOpenClawLocalFallback === true;
-}
-
 function openClawSkillIndexMode(bot = {}) {
   const config = bot.engineConfig || {};
   return config.openclawSkillIndexMode
@@ -260,17 +215,6 @@ function openClawSkillIndexMode(bot = {}) {
     || config.native_skill_index_mode
     || config.skillIndexMode
     || config.skill_index_mode
-    || "";
-}
-
-function openClawMemoryInjectionMode(bot = {}) {
-  const config = bot.engineConfig || {};
-  return config.openclawMemoryInjectionMode
-    || config.openclaw_memory_injection_mode
-    || config.nativeMemoryInjectionMode
-    || config.native_memory_injection_mode
-    || config.memoryInjectionMode
-    || config.memory_injection_mode
     || "";
 }
 
@@ -298,9 +242,6 @@ function openClawNativeContextSessionKey({
   if (!persistAgentSession) {
     return ["turn", "openclaw", botKey, localSessionId, fingerprint].filter(Boolean).join(":");
   }
-  if (shouldUseLegacyOpenClawTransport(bot)) {
-    return ["legacy", "openclaw", botKey, localSessionId, fingerprint].filter(Boolean).join(":");
-  }
   return openClawAcpSessionKey(bot, localSessionId, fingerprint, {
     agentId: isMiaManagedRuntime(modelRuntime) ? openClawMiaAgentId(bot.engineConfig || {}) : ""
   });
@@ -313,31 +254,6 @@ function buildOpenClawGlobalArgs(config = {}) {
     throw new Error("OpenClaw profile 名称只能包含字母、数字、点、下划线和短横线。");
   }
   return ["--profile", profile];
-}
-
-function buildOpenClawArgs({
-  bot = {},
-  sessionId = "",
-  externalSessionId = "",
-  message = "",
-  model = "",
-  effort = "medium",
-  local = false,
-  json = true,
-  timeoutSeconds = 600
-} = {}) {
-  const config = bot.engineConfig || {};
-  const args = [...buildOpenClawGlobalArgs(config), "agent"];
-  const agentId = String(config.openclawAgent || config.agent || "main").trim();
-  if (agentId) args.push("--agent", agentId);
-  if (externalSessionId) args.push("--session-id", externalSessionId);
-  args.push("--message", String(message || ""));
-  const thinking = String(effort || config.effortLevel || "medium").trim();
-  if (thinking) args.push("--thinking", thinking);
-  if (local) args.push("--local");
-  if (json) args.push("--json");
-  if (timeoutSeconds) args.push("--timeout", String(timeoutSeconds));
-  return args;
 }
 
 function normalizeOpenClawGatewayUrl(value = "") {
@@ -638,6 +554,16 @@ function openClawMiaWorkspaceDir(config = {}, runtimePaths = null, platform = pr
   return path.join(os.homedir(), ".mia", "openclaw-workspace");
 }
 
+function booleanConfigFlag(value) {
+  if (value === true) return true;
+  const text = String(value || "").trim().toLowerCase();
+  return text === "true" || text === "1" || text === "yes" || text === "on";
+}
+
+function explicitOpenClawNativeMemoryWorkspace(config = {}) {
+  return String(config.openclawNativeMemoryWorkspace || config.openclawMiaWorkspace || config.openclawWorkspace || "").trim();
+}
+
 function ensureOpenClawMiaWorkspace(workspaceDir = "") {
   const dir = String(workspaceDir || "").trim();
   if (!dir) return "";
@@ -849,19 +775,6 @@ function isOpenClawGatewayUnavailableError(error) {
   return /OpenClaw Gateway 没有运行|ACP bridge failed|ECONNREFUSED|gateway client error|gateway closed before ready|not connected to gateway|ACP connection closed/i.test(text);
 }
 
-function decorateOpenClawLegacyError(error) {
-  if (error?.code === "MIA_STOPPED") return error;
-  const stderr = String(error?.stderr || "").trim();
-  const stdout = String(error?.stdout || "").trim();
-  const rawMessage = String(error?.message || error || "").trim();
-  const detail = stderr || stdout || rawMessage.replace(/^Command failed:[^\n]*(?:\n|$)/i, "").trim();
-  const safeDetail = detail && !/^Command failed:/i.test(detail) ? detail : "";
-  return new Error([
-    "OpenClaw agent 运行失败。",
-    safeDetail || "OpenClaw CLI 没有返回可展示的错误详情。"
-  ].join("\n"));
-}
-
 function truthyCapability(value) {
   return value === true || value === "true" || value === "http" || value === "sse";
 }
@@ -1036,11 +949,14 @@ function createOpenClawChatAdapter(deps = {}) {
   const getMcpFingerprint = deps.getMcpFingerprint || (() => "");
   const ensureUserMcpReady = deps.ensureUserMcpReady || (async () => {});
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
-  const memoryBlock = deps.memoryBlock || (() => "");
   const resolveModelRuntime = deps.resolveModelRuntime || deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
   const enginePermissionMode = deps.enginePermissionMode || (() => "default");
   const appendEngineLog = deps.appendEngineLog || (() => {});
+  const syncNativeMemoryFiles = typeof deps.syncNativeMemoryFiles === "function" ? deps.syncNativeMemoryFiles : null;
+  const syncNativeContextFiles = typeof deps.syncNativeContextFiles === "function"
+    ? deps.syncNativeContextFiles
+    : defaultSyncNativeContextFiles;
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const execFile = deps.execFile || defaultExecFile;
   const spawn = deps.spawn || defaultSpawn;
@@ -1083,6 +999,58 @@ function createOpenClawChatAdapter(deps = {}) {
       userMcpServers,
       builtInOpenClawMcpServers({ bot, sessionId, originMessageId })
     );
+  }
+
+  async function maybeSyncOpenClawNativeMemoryFiles(bot = {}, sessionId = "") {
+    const config = bot.engineConfig || bot.engine_config || {};
+    if (!syncNativeMemoryFiles || !booleanConfigFlag(config.openclawNativeMemoryFiles || config.nativeMemoryFiles)) return null;
+    const workspaceDir = explicitOpenClawNativeMemoryWorkspace(config);
+    if (!workspaceDir) {
+      appendEngineLog("OpenClaw native memory file sync skipped: configure an explicit per-bot OpenClaw Mia workspace first.");
+      return null;
+    }
+    try {
+      const result = await syncNativeMemoryFiles({
+        engine: "openclaw",
+        botId: bot.key || bot.id || "mia",
+        sessionId,
+        workspaceDir,
+        includeSession: config.openclawNativeMemoryIncludeSession !== false
+      });
+      appendEngineLog(`OpenClaw native memory file sync wrote ${result?.count ?? 0} memories to ${result?.memoryPath || workspaceDir}.`);
+      return result;
+    } catch (error) {
+      appendEngineLog("OpenClaw native memory file sync failed: " + (error?.message || error));
+      return null;
+    }
+  }
+
+  async function maybeSyncOpenClawNativeContextFiles(bot = {}, sessionId = "", skillMaterialization = null) {
+    const config = bot.engineConfig || bot.engine_config || {};
+    if (!syncNativeContextFiles || !booleanConfigFlag(config.openclawNativeContextFiles || config.nativeContextFiles)) return null;
+    const workspaceDir = explicitOpenClawNativeMemoryWorkspace(config);
+    if (!workspaceDir) {
+      appendEngineLog("OpenClaw native context file sync skipped: configure an explicit per-bot OpenClaw Mia workspace first.");
+      return null;
+    }
+    try {
+      const botId = bot.key || bot.id || "mia";
+      const result = await syncNativeContextFiles({
+        engine: "openclaw",
+        bot,
+        botId,
+        botName: bot.name || botId,
+        sessionId,
+        workspaceDir,
+        personaText: readBotPersona(botId, bot.name || botId, bot.bio || ""),
+        skillMaterialization
+      });
+      appendEngineLog(`OpenClaw native context file sync wrote ${result?.count ?? 0} files to ${workspaceDir}.`);
+      return result;
+    } catch (error) {
+      appendEngineLog("OpenClaw native context file sync failed: " + (error?.message || error));
+      return null;
+    }
   }
 
   async function readOpenClawConfigJsonPath(commandPath, configPath = "", commonOptions = {}) {
@@ -1259,48 +1227,6 @@ function createOpenClawChatAdapter(deps = {}) {
       closeOpenClawGatewayRuntimeEntry(entry);
       throw error;
     }
-  }
-
-  async function runOpenClawLegacy({ bot, sessionId, message, signal, persistAgentSession = true, managedModel = null } = {}) {
-    const commandPath = shellCommandPath("openclaw") || shellCommandPath("claw");
-    if (!commandPath) throw new Error("本机没有检测到 OpenClaw CLI。请先安装并确认 openclaw --version 可用。");
-    const externalSessionId = persistAgentSession ? getAgentSessionId("openclaw", bot.key, sessionId) : "";
-    const effectiveRuntime = managedModel || resolveModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });
-    const effort = selectedOpenClawEffort(bot.engineConfig || {}, effectiveRuntime, normalizeEffortLevel);
-    const forceLocal = bot.engineConfig?.openclawLocal === true || bot.engineConfig?.local === true || isMiaManagedRuntime(effectiveRuntime);
-    if (isMiaManagedRuntime(effectiveRuntime)) await syncOpenClawManagedModelConfig(commandPath, effectiveRuntime, bot.engineConfig || {}, signal);
-    const model = selectedOpenClawModelOverride(bot.engineConfig || {}, effectiveRuntime);
-    const args = buildOpenClawArgs({
-      bot,
-      sessionId,
-      externalSessionId,
-      message,
-      model,
-      effort,
-      local: forceLocal,
-      timeoutSeconds
-    });
-    let result = null;
-    try {
-      result = await execFileAsync(execFile, commandPath, args, {
-        cwd: cwd(),
-        env: envWithExecutableDirFirst(processEnvStrings(), commandPath),
-        encoding: "utf8",
-        maxBuffer: 16 * 1024 * 1024,
-        signal
-      }, { platform, nodePath });
-    } catch (error) {
-      throw decorateOpenClawLegacyError(error);
-    }
-    if (signal?.aborted) throw stoppedError();
-    const parsed = parseOpenClawContent(result.stdout);
-    if (parsed.sessionId && !externalSessionId && persistAgentSession) {
-      setAgentSessionId("openclaw", bot.key, sessionId, parsed.sessionId);
-    }
-    return {
-      content: parsed.content || String(result.stderr || "").trim(),
-      sessionId: parsed.sessionId || externalSessionId
-    };
   }
 
   async function createOpenClawAcpRuntimeEntry(context = {}) {
@@ -1579,6 +1505,7 @@ function createOpenClawChatAdapter(deps = {}) {
     if (!commandPath) throw new Error("本机没有检测到 OpenClaw CLI。请先安装并确认 openclaw --version 可用。");
     const effectiveRuntime = providedManagedModel || resolveModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });
     const isManagedOpenClaw = isMiaManagedRuntime(effectiveRuntime);
+    await maybeSyncOpenClawNativeMemoryFiles(bot, sessionId);
     let managedConfigSync = null;
     if (isManagedOpenClaw) {
       managedConfigSync = await syncOpenClawManagedModelConfig(commandPath, effectiveRuntime, bot.engineConfig || {}, signal);
@@ -1814,17 +1741,6 @@ function createOpenClawChatAdapter(deps = {}) {
 
   async function runOpenClaw({ bot, sessionId, message, messageBuilder = null, signal, emit = null, persistAgentSession = true, originMessageId = "", modelRuntime: providedModelRuntime = null } = {}) {
     const modelRuntime = providedModelRuntime || resolveModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });
-    const useLegacy = shouldUseLegacyOpenClawTransport(bot, modelRuntime);
-    if (useLegacy) {
-      const finalMessage = typeof messageBuilder === "function"
-        ? messageBuilder({ mcpAvailable: false, transport: "openclaw-cli" })
-        : message;
-      const result = await runOpenClawLegacy({ bot, sessionId, message: finalMessage, signal, persistAgentSession, managedModel: modelRuntime });
-      return {
-        ...result,
-        compatibilityTransport: "openclaw-cli"
-      };
-    }
     try {
       const result = await runOpenClawAcp({ bot, sessionId, message, messageBuilder, signal, emit, persistAgentSession, managedModel: modelRuntime, originMessageId });
       return {
@@ -1833,23 +1749,12 @@ function createOpenClawChatAdapter(deps = {}) {
       };
     } catch (error) {
       if (!isMiaManagedRuntime(modelRuntime) || !isOpenClawGatewayUnavailableError(error)) throw error;
-      if (!shouldAllowOpenClawLocalFallback(bot)) {
-        appendEngineLog("OpenClaw ACP Gateway unavailable; local CLI fallback disabled to avoid OpenClaw embedded bootstrap prompt.");
-        const guarded = new Error(
-          "OpenClaw ACP/Gateway 不可用。Mia 没有自动降级到 OpenClaw 本地 embedded agent，以避免注入完整 OpenClaw 工作区上下文并产生高 token 消耗。请修复 OpenClaw Gateway/ACP，或显式开启 openclawAllowLocalFallback。原始错误：" + (error?.message || error)
-        );
-        guarded.cause = error;
-        throw guarded;
-      }
-      appendEngineLog("OpenClaw ACP Gateway unavailable; falling back to local CLI for Mia-managed model because openclawAllowLocalFallback is enabled.");
-      const finalMessage = typeof messageBuilder === "function"
-        ? messageBuilder({ mcpAvailable: false, transport: "openclaw-cli-fallback" })
-        : message;
-      const result = await runOpenClawLegacy({ bot, sessionId, message: finalMessage, signal, persistAgentSession, managedModel: modelRuntime });
-      return {
-        ...result,
-        compatibilityTransport: "openclaw-cli-fallback"
-      };
+      appendEngineLog("OpenClaw ACP Gateway unavailable; refusing local CLI fallback to avoid OpenClaw embedded bootstrap prompt.");
+      const guarded = new Error(
+        "OpenClaw ACP/Gateway 不可用。Mia 不会降级到 OpenClaw 本地 embedded agent，以避免注入完整 OpenClaw 工作区上下文并产生高 token 消耗。请修复 OpenClaw Gateway/ACP。原始错误：" + (error?.message || error)
+      );
+      guarded.cause = error;
+      throw guarded;
     }
   }
 
@@ -1867,7 +1772,6 @@ function createOpenClawChatAdapter(deps = {}) {
       modelRuntime,
       persistAgentSession
     });
-    const requestedContextMode = nativeContextModeFromConfig(bot, null, "openclaw");
     const resetNativeSession = bot.engineConfig?.openclawResetSession === true;
     let lastUserIndex = -1;
     const visibleMessages = Array.isArray(messages) ? messages : [];
@@ -1881,30 +1785,35 @@ function createOpenClawChatAdapter(deps = {}) {
       ? visibleMessages.filter((_, index) => index !== lastUserIndex)
       : visibleMessages.slice(0, -1);
     const attachments = messagesAttachmentStats(visibleMessages);
+    const effectiveSkillMaterialization = skillMaterializationForNativeSession({
+      engine: "openclaw",
+      botId: bot.key,
+      sessionId,
+      nativeSessionId: nativeSessionCacheKey,
+      persistAgentSession,
+      skillMaterialization,
+      skillIndexMode: openClawSkillIndexMode(bot),
+      resetNativeSession
+    });
+    const nativeContextFileSync = await maybeSyncOpenClawNativeContextFiles(bot, sessionId, effectiveSkillMaterialization);
+    const nativeFilesAvailable = Boolean(nativeContextFileSync?.ok);
     const promptCache = new Map();
     const buildOpenClawPrompt = ({ mcpAvailable = false, transport = "" } = {}) => {
       const cacheKey = JSON.stringify({ mcpAvailable: Boolean(mcpAvailable), transport: String(transport || "") });
       if (promptCache.has(cacheKey)) return promptCache.get(cacheKey);
-      const nativeContextMode = selectNativeContextMode({
-        requestedMode: requestedContextMode,
-        mcpAvailable
-      });
-      const rawMiaMemory = nativeContextMode === "prompt"
-        ? memoryBlock({ botId: bot.key, sessionId })
-        : "";
-      const miaMemory = memoryBlockForNativeSession({
+      const miaContext = buildMiaContextResource({
         engine: "openclaw",
-        botId: bot.key,
+        bot,
         sessionId,
-        nativeSessionId: nativeSessionCacheKey,
-        persistAgentSession,
-        memoryBlock: rawMiaMemory,
-        memoryInjectionMode: openClawMemoryInjectionMode(bot),
-        resetNativeSession
+        runtimeConfig: null,
+        modePrefix: "openclaw",
+        mcpAvailable,
+        nativeFilesAvailable
       });
-      const rawPersona = nativeContextMode === "mcp"
-        ? contextSnapshotInstruction({ engine: "openclaw", botId: bot.key, sessionId })
-        : nativeContextMode === "prompt"
+      const miaMemory = miaContext.memory.prompt;
+      const rawPersona = miaContext.persona.deliveryMode === "mcp"
+        ? miaContext.mcp.snapshotInstruction
+        : miaContext.persona.deliveryMode === "prompt"
           ? withMiaRuntimeContext(readBotPersona(bot.key, bot.name, bot.bio), { scheduledFire })
           : "";
       const nativePersona = personaBlockForNativeSession({
@@ -1917,18 +1826,11 @@ function createOpenClawChatAdapter(deps = {}) {
         personaInjectionMode: openClawPersonaInjectionMode(bot),
         resetNativeSession
       });
-      const nativeContext = appendMiaMemoryBlock(nativePersona, miaMemory).trim();
-      const effectiveSkillMaterialization = skillMaterializationForNativeSession({
-        engine: "openclaw",
-        botId: bot.key,
-        sessionId,
-        nativeSessionId: nativeSessionCacheKey,
-        persistAgentSession,
-        skillMaterialization,
-        skillIndexMode: openClawSkillIndexMode(bot),
-        resetNativeSession
+      const nativeContext = nativePersona.trim();
+      const skillDeliveryMode = miaContext.skills.deliveryMode;
+      const skillContext = buildSkillMaterializationContext(effectiveSkillMaterialization, {
+        deliveryMode: skillDeliveryMode
       });
-      const skillContext = buildSkillMaterializationContext(effectiveSkillMaterialization);
       const prompt = [
         nativeContext ? ["Mia native context for the current bot/session:", "", nativeContext].join("\n") : "",
         skillContext,
@@ -1942,7 +1844,7 @@ function createOpenClawChatAdapter(deps = {}) {
         botId: bot.key,
         sessionId,
         nativeSessionId: nativeSessionCacheKey,
-        transport: transport || (shouldUseLegacyOpenClawTransport(bot) ? "openclaw-cli" : "acp"),
+        transport: transport || "acp",
         historyMode: "native",
         nativeHistory: persistAgentSession,
         promptChars: textCharCount(promptWithGroup),
@@ -1950,7 +1852,7 @@ function createOpenClawChatAdapter(deps = {}) {
         personaChars: textCharCount(nativePersona),
         memoryChars: textCharCount(miaMemory),
         skillIndexChars: textCharCount(effectiveSkillMaterialization?.indexBlock),
-        loadedSkillChars: textCharCount(effectiveSkillMaterialization?.loadedBlock),
+        loadedSkillChars: skillDeliveryMode === "prompt" ? textCharCount(effectiveSkillMaterialization?.loadedBlock) : 0,
         visibleHistoryChars: messagesTextChars(visibleHistoryMessages),
         includedHistoryChars: 0,
         groupChars: textCharCount(group?.contextBlock),
@@ -2009,10 +1911,7 @@ function createOpenClawChatAdapter(deps = {}) {
 module.exports = {
   acpPermissionFallback,
   buildOpenClawAcpArgs,
-  buildOpenClawArgs,
   buildOpenClawGlobalArgs,
   closeOpenClawAcpRuntimes,
-  createOpenClawChatAdapter,
-  parseOpenClawContent,
-  shouldUseLegacyOpenClawTransport
+  createOpenClawChatAdapter
 };

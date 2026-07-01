@@ -308,6 +308,34 @@ function createSettingsStore(deps = {}) {
     };
   }
 
+  function defaultMemorySettings() {
+    return {
+      enabled: true
+    };
+  }
+
+  function memorySettings() {
+    const saved = readJson(runtimePaths().memorySettings, {});
+    return {
+      ...defaultMemorySettings(),
+      ...saved,
+      enabled: saved.enabled !== false
+    };
+  }
+
+  function writeMemorySettings(settings = {}) {
+    const p = runtimePaths();
+    const current = memorySettings();
+    const next = {
+      enabled: Object.prototype.hasOwnProperty.call(settings, "enabled")
+        ? settings.enabled !== false
+        : current.enabled !== false
+    };
+    fs.mkdirSync(path.dirname(p.memorySettings), { recursive: true });
+    fs.writeFileSync(p.memorySettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+    return next;
+  }
+
   function normalizeEffortLevel(value, engine = "hermes") {
     const raw = String(value || "").trim().toLowerCase();
     const normalized = raw === "extra-high" || raw === "extra_high" ? "xhigh" : raw;
@@ -449,7 +477,8 @@ function createSettingsStore(deps = {}) {
       enabled: false,
       url: MIA_CLOUD_DEFAULT_URL,
       token: "",
-      user: null
+      user: null,
+      lastMemorySyncAt: ""
     };
   }
 
@@ -479,7 +508,8 @@ function createSettingsStore(deps = {}) {
       // Tracks the last user_events.seq this device has applied. Sent on
       // every WS connect via `?since_seq=N`; server replays everything
       // newer so disconnect/reconnect/replay is transparent (Phase 1.C).
-      lastEventSeq: Number.isFinite(Number(saved.lastEventSeq)) ? Number(saved.lastEventSeq) : 0
+      lastEventSeq: Number.isFinite(Number(saved.lastEventSeq)) ? Number(saved.lastEventSeq) : 0,
+      lastMemorySyncAt: String(saved.lastMemorySyncAt || "")
     };
   }
 
@@ -500,7 +530,10 @@ function createSettingsStore(deps = {}) {
       user: settings.user !== undefined ? settings.user : current.user,
       lastEventSeq: settings.lastEventSeq !== undefined
         ? (Number.isFinite(Number(settings.lastEventSeq)) ? Number(settings.lastEventSeq) : current.lastEventSeq)
-        : current.lastEventSeq
+        : current.lastEventSeq,
+      lastMemorySyncAt: settings.lastMemorySyncAt !== undefined
+        ? String(settings.lastMemorySyncAt || "")
+        : current.lastMemorySyncAt
     };
     if (!next.token) {
       next.enabled = false;
@@ -508,6 +541,7 @@ function createSettingsStore(deps = {}) {
       // Different user / logout → discard the seq cursor so the next
       // login replays from 0 instead of trying to resume someone else's.
       next.lastEventSeq = 0;
+      next.lastMemorySyncAt = "";
     }
     // Atomic replace: a plain writeFileSync truncates first, so the other
     // process reading in that window sees partial JSON, falls back to empty
@@ -543,11 +577,14 @@ function createSettingsStore(deps = {}) {
     defaultPermissionSettings,
     defaultDaemonSettings,
     defaultEffortSettings,
+    defaultMemorySettings,
     normalizeEffortLevel,
     normalizeStoredEffortLevel,
     effortSettings,
     effortStatus,
     writeEffortSettings,
+    memorySettings,
+    writeMemorySettings,
     permissionSettings,
     permissionStatus,
     writePermissionSettings,

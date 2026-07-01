@@ -1,6 +1,5 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const crypto = require("node:crypto");
 const { execFile: execFileCb } = require("node:child_process");
 const { promisify } = require("node:util");
 const { createUserModelProxyToken } = require("../cloud/model-proxy-auth.js");
@@ -13,8 +12,6 @@ const CONTAINER_ENV = Object.freeze({
 });
 
 const MODEL_API_KEY_ENV = "MIA_CLOUD_AGENT_MODEL_API_KEY";
-const CONFIG_SHA_LABEL = "ai.mia.config-sha";
-const DEFAULT_CAPABILITIES = Object.freeze({ webSearch: true });
 
 function atomicWriteFile(filePath, content, mode = 0o600) {
   const dir = path.dirname(filePath);
@@ -33,10 +30,6 @@ function assertSafeUserId(userId) {
 
 function cleanBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
-}
-
-function sha256Hex(value = "") {
-  return crypto.createHash("sha256").update(String(value || "")).digest("hex");
 }
 
 function createHermesWorkerManager(options = {}) {
@@ -189,9 +182,7 @@ function createHermesWorkerManager(options = {}) {
   }
 
   function writeHermesConfig(paths) {
-    const content = renderHermesConfig(paths.userId);
-    atomicWriteFile(path.join(paths.hermesHome, "config.yaml"), content, 0o600);
-    return sha256Hex(content);
+    atomicWriteFile(path.join(paths.hermesHome, "config.yaml"), renderHermesConfig(paths.userId), 0o600);
   }
 
   function ensureUserDirs(userId) {
@@ -199,14 +190,14 @@ function createHermesWorkerManager(options = {}) {
     for (const dir of [paths.root, paths.hermesHome, paths.home, paths.workspace, paths.attachments, paths.logs]) {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
-    paths.configSha = writeHermesConfig(paths);
+    writeHermesConfig(paths);
     return paths;
   }
 
   async function ensureWorker(userId) {
     const paths = ensureUserDirs(userId);
     if (mode === "static" && staticBaseUrl) {
-      return { userId: paths.userId, baseUrl: staticBaseUrl.replace(/\/+$/, ""), apiKey, model, paths, env: envForUser(userId), capabilities: DEFAULT_CAPABILITIES };
+      return { userId: paths.userId, baseUrl: staticBaseUrl.replace(/\/+$/, ""), apiKey, model, paths, env: envForUser(userId) };
     }
     if (mode === "docker") {
       return ensureDockerWorker(paths);
@@ -225,26 +216,27 @@ function createHermesWorkerManager(options = {}) {
     return execFile(dockerBin, args, { windowsHide: true });
   }
 
-  async function dockerRunning(name) {
+  async function dockerInspectState(name) {
     try {
-      const out = await docker(["inspect", "-f", "{{.State.Running}}", name]);
-      return String(out.stdout || "").trim() === "true";
+      const out = await docker(["inspect", "-f", "{{.State.Running}}\t{{.State.Status}}", name]);
+      const [running, status] = String(out.stdout || "").trim().split(/\s+/, 2);
+      return {
+        exists: true,
+        running: running === "true",
+        status: status || ""
+      };
     } catch {
-      return false;
+      return { exists: false, running: false, status: "" };
     }
   }
 
-  async function dockerContainerConfigSha(name) {
-    try {
-      const out = await docker(["inspect", "-f", `{{ index .Config.Labels ${JSON.stringify(CONFIG_SHA_LABEL)} }}`, name]);
-      return String(out.stdout || "").trim();
-    } catch {
-      return "";
-    }
-  }
-
-  async function stopDockerWorker(name) {
-    await docker(["stop", name]);
+  function isDockerNameConflict(error) {
+    const text = [
+      error?.message,
+      error?.stderr,
+      error?.stdout
+    ].filter(Boolean).join("\n");
+    return /container name/i.test(text) && /already in use/i.test(text);
   }
 
   async function dockerPort(name) {
@@ -277,46 +269,23 @@ function createHermesWorkerManager(options = {}) {
   async function ensureDockerWorker(paths) {
     if (!image) throw new Error("MIA_CLOUD_HERMES_IMAGE is required for docker cloud Hermes workers.");
     const name = containerName(paths.userId);
-    let running = await dockerRunning(name);
-    if (running) {
-      const currentConfigSha = String(paths.configSha || "").trim();
-      const runningConfigSha = await dockerContainerConfigSha(name);
-      if (!runningConfigSha || runningConfigSha !== currentConfigSha) {
-        await stopDockerWorker(name);
-        running = false;
-      }
+    const state = await dockerInspectState(name);
+    if (state.exists && !state.running) {
+      await docker(["rm", "-f", name]);
     }
-    if (!running) {
-      const env = envForUser(paths.userId);
-      await docker([
-        "run",
-        "-d",
-        "--rm",
-        "--name", name,
-        "--network", dockerNetwork,
-        "--read-only",
-        "--cpus=1",
-        "--memory=1024m",
-        "--pids-limit=256",
-        "--security-opt", "no-new-privileges",
-        "--label", `${CONFIG_SHA_LABEL}=${paths.configSha || ""}`,
-        "-p", `127.0.0.1::${containerPort}`,
-        "--mount", `type=bind,src=${paths.root},dst=/data`,
-        "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
-        "--env", `HERMES_HOME=${env.HERMES_HOME}`,
-        "--env", `HOME=${env.HOME}`,
-        "--env", `TERMINAL_CWD=${env.TERMINAL_CWD}`,
-        "--env", `HERMES_WRITE_SAFE_ROOT=${env.HERMES_WRITE_SAFE_ROOT}`,
-        "--env", `HERMES_ACCEPT_HOOKS=${env.HERMES_ACCEPT_HOOKS}`,
-        "--env", `GATEWAY_ALLOW_ALL_USERS=${env.GATEWAY_ALLOW_ALL_USERS}`,
-        "--env", `PYTHONUNBUFFERED=${env.PYTHONUNBUFFERED}`,
-        "--env", `API_SERVER_ENABLED=${env.API_SERVER_ENABLED}`,
-        "--env", `API_SERVER_HOST=${env.API_SERVER_HOST}`,
-        "--env", `API_SERVER_PORT=${env.API_SERVER_PORT}`,
-        "--env", `API_SERVER_KEY=${env.API_SERVER_KEY}`,
-        ...(env[MODEL_API_KEY_ENV] ? ["--env", `${MODEL_API_KEY_ENV}=${env[MODEL_API_KEY_ENV]}`] : []),
-        image
-      ]);
+    if (!state.running) {
+      try {
+        await startDockerContainer(paths, name);
+      } catch (error) {
+        if (!isDockerNameConflict(error)) throw error;
+        const conflictState = await dockerInspectState(name);
+        if (!conflictState.exists) {
+          await startDockerContainer(paths, name);
+        } else if (!conflictState.running) {
+          await docker(["rm", "-f", name]);
+          await startDockerContainer(paths, name);
+        }
+      }
     }
     const port = await dockerPort(name);
     const baseUrl = `http://127.0.0.1:${port}`;
@@ -328,9 +297,40 @@ function createHermesWorkerManager(options = {}) {
       model,
       paths,
       env: envForUser(paths.userId),
-      capabilities: DEFAULT_CAPABILITIES,
       containerName: name
     };
+  }
+
+  async function startDockerContainer(paths, name) {
+    const env = envForUser(paths.userId);
+    await docker([
+      "run",
+      "-d",
+      "--rm",
+      "--name", name,
+      "--network", dockerNetwork,
+      "--read-only",
+      "--cpus=1",
+      "--memory=1024m",
+      "--pids-limit=256",
+      "--security-opt", "no-new-privileges",
+      "-p", `127.0.0.1::${containerPort}`,
+      "--mount", `type=bind,src=${paths.root},dst=/data`,
+      "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
+      "--env", `HERMES_HOME=${env.HERMES_HOME}`,
+      "--env", `HOME=${env.HOME}`,
+      "--env", `TERMINAL_CWD=${env.TERMINAL_CWD}`,
+      "--env", `HERMES_WRITE_SAFE_ROOT=${env.HERMES_WRITE_SAFE_ROOT}`,
+      "--env", `HERMES_ACCEPT_HOOKS=${env.HERMES_ACCEPT_HOOKS}`,
+      "--env", `GATEWAY_ALLOW_ALL_USERS=${env.GATEWAY_ALLOW_ALL_USERS}`,
+      "--env", `PYTHONUNBUFFERED=${env.PYTHONUNBUFFERED}`,
+      "--env", `API_SERVER_ENABLED=${env.API_SERVER_ENABLED}`,
+      "--env", `API_SERVER_HOST=${env.API_SERVER_HOST}`,
+      "--env", `API_SERVER_PORT=${env.API_SERVER_PORT}`,
+      "--env", `API_SERVER_KEY=${env.API_SERVER_KEY}`,
+      ...(env[MODEL_API_KEY_ENV] ? ["--env", `${MODEL_API_KEY_ENV}=${env[MODEL_API_KEY_ENV]}`] : []),
+      image
+    ]);
   }
 
   return { pathsForUser, envForUser, ensureUserDirs, ensureWorker, containerName };

@@ -39,6 +39,15 @@ function makeCore(overrides = {}) {
   return { core: createBotExecutionCore(deps), calls, deps };
 }
 
+async function waitFor(predicate, timeoutMs = 1000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(predicate(), "condition was not met before timeout");
+}
+
 test("sendChat returns the canned response and emits session_started (node-only)", async () => {
   const { core, calls } = makeCore();
   const sink = [];
@@ -65,6 +74,79 @@ test("sendChat returns the canned response and emits session_started (node-only)
   assert.deepEqual(started.data, { botKey: "bot1", engine: "hermes" });
   // Interactive (non-utility, non-title) turn notifies the pet service.
   assert.equal(calls.notifyMessage.length, 1);
+});
+
+test("sendChat schedules provider-backed memory extraction after a visible bot turn", async () => {
+  const extractCalls = [];
+  const extractedEvents = [];
+  const logs = [];
+  const { core } = makeCore({
+    miaMemoryService: {
+      extractMemoriesFromMessages: async (input) => {
+        extractCalls.push(input);
+        return {
+          status: "ok",
+          memories: [{
+            status: "active",
+            effectiveScope: "bot",
+            memoryId: "mem_1",
+            memory: {
+              id: "mem_1",
+              botId: input.botId,
+              sessionId: input.sessionId,
+              scope: "bot",
+              status: "active"
+            }
+          }]
+        };
+      }
+    },
+    isMemoryEnabled: () => true,
+    onMemoryExtracted: (result, scope) => extractedEvents.push({ result, scope }),
+    appendCloudLog: (line) => logs.push(line)
+  });
+
+  const response = await core.sendChat({
+    botKey: "bot1",
+    sessionId: "s1",
+    messages: [{ role: "user", id: "m1", content: "I prefer concise answers" }]
+  });
+
+  assert.equal(response.text, "canned-response");
+  await waitFor(() => extractCalls.length === 1);
+  assert.deepEqual(extractCalls[0].messages, [
+    { role: "user", content: "I prefer concise answers" },
+    { role: "assistant", content: "canned-response" }
+  ]);
+  assert.equal(extractCalls[0].botId, "bot1");
+  assert.equal(extractCalls[0].sessionId, "s1");
+  assert.equal(extractCalls[0].scope, "bot");
+  assert.equal(extractCalls[0].originEngine, "hermes");
+  assert.deepEqual(extractCalls[0].sourceMessageIds, ["m1"]);
+  await waitFor(() => extractedEvents.length === 1);
+  assert.equal(extractedEvents[0].scope.eventSource, "agent_extract");
+  assert.match(logs.join("\n"), /extracted 1 memories/);
+});
+
+test("sendChat does not auto-extract memories when Mia memory is disabled", async () => {
+  let extractCalls = 0;
+  const { core } = makeCore({
+    miaMemoryService: {
+      extractMemoriesFromMessages: async () => {
+        extractCalls += 1;
+        return { status: "ok", memories: [] };
+      }
+    },
+    isMemoryEnabled: () => false
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "s1",
+    messages: [{ role: "user", id: "m1", content: "remember that I like tea" }]
+  });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(extractCalls, 0);
 });
 
 test("background:true sendChat works with NO webContents and NO electron", async () => {

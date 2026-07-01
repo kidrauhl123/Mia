@@ -130,25 +130,6 @@ async function startDeepSeekFake({ models = [
         }));
         return;
       }
-      if (req.method === "POST" && url.pathname === "/anthropic/v1/messages") {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({
-          id: "msg_deepseek",
-          type: "message",
-          role: "assistant",
-          model: "deepseek-chat",
-          content: [{ type: "tool_use", id: "toolu_search", name: "WebSearch", input: { query: "近期国际新闻" } }],
-          stop_reason: "tool_use",
-          stop_sequence: null,
-          usage: { input_tokens: 1000, output_tokens: 500 }
-        }));
-        return;
-      }
-      if (req.method === "POST" && url.pathname === "/anthropic/v1/messages/count_tokens") {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ input_tokens: 42 }));
-        return;
-      }
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: { message: "not found" } }));
     });
@@ -552,62 +533,6 @@ test("DeepSeek direct model proxy requires balance and records billable usage", 
     assert.equal(balance.body.recentUsage[0].promptTokens, 1000);
     assert.equal(balance.body.recentUsage[0].completionTokens, 500);
     assert.equal(balance.body.recentUsage[0].chargeMicrousd, 1500);
-  } finally {
-    await stopCloud(cloud);
-    await new Promise((resolve) => deepseek.server.close(resolve));
-  }
-});
-
-test("DeepSeek direct model proxy forwards Anthropic messages without OpenAI tool conversion", async () => {
-  const deepseek = await startDeepSeekFake();
-  const cloud = await startCloud(9, {
-    MIA_MODEL_GATEWAY: "deepseek",
-    MIA_DEEPSEEK_API_KEY: "deepseek-key",
-    MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
-    MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
-    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000"
-  });
-  const auth = { username: "admin", password: "secret" };
-  try {
-    const user = await register(cloud.port, "anthropic-user");
-    await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
-      auth,
-      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
-    });
-    const message = await request(cloud.port, "POST", "/api/me/model-proxy/v1/messages", {
-      token: user.token,
-      body: {
-        model: "mia-auto",
-        max_tokens: 64,
-        messages: [{ role: "user", content: "搜索近期国际新闻" }],
-        tools: [{
-          name: "WebSearch",
-          description: "Search the web",
-          input_schema: {
-            type: "object",
-            properties: { query: { type: "string" } },
-            required: ["query"],
-            additionalProperties: false
-          }
-        }]
-      }
-    });
-
-    assert.equal(message.status, 200);
-    assert.equal(message.body.content[0].type, "tool_use");
-    assert.equal(message.body.content[0].input.query, "近期国际新闻");
-    const upstream = deepseek.calls.find((call) => call.path === "/anthropic/v1/messages");
-    assert.ok(upstream, "expected Cloud to call DeepSeek Anthropic messages endpoint");
-    assert.equal(upstream.body.model, "deepseek-chat");
-    assert.equal(upstream.body.tools[0].input_schema.required[0], "query");
-    assert.equal(upstream.body.tools[0].function, undefined);
-
-    const summary = await request(cloud.port, "GET", "/api/admin/model-usage-summary", { auth });
-    assert.equal(summary.status, 200);
-    assert.equal(summary.body.totals.requestCount, 1);
-    assert.equal(summary.body.totals.totalTokens, 1500);
-    assert.equal(summary.body.totals.chargeMicrousd, 1500);
-    assert.equal(summary.body.recentUsage[0].requestPath, "/messages");
   } finally {
     await stopCloud(cloud);
     await new Promise((resolve) => deepseek.server.close(resolve));

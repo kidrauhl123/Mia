@@ -105,6 +105,12 @@ try {
 } catch {
   ({ createUserSettingsStore } = require("./src/cloud/user-settings-store.js"));
 }
+let createCloudMemoryStore = null;
+try {
+  ({ createCloudMemoryStore } = require("../src/cloud/memory-store.js"));
+} catch {
+  ({ createCloudMemoryStore } = require("./src/cloud/memory-store.js"));
+}
 let createCloudTasksStore = null;
 try {
   ({ createCloudTasksStore } = require("../src/cloud/tasks-store.js"));
@@ -221,6 +227,7 @@ const cloudFeatures = [
   "bridge-run-cancel",
   "bridge-run-progress",
   "desktop-sync",
+  "cloud.memory-sync",
   "cloud-hermes-agent",
   "cloud-agent-user-isolation",
   "status-badge-assets"
@@ -1210,27 +1217,6 @@ function deepSeekBaseUrl(context = {}) {
   return String(context.deepSeekBaseUrl || modelGatewaySettings(context)?.apiBase || process.env.MIA_DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").trim().replace(/\/+$/, "");
 }
 
-function normalizeDeepSeekAnthropicBaseUrl(value = "") {
-  const base = String(value || "").trim().replace(/\/+$/, "");
-  if (!base) return "";
-  if (/\/anthropic\/v1$/i.test(base)) return base;
-  if (/\/anthropic$/i.test(base)) return `${base}/v1`;
-  if (/\/v1$/i.test(base)) return base.replace(/\/v1$/i, "/anthropic/v1");
-  return `${base}/anthropic/v1`;
-}
-
-function deepSeekAnthropicBaseUrl(context = {}) {
-  const settings = modelGatewaySettings(context);
-  const explicit = String(
-    context.deepSeekAnthropicBaseUrl ||
-    settings?.anthropicApiBase ||
-    settings?.anthropicBaseUrl ||
-    process.env.MIA_DEEPSEEK_ANTHROPIC_BASE_URL ||
-    ""
-  ).trim();
-  return normalizeDeepSeekAnthropicBaseUrl(explicit || deepSeekBaseUrl(context));
-}
-
 function platformModelId(context = {}) {
   return String(context.platformModelId || modelGatewaySettings(context)?.modelId || process.env.MIA_PLATFORM_MODEL_ID || process.env.MIA_CLOUD_AGENT_MODEL || "mia-auto").trim() || "mia-auto";
 }
@@ -1679,27 +1665,14 @@ async function listPlatformModelCatalog(context) {
   }
 }
 
-const DEEPSEEK_MODEL_PROXY_PATHS = new Set([
-  "/chat/completions",
-  "/messages",
-  "/messages/count_tokens"
-]);
-
-function deepSeekProxyPathUrl(context, proxyPath) {
-  if (proxyPath === "/chat/completions") return `${deepSeekBaseUrl(context)}/chat/completions`;
-  if (proxyPath === "/messages") return `${deepSeekAnthropicBaseUrl(context)}/messages`;
-  if (proxyPath === "/messages/count_tokens") return `${deepSeekAnthropicBaseUrl(context)}/messages/count_tokens`;
-  return "";
-}
-
-async function proxyDeepSeekModelRequest(req, res, context, url, { userId, prefix }) {
+async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, prefix }) {
   if (!context.modelBillingStore) {
     writeError(res, 503, "Mia 模型账本未初始化。");
     return true;
   }
   const proxyPath = url.pathname.slice(prefix.length);
-  if (req.method !== "POST" || !DEEPSEEK_MODEL_PROXY_PATHS.has(proxyPath)) {
-    writeError(res, 404, "Not found.");
+  if (req.method !== "POST" || proxyPath !== "/chat/completions") {
+    writeError(res, 404, "当前托管 DeepSeek 模型只支持 /chat/completions。");
     return true;
   }
   const apiKey = deepSeekApiKey(context);
@@ -1722,8 +1695,7 @@ async function proxyDeepSeekModelRequest(req, res, context, url, { userId, prefi
     writeError(res, 400, "模型不可用。");
     return true;
   }
-  const billable = proxyPath !== "/messages/count_tokens";
-  if (billable && !context.modelBillingStore.hasPositiveBalance(userId)) {
+  if (!context.modelBillingStore.hasPositiveBalance(userId)) {
     context.modelBillingStore.recordUsage({
       userId,
       modelId: selected.id,
@@ -1742,11 +1714,11 @@ async function proxyDeepSeekModelRequest(req, res, context, url, { userId, prefi
   const upstreamBody = {
     ...body,
     model: selected.upstreamModel,
-    ...(proxyPath === "/chat/completions" && body.stream === true
+    ...(body.stream === true
       ? { stream_options: { ...(body.stream_options || {}), include_usage: true } }
       : {})
   };
-  const upstream = await fetch(deepSeekProxyPathUrl(context, proxyPath), {
+  const upstream = await fetch(`${deepSeekBaseUrl(context)}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -1757,7 +1729,7 @@ async function proxyDeepSeekModelRequest(req, res, context, url, { userId, prefi
   const payload = Buffer.from(await upstream.arrayBuffer());
   const parsed = parseJsonBuffer(payload);
   const contentType = upstream.headers.get("content-type") || "application/json";
-  if (billable && upstream.ok) {
+  if (upstream.ok) {
     context.modelBillingStore.recordUsage({
       userId,
       modelId: selected.id,
@@ -1768,7 +1740,7 @@ async function proxyDeepSeekModelRequest(req, res, context, url, { userId, prefi
       pricing: modelPricing(context),
       status: "succeeded"
     });
-  } else if (billable) {
+  } else {
     context.modelBillingStore.recordUsage({
       userId,
       modelId: selected.id,
@@ -1806,7 +1778,7 @@ async function handleMiaModelProxy(req, res, context, url, { userId, prefix = "/
     return true;
   }
   if (modelGatewayMode(context) === "deepseek") {
-    return proxyDeepSeekModelRequest(req, res, context, url, { userId, prefix });
+    return proxyDeepSeekChatCompletion(req, res, context, url, { userId, prefix });
   }
 
   const serviceKey = litellmServiceKey(context) || litellmAdminKey(context);
@@ -2992,7 +2964,7 @@ async function handleRequest(req, res, context) {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Headers": "authorization, content-type",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS"
+      "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS"
     });
     res.end();
     return;
@@ -3099,6 +3071,75 @@ async function handleRequest(req, res, context) {
       const balance = context.modelBillingStore?.getBalance(auth.user.id) || null;
       const recentUsage = context.modelBillingStore?.listRecentUsage(auth.user.id, 20) || [];
       return writeJson(res, 200, { ok: true, balance, recentUsage });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/me/memory") {
+      const filters = {
+        since: url.searchParams.get("since") || url.searchParams.get("updatedAfter") || "",
+        includeDeleted: url.searchParams.get("includeDeleted"),
+        status: url.searchParams.get("status") || "",
+        scope: url.searchParams.get("scope") || "",
+        kind: url.searchParams.get("kind") || "",
+        botId: url.searchParams.get("botId") || "",
+        sessionId: url.searchParams.get("sessionId") || "",
+        query: url.searchParams.get("q") || url.searchParams.get("query") || "",
+        limit: Number(url.searchParams.get("limit") || 500)
+      };
+      const memories = context.memoryStore.listMemories(auth.user.id, filters);
+      return writeJson(res, 200, { memories, serverTime: now() });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/me/memory/push") {
+      const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      const result = context.memoryStore.pushMemories(auth.user.id, body.memories || body.entries || [], {
+        force: body.force === true
+      });
+      if (result.memories.length) {
+        broadcastPersistedEvent(context, auth.user.id, {
+          type: "memory.updated",
+          memories: result.memories,
+          serverTime: result.serverTime
+        });
+      }
+      const payload = { ...result, ok: result.errors.length === 0 };
+      rememberOp(context, auth.user.id, body, 200, payload);
+      return writeJson(res, 200, payload);
+    }
+
+    const memoryDetailMatch = url.pathname.match(/^\/api\/me\/memory\/([A-Za-z0-9_.:-]+)$/);
+    if (memoryDetailMatch && req.method === "PUT") {
+      const memoryId = memoryDetailMatch[1];
+      const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      try {
+        const result = context.memoryStore.upsertMemory(auth.user.id, {
+          ...body,
+          id: memoryId
+        }, { force: body.force === true });
+        if (result.conflict) {
+          return writeJson(res, 409, { error: "version conflict", memory: result.memory });
+        }
+        broadcastPersistedEvent(context, auth.user.id, { type: "memory.updated", memory: result.memory });
+        const payload = { memory: result.memory };
+        rememberOp(context, auth.user.id, body, 200, payload);
+        return writeJson(res, 200, payload);
+      } catch (error) {
+        return writeError(res, error.status || 400, error.message || "memory upsert failed");
+      }
+    }
+
+    if (memoryDetailMatch && req.method === "DELETE") {
+      const memoryId = memoryDetailMatch[1];
+      let body = {};
+      try { body = await readJson(req); } catch { body = {}; }
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      const result = context.memoryStore.deleteMemory(auth.user.id, memoryId);
+      if (!result.ok) return writeError(res, 404, "memory not found");
+      broadcastPersistedEvent(context, auth.user.id, { type: "memory.deleted", memory: result.memory, memoryId });
+      const payload = { ok: true, memory: result.memory };
+      rememberOp(context, auth.user.id, body, 200, payload);
+      return writeJson(res, 200, payload);
     }
 
     // POST /api/me/push-token — register this device's Expo push token so the
@@ -4313,6 +4354,7 @@ function createMiaCloudServer(options = {}) {
     messagesStore: null,
     cloudTasksStore: null,
     cloudTasksService: null,
+    memoryStore: null,
     runtimeBindingsStore: null,
     cloudAgentRunsStore: null,
     cloudAgentDispatcher: null,
@@ -4330,6 +4372,7 @@ function createMiaCloudServer(options = {}) {
   context.socialStore = createSocialStore(context.cloudStore.getDb());
   context.messagesStore = createMessagesStore(context.cloudStore.getDb());
   context.cloudTasksStore = createCloudTasksStore(context.cloudStore.getDb());
+  context.memoryStore = createCloudMemoryStore(context.cloudStore.getDb());
   context.eventLog = createEventLogStore(context.cloudStore.getDb());
   context.botsStore = createBotsStore(context.cloudStore.getDb());
   context.skillsStore = createSkillsStore(context.cloudStore.getDb(), {

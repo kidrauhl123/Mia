@@ -30,7 +30,7 @@ function streamResponse(text) {
   };
 }
 
-test("buildRunPayload normalizes messages into Hermes run input, history, and metadata", () => {
+test("buildRunPayload normalizes messages into Hermes run input and metadata", () => {
   const runs = service();
   const payload = runs.buildRunPayload({
     bot: {
@@ -60,11 +60,7 @@ test("buildRunPayload normalizes messages into Hermes run input, history, and me
       route_profile: "route",
       display_name: "Alice"
     },
-    instructions: "system one",
-    conversation_history: [
-      { role: "user", content: "first\n\nctx:first.png" },
-      { role: "assistant", content: "reply" }
-    ]
+    instructions: "system one"
   });
 });
 
@@ -76,7 +72,6 @@ test("buildRunPayload can omit visible history for native Hermes sessions", () =
       name: "Alice"
     },
     sessionId: "s1",
-    includeConversationHistory: false,
     messages: [
       { role: "user", content: "first" },
       { role: "assistant", content: "reply" },
@@ -98,7 +93,6 @@ test("buildRunPayload can keep legacy conversation-only Hermes session ids", () 
       engineConfig: { hermesSessionScope: "conversation" }
     },
     sessionId: "s1",
-    includeConversationHistory: false,
     messages: [
       { role: "user", content: "last" }
     ]
@@ -198,42 +192,40 @@ test("readRunEventStream emits deltas and returns final run content", async () =
   assert.deepEqual(result.events.map((item) => item.event), ["message.delta", "message.delta", "tool.completed", "run.completed"]);
 });
 
-test("readRunEventStream surfaces approval.request to the local approval handler before continuing", async () => {
-  const calls = [];
+test("readRunEventStream surfaces Hermes memory writes as trace tool events", async () => {
   const emitted = [];
   const runs = service({
-    fetchImpl: async (url, options) => {
-      assert.equal(url, "http://hermes.test/v1/runs/run_approval/events");
-      assert.equal(options.headers.Authorization, "Bearer secret");
-      return streamResponse([
-        "data: {\"event\":\"approval.request\",\"run_id\":\"run_approval\",\"tool\":\"terminal\",\"command\":\"python3 read_docx.py\"}",
-        "",
-        "data: {\"event\":\"message.delta\",\"delta\":\"done\"}",
-        "",
-        "data: {\"event\":\"run.completed\",\"content\":\"done\"}",
-        "",
-        ""
-      ].join("\n"));
-    }
+    fetchImpl: async () => streamResponse([
+      "event: tool.started",
+      "data: {\"tool\":\"memory\",\"timestamp\":123,\"preview\":\"memory add\"}",
+      "",
+      "event: tool.completed",
+      "data: {\"tool\":\"memory\",\"timestamp\":124,\"duration\":0.42}",
+      "",
+      "event: run.completed",
+      "data: {\"final_response\":\"Done\"}",
+      "",
+      ""
+    ].join("\n"))
   });
 
   const result = await runs.readRunEventStream({
-    runId: "run_approval",
+    runId: "run_1",
     signal: null,
-    emit: (kind, payload) => emitted.push({ kind, payload }),
-    onApprovalRequest: async ({ runId, event }) => {
-      calls.push({ runId, event });
-      return { ok: true };
-    }
+    emit: (kind, payload) => emitted.push({ kind, payload })
   });
 
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].runId, "run_approval");
-  assert.equal(calls[0].event.tool, "terminal");
-  assert.equal(calls[0].event.command, "python3 read_docx.py");
-  assert.equal(result.content, "done");
-  assert.deepEqual(emitted.filter((item) => item.kind === "approval.request"), []);
-  assert.deepEqual(result.events.map((item) => item.event), ["approval.request", "message.delta", "run.completed"]);
+  assert.equal(result.content, "Done");
+  assert.deepEqual(emitted, [
+    {
+      kind: "tool_call_started",
+      payload: { id: "tool_memory_123", name: "memory", preview: "memory add" }
+    },
+    {
+      kind: "tool_call_completed",
+      payload: { name: "memory", duration: 0.42, error: false, matchByName: true }
+    }
+  ]);
 });
 
 test("readRunEventStream emits Hermes result_display file diffs as file_edit events", async () => {

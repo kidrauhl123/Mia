@@ -2,6 +2,7 @@
 
 const http = require("node:http");
 const os = require("node:os");
+const { memoryChangedEnvelope } = require("../../shared/memory-events.js");
 
 function createDaemonControlServer({
   isDaemonProcess = false,
@@ -23,6 +24,10 @@ function createDaemonControlServer({
   initSchedulerSubsystem,
   tasksRoutes,
   getMiaContextSnapshot = null,
+  getMiaCurrentSkills = null,
+  miaMemoryService = null,
+  isMemoryEnabled = () => true,
+  onMemoryChanged = null,
   getCloudSettings = null,
   normalizeCloudUrl = (value) => String(value || "").replace(/\/+$/, ""),
   writeCloudSettings = null,
@@ -62,6 +67,32 @@ function createDaemonControlServer({
 
   function setLastError(message) {
     state.lastError = String(message || "");
+  }
+
+  function notifyMemoryChanged(reason = "memory", result = {}, scope = {}) {
+    try {
+      if (typeof onMemoryChanged === "function") onMemoryChanged(reason);
+    } catch (error) {
+      appendLog(`Mia memory change hook failed: ${error?.message || error}`);
+    }
+    publishLocalEvent(memoryChangedEnvelope(reason, result, scope));
+  }
+
+  function miaMemoryIsEnabled() {
+    try {
+      return isMemoryEnabled() !== false;
+    } catch {
+      return true;
+    }
+  }
+
+  function disabledMemoryResult() {
+    return {
+      status: "disabled",
+      disabled: true,
+      reason: "mia_memory_disabled",
+      error: "Mia memory is disabled."
+    };
   }
 
   function daemonConnectUrls(settings = getDaemonSettings()) {
@@ -230,6 +261,18 @@ function createDaemonControlServer({
     });
   }
 
+  function contextScopedMemoryInput(body = {}) {
+    const context = body && typeof body.context === "object" && body.context !== null ? body.context : {};
+    return {
+      userId: String(context.userId || body.userId || "").trim(),
+      botId: String(context.botId || body.botId || "").trim(),
+      sessionId: String(context.sessionId || body.sessionId || "").trim(),
+      originMessageId: String(context.originMessageId || body.originMessageId || "").trim(),
+      originEngine: String(context.engine || context.originEngine || body.originEngine || "").trim(),
+      originNativeSessionId: String(context.nativeSessionId || context.originNativeSessionId || body.originNativeSessionId || "").trim()
+    };
+  }
+
   // P0 of ADR 2026-06-12 desktop-single-owner-daemon: the daemon pushes
   // renderer-bound events (bot run streams now, all cloud events in P2) to the
   // window over this local SSE stream, since the window no longer executes
@@ -371,6 +414,161 @@ function createDaemonControlServer({
           sessionId: url.searchParams.get("sessionId") || "",
           originMessageId: url.searchParams.get("originMessageId") || ""
         }));
+        return;
+      }
+      if (url.pathname === "/api/mia/skills/current" && req.method === "GET") {
+        if (typeof getMiaCurrentSkills !== "function") {
+          writeJson(res, 501, { error: "Mia current bot skills unavailable" });
+          return;
+        }
+        writeJson(res, 200, getMiaCurrentSkills({
+          botId: url.searchParams.get("botId") || ""
+        }));
+        return;
+      }
+      if (url.pathname === "/api/mia/skills/current/read" && req.method === "GET") {
+        if (typeof getMiaCurrentSkills !== "function") {
+          writeJson(res, 501, { error: "Mia current bot skills unavailable" });
+          return;
+        }
+        const id = url.searchParams.get("id") || "";
+        if (!id) {
+          writeJson(res, 400, { error: "id is required" });
+          return;
+        }
+        try {
+          writeJson(res, 200, getMiaCurrentSkills({
+            botId: url.searchParams.get("botId") || "",
+            skillId: id
+          }));
+        } catch (error) {
+          writeJson(res, /not enabled|not found/i.test(String(error?.message || ""))
+            ? 404
+            : 500, { error: String(error?.message || error) });
+        }
+        return;
+      }
+      if (url.pathname === "/api/mia/memory/search" && req.method === "POST") {
+        if (!miaMemoryService || typeof miaMemoryService.searchMemories !== "function") {
+          writeJson(res, 501, { error: "Mia memory search unavailable" });
+          return;
+        }
+        if (!miaMemoryIsEnabled()) {
+          writeJson(res, 200, { memories: [], disabled: true, reason: "mia_memory_disabled" });
+          return;
+        }
+        const body = await readBody(req, 1024 * 1024);
+        const scoped = contextScopedMemoryInput(body);
+        const searchMemories = typeof miaMemoryService.searchMemoriesDeep === "function"
+          ? miaMemoryService.searchMemoriesDeep.bind(miaMemoryService)
+          : miaMemoryService.searchMemories.bind(miaMemoryService);
+        const memories = await searchMemories({
+          query: body.query || "",
+          limit: body.limit,
+          scopes: body.scopes,
+          kinds: body.kinds,
+          status: body.status || "active",
+          userId: scoped.userId,
+          botId: scoped.botId,
+          sessionId: scoped.sessionId
+        });
+        writeJson(res, 200, { memories });
+        return;
+      }
+      if (url.pathname === "/api/mia/memory/remember" && req.method === "POST") {
+        if (!miaMemoryService || typeof miaMemoryService.rememberMemory !== "function") {
+          writeJson(res, 501, { error: "Mia memory write unavailable" });
+          return;
+        }
+        if (!miaMemoryIsEnabled()) {
+          writeJson(res, 200, disabledMemoryResult());
+          return;
+        }
+        const body = await readBody(req, 1024 * 1024);
+        const scoped = contextScopedMemoryInput(body);
+        const sourceMessageIds = Array.isArray(body.sourceMessageIds) ? body.sourceMessageIds : [];
+        const result = miaMemoryService.rememberMemory({
+          text: body.text,
+          scope: body.scope,
+          kind: body.kind,
+          confidence: body.confidence,
+          priority: body.priority,
+          reason: body.reason,
+          source: "agent_tool",
+          originEngine: scoped.originEngine,
+          originNativeSessionId: scoped.originNativeSessionId,
+          sourceMessageIds: sourceMessageIds.length
+            ? sourceMessageIds
+            : (scoped.originMessageId ? [scoped.originMessageId] : []),
+          linkedMemoryIds: body.linkedMemoryIds,
+          metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
+          userId: scoped.userId,
+          botId: scoped.botId,
+          sessionId: scoped.sessionId
+        });
+        notifyMemoryChanged("remember", result, { ...scoped, eventSource: "agent_tool" });
+        writeJson(res, 200, result);
+        return;
+      }
+      if (url.pathname === "/api/mia/memory/update" && req.method === "POST") {
+        if (!miaMemoryService || typeof miaMemoryService.updateMemory !== "function") {
+          writeJson(res, 501, { error: "Mia memory update unavailable" });
+          return;
+        }
+        if (!miaMemoryIsEnabled()) {
+          writeJson(res, 200, disabledMemoryResult());
+          return;
+        }
+        const body = await readBody(req, 1024 * 1024);
+        const scoped = contextScopedMemoryInput(body);
+        const sourceMessageIds = Array.isArray(body.sourceMessageIds) ? body.sourceMessageIds : [];
+        const result = miaMemoryService.updateMemory({
+          memoryId: body.memoryId || body.id,
+          oldText: body.oldText || body.old_text,
+          text: body.text,
+          scope: body.scope,
+          kind: body.kind,
+          confidence: body.confidence,
+          priority: body.priority,
+          reason: body.reason,
+          source: "agent_tool",
+          originEngine: scoped.originEngine,
+          originNativeSessionId: scoped.originNativeSessionId,
+          sourceMessageIds: sourceMessageIds.length
+            ? sourceMessageIds
+            : (scoped.originMessageId ? [scoped.originMessageId] : []),
+          linkedMemoryIds: body.linkedMemoryIds,
+          metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
+          userId: scoped.userId,
+          botId: scoped.botId,
+          sessionId: scoped.sessionId
+        });
+        notifyMemoryChanged("update", result, { ...scoped, eventSource: "agent_tool" });
+        writeJson(res, 200, result);
+        return;
+      }
+      if (url.pathname === "/api/mia/memory/forget" && req.method === "POST") {
+        if (!miaMemoryService || typeof miaMemoryService.forgetMemory !== "function") {
+          writeJson(res, 501, { error: "Mia memory forget unavailable" });
+          return;
+        }
+        if (!miaMemoryIsEnabled()) {
+          writeJson(res, 200, disabledMemoryResult());
+          return;
+        }
+        const body = await readBody(req, 1024 * 1024);
+        const scoped = contextScopedMemoryInput(body);
+        const result = miaMemoryService.forgetMemory({
+          memoryId: body.memoryId || body.id,
+          oldText: body.oldText || body.old_text,
+          scope: body.scope,
+          reason: body.reason,
+          userId: scoped.userId,
+          botId: scoped.botId,
+          sessionId: scoped.sessionId
+        });
+        notifyMemoryChanged("forget", result, { ...scoped, eventSource: "agent_tool" });
+        writeJson(res, 200, result);
         return;
       }
       const routePath = `${url.pathname}${url.search || ""}`;

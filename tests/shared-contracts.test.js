@@ -130,6 +130,10 @@ test("engine contract owns external model and mode options for browser clients",
     [{ value: "default", label: "Ask" }, { value: "plan", label: "Plan Mode" }]
   );
   assert.deepEqual(
+    contract.externalPermissionOptions("claude-code").map((item) => item.value),
+    ["default", "acceptEdits", "auto", "plan", "dontAsk", "bypassPermissions"]
+  );
+  assert.deepEqual(
     contract.externalPermissionOptions("codex", {
       engineCapabilities: { engines: { codex: { permissionProfiles: [{ id: ":read-only" }, { id: ":workspace" }, { id: ":danger-full-access" }] } } }
     }).map((item) => ({ value: item.value, label: item.label, aliases: item.aliases })),

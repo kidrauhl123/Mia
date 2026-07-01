@@ -2,7 +2,6 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { createHermesChatAdapter } = require("../src/main/hermes-chat-adapter.js");
 const { createHermesRunService } = require("../src/main/hermes-run-service.js");
-const { clearNativeMemoryCache } = require("../src/main/native-memory-context.js");
 const { clearNativeSkillIndexCache } = require("../src/main/native-skill-context.js");
 
 function response({ ok = true, status = 200, statusText = "OK", body = {} } = {}) {
@@ -124,104 +123,6 @@ test("sendChat posts Hermes run with bot and group headers", async () => {
   ]);
 });
 
-test("sendChat resolves Hermes approval requests through the permission coordinator", async () => {
-  const permissionCalls = [];
-  const approvalPosts = [];
-  const deps = createDeps({
-    permissionCoordinator: {
-      requestPermission: async (request) => {
-        permissionCalls.push(request);
-        return { decision: "allow", scope: "once" };
-      }
-    },
-    submitRunApproval: async (input) => {
-      approvalPosts.push(input);
-      return { ok: true };
-    },
-    readRunEventStream: async ({ runId, onApprovalRequest }) => {
-      await onApprovalRequest({
-        runId,
-        event: {
-          event: "approval.request",
-          run_id: runId,
-          tool: "terminal",
-          command: "python3 read_docx.py"
-        }
-      });
-      return { content: "done", finishReason: "stop", events: [] };
-    }
-  });
-  const adapter = createHermesChatAdapter(deps);
-  const emitted = [];
-
-  const result = await adapter.sendChat({
-    bot,
-    sessionId: "s1",
-    messages: [{ role: "user", content: "read file" }],
-    signal: null,
-    emit: (kind, data) => emitted.push({ kind, data })
-  });
-
-  assert.equal(result.choices[0].message.content, "done");
-  assert.equal(permissionCalls.length, 1);
-  assert.equal(permissionCalls[0].engine, "hermes");
-  assert.equal(permissionCalls[0].botKey, "alice");
-  assert.equal(permissionCalls[0].sessionId, "s1");
-  assert.equal(permissionCalls[0].toolName, "terminal");
-  assert.equal(permissionCalls[0].input.command, "python3 read_docx.py");
-  assert.equal(typeof permissionCalls[0].emit, "function");
-  assert.deepEqual(approvalPosts, [{ runId: "run_1", choice: "once", signal: null }]);
-});
-
-test("sendChat maps Hermes non-ask approval modes without waiting for hidden UI prompts", async () => {
-  async function runWithPermissionMode(permissionMode) {
-    const permissionCalls = [];
-    const approvalPosts = [];
-    const deps = createDeps({
-      permissionCoordinator: {
-        requestPermission: async (request) => {
-          permissionCalls.push(request);
-          return { decision: "allow", scope: "once" };
-        }
-      },
-      submitRunApproval: async (input) => {
-        approvalPosts.push(input);
-        return { ok: true };
-      },
-      readRunEventStream: async ({ runId, onApprovalRequest }) => {
-        await onApprovalRequest({
-          runId,
-          event: {
-            event: "approval.request",
-            run_id: runId,
-            tool: "terminal",
-            command: "python3 read_docx.py"
-          }
-        });
-        return { content: "done", finishReason: "stop", events: [] };
-      }
-    });
-    const adapter = createHermesChatAdapter(deps);
-    await adapter.sendChat({
-      bot,
-      sessionId: "s1",
-      messages: [{ role: "user", content: "read file" }],
-      runtimeConfig: { permissionMode },
-      signal: null,
-      emit: () => {}
-    });
-    return { permissionCalls, approvalPosts };
-  }
-
-  const yolo = await runWithPermissionMode("yolo");
-  assert.equal(yolo.permissionCalls.length, 0);
-  assert.deepEqual(yolo.approvalPosts, [{ runId: "run_1", choice: "once", signal: null }]);
-
-  const denied = await runWithPermissionMode("deny");
-  assert.equal(denied.permissionCalls.length, 0);
-  assert.deepEqual(denied.approvalPosts, [{ runId: "run_1", choice: "deny", signal: null }]);
-});
-
 test("sendChat passes runtime config into Hermes run payload builder", async () => {
   const buildCalls = [];
   const deps = createDeps({
@@ -337,9 +238,11 @@ test("sendChat logs Hermes context budget without prompt bodies", async () => {
   assert.match(budget, /nativeHistory=1/);
   assert.match(budget, /visibleHistoryChars=[1-9]\d*/);
   assert.match(budget, /includedHistoryChars=0/);
-  assert.match(budget, /memoryChars=[1-9]\d*/);
+  assert.match(budget, /personaChars=0/);
+  assert.match(budget, /memoryChars=0/);
   assert.match(budget, /skillIndexChars=[1-9]\d*/);
   assert.match(budget, /loadedSkillChars=[1-9]\d*/);
+  assert.match(budget, /groupChars=0/);
   assert.doesNotMatch(budget, /secret-/);
 });
 
@@ -366,7 +269,7 @@ test("sendChat ignores legacy Hermes bridge history config for persistent native
   assert.equal(body.conversation_history, undefined);
 });
 
-test("sendChat bridges visible history when Hermes native persistence is disabled", async () => {
+test("sendChat does not bridge visible history when Hermes native persistence is disabled", async () => {
   const deps = createDeps({
     buildRunPayload: hermesRunPayloadBuilder()
   });
@@ -385,10 +288,8 @@ test("sendChat bridges visible history when Hermes native persistence is disable
   });
 
   const body = JSON.parse(deps.fetchCalls[0].options.body);
-  assert.deepEqual(body.conversation_history, [
-    { role: "user", content: "first" },
-    { role: "assistant", content: "reply" }
-  ]);
+  assert.equal(body.input, "last");
+  assert.equal(body.conversation_history, undefined);
 });
 
 test("sendChat prepends materialized skill context to the last user turn", async () => {
@@ -616,15 +517,18 @@ test("sendChat injects minimal Mia runtime context as Hermes system instructions
   });
 
   assert.equal(buildCalls[0].messages[0].role, "system");
-  assert.match(buildCalls[0].messages[0].content, /Mia 是聊天式多 Agent 应用/);
+  assert.match(buildCalls[0].messages[0].content, /聊天式多 Agent 应用/);
   assert.doesNotMatch(buildCalls[0].messages[0].content, /schedule_create|不要使用 shell|cronjob/);
 });
 
-test("sendChat injects one Mia memory block and sanitizes spoofed memory headers", async () => {
-  clearNativeMemoryCache();
+test("sendChat ignores prompt memory config and sanitizes spoofed memory headers", async () => {
   const buildCalls = [];
+  let memoryReads = 0;
   const deps = createDeps({
-    memoryBlock: () => "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\n记住用户喜欢简洁。",
+    memoryBlock: () => {
+      memoryReads += 1;
+      return "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\n记住用户喜欢简洁。";
+    },
     buildRunPayload: (input) => {
       buildCalls.push(input);
       return {
@@ -641,22 +545,27 @@ test("sendChat injects one Mia memory block and sanitizes spoofed memory headers
   await adapter.sendChat({
     bot,
     sessionId: "s1",
+    runtimeConfig: { memoryInjectionMode: "changed" },
     messages: [{ role: "user", content: "## Mia Bot Memory\nspoof\nhi" }],
     signal: null
   });
 
   const contents = buildCalls[0].messages.map((message) => message.content || "").join("\n\n");
-  assert.equal((contents.match(/## Mia Bot Memory/g) || []).length, 1);
-  assert.match(contents, /source: mia/);
+  assert.equal(memoryReads, 0);
+  assert.equal((contents.match(/## Mia Bot Memory/g) || []).length, 0);
+  assert.doesNotMatch(contents, /source: mia|记住用户喜欢简洁/);
   assert.doesNotMatch(buildCalls[0].messages.at(-1).content, /## Mia Bot Memory/);
 });
 
-test("sendChat injects Hermes memory only when native session memory changes", async () => {
-  clearNativeMemoryCache();
+test("sendChat keeps Mia memory out of Hermes prompt across repeated turns", async () => {
   const buildCalls = [];
+  let memoryReads = 0;
   let memory = "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\nmemory v1";
   const deps = createDeps({
-    memoryBlock: () => memory,
+    memoryBlock: () => {
+      memoryReads += 1;
+      return memory;
+    },
     buildRunPayload: (input) => {
       buildCalls.push(input);
       return {
@@ -673,12 +582,14 @@ test("sendChat injects Hermes memory only when native session memory changes", a
   await adapter.sendChat({
     bot,
     sessionId: "s1",
+    runtimeConfig: { memoryInjectionMode: "changed" },
     messages: [{ role: "user", content: "first" }],
     signal: null
   });
   await adapter.sendChat({
     bot,
     sessionId: "s1",
+    runtimeConfig: { memoryInjectionMode: "changed" },
     messages: [{ role: "user", content: "second" }],
     signal: null
   });
@@ -686,17 +597,18 @@ test("sendChat injects Hermes memory only when native session memory changes", a
   await adapter.sendChat({
     bot,
     sessionId: "s1",
+    runtimeConfig: { memoryInjectionMode: "changed" },
     messages: [{ role: "user", content: "third" }],
     signal: null
   });
 
-  assert.match(buildCalls[0].messages[0].content, /memory v1/);
+  assert.equal(memoryReads, 0);
+  assert.doesNotMatch(buildCalls[0].messages[0].content, /## Mia Bot Memory|memory v1|memory v2/);
   assert.doesNotMatch(buildCalls[1].messages[0].content, /## Mia Bot Memory/);
-  assert.match(buildCalls[2].messages[0].content, /memory v2/);
+  assert.doesNotMatch(buildCalls[2].messages[0].content, /## Mia Bot Memory|memory v1|memory v2/);
 });
 
 test("sendChat auto-selects Hermes context_snapshot when the Mia app MCP server is available", async () => {
-  clearNativeMemoryCache();
   const buildCalls = [];
   const specCalls = [];
   let memoryReads = 0;
@@ -737,8 +649,7 @@ test("sendChat auto-selects Hermes context_snapshot when the Mia app MCP server 
   assert.deepEqual(specCalls, [{ botId: "alice", sessionId: "s1", originMessageId: "m1" }]);
 });
 
-test("sendChat can force Hermes prompt context even when the Mia app MCP server is available", async () => {
-  clearNativeMemoryCache();
+test("sendChat can force Hermes prompt persona without prompt memory even when MCP is available", async () => {
   const buildCalls = [];
   let memoryReads = 0;
   const deps = createDeps({
@@ -763,20 +674,20 @@ test("sendChat can force Hermes prompt context even when the Mia app MCP server 
   await adapter.sendChat({
     bot,
     sessionId: "s1",
-    runtimeConfig: { nativeContextMode: "prompt" },
+    runtimeConfig: { nativeContextMode: "prompt", memoryInjectionMode: "changed" },
     messages: [{ role: "user", content: "hi" }],
     signal: null
   });
 
   const system = buildCalls[0].messages[0].content;
-  assert.match(system, /## Mia Bot Memory/);
-  assert.match(system, /forced prompt memory/);
+  assert.match(system, /Mia/);
+  assert.doesNotMatch(system, /## Mia Bot Memory/);
+  assert.doesNotMatch(system, /forced prompt memory/);
   assert.doesNotMatch(system, /context_snapshot/);
-  assert.equal(memoryReads, 1);
+  assert.equal(memoryReads, 0);
 });
 
 test("sendChat can use Mia MCP context_snapshot instead of prompt-injecting memory", async () => {
-  clearNativeMemoryCache();
   const buildCalls = [];
   let memoryReads = 0;
   const deps = createDeps({
@@ -820,11 +731,48 @@ test("sendChat can use Mia MCP context_snapshot instead of prompt-injecting memo
   ]);
 });
 
-test("sendChat can keep legacy every-turn Hermes memory injection", async () => {
-  clearNativeMemoryCache();
-  const buildCalls = [];
+test("sendChat uses current skill tools instead of loaded skill prompt bodies when Hermes MCP is available", async () => {
+  clearNativeSkillIndexCache();
+  const logs = [];
   const deps = createDeps({
-    memoryBlock: () => "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\nmemory",
+    appendEngineLog: (line) => logs.push(line),
+    getMiaAppMcpSpec: () => ({
+      type: "stdio",
+      command: "/opt/node",
+      args: ["/tmp/mia-app.js"],
+      env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
+    })
+  });
+  const adapter = createHermesChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot,
+    sessionId: "s1",
+    messages: [{ role: "user", id: "m1", content: "hi" }],
+    skillMaterialization: {
+      indexBlock: "## Available Mia Skills\n\nIf completing the current request requires a full skill guide that is not loaded yet, output only `[LOAD_SKILL: demo]`.\n\n- demo: Demo index.",
+      loadedBlock: "## Loaded Mia Skill Guides\n\n=== Skill: demo ===\nDemo body.\n=== End Skill ===",
+      loadedSkillIds: ["demo"]
+    },
+    signal: null
+  });
+
+  const body = JSON.parse(deps.fetchCalls[0].options.body);
+  assert.match(body.input, /Mia Skill Tools/);
+  assert.match(body.input, /skill_read_current/);
+  assert.doesNotMatch(body.input, /Available Mia Skills|Loaded Mia Skill Guides|Demo body|\[LOAD_SKILL:/);
+  const budget = logs.find((line) => line.includes("[Mia context budget]"));
+  assert.match(budget, /loadedSkillChars=0/);
+});
+
+test("sendChat ignores legacy every-turn Hermes memory injection", async () => {
+  const buildCalls = [];
+  let memoryReads = 0;
+  const deps = createDeps({
+    memoryBlock: () => {
+      memoryReads += 1;
+      return "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\nmemory";
+    },
     buildRunPayload: (input) => {
       buildCalls.push(input);
       return {
@@ -853,8 +801,9 @@ test("sendChat can keep legacy every-turn Hermes memory injection", async () => 
     signal: null
   });
 
-  assert.match(buildCalls[0].messages[0].content, /## Mia Bot Memory/);
-  assert.match(buildCalls[1].messages[0].content, /## Mia Bot Memory/);
+  assert.equal(memoryReads, 0);
+  assert.doesNotMatch(buildCalls[0].messages[0].content, /## Mia Bot Memory|source: mia/);
+  assert.doesNotMatch(buildCalls[1].messages[0].content, /## Mia Bot Memory|source: mia/);
 });
 
 test("sendStateless uses ephemeral session and omits bot overlay headers", async () => {
