@@ -45,12 +45,13 @@
 
   <main class="app-shell" data-auth-state="signed-out">
     <div class="window-drag-strip" aria-hidden="true"></div>
+    <div class="window-controls" id="windowControls" aria-label="窗口控制">
+      <button class="window-control minimize" type="button" data-action="minimize" aria-label="最小化" title="最小化"></button>
+      <button class="window-control green" type="button" data-action="green" aria-label="最大化" title="最大化"></button>
+      <button class="window-control close" type="button" data-action="close" aria-label="关闭" title="关闭"></button>
+    </div>
     <aside class="nav-rail" aria-label="主导航">
-      <div class="traffic-spacer" id="trafficSpacer">
-        <button class="traffic-light close" type="button" data-action="close" aria-label="关闭"></button>
-        <button class="traffic-light minimize" type="button" data-action="minimize" aria-label="最小化"></button>
-        <button class="traffic-light green" type="button" data-action="green" aria-label="全屏"></button>
-      </div>
+      <div class="traffic-spacer" id="trafficSpacer" aria-hidden="true"></div>
       <div id="userAvatar" class="profile-avatar rail-avatar" role="button" tabindex="0" title="个人资料" aria-haspopup="dialog" aria-expanded="false" aria-controls="profileDialog"></div>
       <span id="userDisplayName" class="visually-hidden"></span>
       <div class="rail-divider"></div>

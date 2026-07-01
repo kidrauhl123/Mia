@@ -7339,11 +7339,13 @@ renderSendButton();
 setInterval(refreshRuntime, 2000);
 
 (function wireTrafficLights() {
+  const controls = document.getElementById("windowControls");
   const spacer = document.getElementById("trafficSpacer");
   const api = window.mia?.window;
   if (!api) return;
   const isWindows = rendererPlatform === "win32";
-  const maximizeButton = spacer?.querySelector('[data-action="green"]');
+  const controlRoot = controls || spacer;
+  const maximizeButton = controlRoot?.querySelector('[data-action="green"]');
   const applyMaximized = (maximized) => {
     document.body.classList.toggle("window-maximized", Boolean(maximized));
     if (!isWindows || !maximizeButton) return;
@@ -7355,9 +7357,9 @@ setInterval(refreshRuntime, 2000);
     maximizeButton.setAttribute("aria-label", "最大化");
     maximizeButton.title = "最大化";
   }
-  if (!spacer) return;
+  if (!controlRoot) return;
   const handleControlClick = (event) => {
-    const btn = event.target.closest(".traffic-light");
+    const btn = event.target.closest(".window-control, .traffic-light");
     if (!btn) return;
     event.preventDefault();
     event.stopPropagation();
@@ -7371,9 +7373,9 @@ setInterval(refreshRuntime, 2000);
       }).catch(() => {});
     }
   };
-  spacer.addEventListener("click", handleControlClick);
-  spacer.addEventListener("pointerdown", (event) => {
-    if (!event.target.closest(".traffic-light")) return;
+  controlRoot.addEventListener("click", handleControlClick);
+  controlRoot.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest(".window-control, .traffic-light")) return;
     event.stopPropagation();
   });
   const applyFocus = (focused) => {
@@ -7382,7 +7384,8 @@ setInterval(refreshRuntime, 2000);
   };
   const applyFullscreen = (fullscreen) => {
     document.body.classList.toggle("window-fullscreen", Boolean(fullscreen));
-    spacer.dataset.fullscreen = fullscreen ? "true" : "false";
+    if (controls) controls.dataset.fullscreen = fullscreen ? "true" : "false";
+    if (spacer) spacer.dataset.fullscreen = fullscreen ? "true" : "false";
   };
   api.onFocusState?.(applyFocus);
   api.onFullscreen?.(applyFullscreen);

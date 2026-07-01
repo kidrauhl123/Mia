@@ -203,7 +203,8 @@ test("desktop window controls use frameless Windows chrome off macOS", () => {
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
-  assert.doesNotMatch(html, /id="windowControls"/);
+  assert.match(html, /id="windowControls"[\s\S]*data-action="minimize"[\s\S]*data-action="green"[\s\S]*data-action="close"[\s\S]*<aside class="nav-rail"/);
+  assert.match(html, /<div class="traffic-spacer" id="trafficSpacer" aria-hidden="true"><\/div>/);
   assert.match(html, /class="window-drag-strip"/);
   assert.match(mainSource, /process\.platform === "win32"[\s\S]*frame:\s*false[\s\S]*thickFrame:\s*true/);
   assert.match(titleBarSource, /const WINDOWS_TITLE_BAR_HEIGHT = 32;/);
@@ -221,7 +222,9 @@ test("desktop window controls use frameless Windows chrome off macOS", () => {
   assert.match(appSource, /document\.body\.classList\.toggle\("platform-win32",\s*rendererPlatform === "win32"\)/);
   assert.match(appSource, /document\.body\.classList\.toggle\("platform-darwin",\s*rendererPlatform === "darwin"\)/);
   assert.match(appSource, /document\.body\.classList\.toggle\("window-fullscreen",\s*Boolean\(fullscreen\)\)/);
-  assert.doesNotMatch(appSource, /getElementById\("windowControls"\)/);
+  assert.match(appSource, /const controls = document\.getElementById\("windowControls"\)/);
+  assert.match(appSource, /const controlRoot = controls \|\| spacer/);
+  assert.match(appSource, /closest\("\.window-control, \.traffic-light"\)/);
   assert.match(appSource, /const task = isWindows \? \(api\.maximize\?\.\(\) \|\| api\.green\(\)\) : api\.green\(\);/);
   assert.match(preloadSource, /maximize:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.WindowMaximize\)/);
   assert.match(preloadSource, /setTitleBarTheme:\s*\(appearance\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.WindowTitleBarTheme,\s*appearance \|\| \{\}\)/);
@@ -231,10 +234,11 @@ test("desktop window controls use frameless Windows chrome off macOS", () => {
   assert.match(windowIpcSource, /setBackgroundColor\(process\.platform === "darwin"\s*\?\s*"#00000000"\s*:\s*"#f0f0f3"\)/);
   assert.match(windowIpcSource, /setMacNativeControlsVisible\(w,\s*true\)/);
   assert.match(windowIpcSource, /IpcChannel\.WindowTitleBarTheme[\s\S]*applyWindowsTitleBarOverlay\(BrowserWindow\.fromWebContents\(event\.sender\),\s*appearance\)/);
-  assert.match(css, /body\.platform-win32 \.traffic-spacer\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?right:\s*0;[\s\S]*?grid-template-columns:\s*repeat\(3,\s*46px\);/);
-  assert.match(css, /body\.platform-win32 \.traffic-spacer \.traffic-light\s*\{[\s\S]*?display:\s*grid;[\s\S]*?width:\s*46px;[\s\S]*?background-image:\s*none;/);
-  assert.match(css, /body\.platform-win32 \.traffic-spacer:hover \.traffic-light\.close,[\s\S]*?body\.platform-win32\.window-blurred \.traffic-spacer:hover \.traffic-light\.green\s*\{[\s\S]*?background-image:\s*none;/);
-  assert.match(css, /body\.platform-win32 \.traffic-light\.close::before,[\s\S]*?body\.platform-win32 \.traffic-light\.close::after/);
+  assert.match(css, /\.window-controls\s*\{\s*display:\s*none;/);
+  assert.match(css, /body\.platform-win32 \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
+  assert.match(css, /body\.platform-win32 \.window-controls\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?right:\s*0;[\s\S]*?grid-template-columns:\s*repeat\(3,\s*46px\);/);
+  assert.match(css, /body\.platform-win32 \.window-control\s*\{[\s\S]*?display:\s*grid;[\s\S]*?width:\s*46px;[\s\S]*?background-image:\s*none;/);
+  assert.match(css, /body\.platform-win32 \.window-control\.minimize::before[\s\S]*?body\.platform-win32 \.window-control\.green::before[\s\S]*?body\.platform-win32 \.window-control\.close::before/);
   assert.match(css, /body\.platform-darwin \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
   assert.match(css, /--traffic-spacer-height:\s*52px;/);
   assert.match(css, /--mac-traffic-spacer-height:\s*64px;/);
@@ -249,7 +253,7 @@ test("desktop window controls use frameless Windows chrome off macOS", () => {
   assert.match(css, /body\.platform-win32 \.app-shell\s*\{[\s\S]*?padding:\s*var\(--win-titlebar-height\) 0 0;/);
   assert.match(css, /body\.platform-win32 \.app-shell::before\s*\{[\s\S]*?top:\s*calc\(var\(--win-titlebar-height\) - 1px\);[\s\S]*?height:\s*1px;[\s\S]*?background:\s*var\(--win-panel-border\);[\s\S]*?pointer-events:\s*none;/);
   assert.match(css, /body\.platform-win32 \.window-drag-strip\s*\{[\s\S]*?right:\s*var\(--win-titlebar-control-width\);[\s\S]*?background:\s*var\(--win-titlebar-bg\);[\s\S]*?-webkit-app-region:\s*drag;/);
-  assert.match(css, /body\.platform-win32 \.nav-rail\s*\{[\s\S]*?margin:\s*0;[\s\S]*?border-right:\s*1px solid var\(--win-panel-border\);[\s\S]*?border-radius:\s*0;[\s\S]*?background:\s*var\(--win-rail-bg\);[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
+  assert.match(css, /body\.platform-win32 \.nav-rail\s*\{[\s\S]*?margin:\s*calc\(-1 \* var\(--win-titlebar-height\)\) 0 0;[\s\S]*?padding:\s*calc\(var\(--win-titlebar-height\) \+ 8px\) 0 12px;[\s\S]*?border-right:\s*1px solid var\(--win-panel-border\);[\s\S]*?border-radius:\s*0;[\s\S]*?background:\s*var\(--win-rail-bg\);[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(css, /body\.platform-win32 \.conversation-sidebar,[\s\S]*?body\.platform-win32 \.app-shell\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?margin:\s*0;[\s\S]*?border-right:\s*1px solid var\(--win-panel-border\);[\s\S]*?border-radius:\s*0;[\s\S]*?background:\s*var\(--win-sidebar-bg\);[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(css, /body\.platform-win32 \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\) \.settings-layout\s*\{[\s\S]*?grid-template-columns:\s*var\(--sidebar-width\) minmax\(0,\s*1fr\);[\s\S]*?gap:\s*0;[\s\S]*?padding:\s*0;/);
   assert.match(css, /body\.platform-win32 \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\) \.settings-tabs\s*\{[\s\S]*?width:\s*100%;[\s\S]*?border-right:\s*1px solid var\(--win-panel-border\);[\s\S]*?border-radius:\s*0;[\s\S]*?background:\s*var\(--win-sidebar-bg\);[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
@@ -264,7 +268,7 @@ test("desktop window controls use frameless Windows chrome off macOS", () => {
   assert.match(css, /body\.platform-darwin\s*\{[\s\S]*?--rail-column-width:\s*var\(--mac-rail-column-width\);[\s\S]*?--traffic-spacer-height:\s*var\(--mac-traffic-spacer-height\);/);
   assert.match(css, /body\.platform-darwin \.app-shell\s*\{[\s\S]*?border-radius:\s*var\(--window-corner-radius\);/);
   assert.match(css, /body\.platform-darwin\.window-maximized \.app-shell,[\s\S]*?body\.platform-darwin\.window-fullscreen \.app-shell\s*\{[\s\S]*?border-radius:\s*0;/);
-  assert.doesNotMatch(css, /\.window-controls/);
+  assert.match(css, /body\.platform-win32 \.window-controls\[data-fullscreen="true"\]\s*\{\s*display:\s*none;/);
   assert.doesNotMatch(css, /body\.platform-win32 \.topbar\s*\{\s*padding-right:\s*150px;/);
 });
 

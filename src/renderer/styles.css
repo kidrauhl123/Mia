@@ -319,6 +319,10 @@ body.platform-win32 .app-shell::before {
   display: none;
 }
 
+.window-controls {
+  display: none;
+}
+
 body.platform-win32 .window-drag-strip {
   position: absolute;
   top: 0;
@@ -552,8 +556,8 @@ body:not(.platform-win32) .app-shell:not([data-nav-layout="sidebar-bottom"])[dat
 }
 
 body.platform-win32 .nav-rail {
-  margin: 0;
-  padding: 8px 0 12px;
+  margin: calc(-1 * var(--win-titlebar-height)) 0 0;
+  padding: calc(var(--win-titlebar-height) + 8px) 0 12px;
   border-right: 1px solid var(--win-panel-border);
   border-radius: 0;
   background: var(--win-rail-bg);
@@ -626,7 +630,11 @@ body.window-blurred .traffic-spacer:hover .traffic-light.green {
   background-image: url("./assets/traffic-lights/nofocus.svg");
 }
 
-body.platform-win32 .traffic-spacer {
+body.platform-win32 .traffic-spacer .traffic-light {
+  display: none;
+}
+
+body.platform-win32 .window-controls {
   position: fixed;
   top: 0;
   right: 0;
@@ -640,7 +648,11 @@ body.platform-win32 .traffic-spacer {
   -webkit-app-region: no-drag;
 }
 
-body.platform-win32 .traffic-spacer .traffic-light {
+body.platform-win32 .window-controls[data-fullscreen="true"] {
+  display: none;
+}
+
+body.platform-win32 .window-control {
   position: relative;
   display: grid;
   place-items: center;
@@ -648,47 +660,43 @@ body.platform-win32 .traffic-spacer .traffic-light {
   height: var(--win-titlebar-height);
   min-width: 46px;
   min-height: var(--win-titlebar-height);
+  padding: 0;
+  border: 0;
   border-radius: 0;
   background: transparent;
   background-image: none;
   color: var(--win-titlebar-symbol);
+  font-size: 0;
+  -webkit-app-region: no-drag;
 }
 
-body.platform-win32 .traffic-spacer:hover .traffic-light.close,
-body.platform-win32 .traffic-spacer:hover .traffic-light.minimize,
-body.platform-win32 .traffic-spacer:hover .traffic-light.green,
-body.platform-win32 .traffic-light.close:active,
-body.platform-win32 .traffic-light.minimize:active,
-body.platform-win32 .traffic-light.green:active,
-body.platform-win32.window-blurred .traffic-light.close,
-body.platform-win32.window-blurred .traffic-light.minimize,
-body.platform-win32.window-blurred .traffic-light.green,
-body.platform-win32.window-blurred .traffic-spacer:hover .traffic-light.close,
-body.platform-win32.window-blurred .traffic-spacer:hover .traffic-light.minimize,
-body.platform-win32.window-blurred .traffic-spacer:hover .traffic-light.green {
+body.platform-win32 .window-control:hover,
+body.platform-win32 .window-control:active,
+body.platform-win32.window-blurred .window-control,
+body.platform-win32.window-blurred .window-control:hover {
   background-image: none;
 }
 
-body.platform-win32 .traffic-spacer .traffic-light:hover {
+body.platform-win32 .window-control:hover {
   background: var(--win-titlebar-control-hover);
 }
 
-body.platform-win32 .traffic-spacer .traffic-light:active {
+body.platform-win32 .window-control:active {
   background: var(--win-titlebar-control-active);
 }
 
-body.platform-win32 .traffic-spacer .traffic-light.close:hover {
+body.platform-win32 .window-control.close:hover {
   background: var(--win-titlebar-close-hover);
   color: #fff;
 }
 
-body.platform-win32 .traffic-spacer .traffic-light.close:active {
+body.platform-win32 .window-control.close:active {
   background: var(--win-titlebar-close-active);
   color: #fff;
 }
 
-body.platform-win32 .traffic-light::before,
-body.platform-win32 .traffic-light::after {
+body.platform-win32 .window-control::before,
+body.platform-win32 .window-control::after {
   content: "";
   position: absolute;
   display: block;
@@ -696,56 +704,52 @@ body.platform-win32 .traffic-light::after {
   pointer-events: none;
 }
 
-body.platform-win32 .traffic-light.minimize::before {
+body.platform-win32 .window-control.minimize::before {
   width: 10px;
   height: 1px;
   background: currentColor;
 }
 
-body.platform-win32 .traffic-light.green::before {
+body.platform-win32 .window-control.green::before {
   width: 10px;
   height: 10px;
   border: 1px solid currentColor;
 }
 
-body.platform-win32.window-maximized .traffic-light.green::before {
+body.platform-win32.window-maximized .window-control.green::before {
   width: 9px;
   height: 9px;
   transform: translate(-2px, 2px);
 }
 
-body.platform-win32.window-maximized .traffic-light.green::after {
+body.platform-win32.window-maximized .window-control.green::after {
   width: 9px;
   height: 9px;
   border: 1px solid currentColor;
   transform: translate(2px, -2px);
 }
 
-body.platform-win32 .traffic-light.close::before,
-body.platform-win32 .traffic-light.close::after {
+body.platform-win32 .window-control.close::before,
+body.platform-win32 .window-control.close::after {
   width: 13px;
   height: 1px;
   background: currentColor;
 }
 
-body.platform-win32 .traffic-light.close::before {
+body.platform-win32 .window-control.close::before {
   transform: rotate(45deg);
 }
 
-body.platform-win32 .traffic-light.close::after {
+body.platform-win32 .window-control.close::after {
   transform: rotate(-45deg);
 }
 
-body.platform-win32.window-blurred .traffic-light:not(:hover) {
+body.platform-win32.window-blurred .window-control:not(:hover) {
   color: rgba(36, 38, 45, 0.42);
 }
 
-:root[data-theme="dark"] body.platform-win32.window-blurred .traffic-light:not(:hover) {
+:root[data-theme="dark"] body.platform-win32.window-blurred .window-control:not(:hover) {
   color: rgba(242, 244, 248, 0.42);
-}
-
-body.platform-win32 .traffic-spacer[data-fullscreen="true"] .traffic-light {
-  display: none;
 }
 
 body.platform-darwin .traffic-spacer .traffic-light {
