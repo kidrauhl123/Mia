@@ -6,6 +6,7 @@ const {
   createManagedAgentRuntimeService,
   runtimeEnv
 } = require("./agent-runtime/managed-agent-runtime.js");
+const { getAcpEngineSpec } = require("./agent-session/index.js");
 const {
   execFileExecutable,
   spawnSyncExecutable
@@ -414,7 +415,7 @@ function createLocalAgentEngineService(deps = {}) {
   }
 
   function firstRuntimeProbe(definition) {
-    return managedProbe(definition) || firstCommandPath(definition.commands);
+    return managedProbe(definition) || firstCommandPath(probeCommandsForDefinition(definition));
   }
 
   // Async variants of the probes (execFile) for non-blocking detection. The
@@ -461,7 +462,7 @@ function createLocalAgentEngineService(deps = {}) {
   }
 
   async function firstRuntimeProbeAsync(definition) {
-    return managedProbe(definition) || firstCommandPathAsync(definition.commands);
+    return managedProbe(definition) || firstCommandPathAsync(probeCommandsForDefinition(definition));
   }
 
   function miaHermesSource() {
@@ -474,6 +475,29 @@ function createLocalAgentEngineService(deps = {}) {
     const source = miaHermesSource();
     if (source === "system") return Boolean(systemAvailable && isHermesInstalled());
     return Boolean(source && isHermesInstalled());
+  }
+
+  function acpSpecForDefinition(definition) {
+    return getAcpEngineSpec(definition?.id) || null;
+  }
+
+  function acpCommandParts(definition, options = {}) {
+    const spec = acpSpecForDefinition(definition);
+    const commandPath = String(options.commandPath || "").trim();
+    const command = commandPath || String(spec?.command || definition?.commands?.[0] || "").trim();
+    const args = Array.isArray(spec?.args) ? spec.args.slice() : [];
+    return {
+      command,
+      args,
+      display: [command || String(spec?.command || definition?.commands?.[0] || "").trim(), ...args].filter(Boolean).join(" ").trim()
+    };
+  }
+
+  function probeCommandsForDefinition(definition) {
+    const spec = acpSpecForDefinition(definition);
+    const command = String(spec?.command || "").trim();
+    if (command) return [command];
+    return Array.isArray(definition?.commands) ? definition.commands.slice() : [];
   }
 
   function readiness(status, summary, detail = "", action = "", checked = true) {
@@ -491,10 +515,13 @@ function createLocalAgentEngineService(deps = {}) {
       return readiness("checking", "正在检查", "", "", false);
     }
     if (!status.installed) {
-      return readiness("missing", `${definition.label} 未检测到`, "", status.installAction || "", true);
-    }
-    if (definition.id === "hermes" && status.health === "broken") {
-      return readiness("repairable", "Hermes API 运行时不完整，可修复", "", status.installAction || "repair-hermes", true);
+      return readiness(
+        "missing",
+        `${definition.label} ACP command 未检测到`,
+        acpCommandParts(definition).display,
+        status.installAction || "",
+        true
+      );
     }
     if (status.usableInMia) {
       return readiness("not_checked", "等待深度自检", "", "", false);
@@ -517,12 +544,11 @@ function createLocalAgentEngineService(deps = {}) {
 
   async function cliHandshake(definition, status) {
     const commandPath = String(status.path || "").trim();
+    const acpCommand = acpCommandParts(definition, { commandPath });
     if (!commandPath) {
-      return { ok: false, detail: "command path missing" };
+      return { ok: false, detail: `ACP command missing: ${acpCommand.display}` };
     }
-    const args = Array.isArray(definition.doctorArgs) && definition.doctorArgs.length
-      ? definition.doctorArgs
-      : ["--help"];
+    const args = [...acpCommand.args, "--help"];
     const result = await execFileAsync(commandPath, args, {
       encoding: "utf8",
       timeout: doctorTimeoutMs,
@@ -537,33 +563,21 @@ function createLocalAgentEngineService(deps = {}) {
     const output = compactOneLine(result.stderr || result.stdout || result.error?.message || "");
     return {
       ok: false,
-      detail: output || `${path.basename(commandPath)} ${args.join(" ")} exited with code ${result.code || "unknown"}`
+      detail: output
+        ? `${acpCommand.display}: ${output}`
+        : `${acpCommand.display} exited with code ${result.code || "unknown"}`
     };
   }
 
   async function doctorAgentStatus(definition, status) {
     if (!status.installed) {
-      return withReadiness(status, readiness("missing", `${definition.label} 未检测到`, "", status.installAction || "", true));
-    }
-    if (definition.id === "hermes") {
-      if (status.health === "broken") {
-        return withReadiness(status, readiness(
-          "repairable",
-          "Hermes API 运行时不完整，可修复",
-          "缺少 Hermes API server 依赖时，Mia 会无法连接本地 Hermes。",
-          status.installAction || "repair-hermes"
-        ));
-      }
-      if (status.usableInMia) {
-        return withReadiness(status, readiness("ready", "Hermes CLI 与 API 依赖自检通过"));
-      }
-      const action = status.installAction || "repair-hermes";
       return withReadiness(status, readiness(
-        "repairable",
-        "Hermes 已检测到，但当前安装不能用于 Mia，可修复",
-        "",
-        action
-      ), { installAction: action });
+        "missing",
+        `${definition.label} ACP command 未检测到`,
+        acpCommandParts(definition).display,
+        status.installAction || "",
+        true
+      ));
     }
     if (!status.runtime?.supported) {
       return withReadiness(status, readiness(
@@ -577,14 +591,14 @@ function createLocalAgentEngineService(deps = {}) {
     if (probe.ok) {
       return withReadiness(status, readiness(
         "ready",
-        `${definition.label} CLI 启动自检通过`,
+        `${definition.label} ACP 启动自检通过`,
         probe.detail
       ), { usableInMia: true, health: "ready", installAction: "" });
     }
     const action = agentInstallActionId(definition);
     return withReadiness(status, readiness(
       "blocked",
-      `${definition.label} 启动自检失败，可重新安装`,
+      `${definition.label} ACP 启动自检失败，可重新安装`,
       probe.detail,
       action
     ), {
@@ -607,11 +621,8 @@ function createLocalAgentEngineService(deps = {}) {
     const runtimeAvailable = Boolean(probe.path);
     const hermesRuntimeUsable = definition.id === "hermes" ? hermesUsable(systemAvailable) : false;
     const installed = Boolean(runtimeAvailable || hermesRuntimeUsable);
-    const hermesApiReady = definition.id === "hermes" && hermesRuntimeUsable
-      ? Boolean(isHermesApiRuntimeReady())
-      : true;
     const usableInMia = definition.id === "hermes"
-      ? hermesRuntimeUsable && hermesApiReady
+      ? hermesRuntimeUsable
       : Boolean((systemAvailable || managedSupported) && !definition.detectionOnly);
     const source = managedAvailable
       ? "managed"
@@ -620,9 +631,7 @@ function createLocalAgentEngineService(deps = {}) {
       : systemAvailable
         ? "system"
         : "missing";
-    const health = definition.id === "hermes" && hermesRuntimeUsable && !hermesApiReady
-      ? "broken"
-      : usableInMia ? "ready" : installed ? "detected" : "missing";
+    const health = usableInMia ? "ready" : installed ? "detected" : "missing";
     const installAction = Boolean(definition.installable)
       ? definition.id === "hermes" && installed && !usableInMia
         ? "repair-hermes"
