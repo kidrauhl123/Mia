@@ -83,13 +83,38 @@ async function waitWithAbort(promise, signal) {
   }
 }
 
+function createControlledPromise() {
+  let settled = false;
+  let resolvePromise;
+  let rejectPromise;
+  const promise = new Promise((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  promise.catch(() => {});
+  return {
+    promise,
+    get settled() {
+      return settled;
+    },
+    resolve(value) {
+      if (settled) return;
+      settled = true;
+      resolvePromise(value);
+    },
+    reject(error) {
+      if (settled) return;
+      settled = true;
+      rejectPromise(error);
+    }
+  };
+}
+
 function createHermesImClient(deps = {}) {
   const gatewayClientFactory = deps.gatewayClientFactory || createHermesGatewayClient;
   const sessionsStore = deps.sessionsStore;
   const normalizeModel = deps.normalizeModel || normalizeCloudHermesModel;
   const nowMs = typeof deps.nowMs === "function" ? deps.nowMs : Date.now;
-
-  if (!sessionsStore) throw new Error("sessionsStore required");
 
   async function ensureSession({ gateway, args, botKey }) {
     if (args.transient) {
@@ -103,6 +128,7 @@ function createHermesImClient(deps = {}) {
         messages: normalizeSeedMessages(args.seedMessages || [])
       });
     }
+    if (!sessionsStore) throw new Error("sessionsStore required");
 
     const existing = sessionsStore.getSession(args.userId, botKey, args.conversationId);
     if (existing?.storedSessionId) {
@@ -154,12 +180,7 @@ function createHermesImClient(deps = {}) {
     const events = [];
     let content = "";
     let resolved = false;
-    let finish;
-    let fail;
-    const done = new Promise((resolve, reject) => {
-      finish = resolve;
-      fail = reject;
-    });
+    const completion = createControlledPromise();
     const abort = createAbortPromise(args.signal);
 
     gateway.on("*", (rawEvent) => {
@@ -170,12 +191,12 @@ function createHermesImClient(deps = {}) {
       if (event.type === "message.complete") {
         if (typeof event.content === "string") content = event.content;
         resolved = true;
-        finish();
+        completion.resolve();
         return;
       }
       if (event.type === "error") {
         resolved = true;
-        fail(new Error(eventMessage(event)));
+        completion.reject(new Error(eventMessage(event)));
       }
     });
 
@@ -191,14 +212,20 @@ function createHermesImClient(deps = {}) {
         attachments: args.attachments
       });
 
-      await gateway.request("prompt.submit", {
+      const promptSubmit = gateway.request("prompt.submit", {
         session_id: runtimeSessionId,
         prompt: promptText(attachmentResult.promptPrefix, args.input),
         instructions: String(args.instructions || "").trim(),
         permission_mode: String(args.permissionMode || "").trim() || undefined
       });
+      promptSubmit.catch(() => {});
 
-      await Promise.race([done, abort.promise].filter(Boolean));
+      await Promise.race([promptSubmit, completion.promise, abort.promise].filter(Boolean));
+      if (completion.settled) {
+        await completion.promise;
+      } else {
+        await Promise.race([completion.promise, abort.promise].filter(Boolean));
+      }
       if (!resolved) throw new Error("Hermes session ended without message.complete");
       return { runId: runtimeSessionId, content, events };
     } finally {

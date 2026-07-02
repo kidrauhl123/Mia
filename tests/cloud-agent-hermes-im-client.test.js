@@ -33,6 +33,9 @@ function createGatewayHarness() {
         };
       }
       if (method === "prompt.submit") {
+        if (typeof gateway.promptSubmitImpl === "function") {
+          return gateway.promptSubmitImpl(params);
+        }
         const events = gateway.events || [
           { type: "message.delta", session_id: params.session_id, payload: { text: "hel" } },
           { type: "message.complete", session_id: params.session_id, payload: { content: "hello" } }
@@ -274,6 +277,26 @@ test("runChat ignores text-bearing non-message events when building returned con
   ]);
 });
 
+test("runChat rejects when error arrives while prompt.submit is still pending", async () => {
+  const { gateway } = createGatewayHarness();
+  gateway.promptSubmitImpl = (params) => new Promise(() => {
+    queueMicrotask(() => {
+      gateway.emit("error", {
+        type: "error",
+        session_id: params.session_id,
+        payload: { message: "submit failed" }
+      });
+    });
+  });
+  const client = createHermesImClient({
+    sessionsStore: createSessionsStore(),
+    gatewayClientFactory: () => gateway
+  });
+
+  await assert.rejects(client.runChat(baseArgs()), /submit failed/);
+  assert.equal(gateway.closed, true);
+});
+
 test("runChat throws when the gateway emits an error event", async () => {
   const { gateway } = createGatewayHarness();
   gateway.events = [
@@ -332,4 +355,23 @@ test("submitApproval rejects when aborted before approval.respond resolves", asy
 
   await assert.rejects(pending, /approval aborted/);
   assert.equal(gateway.closed, true);
+});
+
+test("submitApproval does not require sessionsStore at client construction", async () => {
+  const { gateway, requests } = createGatewayHarness();
+  const client = createHermesImClient({
+    gatewayClientFactory: () => gateway
+  });
+
+  const result = await client.submitApproval({
+    gatewayWsUrl: "ws://gateway.test/ws",
+    sessionId: "sess_approve",
+    choice: "once"
+  });
+
+  assert.deepEqual(requests[0], {
+    method: "approval.respond",
+    params: { session_id: "sess_approve", choice: "once", all: false }
+  });
+  assert.deepEqual(result, { resolved: 1 });
 });
