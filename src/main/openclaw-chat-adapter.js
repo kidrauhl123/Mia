@@ -30,6 +30,10 @@ const { isMiaManagedRuntime } = require("./mia-core/model-runtime-resolver.js");
 const { isForbiddenSchedulerToolName } = require("./scheduler-tool-guard.js");
 const { syncNativeContextFiles: defaultSyncNativeContextFiles } = require("./mia-native-context-bridge.js");
 const { buildSkillMaterializationContext } = require("../shared/skill-materializer.js");
+const {
+  buildOpenClawAcpArgs,
+  buildOpenClawGlobalArgs
+} = require("./agent-session/acp-engine-specs.js");
 
 const OPENCLAW_MIA_AGENT_ID = "mia";
 const OPENCLAW_MIA_BOOTSTRAP_FILES = [
@@ -247,15 +251,6 @@ function openClawNativeContextSessionKey({
   });
 }
 
-function buildOpenClawGlobalArgs(config = {}) {
-  const profile = String(config.openclawProfile || config.profile || "").trim();
-  if (!profile) return [];
-  if (!/^[A-Za-z0-9._-]+$/.test(profile)) {
-    throw new Error("OpenClaw profile 名称只能包含字母、数字、点、下划线和短横线。");
-  }
-  return ["--profile", profile];
-}
-
 function normalizeOpenClawGatewayUrl(value = "") {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -469,24 +464,6 @@ function delay(ms, signal = null) {
       reject(stoppedError());
     }, { once: true });
   });
-}
-
-function buildOpenClawAcpArgs(bot = {}, options = {}) {
-  const config = bot.engineConfig || {};
-  const args = [...buildOpenClawGlobalArgs(config), "acp", "--no-prefix-cwd"];
-  const sessionKey = String(options.sessionKey || "").trim();
-  if (sessionKey) args.push("--session", sessionKey);
-  const sessionLabel = String(config.openclawSessionLabel || "").trim();
-  if (sessionLabel) args.push("--session-label", sessionLabel);
-  if (config.openclawResetSession === true) args.push("--reset-session");
-  if (config.openclawRequireExisting === true) args.push("--require-existing");
-  const gatewayUrl = String(config.openclawGatewayUrl || config.gatewayUrl || "").trim();
-  if (gatewayUrl) args.push("--url", gatewayUrl);
-  const tokenFile = String(config.openclawGatewayTokenFile || "").trim();
-  if (tokenFile) args.push("--token-file", tokenFile);
-  const passwordFile = String(config.openclawGatewayPasswordFile || "").trim();
-  if (passwordFile) args.push("--password-file", passwordFile);
-  return args;
 }
 
 function selectedOpenClawModelOverride(config = {}, managedModel = null) {
