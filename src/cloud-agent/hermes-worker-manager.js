@@ -130,12 +130,17 @@ function createHermesWorkerManager(options = {}) {
   const modelProviderName = String(options.modelProviderName || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER_NAME || "Mia").trim();
   const fetchImpl = options.fetch || fetch;
   const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const setTimeoutFn = options.setTimeoutFn || setTimeout;
+  const clearTimeoutFn = options.clearTimeoutFn || clearTimeout;
   const healthTimeoutMs = Number(options.healthTimeoutMs ?? process.env.MIA_CLOUD_HERMES_START_TIMEOUT_MS ?? 45000);
+  const idleTtlMs = Number(options.idleTtlMs ?? process.env.MIA_CLOUD_HERMES_IDLE_TTL_MS ?? 20 * 60 * 1000);
   // Approval mode for the worker's command guard. "ask" surfaces dangerous
   // commands as approval.request events over the gateway stream consumed by
   // the dispatcher and shown as a web permission banner. Overridable so ops can
   // fall back to "yolo" without a code change if a run path misbehaves.
   const approvalsMode = String(options.approvalsMode || process.env.MIA_CLOUD_HERMES_APPROVALS_MODE || "ask").trim() || "ask";
+  const activeLeases = new Map();
+  const idleTimers = new Map();
 
   function pathsForUser(userId) {
     const id = assertSafeUserId(userId);
