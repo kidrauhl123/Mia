@@ -32,10 +32,12 @@ test("electron-builder resources exclude Hermes runtime", () => {
 test("packaged Mia Core node runtime is new enough and requires sqlite fts5", () => {
   const source = fs.readFileSync(path.join(root, "scripts/stage-core-node.js"), "utf8");
 
-  assert.match(source, /const NODE_VERSION = process\.env\.MIA_CORE_NODE_VERSION \|\| "v25\./);
+  assert.match(source, /const NODE_VERSION = process\.env\.MIA_CORE_NODE_VERSION \|\| "v24\.15\.0"/);
   assert.match(source, /function assertFts5Enabled\(binary\)/);
+  assert.match(source, /function assertTargetFts5Enabled\(source, targetArch\)/);
+  assert.match(source, /target .* node cannot run on this .* host/);
   assert.match(source, /CREATE VIRTUAL TABLE __mia_core_fts5_probe USING fts5\(value\)/);
-  assert.match(source, /assertFts5Enabled\(source\)/);
+  assert.match(source, /await assertTargetFts5Enabled\(source, targetArch\)/);
 });
 
 test("desktop package includes OpenClaw ACP SDK runtime dependency", () => {

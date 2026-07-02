@@ -31,7 +31,7 @@ const CACHE_DIR = path.join(ROOT, "node_modules", ".cache", "mia-core-node");
 // Pinned node version shipped as the Core daemon runtime. Independent of the
 // build machine's node; the official tarball is self-contained and must include
 // node:sqlite with FTS5 because Mia Core owns the local memory store.
-const NODE_VERSION = process.env.MIA_CORE_NODE_VERSION || "v25.9.0";
+const NODE_VERSION = process.env.MIA_CORE_NODE_VERSION || "v24.15.0";
 
 function targetArchFromContext(context) {
   // electron-builder beforePack passes arch as an Arch enum index.
@@ -40,6 +40,14 @@ function targetArchFromContext(context) {
   if (archIndex != null && map[archIndex]) return map[archIndex];
   if (process.env.MIA_CORE_TARGET_ARCH) return process.env.MIA_CORE_TARGET_ARCH;
   return process.arch === "arm64" ? "arm64" : "x64";
+}
+
+function hostArchForOfficialNode() {
+  return process.arch === "arm64" ? "arm64" : "x64";
+}
+
+function canRunTargetArch(targetArch) {
+  return targetArch === hostArchForOfficialNode();
 }
 
 // macOS-only: assert the binary loads no non-system dylibs (i.e. it is relocatable).
@@ -81,6 +89,20 @@ function assertFts5Enabled(binary) {
       `Mia Core would fail to start in packaged builds.${detail ? ` ${detail}` : ""}`
     );
   }
+}
+
+async function assertTargetFts5Enabled(source, targetArch) {
+  if (canRunTargetArch(targetArch)) {
+    assertFts5Enabled(source);
+    return;
+  }
+  const verifier = await officialNode(hostArchForOfficialNode());
+  assertSelfContained(verifier);
+  assertFts5Enabled(verifier);
+  console.warn(
+    `[stage-core-node] target ${targetArch} node cannot run on this ${process.arch} host; ` +
+    `verified node:sqlite FTS5 with same-version ${hostArchForOfficialNode()} official node instead.`
+  );
 }
 
 function download(url, dest) {
@@ -143,7 +165,7 @@ async function resolveSource(targetArch) {
 async function stage(targetArch) {
   const source = await resolveSource(targetArch);
   assertSelfContained(source);
-  assertFts5Enabled(source);
+  await assertTargetFts5Enabled(source, targetArch);
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.copyFileSync(source, OUT);
   fs.chmodSync(OUT, 0o755);
