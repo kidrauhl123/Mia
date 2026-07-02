@@ -2382,19 +2382,6 @@ async function createAppScheduledTask(input) {
   return result.task;
 }
 
-function createActiveBridgeChatAdapter(agentEngine = "codex") {
-  const chatEngine = resolveChatEngineAdapter({ agentEngine: normalizeAgentEngine(agentEngine, "codex") });
-  const adapters = createActiveChatEngineAdapters();
-  return {
-    sendChat(context = {}) {
-      return sendWithChatEngineAdapter(adapters, {
-        ...context,
-        chatEngine
-      });
-    }
-  };
-}
-
 // `cloudBotSnapshotForTurn` and `botWithRuntimeConfig` now live in
 // src/main/bot-turn-helpers.js so the standalone Mia Core node process builds
 // the same turn-normalization pipeline — no fork. Behaviour is byte-identical;
@@ -2866,8 +2853,27 @@ cloudBridgeRuntime = createCloudBridgeClient({
   isDaemonEnabled: () => daemonOwnsCloudBridge(),
   cloudBridgeUrl,
   cloudWebSocketProtocols,
-  createActiveBridgeChatAdapter,
-  createActiveCodexChatAdapter,
+  runBridgeBotTurn: ({
+    botKey,
+    botId,
+    botSnapshot,
+    sessionId,
+    messages,
+    signal,
+    emit,
+    utility = false,
+    runtimeConfig
+  } = {}) => sendChat({
+    botKey,
+    botId,
+    botSnapshot,
+    sessionId,
+    messages,
+    signal,
+    emit,
+    utility,
+    runtimeConfig
+  }),
   resetLocalDeviceIdentity,
   resolveBotCapabilities: ({ botKey, botName }) => {
     const bot = { key: botKey, id: botKey, name: botName };

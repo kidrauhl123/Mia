@@ -242,7 +242,9 @@ test("cloud bridge remote run is account-authenticated and does not add a separa
   assert.doesNotMatch(body, /confirmCloudBridgeRun\(/);
   assert.doesNotMatch(body, /等待本机权限确认/);
   assert.match(body, /runtimeConfigFromMessage\(message\)/);
-  assert.match(body, /createActiveBridgeChatAdapter\(agentEngine\)/);
+  assert.match(body, /runBridgeBotTurn\(/);
+  assert.doesNotMatch(body, /createActiveBridgeChatAdapter\(agentEngine\)/);
+  assert.doesNotMatch(body, /adapter\.sendChat/);
   assert.match(body, /engineConfig: botEngineConfigFromRuntime\(runtimeConfig, agentEngine\)/);
   assert.match(engineConfigHelper, /agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/);
   assert.match(engineConfigHelper, /providerConnectionId: runtimeConfig\.providerConnectionId/);
@@ -254,7 +256,7 @@ test("cloud bridge remote run is account-authenticated and does not add a separa
   const botTurnHelpersSource = fs.readFileSync(path.join(root, "src/main/bot-turn-helpers.js"), "utf8");
   assert.match(botTurnHelpersSource, /enginePermissionStoreTarget\(agentEngine\) !== "root-mode"[\s\S]*delete configForEngine\.permissionMode/);
   assert.match(mainSource, /createCloudBridgeClient/, "main must instantiate the cloud bridge Module");
-  assert.match(mainSource, /createActiveBridgeChatAdapter/, "main must provide a generic bridge adapter factory");
+  assert.match(mainSource, /runBridgeBotTurn:/, "main must provide a direct bridge bot turn sender");
   assert.doesNotMatch(mainSource, /async function runCloudBridgeRequest/, "main must not own bridge run implementation");
   assert.doesNotMatch(mainSource, /function handleCloudBridgeMessage/, "main must not own bridge message routing");
   assert.doesNotMatch(mainSource, /cloudBridgeAbortControllers/, "main must not own bridge run abort controllers");

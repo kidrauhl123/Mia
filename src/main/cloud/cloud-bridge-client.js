@@ -120,8 +120,7 @@ function createCloudBridgeClient({
   isDaemonEnabled,
   cloudBridgeUrl,
   cloudWebSocketProtocols,
-  createActiveBridgeChatAdapter,
-  createActiveCodexChatAdapter,
+  runBridgeBotTurn,
   resolveBotCapabilities = () => ({}),
   resetLocalDeviceIdentity = null,
   randomUUID,
@@ -189,26 +188,26 @@ function createCloudBridgeClient({
     const runtimeConfig = runtimeConfigFromMessage(message);
     const agentEngine = normalizeAgentEngine(runtimeConfig.agentEngine, "codex");
     const label = engineLabel(agentEngine);
-    const adapter = typeof createActiveBridgeChatAdapter === "function"
-      ? createActiveBridgeChatAdapter(agentEngine)
-      : (agentEngine === "codex" && typeof createActiveCodexChatAdapter === "function" ? createActiveCodexChatAdapter() : null);
-    if (!adapter || typeof adapter.sendChat !== "function") {
-      throw new Error(`${label} 已保存为运行目标，但当前 Bridge 还没有可用适配器。`);
+    if (typeof runBridgeBotTurn !== "function") {
+      throw new Error(`${label} 已保存为运行目标，但当前 Bridge 还没有可用运行入口。`);
     }
     const botKey = String(message.botKey || message.botId || `mia_cloud_${agentEngine.replace(/[^a-z0-9]+/g, "_")}`).trim();
     const botName = String(message.botName || message.displayName || label).trim();
     const capabilities = resolveBotCapabilities({ botKey, botName, message, runtimeConfig }) || {};
+    const botSnapshot = {
+      key: botKey,
+      id: botKey,
+      name: botName,
+      agentEngine,
+      bio: "",
+      capabilities,
+      engineConfig: botEngineConfigFromRuntime(runtimeConfig, agentEngine)
+    };
     try {
-      const response = await adapter.sendChat({
-        bot: {
-          key: botKey,
-          id: botKey,
-          name: botName,
-          agentEngine,
-          bio: "",
-          capabilities,
-          engineConfig: botEngineConfigFromRuntime(runtimeConfig, agentEngine)
-        },
+      const response = await runBridgeBotTurn({
+        botKey,
+        botId: botKey,
+        botSnapshot,
         sessionId: `cloud:${String(message.conversationId || "default")}`,
         messages: [{
           role: "user",

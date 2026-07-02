@@ -1109,20 +1109,21 @@ function coreCloudBridgeUrl(settings = {}, { deviceId = "", deviceName = "", ver
 // Wire the REAL cloud BRIDGE WebSocket client into Core, reusing the SAME
 // pure-node module main.js drives (src/main.js ~2654, no fork). The bridge hosts
 // the desktop-agent side of web/mobile "remote run" requests: a `run` frame on
-// /api/bridge calls runCloudBridgeRequest → the bridge chat adapter's sendChat →
+// /api/bridge calls runCloudBridgeRequest → the bridge direct sender seam →
 // (here) Core's own botExecution.sendChat → run_event/run_result frames back over
 // the socket.
 //
 // BRIDGE RUN CONTRACT (from cloud-bridge-client.js runCloudBridgeRequest): the
-// client calls `createActiveBridgeChatAdapter(agentEngine).sendChat({ bot, sessionId,
-// messages, signal, emit, utility:false, runtimeConfig })` and reads the result's
-// `choices[0].message` (content + attachments). Core's bridge adapter maps that
-// onto botExecution.sendChat by passing the bridge `bot` object as `botSnapshot`
-// (+ botKey/botId) and forwarding sessionId/messages/signal/emit/utility/runtimeConfig.
+// client calls `runBridgeBotTurn({ botKey, botId, botSnapshot, sessionId,
+// messages, signal, emit, utility:false, runtimeConfig })` and reads the
+// result's `choices[0].message` (content + attachments). Core's bridge sender
+// maps that onto botExecution.sendChat by forwarding the bridge `botSnapshot`
+// (+ botKey/botId) plus sessionId/messages/signal/emit/utility/runtimeConfig.
 // The engine is selected by runtimeConfig.agentEngine inside sendChat
-// (botWithRuntimeConfig), so each of hermes / codex / claude-code / openclaw runs
-// its REAL adapter graph (PART B). A missing external CLI surfaces that adapter's
-// own "CLI not found" error — not a Core-level "engine not available" throw.
+// (botWithRuntimeConfig), so each of hermes / codex / claude-code / openclaw
+// runs its REAL adapter graph (PART B). A missing external CLI surfaces that
+// adapter's own "CLI not found" error — not a Core-level "engine not available"
+// throw.
 //
 // SINGLE-OWNER: like the events client, the bridge client's own
 // isDaemonProcess/isDaemonEnabled gate connects only while cloud is enabled+tokened;
@@ -1130,11 +1131,9 @@ function coreCloudBridgeUrl(settings = {}, { deviceId = "", deviceName = "", ver
 //
 // ELECTRON-COUPLED deps replaced with node values here:
 //   cloudBridgeUrl              → coreCloudBridgeUrl (all-engines capabilities),
-//   createActiveCodexChatAdapter→ null (the bridge's codex slash-command path is
-//                                 unused; codex CHAT routes via botExecution.sendChat),
 //   resetLocalDeviceIdentity    → Core's persisted desktop device identity reset,
 //   resolveBotCapabilities      → caller-injected (default {}),
-//   broadcast/run streams        → emitLocalEvent via the bridge adapter's emit.
+//   broadcast/run streams        → emitLocalEvent via the bridge sender's emit.
 //
 // Injection points (for tests): `WebSocketImpl` (a mock socket) and `botExecution`
 // (a createCoreBotExecution graph with a faked Hermes send).
@@ -1165,25 +1164,23 @@ function createCoreCloudBridge({
     return Boolean(s.enabled && s.token);
   };
 
-  // Thin bridge chat adapter: routes a bridge run into Core's real botExecution
-  // graph. The bridge passes a full `bot` object (key/id/name/agentEngine/
-  // capabilities/engineConfig); Core forwards it as `botSnapshot` so no manifest
-  // read is needed for cloud-supplied bots. Engine selection lives inside
+  // Thin bridge sender: routes a bridge run into Core's real botExecution
+  // graph. The bridge passes a `botSnapshot` object (key/id/name/agentEngine/
+  // capabilities/engineConfig); Core forwards it unchanged so no manifest read
+  // is needed for cloud-supplied bots. Engine selection lives inside
   // botExecution.sendChat (botWithRuntimeConfig), so each of hermes / codex /
   // claude-code / openclaw runs its REAL adapter (PART B).
-  const createActiveBridgeChatAdapter = () => ({
-    sendChat: ({ bot, sessionId, messages, signal, emit, utility = false, runtimeConfig }) => botExecution.sendChat({
-      botKey: bot?.key || bot?.id || "",
-      botId: bot?.id || bot?.key || "",
-      botSnapshot: bot || null,
+  const runBridgeBotTurn = ({ botKey, botId, botSnapshot, sessionId, messages, signal, emit, utility = false, runtimeConfig }) => botExecution.sendChat({
+      botKey: botKey || botSnapshot?.key || botSnapshot?.id || "",
+      botId: botId || botSnapshot?.id || botSnapshot?.key || "",
+      botSnapshot: botSnapshot || null,
       sessionId,
       messages,
       signal,
       emit,
       utility,
       runtimeConfig
-    })
-  });
+    });
 
   const buildBridgeUrl = typeof cloudBridgeUrl === "function"
     ? cloudBridgeUrl
@@ -1200,12 +1197,7 @@ function createCoreCloudBridge({
     isDaemonEnabled: cloudEnabled,
     cloudBridgeUrl: buildBridgeUrl,
     cloudWebSocketProtocols,
-    createActiveBridgeChatAdapter,
-    // The bridge client's createActiveCodexChatAdapter dep is only used by its
-    // codex SLASH-command path (not chat). Codex CHAT routes through
-    // createActiveBridgeChatAdapter → botExecution.sendChat → the real codex
-    // adapter (PART B), so the slash-command hook stays null here.
-    createActiveCodexChatAdapter: null,
+    runBridgeBotTurn,
     resolveBotCapabilities,
     resetLocalDeviceIdentity: resetDeviceIdentity,
     randomUUID: () => crypto.randomUUID()
