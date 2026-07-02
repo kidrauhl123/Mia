@@ -1205,7 +1205,6 @@ function migrate(db) {
       session_id TEXT NOT NULL DEFAULT '',
       scope TEXT NOT NULL,
       text TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL,
       confidence REAL NOT NULL DEFAULT 1,
       source TEXT NOT NULL DEFAULT '',
       origin_engine TEXT NOT NULL DEFAULT '',
@@ -1226,7 +1225,7 @@ function migrate(db) {
       revision INTEGER NOT NULL DEFAULT 1
     );
     CREATE INDEX IF NOT EXISTS idx_memory_entries_user_updated ON memory_entries(user_id, updated_at);
-    CREATE INDEX IF NOT EXISTS idx_memory_entries_scope ON memory_entries(user_id, scope, bot_id, session_id, status);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_scope ON memory_entries(user_id, scope, bot_id, session_id);
     CREATE INDEX IF NOT EXISTS idx_memory_entries_deleted ON memory_entries(user_id, deleted_at);
 
     CREATE TABLE IF NOT EXISTS memory_events (
@@ -1409,16 +1408,15 @@ function migrate(db) {
   if (!hasColumn(db, "memory_entries", "revision")) {
     db.exec("ALTER TABLE memory_entries ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
   }
-  if (hasColumn(db, "memory_entries", "kind")) {
+  if (hasColumn(db, "memory_entries", "kind") || hasColumn(db, "memory_entries", "status")) {
     db.exec(`
-      CREATE TABLE memory_entries_without_kind (
+      CREATE TABLE memory_entries_clean (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         bot_id TEXT NOT NULL DEFAULT '',
         session_id TEXT NOT NULL DEFAULT '',
         scope TEXT NOT NULL,
         text TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL,
         confidence REAL NOT NULL DEFAULT 1,
         source TEXT NOT NULL DEFAULT '',
         origin_engine TEXT NOT NULL DEFAULT '',
@@ -1438,26 +1436,26 @@ function migrate(db) {
         deleted_at TEXT NOT NULL DEFAULT '',
         revision INTEGER NOT NULL DEFAULT 1
       );
-      INSERT INTO memory_entries_without_kind (
-        id, user_id, bot_id, session_id, scope, text, status, confidence,
+      INSERT INTO memory_entries_clean (
+        id, user_id, bot_id, session_id, scope, text, confidence,
         source, origin_engine, origin_native_session_id, source_message_ids_json,
         linked_memory_ids_json, policy_result_json, hash, text_normalized, priority,
         pinned, created_at, updated_at, last_used_at, expires_at, metadata_json,
         deleted_at, revision
       )
       SELECT
-        id, user_id, bot_id, session_id, scope, text, status, confidence,
+        id, user_id, bot_id, session_id, scope, text, confidence,
         source, origin_engine, origin_native_session_id, source_message_ids_json,
         linked_memory_ids_json, policy_result_json, hash, text_normalized, priority,
         pinned, created_at, updated_at, last_used_at, expires_at, metadata_json,
         deleted_at, revision
       FROM memory_entries;
       DROP TABLE memory_entries;
-      ALTER TABLE memory_entries_without_kind RENAME TO memory_entries;
+      ALTER TABLE memory_entries_clean RENAME TO memory_entries;
     `);
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_memory_entries_user_updated ON memory_entries(user_id, updated_at);
-      CREATE INDEX IF NOT EXISTS idx_memory_entries_scope ON memory_entries(user_id, scope, bot_id, session_id, status);
+      CREATE INDEX IF NOT EXISTS idx_memory_entries_scope ON memory_entries(user_id, scope, bot_id, session_id);
       CREATE INDEX IF NOT EXISTS idx_memory_entries_deleted ON memory_entries(user_id, deleted_at);
     `);
   }

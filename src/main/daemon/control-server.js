@@ -466,7 +466,6 @@ function createDaemonControlServer({
           query: body.query || "",
           limit: body.limit,
           scopes: body.scopes,
-          status: body.status || "active",
           userId: scoped.userId,
           botId: scoped.botId,
           sessionId: scoped.sessionId

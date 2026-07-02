@@ -547,7 +547,6 @@ function rendererMemoryListInput(input = {}) {
   return {
     ...rendererMemoryBase(source),
     query: String(source.query || "").trim(),
-    status: String(source.status || "active").trim() || "active",
     scopes,
     limit: Math.max(1, Math.min(100, Math.floor(Number(source.limit) || 80)))
   };

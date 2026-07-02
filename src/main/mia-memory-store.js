@@ -185,7 +185,6 @@ function rowToEntry(row = {}) {
     sessionId: row.session_id,
     scope: row.scope,
     text: row.text,
-    status: row.deleted_at ? "deleted" : "active",
     confidence: Number(row.confidence || 0),
     source: row.source,
     originEngine: row.origin_engine || "",
@@ -291,7 +290,6 @@ function createMiaMemoryStore(deps = {}) {
         session_id TEXT NOT NULL DEFAULT '',
         scope TEXT NOT NULL,
         text TEXT NOT NULL,
-        status TEXT NOT NULL,
         confidence REAL NOT NULL DEFAULT 1,
         source TEXT NOT NULL DEFAULT '',
         origin_engine TEXT NOT NULL DEFAULT '',
@@ -333,20 +331,19 @@ function createMiaMemoryStore(deps = {}) {
     if (!hasColumn(db, "memory_entries", "revision")) {
       db.exec("ALTER TABLE memory_entries ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
     }
-    if (hasColumn(db, "memory_entries", "kind")) {
+    if (hasColumn(db, "memory_entries", "kind") || hasColumn(db, "memory_entries", "status")) {
       db.exec(`
         DROP TRIGGER IF EXISTS memory_entries_ai;
         DROP TRIGGER IF EXISTS memory_entries_ad;
         DROP TRIGGER IF EXISTS memory_entries_au;
         DROP TABLE IF EXISTS memory_entries_fts;
-        CREATE TABLE memory_entries_without_kind (
+        CREATE TABLE memory_entries_clean (
           id TEXT PRIMARY KEY,
           user_id TEXT NOT NULL,
           bot_id TEXT NOT NULL DEFAULT '',
           session_id TEXT NOT NULL DEFAULT '',
           scope TEXT NOT NULL,
           text TEXT NOT NULL,
-          status TEXT NOT NULL,
           confidence REAL NOT NULL DEFAULT 1,
           source TEXT NOT NULL DEFAULT '',
           origin_engine TEXT NOT NULL DEFAULT '',
@@ -366,22 +363,22 @@ function createMiaMemoryStore(deps = {}) {
           deleted_at TEXT NOT NULL DEFAULT '',
           revision INTEGER NOT NULL DEFAULT 1
         );
-        INSERT INTO memory_entries_without_kind (
-          id, user_id, bot_id, session_id, scope, text, status, confidence,
+        INSERT INTO memory_entries_clean (
+          id, user_id, bot_id, session_id, scope, text, confidence,
           source, origin_engine, origin_native_session_id, source_message_ids_json,
           linked_memory_ids_json, policy_result_json, hash, text_normalized, priority,
           pinned, created_at, updated_at, last_used_at, expires_at, metadata_json,
           deleted_at, revision
         )
         SELECT
-          id, user_id, bot_id, session_id, scope, text, status, confidence,
+          id, user_id, bot_id, session_id, scope, text, confidence,
           source, origin_engine, origin_native_session_id, source_message_ids_json,
           linked_memory_ids_json, policy_result_json, hash, text_normalized, priority,
           pinned, created_at, updated_at, last_used_at, expires_at, metadata_json,
           deleted_at, revision
         FROM memory_entries;
         DROP TABLE memory_entries;
-        ALTER TABLE memory_entries_without_kind RENAME TO memory_entries;
+        ALTER TABLE memory_entries_clean RENAME TO memory_entries;
       `);
     }
     if (hasColumn(db, "memory_entries_fts", "kind")) {
@@ -393,7 +390,7 @@ function createMiaMemoryStore(deps = {}) {
       `);
     }
     db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries(user_id, bot_id, session_id, scope, status);
+      CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries(user_id, bot_id, session_id, scope);
       CREATE INDEX IF NOT EXISTS idx_memory_updated ON memory_entries(updated_at);
       CREATE INDEX IF NOT EXISTS idx_memory_hash ON memory_entries(hash);
     `);
@@ -430,12 +427,12 @@ function createMiaMemoryStore(deps = {}) {
     if (!legacy || typeof legacy !== "object") return;
     const userId = currentUserId();
     for (const line of arrayFrom(legacy.shared)) {
-      insertEntry({ userId, scope: "user", text: line, source: "migration", status: "active" });
+      insertEntry({ userId, scope: "user", text: line, source: "migration" });
     }
     const bots = legacy.bots && typeof legacy.bots === "object" ? legacy.bots : {};
     for (const [botId, lines] of Object.entries(bots)) {
       for (const line of arrayFrom(lines)) {
-        insertEntry({ userId, botId, scope: "bot", text: line, source: "migration", status: "active" });
+        insertEntry({ userId, botId, scope: "bot", text: line, source: "migration" });
       }
     }
   }
@@ -451,7 +448,6 @@ function createMiaMemoryStore(deps = {}) {
     const text = cleanText(input.text);
     if (!text) return null;
     const scope = normalizeScope(input.scope);
-    const status = "active";
     const timestamp = now();
     const entry = {
       id: input.id || randomUUID(),
@@ -460,7 +456,6 @@ function createMiaMemoryStore(deps = {}) {
       sessionId: cleanId(input.sessionId),
       scope,
       text,
-      status,
       confidence: Number.isFinite(Number(input.confidence)) ? Number(input.confidence) : 1,
       source: cleanId(input.source, "manual"),
       originEngine: cleanId(input.originEngine || input.origin_engine),
@@ -482,15 +477,15 @@ function createMiaMemoryStore(deps = {}) {
     };
     db.prepare(`
       INSERT INTO memory_entries (
-        id, user_id, bot_id, session_id, scope, text, status, confidence,
+        id, user_id, bot_id, session_id, scope, text, confidence,
         source, origin_engine, origin_native_session_id, source_message_ids_json,
         linked_memory_ids_json, policy_result_json, hash, text_normalized, priority,
         pinned, created_at, updated_at, last_used_at, expires_at, metadata_json,
         deleted_at, revision
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       entry.id, entry.userId, entry.botId, entry.sessionId, entry.scope, entry.text,
-      entry.status, entry.confidence, entry.source, entry.originEngine, entry.originNativeSessionId,
+      entry.confidence, entry.source, entry.originEngine, entry.originNativeSessionId,
       json(entry.sourceMessageIds), json(entry.linkedMemoryIds), json(entry.policyResult),
       entry.hash, entry.textNormalized, entry.priority, entry.pinned, entry.createdAt,
       entry.updatedAt, entry.lastUsedAt, entry.expiresAt, json(entry.metadata),
@@ -671,7 +666,7 @@ function createMiaMemoryStore(deps = {}) {
     const timestamp = now();
     db.prepare(`
       UPDATE memory_entries
-      SET text = '', text_normalized = '', hash = '', status = 'active',
+      SET text = '', text_normalized = '', hash = '',
           deleted_at = ?, updated_at = ?, revision = revision + 1
       WHERE id = ? AND user_id = ?
     `).run(timestamp, timestamp, row.id, row.user_id);
@@ -706,7 +701,6 @@ function createMiaMemoryStore(deps = {}) {
   function mergeDuplicateMemory({ duplicate, input = {}, text = "", policy = {} }) {
     if (!duplicate) return null;
     const before = rowToEntry(duplicate);
-    const nextStatus = "active";
     const nextText = choosePreferredMemoryText(duplicate.text, text);
     const nextNormalized = normalizeText(nextText);
     const nextConfidence = Math.max(
@@ -730,7 +724,6 @@ function createMiaMemoryStore(deps = {}) {
       duplicateMergedAt: now()
     };
     const changed = nextText !== duplicate.text
-      || nextStatus !== duplicate.status
       || nextConfidence !== Number(duplicate.confidence || 0)
       || nextPriority !== Number(duplicate.priority || 0)
       || nextPinned !== Number(duplicate.pinned || 0)
@@ -741,7 +734,7 @@ function createMiaMemoryStore(deps = {}) {
     const timestamp = now();
     db.prepare(`
       UPDATE memory_entries
-      SET text = ?, text_normalized = ?, hash = ?, status = ?,
+      SET text = ?, text_normalized = ?, hash = ?,
           confidence = ?, source = ?, origin_engine = ?, origin_native_session_id = ?,
           source_message_ids_json = ?, linked_memory_ids_json = ?,
           policy_result_json = ?, priority = ?, pinned = ?, metadata_json = ?,
@@ -751,7 +744,6 @@ function createMiaMemoryStore(deps = {}) {
       nextText,
       nextNormalized,
       sha256(`${duplicate.scope}\n${nextNormalized}`),
-      nextStatus,
       nextConfidence,
       cleanId(input.source, duplicate.source || "agent_tool"),
       cleanId(input.originEngine || input.origin_engine || duplicate.origin_engine),
@@ -831,12 +823,12 @@ function createMiaMemoryStore(deps = {}) {
   function policyFor(input = {}) {
     const requestedScope = normalizeScope(input.scope, "bot");
     const text = cleanText(input.text);
-    if (!text) return { status: "ignored", effectiveScope: requestedScope, reason: "empty memory text" };
+    if (!text) return { decision: "ignore", effectiveScope: requestedScope, reason: "empty memory text" };
     const sensitive = sensitivity(text);
     if (sensitive.severity === "credential") {
-      return { status: "ignored", effectiveScope: requestedScope, reason: sensitive.reason, sensitivity: sensitive };
+      return { decision: "ignore", effectiveScope: requestedScope, reason: sensitive.reason, sensitivity: sensitive };
     }
-    return { status: "active", effectiveScope: requestedScope, reason: "safe scoped memory", sensitivity: sensitive };
+    return { decision: "store", effectiveScope: requestedScope, reason: "safe scoped memory", sensitivity: sensitive };
   }
 
   function rememberMemory(input = {}) {
@@ -845,7 +837,7 @@ function createMiaMemoryStore(deps = {}) {
     const sessionId = cleanId(input.sessionId);
     const text = cleanText(input.text);
     const policy = policyFor(input);
-    if (policy.status !== "active") {
+    if (policy.decision !== "store") {
       event("", "ignore", "system", {}, policy);
       return { status: "ignored", effectiveScope: policy.effectiveScope, policyReason: policy.reason, memoryId: "" };
     }
@@ -854,7 +846,7 @@ function createMiaMemoryStore(deps = {}) {
     if (duplicate) {
       const entry = mergeDuplicateMemory({ duplicate, input, text, policy });
       return {
-        status: entry.status,
+        status: "ok",
         effectiveScope: entry.scope,
         policyReason: "duplicate memory",
         memoryId: entry.id,
@@ -869,7 +861,6 @@ function createMiaMemoryStore(deps = {}) {
       scope: policy.effectiveScope,
       confidence: input.confidence,
       source: input.source || "agent_tool",
-      status: policy.status,
       originEngine: input.originEngine,
       originNativeSessionId: input.originNativeSessionId,
       sourceMessageIds: input.sourceMessageIds,
@@ -881,7 +872,7 @@ function createMiaMemoryStore(deps = {}) {
     });
     event(entry.id, "remember", "agent", {}, { policy });
     return {
-      status: entry.status,
+      status: "ok",
       effectiveScope: entry.scope,
       policyReason: policy.reason,
       memoryId: entry.id,
@@ -896,7 +887,7 @@ function createMiaMemoryStore(deps = {}) {
     const text = cleanText(input.text || input.content || input.newText || input.new_content);
     if (!text) return { status: "ignored", error: "text is required" };
     const policy = policyFor({ ...input, text, scope: row.scope });
-    if (policy.status !== "active") {
+    if (policy.decision !== "store") {
       event(row.id, "ignore", "system", rowToEntry(row), { policy });
       return { status: "ignored", effectiveScope: row.scope, policyReason: policy.reason, memoryId: "" };
     }
@@ -910,7 +901,7 @@ function createMiaMemoryStore(deps = {}) {
     if (duplicate && duplicate.id !== row.id) {
       const entry = mergeDuplicateMemory({ duplicate, input, text, policy });
       return {
-        status: entry.status,
+        status: "ok",
         effectiveScope: entry.scope,
         policyReason: "duplicate memory",
         memoryId: entry.id,
@@ -921,7 +912,7 @@ function createMiaMemoryStore(deps = {}) {
     const timestamp = now();
     db.prepare(`
       UPDATE memory_entries
-      SET text = ?, text_normalized = ?, hash = ?, status = ?,
+      SET text = ?, text_normalized = ?, hash = ?,
           confidence = ?, source = ?, origin_engine = ?, origin_native_session_id = ?,
           source_message_ids_json = ?, linked_memory_ids_json = ?,
           policy_result_json = ?, priority = ?, pinned = ?, metadata_json = ?,
@@ -931,7 +922,6 @@ function createMiaMemoryStore(deps = {}) {
       text,
       normalizeText(text),
       sha256(`${row.scope}\n${normalizeText(text)}`),
-      policy.status,
       Number.isFinite(Number(input.confidence)) ? Number(input.confidence) : Number(row.confidence || 1),
       cleanId(input.source, "agent_tool"),
       cleanId(input.originEngine || input.origin_engine || row.origin_engine),
@@ -948,7 +938,7 @@ function createMiaMemoryStore(deps = {}) {
     const entry = getEntry(row.id);
     event(row.id, "replace", "agent", before, { memory: entry, policy });
     return {
-      status: entry.status,
+      status: "ok",
       effectiveScope: entry.scope,
       policyReason: policy.reason,
       memoryId: entry.id,
@@ -962,7 +952,7 @@ function createMiaMemoryStore(deps = {}) {
     const row = target.row;
     const before = rowToEntry(row);
     const timestamp = now();
-    db.prepare("UPDATE memory_entries SET text = '', text_normalized = '', hash = '', status = 'active', deleted_at = ?, updated_at = ?, revision = revision + 1 WHERE id = ?")
+    db.prepare("UPDATE memory_entries SET text = '', text_normalized = '', hash = '', deleted_at = ?, updated_at = ?, revision = revision + 1 WHERE id = ?")
       .run(timestamp, timestamp, row.id);
     const entry = getEntry(row.id);
     event(row.id, "delete", "agent", before, { reason: cleanId(input.reason), memory: entry });
@@ -986,7 +976,7 @@ function createMiaMemoryStore(deps = {}) {
         .run(timestamp, timestamp, uid, bid);
     }
     for (const line of arrayFrom(lines)) {
-      insertEntry({ userId: uid, botId: bid, scope, text: line, source: "manual", status: "active" });
+      insertEntry({ userId: uid, botId: bid, scope, text: line, source: "manual" });
     }
   }
 
@@ -1006,7 +996,6 @@ function createMiaMemoryStore(deps = {}) {
       sessionId: cleanId(input.sessionId || input.session_id),
       scope,
       text,
-      status: "active",
       confidence: Number.isFinite(Number(input.confidence)) ? Number(input.confidence) : 1,
       source: cleanId(input.source, "cloud_sync"),
       originEngine: cleanId(input.originEngine || input.origin_engine),
@@ -1031,12 +1020,12 @@ function createMiaMemoryStore(deps = {}) {
   function insertSyncedEntry(entry) {
     db.prepare(`
       INSERT INTO memory_entries (
-        id, user_id, bot_id, session_id, scope, text, status, confidence,
+        id, user_id, bot_id, session_id, scope, text, confidence,
         source, origin_engine, origin_native_session_id, source_message_ids_json,
         linked_memory_ids_json, policy_result_json, hash, text_normalized, priority,
         pinned, created_at, updated_at, last_used_at, expires_at, metadata_json,
         deleted_at, revision
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       entry.id,
       entry.userId,
@@ -1044,7 +1033,6 @@ function createMiaMemoryStore(deps = {}) {
       entry.sessionId,
       entry.scope,
       entry.text,
-      entry.status,
       entry.confidence,
       entry.source,
       entry.originEngine,
@@ -1087,7 +1075,7 @@ function createMiaMemoryStore(deps = {}) {
     const revision = Math.max(Number(existing.revision || 1), entry.revision);
     db.prepare(`
       UPDATE memory_entries SET
-        bot_id = ?, session_id = ?, scope = ?, text = ?, status = ?,
+        bot_id = ?, session_id = ?, scope = ?, text = ?,
         confidence = ?, source = ?, origin_engine = ?, origin_native_session_id = ?,
         source_message_ids_json = ?, linked_memory_ids_json = ?, policy_result_json = ?,
         hash = ?, text_normalized = ?, priority = ?, pinned = ?, created_at = ?,
@@ -1099,7 +1087,6 @@ function createMiaMemoryStore(deps = {}) {
       entry.sessionId,
       entry.scope,
       entry.text,
-      entry.status,
       entry.confidence,
       entry.source,
       entry.originEngine,

@@ -75,6 +75,7 @@ test("memory MCP schema does not ask agents to classify memory kinds", () => {
     const properties = byName.get(name)?.inputSchema?.properties || {};
     assert.equal(Object.prototype.hasOwnProperty.call(properties, "kind"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(properties, "kinds"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(properties, "status"), false);
   }
 });
 

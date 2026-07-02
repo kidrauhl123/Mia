@@ -108,8 +108,7 @@ function createMiaMemoryService(deps = {}) {
         botId,
         sessionId,
         limit: safeLimit,
-        scopes: input.scopes,
-        status: input.status || "active"
+        scopes: input.scopes
       });
     } catch {
       return localMemories.slice(0, safeLimit);
@@ -129,7 +128,6 @@ function createMiaMemoryService(deps = {}) {
         userId,
         botId,
         sessionId,
-        status: input.status || "active",
         query: text,
         limit: Math.max(10, safeLimit)
       });

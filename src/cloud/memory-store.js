@@ -81,7 +81,6 @@ function rowToMemory(row = {}) {
     sessionId: row.session_id || "",
     scope: row.scope,
     text: row.text || "",
-    status: row.deleted_at ? "deleted" : "active",
     confidence: Number(row.confidence || 0),
     source: row.source || "",
     originEngine: row.origin_engine || "",
@@ -107,7 +106,7 @@ function createCloudMemoryStore(db, deps = {}) {
   const makeEventId = deps.eventIdFactory || (() => crypto.randomUUID());
 
   const columns = `
-    id, user_id, bot_id, session_id, scope, text, status, confidence,
+    id, user_id, bot_id, session_id, scope, text, confidence,
     source, origin_engine, origin_native_session_id, source_message_ids_json,
     linked_memory_ids_json, policy_result_json, hash, text_normalized, priority,
     pinned, created_at, updated_at, last_used_at, expires_at, metadata_json,
@@ -116,11 +115,11 @@ function createCloudMemoryStore(db, deps = {}) {
   const selectById = db.prepare(`SELECT ${columns} FROM memory_entries WHERE user_id = ? AND id = ?`);
   const insertStmt = db.prepare(`
     INSERT INTO memory_entries (${columns})
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateStmt = db.prepare(`
     UPDATE memory_entries SET
-      bot_id = ?, session_id = ?, scope = ?, text = ?, status = ?,
+      bot_id = ?, session_id = ?, scope = ?, text = ?,
       confidence = ?, source = ?, origin_engine = ?, origin_native_session_id = ?,
       source_message_ids_json = ?, linked_memory_ids_json = ?, policy_result_json = ?,
       hash = ?, text_normalized = ?, priority = ?, pinned = ?, updated_at = ?,
@@ -171,7 +170,6 @@ function createCloudMemoryStore(db, deps = {}) {
       error.status = 400;
       throw error;
     }
-    const status = "active";
     const updatedAt = normalizeIso(input.updatedAt || input.updated_at || "", timestamp);
     const createdAt = normalizeIso(input.createdAt || input.created_at || "", existing?.created_at || updatedAt);
     const normalizedText = normalizeText(text);
@@ -182,7 +180,6 @@ function createCloudMemoryStore(db, deps = {}) {
       sessionId,
       scope,
       text,
-      status,
       confidence: Number.isFinite(Number(input.confidence)) ? Number(input.confidence) : Number(existing?.confidence ?? 1),
       source: cleanId(input.source, existing?.source || "sync"),
       originEngine: cleanId(input.originEngine || input.origin_engine, existing?.origin_engine || ""),
@@ -234,7 +231,6 @@ function createCloudMemoryStore(db, deps = {}) {
         entry.sessionId,
         entry.scope,
         entry.text,
-        entry.status,
         entry.confidence,
         entry.source,
         entry.originEngine,
@@ -263,7 +259,6 @@ function createCloudMemoryStore(db, deps = {}) {
       entry.sessionId,
       entry.scope,
       entry.text,
-      entry.status,
       entry.confidence,
       entry.source,
       entry.originEngine,
@@ -358,7 +353,6 @@ function createCloudMemoryStore(db, deps = {}) {
       deletedAt,
       updatedAt: deletedAt,
       text: "",
-      status: "active",
       revision: Number(existing.revision || 1) + 1
     }, { force: true });
     return { ok: true, memory: result.memory };

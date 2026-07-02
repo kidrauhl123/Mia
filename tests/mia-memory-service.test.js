@@ -48,7 +48,8 @@ test("memory service stores scoped memories without exposing a prompt block rend
     confidence: 0.9
   });
 
-  assert.equal(session.status, "active");
+  assert.equal(session.status, "ok");
+  assert.equal(Object.prototype.hasOwnProperty.call(session.memory, "status"), false);
   assert.equal(service.memoryBlock, undefined);
   assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "concise" }).length, 1);
   assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "risky" }).length, 1);
@@ -118,14 +119,14 @@ test("memory search respects bot and session scope isolation", (t) => {
     scope: "bot",
     text: "Mei project codename is apricot",
     confidence: 0.9
-  }).status, "active");
+  }).status, "ok");
   assert.equal(service.rememberMemory({
     botId: "mei",
     sessionId: "s1",
     scope: "session",
     text: "The s1 decision is noodles",
     confidence: 0.9
-  }).status, "active");
+  }).status, "ok");
 
   assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "apricot" }).length, 1);
   assert.equal(service.searchMemories({ botId: "other", sessionId: "s1", query: "apricot" }).length, 0);
@@ -144,7 +145,7 @@ test("memory policy stores scoped memories and ignores credentials", (t) => {
     text: "User prefers morning summaries",
     confidence: 0.9
   });
-  assert.equal(userWide.status, "active");
+  assert.equal(userWide.status, "ok");
   assert.equal(userWide.effectiveScope, "user");
   assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "morning" }).length, 1);
   assert.equal(service.listMemories({ botId: "mei", sessionId: "s1", scopes: ["user"] }).length, 1);
@@ -156,7 +157,7 @@ test("memory policy stores scoped memories and ignores credentials", (t) => {
     text: "Maybe the user likes long reports",
     confidence: 0.3
   });
-  assert.equal(lowConfidence.status, "active");
+  assert.equal(lowConfidence.status, "ok");
 
   const ignored = service.rememberMemory({
     botId: "mei",
@@ -169,7 +170,7 @@ test("memory policy stores scoped memories and ignores credentials", (t) => {
   assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "hunter2" }).length, 0);
 });
 
-test("manual and agent user memories are active and list queries are side-effect free", (t) => {
+test("manual and agent user memories list without retrieval side effects", (t) => {
   const { createService } = setup(t);
   const service = createService();
 
@@ -180,7 +181,7 @@ test("manual and agent user memories are active and list queries are side-effect
     text: "User likes morning check-ins",
     confidence: 0.9
   });
-  assert.equal(agentWide.status, "active");
+  assert.equal(agentWide.status, "ok");
 
   const manualWide = service.rememberMemory({
     botId: "mei",
@@ -191,7 +192,7 @@ test("manual and agent user memories are active and list queries are side-effect
     trusted: true,
     confidence: 1
   });
-  assert.equal(manualWide.status, "active");
+  assert.equal(manualWide.status, "ok");
   assert.equal(manualWide.effectiveScope, "user");
 
   const rows = service.listMemories({
@@ -221,7 +222,7 @@ test("near-duplicate memory writes reuse scoped entries", (t) => {
     text: "User prefers compact architecture notes in Chinese",
     confidence: 0.9
   });
-  assert.equal(first.status, "active");
+  assert.equal(first.status, "ok");
 
   const duplicate = service.rememberMemory({
     botId: "mei",
@@ -230,7 +231,7 @@ test("near-duplicate memory writes reuse scoped entries", (t) => {
     text: "The user prefers compact architecture notes in Chinese.",
     confidence: 0.95
   });
-  assert.equal(duplicate.status, "active");
+  assert.equal(duplicate.status, "ok");
   assert.equal(duplicate.memoryId, first.memoryId);
   assert.equal(duplicate.policyReason, "duplicate memory");
   const activeRows = service.listMemories({ botId: "mei", sessionId: "s1", query: "architecture" });
@@ -243,7 +244,7 @@ test("near-duplicate memory writes reuse scoped entries", (t) => {
     text: "The user prefers compact architecture notes in Chinese.",
     confidence: 0.95
   });
-  assert.equal(isolated.status, "active");
+  assert.equal(isolated.status, "ok");
   assert.notEqual(isolated.memoryId, first.memoryId);
 
   const userDuplicate = service.rememberMemory({
@@ -253,7 +254,7 @@ test("near-duplicate memory writes reuse scoped entries", (t) => {
     text: "The user prefers morning summaries.",
     confidence: 0.9
   });
-  assert.equal(userDuplicate.status, "active");
+  assert.equal(userDuplicate.status, "ok");
   assert.equal(service.listMemories({ botId: "mei", sessionId: "s1", scopes: ["user"], query: "morning" }).length, 1);
 });
 
@@ -278,8 +279,8 @@ test("memory priority influences visible retrieval order and can be updated", (t
     priority: 50
   });
 
-  assert.equal(low.status, "active");
-  assert.equal(high.status, "active");
+  assert.equal(low.status, "ok");
+  assert.equal(high.status, "ok");
   assert.deepEqual(
     service.listMemories({ botId: "mei", sessionId: "s1", scopes: ["bot"], query: "" }).map((memory) => memory.id),
     [high.memoryId, low.memoryId]
@@ -293,7 +294,7 @@ test("memory priority influences visible retrieval order and can be updated", (t
     confidence: 0.9,
     priority: 80
   });
-  assert.equal(promoted.status, "active");
+  assert.equal(promoted.status, "ok");
   assert.equal(promoted.memory.priority, 80);
   assert.deepEqual(
     service.listMemories({ botId: "mei", sessionId: "s1", scopes: ["bot"], query: "" }).map((memory) => memory.id),
@@ -301,7 +302,7 @@ test("memory priority influences visible retrieval order and can be updated", (t
   );
 });
 
-test("native memory file sync exports only visible scoped active memories", (t) => {
+test("native memory file sync exports only visible scoped memories", (t) => {
   const { createService, dir } = setup(t);
   const service = createService();
 
@@ -376,7 +377,7 @@ test("account memory governance lists and deletes owned memories", (t) => {
     text: "User prefers product notes in Chinese",
     confidence: 0.9
   });
-  assert.equal(memory.status, "active");
+  assert.equal(memory.status, "ok");
 
   assert.equal(service.listAllMemories({ scopes: ["user"] }).length, 1);
   assert.equal(otherUserService.listAllMemories({ scopes: ["user"] }).length, 0);
@@ -418,7 +419,6 @@ test("memory sync methods preserve cloud tombstones while hiding them from gover
     botId: "mei",
     scope: "bot",
     text: "",
-    status: "deleted",
     deletedAt: "2026-06-03T00:00:00.000Z",
     updatedAt: "2026-06-03T00:00:00.000Z",
     revision: 2
@@ -432,7 +432,6 @@ test("memory sync methods preserve cloud tombstones while hiding them from gover
     botId: "mei",
     scope: "bot",
     text: "Remote prioritized memory should be clamped",
-    status: "active",
     priority: 999,
     updatedAt: "2026-06-04T00:00:00.000Z",
     revision: 1
@@ -480,7 +479,8 @@ test("provider-backed extraction imports mature provider memories through Mia po
   assert.equal(providerCalls[0].userId, "user_a");
   assert.equal(providerCalls[0].botId, "mei");
   assert.equal(providerCalls[0].sessionId, "s1");
-  assert.equal(result.memories[0].status, "active");
+  assert.equal(result.memories[0].status, "ok");
+  assert.equal(Object.prototype.hasOwnProperty.call(result.memories[0].memory, "status"), false);
   assert.equal(result.memories[1].status, "ignored");
   assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "Chinese" }).length, 1);
   assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "password" }).length, 0);
@@ -505,10 +505,11 @@ test("provider-disabled extraction captures only explicit memory commands throug
   assert.equal(result.status, "ok");
   assert.equal(result.provider, "local-explicit");
   assert.equal(result.memories.length, 1);
-  assert.equal(result.memories[0].status, "active");
+  assert.equal(result.memories[0].status, "ok");
   const stored = service.searchMemories({ botId: "mei", sessionId: "s1", query: "concise" });
   assert.equal(stored.length, 1);
   assert.equal(Object.prototype.hasOwnProperty.call(stored[0], "kind"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(stored[0], "status"), false);
   assert.equal(stored[0].source, "explicit_memory_command");
   assert.deepEqual(stored[0].sourceMessageIds, ["msg_user_1", "msg_assistant_1"]);
 });
@@ -531,10 +532,11 @@ test("provider-disabled extraction accepts Chinese explicit memory punctuation",
   assert.equal(result.status, "ok");
   assert.equal(result.provider, "local-explicit");
   assert.equal(result.memories.length, 1);
-  assert.equal(result.memories[0].status, "active");
+  assert.equal(result.memories[0].status, "ok");
   const stored = service.searchMemories({ botId: "mei", sessionId: "s1", query: "简短" });
   assert.equal(stored.length, 1);
   assert.equal(Object.prototype.hasOwnProperty.call(stored[0], "kind"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(stored[0], "status"), false);
   const listed = service.listAllMemories({ botId: "mei", sessionId: "s1", query: "简短" });
   assert.equal(listed.length, 1);
 });
@@ -632,8 +634,7 @@ test("provider-backed semantic search only returns Mia-owned scoped memories", a
     botId: "mei",
     sessionId: "s1",
     limit: 5,
-    scopes: undefined,
-    status: "active"
+    scopes: undefined
   });
 });
 
@@ -822,7 +823,7 @@ test("memory update and forget use visible scoped targets only", (t) => {
     text: "User prefers mild food",
     confidence: 0.9
   });
-  assert.equal(created.status, "active");
+  assert.equal(created.status, "ok");
 
   const updated = service.updateMemory({
     botId: "mei",
@@ -831,7 +832,7 @@ test("memory update and forget use visible scoped targets only", (t) => {
     text: "User prefers mildly spicy food",
     confidence: 0.9
   });
-  assert.equal(updated.status, "active");
+  assert.equal(updated.status, "ok");
   assert.equal(updated.memory.text, "User prefers mildly spicy food");
   assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "mildly" }).length, 1);
 

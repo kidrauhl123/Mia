@@ -871,16 +871,14 @@ async function callTool(name, args = {}) {
         context: ctx,
         query: args.query || args.q || "",
         limit: args.limit,
-        scopes: args.scopes,
-        status: "active"
+        scopes: args.scopes
       });
     case "memory_list":
       return daemonJson("POST", "/api/mia/memory/search", {
         context: ctx,
         query: "",
         limit: args.limit,
-        scopes: args.scopes,
-        status: args.status || "active"
+        scopes: args.scopes
       });
     case "memory_remember":
       if (!args.text) throw new Error("text is required");
