@@ -160,6 +160,8 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /"api\/src\/cloud-agent\/attachment-materializer\.js"/);
   assert.match(source, /"api\/src\/cloud-agent\/group-orchestrator\.js"/);
   assert.match(source, /"api\/src\/cloud-agent\/dispatcher\.js"/);
+  assert.match(source, /"api\/src\/main\/prompts\/mia-runtime\.md"/);
+  assert.equal(source.includes("if (!/\\.(?:c|m)?js$/i.test(file)) continue;"), true);
   assert.match(source, /"README\.md"/);
   assert.match(source, /"nginx\/mia-websocket-map\.conf"/);
   assert.match(source, /"nginx\/mia-cloud-site\.conf"/);

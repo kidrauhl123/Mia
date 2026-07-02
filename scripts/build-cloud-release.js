@@ -703,6 +703,7 @@ function verifyRelease() {
     "verify-site-verification.js",
     "diagnose-deploy-ssh.js"
   ]) {
+    if (!/\.(?:c|m)?js$/i.test(file)) continue;
     childProcess.execFileSync(process.execPath, ["--check", assertFile(file)], {
       stdio: "inherit"
     });
