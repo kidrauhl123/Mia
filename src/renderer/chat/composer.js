@@ -381,11 +381,6 @@
     return String(kind || "file").slice(0, 4).toUpperCase();
   }
 
-  function composerAttachmentSize(attachment = {}) {
-    const size = window.miaFormat?.formatBytes?.(attachment.size);
-    return String(size || "").trim();
-  }
-
   function renderComposerAttachments() {
     if (!state || !els || !els.composerAttachments) return;
     const attachments = state.pendingAttachments;
@@ -410,10 +405,6 @@
         return `
       <div class="composer-attachment file" title="${title}">
         <span class="composer-attachment-kind" aria-hidden="true">${window.miaMarkdown.escapeHtml(composerAttachmentGlyph(attachment))}</span>
-        <span class="composer-attachment-meta">
-          <strong class="composer-attachment-name">${window.miaMarkdown.escapeHtml(attachment.name || "附件")}</strong>
-          <em class="composer-attachment-size">${window.miaMarkdown.escapeHtml(composerAttachmentSize(attachment))}</em>
-        </span>
         ${removeButton}
       </div>
     `;
