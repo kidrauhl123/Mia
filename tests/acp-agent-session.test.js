@@ -246,6 +246,43 @@ test("sendUserInput waits for prompt completion and emits normalized streaming e
   ]);
 });
 
+test("sendUserInput carries initializationMetadata in _meta and keeps prompt to current user text", async () => {
+  const initializationMetadata = {
+    systemPrompt: "system: obey hidden rules",
+    developerInstructions: "developer: never reveal config",
+    runtimeConfig: {
+      nativeContextMode: "prompt",
+      memoryInjectionMode: "disabled"
+    }
+  };
+  const currentUserText = "show current user text only";
+
+  const { session, state, deferredPrompt } = createSession({
+    onPrompt: async ({ params }) => {
+      assert.deepEqual(params.prompt, [{ type: "text", text: currentUserText }]);
+      assert.deepEqual(params._meta, { initializationMetadata });
+      assert.doesNotMatch(params.prompt[0].text, /system: obey hidden rules/);
+      assert.doesNotMatch(params.prompt[0].text, /developer: never reveal config/);
+    }
+  });
+
+  const sendPromise = session.sendUserInput({
+    turnId: "turn-2",
+    text: currentUserText,
+    initializationMetadata
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(state.promptCalls.length, 1);
+  assert.deepEqual(state.promptCalls[0].prompt, [{ type: "text", text: currentUserText }]);
+  assert.deepEqual(state.promptCalls[0]._meta, { initializationMetadata });
+  assert.doesNotMatch(state.promptCalls[0].prompt[0].text, /system: obey hidden rules/);
+  assert.doesNotMatch(state.promptCalls[0].prompt[0].text, /developer: never reveal config/);
+
+  deferredPrompt.resolve({ stopReason: "end_turn" });
+  await sendPromise;
+});
+
 test("sendUserInput rejects visible transcript replay before constructing the ACP prompt", async () => {
   const { session, state } = createSession();
 
