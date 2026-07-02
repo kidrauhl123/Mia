@@ -114,6 +114,13 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
         }
       }
     });
+    ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "bot",
+      senderRef: BOT_ID,
+      senderOwnerId: ctx.user.id,
+      bodyMd: "earlier reply"
+    });
     const message = ctx.messagesStore.appendMessage({
       conversationId: ctx.conversation.id,
       senderKind: "user",
@@ -136,12 +143,55 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
     assert.equal(hermesCalls[0].model, "mia-auto");
     assert.equal(hermesCalls[0].workerModel, "mia-auto");
     assert.equal(hermesCalls[0].modelProvider, "mia");
+    assert.deepEqual(hermesCalls[0].seedMessages, [
+      { role: "assistant", content: "earlier reply" },
+      { role: "user", content: "hello" }
+    ]);
     assert.match(hermesCalls[0].input, /正在和用户私聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群成员/);
     assert.match(hermesCalls[0].instructions, /Mia Runtime Context/);
     assert.doesNotMatch(hermesCalls[0].instructions, /schedule_create|cronjob/);
     assert.match(hermesCalls[0].instructions, /You are Alice Bot\./);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud-hermes prefixes gateway run ids when only the final result returns a runId", async () => {
+  const ctx = setup();
+  try {
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "cloud-hermes",
+      enabled: true,
+      config: { model: "hermes-agent" }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      hermesImClient: {
+        async runChat() {
+          return { runId: "return_only_42", content: "hi", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+
+    await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    const storedRunId = ctx.cloudStore.getDb()
+      .prepare("SELECT hermes_run_id FROM cloud_agent_runs ORDER BY created_at DESC LIMIT 1")
+      .get()?.hermes_run_id;
+    assert.equal(storedRunId, "gw:return_only_42");
   } finally {
     ctx.cleanup();
   }

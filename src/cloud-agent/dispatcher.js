@@ -308,6 +308,19 @@ function createCloudAgentDispatcher(deps = {}) {
     return messagesStore.listMessagesSince(conversationId, 0, DESKTOP_INVOCATION_HISTORY_LIMIT);
   }
 
+  function conversationSeedMessages(conversationId) {
+    return messagesStore.listMessagesSince(conversationId, 0, DESKTOP_INVOCATION_HISTORY_LIMIT)
+      .map((row) => {
+        const content = String(row?.body_md || "").trim();
+        if (!content) return null;
+        return {
+          role: messageRole(row),
+          content
+        };
+      })
+      .filter(Boolean);
+  }
+
   function eventType(event = {}) {
     return String(event.type || event.event || "");
   }
@@ -599,6 +612,7 @@ function createCloudAgentDispatcher(deps = {}) {
           userId: ownerId,
           bot,
           conversationId,
+          seedMessages: conversationSeedMessages(conversationId),
           instructions: cloudRuntimeInstructions(bot, message),
           model: normalizeCloudHermesModel(runtimeConfig.model, { defaultModel: worker.model }),
           workerModel: worker.model || "mia-auto",
@@ -688,7 +702,7 @@ function createCloudAgentDispatcher(deps = {}) {
         : replyContent;
       const currentRun = cloudAgentRunsStore.getRun(run.id);
       if (result.runId && !String(currentRun?.hermesRunId || "").trim()) {
-        cloudAgentRunsStore.markRunning(run.id, result.runId);
+        cloudAgentRunsStore.markRunning(run.id, `gw:${result.runId}`);
       }
       const reply = messagesStore.appendMessage({
         conversationId,
