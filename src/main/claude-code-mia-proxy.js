@@ -103,6 +103,10 @@ function normalizeToolParameters(schema) {
   return Object.keys(value).length ? value : { type: "object", properties: {} };
 }
 
+function canonicalToolInputJson(value) {
+  return JSON.stringify(normalizeJsonValue(value));
+}
+
 function convertAnthropicTools(tools) {
   if (!Array.isArray(tools)) return undefined;
   const converted = tools
@@ -414,8 +418,13 @@ async function pipeOpenAiStreamAsAnthropic(upstream, res, requestBody = {}, sess
         type: "tool_use",
         id: call.id || `toolu_${crypto.randomBytes(8).toString("base64url")}`,
         name: call.name || "tool",
-        input: normalizeJsonValue(call.arguments)
+        input: {}
       }
+    }));
+    res.write(sseFrame("content_block_delta", {
+      type: "content_block_delta",
+      index,
+      delta: { type: "input_json_delta", partial_json: canonicalToolInputJson(call.arguments) }
     }));
     res.write(sseFrame("content_block_stop", { type: "content_block_stop", index }));
     index += 1;

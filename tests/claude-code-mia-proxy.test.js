@@ -15,6 +15,19 @@ function jsonResponse(payload, status = 200) {
   };
 }
 
+function sseEvents(text) {
+  return String(text || "")
+    .split(/\r?\n\r?\n/)
+    .map((frame) => {
+      const lines = frame.split(/\r?\n/);
+      const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() || "";
+      const data = lines.find((line) => line.startsWith("data:"))?.slice(5).trim() || "";
+      if (!event || !data) return null;
+      return { event, data: JSON.parse(data) };
+    })
+    .filter(Boolean);
+}
+
 test("anthropicToOpenAiChatBody maps messages, tools, and the Mia model override", () => {
   const converted = anthropicToOpenAiChatBody({
     model: "claude-sonnet-4-5",
@@ -147,4 +160,66 @@ test("Mia Claude proxy converts OpenAI chat streams to Anthropic SSE", async (t)
   assert.match(text, /event: message_delta/);
   assert.match(text, /"output_tokens":2/);
   assert.match(text, /event: message_stop/);
+});
+
+test("Mia Claude proxy streams tool call arguments as Anthropic input_json_delta", async (t) => {
+  const encoder = new TextEncoder();
+  const proxy = createClaudeCodeMiaProxy({
+    appendLog: () => {},
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => "text/event-stream" },
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_search\",\"function\":{\"name\":\"WebSearch\",\"arguments\":\"{\\\"query\\\":\"}}]}}]}\n\n"));
+          controller.enqueue(encoder.encode("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"搜索国际新闻周报\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":4}}\n\n"));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        }
+      })
+    })
+  });
+  t.after(() => proxy.stop());
+
+  const session = await proxy.createSession({
+    baseUrl: "https://mia.example/api/me/model-proxy/v1",
+    apiKey: "cloud-token",
+    model: "mia-auto"
+  });
+  const response = await fetch(`${session.baseUrl}/v1/messages`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${session.authToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      stream: true,
+      model: "claude-sonnet-4-5",
+      max_tokens: 64,
+      messages: [{ role: "user", content: "搜索国际新闻周报" }],
+      tools: [{
+        name: "WebSearch",
+        description: "Search the web.",
+        input_schema: {
+          type: "object",
+          properties: { query: { type: "string" } },
+          required: ["query"]
+        }
+      }]
+    })
+  });
+  const events = sseEvents(await response.text());
+  const toolStart = events.find((item) => item.event === "content_block_start" && item.data.content_block?.type === "tool_use");
+  const inputDelta = events.find((item) => item.event === "content_block_delta" && item.data.delta?.type === "input_json_delta");
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(toolStart.data.content_block, {
+    type: "tool_use",
+    id: "call_search",
+    name: "WebSearch",
+    input: {}
+  });
+  assert.equal(inputDelta.data.index, toolStart.data.index);
+  assert.equal(inputDelta.data.delta.partial_json, "{\"query\":\"搜索国际新闻周报\"}");
 });
