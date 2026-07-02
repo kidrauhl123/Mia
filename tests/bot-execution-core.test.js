@@ -513,6 +513,39 @@ test("stopChat cancels the requested managed AgentSession conversation instead o
   }]);
 });
 
+test("stopChat honors full managed AgentSession tuple when the same conversation uses different workspaces", async () => {
+  let workspacePath = "/repo/a";
+  const { core, calls } = makeCore({
+    agentSessionWorkspacePath: () => workspacePath
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [{ role: "user", id: "msg-1", content: "first" }]
+  });
+
+  workspacePath = "/repo/b";
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [{ role: "user", id: "msg-2", content: "second" }]
+  });
+
+  const result = await core.stopChat({
+    conversationId: "conversation:1",
+    engineId: "hermes",
+    workspacePath: "/repo/a"
+  });
+
+  assert.equal(result.stopped, true);
+  assert.deepEqual(calls.cancelActive, [{
+    conversationId: "conversation:1",
+    engineId: "hermes",
+    workspacePath: "/repo/a"
+  }]);
+});
+
 test("stopChat aborts an active title controller on the legacy adapter path", async () => {
   const { core } = makeCore({
     // Block the adapter so a foreground turn stays in-flight while we stop it.

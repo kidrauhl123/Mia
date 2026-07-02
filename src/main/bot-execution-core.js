@@ -13,7 +13,7 @@ const {
   extractLoadSkillRequests,
   stripLoadSkillRequests
 } = require("../shared/skill-load-protocol.js");
-const { getAcpEngineSpec } = require("./agent-session/index.js");
+const { createAgentSessionKey, getAcpEngineSpec } = require("./agent-session/index.js");
 
 const MAX_SKILL_LOAD_ROUNDS = 3;
 const MAX_MEMORY_EXTRACTION_MESSAGES = 12;
@@ -183,6 +183,10 @@ function managedConversationId(value = "") {
   return String(value || "").trim();
 }
 
+function managedDescriptorKey(descriptor = {}) {
+  return createAgentSessionKey(descriptor);
+}
+
 function createBotExecutionCore({
   createChatEventEmitter,
   cloudBotSnapshotForTurn,
@@ -214,7 +218,8 @@ function createBotExecutionCore({
   // Single-flight interactive chat controller — factory state, not a module
   // global. Group/utility/background turns keep their own controllers.
   let activeChatAbortController = null;
-  const activeManagedSessionsByConversationId = new Map();
+  const activeManagedSessionsByKey = new Map();
+  const activeManagedSessionKeysByConversationId = new Map();
 
   const getLocalBotResponder = typeof localBotResponder === "function"
     ? localBotResponder
@@ -225,6 +230,53 @@ function createBotExecutionCore({
   const isDaemon = typeof isDaemonProcess === "function"
     ? isDaemonProcess
     : () => isDaemonProcess;
+
+  function rememberManagedDescriptor(descriptor) {
+    const key = managedDescriptorKey(descriptor);
+    activeManagedSessionsByKey.set(key, descriptor);
+    const conversationId = descriptor.conversationId;
+    const keys = activeManagedSessionKeysByConversationId.get(conversationId) || [];
+    activeManagedSessionKeysByConversationId.set(
+      conversationId,
+      [...keys.filter((entry) => entry !== key), key]
+    );
+    return key;
+  }
+
+  function forgetManagedDescriptor(descriptor) {
+    const key = managedDescriptorKey(descriptor);
+    activeManagedSessionsByKey.delete(key);
+    const conversationId = descriptor.conversationId;
+    const keys = (activeManagedSessionKeysByConversationId.get(conversationId) || []).filter((entry) => entry !== key);
+    if (keys.length) {
+      activeManagedSessionKeysByConversationId.set(conversationId, keys);
+    } else {
+      activeManagedSessionKeysByConversationId.delete(conversationId);
+    }
+    return key;
+  }
+
+  function resolveManagedDescriptor(payload = {}) {
+    const conversationId = managedConversationId(payload.conversationId || payload.sessionId);
+    const engineId = String(payload.engineId || "").trim();
+    const workspacePath = String(payload.workspacePath || "").trim();
+    if (conversationId && engineId && workspacePath) {
+      return activeManagedSessionsByKey.get(managedDescriptorKey({
+        conversationId,
+        engineId,
+        workspacePath
+      })) || null;
+    }
+    if (conversationId) {
+      const keys = activeManagedSessionKeysByConversationId.get(conversationId) || [];
+      const key = keys.at(-1) || "";
+      return key ? activeManagedSessionsByKey.get(key) || null : null;
+    }
+    if (activeManagedSessionsByKey.size === 1) {
+      return activeManagedSessionsByKey.values().next().value || null;
+    }
+    return null;
+  }
 
   async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [], signal: externalSignal = null, abortController: externalAbortController = null }) {
     utility = Boolean(utility);
@@ -319,7 +371,7 @@ function createBotExecutionCore({
           ...descriptor,
           ...rawCurrentTurn
         });
-        activeManagedSessionsByConversationId.set(descriptor.conversationId, descriptor);
+        rememberManagedDescriptor(descriptor);
         return accepted;
       }
       // Composer "使用" chips are turn-local: make them resolvable for this turn,
@@ -444,15 +496,10 @@ function createBotExecutionCore({
 
   async function stopChat(payload = {}) {
     let stopped = false;
-    const requestedManagedConversationId = managedConversationId(payload.conversationId || payload.sessionId);
-    const managedDescriptor = requestedManagedConversationId
-      ? activeManagedSessionsByConversationId.get(requestedManagedConversationId) || null
-      : activeManagedSessionsByConversationId.size === 1
-        ? activeManagedSessionsByConversationId.values().next().value || null
-        : null;
+    const managedDescriptor = resolveManagedDescriptor(payload);
     if (managedDescriptor && agentSessionManager && typeof agentSessionManager.cancelActive === "function") {
       const cancelled = await agentSessionManager.cancelActive(managedDescriptor);
-      activeManagedSessionsByConversationId.delete(managedDescriptor.conversationId);
+      forgetManagedDescriptor(managedDescriptor);
       if (cancelled) {
         stopped = true;
       }
