@@ -176,6 +176,32 @@ function hasColumn(db, tableName, columnName) {
   return db.prepare(`PRAGMA table_info(${tableName})`).all().some((row) => row.name === columnName);
 }
 
+function isFts5UnavailableError(error) {
+  return /no such module:\s*fts5/i.test(String(error?.message || error || ""));
+}
+
+function databaseSupportsFts5(db) {
+  try {
+    db.exec("CREATE VIRTUAL TABLE temp.__mia_fts5_probe USING fts5(value)");
+    db.exec("DROP TABLE temp.__mia_fts5_probe");
+    return true;
+  } catch (error) {
+    try {
+      db.exec("DROP TABLE IF EXISTS temp.__mia_fts5_probe");
+    } catch {}
+    if (isFts5UnavailableError(error)) return false;
+    throw error;
+  }
+}
+
+function dropFtsTriggers(db) {
+  db.exec(`
+    DROP TRIGGER IF EXISTS memory_entries_ai;
+    DROP TRIGGER IF EXISTS memory_entries_ad;
+    DROP TRIGGER IF EXISTS memory_entries_au;
+  `);
+}
+
 function rowToEntry(row = {}) {
   if (!row) return null;
   return {
@@ -271,6 +297,7 @@ function createMiaMemoryStore(deps = {}) {
   const db = new Database(resolved.dbPath);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
+  const ftsAvailable = databaseSupportsFts5(db);
   migrate();
 
   function currentUserId(explicit = "") {
@@ -332,11 +359,11 @@ function createMiaMemoryStore(deps = {}) {
       db.exec("ALTER TABLE memory_entries ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
     }
     if (hasColumn(db, "memory_entries", "kind") || hasColumn(db, "memory_entries", "status")) {
+      dropFtsTriggers(db);
+      if (ftsAvailable) {
+        db.exec("DROP TABLE IF EXISTS memory_entries_fts");
+      }
       db.exec(`
-        DROP TRIGGER IF EXISTS memory_entries_ai;
-        DROP TRIGGER IF EXISTS memory_entries_ad;
-        DROP TRIGGER IF EXISTS memory_entries_au;
-        DROP TABLE IF EXISTS memory_entries_fts;
         CREATE TABLE memory_entries_clean (
           id TEXT PRIMARY KEY,
           user_id TEXT NOT NULL,
@@ -381,36 +408,36 @@ function createMiaMemoryStore(deps = {}) {
         ALTER TABLE memory_entries_clean RENAME TO memory_entries;
       `);
     }
-    if (hasColumn(db, "memory_entries_fts", "kind")) {
-      db.exec(`
-        DROP TRIGGER IF EXISTS memory_entries_ai;
-        DROP TRIGGER IF EXISTS memory_entries_ad;
-        DROP TRIGGER IF EXISTS memory_entries_au;
-        DROP TABLE IF EXISTS memory_entries_fts;
-      `);
+    if (ftsAvailable && hasColumn(db, "memory_entries_fts", "kind")) {
+      dropFtsTriggers(db);
+      db.exec("DROP TABLE IF EXISTS memory_entries_fts");
     }
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries(user_id, bot_id, session_id, scope);
       CREATE INDEX IF NOT EXISTS idx_memory_updated ON memory_entries(updated_at);
       CREATE INDEX IF NOT EXISTS idx_memory_hash ON memory_entries(hash);
     `);
-    db.exec(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS memory_entries_fts
-      USING fts5(text, content='memory_entries', content_rowid='rowid');
-      CREATE TRIGGER IF NOT EXISTS memory_entries_ai AFTER INSERT ON memory_entries BEGIN
-        INSERT INTO memory_entries_fts(rowid, text) VALUES (new.rowid, new.text);
-      END;
-      CREATE TRIGGER IF NOT EXISTS memory_entries_ad AFTER DELETE ON memory_entries BEGIN
-        INSERT INTO memory_entries_fts(memory_entries_fts, rowid, text)
-        VALUES('delete', old.rowid, old.text);
-      END;
-      CREATE TRIGGER IF NOT EXISTS memory_entries_au AFTER UPDATE ON memory_entries BEGIN
-        INSERT INTO memory_entries_fts(memory_entries_fts, rowid, text)
-        VALUES('delete', old.rowid, old.text);
-        INSERT INTO memory_entries_fts(rowid, text) VALUES (new.rowid, new.text);
-      END;
-    `);
-    db.exec("INSERT INTO memory_entries_fts(memory_entries_fts) VALUES('rebuild')");
+    if (ftsAvailable) {
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS memory_entries_fts
+        USING fts5(text, content='memory_entries', content_rowid='rowid');
+        CREATE TRIGGER IF NOT EXISTS memory_entries_ai AFTER INSERT ON memory_entries BEGIN
+          INSERT INTO memory_entries_fts(rowid, text) VALUES (new.rowid, new.text);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_entries_ad AFTER DELETE ON memory_entries BEGIN
+          INSERT INTO memory_entries_fts(memory_entries_fts, rowid, text)
+          VALUES('delete', old.rowid, old.text);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_entries_au AFTER UPDATE ON memory_entries BEGIN
+          INSERT INTO memory_entries_fts(memory_entries_fts, rowid, text)
+          VALUES('delete', old.rowid, old.text);
+          INSERT INTO memory_entries_fts(rowid, text) VALUES (new.rowid, new.text);
+        END;
+      `);
+      db.exec("INSERT INTO memory_entries_fts(memory_entries_fts) VALUES('rebuild')");
+    } else {
+      dropFtsTriggers(db);
+    }
     const migrated = db.prepare("SELECT 1 FROM schema_migrations WHERE version = 1").get();
     if (!migrated) migrateLegacyJson();
     db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)").run(now());
@@ -520,7 +547,7 @@ function createMiaMemoryStore(deps = {}) {
     }
 
     const match = ftsQuery(query);
-    if (match) {
+    if (match && ftsAvailable) {
       try {
         const ftsRows = db.prepare(`
           SELECT e.*, bm25(memory_entries_fts) AS rank
@@ -613,7 +640,7 @@ function createMiaMemoryStore(deps = {}) {
     }
 
     const match = ftsQuery(input.query);
-    if (match) {
+    if (match && ftsAvailable) {
       try {
         const ftsRows = db.prepare(`
           SELECT e.*, bm25(memory_entries_fts) AS rank

@@ -41,6 +41,7 @@ function loadExecFileAsPromise(overrides = {}) {
   const sandbox = {
     execFile: overrides.execFile || (() => { throw new Error("execFile stub required"); }),
     processEnvStrings: overrides.processEnvStrings || (() => ({})),
+    process: { platform: process.platform },
     Promise,
     String,
     Number

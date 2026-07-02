@@ -29,8 +29,9 @@ const OUT = path.join(OUT_DIR, "node");
 const CACHE_DIR = path.join(ROOT, "node_modules", ".cache", "mia-core-node");
 
 // Pinned node version shipped as the Core daemon runtime. Independent of the
-// build machine's node; the official tarball is self-contained.
-const NODE_VERSION = process.env.MIA_CORE_NODE_VERSION || "v22.14.0";
+// build machine's node; the official tarball is self-contained and must include
+// node:sqlite with FTS5 because Mia Core owns the local memory store.
+const NODE_VERSION = process.env.MIA_CORE_NODE_VERSION || "v25.9.0";
 
 function targetArchFromContext(context) {
   // electron-builder beforePack passes arch as an Arch enum index.
@@ -60,6 +61,24 @@ function assertSelfContained(binary) {
     throw new Error(
       `[stage-core-node] '${binary}' is not self-contained; it loads: ${offenders.join(", ")}. ` +
       "A package-manager node cannot be bundled — use the official nodejs.org release."
+    );
+  }
+}
+
+function assertFts5Enabled(binary) {
+  const script = `
+    const { DatabaseSync } = require("node:sqlite");
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE VIRTUAL TABLE __mia_core_fts5_probe USING fts5(value)");
+    db.close();
+  `;
+  try {
+    execFileSync(binary, ["-e", script], { encoding: "utf8", stdio: "pipe" });
+  } catch (err) {
+    const detail = String(err.stderr || err.stdout || err.message || "").trim();
+    throw new Error(
+      `[stage-core-node] '${binary}' cannot run node:sqlite with FTS5. ` +
+      `Mia Core would fail to start in packaged builds.${detail ? ` ${detail}` : ""}`
     );
   }
 }
@@ -124,6 +143,7 @@ async function resolveSource(targetArch) {
 async function stage(targetArch) {
   const source = await resolveSource(targetArch);
   assertSelfContained(source);
+  assertFts5Enabled(source);
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.copyFileSync(source, OUT);
   fs.chmodSync(OUT, 0o755);

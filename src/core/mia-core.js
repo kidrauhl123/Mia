@@ -1044,6 +1044,8 @@ function createCoreCloudRouting({
   botExecution,
   socialApi,
   artifactWorkspaceDir = null,
+  fetchImpl = fetch,
+  timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs),
   emitLocalEvent = () => {},
   deviceId = "",
   log = () => {}
@@ -1060,11 +1062,20 @@ function createCoreCloudRouting({
     getSettings: () => (settingsStore ? settingsStore.cloudSettings() : { enabled: false }),
     normalizeUrl: settingsStore ? settingsStore.normalizeCloudUrl : (value) => String(value || "")
   });
+  const chatAttachments = createChatAttachments({
+    initializeRuntime: () => {},
+    runtimePaths: typeof runtimePaths === "function" ? runtimePaths : () => ({}),
+    getCloudSettings: () => (settingsStore ? settingsStore.cloudSettings() : { enabled: false }),
+    normalizeCloudUrl: settingsStore ? settingsStore.normalizeCloudUrl : (value) => String(value || ""),
+    fetchImpl,
+    timeoutSignal
+  });
 
   const localBotResponder = createLocalBotResponder({
     sendChat: botExecution.sendChat,
     postConversationMessageAsBot: (conversationId, body) => api.postConversationMessageAsBot(conversationId, body),
     listConversationMessages: (conversationId, sinceSeq, limit) => api.listConversationMessages(conversationId, sinceSeq, limit),
+    fetchFileAttachment: chatAttachments.safeFetchFileAttachment,
     // Run streams (typing, token deltas, tool traces) + posted-message echoes go
     // to the Core control server's local event channel. The caller injects the
     // sink; a no-op/collector is fine until the local-events fan-out lands.

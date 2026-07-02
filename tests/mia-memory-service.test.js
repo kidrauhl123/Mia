@@ -34,6 +34,40 @@ function setup(t, overrides = {}) {
   return { createService, dir, memoryPath, memoryDb };
 }
 
+function sqliteFtsUnavailableError() {
+  const err = new Error("no such module: fts5");
+  err.code = "ERR_SQLITE_ERROR";
+  err.errcode = 1;
+  err.errstr = "SQL logic error";
+  return err;
+}
+
+function createNoFtsDatabaseSync() {
+  return class NoFtsDatabaseSync {
+    constructor(filename) {
+      this.inner = new DatabaseSync(filename);
+    }
+
+    exec(sql) {
+      if (/\bfts5\b|\bmemory_entries_fts\b|\bbm25\s*\(/i.test(String(sql || ""))) {
+        throw sqliteFtsUnavailableError();
+      }
+      return this.inner.exec(sql);
+    }
+
+    prepare(sql) {
+      if (/\bfts5\b|\bmemory_entries_fts\b|\bbm25\s*\(/i.test(String(sql || ""))) {
+        throw sqliteFtsUnavailableError();
+      }
+      return this.inner.prepare(sql);
+    }
+
+    close() {
+      return this.inner.close();
+    }
+  };
+}
+
 test("memory service stores scoped memories without exposing a prompt block renderer", (t) => {
   const { createService } = setup(t);
   const service = createService();
@@ -54,6 +88,21 @@ test("memory service stores scoped memories without exposing a prompt block rend
   assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "concise" }).length, 1);
   assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "risky" }).length, 1);
   assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "lunch" }).length, 1);
+});
+
+test("memory service starts and searches when sqlite fts5 is unavailable", (t) => {
+  const { createService } = setup(t, { DatabaseSync: createNoFtsDatabaseSync() });
+  const service = createService();
+
+  assert.equal(service.rememberMemory({
+    botId: "mei",
+    sessionId: "s1",
+    scope: "bot",
+    text: "User prefers durable Core startup",
+    confidence: 0.9
+  }).status, "ok");
+
+  assert.equal(service.searchMemories({ botId: "mei", sessionId: "s1", query: "durable startup" }).length, 1);
 });
 
 test("memory retrieval audit stores budgets without raw text", (t) => {
