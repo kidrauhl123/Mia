@@ -524,7 +524,7 @@ function createCodexChatAdapter(deps = {}) {
     return { content: String(turn?.finalResponse || "").trim() };
   }
 
-  return { sendChat, sendStateless };
+  return { sendStateless };
 }
 
 module.exports = {

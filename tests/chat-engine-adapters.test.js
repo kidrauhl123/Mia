@@ -29,14 +29,6 @@ function createDeps(overrides = {}) {
     ensureHermesReady: async () => {
       calls.push(["ensure-hermes"]);
     },
-    sendClaudeCodeChat: async (context) => {
-      calls.push(["send-claude", context.sessionId]);
-      return { engine: "claude-code" };
-    },
-    sendCodexChat: async (context) => {
-      calls.push(["send-codex", context.sessionId]);
-      return { engine: "codex" };
-    },
     sendHermesChat: async (context) => {
       calls.push(["send-hermes", context.sessionId]);
       return { engine: "hermes" };
@@ -70,19 +62,37 @@ test("claude adapter returns local slash command response without SDK call", asy
   assert.deepEqual(deps.calls, [["external-slash", "claude-code", "/help"]]);
 });
 
-test("codex adapter falls through to SDK call when slash is not local", async () => {
+test("claude adapter rejects the retired direct bot chat path when slash is not local", async () => {
   const deps = createDeps({ externalSlashResult: null });
   const adapters = createChatEngineAdapters(deps);
-  const response = await adapters.codex.send({
-    bot,
-    sessionId: "s2",
-    slashText: "/unknown"
-  });
 
-  assert.deepEqual(response, { engine: "codex" });
+  await assert.rejects(
+    () => adapters["claude-code"].send({
+      bot,
+      sessionId: "s2",
+      slashText: "/unknown"
+    }),
+    /AgentSession/
+  );
   assert.deepEqual(deps.calls, [
-    ["external-slash", "codex", "/unknown"],
-    ["send-codex", "s2"]
+    ["external-slash", "claude-code", "/unknown"]
+  ]);
+});
+
+test("codex adapter rejects the retired direct bot chat path when slash is not local", async () => {
+  const deps = createDeps({ externalSlashResult: null });
+  const adapters = createChatEngineAdapters(deps);
+
+  await assert.rejects(
+    () => adapters.codex.send({
+      bot,
+      sessionId: "s-codex",
+      slashText: "/unknown"
+    }),
+    /AgentSession/
+  );
+  assert.deepEqual(deps.calls, [
+    ["external-slash", "codex", "/unknown"]
   ]);
 });
 

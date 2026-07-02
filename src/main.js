@@ -2364,16 +2364,12 @@ function createActiveOpenClawChatAdapter() {
 }
 
 function createActiveChatEngineAdapters() {
-  const claudeAdapter = createActiveClaudeCodeChatAdapter();
-  const codexAdapter = createActiveCodexChatAdapter();
   const openClawAdapter = createActiveOpenClawChatAdapter();
   return createChatEngineAdapters({
     chatCompletionResponse,
     ensureHermesReady: ensureHermesChatEngineReady,
     runExternalSlashCommand: (input) => externalAgentCommandService.runSlashCommand(input),
     runHermesSlashCommand: hermesSlashCommandService.run,
-    sendClaudeCodeChat: claudeAdapter.sendChat,
-    sendCodexChat: codexAdapter.sendChat,
     sendOpenClawChat: openClawAdapter.sendChat
   });
 }
@@ -2615,7 +2611,7 @@ const modelSettingsService = createModelSettingsService({
 
 const conversationTitleService = createConversationTitleService({
   randomUUID: () => crypto.randomUUID(),
-  sendChat
+  sendChatStateless
 });
 
 function applyNativePermissionConfig(settings = {}) {

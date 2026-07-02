@@ -849,8 +849,6 @@ function createCoreBotExecution({
       // externalAgentCommandService); a slash command on a non-Hermes engine is
       // rare and surfaces the same "not available" — the CHAT path below is real.
       runExternalSlashCommand: engineUnavailable,
-      sendClaudeCodeChat: activeClaudeCodeAdapter().sendChat,
-      sendCodexChat: activeCodexAdapter().sendChat,
       sendOpenClawChat: activeOpenClawAdapter().sendChat
     });
   }

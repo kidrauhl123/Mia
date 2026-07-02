@@ -118,6 +118,45 @@ test("sendChat routes interactive AgentSession turns through the session manager
   assert.equal(calls.notifyMessage.length, 0);
 });
 
+for (const [inputEngineId, expectedEngineId] of [
+  ["claude-code", "claude"],
+  ["codex", "codex"]
+]) {
+  test(`sendChat routes interactive ${inputEngineId} turns through AgentSession ACP`, async () => {
+    const { core, calls } = makeCore({
+      cloudBotSnapshotForTurn: () => ({
+        key: "bot1",
+        id: "bot1",
+        name: "Bot One",
+        agentEngine: inputEngineId,
+        capabilities: {}
+      })
+    });
+
+    const response = await core.sendChat({
+      botKey: "bot1",
+      sessionId: "conversation:1",
+      messages: [{ role: "user", id: `turn-${expectedEngineId}`, content: "latest prompt" }]
+    });
+
+    assert.deepEqual(response, {
+      ok: true,
+      mode: "started",
+      conversationId: "conversation:1",
+      engineId: expectedEngineId,
+      turnId: `turn-${expectedEngineId}`
+    });
+    assert.equal(calls.adapter.length, 0);
+    assert.deepEqual(calls.agentSession, [{
+      conversationId: "conversation:1",
+      engineId: expectedEngineId,
+      workspacePath: "/repo/workspace",
+      turnId: `turn-${expectedEngineId}`,
+      text: "latest prompt"
+    }]);
+  });
+}
+
 test("sendChat keeps managed AgentSession turn text raw even when active skill directive text is available", async () => {
   const { core, calls } = makeCore({
     cloudBotSnapshotForTurn: () => ({

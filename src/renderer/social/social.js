@@ -3964,14 +3964,12 @@
         "",
         text
       ].join("\n");
-      const cryptoRandomId = () => (window.crypto?.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
-      const response = await window.mia.sendChat({
+      const response = await window.mia.sendChatStateless({
         botKey,
-        sessionId: `utility:translate:${cryptoRandomId()}`,
-        utility: true,
-        messages: [{ role: "user", content: prompt }]
+        systemPrompt: "",
+        userPrompt: prompt
       });
-      const translated = String(response?.choices?.[0]?.message?.content || "").trim();
+      const translated = String(response?.content || "").trim();
       msg.translation = translated
         ? { status: "done", text: translated, error: "", sourceText: selected }
         : { status: "error", text: "", error: "模型没有返回译文。", sourceText: selected };

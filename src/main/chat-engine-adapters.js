@@ -57,7 +57,7 @@ function createChatEngineAdapters(deps = {}) {
             });
           }
         }
-        return deps.sendClaudeCodeChat(context);
+        throw new Error("Claude Code bot chat now runs through AgentSession ACP. This legacy direct prompt execution path has been removed.");
       }
     },
     codex: {
@@ -83,7 +83,7 @@ function createChatEngineAdapters(deps = {}) {
             });
           }
         }
-        return deps.sendCodexChat(context);
+        throw new Error("Codex bot chat now runs through AgentSession ACP. This legacy direct prompt execution path has been removed.");
       }
     },
     openclaw: {

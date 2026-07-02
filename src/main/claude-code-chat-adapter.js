@@ -661,7 +661,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
     return { content: chunks.join("\n").trim() };
   }
 
-  return { sendChat, sendStateless };
+  return { sendStateless };
 }
 
 module.exports = {

@@ -17,9 +17,9 @@ function fallbackConversationTitle(messages = []) {
 
 function createConversationTitleService({
   randomUUID = () => crypto.randomUUID(),
-  sendChat
+  sendChatStateless
 } = {}) {
-  if (typeof sendChat !== "function") throw new Error("sendChat dependency is required.");
+  if (typeof sendChatStateless !== "function") throw new Error("sendChatStateless dependency is required.");
 
   async function generateTitle({ botId, personaKey, conversationId, sessionId, messages } = {}) {
     const clipped = (Array.isArray(messages) ? messages : [])
@@ -29,24 +29,18 @@ function createConversationTitleService({
     const transcript = clipped.map((message) => `${message.role}: ${message.content}`).join("\n").slice(0, 1600);
     const titleRunId = conversationId || sessionId || randomUUID();
     try {
-      const response = await sendChat({
-        botId: botId || personaKey,
-        sessionId: `title:${titleRunId}`,
-        messages: [{
-          role: "user",
-          content: [
-            "请给下面这段对话生成一个简短标题。",
-            "要求：不超过12个中文字；只输出标题；不要解释；不要引号；不要句号。",
-            "",
-            "对话：",
-            transcript
-          ].join("\n")
-        }],
-        utility: true,
-        persistAgentSession: false,
-        allowSlashCommands: false
+      const response = await sendChatStateless({
+        botKey: botId || personaKey,
+        systemPrompt: "",
+        userPrompt: [
+          "请给下面这段对话生成一个简短标题。",
+          "要求：不超过12个中文字；只输出标题；不要解释；不要引号；不要句号。",
+          "",
+          "对话：",
+          transcript
+        ].join("\n")
       });
-      const content = response.choices?.[0]?.message?.content || "";
+      const content = response?.content || "";
       return { title: cleanConversationTitle(content) || fallbackConversationTitle(clipped) };
     } catch {
       return { title: fallbackConversationTitle(clipped) };
