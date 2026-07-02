@@ -34,10 +34,14 @@ test("packaged Mia Core node runtime is new enough and requires sqlite fts5", ()
 
   assert.match(source, /const NODE_VERSION = process\.env\.MIA_CORE_NODE_VERSION \|\| "v24\.15\.0"/);
   assert.match(source, /function assertFts5Enabled\(binary\)/);
-  assert.match(source, /function assertTargetFts5Enabled\(source, targetArch\)/);
+  assert.match(source, /function assertTargetFts5Enabled\(source, targetPlatform, targetArch\)/);
+  assert.match(source, /function targetPlatformFromContext\(context\)/);
+  assert.match(source, /node-\$\{NODE_VERSION\}-\$\{nodePlatform\}-\$\{arch\}/);
+  assert.match(source, /platform === "win32" \? "zip" : "tar\.gz"/);
+  assert.match(source, /node\.exe/);
   assert.match(source, /target .* node cannot run on this .* host/);
   assert.match(source, /CREATE VIRTUAL TABLE __mia_core_fts5_probe USING fts5\(value\)/);
-  assert.match(source, /await assertTargetFts5Enabled\(source, targetArch\)/);
+  assert.match(source, /await assertTargetFts5Enabled\(source, targetPlatform, targetArch\)/);
 });
 
 test("desktop package includes OpenClaw ACP SDK runtime dependency", () => {

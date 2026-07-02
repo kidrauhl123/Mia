@@ -169,7 +169,8 @@ test("assertLaunchable returns the node-core resolution for launchable targets",
 
 test("packaged path helpers derive the bundled node + unpacked Core entry from resourcesPath", () => {
   const res = "/Applications/Mia.app/Contents/Resources";
-  assert.equal(packagedNodePath(res), path.join(res, "mia-node"));
+  assert.equal(packagedNodePath(res, "darwin"), path.join(res, "mia-node"));
+  assert.equal(packagedNodePath(res, "win32"), path.join(res, "mia-node.exe"));
   assert.equal(
     packagedCoreEntry(res),
     path.join(res, "app.asar.unpacked", "src", "core", "mia-core.js")
@@ -196,6 +197,24 @@ test("packaged build resolves node-core from resourcesPath when nodePath/coreEnt
   assert.deepEqual(r.args, [path.join(res, "app.asar.unpacked", "src", "core", "mia-core.js"), "--daemon"]);
   assert.equal(r.usesGuiAppIdentity, false);
   assert.equal(r.workingDirectory, path.dirname(path.join(res, "app.asar.unpacked", "src", "core", "mia-core.js")));
+});
+
+test("packaged Windows build accepts the existing extensionless mia-node resource", () => {
+  const res = "C:\\Program Files\\Mia\\resources";
+  const node = path.join(res, "mia-node");
+  const core = path.join(res, "app.asar.unpacked", "src", "core", "mia-core.js");
+  const r = setup({
+    platform: "win32",
+    defaultApp: () => false,
+    nodePath: () => "",
+    coreEntry: () => "",
+    resourcesPath: () => res,
+    existsSync: (candidate) => candidate === node || candidate === core
+  }).resolve();
+
+  assert.equal(r.kind, "node-core");
+  assert.equal(r.command, node);
+  assert.deepEqual(r.args, [core, "--daemon"]);
 });
 
 test("packaged build with no resourcesPath and no injected node is unresolved (fail closed)", () => {

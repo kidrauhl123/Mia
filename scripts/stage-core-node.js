@@ -22,6 +22,7 @@ const os = require("node:os");
 const path = require("node:path");
 const https = require("node:https");
 const { execFileSync } = require("node:child_process");
+const AdmZip = require("adm-zip");
 
 const ROOT = path.resolve(__dirname, "..");
 const OUT_DIR = path.join(ROOT, "resources", "mia-node");
@@ -42,12 +43,37 @@ function targetArchFromContext(context) {
   return process.arch === "arm64" ? "arm64" : "x64";
 }
 
+function normalizeTargetPlatform(value = "") {
+  const platform = String(value || "").trim().toLowerCase();
+  if (["win", "win32", "windows"].includes(platform)) return "win32";
+  if (["mac", "macos", "darwin"].includes(platform)) return "darwin";
+  if (platform === "linux") return "linux";
+  return "";
+}
+
+function targetPlatformFromContext(context) {
+  const explicit = normalizeTargetPlatform(process.env.MIA_CORE_TARGET_PLATFORM);
+  if (explicit) return explicit;
+  const candidates = [
+    context?.electronPlatformName,
+    context?.packager?.platform?.nodeName,
+    context?.packager?.platform?.name,
+    context?.platform?.nodeName,
+    context?.platform?.name
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeTargetPlatform(candidate);
+    if (normalized) return normalized;
+  }
+  return process.platform;
+}
+
 function hostArchForOfficialNode() {
   return process.arch === "arm64" ? "arm64" : "x64";
 }
 
-function canRunTargetArch(targetArch) {
-  return targetArch === hostArchForOfficialNode();
+function canRunTarget(targetPlatform, targetArch) {
+  return targetPlatform === process.platform && targetArch === hostArchForOfficialNode();
 }
 
 // macOS-only: assert the binary loads no non-system dylibs (i.e. it is relocatable).
@@ -91,17 +117,17 @@ function assertFts5Enabled(binary) {
   }
 }
 
-async function assertTargetFts5Enabled(source, targetArch) {
-  if (canRunTargetArch(targetArch)) {
+async function assertTargetFts5Enabled(source, targetPlatform, targetArch) {
+  if (canRunTarget(targetPlatform, targetArch)) {
     assertFts5Enabled(source);
     return;
   }
-  const verifier = await officialNode(hostArchForOfficialNode());
+  const verifier = await officialNode(process.platform, hostArchForOfficialNode());
   assertSelfContained(verifier);
   assertFts5Enabled(verifier);
   console.warn(
-    `[stage-core-node] target ${targetArch} node cannot run on this ${process.arch} host; ` +
-    `verified node:sqlite FTS5 with same-version ${hostArchForOfficialNode()} official node instead.`
+    `[stage-core-node] target ${targetPlatform}-${targetArch} node cannot run on this ${process.platform}-${process.arch} host; ` +
+    `verified node:sqlite FTS5 with same-version ${process.platform}-${hostArchForOfficialNode()} official node instead.`
   );
 }
 
@@ -124,34 +150,48 @@ function download(url, dest) {
   });
 }
 
-async function officialNode(targetArch) {
+function extractZip(zipPath, extractDir) {
+  const zip = new AdmZip(zipPath);
+  zip.extractAllTo(extractDir, true);
+}
+
+async function officialNode(targetPlatform, targetArch) {
+  const platform = normalizeTargetPlatform(targetPlatform) || "darwin";
   const arch = targetArch === "x64" ? "x64" : "arm64";
-  const tag = `node-${NODE_VERSION}-darwin-${arch}`;
-  const cached = path.join(CACHE_DIR, `${tag}-node`);
+  const nodePlatform = platform === "win32" ? "win" : platform;
+  const archiveExt = platform === "win32" ? "zip" : "tar.gz";
+  const tag = `node-${NODE_VERSION}-${nodePlatform}-${arch}`;
+  const cached = path.join(CACHE_DIR, `${tag}-${platform === "win32" ? "node.exe" : "node"}`);
   if (fs.existsSync(cached)) return cached;
 
   fs.mkdirSync(CACHE_DIR, { recursive: true });
-  const tarUrl = `https://nodejs.org/dist/${NODE_VERSION}/${tag}.tar.gz`;
-  const tarPath = path.join(CACHE_DIR, `${tag}.tar.gz`);
-  console.log(`[stage-core-node] downloading ${tarUrl}`);
-  await download(tarUrl, tarPath);
+  const archiveUrl = `https://nodejs.org/dist/${NODE_VERSION}/${tag}.${archiveExt}`;
+  const archivePath = path.join(CACHE_DIR, `${tag}.${archiveExt}`);
+  console.log(`[stage-core-node] downloading ${archiveUrl}`);
+  await download(archiveUrl, archivePath);
 
   const extractDir = path.join(CACHE_DIR, tag);
   fs.rmSync(extractDir, { recursive: true, force: true });
   fs.mkdirSync(extractDir, { recursive: true });
-  execFileSync("tar", ["-xzf", tarPath, "-C", extractDir, "--strip-components=1"], { stdio: "inherit" });
-  const extractedNode = path.join(extractDir, "bin", "node");
+  if (platform === "win32") {
+    extractZip(archivePath, extractDir);
+  } else {
+    execFileSync("tar", ["-xzf", archivePath, "-C", extractDir, "--strip-components=1"], { stdio: "inherit" });
+  }
+  const extractedNode = platform === "win32"
+    ? path.join(extractDir, tag, "node.exe")
+    : path.join(extractDir, "bin", "node");
   fs.copyFileSync(extractedNode, cached);
   fs.chmodSync(cached, 0o755);
   return cached;
 }
 
-async function resolveSource(targetArch) {
+async function resolveSource(targetPlatform, targetArch) {
   // Explicit override (must be self-contained — verified below).
   if (process.env.MIA_CORE_NODE) return fs.realpathSync(process.env.MIA_CORE_NODE);
   // Try the official self-contained download.
   try {
-    return await officialNode(targetArch);
+    return await officialNode(targetPlatform, targetArch);
   } catch (err) {
     // Network failed — fall back to the local node ONLY if it is self-contained
     // and arch-matches. A Homebrew node will fail assertSelfContained and we
@@ -162,24 +202,26 @@ async function resolveSource(targetArch) {
   }
 }
 
-async function stage(targetArch) {
-  const source = await resolveSource(targetArch);
+async function stage(targetPlatform, targetArch) {
+  const source = await resolveSource(targetPlatform, targetArch);
   assertSelfContained(source);
-  await assertTargetFts5Enabled(source, targetArch);
+  await assertTargetFts5Enabled(source, targetPlatform, targetArch);
+  fs.rmSync(OUT_DIR, { recursive: true, force: true });
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.copyFileSync(source, OUT);
   fs.chmodSync(OUT, 0o755);
   const bytes = fs.statSync(OUT).size;
-  console.log(`[stage-core-node] staged node (${bytes} bytes) for ${targetArch} from ${source} → ${OUT}`);
+  console.log(`[stage-core-node] staged node (${bytes} bytes) for ${targetPlatform}-${targetArch} from ${source} -> ${OUT}`);
 }
 
 // electron-builder beforePack hook export.
 module.exports = async function stageCoreNode(context) {
-  await stage(targetArchFromContext(context));
+  await stage(targetPlatformFromContext(context), targetArchFromContext(context));
 };
 
-// CLI usage: `node scripts/stage-core-node.js [arch]`.
+// CLI usage: `node scripts/stage-core-node.js [arch] [platform]`.
 if (require.main === module) {
   const arch = process.argv[2] || (process.arch === "arm64" ? "arm64" : "x64");
-  stage(arch).catch((e) => { console.error(e.message); process.exit(1); });
+  const platform = normalizeTargetPlatform(process.argv[3]) || process.platform;
+  stage(platform, arch).catch((e) => { console.error(e.message); process.exit(1); });
 }

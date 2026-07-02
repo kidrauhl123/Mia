@@ -12,12 +12,20 @@ const DEFAULT_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/
 //   - asarUnpack's the Core entry + its require graph → app.asar.unpacked/src/...
 // These two derivations are pure (resourcesPath → absolute path) so they can be
 // wired from main.js in packaged mode AND unit-tested without a real build.
-const PACKAGED_NODE_BASENAME = process.platform === "win32" ? "mia-node.exe" : "mia-node";
+function packagedNodeBasenames(platform = process.platform) {
+  return platform === "win32" ? ["mia-node.exe", "mia-node"] : ["mia-node"];
+}
 
-function packagedNodePath(resourcesPath) {
+function packagedNodePath(resourcesPath, platform = process.platform) {
   const base = String(resourcesPath || "").trim();
   if (!base) return "";
-  return path.join(base, PACKAGED_NODE_BASENAME);
+  return path.join(base, packagedNodeBasenames(platform)[0]);
+}
+
+function packagedNodeCandidatePaths(resourcesPath, platform = process.platform) {
+  const base = String(resourcesPath || "").trim();
+  if (!base) return [];
+  return packagedNodeBasenames(platform).map((basename) => path.join(base, basename));
 }
 
 function packagedCoreEntry(resourcesPath) {
@@ -85,7 +93,7 @@ function createMiaCoreResolver(deps = {}) {
     // than launching a non-existent command that just times out on /health.
     const injectedNode = String(nodePath() || "").trim();
     const injectedEntry = String(coreEntry() || "").trim();
-    const derivedNode = packagedNodePath(res);
+    const derivedNode = packagedNodeCandidatePaths(res, platform).find((candidate) => existsSync(candidate)) || "";
     const derivedEntry = packagedCoreEntry(res);
     const node = injectedNode || (derivedNode && existsSync(derivedNode) ? derivedNode : "");
     const entry = injectedEntry || (derivedEntry && existsSync(derivedEntry) ? derivedEntry : "");
