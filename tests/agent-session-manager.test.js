@@ -98,6 +98,35 @@ test("getOrCreateSession creates distinct native sessions for distinct session k
   assert.equal(builds.length, 3);
 });
 
+test("closeAllSessions closes every tracked native session and clears manager state", async () => {
+  const sessions = [];
+  const manager = createAgentSessionManager(managerOptions(async () => {
+    const session = createFakeSession();
+    sessions.push(session);
+    return session;
+  }));
+
+  await manager.getOrCreateSession({
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo-a"
+  });
+  await manager.getOrCreateSession({
+    conversationId: "conversation-1",
+    engineId: "codex",
+    workspacePath: "/repo-a"
+  });
+
+  await manager.closeAllSessions();
+
+  assert.equal(sessions.length, 2);
+  assert.deepEqual(sessions.map((session) => session.killCalls), [1, 1]);
+  assert.equal(manager.sessionsByKey.size, 0);
+  assert.equal(manager.runningByKey.size, 0);
+  assert.equal(manager.queuesByKey.size, 0);
+  assert.equal(manager.buildLocks.size, 0);
+});
+
 test("sendUserInput starts immediately when the session is idle", async () => {
   const session = createFakeSession();
   const manager = createAgentSessionManager(managerOptions(async () => session));

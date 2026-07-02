@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { createCoreBotExecution } = require("../src/core/mia-core.js");
+const { listAcpEngineSpecs } = require("../src/main/agent-session/index.js");
 const { createRuntimePaths } = require("../src/main/runtime-paths.js");
 
 // PART B proof: a bot turn with agentEngine = codex / claude-code / openclaw
@@ -22,6 +23,21 @@ const { createRuntimePaths } = require("../src/main/runtime-paths.js");
 // launch path through to the SDK (constructed + invoked), all node-only.
 
 const ENGINE_NOT_AVAILABLE = "engine not available in Mia Core yet";
+
+test("Task 7: all four bot conversation engines resolve to AgentSession ACP specs", () => {
+  const specs = listAcpEngineSpecs();
+
+  assert.deepEqual(
+    specs.map((spec) => spec.engineId),
+    ["claude", "codex", "hermes", "openclaw"]
+  );
+
+  for (const spec of specs) {
+    assert.equal(spec.transport, "acp");
+    assert.equal(spec.supportsNativeSession, true);
+    assert.equal(spec.supportsQueuedInput, true);
+  }
+});
 
 test("Task 6: Mia Core constructs the Core MCP service without the main wrapper", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "core", "mia-core.js"), "utf8");

@@ -159,6 +159,7 @@ function createBotExecutionCore({
   hermesRunService,
   sendWithChatEngineAdapter,
   createActiveChatEngineAdapters,
+  agentSessionManager = null,
   // Late-bound: constructed after this factory and takes `sendChat` as a dep.
   localBotResponder,
   isDaemonProcess,
@@ -179,6 +180,7 @@ function createBotExecutionCore({
   const getDaemonTasksClient = typeof daemonTasksClient === "function"
     ? daemonTasksClient
     : () => daemonTasksClient;
+  void agentSessionManager;
   const isDaemon = typeof isDaemonProcess === "function"
     ? isDaemonProcess
     : () => isDaemonProcess;

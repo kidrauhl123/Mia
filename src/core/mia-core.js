@@ -132,6 +132,7 @@ const { runCodexAppServerTurn } = require("../main/codex-app-server-runner.js");
 const { createLocalAgentEngineService } = require("../main/local-agent-engine-service.js");
 const { createAgentPermissionCoordinator } = require("../main/agent-permission-coordinator.js");
 const { createAgentSessionStore } = require("../main/agent-session-store.js");
+const { createAgentSessionManager } = require("../main/agent-session/index.js");
 const { createClaudeBridgePluginService } = require("../main/claude-bridge-plugin-service.js");
 const { createClaudeCodeMiaProxy } = require("../main/claude-code-mia-proxy.js");
 const { createCodexMiaProxy } = require("../main/codex-mia-proxy.js");
@@ -400,10 +401,12 @@ function createCoreBotExecution({
   // Test seam: override the Claude/Codex managed-model proxies so a shutdown test
   // can assert closeAgentEngines() stops their loopback servers.
   claudeCodeMiaProxy: injectedClaudeProxy = null,
-  codexMiaProxy: injectedCodexProxy = null
+  codexMiaProxy: injectedCodexProxy = null,
+  agentSessionManager: injectedAgentSessionManager = null
 } = {}) {
   const baseUrl = typeof hermesBaseUrl === "function" ? hermesBaseUrl : () => String(hermesBaseUrl || "");
   const apiKeyFn = typeof apiKey === "function" ? apiKey : () => String(apiKey || "");
+  const agentSessionManager = injectedAgentSessionManager || createAgentSessionManager();
 
   // Real bot manifest read-side: local fallback when a turn carries no cloud
   // snapshot. Core owns the same runtime home, so it reads the same manifest.
@@ -995,6 +998,7 @@ function createCoreBotExecution({
     hermesRunService,
     sendWithChatEngineAdapter,
     createActiveChatEngineAdapters,
+    agentSessionManager,
     // TODO(mia-core slice): wire the real local bot responder once Core owns
     // cloud-conversation handling; the stub keeps stopChat well-defined.
     localBotResponder: () => ({ stopActiveConversationRun: () => ({ stopped: false }) }),
@@ -1014,6 +1018,7 @@ function createCoreBotExecution({
   async function closeAgentEngines() {
     try { if (userMcpBridge && typeof userMcpBridge.stop === "function") await userMcpBridge.stop(); } catch { /* already closed */ }
     try { if (userMcpManager && typeof userMcpManager.stopAll === "function") await userMcpManager.stopAll(); } catch { /* best effort */ }
+    try { if (agentSessionManager && typeof agentSessionManager.closeAllSessions === "function") await agentSessionManager.closeAllSessions(); } catch { /* best effort */ }
     // Close the Claude/Codex managed-model proxy loopback HTTP servers a turn may
     // have opened (createSession). Mirrors main.js quit (src/main.js:3027-3028).
     try { if (claudeCodeMiaProxy && typeof claudeCodeMiaProxy.stop === "function") await claudeCodeMiaProxy.stop(); } catch { /* best effort */ }
@@ -1048,7 +1053,8 @@ function createCoreCloudRouting({
   timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs),
   emitLocalEvent = () => {},
   deviceId = "",
-  log = () => {}
+  log = () => {},
+  agentSessionManager = null
 } = {}) {
   if (!botExecution || typeof botExecution.sendChat !== "function") {
     throw new Error("createCoreCloudRouting requires a botExecution with sendChat");
@@ -1081,7 +1087,8 @@ function createCoreCloudRouting({
     // sink; a no-op/collector is fine until the local-events fan-out lands.
     emitCloudEvent: (message) => emitLocalEvent({ type: message.type, payload: message }),
     log,
-    artifactWorkspaceDir: artifactWorkspaceDir || (() => runtimePaths?.().workspace)
+    artifactWorkspaceDir: artifactWorkspaceDir || (() => runtimePaths?.().workspace),
+    agentSessionManager
   });
 
   function stopChat(payload = {}) {
@@ -2127,6 +2134,7 @@ function createMiaCore(options = {}) {
   }
 
   let cachedBotExecution = null;
+  const agentSessionManager = createAgentSessionManager();
   function botExecution(overrides = {}) {
     if (cachedBotExecution && !Object.keys(overrides).length) return cachedBotExecution;
     const built = createCoreBotExecution({
@@ -2152,6 +2160,7 @@ function createMiaCore(options = {}) {
       daemonStatus: () => controlServer.status?.() || {},
       daemonSettings: () => settingsStore.daemonSettings(),
       daemonToken,
+      agentSessionManager,
       ...overrides
     });
     if (!Object.keys(overrides).length) cachedBotExecution = built;
@@ -2175,6 +2184,7 @@ function createMiaCore(options = {}) {
       emitLocalEvent: (envelope) => controlServer.publishLocalEvent?.(envelope),
       deviceId: coreDeviceId,
       log: () => {},
+      agentSessionManager,
       ...overrides
     });
     if (!Object.keys(overrides).length) cachedCloudRouting = built;

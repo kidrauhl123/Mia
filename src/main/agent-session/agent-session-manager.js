@@ -129,6 +129,27 @@ class AgentSessionManager extends EventEmitter {
 
   async closeSession(descriptor = {}) {
     const sessionKey = this.createSessionKey(descriptor);
+    return this.closeSessionByKey(sessionKey);
+  }
+
+  async closeAllSessions() {
+    const sessionKeys = new Set([
+      ...this.sessionsByKey.keys(),
+      ...this.buildLocks.keys(),
+      ...this.runningByKey.keys(),
+      ...this.queuesByKey.keys()
+    ]);
+
+    await Promise.allSettled(
+      Array.from(sessionKeys, (sessionKey) => this.closeSessionByKey(sessionKey))
+    );
+  }
+
+  async closeAll() {
+    return this.closeAllSessions();
+  }
+
+  async closeSessionByKey(sessionKey) {
     let session = this.sessionsByKey.get(sessionKey);
     if (!session && this.buildLocks.has(sessionKey)) {
       session = await this.buildLocks.get(sessionKey);

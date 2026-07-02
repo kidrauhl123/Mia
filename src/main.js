@@ -130,6 +130,7 @@ const { createLaunchdService } = require("./main/launchd-service.js");
 const { createEnginePluginsService } = require("./main/engine-plugins-service.js");
 const { createLocalAgentEngineService } = require("./main/local-agent-engine-service.js");
 const { createAgentSessionStore } = require("./main/agent-session-store.js");
+const { createAgentSessionManager } = require("./main/agent-session/index.js");
 const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
 const { createAgentPermissionProxy } = require("./main/agent-permission-proxy.js");
 const {
@@ -2445,6 +2446,7 @@ const { botWithRuntimeConfig, cloudBotSnapshotForTurn } = createBotTurnHelpers({
   normalizeAgentEngine,
   enginePermissionStoreTarget
 });
+const agentSessionManager = createAgentSessionManager();
 
 // Single shared bot-execution core: `sendChat`/`stopChat` (and the single-flight
 // abort state) live in src/main/bot-execution-core.js so the standalone Mia Core
@@ -2467,6 +2469,7 @@ const botExecutionCore = createBotExecutionCore({
   hermesRunService,
   sendWithChatEngineAdapter,
   createActiveChatEngineAdapters,
+  agentSessionManager,
   localBotResponder: () => localBotResponder,
   isDaemonProcess: IS_DAEMON_PROCESS,
   daemonTasksClient: () => miaCoreTasksClient,
@@ -2931,7 +2934,8 @@ const localBotResponder = createLocalBotResponder({
     if (IS_DAEMON_PROCESS) miaCoreControlServer?.publishLocalEvent?.(envelope);
   },
   log: (line) => appendCloudLog(line),
-  artifactWorkspaceDir: agentWorkspaceDir
+  artifactWorkspaceDir: agentWorkspaceDir,
+  agentSessionManager
 });
 async function shouldHandleCloudConversationAi() {
   const daemonSettings = settingsStore.daemonSettings();
@@ -3258,6 +3262,7 @@ app.on("before-quit", () => {
   closeOpenClawAcpRuntimes();
   closeManagedClaudeProxySessions();
   closeManagedCodexProxySessions();
+  agentSessionManager.closeAllSessions().catch((error) => appendEngineLog(`AgentSession cleanup failed: ${error?.message || error}`));
   claudeCodeMiaProxy.stop().catch((error) => appendEngineLog(`Claude Code Mia proxy stop failed: ${error?.message || error}`));
   codexMiaProxy.stop().catch((error) => appendEngineLog(`Codex Mia proxy stop failed: ${error?.message || error}`));
 });
