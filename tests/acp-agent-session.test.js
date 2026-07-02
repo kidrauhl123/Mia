@@ -3,7 +3,8 @@ const assert = require("node:assert/strict");
 
 const {
   AcpAgentSession,
-  createAcpAgentSession
+  createAcpAgentSession,
+  createPermissionFallback
 } = require("../src/main/agent-session/acp-agent-session.js");
 const {
   normalizeAcpSessionUpdate
@@ -50,7 +51,7 @@ function createSession(options = {}) {
     conversationId: options.conversationId || "conversation-1",
     engineId: options.engineId || "codex",
     createTransport: async () => state.transport,
-    createClient: async ({ onSessionUpdate }) => ({
+    createClient: options.createClient || (async ({ onSessionUpdate, onPermissionRequest }) => ({
       async initialize(params) {
         state.initializeCalls.push(params);
         return { protocolVersion: 1 };
@@ -69,7 +70,7 @@ function createSession(options = {}) {
       async cancel(params) {
         state.cancelCalls.push(params);
       }
-    })
+    }))
   });
 
   return { session, state, deferredPrompt };
@@ -264,6 +265,125 @@ test("cancel sends an ACP cancel request while the prompt is in flight", async (
 
   deferredPrompt.resolve({ stopReason: "cancelled" });
   await assert.rejects(sendPromise, /cancelled/i);
+});
+
+test("createPermissionFallback prefers reject_once over reject_always", () => {
+  const result = createPermissionFallback({
+    options: [
+      { optionId: "allow", kind: "allow_once" },
+      { optionId: "reject-always", kind: "reject_always" },
+      { optionId: "reject-once", kind: "reject_once" }
+    ]
+  });
+
+  assert.deepEqual(result, {
+    outcome: { outcome: "selected", optionId: "reject-once" }
+  });
+});
+
+test("permission requests after cancel return cancelled for the active prompt", async () => {
+  let permissionHandler;
+  const { session } = createSession({
+    createClient: async ({ onSessionUpdate, onPermissionRequest }) => {
+      permissionHandler = onPermissionRequest;
+      return {
+        async initialize() {
+          return { protocolVersion: 1 };
+        },
+        async newSession() {
+          return { sessionId: "acp-session-1" };
+        },
+        async prompt() {
+          return new Promise(() => {});
+        },
+        async cancel() {}
+      };
+    }
+  });
+
+  const sendPromise = session.sendUserInput({
+    turnId: "turn-1",
+    text: "hello ACP"
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  await session.cancel();
+
+  assert.deepEqual(
+    await permissionHandler({
+      options: [
+        { optionId: "reject-always", kind: "reject_always" },
+        { optionId: "reject-once", kind: "reject_once" }
+      ]
+    }),
+    { outcome: { outcome: "cancelled" } }
+  );
+
+  void sendPromise;
+});
+
+test("a new prompt clears cancelled permission state", async () => {
+  const firstPrompt = createDeferred();
+  const secondPrompt = createDeferred();
+  const promptQueue = [firstPrompt, secondPrompt];
+  let permissionHandler;
+  const { session } = createSession({
+    deferredPrompt: promptQueue[0],
+    createClient: async ({ onSessionUpdate, onPermissionRequest }) => {
+      permissionHandler = onPermissionRequest;
+      return {
+        async initialize() {
+          return { protocolVersion: 1 };
+        },
+        async newSession() {
+          return { sessionId: "acp-session-1" };
+        },
+        async prompt() {
+          return promptQueue.shift().promise;
+        },
+        async cancel() {}
+      };
+    }
+  });
+
+  const firstSend = session.sendUserInput({
+    turnId: "turn-1",
+    text: "first"
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await session.cancel();
+
+  assert.deepEqual(
+    await permissionHandler({
+      options: [
+        { optionId: "reject-always", kind: "reject_always" },
+        { optionId: "reject-once", kind: "reject_once" }
+      ]
+    }),
+    { outcome: { outcome: "cancelled" } }
+  );
+
+  firstPrompt.resolve({ stopReason: "cancelled" });
+  await assert.rejects(firstSend, /cancelled/i);
+
+  const secondSend = session.sendUserInput({
+    turnId: "turn-2",
+    text: "second"
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(
+    await permissionHandler({
+      options: [
+        { optionId: "reject-always", kind: "reject_always" },
+        { optionId: "reject-once", kind: "reject_once" }
+      ]
+    }),
+    { outcome: { outcome: "selected", optionId: "reject-once" } }
+  );
+
+  secondPrompt.resolve({ stopReason: "end_turn" });
+  await secondSend;
 });
 
 test("kill closes the transport and emits session-closed once", async () => {

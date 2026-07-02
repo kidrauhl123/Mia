@@ -27,9 +27,16 @@ function promptCancelledError() {
 
 function createPermissionFallback(params = {}) {
   const options = Array.isArray(params.options) ? params.options : [];
-  const reject = options.find((option) => String(option?.kind || "").includes("reject"));
-  if (reject?.optionId) {
-    return { outcome: { outcome: "selected", optionId: reject.optionId } };
+  const rejectOnce = options.find((option) => String(option?.kind || "") === "reject_once");
+  if (rejectOnce?.optionId) {
+    return { outcome: { outcome: "selected", optionId: rejectOnce.optionId } };
+  }
+  const transientReject = options.find((option) => {
+    const kind = String(option?.kind || "");
+    return kind.includes("reject") && kind !== "reject_always";
+  });
+  if (transientReject?.optionId) {
+    return { outcome: { outcome: "selected", optionId: transientReject.optionId } };
   }
   return { outcome: { outcome: "cancelled" } };
 }
@@ -169,7 +176,7 @@ class AcpAgentSession extends EventEmitter {
     }
 
     this.toolTitles.clear();
-    this.activePrompt = { turnId };
+    this.activePrompt = { turnId, cancelled: false };
     this.emit("message-started", buildBaseEvent(this, turnId ? { turnId } : {}));
 
     try {
@@ -202,6 +209,7 @@ class AcpAgentSession extends EventEmitter {
     if (!this.client || !this.acpSessionId || !this.activePrompt) {
       return false;
     }
+    this.activePrompt.cancelled = true;
     await this.client.cancel({ sessionId: this.acpSessionId });
     return true;
   }
@@ -231,6 +239,9 @@ class AcpAgentSession extends EventEmitter {
       ...(this.activePrompt?.turnId ? { turnId: this.activePrompt.turnId } : {}),
       request: params
     }));
+    if (this.activePrompt?.cancelled) {
+      return { outcome: { outcome: "cancelled" } };
+    }
     return createPermissionFallback(params);
   }
 }
