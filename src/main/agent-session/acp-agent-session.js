@@ -4,6 +4,7 @@ const { Readable, Writable } = require("node:stream");
 
 const { assertKnownAgentEngine } = require("./agent-session-contract.js");
 const { normalizeAcpSessionUpdate } = require("./acp-event-normalizer.js");
+const { spawnAcpEngineProcess } = require("./acp-engine-specs.js");
 const { prepareNativeTurnInput } = require("./native-input-policy.js");
 
 async function importAcpSdk() {
@@ -44,13 +45,17 @@ function createPermissionFallback(params = {}) {
 
 async function defaultCreateTransport(options = {}) {
   const sdk = await importAcpSdk();
-  const child = (options.spawnProcess || spawn)(
-    options.engineSpec?.command || "",
-    Array.isArray(options.engineSpec?.args) ? options.engineSpec.args : [],
+  const child = spawnAcpEngineProcess(
+    options.spawnProcess || spawn,
+    options.engineSpec || {},
     {
       cwd: options.workspacePath || process.cwd(),
       env: { ...process.env, ...(options.env || {}) },
       stdio: ["pipe", "pipe", "inherit"]
+    },
+    {
+      platform: options.platform,
+      nodePath: options.nodePath
     }
   );
   if (!child?.stdin || !child?.stdout) {

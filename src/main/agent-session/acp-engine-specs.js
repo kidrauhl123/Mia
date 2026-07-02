@@ -85,6 +85,17 @@ function spawnOpenClaw(spawn, file, args, options = {}, runtimeOptions = {}) {
   return spawnExecutable(spawn, spec.file, spec.args, childProcessOptions(options, platform), { platform });
 }
 
+function spawnAcpEngineProcess(spawn, engineSpec = {}, options = {}, runtimeOptions = {}) {
+  const spec = engineSpec && typeof engineSpec === "object" ? engineSpec : {};
+  const command = String(spec.command || "").trim();
+  const args = Array.isArray(spec.args) ? spec.args : [];
+  if (spec.engineId === "openclaw") {
+    return spawnOpenClaw(spawn, command, args, options, runtimeOptions);
+  }
+  const platform = runtimeOptions.platform || process.platform;
+  return spawnExecutable(spawn, command, args, childProcessOptions(options, platform), { platform });
+}
+
 function buildAcpEngineSpecs(options = {}) {
   const openClawArgs = typeof options.buildOpenClawAcpArgs === "function"
     ? options.buildOpenClawAcpArgs
@@ -149,5 +160,6 @@ module.exports = Object.freeze({
   execFileAsync,
   getAcpEngineSpec,
   openClawCommandSpec,
+  spawnAcpEngineProcess,
   spawnOpenClaw
 });

@@ -184,30 +184,30 @@ test("openclaw adapter uses local slash commands before ACP backend send", async
   assert.deepEqual(deps.calls, [["external-slash", "openclaw", "/help"]]);
 });
 
-test("openclaw adapter falls through to ACP backend send when slash is not local", async () => {
+test("openclaw adapter rejects the retired direct bot chat path when slash is not local", async () => {
   const deps = createDeps({ externalSlashResult: null });
   const adapters = createChatEngineAdapters(deps);
-  const response = await adapters.openclaw.send({
-    bot,
-    sessionId: "s-openclaw",
-    slashText: "/unknown"
-  });
 
-  assert.deepEqual(response, { engine: "openclaw" });
+  await assert.rejects(
+    () => adapters.openclaw.send({
+      bot,
+      sessionId: "s-openclaw",
+      slashText: "/unknown"
+    }),
+    /AgentSession ACP/
+  );
   assert.deepEqual(deps.calls, [
-    ["external-slash", "openclaw", "/unknown"],
-    ["send-openclaw", "s-openclaw"]
+    ["external-slash", "openclaw", "/unknown"]
   ]);
 });
 
-test("openclaw adapter fails explicitly when chat integration is not provided", async () => {
+test("openclaw adapter fails closed even if a legacy direct chat dependency is provided", async () => {
   const deps = createDeps();
-  delete deps.sendOpenClawChat;
   const adapters = createChatEngineAdapters(deps);
 
   await assert.rejects(
     () => adapters.openclaw.send({ bot, sessionId: "s-openclaw", slashText: "" }),
-    /OpenClaw .*聊天适配器/
+    /AgentSession ACP/
   );
   assert.deepEqual(deps.calls, []);
 });

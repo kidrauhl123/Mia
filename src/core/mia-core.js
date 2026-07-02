@@ -117,16 +117,15 @@ const { createChatAttachments } = require("../main/chat-attachments.js");
 const { createSchedulerMcpBridge } = require("../main/scheduler-mcp-bridge.js");
 const { createMiaAppMcpBridge } = require("../main/mia-app-mcp-bridge.js");
 
-// PART B — active Codex / Claude Code / OpenClaw engines in Core. The 4 adapter
+// PART B — active Codex / Claude Code engines in Core. The adapter
 // MODULES + every dependency service below are pure node (0 electron requires —
 // verified): external CLIs (claude/codex/openclaw) are resolved from PATH, never
-// packaged (per AGENTS.md). Core constructs the SAME adapters main.js drives
-// (src/main.js createActiveCodexChatAdapter / createActiveClaudeCodeChatAdapter /
-// createActiveOpenClawChatAdapter — no fork), with node values for the few deps
+// packaged (per AGENTS.md). Core constructs the SAME direct adapters main.js drives
+// (src/main.js createActiveCodexChatAdapter / createActiveClaudeCodeChatAdapter —
+// no fork), with node values for the few deps
 // main.js sources from electron-coupled collaborators.
 const { createClaudeCodeChatAdapter } = require("../main/claude-code-chat-adapter.js");
 const { createCodexChatAdapter } = require("../main/codex-chat-adapter.js");
-const { createOpenClawChatAdapter } = require("../main/openclaw-chat-adapter.js");
 const { runCodexAppServerTurn } = require("../main/codex-app-server-runner.js");
 const { createLocalAgentEngineService } = require("../main/local-agent-engine-service.js");
 const { createAgentPermissionCoordinator } = require("../main/agent-permission-coordinator.js");
@@ -627,10 +626,10 @@ function createCoreBotExecution({
   };
 
   // ====================================================================
-  // PART B — active Codex / Claude Code / OpenClaw engines (all pure node).
+  // PART B — active Codex / Claude Code direct engines (all pure node).
   // Core constructs the SAME adapters main.js drives (createActiveCodexChatAdapter
-  // / createActiveClaudeCodeChatAdapter / createActiveOpenClawChatAdapter — no
-  // fork), substituting node values for the few deps main.js sources from
+  // / createActiveClaudeCodeChatAdapter — no fork), substituting node values for
+  // the few deps main.js sources from
   // electron-coupled collaborators. The external CLIs (claude/codex/openclaw) are
   // resolved from PATH via localAgentEngineService.shellCommandPath (per AGENTS.md:
   // engines are never packaged). Every dependency below is node-constructible
@@ -808,37 +807,9 @@ function createCoreBotExecution({
     return cachedCodexAdapter;
   }
 
-  let cachedOpenClawAdapter = null;
-  function activeOpenClawAdapter() {
-    if (!cachedOpenClawAdapter) {
-      cachedOpenClawAdapter = createOpenClawChatAdapter({
-        chatCompletionResponse,
-        cwd: agentWorkspaceDir,
-        appendEngineLog: () => {},
-        enginePermissionMode,
-        ensureUserMcpReady,
-        expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-        getAgentSessionId: agentSessionStore.getId,
-        getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-        getMcpFingerprint: userMcpService.fingerprint,
-        getUserMcpServers: (options) => userMcpService.getEngineSpecs("openclaw", options),
-        injectGroupContextForSdk: (userMessage) => userMessage,
-        currentUserPrompt: nativeTurnHelpers.currentUserPrompt,
-        normalizeEffortLevel,
-        permissionCoordinator: agentPermissionCoordinator,
-        processEnvStrings,
-        readBotPersona,
-        resolveManagedModelRuntime,
-        setAgentSessionId: agentSessionStore.setId,
-        shellCommandPath: localAgentEngineService.shellCommandPath,
-        syncNativeMemoryFiles: syncNativeMemoryFilesForAgent
-      });
-    }
-    return cachedOpenClawAdapter;
-  }
-
-  // REAL adapter graph: Codex + Claude Code + OpenClaw route through their real
+  // REAL adapter graph: Codex + Claude Code route through their real direct
   // adapters; Hermes direct desktop chat has been retired in favour of
+  // AgentSession ACP turns, and OpenClaw bot chat uses AgentSession ACP too.
   // AgentSession ACP turns.
   function createActiveChatEngineAdapters() {
     return createChatEngineAdapters({
@@ -848,8 +819,7 @@ function createCoreBotExecution({
       // External agent slash commands aren't wired in Core yet (no
       // externalAgentCommandService); a slash command on a non-Hermes engine is
       // rare and surfaces the same "not available" — the CHAT path below is real.
-      runExternalSlashCommand: engineUnavailable,
-      sendOpenClawChat: activeOpenClawAdapter().sendChat
+      runExternalSlashCommand: engineUnavailable
     });
   }
 

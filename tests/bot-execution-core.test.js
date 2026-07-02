@@ -120,7 +120,8 @@ test("sendChat routes interactive AgentSession turns through the session manager
 
 for (const [inputEngineId, expectedEngineId] of [
   ["claude-code", "claude"],
-  ["codex", "codex"]
+  ["codex", "codex"],
+  ["openclaw", "openclaw"]
 ]) {
   test(`sendChat routes interactive ${inputEngineId} turns through AgentSession ACP`, async () => {
     const { core, calls } = makeCore({

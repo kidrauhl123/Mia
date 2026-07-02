@@ -4,7 +4,8 @@ const assert = require("node:assert/strict");
 const {
   AcpAgentSession,
   createAcpAgentSession,
-  createPermissionFallback
+  createPermissionFallback,
+  defaultCreateTransport
 } = require("../src/main/agent-session/acp-agent-session.js");
 const {
   normalizeAcpSessionUpdate
@@ -592,4 +593,51 @@ test("normalizeAcpSessionUpdate maps ACP updates into AgentSession event kinds",
       }
     }]
   );
+});
+
+test("defaultCreateTransport uses the shared OpenClaw ACP launcher for shimmed commands", async () => {
+  const tempDir = require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "acp-openclaw-"));
+  try {
+    const shimPath = require("node:path").join(tempDir, "openclaw.cmd");
+    const scriptPath = require("node:path").join(tempDir, "node_modules", "openclaw", "openclaw.mjs");
+    require("node:fs").mkdirSync(require("node:path").dirname(scriptPath), { recursive: true });
+    require("node:fs").writeFileSync(scriptPath, "export default {};", "utf8");
+
+    const spawnCalls = [];
+    const child = createFakeTransport().process;
+    child.stdin = new (require("node:stream").PassThrough)();
+    child.stdout = new (require("node:stream").PassThrough)();
+    child.kill = () => {};
+
+    const transport = await defaultCreateTransport({
+      engineSpec: {
+        engineId: "openclaw",
+        command: shimPath,
+        args: ["acp", "--no-prefix-cwd"]
+      },
+      workspacePath: "/repo",
+      env: { PATH: "/bin" },
+      platform: "win32",
+      nodePath: "/custom/node",
+      spawnProcess: (file, args, options) => {
+        spawnCalls.push({ file, args, options });
+        return child;
+      }
+    });
+
+    assert.deepEqual(spawnCalls[0], {
+      file: "/custom/node",
+      args: [scriptPath, "acp", "--no-prefix-cwd"],
+      options: {
+        cwd: "/repo",
+        env: { ...process.env, PATH: "/bin" },
+        stdio: ["pipe", "pipe", "inherit"],
+        windowsHide: true
+      }
+    });
+    await transport.close();
+    await transport.kill();
+  } finally {
+    require("node:fs").rmSync(tempDir, { recursive: true, force: true });
+  }
 });

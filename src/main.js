@@ -48,7 +48,7 @@ const {
 const { syncCodexConfigForPermission } = require("./main/codex-config-sync.js");
 const {
   closeOpenClawAcpRuntimes,
-  createOpenClawChatAdapter
+  createOpenClawStatelessAdapter
 } = require("./main/openclaw-chat-adapter.js");
 const { createNativeTurnHelpers } = require("./main/native-turn-helpers.js");
 const { normalizeTurnRuntimeConfig } = require("./main/runtime-config-normalizer.js");
@@ -2228,7 +2228,7 @@ async function restartEngineIfRunning() {
 function createActiveStatelessChatEngineAdapters() {
   const claudeAdapter = createActiveClaudeCodeChatAdapter();
   const codexAdapter = createActiveCodexChatAdapter();
-  const openClawAdapter = createActiveOpenClawChatAdapter();
+  const openClawAdapter = createActiveOpenClawStatelessAdapter();
   return createStatelessChatEngineAdapters({
     sendClaudeCodeStateless: claudeAdapter.sendStateless,
     sendCodexStateless: codexAdapter.sendStateless,
@@ -2337,8 +2337,8 @@ function createActiveCodexChatAdapter() {
   });
 }
 
-function createActiveOpenClawChatAdapter() {
-  return createOpenClawChatAdapter({
+function createActiveOpenClawStatelessAdapter() {
+  return createOpenClawStatelessAdapter({
     chatCompletionResponse,
     cwd: agentWorkspaceDir,
     appendEngineLog,
@@ -2364,13 +2364,11 @@ function createActiveOpenClawChatAdapter() {
 }
 
 function createActiveChatEngineAdapters() {
-  const openClawAdapter = createActiveOpenClawChatAdapter();
   return createChatEngineAdapters({
     chatCompletionResponse,
     ensureHermesReady: ensureHermesChatEngineReady,
     runExternalSlashCommand: (input) => externalAgentCommandService.runSlashCommand(input),
-    runHermesSlashCommand: hermesSlashCommandService.run,
-    sendOpenClawChat: openClawAdapter.sendChat
+    runHermesSlashCommand: hermesSlashCommandService.run
   });
 }
 

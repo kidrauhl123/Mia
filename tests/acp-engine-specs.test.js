@@ -9,6 +9,7 @@ const {
   execFileAsync,
   getAcpEngineSpec,
   openClawCommandSpec,
+  spawnAcpEngineProcess,
   spawnOpenClaw
 } = require("../src/main/agent-session/acp-engine-specs.js");
 
@@ -128,6 +129,42 @@ test("execFileAsync and spawnOpenClaw use the shared OpenClaw command resolution
       file: "/custom/node",
       args: [scriptPath, "acp"],
       options: { windowsHide: true }
+    });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("spawnAcpEngineProcess routes OpenClaw specs through the shared shim-aware launcher", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "acp-engine-specs-"));
+  try {
+    const shimPath = path.join(tempDir, "openclaw.cmd");
+    const scriptPath = path.join(tempDir, "node_modules", "openclaw", "openclaw.mjs");
+    fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+    fs.writeFileSync(scriptPath, "export default {};", "utf8");
+
+    const spawnCalls = [];
+    spawnAcpEngineProcess((file, args, options) => {
+      spawnCalls.push({ file, args, options });
+      return {};
+    }, {
+      engineId: "openclaw",
+      command: shimPath,
+      args: ["acp", "--no-prefix-cwd"]
+    }, {
+      stdio: ["pipe", "pipe", "inherit"]
+    }, {
+      platform: "win32",
+      nodePath: "/custom/node"
+    });
+
+    assert.deepEqual(spawnCalls[0], {
+      file: "/custom/node",
+      args: [scriptPath, "acp", "--no-prefix-cwd"],
+      options: {
+        stdio: ["pipe", "pipe", "inherit"],
+        windowsHide: true
+      }
     });
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });

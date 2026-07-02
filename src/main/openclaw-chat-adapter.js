@@ -1824,13 +1824,10 @@ function createOpenClawChatAdapter(deps = {}) {
     return { content: result.content };
   }
 
-  return { sendChat, sendStateless };
+  return { sendStateless };
 }
 
 module.exports = {
-  acpPermissionFallback,
-  buildOpenClawAcpArgs,
-  buildOpenClawGlobalArgs,
   closeOpenClawAcpRuntimes,
-  createOpenClawChatAdapter
+  createOpenClawStatelessAdapter: createOpenClawChatAdapter
 };

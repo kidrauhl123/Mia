@@ -109,8 +109,7 @@ function createChatEngineAdapters(deps = {}) {
             });
           }
         }
-        if (typeof deps.sendOpenClawChat === "function") return deps.sendOpenClawChat(context);
-        throw new Error("OpenClaw 已保存为运行目标，但当前版本还没有接入 OpenClaw 聊天适配器。");
+        throw new Error("OpenClaw bot chat now runs through AgentSession ACP. This legacy direct prompt execution path has been removed.");
       }
     },
     hermes: {
