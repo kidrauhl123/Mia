@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { createHermesWorkerManager } = require("../src/cloud-agent/hermes-worker-manager.js");
+const { normalizeCloudHermesModel } = require("../src/cloud-agent/cloud-hermes-model.js");
 const { createHermesRunsClient } = require("../src/cloud-agent/hermes-runs-client.js");
 const { verifyUserModelProxyToken } = require("../src/cloud/model-proxy-auth.js");
 
@@ -72,6 +73,35 @@ test("worker manager writes platform LiteLLM config per user", () => {
   assert.equal(manager.envForUser("user_a").MIA_CLOUD_AGENT_MODEL_API_KEY, "sk-litellm");
 });
 
+test("static worker mode derives gateway websocket url from base url", async () => {
+  const manager = createHermesWorkerManager({
+    rootDir: "/tmp/mia-agents",
+    mode: "static",
+    staticBaseUrl: "http://127.0.0.1:9999"
+  });
+
+  const worker = await manager.ensureWorker("user_a");
+
+  assert.equal(worker.baseUrl, "http://127.0.0.1:9999");
+  assert.equal(worker.gatewayWsUrl, "ws://127.0.0.1:9999/api/ws?token=mia-cloud");
+  assert.equal(worker.model, "mia-auto");
+  assert.equal(worker.modelProvider, "mia-litellm");
+  assert.equal(worker.modelApiMode, "chat_completions");
+});
+
+test("static worker mode honors explicit gateway websocket url", async () => {
+  const manager = createHermesWorkerManager({
+    rootDir: "/tmp/mia-agents",
+    mode: "static",
+    staticBaseUrl: "http://127.0.0.1:9999",
+    gatewayWsUrl: "wss://gateway.example/api/ws?token=override"
+  });
+
+  const worker = await manager.ensureWorker("user_a");
+
+  assert.equal(worker.gatewayWsUrl, "wss://gateway.example/api/ws?token=override");
+});
+
 test("worker manager can route user workers through Mia internal billing proxy", () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agents-"));
   const manager = createHermesWorkerManager({
@@ -103,6 +133,40 @@ test("worker manager can route user workers through Mia internal billing proxy",
   assert.equal(verifyUserModelProxyToken("internal-secret", tokenB), "user_b");
   const taskToken = config.match(/MIA_CLOUD_TASKS_TOKEN: "([^"]+)"/)?.[1] || "";
   assert.equal(verifyUserModelProxyToken("internal-secret", taskToken), "user_a");
+});
+
+test("worker manager writes Mia internal model proxy config and gateway shim", () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agents-"));
+  const manager = createHermesWorkerManager({
+    rootDir,
+    mode: "static",
+    staticBaseUrl: "http://127.0.0.1:9999",
+    publicUrl: "https://mia.example",
+    internalModelProxyKey: "internal-secret"
+  });
+
+  const paths = manager.ensureUserDirs("user_a");
+  const config = fs.readFileSync(path.join(paths.hermesHome, "config.yaml"), "utf8");
+  const shim = fs.readFileSync(path.join(paths.hermesHome, "mia-hermes-gateway-server.py"), "utf8");
+
+  assert.match(config, /provider: "mia"/);
+  assert.match(config, /default: "mia-auto"/);
+  assert.match(config, /api_mode: "chat_completions"/);
+  assert.match(shim, /transport": "tui_gateway"/);
+  assert.match(shim, /@app\.get\("\/health"\)/);
+  assert.match(shim, /@app\.websocket\("\/api\/ws"\)/);
+  assert.match(shim, /MIA_HERMES_GATEWAY_TOKEN/);
+  assert.match(shim, /Authorization/);
+  assert.match(shim, /tui_gateway\.ws\.handle_ws/);
+});
+
+test("normalizeCloudHermesModel preserves mia-auto and maps legacy aliases to fallback", () => {
+  const aliases = ["", "auto", "default", "hermes", "mia", "mia:auto", "mia-default", "mia:mia-default"];
+
+  assert.equal(normalizeCloudHermesModel("mia-auto", { defaultModel: "mia-auto" }), "mia-auto");
+  for (const input of aliases) {
+    assert.equal(normalizeCloudHermesModel(input, { defaultModel: "mia-auto" }), "mia-auto");
+  }
 });
 
 test("Hermes runs client sends Bot headers and returns final text", async () => {
@@ -277,6 +341,10 @@ test("docker worker mode starts one isolated container per user", async () => {
   const worker = await manager.ensureWorker("user_a");
 
   assert.equal(worker.baseUrl, "http://127.0.0.1:49152");
+  assert.equal(worker.gatewayWsUrl, "ws://127.0.0.1:49152/api/ws?token=mia-cloud");
+  assert.equal(worker.model, "mia-auto");
+  assert.equal(worker.modelProvider, "mia-litellm");
+  assert.equal(worker.modelApiMode, "chat_completions");
   const runCall = execCalls.find((call) => call.args[0] === "run");
   assert.ok(runCall, "docker run should be called when container is missing");
   assert.ok(runCall.args.includes("--network"));
@@ -294,6 +362,8 @@ test("docker worker mode starts one isolated container per user", async () => {
   assert.ok(runCall.args.includes("API_SERVER_PORT=8765"));
   assert.ok(runCall.args.includes("API_SERVER_KEY=mia-cloud"));
   assert.ok(runCall.args.includes("MIA_CLOUD_AGENT_MODEL_API_KEY=sk-litellm"));
+  assert.equal(runCall.args[runCall.args.indexOf("mia/hermes-cloud:test") + 1], "python");
+  assert.equal(runCall.args[runCall.args.indexOf("mia/hermes-cloud:test") + 2], "/data/hermes-home/mia-hermes-gateway-server.py");
   assert.equal(runCall.args.some((arg) => String(arg).includes("docker.sock")), false);
 });
 

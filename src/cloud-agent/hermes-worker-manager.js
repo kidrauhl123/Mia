@@ -32,11 +32,64 @@ function cleanBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
+function gatewayWsUrlForBaseUrl(baseUrl, apiKey, wsPath = "/api/ws") {
+  const cleanedBaseUrl = cleanBaseUrl(baseUrl);
+  if (!cleanedBaseUrl) return "";
+  const url = new URL(cleanedBaseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = wsPath;
+  url.search = "";
+  if (apiKey) url.searchParams.set("token", apiKey);
+  return url.toString();
+}
+
+function renderHermesGatewayShim() {
+  return `from typing import Optional
+from fastapi import FastAPI, Header, WebSocket, WebSocketException, status
+import tui_gateway
+import os
+
+app = FastAPI()
+
+
+def _expected_token():
+    return (os.environ.get("MIA_HERMES_GATEWAY_TOKEN") or os.environ.get("API_SERVER_KEY") or "").strip()
+
+
+def _extract_token(websocket: WebSocket, authorization: Optional[str] = None):
+    token = (websocket.query_params.get("token") or "").strip()
+    if token:
+        return token
+    bearer = (authorization or "").strip()
+    if bearer.lower().startswith("bearer "):
+        return bearer[7:].strip()
+    return ""
+
+
+def _ensure_authorized(token: str):
+    expected = _expected_token()
+    if expected and token != expected:
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+
+
+@app.get("/health")
+async def health():
+    return {"ok": True, "transport": "tui_gateway"}
+
+
+@app.websocket("/api/ws")
+async def handle_ws(websocket: WebSocket, authorization: Optional[str] = Header(default=None, alias="Authorization")):
+    _ensure_authorized(_extract_token(websocket, authorization))
+    await tui_gateway.ws.handle_ws(websocket)
+`;
+}
+
 function createHermesWorkerManager(options = {}) {
   const rootDir = path.resolve(options.rootDir || process.env.MIA_CLOUD_AGENT_ROOT || "/var/lib/mia-cloud-agent-users");
   const mode = options.mode || process.env.MIA_CLOUD_AGENT_MODE || "disabled";
   const staticBaseUrl = options.staticBaseUrl || process.env.MIA_CLOUD_HERMES_BASE_URL || "";
   const apiKey = options.apiKey || process.env.MIA_CLOUD_HERMES_API_KEY || "mia-cloud";
+  const gatewayWsUrl = String(options.gatewayWsUrl || process.env.MIA_CLOUD_HERMES_GATEWAY_WS_URL || "").trim();
   const image = options.image || process.env.MIA_CLOUD_HERMES_IMAGE || "";
   const dockerNetwork = String(options.dockerNetwork || process.env.MIA_CLOUD_AGENT_DOCKER_NETWORK || "bridge").trim() || "bridge";
   const dockerBin = options.dockerBin || process.env.MIA_DOCKER_BIN || "docker";
@@ -185,19 +238,35 @@ function createHermesWorkerManager(options = {}) {
     atomicWriteFile(path.join(paths.hermesHome, "config.yaml"), renderHermesConfig(paths.userId), 0o600);
   }
 
+  function writeGatewayShim(paths) {
+    atomicWriteFile(path.join(paths.hermesHome, "mia-hermes-gateway-server.py"), renderHermesGatewayShim(), 0o600);
+  }
+
   function ensureUserDirs(userId) {
     const paths = pathsForUser(userId);
     for (const dir of [paths.root, paths.hermesHome, paths.home, paths.workspace, paths.attachments, paths.logs]) {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
     writeHermesConfig(paths);
+    writeGatewayShim(paths);
     return paths;
   }
 
   async function ensureWorker(userId) {
     const paths = ensureUserDirs(userId);
     if (mode === "static" && staticBaseUrl) {
-      return { userId: paths.userId, baseUrl: staticBaseUrl.replace(/\/+$/, ""), apiKey, model, paths, env: envForUser(userId) };
+      const baseUrl = staticBaseUrl.replace(/\/+$/, "");
+      return {
+        userId: paths.userId,
+        baseUrl,
+        gatewayWsUrl: gatewayWsUrl || gatewayWsUrlForBaseUrl(baseUrl, apiKey),
+        apiKey,
+        model,
+        modelProvider,
+        modelApiMode,
+        paths,
+        env: envForUser(userId)
+      };
     }
     if (mode === "docker") {
       return ensureDockerWorker(paths);
@@ -293,8 +362,11 @@ function createHermesWorkerManager(options = {}) {
     return {
       userId: paths.userId,
       baseUrl,
+      gatewayWsUrl: gatewayWsUrl || gatewayWsUrlForBaseUrl(baseUrl, apiKey),
       apiKey,
       model,
+      modelProvider,
+      modelApiMode,
       paths,
       env: envForUser(paths.userId),
       containerName: name
@@ -329,7 +401,9 @@ function createHermesWorkerManager(options = {}) {
       "--env", `API_SERVER_PORT=${env.API_SERVER_PORT}`,
       "--env", `API_SERVER_KEY=${env.API_SERVER_KEY}`,
       ...(env[MODEL_API_KEY_ENV] ? ["--env", `${MODEL_API_KEY_ENV}=${env[MODEL_API_KEY_ENV]}`] : []),
-      image
+      image,
+      "python",
+      "/data/hermes-home/mia-hermes-gateway-server.py"
     ]);
   }
 
