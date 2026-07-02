@@ -265,7 +265,20 @@ function createHermesImClient(deps = {}) {
     }
   }
 
-  return { runChat, submitApproval };
+  async function interruptSession(args = {}) {
+    throwIfAborted(args.signal);
+    const gateway = gatewayClientFactory({ apiKey: args.apiKey, nowMs });
+    try {
+      await gateway.connect(requiredText("gatewayWsUrl", args.gatewayWsUrl));
+      return await waitWithAbort(gateway.request("session.interrupt", {
+        session_id: requiredText("sessionId", args.sessionId)
+      }), args.signal);
+    } finally {
+      gateway.close();
+    }
+  }
+
+  return { runChat, submitApproval, interruptSession };
 }
 
 module.exports = {

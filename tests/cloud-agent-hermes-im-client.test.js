@@ -51,6 +51,7 @@ function createGatewayHarness() {
         }
         return { resolved: 1 };
       }
+      if (method === "session.interrupt") return { status: "interrupted" };
       throw new Error(`unexpected request ${method}`);
     },
     emit(type, event) {
@@ -387,6 +388,27 @@ test("submitApproval calls approval.respond through the gateway", async () => {
     params: { session_id: "sess_approve", choice: "once", all: true }
   });
   assert.deepEqual(result, { resolved: 1 });
+  assert.equal(gateway.closed, true);
+});
+
+test("interruptSession calls session.interrupt through the gateway", async () => {
+  const { gateway, requests } = createGatewayHarness();
+  const client = createHermesImClient({
+    sessionsStore: createSessionsStore(),
+    gatewayClientFactory: () => gateway
+  });
+
+  const result = await client.interruptSession({
+    gatewayWsUrl: "ws://gateway.test/ws",
+    sessionId: "sess_stop"
+  });
+
+  assert.equal(gateway.connectedUrl, "ws://gateway.test/ws");
+  assert.deepEqual(requests[0], {
+    method: "session.interrupt",
+    params: { session_id: "sess_stop" }
+  });
+  assert.deepEqual(result, { status: "interrupted" });
   assert.equal(gateway.closed, true);
 });
 

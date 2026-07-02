@@ -70,6 +70,14 @@
     return "update";
   }
 
+  function mergeThinkingBlock(target, source) {
+    const text = safeString(source.text);
+    if (text) target.text = `${target.text || ""}${text}`;
+    if (source.status === "error" || source.status === "completed") target.status = source.status;
+    if (source.duration != null) target.duration = source.duration;
+    return target;
+  }
+
   function fileEditVerb(action) {
     if (action === "add") return "Added";
     if (action === "delete") return "Deleted";
@@ -108,6 +116,10 @@
         };
         if (text.trim()) normalized.text = text;
         if (!normalized.text && !safeString(block.status).trim() && normalized.duration == null) continue;
+        if (out[out.length - 1]?.type === "thinking") {
+          mergeThinkingBlock(out[out.length - 1], normalized);
+          continue;
+        }
         out.push(normalized);
       } else if (type === "tool") {
         const name = safeString(block.name).trim();
@@ -261,6 +273,7 @@
     const blocks = [];
     const toolsById = new Map();
     const toolsByName = new Map();
+    const thinkingBlocksByEventId = new Map();
 
     function nextId(prefix) {
       return `${prefix}_${blocks.length}`;
@@ -302,7 +315,8 @@
 
     function updateRecentThinking(event = {}) {
       const id = safeString(event.id || event.msg_id || event.message_id || "").trim();
-      const match = [...blocks].reverse().find((block) => block.type === "thinking" && (!id || block.id === id));
+      const match = (id ? thinkingBlocksByEventId.get(id) : null)
+        || [...blocks].reverse().find((block) => block.type === "thinking" && (!id || block.id === id));
       const status = normalizeStatus(event.status || event.state || "completed");
       const duration = finiteDuration(event.duration);
       if (match) {
@@ -316,6 +330,7 @@
         status,
         duration
       });
+      if (id) thinkingBlocksByEventId.set(id, blocks[blocks.length - 1]);
     }
 
     function appendThinking(event = {}) {
@@ -324,21 +339,23 @@
         if (event.status || event.state || event.duration != null) updateRecentThinking(event);
         return;
       }
-      const id = eventId(event, nextId("thinking"));
+      const explicitId = safeString(event.id || event.msg_id || event.message_id || event.item_id || "").trim();
       const last = blocks[blocks.length - 1];
-      if (last && last.type === "thinking" && last.id === id) {
+      if (last && last.type === "thinking") {
         last.text = `${last.text || ""}${text}`;
         last.status = normalizeStatus(event.status || last.status || "running");
         if (event.duration != null) last.duration = finiteDuration(event.duration);
+        if (explicitId) thinkingBlocksByEventId.set(explicitId, last);
         return;
       }
       blocks.push({
         type: "thinking",
-        id,
+        id: explicitId || nextId("thinking"),
         text,
         status: normalizeStatus(event.status || "running"),
         duration: finiteDuration(event.duration)
       });
+      if (explicitId) thinkingBlocksByEventId.set(explicitId, blocks[blocks.length - 1]);
     }
 
     function appendTool(event = {}) {

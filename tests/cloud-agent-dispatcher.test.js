@@ -16,6 +16,16 @@ const { createCloudUser } = require("./helpers/cloud-auth.js");
 
 const BOT_ID = "alice_bot";
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "generic-bot-cloud-agent-dispatcher-"));
   const cloudStore = createCloudStore({ dataDir: dir });
@@ -909,6 +919,159 @@ test("cloud-hermes DM surfaces run failures as visible bot messages", async () =
   }
 });
 
+test("cloud-hermes interrupted gateway completions cancel the run without appending a reply", async () => {
+  const ctx = setup();
+  const transientEvents = [];
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      hermesImClient: {
+        async runChat(args) {
+          args.onRunCreated?.("interrupt_session");
+          return {
+            runId: "interrupt_session",
+            content: "partial text",
+            events: [{ type: "message.complete", status: "interrupted", content: "partial text" }]
+          };
+        }
+      },
+      broadcastTransientEvent(userId, payload) {
+        transientEvents.push({ userId, payload });
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "stop yourself"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(reply, null);
+    const messages = ctx.messagesStore.listMessagesSince(ctx.conversation.id, 0, 20);
+    assert.equal(messages.filter((item) => item.sender_kind === "bot").length, 0);
+    assert.equal(
+      transientEvents.filter((item) => item.payload.event?.type === "run.cancelled").length,
+      1
+    );
+    const run = ctx.cloudStore.getDb()
+      .prepare("SELECT status FROM cloud_agent_runs ORDER BY created_at DESC LIMIT 1")
+      .get();
+    assert.equal(run.status, "cancelled");
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud-hermes drops a stale reply when a newer user message arrives before completion", async () => {
+  const ctx = setup();
+  const firstRun = deferred();
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      hermesImClient: {
+        async runChat(args) {
+          args.onRunCreated?.("runtime_old");
+          return firstRun.promise;
+        }
+      }
+    });
+    const oldMessage = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "用MCP"
+    });
+
+    const oldDispatch = dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message: oldMessage
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "几点了"
+    });
+    firstRun.resolve({ runId: "runtime_old", content: "应该优先用 MCP 工具。", events: [] });
+
+    const reply = await oldDispatch;
+    const messages = ctx.messagesStore.listMessagesSince(ctx.conversation.id, 0, 20);
+    assert.equal(reply, null);
+    assert.equal(messages.filter((item) => item.sender_kind === "bot").length, 0);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud-hermes interrupts an active prior gateway run before starting a newer turn", async () => {
+  const ctx = setup();
+  const firstRun = deferred();
+  const runInputs = [];
+  const interrupts = [];
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      hermesImClient: {
+        async runChat(args) {
+          runInputs.push(args.input);
+          if (runInputs.length === 1) {
+            args.onRunCreated?.("runtime_old");
+            return firstRun.promise;
+          }
+          args.onRunCreated?.("runtime_new");
+          return { runId: "runtime_new", content: "现在是 20:50。", events: [] };
+        },
+        async interruptSession(args) {
+          interrupts.push(args);
+          return { status: "interrupted" };
+        }
+      }
+    });
+    const oldMessage = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "用MCP"
+    });
+    const oldDispatch = dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message: oldMessage
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const newerMessage = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "几点了"
+    });
+    const newerReply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message: newerMessage
+    });
+    firstRun.resolve({ runId: "runtime_old", content: "应该优先用 MCP 工具。", events: [] });
+    await oldDispatch;
+
+    assert.equal(interrupts.length, 1);
+    assert.equal(interrupts[0].sessionId, "runtime_old");
+    assert.match(runInputs[1], /用户消息：\n几点了/);
+    assert.equal(newerReply.body_md, "现在是 20:50。");
+    const botMessages = ctx.messagesStore.listMessagesSince(ctx.conversation.id, 0, 20)
+      .filter((item) => item.sender_kind === "bot");
+    assert.deepEqual(botMessages.map((item) => item.body_md), ["现在是 20:50。"]);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("cloud-hermes refuses a contaminated bot binding owned by another user", async () => {
   const ctx = setup();
   const hermesCalls = [];
@@ -1679,6 +1842,106 @@ test("respondApproval refuses non-gateway hermes run ids", async () => {
       ok: false,
       error: "run is not a Hermes gateway session"
     });
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("stopRun interrupts only the owner's cloud Hermes gateway session", async () => {
+  const ctx = setup();
+  const interruptCalls = [];
+  const transientEvents = [];
+  try {
+    const run = ctx.cloudAgentRunsStore.createRun({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      conversationId: ctx.conversation.id,
+      triggerMessageId: "m1"
+    });
+    ctx.cloudAgentRunsStore.markRunning(run.id, "gw:hermes_run_stop");
+    const dispatcher = makeDispatcher(ctx, {
+      hermesImClient: {
+        async runChat() { return { runId: "hr", content: "", events: [] }; },
+        async interruptSession(args) {
+          interruptCalls.push(args);
+          return { status: "interrupted" };
+        }
+      },
+      broadcastTransientEvent(userId, payload) {
+        transientEvents.push({ userId, payload });
+      }
+    });
+
+    const ok = await dispatcher.stopRun({ userId: ctx.user.id, runId: run.id, conversationId: ctx.conversation.id });
+    assert.equal(ok.ok, true);
+    assert.equal(interruptCalls.length, 1);
+    assert.equal(interruptCalls[0].gatewayWsUrl, "ws://gateway");
+    assert.equal(interruptCalls[0].sessionId, "hermes_run_stop");
+    assert.deepEqual(transientEvents.map((item) => item.payload.event.type), ["run.cancelling", "run.cancelled"]);
+    assert.equal(ctx.cloudAgentRunsStore.getRun(run.id).status, "cancelled");
+
+    const denied = await dispatcher.stopRun({ userId: "someone_else", runId: run.id, conversationId: ctx.conversation.id });
+    assert.equal(denied.ok, false);
+    assert.equal(interruptCalls.length, 1);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("stopRun refuses non-gateway hermes run ids", async () => {
+  const ctx = setup();
+  try {
+    const run = ctx.cloudAgentRunsStore.createRun({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      conversationId: ctx.conversation.id,
+      triggerMessageId: "m1"
+    });
+    ctx.cloudAgentRunsStore.markRunning(run.id, "hermes_run_legacy");
+    const dispatcher = makeDispatcher(ctx);
+
+    const result = await dispatcher.stopRun({
+      userId: ctx.user.id,
+      runId: run.id,
+      conversationId: ctx.conversation.id
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: "run is not a Hermes gateway session"
+    });
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("stopRun restores the run to running when Hermes interruption fails", async () => {
+  const ctx = setup();
+  try {
+    const run = ctx.cloudAgentRunsStore.createRun({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      conversationId: ctx.conversation.id,
+      triggerMessageId: "m1"
+    });
+    ctx.cloudAgentRunsStore.markRunning(run.id, "gw:hermes_run_stop");
+    const dispatcher = makeDispatcher(ctx, {
+      hermesImClient: {
+        async runChat() { return { runId: "hr", content: "", events: [] }; },
+        async interruptSession() {
+          throw new Error("gateway down");
+        }
+      }
+    });
+
+    await assert.rejects(
+      dispatcher.stopRun({ userId: ctx.user.id, runId: run.id, conversationId: ctx.conversation.id }),
+      /gateway down/
+    );
+
+    const restored = ctx.cloudAgentRunsStore.getRun(run.id);
+    assert.equal(restored.status, "running");
+    assert.equal(restored.hermesRunId, "gw:hermes_run_stop");
   } finally {
     ctx.cleanup();
   }

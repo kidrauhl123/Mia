@@ -53,14 +53,7 @@ test("collector accepts Hermes gateway event names for thinking and tool blocks"
     {
       type: "thinking",
       id: "think_1",
-      text: "推理中",
-      status: "running",
-      duration: null
-    },
-    {
-      type: "thinking",
-      id: "think_2",
-      text: "再想一步",
+      text: "推理中再想一步",
       status: "running",
       duration: null
     },
@@ -72,6 +65,44 @@ test("collector accepts Hermes gateway event names for thinking and tool blocks"
       status: "completed",
       duration: 0.75,
       error: false
+    }
+  ]);
+});
+
+test("collector merges adjacent thinking deltas with token-scoped ids into one block", () => {
+  const collector = createAssistantContentBlockCollector();
+
+  collector.collect("thinking.delta", { id: "tok_1", text: "the" });
+  collector.collect("thinking.delta", { id: "tok_2", text: " user" });
+  collector.collect("thinking.delta", { id: "tok_3", text: " has" });
+  collector.collect("thinking.delta", { id: "tok_4", text: " two" });
+
+  assert.deepEqual(collector.payload(), [
+    {
+      type: "thinking",
+      id: "tok_1",
+      text: "the user has two",
+      status: "running",
+      duration: null
+    }
+  ]);
+});
+
+test("collector merges adjacent thinking deltas without ids into one block", () => {
+  const collector = createAssistantContentBlockCollector();
+
+  collector.collect("thinking.delta", { text: "( ˘˘)♡ analyzing..." });
+  collector.collect("thinking.delta", { text: "The" });
+  collector.collect("thinking.delta", { text: " user" });
+  collector.collect("thinking.delta", { text: " is" });
+
+  assert.deepEqual(collector.payload(), [
+    {
+      type: "thinking",
+      id: "thinking_0",
+      text: "( ˘˘)♡ analyzing...The user is",
+      status: "running",
+      duration: null
     }
   ]);
 });
@@ -150,6 +181,23 @@ test("normalizer keeps only valid ordered content blocks", () => {
       deletions: 0,
       status: "running",
       error: false
+    }
+  ]);
+});
+
+test("normalizer merges adjacent persisted thinking blocks", () => {
+  assert.deepEqual(normalizeContentBlocks([
+    { type: "thinking", id: "tok_1", text: "the", status: "running" },
+    { type: "thinking", id: "tok_2", text: " user", status: "running" },
+    { type: "thinking", id: "tok_3", text: " has", status: "running" },
+    { type: "thinking", id: "tok_4", text: " two", status: "running" }
+  ]), [
+    {
+      type: "thinking",
+      id: "tok_1",
+      text: "the user has two",
+      status: "running",
+      duration: null
     }
   ]);
 });

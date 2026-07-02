@@ -51,6 +51,14 @@ function createCloudAgentRunsStore(db) {
            status, error_json, created_at, updated_at
     FROM cloud_agent_runs WHERE id = ?
   `);
+  const selectActiveForTargetStmt = db.prepare(`
+    SELECT id, user_id, bot_id, conversation_id, trigger_message_id, hermes_run_id,
+           status, error_json, created_at, updated_at
+    FROM cloud_agent_runs
+    WHERE user_id = ? AND bot_id = ? AND conversation_id = ?
+      AND status IN ('queued', 'running', 'cancelling')
+    ORDER BY created_at ASC
+  `);
   const updateRunningStmt = db.prepare(`
     UPDATE cloud_agent_runs
     SET status = 'running', hermes_run_id = ?, updated_at = ?
@@ -64,6 +72,16 @@ function createCloudAgentRunsStore(db) {
   const updateErrorStmt = db.prepare(`
     UPDATE cloud_agent_runs
     SET status = 'error', error_json = ?, updated_at = ?
+    WHERE id = ?
+  `);
+  const updateCancellingStmt = db.prepare(`
+    UPDATE cloud_agent_runs
+    SET status = 'cancelling', updated_at = ?
+    WHERE id = ?
+  `);
+  const updateCancelledStmt = db.prepare(`
+    UPDATE cloud_agent_runs
+    SET status = 'cancelled', updated_at = ?
     WHERE id = ?
   `);
 
@@ -86,6 +104,14 @@ function createCloudAgentRunsStore(db) {
     return rowToRun(selectStmt.get(String(id)));
   }
 
+  function listActiveForTarget(args = {}) {
+    return selectActiveForTargetStmt.all(
+      String(args.userId || "").trim(),
+      String(args.botId || "").trim(),
+      String(args.conversationId || "").trim()
+    ).map(rowToRun).filter(Boolean);
+  }
+
   function markRunning(id, hermesRunId) {
     updateRunningStmt.run(String(hermesRunId || ""), nowIso(), String(id));
     return getRun(id);
@@ -101,7 +127,17 @@ function createCloudAgentRunsStore(db) {
     return getRun(id);
   }
 
-  return { createRun, getRun, markRunning, markComplete, markError };
+  function markCancelling(id) {
+    updateCancellingStmt.run(nowIso(), String(id));
+    return getRun(id);
+  }
+
+  function markCancelled(id) {
+    updateCancelledStmt.run(nowIso(), String(id));
+    return getRun(id);
+  }
+
+  return { createRun, getRun, listActiveForTarget, markRunning, markComplete, markError, markCancelling, markCancelled };
 }
 
 module.exports = { createCloudAgentRunsStore };

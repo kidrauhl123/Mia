@@ -65,6 +65,20 @@ test("src/web/app/index.html includes private AI composer controls", () => {
   assert.match(html, /id="permissionMode"/);
 });
 
+test("web composer stops cloud Hermes runs through the cloud cancel route", () => {
+  const app = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
+  const css = fs.readFileSync(path.join(ROOT, "src/web/styles.css"), "utf8");
+
+  assert.match(html, /class="send-icon"/);
+  assert.match(app, /function activeConversationRun\(\)/);
+  assert.match(app, /function stopActiveCloudRun\(\)/);
+  assert.match(app, /\/api\/conversations\/\$\{encodeURIComponent\(conversationId\)\}\/runs\/\$\{encodeURIComponent\(activeRun\.runId\)\}\/cancel/);
+  assert.match(app, /els\.sendButton\.classList\.toggle\("stop", busy\);/);
+  assert.doesNotMatch(app, /window\.mia\.stopChat/);
+  assert.match(css, /\.send-button\.stop::before/);
+});
+
 test("web avatar display settings default off and do not hide group participants", () => {
   const appearance = fs.readFileSync(path.join(ROOT, "src/web/appearance.js"), "utf8");
   const app = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");

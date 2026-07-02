@@ -3770,6 +3770,31 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, { ok: true, decision });
     }
 
+    // POST /api/conversations/:id/runs/:runId/cancel — stop an in-flight cloud
+    // Hermes IM run. This is deliberately separate from /api/bridge/runs/* so
+    // web-hosted Hermes cancellation cannot abort desktop/local agents.
+    const runCancelMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/runs\/([A-Za-z0-9_-]+)\/cancel$/);
+    if (req.method === "POST" && runCancelMatch) {
+      const conversationId = runCancelMatch[1];
+      const runId = runCancelMatch[2];
+      if (!userIsMemberOfConversation(context.socialStore, conversationId, auth.user.id)) {
+        return writeError(res, 403, "not a member of this conversation");
+      }
+      if (!context.cloudAgentDispatcher) return writeError(res, 503, "cloud agent dispatcher unavailable");
+      let result;
+      try {
+        result = await context.cloudAgentDispatcher.stopRun({ userId: auth.user.id, runId, conversationId });
+      } catch (error) {
+        return writeError(res, 502, `run cancel failed: ${error?.message || error}`);
+      }
+      if (!result || result.ok === false) {
+        const message = result?.error || "run not cancelled";
+        const status = message.includes("not found") ? 404 : message.includes("owner") ? 403 : 409;
+        return writeError(res, status, message);
+      }
+      return writeJson(res, 200, { ok: true, status: result.status || "cancelled" });
+    }
+
     // DELETE /api/conversations/:id/messages/:msgId — WeChat-style local delete: hide
     // the message from THIS user's view only, then tell their other devices to
     // drop it too. Other conversation members keep their copy; a member can never

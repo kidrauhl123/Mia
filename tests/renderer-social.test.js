@@ -4928,6 +4928,41 @@ test("applyCloudSettings leaves unread alone when local has fresher messages tha
     "peer's readMark < local maxSeq → newer messages are still genuinely unread");
 });
 
+test("bootstrapAfterLogin clears replayed unread once initial readMarks arrive", async () => {
+  const s = loadSocial();
+  const settingsDeferred = deferred();
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "dm:other";
+  s.__mockWindow.mia.social = {
+    myIdentity: async () => ({ ok: true, data: { id: "u_me", username: "me" } }),
+    listFriends: async () => ({ ok: true, data: { friends: [] } }),
+    listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
+    listBots: async () => ({ ok: true, data: { bots: [] } }),
+    listConversations: async () => ({ ok: true, data: { conversations: [{ id: "dm:u_a:u_b", type: "dm" }] } }),
+    listConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
+    settingsGet: async () => settingsDeferred.promise
+  };
+
+  const boot = s.bootstrapAfterLogin();
+  await flushPromises(4);
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "dm:u_a:u_b",
+      message: { id: "m3", seq: 3, body_md: "old", sender_ref: "u_other", created_at: "2026-07-02T00:00:00.000Z" }
+    }
+  });
+  assert.equal(s.moduleState.unreadByConversation.get("dm:u_a:u_b"), 1,
+    "replayed message should bump unread before readMarks are known");
+
+  settingsDeferred.resolve({ ok: true, data: { settings: { version: 1, readMarks: { "dm:u_a:u_b": 3 }, unreadOverrides: {} } } });
+  await boot;
+
+  assert.equal(s.moduleState.unreadByConversation.has("dm:u_a:u_b"), false,
+    "initial bootstrap readMarks must clear replayed unread once they arrive");
+});
+
 test("message_appended skips unread bump when readMark already covers the replayed seq", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });

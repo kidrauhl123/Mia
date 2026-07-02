@@ -266,6 +266,32 @@ function requireDep(deps, key) {
   return deps[key];
 }
 
+function runStatus(run = null) {
+  return String(run?.status || "").trim().toLowerCase();
+}
+
+function runIsCancelled(run = null) {
+  return runStatus(run) === "cancelled";
+}
+
+function runIsCancelling(run = null) {
+  return runStatus(run) === "cancelling";
+}
+
+function runIsActive(run = null) {
+  const status = runStatus(run);
+  return status === "queued" || status === "running" || status === "cancelling";
+}
+
+function eventStatus(event = {}) {
+  return String(event?.status || event?.payload?.status || event?.data?.status || "").trim().toLowerCase();
+}
+
+function runResultIsInterrupted(result = {}) {
+  return Array.isArray(result?.events)
+    && result.events.some((event) => String(event?.type || "") === "message.complete" && eventStatus(event) === "interrupted");
+}
+
 function messageRole(row) {
   if (row.sender_kind === BOT_SENDER_KIND) return "assistant";
   if (row.sender_kind === "system") return "system";
@@ -327,6 +353,50 @@ function createCloudAgentDispatcher(deps = {}) {
         };
       })
       .filter(Boolean);
+  }
+
+  function newerUserMessageExists(conversationId, message = {}) {
+    const triggerSeq = Number(message?.seq || 0);
+    if (!(triggerSeq > 0)) return false;
+    return messagesStore.listMessagesSince(conversationId, triggerSeq, 20)
+      .some((row) => row?.sender_kind === "user" && !isScheduledFireMessage(row));
+  }
+
+  function broadcastRunLifecycle(run, type) {
+    if (!run || !type) return;
+    broadcastTransientEvent(run.userId, {
+      type: "cloud_agent_run_event",
+      runId: run.id,
+      conversationId: run.conversationId,
+      botId: run.botId,
+      event: { type }
+    });
+  }
+
+  async function cancelActiveRunsForTarget({ ownerId, botId, conversationId }) {
+    if (typeof cloudAgentRunsStore.listActiveForTarget !== "function") return;
+    const activeRuns = cloudAgentRunsStore.listActiveForTarget({ userId: ownerId, botId, conversationId });
+    for (const activeRun of activeRuns) {
+      const current = cloudAgentRunsStore.getRun(activeRun.id);
+      if (!runIsActive(current)) continue;
+      const cancelling = cloudAgentRunsStore.markCancelling(activeRun.id);
+      broadcastRunLifecycle(cancelling, "run.cancelling");
+      const hermesRunId = String(cancelling?.hermesRunId || "").trim();
+      if (hermesRunId.startsWith("gw:") && typeof hermesImClient.interruptSession === "function") {
+        try {
+          const worker = await workerManager.ensureWorker(cancelling.userId);
+          await hermesImClient.interruptSession({
+            gatewayWsUrl: worker.gatewayWsUrl,
+            apiKey: worker.apiKey,
+            sessionId: hermesRunId.slice(3)
+          });
+        } catch (error) {
+          log(`[cloud-agent] failed to interrupt superseded run ${activeRun.id}: ${error?.message || error}`);
+        }
+      }
+      const cancelled = cloudAgentRunsStore.markCancelled(activeRun.id);
+      broadcastRunLifecycle(cancelled, "run.cancelled");
+    }
   }
 
   function eventType(event = {}) {
@@ -554,12 +624,26 @@ function createCloudAgentDispatcher(deps = {}) {
     const rosterBots = Array.isArray(bots) ? bots : botsStore.listBots(ownerId);
     const trace = createTraceCollector();
     const contentBlocks = createAssistantContentBlockCollector();
+    await cancelActiveRunsForTarget({ ownerId, botId, conversationId });
     const run = cloudAgentRunsStore.createRun({
       userId: ownerId,
       botId,
       conversationId,
       triggerMessageId: message.id
     });
+    function markRunCancelledIfNeeded() {
+      const current = cloudAgentRunsStore.getRun(run.id);
+      if (runIsCancelled(current)) return current;
+      const cancelled = cloudAgentRunsStore.markCancelled(run.id);
+      broadcastTransientEvent(ownerId, {
+        type: "cloud_agent_run_event",
+        runId: run.id,
+        conversationId,
+        botId,
+        event: { type: "run.cancelled" }
+      });
+      return cancelled;
+    }
     try {
       const worker = await workerManager.ensureWorker(ownerId);
       if (!String(worker?.gatewayWsUrl || "").trim()) {
@@ -634,6 +718,8 @@ function createCloudAgentDispatcher(deps = {}) {
           attachments: materialized.attachments || [],
           onRunCreated(runtimeSessionId) {
             const gatewayRunId = runtimeSessionId ? `gw:${runtimeSessionId}` : "";
+            const currentRun = cloudAgentRunsStore.getRun(run.id);
+            if (runIsCancelled(currentRun) || runIsCancelling(currentRun)) return;
             cloudAgentRunsStore.markRunning(run.id, gatewayRunId);
             broadcastTransientEvent(ownerId, {
               type: "cloud_agent_run_started",
@@ -680,6 +766,19 @@ function createCloudAgentDispatcher(deps = {}) {
         };
         break;
       }
+      const currentRun = cloudAgentRunsStore.getRun(run.id);
+      if (result.runId && !String(currentRun?.hermesRunId || "").trim()) {
+        cloudAgentRunsStore.markRunning(run.id, `gw:${result.runId}`);
+      }
+      const runAfterHermes = cloudAgentRunsStore.getRun(run.id);
+      if (runIsCancelled(runAfterHermes) || runIsCancelling(runAfterHermes) || runResultIsInterrupted(result)) {
+        if (!runIsCancelled(runAfterHermes)) markRunCancelledIfNeeded();
+        return null;
+      }
+      if (newerUserMessageExists(conversationId, message)) {
+        markRunCancelledIfNeeded();
+        return null;
+      }
       const resultForArtifacts = {
         ...(result || {}),
         files: [
@@ -708,10 +807,6 @@ function createCloudAgentDispatcher(deps = {}) {
       const finalReplyContent = hasRequestedFileDelivery && replyAttachments.length && shouldReplaceWithFileDeliveryReply(replyContent)
         ? fileDeliveryReplyText(replyAttachments)
         : replyContent;
-      const currentRun = cloudAgentRunsStore.getRun(run.id);
-      if (result.runId && !String(currentRun?.hermesRunId || "").trim()) {
-        cloudAgentRunsStore.markRunning(run.id, `gw:${result.runId}`);
-      }
       const reply = messagesStore.appendMessage({
         conversationId,
         senderKind: BOT_SENDER_KIND,
@@ -731,6 +826,11 @@ function createCloudAgentDispatcher(deps = {}) {
       }
       return reply;
     } catch (error) {
+      const currentRun = cloudAgentRunsStore.getRun(run.id);
+      if (runIsCancelled(currentRun) || runIsCancelling(currentRun)) {
+        if (!runIsCancelled(currentRun)) markRunCancelledIfNeeded();
+        return null;
+      }
       cloudAgentRunsStore.markError(run.id, error);
       return appendRunErrorReply({ ownerId, bot, conversationId, error });
     }
@@ -766,6 +866,57 @@ function createCloudAgentDispatcher(deps = {}) {
       choice
     });
     return { ok: true, choice };
+  }
+
+  async function stopRun({ userId, runId, conversationId }) {
+    const run = cloudAgentRunsStore.getRun(String(runId || ""));
+    if (!run) return { ok: false, error: "run not found" };
+    if (String(run.userId) !== String(userId || "")) {
+      return { ok: false, error: "only the run owner can stop this run" };
+    }
+    if (conversationId && String(run.conversationId) !== String(conversationId)) {
+      return { ok: false, error: "run does not belong to this conversation" };
+    }
+    const hermesRunId = String(run.hermesRunId || "").trim();
+    if (!hermesRunId) return { ok: false, error: "run has no hermes run id yet" };
+    if (!hermesRunId.startsWith("gw:")) {
+      return { ok: false, error: "run is not a Hermes gateway session" };
+    }
+    if (typeof hermesImClient.interruptSession !== "function") {
+      return { ok: false, error: "hermes client does not support interruption" };
+    }
+    if (runIsCancelled(run)) return { ok: true, status: "cancelled" };
+
+    cloudAgentRunsStore.markCancelling(run.id);
+    broadcastTransientEvent(run.userId, {
+      type: "cloud_agent_run_event",
+      runId: run.id,
+      conversationId: run.conversationId,
+      botId: run.botId,
+      event: { type: "run.cancelling" }
+    });
+
+    try {
+      const worker = await workerManager.ensureWorker(run.userId);
+      await hermesImClient.interruptSession({
+        gatewayWsUrl: worker.gatewayWsUrl,
+        apiKey: worker.apiKey,
+        sessionId: hermesRunId.slice(3)
+      });
+    } catch (error) {
+      cloudAgentRunsStore.markRunning(run.id, hermesRunId);
+      throw error;
+    }
+
+    cloudAgentRunsStore.markCancelled(run.id);
+    broadcastTransientEvent(run.userId, {
+      type: "cloud_agent_run_event",
+      runId: run.id,
+      conversationId: run.conversationId,
+      botId: run.botId,
+      event: { type: "run.cancelled" }
+    });
+    return { ok: true, status: "cancelled" };
   }
 
   function runtimeOverrideBinding(binding = null) {
@@ -911,7 +1062,7 @@ function createCloudAgentDispatcher(deps = {}) {
     }
   }
 
-  return { handleUserMessage, invokeBot, respondApproval, idle };
+  return { handleUserMessage, invokeBot, respondApproval, stopRun, idle };
 }
 
 module.exports = { createCloudAgentDispatcher };

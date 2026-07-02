@@ -2016,6 +2016,22 @@ p {
   transform: scale(0.96);
 }
 
+.send-button.stop {
+  color: var(--accent);
+}
+
+.send-button.stop .send-icon {
+  display: none;
+}
+
+.send-button.stop::before {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: currentColor;
+  content: "";
+}
+
 .send-button:disabled {
   color: var(--faint);
   cursor: default;

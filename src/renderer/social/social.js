@@ -5538,6 +5538,7 @@
       const settings = unwrapCloudSettingsResponse(await window.mia.social.settingsGet());
       if (settings && typeof settings === "object") {
         moduleState.cloudSettings = normalizeCloudSettings(settings, moduleState.cloudSettings || {});
+        reconcileUnreadFromReadMarks(moduleState.cloudSettings.readMarks);
         if (deps && typeof deps.render === "function") deps.render();
       }
     } catch (err) {

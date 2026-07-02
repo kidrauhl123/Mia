@@ -1715,6 +1715,9 @@ function handleCloudEvent(envelope) {
       run.status = "error";
       run.permission = null;
       flushRunDisplayText(run);
+    } else if (name === "run.cancelling") {
+      run.status = "cancelling";
+      run.permission = null;
     } else if (name === "status") {
       run.statusText = hermesEventText(event) || run.statusText || "";
     } else if (name === "run.cancelled") {
@@ -2996,6 +2999,55 @@ function setComposerEnabled(enabled, placeholder) {
   els.chatInput.disabled = !enabled;
   els.sendButton.disabled = !enabled;
   if (placeholder) els.chatInput.placeholder = placeholder;
+  updateSendButtonState();
+}
+
+function activeConversationRun() {
+  const conversationId = state.activeConversationId;
+  if (!conversationId) return null;
+  return state.cloudAgentRunsByConversation.get(conversationId) || null;
+}
+
+function updateSendButtonState() {
+  if (!els.sendButton) return;
+  const activeRun = activeConversationRun();
+  const running = activeRun?.status === "running";
+  const cancelling = activeRun?.status === "cancelling";
+  const busy = running || cancelling;
+  const title = cancelling ? "正在停止" : (running ? "停止生成" : "发送");
+  els.sendButton.classList.toggle("stop", busy);
+  els.sendButton.classList.toggle("stopping", cancelling);
+  els.sendButton.title = title;
+  els.sendButton.setAttribute("aria-label", title);
+  els.sendButton.disabled = cancelling || (!running && els.chatInput.disabled);
+}
+
+async function stopActiveCloudRun() {
+  const conversationId = state.activeConversationId;
+  const activeRun = activeConversationRun();
+  if (!conversationId || !activeRun?.runId || activeRun.status !== "running") return;
+  activeRun.status = "cancelling";
+  activeRun.permission = null;
+  renderActiveChat();
+  try {
+    await api(`/api/conversations/${encodeURIComponent(conversationId)}/runs/${encodeURIComponent(activeRun.runId)}/cancel`, {
+      method: "POST"
+    });
+  } catch (error) {
+    activeRun.status = "running";
+    showToast(error?.message || "停止失败");
+    if (conversationId === state.activeConversationId) renderActiveChat();
+  }
+}
+
+async function submitActiveComposer() {
+  const activeRun = activeConversationRun();
+  if (activeRun?.status === "running") {
+    await stopActiveCloudRun();
+    return;
+  }
+  if (activeRun?.status === "cancelling") return;
+  await sendInActive();
 }
 
 function renderActiveChat() {
@@ -3089,8 +3141,9 @@ function renderActiveChat() {
     }
     els.activeTitle.textContent = title;
     const activeRun = state.cloudAgentRunsByConversation.get(conversation.id);
-    if (activeRun?.status === "running") {
-      els.activeMeta.innerHTML = `<span class="typing-status">正在输入<span class="typing-dots"><i></i><i></i><i></i></span></span>`;
+    if (activeRun?.status === "running" || activeRun?.status === "cancelling") {
+      const statusText = activeRun.status === "cancelling" ? "正在停止" : "正在输入";
+      els.activeMeta.innerHTML = `<span class="typing-status">${statusText}<span class="typing-dots"><i></i><i></i><i></i></span></span>`;
     } else {
       setText(els.activeMeta, isDM ? "私聊" : isBot ? "AI 私聊" : "群聊");
     }
@@ -3180,6 +3233,9 @@ function setActiveConversation(id) {
 async function sendInActive() {
   const id = state.activeConversationId;
   if (!id) return;
+  const activeRun = activeConversationRun();
+  if (activeRun?.status === "running") return stopActiveCloudRun();
+  if (activeRun?.status === "cancelling") return;
   const rawText = els.chatInput.value || "";
   const members = isConversationId(id) ? (state.conversationMembersCache.get(id) || []) : [];
   let prepared;
@@ -4240,12 +4296,12 @@ els.chat.addEventListener("keydown", async (event) => {
 
 els.chatForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  sendInActive();
+  submitActiveComposer();
 });
 els.chatInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
-    sendInActive();
+    submitActiveComposer();
   }
 });
 els.quickModelSelect?.addEventListener("change", () => saveWebAiControl("model", els.quickModelSelect.value));

@@ -937,6 +937,14 @@ test("standalone onboarding completion marks onboarding done in the promoted mai
   assert.match(appSource, /state\.onboardingStep = "done"/);
 });
 
+test("promoted onboarding window keeps native macOS traffic lights visible", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const promoteSource = extractFunctionSource(mainSource, "promoteOnboardingWindowToMain");
+
+  assert.match(promoteSource, /setMacNativeControlsVisible\(win,\s*true\)/);
+  assert.doesNotMatch(promoteSource, /setMacNativeControlsVisible\(win,\s*false\)/);
+});
+
 test("logged-in active pane never falls back to local bot sessions", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 

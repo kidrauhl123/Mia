@@ -552,6 +552,74 @@ test("POST group message routes named bot only and gives the agent group identit
   }
 });
 
+test("POST cloud Hermes run cancel routes only through the cloud agent dispatcher", async () => {
+  const dataDir = tempDir("mia-cloud-agent-cancel-");
+  const interruptCalls = [];
+  let releaseRun;
+  const server = createMiaCloudServer({
+    dataDir,
+    cloudAgentWorkerManager: {
+      async ensureWorker(userId) {
+        return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://worker/api/ws" };
+      }
+    },
+    cloudAgentHermesImClient: {
+      async runChat(args) {
+        args.onRunCreated?.("hr_cancel");
+        return new Promise((resolve) => {
+          releaseRun = () => resolve({ runId: "hr_cancel", content: "late reply", events: [] });
+        });
+      },
+      async interruptSession(args) {
+        interruptCalls.push(args);
+        return { status: "interrupted" };
+      }
+    }
+  });
+  const baseUrl = await listen(server);
+  try {
+    const account = createAccount(server, "cancel_alice");
+    const authHeaders = { authorization: `Bearer ${account.token}` };
+    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
+    const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
+      method: "PUT",
+      headers: authHeaders,
+      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-hermes" }
+    });
+
+    await jsonFetch(baseUrl, `/api/conversations/${ensured.conversation.id}/messages`, {
+      method: "POST",
+      headers: authHeaders,
+      body: { bodyMd: "please stop", clientOpId: "op_cancel_1" }
+    });
+    for (let i = 0; i < 20 && !releaseRun; i += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const row = server.mia.cloudStore.getDb()
+      .prepare("SELECT id, status, hermes_run_id FROM cloud_agent_runs ORDER BY created_at DESC LIMIT 1")
+      .get();
+    assert.equal(row.hermes_run_id, "gw:hr_cancel");
+
+    const cancelled = await jsonFetch(baseUrl, `/api/conversations/${ensured.conversation.id}/runs/${row.id}/cancel`, {
+      method: "POST",
+      headers: authHeaders
+    });
+
+    assert.equal(cancelled.ok, true);
+    assert.equal(interruptCalls.length, 1);
+    assert.equal(interruptCalls[0].sessionId, "hr_cancel");
+    assert.equal(server.mia.cloudAgentRunsStore.getRun(row.id).status, "cancelled");
+
+    releaseRun();
+    await server.mia.cloudAgentDispatcher.idle();
+    const messages = await jsonFetch(baseUrl, `/api/conversations/${ensured.conversation.id}/messages`, { headers: authHeaders });
+    assert.equal(messages.messages.filter((message) => message.sender_kind === "bot").length, 0);
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("POST group short message reaches the single-bot handler through the HTTP entrypoint", async () => {
   const dataDir = tempDir("mia-cloud-agent-ack-group-");
   const hermesCalls = [];
