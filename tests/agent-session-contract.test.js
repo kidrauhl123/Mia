@@ -141,10 +141,12 @@ test("createAcceptedInputResult accepts only the three contract shapes", () => {
   );
 
   assert.throws(() =>
-    contract.createAcceptedInputResult("started", {
+    contract.createAcceptedInputResult({
+      mode: "started",
       conversationId: "conversation_1",
       engineId: "claude",
-      turnId: "turn_1"
+      turnId: "turn_1",
+      extra: true
     })
   );
   assert.throws(() =>
@@ -161,7 +163,27 @@ test("createAcceptedInputResult accepts only the three contract shapes", () => {
       mode: "queued",
       conversationId: "conversation_2",
       engineId: "codex",
+      turnId: "turn_2",
+      queueDepth: 3,
+      extra: true
+    })
+  );
+  assert.throws(() =>
+    contract.createAcceptedInputResult({
+      mode: "queued",
+      conversationId: "conversation_2",
+      engineId: "codex",
       turnId: "turn_2"
+    })
+  );
+  assert.throws(() =>
+    contract.createAcceptedInputResult({
+      mode: "steered",
+      conversationId: "conversation_3",
+      engineId: "hermes",
+      turnId: "turn_3",
+      after: "next-tool-call",
+      extra: true
     })
   );
   assert.throws(() =>

@@ -83,6 +83,7 @@ function createAcceptedInputResult(options = {}) {
   }
 
   const { mode, conversationId, engineId, turnId } = options;
+  const ownKeys = Object.keys(options).sort();
 
   if (typeof mode !== "string" || !mode.trim()) {
     throw new Error("mode is required.");
@@ -102,8 +103,20 @@ function createAcceptedInputResult(options = {}) {
   const normalizedTurnId = turnId.trim();
   const normalizedEngineId = assertKnownAgentEngine(engineId);
 
+  function hasExactKeys(expectedKeys) {
+    if (ownKeys.length !== expectedKeys.length) {
+      return false;
+    }
+    for (let index = 0; index < expectedKeys.length; index += 1) {
+      if (ownKeys[index] !== expectedKeys[index]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   if (normalizedMode === "started") {
-    if (Object.prototype.hasOwnProperty.call(options, "queueDepth") || Object.prototype.hasOwnProperty.call(options, "after")) {
+    if (!hasExactKeys(["conversationId", "engineId", "mode", "turnId"])) {
       throw new Error("Unexpected accepted input fields for started mode.");
     }
     return Object.freeze({
@@ -116,15 +129,15 @@ function createAcceptedInputResult(options = {}) {
   }
 
   if (normalizedMode === "queued") {
+    if (!hasExactKeys(["conversationId", "engineId", "mode", "queueDepth", "turnId"])) {
+      throw new Error("Unexpected accepted input fields for queued mode.");
+    }
     if (!Object.prototype.hasOwnProperty.call(options, "queueDepth")) {
       throw new Error("queueDepth is required.");
     }
     const { queueDepth } = options;
     if (!Number.isInteger(queueDepth) || queueDepth < 0) {
       throw new Error("queueDepth is required.");
-    }
-    if (Object.prototype.hasOwnProperty.call(options, "after")) {
-      throw new Error("Unexpected accepted input fields for queued mode.");
     }
     return Object.freeze({
       ok: true,
@@ -137,11 +150,11 @@ function createAcceptedInputResult(options = {}) {
   }
 
   if (normalizedMode === "steered") {
+    if (!hasExactKeys(["after", "conversationId", "engineId", "mode", "turnId"])) {
+      throw new Error("Unexpected accepted input fields for steered mode.");
+    }
     if (options.after !== "next-tool-call") {
       throw new Error("after must be next-tool-call.");
-    }
-    if (Object.prototype.hasOwnProperty.call(options, "queueDepth")) {
-      throw new Error("Unexpected accepted input fields for steered mode.");
     }
     return Object.freeze({
       ok: true,
