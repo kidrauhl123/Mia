@@ -750,6 +750,90 @@ test("respond queues the latest same-conversation invocation instead of dropping
   assert.equal(calls.log.some((line) => line.includes("queue m_3:codex")), true);
 });
 
+test("respond hands same-conversation AgentSession sends to the manager immediately instead of queueing local sendChat work", async () => {
+  const releaseFirst = deferred();
+  const calls = { engine: [], manager: [], post: [], log: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      return { choices: [{ message: { content: "should not run" } }] };
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        if (calls.manager.length === 1) {
+          await releaseFirst.promise;
+          return {
+            ok: true,
+            mode: "started",
+            conversationId: input.conversationId,
+            engineId: input.engineId,
+            turnId: input.turnId
+          };
+        }
+        return {
+          ok: true,
+          mode: "queued",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId,
+          queueDepth: 1
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  const first = responder.respond({
+    ...base,
+    dedupKey: "m_1:codex",
+    userPrompt: "first",
+    turnId: "t_1",
+    runtimeConfig: { agentEngine: "claude" },
+    historyMessages: [{ role: "user", content: "older visible history" }]
+  });
+  await waitFor(() => calls.manager.length === 1);
+
+  const second = responder.respond({
+    ...base,
+    dedupKey: "m_2:codex",
+    userPrompt: "second",
+    turnId: "t_2",
+    runtimeConfig: { agentEngine: "claude" },
+    historyMessages: [{ role: "assistant", content: "should not be replayed" }]
+  });
+  await waitFor(() => calls.manager.length === 2);
+
+  assert.equal(calls.engine.length, 0);
+  assert.deepEqual(calls.manager, [
+    {
+      conversationId: "g_1",
+      engineId: "claude",
+      workspacePath: "/repo/workspace",
+      turnId: "t_1",
+      text: "first"
+    },
+    {
+      conversationId: "g_1",
+      engineId: "claude",
+      workspacePath: "/repo/workspace",
+      turnId: "t_2",
+      text: "second"
+    }
+  ]);
+  assert.equal(calls.log.some((line) => line.includes("queue m_2:codex")), false);
+
+  releaseFirst.resolve();
+  assert.equal(await first, true);
+  assert.equal(await second, true);
+});
+
 test("respond streams local engine trace events through cloud run events and saves final trace", async () => {
   const { responder, calls } = setup({
     sendChat: async (args) => {

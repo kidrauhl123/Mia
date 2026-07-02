@@ -7210,10 +7210,6 @@ els.chatForm.addEventListener("submit", async (event) => {
     const pendingAttachments = [...state.pendingAttachments].slice(0, 20);
     let conversationText = window.miaComposer.expandPathPasteRefsForSend(composerText);
     if (!conversationText.trim() && !pendingAttachments.length) return;
-    if (isActiveConversationBusy()) {
-      renderSendButton();
-      return;
-    }
     // Cloud conversations have no reply_to column, so a quote-reply is embedded as a
     // markdown blockquote at the head of the message — visible to every member.
     const conversationReply = state.replyDraft ? { ...state.replyDraft } : null;

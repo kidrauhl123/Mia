@@ -2936,7 +2936,8 @@ const localBotResponder = createLocalBotResponder({
   },
   log: (line) => appendCloudLog(line),
   artifactWorkspaceDir: agentWorkspaceDir,
-  agentSessionManager
+  agentSessionManager,
+  agentSessionWorkspacePath: agentWorkspaceDir
 });
 async function shouldHandleCloudConversationAi() {
   const daemonSettings = settingsStore.daemonSettings();

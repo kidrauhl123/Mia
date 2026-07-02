@@ -4702,13 +4702,6 @@
   async function sendInActiveConversation(text, options = {}) {
     const conversationId = moduleState.activeConversationId;
     if (!conversationId) return;
-    if (conversationRunIsBusy(conversationId)) {
-      return {
-        ok: false,
-        status: 409,
-        error: "CONVERSATION_RUN_IN_PROGRESS"
-      };
-    }
     const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
     const conversationType = conversationTypeFor(conversation, conversationId);
     const members = _conversationMembersCache.get(conversationId) || [];

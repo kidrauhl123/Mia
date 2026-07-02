@@ -1735,14 +1735,15 @@ test("sendInActiveConversation keeps later pending messages after an earlier ser
   assert.deepEqual(entry.messages.map((m) => m.body_md), ["first", "second"]);
 });
 
-test("sendInActiveConversation blocks a second user message while the active bot run is running", async () => {
+test("sendInActiveConversation still posts and previews user messages while the active bot run is running", async () => {
   const s = loadSocial();
+  const post = deferred();
   const posted = [];
   s.moduleState.myUserId = "u_me";
   s.__mockWindow.mia.social = {
     postConversationMessage: async (conversationId, body) => {
       posted.push({ conversationId, body });
-      return { ok: true, data: { message: { id: "m_server", seq: 1, body_md: body.bodyMd } } };
+      return post.promise;
     }
   };
   s.moduleState.activeConversationId = "g_busy";
@@ -1755,25 +1756,34 @@ test("sendInActiveConversation blocks a second user message while the active bot
     status: "running"
   });
 
-  const result = await s.sendInActiveConversation("too soon");
+  const sendPromise = s.sendInActiveConversation("too soon");
+  const entry = s.moduleState.messageCache.get("g_busy");
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
-    ok: false,
-    status: 409,
-    error: "CONVERSATION_RUN_IN_PROGRESS"
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].conversationId, "g_busy");
+  assert.equal(posted[0].body.bodyMd, "too soon");
+  assert.equal(entry.messages.length, 1);
+  assert.equal(entry.messages[0].status, "sending");
+  assert.equal(entry.messages[0].body_md, "too soon");
+
+  post.resolve({
+    ok: true,
+    data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "too soon" } }
   });
-  assert.equal(posted.length, 0);
-  assert.equal(s.moduleState.messageCache.get("g_busy").messages.length, 0);
+  await sendPromise;
+
+  assert.deepEqual(entry.messages.map((message) => message.id), ["m_server"]);
 });
 
-test("sendInActiveConversation blocks user messages while the active bot run is cancelling", async () => {
+test("sendInActiveConversation still posts and previews user messages while the active bot run is cancelling", async () => {
   const s = loadSocial();
+  const post = deferred();
   const posted = [];
   s.moduleState.myUserId = "u_me";
   s.__mockWindow.mia.social = {
     postConversationMessage: async (conversationId, body) => {
       posted.push({ conversationId, body });
-      return { ok: true, data: { message: { id: "m_server", seq: 1, body_md: body.bodyMd } } };
+      return post.promise;
     }
   };
   s.moduleState.activeConversationId = "g_cancelling";
@@ -1786,15 +1796,23 @@ test("sendInActiveConversation blocks user messages while the active bot run is 
     status: "cancelling"
   });
 
-  const result = await s.sendInActiveConversation("too soon");
+  const sendPromise = s.sendInActiveConversation("too soon");
+  const entry = s.moduleState.messageCache.get("g_cancelling");
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
-    ok: false,
-    status: 409,
-    error: "CONVERSATION_RUN_IN_PROGRESS"
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].conversationId, "g_cancelling");
+  assert.equal(posted[0].body.bodyMd, "too soon");
+  assert.equal(entry.messages.length, 1);
+  assert.equal(entry.messages[0].status, "sending");
+  assert.equal(entry.messages[0].body_md, "too soon");
+
+  post.resolve({
+    ok: true,
+    data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "too soon" } }
   });
-  assert.equal(posted.length, 0);
-  assert.equal(s.moduleState.messageCache.get("g_cancelling").messages.length, 0);
+  await sendPromise;
+
+  assert.deepEqual(entry.messages.map((message) => message.id), ["m_server"]);
 });
 
 test("sendInActiveConversation posts and previews attachment-only messages", async () => {

@@ -7,6 +7,7 @@ const path = require("node:path");
 const { fileURLToPath } = require("node:url");
 const { CloudEvent } = require("../../shared/cloud-events.js");
 const { createAssistantContentBlockCollector } = require("../../shared/assistant-content-blocks.js");
+const { getAcpEngineSpec } = require("../agent-session/index.js");
 
 const PROCESSED_CAP = 500;
 const CANCEL_DRAIN_TIMEOUT_MS = 15000;
@@ -593,6 +594,47 @@ function elapsedMs(startedAt) {
   return `${Math.max(0, Date.now() - startedAt)}ms`;
 }
 
+function resolveAgentSessionWorkspacePath(source) {
+  const value = typeof source === "function" ? source() : source;
+  return String(value || "").trim();
+}
+
+function managedAgentSessionInput({
+  conversationId,
+  botSnapshot = null,
+  runtimeConfig = null,
+  turnId = null,
+  userPrompt = "",
+  userAttachments = [],
+  agentSessionManager = null,
+  agentSessionWorkspacePath = ""
+} = {}) {
+  if (!agentSessionManager || typeof agentSessionManager.sendUserInput !== "function") return null;
+  const requestedEngine = String(
+    runtimeConfig?.agentEngine
+    || runtimeConfig?.agent_engine
+    || botSnapshot?.agentEngine
+    || botSnapshot?.agent_engine
+    || ""
+  ).trim();
+  const agentSessionSpec = getAcpEngineSpec(requestedEngine);
+  if (!agentSessionSpec?.engineId) return null;
+  const workspacePath = resolveAgentSessionWorkspacePath(agentSessionWorkspacePath);
+  if (!workspacePath) {
+    throw new Error(`AgentSession workspace path is required for interactive ${agentSessionSpec.engineId} turns.`);
+  }
+  const input = {
+    conversationId: String(conversationId || "").trim(),
+    engineId: agentSessionSpec.engineId,
+    workspacePath,
+    turnId: String(turnId || "").trim(),
+    text: String(userPrompt || "")
+  };
+  const attachments = normalizeResponderAttachments(userAttachments);
+  if (attachments.length) input.attachments = attachments;
+  return input;
+}
+
 function hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId, turnId }) {
   const rows = Array.isArray(messages) ? messages : [];
   const targetBot = String(botId || "");
@@ -612,8 +654,7 @@ function hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId
   return false;
 }
 
-function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {}, artifactWorkspaceDir = null, fetchFileAttachment = null, agentSessionManager = null }) {
-  void agentSessionManager;
+function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {}, artifactWorkspaceDir = null, fetchFileAttachment = null, agentSessionManager = null, agentSessionWorkspacePath = "" }) {
   const processed = new Set();
   const inFlight = new Set();
   const activeRunsByConversation = new Map();
@@ -782,17 +823,37 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     if (!conversationId || !botId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
     if (inFlight.has(dedupKey)) return;
-    const requestStartedAt = Date.now();
-    const activeRun = activeRunsByConversation.get(conversationId);
-    if (activeRun && !activeRun.finalized) {
-      queueInvocation({ conversationId, conversationType, botId, botSnapshot, dedupKey, triggerMessageId, triggerSeq, systemPrompt, historyMessages, userPrompt, userAttachments, turnId, runtimeConfig, activeSkillIds }, activeRun);
-      return false;
-    }
     inFlight.add(dedupKey);
 
     const resolvedTriggerMessageId = triggerMessageId || triggerMessageIdForDedupKey(dedupKey);
     if (await replyAlreadyExists({ conversationId, botId, triggerSeq, triggerMessageId: resolvedTriggerMessageId, turnId })) {
       remember(dedupKey);
+      inFlight.delete(dedupKey);
+      return false;
+    }
+    const managedInput = managedAgentSessionInput({
+      conversationId,
+      botSnapshot,
+      runtimeConfig,
+      turnId,
+      userPrompt,
+      userAttachments,
+      agentSessionManager,
+      agentSessionWorkspacePath
+    });
+    if (managedInput) {
+      try {
+        const accepted = await agentSessionManager.sendUserInput(managedInput);
+        if (accepted?.ok) remember(dedupKey);
+        return Boolean(accepted?.ok);
+      } finally {
+        inFlight.delete(dedupKey);
+      }
+    }
+    const requestStartedAt = Date.now();
+    const activeRun = activeRunsByConversation.get(conversationId);
+    if (activeRun && !activeRun.finalized) {
+      queueInvocation({ conversationId, conversationType, botId, botSnapshot, dedupKey, triggerMessageId, triggerSeq, systemPrompt, historyMessages, userPrompt, userAttachments, turnId, runtimeConfig, activeSkillIds }, activeRun);
       inFlight.delete(dedupKey);
       return false;
     }

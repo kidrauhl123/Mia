@@ -1089,7 +1089,8 @@ function createCoreCloudRouting({
     emitCloudEvent: (message) => emitLocalEvent({ type: message.type, payload: message }),
     log,
     artifactWorkspaceDir: artifactWorkspaceDir || (() => runtimePaths?.().workspace),
-    agentSessionManager
+    agentSessionManager,
+    agentSessionWorkspacePath: artifactWorkspaceDir || (() => runtimePaths?.().workspace)
   });
 
   function stopChat(payload = {}) {
