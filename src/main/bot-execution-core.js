@@ -179,6 +179,10 @@ function resolveAgentSessionWorkspacePath(source) {
   return String(value || "").trim();
 }
 
+function managedConversationId(value = "") {
+  return String(value || "").trim();
+}
+
 function createBotExecutionCore({
   createChatEventEmitter,
   cloudBotSnapshotForTurn,
@@ -210,7 +214,7 @@ function createBotExecutionCore({
   // Single-flight interactive chat controller — factory state, not a module
   // global. Group/utility/background turns keep their own controllers.
   let activeChatAbortController = null;
-  let activeAgentSessionDescriptor = null;
+  const activeManagedSessionsByConversationId = new Map();
 
   const getLocalBotResponder = typeof localBotResponder === "function"
     ? localBotResponder
@@ -271,6 +275,7 @@ function createBotExecutionCore({
         && !String(sessionId || "").startsWith("title:")
       );
       const sessionStartedEngineId = managedAgentSessionTurn ? agentSessionSpec.engineId : adapterEngineId;
+      const rawCurrentTurn = currentTurnInput(messages);
       const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
       const completeWithPetMessage = (response) => {
         if (shouldNotifyPet) botPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
@@ -296,6 +301,26 @@ function createBotExecutionCore({
       };
       if (emit) {
         emit("session_started", { botKey: botForTurn.key, engine: sessionStartedEngineId });
+      }
+      if (managedAgentSessionTurn) {
+        if (!agentSessionManager || typeof agentSessionManager.sendUserInput !== "function") {
+          throw new Error(`AgentSession manager is required for interactive ${agentSessionSpec.engineId} turns.`);
+        }
+        const workspacePath = resolveAgentSessionWorkspacePath(agentSessionWorkspacePath);
+        if (!workspacePath) {
+          throw new Error(`AgentSession workspace path is required for interactive ${agentSessionSpec.engineId} turns.`);
+        }
+        const descriptor = {
+          conversationId: managedConversationId(sessionId),
+          engineId: agentSessionSpec.engineId,
+          workspacePath
+        };
+        const accepted = await agentSessionManager.sendUserInput({
+          ...descriptor,
+          ...rawCurrentTurn
+        });
+        activeManagedSessionsByConversationId.set(descriptor.conversationId, descriptor);
+        return accepted;
       }
       // Composer "使用" chips are turn-local: make them resolvable for this turn,
       // then materialize full skill bodies only for those explicit selections.
@@ -324,26 +349,6 @@ function createBotExecutionCore({
           }
           messages = next;
         }
-      }
-      if (managedAgentSessionTurn) {
-        if (!agentSessionManager || typeof agentSessionManager.sendUserInput !== "function") {
-          throw new Error(`AgentSession manager is required for interactive ${agentSessionSpec.engineId} turns.`);
-        }
-        const workspacePath = resolveAgentSessionWorkspacePath(agentSessionWorkspacePath);
-        if (!workspacePath) {
-          throw new Error(`AgentSession workspace path is required for interactive ${agentSessionSpec.engineId} turns.`);
-        }
-        const descriptor = {
-          conversationId: String(sessionId || "").trim(),
-          engineId: agentSessionSpec.engineId,
-          workspacePath
-        };
-        activeAgentSessionDescriptor = descriptor;
-        const accepted = await agentSessionManager.sendUserInput({
-          ...descriptor,
-          ...currentTurnInput(messages)
-        });
-        return accepted;
       }
       if (!abortController && (group || utility || background)) {
         // Group dispatches run in parallel; each gets its own controller.
@@ -439,10 +444,16 @@ function createBotExecutionCore({
 
   async function stopChat(payload = {}) {
     let stopped = false;
-    if (activeAgentSessionDescriptor && agentSessionManager && typeof agentSessionManager.cancelActive === "function") {
-      const cancelled = await agentSessionManager.cancelActive(activeAgentSessionDescriptor);
+    const requestedManagedConversationId = managedConversationId(payload.conversationId || payload.sessionId);
+    const managedDescriptor = requestedManagedConversationId
+      ? activeManagedSessionsByConversationId.get(requestedManagedConversationId) || null
+      : activeManagedSessionsByConversationId.size === 1
+        ? activeManagedSessionsByConversationId.values().next().value || null
+        : null;
+    if (managedDescriptor && agentSessionManager && typeof agentSessionManager.cancelActive === "function") {
+      const cancelled = await agentSessionManager.cancelActive(managedDescriptor);
+      activeManagedSessionsByConversationId.delete(managedDescriptor.conversationId);
       if (cancelled) {
-        activeAgentSessionDescriptor = null;
         stopped = true;
       }
     }

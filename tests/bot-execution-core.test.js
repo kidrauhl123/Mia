@@ -118,6 +118,36 @@ test("sendChat routes interactive AgentSession turns through the session manager
   assert.equal(calls.notifyMessage.length, 0);
 });
 
+test("sendChat keeps managed AgentSession turn text raw even when active skill directive text is available", async () => {
+  const { core, calls } = makeCore({
+    cloudBotSnapshotForTurn: () => ({
+      key: "bot1",
+      id: "bot1",
+      name: "Bot One",
+      agentEngine: "hermes",
+      capabilities: { enabledSkills: ["index-skill"] }
+    }),
+    schedulerSkillIdsForTurn: ({ activeSkillIds }) => activeSkillIds,
+    skillsLoader: {
+      buildActiveSkillsDirective: (ids) => `ACTIVE:${ids.join(",")}`,
+      resolveSkillMaterialization: () => {
+        throw new Error("resolveSkillMaterialization should not run for managed AgentSession turns");
+      }
+    }
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [{ role: "user", id: "msg-10", content: "raw user turn" }],
+    activeSkillIds: ["active-skill"]
+  });
+
+  assert.equal(calls.adapter.length, 0);
+  assert.equal(calls.agentSession.length, 1);
+  assert.equal(calls.agentSession[0].text, "raw user turn");
+});
+
 test("sendChat fails loudly when an interactive AgentSession turn has no manager", async () => {
   const { core, calls } = makeCore({ agentSessionManager: null });
 
@@ -457,6 +487,30 @@ test("stopChat cancels the active interactive AgentSession turn", async () => {
     workspacePath: "/repo/workspace"
   }]);
   assert.equal(core.getActiveChatAbortController(), null);
+});
+
+test("stopChat cancels the requested managed AgentSession conversation instead of the most recent one", async () => {
+  const { core, calls } = makeCore();
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [{ role: "user", id: "msg-1", content: "first" }]
+  });
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:2",
+    messages: [{ role: "user", id: "msg-2", content: "second" }]
+  });
+
+  const result = await core.stopChat({ conversationId: "conversation:1" });
+
+  assert.equal(result.stopped, true);
+  assert.deepEqual(calls.cancelActive, [{
+    conversationId: "conversation:1",
+    engineId: "hermes",
+    workspacePath: "/repo/workspace"
+  }]);
 });
 
 test("stopChat aborts an active title controller on the legacy adapter path", async () => {
