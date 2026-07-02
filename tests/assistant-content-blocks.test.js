@@ -40,6 +40,42 @@ test("collector preserves thinking, text, tool, text order", () => {
   ]);
 });
 
+test("collector accepts Hermes gateway event names for thinking and tool blocks", () => {
+  const collector = createAssistantContentBlockCollector();
+
+  collector.collect("reasoning.delta", { id: "think_1", text: "推理中" });
+  collector.collect("thinking.delta", { id: "think_2", text: "再想一步" });
+  collector.collect("tool.start", { id: "tool_1", name: "shell", preview: "pwd" });
+  collector.collect("tool.progress", { id: "tool_1", delta: "pwd\n/Users/jung" });
+  collector.collect("tool.complete", { id: "tool_1", name: "shell", duration: 0.75 });
+
+  assert.deepEqual(collector.payload(), [
+    {
+      type: "thinking",
+      id: "think_1",
+      text: "推理中",
+      status: "running",
+      duration: null
+    },
+    {
+      type: "thinking",
+      id: "think_2",
+      text: "再想一步",
+      status: "running",
+      duration: null
+    },
+    {
+      type: "tool",
+      id: "tool_1",
+      name: "shell",
+      preview: "pwd\n/Users/jung",
+      status: "completed",
+      duration: 0.75,
+      error: false
+    }
+  ]);
+});
+
 test("collector preserves file edit blocks in the same ordered stream", () => {
   const collector = createAssistantContentBlockCollector();
 
