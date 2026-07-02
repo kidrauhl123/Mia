@@ -9,6 +9,7 @@
 const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const yaml = require("js-yaml");
 const { attachDesktopReleaseNotes } = require("./desktop-release-notes.js");
@@ -24,52 +25,141 @@ const remote = String(process.env.MIA_UPDATE_REMOTE || process.env.MIA_DEPLOY_RE
 const remoteDir = String(process.env.MIA_UPDATE_REMOTE_DIR || "/var/www/mia-updates/").replace(/\/?$/, "/");
 const shouldDeploy = process.env.MIA_UPDATE_DEPLOY === "1";
 
-const feedFiles = [
-  "latest-mac.yml",
-  `${productName}-${version}-arm64-mac.zip`,
-  `${productName}-${version}-arm64-mac.zip.blockmap`,
-];
-const dmg = `${productName}-${version}-Apple-Silicon.dmg`;
-
 function resolveOrThrow(name) {
   const file = path.join(releaseDir, name);
   if (!fs.existsSync(file)) {
-    throw new Error(`Missing release/${name}. Run \`npm run dist:mac\` first so the feed exists.`);
+    throw new Error(`Missing release/${name}. Run a macOS dist command first so the feed exists.`);
   }
   return file;
+}
+
+function readFeed(file) {
+  return yaml.load(fs.readFileSync(file, "utf8"));
 }
 
 function sha256File(file) {
   return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
-function copyArtifact(source) {
-  const target = path.join(stageDir, path.basename(source));
+function copyArtifact(source, name = path.basename(source)) {
+  const target = path.join(stageDir, name);
   fs.copyFileSync(source, target);
   return target;
 }
 
+function maybeSnapshotExistingStage() {
+  const previousFeedPath = path.join(stageDir, "latest-mac.yml");
+  if (!fs.existsSync(previousFeedPath)) return "";
+  const previousFeed = readFeed(previousFeedPath);
+  if (previousFeed?.version !== version) return "";
+
+  const snapshot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-mac-update-stage-"));
+  fs.cpSync(stageDir, snapshot, { recursive: true });
+  return snapshot;
+}
+
+function listFeedFiles(feed) {
+  if (Array.isArray(feed?.files) && feed.files.length) return feed.files;
+  if (feed?.path) {
+    return [{
+      url: feed.path,
+      sha2: feed.sha2,
+      sha512: feed.sha512,
+      size: feed.size,
+    }];
+  }
+  return [];
+}
+
+function archRank(name) {
+  if (name.includes("arm64")) return 0;
+  if (name.includes("x64")) return 1;
+  return 2;
+}
+
+function sourceForArtifact(name, previousStageDir) {
+  const candidates = [
+    path.join(releaseDir, name),
+    previousStageDir ? path.join(previousStageDir, name) : "",
+  ].filter(Boolean);
+  const source = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!source) {
+    throw new Error(`Missing macOS update artifact ${name}. Rebuild the missing architecture before publishing.`);
+  }
+  return source;
+}
+
+function listVersionDmgs(dir) {
+  if (!dir || !fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((file) => file === `${productName}-${version}-Apple-Silicon.dmg` || file === `${productName}-${version}-Intel.dmg`);
+}
+
 const feedPath = resolveOrThrow("latest-mac.yml");
-const feedPaths = [feedPath, ...feedFiles.slice(1).map(resolveOrThrow)];
-const feed = yaml.load(fs.readFileSync(feedPath, "utf8"));
+const previousStageDir = maybeSnapshotExistingStage();
+process.on("exit", () => {
+  if (previousStageDir) fs.rmSync(previousStageDir, { recursive: true, force: true });
+});
+
+const feed = readFeed(feedPath);
 if (feed?.version !== version) {
   throw new Error(
     `latest-mac.yml is version ${feed?.version}, but package.json is ${version}. ` +
-      "Rebuild with `npm run dist:mac` before publishing."
+      "Rebuild with a macOS dist command before publishing."
   );
 }
 if (pkg.build?.publish?.provider !== "generic" || !pkg.build?.publish?.url) {
   throw new Error("package.json build.publish must be the generic provider before publishing Mia updates.");
 }
-const withNotes = attachDesktopReleaseNotes(feed, root, version);
+
+const feeds = [];
+const previousFeedPath = previousStageDir ? path.join(previousStageDir, "latest-mac.yml") : "";
+if (previousFeedPath && fs.existsSync(previousFeedPath)) feeds.push(readFeed(previousFeedPath));
+feeds.push(feed);
+const fileMap = new Map();
+for (const candidateFeed of feeds) {
+  if (candidateFeed?.version !== version) continue;
+  for (const file of listFeedFiles(candidateFeed)) {
+    if (!file?.url) continue;
+    fileMap.set(file.url, file);
+  }
+}
+const files = [...fileMap.values()].sort((a, b) => {
+  const aRank = archRank(a.url);
+  const bRank = archRank(b.url);
+  if (aRank !== bRank) return aRank - bRank;
+  return a.url.localeCompare(b.url);
+});
+if (!files.length) throw new Error("No macOS update zip files found in latest-mac.yml.");
+
+for (const file of files) {
+  sourceForArtifact(file.url, previousStageDir);
+  sourceForArtifact(`${file.url}.blockmap`, previousStageDir);
+}
+
+const combinedFeed = {
+  ...feed,
+  files,
+  path: files[0].url,
+  sha512: files[0].sha512,
+};
+if (files[0].size != null) combinedFeed.size = files[0].size;
+const withNotes = attachDesktopReleaseNotes(combinedFeed, root, version);
 fs.writeFileSync(feedPath, yaml.dump(withNotes.feed, { lineWidth: -1 }));
 
 fs.rmSync(stageDir, { recursive: true, force: true });
 fs.mkdirSync(stageDir, { recursive: true });
 
-const staged = feedPaths.map(copyArtifact);
-const dmgPath = path.join(releaseDir, dmg);
-if (fs.existsSync(dmgPath)) staged.push(copyArtifact(dmgPath));
+const staged = [copyArtifact(feedPath)];
+for (const file of files) {
+  staged.push(copyArtifact(sourceForArtifact(file.url, previousStageDir), file.url));
+  staged.push(copyArtifact(sourceForArtifact(`${file.url}.blockmap`, previousStageDir), `${file.url}.blockmap`));
+}
+const dmgNames = [...new Set([
+  ...listVersionDmgs(previousStageDir),
+  ...listVersionDmgs(releaseDir),
+])].sort();
+for (const dmgName of dmgNames) staged.push(copyArtifact(sourceForArtifact(dmgName, previousStageDir), dmgName));
 
 const checksumLines = staged
   .map((file) => `${sha256File(file)}  ${path.basename(file)}`)

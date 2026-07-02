@@ -286,6 +286,58 @@ test("desktop update publisher injects versioned release notes into mac feed", (
   assert.match(readScript("scripts/publish-win-update.js"), /attachDesktopReleaseNotes/);
 });
 
+test("desktop update publisher merges same-version mac architecture feeds", () => {
+  const pkg = JSON.parse(readScript("package.json"));
+  const version = pkg.version;
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-update-publish-arch-"));
+  const releaseDir = path.join(tempDir, "release");
+  const stageDir = path.join(tempDir, "stage");
+  fs.mkdirSync(releaseDir, { recursive: true });
+  fs.mkdirSync(stageDir, { recursive: true });
+
+  fs.writeFileSync(path.join(stageDir, "latest-mac.yml"), yaml.dump({
+    version,
+    files: [{ url: `Mia-${version}-arm64-mac.zip`, sha512: "arm64", size: 5 }],
+    path: `Mia-${version}-arm64-mac.zip`,
+    sha512: "arm64",
+    releaseDate: "2026-06-17T00:00:00.000Z",
+  }));
+  fs.writeFileSync(path.join(stageDir, `Mia-${version}-arm64-mac.zip`), "arm zip");
+  fs.writeFileSync(path.join(stageDir, `Mia-${version}-arm64-mac.zip.blockmap`), "arm blockmap");
+  fs.writeFileSync(path.join(stageDir, `Mia-${version}-Apple-Silicon.dmg`), "arm dmg");
+
+  fs.writeFileSync(path.join(releaseDir, "latest-mac.yml"), yaml.dump({
+    version,
+    files: [{ url: `Mia-${version}-x64-mac.zip`, sha512: "x64", size: 3 }],
+    path: `Mia-${version}-x64-mac.zip`,
+    sha512: "x64",
+    releaseDate: "2026-06-17T00:10:00.000Z",
+  }));
+  fs.writeFileSync(path.join(releaseDir, `Mia-${version}-x64-mac.zip`), "x64 zip");
+  fs.writeFileSync(path.join(releaseDir, `Mia-${version}-x64-mac.zip.blockmap`), "x64 blockmap");
+  fs.writeFileSync(path.join(releaseDir, `Mia-${version}-Intel.dmg`), "x64 dmg");
+
+  childProcess.execFileSync(process.execPath, [path.join(root, "scripts", "publish-mac-update.js")], {
+    cwd: root,
+    env: {
+      ...process.env,
+      MIA_RELEASE_DIR: releaseDir,
+      MIA_UPDATE_STAGING_DIR: stageDir,
+    },
+    stdio: "pipe",
+  });
+
+  const stagedFeed = yaml.load(fs.readFileSync(path.join(stageDir, "latest-mac.yml"), "utf8"));
+  assert.deepEqual(stagedFeed.files.map((file) => file.url), [
+    `Mia-${version}-arm64-mac.zip`,
+    `Mia-${version}-x64-mac.zip`,
+  ]);
+  assert.equal(fs.readFileSync(path.join(stageDir, `Mia-${version}-arm64-mac.zip`), "utf8"), "arm zip");
+  assert.equal(fs.readFileSync(path.join(stageDir, `Mia-${version}-x64-mac.zip`), "utf8"), "x64 zip");
+  assert.equal(fs.readFileSync(path.join(stageDir, `Mia-${version}-Apple-Silicon.dmg`), "utf8"), "arm dmg");
+  assert.equal(fs.readFileSync(path.join(stageDir, `Mia-${version}-Intel.dmg`), "utf8"), "x64 dmg");
+});
+
 test("cloud blockers command prints exact remaining gate commands", () => {
   const pkg = JSON.parse(readScript("package.json"));
   assert.equal(pkg.scripts["cloud:blockers"], "node scripts/print-cloud-blockers.js");
