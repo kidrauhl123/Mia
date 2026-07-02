@@ -133,7 +133,6 @@ function createCloudDesktopSyncClient({
       botId: entry.botId || "",
       sessionId: entry.sessionId || "",
       scope: entry.scope || "bot",
-      kind: entry.kind || "fact",
       text: entry.text || "",
       status: entry.status || "active",
       confidence: Number.isFinite(Number(entry.confidence)) ? Number(entry.confidence) : 1,

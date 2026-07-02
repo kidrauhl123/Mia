@@ -6,16 +6,6 @@
   let loadToken = 0;
   let wired = false;
 
-  const KIND_LABELS = {
-    fact: "事实",
-    preference: "偏好",
-    relationship: "关系",
-    instruction: "指令",
-    plan: "计划",
-    procedural: "流程",
-    episodic: "事件"
-  };
-
   function initSettingsMemory(deps = {}) {
     state = deps.state;
     els = deps.els;
@@ -32,11 +22,6 @@
       .replace(/'/g, "&#39;");
   }
 
-  function memoryLabel(value = "") {
-    const key = String(value || "").trim();
-    return KIND_LABELS[key] || key || "记忆";
-  }
-
   function ensureMemorySettingsState() {
     if (!state) return {};
     if (!state.settingsMemory || typeof state.settingsMemory !== "object") state.settingsMemory = {};
@@ -47,7 +32,6 @@
       error: "",
       editingId: "",
       draftText: "",
-      draftKind: "fact",
       savingSettings: false,
       ...state.settingsMemory
     };
@@ -72,18 +56,11 @@
     input.value = value || "";
   }
 
-  function syncSelectValue(select, value) {
-    if (!select) return;
-    const next = value || "";
-    if ([...select.options].some((option) => option.value === next)) select.value = next;
-  }
-
   function renderMemorySettings() {
     if (!state || !els) return;
     const panel = ensureMemorySettingsState();
     setSettingsSwitch(els.settingsMemoryEnabled, state.runtime?.memory?.enabled !== false);
     if (els.settingsMemoryEnabled) els.settingsMemoryEnabled.disabled = panel.savingSettings;
-    syncSelectValue(els.settingsMemoryDraftKind, panel.draftKind || "fact");
     syncInputValue(els.settingsMemoryDraftText, panel.draftText);
 
     const editing = Boolean(panel.editingId);
@@ -94,7 +71,7 @@
       const entry = activeEntry();
       const updated = entry ? String(entry.updatedAt || entry.createdAt || "").slice(0, 16).replace("T", " ") : "";
       els.settingsMemoryEditorMeta.textContent = entry
-        ? `${memoryLabel(entry.kind)}${updated ? ` · ${updated}` : ""}`
+        ? (updated ? `上次更新 ${updated}` : "正在编辑这条全局记忆")
         : "这里管理当前 Mia 用户的全局记忆；单个 Bot 的记忆放在联系人详情里。";
     }
     if (els.settingsMemorySave) {
@@ -125,10 +102,7 @@
       const updated = String(entry.updatedAt || entry.createdAt || "").slice(0, 16).replace("T", " ");
       return `
         <article class="settings-memory-row" data-memory-id="${id}">
-          <div class="settings-memory-meta">
-            <span class="settings-memory-pill">${escapeHtml(memoryLabel(entry.kind))}</span>
-            ${updated ? `<span>${escapeHtml(updated)}</span>` : ""}
-          </div>
+          ${updated ? `<div class="settings-memory-meta">${escapeHtml(updated)}</div>` : ""}
           <p>${escapeHtml(entry.text || "")}</p>
           <div class="settings-memory-actions">
             <button class="secondary icon-only" type="button" data-memory-action="edit" data-memory-id="${id}" title="编辑" aria-label="编辑">✎</button>
@@ -168,7 +142,6 @@
     const panel = ensureMemorySettingsState();
     panel.editingId = "";
     panel.draftText = "";
-    panel.draftKind = "fact";
     renderMemorySettings();
   }
 
@@ -178,7 +151,6 @@
     if (!entry) return;
     panel.editingId = entry.id;
     panel.draftText = entry.text || "";
-    panel.draftKind = entry.kind || "fact";
     renderMemorySettings();
     els?.settingsMemoryDraftText?.focus?.();
   }
@@ -192,7 +164,6 @@
     panel.error = "";
     renderMemorySettings();
     try {
-      const kind = panel.draftKind || "fact";
       if (panel.editingId) {
         const entry = activeEntry();
         if (!entry) throw new Error("找不到正在编辑的记忆。");
@@ -200,7 +171,6 @@
           memoryId: entry.id,
           botId: entry.botId || "mia",
           sessionId: entry.sessionId || "default",
-          kind,
           text
         });
       } else {
@@ -208,7 +178,6 @@
           botId: "mia",
           sessionId: "default",
           scope: "user",
-          kind,
           text
         });
       }
@@ -262,9 +231,6 @@
       const next = els.settingsMemoryEnabled.getAttribute("aria-checked") !== "true";
       setSettingsSwitch(els.settingsMemoryEnabled, next);
       saveMemoryEnabled(next);
-    });
-    els.settingsMemoryDraftKind?.addEventListener("change", () => {
-      ensureMemorySettingsState().draftKind = els.settingsMemoryDraftKind.value || "fact";
     });
     els.settingsMemoryDraftText?.addEventListener("input", () => {
       ensureMemorySettingsState().draftText = els.settingsMemoryDraftText.value;

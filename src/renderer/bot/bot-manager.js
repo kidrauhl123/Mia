@@ -605,20 +605,6 @@
     `;
   }
 
-  function memoryKindLabel(value = "") {
-    const labels = {
-      fact: "事实",
-      preference: "偏好",
-      relationship: "关系",
-      instruction: "指令",
-      plan: "计划",
-      procedural: "流程",
-      episodic: "事件"
-    };
-    const key = String(value || "").trim();
-    return labels[key] || key || "记忆";
-  }
-
   function ensureContactMemoryPanel(bot = null) {
     if (!state) return {};
     const botId = firstNonEmpty(bot?.key, bot?.id);
@@ -633,8 +619,7 @@
         loading: false,
         error: "",
         editingId: "",
-        draftText: "",
-        draftKind: "fact"
+        draftText: ""
       };
     } else {
       state.contactMemoryPanel = {
@@ -645,7 +630,6 @@
         error: "",
         editingId: "",
         draftText: "",
-        draftKind: "fact",
         ...current
       };
     }
@@ -653,7 +637,15 @@
   }
 
   function scheduleContactMemoryLoad(botId = "") {
-    if (!botId || !window.mia?.memory?.list) return;
+    if (!botId) return;
+    if (!window.mia?.memory?.list) {
+      const panel = ensureContactMemoryPanel(botByKey(botId) || { key: botId });
+      panel.entries = [];
+      panel.loaded = true;
+      panel.loading = false;
+      panel.error = "";
+      return;
+    }
     const timer = typeof window !== "undefined" && typeof window.setTimeout === "function"
       ? window.setTimeout.bind(window)
       : (typeof setTimeout === "function" ? setTimeout : null);
@@ -691,8 +683,8 @@
   }
 
   function renderContactMemoryList(panel = {}) {
-    if (panel.loading || !panel.loaded) return `<div class="contact-memory-empty">正在加载记忆...</div>`;
     if (panel.error) return `<div class="contact-memory-error">${window.miaMarkdown.escapeHtml(panel.error)}</div>`;
+    if (panel.loading || !panel.loaded) return `<div class="contact-memory-empty">正在加载记忆...</div>`;
     const entries = Array.isArray(panel.entries) ? panel.entries : [];
     if (!entries.length) return `<div class="contact-memory-empty">暂无记忆</div>`;
     return `
@@ -702,10 +694,7 @@
           const updated = String(entry.updatedAt || entry.createdAt || "").slice(0, 16).replace("T", " ");
           return `
             <article class="contact-memory-row" data-memory-id="${id}">
-              <div class="contact-memory-meta">
-                <span class="contact-memory-pill">${window.miaMarkdown.escapeHtml(memoryKindLabel(entry.kind))}</span>
-                ${updated ? `<span>${window.miaMarkdown.escapeHtml(updated)}</span>` : ""}
-              </div>
+              ${updated ? `<div class="contact-memory-meta">${window.miaMarkdown.escapeHtml(updated)}</div>` : ""}
               <p>${window.miaMarkdown.escapeHtml(entry.text || "")}</p>
               <div class="contact-memory-actions">
                 <button class="contact-memory-icon-button" type="button" data-memory-action="edit" data-memory-id="${id}" title="编辑" aria-label="编辑">
@@ -726,13 +715,6 @@
     const editing = Boolean(panel.editingId);
     return `
       <div class="contact-memory-editor">
-        <div class="contact-memory-editor-head">
-          <select class="contact-memory-kind" aria-label="记忆类型">
-            ${["fact", "preference", "relationship", "instruction", "plan", "procedural", "episodic"].map((kind) =>
-              `<option value="${kind}"${(panel.draftKind || "fact") === kind ? " selected" : ""}>${window.miaMarkdown.escapeHtml(memoryKindLabel(kind))}</option>`
-            ).join("")}
-          </select>
-        </div>
         <textarea class="contact-memory-draft" rows="3" placeholder="写入这个 Bot 的长期记忆">${window.miaMarkdown.escapeHtml(panel.draftText || "")}</textarea>
         <div class="contact-memory-editor-actions">
           <button class="secondary${editing ? "" : " hidden"}" type="button" data-memory-action="cancel">取消编辑</button>
@@ -743,10 +725,18 @@
   }
 
   async function loadContactMemoryEntries(botId = "", options = {}) {
-    if (!state || !window.mia?.memory?.list) return;
+    if (!state) return;
     const bot = botByKey(botId) || { key: botId };
     const panel = ensureContactMemoryPanel(bot);
     if (!panel.botId) return;
+    if (!window.mia?.memory?.list) {
+      panel.entries = [];
+      panel.loaded = true;
+      panel.loading = false;
+      panel.error = "";
+      renderContacts();
+      return;
+    }
     if (panel.loading && !options.force) return;
     const token = ++contactMemoryLoadToken;
     panel.loading = true;
@@ -766,6 +756,7 @@
     } catch (error) {
       if (token !== contactMemoryLoadToken) return;
       panel.entries = [];
+      panel.loaded = true;
       panel.error = error?.message || "记忆加载失败";
     } finally {
       if (token === contactMemoryLoadToken) {
@@ -781,7 +772,6 @@
     if (!entry) return;
     panel.editingId = entry.id;
     panel.draftText = entry.text || "";
-    panel.draftKind = entry.kind || "fact";
     renderContacts();
   }
 
@@ -789,7 +779,6 @@
     const panel = ensureContactMemoryPanel(botByKey(state?.activeContactKey));
     panel.editingId = "";
     panel.draftText = "";
-    panel.draftKind = "fact";
     renderContacts();
   }
 
@@ -808,7 +797,6 @@
           memoryId: panel.editingId,
           botId: bot.key,
           sessionId: entry?.sessionId || "default",
-          kind: panel.draftKind || "fact",
           text
         });
       } else {
@@ -816,13 +804,11 @@
           botId: bot.key,
           sessionId: "default",
           scope: "bot",
-          kind: panel.draftKind || "fact",
           text
         });
       }
       panel.editingId = "";
       panel.draftText = "";
-      panel.draftKind = "fact";
       await loadContactMemoryEntries(bot.key, { force: true });
     } catch (error) {
       panel.error = error?.message || "记忆保存失败";
@@ -843,7 +829,6 @@
       if (panel.editingId === memoryId) {
         panel.editingId = "";
         panel.draftText = "";
-        panel.draftKind = "fact";
       }
       await loadContactMemoryEntries(bot.key, { force: true });
     } catch (error) {
@@ -862,9 +847,6 @@
       else state.openMemoryPanelKeys.delete(bot.key);
     });
     const panel = ensureContactMemoryPanel(bot);
-    panelEl?.querySelector(".contact-memory-kind")?.addEventListener("change", (event) => {
-      panel.draftKind = event.currentTarget.value || "fact";
-    });
     panelEl?.querySelector(".contact-memory-draft")?.addEventListener("input", (event) => {
       panel.draftText = event.currentTarget.value || "";
       const saveButton = panelEl.querySelector('[data-memory-action="save"]');

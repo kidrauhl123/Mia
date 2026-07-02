@@ -1204,7 +1204,6 @@ function migrate(db) {
       bot_id TEXT NOT NULL DEFAULT '',
       session_id TEXT NOT NULL DEFAULT '',
       scope TEXT NOT NULL,
-      kind TEXT NOT NULL DEFAULT 'fact',
       text TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL,
       confidence REAL NOT NULL DEFAULT 1,
@@ -1409,6 +1408,58 @@ function migrate(db) {
   }
   if (!hasColumn(db, "memory_entries", "revision")) {
     db.exec("ALTER TABLE memory_entries ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
+  }
+  if (hasColumn(db, "memory_entries", "kind")) {
+    db.exec(`
+      CREATE TABLE memory_entries_without_kind (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        bot_id TEXT NOT NULL DEFAULT '',
+        session_id TEXT NOT NULL DEFAULT '',
+        scope TEXT NOT NULL,
+        text TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 1,
+        source TEXT NOT NULL DEFAULT '',
+        origin_engine TEXT NOT NULL DEFAULT '',
+        origin_native_session_id TEXT NOT NULL DEFAULT '',
+        source_message_ids_json TEXT NOT NULL DEFAULT '[]',
+        linked_memory_ids_json TEXT NOT NULL DEFAULT '[]',
+        policy_result_json TEXT NOT NULL DEFAULT '{}',
+        hash TEXT NOT NULL DEFAULT '',
+        text_normalized TEXT NOT NULL DEFAULT '',
+        priority INTEGER NOT NULL DEFAULT 0,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT NOT NULL DEFAULT '',
+        expires_at TEXT NOT NULL DEFAULT '',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        deleted_at TEXT NOT NULL DEFAULT '',
+        revision INTEGER NOT NULL DEFAULT 1
+      );
+      INSERT INTO memory_entries_without_kind (
+        id, user_id, bot_id, session_id, scope, text, status, confidence,
+        source, origin_engine, origin_native_session_id, source_message_ids_json,
+        linked_memory_ids_json, policy_result_json, hash, text_normalized, priority,
+        pinned, created_at, updated_at, last_used_at, expires_at, metadata_json,
+        deleted_at, revision
+      )
+      SELECT
+        id, user_id, bot_id, session_id, scope, text, status, confidence,
+        source, origin_engine, origin_native_session_id, source_message_ids_json,
+        linked_memory_ids_json, policy_result_json, hash, text_normalized, priority,
+        pinned, created_at, updated_at, last_used_at, expires_at, metadata_json,
+        deleted_at, revision
+      FROM memory_entries;
+      DROP TABLE memory_entries;
+      ALTER TABLE memory_entries_without_kind RENAME TO memory_entries;
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_memory_entries_user_updated ON memory_entries(user_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_memory_entries_scope ON memory_entries(user_id, scope, bot_id, session_id, status);
+      CREATE INDEX IF NOT EXISTS idx_memory_entries_deleted ON memory_entries(user_id, deleted_at);
+    `);
   }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (22, ?)")
     .run(nowIso());

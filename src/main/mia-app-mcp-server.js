@@ -97,11 +97,6 @@ function toolDefinitions() {
             type: "array",
             items: { type: "string", enum: ["user", "bot", "session"] },
             description: "Optional scope filter."
-          },
-          kinds: {
-            type: "array",
-            items: { type: "string", enum: ["preference", "fact", "relationship", "instruction", "plan", "procedural", "episodic"] },
-            description: "Optional memory kind filter."
           }
         }
       }
@@ -117,11 +112,6 @@ function toolDefinitions() {
             type: "array",
             items: { type: "string", enum: ["user", "bot", "session"] },
             description: "Optional scope filter."
-          },
-          kinds: {
-            type: "array",
-            items: { type: "string", enum: ["preference", "fact", "relationship", "instruction", "plan", "procedural", "episodic"] },
-            description: "Optional memory kind filter."
           }
         }
       }
@@ -134,7 +124,6 @@ function toolDefinitions() {
         properties: {
           text: { type: "string", description: "Memory text to store." },
           scope: { type: "string", enum: ["user", "bot", "session"], description: "Requested memory scope. Defaults to bot." },
-          kind: { type: "string", enum: ["preference", "fact", "relationship", "instruction", "plan", "procedural", "episodic"] },
           confidence: { type: "number", description: "Model confidence from 0 to 1." },
           priority: { type: "number", description: "Optional retrieval priority from -100 to 100. Use sparingly for clearly important memories." },
           reason: { type: "string", description: "Why this should be remembered." },
@@ -155,7 +144,6 @@ function toolDefinitions() {
           oldText: { type: "string", description: "Short unique substring of the existing memory when memoryId is unavailable." },
           text: { type: "string", description: "Replacement memory text." },
           scope: { type: "string", enum: ["user", "bot", "session"], description: "Optional scope hint for oldText matching." },
-          kind: { type: "string", enum: ["preference", "fact", "relationship", "instruction", "plan", "procedural", "episodic"] },
           confidence: { type: "number", description: "Model confidence from 0 to 1." },
           priority: { type: "number", description: "Optional retrieval priority from -100 to 100. Use sparingly for clearly important memories." },
           reason: { type: "string", description: "Why this memory changed." },
@@ -884,7 +872,6 @@ async function callTool(name, args = {}) {
         query: args.query || args.q || "",
         limit: args.limit,
         scopes: args.scopes,
-        kinds: args.kinds,
         status: "active"
       });
     case "memory_list":
@@ -893,7 +880,6 @@ async function callTool(name, args = {}) {
         query: "",
         limit: args.limit,
         scopes: args.scopes,
-        kinds: args.kinds,
         status: args.status || "active"
       });
     case "memory_remember":
@@ -902,7 +888,6 @@ async function callTool(name, args = {}) {
         context: ctx,
         text: args.text,
         scope: args.scope,
-        kind: args.kind,
         confidence: args.confidence,
         priority: args.priority,
         reason: args.reason,
@@ -921,7 +906,6 @@ async function callTool(name, args = {}) {
         oldText: args.oldText || args.old_text,
         text: args.text,
         scope: args.scope,
-        kind: args.kind,
         confidence: args.confidence,
         priority: args.priority,
         reason: args.reason,

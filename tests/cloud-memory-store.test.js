@@ -34,7 +34,6 @@ test("cloud memory store isolates entries by user and scoped filters", (t) => {
     botId: "mei",
     sessionId: "s1",
     scope: "bot",
-    kind: "preference",
     text: "Mei should answer architecture questions compactly",
     confidence: 0.9,
     updatedAt: "2026-01-01T00:00:10.000Z"
@@ -42,6 +41,7 @@ test("cloud memory store isolates entries by user and scoped filters", (t) => {
 
   assert.equal(created.ok, true);
   assert.equal(created.memory.userId, alice.id);
+  assert.equal(Object.prototype.hasOwnProperty.call(created.memory, "kind"), false);
   assert.equal(memoryStore.listMemories(alice.id, { botId: "mei", query: "architecture" }).length, 1);
   assert.equal(memoryStore.listMemories(alice.id, { botId: "other", query: "architecture" }).length, 0);
   assert.equal(memoryStore.listMemories(bob.id, { query: "architecture" }).length, 0);

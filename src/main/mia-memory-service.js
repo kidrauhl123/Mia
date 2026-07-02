@@ -49,17 +49,6 @@ function explicitMemoryCommandsFromMessages(messages = []) {
   return [...new Set(commands)];
 }
 
-function explicitMemoryKind(text = "") {
-  const value = cleanLine(text).toLowerCase();
-  if (/(prefer|preference|like|dislike|favorite|favourite|\u559c\u6b22|\u504f\u597d|\u4e0d\u559c\u6b22|\u8ba8\u538c|\u4e60\u60ef)/iu.test(value)) {
-    return "preference";
-  }
-  if (/(always|never|from now on|when you|do not|don't|use\b|\u4ee5\u540e|\u4e0b\u6b21|\u6bcf\u6b21|\u4e0d\u8981|\u522b|\u7528|\u53eb\u6211|\u79f0\u547c)/iu.test(value)) {
-    return "instruction";
-  }
-  return "fact";
-}
-
 function createMiaMemoryService(deps = {}) {
   const runtimePaths = deps.runtimePaths;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
@@ -120,7 +109,6 @@ function createMiaMemoryService(deps = {}) {
         sessionId,
         limit: safeLimit,
         scopes: input.scopes,
-        kinds: input.kinds,
         status: input.status || "active"
       });
     } catch {
@@ -219,7 +207,6 @@ function createMiaMemoryService(deps = {}) {
         botId,
         sessionId,
         scope,
-        kind: explicitMemoryKind(text),
         text,
         confidence: 0.95,
         source: "explicit_memory_command",
@@ -264,7 +251,6 @@ function createMiaMemoryService(deps = {}) {
         botId,
         sessionId,
         scope,
-        kind: cleanLine(input.kind || "fact") || "fact",
         text,
         confidence: Number.isFinite(Number(item?.confidence)) ? Number(item.confidence) : 0.8,
         source: `provider:${memoryProvider.name || "external"}`,

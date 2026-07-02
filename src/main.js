@@ -544,15 +544,11 @@ function rendererMemoryListInput(input = {}) {
   const scopes = Array.isArray(source.scopes)
     ? source.scopes
     : (source.scope ? [source.scope] : []);
-  const kinds = Array.isArray(source.kinds)
-    ? source.kinds
-    : (source.kind ? [source.kind] : []);
   return {
     ...rendererMemoryBase(source),
     query: String(source.query || "").trim(),
     status: String(source.status || "active").trim() || "active",
     scopes,
-    kinds,
     limit: Math.max(1, Math.min(100, Math.floor(Number(source.limit) || 80)))
   };
 }
@@ -562,13 +558,9 @@ function rendererMemoryManagementInput(input = {}) {
   const scopes = Array.isArray(source.scopes)
     ? source.scopes
     : (source.scope ? [source.scope] : []);
-  const kinds = Array.isArray(source.kinds)
-    ? source.kinds
-    : (source.kind ? [source.kind] : []);
   return {
     query: String(source.query || "").trim(),
     scopes,
-    kinds,
     botId: String(source.botId || source.botKey || "").trim(),
     sessionId: String(source.sessionId || "").trim(),
     limit: Math.max(1, Math.min(5000, Math.floor(Number(source.limit) || 250)))
@@ -580,7 +572,6 @@ function rendererRememberMemoryInput(input = {}) {
   return {
     ...rendererMemoryBase(source),
     scope: String(source.scope || "bot").trim() || "bot",
-    kind: String(source.kind || "fact").trim() || "fact",
     text: String(source.text || source.content || "").trim(),
     confidence: 1,
     source: "manual",
@@ -595,7 +586,6 @@ function rendererUpdateMemoryInput(input = {}) {
     ...rendererMemoryBase(source),
     memoryId: String(source.memoryId || source.id || "").trim(),
     oldText: String(source.oldText || "").trim(),
-    kind: String(source.kind || "fact").trim() || "fact",
     text: String(source.text || source.content || source.newText || "").trim(),
     confidence: 1,
     source: "manual",

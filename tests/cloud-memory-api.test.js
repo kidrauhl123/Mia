@@ -60,7 +60,6 @@ test("cloud memory API syncs scoped memories with account isolation and tombston
         botId: "mei",
         sessionId: "s1",
         scope: "bot",
-        kind: "preference",
         text: "Mei should keep implementation plans compact",
         confidence: 0.9,
         updatedAt: "2026-01-01T00:00:10.000Z",
@@ -69,6 +68,7 @@ test("cloud memory API syncs scoped memories with account isolation and tombston
     });
     assert.equal(saved.memory.id, "mem_api_pref");
     assert.equal(saved.memory.userId, alice.user.id);
+    assert.equal(Object.prototype.hasOwnProperty.call(saved.memory, "kind"), false);
 
     const listed = await jsonFetch(baseUrl, "/api/me/memory?botId=mei&q=implementation", alice.token);
     assert.equal(listed.memories.length, 1);

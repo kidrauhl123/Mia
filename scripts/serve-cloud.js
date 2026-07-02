@@ -3079,7 +3079,6 @@ async function handleRequest(req, res, context) {
         includeDeleted: url.searchParams.get("includeDeleted"),
         status: url.searchParams.get("status") || "",
         scope: url.searchParams.get("scope") || "",
-        kind: url.searchParams.get("kind") || "",
         botId: url.searchParams.get("botId") || "",
         sessionId: url.searchParams.get("sessionId") || "",
         query: url.searchParams.get("q") || url.searchParams.get("query") || "",

@@ -44,7 +44,6 @@ test("memory service stores scoped memories without exposing a prompt block rend
     botId: "mei",
     sessionId: "s1",
     scope: "session",
-    kind: "preference",
     text: "This session is about lunch plans",
     confidence: 0.9
   });
@@ -219,7 +218,6 @@ test("near-duplicate memory writes reuse scoped entries", (t) => {
     botId: "mei",
     sessionId: "s1",
     scope: "bot",
-    kind: "preference",
     text: "User prefers compact architecture notes in Chinese",
     confidence: 0.9
   });
@@ -229,7 +227,6 @@ test("near-duplicate memory writes reuse scoped entries", (t) => {
     botId: "mei",
     sessionId: "s1",
     scope: "bot",
-    kind: "preference",
     text: "The user prefers compact architecture notes in Chinese.",
     confidence: 0.95
   });
@@ -243,7 +240,6 @@ test("near-duplicate memory writes reuse scoped entries", (t) => {
     botId: "other",
     sessionId: "s1",
     scope: "bot",
-    kind: "preference",
     text: "The user prefers compact architecture notes in Chinese.",
     confidence: 0.95
   });
@@ -254,7 +250,6 @@ test("near-duplicate memory writes reuse scoped entries", (t) => {
     botId: "mei",
     sessionId: "s1",
     scope: "user",
-    kind: "preference",
     text: "The user prefers morning summaries.",
     confidence: 0.9
   });
@@ -513,7 +508,7 @@ test("provider-disabled extraction captures only explicit memory commands throug
   assert.equal(result.memories[0].status, "active");
   const stored = service.searchMemories({ botId: "mei", sessionId: "s1", query: "concise" });
   assert.equal(stored.length, 1);
-  assert.equal(stored[0].kind, "preference");
+  assert.equal(Object.prototype.hasOwnProperty.call(stored[0], "kind"), false);
   assert.equal(stored[0].source, "explicit_memory_command");
   assert.deepEqual(stored[0].sourceMessageIds, ["msg_user_1", "msg_assistant_1"]);
 });
@@ -539,7 +534,7 @@ test("provider-disabled extraction accepts Chinese explicit memory punctuation",
   assert.equal(result.memories[0].status, "active");
   const stored = service.searchMemories({ botId: "mei", sessionId: "s1", query: "简短" });
   assert.equal(stored.length, 1);
-  assert.equal(stored[0].kind, "preference");
+  assert.equal(Object.prototype.hasOwnProperty.call(stored[0], "kind"), false);
   const listed = service.listAllMemories({ botId: "mei", sessionId: "s1", query: "简短" });
   assert.equal(listed.length, 1);
 });
@@ -610,7 +605,6 @@ test("provider-backed semantic search only returns Mia-owned scoped memories", a
     botId: "mei",
     sessionId: "s1",
     scope: "bot",
-    kind: "preference",
     text: "User prefers soba noodles",
     confidence: 0.9
   });
@@ -618,7 +612,6 @@ test("provider-backed semantic search only returns Mia-owned scoped memories", a
     botId: "other",
     sessionId: "s1",
     scope: "bot",
-    kind: "fact",
     text: "Other bot private memory",
     confidence: 0.9
   });
@@ -640,7 +633,6 @@ test("provider-backed semantic search only returns Mia-owned scoped memories", a
     sessionId: "s1",
     limit: 5,
     scopes: undefined,
-    kinds: undefined,
     status: "active"
   });
 });
@@ -837,7 +829,6 @@ test("memory update and forget use visible scoped targets only", (t) => {
     sessionId: "s1",
     memoryId: created.memoryId,
     text: "User prefers mildly spicy food",
-    kind: "preference",
     confidence: 0.9
   });
   assert.equal(updated.status, "active");

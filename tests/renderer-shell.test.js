@@ -2623,6 +2623,9 @@ test("bot-only contact detail renders capabilities, persona, and memory as compa
   assert.match(botManagerSource, /window\.mia\.memory\.update/);
   assert.match(botManagerSource, /window\.mia\.memory\.delete/);
   assert.match(botManagerSource, /refreshContactMemoryForBot/);
+  assert.doesNotMatch(botManagerSource, /contact-memory-kind/);
+  assert.doesNotMatch(botManagerSource, /contact-memory-pill/);
+  assert.doesNotMatch(botManagerSource, /draftKind/);
   assert.doesNotMatch(botManagerSource, /renderHumanPersonaPanel/);
   assert.match(styleSource, /\.contact-persona-card/);
   assert.match(styleSource, /\.contact-memory-card/);
@@ -2654,6 +2657,7 @@ test("settings exposes account-level memory governance", () => {
   assert.match(htmlSource, /data-settings-panel="memory"/);
   assert.match(htmlSource, /id="settingsMemoryList"/);
   assert.match(htmlSource, /id="settingsMemoryEnabled"/);
+  assert.doesNotMatch(htmlSource, /id="settingsMemoryDraftKind"/);
   assert.doesNotMatch(htmlSource, /id="settingsMemoryExportText"/);
   assert.doesNotMatch(htmlSource, /id="settingsMemoryDeleteAll"/);
   assert.doesNotMatch(htmlSource, /id="settingsMemoryStatus"/);
@@ -2661,11 +2665,13 @@ test("settings exposes account-level memory governance", () => {
   assert.match(htmlSource, /<script src="\.\/settings\/settings-memory\.js"><\/script>/);
   assert.match(appSource, /settingsMemoryEnabled: document\.getElementById\("settingsMemoryEnabled"\)/);
   assert.match(appSource, /settingsMemoryList: document\.getElementById\("settingsMemoryList"\)/);
+  assert.doesNotMatch(appSource, /settingsMemoryDraftKind/);
   assert.doesNotMatch(appSource, /settingsMemoryDeleteAll: document\.getElementById/);
   assert.match(appSource, /window\.miaSettingsMemory\?\.loadMemorySettings/);
   assert.match(memorySource, /window\.mia\.saveMemorySettings/);
   assert.match(memorySource, /function saveMemoryEnabled\(enabled\)/);
   assert.match(memorySource, /window\.mia\.memory\.listAll/);
+  assert.doesNotMatch(memorySource, /draftKind|settingsMemoryDraftKind|memoryLabel|KIND_LABELS/);
   assert.doesNotMatch(memorySource, /window\.mia\.memory\.activate/);
   assert.doesNotMatch(memorySource, /window\.mia\.memory\.promote/);
   assert.match(memorySource, /window\.mia\.memory\.delete/);

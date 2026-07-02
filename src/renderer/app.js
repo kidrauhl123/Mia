@@ -171,7 +171,6 @@ const els = {
   settingsView: document.getElementById("settingsView"),
   settingsMemoryEnabled: document.getElementById("settingsMemoryEnabled"),
   settingsMemoryList: document.getElementById("settingsMemoryList"),
-  settingsMemoryDraftKind: document.getElementById("settingsMemoryDraftKind"),
   settingsMemoryDraftText: document.getElementById("settingsMemoryDraftText"),
   settingsMemoryEditorTitle: document.getElementById("settingsMemoryEditorTitle"),
   settingsMemoryEditorMeta: document.getElementById("settingsMemoryEditorMeta"),

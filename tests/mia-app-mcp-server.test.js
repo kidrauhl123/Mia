@@ -69,6 +69,15 @@ test("memory write tools expose bounded retrieval priority", () => {
   }
 });
 
+test("memory MCP schema does not ask agents to classify memory kinds", () => {
+  const byName = new Map(toolDefinitions().map((tool) => [tool.name, tool]));
+  for (const name of ["memory_search", "memory_list", "memory_remember", "memory_update"]) {
+    const properties = byName.get(name)?.inputSchema?.properties || {};
+    assert.equal(Object.prototype.hasOwnProperty.call(properties, "kind"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(properties, "kinds"), false);
+  }
+});
+
 test("memory MCP tools expose read/write annotations from the same permission classes", () => {
   const byName = new Map(toolDefinitions().map((tool) => [tool.name, tool]));
   assert.deepEqual(byName.get("memory_search")?.annotations, {

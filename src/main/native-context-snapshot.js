@@ -48,7 +48,7 @@ function contextSnapshotInstruction({ engine = "", botId = "", sessionId = "" } 
   const lines = [
     "## Mia Scoped Context",
     "Use the built-in `mia-app` MCP tool `context_snapshot` when you need current Mia bot/session metadata or persona for this turn.",
-    "Use `memory_search` to retrieve Mia-owned scoped memories before relying on prior preferences, facts, plans, or instructions.",
+    "Use `memory_search` to retrieve Mia-owned scoped memories before relying on prior long-term context.",
     "Use `memory_remember` for new durable memories, `memory_update` when an existing memory changes, and `memory_forget` when the user asks you to forget something or a memory is obsolete.",
     "Use `skill_list_current` and `skill_read_current` to inspect skills enabled for the current Mia bot instead of expecting full skill bodies in the prompt.",
     "All mia-app tools are scoped by Mia to the current bot and conversation session. Do not reuse persona, memory, or session history from any other bot/session."

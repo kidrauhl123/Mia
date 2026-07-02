@@ -466,7 +466,6 @@ function createDaemonControlServer({
           query: body.query || "",
           limit: body.limit,
           scopes: body.scopes,
-          kinds: body.kinds,
           status: body.status || "active",
           userId: scoped.userId,
           botId: scoped.botId,
@@ -490,7 +489,6 @@ function createDaemonControlServer({
         const result = miaMemoryService.rememberMemory({
           text: body.text,
           scope: body.scope,
-          kind: body.kind,
           confidence: body.confidence,
           priority: body.priority,
           reason: body.reason,
@@ -527,7 +525,6 @@ function createDaemonControlServer({
           oldText: body.oldText || body.old_text,
           text: body.text,
           scope: body.scope,
-          kind: body.kind,
           confidence: body.confidence,
           priority: body.priority,
           reason: body.reason,

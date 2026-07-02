@@ -3,7 +3,6 @@
 const crypto = require("node:crypto");
 
 const VALID_SCOPES = new Set(["user", "bot", "session"]);
-const VALID_KINDS = new Set(["preference", "fact", "relationship", "instruction", "plan", "procedural", "episodic"]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -33,11 +32,6 @@ function normalizeText(value = "") {
 function normalizeScope(value = "", fallback = "bot") {
   const scope = String(value || "").trim().toLowerCase();
   return VALID_SCOPES.has(scope) ? scope : fallback;
-}
-
-function normalizeKind(value = "", fallback = "fact") {
-  const kind = String(value || "").trim().toLowerCase();
-  return VALID_KINDS.has(kind) ? kind : fallback;
 }
 
 function normalizeIso(value = "", fallback = nowIso()) {
@@ -86,7 +80,6 @@ function rowToMemory(row = {}) {
     botId: row.bot_id || "",
     sessionId: row.session_id || "",
     scope: row.scope,
-    kind: row.kind,
     text: row.text || "",
     status: row.deleted_at ? "deleted" : "active",
     confidence: Number(row.confidence || 0),
@@ -114,7 +107,7 @@ function createCloudMemoryStore(db, deps = {}) {
   const makeEventId = deps.eventIdFactory || (() => crypto.randomUUID());
 
   const columns = `
-    id, user_id, bot_id, session_id, scope, kind, text, status, confidence,
+    id, user_id, bot_id, session_id, scope, text, status, confidence,
     source, origin_engine, origin_native_session_id, source_message_ids_json,
     linked_memory_ids_json, policy_result_json, hash, text_normalized, priority,
     pinned, created_at, updated_at, last_used_at, expires_at, metadata_json,
@@ -123,11 +116,11 @@ function createCloudMemoryStore(db, deps = {}) {
   const selectById = db.prepare(`SELECT ${columns} FROM memory_entries WHERE user_id = ? AND id = ?`);
   const insertStmt = db.prepare(`
     INSERT INTO memory_entries (${columns})
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateStmt = db.prepare(`
     UPDATE memory_entries SET
-      bot_id = ?, session_id = ?, scope = ?, kind = ?, text = ?, status = ?,
+      bot_id = ?, session_id = ?, scope = ?, text = ?, status = ?,
       confidence = ?, source = ?, origin_engine = ?, origin_native_session_id = ?,
       source_message_ids_json = ?, linked_memory_ids_json = ?, policy_result_json = ?,
       hash = ?, text_normalized = ?, priority = ?, pinned = ?, updated_at = ?,
@@ -179,7 +172,6 @@ function createCloudMemoryStore(db, deps = {}) {
       throw error;
     }
     const status = "active";
-    const kind = normalizeKind(input.kind, existing?.kind || "fact");
     const updatedAt = normalizeIso(input.updatedAt || input.updated_at || "", timestamp);
     const createdAt = normalizeIso(input.createdAt || input.created_at || "", existing?.created_at || updatedAt);
     const normalizedText = normalizeText(text);
@@ -189,7 +181,6 @@ function createCloudMemoryStore(db, deps = {}) {
       botId,
       sessionId,
       scope,
-      kind,
       text,
       status,
       confidence: Number.isFinite(Number(input.confidence)) ? Number(input.confidence) : Number(existing?.confidence ?? 1),
@@ -242,7 +233,6 @@ function createCloudMemoryStore(db, deps = {}) {
         entry.botId,
         entry.sessionId,
         entry.scope,
-        entry.kind,
         entry.text,
         entry.status,
         entry.confidence,
@@ -272,7 +262,6 @@ function createCloudMemoryStore(db, deps = {}) {
       entry.botId,
       entry.sessionId,
       entry.scope,
-      entry.kind,
       entry.text,
       entry.status,
       entry.confidence,
@@ -334,11 +323,6 @@ function createCloudMemoryStore(db, deps = {}) {
     if (scope) {
       where += " AND scope = ?";
       params.push(scope);
-    }
-    const kind = normalizeKind(input.kind, "");
-    if (kind) {
-      where += " AND kind = ?";
-      params.push(kind);
     }
     const botId = cleanId(input.botId || input.bot_id);
     if (botId) {

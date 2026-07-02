@@ -4388,13 +4388,6 @@ body.topbar-click-capture .topbar {
   font-size: 11px;
 }
 
-.contact-memory-pill {
-  border-radius: 999px;
-  padding: 2px 7px;
-  background: var(--field);
-  color: var(--muted);
-}
-
 .contact-memory-actions,
 .contact-memory-editor-actions {
   justify-content: flex-end;
@@ -4429,15 +4422,6 @@ body.topbar-click-capture .topbar {
 .contact-memory-editor {
   display: grid;
   gap: 8px;
-}
-
-.contact-memory-editor-head {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.contact-memory-kind {
-  min-width: 120px;
 }
 
 .contact-memory-draft {
@@ -8850,19 +8834,12 @@ select.select-open {
   gap: 8px;
   width: 100%;
   min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .settings-memory-editor-fields textarea {
   width: 100%;
   min-width: 0;
-}
-
-.settings-memory-editor-fields {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-
-.settings-memory-editor-fields textarea {
-  grid-column: 1 / -1;
   resize: vertical;
   padding: 10px 12px;
   color: var(--text);
@@ -8917,13 +8894,6 @@ select.select-open {
 .settings-memory-meta {
   color: var(--muted);
   font-size: 11px;
-}
-
-.settings-memory-pill {
-  border-radius: 999px;
-  padding: 2px 7px;
-  background: var(--field);
-  color: var(--muted);
 }
 
 .settings-memory-actions {
