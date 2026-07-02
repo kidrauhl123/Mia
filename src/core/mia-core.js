@@ -999,6 +999,7 @@ function createCoreBotExecution({
     sendWithChatEngineAdapter,
     createActiveChatEngineAdapters,
     agentSessionManager,
+    agentSessionWorkspacePath: agentWorkspaceDir,
     // TODO(mia-core slice): wire the real local bot responder once Core owns
     // cloud-conversation handling; the stub keeps stopChat well-defined.
     localBotResponder: () => ({ stopActiveConversationRun: () => ({ stopped: false }) }),

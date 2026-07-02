@@ -7,7 +7,7 @@ const { XLSX_SKILL_ID } = require("../src/shared/skill-intent-detector.js");
 // Pure-node stub deps proving Mia Core can drive bot execution with NO electron
 // and NO webContents. Everything host-specific is injected.
 function makeCore(overrides = {}) {
-  const calls = { adapter: [], notifyMessage: [] };
+  const calls = { adapter: [], notifyMessage: [], agentSession: [], cancelActive: [] };
   const deps = {
     createChatEventEmitter,
     cloudBotSnapshotForTurn: () => ({ key: "bot1", id: "bot1", name: "Bot One", agentEngine: "hermes", capabilities: {} }),
@@ -29,6 +29,23 @@ function makeCore(overrides = {}) {
       return { text: "canned-response", finishReason: "stop" };
     },
     createActiveChatEngineAdapters: () => ({ stub: true }),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.agentSession.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      },
+      cancelActive: async (descriptor) => {
+        calls.cancelActive.push(descriptor);
+        return true;
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace",
     localBotResponder: () => null,
     isDaemonProcess: false,
     daemonTasksClient: () => null,
@@ -48,7 +65,136 @@ async function waitFor(predicate, timeoutMs = 1000) {
   assert.ok(predicate(), "condition was not met before timeout");
 }
 
-test("sendChat returns the canned response and emits session_started (node-only)", async () => {
+test("sendChat routes interactive AgentSession turns through the session manager without history replay", async () => {
+  const { core, calls } = makeCore();
+  const sink = [];
+  const { emit } = createChatEventEmitter({
+    sessionId: "s1",
+    runId: "run1",
+    now: () => 1,
+    emitImpl: (channel, envelope) => sink.push(envelope)
+  });
+
+  const response = await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [
+      { role: "user", content: "old prompt" },
+      { role: "assistant", content: "old reply" },
+      {
+        role: "user",
+        id: "msg-9",
+        content: [{ type: "text", text: "  latest prompt  " }],
+        attachments: [{ id: "att-1", name: "error.log" }],
+        fileReferences: [{ path: "/repo/README.md" }]
+      }
+    ],
+    emit
+  });
+
+  assert.deepEqual(response, {
+    ok: true,
+    mode: "started",
+    conversationId: "conversation:1",
+    engineId: "hermes",
+    turnId: "msg-9"
+  });
+  assert.equal(calls.adapter.length, 0);
+  assert.deepEqual(calls.agentSession, [{
+    conversationId: "conversation:1",
+    engineId: "hermes",
+    workspacePath: "/repo/workspace",
+    turnId: "msg-9",
+    text: "latest prompt",
+    attachments: [{ id: "att-1", name: "error.log" }],
+    fileReferences: [{ path: "/repo/README.md" }]
+  }]);
+  assert.equal("messages" in calls.agentSession[0], false);
+  assert.equal(core.getActiveChatAbortController(), null);
+  const kinds = sink.map((e) => e.kind);
+  assert.ok(kinds.includes("session_started"), "should emit session_started");
+  const started = sink.find((e) => e.kind === "session_started");
+  assert.deepEqual(started.data, { botKey: "bot1", engine: "hermes" });
+  assert.equal(calls.notifyMessage.length, 0);
+});
+
+test("sendChat fails loudly when an interactive AgentSession turn has no manager", async () => {
+  const { core, calls } = makeCore({ agentSessionManager: null });
+
+  await assert.rejects(
+    core.sendChat({
+      botKey: "bot1",
+      sessionId: "conversation:1",
+      messages: [{ role: "user", content: "hi" }]
+    }),
+    /AgentSession manager is required/
+  );
+
+  assert.equal(calls.adapter.length, 0);
+});
+
+test("sendChat accepts a second interactive AgentSession input without using the foreground abort controller", async () => {
+  let sendCount = 0;
+  const { core, calls } = makeCore({
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.agentSession.push(input);
+        sendCount += 1;
+        return sendCount === 1
+          ? {
+            ok: true,
+            mode: "started",
+            conversationId: input.conversationId,
+            engineId: input.engineId,
+            turnId: input.turnId
+          }
+          : {
+            ok: true,
+            mode: "queued",
+            conversationId: input.conversationId,
+            engineId: input.engineId,
+            turnId: input.turnId,
+            queueDepth: 1
+          };
+      },
+      cancelActive: async (descriptor) => {
+        calls.cancelActive.push(descriptor);
+        return true;
+      }
+    }
+  });
+
+  const first = await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [{ role: "user", id: "msg-1", content: "first" }]
+  });
+  const second = await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [{ role: "user", id: "msg-2", content: "second" }]
+  });
+
+  assert.deepEqual(first, {
+    ok: true,
+    mode: "started",
+    conversationId: "conversation:1",
+    engineId: "hermes",
+    turnId: "msg-1"
+  });
+  assert.deepEqual(second, {
+    ok: true,
+    mode: "queued",
+    conversationId: "conversation:1",
+    engineId: "hermes",
+    turnId: "msg-2",
+    queueDepth: 1
+  });
+  assert.equal(calls.adapter.length, 0);
+  assert.equal(core.getActiveChatAbortController(), null);
+});
+
+test("group sendChat keeps the legacy adapter path and emits session_started", async () => {
   const { core, calls } = makeCore();
   const sink = [];
   const { emit } = createChatEventEmitter({
@@ -62,6 +208,7 @@ test("sendChat returns the canned response and emits session_started (node-only)
     botKey: "bot1",
     sessionId: "s1",
     messages: [{ role: "user", content: "hi" }],
+    group: true,
     emit
   });
 
@@ -72,11 +219,10 @@ test("sendChat returns the canned response and emits session_started (node-only)
   assert.ok(kinds.includes("text_delta"), "should forward downstream adapter events");
   const started = sink.find((e) => e.kind === "session_started");
   assert.deepEqual(started.data, { botKey: "bot1", engine: "hermes" });
-  // Interactive (non-utility, non-title) turn notifies the pet service.
   assert.equal(calls.notifyMessage.length, 1);
 });
 
-test("sendChat schedules provider-backed memory extraction after a visible bot turn", async () => {
+test("group sendChat schedules provider-backed memory extraction after a visible bot turn", async () => {
   const extractCalls = [];
   const extractedEvents = [];
   const logs = [];
@@ -109,7 +255,8 @@ test("sendChat schedules provider-backed memory extraction after a visible bot t
   const response = await core.sendChat({
     botKey: "bot1",
     sessionId: "s1",
-    messages: [{ role: "user", id: "m1", content: "I prefer concise answers" }]
+    messages: [{ role: "user", id: "m1", content: "I prefer concise answers" }],
+    group: true
   });
 
   assert.equal(response.text, "canned-response");
@@ -120,7 +267,7 @@ test("sendChat schedules provider-backed memory extraction after a visible bot t
   ]);
   assert.equal(extractCalls[0].botId, "bot1");
   assert.equal(extractCalls[0].sessionId, "s1");
-  assert.equal(extractCalls[0].scope, "bot");
+  assert.equal(extractCalls[0].scope, "session");
   assert.equal(extractCalls[0].originEngine, "hermes");
   assert.deepEqual(extractCalls[0].sourceMessageIds, ["m1"]);
   await waitFor(() => extractedEvents.length === 1);
@@ -143,7 +290,8 @@ test("sendChat does not auto-extract memories when Mia memory is disabled", asyn
   await core.sendChat({
     botKey: "bot1",
     sessionId: "s1",
-    messages: [{ role: "user", id: "m1", content: "remember that I like tea" }]
+    messages: [{ role: "user", id: "m1", content: "remember that I like tea" }],
+    group: true
   });
   await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(extractCalls, 0);
@@ -197,6 +345,7 @@ test("sendChat passes turn skill materialization to the adapter", async () => {
     botKey: "bot1",
     sessionId: "s1",
     messages: [{ role: "user", content: "hi" }],
+    group: true,
     activeSkillIds: ["active-skill"]
   });
 
@@ -229,7 +378,8 @@ test("sendChat materializes xlsx skill when the user asks for an Excel deliverab
   await core.sendChat({
     botKey: "bot1",
     sessionId: "s1",
-    messages: [{ role: "user", content: "给我生成一个写着2026年世界杯小组赛战果的Excel" }]
+    messages: [{ role: "user", content: "给我生成一个写着2026年世界杯小组赛战果的Excel" }],
+    group: true
   });
 
   assert.deepEqual(resolveCalls[0].activeSkillIds, []);
@@ -277,6 +427,7 @@ test("sendChat handles LOAD_SKILL requests as an internal skill-loading retry", 
     botKey: "bot1",
     sessionId: "s1",
     messages: [{ role: "user", content: "帮我处理一下" }],
+    group: true,
     emit: (kind, data) => visibleEvents.push({ kind, data })
   });
 
@@ -289,7 +440,26 @@ test("sendChat handles LOAD_SKILL requests as an internal skill-loading retry", 
   );
 });
 
-test("stopChat aborts an active interactive controller", async () => {
+test("stopChat cancels the active interactive AgentSession turn", async () => {
+  const { core, calls } = makeCore();
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [{ role: "user", id: "msg-1", content: "hi" }]
+  });
+
+  const result = await core.stopChat({});
+  assert.equal(result.stopped, true);
+  assert.deepEqual(calls.cancelActive, [{
+    conversationId: "conversation:1",
+    engineId: "hermes",
+    workspacePath: "/repo/workspace"
+  }]);
+  assert.equal(core.getActiveChatAbortController(), null);
+});
+
+test("stopChat aborts an active title controller on the legacy adapter path", async () => {
   const { core } = makeCore({
     // Block the adapter so a foreground turn stays in-flight while we stop it.
     sendWithChatEngineAdapter: (adapters, context) => new Promise((_resolve, reject) => {
@@ -302,7 +472,7 @@ test("stopChat aborts an active interactive controller", async () => {
 
   const pending = core.sendChat({
     botKey: "bot1",
-    sessionId: "s1",
+    sessionId: "title:s1",
     messages: [{ role: "user", content: "hi" }]
   });
 

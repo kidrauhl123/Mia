@@ -2470,6 +2470,7 @@ const botExecutionCore = createBotExecutionCore({
   sendWithChatEngineAdapter,
   createActiveChatEngineAdapters,
   agentSessionManager,
+  agentSessionWorkspacePath: agentWorkspaceDir,
   localBotResponder: () => localBotResponder,
   isDaemonProcess: IS_DAEMON_PROCESS,
   daemonTasksClient: () => miaCoreTasksClient,

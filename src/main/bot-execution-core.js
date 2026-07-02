@@ -5,12 +5,15 @@
 // reassigns at runtime (or constructs after this factory) are injected as
 // accessor functions so the late binding still resolves.
 
+const crypto = require("node:crypto");
+
 const { intentSkillIdsForMessages } = require("../shared/skill-intent-detector.js");
 const {
   createSkillLoadRequestGate,
   extractLoadSkillRequests,
   stripLoadSkillRequests
 } = require("../shared/skill-load-protocol.js");
+const { getAcpEngineSpec } = require("./agent-session/index.js");
 
 const MAX_SKILL_LOAD_ROUNDS = 3;
 const MAX_MEMORY_EXTRACTION_MESSAGES = 12;
@@ -143,6 +146,39 @@ function scheduleMemoryExtraction({
   return true;
 }
 
+function lastUserMessage(messages = []) {
+  const rows = Array.isArray(messages) ? messages : [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    if (rows[index] && rows[index].role === "user") return rows[index];
+  }
+  return null;
+}
+
+function currentTurnId(message = null) {
+  const id = String(message?.id || message?.messageId || "").trim();
+  return id || `turn_${crypto.randomUUID()}`;
+}
+
+function currentTurnInput(messages = []) {
+  const message = lastUserMessage(messages);
+  const input = {
+    turnId: currentTurnId(message),
+    text: textContent(message?.content || message?.text || "")
+  };
+  if (Array.isArray(message?.attachments) && message.attachments.length) {
+    input.attachments = message.attachments.slice();
+  }
+  if (Array.isArray(message?.fileReferences) && message.fileReferences.length) {
+    input.fileReferences = message.fileReferences.slice();
+  }
+  return input;
+}
+
+function resolveAgentSessionWorkspacePath(source) {
+  const value = typeof source === "function" ? source() : source;
+  return String(value || "").trim();
+}
+
 function createBotExecutionCore({
   createChatEventEmitter,
   cloudBotSnapshotForTurn,
@@ -160,6 +196,7 @@ function createBotExecutionCore({
   sendWithChatEngineAdapter,
   createActiveChatEngineAdapters,
   agentSessionManager = null,
+  agentSessionWorkspacePath = "",
   // Late-bound: constructed after this factory and takes `sendChat` as a dep.
   localBotResponder,
   isDaemonProcess,
@@ -173,6 +210,7 @@ function createBotExecutionCore({
   // Single-flight interactive chat controller — factory state, not a module
   // global. Group/utility/background turns keep their own controllers.
   let activeChatAbortController = null;
+  let activeAgentSessionDescriptor = null;
 
   const getLocalBotResponder = typeof localBotResponder === "function"
     ? localBotResponder
@@ -180,7 +218,6 @@ function createBotExecutionCore({
   const getDaemonTasksClient = typeof daemonTasksClient === "function"
     ? daemonTasksClient
     : () => daemonTasksClient;
-  void agentSessionManager;
   const isDaemon = typeof isDaemonProcess === "function"
     ? isDaemonProcess
     : () => isDaemonProcess;
@@ -193,21 +230,7 @@ function createBotExecutionCore({
     let abortController = externalAbortController && typeof externalAbortController.abort === "function"
       ? externalAbortController
       : null;
-    if (!abortController && (group || utility || background)) {
-      // Group dispatches run in parallel; each gets its own controller.
-      // Utility calls also skip the 1v1 "single active chat" semantics.
-      // Background runs (scheduled tasks) must not share the interactive
-      // single-flight controller — otherwise any foreground/web chat (or an
-      // overlapping task) aborts the task mid-generation ("生成已停止").
-      abortController = new AbortController();
-    } else if (!abortController) {
-      if (activeChatAbortController) {
-        activeChatAbortController.abort();
-      }
-      abortController = new AbortController();
-      activeChatAbortController = abortController;
-    }
-    const signal = externalSignal || abortController.signal;
+    let signal = externalSignal || abortController?.signal || null;
     // chat:event drives background/remote trace capture (see runRemoteChatRequest's
     // tracedEventSink). Interactive cloud-conversation chats publish their own
     // cloud:event stream via local-bot-responder — those
@@ -236,7 +259,18 @@ function createBotExecutionCore({
         };
       }
       const chatEngine = resolveChatEngineAdapter(botForTurn);
-      const agentEngine = chatEngine.id;
+      const adapterEngineId = chatEngine.id;
+      const agentSessionSpec = getAcpEngineSpec(adapterEngineId)
+        || getAcpEngineSpec(botForTurn.agentEngine || botForTurn.agent_engine || "");
+      const managedAgentSessionTurn = Boolean(
+        agentSessionSpec
+        && !group
+        && !utility
+        && !background
+        && !scheduledFire
+        && !String(sessionId || "").startsWith("title:")
+      );
+      const sessionStartedEngineId = managedAgentSessionTurn ? agentSessionSpec.engineId : adapterEngineId;
       const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
       const completeWithPetMessage = (response) => {
         if (shouldNotifyPet) botPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
@@ -252,7 +286,7 @@ function createBotExecutionCore({
           sessionId,
           messages,
           assistantText: responseMessageContent(response),
-          agentEngine,
+          agentEngine: adapterEngineId,
           group,
           utility,
           background,
@@ -261,7 +295,7 @@ function createBotExecutionCore({
         return completeWithPetMessage(response);
       };
       if (emit) {
-        emit("session_started", { botKey: botForTurn.key, engine: agentEngine });
+        emit("session_started", { botKey: botForTurn.key, engine: sessionStartedEngineId });
       }
       // Composer "使用" chips are turn-local: make them resolvable for this turn,
       // then materialize full skill bodies only for those explicit selections.
@@ -291,6 +325,41 @@ function createBotExecutionCore({
           messages = next;
         }
       }
+      if (managedAgentSessionTurn) {
+        if (!agentSessionManager || typeof agentSessionManager.sendUserInput !== "function") {
+          throw new Error(`AgentSession manager is required for interactive ${agentSessionSpec.engineId} turns.`);
+        }
+        const workspacePath = resolveAgentSessionWorkspacePath(agentSessionWorkspacePath);
+        if (!workspacePath) {
+          throw new Error(`AgentSession workspace path is required for interactive ${agentSessionSpec.engineId} turns.`);
+        }
+        const descriptor = {
+          conversationId: String(sessionId || "").trim(),
+          engineId: agentSessionSpec.engineId,
+          workspacePath
+        };
+        activeAgentSessionDescriptor = descriptor;
+        const accepted = await agentSessionManager.sendUserInput({
+          ...descriptor,
+          ...currentTurnInput(messages)
+        });
+        return accepted;
+      }
+      if (!abortController && (group || utility || background)) {
+        // Group dispatches run in parallel; each gets its own controller.
+        // Utility calls also skip the 1v1 "single active chat" semantics.
+        // Background runs (scheduled tasks) must not share the interactive
+        // single-flight controller — otherwise any foreground/web chat (or an
+        // overlapping task) aborts the task mid-generation ("生成已停止").
+        abortController = new AbortController();
+      } else if (!abortController) {
+        if (activeChatAbortController) {
+          activeChatAbortController.abort();
+        }
+        abortController = new AbortController();
+        activeChatAbortController = abortController;
+      }
+      signal = externalSignal || abortController.signal;
       let requestedSkillIds = [];
       const resolveSkillMaterialization = () => (typeof skillsLoader?.resolveSkillMaterialization === "function"
         ? skillsLoader.resolveSkillMaterialization({
@@ -355,7 +424,7 @@ function createBotExecutionCore({
       }
       throw new Error("Skill loading did not converge.");
     } catch (error) {
-      if (signal.aborted) {
+      if (signal?.aborted) {
         if (emit) emit("complete", { finishReason: "cancelled", aborted: true });
         const stopped = new Error("生成已停止");
         stopped.code = "MIA_STOPPED";
@@ -370,6 +439,13 @@ function createBotExecutionCore({
 
   async function stopChat(payload = {}) {
     let stopped = false;
+    if (activeAgentSessionDescriptor && agentSessionManager && typeof agentSessionManager.cancelActive === "function") {
+      const cancelled = await agentSessionManager.cancelActive(activeAgentSessionDescriptor);
+      if (cancelled) {
+        activeAgentSessionDescriptor = null;
+        stopped = true;
+      }
+    }
     if (activeChatAbortController) {
       activeChatAbortController.abort();
       activeChatAbortController = null;
