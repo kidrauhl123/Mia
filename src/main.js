@@ -37,8 +37,6 @@ const { requireBot } = require("./main/bot-registry.js");
 const {
   createClaudeCodeStatelessAdapter
 } = require("./main/claude-code-stateless-adapter.js");
-const { createClaudeCodeMiaProxy } = require("./main/claude-code-mia-proxy.js");
-const { createCodexMiaProxy } = require("./main/codex-mia-proxy.js");
 const {
   createCodexStatelessAdapter,
   mapCodexPermissionMode
@@ -291,8 +289,6 @@ const miaMemoryService = createMiaMemoryService({
   memoryProvider: miaMemoryProvider
 });
 const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
-const claudeCodeMiaProxy = createClaudeCodeMiaProxy({ appendLog: appendEngineLog, fetch });
-const codexMiaProxy = createCodexMiaProxy({ appendLog: appendEngineLog, fetch });
 const enginePluginsService = createEnginePluginsService({ runtimePaths });
 let localAgentEngineService = null;
 const systemHermesService = createSystemHermesService({
@@ -3183,8 +3179,6 @@ app.on("before-quit", () => {
   closeCodexAppServerRuntimes();
   closeOpenClawAcpRuntimes();
   agentSessionManager.closeAllSessions().catch((error) => appendEngineLog(`AgentSession cleanup failed: ${error?.message || error}`));
-  claudeCodeMiaProxy.stop().catch((error) => appendEngineLog(`Claude Code Mia proxy stop failed: ${error?.message || error}`));
-  codexMiaProxy.stop().catch((error) => appendEngineLog(`Codex Mia proxy stop failed: ${error?.message || error}`));
 });
 
 app.whenReady().then(async () => {

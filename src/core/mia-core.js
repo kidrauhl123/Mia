@@ -730,11 +730,9 @@ function createCoreBotExecution({
     isMemoryEnabled: miaMemoryEnabled
   });
 
-  // PART B teardown: the user-MCP bridge (createMcpBridgeServer) opens a loopback
-  // HTTP server when a Codex/Claude/OpenClaw turn first calls ensureUserMcpReady.
-  // createMiaCore.stop() (and tests) call closeAgentEngines() to close it + any
-  // managed Mia model-proxy sessions, so the process exits cleanly. No-op before
-  // the bridge has started.
+  // PART B teardown: close the user-MCP loopback bridge, user MCP clients,
+  // active AgentSession ACP sessions, and memory file handles so the process
+  // exits cleanly. No-op before optional resources have started.
   async function closeAgentEngines() {
     try { if (userMcpBridge && typeof userMcpBridge.stop === "function") await userMcpBridge.stop(); } catch { /* already closed */ }
     try { if (userMcpManager && typeof userMcpManager.stopAll === "function") await userMcpManager.stopAll(); } catch { /* best effort */ }
