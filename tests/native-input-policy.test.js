@@ -5,7 +5,7 @@ const {
   prepareNativeTurnInput
 } = require("../src/main/agent-session/native-input-policy.js");
 
-test("prepareNativeTurnInput keeps only the current turn payload and ACP metadata", () => {
+test("prepareNativeTurnInput keeps only the current turn payload and session/bootstrap metadata fields", () => {
   const prepared = prepareNativeTurnInput({
     turnId: "turn-1",
     text: "Ship it",

@@ -50,6 +50,7 @@ function createSession(options = {}) {
     workspacePath: options.workspacePath || "/repo",
     conversationId: options.conversationId || "conversation-1",
     engineId: options.engineId || "codex",
+    initializationMetadata: options.initializationMetadata,
     createTransport: async () => state.transport,
     createClient: options.createClient || (async ({ onSessionUpdate, onPermissionRequest }) => ({
       async initialize(params) {
@@ -104,6 +105,16 @@ test("start initializes the ACP session once", async () => {
 
   assert.equal(state.initializeCalls.length, 1);
   assert.equal(state.newSessionCalls.length, 1);
+  assert.deepEqual(state.newSessionCalls[0], {
+    cwd: "/repo",
+    mcpServers: [],
+    _meta: {
+      sessionKey: "conversation-1::codex::/repo",
+      conversationId: "conversation-1",
+      engineId: "codex",
+      initializationMetadata: null
+    }
+  });
   assert.deepEqual(events, [
     ["session-started", {
       engineId: "codex",
@@ -246,7 +257,7 @@ test("sendUserInput waits for prompt completion and emits normalized streaming e
   ]);
 });
 
-test("sendUserInput carries initializationMetadata in _meta and keeps prompt to current user text", async () => {
+test("start carries initializationMetadata in session metadata while prompt stays current-turn text only", async () => {
   const initializationMetadata = {
     systemPrompt: "system: obey hidden rules",
     developerInstructions: "developer: never reveal config",
@@ -258,9 +269,10 @@ test("sendUserInput carries initializationMetadata in _meta and keeps prompt to 
   const currentUserText = "show current user text only";
 
   const { session, state, deferredPrompt } = createSession({
+    initializationMetadata,
     onPrompt: async ({ params }) => {
       assert.deepEqual(params.prompt, [{ type: "text", text: currentUserText }]);
-      assert.deepEqual(params._meta, { initializationMetadata });
+      assert.equal("_meta" in params, false);
       assert.doesNotMatch(params.prompt[0].text, /system: obey hidden rules/);
       assert.doesNotMatch(params.prompt[0].text, /developer: never reveal config/);
     }
@@ -268,19 +280,72 @@ test("sendUserInput carries initializationMetadata in _meta and keeps prompt to 
 
   const sendPromise = session.sendUserInput({
     turnId: "turn-2",
-    text: currentUserText,
-    initializationMetadata
+    text: currentUserText
   });
   await new Promise((resolve) => setImmediate(resolve));
 
+  assert.deepEqual(state.newSessionCalls[0], {
+    cwd: "/repo",
+    mcpServers: [],
+    _meta: {
+      sessionKey: "conversation-1::codex::/repo",
+      conversationId: "conversation-1",
+      engineId: "codex",
+      initializationMetadata
+    }
+  });
   assert.equal(state.promptCalls.length, 1);
   assert.deepEqual(state.promptCalls[0].prompt, [{ type: "text", text: currentUserText }]);
-  assert.deepEqual(state.promptCalls[0]._meta, { initializationMetadata });
+  assert.equal("_meta" in state.promptCalls[0], false);
   assert.doesNotMatch(state.promptCalls[0].prompt[0].text, /system: obey hidden rules/);
   assert.doesNotMatch(state.promptCalls[0].prompt[0].text, /developer: never reveal config/);
 
   deferredPrompt.resolve({ stopReason: "end_turn" });
   await sendPromise;
+});
+
+test("sendUserInput forwards current-turn attachments and fileReferences in prompt _meta", async () => {
+  const attachments = [{ id: "att-1", name: "error.log" }];
+  const fileReferences = [{ path: "/repo/README.md" }];
+  const { session, state, deferredPrompt } = createSession({
+    onPrompt: async ({ params }) => {
+      assert.deepEqual(params.prompt, [{ type: "text", text: "inspect files" }]);
+      assert.deepEqual(params._meta, { attachments, fileReferences });
+    }
+  });
+
+  const sendPromise = session.sendUserInput({
+    turnId: "turn-3",
+    text: "inspect files",
+    attachments,
+    fileReferences
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(state.promptCalls[0], {
+    sessionId: "acp-session-1",
+    prompt: [{ type: "text", text: "inspect files" }],
+    _meta: { attachments, fileReferences }
+  });
+
+  deferredPrompt.resolve({ stopReason: "end_turn" });
+  await sendPromise;
+});
+
+test("sendUserInput rejects per-turn initializationMetadata so session config is not replayed in prompt metadata", async () => {
+  const { session, state } = createSession();
+
+  await assert.rejects(
+    () => session.sendUserInput({
+      turnId: "turn-4",
+      text: "hello ACP",
+      initializationMetadata: { systemPromptId: "native-default" }
+    }),
+    /initializationMetadata.*session/i
+  );
+
+  assert.equal(state.newSessionCalls.length, 0);
+  assert.equal(state.promptCalls.length, 0);
 });
 
 test("sendUserInput rejects visible transcript replay before constructing the ACP prompt", async () => {

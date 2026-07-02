@@ -85,6 +85,9 @@ class AcpAgentSession extends EventEmitter {
     this.workspacePath = String(options.workspacePath || "").trim();
     this.conversationId = String(options.conversationId || "").trim();
     this.engineId = assertKnownAgentEngine(options.engineId || options.engineSpec?.engineId || "");
+    this.initializationMetadata = options.initializationMetadata && typeof options.initializationMetadata === "object"
+      ? { ...options.initializationMetadata }
+      : null;
     this.createTransport = typeof options.createTransport === "function" ? options.createTransport : defaultCreateTransport;
     this.createClient = typeof options.createClient === "function" ? options.createClient : defaultCreateClient;
     this.spawnProcess = typeof options.spawnProcess === "function" ? options.spawnProcess : spawn;
@@ -136,10 +139,12 @@ class AcpAgentSession extends EventEmitter {
       }
       const session = await this.client.newSession({
         cwd: this.workspacePath,
+        mcpServers: [],
         _meta: {
           sessionKey: this.sessionKey,
           conversationId: this.conversationId,
-          engineId: this.engineId
+          engineId: this.engineId,
+          initializationMetadata: this.initializationMetadata
         }
       });
       this.acpSessionId = String(session?.sessionId || "").trim();
@@ -164,6 +169,9 @@ class AcpAgentSession extends EventEmitter {
     }
 
     const nativeTurn = prepareNativeTurnInput(payload);
+    if ("initializationMetadata" in nativeTurn) {
+      throw new Error("initializationMetadata must be provided as session metadata when creating the ACP session.");
+    }
 
     await this.start();
 
@@ -171,18 +179,14 @@ class AcpAgentSession extends EventEmitter {
     const text = typeof nativeTurn.text === "string" ? nativeTurn.text : "";
     const attachments = Array.isArray(nativeTurn.attachments) ? nativeTurn.attachments.slice() : [];
     const fileReferences = Array.isArray(nativeTurn.fileReferences) ? nativeTurn.fileReferences.slice() : [];
-    const initializationMetadata = nativeTurn.initializationMetadata && typeof nativeTurn.initializationMetadata === "object"
-      ? { ...nativeTurn.initializationMetadata }
-      : null;
     const promptRequest = {
       sessionId: this.acpSessionId,
       prompt: [{ type: "text", text }]
     };
-    if (attachments.length > 0 || fileReferences.length > 0 || initializationMetadata) {
+    if (attachments.length > 0 || fileReferences.length > 0) {
       promptRequest._meta = {
         ...(attachments.length > 0 ? { attachments } : {}),
-        ...(fileReferences.length > 0 ? { fileReferences } : {}),
-        ...(initializationMetadata ? { initializationMetadata } : {})
+        ...(fileReferences.length > 0 ? { fileReferences } : {})
       };
     }
 
