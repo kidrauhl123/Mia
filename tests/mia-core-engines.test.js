@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { createCoreBotExecution } = require("../src/core/mia-core.js");
-const { listAcpEngineSpecs } = require("../src/main/agent-session/index.js");
+const { getAcpEngineSpec, listAcpEngineSpecs } = require("../src/main/agent-session/index.js");
 const { createRuntimePaths } = require("../src/main/runtime-paths.js");
 
 // PART B proof: a bot turn with agentEngine = codex / claude-code / openclaw
@@ -33,6 +33,25 @@ test("Task 7: all four bot conversation engines resolve to AgentSession ACP spec
   );
 
   for (const spec of specs) {
+    assert.equal(spec.transport, "acp");
+    assert.equal(spec.supportsNativeSession, true);
+    assert.equal(spec.supportsQueuedInput, true);
+  }
+});
+
+test("Task 7: app-facing engine ids resolve through getAcpEngineSpec()", () => {
+  const cases = [
+    ["claude-code", "claude"],
+    ["codex", "codex"],
+    ["hermes", "hermes"],
+    ["openclaw", "openclaw"],
+    ["open-claw", "openclaw"]
+  ];
+
+  for (const [inputEngineId, expectedEngineId] of cases) {
+    const spec = getAcpEngineSpec(inputEngineId);
+    assert.ok(spec, `${inputEngineId} should resolve to an AgentSession ACP spec`);
+    assert.equal(spec.engineId, expectedEngineId, `${inputEngineId} should normalize to ${expectedEngineId}`);
     assert.equal(spec.transport, "acp");
     assert.equal(spec.supportsNativeSession, true);
     assert.equal(spec.supportsQueuedInput, true);
