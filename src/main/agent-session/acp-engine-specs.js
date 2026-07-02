@@ -1,3 +1,7 @@
+const fs = require("node:fs");
+const path = require("node:path");
+const { execFileExecutable, isWindowsShellShim, spawnExecutable } = require("../agent-runtime/process-launcher.js");
+
 const ACP_ENGINE_IDS = Object.freeze(["claude", "codex", "hermes", "openclaw"]);
 
 function buildOpenClawGlobalArgs(config = {}) {
@@ -25,6 +29,60 @@ function buildOpenClawAcpArgs(bot = {}, options = {}) {
   const passwordFile = String(config.openclawGatewayPasswordFile || "").trim();
   if (passwordFile) args.push("--password-file", passwordFile);
   return args;
+}
+
+function openClawCommandSpec(file, args = [], runtimeOptions = {}) {
+  const platform = runtimeOptions.platform || process.platform;
+  if (isWindowsShellShim(file, platform)) {
+    const script = path.join(path.dirname(file), "node_modules", "openclaw", "openclaw.mjs");
+    if (fs.existsSync(script)) {
+      return {
+        file: runtimeOptions.nodePath || process.execPath,
+        args: [script, ...(Array.isArray(args) ? args : [])]
+      };
+    }
+  }
+  return {
+    file,
+    args: Array.isArray(args) ? args.slice() : []
+  };
+}
+
+function childProcessOptions(options = {}, platform = process.platform) {
+  const next = { ...(options || {}) };
+  if (!next.signal) delete next.signal;
+  if (platform === "win32") next.windowsHide = true;
+  return next;
+}
+
+function execFileAsync(execFile, file, args, options = {}, runtimeOptions = {}) {
+  return new Promise((resolve, reject) => {
+    const platform = runtimeOptions.platform || process.platform;
+    const spec = openClawCommandSpec(file, args, runtimeOptions);
+    const child = execFileExecutable(execFile, spec.file, spec.args, childProcessOptions(options, platform), (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout: String(stdout || ""), stderr: String(stderr || "") });
+    }, { platform });
+    if (options.input != null) {
+      try { child.stdin?.end(String(options.input)); } catch { /* stdin may be unavailable in tests or old CLIs */ }
+    }
+    if (options.signal) {
+      options.signal.addEventListener("abort", () => {
+        try { child.kill(); } catch { /* already exited */ }
+      }, { once: true });
+    }
+  });
+}
+
+function spawnOpenClaw(spawn, file, args, options = {}, runtimeOptions = {}) {
+  const platform = runtimeOptions.platform || process.platform;
+  const spec = openClawCommandSpec(file, args, runtimeOptions);
+  return spawnExecutable(spawn, spec.file, spec.args, childProcessOptions(options, platform), { platform });
 }
 
 function buildAcpEngineSpecs(options = {}) {
@@ -87,5 +145,9 @@ module.exports = Object.freeze({
   buildAcpEngineSpecs,
   buildOpenClawAcpArgs,
   buildOpenClawGlobalArgs,
-  getAcpEngineSpec
+  childProcessOptions,
+  execFileAsync,
+  getAcpEngineSpec,
+  openClawCommandSpec,
+  spawnOpenClaw
 });

@@ -1,9 +1,15 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const {
   buildAcpEngineSpecs,
-  getAcpEngineSpec
+  execFileAsync,
+  getAcpEngineSpec,
+  openClawCommandSpec,
+  spawnOpenClaw
 } = require("../src/main/agent-session/acp-engine-specs.js");
 
 function specByEngineId(specs, engineId) {
@@ -67,4 +73,63 @@ test("getAcpEngineSpec returns a single engine spec by id", () => {
   assert.equal(spec?.engineId, "claude");
   assert.equal(spec?.command, "npx");
   assert.deepEqual(spec?.args, ["-y", "@agentclientprotocol/claude-agent-acp@0.39.0"]);
+});
+
+test("openClawCommandSpec resolves Windows shell shims to the bundled OpenClaw script when present", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "acp-engine-specs-"));
+  try {
+    const shimPath = path.join(tempDir, "openclaw.cmd");
+    const scriptPath = path.join(tempDir, "node_modules", "openclaw", "openclaw.mjs");
+    fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+    fs.writeFileSync(scriptPath, "export default {};", "utf8");
+
+    const spec = openClawCommandSpec(shimPath, ["acp", "--no-prefix-cwd"], {
+      platform: "win32",
+      nodePath: "/custom/node"
+    });
+
+    assert.deepEqual(spec, {
+      file: "/custom/node",
+      args: [scriptPath, "acp", "--no-prefix-cwd"]
+    });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("execFileAsync and spawnOpenClaw use the shared OpenClaw command resolution", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "acp-engine-specs-"));
+  try {
+    const shimPath = path.join(tempDir, "openclaw.cmd");
+    const scriptPath = path.join(tempDir, "node_modules", "openclaw", "openclaw.mjs");
+    fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+    fs.writeFileSync(scriptPath, "export default {};", "utf8");
+
+    const execCalls = [];
+    await execFileAsync((file, args, options, callback) => {
+      execCalls.push({ file, args, options });
+      callback(null, "ok", "");
+      return { stdin: { end() {} }, kill() {} };
+    }, shimPath, ["acp"], {}, { platform: "win32", nodePath: "/custom/node" });
+
+    assert.deepEqual(execCalls[0], {
+      file: "/custom/node",
+      args: [scriptPath, "acp"],
+      options: { windowsHide: true }
+    });
+
+    const spawnCalls = [];
+    spawnOpenClaw((file, args, options) => {
+      spawnCalls.push({ file, args, options });
+      return {};
+    }, shimPath, ["acp"], {}, { platform: "win32", nodePath: "/custom/node" });
+
+    assert.deepEqual(spawnCalls[0], {
+      file: "/custom/node",
+      args: [scriptPath, "acp"],
+      options: { windowsHide: true }
+    });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });

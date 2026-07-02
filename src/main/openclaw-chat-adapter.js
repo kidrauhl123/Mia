@@ -5,10 +5,11 @@ const os = require("node:os");
 const path = require("node:path");
 const { PassThrough, Readable, Writable } = require("node:stream");
 const {
-  execFileExecutable,
-  isWindowsShellShim,
-  spawnExecutable
-} = require("./agent-runtime/process-launcher.js");
+  execFileAsync,
+  spawnOpenClaw,
+  buildOpenClawAcpArgs,
+  buildOpenClawGlobalArgs
+} = require("./agent-session/acp-engine-specs.js");
 const {
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
@@ -30,11 +31,6 @@ const { isMiaManagedRuntime } = require("./mia-core/model-runtime-resolver.js");
 const { isForbiddenSchedulerToolName } = require("./scheduler-tool-guard.js");
 const { syncNativeContextFiles: defaultSyncNativeContextFiles } = require("./mia-native-context-bridge.js");
 const { buildSkillMaterializationContext } = require("../shared/skill-materializer.js");
-const {
-  buildOpenClawAcpArgs,
-  buildOpenClawGlobalArgs
-} = require("./agent-session/acp-engine-specs.js");
-
 const OPENCLAW_MIA_AGENT_ID = "mia";
 const OPENCLAW_MIA_BOOTSTRAP_FILES = [
   "AGENTS.md",
@@ -132,60 +128,6 @@ function jsonFragmentFromText(text = "") {
     }
   }
   return null;
-}
-
-function childProcessOptions(options = {}, platform = process.platform) {
-  const next = { ...(options || {}) };
-  if (!next.signal) delete next.signal;
-  if (platform === "win32") next.windowsHide = true;
-  return next;
-}
-
-function openClawCommandSpec(file, args = [], runtimeOptions = {}) {
-  const platform = runtimeOptions.platform || process.platform;
-  if (isWindowsShellShim(file, platform)) {
-    const script = path.join(path.dirname(file), "node_modules", "openclaw", "openclaw.mjs");
-    if (fs.existsSync(script)) {
-      return {
-        file: runtimeOptions.nodePath || process.execPath,
-        args: [script, ...(Array.isArray(args) ? args : [])]
-      };
-    }
-  }
-  return {
-    file,
-    args: Array.isArray(args) ? args.slice() : []
-  };
-}
-
-function execFileAsync(execFile, file, args, options = {}, runtimeOptions = {}) {
-  return new Promise((resolve, reject) => {
-    const platform = runtimeOptions.platform || process.platform;
-    const spec = openClawCommandSpec(file, args, runtimeOptions);
-    const child = execFileExecutable(execFile, spec.file, spec.args, childProcessOptions(options, platform), (error, stdout, stderr) => {
-      if (error) {
-        error.stdout = stdout;
-        error.stderr = stderr;
-        reject(error);
-        return;
-      }
-      resolve({ stdout: String(stdout || ""), stderr: String(stderr || "") });
-    }, { platform });
-    if (options.input != null) {
-      try { child.stdin?.end(String(options.input)); } catch { /* stdin may be unavailable in tests or old CLIs */ }
-    }
-    if (options.signal) {
-      options.signal.addEventListener("abort", () => {
-        try { child.kill(); } catch { /* already exited */ }
-      }, { once: true });
-    }
-  });
-}
-
-function spawnOpenClaw(spawn, file, args, options = {}, runtimeOptions = {}) {
-  const platform = runtimeOptions.platform || process.platform;
-  const spec = openClawCommandSpec(file, args, runtimeOptions);
-  return spawnExecutable(spawn, spec.file, spec.args, childProcessOptions(options, platform), { platform });
 }
 
 function normalizeOpenClawAgentId(value, fallback = OPENCLAW_MIA_AGENT_ID) {
