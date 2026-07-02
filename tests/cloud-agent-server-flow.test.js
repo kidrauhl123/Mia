@@ -198,11 +198,12 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
           userId,
           baseUrl: "http://worker",
           apiKey: "k",
+          gatewayWsUrl: "ws://worker/api/ws",
           paths: { attachments: path.join(dataDir, "agent-users", userId, "attachments") }
         };
       }
     },
-    cloudAgentHermesClient: {
+    cloudAgentHermesImClient: {
       async runChat(args) {
         hermesCalls.push(args);
         args.onRunCreated?.("hr_server_1");
@@ -277,7 +278,7 @@ test("cloud server workers use the active platform model alias", async () => {
     dataDir,
     cloudAgentMode: "static",
     platformModelId: "mia-auto",
-    cloudAgentHermesClient: {
+    cloudAgentHermesImClient: {
       async runChat(args) {
         hermesCalls.push(args);
         return { runId: "hr_platform_model", content: "ok", events: [] };
@@ -305,7 +306,9 @@ test("cloud server workers use the active platform model alias", async () => {
     await server.mia.cloudAgentDispatcher.idle();
 
     assert.equal(hermesCalls.length, 1);
+    assert.equal(hermesCalls[0].gatewayWsUrl, "ws://worker/api/ws?token=mia-cloud");
     assert.equal(hermesCalls[0].model, "mia-auto");
+    assert.equal(hermesCalls[0].modelProvider, "mia");
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });
@@ -323,10 +326,10 @@ test("POST bot reminder message is handed to cloud Hermes without app-side remin
     dataDir,
     cloudAgentWorkerManager: {
       async ensureWorker(userId) {
-        return { userId, baseUrl: "http://worker", apiKey: "k" };
+        return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://worker/api/ws" };
       }
     },
-    cloudAgentHermesClient: {
+    cloudAgentHermesImClient: {
       async runChat(args) {
         hermesCalls.push(args);
         return { runId: "hr_scheduler", content: "我会通过 schedule_create 设置这个提醒。", events: [] };
@@ -383,11 +386,12 @@ test("POST group mention invokes cloud-hermes bot without desktop-local event fa
           userId,
           baseUrl: "http://worker",
           apiKey: "k",
+          gatewayWsUrl: "ws://worker/api/ws",
           paths: { attachments: path.join(dataDir, "agent-users", userId, "attachments") }
         };
       }
     },
-    cloudAgentHermesClient: {
+    cloudAgentHermesImClient: {
       async runChat(args) {
         hermesCalls.push(args);
         args.onRunCreated?.("hr_group_1");
@@ -495,11 +499,12 @@ test("POST group message routes named bot only and gives the agent group identit
           userId,
           baseUrl: "http://worker",
           apiKey: "k",
+          gatewayWsUrl: "ws://worker/api/ws",
           paths: { attachments: path.join(dataDir, "agent-users", userId, "attachments") }
         };
       }
     },
-    cloudAgentHermesClient: {
+    cloudAgentHermesImClient: {
       async runChat(args) {
         hermesCalls.push(args);
         args.onRunCreated?.(`hr_${args.bot.id}`);
@@ -558,11 +563,12 @@ test("POST group short message reaches the single-bot handler through the HTTP e
           userId,
           baseUrl: "http://worker",
           apiKey: "k",
+          gatewayWsUrl: "ws://worker/api/ws",
           paths: { attachments: path.join(dataDir, "agent-users", userId, "attachments") }
         };
       }
     },
-    cloudAgentHermesClient: {
+    cloudAgentHermesImClient: {
       async runChat(args) {
         hermesCalls.push(args);
         return { runId: "hr_ok", content: "good", events: [] };

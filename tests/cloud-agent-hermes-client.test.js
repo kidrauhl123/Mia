@@ -141,7 +141,7 @@ test("static worker mode derives gateway websocket url from base url", async () 
   assert.equal(worker.baseUrl, "http://127.0.0.1:9999");
   assert.equal(worker.gatewayWsUrl, "ws://127.0.0.1:9999/api/ws?token=mia-cloud");
   assert.equal(worker.model, "mia-auto");
-  assert.equal(worker.modelProvider, "mia-litellm");
+  assert.equal(worker.modelProvider, "mia");
   assert.equal(worker.modelApiMode, "chat_completions");
 });
 
@@ -314,7 +314,7 @@ test("docker worker mode starts one isolated container per user", async () => {
   assert.equal(worker.baseUrl, "http://127.0.0.1:49152");
   assert.equal(worker.gatewayWsUrl, "ws://127.0.0.1:49152/api/ws?token=mia-cloud");
   assert.equal(worker.model, "mia-auto");
-  assert.equal(worker.modelProvider, "mia-litellm");
+  assert.equal(worker.modelProvider, "mia");
   assert.equal(worker.modelApiMode, "chat_completions");
   const runCall = execCalls.find((call) => call.args[0] === "run");
   assert.ok(runCall, "docker run should be called when container is missing");

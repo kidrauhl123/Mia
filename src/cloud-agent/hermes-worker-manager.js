@@ -106,7 +106,7 @@ function createHermesWorkerManager(options = {}) {
         : "")
   );
   const internalTasksUrl = internalModelProxyKey && publicUrl ? `${publicUrl}/api/internal/tasks` : "";
-  const modelProvider = String(options.modelProvider || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER || (internalModelBaseUrl ? "mia" : "mia-litellm")).trim();
+  const modelProvider = String(options.modelProvider || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER || "mia").trim();
   const model = normalizeCloudHermesModel(
     options.model ?? process.env.MIA_CLOUD_AGENT_MODEL ?? "mia-auto",
     { defaultModel: "mia-auto" }
@@ -115,13 +115,13 @@ function createHermesWorkerManager(options = {}) {
   const usesInternalModelProxy = Boolean(internalModelProxyKey && /\/api\/internal\/model-proxy\/v1\/?$/.test(cleanBaseUrl(modelBaseUrl)));
   const modelApiMode = String(options.modelApiMode || process.env.MIA_CLOUD_AGENT_MODEL_API_MODE || "chat_completions").trim();
   const modelApiKey = String(options.modelApiKey || process.env[MODEL_API_KEY_ENV] || process.env.MIA_LITELLM_API_KEY || "").trim();
-  const modelProviderName = String(options.modelProviderName || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER_NAME || (internalModelBaseUrl ? "Mia Billing" : "Mia LiteLLM")).trim();
+  const modelProviderName = String(options.modelProviderName || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER_NAME || "Mia").trim();
   const fetchImpl = options.fetch || fetch;
   const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   const healthTimeoutMs = Number(options.healthTimeoutMs ?? process.env.MIA_CLOUD_HERMES_START_TIMEOUT_MS ?? 45000);
   // Approval mode for the worker's command guard. "ask" surfaces dangerous
-  // commands as approval.request events over the runs-API (consumed by the
-  // dispatcher and shown as a web permission banner). Overridable so ops can
+  // commands as approval.request events over the gateway stream consumed by
+  // the dispatcher and shown as a web permission banner. Overridable so ops can
   // fall back to "yolo" without a code change if a run path misbehaves.
   const approvalsMode = String(options.approvalsMode || process.env.MIA_CLOUD_HERMES_APPROVALS_MODE || "ask").trim() || "ask";
 
