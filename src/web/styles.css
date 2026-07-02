@@ -3867,6 +3867,24 @@ p {
   overflow: auto;
 }
 
+.trace-link {
+  color: inherit;
+  text-decoration: none;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: text;
+}
+
+.trace-link:visited {
+  color: inherit;
+}
+
+.trace-link-modifier-active .trace-link:hover {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .trace-body.diff-body {
   padding: 0;
   background: #0f1117;

@@ -54,6 +54,74 @@
     return innerHtml ? `<div class="trace-accordion-body accordion-body">${innerHtml}</div>` : "";
   }
 
+  function splitTraceLinkCandidate(value) {
+    let target = String(value || "");
+    let suffix = "";
+    const pairedClosers = {
+      ")": "(",
+      "]": "[",
+      "}": "{",
+      "）": "（",
+      "】": "【",
+      "》": "《"
+    };
+    const hasUnmatchedCloser = (text, closer) => {
+      const opener = pairedClosers[closer];
+      if (!opener) return false;
+      const escapedOpener = opener.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escapedCloser = closer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const openCount = (text.match(new RegExp(escapedOpener, "g")) || []).length;
+      const closeCount = (text.match(new RegExp(escapedCloser, "g")) || []).length;
+      return closeCount > openCount;
+    };
+    while (target) {
+      const last = target[target.length - 1];
+      if (/[.,;!?，。！？、]/.test(last) || hasUnmatchedCloser(target, last)) {
+        suffix = last + suffix;
+        target = target.slice(0, -1);
+        continue;
+      }
+      break;
+    }
+    return { target, suffix };
+  }
+
+  function traceLinkAnchorHtml(link) {
+    if (!window.miaMarkdown || typeof window.miaMarkdown.messageLinkAnchorHtml !== "function") {
+      return window.miaMarkdown.escapeHtml(link.text);
+    }
+    return window.miaMarkdown.messageLinkAnchorHtml(link, {
+      className: "message-link trace-link",
+      attrs: 'data-trace-link="true"',
+      tabIndex: "-1"
+    });
+  }
+
+  function renderTraceText(value) {
+    const source = String(value || "");
+    const api = window.miaMarkdown || {};
+    if (typeof api.markdownLinkSpec !== "function") return api.escapeHtml(source);
+    const pattern = /(^|[\s([{<"'`])((?:https?:\/\/|file:\/\/|\/|[A-Za-z]:[\\/]|\\\\)[^\s<>"'`]+)/g;
+    let cursor = 0;
+    let html = "";
+    for (const match of source.matchAll(pattern)) {
+      const prefix = match[1] || "";
+      const candidate = match[2] || "";
+      const candidateIndex = (match.index || 0) + prefix.length;
+      if (candidateIndex < cursor) continue;
+      const { target, suffix } = splitTraceLinkCandidate(candidate);
+      if (!target) continue;
+      const link = api.markdownLinkSpec(target, target);
+      if (!link) continue;
+      html += api.escapeHtml(source.slice(cursor, candidateIndex));
+      html += traceLinkAnchorHtml({ ...link, text: target });
+      html += api.escapeHtml(suffix);
+      cursor = candidateIndex + candidate.length;
+    }
+    html += api.escapeHtml(source.slice(cursor));
+    return html;
+  }
+
   function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey, showReasoningWithoutTools }) {
     if (!state) return "";
     const animatedKeys = animatedTraceKeys();
@@ -99,7 +167,7 @@
       rows.push(
         `<details class="trace-row reasoning${animClass(key)}" data-accordion="true"${rowAttrs(key, rows.length, stateForKey)}>` +
           `<summary><span class="trace-chevron">▸</span><span class="trace-cmd">thinking</span>${stateForKey.open ? "" : `<span class="trace-arg">${window.miaMarkdown.escapeHtml(reasoningText.slice(0, 80).replace(/\s+/g, " "))}</span>`}</summary>` +
-          traceAccordionBody(`<pre class="trace-body">${window.miaMarkdown.escapeHtml(reasoningText)}</pre>`) +
+          traceAccordionBody(`<pre class="trace-body">${renderTraceText(reasoningText)}</pre>`) +
         `</details>`
       );
     }
@@ -124,7 +192,7 @@
             (!stateForKey.open && previewInline ? `<span class="trace-arg">${window.miaMarkdown.escapeHtml(previewInline)}</span>` : "") +
             (meta ? `<span class="trace-meta">${window.miaMarkdown.escapeHtml(meta)}</span>` : "") +
           `</summary>` +
-          traceAccordionBody(preview ? `<pre class="trace-body">${window.miaMarkdown.escapeHtml(preview)}</pre>` : "") +
+          traceAccordionBody(preview ? `<pre class="trace-body">${renderTraceText(preview)}</pre>` : "") +
         `</details>`
       );
     }
@@ -394,6 +462,7 @@
     normalizeTraceText,
     isDuplicateTraceReasoning,
     traceReasoningForDisplay,
+    renderTraceText,
     renderTraceBlocks,
     renderAssistantContentBlocks,
     markRenderedTraceBlocks,

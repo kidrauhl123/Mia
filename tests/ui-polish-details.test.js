@@ -90,7 +90,7 @@ test("main desktop and web surfaces use crisp macOS text rendering", () => {
   assert.match(cssBlock(webCss, "html, body"), /-webkit-font-smoothing:\s*antialiased;/);
 });
 
-test("only message bubble links use the hand cursor", () => {
+test("only intentional text links use the hand cursor", () => {
   const violations = [];
   const files = sourceFiles(path.join(root, "src"), new Set([".css", ".html", ".js"]));
 
@@ -99,6 +99,7 @@ test("only message bubble links use the hand cursor", () => {
     for (const match of text.matchAll(/cursor\s*:\s*pointer\b/g)) {
       const selector = path.extname(file) === ".css" ? cssSelectorAt(text, match.index || 0) : "";
       if (selector === ".bubble a.message-link") continue;
+      if (selector === ".trace-link-modifier-active .trace-link:hover") continue;
       const line = text.slice(0, match.index || 0).split("\n").length;
       violations.push(`${file}:${line}${selector ? ` ${selector}` : ""}`);
     }

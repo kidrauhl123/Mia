@@ -6984,6 +6984,32 @@ els.chatInput?.addEventListener("paste", (event) => {
   window.miaComposer.handleComposerPlainTextPaste(event);
 });
 const messageLinkSelector = "a.message-link[data-external-link], a.message-link[data-local-file-path]";
+const TRACE_LINK_MODIFIER_CLASS = "trace-link-modifier-active";
+function traceLinkUsesAppleModifier() {
+  const platform = typeof navigator !== "undefined" ? String(navigator.platform || "") : "";
+  return /Mac|iPhone|iPad|iPod/.test(platform);
+}
+
+function isTraceLinkModifierPressed(event) {
+  return traceLinkUsesAppleModifier() ? Boolean(event.metaKey) : Boolean(event.ctrlKey);
+}
+
+function setTraceLinkModifierActive(active) {
+  els.chat?.classList.toggle(TRACE_LINK_MODIFIER_CLASS, Boolean(active));
+}
+
+function updateTraceLinkModifierState(event) {
+  setTraceLinkModifierActive(isTraceLinkModifierPressed(event));
+}
+
+function isTraceLink(link) {
+  return link?.dataset?.traceLink === "true";
+}
+
+function shouldOpenMessageLink(link, event) {
+  return !isTraceLink(link) || isTraceLinkModifierPressed(event);
+}
+
 function openMessageLink(link) {
   if (link.dataset.localFilePath) {
     window.mia?.openLocalFile?.(link.dataset.localFilePath);
@@ -6993,6 +7019,20 @@ function openMessageLink(link) {
     window.mia?.openExternal?.(link.dataset.externalLink);
   }
 }
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Meta" || event.key === "Control" || event.metaKey || event.ctrlKey) {
+    updateTraceLinkModifierState(event);
+  }
+});
+window.addEventListener("keyup", (event) => {
+  if (event.key === "Meta" || event.key === "Control" || event.metaKey || event.ctrlKey) {
+    updateTraceLinkModifierState(event);
+  }
+});
+window.addEventListener("blur", () => {
+  setTraceLinkModifierActive(false);
+});
 
 els.sendChat.addEventListener("click", async (event) => {
   const activeRun = window.miaSocial?.activeConversationRun?.();
@@ -7079,6 +7119,7 @@ els.chat.addEventListener("click", async (event) => {
   }
   const link = event.target.closest(messageLinkSelector);
   if (link && els.chat.contains(link)) {
+    if (!shouldOpenMessageLink(link, event)) return;
     event.preventDefault();
     event.stopPropagation();
     openMessageLink(link);
@@ -7131,6 +7172,7 @@ els.chat.addEventListener("keydown", async (event) => {
   }
   const link = event.target.closest(messageLinkSelector);
   if (link && els.chat.contains(link)) {
+    if (!shouldOpenMessageLink(link, event)) return;
     event.preventDefault();
     openMessageLink(link);
     return;

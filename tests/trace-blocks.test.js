@@ -14,10 +14,12 @@ function escapeHtml(value) {
 
 function loadTraceBlocks() {
   const contentBlocksSource = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "assistant-content-blocks.js"), "utf8");
+  const markdownSource = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "helpers", "markdown-helpers.js"), "utf8");
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "trace-blocks.js"), "utf8");
   const state = { openTraceKeys: new Set(), animatedTraceKeys: new Set() };
-  const mockWindow = { miaMarkdown: { escapeHtml } };
-  const context = vm.createContext({ window: mockWindow, Set, String, Array, Math });
+  const mockWindow = {};
+  const context = vm.createContext({ window: mockWindow, Set, String, Array, Math, URL });
+  vm.runInContext(markdownSource, context);
   vm.runInContext(contentBlocksSource, context);
   vm.runInContext(source, context);
   mockWindow.miaTraceBlocks.initTraceBlocks({ state });
@@ -102,6 +104,37 @@ test("renderTraceBlocks exposes trace bodies as managed accordions", () => {
   assert.match(
     html,
     /<div class="trace-accordion-body accordion-body"><pre class="trace-body">git status<\/pre><\/div>/
+  );
+});
+
+test("renderTraceBlocks linkifies URL and local path text only inside trace bodies", () => {
+  const { traceBlocks } = loadTraceBlocks();
+  const preview = "open https://example.com/docs?x=1, then /Users/jung/GitHub/Mia/src/shared/trace-blocks.js:42:7";
+  const html = traceBlocks.renderTraceBlocks({
+    reasoning: "",
+    tools: [
+      {
+        id: "tool_1",
+        name: "shell",
+        status: "completed",
+        preview
+      }
+    ],
+    expanded: false,
+    scopeKey: "msg:m_links"
+  });
+
+  assert.match(
+    html,
+    /<span class="trace-arg">open https:\/\/example\.com\/docs\?x=1, then \/Users\/jung\/GitHub\/Mia\/src\/shared\/trace-blocks\.js:42:7<\/span>/
+  );
+  assert.match(
+    html,
+    /<a class="message-link trace-link" data-external-link="https:\/\/example\.com\/docs\?x=1"[^>]*data-trace-link="true"[^>]*>https:\/\/example\.com\/docs\?x=1<\/a>,/
+  );
+  assert.match(
+    html,
+    /<a class="message-link trace-link" data-local-file-path="\/Users\/jung\/GitHub\/Mia\/src\/shared\/trace-blocks\.js" data-local-file-line="42" data-local-file-column="7"[^>]*data-trace-link="true"[^>]*>\/Users\/jung\/GitHub\/Mia\/src\/shared\/trace-blocks\.js:42:7<\/a>/
   );
 });
 
@@ -283,4 +316,13 @@ test("trace CSS styles diff rows with terminal-like add/delete colors", () => {
     assert.match(css, /\.diff-line\.diff-add\s*\{[\s\S]*?background:\s*rgba\(\s*63,\s*185,\s*80,\s*0\.28\s*\);/);
     assert.match(css, /\.diff-line\.diff-add \.diff-ln\s*\{[\s\S]*?background:\s*rgba\(\s*63,\s*185,\s*80,\s*0\.16\s*\);/);
   }
+});
+
+test("trace CSS keeps trace links hidden until modifier hover", () => {
+  const css = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "styles", "chat.css"), "utf8");
+  assert.match(css, /\.trace-link\s*\{[\s\S]*?color:\s*inherit;/);
+  assert.match(css, /\.trace-link\s*\{[\s\S]*?text-decoration:\s*none;/);
+  assert.match(css, /\.trace-link\s*\{[\s\S]*?cursor:\s*text;/);
+  assert.match(css, /\.trace-link-modifier-active\s+\.trace-link:hover\s*\{[\s\S]*?text-decoration:\s*underline;/);
+  assert.match(css, /\.trace-link-modifier-active\s+\.trace-link:hover\s*\{[\s\S]*?cursor:\s*pointer;/);
 });

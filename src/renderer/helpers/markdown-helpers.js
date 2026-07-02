@@ -118,7 +118,7 @@
 
   function splitLocalFileLineSuffix(filePath) {
     const pathText = String(filePath || "");
-    const match = pathText.match(/^(.*):([1-9]\d*)(?::([1-9]\d*))?$/);
+    const match = pathText.match(/^(.*?):([1-9]\d*)(?::([1-9]\d*))?$/);
     if (!match || !match[1]) return { path: pathText, line: "", column: "" };
     return {
       path: match[1],
@@ -187,7 +187,9 @@
     const attr = link.kind === "local-file"
       ? `data-local-file-path="${escapeHtml(link.target)}"${lineAttr}`
       : `data-external-link="${escapeHtml(link.target)}"`;
-    return `<a class="${escapeHtml(options.className || "message-link")}" ${attr} role="link" tabindex="0" title="${escapeHtml(title)}">${options.innerHtml || escapeHtml(link.text)}</a>`;
+    const extraAttrs = options.attrs ? ` ${options.attrs}` : "";
+    const tabIndex = options.tabIndex == null ? "0" : String(options.tabIndex);
+    return `<a class="${escapeHtml(options.className || "message-link")}" ${attr}${extraAttrs} role="link" tabindex="${escapeHtml(tabIndex)}" title="${escapeHtml(title)}">${options.innerHtml || escapeHtml(link.text)}</a>`;
   }
 
   function messageLinkHtml(link) {
@@ -675,6 +677,9 @@
     menuItemHtml,
     renderInlineMarkdown,
     renderPreviewMarkdown,
+    splitBareExternalUrl,
+    markdownLinkSpec,
+    messageLinkAnchorHtml,
     codeLanguageId,
     codeLanguageLabel,
     highlightPlainSegment,

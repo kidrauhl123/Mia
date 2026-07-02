@@ -2071,6 +2071,17 @@ test("desktop renderer routes markdown local file links through preload", () => 
   assert.match(appSource, /window\.mia\?\.openExternal\?\.\(link\.dataset\.externalLink\)/);
 });
 
+test("trace links require the platform modifier before opening", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const webAppSource = fs.readFileSync(path.join(root, "src/web/app.js"), "utf8");
+
+  assert.match(appSource, /const TRACE_LINK_MODIFIER_CLASS = "trace-link-modifier-active";/);
+  assert.match(appSource, /return traceLinkUsesAppleModifier\(\) \? Boolean\(event\.metaKey\) : Boolean\(event\.ctrlKey\);/);
+  assert.match(appSource, /return !isTraceLink\(link\) \|\| isTraceLinkModifierPressed\(event\);/);
+  assert.match(appSource, /if \(!shouldOpenMessageLink\(link, event\)\) return;/);
+  assert.match(webAppSource, /link\.dataset\.traceLink === "true" && !isTraceLinkModifierPressed\(event\)/);
+});
+
 test("agent permission banner uses a glass card and keeps allow buttons compact", () => {
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const cssBlock = (selector) => {

@@ -154,6 +154,38 @@ const ANIMATED_TEXT_IDS = new Set([
   "activeMeta",
   "currentSessionTitle"
 ]);
+const TRACE_LINK_MODIFIER_CLASS = "trace-link-modifier-active";
+
+function traceLinkUsesAppleModifier() {
+  const platform = typeof navigator !== "undefined" ? String(navigator.platform || "") : "";
+  return /Mac|iPhone|iPad|iPod/.test(platform);
+}
+
+function isTraceLinkModifierPressed(event) {
+  return traceLinkUsesAppleModifier() ? Boolean(event.metaKey) : Boolean(event.ctrlKey);
+}
+
+function setTraceLinkModifierActive(active) {
+  els.chat?.classList.toggle(TRACE_LINK_MODIFIER_CLASS, Boolean(active));
+}
+
+function updateTraceLinkModifierState(event) {
+  setTraceLinkModifierActive(isTraceLinkModifierPressed(event));
+}
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Meta" || event.key === "Control" || event.metaKey || event.ctrlKey) {
+    updateTraceLinkModifierState(event);
+  }
+});
+window.addEventListener("keyup", (event) => {
+  if (event.key === "Meta" || event.key === "Control" || event.metaKey || event.ctrlKey) {
+    updateTraceLinkModifierState(event);
+  }
+});
+window.addEventListener("blur", () => {
+  setTraceLinkModifierActive(false);
+});
 
 function animatedTextOptions(el) {
   const id = el?.id || "";
@@ -4161,6 +4193,7 @@ els.chat.addEventListener("click", async (event) => {
 
   const link = event.target.closest("a.message-link[data-external-link]");
   if (link && els.chat.contains(link)) {
+    if (link.dataset.traceLink === "true" && !isTraceLinkModifierPressed(event)) return;
     event.preventDefault();
     event.stopPropagation();
     window.open(link.dataset.externalLink, "_blank", "noopener,noreferrer");
@@ -4194,6 +4227,7 @@ els.chat.addEventListener("keydown", async (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   const link = event.target.closest("a.message-link[data-external-link]");
   if (link && els.chat.contains(link)) {
+    if (link.dataset.traceLink === "true" && !isTraceLinkModifierPressed(event)) return;
     event.preventDefault();
     window.open(link.dataset.externalLink, "_blank", "noopener,noreferrer");
     return;
