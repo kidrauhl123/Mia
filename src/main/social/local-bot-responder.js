@@ -659,6 +659,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
   const inFlight = new Set();
   const activeRunsByConversation = new Map();
   const managedSessionsByConversation = new Map();
+  const managedSessionsByTurn = new Map();
   const queuedInvocationsByConversation = new Map();
 
   function remember(key) {
@@ -674,7 +675,8 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
   function rememberManagedSession(input = {}, meta = {}) {
     const conversationId = String(input.conversationId || "").trim();
     if (!conversationId) return null;
-    const existing = managedSessionsByConversation.get(conversationId) || {};
+    const turnId = String(meta.turnId || input.turnId || "").trim();
+    const existing = (turnId && managedSessionsByTurn.get(turnId)) || {};
     const next = {
       descriptor: {
         conversationId,
@@ -683,28 +685,48 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       },
       conversationId,
       botId: String(meta.botId || existing.botId || "").trim(),
-      turnId: meta.mode === "queued"
-        ? String(existing.turnId || meta.turnId || "").trim()
-        : String(meta.turnId || existing.turnId || "").trim(),
+      turnId: String(turnId || existing.turnId || "").trim(),
       runId: String(meta.runId || existing.runId || "").trim(),
-      status: "running"
+      dedupKey: String(meta.dedupKey || existing.dedupKey || "").trim(),
+      triggerMessageId: String(meta.triggerMessageId || existing.triggerMessageId || "").trim(),
+      status: meta.mode === "queued" ? "queued" : "running",
+      finalized: false,
+      startedEmitted: Boolean(existing.startedEmitted),
+      text: String(existing.text || ""),
+      trace: existing.trace || createTraceCollector(),
+      contentBlockCollector: existing.contentBlockCollector
+        ? existing.contentBlockCollector
+        : createAssistantContentBlockCollector()
     };
-    managedSessionsByConversation.set(conversationId, next);
+    if (next.turnId) managedSessionsByTurn.set(next.turnId, next);
+    if (next.status !== "queued" || !managedSessionsByConversation.get(conversationId)) {
+      managedSessionsByConversation.set(conversationId, next);
+    }
     return next;
   }
 
   function resolveManagedSession(payload = {}) {
+    const turnId = String(payload?.turnId || payload?.turn_id || "").trim();
+    if (turnId && managedSessionsByTurn.has(turnId)) {
+      return managedSessionsByTurn.get(turnId) || null;
+    }
     const conversationId = String(payload?.conversationId || "").trim();
     if (conversationId) return managedSessionsByConversation.get(conversationId) || null;
-    const turnId = String(payload?.turnId || payload?.turn_id || "").trim();
-    if (turnId) {
-      return [...managedSessionsByConversation.values()]
-        .find((entry) => String(entry?.turnId || "").trim() === turnId) || null;
-    }
     if (managedSessionsByConversation.size === 1) {
       return managedSessionsByConversation.values().next().value || null;
     }
     return null;
+  }
+
+  function forgetManagedSession(entry) {
+    if (!entry) return;
+    const turnId = String(entry.turnId || "").trim();
+    if (turnId && managedSessionsByTurn.get(turnId) === entry) {
+      managedSessionsByTurn.delete(turnId);
+    }
+    if (managedSessionsByConversation.get(entry.conversationId) === entry) {
+      managedSessionsByConversation.delete(entry.conversationId);
+    }
   }
 
   function queueInvocation(args, activeRun) {
@@ -736,6 +758,162 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       botId: entry.botId,
       event
     });
+  }
+
+  function emitManagedRunStarted(entry) {
+    if (!entry || entry.startedEmitted) return;
+    entry.startedEmitted = true;
+    emitCloudEvent({
+      type: "cloud_agent_run_started",
+      runId: entry.runId,
+      turnId: entry.turnId,
+      conversationId: entry.conversationId,
+      botId: entry.botId,
+      triggerMessageId: entry.triggerMessageId
+    });
+  }
+
+  function managedRunEventForAgentSessionEvent(kind, payload = {}) {
+    if (kind === "assistant-delta") {
+      return {
+        type: "text_delta",
+        id: String(payload.messageId || payload.message_id || payload.turnId || payload.turn_id || ""),
+        text: String(payload.text || "")
+      };
+    }
+    if (kind === "tool-call-started") {
+      return {
+        type: "tool_call_started",
+        id: String(payload.toolCallId || payload.tool_call_id || ""),
+        name: String(payload.title || payload.name || "工具"),
+        preview: String(payload.preview || "")
+      };
+    }
+    if (kind === "tool-call-delta") {
+      return {
+        type: "tool_call_delta",
+        id: String(payload.toolCallId || payload.tool_call_id || ""),
+        name: String(payload.title || payload.name || ""),
+        preview: String(payload.preview || "")
+      };
+    }
+    if (kind === "tool-call-completed") {
+      return {
+        type: "tool_call_completed",
+        id: String(payload.toolCallId || payload.tool_call_id || ""),
+        name: String(payload.title || payload.name || ""),
+        status: String(payload.status || "completed"),
+        preview: String(payload.preview || ""),
+        error: Boolean(payload.error)
+      };
+    }
+    return null;
+  }
+
+  async function postManagedSuccess(entry) {
+    if (!entry || entry.finalized) return false;
+    const text = String(entry.text || "").trim();
+    if (!text) {
+      return postManagedFailure(entry, {
+        stage: "empty",
+        error: new Error("本地模型这次没有产生任何文本回复（可能是工具权限被拒，或本轮只调用了工具）")
+      });
+    }
+    try {
+      const contentBlocks = entry.contentBlockCollector?.payload?.(text) || [];
+      const trace = entry.trace?.payload?.() || null;
+      const result = await postConversationMessageAsBot(entry.conversationId, {
+        botId: entry.botId,
+        bodyMd: text,
+        turnId: entry.turnId,
+        clientOpId: clientOpIdForDedupKey(entry.dedupKey),
+        ...(trace ? { trace } : {}),
+        ...(contentBlocks.length ? { contentBlocks } : {})
+      });
+      if (result && result.ok === false) throw new Error(result.error || result.message || "post failed");
+      emitPostedMessage(entry.conversationId, result);
+      remember(entry.dedupKey);
+      entry.finalized = true;
+      forgetManagedSession(entry);
+      return true;
+    } catch (error) {
+      log(`[local-bot-responder] managed post failed: ${error?.message || error}`);
+      emitRunEvent(entry, { type: "run.failed", error: String(error?.message || error) });
+      entry.finalized = true;
+      forgetManagedSession(entry);
+      return false;
+    }
+  }
+
+  async function postManagedFailure(entry, { stage = "engine", error } = {}) {
+    if (!entry || entry.finalized) return false;
+    const message = String(error?.message || error || "unknown error");
+    emitRunEvent(entry, { type: "run.failed", error: message });
+    const didPost = await postFailureMessage({
+      conversationId: entry.conversationId,
+      botId: entry.botId,
+      dedupKey: entry.dedupKey,
+      turnId: entry.turnId,
+      stage,
+      error
+    });
+    if (didPost) remember(entry.dedupKey);
+    entry.finalized = true;
+    forgetManagedSession(entry);
+    return didPost;
+  }
+
+  function handleManagedAgentSessionEvent(kind, payload = {}) {
+    const entry = resolveManagedSession(payload);
+    if (!entry || entry.finalized) return;
+    if (kind === "message-started") {
+      entry.status = "running";
+      managedSessionsByConversation.set(entry.conversationId, entry);
+      emitManagedRunStarted(entry);
+      return;
+    }
+    if (kind === "message-cancelled") {
+      finishCancelledRun(entry, { reason: "agent_session_cancelled" });
+      forgetManagedSession(entry);
+      return;
+    }
+    if (kind === "message-failed") {
+      void postManagedFailure(entry, { stage: "engine", error: payload.error || payload.message || "AgentSession failed" });
+      return;
+    }
+    const runEvent = managedRunEventForAgentSessionEvent(kind, payload);
+    if (runEvent) {
+      entry.status = "running";
+      managedSessionsByConversation.set(entry.conversationId, entry);
+      emitManagedRunStarted(entry);
+      if (runEvent.type === "text_delta") entry.text += String(runEvent.text || "");
+      entry.trace?.collect?.(runEvent.type, runEvent);
+      entry.contentBlockCollector?.collect?.(runEvent.type, runEvent);
+      emitRunEvent(entry, runEvent);
+      return;
+    }
+    if (kind === "message-completed") {
+      entry.status = "running";
+      managedSessionsByConversation.set(entry.conversationId, entry);
+      emitManagedRunStarted(entry);
+      emitRunEvent(entry, { type: "run.completed", text: String(entry.text || "") });
+      void postManagedSuccess(entry);
+    }
+  }
+
+  if (agentSessionManager && typeof agentSessionManager.on === "function") {
+    for (const kind of [
+      "message-started",
+      "assistant-delta",
+      "tool-call-started",
+      "tool-call-delta",
+      "tool-call-completed",
+      "message-completed",
+      "message-cancelled",
+      "message-failed"
+    ]) {
+      agentSessionManager.on(kind, (payload = {}) => handleManagedAgentSessionEvent(kind, payload));
+    }
   }
 
   function clearCancelDrainTimer(entry) {
@@ -920,12 +1098,17 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         const accepted = await agentSessionManager.sendUserInput(managedInput);
         if (accepted?.ok) {
           remember(dedupKey);
-          rememberManagedSession(managedInput, {
+          const managedEntry = rememberManagedSession(managedInput, {
             mode: accepted.mode,
             turnId,
             runId: runIdForDedupKey(dedupKey),
+            dedupKey,
+            triggerMessageId: resolvedTriggerMessageId,
             botId
           });
+          if (managedEntry && accepted.mode !== "queued") {
+            emitManagedRunStarted(managedEntry);
+          }
         }
         return Boolean(accepted?.ok);
       } finally {

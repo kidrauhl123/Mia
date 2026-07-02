@@ -1,5 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -757,6 +758,216 @@ test("respond hands same-conversation AgentSession sends to the manager immediat
   releaseFirst.resolve();
   assert.equal(await first, true);
   assert.equal(await second, true);
+});
+
+test("managed AgentSession deltas are streamed and posted as the bot reply", async () => {
+  const manager = new EventEmitter();
+  const calls = { manager: [], post: [], log: [], cloudEvents: [] };
+  manager.sendUserInput = async (input) => {
+    calls.manager.push(input);
+    return {
+      ok: true,
+      mode: "started",
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId
+    };
+  };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true, message: { id: "posted_1", ...body } };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: manager,
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_managed:claude",
+    turnId: "t_managed",
+    runtimeConfig: { agentEngine: "claude" }
+  });
+
+  manager.emit("assistant-delta", {
+    conversationId: "g_1",
+    engineId: "claude",
+    turnId: "t_managed",
+    text: "hello "
+  });
+  manager.emit("assistant-delta", {
+    conversationId: "g_1",
+    engineId: "claude",
+    turnId: "t_managed",
+    text: "world"
+  });
+  manager.emit("message-completed", {
+    conversationId: "g_1",
+    engineId: "claude",
+    turnId: "t_managed"
+  });
+
+  await waitFor(() => calls.post.length === 1);
+  assert.equal(calls.post[0].conversationId, "g_1");
+  assert.deepEqual(calls.post[0].body, {
+    botId: "codex",
+    bodyMd: "hello world",
+    turnId: "t_managed",
+    clientOpId: "op_bot_reply_m_managed_claude",
+    contentBlocks: [{ type: "text", id: "t_managed", text: "hello world" }]
+  });
+  const runEvents = calls.cloudEvents.filter((event) => event.type !== "conversation.message_appended");
+  assert.deepEqual(runEvents.map((event) => event.type), [
+    "cloud_agent_run_started",
+    "cloud_agent_run_event",
+    "cloud_agent_run_event",
+    "cloud_agent_run_event"
+  ]);
+  assert.deepEqual(runEvents.slice(1).map((event) => event.event.type), [
+    "text_delta",
+    "text_delta",
+    "run.completed"
+  ]);
+});
+
+test("managed AgentSession failures post a visible bot error", async () => {
+  const manager = new EventEmitter();
+  const calls = { manager: [], post: [], log: [], cloudEvents: [] };
+  manager.sendUserInput = async (input) => {
+    calls.manager.push(input);
+    return {
+      ok: true,
+      mode: "started",
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId
+    };
+  };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: manager,
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_failed:codex",
+    turnId: "t_failed",
+    runtimeConfig: { agentEngine: "codex" }
+  });
+
+  manager.emit("message-failed", {
+    conversationId: "g_1",
+    engineId: "codex",
+    turnId: "t_failed",
+    error: new Error("401 Invalid authentication credentials")
+  });
+
+  await waitFor(() => calls.post.length === 1);
+  assert.equal(calls.post[0].conversationId, "g_1");
+  assert.equal(calls.post[0].body.botId, "codex");
+  assert.equal(calls.post[0].body.turnId, "t_failed");
+  assert.equal(calls.post[0].body.clientOpId, "op_bot_reply_error_m_failed_codex");
+  assert.match(calls.post[0].body.bodyMd, /^我这次没能生成回复：本地引擎认证失败。/);
+  assert.deepEqual(calls.cloudEvents.at(-1).event, {
+    type: "run.failed",
+    error: "401 Invalid authentication credentials"
+  });
+});
+
+test("managed AgentSession queued turns keep separate reply metadata", async () => {
+  const manager = new EventEmitter();
+  const calls = { manager: [], post: [], log: [], cloudEvents: [] };
+  manager.sendUserInput = async (input) => {
+    calls.manager.push(input);
+    return {
+      ok: true,
+      mode: calls.manager.length === 1 ? "started" : "queued",
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId,
+      ...(calls.manager.length === 1 ? {} : { queueDepth: 1 })
+    };
+  };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true, message: { id: `posted_${calls.post.length}`, ...body } };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: manager,
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_first:codex",
+    turnId: "t_first",
+    userPrompt: "first",
+    runtimeConfig: { agentEngine: "codex" }
+  });
+  await responder.respond({
+    ...base,
+    dedupKey: "m_second:codex",
+    turnId: "t_second",
+    userPrompt: "second",
+    runtimeConfig: { agentEngine: "codex" }
+  });
+
+  manager.emit("assistant-delta", { conversationId: "g_1", turnId: "t_first", text: "first reply" });
+  manager.emit("message-completed", { conversationId: "g_1", turnId: "t_first" });
+  await waitFor(() => calls.post.length === 1);
+  manager.emit("message-started", { conversationId: "g_1", turnId: "t_second" });
+  manager.emit("assistant-delta", { conversationId: "g_1", turnId: "t_second", text: "second reply" });
+  manager.emit("message-completed", { conversationId: "g_1", turnId: "t_second" });
+
+  await waitFor(() => calls.post.length === 2);
+  assert.deepEqual(calls.post.map((item) => ({
+    bodyMd: item.body.bodyMd,
+    turnId: item.body.turnId,
+    clientOpId: item.body.clientOpId
+  })), [
+    {
+      bodyMd: "first reply",
+      turnId: "t_first",
+      clientOpId: "op_bot_reply_m_first_codex"
+    },
+    {
+      bodyMd: "second reply",
+      turnId: "t_second",
+      clientOpId: "op_bot_reply_m_second_codex"
+    }
+  ]);
+  const runEvents = calls.cloudEvents.filter((event) => event.type !== "conversation.message_appended");
+  assert.deepEqual(runEvents.map((event) => ({
+    type: event.type,
+    runId: event.runId,
+    eventType: event.event?.type || ""
+  })), [
+    { type: "cloud_agent_run_started", runId: "local_bot_reply_m_first_codex", eventType: "" },
+    { type: "cloud_agent_run_event", runId: "local_bot_reply_m_first_codex", eventType: "text_delta" },
+    { type: "cloud_agent_run_event", runId: "local_bot_reply_m_first_codex", eventType: "run.completed" },
+    { type: "cloud_agent_run_started", runId: "local_bot_reply_m_second_codex", eventType: "" },
+    { type: "cloud_agent_run_event", runId: "local_bot_reply_m_second_codex", eventType: "text_delta" },
+    { type: "cloud_agent_run_event", runId: "local_bot_reply_m_second_codex", eventType: "run.completed" }
+  ]);
 });
 
 test("stopActiveConversationRun cancels an AgentSession-backed social run using the stored session descriptor", async () => {
