@@ -147,6 +147,14 @@ test("stateless OpenClaw adapter export surface does not expose bot sendChat", (
   assert.equal("sendChat" in adapter, false);
 });
 
+test("openclaw chat adapter source is stateless-only and does not keep a bot sendChat implementation", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "main", "openclaw-chat-adapter.js"), "utf8");
+  assert.match(source, /createOpenClawStatelessAdapter/);
+  assert.doesNotMatch(source, /async function sendChat\s*\(/);
+  assert.doesNotMatch(source, /return\s+\{\s*sendChat[,}\s]/);
+  assert.doesNotMatch(source, /createOpenClawChatAdapter/);
+});
+
 test("sendStateless runs OpenClaw through the ACP backend without a durable bot session", async (t) => {
   t.after(() => closeOpenClawAcpRuntimes());
 

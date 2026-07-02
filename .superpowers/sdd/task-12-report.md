@@ -31,3 +31,25 @@ Self-review:
 - Confirmed no remaining production path in `createChatEngineAdapters().openclaw.send(...)` can call a direct OpenClaw bot `sendChat`.
 - Confirmed `src/main.js` and `src/core/mia-core.js` no longer wire `sendOpenClawChat`.
 - Confirmed OpenClaw ACP transport under shared `AgentSession` now uses the shared shim-aware launcher path.
+
+---
+
+Review fix (post-`1c614c7`):
+
+Files changed:
+- `src/main/openclaw-chat-adapter.js`
+- `tests/openclaw-chat-adapter.test.js`
+- `tests/project-structure-check.test.js`
+- `.superpowers/sdd/task-12-report.md`
+
+What changed:
+- Replaced `src/main/openclaw-chat-adapter.js` with a stateless-only OpenClaw ACP adapter implementation and removed the residual direct bot `sendChat` / durable-session runtime path from that file entirely.
+- Added structure assertions that `src/main.js` and `src/core/mia-core.js` do not wire `sendOpenClawChat`, and that `src/main/openclaw-chat-adapter.js` contains no bot `sendChat` implementation or old adapter constructor aliasing.
+
+Tests run:
+- `node --test tests/openclaw-chat-adapter.test.js tests/acp-agent-session.test.js tests/acp-engine-specs.test.js`
+- `node --test tests/chat-engine-adapters.test.js tests/bot-execution-core.test.js tests/mia-core-engines.test.js tests/project-structure-check.test.js`
+
+Output summary:
+- First command: `23` tests passed, `0` failed.
+- Second command: `91` tests passed, `0` failed.

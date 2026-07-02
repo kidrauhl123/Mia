@@ -851,3 +851,16 @@ test("foreground chat materializes skills per turn instead of full enabled-skill
   assert.doesNotMatch(loaderSource, /function buildEnabledSkillsContext/, "skills loader must not expose full enabled-skill prompt injection");
   assert.match(schedulerDefaults, /return dedupeSkillIds\(activeSkillIds\)/, "scheduler defaults should preserve explicit skill chips only");
 });
+
+test("OpenClaw bot chat wiring stays on AgentSession and the adapter file is stateless-only", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const coreSource = fs.readFileSync(path.join(root, "src/core/mia-core.js"), "utf8");
+  const adapterSource = fs.readFileSync(path.join(root, "src/main/openclaw-chat-adapter.js"), "utf8");
+
+  assert.doesNotMatch(mainSource, /sendOpenClawChat/, "main must not wire a direct OpenClaw bot chat dependency");
+  assert.doesNotMatch(coreSource, /sendOpenClawChat/, "Mia Core must not wire a direct OpenClaw bot chat dependency");
+  assert.match(adapterSource, /createOpenClawStatelessAdapter/, "OpenClaw adapter should expose a stateless constructor");
+  assert.doesNotMatch(adapterSource, /async function sendChat\s*\(/, "OpenClaw adapter must not retain a bot sendChat implementation");
+  assert.doesNotMatch(adapterSource, /createOpenClawChatAdapter/, "OpenClaw adapter should not keep the old bot adapter constructor");
+  assert.doesNotMatch(adapterSource, /createOpenClawStatelessAdapter:\s*createOpenClawChatAdapter/, "OpenClaw adapter export should not alias the old bot adapter name");
+});
