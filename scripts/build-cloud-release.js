@@ -562,10 +562,15 @@ function verifyRelease() {
     "api/src/cloud/tasks-service.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
+    "api/src/cloud-agent/cloud-hermes-model.js",
+    "api/src/cloud-agent/cloud-hermes-sessions-store.js",
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/hermes-worker-manager.js",
-    "api/src/cloud-agent/hermes-runs-client.js",
+    "api/src/cloud-agent/hermes-gateway-client.js",
+    "api/src/cloud-agent/hermes-gateway-events.js",
+    "api/src/cloud-agent/hermes-im-attachments.js",
+    "api/src/cloud-agent/hermes-im-client.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
     "api/src/shared/conversation-tags.js",
@@ -662,10 +667,15 @@ function verifyRelease() {
     "api/src/cloud/model-proxy-auth.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
+    "api/src/cloud-agent/cloud-hermes-model.js",
+    "api/src/cloud-agent/cloud-hermes-sessions-store.js",
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/hermes-worker-manager.js",
-    "api/src/cloud-agent/hermes-runs-client.js",
+    "api/src/cloud-agent/hermes-gateway-client.js",
+    "api/src/cloud-agent/hermes-gateway-events.js",
+    "api/src/cloud-agent/hermes-im-attachments.js",
+    "api/src/cloud-agent/hermes-im-client.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
     "api/src/shared/conversation-tags.js",
@@ -841,10 +851,15 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud/model-proxy-auth.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/runtime-bindings-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-agent-runs-store.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-hermes-model.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-hermes-sessions-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/attachment-materializer.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/group-orchestrator.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-worker-manager.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-runs-client.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-gateway-client.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-gateway-events.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-im-attachments.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-im-client.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/dispatcher.js"))});
     require(${JSON.stringify(assertFile("api/src/permission-modes.js"))});
     require(${JSON.stringify(assertFile("api/server.js"))});
