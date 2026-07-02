@@ -36,7 +36,7 @@
     },
     'mac-intel': {
       href: '/downloads/mia-macos-intel-latest.dmg',
-      download: 'Mia-0.1.30-Intel.dmg',
+      download: 'Mia-0.1.31-Intel.dmg',
       label: '下载 Intel Mac 版',
       shortLabel: 'Intel Mac',
       icon: 'apple'
