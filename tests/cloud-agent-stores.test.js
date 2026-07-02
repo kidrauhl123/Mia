@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
+const { createCloudHermesSessionsStore } = require("../src/cloud-agent/cloud-hermes-sessions-store.js");
 const { createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindings-store.js");
 const { createCloudAgentRunsStore } = require("../src/cloud-agent/cloud-agent-runs-store.js");
 const { createCloudTasksStore } = require("../src/cloud/tasks-store.js");
@@ -53,6 +54,128 @@ test("schema has bot runtime bindings and cloud agent runs", () => {
     assert.ok(bindingCols.includes("bot_id"));
     const migrations = ctx.db.prepare("SELECT version FROM schema_migrations").all().map((r) => r.version);
     assert.ok(migrations.includes(8));
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("schema has cloud hermes sessions and migration 23", () => {
+  const ctx = freshStore();
+  try {
+    const tables = ctx.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
+    assert.ok(tables.includes("cloud_hermes_sessions"));
+    const columns = ctx.db.prepare("PRAGMA table_info(cloud_hermes_sessions)").all().map((r) => r.name);
+    assert.deepEqual(columns, [
+      "user_id",
+      "bot_id",
+      "conversation_id",
+      "runtime_session_id",
+      "stored_session_id",
+      "last_trigger_message_id",
+      "created_at",
+      "updated_at"
+    ]);
+    const migrations = ctx.db.prepare("SELECT version FROM schema_migrations").all().map((r) => r.version);
+    assert.ok(migrations.includes(23));
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud hermes session upsert/get normalizes fields", () => {
+  const ctx = freshStore();
+  try {
+    insertUser(ctx.db, "u1");
+    insertConversation(ctx.db, "botc_session_1");
+    const sessions = createCloudHermesSessionsStore(ctx.db);
+    const saved = sessions.upsertSession({
+      userId: "u1",
+      botId: "bot_mia",
+      conversationId: "botc_session_1",
+      runtimeSessionId: "hr_1",
+      storedSessionId: "hs_1",
+      lastTriggerMessageId: "m1"
+    });
+    assert.equal(saved.userId, "u1");
+    assert.equal(saved.botId, "bot_mia");
+    assert.equal(saved.conversationId, "botc_session_1");
+    assert.equal(saved.runtimeSessionId, "hr_1");
+    assert.equal(saved.storedSessionId, "hs_1");
+    assert.equal(saved.lastTriggerMessageId, "m1");
+    assert.ok(saved.createdAt);
+    assert.ok(saved.updatedAt);
+    assert.deepEqual(sessions.getSession("u1", "bot_mia", "botc_session_1"), saved);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud hermes session second upsert updates ids and preserves primary key", () => {
+  const ctx = freshStore();
+  try {
+    insertUser(ctx.db, "u1");
+    insertConversation(ctx.db, "botc_session_1");
+    const sessions = createCloudHermesSessionsStore(ctx.db);
+    const first = sessions.upsertSession({
+      userId: "u1",
+      botId: "bot_mia",
+      conversationId: "botc_session_1",
+      runtimeSessionId: "hr_1",
+      storedSessionId: "hs_1",
+      lastTriggerMessageId: "m1"
+    });
+    const second = sessions.upsertSession({
+      userId: "u1",
+      botId: "bot_mia",
+      conversationId: "botc_session_1",
+      runtimeSessionId: "hr_2",
+      storedSessionId: "hs_2",
+      lastTriggerMessageId: "m2"
+    });
+    assert.equal(second.runtimeSessionId, "hr_2");
+    assert.equal(second.storedSessionId, "hs_2");
+    assert.equal(second.lastTriggerMessageId, "m2");
+    assert.equal(second.createdAt, first.createdAt);
+    assert.equal(ctx.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM cloud_hermes_sessions
+      WHERE user_id = ? AND bot_id = ? AND conversation_id = ?
+    `).get("u1", "bot_mia", "botc_session_1").count, 1);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud hermes session clearRuntimeSession clears runtime id but preserves stored id", () => {
+  const ctx = freshStore();
+  try {
+    insertUser(ctx.db, "u1");
+    insertConversation(ctx.db, "botc_session_1");
+    const sessions = createCloudHermesSessionsStore(ctx.db);
+    sessions.upsertSession({
+      userId: "u1",
+      botId: "bot_mia",
+      conversationId: "botc_session_1",
+      runtimeSessionId: "hr_1",
+      storedSessionId: "hs_1",
+      lastTriggerMessageId: "m1"
+    });
+    const cleared = sessions.clearRuntimeSession("u1", "bot_mia", "botc_session_1");
+    assert.equal(cleared.runtimeSessionId, "");
+    assert.equal(cleared.storedSessionId, "hs_1");
+    assert.equal(cleared.lastTriggerMessageId, "m1");
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud hermes session methods reject missing required ids", () => {
+  const ctx = freshStore();
+  try {
+    const sessions = createCloudHermesSessionsStore(ctx.db);
+    assert.throws(() => sessions.getSession("", "bot_mia", "botc_session_1"), /required/);
+    assert.throws(() => sessions.upsertSession({ botId: "bot_mia", conversationId: "botc_session_1" }), /required/);
+    assert.throws(() => sessions.clearRuntimeSession("u1", "", "botc_session_1"), /required/);
   } finally {
     ctx.cleanup();
   }

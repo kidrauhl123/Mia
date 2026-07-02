@@ -261,6 +261,30 @@ test("cloud bridge remote run is account-authenticated and does not add a separa
   assert.doesNotMatch(mainSource, /cloudBridgeReconnectTimer/, "main must not own bridge reconnect timer");
 });
 
+test("cloud Hermes legacy runs client files are removed", () => {
+  assert.equal(
+    fs.existsSync(path.join(root, "src/cloud-agent/hermes-runs-client.js")),
+    false,
+    "legacy cloud Hermes runs client source should be removed"
+  );
+  assert.equal(
+    fs.existsSync(path.join(root, "tests/cloud-agent-hermes-runs-client.test.js")),
+    false,
+    "legacy cloud Hermes runs client test should be removed"
+  );
+});
+
+test("cloud release builder ships gateway Hermes files and excludes the legacy runs client", () => {
+  const source = fs.readFileSync(path.join(root, "scripts/build-cloud-release.js"), "utf8");
+  assert.match(source, /api\/src\/cloud-agent\/cloud-hermes-model\.js/);
+  assert.match(source, /api\/src\/cloud-agent\/cloud-hermes-sessions-store\.js/);
+  assert.match(source, /api\/src\/cloud-agent\/hermes-gateway-client\.js/);
+  assert.match(source, /api\/src\/cloud-agent\/hermes-gateway-events\.js/);
+  assert.match(source, /api\/src\/cloud-agent\/hermes-im-attachments\.js/);
+  assert.match(source, /api\/src\/cloud-agent\/hermes-im-client\.js/);
+  assert.doesNotMatch(source, /api\/src\/cloud-agent\/hermes-runs-client\.js/);
+});
+
 test("cloud desktop sync lives behind a main/cloud Module instead of main.js", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const syncSource = fs.readFileSync(path.join(root, "src/main/cloud/desktop-sync-client.js"), "utf8");

@@ -5,8 +5,47 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { createHermesWorkerManager } = require("../src/cloud-agent/hermes-worker-manager.js");
-const { createHermesRunsClient } = require("../src/cloud-agent/hermes-runs-client.js");
+const { createHermesImClient } = require("../src/cloud-agent/hermes-im-client.js");
+const { normalizeCloudHermesModel } = require("../src/cloud-agent/cloud-hermes-model.js");
 const { verifyUserModelProxyToken } = require("../src/cloud/model-proxy-auth.js");
+
+function createGatewayHarness() {
+  const requests = [];
+  const handlers = new Map();
+  const gateway = {
+    connectedUrl: "",
+    closed: false,
+    async connect(url) {
+      gateway.connectedUrl = url;
+    },
+    on(type, handler) {
+      if (!handlers.has(type)) handlers.set(type, []);
+      handlers.get(type).push(handler);
+    },
+    async request(method, params) {
+      requests.push({ method, params });
+      if (method === "session.create") {
+        return { session_id: "runtime_new", stored_session_id: "stored_new" };
+      }
+      if (method === "prompt.submit") {
+        queueMicrotask(() => {
+          gateway.emit("message.delta", { type: "message.delta", session_id: params.session_id, payload: { text: "hel" } });
+          gateway.emit("message.complete", { type: "message.complete", session_id: params.session_id, payload: { content: "hello" } });
+        });
+        return { submitted: true };
+      }
+      throw new Error(`unexpected request ${method}`);
+    },
+    emit(type, event) {
+      for (const handler of handlers.get(type) || []) handler(event);
+      for (const handler of handlers.get("*") || []) handler(event);
+    },
+    close() {
+      gateway.closed = true;
+    }
+  };
+  return { gateway, requests };
+}
 
 test("worker manager derives separate roots and env per user", () => {
   const manager = createHermesWorkerManager({ rootDir: "/tmp/mia-agents", mode: "static", staticBaseUrl: "http://127.0.0.1:9999" });
@@ -59,7 +98,7 @@ test("worker manager writes platform LiteLLM config per user", () => {
 
   assert.equal(stat.mode & 0o777, 0o600);
   assert.match(config, /provider: "mia-litellm"/);
-  assert.match(config, /default: "mia-default"/);
+  assert.match(config, /default: "mia-auto"/);
   assert.match(config, /base_url: "http:\/\/litellm:4000\/v1"/);
   assert.match(config, /host: 0\.0\.0\.0/);
   assert.match(config, /key_env: "MIA_CLOUD_AGENT_MODEL_API_KEY"/);
@@ -70,6 +109,53 @@ test("worker manager writes platform LiteLLM config per user", () => {
   assert.doesNotMatch(config, /mia-scheduler/);
   assert.doesNotMatch(config, /sk-litellm/);
   assert.equal(manager.envForUser("user_a").MIA_CLOUD_AGENT_MODEL_API_KEY, "sk-litellm");
+});
+
+test("worker manager normalizes legacy managed model aliases at the boundary", async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agents-"));
+  const manager = createHermesWorkerManager({
+    rootDir,
+    mode: "static",
+    staticBaseUrl: "http://127.0.0.1:9999",
+    model: "default"
+  });
+
+  const paths = manager.ensureUserDirs("user_a");
+  const config = fs.readFileSync(path.join(paths.hermesHome, "config.yaml"), "utf8");
+  const worker = await manager.ensureWorker("user_a");
+
+  assert.match(config, /default: "mia-auto"/);
+  assert.match(config, /default_model: "mia-auto"/);
+  assert.equal(worker.model, "mia-auto");
+});
+
+test("static worker mode derives gateway websocket url from base url", async () => {
+  const manager = createHermesWorkerManager({
+    rootDir: "/tmp/mia-agents",
+    mode: "static",
+    staticBaseUrl: "http://127.0.0.1:9999"
+  });
+
+  const worker = await manager.ensureWorker("user_a");
+
+  assert.equal(worker.baseUrl, "http://127.0.0.1:9999");
+  assert.equal(worker.gatewayWsUrl, "ws://127.0.0.1:9999/api/ws?token=mia-cloud");
+  assert.equal(worker.model, "mia-auto");
+  assert.equal(worker.modelProvider, "mia");
+  assert.equal(worker.modelApiMode, "chat_completions");
+});
+
+test("static worker mode honors explicit gateway websocket url", async () => {
+  const manager = createHermesWorkerManager({
+    rootDir: "/tmp/mia-agents",
+    mode: "static",
+    staticBaseUrl: "http://127.0.0.1:9999",
+    gatewayWsUrl: "wss://gateway.example/api/ws?token=override"
+  });
+
+  const worker = await manager.ensureWorker("user_a");
+
+  assert.equal(worker.gatewayWsUrl, "wss://gateway.example/api/ws?token=override");
 });
 
 test("worker manager can route user workers through Mia internal billing proxy", () => {
@@ -105,47 +191,68 @@ test("worker manager can route user workers through Mia internal billing proxy",
   assert.equal(verifyUserModelProxyToken("internal-secret", taskToken), "user_a");
 });
 
-test("Hermes runs client sends Bot headers and returns final text", async () => {
-  const calls = [];
-  const callbacks = [];
-  const fakeFetch = async (url, options = {}) => {
-    calls.push({ url: String(url), method: options.method || "GET", headers: options.headers || {}, body: options.body || "" });
-    if (String(url).endsWith("/v1/runs")) {
-      return {
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ run_id: "run_1" })
-      };
-    }
-    if (String(url).endsWith("/v1/runs/run_1/events")) {
-      return {
-        ok: true,
-        status: 200,
-        text: async () => [
-          "data: {\"type\":\"message.delta\",\"delta\":\"hel\"}",
-          "",
-          "data: {\"type\":\"message.delta\",\"delta\":\"lo\"}",
-          "",
-          "data: {\"type\":\"run.completed\",\"finish_reason\":\"stop\"}",
-          "",
-        ].join("\n")
-      };
-    }
-    throw new Error(`unexpected url ${url}`);
-  };
+test("worker manager writes Mia internal model proxy config and gateway shim", () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agents-"));
+  const manager = createHermesWorkerManager({
+    rootDir,
+    mode: "static",
+    staticBaseUrl: "http://127.0.0.1:9999",
+    publicUrl: "https://mia.example",
+    internalModelProxyKey: "internal-secret"
+  });
 
-  const client = createHermesRunsClient({ fetch: fakeFetch });
+  const paths = manager.ensureUserDirs("user_a");
+  const config = fs.readFileSync(path.join(paths.hermesHome, "config.yaml"), "utf8");
+  const shim = fs.readFileSync(path.join(paths.hermesHome, "mia-hermes-gateway-server.py"), "utf8");
+
+  assert.match(config, /provider: "mia"/);
+  assert.match(config, /default: "mia-auto"/);
+  assert.match(config, /api_mode: "chat_completions"/);
+  assert.match(shim, /transport": "tui_gateway"/);
+  assert.match(shim, /@app\.get\("\/health"\)/);
+  assert.match(shim, /@app\.websocket\("\/api\/ws"\)/);
+  assert.match(shim, /MIA_HERMES_GATEWAY_TOKEN/);
+  assert.match(shim, /Authorization/);
+  assert.match(shim, /from tui_gateway\.ws import handle_ws as gateway_handle_ws/);
+  assert.match(shim, /await gateway_handle_ws\(websocket\)/);
+  assert.doesNotMatch(shim, /tui_gateway\.ws\.handle_ws/);
+});
+
+test("normalizeCloudHermesModel preserves mia-auto and maps legacy aliases to fallback", () => {
+  const aliases = ["", "auto", "default", "hermes", "mia", "mia:auto", "mia-default", "mia:mia-default"];
+
+  assert.equal(normalizeCloudHermesModel("mia-auto", { defaultModel: "mia-auto" }), "mia-auto");
+  for (const input of aliases) {
+    assert.equal(normalizeCloudHermesModel(input, { defaultModel: "mia-auto" }), "mia-auto");
+  }
+});
+
+test("Hermes IM client routes cloud chats through the gateway websocket only", async () => {
+  const { gateway, requests } = createGatewayHarness();
+  const client = createHermesImClient({
+    sessionsStore: {
+      getSession() {
+        return null;
+      },
+      upsertSession() {},
+      clearRuntimeSession() {}
+    },
+    gatewayClientFactory: () => gateway
+  });
+  const callbacks = [];
+
   const out = await client.runChat({
-    baseUrl: "http://worker",
+    gatewayWsUrl: "ws://gateway.test/ws",
     apiKey: "secret",
     userId: "u1",
     bot: { id: "bot_mia", displayName: "Mia" },
     conversationId: "botc_u1_bot_mia",
     model: "hermes-agent",
+    workerModel: "mia-auto",
+    modelProvider: "mia",
     effortLevel: "high",
     permissionMode: "auto",
     input: "hi",
-    attachments: [{ id: "file_1", name: "note.txt", mimeType: "text/plain", size: 12, kind: "text", path: "/data/attachments/run/note.txt" }],
     onRunCreated(runId) {
       callbacks.push({ type: "run", runId });
     },
@@ -154,104 +261,32 @@ test("Hermes runs client sends Bot headers and returns final text", async () => 
     }
   });
 
-  assert.equal(out.runId, "run_1");
+  assert.equal(gateway.connectedUrl, "ws://gateway.test/ws");
+  assert.equal(out.runId, "runtime_new");
   assert.equal(out.content, "hello");
-  assert.equal(calls[0].url, "http://worker/v1/runs");
-  assert.equal(calls[0].headers["X-Mia-Bot"], "bot_mia");
-  assert.equal(calls[0].headers["X-Alkaka-Bot"], "bot_mia");
-  assert.equal(calls[0].headers["X-Mia-Fellow"], undefined);
-  assert.equal(calls[0].headers["X-Alkaka-Fellow"], undefined);
-  assert.equal(calls[0].headers["X-Hermes-Session-Key"], "cloud:u1:bot_mia:botc_u1_bot_mia");
-  assert.equal(calls[0].headers.Authorization, "Bearer secret");
-  assert.equal(calls[1].headers.Authorization, "Bearer secret");
-  const body = JSON.parse(calls[0].body);
-  assert.equal(body.model, "hermes-agent");
-  assert.equal(body.session_id, "cloud:u1:bot_mia:botc_u1_bot_mia");
-  assert.equal(body.conversation_history, undefined);
-  assert.deepEqual(body.attachments, [{ id: "file_1", name: "note.txt", mimeType: "text/plain", size: 12, kind: "text", path: "/data/attachments/run/note.txt" }]);
-  assert.equal(body.metadata.account_id, "u1");
-  assert.equal(body.metadata.bot_id, "bot_mia");
-  assert.equal(body.metadata.persona_key, "bot_mia");
-  assert.equal(body.metadata.fellow_key, undefined);
-  assert.equal(body.metadata.effort_level, "high");
-  assert.equal(body.metadata.permission_mode, "auto");
-  assert.deepEqual(body.metadata.attachments, [{ id: "file_1", name: "note.txt", mimeType: "text/plain", path: "/data/attachments/run/note.txt" }]);
+  assert.deepEqual(requests.map((entry) => entry.method), ["session.create", "prompt.submit"]);
+  assert.deepEqual(requests[0].params, {
+    title: "Mia",
+    source: "mia-cloud",
+    cwd: "/data/workspace",
+    model: "mia-auto",
+    provider: "mia",
+    reasoning_effort: "high",
+    messages: []
+  });
+  assert.deepEqual(requests[1].params, {
+    session_id: "runtime_new",
+    prompt: "hi",
+    instructions: "",
+    permission_mode: "auto"
+  });
   assert.equal(callbacks[0].type, "run");
-  assert.equal(callbacks[0].runId, "run_1");
+  assert.equal(callbacks[0].runId, "runtime_new");
   assert.deepEqual(callbacks.filter((item) => item.type === "event").map((item) => item.event.type), [
     "message.delta",
-    "message.delta",
-    "run.completed"
+    "message.complete"
   ]);
-});
-
-test("Hermes runs client rejects run.failed events instead of returning empty text", async () => {
-  const callbacks = [];
-  const fakeFetch = async (url) => {
-    if (String(url).endsWith("/v1/runs")) {
-      return {
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ run_id: "run_failed" })
-      };
-    }
-    if (String(url).endsWith("/v1/runs/run_failed/events")) {
-      return {
-        ok: true,
-        status: 200,
-        text: async () => [
-          "event: run.failed",
-          "data: {\"error\":\"模型余额不足，请先充值。\"}",
-          "",
-        ].join("\n")
-      };
-    }
-    throw new Error(`unexpected url ${url}`);
-  };
-
-  const client = createHermesRunsClient({ fetch: fakeFetch });
-  await assert.rejects(
-    () => client.runChat({
-      baseUrl: "http://worker",
-      userId: "u1",
-      bot: { id: "bot_mia", displayName: "Mia" },
-      conversationId: "botc_u1_bot_mia",
-      input: "hi",
-      onEvent(event) {
-        callbacks.push(event);
-      }
-    }),
-    /模型余额不足/
-  );
-  assert.deepEqual(callbacks.map((event) => event.type), ["run.failed"]);
-});
-
-test("Hermes runs client accepts an isolated session id for conductor-style calls", async () => {
-  const calls = [];
-  const fakeFetch = async (url, options = {}) => {
-    calls.push({ url: String(url), headers: options.headers || {}, body: options.body || "" });
-    if (String(url).endsWith("/v1/runs")) {
-      return { ok: true, status: 200, text: async () => JSON.stringify({ run_id: "run_conductor" }) };
-    }
-    return { ok: true, status: 200, text: async () => "data: {\"type\":\"run.completed\",\"content\":\"{}\"}\n\n" };
-  };
-
-  const client = createHermesRunsClient({ fetch: fakeFetch });
-  await client.runChat({
-    baseUrl: "http://worker",
-    userId: "u1",
-    bot: { id: "bot_alice", displayName: "Alice" },
-    conversationId: "g_1",
-    sessionId: "cloud:u1:conductor:g_1:m_1",
-    metadataRole: "group-conductor",
-    input: "choose"
-  });
-
-  const body = JSON.parse(calls[0].body);
-  assert.equal(body.session_id, "cloud:u1:conductor:g_1:m_1");
-  assert.equal(body.metadata.conversation_id, "g_1");
-  assert.equal(body.metadata.role, "group-conductor");
-  assert.equal(calls[0].headers["X-Hermes-Session-Key"], "cloud:u1:conductor:g_1:m_1");
+  assert.equal(gateway.closed, true);
 });
 
 test("docker worker mode starts one isolated container per user", async () => {
@@ -277,6 +312,10 @@ test("docker worker mode starts one isolated container per user", async () => {
   const worker = await manager.ensureWorker("user_a");
 
   assert.equal(worker.baseUrl, "http://127.0.0.1:49152");
+  assert.equal(worker.gatewayWsUrl, "ws://127.0.0.1:49152/api/ws?token=mia-cloud");
+  assert.equal(worker.model, "mia-auto");
+  assert.equal(worker.modelProvider, "mia");
+  assert.equal(worker.modelApiMode, "chat_completions");
   const runCall = execCalls.find((call) => call.args[0] === "run");
   assert.ok(runCall, "docker run should be called when container is missing");
   assert.ok(runCall.args.includes("--network"));
@@ -294,6 +333,8 @@ test("docker worker mode starts one isolated container per user", async () => {
   assert.ok(runCall.args.includes("API_SERVER_PORT=8765"));
   assert.ok(runCall.args.includes("API_SERVER_KEY=mia-cloud"));
   assert.ok(runCall.args.includes("MIA_CLOUD_AGENT_MODEL_API_KEY=sk-litellm"));
+  assert.equal(runCall.args[runCall.args.indexOf("mia/hermes-cloud:test") + 1], "python");
+  assert.equal(runCall.args[runCall.args.indexOf("mia/hermes-cloud:test") + 2], "/data/hermes-home/mia-hermes-gateway-server.py");
   assert.equal(runCall.args.some((arg) => String(arg).includes("docker.sock")), false);
 });
 

@@ -411,15 +411,15 @@
         appendText(event);
       } else if (name === "message.complete" || name === "message.completed") {
         if (!blocks.some((block) => block.type === "text")) appendText(event);
-      } else if (name === "reasoning.available" || name === "reasoning_delta" || name === "thinking_delta") {
+      } else if (name === "reasoning.available" || name === "reasoning_delta" || name === "reasoning.delta" || name === "thinking_delta" || name === "thinking.delta") {
         appendThinking(event);
       } else if (name === "reasoning.done" || name === "reasoning.completed" || name === "thinking.done" || name === "thinking.completed") {
         updateRecentThinking(event);
-      } else if (name === "tool.started" || name === "tool_call_started") {
+      } else if (name === "tool.started" || name === "tool.start" || name === "tool_call_started") {
         appendTool(event);
-      } else if (name === "tool.delta" || name === "tool_call_delta") {
+      } else if (name === "tool.delta" || name === "tool.progress" || name === "tool_call_delta") {
         updateToolDelta(event);
-      } else if (name === "tool.completed" || name === "tool_call_completed") {
+      } else if (name === "tool.completed" || name === "tool.complete" || name === "tool_call_completed") {
         completeTool(event);
       } else if (name === "file_edit" || name === "file.edit" || name === "file_edit.completed") {
         appendFileEdit(event);

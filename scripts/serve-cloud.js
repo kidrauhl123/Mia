@@ -135,6 +135,12 @@ try {
 } catch {
   ({ createCloudAgentRunsStore } = require("./src/cloud-agent/cloud-agent-runs-store.js"));
 }
+let createCloudHermesSessionsStore = null;
+try {
+  ({ createCloudHermesSessionsStore } = require("../src/cloud-agent/cloud-hermes-sessions-store.js"));
+} catch {
+  ({ createCloudHermesSessionsStore } = require("./src/cloud-agent/cloud-hermes-sessions-store.js"));
+}
 let createCloudAgentDispatcher = null;
 try {
   ({ createCloudAgentDispatcher } = require("../src/cloud-agent/dispatcher.js"));
@@ -147,11 +153,11 @@ try {
 } catch {
   ({ createHermesWorkerManager } = require("./src/cloud-agent/hermes-worker-manager.js"));
 }
-let createHermesRunsClient = null;
+let createHermesImClient = null;
 try {
-  ({ createHermesRunsClient } = require("../src/cloud-agent/hermes-runs-client.js"));
+  ({ createHermesImClient } = require("../src/cloud-agent/hermes-im-client.js"));
 } catch {
-  ({ createHermesRunsClient } = require("./src/cloud-agent/hermes-runs-client.js"));
+  ({ createHermesImClient } = require("./src/cloud-agent/hermes-im-client.js"));
 }
 let createModelBillingStore = null;
 try {
@@ -4390,6 +4396,9 @@ function createMiaCloudServer(options = {}) {
       : null);
   context.runtimeBindingsStore = createRuntimeBindingsStore(context.cloudStore.getDb());
   context.cloudAgentRunsStore = createCloudAgentRunsStore(context.cloudStore.getDb());
+  context.cloudHermesSessionsStore = createCloudHermesSessionsStore
+    ? createCloudHermesSessionsStore(context.cloudStore.getDb())
+    : null;
   context.modelBillingStore = createModelBillingStore ? createModelBillingStore(context.cloudStore.getDb()) : null;
   context.modelGatewayStore = modelGatewayStoreModule?.createModelGatewayStore
     ? modelGatewayStoreModule.createModelGatewayStore(context.cloudStore.getDb())
@@ -4404,9 +4413,11 @@ function createMiaCloudServer(options = {}) {
         model: platformModelId(context)
       })
       : null);
-  const cloudAgentHermesClient = options.cloudAgentHermesClient
-    || (cloudAgentWorkerManager && createHermesRunsClient ? createHermesRunsClient() : null);
-  if (cloudAgentWorkerManager && cloudAgentHermesClient && createCloudAgentDispatcher) {
+  const cloudAgentHermesImClient = options.cloudAgentHermesImClient
+    || (cloudAgentWorkerManager && createHermesImClient
+      ? createHermesImClient({ sessionsStore: context.cloudHermesSessionsStore })
+      : null);
+  if (cloudAgentWorkerManager && cloudAgentHermesImClient && createCloudAgentDispatcher) {
     context.cloudAgentDispatcher = createCloudAgentDispatcher({
       socialStore: context.socialStore,
       messagesStore: context.messagesStore,
@@ -4414,7 +4425,7 @@ function createMiaCloudServer(options = {}) {
       runtimeBindingsStore: context.runtimeBindingsStore,
       cloudAgentRunsStore: context.cloudAgentRunsStore,
       workerManager: cloudAgentWorkerManager,
-      hermesRunsClient: cloudAgentHermesClient,
+      hermesImClient: cloudAgentHermesImClient,
       attachmentMaterializer: createAttachmentMaterializer
         ? createAttachmentMaterializer({ cloudStore: context.cloudStore })
         : null,

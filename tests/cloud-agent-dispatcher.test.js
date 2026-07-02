@@ -74,10 +74,10 @@ function makeDispatcher(ctx, overrides = {}) {
     cloudAgentRunsStore: ctx.cloudAgentRunsStore,
     workerManager: {
       async ensureWorker(userId) {
-        return { userId, baseUrl: "http://worker", apiKey: "k" };
+        return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway" };
       }
     },
-    hermesRunsClient: {
+    hermesImClient: {
       async runChat() {
         return { runId: "hr_test", content: "reply", events: [] };
       }
@@ -106,12 +106,20 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
       config: { model: "hermes-agent" }
     });
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
+          args.onRunCreated?.("abc123");
           return { runId: "hr_dm", content: "hi", events: [] };
         }
       }
+    });
+    ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "bot",
+      senderRef: BOT_ID,
+      senderOwnerId: ctx.user.id,
+      bodyMd: "earlier reply"
     });
     const message = ctx.messagesStore.appendMessage({
       conversationId: ctx.conversation.id,
@@ -127,13 +135,96 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
     assert.equal(reply.sender_ref, BOT_ID);
     assert.equal(reply.body_md, "hi");
     assert.equal(hermesCalls.length, 1);
+    const storedRunId = ctx.cloudStore.getDb()
+      .prepare("SELECT hermes_run_id FROM cloud_agent_runs ORDER BY created_at DESC LIMIT 1")
+      .get()?.hermes_run_id;
+    assert.equal(storedRunId, "gw:abc123");
+    assert.equal(hermesCalls[0].gatewayWsUrl, "ws://gateway");
     assert.equal(hermesCalls[0].model, "mia-auto");
+    assert.equal(hermesCalls[0].workerModel, "mia-auto");
+    assert.equal(hermesCalls[0].modelProvider, "mia");
+    assert.deepEqual(hermesCalls[0].seedMessages, [
+      { role: "assistant", content: "earlier reply" }
+    ]);
+    assert.match(hermesCalls[0].input, /用户消息：\nhello/);
     assert.match(hermesCalls[0].input, /正在和用户私聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群成员/);
     assert.match(hermesCalls[0].instructions, /Mia Runtime Context/);
     assert.doesNotMatch(hermesCalls[0].instructions, /schedule_create|cronjob/);
     assert.match(hermesCalls[0].instructions, /You are Alice Bot\./);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud-hermes prefixes gateway run ids when only the final result returns a runId", async () => {
+  const ctx = setup();
+  try {
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "cloud-hermes",
+      enabled: true,
+      config: { model: "hermes-agent" }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      hermesImClient: {
+        async runChat() {
+          return { runId: "return_only_42", content: "hi", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+
+    await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    const storedRunId = ctx.cloudStore.getDb()
+      .prepare("SELECT hermes_run_id FROM cloud_agent_runs ORDER BY created_at DESC LIMIT 1")
+      .get()?.hermes_run_id;
+    assert.equal(storedRunId, "gw:return_only_42");
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud-hermes without gatewayWsUrl appends the visible config error", async () => {
+  const ctx = setup();
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      workerManager: {
+        async ensureWorker(userId) {
+          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "" };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(reply.body_md, "云端 Hermes gateway 未启动，请检查 worker 配置。");
+    assert.deepEqual(JSON.parse(reply.error_json), {
+      type: "cloud_hermes_gateway_unavailable",
+      message: "云端 Hermes gateway 未启动，请检查 worker 配置。"
+    });
   } finally {
     ctx.cleanup();
   }
@@ -155,11 +246,11 @@ test("cloud-hermes archives generated worker file paths and hides server paths",
     const dispatcher = makeDispatcher(ctx, {
       workerManager: {
         async ensureWorker(userId) {
-          return { userId, baseUrl: "http://worker", apiKey: "k", paths: workerPaths };
+          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", paths: workerPaths };
         }
       },
       attachmentMaterializer: createAttachmentMaterializer({ cloudStore: ctx.cloudStore }),
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           args.onEvent?.({ type: "text_delta", text: "Excel 文件已生成！路径是：/data/home/report.xlsx" });
           return {
@@ -213,11 +304,11 @@ test("cloud-hermes archives generated files mentioned only in streamed events", 
     const dispatcher = makeDispatcher(ctx, {
       workerManager: {
         async ensureWorker(userId) {
-          return { userId, baseUrl: "http://worker", apiKey: "k", paths: workerPaths };
+          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", paths: workerPaths };
         }
       },
       attachmentMaterializer: createAttachmentMaterializer({ cloudStore: ctx.cloudStore }),
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           args.onEvent?.({ type: "text_delta", text: "Excel 文件已生成！路径是：/data/home/stream-only.xlsx" });
           return {
@@ -273,11 +364,11 @@ test("cloud-hermes attaches worker files requested directly by the user", async 
     const dispatcher = makeDispatcher(ctx, {
       workerManager: {
         async ensureWorker(userId) {
-          return { userId, baseUrl: "http://worker", apiKey: "k", paths: workerPaths };
+          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", paths: workerPaths };
         }
       },
       attachmentMaterializer: createAttachmentMaterializer({ cloudStore: ctx.cloudStore }),
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat() {
           return {
             runId: "hr_requested_file",
@@ -346,7 +437,7 @@ test("cloud-hermes DM pins the bot identity over a copied engine persona", async
       bodyMd: "我是 Claude Code，一个专注于代码任务的 AI 助手。"
     });
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_identity", content: "我是 ？？。", events: [] };
@@ -394,10 +485,10 @@ test("cloud-hermes maps old managed aliases to the worker platform model", async
     const dispatcher = makeDispatcher(ctx, {
       workerManager: {
         async ensureWorker(userId) {
-          return { userId, baseUrl: "http://worker", apiKey: "k", model: "mia-auto" };
+          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", model: "mia-auto" };
         }
       },
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_alias", content: "ok", events: [] };
@@ -428,7 +519,7 @@ test("cloud-hermes persists ordered content blocks from streamed events", async 
   const ctx = setup();
   try {
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           args.onEvent({ type: "reasoning_delta", id: "think_1", text: "检查上下文" });
           args.onEvent({ type: "text_delta", id: "text_1", text: "我先看目录。" });
@@ -467,7 +558,7 @@ test("cloud-hermes preserves streamed process text when final text is returned s
   const ctx = setup();
   try {
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           args.onEvent({ type: "text_delta", id: "text_1", text: "我先检查。" });
           args.onEvent({ type: "tool_call_started", id: "tool_1", name: "shell", preview: "pwd" });
@@ -513,7 +604,7 @@ test("cloud-hermes reminder requests run Hermes instead of direct app-side task 
       broadcastPersistedEvent(userId, event) {
         broadcasts.push({ userId, event });
       },
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_scheduler", content: "我会通过 schedule_create 设置这个提醒。", events: [] };
@@ -551,7 +642,7 @@ test("cloud-hermes scheduled fires use the delivery context instead of recreatin
   const hermesCalls = [];
   try {
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_task_fire", content: "该吃饭了", events: [] };
@@ -643,7 +734,7 @@ test("cloud-hermes writes scheduler MCP context before each bot run", async () =
     const dispatcher = makeDispatcher(ctx, {
       workerManager: {
         async ensureWorker(userId) {
-          return { userId, baseUrl: "http://worker", apiKey: "k", paths: { hermesHome } };
+          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", paths: { hermesHome } };
         }
       }
     });
@@ -684,7 +775,7 @@ test("cloud-hermes DM injects selected message skill context into the run input"
         name: "Anki 记忆卡",
         body: "---\nname: generating-stem-flashcards\n---\n# STEM Flashcard Generation\nUse this for Anki cards."
       }],
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_skills", content: "skill reply", events: [] };
@@ -734,7 +825,7 @@ test("cloud-hermes handles LOAD_SKILL requests as an internal skill-loading retr
         description: "生成记忆卡。",
         body: "---\nname: generating-stem-flashcards\n---\n# STEM Flashcard Generation\nUse this for Anki cards."
       }],
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           if (hermesCalls.length === 1) {
@@ -784,7 +875,7 @@ test("cloud-hermes DM surfaces run failures as visible bot messages", async () =
   const broadcasts = [];
   try {
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat() {
           throw new Error("Error code: 402 - {'error': '模型余额不足，请先充值。'}");
         }
@@ -839,7 +930,7 @@ test("cloud-hermes refuses a contaminated bot binding owned by another user", as
       config: { model: "hermes-agent" }
     });
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_contaminated", content: "wrong owner", events: [] };
@@ -891,7 +982,7 @@ test("desktop-local DM broadcasts a bot invocation and does not run inline", asy
       broadcastPersistedEvent(userId, event) {
         broadcasts.push({ userId, event });
       },
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_dm", content: "should not run", events: [] };
@@ -969,7 +1060,7 @@ test("active desktop-local binding wins over stale cloud-hermes binding", async 
       broadcastPersistedEvent(userId, event) {
         broadcasts.push({ userId, event });
       },
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_stale", content: "wrong", events: [] };
@@ -1209,7 +1300,7 @@ test("single-bot group skips the conductor and replies directly", async () => {
       config: { model: "hermes-agent" }
     });
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_single", content: "got it", events: [] };
@@ -1255,7 +1346,7 @@ test("multi-bot group routes by name in the body", async () => {
       });
     }
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_named", content: "yes", events: [] };
@@ -1302,13 +1393,13 @@ test("multi-bot group falls back to the conductor when no name matches", async (
     const dispatcher = makeDispatcher(ctx, {
       workerManager: {
         async ensureWorker(userId) {
-          return { userId, baseUrl: "http://worker", apiKey: "k", model: "mia-pro" };
+          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", model: "mia-pro" };
         }
       },
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
-          if (args.metadataRole === "group-conductor") {
+          if (args.transient) {
             return { runId: "hr_c", content: '{"speak":["bot_kongling"]}', events: [] };
           }
           return { runId: "hr_r", content: "ok", events: [] };
@@ -1327,7 +1418,9 @@ test("multi-bot group falls back to the conductor when no name matches", async (
       message
     });
     assert.equal(reply.sender_ref, "bot_kongling");
-    assert.deepEqual(hermesCalls.map((call) => call.metadataRole || "reply"), ["group-conductor", "reply"]);
+    assert.equal(hermesCalls[0].transient, true);
+    assert.equal(hermesCalls[0].gatewayWsUrl, "ws://gateway");
+    assert.equal(hermesCalls[1].transient, undefined);
     assert.deepEqual(hermesCalls.map((call) => call.model), ["mia-pro", "mia-pro"]);
   } finally {
     ctx.cleanup();
@@ -1353,9 +1446,9 @@ test("conductor garbage falls back to the first bot member", async () => {
       });
     }
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
-          if (args.metadataRole === "group-conductor") return { runId: "hr_c", content: "not json", events: [] };
+          if (args.transient) return { runId: "hr_c", content: "not json", events: [] };
           return { runId: "hr_r", content: "fallback reply", events: [] };
         }
       }
@@ -1399,7 +1492,7 @@ test("desktop-only bot gets a bot_invocation_requested broadcast and no inline r
       broadcastPersistedEvent(userId, event) {
         broadcasts.push({ userId, event });
       },
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_x", content: "nope", events: [] };
@@ -1449,7 +1542,7 @@ test("@mention bypasses the conductor and picks only the mentioned bot", async (
       });
     }
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_mention", content: "reply", events: [] };
@@ -1469,7 +1562,7 @@ test("@mention bypasses the conductor and picks only the mentioned bot", async (
       message
     });
     assert.equal(reply.sender_ref, "bot_kongling");
-    assert.deepEqual(hermesCalls.map((call) => call.metadataRole || "reply"), ["reply"]);
+    assert.deepEqual(hermesCalls.map((call) => (call.transient ? "group-conductor" : "reply")), ["reply"]);
   } finally {
     ctx.cleanup();
   }
@@ -1493,7 +1586,7 @@ test("explicit botId on invokeBot runs that bot regardless of routing", async ()
       config: { model: "hermes-agent" }
     });
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
           return { runId: "hr_explicit", content: "explicit reply", events: [] };
@@ -1529,9 +1622,9 @@ test("respondApproval routes the owner's decision to the run's Hermes worker", a
       conversationId: ctx.conversation.id,
       triggerMessageId: "m1"
     });
-    ctx.cloudAgentRunsStore.markRunning(run.id, "hermes_run_9");
+    ctx.cloudAgentRunsStore.markRunning(run.id, "gw:hermes_run_9");
     const dispatcher = makeDispatcher(ctx, {
-      hermesRunsClient: {
+      hermesImClient: {
         async runChat() { return { runId: "hr", content: "", events: [] }; },
         async submitApproval(args) { approvalCalls.push(args); return { resolved: 1 }; }
       }
@@ -1541,9 +1634,9 @@ test("respondApproval routes the owner's decision to the run's Hermes worker", a
     assert.equal(ok.ok, true);
     assert.equal(ok.choice, "always");
     assert.equal(approvalCalls.length, 1);
-    assert.equal(approvalCalls[0].runId, "hermes_run_9");
+    assert.equal(approvalCalls[0].sessionId, "hermes_run_9");
     assert.equal(approvalCalls[0].choice, "always");
-    assert.equal(approvalCalls[0].baseUrl, "http://worker");
+    assert.equal(approvalCalls[0].gatewayWsUrl, "ws://gateway");
 
     // Only the run owner may answer — a different member is refused without a worker call.
     const denied = await dispatcher.respondApproval({ userId: "someone_else", runId: run.id, decision: "deny" });
@@ -1559,6 +1652,33 @@ test("respondApproval routes the owner's decision to the run's Hermes worker", a
     });
     assert.equal(mismatched.ok, false);
     assert.equal(approvalCalls.length, 1);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("respondApproval refuses non-gateway hermes run ids", async () => {
+  const ctx = setup();
+  try {
+    const run = ctx.cloudAgentRunsStore.createRun({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      conversationId: ctx.conversation.id,
+      triggerMessageId: "m1"
+    });
+    ctx.cloudAgentRunsStore.markRunning(run.id, "hermes_run_legacy");
+    const dispatcher = makeDispatcher(ctx);
+
+    const result = await dispatcher.respondApproval({
+      userId: ctx.user.id,
+      runId: run.id,
+      decision: "allow_once"
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: "run is not a Hermes gateway session"
+    });
   } finally {
     ctx.cleanup();
   }

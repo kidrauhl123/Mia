@@ -159,8 +159,15 @@ test("release builder includes operator README with safe install verification", 
   assert.doesNotMatch(source, /default-fellow\.js/);
   assert.match(source, /"api\/src\/cloud-agent\/attachment-materializer\.js"/);
   assert.match(source, /"api\/src\/cloud-agent\/group-orchestrator\.js"/);
+  assert.match(source, /"api\/src\/cloud-agent\/cloud-hermes-model\.js"/);
+  assert.match(source, /"api\/src\/cloud-agent\/cloud-hermes-sessions-store\.js"/);
   assert.match(source, /"api\/src\/cloud-agent\/dispatcher\.js"/);
+  assert.match(source, /"api\/src\/cloud-agent\/hermes-gateway-client\.js"/);
+  assert.match(source, /"api\/src\/cloud-agent\/hermes-gateway-events\.js"/);
+  assert.match(source, /"api\/src\/cloud-agent\/hermes-im-attachments\.js"/);
+  assert.match(source, /"api\/src\/cloud-agent\/hermes-im-client\.js"/);
   assert.match(source, /"api\/src\/main\/prompts\/mia-runtime\.md"/);
+  assert.doesNotMatch(source, /"api\/src\/cloud-agent\/hermes-runs-client\.js"/);
   assert.equal(source.includes("if (!/\\.(?:c|m)?js$/i.test(file)) continue;"), true);
   assert.match(source, /"README\.md"/);
   assert.match(source, /"nginx\/mia-websocket-map\.conf"/);

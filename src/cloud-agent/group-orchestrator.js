@@ -220,16 +220,12 @@ function directBotIdsForMessage(message, botMembers, bots) {
   return textNamedBotIds(message?.body_md || "", candidates, bots).slice(0, 3);
 }
 
-function conductorSessionId(userId, conversationId, messageId) {
-  return `cloud:${userId}:group-orchestrator:${conversationId}:${messageId}`;
-}
-
 function createGroupOrchestrator({
   socialStore,
   messagesStore,
   botsStore,
   workerManager,
-  hermesRunsClient,
+  hermesImClient,
   loadPrompts = async () => ({ dispatch: DEFAULT_BOT_DISPATCH_PROMPT }),
   getUserPublic = () => null,
   log = () => {}
@@ -249,15 +245,16 @@ function createGroupOrchestrator({
     });
     try {
       const worker = await workerManager.ensureWorker(userId);
-      const result = await hermesRunsClient.runChat({
-        baseUrl: worker.baseUrl,
+      const result = await hermesImClient.runChat({
+        gatewayWsUrl: worker.gatewayWsUrl,
         apiKey: worker.apiKey,
         userId,
         bot: ORCHESTRATOR_BOT,
         conversationId,
-        sessionId: conductorSessionId(userId, conversationId, message.id),
-        metadataRole: "group-conductor",
+        transient: true,
         model: normalizeCloudHermesModel("", { defaultModel: worker.model }),
+        workerModel: worker.model || "mia-auto",
+        modelProvider: worker.modelProvider || "mia",
         effortLevel: "medium",
         permissionMode: "ask",
         input: dispatchPrompt,

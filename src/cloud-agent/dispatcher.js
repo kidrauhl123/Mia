@@ -279,7 +279,7 @@ function createCloudAgentDispatcher(deps = {}) {
   const runtimeBindingsStore = requireDep(deps, "runtimeBindingsStore");
   const cloudAgentRunsStore = requireDep(deps, "cloudAgentRunsStore");
   const workerManager = requireDep(deps, "workerManager");
-  const hermesRunsClient = requireDep(deps, "hermesRunsClient");
+  const hermesImClient = requireDep(deps, "hermesImClient");
   const attachmentMaterializer = deps.attachmentMaterializer || null;
   const broadcastPersistedEvent = typeof deps.broadcastPersistedEvent === "function"
     ? deps.broadcastPersistedEvent
@@ -298,7 +298,7 @@ function createCloudAgentDispatcher(deps = {}) {
     messagesStore,
     botsStore,
     workerManager,
-    hermesRunsClient,
+    hermesImClient,
     ...(loadPrompts ? { loadPrompts } : {}),
     getUserPublic,
     log
@@ -306,6 +306,27 @@ function createCloudAgentDispatcher(deps = {}) {
 
   function recentMessagesForDesktopInvocation(conversationId) {
     return messagesStore.listMessagesSince(conversationId, 0, DESKTOP_INVOCATION_HISTORY_LIMIT);
+  }
+
+  function conversationSeedMessages(conversationId, message = {}) {
+    const triggerSeq = Number(message?.seq || 0);
+    const triggerId = String(message?.id || "").trim();
+    return messagesStore.listMessagesSince(conversationId, 0, DESKTOP_INVOCATION_HISTORY_LIMIT)
+      .filter((row) => {
+        const rowSeq = Number(row?.seq || 0);
+        if (triggerSeq > 0) return rowSeq > 0 && rowSeq < triggerSeq;
+        if (triggerId) return String(row?.id || "").trim() !== triggerId;
+        return true;
+      })
+      .map((row) => {
+        const content = String(row?.body_md || "").trim();
+        if (!content) return null;
+        return {
+          role: messageRole(row),
+          content
+        };
+      })
+      .filter(Boolean);
   }
 
   function eventType(event = {}) {
@@ -442,7 +463,7 @@ function createCloudAgentDispatcher(deps = {}) {
     return reply;
   }
 
-  function appendRuntimeConfigErrorReply({ ownerId, bot, conversationId, message }) {
+  function appendRuntimeConfigErrorReply({ ownerId, bot, conversationId, message, errorType = "desktop_runtime_unavailable" }) {
     const reply = messagesStore.appendMessage({
       conversationId,
       senderKind: BOT_SENDER_KIND,
@@ -452,7 +473,7 @@ function createCloudAgentDispatcher(deps = {}) {
       attachments: null,
       trace: null,
       status: "complete",
-      errorJson: { type: "desktop_runtime_unavailable", message }
+      errorJson: { type: errorType, message }
     });
     for (const member of socialStore.listConversationMembers(conversationId)) {
       if (member.member_kind === MemberKind.User) {
@@ -541,6 +562,15 @@ function createCloudAgentDispatcher(deps = {}) {
     });
     try {
       const worker = await workerManager.ensureWorker(ownerId);
+      if (!String(worker?.gatewayWsUrl || "").trim()) {
+        return appendRuntimeConfigErrorReply({
+          ownerId,
+          bot,
+          conversationId,
+          message: "云端 Hermes gateway 未启动，请检查 worker 配置。",
+          errorType: "cloud_hermes_gateway_unavailable"
+        });
+      }
       try {
         writeSchedulerContext(worker, {
           botId,
@@ -584,14 +614,17 @@ function createCloudAgentDispatcher(deps = {}) {
             event: redactGeneratedArtifactPathsInValue(event, [])
           });
         });
-        result = await hermesRunsClient.runChat({
-          baseUrl: worker.baseUrl,
+        result = await hermesImClient.runChat({
+          gatewayWsUrl: worker.gatewayWsUrl,
           apiKey: worker.apiKey,
           userId: ownerId,
           bot,
           conversationId,
+          seedMessages: conversationSeedMessages(conversationId, message),
           instructions: cloudRuntimeInstructions(bot, message),
           model: normalizeCloudHermesModel(runtimeConfig.model, { defaultModel: worker.model }),
+          workerModel: worker.model || "mia-auto",
+          modelProvider: worker.modelProvider || "mia",
           effortLevel: runtimeConfig.effortLevel || "medium",
           permissionMode: runtimeConfig.permissionMode || "ask",
           input: [
@@ -599,12 +632,13 @@ function createCloudAgentDispatcher(deps = {}) {
             conversationInput
           ].filter(Boolean).join("\n\n"),
           attachments: materialized.attachments || [],
-          onRunCreated(hermesRunId) {
-            cloudAgentRunsStore.markRunning(run.id, hermesRunId || "");
+          onRunCreated(runtimeSessionId) {
+            const gatewayRunId = runtimeSessionId ? `gw:${runtimeSessionId}` : "";
+            cloudAgentRunsStore.markRunning(run.id, gatewayRunId);
             broadcastTransientEvent(ownerId, {
               type: "cloud_agent_run_started",
               runId: run.id,
-              hermesRunId,
+              hermesRunId: runtimeSessionId,
               conversationId,
               botId,
               triggerMessageId: message.id
@@ -674,7 +708,10 @@ function createCloudAgentDispatcher(deps = {}) {
       const finalReplyContent = hasRequestedFileDelivery && replyAttachments.length && shouldReplaceWithFileDeliveryReply(replyContent)
         ? fileDeliveryReplyText(replyAttachments)
         : replyContent;
-      if (result.runId) cloudAgentRunsStore.markRunning(run.id, result.runId);
+      const currentRun = cloudAgentRunsStore.getRun(run.id);
+      if (result.runId && !String(currentRun?.hermesRunId || "").trim()) {
+        cloudAgentRunsStore.markRunning(run.id, `gw:${result.runId}`);
+      }
       const reply = messagesStore.appendMessage({
         conversationId,
         senderKind: BOT_SENDER_KIND,
@@ -714,15 +751,18 @@ function createCloudAgentDispatcher(deps = {}) {
     }
     const hermesRunId = String(run.hermesRunId || "").trim();
     if (!hermesRunId) return { ok: false, error: "run has no hermes run id yet" };
-    if (typeof hermesRunsClient.submitApproval !== "function") {
+    if (!hermesRunId.startsWith("gw:")) {
+      return { ok: false, error: "run is not a Hermes gateway session" };
+    }
+    if (typeof hermesImClient.submitApproval !== "function") {
       return { ok: false, error: "hermes client does not support approvals" };
     }
     const choice = decisionToHermesChoice(decision);
     const worker = await workerManager.ensureWorker(run.userId);
-    await hermesRunsClient.submitApproval({
-      baseUrl: worker.baseUrl,
+    await hermesImClient.submitApproval({
+      gatewayWsUrl: worker.gatewayWsUrl,
       apiKey: worker.apiKey,
-      runId: hermesRunId,
+      sessionId: hermesRunId.slice(3),
       choice
     });
     return { ok: true, choice };
