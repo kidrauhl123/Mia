@@ -23,6 +23,12 @@ function indexEngineSpecs(engineSpecs) {
   return indexed;
 }
 
+function getEventTurnId(payload = {}) {
+  if (!payload || typeof payload !== "object") return null;
+  const turnId = typeof payload.turnId === "string" ? payload.turnId.trim() : "";
+  return turnId || null;
+}
+
 class AgentSessionManager extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -165,10 +171,16 @@ class AgentSessionManager extends EventEmitter {
         });
 
         if (TERMINAL_MESSAGE_EVENTS.has(eventKind)) {
-          this.runningByKey.delete(sessionKey);
-          queueMicrotask(() => {
-            void this.drainQueuedInput(sessionKey);
-          });
+          const running = this.runningByKey.get(sessionKey);
+          const eventTurnId = getEventTurnId(payload);
+          if (running && eventTurnId && running.turnId === eventTurnId) {
+            this.runningByKey.delete(sessionKey);
+            queueMicrotask(() => {
+              void this.drainQueuedInput(sessionKey);
+            });
+          }
+          // Missing turn correlation is treated as non-terminal for scheduling so
+          // duplicate or stale events cannot unlock the queue while a turn may still be active.
         }
 
         if (eventKind === "session-closed") {

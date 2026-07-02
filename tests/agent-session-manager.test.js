@@ -176,12 +176,110 @@ test("queued input drains after a terminal message event", async () => {
     text: "second"
   });
 
-  session.emit("message-completed", { messageId: "msg-1" });
+  session.emit("message-completed", { messageId: "msg-1", turnId: "turn-1" });
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(session.sendCalls, [
     { turnId: "turn-1", text: "first" },
     { turnId: "turn-2", text: "second" }
+  ]);
+});
+
+test("duplicate terminal events without turnId do not clear the active turn or drain queued input", async () => {
+  const session = createFakeSession();
+  const manager = createAgentSessionManager(managerOptions(async () => session));
+  const key = manager.createSessionKey({
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo"
+  });
+
+  await manager.sendUserInput({
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo",
+    turnId: "turn-1",
+    text: "first"
+  });
+  await manager.sendUserInput({
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo",
+    turnId: "turn-2",
+    text: "second"
+  });
+
+  session.emit("message-completed", { messageId: "msg-1" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(session.sendCalls, [{ turnId: "turn-1", text: "first" }]);
+  assert.deepEqual(manager.getQueueSnapshot(key), [{ turnId: "turn-2", text: "second" }]);
+
+  session.emit("message-completed", { messageId: "msg-1", turnId: "turn-1" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(session.sendCalls, [
+    { turnId: "turn-1", text: "first" },
+    { turnId: "turn-2", text: "second" }
+  ]);
+});
+
+test("stale terminal events for a previous turn do not interrupt the next active turn", async () => {
+  const session = createFakeSession();
+  const manager = createAgentSessionManager(managerOptions(async () => session));
+  const key = manager.createSessionKey({
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo"
+  });
+
+  await manager.sendUserInput({
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo",
+    turnId: "turn-1",
+    text: "first"
+  });
+  await manager.sendUserInput({
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo",
+    turnId: "turn-2",
+    text: "second"
+  });
+  await manager.sendUserInput({
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo",
+    turnId: "turn-3",
+    text: "third"
+  });
+
+  session.emit("message-completed", { messageId: "msg-1", turnId: "turn-1" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(session.sendCalls, [
+    { turnId: "turn-1", text: "first" },
+    { turnId: "turn-2", text: "second" }
+  ]);
+  assert.deepEqual(manager.getQueueSnapshot(key), [{ turnId: "turn-3", text: "third" }]);
+
+  session.emit("message-completed", { messageId: "msg-1-duplicate", turnId: "turn-1" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(session.sendCalls, [
+    { turnId: "turn-1", text: "first" },
+    { turnId: "turn-2", text: "second" }
+  ]);
+  assert.deepEqual(manager.getQueueSnapshot(key), [{ turnId: "turn-3", text: "third" }]);
+
+  session.emit("message-completed", { messageId: "msg-2", turnId: "turn-2" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(session.sendCalls, [
+    { turnId: "turn-1", text: "first" },
+    { turnId: "turn-2", text: "second" },
+    { turnId: "turn-3", text: "third" }
   ]);
 });
 
@@ -218,7 +316,7 @@ test("cancelActive cancels the native session and preserves queued input for rep
   assert.equal(session.cancelCalls, 1);
   assert.deepEqual(manager.getQueueSnapshot(key), [{ turnId: "turn-2", text: "second" }]);
 
-  session.emit("message-cancelled", { messageId: "msg-1" });
+  session.emit("message-cancelled", { messageId: "msg-1", turnId: "turn-1" });
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(session.sendCalls, [
