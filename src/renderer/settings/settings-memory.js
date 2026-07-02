@@ -5,6 +5,7 @@
   let state, els;
   let loadToken = 0;
   let wired = false;
+  const MEMORY_LIST_TIMEOUT_MS = 3000;
 
   function initSettingsMemory(deps = {}) {
     state = deps.state;
@@ -56,6 +57,32 @@
     input.value = value || "";
   }
 
+  function withMemoryListTimeout(promise) {
+    const setTimer = typeof window !== "undefined" && typeof window.setTimeout === "function"
+      ? window.setTimeout.bind(window)
+      : (typeof setTimeout === "function" ? setTimeout : null);
+    const clearTimer = typeof window !== "undefined" && typeof window.clearTimeout === "function"
+      ? window.clearTimeout.bind(window)
+      : (typeof clearTimeout === "function" ? clearTimeout : null);
+    if (!setTimer || !clearTimer) return Promise.resolve(promise);
+    let timer = 0;
+    return new Promise((resolve, reject) => {
+      timer = setTimer(() => {
+        reject(new Error("记忆加载超时，请稍后重试。"));
+      }, MEMORY_LIST_TIMEOUT_MS);
+      Promise.resolve(promise).then(
+        (value) => {
+          clearTimer(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimer(timer);
+          reject(error);
+        }
+      );
+    });
+  }
+
   function renderMemorySettings() {
     if (!state || !els) return;
     const panel = ensureMemorySettingsState();
@@ -89,7 +116,12 @@
       return;
     }
     if (panel.error) {
-      els.settingsMemoryList.innerHTML = `<div class="settings-memory-error">${escapeHtml(panel.error)}</div>`;
+      els.settingsMemoryList.innerHTML = `
+        <div class="settings-memory-error">
+          <span>${escapeHtml(panel.error)}</span>
+          <button class="secondary" type="button" data-memory-action="reload">重试</button>
+        </div>
+      `;
       return;
     }
     const entries = Array.isArray(panel.entries) ? panel.entries : [];
@@ -121,7 +153,7 @@
     panel.error = "";
     renderMemorySettings();
     try {
-      const result = await window.mia.memory.listAll({ scopes: ["user"], limit: 250 });
+      const result = await withMemoryListTimeout(window.mia.memory.listAll({ scopes: ["user"], limit: 250 }));
       if (token !== loadToken) return;
       const entries = Array.isArray(result) ? result : (result?.entries || result?.memories || []);
       panel.entries = entries.filter((entry) => !entry.scope || entry.scope === "user");
@@ -129,6 +161,7 @@
     } catch (error) {
       if (token !== loadToken) return;
       panel.entries = [];
+      panel.loaded = true;
       panel.error = error?.message || "记忆加载失败";
     } finally {
       if (token === loadToken) {
@@ -241,6 +274,10 @@
     els.settingsMemoryList?.addEventListener("click", (event) => {
       const button = event.target?.closest?.("[data-memory-action]");
       if (!button) return;
+      if (button.dataset.memoryAction === "reload") {
+        loadMemorySettings();
+        return;
+      }
       const id = button.dataset.memoryId || "";
       if (!id) return;
       if (button.dataset.memoryAction === "edit") editEntry(id);

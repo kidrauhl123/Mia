@@ -2619,10 +2619,19 @@ test("bot-only contact detail renders capabilities, persona, and memory as compa
   assert.match(botManagerSource, /renderBotPersonaPanel\(bot\)/);
   assert.match(botManagerSource, /function renderContactMemoryPanel\(bot\)/);
   assert.match(botManagerSource, /<details class="contact-memory-card accordion-details"/);
-  assert.match(botManagerSource, /window\.mia\.memory\.remember/);
-  assert.match(botManagerSource, /window\.mia\.memory\.update/);
+  assert.match(botManagerSource, /function contactMemoryBotId\(bot = \{\}\)/);
+  assert.match(botManagerSource, /contactMemoryBotId\(bot\)/);
+  assert.match(botManagerSource, /contactUid\(bot\)/);
   assert.match(botManagerSource, /window\.mia\.memory\.delete/);
   assert.match(botManagerSource, /refreshContactMemoryForBot/);
+  assert.doesNotMatch(botManagerSource, /contact-memory-draft/);
+  assert.doesNotMatch(botManagerSource, /data-memory-action="save"/);
+  assert.doesNotMatch(botManagerSource, /data-memory-action="edit"/);
+  assert.doesNotMatch(botManagerSource, /window\.mia\.memory\.remember/);
+  assert.doesNotMatch(botManagerSource, /window\.mia\.memory\.update/);
+  assert.doesNotMatch(botManagerSource, /panel\.loading \|\| !panel\.loaded/);
+  assert.match(botManagerSource, /const summary = panel\.loading\s*\?\s*"正在加载记忆"/);
+  assert.match(botManagerSource, /if \(panel\.loading\) return `<div class="contact-memory-empty">正在加载记忆\.\.\.<\/div>`;/);
   assert.doesNotMatch(botManagerSource, /contact-memory-kind/);
   assert.doesNotMatch(botManagerSource, /contact-memory-pill/);
   assert.doesNotMatch(botManagerSource, /draftKind/);
@@ -2630,6 +2639,25 @@ test("bot-only contact detail renders capabilities, persona, and memory as compa
   assert.match(styleSource, /\.contact-persona-card/);
   assert.match(styleSource, /\.contact-memory-card/);
   assert.match(styleSource, /\.contact-persona-text/);
+});
+
+test("memory list panes recover from suspended IPC invokes", () => {
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+  const settingsMemorySource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-memory.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(botManagerSource, /MEMORY_LIST_TIMEOUT_MS = 3000/);
+  assert.match(botManagerSource, /withMemoryListTimeout\(\s*window\.mia\.memory\.list\(\{/);
+  assert.doesNotMatch(botManagerSource, /const result = await window\.mia\.memory\.list\(\{/);
+  assert.match(botManagerSource, /data-memory-action="reload"/);
+  assert.match(botManagerSource, /action === "reload"[\s\S]{0,160}loadContactMemoryEntries\(contactMemoryBotId\(bot\), \{ force: true \}\)/);
+  assert.match(botManagerSource, /if \(!window\.mia\?\.memory\?\.list\)[\s\S]{0,220}renderContacts\(\);/);
+  assert.match(settingsMemorySource, /MEMORY_LIST_TIMEOUT_MS = 3000/);
+  assert.match(settingsMemorySource, /withMemoryListTimeout\(\s*window\.mia\.memory\.listAll\(\{/);
+  assert.doesNotMatch(settingsMemorySource, /const result = await window\.mia\.memory\.listAll\(\{/);
+  assert.match(settingsMemorySource, /data-memory-action="reload"/);
+  assert.match(settingsMemorySource, /memoryAction === "reload"[\s\S]{0,120}loadMemorySettings\(\);/);
+  assert.match(styleSource, /\.contact-memory-error,\s*\n\.settings-memory-error/);
 });
 
 test("bot edit dialog keeps memory out of the create/edit modal", () => {

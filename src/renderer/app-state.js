@@ -112,10 +112,7 @@
         entries: [],
         loaded: false,
         loading: false,
-        error: "",
-        editingId: "",
-        draftText: "",
-        draftKind: "fact"
+        error: ""
       },
       settingsMemory: {
         entries: [],
@@ -124,7 +121,6 @@
         error: "",
         editingId: "",
         draftText: "",
-        draftKind: "fact",
         savingSettings: false
       },
       petGenerateOpen: false,

@@ -4361,6 +4361,22 @@ body.topbar-click-capture .topbar {
   color: var(--danger);
 }
 
+.contact-memory-error,
+.settings-memory-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.contact-memory-error .secondary,
+.settings-memory-error .secondary {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
 .contact-memory-row {
   display: grid;
   gap: 8px;

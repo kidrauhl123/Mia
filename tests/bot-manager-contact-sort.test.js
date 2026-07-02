@@ -30,10 +30,11 @@ function mockEl() {
   };
 }
 
-function loadBotManager() {
+function loadBotManager(options = {}) {
   const source = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+  const timers = [];
   const mockWindow = {
-    mia: {},
+    mia: options.mia || {},
     miaSocial: { moduleState: { bots: [] }, pendingRequestCount: () => 0 },
     miaBotDirectory: {
       listOwnedBots: ({ cloudBots }) => cloudBots,
@@ -76,7 +77,12 @@ function loadBotManager() {
     },
     miaAvatarResolve: {
       resolveAvatarForContact: () => ({ image: "", crop: null, color: "#5e5ce6", text: "?" })
-    }
+    },
+    setTimeout: (fn, delay = 0) => {
+      timers.push({ fn, delay });
+      return timers.length;
+    },
+    clearTimeout: () => {}
   };
   const context = vm.createContext({
     window: mockWindow,
@@ -90,7 +96,7 @@ function loadBotManager() {
     Set,
   });
   vm.runInContext(source, context);
-  return { manager: mockWindow.miaBotManager, window: mockWindow };
+  return { manager: mockWindow.miaBotManager, window: mockWindow, timers };
 }
 
 test("renderContacts groups bot contacts by alphabetical initial", () => {
@@ -351,4 +357,52 @@ test("contact detail shows inherited preset skills as defaults and keeps other s
   assert.match(enabledListHtml, />Excel 文件</);
   assert.doesNotMatch(enabledListHtml, />实验报告</);
   assert.match(addListHtml, />实验报告</);
+});
+
+test("contact memory starts in loading state before deferred list invoke runs", () => {
+  const { manager, window, timers } = loadBotManager({
+    mia: {
+      memory: {
+        list: () => new Promise(() => {})
+      }
+    }
+  });
+  const contactList = mockEl();
+  const contactDetail = mockEl();
+  const state = {
+    skillsLoading: true,
+    skillLibrary: { extensions: [], skills: [] },
+    runtime: {},
+    contactFilter: "",
+    activeContactKey: "public-intel",
+    savingBotCapabilities: new Set(),
+    openMemoryPanelKeys: new Set(["public-intel"])
+  };
+  const bot = {
+    key: "public-intel",
+    id: "public-intel",
+    name: "公开情报官",
+    agentEngine: "hermes"
+  };
+  window.miaSocial.moduleState.bots = [bot];
+
+  manager.initBotManager({
+    state,
+    els: { contactList, contactDetail, contactPageTitle: mockEl(), contactPageMeta: mockEl() },
+    setText(el, value) { if (el) el.textContent = value; },
+    loadSkills: async () => {},
+    showNarrowContent() {},
+    render() {},
+    closeGroupContextMenu() {},
+    openEditBotDialog() {},
+    deleteBot() {},
+    setBotPinned() {},
+  });
+
+  manager.renderContactDetail(bot);
+
+  assert.match(contactDetail.innerHTML, />正在加载记忆</);
+  assert.match(contactDetail.innerHTML, />正在加载记忆\.\.\.</);
+  assert.doesNotMatch(contactDetail.innerHTML, />暂无记忆</);
+  assert.equal(timers.length, 1, "memory list should still be deferred until after the first paint");
 });
