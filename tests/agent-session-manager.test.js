@@ -379,6 +379,64 @@ test("queued input drains when the active native send settles even if terminal e
   await secondSend.promise;
 });
 
+test("native send rejection is observed while clearing the active run and draining queued input", async () => {
+  const firstSend = createDeferred();
+  const secondSend = createDeferred();
+  const sends = [firstSend, secondSend];
+  const session = createFakeSession({
+    sendUserInput: (input) => {
+      session.sendCalls.push(input);
+      return sends.shift().promise;
+    }
+  });
+  const manager = createAgentSessionManager(managerOptions(async () => session));
+  const key = manager.createSessionKey({
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo"
+  });
+  const unhandled = [];
+  const onUnhandledRejection = (error) => {
+    unhandled.push(error);
+  };
+  process.on("unhandledRejection", onUnhandledRejection);
+
+  try {
+    await manager.sendUserInput({
+      conversationId: "conversation-1",
+      engineId: "claude",
+      workspacePath: "/repo",
+      turnId: "turn-1",
+      text: "first"
+    });
+    await manager.sendUserInput({
+      conversationId: "conversation-1",
+      engineId: "claude",
+      workspacePath: "/repo",
+      turnId: "turn-2",
+      text: "second"
+    });
+
+    firstSend.reject(new Error("native send failed"));
+    await assert.rejects(firstSend.promise, /native send failed/);
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(unhandled, []);
+    assert.deepEqual(session.sendCalls, [
+      { turnId: "turn-1", text: "first" },
+      { turnId: "turn-2", text: "second" }
+    ]);
+    assert.equal(manager.runningByKey.has(key), true);
+    assert.deepEqual(manager.getQueueSnapshot(key), []);
+
+    secondSend.resolve({ ok: true });
+    await secondSend.promise;
+  } finally {
+    process.off("unhandledRejection", onUnhandledRejection);
+  }
+});
+
 test("stale terminal events for a previous turn do not interrupt the next active turn", async () => {
   const firstSend = createDeferred();
   const secondSend = createDeferred();

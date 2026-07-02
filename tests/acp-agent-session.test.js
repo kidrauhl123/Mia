@@ -641,3 +641,35 @@ test("defaultCreateTransport uses the shared OpenClaw ACP launcher for shimmed c
     require("node:fs").rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("defaultCreateTransport passes the AgentSession sessionKey to interactive OpenClaw ACP", async () => {
+  const spawnCalls = [];
+  const child = createFakeTransport().process;
+  child.stdin = new (require("node:stream").PassThrough)();
+  child.stdout = new (require("node:stream").PassThrough)();
+  child.kill = () => {};
+
+  const transport = await defaultCreateTransport({
+    engineSpec: {
+      engineId: "openclaw",
+      command: "openclaw",
+      args: ["acp", "--no-prefix-cwd"]
+    },
+    sessionKey: "conversation-1::openclaw::/repo",
+    workspacePath: "/repo",
+    spawnProcess: (file, args, options) => {
+      spawnCalls.push({ file, args, options });
+      return child;
+    }
+  });
+
+  assert.equal(spawnCalls[0].file, "openclaw");
+  assert.deepEqual(spawnCalls[0].args, [
+    "acp",
+    "--no-prefix-cwd",
+    "--session",
+    "conversation-1::openclaw::/repo"
+  ]);
+  await transport.close();
+  await transport.kill();
+});

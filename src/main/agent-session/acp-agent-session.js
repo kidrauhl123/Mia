@@ -45,9 +45,14 @@ function createPermissionFallback(params = {}) {
 
 async function defaultCreateTransport(options = {}) {
   const sdk = await importAcpSdk();
+  const engineSpec = options.engineSpec || {};
+  const sessionKey = String(options.sessionKey || "").trim();
+  const spawnEngineSpec = engineSpec?.engineId === "openclaw" && sessionKey
+    ? { ...engineSpec, args: [...(Array.isArray(engineSpec.args) ? engineSpec.args : []), "--session", sessionKey] }
+    : engineSpec;
   const child = spawnAcpEngineProcess(
     options.spawnProcess || spawn,
-    options.engineSpec || {},
+    spawnEngineSpec,
     {
       cwd: options.workspacePath || process.cwd(),
       env: { ...process.env, ...(options.env || {}) },

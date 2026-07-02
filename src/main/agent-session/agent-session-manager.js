@@ -246,9 +246,11 @@ class AgentSessionManager extends EventEmitter {
       nativeSendPromise
     };
     this.runningByKey.set(sessionKey, activeRun);
-    nativeSendPromise.finally(() => {
-      this.completeActiveRunFromPromise(sessionKey, activeRun);
-    });
+    nativeSendPromise
+      .finally(() => {
+        this.completeActiveRunFromPromise(sessionKey, activeRun);
+      })
+      .catch(() => {});
 
     return createAcceptedInputResult({
       mode: "started",
