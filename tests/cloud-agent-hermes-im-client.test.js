@@ -225,6 +225,26 @@ test("runChat does not connect or send RPCs when pre-aborted", async () => {
   assert.deepEqual(requests, []);
 });
 
+test("runChat rejects when session.create is pending and gateway emits error", async () => {
+  const { gateway } = createGatewayHarness();
+  gateway.createResult = new Promise(() => {
+    queueMicrotask(() => {
+      gateway.emit("error", {
+        type: "error",
+        session_id: "",
+        payload: { message: "create failed" }
+      });
+    });
+  });
+  const client = createHermesImClient({
+    sessionsStore: createSessionsStore(),
+    gatewayClientFactory: () => gateway
+  });
+
+  await assert.rejects(client.runChat(baseArgs()), /create failed/);
+  assert.equal(gateway.closed, true);
+});
+
 test("runChat prepends file attachment ref_text and streams normalized events", async () => {
   const { gateway, requests } = createGatewayHarness();
   gateway.events = [
@@ -308,6 +328,27 @@ test("runChat rejects when error arrives while prompt.submit is still pending", 
   });
 
   await assert.rejects(client.runChat(baseArgs()), /submit failed/);
+  assert.equal(gateway.closed, true);
+});
+
+test("runChat rejects when terminal gateway event arrives after prompt.submit resolves", async () => {
+  const { gateway } = createGatewayHarness();
+  gateway.promptSubmitImpl = (params) => {
+    queueMicrotask(() => {
+      gateway.emit("error", {
+        type: "error",
+        session_id: params.session_id,
+        payload: { message: "gateway closed" }
+      });
+    });
+    return Promise.resolve({ submitted: true });
+  };
+  const client = createHermesImClient({
+    sessionsStore: createSessionsStore(),
+    gatewayClientFactory: () => gateway
+  });
+
+  await assert.rejects(client.runChat(baseArgs()), /gateway closed/);
   assert.equal(gateway.closed, true);
 });
 

@@ -29,6 +29,8 @@ function createHermesGatewayClient(deps = {}) {
   let nextRequestId = 1;
   const pending = new Map();
   const handlers = new Map();
+  let intentionalClose = false;
+  let terminalEventDispatched = false;
 
   function clearPendingRequest(id, error, result) {
     const pendingRequest = pending.get(id);
@@ -50,6 +52,17 @@ function createHermesGatewayClient(deps = {}) {
     for (const handler of exactHandlers) handler(event);
     const allHandlers = handlers.get("*") || [];
     for (const handler of allHandlers) handler(event);
+  }
+
+  function dispatchTerminalEvent(message, details = {}) {
+    if (intentionalClose || terminalEventDispatched) return;
+    terminalEventDispatched = true;
+    dispatchEvent({
+      type: "error",
+      session_id: "",
+      payload: { message },
+      ...details
+    });
   }
 
   function handleFrame(frameText) {
@@ -87,19 +100,25 @@ function createHermesGatewayClient(deps = {}) {
     });
     nextSocket.on("message", handleMessage);
     nextSocket.on("error", (error) => {
-      if (connectPromise) reject(error);
-      rejectAllPending(error);
+      const socketError = gatewayError(error?.message || "Hermes gateway connection error.");
+      if (connectPromise) reject(socketError);
+      dispatchTerminalEvent(socketError.message, { error: socketError });
+      rejectAllPending(socketError);
     });
     nextSocket.on("close", () => {
       connectPromise = null;
       socket = null;
-      rejectAllPending(gatewayError("Hermes gateway connection closed."));
+      const closeError = gatewayError("Hermes gateway connection closed.");
+      dispatchTerminalEvent(closeError.message, { error: closeError });
+      rejectAllPending(closeError);
     });
   }
 
   async function connect(wsUrl) {
     if (socket && socket.readyState === WebSocketImpl.OPEN) return;
     if (connectPromise) return connectPromise;
+    intentionalClose = false;
+    terminalEventDispatched = false;
     connectPromise = new Promise((resolve, reject) => {
       socket = new WebSocketImpl(wsUrl);
       bindSocket(socket, () => {
@@ -142,6 +161,7 @@ function createHermesGatewayClient(deps = {}) {
   }
 
   function close() {
+    intentionalClose = true;
     if (socket && typeof socket.close === "function") socket.close();
     else rejectAllPending(gatewayError("Hermes gateway connection closed."));
   }

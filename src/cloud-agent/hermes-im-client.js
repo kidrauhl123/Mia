@@ -115,6 +115,17 @@ function createControlledPromise() {
   };
 }
 
+function observePromise(promise) {
+  Promise.resolve(promise).catch(() => {});
+  return promise;
+}
+
+async function racePhase(promise, completionPromise, abortPromise) {
+  const observed = Promise.resolve(promise);
+  observed.catch(() => {});
+  return Promise.race([observed, completionPromise, abortPromise].filter(Boolean));
+}
+
 function createHermesImClient(deps = {}) {
   const gatewayClientFactory = deps.gatewayClientFactory || createHermesGatewayClient;
   const sessionsStore = deps.sessionsStore;
@@ -207,24 +218,23 @@ function createHermesImClient(deps = {}) {
     });
 
     try {
-      await gateway.connect(args.gatewayWsUrl);
-      const session = await ensureSession({ gateway, args, botKey });
+      await racePhase(gateway.connect(args.gatewayWsUrl), completion.promise, abort.promise);
+      const session = await racePhase(ensureSession({ gateway, args, botKey }), completion.promise, abort.promise);
       const runtimeSessionId = requiredText("session_id", session?.session_id);
       if (typeof args.onRunCreated === "function") args.onRunCreated(runtimeSessionId);
 
-      const attachmentResult = await syncHermesImAttachments({
+      const attachmentResult = await racePhase(syncHermesImAttachments({
         gateway,
         sessionId: runtimeSessionId,
         attachments: args.attachments
-      });
+      }), completion.promise, abort.promise);
 
-      const promptSubmit = gateway.request("prompt.submit", {
+      const promptSubmit = observePromise(gateway.request("prompt.submit", {
         session_id: runtimeSessionId,
         prompt: promptText(attachmentResult.promptPrefix, args.input),
         instructions: String(args.instructions || "").trim(),
         permission_mode: String(args.permissionMode || "").trim() || undefined
-      });
-      promptSubmit.catch(() => {});
+      }));
 
       await Promise.race([promptSubmit, completion.promise, abort.promise].filter(Boolean));
       if (completion.settled) {

@@ -248,3 +248,58 @@ test("close rejects pending requests", async () => {
 
   await assert.rejects(resultPromise, /closed/i);
 });
+
+test("non-intentional socket close dispatches a wildcard terminal error event", async () => {
+  const { FakeWebSocket, sockets } = createFakeWebSocketHarness();
+  const client = createHermesGatewayClient({ WebSocketImpl: FakeWebSocket });
+  const connectPromise = client.connect("ws://gateway.test/socket");
+  const socket = sockets[0];
+  socket.readyState = FakeWebSocket.OPEN;
+  socket.emit("open");
+  await connectPromise;
+
+  const seen = [];
+  client.on("*", (event) => seen.push(event));
+
+  socket.emit("close");
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].type, "error");
+  assert.match(seen[0].payload.message, /closed/i);
+});
+
+test("non-intentional socket error dispatches a wildcard terminal error event", async () => {
+  const { FakeWebSocket, sockets } = createFakeWebSocketHarness();
+  const client = createHermesGatewayClient({ WebSocketImpl: FakeWebSocket });
+  const connectPromise = client.connect("ws://gateway.test/socket");
+  const socket = sockets[0];
+  socket.readyState = FakeWebSocket.OPEN;
+  socket.emit("open");
+  await connectPromise;
+
+  const seen = [];
+  client.on("*", (event) => seen.push(event));
+
+  socket.emit("error", new Error("socket boom"));
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].type, "error");
+  assert.match(seen[0].payload.message, /socket boom/);
+});
+
+test("intentional client close does not dispatch a spurious terminal event", async () => {
+  const { FakeWebSocket, sockets } = createFakeWebSocketHarness();
+  const client = createHermesGatewayClient({ WebSocketImpl: FakeWebSocket });
+  const connectPromise = client.connect("ws://gateway.test/socket");
+  const socket = sockets[0];
+  socket.readyState = FakeWebSocket.OPEN;
+  socket.emit("open");
+  await connectPromise;
+
+  const seen = [];
+  client.on("*", (event) => seen.push(event));
+
+  client.close();
+
+  assert.deepEqual(seen, []);
+});
