@@ -32,3 +32,23 @@ test("normalizeGatewayEvent maps Hermes gateway event names to Mia collector eve
   assert.equal(normalizeGatewayEvent({ type: "approval.request", session_id: "sess_1", payload: {} }).type, "approval.request");
   assert.equal(normalizeGatewayEvent({ type: "error", session_id: "sess_1", payload: {} }).type, "error");
 });
+
+test("normalizeGatewayEvent keeps normalized top-level fields when payload has conflicting keys", () => {
+  const raw = {
+    type: "tool.progress",
+    session_id: "sess_1",
+    payload: {
+      type: "bad.type",
+      session_id: "bad_session",
+      rawGatewayEvent: "bad_raw",
+      delta: "working"
+    }
+  };
+
+  assert.deepEqual(normalizeGatewayEvent(raw), {
+    type: "tool.delta",
+    session_id: "sess_1",
+    rawGatewayEvent: raw,
+    delta: "working"
+  });
+});

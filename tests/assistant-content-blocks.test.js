@@ -76,6 +76,16 @@ test("collector accepts Hermes gateway event names for thinking and tool blocks"
   ]);
 });
 
+test("collector records text blocks from Hermes message.delta events", () => {
+  const collector = createAssistantContentBlockCollector();
+
+  collector.collect("message.delta", { id: "msg_1", text: "来自 Hermes 的文本" });
+
+  assert.deepEqual(collector.payload(), [
+    { type: "text", id: "msg_1", text: "来自 Hermes 的文本" }
+  ]);
+});
+
 test("collector preserves file edit blocks in the same ordered stream", () => {
   const collector = createAssistantContentBlockCollector();
 
