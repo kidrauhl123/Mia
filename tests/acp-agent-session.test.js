@@ -115,7 +115,7 @@ test("start initializes the ACP session once", async () => {
   ]);
 });
 
-test("sendUserInput waits for prompt completion, omits visible history, and emits normalized streaming events", async () => {
+test("sendUserInput waits for prompt completion and emits normalized streaming events", async () => {
   const { session, state, deferredPrompt } = createSession({
     onPrompt: async ({ onSessionUpdate, params }) => {
       assert.equal(params.prompt.length, 1);
@@ -164,11 +164,7 @@ test("sendUserInput waits for prompt completion, omits visible history, and emit
 
   const sendPromise = session.sendUserInput({
     turnId: "turn-1",
-    text: "hello ACP",
-    visibleMessages: [
-      { role: "user", content: "older message" },
-      { role: "assistant", content: "older reply" }
-    ]
+    text: "hello ACP"
   });
 
   await new Promise((resolve) => setImmediate(resolve));
@@ -248,6 +244,26 @@ test("sendUserInput waits for prompt completion, omits visible history, and emit
       stopReason: "end_turn"
     }]
   ]);
+});
+
+test("sendUserInput rejects visible transcript replay before constructing the ACP prompt", async () => {
+  const { session, state } = createSession();
+
+  for (const key of ["messages", "visibleMessages"]) {
+    await assert.rejects(
+      () => session.sendUserInput({
+        turnId: "turn-1",
+        text: "hello ACP",
+        [key]: [
+          { role: "user", content: "older message" },
+          { role: "assistant", content: "older reply" }
+        ]
+      }),
+      /native input policy/i
+    );
+  }
+
+  assert.equal(state.promptCalls.length, 0);
 });
 
 test("cancel sends an ACP cancel request while the prompt is in flight", async () => {

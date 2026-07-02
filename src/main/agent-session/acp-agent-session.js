@@ -4,6 +4,7 @@ const { Readable, Writable } = require("node:stream");
 
 const { assertKnownAgentEngine } = require("./agent-session-contract.js");
 const { normalizeAcpSessionUpdate } = require("./acp-event-normalizer.js");
+const { prepareNativeTurnInput } = require("./native-input-policy.js");
 
 async function importAcpSdk() {
   return import("@agentclientprotocol/sdk");
@@ -162,17 +163,27 @@ class AcpAgentSession extends EventEmitter {
       throw new Error("ACP session already has an active prompt.");
     }
 
+    const nativeTurn = prepareNativeTurnInput(payload);
+
     await this.start();
 
-    const turnId = typeof payload.turnId === "string" ? payload.turnId.trim() : "";
-    const text = typeof payload.text === "string" ? payload.text : "";
-    const attachments = Array.isArray(payload.attachments) ? payload.attachments.slice() : [];
+    const turnId = typeof nativeTurn.turnId === "string" ? nativeTurn.turnId.trim() : "";
+    const text = typeof nativeTurn.text === "string" ? nativeTurn.text : "";
+    const attachments = Array.isArray(nativeTurn.attachments) ? nativeTurn.attachments.slice() : [];
+    const fileReferences = Array.isArray(nativeTurn.fileReferences) ? nativeTurn.fileReferences.slice() : [];
+    const initializationMetadata = nativeTurn.initializationMetadata && typeof nativeTurn.initializationMetadata === "object"
+      ? { ...nativeTurn.initializationMetadata }
+      : null;
     const promptRequest = {
       sessionId: this.acpSessionId,
       prompt: [{ type: "text", text }]
     };
-    if (attachments.length > 0) {
-      promptRequest._meta = { attachments };
+    if (attachments.length > 0 || fileReferences.length > 0 || initializationMetadata) {
+      promptRequest._meta = {
+        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(fileReferences.length > 0 ? { fileReferences } : {}),
+        ...(initializationMetadata ? { initializationMetadata } : {})
+      };
     }
 
     this.toolTitles.clear();
