@@ -153,6 +153,7 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
     assert.equal(hermesCalls[0].model, "mia-auto");
     assert.equal(hermesCalls[0].workerModel, "mia-auto");
     assert.equal(hermesCalls[0].modelProvider, "mia");
+    assert.equal(hermesCalls[0].transient, true);
     assert.deepEqual(hermesCalls[0].seedMessages, [
       { role: "assistant", content: "earlier reply" }
     ]);
@@ -1562,7 +1563,7 @@ test("multi-bot group falls back to the conductor when no name matches", async (
       hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
-          if (args.transient) {
+          if (args.bot?.id === "group-orchestrator") {
             return { runId: "hr_c", content: '{"speak":["bot_kongling"]}', events: [] };
           }
           return { runId: "hr_r", content: "ok", events: [] };
@@ -1583,7 +1584,7 @@ test("multi-bot group falls back to the conductor when no name matches", async (
     assert.equal(reply.sender_ref, "bot_kongling");
     assert.equal(hermesCalls[0].transient, true);
     assert.equal(hermesCalls[0].gatewayWsUrl, "ws://gateway");
-    assert.equal(hermesCalls[1].transient, undefined);
+    assert.equal(hermesCalls[1].transient, true);
     assert.deepEqual(hermesCalls.map((call) => call.model), ["mia-pro", "mia-pro"]);
   } finally {
     ctx.cleanup();
@@ -1611,7 +1612,7 @@ test("conductor garbage falls back to the first bot member", async () => {
     const dispatcher = makeDispatcher(ctx, {
       hermesImClient: {
         async runChat(args) {
-          if (args.transient) return { runId: "hr_c", content: "not json", events: [] };
+          if (args.bot?.id === "group-orchestrator") return { runId: "hr_c", content: "not json", events: [] };
           return { runId: "hr_r", content: "fallback reply", events: [] };
         }
       }
@@ -1725,7 +1726,8 @@ test("@mention bypasses the conductor and picks only the mentioned bot", async (
       message
     });
     assert.equal(reply.sender_ref, "bot_kongling");
-    assert.deepEqual(hermesCalls.map((call) => (call.transient ? "group-conductor" : "reply")), ["reply"]);
+    assert.deepEqual(hermesCalls.map((call) => call.bot?.id), ["bot_kongling"]);
+    assert.equal(hermesCalls[0].transient, true);
   } finally {
     ctx.cleanup();
   }

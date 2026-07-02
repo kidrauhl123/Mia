@@ -704,6 +704,7 @@ function createCloudAgentDispatcher(deps = {}) {
           userId: ownerId,
           bot,
           conversationId,
+          transient: true,
           seedMessages: conversationSeedMessages(conversationId, message),
           instructions: cloudRuntimeInstructions(bot, message),
           model: normalizeCloudHermesModel(runtimeConfig.model, { defaultModel: worker.model }),
