@@ -760,6 +760,72 @@ test("respond hands same-conversation AgentSession sends to the manager immediat
   assert.equal(await second, true);
 });
 
+test("managed AgentSession turns pass prepared Claude Code Mia runtime env to the manager", async () => {
+  const calls = { manager: [], runtime: [], post: [], log: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace",
+    prepareAgentSessionRuntime: async (args) => {
+      calls.runtime.push(args);
+      return {
+        runtimeKey: "mia:mia-auto",
+        env: {
+          ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+          ANTHROPIC_AUTH_TOKEN: "proxy-token"
+        }
+      };
+    }
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_managed_runtime:claude",
+    turnId: "t_runtime",
+    botSnapshot: { key: "starter_100001_claude_code", name: "Claude", agentEngine: "claude-code" },
+    runtimeConfig: {
+      agentEngine: "claude-code",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto"
+    }
+  });
+
+  assert.equal(calls.runtime.length, 1);
+  assert.equal(calls.runtime[0].engineId, "claude");
+  assert.deepEqual(calls.manager, [{
+    conversationId: "g_1",
+    engineId: "claude",
+    workspacePath: "/repo/workspace",
+    runtimeKey: "mia:mia-auto",
+    env: {
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+      ANTHROPIC_AUTH_TOKEN: "proxy-token"
+    },
+    turnId: "t_runtime",
+    text: "hi"
+  }]);
+});
+
 test("managed AgentSession deltas are streamed and posted as the bot reply", async () => {
   const manager = new EventEmitter();
   const calls = { manager: [], post: [], log: [], cloudEvents: [] };

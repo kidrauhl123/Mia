@@ -132,6 +132,8 @@ const {
   createMiaCoreModelRuntimeResolver,
   isMiaManagedRuntime
 } = require("./main/mia-core/model-runtime-resolver.js");
+const { createClaudeCodeMiaProxy } = require("./main/claude-code-mia-proxy.js");
+const { createAgentSessionRuntimePreparer } = require("./main/agent-session-runtime-preparer.js");
 const { createMiaCoreRuntimeService } = require("./main/mia-core/runtime-service.js");
 const {
   closeCodexAppServerRuntimes,
@@ -2211,6 +2213,14 @@ function resolveManagedModelRuntime(config = {}, context = {}) {
   const runtime = resolveModelRuntime(config, context);
   return isMiaManagedRuntime(runtime) ? runtime : null;
 }
+const claudeCodeMiaProxy = createClaudeCodeMiaProxy({
+  appendLog: (line) => appendCloudLog(line)
+});
+const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
+  resolveManagedModelRuntime,
+  claudeCodeMiaProxy
+});
+const prepareAgentSessionRuntime = (input) => agentSessionRuntimePreparer.prepare(input);
 
 async function restartEngineIfRunning() {
   const shouldRestart = Boolean(engineProcess || engineState.running || engineState.starting);
@@ -2375,7 +2385,8 @@ const botExecutionCore = createBotExecutionCore({
   appendCloudLog,
   miaMemoryService,
   isMemoryEnabled: miaMemoryEnabled,
-  onMemoryExtracted: (result, scope) => publishRendererMemoryEvent("remember", result, scope)
+  onMemoryExtracted: (result, scope) => publishRendererMemoryEvent("remember", result, scope),
+  prepareAgentSessionRuntime
 });
 
 function sendChat(payload) {
@@ -2853,7 +2864,8 @@ const localBotResponder = createLocalBotResponder({
   log: (line) => appendCloudLog(line),
   artifactWorkspaceDir: agentWorkspaceDir,
   agentSessionManager,
-  agentSessionWorkspacePath: agentWorkspaceDir
+  agentSessionWorkspacePath: agentWorkspaceDir,
+  prepareAgentSessionRuntime
 });
 async function shouldHandleCloudConversationAi() {
   const daemonSettings = settingsStore.daemonSettings();
@@ -3179,6 +3191,7 @@ app.on("before-quit", () => {
   closeCodexAppServerRuntimes();
   closeOpenClawAcpRuntimes();
   agentSessionManager.closeAllSessions().catch((error) => appendEngineLog(`AgentSession cleanup failed: ${error?.message || error}`));
+  claudeCodeMiaProxy.stop().catch((error) => appendCloudLog(`Claude Code Mia proxy cleanup failed: ${error?.message || error}`));
 });
 
 app.whenReady().then(async () => {

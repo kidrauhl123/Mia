@@ -90,6 +90,8 @@ const {
   createMiaCoreModelRuntimeResolver,
   isMiaManagedRuntime
 } = require("../main/mia-core/model-runtime-resolver.js");
+const { createClaudeCodeMiaProxy } = require("../main/claude-code-mia-proxy.js");
+const { createAgentSessionRuntimePreparer } = require("../main/agent-session-runtime-preparer.js");
 
 // Memory + skills collaborators — the SAME pure-node factories main.js drives
 // (src/main.js ~293 createMiaMemoryService, ~525 createSkillsLoader; no fork).
@@ -361,7 +363,9 @@ function createCoreBotExecution({
   // distinctive guard) WITHOUT spawning a real external agent. Production passes
   // nothing → the real createLocalAgentEngineService is used.
   localAgentEngineService: injectedLocalAgentEngineService = null,
-  agentSessionManager: injectedAgentSessionManager = null
+  agentSessionManager: injectedAgentSessionManager = null,
+  claudeCodeMiaProxy: injectedClaudeCodeMiaProxy = null,
+  prepareAgentSessionRuntime: injectedPrepareAgentSessionRuntime = null
 } = {}) {
   const baseUrl = typeof hermesBaseUrl === "function" ? hermesBaseUrl : () => String(hermesBaseUrl || "");
   const apiKeyFn = typeof apiKey === "function" ? apiKey : () => String(apiKey || "");
@@ -570,10 +574,20 @@ function createCoreBotExecution({
     modelSettings: () => ({})
   });
 
-  function resolveManagedModelRuntime(config = {}) {
-    const runtime = modelRuntimeResolver.resolveModelRuntime(config, {});
+  function resolveManagedModelRuntime(config = {}, context = {}) {
+    const runtime = modelRuntimeResolver.resolveModelRuntime(config, context);
     return isMiaManagedRuntime(runtime) ? runtime : null;
   }
+  const claudeCodeMiaProxy = injectedClaudeCodeMiaProxy || createClaudeCodeMiaProxy({
+    fetch: fetchImpl,
+    appendLog: () => {}
+  });
+  const agentSessionRuntimePreparer = typeof injectedPrepareAgentSessionRuntime === "function"
+    ? { prepare: injectedPrepareAgentSessionRuntime }
+    : createAgentSessionRuntimePreparer({
+      resolveManagedModelRuntime,
+      claudeCodeMiaProxy
+    });
 
   // ensureHermesReady: when Core owns the engine lifecycle (an ensureEngine is
   // injected), ADOPT-OR-SPAWN the Hermes engine so a GUI-less daemon turn always
@@ -719,6 +733,7 @@ function createCoreBotExecution({
     createActiveChatEngineAdapters,
     agentSessionManager,
     agentSessionWorkspacePath: agentWorkspaceDir,
+    prepareAgentSessionRuntime: agentSessionRuntimePreparer.prepare,
     // TODO(mia-core slice): wire the real local bot responder once Core owns
     // cloud-conversation handling; the stub keeps stopChat well-defined.
     localBotResponder: () => ({ stopActiveConversationRun: () => ({ stopped: false }) }),
@@ -737,10 +752,15 @@ function createCoreBotExecution({
     try { if (userMcpBridge && typeof userMcpBridge.stop === "function") await userMcpBridge.stop(); } catch { /* already closed */ }
     try { if (userMcpManager && typeof userMcpManager.stopAll === "function") await userMcpManager.stopAll(); } catch { /* best effort */ }
     try { if (agentSessionManager && typeof agentSessionManager.closeAllSessions === "function") await agentSessionManager.closeAllSessions(); } catch { /* best effort */ }
+    try { if (!injectedClaudeCodeMiaProxy && claudeCodeMiaProxy && typeof claudeCodeMiaProxy.stop === "function") await claudeCodeMiaProxy.stop(); } catch { /* best effort */ }
     try { if (miaMemoryService && typeof miaMemoryService.close === "function") miaMemoryService.close(); } catch { /* best effort */ }
   }
 
-  return Object.assign(botExecutionCore, { closeAgentEngines, miaCurrentSkills });
+  return Object.assign(botExecutionCore, {
+    closeAgentEngines,
+    miaCurrentSkills,
+    prepareAgentSessionRuntime: agentSessionRuntimePreparer.prepare
+  });
 }
 
 // Wire the CLOUD bot-invocation routing into Core, reusing the SAME pure-node
@@ -768,7 +788,8 @@ function createCoreCloudRouting({
   emitLocalEvent = () => {},
   deviceId = "",
   log = () => {},
-  agentSessionManager = null
+  agentSessionManager = null,
+  prepareAgentSessionRuntime = null
 } = {}) {
   if (!botExecution || typeof botExecution.sendChat !== "function") {
     throw new Error("createCoreCloudRouting requires a botExecution with sendChat");
@@ -803,7 +824,10 @@ function createCoreCloudRouting({
     log,
     artifactWorkspaceDir: artifactWorkspaceDir || (() => runtimePaths?.().workspace),
     agentSessionManager,
-    agentSessionWorkspacePath: artifactWorkspaceDir || (() => runtimePaths?.().workspace)
+    agentSessionWorkspacePath: artifactWorkspaceDir || (() => runtimePaths?.().workspace),
+    prepareAgentSessionRuntime: typeof prepareAgentSessionRuntime === "function"
+      ? prepareAgentSessionRuntime
+      : (typeof botExecution.prepareAgentSessionRuntime === "function" ? botExecution.prepareAgentSessionRuntime : null)
   });
 
   function stopChat(payload = {}) {

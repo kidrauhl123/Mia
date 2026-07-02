@@ -102,7 +102,10 @@ test("cloud routing hands interactive Hermes turns to AgentSession instead of He
   assert.equal(managerCalls[0].text, "hello core");
   assert.equal(typeof managerCalls[0].workspacePath, "string");
   assert.notEqual(managerCalls[0].workspacePath, "");
-  assert.equal(localEvents.length, 0);
+  assert.equal(localEvents.length, 1);
+  assert.equal(localEvents[0].type, "cloud_agent_run_started");
+  assert.equal(localEvents[0].payload.conversationId, "dm:userA:bot1");
+  assert.equal(localEvents[0].payload.turnId, "turn_1");
 });
 
 test("core cloud routing stopChat cancels the active AgentSession conversation", async () => {

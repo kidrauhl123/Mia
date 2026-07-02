@@ -163,6 +163,98 @@ for (const [inputEngineId, expectedEngineId] of [
   });
 }
 
+test("Claude Code turns using Mia Auto receive Mia proxy env in Core AgentSession", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-claude-mia-runtime-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const managerCalls = [];
+  const proxyCalls = [];
+  const core = createCoreBotExecution({
+    runtimePaths: makeRuntimePaths(home),
+    settingsStore: loggedInSettingsStore,
+    agentSessionManager: recordingAgentSessionManager(managerCalls),
+    claudeCodeMiaProxy: {
+      createSession: async (runtime) => {
+        proxyCalls.push(runtime);
+        return {
+          baseUrl: "http://127.0.0.1:4321",
+          authToken: "proxy-token",
+          model: "mia-auto"
+        };
+      },
+      stop: async () => {}
+    }
+  });
+
+  await core.sendChat({
+    botKey: "bot-claude",
+    botSnapshot: { key: "bot-claude", name: "Claude", agentEngine: "claude-code", capabilities: {} },
+    sessionId: "conversation:s1",
+    runtimeConfig: {
+      agentEngine: "claude-code",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto"
+    },
+    messages: [{ role: "user", id: "turn_1", content: "hi" }]
+  });
+
+  assert.equal(proxyCalls.length, 1);
+  assert.equal(proxyCalls[0].baseUrl, "https://cloud.mia.test/api/me/model-proxy/v1");
+  assert.equal(proxyCalls[0].apiKey, "tok-xyz");
+  assert.deepEqual(managerCalls[0], {
+    conversationId: "conversation:s1",
+    engineId: "claude",
+    workspacePath: makeRuntimePaths(home)().workspace,
+    runtimeKey: "mia:mia-auto",
+    env: {
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+      ANTHROPIC_AUTH_TOKEN: "proxy-token"
+    },
+    turnId: "turn_1",
+    text: "hi"
+  });
+
+  await core.closeAgentEngines();
+});
+
+test("native Claude Code model profiles do not require provider connections in Core AgentSession", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-claude-native-runtime-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const managerCalls = [];
+  const core = createCoreBotExecution({
+    runtimePaths: makeRuntimePaths(home),
+    settingsStore: loggedInSettingsStore,
+    agentSessionManager: recordingAgentSessionManager(managerCalls),
+    claudeCodeMiaProxy: {
+      createSession: async () => {
+        throw new Error("native Claude Code model should not start the Mia proxy");
+      }
+    }
+  });
+
+  await core.sendChat({
+    botKey: "bot-claude",
+    botSnapshot: { key: "bot-claude", name: "Claude", agentEngine: "claude-code", capabilities: {} },
+    sessionId: "conversation:s1",
+    runtimeConfig: {
+      providerConnectionId: "anthropic",
+      modelProfileId: "anthropic:claude",
+      model: "claude"
+    },
+    messages: [{ role: "user", id: "turn_1", content: "hi" }]
+  });
+
+  assert.deepEqual(managerCalls[0], {
+    conversationId: "conversation:s1",
+    engineId: "claude",
+    workspacePath: makeRuntimePaths(home)().workspace,
+    turnId: "turn_1",
+    text: "hi"
+  });
+
+  await core.closeAgentEngines();
+});
+
 test("Task 13: local agent deep checks probe the ACP launch commands each interactive engine now requires", async (t) => {
   const { service, execCalls } = makeLocalAgentService(t, {
     execFile: (file, args, options, cb) => {

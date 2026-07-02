@@ -98,6 +98,9 @@ class AcpAgentSession extends EventEmitter {
     this.initializationMetadata = options.initializationMetadata && typeof options.initializationMetadata === "object"
       ? { ...options.initializationMetadata }
       : null;
+    this.env = options.env && typeof options.env === "object" && !Array.isArray(options.env)
+      ? { ...options.env }
+      : null;
     this.createTransport = typeof options.createTransport === "function" ? options.createTransport : defaultCreateTransport;
     this.createClient = typeof options.createClient === "function" ? options.createClient : defaultCreateClient;
     this.spawnProcess = typeof options.spawnProcess === "function" ? options.spawnProcess : spawn;
@@ -124,6 +127,7 @@ class AcpAgentSession extends EventEmitter {
         workspacePath: this.workspacePath,
         conversationId: this.conversationId,
         engineId: this.engineId,
+        ...(this.env ? { env: this.env } : {}),
         spawnProcess: this.spawnProcess
       });
       this.client = await this.createClient({

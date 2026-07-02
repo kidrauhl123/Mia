@@ -46,6 +46,7 @@ function makeCore(overrides = {}) {
       }
     },
     agentSessionWorkspacePath: () => "/repo/workspace",
+    prepareAgentSessionRuntime: async () => ({}),
     localBotResponder: () => null,
     isDaemonProcess: false,
     daemonTasksClient: () => null,
@@ -550,6 +551,59 @@ test("stopChat cancels the requested managed AgentSession conversation instead o
     conversationId: "conversation:1",
     engineId: "hermes",
     workspacePath: "/repo/workspace"
+  }]);
+});
+
+test("sendChat passes Claude Code Mia managed model runtime to AgentSession", async () => {
+  const { core, calls } = makeCore({
+    cloudBotSnapshotForTurn: () => ({
+      key: "bot1",
+      id: "bot1",
+      name: "Bot One",
+      agentEngine: "claude-code",
+      capabilities: {}
+    }),
+    prepareAgentSessionRuntime: async ({ engineId, runtimeConfig }) => {
+      assert.equal(engineId, "claude");
+      assert.deepEqual(runtimeConfig, {
+        agentEngine: "claude-code",
+        providerConnectionId: "mia",
+        modelProfileId: "mia:mia-auto",
+        model: "mia-auto"
+      });
+      return {
+        runtimeKey: "mia:mia-auto",
+        env: {
+          ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+          ANTHROPIC_AUTH_TOKEN: "proxy-token"
+        }
+      };
+    }
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    runtimeConfig: {
+      agentEngine: "claude-code",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto"
+    },
+    messages: [{ role: "user", id: "turn-claude", content: "latest prompt" }]
+  });
+
+  assert.deepEqual(calls.agentSession, [{
+    conversationId: "conversation:1",
+    engineId: "claude",
+    workspacePath: "/repo/workspace",
+    runtimeKey: "mia:mia-auto",
+    env: {
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+      ANTHROPIC_AUTH_TOKEN: "proxy-token"
+    },
+    turnId: "turn-claude",
+    text: "latest prompt"
   }]);
 });
 

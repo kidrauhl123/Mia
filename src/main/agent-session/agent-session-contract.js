@@ -66,15 +66,18 @@ function assertKnownAgentEngine(value) {
   return engineId;
 }
 
-function createAgentSessionKey({ conversationId, engineId, workspacePath } = {}) {
+function createAgentSessionKey({ conversationId, engineId, workspacePath, runtimeKey = "" } = {}) {
   const normalizedConversationId = String(conversationId || "").trim();
   const normalizedWorkspacePath = String(workspacePath || "").trim();
   const normalizedEngineId = assertKnownAgentEngine(engineId);
+  const normalizedRuntimeKey = String(runtimeKey || "").trim();
 
   if (!normalizedConversationId) throw new Error("conversationId is required.");
   if (!normalizedWorkspacePath) throw new Error("workspacePath is required.");
 
-  return [normalizedConversationId, normalizedEngineId, normalizedWorkspacePath].join("::");
+  return [normalizedConversationId, normalizedEngineId, normalizedWorkspacePath, normalizedRuntimeKey]
+    .filter((part, index) => index < 3 || part)
+    .join("::");
 }
 
 function createAcceptedInputResult(options = {}) {

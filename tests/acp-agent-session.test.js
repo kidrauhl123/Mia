@@ -52,7 +52,8 @@ function createSession(options = {}) {
     conversationId: options.conversationId || "conversation-1",
     engineId: options.engineId || "codex",
     initializationMetadata: options.initializationMetadata,
-    createTransport: async () => state.transport,
+    env: options.env,
+    createTransport: options.createTransport || (async () => state.transport),
     createClient: options.createClient || (async ({ onSessionUpdate, onPermissionRequest }) => ({
       async initialize(params) {
         state.initializeCalls.push(params);
@@ -125,6 +126,27 @@ test("start initializes the ACP session once", async () => {
       acpSessionId: "acp-session-1"
     }]
   ]);
+});
+
+test("start forwards per-session env to the ACP transport", async () => {
+  const transportCalls = [];
+  const { session } = createSession({
+    env: {
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+      ANTHROPIC_AUTH_TOKEN: "proxy-token"
+    },
+    createTransport: async (options) => {
+      transportCalls.push(options);
+      return createFakeTransport();
+    }
+  });
+
+  await session.start();
+
+  assert.deepEqual(transportCalls.map((call) => call.env), [{
+    ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+    ANTHROPIC_AUTH_TOKEN: "proxy-token"
+  }]);
 });
 
 test("sendUserInput waits for prompt completion and emits normalized streaming events", async () => {

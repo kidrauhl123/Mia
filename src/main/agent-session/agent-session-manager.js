@@ -169,17 +169,30 @@ class AgentSessionManager extends EventEmitter {
   }
 
   getDescriptor(input = {}) {
-    return {
+    const descriptor = {
       conversationId: String(input.conversationId || "").trim(),
       engineId: String(input.engineId || "").trim(),
       workspacePath: String(input.workspacePath || "").trim()
     };
+    const runtimeKey = String(input.runtimeKey || input.runtime_key || "").trim();
+    if (runtimeKey) descriptor.runtimeKey = runtimeKey;
+    if (input.env && typeof input.env === "object" && !Array.isArray(input.env)) {
+      descriptor.env = { ...input.env };
+    }
+    return descriptor;
   }
 
   getPayload(input = {}) {
     const payload = {};
     for (const [key, value] of Object.entries(input)) {
-      if (key === "conversationId" || key === "engineId" || key === "workspacePath") continue;
+      if (
+        key === "conversationId"
+        || key === "engineId"
+        || key === "workspacePath"
+        || key === "runtimeKey"
+        || key === "runtime_key"
+        || key === "env"
+      ) continue;
       payload[key] = value;
     }
     return payload;

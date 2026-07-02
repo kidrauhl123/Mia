@@ -654,7 +654,7 @@ function hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId
   return false;
 }
 
-function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {}, artifactWorkspaceDir = null, fetchFileAttachment = null, agentSessionManager = null, agentSessionWorkspacePath = "" }) {
+function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {}, artifactWorkspaceDir = null, fetchFileAttachment = null, agentSessionManager = null, agentSessionWorkspacePath = "", prepareAgentSessionRuntime = null }) {
   const processed = new Set();
   const inFlight = new Set();
   const activeRunsByConversation = new Map();
@@ -1095,6 +1095,20 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     }
     if (managedInput) {
       try {
+        const runtime = typeof prepareAgentSessionRuntime === "function"
+          ? await prepareAgentSessionRuntime({
+            engineId: managedInput.engineId,
+            conversationId,
+            botId,
+            botSnapshot,
+            runtimeConfig,
+            workspacePath: managedInput.workspacePath
+          })
+          : null;
+        if (runtime?.runtimeKey) managedInput.runtimeKey = String(runtime.runtimeKey || "").trim();
+        if (runtime?.env && typeof runtime.env === "object" && !Array.isArray(runtime.env)) {
+          managedInput.env = { ...runtime.env };
+        }
         const accepted = await agentSessionManager.sendUserInput(managedInput);
         if (accepted?.ok) {
           remember(dedupKey);

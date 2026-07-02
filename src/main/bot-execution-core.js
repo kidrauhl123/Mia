@@ -213,7 +213,8 @@ function createBotExecutionCore({
   appendCloudLog,
   miaMemoryService = null,
   isMemoryEnabled = null,
-  onMemoryExtracted = null
+  onMemoryExtracted = null,
+  prepareAgentSessionRuntime = null
 }) {
   // Single-flight interactive chat controller — factory state, not a module
   // global. Group/utility/background turns keep their own controllers.
@@ -367,6 +368,20 @@ function createBotExecutionCore({
           engineId: agentSessionSpec.engineId,
           workspacePath
         };
+        const runtime = typeof prepareAgentSessionRuntime === "function"
+          ? await prepareAgentSessionRuntime({
+            engineId: agentSessionSpec.engineId,
+            conversationId: descriptor.conversationId,
+            botId: botForTurn.key || botForTurn.id || key,
+            botSnapshot: botForTurn,
+            runtimeConfig: turnRuntimeConfig,
+            workspacePath
+          })
+          : null;
+        if (runtime?.runtimeKey) descriptor.runtimeKey = String(runtime.runtimeKey || "").trim();
+        if (runtime?.env && typeof runtime.env === "object" && !Array.isArray(runtime.env)) {
+          descriptor.env = { ...runtime.env };
+        }
         const accepted = await agentSessionManager.sendUserInput({
           ...descriptor,
           ...rawCurrentTurn

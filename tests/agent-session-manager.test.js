@@ -149,6 +149,56 @@ test("sendUserInput starts immediately when the session is idle", async () => {
   assert.deepEqual(session.sendCalls, [{ turnId: "turn-1", text: "hello" }]);
 });
 
+test("sendUserInput carries runtime env in the session descriptor without leaking it to the prompt payload", async () => {
+  const builds = [];
+  const sessions = [];
+  const manager = createAgentSessionManager(managerOptions(async (descriptor) => {
+    builds.push(descriptor);
+    const session = createFakeSession();
+    sessions.push(session);
+    return session;
+  }));
+
+  await manager.sendUserInput({
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo",
+    runtimeKey: "mia:mia-auto",
+    env: {
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+      ANTHROPIC_AUTH_TOKEN: "proxy-token"
+    },
+    turnId: "turn-1",
+    text: "hello"
+  });
+  await manager.sendUserInput({
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo",
+    runtimeKey: "native",
+    turnId: "turn-2",
+    text: "hello again"
+  });
+
+  assert.equal(builds.length, 2);
+  assert.deepEqual(builds[0], {
+    conversationId: "conversation-1",
+    engineId: "claude",
+    workspacePath: "/repo",
+    runtimeKey: "mia:mia-auto",
+    env: {
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+      ANTHROPIC_AUTH_TOKEN: "proxy-token"
+    },
+    sessionKey: "conversation-1::claude::/repo::mia:mia-auto",
+    engineSpec: { engineId: "claude", supportsSteerInput: false }
+  });
+  assert.deepEqual(sessions.map((session) => session.sendCalls), [
+    [{ turnId: "turn-1", text: "hello" }],
+    [{ turnId: "turn-2", text: "hello again" }]
+  ]);
+});
+
 test("sendUserInput returns accepted metadata after dispatching the native send without waiting for turn completion", async () => {
   const nativeSend = createDeferred();
   const session = createFakeSession({
