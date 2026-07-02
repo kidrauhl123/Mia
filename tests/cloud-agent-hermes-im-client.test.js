@@ -211,6 +211,20 @@ test("runChat in transient mode does not read or write the sessions store", asyn
   assert.equal(result.runId, "runtime_new");
 });
 
+test("runChat does not connect or send RPCs when pre-aborted", async () => {
+  const { gateway, requests } = createGatewayHarness();
+  const controller = new AbortController();
+  controller.abort(new Error("chat aborted early"));
+  const client = createHermesImClient({
+    sessionsStore: createSessionsStore(),
+    gatewayClientFactory: () => gateway
+  });
+
+  await assert.rejects(client.runChat(baseArgs({ signal: controller.signal })), /chat aborted early/);
+  assert.equal(gateway.connectedUrl, undefined);
+  assert.deepEqual(requests, []);
+});
+
 test("runChat prepends file attachment ref_text and streams normalized events", async () => {
   const { gateway, requests } = createGatewayHarness();
   gateway.events = [
@@ -355,6 +369,24 @@ test("submitApproval rejects when aborted before approval.respond resolves", asy
 
   await assert.rejects(pending, /approval aborted/);
   assert.equal(gateway.closed, true);
+});
+
+test("submitApproval does not connect or send RPCs when pre-aborted", async () => {
+  const { gateway, requests } = createGatewayHarness();
+  const controller = new AbortController();
+  controller.abort(new Error("approval aborted early"));
+  const client = createHermesImClient({
+    gatewayClientFactory: () => gateway
+  });
+
+  await assert.rejects(client.submitApproval({
+    gatewayWsUrl: "ws://gateway.test/ws",
+    sessionId: "sess_approve",
+    choice: "once",
+    signal: controller.signal
+  }), /approval aborted early/);
+  assert.equal(gateway.connectedUrl, undefined);
+  assert.deepEqual(requests, []);
 });
 
 test("submitApproval does not require sessionsStore at client construction", async () => {

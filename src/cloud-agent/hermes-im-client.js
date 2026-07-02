@@ -74,6 +74,11 @@ function createAbortPromise(signal) {
   };
 }
 
+function throwIfAborted(signal) {
+  if (!signal?.aborted) return;
+  throw signal.reason || new Error("The operation was aborted");
+}
+
 async function waitWithAbort(promise, signal) {
   const abort = createAbortPromise(signal);
   try {
@@ -171,6 +176,7 @@ function createHermesImClient(deps = {}) {
   }
 
   async function runChat(args = {}) {
+    throwIfAborted(args.signal);
     const gateway = gatewayClientFactory({ apiKey: args.apiKey, nowMs });
     const botKey = botId(args.bot);
     requiredText("gatewayWsUrl", args.gatewayWsUrl);
@@ -235,6 +241,7 @@ function createHermesImClient(deps = {}) {
   }
 
   async function submitApproval(args = {}) {
+    throwIfAborted(args.signal);
     const gateway = gatewayClientFactory({ apiKey: args.apiKey, nowMs });
     try {
       await gateway.connect(requiredText("gatewayWsUrl", args.gatewayWsUrl));
