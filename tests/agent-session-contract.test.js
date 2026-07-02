@@ -26,11 +26,17 @@ function asArray(value) {
 
 function engineSpecFor(specs, engineId) {
   if (!specs) return null;
-  if (Array.isArray(specs)) return specs.find((spec) => spec?.engineId === engineId) || null;
-  return specs[engineId] || specs[engineId.replace(/-/g, "")] || null;
+  if (Array.isArray(specs)) {
+    const index = ENGINE_IDS.indexOf(engineId);
+    if (index === -1 || index >= specs.length) return null;
+    return specs[index]?.engineId === engineId ? specs[index] : null;
+  }
+  if (typeof specs === "object") return specs[engineId] || null;
+  return null;
 }
 
 test("AgentSession contract exposes the normalized engine ids and runtime event kinds", () => {
+  assert.equal(contract.BOT_CONVERSATION_ENGINE_CONTRACT, "AgentSession");
   const ids = asArray(contract.ENGINE_IDS);
   const kinds = asArray(contract.AGENT_SESSION_EVENT_KINDS);
   const specs = contract.ENGINE_SPECS || contract.AGENT_SESSION_ENGINES || contract.AGENT_SESSION_ENGINE_SPECS;
