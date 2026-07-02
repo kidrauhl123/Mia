@@ -42,7 +42,12 @@ function createGatewayHarness() {
         });
         return { submitted: true };
       }
-      if (method === "approval.respond") return { resolved: 1 };
+      if (method === "approval.respond") {
+        if (typeof gateway.approvalRespondImpl === "function") {
+          return gateway.approvalRespondImpl(params);
+        }
+        return { resolved: 1 };
+      }
       throw new Error(`unexpected request ${method}`);
     },
     emit(type, event) {
@@ -247,6 +252,28 @@ test("runChat prepends file attachment ref_text and streams normalized events", 
   ]);
 });
 
+test("runChat ignores text-bearing non-message events when building returned content", async () => {
+  const { gateway } = createGatewayHarness();
+  gateway.events = [
+    { type: "reasoning.delta", session_id: "runtime_new", payload: { text: "internal-thought" } },
+    { type: "message.delta", session_id: "runtime_new", payload: { text: "hel" } },
+    { type: "message.complete", session_id: "runtime_new", payload: { content: "hello" } }
+  ];
+  const client = createHermesImClient({
+    sessionsStore: createSessionsStore(),
+    gatewayClientFactory: () => gateway
+  });
+
+  const result = await client.runChat(baseArgs());
+
+  assert.equal(result.content, "hello");
+  assert.deepEqual(result.events.map((event) => [event.type, event.text || ""]), [
+    ["reasoning_delta", "internal-thought"],
+    ["message.delta", "hel"],
+    ["message.complete", ""]
+  ]);
+});
+
 test("runChat throws when the gateway emits an error event", async () => {
   const { gateway } = createGatewayHarness();
   gateway.events = [
@@ -282,5 +309,27 @@ test("submitApproval calls approval.respond through the gateway", async () => {
     params: { session_id: "sess_approve", choice: "once", all: true }
   });
   assert.deepEqual(result, { resolved: 1 });
+  assert.equal(gateway.closed, true);
+});
+
+test("submitApproval rejects when aborted before approval.respond resolves", async () => {
+  const { gateway } = createGatewayHarness();
+  gateway.approvalRespondImpl = () => new Promise(() => {});
+  const client = createHermesImClient({
+    sessionsStore: createSessionsStore(),
+    gatewayClientFactory: () => gateway
+  });
+  const controller = new AbortController();
+
+  const pending = client.submitApproval({
+    gatewayWsUrl: "ws://gateway.test/ws",
+    sessionId: "sess_approve",
+    choice: "once",
+    signal: controller.signal
+  });
+
+  controller.abort(new Error("approval aborted"));
+
+  await assert.rejects(pending, /approval aborted/);
   assert.equal(gateway.closed, true);
 });

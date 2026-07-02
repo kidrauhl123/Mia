@@ -74,6 +74,15 @@ function createAbortPromise(signal) {
   };
 }
 
+async function waitWithAbort(promise, signal) {
+  const abort = createAbortPromise(signal);
+  try {
+    return await Promise.race([promise, abort.promise].filter(Boolean));
+  } finally {
+    abort.cleanup();
+  }
+}
+
 function createHermesImClient(deps = {}) {
   const gatewayClientFactory = deps.gatewayClientFactory || createHermesGatewayClient;
   const sessionsStore = deps.sessionsStore;
@@ -157,7 +166,7 @@ function createHermesImClient(deps = {}) {
       const event = normalizeGatewayEvent(rawEvent);
       events.push(event);
       if (typeof args.onEvent === "function") args.onEvent(event);
-      if (typeof event.text === "string") content += event.text;
+      if (event.type === "message.delta" && typeof event.text === "string") content += event.text;
       if (event.type === "message.complete") {
         if (typeof event.content === "string") content = event.content;
         resolved = true;
@@ -202,11 +211,11 @@ function createHermesImClient(deps = {}) {
     const gateway = gatewayClientFactory({ apiKey: args.apiKey, nowMs });
     try {
       await gateway.connect(requiredText("gatewayWsUrl", args.gatewayWsUrl));
-      return await gateway.request("approval.respond", {
+      return await waitWithAbort(gateway.request("approval.respond", {
         session_id: requiredText("sessionId", args.sessionId),
         choice: requiredText("choice", args.choice),
         all: Boolean(args.all)
-      });
+      }), args.signal);
     } finally {
       gateway.close();
     }
