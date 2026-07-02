@@ -50,3 +50,36 @@
 ## Concerns
 
 - The generated Python shim assumes the runtime image has `fastapi` and `tui_gateway` importable at startup. That matches the briefed architecture, but the container image remains the integration point to watch during deployment validation.
+
+## Fix Evidence After Review
+
+### Finding 1: Shim import/call shape
+
+- Root cause: the generated shim used `import tui_gateway` and then dereferenced `tui_gateway.ws.handle_ws`, which relies on Python package submodule loading side effects.
+- Test-first change:
+  - updated `tests/cloud-agent-hermes-client.test.js` to assert:
+    - `from tui_gateway.ws import handle_ws as gateway_handle_ws`
+    - `await gateway_handle_ws(websocket)`
+    - absence of `tui_gateway.ws.handle_ws`
+- RED evidence:
+  - `node --test tests/cloud-agent-hermes-client.test.js` failed on the shim-content assertion before production edits.
+- GREEN implementation:
+  - changed `renderHermesGatewayShim()` in `src/cloud-agent/hermes-worker-manager.js` to import the handler directly with an alias and call the imported symbol.
+
+### Finding 2: Worker-manager model normalization boundary
+
+- Root cause: `createHermesWorkerManager()` accepted `options.model` / `MIA_CLOUD_AGENT_MODEL` verbatim and propagated legacy aliases into rendered config and `worker.model`.
+- Test-first change:
+  - updated the existing LiteLLM config test to require `mia-auto` normalization
+  - added an end-to-end worker-manager test covering `model: "default"` flowing through `ensureUserDirs()` and `ensureWorker()`
+- RED evidence:
+  - `node --test tests/cloud-agent-hermes-client.test.js` failed with config values still set to `"mia-default"` / `"default"` before the production fix.
+- GREEN implementation:
+  - imported `normalizeCloudHermesModel()` into `src/cloud-agent/hermes-worker-manager.js`
+  - normalized the worker manager’s `model` once at construction time with fallback `"mia-auto"`
+  - verified normalized values appear in rendered config and returned `worker.model`
+
+### Verification After Fix
+
+- `node --test tests/cloud-agent-hermes-client.test.js`
+- `npm run check`

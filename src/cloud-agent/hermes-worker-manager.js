@@ -3,6 +3,7 @@ const path = require("node:path");
 const { execFile: execFileCb } = require("node:child_process");
 const { promisify } = require("node:util");
 const { createUserModelProxyToken } = require("../cloud/model-proxy-auth.js");
+const { normalizeCloudHermesModel } = require("./cloud-hermes-model.js");
 
 const CONTAINER_ENV = Object.freeze({
   HERMES_HOME: "/data/hermes-home",
@@ -46,7 +47,7 @@ function gatewayWsUrlForBaseUrl(baseUrl, apiKey, wsPath = "/api/ws") {
 function renderHermesGatewayShim() {
   return `from typing import Optional
 from fastapi import FastAPI, Header, WebSocket, WebSocketException, status
-import tui_gateway
+from tui_gateway.ws import handle_ws as gateway_handle_ws
 import os
 
 app = FastAPI()
@@ -80,7 +81,7 @@ async def health():
 @app.websocket("/api/ws")
 async def handle_ws(websocket: WebSocket, authorization: Optional[str] = Header(default=None, alias="Authorization")):
     _ensure_authorized(_extract_token(websocket, authorization))
-    await tui_gateway.ws.handle_ws(websocket)
+    await gateway_handle_ws(websocket)
 `;
 }
 
@@ -106,7 +107,10 @@ function createHermesWorkerManager(options = {}) {
   );
   const internalTasksUrl = internalModelProxyKey && publicUrl ? `${publicUrl}/api/internal/tasks` : "";
   const modelProvider = String(options.modelProvider || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER || (internalModelBaseUrl ? "mia" : "mia-litellm")).trim();
-  const model = String(options.model || process.env.MIA_CLOUD_AGENT_MODEL || "mia-auto").trim();
+  const model = normalizeCloudHermesModel(
+    options.model ?? process.env.MIA_CLOUD_AGENT_MODEL ?? "mia-auto",
+    { defaultModel: "mia-auto" }
+  );
   const modelBaseUrl = String(options.modelBaseUrl || internalModelBaseUrl || process.env.MIA_CLOUD_AGENT_MODEL_BASE_URL || "http://litellm:4000/v1").trim();
   const usesInternalModelProxy = Boolean(internalModelProxyKey && /\/api\/internal\/model-proxy\/v1\/?$/.test(cleanBaseUrl(modelBaseUrl)));
   const modelApiMode = String(options.modelApiMode || process.env.MIA_CLOUD_AGENT_MODEL_API_MODE || "chat_completions").trim();

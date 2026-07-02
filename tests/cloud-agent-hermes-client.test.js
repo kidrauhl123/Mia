@@ -60,7 +60,7 @@ test("worker manager writes platform LiteLLM config per user", () => {
 
   assert.equal(stat.mode & 0o777, 0o600);
   assert.match(config, /provider: "mia-litellm"/);
-  assert.match(config, /default: "mia-default"/);
+  assert.match(config, /default: "mia-auto"/);
   assert.match(config, /base_url: "http:\/\/litellm:4000\/v1"/);
   assert.match(config, /host: 0\.0\.0\.0/);
   assert.match(config, /key_env: "MIA_CLOUD_AGENT_MODEL_API_KEY"/);
@@ -71,6 +71,24 @@ test("worker manager writes platform LiteLLM config per user", () => {
   assert.doesNotMatch(config, /mia-scheduler/);
   assert.doesNotMatch(config, /sk-litellm/);
   assert.equal(manager.envForUser("user_a").MIA_CLOUD_AGENT_MODEL_API_KEY, "sk-litellm");
+});
+
+test("worker manager normalizes legacy managed model aliases at the boundary", async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agents-"));
+  const manager = createHermesWorkerManager({
+    rootDir,
+    mode: "static",
+    staticBaseUrl: "http://127.0.0.1:9999",
+    model: "default"
+  });
+
+  const paths = manager.ensureUserDirs("user_a");
+  const config = fs.readFileSync(path.join(paths.hermesHome, "config.yaml"), "utf8");
+  const worker = await manager.ensureWorker("user_a");
+
+  assert.match(config, /default: "mia-auto"/);
+  assert.match(config, /default_model: "mia-auto"/);
+  assert.equal(worker.model, "mia-auto");
 });
 
 test("static worker mode derives gateway websocket url from base url", async () => {
@@ -157,7 +175,9 @@ test("worker manager writes Mia internal model proxy config and gateway shim", (
   assert.match(shim, /@app\.websocket\("\/api\/ws"\)/);
   assert.match(shim, /MIA_HERMES_GATEWAY_TOKEN/);
   assert.match(shim, /Authorization/);
-  assert.match(shim, /tui_gateway\.ws\.handle_ws/);
+  assert.match(shim, /from tui_gateway\.ws import handle_ws as gateway_handle_ws/);
+  assert.match(shim, /await gateway_handle_ws\(websocket\)/);
+  assert.doesNotMatch(shim, /tui_gateway\.ws\.handle_ws/);
 });
 
 test("normalizeCloudHermesModel preserves mia-auto and maps legacy aliases to fallback", () => {
