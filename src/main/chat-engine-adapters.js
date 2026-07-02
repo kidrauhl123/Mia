@@ -26,34 +26,6 @@ function commandResponse({ commandId, chatCompletionResponse, engine, model, res
   });
 }
 
-function isHermesApiUnreachable(error) {
-  return error?.code === "HERMES_API_UNREACHABLE" && error?.stage === "create_run";
-}
-
-function isHermesRecoverableModelConfigError(error) {
-  return error?.code === "HERMES_MODEL_CONFIG_UNAVAILABLE" && error?.stage === "run_events";
-}
-
-async function sendWithHermesRecovery(deps, context, send) {
-  const runOnce = async () => {
-    await deps.ensureHermesReady();
-    return send();
-  };
-  try {
-    return await runOnce();
-  } catch (error) {
-    if (
-      (!isHermesApiUnreachable(error) && !isHermesRecoverableModelConfigError(error))
-      || typeof deps.recoverHermesAfterFailure !== "function"
-      || context?.signal?.aborted
-    ) {
-      throw error;
-    }
-    await deps.recoverHermesAfterFailure(error);
-    return runOnce();
-  }
-}
-
 function createChatEngineAdapters(deps = {}) {
   const commandId = typeof deps.commandId === "function" ? deps.commandId : defaultCommandId;
   const chatCompletionResponse = deps.chatCompletionResponse;
@@ -145,18 +117,22 @@ function createChatEngineAdapters(deps = {}) {
       id: "hermes",
       async send(context) {
         if (context.slashText) {
-          await deps.ensureHermesReady();
+          if (typeof deps.ensureHermesReady === "function") await deps.ensureHermesReady();
           const content = deps.runHermesSlashCommand({
             text: context.slashText,
             bot: context.bot,
             sessionId: context.sessionId
           });
-          return deps.hermesSlashCommandResponse({
-            id: commandId(),
-            content: content || "(command completed)"
+          return commandResponse({
+            commandId,
+            chatCompletionResponse,
+            engine: "hermes",
+            model: adapterForEngine("hermes").responseModel,
+            content: content || "(command completed)",
+            botKey: context.bot.key
           });
         }
-        return sendWithHermesRecovery(deps, context, () => deps.sendHermesChat(context));
+        throw new Error("Hermes desktop bot chat now runs through AgentSession. This legacy direct execution path has been removed.");
       }
     }
   };
@@ -194,7 +170,7 @@ function createStatelessChatEngineAdapters(deps = {}) {
     hermes: {
       id: "hermes",
       async send(context) {
-        return sendWithHermesRecovery(deps, context, () => deps.sendHermesStateless(context));
+        throw new Error("Hermes stateless desktop chat has been removed with the legacy HTTP execution path.");
       }
     }
   };

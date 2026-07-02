@@ -83,10 +83,9 @@ const { chatCompletionResponse, responseMessageContent } = require("../main/chat
 const { adapterForEngine, normalizeAgentEngine, resolveChatEngineAdapter } = require("../main/chat-engine-registry.js");
 const { enginePermissionStoreTarget } = require("../shared/agent-engine-policy.js");
 const { createChatEngineAdapters, sendWithChatEngineAdapter } = require("../main/chat-engine-adapters.js");
+const { createNativeTurnHelpers } = require("../main/native-turn-helpers.js");
 const { normalizeTurnRuntimeConfig } = require("../main/runtime-config-normalizer.js");
 const { schedulerSkillIdsForTurn } = require("../main/scheduler-skill-defaults.js");
-const { createHermesRunService } = require("../main/hermes-run-service.js");
-const { createHermesChatAdapter } = require("../main/hermes-chat-adapter.js");
 const {
   createMiaCoreModelRuntimeResolver,
   isMiaManagedRuntime
@@ -109,7 +108,7 @@ const { createSkillsLoader } = require("../main/skills-loader.js");
 //   - createChatAttachments: the two methods Core needs (normalizeAttachments,
 //     attachmentContext) are pure fs/path. The save/read/cloud-fetch methods
 //     (which alone touch initializeRuntime/getCloudSettings) are never reached on
-//     the hermes-run-service payload path, so node sinks for those deps are safe.
+//     the native turn-helper prompt path, so node sinks for those deps are safe.
 //   - createSchedulerMcpBridge / createMiaAppMcpBridge: writeContext is a pure fs
 //     write of {botId, sessionId, originMessageId} to context.json under Core's
 //     own runtime home. Core owns that home AND the daemon control server the MCP
@@ -359,28 +358,17 @@ function coreResolveOfficialLibraryRoot(root = "") {
 // Build the REAL bot-execution core for the node Core process. This constructs
 // the same adapter graph the Electron main process builds — createChatEngineAdapters
 // → sendWithChatEngineAdapter → adapter.send — reusing the real shared helpers
-// (bot snapshot/runtime-config/skill/scheduler normalization). All FOUR engines
-// are wired to their REAL adapters: Hermes (HTTP), and — PART B — Codex / Claude
-// Code / OpenClaw (external CLIs resolved from PATH). The Hermes lowest-level
-// `sendHermesChat` is host-injectable (real adapter.sendChat in production; a fake
-// in tests) so only the engine HTTP layer is replaced while the graph stays real.
+// (bot snapshot/runtime-config/skill/scheduler normalization). Interactive
+// Hermes turns route through AgentSession ACP; Codex / Claude Code / OpenClaw
+// use their real adapters with PATH-resolved CLIs.
 function createCoreBotExecution({
   env = process.env,
   runtimePaths,
   settingsStore,
   hermesBaseUrl,
   apiKey,
-  sendHermesChat,
   fetchImpl = fetch,
-  // BLOCKER #2: ensure the Hermes engine is running before a turn. In production
-  // Core injects its engine supervisor's ensureRunning (adopt-or-spawn); when
-  // absent (older callers / pure-adapter tests) Core falls back to a plain
-  // /health probe, preserving the prior behaviour.
   ensureEngine = null,
-  // PART A: managed-model runtime. `hermesHome` locates config.yaml for the
-  // model/provider write; `engineOwnedByCore` reports whether Core SPAWNED the
-  // engine (vs adopted the GUI's). Core writes the model block ONLY when it owns
-  // the engine — see resolveManagedModelRuntime / writeModelRuntimeConfig below.
   hermesHome = null,
   engineOwnedByCore = null,
   // PART B: the daemon-control facts the scheduler/Mia-app MCP specs embed so a
@@ -535,13 +523,9 @@ function createCoreBotExecution({
     };
   }
 
-  // REAL chat-attachments — pure node (fs/path) for the two methods the run
-  // service uses. normalizeAttachments + attachmentContext read local file
-  // metadata / text previews exactly like the Electron path (src/main.js:466).
-  // The save/read/cloud-fetch methods are never reached on the payload path, so
-  // their electron-ish deps are inert node sinks: initializeRuntime is a no-op
-  // (Core owns runtimePaths.attachmentsDir already), and the cloud deps reuse
-  // Core's own cloud settings if present.
+  // REAL chat-attachments — pure node (fs/path). Core reuses the same
+  // normalizeAttachments + attachmentContext helpers the Electron path does so
+  // native-session prompt extraction and attachment previews stay aligned.
   const chatAttachments = createChatAttachments({
     initializeRuntime: () => {},
     runtimePaths,
@@ -553,16 +537,9 @@ function createCoreBotExecution({
       : (value) => String(value || "")
   });
 
-  // Real Hermes run service (payload/stream/slash helpers) — now with the REAL
-  // attachment deps so a Hermes turn carrying local attachments injects the same
-  // "附件上下文" block + text previews the Electron daemon does (src/main.js:487).
-  const hermesRunService = createHermesRunService({
+  const nativeTurnHelpers = createNativeTurnHelpers({
     normalizeAttachments: chatAttachments.normalizeAttachments,
-    attachmentContext: chatAttachments.attachmentContext,
-    baseUrl,
-    apiKey: apiKeyFn,
-    fetchImpl,
-    randomUUID: () => crypto.randomUUID()
+    attachmentContext: chatAttachments.attachmentContext
   });
 
   // PART B — local agent engine service (pure node). Provides the PATH-resolved
@@ -627,106 +604,10 @@ function createCoreBotExecution({
     return isMiaManagedRuntime(runtime) ? runtime : null;
   }
 
-  // PART A — writeModelRuntimeConfig. Minimal read-modify-write of the Hermes
-  // config.yaml model/provider block, mirroring ONLY the model-related key paths
-  // of engineRuntimeConfigService.writeRuntimeConfig (config.model.{provider,
-  // default,base_url,api_mode} + config.providers[provider].{name,base_url,
-  // key_env,api_key,default_model,api_mode}). Every other key (api_server,
-  // approvals, agent, skills, mcp_servers, mia, ...) is preserved untouched.
-  //
-  // SINGLE-OWNER (AION): the backend that OWNS the engine owns this config write.
-  // Core writes ONLY when it SPAWNED the engine (engineOwnedByCore() === true).
-  // If Core ADOPTED the GUI's engine, the GUI owns config.yaml and already wrote
-  // the model — Core must not fight it (no-op). When no ownership predicate is
-  // injected (pure-adapter tests), Core writes so the proof can assert the keys.
-  const resolveHermesHome = typeof hermesHome === "function"
-    ? hermesHome
-    : () => String(hermesHome || (runtimePaths && runtimePaths().hermesHome) || "");
-
-  function writeModelRuntimeConfig(settings = {}) {
-    if (typeof engineOwnedByCore === "function" && !engineOwnedByCore()) return;
-    const home = resolveHermesHome();
-    if (!home) return;
-    const configPath = path.join(home, "config.yaml");
-    let config = {};
-    try {
-      if (fs.existsSync(configPath)) config = yaml.load(fs.readFileSync(configPath, "utf8")) || {};
-    } catch {
-      config = {};
-    }
-    if (!config || typeof config !== "object") config = {};
-
-    const provider = String(settings.provider || "").trim();
-    const model = String(settings.model || "").trim();
-    const apiKeyEnv = String(settings.apiKeyEnv || "").trim();
-    const baseUrl = String(settings.baseUrl || "").trim();
-    const apiMode = String(settings.apiMode || "").trim();
-
-    const modelConfig = config.model && typeof config.model === "object" ? { ...config.model } : {};
-    if (provider) modelConfig.provider = provider;
-    if (model) modelConfig.default = model;
-    if (baseUrl) modelConfig.base_url = baseUrl;
-    if (apiMode) modelConfig.api_mode = apiMode;
-    if (Object.keys(modelConfig).length) config.model = modelConfig;
-
-    if (provider && baseUrl) {
-      const providers = config.providers && typeof config.providers === "object" ? { ...config.providers } : {};
-      const providerConfig = providers[provider] && typeof providers[provider] === "object" ? { ...providers[provider] } : {};
-      providerConfig.name = settings.providerLabel || provider;
-      providerConfig.base_url = baseUrl;
-      if (apiKeyEnv) providerConfig.key_env = apiKeyEnv;
-      if (settings.apiKey) providerConfig.api_key = settings.apiKey;
-      if (model) providerConfig.default_model = model;
-      if (apiMode) providerConfig.api_mode = apiMode;
-      providers[provider] = providerConfig;
-      config.providers = providers;
-    }
-
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    const tmpPath = `${configPath}.${process.pid}.tmp`;
-    fs.writeFileSync(tmpPath, yaml.dump(config, { lineWidth: 100, noRefs: true }), { mode: 0o600 });
-    fs.renameSync(tmpPath, configPath);
-  }
-
-  // Real Hermes chat adapter — provides slashCommandResponse and (in production)
-  // the real sendChat. The MCP context writes are the genuine bridges; PART A
-  // wires the REAL managed-model resolve + config write (above); the adapter
-  // itself is genuine.
-  const hermesAdapter = createHermesChatAdapter({
-    apiKey: apiKeyFn,
-    baseUrl,
-    buildGroupHeader: () => "",
-    buildRunPayload: hermesRunService.buildRunPayload,
-    normalizeError: hermesRunService.normalizeError,
-    readRunEventStream: hermesRunService.readRunEventStream,
-    responseModel: adapterForEngine("hermes").responseModel,
-    fetch: fetchImpl,
-    // REAL scheduler MCP context write — Core owns the scheduler subsystem, so a
-    // schedule_create from this turn fires the reminder back into this conversation.
-    writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
-    // REAL Mia app MCP context write — same per-turn context under Core's home.
-    writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
-    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-    // PART A — REAL managed-model runtime. resolveManagedModelRuntime returns the
-    // Mia cloud model-proxy provider for a Mia-managed-model bot; writeModelRuntimeConfig
-    // writes ONLY the model/provider block into config.yaml (single-owner gated:
-    // Core writes only when it SPAWNED the engine, see above).
-    resolveManagedModelRuntime,
-    writeModelRuntimeConfig,
-    appendEngineLog: () => {}
-  });
-
-  // In production `sendHermesChat` is `hermesAdapter.sendChat`. Tests inject a
-  // fake so only the lowest-level Hermes HTTP send is replaced — the rest of the
-  // graph stays real.
-  const hermesChatSend = typeof sendHermesChat === "function"
-    ? sendHermesChat
-    : hermesAdapter.sendChat;
-
   // ensureHermesReady: when Core owns the engine lifecycle (an ensureEngine is
   // injected), ADOPT-OR-SPAWN the Hermes engine so a GUI-less daemon turn always
-  // has a running engine (BLOCKER #2). Otherwise fall back to a plain /health
-  // probe (legacy behaviour: the Electron app owns the engine).
+  // has a running engine for slash commands. Otherwise fall back to a plain
+  // /health probe.
   async function ensureHermesReady() {
     if (typeof ensureEngine === "function") {
       await ensureEngine();
@@ -876,7 +757,7 @@ function createCoreBotExecution({
         getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
         getUserMcpSpecs: () => userMcpService.getEngineSpecs("claude-code"),
         injectGroupContextForSdk: (userMessage) => userMessage,
-        lastUserPrompt: hermesRunService.lastUserPrompt,
+        lastUserPrompt: nativeTurnHelpers.lastUserPrompt,
         normalizeEffortLevel,
         permissionCoordinator: agentPermissionCoordinator,
         processEnvStrings,
@@ -909,7 +790,7 @@ function createCoreBotExecution({
         getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
         getUserMcpSpecs: () => userMcpService.getEngineSpecs("codex"),
         injectGroupContextForSdk: (userMessage) => userMessage,
-        lastUserPrompt: hermesRunService.lastUserPrompt,
+        lastUserPrompt: nativeTurnHelpers.lastUserPrompt,
         normalizeEffortLevel,
         permissionCoordinator: agentPermissionCoordinator,
         processEnvStrings,
@@ -942,7 +823,7 @@ function createCoreBotExecution({
         getMcpFingerprint: userMcpService.fingerprint,
         getUserMcpServers: (options) => userMcpService.getEngineSpecs("openclaw", options),
         injectGroupContextForSdk: (userMessage) => userMessage,
-        lastUserPrompt: hermesRunService.lastUserPrompt,
+        lastUserPrompt: nativeTurnHelpers.lastUserPrompt,
         normalizeEffortLevel,
         permissionCoordinator: agentPermissionCoordinator,
         processEnvStrings,
@@ -956,16 +837,14 @@ function createCoreBotExecution({
     return cachedOpenClawAdapter;
   }
 
-  // REAL adapter graph: Hermes + Codex + Claude Code + OpenClaw all wired to real
-  // adapters. The legacy "engine not available" throw is GONE; every engine routes
-  // through its real adapter (the external CLI is resolved from PATH at turn time).
+  // REAL adapter graph: Codex + Claude Code + OpenClaw route through their real
+  // adapters; Hermes direct desktop chat has been retired in favour of
+  // AgentSession ACP turns.
   function createActiveChatEngineAdapters() {
     return createChatEngineAdapters({
       chatCompletionResponse,
       ensureHermesReady,
-      hermesSlashCommandResponse: hermesAdapter.slashCommandResponse,
       runHermesSlashCommand: () => "",
-      sendHermesChat: hermesChatSend,
       // External agent slash commands aren't wired in Core yet (no
       // externalAgentCommandService); a slash command on a non-Hermes engine is
       // rare and surfaces the same "not available" — the CHAT path below is real.
@@ -995,7 +874,7 @@ function createCoreBotExecution({
     // wiring). Same loader instance that backs the Hermes adapter's enabled-skills
     // context above.
     skillsLoader,
-    hermesRunService,
+    nativeTurnHelpers,
     sendWithChatEngineAdapter,
     createActiveChatEngineAdapters,
     agentSessionManager,

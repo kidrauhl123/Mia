@@ -21,7 +21,7 @@ function makeCore(overrides = {}) {
     responseMessageContent: (response) => response?.text || "",
     schedulerSkillIdsForTurn: () => [],
     skillsLoader: { buildActiveSkillsDirective: () => "" },
-    hermesRunService: { slashCommandText: () => "" },
+    nativeTurnHelpers: { slashCommandText: () => "" },
     sendWithChatEngineAdapter: async (adapters, context) => {
       calls.adapter.push(context);
       // Emit a downstream event to prove the injected emit is wired through.

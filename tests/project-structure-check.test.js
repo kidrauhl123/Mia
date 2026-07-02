@@ -452,18 +452,19 @@ test("bot pet assets, generation jobs, and pet windows live behind a main bot-pe
   assert.doesNotMatch(mainSource, /function resolveOfficialLibraryRoot/, "main must not own packaged library root resolution");
 });
 
-test("Hermes run payload and event stream parsing live behind a main hermes-run service", () => {
+test("legacy Hermes HTTP bot execution path is retired from main and Mia Core", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const runSource = fs.readFileSync(path.join(root, "src/main/hermes-run-service.js"), "utf8");
+  const coreSource = fs.readFileSync(path.join(root, "src/core/mia-core.js"), "utf8");
+  const adapterSource = fs.readFileSync(path.join(root, "src/main/chat-engine-adapters.js"), "utf8");
+  const checkSource = fs.readFileSync(path.join(root, "src/check.js"), "utf8");
 
-  assert.match(runSource, /function createHermesRunService/, "Hermes run service should exist");
-  assert.match(mainSource, /createHermesRunService/, "main should instantiate the Hermes run service");
-  assert.doesNotMatch(mainSource, /function normalizeRunMessages/, "main must not own run message normalization");
-  assert.doesNotMatch(mainSource, /function buildRunPayload/, "main must not own Hermes run payload shaping");
-  assert.doesNotMatch(mainSource, /function parseSseFrame/, "main must not own Hermes SSE parsing");
-  assert.doesNotMatch(mainSource, /async function readRunEventStream/, "main must not own Hermes run stream reading");
-  assert.doesNotMatch(mainSource, /function lastUserPrompt/, "main must not own adapter prompt extraction");
-  assert.doesNotMatch(mainSource, /function normalizeHermesError/, "main must not own Hermes error normalization");
+  assert.equal(fs.existsSync(path.join(root, "src/main/hermes-chat-adapter.js")), false, "legacy Hermes HTTP chat adapter should be deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/hermes-run-service.js")), false, "legacy Hermes HTTP run service should be deleted");
+  assert.doesNotMatch(mainSource, /hermes-chat-adapter|hermes-run-service|createActiveHermesChatAdapter|sendHermesChat|sendHermesStateless/, "main must not import or wire legacy Hermes HTTP chat execution");
+  assert.doesNotMatch(coreSource, /hermes-chat-adapter|hermes-run-service|sendHermesChat/, "Mia Core must not construct or inject the legacy Hermes HTTP graph");
+  assert.doesNotMatch(adapterSource, /sendHermesChat|sendHermesStateless/, "chat-engine adapters must not dispatch Hermes bot chat through the deleted HTTP adapter");
+  assert.doesNotMatch(checkSource, /hermes-chat-adapter|hermes-run-service/, "project structure inventory must not require deleted Hermes HTTP files");
+  assert.doesNotMatch(mainSource, /function normalizeRunMessages|function buildRunPayload|function parseSseFrame|async function readRunEventStream|function normalizeHermesError/, "main must not inline deleted Hermes HTTP helper logic");
 });
 
 test("Hermes slash-command execution lives behind a main hermes-slash-command service", () => {
@@ -544,7 +545,6 @@ test("Mia memory lives behind a scoped service and adapters avoid native memory 
   const runtimePathsSource = fs.readFileSync(path.join(root, "src/main/runtime-paths.js"), "utf8");
   const memorySource = fs.readFileSync(path.join(root, "src/main/mia-memory-service.js"), "utf8");
   const adapterSource = [
-    "src/main/hermes-chat-adapter.js",
     "src/main/claude-code-chat-adapter.js",
     "src/main/codex-chat-adapter.js",
     "src/main/openclaw-chat-adapter.js"
@@ -667,10 +667,15 @@ test("Hermes startup and chat recovery stay owned by Mia Core", () => {
     "Core-owned Hermes startup must spawn its own API process instead of adopting orphan gateways"
   );
   assert.match(startEngineSource, /writeRuntimeConfig\(port\)/, "Core-owned Hermes startup must write config for the port it owns");
-  assert.match(
+  assert.doesNotMatch(
     mainSource,
     /recoverHermesAfterFailure:\s*recoverHermesChatEngineAfterFailure/,
-    "Hermes adapters must be wired to restart through Mia Core after local API disconnects"
+    "retired Hermes HTTP adapters must not keep a direct-retry recovery hook in main"
+  );
+  assert.match(
+    mainSource,
+    /ensureHermesReady:\s*ensureHermesChatEngineReady/,
+    "Hermes slash commands should still ensure the Core-owned engine is available"
   );
   assert.doesNotMatch(mainSource, /ipcMain\.handle\(IpcChannel\.EngineStart/, "foreground must not expose direct Hermes start IPC");
   assert.doesNotMatch(mainSource, /ipcMain\.handle\(IpcChannel\.EngineStop/, "foreground must not expose direct Hermes stop IPC");
@@ -828,7 +833,6 @@ test("foreground chat materializes skills per turn instead of full enabled-skill
   const loaderSource = fs.readFileSync(path.join(root, "src/main/skills-loader.js"), "utf8");
   const schedulerDefaults = fs.readFileSync(path.join(root, "src/main/scheduler-skill-defaults.js"), "utf8");
   const adapterSource = [
-    "src/main/hermes-chat-adapter.js",
     "src/main/claude-code-chat-adapter.js",
     "src/main/codex-chat-adapter.js",
     "src/main/openclaw-chat-adapter.js"

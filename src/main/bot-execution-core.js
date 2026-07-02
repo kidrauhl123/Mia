@@ -200,7 +200,7 @@ function createBotExecutionCore({
   responseMessageContent,
   schedulerSkillIdsForTurn,
   skillsLoader,
-  hermesRunService,
+  nativeTurnHelpers,
   sendWithChatEngineAdapter,
   createActiveChatEngineAdapters,
   agentSessionManager = null,
@@ -428,7 +428,9 @@ function createBotExecutionCore({
           })
         : null);
       let skillMaterialization = resolveSkillMaterialization();
-      const slashText = allowSlashCommands ? hermesRunService.slashCommandText(messages) : "";
+      const slashText = allowSlashCommands && typeof nativeTurnHelpers?.slashCommandText === "function"
+        ? nativeTurnHelpers.slashCommandText(messages)
+        : "";
       for (let round = 0; round <= MAX_SKILL_LOAD_ROUNDS; round += 1) {
         const eventGate = createSkillLoadRequestGate(emit);
         const response = await sendWithChatEngineAdapter(createActiveChatEngineAdapters(), {
