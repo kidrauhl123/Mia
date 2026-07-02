@@ -13,6 +13,8 @@ const CONTAINER_ENV = Object.freeze({
 });
 
 const MODEL_API_KEY_ENV = "MIA_CLOUD_AGENT_MODEL_API_KEY";
+const GATEWAY_SHIM_CONTAINER_PATH = "/data/hermes-home/mia-hermes-gateway-server.py";
+const GATEWAY_SHIM_DOCKER_CMD = Object.freeze(["python", GATEWAY_SHIM_CONTAINER_PATH]);
 
 function atomicWriteFile(filePath, content, mode = 0o600) {
   const dir = path.dirname(filePath);
@@ -82,6 +84,16 @@ async def health():
 async def handle_ws(websocket: WebSocket, authorization: Optional[str] = Header(default=None, alias="Authorization")):
     _ensure_authorized(_extract_token(websocket, authorization))
     await gateway_handle_ws(websocket)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        app,
+        host=os.environ.get("API_SERVER_HOST", "0.0.0.0"),
+        port=int(os.environ.get("API_SERVER_PORT", "8765")),
+    )
 `;
 }
 
@@ -291,16 +303,29 @@ function createHermesWorkerManager(options = {}) {
 
   async function dockerInspectState(name) {
     try {
-      const out = await docker(["inspect", "-f", "{{.State.Running}}\t{{.State.Status}}", name]);
-      const [running, status] = String(out.stdout || "").trim().split(/\s+/, 2);
+      const out = await docker(["inspect", "-f", "{{.State.Running}}\t{{.State.Status}}\t{{json .Config.Cmd}}", name]);
+      const [running, status, cmdJson = ""] = String(out.stdout || "").trim().split(/\t/, 3);
+      let cmd = null;
+      try {
+        cmd = cmdJson ? JSON.parse(cmdJson) : null;
+      } catch {
+        cmd = null;
+      }
       return {
         exists: true,
         running: running === "true",
-        status: status || ""
+        status: status || "",
+        cmd
       };
     } catch {
       return { exists: false, running: false, status: "" };
     }
+  }
+
+  function isExpectedDockerCmd(cmd) {
+    return Array.isArray(cmd)
+      && cmd.length === GATEWAY_SHIM_DOCKER_CMD.length
+      && cmd.every((part, idx) => part === GATEWAY_SHIM_DOCKER_CMD[idx]);
   }
 
   function isDockerNameConflict(error) {
@@ -329,8 +354,13 @@ function createHermesWorkerManager(options = {}) {
         const response = await fetchImpl(`${baseUrl}/health`, {
           headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
         });
-        if (response.ok) return;
-        lastError = new Error(`health returned HTTP ${response.status}`);
+        if (response.ok) {
+          const body = typeof response.json === "function" ? await response.json().catch(() => null) : null;
+          if (body?.transport === "tui_gateway") return;
+          lastError = new Error("health did not report tui_gateway transport");
+        } else {
+          lastError = new Error(`health returned HTTP ${response.status}`);
+        }
       } catch (error) {
         lastError = error;
       }
@@ -342,27 +372,46 @@ function createHermesWorkerManager(options = {}) {
   async function ensureDockerWorker(paths) {
     if (!image) throw new Error("MIA_CLOUD_HERMES_IMAGE is required for docker cloud Hermes workers.");
     const name = containerName(paths.userId);
-    const state = await dockerInspectState(name);
+    let state = await dockerInspectState(name);
+    let startedContainer = false;
     if (state.exists && !state.running) {
       await docker(["rm", "-f", name]);
+      state = { exists: false, running: false, status: "" };
+    }
+    if (state.exists && state.running && !isExpectedDockerCmd(state.cmd)) {
+      await docker(["rm", "-f", name]);
+      state = { exists: false, running: false, status: "" };
     }
     if (!state.running) {
       try {
         await startDockerContainer(paths, name);
+        startedContainer = true;
       } catch (error) {
         if (!isDockerNameConflict(error)) throw error;
         const conflictState = await dockerInspectState(name);
         if (!conflictState.exists) {
           await startDockerContainer(paths, name);
-        } else if (!conflictState.running) {
+          startedContainer = true;
+        } else if (!conflictState.running || !isExpectedDockerCmd(conflictState.cmd)) {
           await docker(["rm", "-f", name]);
           await startDockerContainer(paths, name);
+          startedContainer = true;
         }
       }
     }
-    const port = await dockerPort(name);
-    const baseUrl = `http://127.0.0.1:${port}`;
-    await waitForHealth(baseUrl);
+    let port = await dockerPort(name);
+    let baseUrl = `http://127.0.0.1:${port}`;
+    try {
+      await waitForHealth(baseUrl);
+    } catch (error) {
+      if (startedContainer) throw error;
+      await docker(["rm", "-f", name]);
+      await startDockerContainer(paths, name);
+      startedContainer = true;
+      port = await dockerPort(name);
+      baseUrl = `http://127.0.0.1:${port}`;
+      await waitForHealth(baseUrl);
+    }
     return {
       userId: paths.userId,
       baseUrl,
@@ -406,8 +455,7 @@ function createHermesWorkerManager(options = {}) {
       "--env", `API_SERVER_KEY=${env.API_SERVER_KEY}`,
       ...(env[MODEL_API_KEY_ENV] ? ["--env", `${MODEL_API_KEY_ENV}=${env[MODEL_API_KEY_ENV]}`] : []),
       image,
-      "python",
-      "/data/hermes-home/mia-hermes-gateway-server.py"
+      ...GATEWAY_SHIM_DOCKER_CMD
     ]);
   }
 

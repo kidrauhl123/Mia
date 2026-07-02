@@ -54,6 +54,8 @@ RUN set -e; \
     python -m pip install --no-cache-dir $pip_index_args \
       "$hermes_archive" \
       "aiohttp==3.13.3" \
+      "fastapi" \
+      "uvicorn[standard]" \
       "mcp" \
       "ddgs"; \
     rm -rf "$hermes_archive" /tmp/hermes-agent-archive

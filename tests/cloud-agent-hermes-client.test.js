@@ -9,6 +9,8 @@ const { createHermesImClient } = require("../src/cloud-agent/hermes-im-client.js
 const { normalizeCloudHermesModel } = require("../src/cloud-agent/cloud-hermes-model.js");
 const { verifyUserModelProxyToken } = require("../src/cloud/model-proxy-auth.js");
 
+const GATEWAY_SHIM_CMD_JSON = JSON.stringify(["python", "/data/hermes-home/mia-hermes-gateway-server.py"]);
+
 function createGatewayHarness() {
   const requests = [];
   const handlers = new Map();
@@ -215,7 +217,20 @@ test("worker manager writes Mia internal model proxy config and gateway shim", (
   assert.match(shim, /Authorization/);
   assert.match(shim, /from tui_gateway\.ws import handle_ws as gateway_handle_ws/);
   assert.match(shim, /await gateway_handle_ws\(websocket\)/);
+  assert.match(shim, /if __name__ == "__main__":/);
+  assert.match(shim, /uvicorn\.run\(/);
   assert.doesNotMatch(shim, /tui_gateway\.ws\.handle_ws/);
+});
+
+test("Hermes cloud image entrypoint supports gateway shim commands", () => {
+  const dockerfile = fs.readFileSync(path.join(__dirname, "../cloud/hermes-image/Dockerfile"), "utf8");
+  const entrypoint = fs.readFileSync(path.join(__dirname, "../cloud/hermes-image/entrypoint.sh"), "utf8");
+
+  assert.match(dockerfile, /"fastapi"/);
+  assert.match(dockerfile, /"uvicorn\[standard\]"/);
+  assert.match(entrypoint, /if \[ "\$#" -gt 0 \]; then/);
+  assert.match(entrypoint, /exec "\$@"/);
+  assert.match(entrypoint, /python -m mia_plugins gateway run/);
 });
 
 test("normalizeCloudHermesModel preserves mia-auto and maps legacy aliases to fallback", () => {
@@ -364,6 +379,31 @@ test("docker worker mode removes stale same-name container before starting", asy
   assert.deepEqual(execCalls[1].args, ["rm", "-f", "mia-hermes-user_a"]);
 });
 
+test("docker worker mode replaces legacy running containers that do not expose the gateway shim", async () => {
+  const execCalls = [];
+  const fakeExecFile = async (bin, args) => {
+    execCalls.push({ bin, args });
+    const command = args.slice(0, 2).join(" ");
+    if (command === "inspect -f") return { stdout: "true\trunning\tnull\n", stderr: "" };
+    if (args[0] === "rm") return { stdout: "removed\n", stderr: "" };
+    if (args[0] === "run") return { stdout: "container-id\n", stderr: "" };
+    if (args[0] === "port") return { stdout: "127.0.0.1:49155\n", stderr: "" };
+    throw new Error(`unexpected docker command: ${args.join(" ")}`);
+  };
+  const manager = createHermesWorkerManager({
+    rootDir: "/tmp/mia-agents",
+    mode: "docker",
+    image: "mia/hermes-cloud:test",
+    healthTimeoutMs: 0,
+    execFile: fakeExecFile
+  });
+
+  const worker = await manager.ensureWorker("user_a");
+
+  assert.equal(worker.baseUrl, "http://127.0.0.1:49155");
+  assert.deepEqual(execCalls.map((call) => call.args[0]), ["inspect", "rm", "run", "port"]);
+});
+
 test("docker worker mode reuses container created by concurrent start", async () => {
   const execCalls = [];
   let inspectCount = 0;
@@ -373,7 +413,7 @@ test("docker worker mode reuses container created by concurrent start", async ()
     if (command === "inspect -f") {
       inspectCount += 1;
       if (inspectCount === 1) throw new Error("not found");
-      return { stdout: "true\trunning\n", stderr: "" };
+      return { stdout: `true\trunning\t${GATEWAY_SHIM_CMD_JSON}\n`, stderr: "" };
     }
     if (args[0] === "run") {
       const error = new Error("docker: Error response from daemon: Conflict. The container name \"/mia-hermes-user_a\" is already in use.");
