@@ -308,8 +308,16 @@ function createCloudAgentDispatcher(deps = {}) {
     return messagesStore.listMessagesSince(conversationId, 0, DESKTOP_INVOCATION_HISTORY_LIMIT);
   }
 
-  function conversationSeedMessages(conversationId) {
+  function conversationSeedMessages(conversationId, message = {}) {
+    const triggerSeq = Number(message?.seq || 0);
+    const triggerId = String(message?.id || "").trim();
     return messagesStore.listMessagesSince(conversationId, 0, DESKTOP_INVOCATION_HISTORY_LIMIT)
+      .filter((row) => {
+        const rowSeq = Number(row?.seq || 0);
+        if (triggerSeq > 0) return rowSeq > 0 && rowSeq < triggerSeq;
+        if (triggerId) return String(row?.id || "").trim() !== triggerId;
+        return true;
+      })
       .map((row) => {
         const content = String(row?.body_md || "").trim();
         if (!content) return null;
@@ -612,7 +620,7 @@ function createCloudAgentDispatcher(deps = {}) {
           userId: ownerId,
           bot,
           conversationId,
-          seedMessages: conversationSeedMessages(conversationId),
+          seedMessages: conversationSeedMessages(conversationId, message),
           instructions: cloudRuntimeInstructions(bot, message),
           model: normalizeCloudHermesModel(runtimeConfig.model, { defaultModel: worker.model }),
           workerModel: worker.model || "mia-auto",

@@ -144,9 +144,9 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
     assert.equal(hermesCalls[0].workerModel, "mia-auto");
     assert.equal(hermesCalls[0].modelProvider, "mia");
     assert.deepEqual(hermesCalls[0].seedMessages, [
-      { role: "assistant", content: "earlier reply" },
-      { role: "user", content: "hello" }
+      { role: "assistant", content: "earlier reply" }
     ]);
+    assert.match(hermesCalls[0].input, /用户消息：\nhello/);
     assert.match(hermesCalls[0].input, /正在和用户私聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群成员/);
