@@ -178,6 +178,31 @@ test("final text completion does not duplicate existing final content", () => {
   ]);
 });
 
+test("final text completion does not append the full body when text blocks already match with separator whitespace", () => {
+  assert.deepEqual(contentBlocksWithFinalText([
+    { type: "text", id: "text_1", text: "我先试试。" },
+    { type: "tool", id: "tool_1", name: "shell", preview: "curl", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "\n\n还是不行。" }
+  ], "我先试试。\n\n还是不行。"), [
+    { type: "text", id: "text_1", text: "我先试试。" },
+    { type: "tool", id: "tool_1", name: "shell", preview: "curl", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "\n\n还是不行。" }
+  ]);
+});
+
+test("final text completion strips a legacy duplicated text_final block before rendering", () => {
+  assert.deepEqual(contentBlocksWithFinalText([
+    { type: "text", id: "text_1", text: "我先试试。" },
+    { type: "tool", id: "tool_1", name: "shell", preview: "curl", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "\n\n还是不行。" },
+    { type: "text", id: "text_final_3", text: "我先试试。\n\n还是不行。" }
+  ], "我先试试。\n\n还是不行。"), [
+    { type: "text", id: "text_1", text: "我先试试。" },
+    { type: "tool", id: "tool_1", name: "shell", preview: "curl", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "\n\n还是不行。" }
+  ]);
+});
+
 test("display text is distributed across ordered text blocks without hiding tools", () => {
   assert.deepEqual(contentBlocksWithDisplayText([
     { type: "text", id: "text_1", text: "我先整理。" },
