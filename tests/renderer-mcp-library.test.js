@@ -642,7 +642,7 @@ test("managed action failure alerts are concise", async () => {
   assertMcpAlert(harness, "安装失败，请重试。");
 });
 
-test("missing xiaohongshu runtime alerts are concise but actionable", async () => {
+test("missing managed runtime alerts are concise", async () => {
   const state = {
     skillFilter: "",
     mcp: {
@@ -687,11 +687,11 @@ test("missing xiaohongshu runtime alerts are concise but actionable", async () =
   harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-server"]').click();
   await flushAsync();
 
-  assertMcpAlert(harness, "缺少小红书运行组件，请检查网络后重试。");
+  assertMcpAlert(harness, "登录失败，请重试。");
   assert.doesNotMatch(bodyDialogHtml(harness), /spawn go|ENOENT|go run/);
 });
 
-test("xiaohongshu endpoint health errors stay out of user alerts", async () => {
+test("managed endpoint health errors stay out of user alerts", async () => {
   const state = {
     skillFilter: "",
     mcp: {
@@ -736,7 +736,7 @@ test("xiaohongshu endpoint health errors stay out of user alerts", async () => {
   harness.els.skillCardGrid.querySelector('[data-mcp-action="connect-server"]').click();
   await flushAsync();
 
-  assertMcpAlert(harness, "小红书服务启动后检测失败，请重试。");
+  assertMcpAlert(harness, "启动失败，请重试。");
   assert.doesNotMatch(bodyDialogHtml(harness), /127\.0\.0\.1:18060|Status 405|endpoint health check/);
 });
 
@@ -805,7 +805,7 @@ test("xiaohongshu stale endpoint test errors restart before retesting", async ()
   assert.equal(harness.context.document.querySelector('[role="dialog"]'), null);
 });
 
-test("xiaohongshu managed error with empty actions still uses nextAction", async () => {
+test("managed error with empty actions still uses nextAction", async () => {
   const actions = [];
   const state = {
     skillFilter: "",
@@ -859,7 +859,7 @@ test("xiaohongshu managed error with empty actions still uses nextAction", async
   await flushAsync();
 
   assert.deepEqual(actions, [["mcp_xhs", "start"]]);
-  assertMcpAlert(harness, "缺少小红书运行组件，请检查网络后重试。");
+  assertMcpAlert(harness, "启动失败，请重试。");
 });
 
 test("installed card omits legacy setupHint self-start guidance from default surface", () => {

@@ -44,6 +44,32 @@ test("status badge choices hide rainbow and include every flame color", () => {
   }
 });
 
+test("crown badge is selectable and bundled as a compressed Lottie file", () => {
+  const choices = statusBadgeChoices({ includeEmpty: true });
+  const crown = choices.find((item) => item.value === "crown");
+  const definition = statusBadgeAssetDefinitions().find((item) => item.id === "crown");
+
+  assert.ok(crown, "crown should be a selectable badge");
+  assert.equal(crown.label, "皇冠");
+  assert.deepEqual(statusBadgeForValue("crown"), {
+    kind: "lottie",
+    assetId: "crown",
+    label: "皇冠",
+    loop: "always"
+  });
+  assert.ok(definition, "crown should have a bundled asset definition");
+  assert.equal(definition.format, "tgs");
+  assert.equal(definition.relativePath, "assets/status-badges/crown.tgs");
+
+  const filePath = path.join(root, "src", "renderer", definition.relativePath);
+  const raw = fs.readFileSync(filePath);
+  assert.ok(raw.length > 0 && raw.length < 100_000, "crown should stay compressed");
+  const lottie = JSON.parse(zlib.gunzipSync(raw).toString("utf8"));
+  assert.equal(lottie.w, 512);
+  assert.equal(lottie.h, 512);
+  assert.ok(Number(lottie.op) > 0, "crown should have animation frames");
+});
+
 test("flame badge assets are bundled compressed Lottie files", () => {
   const definitions = statusBadgeAssetDefinitions();
 

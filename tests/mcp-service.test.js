@@ -80,17 +80,7 @@ test("fetchMarketplace exposes supported marketplace MCP templates", async (t) =
   const templates = Object.fromEntries(market.data.templates.map((template) => [template.id, template]));
 
   assert.equal(market.success, true);
-  assert.equal(templates.xiaohongshu.nativeName, "xiaohongshu");
-  assert.equal(templates.xiaohongshu.homepage, "https://github.com/xpzouying/xiaohongshu-mcp");
-  assert.equal(templates.xiaohongshu.managementMode, "managed");
-  assert.equal(templates.xiaohongshu.managedRuntime.expectedToolCount, 13);
-  assert.match(templates.xiaohongshu.connectionWizard.message, /登录后启动并检测连接/);
-  assert.deepEqual(templates.xiaohongshu.connectionWizard.actions.map((action) => action.id), ["install", "login", "start", "test"]);
-  assert.deepEqual(templates.xiaohongshu.transport, {
-    type: "http",
-    url: "http://127.0.0.1:18060/mcp",
-    headers: {}
-  });
+  assert.equal(templates.xiaohongshu, undefined);
   assert.equal(templates.playwright.category, "浏览器自动化");
   assert.deepEqual(templates.playwright.transport, {
     type: "stdio",
@@ -144,7 +134,7 @@ test("installTemplate persists browser MCP templates and syncs native agents", a
   assert.deepEqual(syncCalls[0].currentRecords.map((record) => record.nativeName), ["playwright"]);
 });
 
-test("installed marketplace records inherit updated setup metadata", async (t) => {
+test("retired xiaohongshu marketplace records are hidden and disabled", async (t) => {
   const { runtime, service } = setup(t);
   fs.mkdirSync(path.dirname(runtime.mcpServers), { recursive: true });
   fs.writeFileSync(runtime.mcpServers, JSON.stringify([{
@@ -161,14 +151,13 @@ test("installed marketplace records inherit updated setup metadata", async (t) =
   }]));
 
   const listed = await service.list();
-  const server = listed.data.servers[0];
+  const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
 
-  assert.equal(server.nativeName, "xiaohongshu");
-  assert.equal(server.homepage, "https://github.com/xpzouying/xiaohongshu-mcp");
-  assert.equal(server.expectedToolCount, 13);
-  assert.equal(server.setupHint, "");
-  assert.equal(server.sync.codex.status, "available");
-  assert.equal(server.sync["claude-code"].status, "available");
+  assert.deepEqual(listed.data.servers, []);
+  assert.equal(stored[0].enabled, false);
+  assert.equal(stored[0].deletedAt, 1710000000000);
+  assert.equal(stored[0].connectionWizard.state, "removed");
+  assert.equal(stored[0].managedRuntime.state, "removed");
 });
 
 test("installed legacy Playwright template migrates to the official MCP package", async (t) => {

@@ -33,6 +33,23 @@ function setup(t, overrides = {}) {
   };
 }
 
+async function saveManagedFixture(service) {
+  const saved = await service.save({
+    name: "demo-managed",
+    nativeName: "demo-managed",
+    managementMode: "managed",
+    enabled: false,
+    transport: { type: "http", url: "http://127.0.0.1:18100/mcp" },
+    managedRuntime: {
+      connectorId: "demo-managed",
+      endpoint: "http://127.0.0.1:18100/mcp",
+      expectedToolCount: 1
+    }
+  });
+  assert.equal(saved.success, true);
+  return saved;
+}
+
 test("delete soft-deletes and list hides deleted records by default", async (t) => {
   const { service, runtime } = setup(t);
   const saved = await service.save({ name: "xhs", transport: { type: "http", url: "http://127.0.0.1:18060/mcp" } });
@@ -340,7 +357,6 @@ test("fetchMarketplace exposes only supported native and managed templates", asy
 
   assert.equal(result.success, true);
   assert.deepEqual(result.data.templates.map((item) => item.id), [
-    "xiaohongshu",
     "playwright",
     "context7",
     "github",
@@ -380,7 +396,7 @@ test("refreshBridge excludes ensureRunning failures from same-cycle native sync 
       }),
       ensureRunning: async (records) => ({
         records: records.map((record) => {
-          if (record.nativeName === "xiaohongshu") {
+          if (record.nativeName === "demo-managed") {
             return {
               ...record,
               managedRuntime: { ...record.managedRuntime, state: "error" },
@@ -388,13 +404,13 @@ test("refreshBridge excludes ensureRunning failures from same-cycle native sync 
                 ...record.connectionWizard,
                 state: "managed_error",
                 nextAction: "start",
-                message: "xiaohongshu startup failed"
+                message: "demo-managed startup failed"
               }
             };
           }
           return record;
         }),
-        errors: [{ id: "mcp_xiaohongshu", name: "xiaohongshu", message: "startup failed" }]
+        errors: [{ id: "mcp_demo-managed", name: "demo-managed", message: "startup failed" }]
       })
     },
     nativeSync: async ({ currentRecords }) => {
@@ -403,7 +419,7 @@ test("refreshBridge excludes ensureRunning failures from same-cycle native sync 
     }
   });
 
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
   await service.runManagedAction(installed.data.id, "test", {});
   nativeSyncCalls.length = 0;
 

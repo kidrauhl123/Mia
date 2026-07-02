@@ -9,7 +9,6 @@ const {
 test("built-in catalog contains only the first supported Mia-managed set", () => {
   const templates = builtinMcpTemplates();
   assert.deepEqual(templates.map((item) => item.id), [
-    "xiaohongshu",
     "playwright",
     "context7",
     "github",
@@ -21,20 +20,9 @@ test("built-in catalog contains only the first supported Mia-managed set", () =>
   assert.equal(templates.some((item) => /notion|slack|gmail|drive|calendar|todoist|canva|gitlab/i.test(item.id)), false);
 });
 
-test("xiaohongshu is a managed connector owned by Mia", () => {
+test("xiaohongshu is not exposed as a built-in MCP", () => {
   const template = builtinMcpTemplateById("xiaohongshu");
-  assert.equal(template.managementMode, "managed");
-  assert.equal(template.nativeName, "xiaohongshu");
-  assert.equal(template.transport.type, "http");
-  assert.equal(template.transport.url, "http://127.0.0.1:18060/mcp");
-  assert.equal(template.managedRuntime.connectorId, "xiaohongshu");
-  assert.equal(template.managedRuntime.expectedToolCount, 13);
-  assert.deepEqual(template.connectionWizard.actions.map((action) => action.id), [
-    "install",
-    "login",
-    "start",
-    "test"
-  ]);
+  assert.equal(template, null);
 });
 
 test("Lobster-derived native templates keep runtime commands out of user copy", () => {

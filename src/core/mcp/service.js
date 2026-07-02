@@ -35,6 +35,8 @@ const {
 } = require("./catalog.js");
 
 const MASK_SENTINEL = MASK;
+const RETIRED_BUILTIN_MCP_IDS = new Set(["xiaohongshu"]);
+const REMOVED_BUILTIN_MCP_MESSAGE = "This MCP has been removed from Mia.";
 
 function isLegacyPlaywrightTransport(transport = {}) {
   return String(transport?.type || "") === "stdio"
@@ -76,6 +78,29 @@ function withMarketplaceTemplateDefaults(input = {}) {
     managedRuntime: input.managedRuntime || template.managedRuntime || {},
     expectedToolCount: input.expectedToolCount || template.managedRuntime?.expectedToolCount || 0
   };
+}
+
+function retiredBuiltInMcpId(record = {}) {
+  const registryId = String(record.registryId || "").trim();
+  const connectorId = String(record.managedRuntime?.connectorId || "").trim();
+  if (RETIRED_BUILTIN_MCP_IDS.has(registryId)) return registryId;
+  if (RETIRED_BUILTIN_MCP_IDS.has(connectorId)) return connectorId;
+
+  const nativeName = String(record.nativeName || record.native_name || "").trim();
+  const homepage = String(record.homepage || "").trim();
+  const name = String(record.name || "").trim();
+  if (
+    nativeName === "xiaohongshu"
+    && (
+      record.source === "marketplace"
+      || record.managementMode === "managed"
+      || /小红书/.test(name)
+    )
+  ) {
+    return "xiaohongshu";
+  }
+  if (/xpzouying\/xiaohongshu-mcp/i.test(homepage)) return "xiaohongshu";
+  return "";
 }
 
 function readJson(fsImpl, filePath, fallback) {
@@ -203,13 +228,71 @@ function createCoreMcpService(deps = {}) {
   let bridgeInfo = null;
   let initializationPromise = null;
 
+  function retireBuiltInRecord(record) {
+    const retiredId = retiredBuiltInMcpId(record);
+    if (!retiredId) return { record, changed: false };
+    const deletedAt = record.deletedAt || now();
+    const alreadyRetired = record.enabled === false
+      && Number(record.deletedAt) === Number(deletedAt)
+      && record.connectionWizard?.state === "removed"
+      && record.managedRuntime?.state === "removed";
+    if (alreadyRetired) return { record, changed: false };
+    return {
+      changed: true,
+      record: normalizeCoreMcpRecord({
+        ...record,
+        registryId: retiredId,
+        nativeName: record.nativeName || retiredId,
+        managementMode: "managed",
+        enabled: false,
+        status: "removed",
+        lastTestStatus: "removed",
+        lastError: REMOVED_BUILTIN_MCP_MESSAGE,
+        deletedAt,
+        updatedAt: deletedAt,
+        managedRuntime: {
+          ...(record.managedRuntime && typeof record.managedRuntime === "object" ? sanitizeManagedValue(record.managedRuntime) : {}),
+          connectorId: retiredId,
+          state: "removed",
+          lastAction: "removed"
+        },
+        connectionWizard: {
+          state: "removed",
+          nextAction: "",
+          message: REMOVED_BUILTIN_MCP_MESSAGE,
+          missingRequiredInputs: [],
+          actions: []
+        }
+      }, { now, idFactory }) || record
+    };
+  }
+
+  function applyRemovedBuiltInMigrations(records = []) {
+    let changed = false;
+    const migrated = records.map((record) => {
+      const result = retireBuiltInRecord(record);
+      if (result.changed) changed = true;
+      return result.record;
+    });
+    return { records: migrated, changed };
+  }
+
   function applyMarketplaceDefaults(records = []) {
     const rows = Array.isArray(records) ? records : [];
     return normalizeCoreMcpRegistry(rows.map((record) => withMarketplaceTemplateDefaults(record)), { now, idFactory });
   }
 
+  function loadAllStoredRecords() {
+    const withDefaults = applyMarketplaceDefaults(registry.readAll());
+    const migrated = applyRemovedBuiltInMigrations(withDefaults);
+    if (migrated.changed) {
+      return registry.writeAll(migrated.records);
+    }
+    return migrated.records;
+  }
+
   function loadRecords(options = {}) {
-    const records = applyMarketplaceDefaults(registry.readAll());
+    const records = loadAllStoredRecords();
     return options.includeDeleted === true
       ? records
       : records.filter((record) => !record.deletedAt);

@@ -1,6 +1,5 @@
 "use strict";
 
-const { createXiaohongshuManagedConnector } = require("./managed-connectors/xiaohongshu.js");
 const { normalizeCoreMcpRecord, sanitizeSecretText } = require("./records.js");
 
 function mergeRecordPatch(record, patch, options = {}) {
@@ -20,9 +19,7 @@ function mergeRecordPatch(record, patch, options = {}) {
 }
 
 function createManagedConnectorSupervisor(deps = {}) {
-  const connectors = {
-    xiaohongshu: createXiaohongshuManagedConnector(deps)
-  };
+  const connectors = {};
   const children = new Map();
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const idFactory = typeof deps.idFactory === "function" ? deps.idFactory : undefined;

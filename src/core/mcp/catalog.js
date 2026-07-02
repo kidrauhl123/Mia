@@ -6,37 +6,6 @@ const BUILTIN_MODES = Object.freeze(["native", "managed"]);
 
 const BUILTIN_MCP_TEMPLATES = Object.freeze([
   {
-    id: "xiaohongshu",
-    name: "小红书 MCP",
-    nativeName: "xiaohongshu",
-    description: "Mia 管理的小红书本地 MCP，用于搜索、读取和发布相关小红书工作流。",
-    category: "内容平台",
-    managementMode: "managed",
-    homepage: "https://github.com/xpzouying/xiaohongshu-mcp",
-    transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} },
-    requiredInputs: [],
-    managedRuntime: {
-      connectorId: "xiaohongshu",
-      endpoint: "http://127.0.0.1:18060/mcp",
-      installDir: "",
-      expectedToolCount: 13,
-      state: "not_installed",
-      lastAction: ""
-    },
-    connectionWizard: {
-      state: "needs_managed_action",
-      nextAction: "install",
-      message: "Mia 将安装或定位本地小红书 MCP，完成登录后启动并检测连接。",
-      missingRequiredInputs: [],
-      actions: [
-        { id: "install", label: "安装组件" },
-        { id: "login", label: "打开登录" },
-        { id: "start", label: "启动服务" },
-        { id: "test", label: "检测并启用" }
-      ]
-    }
-  },
-  {
     id: "playwright",
     name: "Playwright MCP",
     nativeName: "playwright",

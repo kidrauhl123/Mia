@@ -42,6 +42,31 @@ function setup(t, overrides = {}) {
   };
 }
 
+async function saveManagedFixture(service, overrides = {}) {
+  const result = await service.save({
+    name: "Demo Managed MCP",
+    nativeName: "demo-managed",
+    managementMode: "managed",
+    enabled: false,
+    transport: { type: "http", url: "http://127.0.0.1:18070/mcp" },
+    managedRuntime: {
+      connectorId: "demo-managed",
+      endpoint: "http://127.0.0.1:18070/mcp",
+      expectedToolCount: 2
+    },
+    connectionWizard: {
+      state: "needs_managed_action",
+      nextAction: "install",
+      message: "Managed MCP setup is required.",
+      missingRequiredInputs: [],
+      actions: [{ id: "install", label: "Install" }, { id: "start", label: "Start" }, { id: "test", label: "Test" }]
+    },
+    ...overrides
+  });
+  assert.equal(result.success, true);
+  return result;
+}
+
 test("native template with no required fields tests and enables", async (t) => {
   const calls = [];
   const { service, runtime } = setup(t, {
@@ -123,24 +148,24 @@ test("native template stays disabled when connection test fails", async (t) => {
   assert.equal(result.data.lastTestCode, "spawn_failed");
 });
 
-test("managed xiaohongshu install creates disabled record with managed actions", async (t) => {
+test("managed demo-managed install creates disabled record with managed actions", async (t) => {
   const { service } = setup(t, {
     managedSupervisor: {
-      runAction: async () => ({ ok: true, state: "installed", message: "installed", recordPatch: { managedRuntime: { state: "installed", installDir: "/tmp/xhs" } } }),
+      runAction: async () => ({ ok: true, state: "installed", message: "installed", recordPatch: { managedRuntime: { state: "installed", installDir: "/tmp/managed-demo" } } }),
       ensureRunning: async (records) => ({ records, errors: [] })
     }
   });
 
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
 
   assert.equal(installed.success, true);
   assert.equal(installed.data.enabled, false);
   assert.equal(installed.data.managementMode, "managed");
-  assert.equal(installed.data.managedRuntime.connectorId, "xiaohongshu");
+  assert.equal(installed.data.managedRuntime.connectorId, "demo-managed");
   assert.equal(installed.data.connectionWizard.nextAction, "install");
 });
 
-test("runManagedAction updates xiaohongshu runtime state", async (t) => {
+test("runManagedAction updates demo-managed runtime state", async (t) => {
   const actions = [];
   const { service, runtime } = setup(t, {
     managedSupervisor: {
@@ -154,7 +179,7 @@ test("runManagedAction updates xiaohongshu runtime state", async (t) => {
             managedRuntime: {
               ...record.managedRuntime,
               state: action === "start" ? "running" : "installed",
-              installDir: "/tmp/xhs",
+              installDir: "/tmp/managed-demo",
               lastAction: action
             }
           }
@@ -163,9 +188,9 @@ test("runManagedAction updates xiaohongshu runtime state", async (t) => {
       ensureRunning: async (records) => ({ records, errors: [] })
     }
   });
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
   const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
-  stored[0].lastError = "Xiaohongshu login command failed to start: spawn go ENOENT";
+  stored[0].lastError = "Managed MCP login command failed to start: spawn go ENOENT";
   fs.writeFileSync(runtime.mcpServers, `${JSON.stringify(stored, null, 2)}\n`);
 
   const started = await service.runManagedAction(installed.data.id, "start", {});
@@ -174,53 +199,7 @@ test("runManagedAction updates xiaohongshu runtime state", async (t) => {
   assert.equal(started.data.managedRuntime.state, "running");
   assert.equal(started.data.connectionWizard.nextAction, "test");
   assert.equal(started.data.lastError, "");
-  assert.deepEqual(actions, [["xiaohongshu", "start"]]);
-});
-
-test("public save cannot patch managedRuntime installDir for built-in managed records", async (t) => {
-  const seen = [];
-  const { service, runtime } = setup(t, {
-    managedSupervisor: {
-      runAction: async (record, action) => {
-        seen.push(record.managedRuntime.installDir);
-        return {
-          ok: true,
-          state: action,
-          message: action,
-          recordPatch: {
-            managedRuntime: {
-              ...record.managedRuntime,
-              installDir: "/owned/xhs",
-              state: action,
-              lastAction: action
-            }
-          }
-        };
-      },
-      ensureRunning: async (records) => ({ records, errors: [] })
-    }
-  });
-  const installed = await service.installTemplate("xiaohongshu", {});
-
-  const saved = await service.save({
-    id: installed.data.id,
-    name: installed.data.name,
-    registryId: "xiaohongshu",
-    managementMode: "managed",
-    managedRuntime: {
-      connectorId: "xiaohongshu",
-      installDir: "/tmp/evil",
-      endpoint: "http://127.0.0.1:18060/mcp",
-      state: "installed"
-    },
-    transport: { type: "http", url: "http://127.0.0.1:18060/mcp" }
-  });
-  const storedAfterSave = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
-  await service.runManagedAction(installed.data.id, "start", {});
-
-  assert.equal(saved.success, true);
-  assert.notEqual(storedAfterSave[0].managedRuntime.installDir, "/tmp/evil");
-  assert.deepEqual(seen, [""]);
+  assert.deepEqual(actions, [["demo-managed", "start"]]);
 });
 
 test("runManagedAction returns failure and persists managed error when supervisor action fails", async (t) => {
@@ -246,7 +225,7 @@ test("runManagedAction returns failure and persists managed error when superviso
       ensureRunning: async (records) => ({ records, errors: [] })
     }
   });
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
 
   const started = await service.runManagedAction(installed.data.id, "start", {});
   const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
@@ -276,7 +255,7 @@ test("runManagedAction persists managed error when a non-test supervisor action 
       ensureRunning: async (records) => ({ records, errors: [] })
     }
   });
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
 
   const started = await service.runManagedAction(installed.data.id, "start", {});
   const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
@@ -307,7 +286,7 @@ test("runManagedAction repairs empty managed error actions on failure", async (t
       ensureRunning: async (records) => ({ records, errors: [] })
     }
   });
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
   const storedBefore = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
   storedBefore[0].connectionWizard = {
     state: "managed_error",
@@ -333,7 +312,7 @@ test("setEnabled blocks managed enable until a connected test already exists", a
     }
   });
 
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
   const enabled = await service.setEnabled(installed.data.id, true);
   const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
 
@@ -413,7 +392,7 @@ test("test updates native built-in connection wizard after a successful connecti
   assert.equal(stored[0].connectionWizard.state, "connected");
 });
 
-test("runManagedAction test enables xiaohongshu after successful MCP test", async (t) => {
+test("runManagedAction test enables demo-managed after successful MCP test", async (t) => {
   const calls = [];
   const { service } = setup(t, {
     managedSupervisor: {
@@ -423,7 +402,7 @@ test("runManagedAction test enables xiaohongshu after successful MCP test", asyn
           ok: true,
           state: action === "start" ? "running" : "installed",
           message: action,
-          recordPatch: { managedRuntime: { ...record.managedRuntime, state: "running", installDir: "/tmp/xhs", lastAction: action } }
+          recordPatch: { managedRuntime: { ...record.managedRuntime, state: "running", installDir: "/tmp/managed-demo", lastAction: action } }
         };
       },
       ensureRunning: async (records) => ({ records, errors: [] })
@@ -444,7 +423,7 @@ test("runManagedAction test enables xiaohongshu after successful MCP test", asyn
       toolManifest: () => []
     }
   });
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
   await service.runManagedAction(installed.data.id, "start", {});
 
   const tested = await service.runManagedAction(installed.data.id, "test", {});
@@ -454,9 +433,9 @@ test("runManagedAction test enables xiaohongshu after successful MCP test", asyn
   assert.equal(tested.data.status, "connected");
   assert.equal(tested.data.connectionWizard.state, "connected");
   assert.deepEqual(calls, [
-    ["supervisor", "start", "xiaohongshu"],
-    ["supervisor", "test", "xiaohongshu"],
-    ["generic", "xiaohongshu", false]
+    ["supervisor", "start", "demo-managed"],
+    ["supervisor", "test", "demo-managed"],
+    ["generic", "demo-managed", false]
   ]);
 });
 
@@ -504,7 +483,7 @@ test("runManagedAction test returns failure and skips generic test when supervis
       toolManifest: () => []
     }
   });
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
 
   const tested = await service.runManagedAction(installed.data.id, "test", { probe: true });
   const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
@@ -518,7 +497,7 @@ test("runManagedAction test returns failure and skips generic test when supervis
   assert.equal(tested.data.transport.url, installed.data.transport.url);
   assert.equal(tested.data.managedRuntime.state, "error");
   assert.equal(tested.data.lastError, "endpoint unhealthy TOKEN=[redacted]");
-  assert.deepEqual(calls, [["supervisor", "test", "xiaohongshu"]]);
+  assert.deepEqual(calls, [["supervisor", "test", "demo-managed"]]);
   assert.equal(stored[0].enabled, false);
   assert.equal(stored[0].connectionWizard.state, "managed_error");
   assert.equal(stored[0].transport.url, installed.data.transport.url);
@@ -551,7 +530,7 @@ test("runManagedAction test returns failure and skips generic test when supervis
       toolManifest: () => []
     }
   });
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
 
   const tested = await service.runManagedAction(installed.data.id, "test", {});
   const stored = JSON.parse(fs.readFileSync(runtime.mcpServers, "utf8"));
@@ -564,18 +543,18 @@ test("runManagedAction test returns failure and skips generic test when supervis
   assert.equal(tested.data.connectionWizard.message, "supervisor boom TOKEN=[redacted]");
   assert.equal(tested.data.transport.url, installed.data.transport.url);
   assert.equal(tested.data.lastError, "supervisor boom TOKEN=[redacted]");
-  assert.deepEqual(calls, [["supervisor", "test", "xiaohongshu"]]);
+  assert.deepEqual(calls, [["supervisor", "test", "demo-managed"]]);
   assert.equal(stored[0].enabled, false);
   assert.equal(stored[0].connectionWizard.state, "managed_error");
   assert.equal(stored[0].transport.url, installed.data.transport.url);
 });
 
-test("runManagedAction test failure points xiaohongshu back to start when endpoint is down", async (t) => {
+test("runManagedAction test failure points demo-managed back to start when endpoint is down", async (t) => {
   const { service } = setup(t, {
     managedSupervisor: {
       runAction: async (_record, action) => {
         if (action === "test") {
-          throw new Error("Xiaohongshu endpoint health check failed for http://127.0.0.1:18060/mcp. fetch failed");
+          throw new Error("Managed MCP endpoint health check failed for http://127.0.0.1:18070/mcp. fetch failed");
         }
         return {
           ok: true,
@@ -587,7 +566,7 @@ test("runManagedAction test failure points xiaohongshu back to start when endpoi
       ensureRunning: async (records) => ({ records, errors: [] })
     }
   });
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
 
   const tested = await service.runManagedAction(installed.data.id, "test", {});
 
@@ -616,13 +595,13 @@ test("refreshBridge starts enabled managed records before manager refresh", asyn
       toolManifest: () => []
     }
   });
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
   await service.runManagedAction(installed.data.id, "test", {});
   await service.refreshBridge();
   const listed = await service.list();
 
   assert.equal(calls.some((call) => call[0] === "ensureRunning"), true);
-  assert.equal(calls.some((call) => call[0] === "refresh" && call[1].includes("xiaohongshu:running")), true);
+  assert.equal(calls.some((call) => call[0] === "refresh" && call[1].includes("demo-managed:running")), true);
   assert.equal(listed.data.servers[0].managedRuntime.state, "running");
 });
 
@@ -650,7 +629,7 @@ test("refreshBridge persists managed error patches returned by ensureRunning", a
       })
     }
   });
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
   await service.runManagedAction(installed.data.id, "test", {});
 
   const refreshed = await service.refreshBridge();
@@ -676,7 +655,7 @@ test("refreshBridge excludes ensureRunning failures from same-cycle manager refr
       }),
       ensureRunning: async (records) => ({
         records: records.map((record) => {
-          if (record.nativeName === "xiaohongshu") {
+          if (record.nativeName === "demo-managed") {
             return {
               ...record,
               managedRuntime: { ...record.managedRuntime, state: "error" },
@@ -684,7 +663,7 @@ test("refreshBridge excludes ensureRunning failures from same-cycle manager refr
                 ...record.connectionWizard,
                 state: "managed_error",
                 nextAction: "start",
-                message: "xiaohongshu startup failed"
+                message: "demo-managed startup failed"
               }
             };
           }
@@ -693,7 +672,7 @@ test("refreshBridge excludes ensureRunning failures from same-cycle manager refr
             managedRuntime: { ...record.managedRuntime, state: "running" }
           };
         }),
-        errors: [{ id: "mcp_xiaohongshu", name: "xiaohongshu", message: "startup failed" }]
+        errors: [{ id: "mcp_demo-managed", name: "demo-managed", message: "startup failed" }]
       })
     },
     manager: {
@@ -706,20 +685,20 @@ test("refreshBridge excludes ensureRunning failures from same-cycle manager refr
     }
   });
 
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
   await service.installTemplate("playwright", {});
   await service.runManagedAction(installed.data.id, "test", {});
   refreshCalls.length = 0;
 
   const refreshed = await service.refreshBridge();
   const listed = await service.list();
-  const failed = listed.data.servers.find((record) => record.nativeName === "xiaohongshu");
+  const failed = listed.data.servers.find((record) => record.nativeName === "demo-managed");
   const healthy = listed.data.servers.find((record) => record.nativeName === "playwright");
 
   assert.equal(refreshed.success, true);
   assert.deepEqual(refreshCalls, [["playwright"]]);
   assert.equal(failed.connectionWizard.state, "managed_error");
-  assert.equal(failed.connectionWizard.message, "xiaohongshu startup failed");
+  assert.equal(failed.connectionWizard.message, "demo-managed startup failed");
   assert.equal(failed.enabled, true);
   assert.equal(healthy.enabled, true);
   assert.notEqual(healthy.connectionWizard.state, "managed_error");
@@ -749,7 +728,7 @@ test("refreshBridge returns sanitized error and persists managed_error when ensu
     }
   });
 
-  const installed = await service.installTemplate("xiaohongshu", {});
+  const installed = await saveManagedFixture(service);
   await service.runManagedAction(installed.data.id, "test", {});
 
   const refreshed = await service.refreshBridge();

@@ -50,6 +50,16 @@
       bundled: true
     }),
     Object.freeze({
+      id: "crown",
+      kind: "lottie",
+      assetId: "crown",
+      label: "皇冠",
+      format: "tgs",
+      relativePath: "assets/status-badges/crown.tgs",
+      loop: "always",
+      bundled: true
+    }),
+    Object.freeze({
       id: "blue-fire",
       kind: "lottie",
       assetId: "blue-fire",

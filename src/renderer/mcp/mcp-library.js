@@ -361,15 +361,7 @@
   function managedFailureMessage(action = "", detail = "") {
     const text = String(detail || "").trim();
     if (!text) return `${managedActionLabel(action)}失败，请重试。`;
-    if (/runtime download failed|runtime download is not available|runtime download timed out|archive did not contain/i.test(text)) {
-      return "小红书运行组件下载失败，请检查网络后重试。";
-    }
-    if (/spawn go ENOENT|go is not installed|go missing/i.test(text)) {
-      return "缺少小红书运行组件，请检查网络后重试。";
-    }
-    if (/endpoint health check failed/i.test(text)) {
-      return "小红书服务启动后检测失败，请重试。";
-    }
+    if (/endpoint health check failed/i.test(text)) return `${managedActionLabel(action)}失败，请重试。`;
     if (isVerboseDiagnostic(text)) return `${managedActionLabel(action)}失败，请重试。`;
     return text;
   }
