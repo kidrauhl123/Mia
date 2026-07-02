@@ -36,3 +36,23 @@ Verification
 
 Commit
 - `Replace social busy queueing with AgentSession routing`
+
+Fix Follow-up (Needs Fixes Review)
+
+Status
+- DONE
+
+Fix Summary
+- Persisted managed social conversation descriptors inside `local-bot-responder` so `stopActiveConversationRun()` can resolve `(conversationId, engineId, workspacePath)` and route cancellation through `agentSessionManager.cancelActive(...)`.
+- Kept that resolution conversation-scoped, so no renderer payload expansion was required for this fix.
+- Fixed the managed-input workspace validation path so an error no longer leaves `dedupKey` stuck in `inFlight`.
+
+Focused Tests Added
+- `stopActiveConversationRun cancels an AgentSession-backed social run using the stored session descriptor`
+- `managed AgentSession workspace validation failure does not poison retries for the same dedupKey`
+
+Verification
+- `node --test tests/local-bot-responder.test.js`
+  - Passed: 38 tests, 0 failures.
+- `node --test tests/local-bot-responder.test.js tests/renderer-social.test.js tests/renderer-shell.test.js tests/agent-session-manager.test.js`
+  - Passed: 289 tests, 0 failures.

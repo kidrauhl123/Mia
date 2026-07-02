@@ -658,6 +658,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
   const processed = new Set();
   const inFlight = new Set();
   const activeRunsByConversation = new Map();
+  const managedSessionsByConversation = new Map();
   const queuedInvocationsByConversation = new Map();
 
   function remember(key) {
@@ -668,6 +669,42 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
   function clearActiveRun(conversationId, dedupKey) {
     const entry = activeRunsByConversation.get(conversationId);
     if (entry && entry.dedupKey === dedupKey) activeRunsByConversation.delete(conversationId);
+  }
+
+  function rememberManagedSession(input = {}, meta = {}) {
+    const conversationId = String(input.conversationId || "").trim();
+    if (!conversationId) return null;
+    const existing = managedSessionsByConversation.get(conversationId) || {};
+    const next = {
+      descriptor: {
+        conversationId,
+        engineId: String(input.engineId || "").trim(),
+        workspacePath: String(input.workspacePath || "").trim()
+      },
+      conversationId,
+      botId: String(meta.botId || existing.botId || "").trim(),
+      turnId: meta.mode === "queued"
+        ? String(existing.turnId || meta.turnId || "").trim()
+        : String(meta.turnId || existing.turnId || "").trim(),
+      runId: String(meta.runId || existing.runId || "").trim(),
+      status: "running"
+    };
+    managedSessionsByConversation.set(conversationId, next);
+    return next;
+  }
+
+  function resolveManagedSession(payload = {}) {
+    const conversationId = String(payload?.conversationId || "").trim();
+    if (conversationId) return managedSessionsByConversation.get(conversationId) || null;
+    const turnId = String(payload?.turnId || payload?.turn_id || "").trim();
+    if (turnId) {
+      return [...managedSessionsByConversation.values()]
+        .find((entry) => String(entry?.turnId || "").trim() === turnId) || null;
+    }
+    if (managedSessionsByConversation.size === 1) {
+      return managedSessionsByConversation.values().next().value || null;
+    }
+    return null;
   }
 
   function queueInvocation(args, activeRun) {
@@ -746,6 +783,18 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     };
   }
 
+  function stoppedManagedRunResult(entry, payload = {}) {
+    const requestedRunId = String(payload?.runId || "").trim();
+    const requestedTurnId = String(payload?.turnId || payload?.turn_id || "").trim();
+    return {
+      stopped: true,
+      conversationId: entry.conversationId,
+      ...(requestedRunId || entry.runId ? { runId: requestedRunId || entry.runId } : {}),
+      ...(requestedTurnId || entry.turnId ? { turnId: requestedTurnId || entry.turnId } : {}),
+      status: "cancelling"
+    };
+  }
+
   function stopActiveConversationRun(payload = {}) {
     const conversationId = String(payload?.conversationId || "").trim();
     const runId = String(payload?.runId || "").trim();
@@ -758,16 +807,35 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       if (turnId) return item.turnId === turnId;
       return !runId || item.runId === runId;
     });
-    if (!entry) return { stopped: false };
-    if (entry.status === "cancelling" || entry.abortController.signal.aborted) {
+    if (entry) {
+      if (entry.status === "cancelling" || entry.abortController.signal.aborted) {
+        return stoppedRunResult(entry);
+      }
+      entry.status = "cancelling";
+      entry.cancelRequestedAt = new Date().toISOString();
+      emitRunEvent(entry, { type: "run.cancelling" });
+      scheduleCancelDrainTimeout(entry);
+      entry.abortController.abort();
       return stoppedRunResult(entry);
     }
-    entry.status = "cancelling";
-    entry.cancelRequestedAt = new Date().toISOString();
-    emitRunEvent(entry, { type: "run.cancelling" });
-    scheduleCancelDrainTimeout(entry);
-    entry.abortController.abort();
-    return stoppedRunResult(entry);
+
+    const managedEntry = resolveManagedSession(payload);
+    if (!managedEntry || !agentSessionManager || typeof agentSessionManager.cancelActive !== "function") {
+      return { stopped: false };
+    }
+    if (managedEntry.status === "cancelling") {
+      return stoppedManagedRunResult(managedEntry, payload);
+    }
+    managedEntry.status = "cancelling";
+    void Promise.resolve(agentSessionManager.cancelActive(managedEntry.descriptor))
+      .then((cancelled) => {
+        if (!cancelled) managedEntry.status = "running";
+      })
+      .catch((error) => {
+        managedEntry.status = "running";
+        log(`[local-bot-responder] managed cancel failed: ${error?.message || error}`);
+      });
+    return stoppedManagedRunResult(managedEntry, payload);
   }
 
   function emitPostedMessage(conversationId, result) {
@@ -831,20 +899,34 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       inFlight.delete(dedupKey);
       return false;
     }
-    const managedInput = managedAgentSessionInput({
-      conversationId,
-      botSnapshot,
-      runtimeConfig,
-      turnId,
-      userPrompt,
-      userAttachments,
-      agentSessionManager,
-      agentSessionWorkspacePath
-    });
+    let managedInput = null;
+    try {
+      managedInput = managedAgentSessionInput({
+        conversationId,
+        botSnapshot,
+        runtimeConfig,
+        turnId,
+        userPrompt,
+        userAttachments,
+        agentSessionManager,
+        agentSessionWorkspacePath
+      });
+    } catch (error) {
+      inFlight.delete(dedupKey);
+      throw error;
+    }
     if (managedInput) {
       try {
         const accepted = await agentSessionManager.sendUserInput(managedInput);
-        if (accepted?.ok) remember(dedupKey);
+        if (accepted?.ok) {
+          remember(dedupKey);
+          rememberManagedSession(managedInput, {
+            mode: accepted.mode,
+            turnId,
+            runId: runIdForDedupKey(dedupKey),
+            botId
+          });
+        }
         return Boolean(accepted?.ok);
       } finally {
         inFlight.delete(dedupKey);

@@ -834,6 +834,116 @@ test("respond hands same-conversation AgentSession sends to the manager immediat
   assert.equal(await second, true);
 });
 
+test("stopActiveConversationRun cancels an AgentSession-backed social run using the stored session descriptor", async () => {
+  const calls = { engine: [], manager: [], cancel: [], post: [], log: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      return { choices: [{ message: { content: "should not run" } }] };
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      },
+      cancelActive: async (descriptor) => {
+        calls.cancel.push(descriptor);
+        return true;
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  assert.equal(await responder.respond({
+    ...base,
+    dedupKey: "m_stop:codex",
+    userPrompt: "first",
+    turnId: "t_stop",
+    runtimeConfig: { agentEngine: "claude" }
+  }), true);
+
+  const stopResult = await responder.stopActiveConversationRun({
+    conversationId: "g_1",
+    runId: "car_managed_1",
+    turnId: "t_stop"
+  });
+
+  assert.deepEqual(calls.cancel, [{
+    conversationId: "g_1",
+    engineId: "claude",
+    workspacePath: "/repo/workspace"
+  }]);
+  assert.deepEqual(stopResult, {
+    stopped: true,
+    conversationId: "g_1",
+    runId: "car_managed_1",
+    turnId: "t_stop",
+    status: "cancelling"
+  });
+});
+
+test("managed AgentSession workspace validation failure does not poison retries for the same dedupKey", async () => {
+  let workspacePath = "";
+  const calls = { manager: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run");
+    },
+    postConversationMessageAsBot: async () => ({ ok: true }),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => workspacePath
+  });
+
+  await assert.rejects(
+    responder.respond({
+      ...base,
+      dedupKey: "m_retry:codex",
+      turnId: "t_retry",
+      runtimeConfig: { agentEngine: "claude" }
+    }),
+    /AgentSession workspace path is required/
+  );
+
+  workspacePath = "/repo/workspace";
+
+  assert.equal(await responder.respond({
+    ...base,
+    dedupKey: "m_retry:codex",
+    turnId: "t_retry",
+    runtimeConfig: { agentEngine: "claude" }
+  }), true);
+  assert.deepEqual(calls.manager, [{
+    conversationId: "g_1",
+    engineId: "claude",
+    workspacePath: "/repo/workspace",
+    turnId: "t_retry",
+    text: "hi"
+  }]);
+});
+
 test("respond streams local engine trace events through cloud run events and saves final trace", async () => {
   const { responder, calls } = setup({
     sendChat: async (args) => {
