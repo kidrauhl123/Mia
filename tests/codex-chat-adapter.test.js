@@ -58,7 +58,7 @@ function createDeps(overrides = {}) {
     getAgentSessionId: () => overrides.externalSessionId || "",
     getUserMcpSpecs: () => overrides.userMcpSpecs ?? {},
     injectGroupContextForSdk: (prompt, contextBlock) => `GROUP:${contextBlock}\n${prompt}`,
-    lastUserPrompt: overrides.lastUserPrompt || (() => "hello"),
+    currentUserPrompt: overrides.currentUserPrompt || (() => "hello"),
     memoryBlock: overrides.memoryBlock || (() => ""),
     normalizeEffortLevel: (level, engine) => `${engine}:${level}`,
     processEnvStrings: () => overrides.env || { PATH: "/bin" },
@@ -333,7 +333,7 @@ test("sendChat resumes existing thread only when MCP fingerprint matches", async
 });
 
 test("sendChat resumes utility conversations when native persistence is enabled", async () => {
-  const deps = createDeps({ externalSessionId: "thread_old", expandedPrompt: "again", lastUserPrompt: () => "again" });
+  const deps = createDeps({ externalSessionId: "thread_old", expandedPrompt: "again", currentUserPrompt: () => "again" });
   const adapter = createCodexChatAdapter(deps);
 
   const response = await adapter.sendChat({
@@ -355,13 +355,9 @@ test("sendChat resumes utility conversations when native persistence is enabled"
   assert.equal(response.id, "thread_old");
 });
 
-test("sendChat omits visible history from native Codex prompt", async () => {
-  let promptMessages = null;
+test("sendChat omits visible history and helper-prepended transcript blocks from native Codex prompt", async () => {
   const deps = createDeps({
-    lastUserPrompt: (messages) => {
-      promptMessages = messages;
-      return messages.map((message) => message.content).join("\n");
-    }
+    currentUserPrompt: () => "hello"
   });
   const adapter = createCodexChatAdapter(deps);
 
@@ -379,8 +375,9 @@ test("sendChat omits visible history from native Codex prompt", async () => {
     persistAgentSession: true
   });
 
-  assert.deepEqual(promptMessages.map((message) => message.content), ["system rules", "hello"]);
   const call = deps.calls.find((entry) => entry[0] === "app-server")[1];
+  assert.doesNotMatch(call.prompt, /会话前文/);
+  assert.doesNotMatch(call.prompt, /system rules/);
   assert.doesNotMatch(call.prompt, /old user|old reply/);
   assert.match(call.prompt, /hello/);
 });
@@ -470,7 +467,7 @@ test("sendChat keeps Mia memory out of new and resumed Codex native sessions", a
   const secondDeps = createDeps({
     savedEntry: { id: "thread_1", fingerprint: "" },
     memoryBlock: () => memory,
-    lastUserPrompt: () => "again",
+    currentUserPrompt: () => "again",
     expandedPrompt: "again"
   });
   const secondAdapter = createCodexChatAdapter(secondDeps);
@@ -491,7 +488,7 @@ test("sendChat keeps Mia memory out of new and resumed Codex native sessions", a
 });
 
 test("sendChat can persist native sessions for utility conversations", async () => {
-  const deps = createDeps({ startedThreadId: "thread_native", lastUserPrompt: () => "again" });
+  const deps = createDeps({ startedThreadId: "thread_native", currentUserPrompt: () => "again" });
   const adapter = createCodexChatAdapter(deps);
 
   await adapter.sendChat({
@@ -575,7 +572,7 @@ test("sendChat keeps image path refs as text-only Codex prompt content", async (
     "[[MIA_PATH_REFS_END]]"
   ].join("\n");
   const deps = createDeps({
-    lastUserPrompt: () => userText
+    currentUserPrompt: () => userText
   });
   const adapter = createCodexChatAdapter(deps);
 

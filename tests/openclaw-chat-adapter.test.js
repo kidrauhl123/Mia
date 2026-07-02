@@ -102,7 +102,7 @@ function createDeps(overrides = {}) {
     },
     appendEngineLog: (line) => calls.push(["log", line]),
     injectGroupContextForSdk: (prompt, contextBlock) => `${contextBlock}\n\n${prompt}`,
-    lastUserPrompt: (messages) => [...messages].reverse().find((message) => message.role === "user")?.content || "",
+    currentUserPrompt: (messages) => [...messages].reverse().find((message) => message.role === "user")?.content || "",
     memoryBlock: () => "Mia 记忆",
     syncNativeMemoryFiles: overrides.syncNativeMemoryFiles,
     syncNativeContextFiles: overrides.syncNativeContextFiles,
@@ -525,6 +525,7 @@ test("sendChat logs OpenClaw context budget without prompt bodies or visible his
   assert.match(budget, /loadedSkillChars=[1-9]\d*/);
   assert.doesNotMatch(budget, /secret-/);
   const promptText = deps.calls.find((call) => call[0] === "acp-prompt")[1].prompt[0].text;
+  assert.doesNotMatch(promptText, /会话前文/);
   assert.doesNotMatch(promptText, /secret-history/);
   assert.doesNotMatch(promptText, /secret-reply/);
   assert.match(promptText, /secret-last/);

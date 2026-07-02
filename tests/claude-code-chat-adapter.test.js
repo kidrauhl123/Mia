@@ -45,7 +45,7 @@ function createDeps(messages, overrides = {}) {
     getSchedulerMcpSpec: () => overrides.schedulerMcpSpec ?? null,
     getUserMcpSpecs: () => overrides.userMcpSpecs ?? {},
     injectGroupContextForSdk: (prompt, contextBlock) => `GROUP:${contextBlock}\n${prompt}`,
-    lastUserPrompt: overrides.lastUserPrompt || (() => "hello"),
+    currentUserPrompt: overrides.currentUserPrompt || (() => "hello"),
     memoryBlock: overrides.memoryBlock || (() => ""),
     normalizeEffortLevel: (level, engine) => `${engine}:${level}`,
     processEnvStrings: () => ({ PATH: "/bin" }),
@@ -677,16 +677,12 @@ test("sendChat disables Claude cronjob so reminders route through Mia scheduler"
   assert.deepEqual(Object.keys(queryCall.options.mcpServers), ["mia-scheduler"]);
 });
 
-test("sendChat omits visible history from native Claude prompt", async () => {
-  let promptMessages = null;
+test("sendChat omits visible history and helper-prepended transcript blocks from native Claude prompt", async () => {
   const deps = createDeps([
     { session_id: "sess_native" },
     { type: "assistant", message: { content: [{ text: "ok" }] } }
   ], {
-    lastUserPrompt: (messages) => {
-      promptMessages = messages;
-      return messages.map((message) => message.content).join("\n");
-    }
+    currentUserPrompt: () => "hello"
   });
   const adapter = createClaudeCodeChatAdapter(deps);
 
@@ -706,8 +702,9 @@ test("sendChat omits visible history from native Claude prompt", async () => {
     persistAgentSession: true
   });
 
-  assert.deepEqual(promptMessages.map((message) => message.content), ["system rules", "hello"]);
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.doesNotMatch(queryCall.prompt, /会话前文/);
+  assert.doesNotMatch(queryCall.prompt, /system rules/);
   assert.doesNotMatch(queryCall.prompt, /old user|old reply/);
   assert.match(queryCall.prompt, /hello/);
 });
@@ -716,7 +713,7 @@ test("sendChat can persist native sessions for utility turns", async () => {
   const deps = createDeps([
     { session_id: "sess_native" },
     { type: "assistant", message: { content: [{ text: "ok" }] } }
-  ], { lastUserPrompt: () => "再看看" });
+  ], { currentUserPrompt: () => "再看看" });
   const adapter = createClaudeCodeChatAdapter(deps);
 
   await adapter.sendChat({
@@ -744,7 +741,7 @@ test("sendChat can persist native sessions for utility turns", async () => {
 test("sendChat resumes utility turns when native persistence is enabled", async () => {
   const deps = createDeps([
     { type: "assistant", message: { content: [{ text: "resumed utility" }] } }
-  ], { savedEntry: { id: "old_session", fingerprint: "fp1" }, lastUserPrompt: () => "再看看" });
+  ], { savedEntry: { id: "old_session", fingerprint: "fp1" }, currentUserPrompt: () => "再看看" });
   const adapter = createClaudeCodeChatAdapter(deps);
 
   await adapter.sendChat({
@@ -872,7 +869,7 @@ test("sendChat keeps Mia memory out while still suppressing repeated persona on 
   ], {
     savedEntry: { id: "sess_1", fingerprint: "fp1" },
     memoryBlock: () => memory,
-    lastUserPrompt: () => "again",
+    currentUserPrompt: () => "again",
     expandedPrompt: "again"
   });
   const secondAdapter = createClaudeCodeChatAdapter(secondDeps);

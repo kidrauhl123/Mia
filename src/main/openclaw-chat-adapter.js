@@ -855,7 +855,7 @@ function enqueueOpenClawAcpRuntime(entry, run) {
 
 function createOpenClawChatAdapter(deps = {}) {
   const shellCommandPath = requireDependency(deps, "shellCommandPath");
-  const lastUserPrompt = requireDependency(deps, "lastUserPrompt");
+  const currentUserPrompt = requireDependency(deps, "currentUserPrompt");
   const expandLeadingSkillCommand = requireDependency(deps, "expandLeadingSkillCommand");
   const injectGroupContextForSdk = requireDependency(deps, "injectGroupContextForSdk");
   const readBotPersona = requireDependency(deps, "readBotPersona");
@@ -1680,7 +1680,7 @@ function createOpenClawChatAdapter(deps = {}) {
   async function sendChat({ bot, sessionId, messages, group, signal, emit = null, utility = false, scheduledFire = false, persistAgentSession = !utility, skillMaterialization = null }) {
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;
     const originMessageId = String(lastUserMessage?.id || "");
-    const lastUser = lastUserPrompt(promptMessagesForNativeSession(messages, persistAgentSession));
+    const lastUser = currentUserPrompt(promptMessagesForNativeSession(messages, persistAgentSession));
     const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "inline" }) || lastUser);
     const memoryMcpFingerprint = getMcpFingerprint();
     const modelRuntime = resolveModelRuntime(bot.engineConfig || {}, { engine: "openclaw", bot });

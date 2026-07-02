@@ -194,7 +194,7 @@ function createCodexChatAdapter(deps = {}) {
   const shellCommandPath = requireDependency(deps, "shellCommandPath");
   const resolveAgentRuntime = deps.resolveAgentRuntime || (() => null);
   const agentRuntimeEnv = deps.agentRuntimeEnv || null;
-  const lastUserPrompt = requireDependency(deps, "lastUserPrompt");
+  const currentUserPrompt = requireDependency(deps, "currentUserPrompt");
   const expandLeadingSkillCommand = requireDependency(deps, "expandLeadingSkillCommand");
   const injectGroupContextForSdk = requireDependency(deps, "injectGroupContextForSdk");
   const readBotPersona = requireDependency(deps, "readBotPersona");
@@ -279,7 +279,7 @@ function createCodexChatAdapter(deps = {}) {
       String(mcpFingerprint || "")
     ].join(":");
     const resetNativeSession = Boolean(savedEntry.id && !externalSessionId);
-    const lastUser = lastUserPrompt(promptMessagesForNativeSession(messages, shouldPersistAgentSession));
+    const lastUser = currentUserPrompt(promptMessagesForNativeSession(messages, shouldPersistAgentSession));
     // Best-effort: grab id from last user message for scheduler context
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;
     const originMessageId = String(lastUserMessage?.id || "");

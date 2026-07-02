@@ -651,6 +651,7 @@ test("engine port selection and health probing live behind a main engine-health 
 
 test("Hermes startup and chat recovery stay owned by Mia Core", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const nativeTurnHelpersSource = fs.readFileSync(path.join(root, "src/main/native-turn-helpers.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const rendererSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const ipcChannelsSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
@@ -672,6 +673,8 @@ test("Hermes startup and chat recovery stay owned by Mia Core", () => {
     /recoverHermesAfterFailure:\s*recoverHermesChatEngineAfterFailure/,
     "retired Hermes HTTP adapters must not keep a direct-retry recovery hook in main"
   );
+  assert.doesNotMatch(nativeTurnHelpersSource, /会话前文（按时间顺序）/, "native prompt helpers must not serialize prior visible turns");
+  assert.match(nativeTurnHelpersSource, /function currentUserPrompt/, "native prompt helpers should expose current-turn-only prompt extraction");
   assert.match(
     mainSource,
     /ensureHermesReady:\s*ensureHermesChatEngineReady/,

@@ -38,12 +38,6 @@ function createNativeTurnHelpers(deps = {}) {
     return /^\/[A-Za-z0-9_:/.-]+(?:\s|$)/.test(input) ? input : "";
   }
 
-  function roleLabel(role) {
-    if (role === "assistant") return "助手";
-    if (role === "system") return "系统";
-    return "用户";
-  }
-
   function messagePromptContent(message) {
     const attachmentText = message.role === "user" ? attachmentContext(message.attachments) : "";
     return [
@@ -52,38 +46,20 @@ function createNativeTurnHelpers(deps = {}) {
     ].filter(Boolean).join("\n\n").trim();
   }
 
-  function transcriptLine(message) {
-    const content = messagePromptContent(message);
-    if (!content) return "";
-    return `${roleLabel(message.role)}：${content}`;
-  }
-
-  function lastUserPrompt(messages) {
+  function currentUserPrompt(messages) {
     const normalized = normalizeMessages(messages);
     const lastUserIndex = normalized.map((message) => message.role).lastIndexOf("user");
     if (lastUserIndex < 0) throw new Error("No user message found.");
     const last = normalized[lastUserIndex];
-    const currentUserPrompt = messagePromptContent(last);
-    if (!currentUserPrompt) throw new Error("No user message found.");
-    const context = normalized
-      .slice(0, lastUserIndex)
-      .map(transcriptLine)
-      .filter(Boolean)
-      .join("\n\n")
-      .trim();
-    if (!context) return currentUserPrompt;
-    return [
-      "会话前文（按时间顺序）：",
-      context,
-      "",
-      "当前用户消息：",
-      currentUserPrompt
-    ].join("\n");
+    const prompt = messagePromptContent(last);
+    if (!prompt) throw new Error("No user message found.");
+    return prompt;
   }
 
   return {
     cleanSessionId,
-    lastUserPrompt,
+    currentUserPrompt,
+    lastUserPrompt: currentUserPrompt,
     slashCommandText
   };
 }
