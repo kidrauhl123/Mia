@@ -35,16 +35,14 @@ const { createAgentCommandProvider } = require("./main/agent-command-provider.js
 const { createClaudeBridgePluginService } = require("./main/claude-bridge-plugin-service.js");
 const { requireBot } = require("./main/bot-registry.js");
 const {
-  closeManagedClaudeProxySessions,
-  createClaudeCodeChatAdapter
-} = require("./main/claude-code-chat-adapter.js");
+  createClaudeCodeStatelessAdapter
+} = require("./main/claude-code-stateless-adapter.js");
 const { createClaudeCodeMiaProxy } = require("./main/claude-code-mia-proxy.js");
 const { createCodexMiaProxy } = require("./main/codex-mia-proxy.js");
 const {
-  closeManagedCodexProxySessions,
-  createCodexChatAdapter,
+  createCodexStatelessAdapter,
   mapCodexPermissionMode
-} = require("./main/codex-chat-adapter.js");
+} = require("./main/codex-stateless-adapter.js");
 const { syncCodexConfigForPermission } = require("./main/codex-config-sync.js");
 const {
   closeOpenClawAcpRuntimes,
@@ -2226,8 +2224,8 @@ async function restartEngineIfRunning() {
 }
 
 function createActiveStatelessChatEngineAdapters() {
-  const claudeAdapter = createActiveClaudeCodeChatAdapter();
-  const codexAdapter = createActiveCodexChatAdapter();
+  const claudeAdapter = createActiveClaudeCodeStatelessAdapter();
+  const codexAdapter = createActiveCodexStatelessAdapter();
   const openClawAdapter = createActiveOpenClawStatelessAdapter();
   return createStatelessChatEngineAdapters({
     sendClaudeCodeStateless: claudeAdapter.sendStateless,
@@ -2274,66 +2272,27 @@ async function ensureHermesChatEngineReady() {
 function _noopGroupHeader() { return ""; }
 function _passthroughGroupContext(userMessage) { return userMessage; }
 
-function createActiveClaudeCodeChatAdapter() {
-  return createClaudeCodeChatAdapter({
+function createActiveClaudeCodeStatelessAdapter() {
+  return createClaudeCodeStatelessAdapter({
     appendEngineLog,
     cwd: agentWorkspaceDir,
-    chatCompletionResponse,
     claudeAgentSdk,
-    ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
-    ensureUserMcpReady: () => ensureUserMcpReady("Claude Code chat"),
-    expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-    clearAgentSessionEntry: agentSessionStore.deleteEntry,
-    enginePermissionMode: settingsStore.enginePermissionMode,
-    ensureMiaClaudeProxy: (managedModel) => claudeCodeMiaProxy.createSession(managedModel),
-    getAgentSessionEntry: agentSessionStore.getEntry,
-    getMcpFingerprint: userMcpService.fingerprint,
-    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-    getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
-    getUserMcpSpecs: () => userMcpService.getEngineSpecs("claude-code"),
-    injectGroupContextForSdk: _passthroughGroupContext,
-    currentUserPrompt: nativeTurnHelpers.currentUserPrompt,
-    normalizeEffortLevel: settingsStore.normalizeEffortLevel,
-    permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
-    readBotPersona,
-    resolveManagedModelRuntime,
-    setAgentSessionEntry: agentSessionStore.setEntry,
-    shellCommandPath: localAgentEngineService.shellCommandPath,
-    writeSchedulerMcpContext: schedulerMcpBridge.writeContext
+    shellCommandPath: localAgentEngineService.shellCommandPath
   });
 }
 
-function createActiveCodexChatAdapter() {
-  return createCodexChatAdapter({
-    chatCompletionResponse,
+function createActiveCodexStatelessAdapter() {
+  return createCodexStatelessAdapter({
     cwd: agentWorkspaceDir,
     appendEngineLog,
-    enginePermissionMode: settingsStore.enginePermissionMode,
     ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
-    ensureMiaCodexProxy: (managedModel) => codexMiaProxy.createSession(managedModel),
-    ensureUserMcpReady: () => ensureUserMcpReady("Codex chat"),
-    expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-    getAgentSessionEntry: agentSessionStore.getEntry,
-    getAgentSessionId: agentSessionStore.getId,
-    getMcpFingerprint: userMcpService.fingerprint,
-    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-    getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
-    getUserMcpSpecs: () => userMcpService.getEngineSpecs("codex"),
-    injectGroupContextForSdk: _passthroughGroupContext,
-    currentUserPrompt: nativeTurnHelpers.currentUserPrompt,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
-    permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
-    readBotPersona,
-    resolveModelRuntime,
     runCodexAppServerTurn,
-    setAgentSessionEntry: agentSessionStore.setEntry,
-    setAgentSessionId: agentSessionStore.setId,
     agentRuntimeEnv: localAgentEngineService.agentRuntimeEnv,
     resolveAgentRuntime: localAgentEngineService.resolveAgentRuntime,
-    shellCommandPath: localAgentEngineService.shellCommandPath,
-    writeSchedulerMcpContext: schedulerMcpBridge.writeContext
+    shellCommandPath: localAgentEngineService.shellCommandPath
   });
 }
 
@@ -3223,8 +3182,6 @@ ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates()
 app.on("before-quit", () => {
   closeCodexAppServerRuntimes();
   closeOpenClawAcpRuntimes();
-  closeManagedClaudeProxySessions();
-  closeManagedCodexProxySessions();
   agentSessionManager.closeAllSessions().catch((error) => appendEngineLog(`AgentSession cleanup failed: ${error?.message || error}`));
   claudeCodeMiaProxy.stop().catch((error) => appendEngineLog(`Claude Code Mia proxy stop failed: ${error?.message || error}`));
   codexMiaProxy.stop().catch((error) => appendEngineLog(`Codex Mia proxy stop failed: ${error?.message || error}`));

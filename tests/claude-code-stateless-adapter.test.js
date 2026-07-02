@@ -3,9 +3,9 @@ const assert = require("node:assert/strict");
 const {
   claudeMessageText,
   createClaudeCodeProcessSpawner,
-  createClaudeCodeChatAdapter,
+  createClaudeCodeStatelessAdapter,
   normalizeClaudePermissionMode
-} = require("../src/main/claude-code-chat-adapter.js");
+} = require("../src/main/claude-code-stateless-adapter.js");
 
 async function* streamOf(items) {
   for (const item of items) yield item;
@@ -60,8 +60,8 @@ test("claudeMessageText extracts nested assistant text", () => {
   assert.equal(claudeMessageText({ delta: "chunk" }), "chunk");
 });
 
-test("createClaudeCodeChatAdapter no longer exposes direct bot sendChat", async () => {
-  const adapter = createClaudeCodeChatAdapter(createDeps([
+test("createClaudeCodeStatelessAdapter exposes only stateless send", async () => {
+  const adapter = createClaudeCodeStatelessAdapter(createDeps([
     { type: "assistant", message: { content: [{ text: "ok" }] } }
   ]));
 
@@ -73,7 +73,7 @@ test("sendStateless uses prompt without persona append or resume", async () => {
   const deps = createDeps([
     { type: "assistant", message: { content: [{ text: "stateless out" }] } }
   ]);
-  const adapter = createClaudeCodeChatAdapter(deps);
+  const adapter = createClaudeCodeStatelessAdapter(deps);
   const response = await adapter.sendStateless({
     systemPrompt: "sys",
     userPrompt: "user",

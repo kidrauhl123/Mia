@@ -117,39 +117,18 @@ const { createChatAttachments } = require("../main/chat-attachments.js");
 const { createSchedulerMcpBridge } = require("../main/scheduler-mcp-bridge.js");
 const { createMiaAppMcpBridge } = require("../main/mia-app-mcp-bridge.js");
 
-// PART B — active Codex / Claude Code engines in Core. The adapter
-// MODULES + every dependency service below are pure node (0 electron requires —
-// verified): external CLIs (claude/codex/openclaw) are resolved from PATH, never
-// packaged (per AGENTS.md). Core constructs the SAME direct adapters main.js drives
-// (src/main.js createActiveCodexChatAdapter / createActiveClaudeCodeChatAdapter —
-// no fork), with node values for the few deps
-// main.js sources from electron-coupled collaborators.
-const { createClaudeCodeChatAdapter } = require("../main/claude-code-chat-adapter.js");
-const { createCodexChatAdapter } = require("../main/codex-chat-adapter.js");
-const { runCodexAppServerTurn } = require("../main/codex-app-server-runner.js");
+// PART B — active external Agent engines in Core. Bot conversations use
+// AgentSession ACP; prompt-shaped Claude/Codex utilities live only in explicit
+// stateless desktop paths, not in Core's bot execution graph.
 const { createLocalAgentEngineService } = require("../main/local-agent-engine-service.js");
 const { createAgentPermissionCoordinator } = require("../main/agent-permission-coordinator.js");
-const { createAgentSessionStore } = require("../main/agent-session-store.js");
 const { createAgentSessionManager } = require("../main/agent-session/index.js");
-const { createClaudeBridgePluginService } = require("../main/claude-bridge-plugin-service.js");
-const { createClaudeCodeMiaProxy } = require("../main/claude-code-mia-proxy.js");
-const { createCodexMiaProxy } = require("../main/codex-mia-proxy.js");
 const { createMcpSdkClientManager } = require("../main/mcp/mcp-sdk-client.js");
 const { createMcpBridgeServer } = require("../main/mcp/mcp-bridge-server.js");
 const { createCoreMcpService } = require("./mcp/service.js");
 const { createManagedConnectorSupervisor } = require("./mcp/managed-connector-supervisor.js");
 const { createCoreMcpOAuthService } = require("./mcp/oauth-service.js");
 const { createCoreMcpOAuthTokenStore } = require("./mcp/oauth-token-store.js");
-
-// Claude Agent SDK — plain-node ESM package (NOT electron). main.js loads it via
-// `await import("@anthropic-ai/claude-agent-sdk")`; Core does the same. For a
-// PACKAGED Core (plain node), the package must be asarUnpack'd so node can
-// import it from outside app.asar — see package.json build.asarUnpack.
-let claudeAgentSdkModule = null;
-async function coreClaudeAgentSdk() {
-  if (!claudeAgentSdkModule) claudeAgentSdkModule = await import("@anthropic-ai/claude-agent-sdk");
-  return claudeAgentSdkModule;
-}
 
 // Cloud bot-invocation routing — the SAME pure-node social modules the Electron
 // main process drives (no fork). Core is the single owner when running, so the
@@ -382,13 +361,6 @@ function createCoreBotExecution({
   // distinctive guard) WITHOUT spawning a real external agent. Production passes
   // nothing → the real createLocalAgentEngineService is used.
   localAgentEngineService: injectedLocalAgentEngineService = null,
-  // PART B test seam: override the Claude Agent SDK loader so a proof test can
-  // assert the real Claude adapter reached the SDK without loading the npm package.
-  claudeAgentSdk: injectedClaudeAgentSdk = null,
-  // Test seam: override the Claude/Codex managed-model proxies so a shutdown test
-  // can assert closeAgentEngines() stops their loopback servers.
-  claudeCodeMiaProxy: injectedClaudeProxy = null,
-  codexMiaProxy: injectedCodexProxy = null,
   agentSessionManager: injectedAgentSessionManager = null
 } = {}) {
   const baseUrl = typeof hermesBaseUrl === "function" ? hermesBaseUrl : () => String(hermesBaseUrl || "");
@@ -626,32 +598,14 @@ function createCoreBotExecution({
   };
 
   // ====================================================================
-  // PART B — active Codex / Claude Code direct engines (all pure node).
-  // Core constructs the SAME adapters main.js drives (createActiveCodexChatAdapter
-  // / createActiveClaudeCodeChatAdapter — no fork), substituting node values for
-  // the few deps main.js sources from
-  // electron-coupled collaborators. The external CLIs (claude/codex/openclaw) are
-  // resolved from PATH via localAgentEngineService.shellCommandPath (per AGENTS.md:
-  // engines are never packaged). Every dependency below is node-constructible
-  // (audited: 0 electron requires in any adapter module or its dep services).
+  // PART B — active external Agent engines (all pure node).
+  // Bot conversations use AgentSession ACP. Core does not construct the retired
+  // Claude/Codex prompt adapters.
   // ====================================================================
 
-  // Per-engine permission policy + cross-turn agent-session map: pure JSON I/O
-  // under Core's single-owner runtime home — the SAME stores main.js drives.
+  // Per-engine permission policy: pure JSON I/O under Core's single-owner
+  // runtime home.
   const agentPermissionCoordinator = createAgentPermissionCoordinator({ runtimePaths, readJson });
-  const agentSessionStore = createAgentSessionStore({
-    runtimePaths,
-    readJson,
-    normalizeBotAgentEngine: normalizeAgentEngine
-  });
-
-  // Claude bridge plugin + Mia model proxies (Claude/Codex managed model over the
-  // Mia cloud model-proxy) — pure node (fs/fetch). The proxies start a local
-  // loopback HTTP server lazily ONLY when a managed-model turn calls createSession
-  // — never at construction, so importing Core has no side effect.
-  const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
-  const claudeCodeMiaProxy = injectedClaudeProxy || createClaudeCodeMiaProxy({ appendLog: () => {}, fetch: fetchImpl });
-  const codexMiaProxy = injectedCodexProxy || createCodexMiaProxy({ appendLog: () => {}, fetch: fetchImpl });
 
   // User-defined MCP servers (the same registry main.js drives). All node: the
   // manager/bridge/service are pure JS; the bridge binds a loopback port lazily on
@@ -726,91 +680,9 @@ function createCoreBotExecution({
     return dir;
   }
 
-  const enginePermissionMode = settingsStore && typeof settingsStore.enginePermissionMode === "function"
-    ? settingsStore.enginePermissionMode
-    : () => "default";
-  const normalizeEffortLevel = settingsStore && typeof settingsStore.normalizeEffortLevel === "function"
-    ? settingsStore.normalizeEffortLevel
-    : (value) => String(value || "medium").trim() || "medium";
-
-  // The three active adapters — constructed exactly like main.js (deps mapped to
-  // Core's node services). Lazily built so a failure in one engine doesn't break
-  // the others, and so building Core has no side effect.
-  let cachedClaudeCodeAdapter = null;
-  function activeClaudeCodeAdapter() {
-    if (!cachedClaudeCodeAdapter) {
-      cachedClaudeCodeAdapter = createClaudeCodeChatAdapter({
-        appendEngineLog: () => {},
-        cwd: agentWorkspaceDir,
-        chatCompletionResponse,
-        claudeAgentSdk: typeof injectedClaudeAgentSdk === "function" ? injectedClaudeAgentSdk : coreClaudeAgentSdk,
-        ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
-        ensureUserMcpReady,
-        expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-        clearAgentSessionEntry: agentSessionStore.deleteEntry,
-        enginePermissionMode,
-        ensureMiaClaudeProxy: (managedModel) => claudeCodeMiaProxy.createSession(managedModel),
-        getAgentSessionEntry: agentSessionStore.getEntry,
-        getMcpFingerprint: userMcpService.fingerprint,
-        getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-        getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
-        getUserMcpSpecs: () => userMcpService.getEngineSpecs("claude-code"),
-        injectGroupContextForSdk: (userMessage) => userMessage,
-        currentUserPrompt: nativeTurnHelpers.currentUserPrompt,
-        normalizeEffortLevel,
-        permissionCoordinator: agentPermissionCoordinator,
-        processEnvStrings,
-        readBotPersona,
-        resolveManagedModelRuntime,
-        setAgentSessionEntry: agentSessionStore.setEntry,
-        shellCommandPath: localAgentEngineService.shellCommandPath,
-        writeSchedulerMcpContext: schedulerMcpBridge.writeContext
-      });
-    }
-    return cachedClaudeCodeAdapter;
-  }
-
-  let cachedCodexAdapter = null;
-  function activeCodexAdapter() {
-    if (!cachedCodexAdapter) {
-      cachedCodexAdapter = createCodexChatAdapter({
-        chatCompletionResponse,
-        cwd: agentWorkspaceDir,
-        appendEngineLog: () => {},
-        enginePermissionMode,
-        ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
-        ensureMiaCodexProxy: (managedModel) => codexMiaProxy.createSession(managedModel),
-        ensureUserMcpReady,
-        expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-        getAgentSessionEntry: agentSessionStore.getEntry,
-        getAgentSessionId: agentSessionStore.getId,
-        getMcpFingerprint: userMcpService.fingerprint,
-        getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-        getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
-        getUserMcpSpecs: () => userMcpService.getEngineSpecs("codex"),
-        injectGroupContextForSdk: (userMessage) => userMessage,
-        currentUserPrompt: nativeTurnHelpers.currentUserPrompt,
-        normalizeEffortLevel,
-        permissionCoordinator: agentPermissionCoordinator,
-        processEnvStrings,
-        readBotPersona,
-        resolveManagedModelRuntime,
-        runCodexAppServerTurn,
-        setAgentSessionEntry: agentSessionStore.setEntry,
-        setAgentSessionId: agentSessionStore.setId,
-        agentRuntimeEnv: localAgentEngineService.agentRuntimeEnv,
-        resolveAgentRuntime: localAgentEngineService.resolveAgentRuntime,
-        shellCommandPath: localAgentEngineService.shellCommandPath,
-        writeSchedulerMcpContext: schedulerMcpBridge.writeContext
-      });
-    }
-    return cachedCodexAdapter;
-  }
-
-  // REAL adapter graph: Codex + Claude Code route through their real direct
-  // adapters; Hermes direct desktop chat has been retired in favour of
-  // AgentSession ACP turns, and OpenClaw bot chat uses AgentSession ACP too.
-  // AgentSession ACP turns.
+  // REAL adapter graph: Claude Code, Codex, Hermes, and OpenClaw bot turns route
+  // through AgentSession ACP. This graph only keeps slash-command fallbacks that
+  // fail closed when Core has no slash service.
   function createActiveChatEngineAdapters() {
     return createChatEngineAdapters({
       chatCompletionResponse,
@@ -867,10 +739,6 @@ function createCoreBotExecution({
     try { if (userMcpBridge && typeof userMcpBridge.stop === "function") await userMcpBridge.stop(); } catch { /* already closed */ }
     try { if (userMcpManager && typeof userMcpManager.stopAll === "function") await userMcpManager.stopAll(); } catch { /* best effort */ }
     try { if (agentSessionManager && typeof agentSessionManager.closeAllSessions === "function") await agentSessionManager.closeAllSessions(); } catch { /* best effort */ }
-    // Close the Claude/Codex managed-model proxy loopback HTTP servers a turn may
-    // have opened (createSession). Mirrors main.js quit (src/main.js:3027-3028).
-    try { if (claudeCodeMiaProxy && typeof claudeCodeMiaProxy.stop === "function") await claudeCodeMiaProxy.stop(); } catch { /* best effort */ }
-    try { if (codexMiaProxy && typeof codexMiaProxy.stop === "function") await codexMiaProxy.stop(); } catch { /* best effort */ }
     try { if (miaMemoryService && typeof miaMemoryService.close === "function") miaMemoryService.close(); } catch { /* best effort */ }
   }
 

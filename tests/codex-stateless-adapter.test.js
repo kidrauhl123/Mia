@@ -1,9 +1,9 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  createCodexChatAdapter,
+  createCodexStatelessAdapter,
   mapCodexPermissionMode
-} = require("../src/main/codex-chat-adapter.js");
+} = require("../src/main/codex-stateless-adapter.js");
 
 function createDeps(overrides = {}) {
   const calls = [];
@@ -71,8 +71,8 @@ test("mapCodexPermissionMode maps known permission modes", () => {
   });
 });
 
-test("createCodexChatAdapter no longer exposes direct bot sendChat", async () => {
-  const adapter = createCodexChatAdapter(createDeps());
+test("createCodexStatelessAdapter exposes only stateless send", async () => {
+  const adapter = createCodexStatelessAdapter(createDeps());
 
   assert.equal(typeof adapter.sendStateless, "function");
   assert.equal("sendChat" in adapter, false);
@@ -80,7 +80,7 @@ test("createCodexChatAdapter no longer exposes direct bot sendChat", async () =>
 
 test("sendStateless starts a fresh default thread", async () => {
   const deps = createDeps({ finalResponse: "stateless out" });
-  const adapter = createCodexChatAdapter(deps);
+  const adapter = createCodexStatelessAdapter(deps);
   const response = await adapter.sendStateless({
     systemPrompt: "sys",
     userPrompt: "user",
@@ -100,7 +100,7 @@ test("sendStateless puts the selected codex bin dir first in app-server env", as
     commandPath: "/opt/codex-node/bin/codex",
     env: { PATH: "/bad-node/bin:/usr/bin:/opt/codex-node/bin" }
   });
-  const adapter = createCodexChatAdapter(deps);
+  const adapter = createCodexStatelessAdapter(deps);
 
   await adapter.sendStateless({
     systemPrompt: "sys",
@@ -120,7 +120,7 @@ test("sendStateless fails closed when Codex home cannot be prepared", async () =
       throw new Error("disk denied");
     }
   });
-  const adapter = createCodexChatAdapter(deps);
+  const adapter = createCodexStatelessAdapter(deps);
 
   await assert.rejects(
     () => adapter.sendStateless({

@@ -40,8 +40,8 @@ const required = [
   "src/main/chat-engine-registry.js",
   "src/main/chat-events.js",
   "src/main/chat-response.js",
-  "src/main/claude-code-chat-adapter.js",
-  "src/main/codex-chat-adapter.js",
+  "src/main/claude-code-stateless-adapter.js",
+  "src/main/codex-stateless-adapter.js",
   "src/main/bot-registry.js",
   "src/main/native-turn-helpers.js",
   "src/main/conversation-title-service.js",
@@ -169,7 +169,7 @@ for (const file of forbiddenRootDuplicates) {
   }
 }
 
-for (const file of ["electron-builder.mac-arm64.js", "electron-builder.mac-intel.js", "src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/bot-registry.js", "src/main/native-turn-helpers.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/shared/conversation-tags.js", "src/permission-modes.js", "src/preload.js", "src/renderer/bot/bot-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/bot-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/build-win.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js", "scripts/notarize-mac-dmg.js"]) {
+for (const file of ["electron-builder.mac-arm64.js", "electron-builder.mac-intel.js", "src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-stateless-adapter.js", "src/main/codex-stateless-adapter.js", "src/main/bot-registry.js", "src/main/native-turn-helpers.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/shared/conversation-tags.js", "src/permission-modes.js", "src/preload.js", "src/renderer/bot/bot-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/bot-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/build-win.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js", "scripts/notarize-mac-dmg.js"]) {
   childProcess.execFileSync(process.execPath, ["--check", path.join(rootDir, file)], {
     stdio: "inherit"
   });

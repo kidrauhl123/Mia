@@ -17,7 +17,7 @@
 ```bash
 node -c src/main/<changed-file>.js
 node --test tests/main-*.test.js
-node --test tests/codex-chat-adapter.test.js tests/codex-app-server-runner.test.js
+node --test tests/codex-stateless-adapter.test.js tests/codex-app-server-runner.test.js
 npm run check
 ```
 
