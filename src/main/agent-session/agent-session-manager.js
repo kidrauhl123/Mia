@@ -29,6 +29,12 @@ function getEventTurnId(payload = {}) {
   return turnId || null;
 }
 
+function getEventMessageId(payload = {}) {
+  if (!payload || typeof payload !== "object") return null;
+  const messageId = typeof payload.messageId === "string" ? payload.messageId.trim() : "";
+  return messageId || null;
+}
+
 class AgentSessionManager extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -170,17 +176,12 @@ class AgentSessionManager extends EventEmitter {
           ...payload
         });
 
+        if (eventKind === "message-started") {
+          this.recordActiveMessageStart(sessionKey, payload);
+        }
+
         if (TERMINAL_MESSAGE_EVENTS.has(eventKind)) {
-          const running = this.runningByKey.get(sessionKey);
-          const eventTurnId = getEventTurnId(payload);
-          if (running && eventTurnId && running.turnId === eventTurnId) {
-            this.runningByKey.delete(sessionKey);
-            queueMicrotask(() => {
-              void this.drainQueuedInput(sessionKey);
-            });
-          }
-          // Missing turn correlation is treated as non-terminal for scheduling so
-          // duplicate or stale events cannot unlock the queue while a turn may still be active.
+          this.completeActiveRunFromTerminalEvent(sessionKey, payload);
         }
 
         if (eventKind === "session-closed") {
@@ -212,13 +213,21 @@ class AgentSessionManager extends EventEmitter {
   }
 
   async startUserInput(sessionKey, descriptor, session, payload) {
-    this.runningByKey.set(sessionKey, { turnId: payload.turnId });
+    let nativeSendPromise;
     try {
-      await session.sendUserInput(payload);
+      nativeSendPromise = Promise.resolve(session.sendUserInput(payload));
     } catch (error) {
-      this.runningByKey.delete(sessionKey);
-      throw error;
+      return Promise.reject(error);
     }
+    const activeRun = {
+      turnId: payload.turnId,
+      messageId: null,
+      nativeSendPromise
+    };
+    this.runningByKey.set(sessionKey, activeRun);
+    nativeSendPromise.finally(() => {
+      this.completeActiveRunFromPromise(sessionKey, activeRun);
+    });
 
     return createAcceptedInputResult({
       mode: "started",
@@ -226,6 +235,51 @@ class AgentSessionManager extends EventEmitter {
       engineId: descriptor.engineId,
       turnId: payload.turnId
     });
+  }
+
+  recordActiveMessageStart(sessionKey, payload = {}) {
+    const running = this.runningByKey.get(sessionKey);
+    if (!running) return;
+
+    const eventTurnId = getEventTurnId(payload);
+    if (eventTurnId && running.turnId !== eventTurnId) {
+      return;
+    }
+
+    const eventMessageId = getEventMessageId(payload);
+    if (!eventMessageId) return;
+    running.messageId = eventMessageId;
+  }
+
+  completeActiveRunFromTerminalEvent(sessionKey, payload = {}) {
+    const running = this.runningByKey.get(sessionKey);
+    if (!running) return false;
+
+    const eventTurnId = getEventTurnId(payload);
+    const eventMessageId = getEventMessageId(payload);
+    const matchesTurn = Boolean(eventTurnId && running.turnId === eventTurnId);
+    const matchesMessage = Boolean(eventMessageId && running.messageId === eventMessageId);
+    if (!matchesTurn && !matchesMessage) {
+      return false;
+    }
+
+    this.runningByKey.delete(sessionKey);
+    queueMicrotask(() => {
+      void this.drainQueuedInput(sessionKey);
+    });
+    return true;
+  }
+
+  completeActiveRunFromPromise(sessionKey, activeRun) {
+    if (this.runningByKey.get(sessionKey) !== activeRun) {
+      return false;
+    }
+
+    this.runningByKey.delete(sessionKey);
+    queueMicrotask(() => {
+      void this.drainQueuedInput(sessionKey);
+    });
+    return true;
   }
 }
 
