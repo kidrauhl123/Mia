@@ -15,6 +15,7 @@ fi
 SMOKE_URL="${MIA_INSTALL_SMOKE_URL:-$PUBLIC_URL}"
 API_DIR="${MIA_DEPLOY_API_DIR:-/opt/mia-cloud}"
 WEB_DIR="${MIA_DEPLOY_WEB_DIR:-/var/www/mia-web}"
+WEB_BASENAME="$(basename "$WEB_DIR")"
 UPDATES_DIR="${MIA_DEPLOY_UPDATES_DIR:-/var/www/mia-updates}"
 DATA_DIR="${MIA_DEPLOY_DATA_DIR:-/var/lib/mia-cloud}"
 AGENT_ROOT="${MIA_CLOUD_AGENT_ROOT:-/var/lib/mia-cloud-agent-users}"
@@ -31,6 +32,7 @@ AGENT_MODEL_NAME="${MIA_CLOUD_AGENT_MODEL:-mia-auto}"
 AGENT_MODEL_BASE_URL="${MIA_CLOUD_AGENT_MODEL_BASE_URL:-http://litellm:4000/v1}"
 AGENT_MODEL_API_KEY="${MIA_CLOUD_AGENT_MODEL_API_KEY:-${MIA_LITELLM_API_KEY:-}}"
 BACKUP_DIR="${MIA_DEPLOY_BACKUP_DIR:-/root}"
+BACKUP_KEEP="${MIA_DEPLOY_BACKUP_KEEP:-3}"
 SERVICE="${MIA_DEPLOY_SERVICE:-mia-cloud}"
 SERVICE_USER="${MIA_DEPLOY_SERVICE_USER:-mia-cloud}"
 NGINX_MAP_CONF="${MIA_DEPLOY_NGINX_MAP_CONF:-/etc/nginx/conf.d/mia-websocket-map.conf}"
@@ -200,6 +202,41 @@ sync_web_release() {
   run_as_root rsync -a --delete --exclude '/downloads/' "$INSTALL_TMP/web/" "$WEB_DIR/"
 }
 
+restore_web_backup() {
+  backup="$1"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/mia-web-rollback.XXXXXX")"
+  run_as_root mkdir -p "$WEB_DIR"
+  run_as_root tar -xzf "$backup" -C "$tmp"
+  run_as_root rsync -a --delete --exclude '/downloads/' "$tmp/$WEB_BASENAME/" "$WEB_DIR/"
+  run_as_root rm -rf "$tmp"
+}
+
+cleanup_backup_pattern() {
+  pattern="$1"
+  case "$BACKUP_KEEP" in
+    ""|*[!0-9]*) echo "Skipping backup cleanup; invalid MIA_DEPLOY_BACKUP_KEEP=$BACKUP_KEEP" >&2; return 0 ;;
+  esac
+  if [ "$BACKUP_KEEP" -le 0 ] || [ ! -d "$BACKUP_DIR" ] || ! command -v find >/dev/null; then
+    return 0
+  fi
+  old_files="$(run_as_root find "$BACKUP_DIR" -maxdepth 1 -type f -name "$pattern" -printf '%T@ %p\n' 2>/dev/null | sort -rn | awk -v keep="$BACKUP_KEEP" 'NR > keep { sub(/^[^ ]+ /, ""); print }')"
+  if [ -z "$old_files" ]; then
+    return 0
+  fi
+  printf '%s\n' "$old_files" | while IFS= read -r file; do
+    [ -n "$file" ] && run_as_root rm -f "$file"
+  done
+}
+
+cleanup_old_backups() {
+  cleanup_backup_pattern 'mia-cloud-api-*.tgz'
+  cleanup_backup_pattern 'mia-cloud-web-*.tgz'
+  cleanup_backup_pattern 'mia-cloud-data-*.tgz'
+  cleanup_backup_pattern 'mia-cloud-*-unit-*.service'
+  cleanup_backup_pattern 'mia-cloud-nginx-map-*.conf'
+  cleanup_backup_pattern 'mia-cloud-nginx-site-*.conf'
+}
+
 unit_value() {
   key="$1"
   file="$2"
@@ -260,9 +297,7 @@ rollback_install() {
     echo "Restored API from $API_BACKUP" >&2
   fi
   if [ -f "$WEB_BACKUP" ]; then
-    run_as_root rm -rf "$WEB_DIR" || true
-    run_as_root mkdir -p "$(dirname "$WEB_DIR")" || true
-    run_as_root tar -xzf "$WEB_BACKUP" -C "$(dirname "$WEB_DIR")" || true
+    restore_web_backup "$WEB_BACKUP" || true
     echo "Restored Web from $WEB_BACKUP" >&2
   fi
   if [ -f "$UNIT_BACKUP" ]; then
@@ -300,9 +335,7 @@ rollback_after_public_verification_failure() {
     echo "Restored API from $API_BACKUP" >&2
   fi
   if [ -f "$WEB_BACKUP" ]; then
-    run_as_root rm -rf "$WEB_DIR"
-    run_as_root mkdir -p "$(dirname "$WEB_DIR")"
-    run_as_root tar -xzf "$WEB_BACKUP" -C "$(dirname "$WEB_DIR")"
+    restore_web_backup "$WEB_BACKUP"
     echo "Restored Web from $WEB_BACKUP" >&2
   fi
   if [ -f "$UNIT_BACKUP" ]; then
@@ -439,7 +472,7 @@ if [ -d "$API_DIR" ]; then
   echo "API backup written to $API_BACKUP"
 fi
 if [ -d "$WEB_DIR" ]; then
-  run_as_root tar -C "$(dirname "$WEB_DIR")" -czf "$WEB_BACKUP" "$(basename "$WEB_DIR")"
+  run_as_root tar --exclude "$WEB_BASENAME/downloads" -C "$(dirname "$WEB_DIR")" -czf "$WEB_BACKUP" "$WEB_BASENAME"
   run_as_root tar -tzf "$WEB_BACKUP" >/dev/null
   echo "Web backup written to $WEB_BACKUP"
 fi
@@ -549,6 +582,7 @@ install_done=1
 trap - ERR
 
 if [ "$SKIP_SMOKE" = "1" ]; then
+  cleanup_old_backups || echo "Backup cleanup failed; inspect $BACKUP_DIR manually." >&2
   echo "Mia Cloud local install completed without public verification: $SERVICE"
   exit 0
 fi
@@ -574,5 +608,7 @@ if ! node "$INSTALL_TMP/verify-site-verification.js" "$SMOKE_URL"; then
   rollback_after_public_verification_failure || echo "Rollback after site verification failure failed; inspect this host manually." >&2
   exit 1
 fi
+
+cleanup_old_backups || echo "Backup cleanup failed; inspect $BACKUP_DIR manually." >&2
 
 echo "Mia Cloud local install completed: $SMOKE_URL"

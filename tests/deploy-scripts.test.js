@@ -17,6 +17,8 @@ test("server-local installer restores data backups during rollback", () => {
   assert.match(source, /validate_deploy_sudo\(\) \{[\s\S]*?MIA_DEPLOY_SUDO must be a simple command/);
   assert.match(source, /grep -q '\[\^A-Za-z0-9_\.\/ -\]'/);
   assert.match(source, /DATA_BACKUP="\$BACKUP_DIR\/mia-cloud-data-\$DEPLOY_ID\.tgz"/);
+  assert.match(source, /BACKUP_KEEP="\$\{MIA_DEPLOY_BACKUP_KEEP:-3\}"/);
+  assert.match(source, /WEB_BASENAME="\$\(basename "\$WEB_DIR"\)"/);
   assert.match(source, /NGINX_MAP_CONF="\$\{MIA_DEPLOY_NGINX_MAP_CONF:-\/etc\/nginx\/conf\.d\/mia-websocket-map\.conf\}"/);
   assert.match(source, /NGINX_SITE_CONF="\$\{MIA_DEPLOY_NGINX_SITE_CONF:-\/etc\/nginx\/sites-enabled\/mia-web\}"/);
   assert.match(source, /NGINX_MAP_BACKUP="\$BACKUP_DIR\/mia-cloud-nginx-map-\$DEPLOY_ID\.conf"/);
@@ -44,6 +46,10 @@ test("server-local installer restores data backups during rollback", () => {
   assert.match(source, /require_command nginx/);
   assert.match(source, /run_as_root chown -R "\$SERVICE_USER:\$SERVICE_USER" "\$DATA_DIR"/);
   assert.match(source, /sync_web_release\(\) \{[\s\S]*?\$INSTALL_TMP\/web\/downloads[\s\S]*?rsync -a --delete --exclude '\/downloads\/' "\$INSTALL_TMP\/web\/" "\$WEB_DIR\/"/);
+  assert.match(source, /restore_web_backup\(\) \{[\s\S]*?rsync -a --delete --exclude '\/downloads\/' "\$tmp\/\$WEB_BASENAME\/" "\$WEB_DIR\/"/);
+  assert.doesNotMatch(source, /rm -rf "\$WEB_DIR"/);
+  assert.match(source, /cleanup_old_backups\(\) \{[\s\S]*?mia-cloud-web-\*\.tgz[\s\S]*?mia-cloud-data-\*\.tgz/);
+  assert.match(source, /cleanup_old_backups \|\| echo "Backup cleanup failed; inspect \$BACKUP_DIR manually\."/);
   assert.match(source, /run_as_root cp "\$INSTALL_TMP\/nginx\/mia-websocket-map\.conf" "\$NGINX_MAP_CONF"/);
   assert.match(source, /run_as_root cp "\$INSTALL_TMP\/nginx\/mia-cloud-site\.conf" "\$NGINX_SITE_CONF"/);
   assert.match(source, /run_as_root nginx -t[\s\S]*?run_as_root systemctl reload nginx/);
@@ -68,7 +74,7 @@ test("server-local installer restores data backups during rollback", () => {
   assert.match(source, /Rollback after site verification failure failed; inspect this host manually\./);
   assert.match(source, /tar -C "\$\(dirname "\$DATA_DIR"\)" -czf "\$DATA_BACKUP" "\$\(basename "\$DATA_DIR"\)"[\s\S]*?tar -tzf "\$DATA_BACKUP"/);
   assert.match(source, /tar -C "\$\(dirname "\$API_DIR"\)" -czf "\$API_BACKUP" "\$\(basename "\$API_DIR"\)"[\s\S]*?tar -tzf "\$API_BACKUP"/);
-  assert.match(source, /tar -C "\$\(dirname "\$WEB_DIR"\)" -czf "\$WEB_BACKUP" "\$\(basename "\$WEB_DIR"\)"[\s\S]*?tar -tzf "\$WEB_BACKUP"/);
+  assert.match(source, /tar --exclude "\$WEB_BASENAME\/downloads" -C "\$\(dirname "\$WEB_DIR"\)" -czf "\$WEB_BACKUP" "\$WEB_BASENAME"[\s\S]*?tar -tzf "\$WEB_BACKUP"/);
 });
 
 test("ssh deploy script restores data backups during install and public verification rollback", () => {
@@ -83,6 +89,8 @@ test("ssh deploy script restores data backups during install and public verifica
   assert.doesNotMatch(source, /@[Qq]\}/);
   assert.match(source, /if ! ssh -o BatchMode=yes -o ConnectTimeout=10 "\$REMOTE" "true"; then[\s\S]*?print_ssh_help[\s\S]*?exit 255/);
   assert.match(source, /DATA_BACKUP="\$BACKUP_DIR\/mia-cloud-data-\$DEPLOY_ID\.tgz"/);
+  assert.match(source, /BACKUP_KEEP="\$\{MIA_DEPLOY_BACKUP_KEEP:-3\}"/);
+  assert.match(source, /WEB_BASENAME="\$\(basename "\$WEB_DIR"\)"/);
   assert.match(source, /NGINX_MAP_CONF="\$\{MIA_DEPLOY_NGINX_MAP_CONF:-\/etc\/nginx\/conf\.d\/mia-websocket-map\.conf\}"/);
   assert.match(source, /NGINX_SITE_CONF="\$\{MIA_DEPLOY_NGINX_SITE_CONF:-\/etc\/nginx\/sites-enabled\/mia-web\}"/);
   assert.match(source, /NGINX_MAP_BACKUP="\$BACKUP_DIR\/mia-cloud-nginx-map-\$DEPLOY_ID\.conf"/);
@@ -110,6 +118,10 @@ test("ssh deploy script restores data backups during install and public verifica
   assert.match(source, /Environment=MIA_CLOUD_ALLOWED_ORIGINS=\$ALLOWED_ORIGINS/);
   assert.match(source, /run_as_root chown -R "\\\$SERVICE_USER:\\\$SERVICE_USER" "\$DATA_DIR"/);
   assert.match(source, /sync_web_release\(\) \{[\s\S]*?\$REMOTE_RELEASE_DIR\/web\/downloads[\s\S]*?rsync -a --delete --exclude '\/downloads\/' "\$REMOTE_RELEASE_DIR\/web\/" "\$WEB_DIR\/"/);
+  assert.match(source, /restore_web_backup\(\) \{[\s\S]*?rsync -a --delete --exclude '\/downloads\/' "\\\$tmp\/\\\$WEB_BASENAME\/" "\$WEB_DIR\/"/);
+  assert.doesNotMatch(source, /rm -rf "\$WEB_DIR"/);
+  assert.match(source, /cleanup_remote_backups\(\) \{[\s\S]*?mia-cloud-web-\*\.tgz[\s\S]*?mia-cloud-data-\*\.tgz/);
+  assert.match(source, /cleanup_remote_backups \|\| echo "Remote backup cleanup failed; inspect \$REMOTE:\$BACKUP_DIR manually\."/);
   assert.match(source, /run_as_root cp "\$REMOTE_RELEASE_DIR\/nginx\/mia-websocket-map\.conf" "\$NGINX_MAP_CONF"/);
   assert.match(source, /run_as_root cp "\$REMOTE_RELEASE_DIR\/nginx\/mia-cloud-site\.conf" "\$NGINX_SITE_CONF"/);
   assert.match(source, /run_as_root nginx -t[\s\S]*?run_as_root systemctl reload nginx/);
@@ -140,7 +152,7 @@ test("ssh deploy script restores data backups during install and public verifica
   assert.match(source, /Public site verification failed; attempting remote rollback/);
   assert.match(source, /tar -C "\$\(dirname "\$DATA_DIR"\)" -czf "\$DATA_BACKUP" "\$\(basename "\$DATA_DIR"\)"[\s\S]*?tar -tzf "\$DATA_BACKUP"/);
   assert.match(source, /tar -C "\$\(dirname "\$API_DIR"\)" -czf "\$API_BACKUP" "\$\(basename "\$API_DIR"\)"[\s\S]*?tar -tzf "\$API_BACKUP"/);
-  assert.match(source, /tar -C "\$\(dirname "\$WEB_DIR"\)" -czf "\$WEB_BACKUP" "\$\(basename "\$WEB_DIR"\)"[\s\S]*?tar -tzf "\$WEB_BACKUP"/);
+  assert.match(source, /tar --exclude "\\\$WEB_BASENAME\/downloads" -C "\$\(dirname "\$WEB_DIR"\)" -czf "\$WEB_BACKUP" "\\\$WEB_BASENAME"[\s\S]*?tar -tzf "\$WEB_BACKUP"/);
 });
 
 test("ssh deploy dry run prints local release handoff", () => {
