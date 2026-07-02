@@ -62,18 +62,13 @@ test("AgentSession contract exposes the normalized engine ids and runtime event 
 });
 
 test("createAgentSessionKey is stable and rejects missing values", () => {
-  assert.equal(
-    contract.createAgentSessionKey({
-      conversationId: "conversation_1",
-      engineId: "claude",
-      workspacePath: "/repo"
-    }),
-    contract.createAgentSessionKey({
-      conversationId: "conversation_1",
-      engineId: "claude",
-      workspacePath: "/repo"
-    })
-  );
+  const key = contract.createAgentSessionKey({
+    conversationId: "conversation_1",
+    engineId: "claude",
+    workspacePath: "/repo"
+  });
+
+  assert.equal(key, "conversation_1::claude::/repo");
   assert.notEqual(
     contract.createAgentSessionKey({
       conversationId: "conversation_1",
@@ -90,4 +85,91 @@ test("createAgentSessionKey is stable and rejects missing values", () => {
   assert.throws(() => contract.createAgentSessionKey({ engineId: "claude", workspacePath: "/repo" }));
   assert.throws(() => contract.createAgentSessionKey({ conversationId: "conversation_1", workspacePath: "/repo" }));
   assert.throws(() => contract.createAgentSessionKey({ conversationId: "conversation_1", engineId: "claude" }));
+});
+
+test("createAcceptedInputResult accepts only the three contract shapes", () => {
+  assert.deepEqual(
+    contract.createAcceptedInputResult({
+      mode: "started",
+      conversationId: "conversation_1",
+      engineId: "claude",
+      turnId: "turn_1"
+    }),
+    {
+      ok: true,
+      mode: "started",
+      conversationId: "conversation_1",
+      engineId: "claude",
+      turnId: "turn_1"
+    }
+  );
+
+  assert.deepEqual(
+    contract.createAcceptedInputResult({
+      mode: "queued",
+      conversationId: "conversation_2",
+      engineId: "codex",
+      turnId: "turn_2",
+      queueDepth: 3
+    }),
+    {
+      ok: true,
+      mode: "queued",
+      conversationId: "conversation_2",
+      engineId: "codex",
+      turnId: "turn_2",
+      queueDepth: 3
+    }
+  );
+
+  assert.deepEqual(
+    contract.createAcceptedInputResult({
+      mode: "steered",
+      conversationId: "conversation_3",
+      engineId: "hermes",
+      turnId: "turn_3",
+      after: "next-tool-call"
+    }),
+    {
+      ok: true,
+      mode: "steered",
+      conversationId: "conversation_3",
+      engineId: "hermes",
+      turnId: "turn_3",
+      after: "next-tool-call"
+    }
+  );
+
+  assert.throws(() =>
+    contract.createAcceptedInputResult("started", {
+      conversationId: "conversation_1",
+      engineId: "claude",
+      turnId: "turn_1"
+    })
+  );
+  assert.throws(() =>
+    contract.createAcceptedInputResult({
+      mode: "started",
+      conversationId: "conversation_1",
+      engineId: "claude",
+      turnId: "turn_1",
+      queueDepth: 1
+    })
+  );
+  assert.throws(() =>
+    contract.createAcceptedInputResult({
+      mode: "queued",
+      conversationId: "conversation_2",
+      engineId: "codex",
+      turnId: "turn_2"
+    })
+  );
+  assert.throws(() =>
+    contract.createAcceptedInputResult({
+      mode: "steered",
+      conversationId: "conversation_3",
+      engineId: "hermes",
+      turnId: "turn_3"
+    })
+  );
 });

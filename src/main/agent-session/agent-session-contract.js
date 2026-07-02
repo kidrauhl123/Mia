@@ -74,46 +74,86 @@ function createAgentSessionKey({ conversationId, engineId, workspacePath } = {})
   if (!normalizedConversationId) throw new Error("conversationId is required.");
   if (!normalizedWorkspacePath) throw new Error("workspacePath is required.");
 
-  return [normalizedWorkspacePath, normalizedEngineId, normalizedConversationId].join("::");
+  return [normalizedConversationId, normalizedEngineId, normalizedWorkspacePath].join("::");
 }
 
-function createAcceptedInputResult(input, maybeDetails = {}) {
-  const options = typeof input === "string" ? { ...maybeDetails, mode: input } : { ...(input || {}) };
-  const mode = String(options.mode || "").trim();
-  const conversationId = String(options.conversationId || "").trim();
-  const engineId = assertKnownAgentEngine(options.engineId);
-  const turnId = String(options.turnId || "").trim();
-
-  if (!conversationId) throw new Error("conversationId is required.");
-  if (!turnId) throw new Error("turnId is required.");
-
-  if (mode === "started") {
-    return Object.freeze({ ok: true, mode, conversationId, engineId, turnId });
+function createAcceptedInputResult(options = {}) {
+  if (!options || typeof options !== "object" || Array.isArray(options)) {
+    throw new Error("Accepted input result must be an object.");
   }
 
-  if (mode === "queued") {
-    const queueDepth = Number(options.queueDepth);
-    if (!Number.isInteger(queueDepth) || queueDepth < 0) {
-      throw new Error("queueDepth is required.");
-    }
-    return Object.freeze({ ok: true, mode, conversationId, engineId, turnId, queueDepth });
+  const { mode, conversationId, engineId, turnId } = options;
+
+  if (typeof mode !== "string" || !mode.trim()) {
+    throw new Error("mode is required.");
+  }
+  if (typeof conversationId !== "string" || !conversationId.trim()) {
+    throw new Error("conversationId is required.");
+  }
+  if (typeof turnId !== "string" || !turnId.trim()) {
+    throw new Error("turnId is required.");
+  }
+  if (typeof engineId !== "string" || !engineId.trim()) {
+    throw new Error("engineId is required.");
   }
 
-  if (mode === "steered") {
-    if (options.after !== "next-tool-call") {
-      throw new Error("after must be next-tool-call.");
+  const normalizedMode = mode.trim();
+  const normalizedConversationId = conversationId.trim();
+  const normalizedTurnId = turnId.trim();
+  const normalizedEngineId = assertKnownAgentEngine(engineId);
+
+  if (normalizedMode === "started") {
+    if (Object.prototype.hasOwnProperty.call(options, "queueDepth") || Object.prototype.hasOwnProperty.call(options, "after")) {
+      throw new Error("Unexpected accepted input fields for started mode.");
     }
     return Object.freeze({
       ok: true,
-      mode,
-      conversationId,
-      engineId,
-      turnId,
+      mode: normalizedMode,
+      conversationId: normalizedConversationId,
+      engineId: normalizedEngineId,
+      turnId: normalizedTurnId
+    });
+  }
+
+  if (normalizedMode === "queued") {
+    if (!Object.prototype.hasOwnProperty.call(options, "queueDepth")) {
+      throw new Error("queueDepth is required.");
+    }
+    const { queueDepth } = options;
+    if (!Number.isInteger(queueDepth) || queueDepth < 0) {
+      throw new Error("queueDepth is required.");
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "after")) {
+      throw new Error("Unexpected accepted input fields for queued mode.");
+    }
+    return Object.freeze({
+      ok: true,
+      mode: normalizedMode,
+      conversationId: normalizedConversationId,
+      engineId: normalizedEngineId,
+      turnId: normalizedTurnId,
+      queueDepth
+    });
+  }
+
+  if (normalizedMode === "steered") {
+    if (options.after !== "next-tool-call") {
+      throw new Error("after must be next-tool-call.");
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "queueDepth")) {
+      throw new Error("Unexpected accepted input fields for steered mode.");
+    }
+    return Object.freeze({
+      ok: true,
+      mode: normalizedMode,
+      conversationId: normalizedConversationId,
+      engineId: normalizedEngineId,
+      turnId: normalizedTurnId,
       after: "next-tool-call"
     });
   }
 
-  throw new Error(`Unknown accepted input mode: ${mode}`);
+  throw new Error(`Unknown accepted input mode: ${normalizedMode}`);
 }
 
 module.exports = Object.freeze({
