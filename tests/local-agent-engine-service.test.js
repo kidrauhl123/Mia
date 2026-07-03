@@ -595,7 +595,7 @@ test("scanAgentsAsync marks installed agents blocked when CLI handshake fails", 
       if (file === "/bin/npx" && args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")) {
         return cb(null, "Claude ACP help\n", "");
       }
-      if (file === "/bin/npx" && args.includes("@zed-industries/codex-acp@0.14.0")) {
+      if (file === "/bin/npx" && args.includes("@agentclientprotocol/codex-acp@1.1.0")) {
         return cb(new Error("spawn failed"), "", "Cannot start Codex ACP");
       }
       return cb(new Error("not found"), "", "");
@@ -610,7 +610,7 @@ test("scanAgentsAsync marks installed agents blocked when CLI handshake fails", 
   assert.equal(codex.health, "blocked");
   assert.equal(codex.installAction, "install-codex");
   assert.equal(codex.readiness.status, "blocked");
-  assert.match(codex.readiness.detail, /@zed-industries\/codex-acp/);
+  assert.match(codex.readiness.detail, /@agentclientprotocol\/codex-acp/);
   assert.equal(inventory.summary.recommendedAction, "continue");
   assert.equal(service.cachedLocalAgentEngines().codex.available, false);
   assert.equal(service.cachedLocalAgentEngines().codex.installAction, "install-codex");

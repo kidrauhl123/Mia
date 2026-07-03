@@ -133,6 +133,7 @@ const {
   isMiaManagedRuntime
 } = require("./main/mia-core/model-runtime-resolver.js");
 const { createClaudeCodeMiaProxy } = require("./main/claude-code-mia-proxy.js");
+const { createCodexMiaProxy } = require("./main/codex-mia-proxy.js");
 const { createAgentSessionRuntimePreparer } = require("./main/agent-session-runtime-preparer.js");
 const { createMiaCoreRuntimeService } = require("./main/mia-core/runtime-service.js");
 const {
@@ -2228,9 +2229,13 @@ function resolveManagedModelRuntime(config = {}, context = {}) {
 const claudeCodeMiaProxy = createClaudeCodeMiaProxy({
   appendLog: (line) => appendCloudLog(line)
 });
+const codexMiaProxy = createCodexMiaProxy({
+  appendLog: (line) => appendCloudLog(line)
+});
 const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
   resolveManagedModelRuntime,
-  claudeCodeMiaProxy
+  claudeCodeMiaProxy,
+  codexMiaProxy
 });
 const prepareAgentSessionRuntime = (input) => agentSessionRuntimePreparer.prepare(input);
 
@@ -3209,6 +3214,7 @@ app.on("before-quit", () => {
   closeOpenClawAcpRuntimes();
   agentSessionManager.closeAllSessions().catch((error) => appendEngineLog(`AgentSession cleanup failed: ${error?.message || error}`));
   claudeCodeMiaProxy.stop().catch((error) => appendCloudLog(`Claude Code Mia proxy cleanup failed: ${error?.message || error}`));
+  codexMiaProxy.stop().catch((error) => appendCloudLog(`Codex Mia proxy cleanup failed: ${error?.message || error}`));
 });
 
 app.whenReady().then(async () => {

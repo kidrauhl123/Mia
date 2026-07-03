@@ -91,6 +91,7 @@ const {
   isMiaManagedRuntime
 } = require("../main/mia-core/model-runtime-resolver.js");
 const { createClaudeCodeMiaProxy } = require("../main/claude-code-mia-proxy.js");
+const { createCodexMiaProxy } = require("../main/codex-mia-proxy.js");
 const { createAgentSessionRuntimePreparer } = require("../main/agent-session-runtime-preparer.js");
 
 // Memory + skills collaborators — the SAME pure-node factories main.js drives
@@ -582,11 +583,16 @@ function createCoreBotExecution({
     fetch: fetchImpl,
     appendLog: () => {}
   });
+  const codexMiaProxy = createCodexMiaProxy({
+    fetch: fetchImpl,
+    appendLog: () => {}
+  });
   const agentSessionRuntimePreparer = typeof injectedPrepareAgentSessionRuntime === "function"
     ? { prepare: injectedPrepareAgentSessionRuntime }
     : createAgentSessionRuntimePreparer({
       resolveManagedModelRuntime,
-      claudeCodeMiaProxy
+      claudeCodeMiaProxy,
+      codexMiaProxy
     });
 
   // ensureHermesReady: when Core owns the engine lifecycle (an ensureEngine is
@@ -753,6 +759,7 @@ function createCoreBotExecution({
     try { if (userMcpManager && typeof userMcpManager.stopAll === "function") await userMcpManager.stopAll(); } catch { /* best effort */ }
     try { if (agentSessionManager && typeof agentSessionManager.closeAllSessions === "function") await agentSessionManager.closeAllSessions(); } catch { /* best effort */ }
     try { if (!injectedClaudeCodeMiaProxy && claudeCodeMiaProxy && typeof claudeCodeMiaProxy.stop === "function") await claudeCodeMiaProxy.stop(); } catch { /* best effort */ }
+    try { if (codexMiaProxy && typeof codexMiaProxy.stop === "function") await codexMiaProxy.stop(); } catch { /* best effort */ }
     try { if (miaMemoryService && typeof miaMemoryService.close === "function") miaMemoryService.close(); } catch { /* best effort */ }
   }
 

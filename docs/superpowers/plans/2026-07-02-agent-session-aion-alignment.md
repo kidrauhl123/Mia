@@ -55,7 +55,7 @@ SET launch_config_json = '{"command":"npx","args":["-y","@agentclientprotocol/cl
 WHERE backend = 'claude' AND agent_type = 'acp';
 
 UPDATE aiagent
-SET launch_config_json = '{"command":"npx","args":["-y","@zed-industries/codex-acp@0.14.0"]}'
+SET launch_config_json = '{"command":"npx","args":["-y","@agentclientprotocol/codex-acp@1.1.0"]}'
 WHERE backend = 'codex' AND agent_type = 'acp';
 ```
 
@@ -256,7 +256,7 @@ npm test -- tests/agent-session-contract.test.js
   engineId: 'codex',
   transport: 'acp',
   command: 'npx',
-  args: ['-y', '@zed-industries/codex-acp@0.14.0']
+  args: ['-y', '@agentclientprotocol/codex-acp@1.1.0']
 }
 ```
 

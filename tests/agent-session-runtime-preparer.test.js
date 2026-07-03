@@ -78,19 +78,36 @@ test("does not prepare proxy env for native Claude Code runtime", async () => {
   assert.deepEqual(runtime, {});
 });
 
-test("does not prepare proxy env for non-Claude AgentSession engines", async () => {
+test("prepares Codex Mia managed model proxy env for AgentSession", async () => {
+  const proxyCalls = [];
+  const managedModel = {
+    provider: "mia",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:mia-auto",
+    model: "mia-auto",
+    baseUrl: "https://mia.example/api/me/model-proxy/v1",
+    apiKey: "cloud-token",
+    managedByMia: true
+  };
   const preparer = createAgentSessionRuntimePreparer({
-    resolveManagedModelRuntime: () => {
-      throw new Error("resolver should not run");
+    resolveManagedModelRuntime: (runtimeConfig, context) => {
+      assert.deepEqual(context, { engine: "codex" });
+      assert.equal(runtimeConfig.modelProfileId, "mia:mia-auto");
+      return managedModel;
     },
-    claudeCodeMiaProxy: {
-      createSession: async () => {
-        throw new Error("proxy should not start");
+    codexMiaProxy: {
+      createSession: async (runtime) => {
+        proxyCalls.push(runtime);
+        return {
+          baseUrl: "http://127.0.0.1:7654/v1",
+          apiKey: "mia-codex-session-token",
+          model: "mia-auto"
+        };
       }
     }
   });
 
-  assert.deepEqual(await preparer.prepare({
+  const runtime = await preparer.prepare({
     engineId: "codex",
     runtimeConfig: {
       agentEngine: "codex",
@@ -98,7 +115,51 @@ test("does not prepare proxy env for non-Claude AgentSession engines", async () 
       modelProfileId: "mia:mia-auto",
       model: "mia-auto"
     }
-  }), {});
+  });
+
+  assert.equal(proxyCalls.length, 1);
+  assert.equal(proxyCalls[0], managedModel);
+  assert.equal(runtime.runtimeKey, "mia:mia-auto");
+  assert.equal(runtime.env.CODEX_API_KEY, "mia-codex-session-token");
+  assert.equal(runtime.env.OPENAI_API_KEY, undefined);
+  assert.equal(runtime.env.MODEL_PROVIDER, "custom");
+  assert.deepEqual(JSON.parse(runtime.env.CODEX_CONFIG), {
+    model: "mia-auto",
+    model_provider: "custom",
+    disable_response_storage: true,
+    model_providers: {
+      custom: {
+        name: "Mia",
+        base_url: "http://127.0.0.1:7654/v1",
+        wire_api: "responses",
+        env_key: "CODEX_API_KEY",
+        requires_openai_auth: false
+      }
+    }
+  });
+});
+
+test("does not prepare Codex proxy env for native Codex runtime", async () => {
+  const preparer = createAgentSessionRuntimePreparer({
+    resolveManagedModelRuntime: () => null,
+    codexMiaProxy: {
+      createSession: async () => {
+        throw new Error("proxy should not start");
+      }
+    }
+  });
+
+  const runtime = await preparer.prepare({
+    engineId: "codex",
+    runtimeConfig: {
+      agentEngine: "codex",
+      providerConnectionId: "codex",
+      modelProfileId: "codex:gpt-5-codex",
+      model: "gpt-5-codex"
+    }
+  });
+
+  assert.deepEqual(runtime, {});
 });
 
 test("prepares OpenClaw Mia profile for Mia managed model runtime", async () => {

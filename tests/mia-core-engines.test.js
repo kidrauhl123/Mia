@@ -217,6 +217,47 @@ test("Claude Code turns using Mia Auto receive Mia proxy env in Core AgentSessio
   await core.closeAgentEngines();
 });
 
+test("Codex turns using Mia Auto receive Mia proxy env in Core AgentSession", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-codex-mia-runtime-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const managerCalls = [];
+  const core = createCoreBotExecution({
+    runtimePaths: makeRuntimePaths(home),
+    settingsStore: loggedInSettingsStore,
+    agentSessionManager: recordingAgentSessionManager(managerCalls)
+  });
+
+  await core.sendChat({
+    botKey: "bot-codex",
+    botSnapshot: { key: "bot-codex", name: "Codex", agentEngine: "codex", capabilities: {} },
+    sessionId: "conversation:s1",
+    runtimeConfig: {
+      agentEngine: "codex",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto"
+    },
+    messages: [{ role: "user", id: "turn_1", content: "hi" }]
+  });
+
+  assert.equal(managerCalls[0].conversationId, "conversation:s1");
+  assert.equal(managerCalls[0].engineId, "codex");
+  assert.equal(managerCalls[0].runtimeKey, "mia:mia-auto");
+  assert.equal(managerCalls[0].env.MODEL_PROVIDER, "custom");
+  assert.equal(managerCalls[0].env.OPENAI_API_KEY, undefined);
+  assert.match(managerCalls[0].env.CODEX_API_KEY, /^mia_codex_/);
+  const codexConfig = JSON.parse(managerCalls[0].env.CODEX_CONFIG);
+  assert.equal(codexConfig.model, "mia-auto");
+  assert.equal(codexConfig.model_provider, "custom");
+  assert.equal(codexConfig.disable_response_storage, true);
+  assert.equal(codexConfig.model_providers.custom.base_url.startsWith("http://127.0.0.1:"), true);
+  assert.equal(codexConfig.model_providers.custom.wire_api, "responses");
+  assert.equal(codexConfig.model_providers.custom.env_key, "CODEX_API_KEY");
+  assert.equal(codexConfig.model_providers.custom.requires_openai_auth, false);
+
+  await core.closeAgentEngines();
+});
+
 test("native Claude Code model profiles do not require provider connections in Core AgentSession", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-claude-native-runtime-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -266,7 +307,7 @@ test("Task 13: local agent deep checks probe the ACP launch commands each intera
       if (file === "/bin/hermes" && args[0] === "--version") return cb(null, "Hermes Agent v0.16.0\n", "");
       if (file === "/bin/openclaw" && args[0] === "--version") return cb(null, "openclaw 0.1.0\n", "");
       if (file === "/bin/npx" && args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")) return cb(null, "claude acp help\n", "");
-      if (file === "/bin/npx" && args.includes("@zed-industries/codex-acp@0.14.0")) return cb(null, "codex acp help\n", "");
+      if (file === "/bin/npx" && args.includes("@agentclientprotocol/codex-acp@1.1.0")) return cb(null, "codex acp help\n", "");
       if (file === "/bin/hermes" && args[0] === "acp") return cb(null, "hermes acp help\n", "");
       if (file === "/bin/openclaw" && args[0] === "acp") return cb(null, "openclaw acp help\n", "");
       return cb(new Error("not found"), "", "");
@@ -286,7 +327,7 @@ test("Task 13: local agent deep checks probe the ACP launch commands each intera
   assert.equal(agentsById.openclaw.readiness.status, "ready");
 
   assert.ok(execCalls.some((call) => call.file === "/bin/npx" && call.args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")));
-  assert.ok(execCalls.some((call) => call.file === "/bin/npx" && call.args.includes("@zed-industries/codex-acp@0.14.0")));
+  assert.ok(execCalls.some((call) => call.file === "/bin/npx" && call.args.includes("@agentclientprotocol/codex-acp@1.1.0")));
   assert.ok(execCalls.some((call) => call.file === "/bin/hermes" && call.args[0] === "acp"));
   assert.ok(execCalls.some((call) => call.file === "/bin/openclaw" && call.args[0] === "acp"));
 });

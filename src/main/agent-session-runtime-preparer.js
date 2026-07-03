@@ -1,6 +1,7 @@
 "use strict";
 
 const { createOpenClawMiaProfile } = require("./openclaw-mia-profile.js");
+const { createCodexMiaProxy } = require("./codex-mia-proxy.js");
 
 function firstString(source = {}, keys = []) {
   for (const key of keys) {
@@ -17,11 +18,31 @@ function runtimeKeyForMiaRuntime(runtime = {}) {
   return model.startsWith("mia:") ? model : `mia:${model}`;
 }
 
+function codexConfigForMiaSession(session = {}) {
+  const baseUrl = String(session.baseUrl || "").trim().replace(/\/+$/, "");
+  const model = String(session.model || "").trim();
+  return {
+    model,
+    model_provider: "custom",
+    disable_response_storage: true,
+    model_providers: {
+      custom: {
+        name: "Mia",
+        base_url: baseUrl,
+        wire_api: "responses",
+        env_key: "CODEX_API_KEY",
+        requires_openai_auth: false
+      }
+    }
+  };
+}
+
 function createAgentSessionRuntimePreparer(options = {}) {
   const resolveManagedModelRuntime = typeof options.resolveManagedModelRuntime === "function"
     ? options.resolveManagedModelRuntime
     : () => null;
   const claudeCodeMiaProxy = options.claudeCodeMiaProxy || null;
+  const codexMiaProxy = options.codexMiaProxy || createCodexMiaProxy(options.codexMiaProxyOptions || {});
   const openClawMiaProfile = options.openClawMiaProfile || createOpenClawMiaProfile(options.openClawMiaProfileOptions || {});
 
   async function prepare(input = {}) {
@@ -47,6 +68,31 @@ function createAgentSessionRuntimePreparer(options = {}) {
         runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
         env: {
           MIA_OPENCLAW_PROFILE: profileName
+        }
+      };
+    }
+
+    if (engineId === "codex") {
+      const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "codex";
+      if (agentEngine !== "codex") return {};
+      const managedRuntime = resolveManagedModelRuntime(runtimeConfig, { engine: "codex" });
+      if (!managedRuntime) return {};
+      if (!codexMiaProxy || typeof codexMiaProxy.createSession !== "function") {
+        throw new Error("Codex Mia proxy is not available.");
+      }
+      const session = await codexMiaProxy.createSession(managedRuntime);
+      const baseUrl = String(session?.baseUrl || "").trim();
+      const apiKey = String(session?.apiKey || "").trim();
+      const model = String(session?.model || "").trim();
+      if (!baseUrl || !apiKey || !model) {
+        throw new Error("Codex Mia proxy did not return a usable session.");
+      }
+      return {
+        runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
+        env: {
+          CODEX_API_KEY: apiKey,
+          MODEL_PROVIDER: "custom",
+          CODEX_CONFIG: JSON.stringify(codexConfigForMiaSession(session))
         }
       };
     }

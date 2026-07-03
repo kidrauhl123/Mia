@@ -113,7 +113,7 @@ function buildAcpEngineSpecs(options = {}) {
       engineId: "codex",
       transport: "acp",
       command: "npx",
-      args: ["-y", "@zed-industries/codex-acp@0.14.0"],
+      args: ["-y", "@agentclientprotocol/codex-acp@1.1.0"],
       supportsSteerInput: false,
       supportsQueuedInput: true
     }),
