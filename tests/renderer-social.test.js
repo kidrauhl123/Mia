@@ -4463,6 +4463,62 @@ test("renderConversationChat keeps process text and appends final body for legac
   assert.doesNotMatch(html, /legacy-trace/);
 });
 
+test("renderConversationChat does not render an extra final bubble for a whitespace-reflowed integrated summary", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  s.__mockWindow.miaTraceBlocks = {
+    renderAssistantContentBlocks({ blocks, renderTextBlock }) {
+      return blocks.map((block) => {
+        if (block.type === "text") return renderTextBlock(block);
+        if (block.type === "tool") return `<div class="ordered-tool">${block.name}</div>`;
+        return "";
+      }).join("");
+    },
+    renderTraceBlocks() {
+      return '<div class="legacy-trace">legacy</div>';
+    }
+  };
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", {
+    messages: [{
+      id: "m_blocks_reflowed",
+      seq: 1,
+      sender_kind: "bot",
+      sender_ref: "mia",
+      body_md: "Let me check the current state of the workspace to understand what's happening.看起来工作区有一些 Mia 首页相关的文件（mia-homepage-v2.html）和一些设计素材。",
+      created_at: "",
+      content_blocks_json: JSON.stringify([
+        { type: "text", id: "text_1", text: "Let me check the current state of the workspace to understand what's happening." },
+        { type: "tool", id: "tool_1", name: "Read file", preview: "mia-homepage-v2.html", status: "completed" },
+        { type: "text", id: "text_2", text: "看起来工作区有一些 Mia 首页相关的文件（mia-homepage-v2.html）和一些设计素材。" },
+        { type: "text", id: "text_final_3", text: "Let me check the current state of the workspace to understand what's happening.看起来工作区有一些 Mia 首页相关的文件（mia-homepage-v2.html）和一些设计素材。" }
+      ])
+    }],
+    maxSeq: 1
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  const html = chat.children[0].innerHTML;
+  assert.equal((html.match(/<div class="bubble"/g) || []).length, 2);
+  assert.ok(html.indexOf("Let me check the current state of the workspace to understand what's happening.") < html.indexOf("Read file"));
+  assert.ok(html.indexOf("Read file") < html.indexOf("看起来工作区有一些 Mia 首页相关的文件"));
+  assert.doesNotMatch(html, /legacy-trace/);
+});
+
 test("handleCloudEvent bot reply clears transient cloud agent stream", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
@@ -4614,6 +4670,54 @@ test("handleCloudEvent bot reply replaces the active streaming bubble", () => {
 
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].className, /streaming/);
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      message: { id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "done" },
+    },
+  });
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+  assert.equal(chat.children.length, 1);
+  assert.doesNotMatch(chat.children[0].className, /streaming/);
+  assert.match(chat.children[0].innerHTML, /done/);
+});
+
+test("handleCloudEvent rerenders the active chat when a duplicate bot reply event clears streaming state", () => {
+  const chat = {
+    dataset: {},
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector() { return null; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", {
+    messages: [{ id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "done" }],
+    maxSeq: 1
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "message.delta", delta: "done" } },
+  });
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 2);
+  assert.doesNotMatch(chat.children[0].className, /streaming/);
+  assert.match(chat.children[1].className, /streaming/);
 
   s.handleCloudEvent({
     type: "conversation.message_appended",
@@ -4830,6 +4934,103 @@ test("backfill upgrades stale in-memory messages with persisted trace_json", asy
 
   const cached = s.moduleState.messageCache.get("botc_u_me_mia").messages[0];
   assert.equal(cached.trace_json, tracedMessage.trace_json);
+});
+
+test("backfill bot reply replaces the active streaming bubble instead of duplicating it", async () => {
+  const cachedDeferred = deferred();
+  const listDeferred = deferred();
+  const chat = {
+    dataset: {},
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  s.__mockWindow.miaTraceBlocks = {
+    renderAssistantContentBlocks({ blocks, renderTextBlock }) {
+      return blocks.map((block) => {
+        if (block.type === "text") return renderTextBlock(block);
+        if (block.type === "tool") return `<div class="ordered-tool">${block.name}</div>`;
+        return "";
+      }).join("");
+    },
+    renderTraceBlocks() {
+      return "";
+    },
+    markRenderedTraceBlocks() {}
+  };
+  s.__mockWindow.miaAvatar = {
+    avatarHtml() { return '<div class="avatar message-avatar"></div>'; },
+    hydrateAvatarVideos() {},
+    avatarThumbBackgroundStyle: () => ""
+  };
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.conversations = [{ id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.__mockWindow.mia.social = {
+    getCachedConversationMessages: async () => cachedDeferred.promise,
+    listConversationMessages: async () => listDeferred.promise,
+    settingsPut: async () => ({})
+  };
+
+  s.setActiveConversationId("botc_u_me_mia");
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_me_mia", runId: "car_backfill", turnId: "turn_backfill", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_me_mia", runId: "car_backfill", event: { type: "text_delta", id: "text_1", text: "Warning: Model metadata for mia-auto not found." } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_me_mia", runId: "car_backfill", event: { type: "text_delta", id: "text_2", text: "好的，我帮你记下来！" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_me_mia", runId: "car_backfill", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "echo hi" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_me_mia", runId: "car_backfill", event: { type: "tool_call_completed", id: "tool_1", name: "shell" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_me_mia", runId: "car_backfill", event: { type: "text_delta", id: "text_3", text: "记住了！以后提到东北大酱我会注意的 😊" } },
+  });
+
+  s.renderConversationChat(chat);
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /streaming/);
+
+  cachedDeferred.resolve({ ok: true, data: { messages: [] } });
+  listDeferred.resolve({
+    ok: true,
+    data: {
+      messages: [{
+        id: "m_final",
+        seq: 1,
+        sender_kind: "bot",
+        sender_ref: "mia",
+        turn_id: "turn_backfill",
+        body_md: "Warning: Model metadata for mia-auto not found.\n\n好的，我帮你记下来！\n\n记住了！以后提到东北大酱我会注意的 😊",
+        created_at: "2026-07-03T14:37:00.000Z"
+      }]
+    }
+  });
+  await flushMicrotasks();
+
+  assert.equal(chat.children.length, 1);
+  assert.doesNotMatch(chat.children[0].className, /streaming/);
 });
 
 test("warm cache backfill overlaps recent messages to repair missing trace_json", async () => {

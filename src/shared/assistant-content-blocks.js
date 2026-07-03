@@ -184,6 +184,30 @@
     return body.trim();
   }
 
+  function textWithoutWhitespace(value) {
+    return safeString(value).replace(/\s+/g, "");
+  }
+
+  function suffixAfterWhitespaceInsensitivePrefix(fullText, prefixText) {
+    const full = safeString(fullText);
+    const prefix = textWithoutWhitespace(prefixText);
+    if (!prefix) return full.trim();
+    let matched = 0;
+    let index = 0;
+    while (index < full.length && matched < prefix.length) {
+      const ch = full[index];
+      if (/\s/.test(ch)) {
+        index += 1;
+        continue;
+      }
+      if (ch !== prefix.charAt(matched)) return null;
+      matched += 1;
+      index += 1;
+    }
+    if (matched !== prefix.length) return null;
+    return full.slice(index).trim();
+  }
+
   function mergeAssistantText(currentText, nextText) {
     const current = safeString(currentText);
     const next = safeString(nextText);
@@ -206,20 +230,42 @@
     const previous = blocks.slice(0, -1);
     const previousBody = bodyMdFromContentBlocks(previous);
     if (!previousBody) return blocks;
-    return previousBody === safeString(last.text).trim()
-      ? previous
-      : blocks;
+    const lastText = safeString(last.text).trim();
+    if (!lastText) return previous;
+    if (previousBody === lastText) return previous;
+    if (textWithoutWhitespace(previousBody) === textWithoutWhitespace(lastText)) return previous;
+    const suffix = suffixAfterWhitespaceInsensitivePrefix(lastText, previousBody);
+    if (suffix == null) return blocks;
+    if (!suffix) return previous;
+    return normalizeContentBlocks([
+      ...previous,
+      {
+        ...last,
+        text: suffix
+      }
+    ]);
   }
 
   function finalTextToAppend(blocks, finalText) {
     const final = safeString(finalText).trim();
     if (!final) return "";
     const normalized = stripLegacyDuplicateFinalTextBlock(normalizeContentBlocks(blocks));
+    const textBlocks = normalized.filter((block) => block.type === "text");
     const current = bodyMdFromContentBlocks(normalized);
     if (!current) return final;
     if (current === final) return "";
-    if (normalized.some((block) => block.type === "text" && block.text.trim() === final)) return "";
+    if (textBlocks.some((block) => block.text.trim() === final)) return "";
     if (final.startsWith(current)) return final.slice(current.length).trim();
+    if (textBlocks.length > 1) {
+      const currentNoWhitespace = textWithoutWhitespace(current);
+      const finalNoWhitespace = textWithoutWhitespace(final);
+      if (currentNoWhitespace && currentNoWhitespace === finalNoWhitespace) return "";
+      if (textBlocks.some((block) => textWithoutWhitespace(block.text) === finalNoWhitespace)) return "";
+      if (currentNoWhitespace && finalNoWhitespace.startsWith(currentNoWhitespace)) {
+        const suffix = suffixAfterWhitespaceInsensitivePrefix(final, current);
+        if (suffix != null) return suffix;
+      }
+    }
     return final;
   }
 

@@ -284,6 +284,31 @@ test("final text completion does not append the full body when text blocks alrea
   ]);
 });
 
+test("final text completion suppresses a whitespace-reflowed integrated summary across multiple text blocks", () => {
+  assert.deepEqual(contentBlocksWithFinalText([
+    { type: "text", id: "text_1", text: "Let me check the current state of the workspace to understand what's happening." },
+    { type: "tool", id: "tool_1", name: "Read file", preview: "", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "看起来工作区有一些 Mia 首页相关的文件（mia-homepage-v2.html）和一些设计素材。" }
+  ], "Let me check the current state of the workspace to understand what's happening.看起来工作区有一些 Mia 首页相关的文件（mia-homepage-v2.html）和一些设计素材。"), [
+    { type: "text", id: "text_1", text: "Let me check the current state of the workspace to understand what's happening." },
+    { type: "tool", id: "tool_1", name: "Read file", preview: "", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "看起来工作区有一些 Mia 首页相关的文件（mia-homepage-v2.html）和一些设计素材。" }
+  ]);
+});
+
+test("final text completion keeps only the genuinely new suffix after a whitespace-reflowed process summary", () => {
+  assert.deepEqual(contentBlocksWithFinalText([
+    { type: "text", id: "text_1", text: "我先检查。" },
+    { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "看起来工作区有一些文件。" }
+  ], "我先检查。看起来工作区有一些文件。\n\n需要我帮你做什么？"), [
+    { type: "text", id: "text_1", text: "我先检查。" },
+    { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "看起来工作区有一些文件。" },
+    { type: "text", id: "text_final_3", text: "需要我帮你做什么？" }
+  ]);
+});
+
 test("final text completion strips a legacy duplicated text_final block before rendering", () => {
   assert.deepEqual(contentBlocksWithFinalText([
     { type: "text", id: "text_1", text: "我先试试。" },
@@ -294,6 +319,33 @@ test("final text completion strips a legacy duplicated text_final block before r
     { type: "text", id: "text_1", text: "我先试试。" },
     { type: "tool", id: "tool_1", name: "shell", preview: "curl", status: "completed", duration: null, error: false },
     { type: "text", id: "text_2", text: "\n\n还是不行。" }
+  ]);
+});
+
+test("final text completion strips a whitespace-reflowed legacy duplicated text_final block before rendering", () => {
+  assert.deepEqual(contentBlocksWithFinalText([
+    { type: "text", id: "text_1", text: "Let me check the current state of the workspace to understand what's happening." },
+    { type: "tool", id: "tool_1", name: "Read file", preview: "", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "看起来工作区有一些 Mia 首页相关的文件（mia-homepage-v2.html）和一些设计素材。" },
+    { type: "text", id: "text_final_3", text: "Let me check the current state of the workspace to understand what's happening.看起来工作区有一些 Mia 首页相关的文件（mia-homepage-v2.html）和一些设计素材。" }
+  ], "Let me check the current state of the workspace to understand what's happening.看起来工作区有一些 Mia 首页相关的文件（mia-homepage-v2.html）和一些设计素材。"), [
+    { type: "text", id: "text_1", text: "Let me check the current state of the workspace to understand what's happening." },
+    { type: "tool", id: "tool_1", name: "Read file", preview: "", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "看起来工作区有一些 Mia 首页相关的文件（mia-homepage-v2.html）和一些设计素材。" }
+  ]);
+});
+
+test("final text completion rewrites a whitespace-reflowed legacy text_final block down to only the new suffix", () => {
+  assert.deepEqual(contentBlocksWithFinalText([
+    { type: "text", id: "text_1", text: "我先检查。" },
+    { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "看起来工作区有一些文件。" },
+    { type: "text", id: "text_final_3", text: "我先检查。看起来工作区有一些文件。\n\n需要我帮你做什么？" }
+  ], "我先检查。看起来工作区有一些文件。\n\n需要我帮你做什么？"), [
+    { type: "text", id: "text_1", text: "我先检查。" },
+    { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: null, error: false },
+    { type: "text", id: "text_2", text: "看起来工作区有一些文件。" },
+    { type: "text", id: "text_final_3", text: "需要我帮你做什么？" }
   ]);
 });
 

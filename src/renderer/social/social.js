@@ -3473,10 +3473,10 @@
       // If this is the active conversation, append to DOM directly for snappy UX. Only
       // stick to the bottom for my own messages; someone else's message must not
       // pull me away from history I've scrolled up to read.
-      if (fresh && conversationId === moduleState.activeConversationId) {
+      if (conversationId === moduleState.activeConversationId) {
         if (hadStreamingRun) {
           _reRenderActiveChat();
-        } else {
+        } else if (fresh) {
           _appendMessageToActiveChat(cachedMessage, { stick: isMine });
         }
       }
@@ -4891,6 +4891,18 @@
     return merged;
   }
 
+  function mergedBotReplyCompletesActiveRun(conversationId, incoming = []) {
+    const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
+    const runTurnId = String(run?.turnId || "").trim();
+    if (!run || !runTurnId) return false;
+    const { SenderKind } = conversationKinds();
+    return (Array.isArray(incoming) ? incoming : []).some((message) => (
+      message
+      && message.sender_kind === SenderKind.Bot
+      && String(message.turn_id || message.turnId || "").trim() === runTurnId
+    ));
+  }
+
   // Merge a batch of fetched/cached messages into a conversation's cache entry,
   // de-duping by id and keeping seq order. Fetched server rows may be richer than
   // the cold-start preview row, so collisions are merged instead of skipped.
@@ -4912,6 +4924,16 @@
     }
     if (changed) {
       entry.messages = [...byId.values()].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
+    }
+    if (mergedBotReplyCompletesActiveRun(conversationId, incoming)) {
+      clearRunPermissions(moduleState.cloudAgentRunsByConversation.get(conversationId));
+      moduleState.cloudAgentRunsByConversation.delete(conversationId);
+      refreshCloudRunStatusTimer();
+      renderAgentPermissionBanner();
+      if (conversationId === moduleState.activeConversationId && deps && typeof deps.paintHeaderStatus === "function") {
+        deps.paintHeaderStatus();
+      }
+      if (deps && typeof deps.render === "function") deps.render();
     }
     return entry;
   }
