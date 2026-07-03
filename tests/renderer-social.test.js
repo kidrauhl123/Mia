@@ -2499,7 +2499,7 @@ test("animateRemoveMessageFromActiveChat FLIPs remaining rows into the deleted g
   assert.equal(animations[0].options.duration, 190);
 });
 
-test("renderConversationChat renders image attachments inside the bubble before message text", () => {
+test("renderConversationChat keeps own image attachments inside the bubble before message text", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.moduleState.myUserId = "u_me";
@@ -2542,11 +2542,11 @@ test("renderConversationChat renders image attachments inside the bubble before 
   const bubbleEnd = html.indexOf("</div>", bodyIndex);
   assert.ok(bubbleStart >= 0, "bubble rendered");
   assert.ok(attachmentIndex > bubbleStart, "attachment block is inside bubble");
-  assert.ok(attachmentIndex < bodyIndex, "attachment block appears before message text");
+  assert.ok(attachmentIndex < bodyIndex, "own attachment block stays before message text");
   assert.ok(attachmentIndex < bubbleEnd, "attachment block closes inside bubble");
 });
 
-test("renderConversationChat hydrates cloud image URL previews before rendering thumbnails", async () => {
+test("renderConversationChat hydrates other-party cloud image URL previews and keeps attachments after text", async () => {
   const chat = {
     children: [],
     dataset: {},
@@ -2598,10 +2598,10 @@ test("renderConversationChat hydrates cloud image URL previews before rendering 
   const html = chat.children[0]?.innerHTML || "";
   assert.match(html, /class="message-attachment image"/);
   assert.match(html, /<img class="message-attachment-thumb" src="data:image\/png;base64,cG5n"/);
-  assert.ok(html.indexOf("message-attachments") < html.indexOf("remote image"));
+  assert.ok(html.indexOf("remote image") < html.indexOf("message-attachments"));
 });
 
-test("renderConversationChat hydrates cloud spreadsheet URLs into download links", async () => {
+test("renderConversationChat hydrates other-party cloud spreadsheets into download links after the text", async () => {
   const chat = {
     children: [],
     dataset: {},
@@ -2657,7 +2657,89 @@ test("renderConversationChat hydrates cloud spreadsheet URLs into download links
   const html = chat.children[0]?.innerHTML || "";
   assert.match(html, /download="world-cup\.xlsx"/);
   assert.match(html, /href="data:application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet;base64,eGxzeA=="/);
-  assert.ok(html.indexOf("message-attachments") < html.indexOf("已生成 Excel"));
+  assert.ok(html.indexOf("已生成 Excel") < html.indexOf("message-attachments"));
+});
+
+test("renderConversationChat renders other-party attachment-only messages without a white bubble carrier", () => {
+  const chat = {
+    children: [],
+    dataset: {},
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  installCloudConversationSource(s.__mockWindow);
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "dm_u_me_u_them";
+  s.moduleState.conversations = [{ id: "dm_u_me_u_them", type: "dm", name: "DM" }];
+  s.moduleState.messageCache.set("dm_u_me_u_them", {
+    messages: [{
+      id: "msg_attachment_only_1",
+      sender_kind: "bot",
+      sender_ref: "mia",
+      body_md: "",
+      created_at: "2026-07-03T06:00:00.000Z",
+      attachments: [{
+        id: "att_ppt_1",
+        kind: "file",
+        name: "传播学历史.pptx",
+        size: 39936,
+        dataUrl: "data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,cHB0"
+      }]
+    }],
+    maxSeq: 1
+  });
+
+  s.renderConversationChat(chat);
+
+  const html = chat.children[0]?.innerHTML || "";
+  assert.match(html, /class="message-attachments standalone"/);
+  assert.match(html, /data-message-source="cloud-conversation"/);
+  assert.match(html, /data-message-id="msg_attachment_only_1"/);
+  assert.doesNotMatch(html, /<div class="bubble"/);
+});
+
+test("renderConversationChat keeps own message attachments before the text bubble content", () => {
+  const chat = {
+    children: [],
+    dataset: {},
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  installCloudConversationSource(s.__mockWindow);
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "dm_u_me_u_them";
+  s.moduleState.conversations = [{ id: "dm_u_me_u_them", type: "dm", name: "DM" }];
+  s.moduleState.messageCache.set("dm_u_me_u_them", {
+    messages: [{
+      id: "msg_own_attachment_1",
+      sender_kind: "user",
+      sender_ref: "u_me",
+      body_md: "my own upload",
+      created_at: "2026-06-18T10:03:00.000Z",
+      attachments: [{
+        id: "att_own_1",
+        kind: "file",
+        name: "brief.txt",
+        dataUrl: "data:text/plain;base64,YnJpZWY="
+      }]
+    }],
+    maxSeq: 1
+  });
+
+  s.renderConversationChat(chat);
+
+  const html = chat.children[0]?.innerHTML || "";
+  assert.ok(html.indexOf("message-attachments") < html.indexOf("my own upload"));
 });
 
 test("renderConversationChat preserves cloud attachment names while hydrating previews", async () => {
@@ -2728,10 +2810,29 @@ test("renderAttachmentChips uses specific glyphs for common document formats", (
     { id: "zip", name: "资料.zip", kind: "file", size: 10 }
   ]);
 
-  assert.match(html, /<span>DOC<\/span>/);
-  assert.match(html, /<span>XLS<\/span>/);
-  assert.match(html, /<span>PPT<\/span>/);
-  assert.match(html, /<span>ZIP<\/span>/);
+  assert.match(html, /src="\.\/assets\/file-type-icons\/doc\.png"/);
+  assert.match(html, /src="\.\/assets\/file-type-icons\/xls\.png"/);
+  assert.match(html, /src="\.\/assets\/file-type-icons\/ppt\.png"/);
+  assert.match(html, /src="\.\/assets\/file-type-icons\/zip\.png"/);
+});
+
+test("renderAttachmentChips renders non-image files as typed attachment cards", () => {
+  const s = loadSocial();
+
+  const html = s._internalCtx.renderAttachmentChips([
+    { id: "slides", name: "传播学历史.pptx", kind: "file", size: 39936, path: "/tmp/传播学历史.pptx", dataUrl: "data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,cHB0" },
+    { id: "sheet", name: "world-cup.xlsx", kind: "file", size: 10240, dataUrl: "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,eGxz" }
+  ]);
+
+  assert.match(html, /class="message-attachment file-card type-ppt"/);
+  assert.match(html, /class="message-attachment file-card type-xls"/);
+  assert.match(html, /data-local-file-path="\/tmp\/传播学历史\.pptx"/);
+  assert.match(html, /data-download-href="data:application\/vnd\.openxmlformats-officedocument\.presentationml\.presentation;base64,cHB0"/);
+  assert.match(html, /class="message-attachment-icon-image" src="\.\/assets\/file-type-icons\/ppt\.png"/);
+  assert.match(html, /class="message-attachment-icon-image" src="\.\/assets\/file-type-icons\/xls\.png"/);
+  assert.match(html, /class="message-attachment-meta"/);
+  assert.match(html, /传播学历史\.pptx/);
+  assert.match(html, /39 KB/);
 });
 
 test("renderConversationChat resolves self and bot avatars from one contact context", () => {

@@ -234,6 +234,8 @@
     const attachmentHtml = typeof ctx.renderAttachmentChips === "function"
       ? ctx.renderAttachmentChips(spec?.attachments || msg.attachments || [])
       : "";
+    const attachmentBeforeBodyHtml = isOwn ? attachmentHtml : "";
+    const attachmentAfterBodyHtml = isOwn ? "" : attachmentHtml;
     const contentBlocks = !isOwn ? contentBlocksFromMessage(msg) : [];
     let renderedFirstTextBlock = false;
     const orderedBlocksHtml = contentBlocks.length
@@ -242,7 +244,7 @@
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`,
         renderTextBlock(block) {
-          const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentHtml}${senderTitleHtml}`;
+          const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentBeforeBodyHtml}${senderTitleHtml}`;
           renderedFirstTextBlock = true;
           const rawBlockHtml = renderMsgBody(block.text || "");
           const blockHtml = global.miaMentionRender
@@ -253,9 +255,15 @@
       })
       : "";
     const traceHtml = orderedBlocksHtml ? "" : renderTraceForMessage(msg, bodyMd);
-    const orderedBlocksWithAttachments = orderedBlocksHtml && !renderedFirstTextBlock && attachmentHtml
-      ? `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentHtml}${senderTitleHtml}</div>${orderedBlocksHtml}`
-      : orderedBlocksHtml;
+    const orderedBlocksLeadingBubbleHtml = orderedBlocksHtml && !renderedFirstTextBlock && (attachmentBeforeBodyHtml || senderTitleHtml)
+      ? `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentBeforeBodyHtml}${senderTitleHtml}</div>`
+      : "";
+    const orderedBlocksTrailingBubbleHtml = orderedBlocksHtml && attachmentAfterBodyHtml
+      ? `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentAfterBodyHtml}</div>`
+      : "";
+    const orderedBlocksWithAttachments = orderedBlocksHtml
+      ? `${orderedBlocksLeadingBubbleHtml}${orderedBlocksHtml}${orderedBlocksTrailingBubbleHtml}`
+      : "";
     const sendStatusHtml = typeof ctx.renderSendStatus === "function"
       ? ctx.renderSendStatus(msg)
       : "";
@@ -291,7 +299,7 @@
       ${avatarHtml}
       <div class="message-stack">
         ${traceHtml}
-        ${orderedBlocksWithAttachments || `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentHtml}${senderTitleHtml}${bodyHtml}</div>`}
+        ${orderedBlocksWithAttachments || `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentBeforeBodyHtml}${senderTitleHtml}${bodyHtml}${attachmentAfterBodyHtml}</div>`}
         ${translationHtml}
         ${timeHtml}
         ${sendStatusHtml}
