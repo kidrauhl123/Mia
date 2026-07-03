@@ -9177,10 +9177,25 @@ select.select-open {
   min-width: 0;
 }
 
+.cloud-mobile-scan-copy strong {
+  font-size: var(--ui-text-max-size, 14px);
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.cloud-mobile-scan-copy p {
+  max-width: 34ch;
+  margin: 2px 0 0;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
 .cloud-mobile-scan-panel {
   display: grid;
   justify-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: 0 0 auto;
 }
 
@@ -9207,8 +9222,8 @@ select.select-open {
 }
 
 .cloud-mobile-scan-refresh {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   color: var(--faint);
 }
 
@@ -9218,9 +9233,9 @@ select.select-open {
 }
 
 .cloud-mobile-scan-refresh svg {
-  width: 15px;
-  height: 15px;
-  stroke-width: 1.55;
+  width: 14px;
+  height: 14px;
+  stroke-width: 3.6;
 }
 
 @media (max-width: 900px) {

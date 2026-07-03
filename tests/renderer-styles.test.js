@@ -741,6 +741,16 @@ test("settings workspace lives on the app floor and adapts to narrow windows", (
   assert.match(baseCss, /\.cloud-actions\s*\{[\s\S]*?flex:\s*0 0 auto;[\s\S]*?flex-wrap:\s*wrap;/);
   assert.match(
     baseCss,
+    /\.cloud-mobile-scan-copy strong\s*\{[\s\S]*?font-size:\s*var\(--ui-text-max-size,\s*14px\);[\s\S]*?font-weight:\s*400;/,
+    "desktop scan title should stay within the renderer text ceiling"
+  );
+  assert.match(
+    baseCss,
+    /\.cloud-mobile-scan-copy p\s*\{[\s\S]*?font-size:\s*11px;[\s\S]*?font-weight:\s*400;/,
+    "desktop scan description should keep the compact secondary-copy scale"
+  );
+  assert.match(
+    baseCss,
     /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.settings-layout\s*\{[\s\S]*?grid-template-columns:\s*1fr;[\s\S]*?grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\);/,
     "settings workspace should stop hard-splitting into a sidebar and content column on narrow windows"
   );
