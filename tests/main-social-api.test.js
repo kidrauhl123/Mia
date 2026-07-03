@@ -151,14 +151,14 @@ test("createConversation sends memberBots to the cloud route", async () => {
     });
     const result = await api.createConversation({
       name: "Group",
-      memberBots: [{ botId: "mia", runtimeKind: "cloud-hermes" }],
+      memberBots: [{ botId: "mia", runtimeKind: "cloud-claude-code" }],
       memberFriendUserIds: ["u_friend"]
     });
     assert.equal(result.conversation.id, "g_1");
     assert.equal(seen[0].method, "POST");
     assert.equal(seen[0].url, "/api/conversations");
     const sent = JSON.parse(seen[0].body);
-    assert.deepEqual(sent.memberBots, [{ botId: "mia", runtimeKind: "cloud-hermes" }]);
+    assert.deepEqual(sent.memberBots, [{ botId: "mia", runtimeKind: "cloud-claude-code" }]);
     assert.equal(sent["member" + "Fellows"], undefined);
     assert.match(sent.clientOpId, /^op_/);
   } finally { await teardown(ctx); }
@@ -264,14 +264,14 @@ test("ensureBotSessionConversation sends PUT to the per-session bot conversation
     const result = await api.ensureBotSessionConversation("sess_1", {
       botId: "mia",
       title: "新对话",
-      runtimeKind: "cloud-hermes"
+      runtimeKind: "cloud-claude-code"
     });
     assert.equal(result.conversation.id, "bot:u_1:sess_1");
     assert.equal(seen[0].method, "PUT");
     assert.equal(seen[0].url, "/api/me/bot-conversations/sess_1");
     const sentBody = JSON.parse(seen[0].body);
     assert.equal(sentBody.botId, "mia");
-    assert.equal(sentBody.runtimeKind, "cloud-hermes");
+    assert.equal(sentBody.runtimeKind, "cloud-claude-code");
     assert.match(sentBody.clientOpId, /^op_/);
   } finally { await teardown(ctx); }
 });
@@ -390,7 +390,7 @@ test("saveBotRuntime sends PUT with an idempotency key", async () => {
     req.on("end", () => {
       seen.push({ method: req.method, url: req.url, body });
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ binding: { botId: "alice", runtimeKind: "cloud-hermes" } }));
+      res.end(JSON.stringify({ binding: { botId: "alice", runtimeKind: "cloud-claude-code" } }));
     });
   });
   try {
@@ -399,14 +399,14 @@ test("saveBotRuntime sends PUT with an idempotency key", async () => {
       normalizeUrl: (u) => u
     });
     const result = await api.saveBotRuntime("alice", {
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       config: { model: "hermes-agent" }
     });
     assert.equal(result.binding.botId, "alice");
     assert.equal(seen[0].method, "PUT");
     assert.equal(seen[0].url, "/api/me/bots/alice/runtime");
     const sentBody = JSON.parse(seen[0].body);
-    assert.equal(sentBody.runtimeKind, "cloud-hermes");
+    assert.equal(sentBody.runtimeKind, "cloud-claude-code");
     assert.match(sentBody.clientOpId, /^op_/);
   } finally { await teardown(ctx); }
 });

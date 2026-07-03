@@ -47,22 +47,37 @@
 
   function isCloudIdentityBot(input = {}) {
     return hasSourceKind(input, "cloud")
-      || String(input.runtimeKind || input.runtime_kind || "").trim() === "cloud-hermes";
+      || String(input.runtimeKind || input.runtime_kind || "").trim() === "cloud-claude-code";
   }
 
   function isCloudRuntimeKind(value = "") {
-    return String(value || "").trim() === "cloud-hermes";
+    return String(value || "").trim() === "cloud-claude-code";
   }
 
   function normalizeRuntimeKind(value, fallback = "desktop-local") {
     const raw = String(value || "").trim();
-    if (raw === "cloud-hermes") return "cloud-hermes";
+    if (raw === "cloud-claude-code" || raw === "cloud-hermes") return "cloud-claude-code";
     if (raw === "desktop-local") return "desktop-local";
-    return fallback === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
+    return fallback === "cloud-claude-code" ? "cloud-claude-code" : "desktop-local";
   }
 
-  function normalizeAgentEngine(value, runtimeKind = "desktop-local") {
-    if (runtimeKind === "cloud-hermes") return "hermes";
+  function strictAgentEngine(value = "") {
+    const strict = global.miaCloudRuntime?.normalizeAgentEngineStrict?.(value);
+    if (strict) return strict;
+    const id = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+    if (id === "claude" || id === "claude-code") return "claude-code";
+    if (id === "codex" || id === "openai-codex") return "codex";
+    if (id === "openclaw" || id === "open-claw") return "openclaw";
+    if (id === "hermes") return "hermes";
+    return "";
+  }
+
+  function cloudAgentEngine(runtime = {}) {
+    return global.miaCloudRuntime?.cloudAgentRuntimeFromCloud?.(runtime.cloud || runtime)?.agentEngine || "";
+  }
+
+  function normalizeAgentEngine(value, runtimeKind = "desktop-local", runtime = {}) {
+    if (runtimeKind === "cloud-claude-code") return strictAgentEngine(value) || cloudAgentEngine(runtime);
     const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
     if (id === "openclaw" || id === "open-claw") return "openclaw";
     const normalizer = global.miaEngineContracts?.normalizeAgentEngine;
@@ -116,9 +131,9 @@
     const runtimeConfig = bot.runtimeConfig || bot.runtime_config || bot.config || {};
     const runtimeKind = normalizeRuntimeKind(
       bot.runtimeKind || bot.runtime_kind || bot.runtime?.kind || runtimeConfig.runtimeKind || runtimeConfig.runtime_kind,
-      bot.sourceKind === "cloud" ? "cloud-hermes" : "desktop-local"
+      bot.sourceKind === "cloud" ? "cloud-claude-code" : "desktop-local"
     );
-    if (runtimeKind === "cloud-hermes") return "Mia Cloud";
+    if (runtimeKind === "cloud-claude-code") return "Mia Cloud";
     const targetDeviceId = firstNonEmpty(
       bot.targetDeviceId,
       bot.target_device_id,
@@ -169,7 +184,7 @@
     const key = botKey(input);
     if (!key) return null;
     const sourceKind = options.sourceKind || input.sourceKind || input.source_kind || "desktop";
-    const fallbackRuntimeKind = sourceKind === "cloud" ? "cloud-hermes" : "desktop-local";
+    const fallbackRuntimeKind = sourceKind === "cloud" ? "cloud-claude-code" : "desktop-local";
     const runtimeConfig = input.runtimeConfig || input.runtime_config || input.config || {};
     const runtimeKind = normalizeRuntimeKind(
       input.runtimeKind || input.runtime_kind || input.runtime?.kind || runtimeConfig.runtimeKind || runtimeConfig.runtime_kind || options.runtimeKind,
@@ -178,7 +193,8 @@
     const runtime = options.runtime || {};
     const agentEngine = normalizeAgentEngine(
       input.agentEngine || input.agent_engine || input.engine || runtimeConfig.agentEngine || runtimeConfig.agent_engine,
-      runtimeKind
+      runtimeKind,
+      runtime
     );
     // Leave color empty when the user has not set one; shared avatar
     // resolution hashes the bot uid consistently across surfaces.
@@ -251,7 +267,7 @@
   function listOwnedBots({ cloudBots = [], runtime = {} } = {}) {
     const byKey = new Map();
     for (const bot of Array.isArray(cloudBots) ? cloudBots : []) {
-      const normalized = normalizeOwnedBot(bot, { sourceKind: "cloud", runtimeKind: "cloud-hermes", runtime });
+      const normalized = normalizeOwnedBot(bot, { sourceKind: "cloud", runtimeKind: "cloud-claude-code", runtime });
       if (normalized) byKey.set(normalized.key, mergeOwnedBot(byKey.get(normalized.key), normalized));
     }
     return [...byKey.values()];

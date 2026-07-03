@@ -2,6 +2,7 @@
 
 const { MemberKind } = require("../shared/conversation-kinds.js");
 const { normalizeCloudHermesModel } = require("./cloud-hermes-model.js");
+const { normalizeCloudClaudeCodeModel } = require("./cloud-claude-code-model.js");
 
 const BOT_MEMBER_KIND = "bot";
 
@@ -225,11 +226,14 @@ function createGroupOrchestrator({
   messagesStore,
   botsStore,
   workerManager,
+  agentClient,
   hermesImClient,
   loadPrompts = async () => ({ dispatch: DEFAULT_BOT_DISPATCH_PROMPT }),
   getUserPublic = () => null,
   log = () => {}
 }) {
+  const conductorClient = agentClient || hermesImClient;
+
   async function runConductor({ userId, conversationId, conversation, message, botMembers, bots, recentMessages }) {
     const prompts = await loadPrompts().catch((error) => {
       log(`[group-orchestrator] load conductor prompts failed: ${error?.message || error}`);
@@ -245,18 +249,22 @@ function createGroupOrchestrator({
     });
     try {
       const worker = await workerManager.ensureWorker(userId);
-      const result = await hermesImClient.runChat({
+      const normalizeModel = conductorClient?.requiresGateway === false
+        ? normalizeCloudClaudeCodeModel
+        : normalizeCloudHermesModel;
+      const result = await conductorClient.runChat({
         gatewayWsUrl: worker.gatewayWsUrl,
         apiKey: worker.apiKey,
+        worker,
         userId,
         bot: ORCHESTRATOR_BOT,
         conversationId,
         transient: true,
-        model: normalizeCloudHermesModel("", { defaultModel: worker.model }),
-        workerModel: worker.model || "mia-auto",
+        model: normalizeModel("", { defaultModel: worker.model }),
+        workerModel: worker.workerModel || worker.platformModel || worker.model || "mia-auto",
         modelProvider: worker.modelProvider || "mia",
         effortLevel: "medium",
-        permissionMode: "ask",
+        permissionMode: worker.permissionMode || "ask",
         input: dispatchPrompt,
         attachments: []
       });

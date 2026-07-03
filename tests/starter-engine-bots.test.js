@@ -1,7 +1,20 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
+global.miaCloudRuntime = require("../src/shared/cloud-runtime.js");
 const starter = require("../src/renderer/bot/starter-engine-bots.js");
+
+const CLOUD_AGENT_RUNTIME = {
+  mode: "claude-code",
+  runtimeKind: "cloud-claude-code",
+  agentEngine: "claude-code",
+  label: "Claude Code",
+  available: true
+};
+
+function cloudSettings() {
+  return { enabled: true, agentRuntime: CLOUD_AGENT_RUNTIME };
+}
 
 test("starterEngineBotSpecs lists only usable local engines in product order", () => {
   const specs = starter.starterEngineBotSpecs({
@@ -24,6 +37,7 @@ test("starterEngineBotSpecs lists only usable local engines in product order", (
 
 test("starterBotSpecs assigns flame status badges to default bots", () => {
   const specs = starter.starterBotSpecs({
+    cloud: cloudSettings(),
     agentInventory: {
       agents: [
         { id: "hermes", label: "Hermes", usableInMia: true },
@@ -37,7 +51,7 @@ test("starterBotSpecs assigns flame status badges to default bots", () => {
   assert.deepEqual(
     specs.map((spec) => [spec.engineId, spec.statusBadge?.assetId]),
     [
-      ["cloud-hermes", "rainbow-fire"],
+      ["cloud-claude-code", "rainbow-fire"],
       ["hermes", "blue-fire"],
       ["openclaw", "pink-fire"],
       ["codex", "cyan-fire"],
@@ -50,7 +64,7 @@ test("ensureStarterEngineBots creates missing engine bots once and stores the ac
   const calls = [];
   const state = {
     runtime: {
-      cloud: { enabled: true },
+      cloud: cloudSettings(),
       localDevice: { id: "mac-1", name: "Jung Mac" },
       agentInventory: {
         agents: [
@@ -97,10 +111,10 @@ test("ensureStarterEngineBots creates missing engine bots once and stores the ac
   const result = await starter.ensureStarterEngineBots({ state, api, social, commands, now: () => "2026-06-26T08:00:00.000Z" });
 
   assert.equal(result.created.length, 2);
-  assert.deepEqual(result.created.map((entry) => entry.engineId), ["cloud-hermes", "hermes"]);
+  assert.deepEqual(result.created.map((entry) => entry.engineId), ["cloud-claude-code", "hermes"]);
   assert.equal(calls.filter((call) => call[0] === "saveBot").length, 2);
   const saveBots = calls.filter((call) => call[0] === "saveBot");
-  assert.equal(saveBots[0][1], "cloud-hermes");
+  assert.equal(saveBots[0][1], "cloud-claude-code");
   assert.equal(saveBots[0][2].name, "Mia");
   assert.equal(saveBots[0][2].key, "starter_u_123_mia");
   assert.deepEqual(saveBots[0][2].statusBadge, { kind: "lottie", assetId: "rainbow-fire", label: "七彩火焰", loop: "always" });
@@ -111,7 +125,7 @@ test("ensureStarterEngineBots creates missing engine bots once and stores the ac
   const settingsPut = calls.find((call) => call[0] === "settingsPut");
   assert.deepEqual(settingsPut[1].starterEngineBots, {
     seededAt: "2026-06-26T08:00:00.000Z",
-    engineIds: ["cloud-hermes", "hermes", "codex"]
+    engineIds: ["cloud-claude-code", "hermes", "codex"]
   });
   assert.ok(settingsPut[1].tags.items.some((tag) => tag.name === "云端"));
   assert.equal(settingsPut[1].expectedVersion, 7);
@@ -121,7 +135,7 @@ test("ensureStarterEngineBots creates an editable cloud Mia bot and tags its con
   const calls = [];
   const state = {
     runtime: {
-      cloud: { enabled: true },
+      cloud: cloudSettings(),
       agentInventory: { agents: [] }
     }
   };
@@ -167,18 +181,18 @@ test("ensureStarterEngineBots creates an editable cloud Mia bot and tags its con
   const result = await starter.ensureStarterEngineBots({ state, api, social, commands, now: () => "2026-06-26T08:00:00.000Z" });
 
   assert.equal(result.created.length, 1);
-  assert.equal(result.created[0].engineId, "cloud-hermes");
+  assert.equal(result.created[0].engineId, "cloud-claude-code");
   const saveBot = calls.find((call) => call[0] === "saveBot");
-  assert.equal(saveBot[1], "cloud-hermes");
+  assert.equal(saveBot[1], "cloud-claude-code");
   assert.deepEqual(saveBot[2], {
     key: "starter_u_123_mia",
     name: "Mia",
-    description: "Mia 云端助手，默认使用云端 Hermes。",
-    bio: "云端 Hermes，随时可用，不依赖本机 Agent。",
+    description: "Mia 云端助手，默认使用云端 Claude Code sandbox。",
+    bio: "云端 Claude Code，随时可用，不依赖本机 Agent。",
     color: "#16a34a",
     statusBadge: { kind: "lottie", assetId: "rainbow-fire", label: "七彩火焰", loop: "always" },
-    personaText: "你是 Mia。用云端 Hermes 简洁、可靠地帮助用户处理日常问题、创作、信息整理和自动化请求。",
-    agentEngine: "hermes",
+    personaText: "你是 Mia。用云端 Claude Code sandbox 简洁、可靠地帮助用户处理日常问题、创作、信息整理和自动化请求。",
+    agentEngine: "claude-code",
     targetDeviceId: "",
     targetDeviceName: "Mia Cloud",
     capabilities: { inheritEngineDefaults: true }
@@ -186,7 +200,7 @@ test("ensureStarterEngineBots creates an editable cloud Mia bot and tags its con
   const settingsPut = calls.find((call) => call[0] === "settingsPut");
   assert.deepEqual(settingsPut[1].starterEngineBots, {
     seededAt: "2026-06-26T08:00:00.000Z",
-    engineIds: ["cloud-hermes"]
+    engineIds: ["cloud-claude-code"]
   });
   const cloudTag = settingsPut[1].tags.items.find((tag) => tag.name === "云端");
   assert.ok(cloudTag);
@@ -199,7 +213,7 @@ test("ensureStarterEngineBots preserves the cloud tag when marker write retries 
   let settingsPutCount = 0;
   const state = {
     runtime: {
-      cloud: { enabled: true },
+      cloud: cloudSettings(),
       agentInventory: { agents: [] }
     }
   };
@@ -249,7 +263,7 @@ test("ensureStarterEngineBots backfills cloud Mia once for accounts seeded befor
   const calls = [];
   const state = {
     runtime: {
-      cloud: { enabled: true },
+      cloud: cloudSettings(),
       agentInventory: { agents: [{ id: "codex", usableInMia: true }] }
     }
   };
@@ -291,13 +305,13 @@ test("ensureStarterEngineBots backfills cloud Mia once for accounts seeded befor
     now: () => "2026-06-26T08:00:00.000Z"
   });
 
-  assert.deepEqual(result.created.map((entry) => entry.engineId), ["cloud-hermes"]);
+  assert.deepEqual(result.created.map((entry) => entry.engineId), ["cloud-claude-code"]);
   assert.equal(calls.filter((call) => call[0] === "saveBot").length, 1);
-  assert.equal(calls.find((call) => call[0] === "saveBot")[1], "cloud-hermes");
+  assert.equal(calls.find((call) => call[0] === "saveBot")[1], "cloud-claude-code");
   const settingsPut = calls.find((call) => call[0] === "settingsPut");
   assert.deepEqual(settingsPut[1].starterEngineBots, {
     seededAt: "2026-06-25T00:00:00.000Z",
-    engineIds: ["hermes", "codex", "cloud-hermes"]
+    engineIds: ["hermes", "codex", "cloud-claude-code"]
   });
 });
 
@@ -305,7 +319,7 @@ test("ensureStarterEngineBots does not recreate bots after the account marker ex
   const calls = [];
   const state = {
     runtime: {
-      cloud: { enabled: true },
+      cloud: cloudSettings(),
       agentInventory: { agents: [{ id: "hermes", label: "Hermes", usableInMia: true }] }
     }
   };
@@ -315,7 +329,7 @@ test("ensureStarterEngineBots does not recreate bots after the account marker ex
       social: {
         async settingsGet() {
           calls.push(["settingsGet"]);
-          return { settings: { version: 3, starterEngineBots: { seededAt: "2026-06-25T00:00:00.000Z", engineIds: ["cloud-hermes", "hermes"] } } };
+          return { settings: { version: 3, starterEngineBots: { seededAt: "2026-06-25T00:00:00.000Z", engineIds: ["cloud-claude-code", "hermes"] } } };
         },
         async settingsPut(body) {
           calls.push(["settingsPut", body]);
@@ -338,7 +352,7 @@ test("ensureStarterEngineBots backfills missing badges on existing starter bots 
   const calls = [];
   const state = {
     runtime: {
-      cloud: { enabled: true },
+      cloud: cloudSettings(),
       agentInventory: {
         agents: [
           { id: "hermes", label: "Hermes", usableInMia: true },
@@ -376,7 +390,7 @@ test("ensureStarterEngineBots backfills missing badges on existing starter bots 
     social: {
       async settingsGet() {
         calls.push(["settingsGet"]);
-        return { settings: { version: 3, starterEngineBots: { seededAt: "2026-06-25T00:00:00.000Z", engineIds: ["cloud-hermes", "hermes", "codex"] } } };
+        return { settings: { version: 3, starterEngineBots: { seededAt: "2026-06-25T00:00:00.000Z", engineIds: ["cloud-claude-code", "hermes", "codex"] } } };
       },
       async settingsPut(body) {
         calls.push(["settingsPut", body]);

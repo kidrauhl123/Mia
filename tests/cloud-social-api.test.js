@@ -879,7 +879,7 @@ test("POST /api/conversations creates group with creator + bot + friend members"
       token: alice.token,
       body: {
         name: "Test Squad",
-        memberBots: [{ botId: "bot_codex", runtimeKind: "cloud-hermes" }],
+        memberBots: [{ botId: "bot_codex", runtimeKind: "cloud-claude-code" }],
         memberFriendUserIds: [bob.user.id]
       }
     });
@@ -897,7 +897,7 @@ test("POST /api/conversations creates group with creator + bot + friend members"
     assert.equal(botMembers.length, 1);
     assert.equal(botMembers[0].member_ref, "bot_codex");
     assert.equal(botMembers[0].owner_id, alice.user.id);
-    assert.deepEqual(JSON.parse(botMembers[0].ai_perms_json), { runtimeKind: "cloud-hermes" });
+    assert.deepEqual(JSON.parse(botMembers[0].ai_perms_json), { runtimeKind: "cloud-claude-code" });
   } finally { await stopServer(ctx); }
 });
 

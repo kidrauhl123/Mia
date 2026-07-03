@@ -20,6 +20,14 @@ function binaryResponse(body = "qr-png", contentType = "image/png", ok = true, s
   };
 }
 
+const CLOUD_AGENT_RUNTIME = {
+  mode: "claude-code",
+  runtimeKind: "cloud-claude-code",
+  agentEngine: "claude-code",
+  label: "Claude Code",
+  available: true
+};
+
 function setup(overrides = {}) {
   let settings = overrides.initialSettings || {
     enabled: true,
@@ -89,13 +97,14 @@ test("login normalizes the cloud URL, starts WeChat auth, then starts sockets wi
         qrCodeUrl: `data:image/png;base64,${Buffer.from("qr-png").toString("base64")}`,
         state: "wx_state"
       }),
-      jsonResponse({ status: "complete", token: "tok_new", user: { id: "u_new", username: "jung" } })
+      jsonResponse({ status: "complete", token: "tok_new", user: { id: "u_new", username: "jung" } }),
+      jsonResponse({ ok: true, cloudAgent: CLOUD_AGENT_RUNTIME })
     ]
   });
 
   const status = await client.login({ url: "https://new.example///" });
 
-  assert.deepEqual(calls.writes[0], { url: "https://new.example", enabled: false, token: "", user: null });
+  assert.deepEqual(calls.writes[0], { url: "https://new.example", enabled: false, token: "", user: null, agentRuntime: null });
   assert.deepEqual(calls.fetch[0], {
     url: "https://new.example/api/auth/wechat/start",
     method: "POST",
@@ -117,25 +126,36 @@ test("login normalizes the cloud URL, starts WeChat auth, then starts sockets wi
     enabled: true,
     token: "tok_new",
     user: { id: "u_new", username: "jung" },
+    agentRuntime: null,
     lastMemorySyncAt: ""
   });
+  assert.deepEqual(calls.writes[2], { agentRuntime: CLOUD_AGENT_RUNTIME });
   assert.equal(calls.startedEvents, 1);
   assert.equal(calls.startedBridge, 1);
   assert.deepEqual(status, { ok: true, includeToken: false, token: undefined });
   assert.equal(getSettings().token, "tok_new");
 });
 
-test("syncWorkspace refreshes the cloud user without syncing local manifest bots", async () => {
-  const { client, calls } = setup();
+test("syncWorkspace refreshes the cloud user and cloud agent runtime without syncing local manifest bots", async () => {
+  const { client, calls } = setup({
+    responses: [
+      jsonResponse({ ok: true, user: { id: "u_1", username: "refreshed" } }),
+      jsonResponse({ ok: true, cloudAgent: CLOUD_AGENT_RUNTIME })
+    ]
+  });
 
   await client.syncWorkspace();
 
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
-    ["GET", "https://cloud.example/api/me"]
+    ["GET", "https://cloud.example/api/me"],
+    ["GET", "https://cloud.example/api/health"]
   ]);
   assert.equal(calls.fetch[0].headers.Authorization, "Bearer tok_1");
   assert.equal(calls.fetch[0].body, null);
-  assert.deepEqual(calls.writes.at(-1), { user: { id: "u_1", username: "refreshed" } });
+  assert.deepEqual(calls.writes, [
+    { user: { id: "u_1", username: "refreshed" } },
+    { agentRuntime: CLOUD_AGENT_RUNTIME }
+  ]);
 });
 
 test("syncMemories pushes local scoped changes, applies cloud conflicts, and advances cursor", async () => {
@@ -486,7 +506,7 @@ test("logout clears local cloud auth even when remote logout fails and stops soc
   await client.logout();
 
   assert.equal(calls.fetch[0].url, "https://cloud.example/api/auth/logout");
-  assert.deepEqual(calls.writes.at(-1), { enabled: false, token: "", user: null });
+  assert.deepEqual(calls.writes.at(-1), { enabled: false, token: "", user: null, agentRuntime: null });
   assert.equal(calls.stoppedEvents, 1);
   assert.equal(calls.stoppedBridge, 1);
   assert.equal(getSettings().token, "");

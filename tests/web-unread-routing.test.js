@@ -65,7 +65,7 @@ test("src/web/app/index.html includes private AI composer controls", () => {
   assert.match(html, /id="permissionMode"/);
 });
 
-test("web composer stops cloud Hermes runs through the cloud cancel route", () => {
+test("web composer stops cloud Claude Code runs through the cloud cancel route", () => {
   const app = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   const css = fs.readFileSync(path.join(ROOT, "src/web/styles.css"), "utf8");
@@ -116,7 +116,7 @@ test("src/web exposes bot creation with a runtime target selector from the sideb
   assert.match(source, /function saveBotFromWeb\(/);
   assert.match(source, /function webRuntimeTargetGroups\(\)/);
   assert.match(source, /\/api\/me\/bots\?compact=1/);
-  assert.match(source, /runtimeKind:\s*"cloud-hermes"/);
+  assert.match(source, /runtimeKind:\s*"cloud-claude-code"/);
   assert.match(source, /runtimeKind,\s*\n\s*enabled: true,\s*\n\s*activate: true,/);
   assert.match(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(key\)\}/);
   assert.match(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(key\)\}\/runtime/);
@@ -814,7 +814,7 @@ test("src/web/app.js supports desktop-style markdown links and code copy", () =>
 test("src/web/app.js lets web controls update desktop-local bot runtime bindings", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(source, /function runtimeKindForBotConversation\(conversation, bot\)[\s\S]*return sessionHistory\.runtimeKind\(conversation, "desktop-local"\);/);
-  assert.doesNotMatch(source, /return runtimeKind \|\| "cloud-hermes";/);
+  assert.doesNotMatch(source, /return runtimeKind \|\| "cloud-claude-code";/);
   assert.doesNotMatch(source, /runtimeKind === "desktop-local"\)\s*return null/);
   assert.doesNotMatch(source, /Desktop controls/);
   assert.doesNotMatch(source, /Desktop Local/);

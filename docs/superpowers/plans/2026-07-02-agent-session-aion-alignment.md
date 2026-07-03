@@ -178,7 +178,7 @@ Delete after all callsites are gone:
 
 ## Implementation Tasks
 
-### Task 1. Capture The New Engine Contract In Tests
+### 1. Capture The New Engine Contract In Tests
 
 - [ ] Add `tests/agent-session-contract.test.js`.
 - [ ] Assert the only supported bot conversation engine contract is `AgentSession`.
@@ -214,7 +214,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/agent-session-contract.test.js
 ```
 
-### Task 2. Implement The Narrow AgentSession Contract
+### 2. Implement The Narrow AgentSession Contract
 
 - [ ] Add `src/main/agent-session/agent-session-contract.js`.
 - [ ] Export immutable `ENGINE_IDS`, `AGENT_SESSION_EVENT_KINDS`, `AGENT_SESSION_STATUS`, `createAgentSessionKey`, `assertKnownAgentEngine`, and `createAcceptedInputResult`.
@@ -235,7 +235,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/agent-session-contract.test.js
 ```
 
-### Task 3. Port AION's Built-In Engine Specs Into Mia
+### 3. Port AION's Built-In Engine Specs Into Mia
 
 - [ ] Add `tests/acp-engine-specs.test.js`.
 - [ ] Assert Claude Code uses the AION ACP wrapper command:
@@ -291,7 +291,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/acp-engine-specs.test.js
 ```
 
-### Task 4. Implement AION-Style Session Build Serialization
+### 4. Implement AION-Style Session Build Serialization
 
 - [ ] Add `tests/agent-session-manager.test.js`.
 - [ ] Use a fake session factory that records build calls and send calls.
@@ -321,7 +321,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/agent-session-manager.test.js
 ```
 
-### Task 5. Build The Generic ACP AgentSession Adapter
+### 5. Build The Generic ACP AgentSession Adapter
 
 - [ ] Add `tests/acp-agent-session.test.js`.
 - [ ] Use a fake ACP transport/client object instead of spawning real engine binaries.
@@ -350,7 +350,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/acp-agent-session.test.js
 ```
 
-### Task 6. Enforce Native Input Policy
+### 6. Enforce Native Input Policy
 
 - [ ] Add `tests/native-input-policy.test.js`.
 - [ ] Assert AgentSession prompt payloads contain only:
@@ -375,7 +375,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/native-input-policy.test.js tests/acp-agent-session.test.js
 ```
 
-### Task 7. Wire AgentSession Into Main Process Composition
+### 7. Wire AgentSession Into Main Process Composition
 
 - [ ] Add `src/main/agent-session/index.js`.
 - [ ] Export:
@@ -395,7 +395,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/mia-core-engines.test.js tests/agent-session-contract.test.js tests/acp-engine-specs.test.js
 ```
 
-### Task 8. Replace Bot Conversation Execution
+### 8. Replace Bot Conversation Execution
 
 - [ ] Modify `tests/bot-execution-core.test.js`.
 - [ ] Remove assertions that interactive runs call `sendChat` for Claude, Codex, Hermes, or OpenClaw.
@@ -419,7 +419,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/bot-execution-core.test.js tests/agent-session-manager.test.js
 ```
 
-### Task 9. Replace Social Conversation Queueing And Busy Input Behavior
+### 9. Replace Social Conversation Queueing And Busy Input Behavior
 
 - [ ] Modify `tests/local-bot-responder.test.js`.
 - [ ] Assert a user send during an active run is accepted and returns queued metadata.
@@ -448,7 +448,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/local-bot-responder.test.js tests/renderer-social.test.js tests/agent-session-manager.test.js
 ```
 
-### Task 10. Remove Legacy Hermes HTTP Execution
+### 10. Remove Legacy Hermes HTTP Execution
 
 - [ ] Search callsites:
 
@@ -469,7 +469,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/project-structure-check.test.js tests/acp-engine-specs.test.js tests/mia-core-engines.test.js
 ```
 
-### Task 11. Retire Claude/Codex Prompt Bot Paths
+### 11. Retire Claude/Codex Prompt Bot Paths
 
 - [ ] Search callsites:
 
@@ -490,7 +490,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/claude-code-chat-adapter.test.js tests/codex-chat-adapter.test.js tests/acp-engine-specs.test.js tests/bot-execution-core.test.js
 ```
 
-### Task 12. Fold OpenClaw Into The Shared ACP Runtime
+### 12. Fold OpenClaw Into The Shared ACP Runtime
 
 - [ ] Search callsites:
 
@@ -511,7 +511,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/openclaw-chat-adapter.test.js tests/acp-agent-session.test.js tests/acp-engine-specs.test.js
 ```
 
-### Task 13. Update Engine Health And Install Checks
+### 13. Update Engine Health And Install Checks
 
 - [ ] Modify `tests/mia-core-engines.test.js`.
 - [ ] Assert Hermes health checks verify `hermes acp` is available, not only that a local HTTP service answers.
@@ -538,7 +538,7 @@ cd /Users/jung/GitHub/Mia
 npm test -- tests/mia-core-engines.test.js tests/acp-engine-specs.test.js
 ```
 
-### Task 14. Manual Runtime Verification
+### 14. Manual Runtime Verification
 
 - [ ] Run the complete test suite:
 
@@ -575,7 +575,7 @@ npm run dev
 - [ ] Verify no Claude `query({ prompt })` bot chat call occurs.
 - [ ] Verify no Codex `runCodexAppServerTurn({ prompt })` bot chat call occurs.
 
-### Task 15. Final Cleanup And Commit
+### 15. Final Cleanup And Commit
 
 - [ ] Run structural searches and ensure removed bot paths are gone:
 

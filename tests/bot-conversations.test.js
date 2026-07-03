@@ -130,7 +130,7 @@ test("DELETE /api/me/bots/:id removes owned private bot conversations", async ()
     await saveBot(ctx.port, A.token, "codex", "Codex");
     const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/codex", {
       token: A.token,
-      body: { botId: "codex", title: "Codex", runtimeKind: "cloud-hermes" }
+      body: { botId: "codex", title: "Codex", runtimeKind: "cloud-claude-code" }
     });
     assert.equal(ensured.status, 200);
     const conversationId = ensured.body.conversation.id;
@@ -157,7 +157,7 @@ test("DELETE /api/conversations/:id removes owned bot identity for private bot c
     await saveBot(ctx.port, A.token, "codex", "Codex");
     const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/codex", {
       token: A.token,
-      body: { botId: "codex", title: "Codex", runtimeKind: "cloud-hermes" }
+      body: { botId: "codex", title: "Codex", runtimeKind: "cloud-claude-code" }
     });
     assert.equal(ensured.status, 200);
     const conversationId = ensured.body.conversation.id;
@@ -310,12 +310,12 @@ test("PUT /api/me/bot-conversations/:sessionId preserves requested runtimeKind f
     await saveBot(ctx.port, A.token, "mia", "Mia");
     const r = await api(ctx.port, "PUT", "/api/me/bot-conversations/sess_cloud", {
       token: A.token,
-      body: { botId: "mia", title: "新对话", runtimeKind: "cloud-hermes" }
+      body: { botId: "mia", title: "新对话", runtimeKind: "cloud-claude-code" }
     });
     assert.equal(r.status, 200);
     assert.equal(r.body.conversation.decorations.botId, "mia");
     assert.equal(r.body.conversation.decorations.sessionId, "sess_cloud");
-    assert.equal(r.body.conversation.decorations.runtimeKind, "cloud-hermes");
+    assert.equal(r.body.conversation.decorations.runtimeKind, "cloud-claude-code");
   } finally { await stopServer(ctx); }
 });
 

@@ -145,7 +145,7 @@ function createSocialApi({ getSettings, normalizeUrl }) {
         body: withOpId({ ...body, ...(botId ? { botId } : {}) })
       });
     },
-    async getBotRuntime(botId, runtimeKind = "cloud-hermes") {
+    async getBotRuntime(botId, runtimeKind = "cloud-claude-code") {
       return jsonFetch({ ...ctx(), method: "GET", path: `/api/me/bots/${encodeURIComponent(botId)}/runtime?kind=${encodeURIComponent(runtimeKind)}` });
     },
     async saveBotRuntime(botId, body = {}) {

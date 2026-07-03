@@ -4403,7 +4403,7 @@ function activeBotRuntimeControlContext() {
   };
 }
 
-function botRuntimeCacheKey(botKey, runtimeKind = "cloud-hermes") {
+function botRuntimeCacheKey(botKey, runtimeKind = "cloud-claude-code") {
   return window.miaBotCommands.runtimeCacheKey(botKey, runtimeKind);
 }
 
@@ -4632,7 +4632,7 @@ function moveComposerSelectMenuSelection(delta) {
   options[next].scrollIntoView({ block: "nearest" });
 }
 
-async function ensureBotRuntimeBinding(botKey, runtimeKind = "cloud-hermes") {
+async function ensureBotRuntimeBinding(botKey, runtimeKind = "cloud-claude-code") {
   return window.miaBotCommands.getBotRuntimeBinding({
     api: window.mia,
     cache: botRuntimeControlCache,
@@ -4651,8 +4651,35 @@ function normalizeAgentEngineForRuntime(value) {
   return "hermes";
 }
 
+function strictAgentEngineForRuntime(value = "") {
+  const strict = window.miaCloudRuntime?.normalizeAgentEngineStrict?.(value);
+  if (strict) return strict;
+  const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  if (raw === "claude" || raw === "claude-code") return "claude-code";
+  if (raw === "codex" || raw === "openai-codex") return "codex";
+  if (raw === "openclaw" || raw === "open-claw") return "openclaw";
+  if (raw === "hermes") return "hermes";
+  return "";
+}
+
+function cloudAgentEngineForRuntimeControl(context = activeBotRuntimeControlContext()) {
+  const binding = context?.botKey
+    ? botRuntimeControlCache.get(botRuntimeCacheKey(context.botKey, context.runtimeKind || "cloud-claude-code"))
+    : null;
+  const bindingConfig = binding?.config || {};
+  const botConfig = context?.bot?.runtimeConfig || context?.bot?.runtime_config || {};
+  return strictAgentEngineForRuntime(
+    bindingConfig.agentEngine
+      || bindingConfig.agent_engine
+      || context?.bot?.agentEngine
+      || context?.bot?.agent_engine
+      || botConfig.agentEngine
+      || botConfig.agent_engine
+  ) || window.miaCloudRuntime?.cloudAgentRuntimeFromState?.(state)?.agentEngine || "";
+}
+
 function agentEngineForRuntimeControl(context = activeBotRuntimeControlContext()) {
-  if (context?.runtimeKind === "cloud-hermes") return "hermes";
+  if (context?.runtimeKind === "cloud-claude-code") return cloudAgentEngineForRuntimeControl(context);
   return normalizeAgentEngineForRuntime(
     context?.bot?.agentEngine
       || context?.bot?.agent_engine
@@ -4671,7 +4698,7 @@ function enginePermissionModeForRuntimeControl(engine, runtime = state.runtime) 
 
 function modelEntriesForRuntimeControl(context = activeBotRuntimeControlContext()) {
   const engine = agentEngineForRuntimeControl(context);
-  if (context?.runtimeKind === "cloud-hermes") return platformHermesModelEntries();
+  if (context?.runtimeKind === "cloud-claude-code") return platformHermesModelEntries();
   if (isExternalAgentEngineForRuntimeControl(engine)) {
     return window.miaEngineOptions.externalModelEntries(engine);
   }
@@ -4682,7 +4709,7 @@ function runtimeConfigForControl(context = activeBotRuntimeControlContext()) {
   if (!context) return {};
   const binding = botRuntimeControlCache.get(botRuntimeCacheKey(context.botKey, context.runtimeKind));
   const botConfig = context.bot?.engineConfig || context.bot?.engine_config || {};
-  if (context.runtimeKind === "cloud-hermes") return { ...botConfig, ...(binding?.config || {}) };
+  if (context.runtimeKind === "cloud-claude-code") return { ...botConfig, ...(binding?.config || {}) };
   const engine = agentEngineForRuntimeControl(context);
   const mergedConfig = { ...botConfig, ...(binding?.config || {}) };
   if (isExternalAgentEngineForRuntimeControl(engine)) {
@@ -4709,7 +4736,7 @@ function modelValueForRuntimeControl(context, entries = [], config = {}) {
     const entry = entries.find((item) => (item.providerConnectionId || item.provider) === "mia" && (item.model === model || item.id === model || item.value === model));
     return entry?.id || entry?.value || model;
   }
-  if (context?.runtimeKind === "cloud-hermes") return model || entries[0]?.id || entries[0]?.value || "mia-auto";
+  if (context?.runtimeKind === "cloud-claude-code") return model || entries[0]?.id || entries[0]?.value || "mia-auto";
   if (isExternalAgentEngineForRuntimeControl(engine)) {
     if (!model) return "default";
     const entry = entries.find((item) => item.model === model || item.id === model || item.value === model);
@@ -4729,7 +4756,7 @@ function modelValueForRuntimeControl(context, entries = [], config = {}) {
 
 function permissionEntriesForRuntimeControl(context = activeBotRuntimeControlContext()) {
   const engine = agentEngineForRuntimeControl(context);
-  if (context?.runtimeKind === "cloud-hermes") return platformHermesPermissionEntries();
+  if (context?.runtimeKind === "cloud-claude-code") return platformHermesPermissionEntries();
   return window.miaEngineOptions.externalPermissionOptions(engine);
 }
 
@@ -4771,7 +4798,7 @@ function syncConversationBotRuntimeControls() {
   const permissionLabel = setComposerSelectOptions(
     els.permissionMode,
     permissionEntries,
-    config.permissionMode || (context.runtimeKind === "cloud-hermes" ? "ask" : (permissionEntries[0]?.value || "default"))
+    config.permissionMode || (context.runtimeKind === "cloud-claude-code" ? "bypassPermissions" : (permissionEntries[0]?.value || "default"))
   );
   setText(els.permissionLabel, permissionLabel || "Ask");
   const permissionSwitcher = els.permissionMode?.closest(".permission-switcher");
@@ -4780,7 +4807,9 @@ function syncConversationBotRuntimeControls() {
   if (els.quickModelSelect) els.quickModelSelect.disabled = false;
   if (els.effortSelect) els.effortSelect.disabled = false;
   if (els.permissionMode) els.permissionMode.disabled = false;
-  setText(els.modelSwitchStatus, context.runtimeKind === "cloud-hermes" ? "Mia Cloud" : window.miaEngineContracts?.engineLabel?.(engine) || engine);
+  setText(els.modelSwitchStatus, context.runtimeKind === "cloud-claude-code"
+    ? (engine ? "Mia Cloud" : "Mia Cloud · 内核未同步")
+    : window.miaEngineContracts?.engineLabel?.(engine) || engine);
   if (!platformModelCatalog.loaded && !platformModelCatalog.loading) {
     loadPlatformModelCatalog().then(() => {
       const latest = activeConversationBotContext();
@@ -4847,7 +4876,7 @@ async function saveActivePermissionRuntimeControl(mode) {
   const context = activeBotRuntimeControlContext();
   if (!context) return false;
   const engine = agentEngineForRuntimeControl(context);
-  if (context.runtimeKind === "cloud-hermes" || !isExternalAgentEngineForRuntimeControl(engine)) {
+  if (context.runtimeKind === "cloud-claude-code" || !isExternalAgentEngineForRuntimeControl(engine)) {
     return saveActiveBotRuntimeControl(
       "permissionMode",
       mode || "ask",
@@ -6714,7 +6743,7 @@ els.botForm?.addEventListener("submit", async (event) => {
   if (saved.runtime) state.runtime = saved.runtime;
   const savedKey = saved.key || "";
   const cloudConversation = saved.conversation || null;
-  if (runtimeKind !== "cloud-hermes" && savedKey) state.activeKey = savedKey;
+  if (runtimeKind !== "cloud-claude-code" && savedKey) state.activeKey = savedKey;
   state.botDialogOpen = false;
   // If this was the initial onboarding create-bot step, mark onboarding done.
   if (state.onboardingStep && state.onboardingStep !== "done") {

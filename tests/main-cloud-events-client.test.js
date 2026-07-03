@@ -329,7 +329,7 @@ test("bot runtime updates are forwarded to the renderer", () => {
     seq: 9,
     binding: {
       botId: "mia",
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       config: { model: "hermes-agent" }
     }
   }));
@@ -343,7 +343,7 @@ test("bot runtime updates are forwarded to the renderer", () => {
       seq: 9,
       binding: {
         botId: "mia",
-        runtimeKind: "cloud-hermes",
+        runtimeKind: "cloud-claude-code",
         config: { model: "hermes-agent" }
       }
     }

@@ -848,30 +848,30 @@ test("ensureBotConversation upserts the ensured conversation into the sidebar ca
   });
 });
 
-test("upsertBotConversation caches a cloud-hermes bot conversation", async () => {
+test("upsertBotConversation caches a cloud-claude-code bot conversation", async () => {
   const s = loadSocial();
   const conversation = {
     id: "botc_u_1_alice",
     type: "bot",
     name: "Alice",
-    decorations: { botId: "alice", runtimeKind: "cloud-hermes" }
+    decorations: { botId: "alice", runtimeKind: "cloud-claude-code" }
   };
   const saved = s.upsertBotConversation(conversation);
   assert.equal(saved.id, conversation.id);
-  assert.equal(s.getConversationById(conversation.id).decorations.runtimeKind, "cloud-hermes");
+  assert.equal(s.getConversationById(conversation.id).decorations.runtimeKind, "cloud-claude-code");
 });
 
-test("botConversationForKey returns an existing cloud-hermes bot conversation", async () => {
+test("botConversationForKey returns an existing cloud-claude-code bot conversation", async () => {
   const s = loadSocial();
   s.upsertBotConversation({
     id: "botc_u_1_alice",
     type: "bot",
     name: "Alice",
-    decorations: { botId: "alice", runtimeKind: "cloud-hermes" }
+    decorations: { botId: "alice", runtimeKind: "cloud-claude-code" }
   });
   const conversation = s.botConversationForKey("alice");
   assert.equal(conversation.id, "botc_u_1_alice");
-  assert.equal(conversation.decorations.runtimeKind, "cloud-hermes");
+  assert.equal(conversation.decorations.runtimeKind, "cloud-claude-code");
 });
 
 test("selecting a bot session stores it as the sidebar representative for that bot", () => {
@@ -3597,7 +3597,7 @@ test("successful permission decision removes the pending banner after one click"
   assert.deepEqual(disabled.map((button) => button.disabled), [true, true]);
 });
 
-test("cloud Hermes permission decision posts to the run approval route", async () => {
+test("cloud Claude Code permission decision posts to the run approval route", async () => {
   const disabled = [];
   const banner = {
     dataset: {},

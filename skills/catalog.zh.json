@@ -160,6 +160,62 @@
       "category_zh": "学习",
       "source_label": "社区",
       "order": 21
+    },
+    {
+      "id": "content-planner",
+      "name_zh": "内容选题规划",
+      "summary_zh": "基于微信文章搜索和趋势分析，规划公众号、自媒体或品牌内容选题，输出差异化选题建议和内容日历。",
+      "category_zh": "内容创作",
+      "source_label": "LobsterAI",
+      "order": 22
+    },
+    {
+      "id": "article-writer",
+      "name_zh": "多风格文章写作",
+      "summary_zh": "支持深度分析、实用指南、故事驱动、观点评论和新闻简报五种文章风格，从素材、提纲到成稿和排版形成完整写作流程。",
+      "category_zh": "内容创作",
+      "source_label": "LobsterAI",
+      "order": 23
+    },
+    {
+      "id": "daily-trending",
+      "name_zh": "今日热榜",
+      "summary_zh": "从 TopHub 聚合微博、知乎、百度、36 氪、虎嗅、澎湃等平台热榜，筛选当天最值得关注的热点话题。",
+      "category_zh": "搜索生活",
+      "source_label": "LobsterAI",
+      "order": 24
+    },
+    {
+      "id": "web-search",
+      "name_zh": "网页搜索",
+      "summary_zh": "通过 Playwright 控制浏览器执行实时网页搜索，适合查找最新信息、文档、新闻、社区讨论和事实核验材料。",
+      "category_zh": "搜索生活",
+      "source_label": "LobsterAI",
+      "order": 25
+    },
+    {
+      "id": "weather",
+      "name_zh": "天气查询",
+      "summary_zh": "使用 wttr.in 和 Open-Meteo 查询当前天气与预报，不需要 API key，适合快速获取城市天气、湿度、风力和简要预报。",
+      "category_zh": "搜索生活",
+      "source_label": "LobsterAI",
+      "order": 26
+    },
+    {
+      "id": "films-search",
+      "name_zh": "影视资源搜索",
+      "summary_zh": "搜索电影、电视剧和动漫相关的公开网盘资源链接，支持按网盘类型、画质和深度抓取方式筛选结果。",
+      "category_zh": "搜索生活",
+      "source_label": "LobsterAI",
+      "order": 27
+    },
+    {
+      "id": "music-search",
+      "name_zh": "音乐资源搜索",
+      "summary_zh": "搜索歌曲、专辑和无损音乐相关的公开网盘资源链接，支持按网盘类型、音频格式和深度抓取方式筛选结果。",
+      "category_zh": "搜索生活",
+      "source_label": "LobsterAI",
+      "order": 28
     }
   ]
 }

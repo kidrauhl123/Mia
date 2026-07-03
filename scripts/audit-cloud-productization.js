@@ -514,7 +514,7 @@ function runAudit({ rootDir = root } = {}) {
     item("cloud.desktop-sync", "桌面端同账号云同步和 Bridge 自动接入", [
       checkSource(rootDir, "src/main.js", /cloudLogin|syncWorkspace\(\)|startCloudBridge/, "desktop login/sync/bridge path"),
       checkSource(rootDir, "src/main/cloud/desktop-sync-client.js", /async function syncWorkspace\(\)[\s\S]*cloudApi\("\/api\/me"\)[\s\S]*writeCloudSettings/, "desktop sync refreshes cloud account identity"),
-      checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace refreshes the cloud user without syncing local manifest bots/, "desktop sync no longer backfills local sessions on login"),
+      checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace refreshes the cloud user(?: and cloud agent runtime)? without syncing local manifest bots/, "desktop sync no longer backfills local sessions on login"),
       checkSource(rootDir, "src/preload.js", /cloudStatus[\s\S]*cloudModelBalance[\s\S]*cloudLogin[\s\S]*cloudLogout/, "preload exposes cloud account actions"),
       checkSource(rootDir, "src/renderer/app.js", /sendInActiveConversation\(conversationText\b[\s\S]*?return;/, "renderer sends active cloud conversations through the unified social path"),
       checkSourceAbsent(rootDir, "src/renderer/app.js", /pushCloudMessageQuietly|cloudPushMessage/, "renderer does not mirror local sends through legacy cloud push"),

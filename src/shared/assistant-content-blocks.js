@@ -165,17 +165,38 @@
   }
 
   function bodyMdFromContentBlocks(input) {
-    return normalizeContentBlocks(input)
+    const textBlocks = normalizeContentBlocks(input)
       .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n\n")
-      .trim();
+      .map((block) => block.text);
+    let body = "";
+    for (const text of textBlocks) {
+      if (!body) {
+        body = text;
+        continue;
+      }
+      body += /[\r\n]\s*$/.test(body) || /^\s*[\r\n]/.test(text)
+        ? text
+        : `\n\n${text}`;
+    }
+    return body.trim();
+  }
+
+  function stripLegacyDuplicateFinalTextBlock(blocks) {
+    if (!Array.isArray(blocks) || blocks.length < 2) return blocks;
+    const last = blocks[blocks.length - 1];
+    if (last?.type !== "text" || !/^text_final_/i.test(safeString(last.id).trim())) return blocks;
+    const previous = blocks.slice(0, -1);
+    const previousBody = bodyMdFromContentBlocks(previous);
+    if (!previousBody) return blocks;
+    return previousBody === safeString(last.text).trim()
+      ? previous
+      : blocks;
   }
 
   function finalTextToAppend(blocks, finalText) {
     const final = safeString(finalText).trim();
     if (!final) return "";
-    const normalized = normalizeContentBlocks(blocks);
+    const normalized = stripLegacyDuplicateFinalTextBlock(normalizeContentBlocks(blocks));
     const current = bodyMdFromContentBlocks(normalized);
     if (!current) return final;
     if (current === final) return "";
@@ -185,7 +206,7 @@
   }
 
   function contentBlocksWithFinalText(input, finalText) {
-    const blocks = normalizeContentBlocks(input);
+    const blocks = stripLegacyDuplicateFinalTextBlock(normalizeContentBlocks(input));
     const text = finalTextToAppend(blocks, finalText);
     if (!text) return blocks;
     return normalizeContentBlocks([

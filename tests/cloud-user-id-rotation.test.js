@@ -148,7 +148,7 @@ test("rotateCloudUserIds rewrites legacy user ids, conversation ids, JSON settin
       JSON.stringify([dmOld]),
       JSON.stringify({ [botOld]: true })
     );
-    db.prepare("INSERT INTO bot_runtime_bindings (user_id, bot_id, runtime_kind, config_json, created_at, updated_at) VALUES (?, 'mia', 'cloud-hermes', ?, 't', 't')")
+    db.prepare("INSERT INTO bot_runtime_bindings (user_id, bot_id, runtime_kind, config_json, created_at, updated_at) VALUES (?, 'mia', 'cloud-claude-code', ?, 't', 't')")
       .run(old755, JSON.stringify({ session: botOld, owner: old755 }));
     db.prepare("INSERT INTO cloud_agent_runs (id, user_id, bot_id, conversation_id, trigger_message_id, status, error_json, created_at, updated_at) VALUES ('car_a', ?, 'mia', ?, 'msg_b', 'queued', ?, 't', 't')")
       .run(old755, botOld, JSON.stringify({ conversationId: botOld, userId: old755 }));

@@ -53,7 +53,7 @@ function setupTaskOwner(server, account) {
   runtimeBindingsStore.upsertBinding({
     userId: user.id,
     botId: "bot_tasker",
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     activate: true,
     config: { model: "mia-default" }
   });
@@ -102,7 +102,7 @@ test("cloud tasks API creates account-scoped tasks and records run history", asy
       }
     });
     assert.match(created.task.id, /^t-/);
-    assert.equal(created.task.runtimeKind, "cloud-hermes");
+    assert.equal(created.task.runtimeKind, "cloud-claude-code");
     assert.equal(created.task.runs.length, 0);
 
     const listed = await jsonFetch(baseUrl, "/api/tasks", account.token);

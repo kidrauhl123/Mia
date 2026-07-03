@@ -113,6 +113,7 @@ test("foreground bridge never opens a cloud socket", () => {
     connecting: false,
     url: "https://cloud.example",
     user: { id: "u_1", username: "jung" },
+    agentRuntime: null,
     deviceId: "",
     lastError: "",
     logs: []

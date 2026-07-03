@@ -109,12 +109,29 @@ function createCloudDesktopSyncClient({
     } catch (error) {
       log(`Mia Cloud /api/me refresh failed: ${error?.message || error}`);
     }
+    await syncCloudAgentRuntime();
     try {
       await syncMemories();
     } catch (error) {
       log(`Mia Cloud memory sync failed: ${error?.message || error}`);
     }
     return status(false);
+  }
+
+  async function syncCloudAgentRuntime() {
+    const current = settings();
+    if (!current.enabled || !current.token) return null;
+    try {
+      const health = await cloudApi("/api/health");
+      await writeCloudSettings({
+        agentRuntime: health?.cloudAgent && typeof health.cloudAgent === "object" ? health.cloudAgent : null
+      });
+      return health?.cloudAgent || null;
+    } catch (error) {
+      await writeCloudSettings({ agentRuntime: null });
+      log(`Mia Cloud runtime metadata sync failed: ${error?.message || error}`);
+      return null;
+    }
   }
 
   function memorySyncAvailable(current = settings()) {
@@ -328,7 +345,7 @@ function createCloudDesktopSyncClient({
 
   async function startWechatLogin({ url = "" } = {}) {
     const nextUrl = normalizeCloudUrl(url || settings().url);
-    await writeCloudSettings({ url: nextUrl, enabled: false, token: "", user: null });
+    await writeCloudSettings({ url: nextUrl, enabled: false, token: "", user: null, agentRuntime: null });
     const started = await cloudApi("/api/auth/wechat/start", {
       method: "POST",
       body: { client: "desktop" },
@@ -368,8 +385,10 @@ function createCloudDesktopSyncClient({
       enabled: true,
       token: result.token,
       user: result.user || null,
+      agentRuntime: null,
       lastMemorySyncAt: ""
     });
+    await syncCloudAgentRuntime();
     startCloudEvents();
     startCloudBridge();
     try {
@@ -407,7 +426,7 @@ function createCloudDesktopSyncClient({
     } catch {
       // Local logout should still clear the desktop token.
     }
-    await writeCloudSettings({ enabled: false, token: "", user: null });
+    await writeCloudSettings({ enabled: false, token: "", user: null, agentRuntime: null });
     stopCloudEvents();
     stopCloudBridge();
     return status(false);
@@ -428,6 +447,7 @@ function createCloudDesktopSyncClient({
     saveAppearanceSettings,
     saveUserProfile,
     syncMemories,
+    syncCloudAgentRuntime,
     syncWorkspace
   };
 }

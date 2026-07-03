@@ -322,7 +322,7 @@ test("compact /api/me returns compact user identity even when the profile avatar
 });
 
 test("GET and PUT /api/me/bots/:id/runtime roundtrip cloud AI controls", async () => {
-  const ctx = await startServer({ MIA_PLATFORM_MODEL_ID: "mia-pro" });
+  const ctx = await startServer({ MIA_PLATFORM_MODEL_ID: "mia-pro", MIA_CLOUD_AGENT_MODE: "claude-code" });
   try {
     const A = await register(ctx.port, "rho");
     await api(ctx.port, "PUT", "/api/me/bots/bot_codex", {
@@ -330,22 +330,22 @@ test("GET and PUT /api/me/bots/:id/runtime roundtrip cloud AI controls", async (
       body: { displayName: "Codex", clientOpId: "op_runtime_bot" }
     });
 
-    const empty = await api(ctx.port, "GET", "/api/me/bots/bot_codex/runtime?kind=cloud-hermes", { token: A.token });
+    const empty = await api(ctx.port, "GET", "/api/me/bots/bot_codex/runtime?kind=cloud-claude-code", { token: A.token });
     assert.equal(empty.status, 200);
     assert.equal(empty.body.binding.botId, "bot_codex");
     assert.equal(empty.body.binding.enabled, false);
-    assert.deepEqual(empty.body.binding.config, {});
+    assert.deepEqual(empty.body.binding.config, { agentEngine: "claude-code" });
 
     const saved = await api(ctx.port, "PUT", "/api/me/bots/bot_codex/runtime", {
       token: A.token,
       body: {
-        runtimeKind: "cloud-hermes",
+        runtimeKind: "cloud-claude-code",
         enabled: true,
         config: {
           model: "hermes-agent",
           effortLevel: "high",
           permissionMode: "auto",
-          agentEngine: "codex",
+          agentEngine: "claude-code",
           modelEntries: [
             { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI" }
           ]
@@ -358,11 +358,11 @@ test("GET and PUT /api/me/bots/:id/runtime roundtrip cloud AI controls", async (
     assert.equal(saved.body.binding.enabled, true);
     assert.equal(saved.body.binding.config.effortLevel, "high");
 
-    const got = await api(ctx.port, "GET", "/api/me/bots/bot_codex/runtime?kind=cloud-hermes", { token: A.token });
+    const got = await api(ctx.port, "GET", "/api/me/bots/bot_codex/runtime?kind=cloud-claude-code", { token: A.token });
     assert.equal(got.status, 200);
     assert.equal(got.body.binding.config.model, "mia-pro");
     assert.equal(got.body.binding.config.permissionMode, "auto");
-    assert.equal(got.body.binding.config.agentEngine, "codex");
+    assert.equal(got.body.binding.config.agentEngine, "claude-code");
     assert.deepEqual(got.body.binding.config.modelEntries, [
       { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI" }
     ]);
@@ -379,7 +379,7 @@ test("PUT /api/me/bot-conversations/:sessionId creates a bot conversation", asyn
     });
     const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/session_1", {
       token: A.token,
-      body: { botId: "bot_mia", title: "Mia chat", runtimeKind: "cloud-hermes" }
+      body: { botId: "bot_mia", title: "Mia chat", runtimeKind: "cloud-claude-code" }
     });
     assert.equal(ensured.status, 200);
     assert.equal(ensured.body.conversation.id, "botc_session_1");

@@ -59,7 +59,7 @@ test("session-history derives title and new-session payload consistently", () =>
   const conversation = {
     id: "botc_s1",
     type: "bot",
-    decorations: { botId: "bot_mia", runtimeKind: "cloud-hermes" }
+    decorations: { botId: "bot_mia", runtimeKind: "cloud-claude-code" }
   };
   const title = sessionHistory.sessionTitle(conversation, {
     bots: [{ id: "bot_mia", displayName: "Mia" }]
@@ -70,7 +70,7 @@ test("session-history derives title and new-session payload consistently", () =>
   assert.deepEqual(payload, {
     botId: "bot_mia",
     title: "新对话",
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     sessionId: "sess_new"
   });
 });

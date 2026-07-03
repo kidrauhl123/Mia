@@ -6,6 +6,8 @@ const path = require("node:path");
 const WebSocket = require("ws");
 
 const { createMiaCloudServer } = require("../scripts/serve-cloud.js");
+const { createCloudStore } = require("../src/cloud/sqlite-store.js");
+const { createModelGatewayStore } = require("../src/cloud/model-gateway-store.js");
 const { loginCloudUser } = require("./helpers/cloud-auth.js");
 
 function tempDir(prefix) {
@@ -109,7 +111,7 @@ async function upsertCloudHermesBot(baseUrl, authHeaders, botId, displayName = b
     method: "PUT",
     headers: authHeaders,
     body: {
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: true,
       config: { model: "mia-default" }
     }
@@ -221,7 +223,7 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
       method: "PUT",
       headers: authHeaders,
-      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-hermes" }
+      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-claude-code" }
     });
     const conversationId = ensured.conversation.id;
     eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
@@ -290,12 +292,12 @@ test("cloud server workers use the active platform model alias", async () => {
     const account = createAccount(server, "platform_model_alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
     await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
-    const runtime = await jsonFetch(baseUrl, "/api/me/bots/mia/runtime?kind=cloud-hermes", { headers: authHeaders });
+    const runtime = await jsonFetch(baseUrl, "/api/me/bots/mia/runtime?kind=cloud-claude-code", { headers: authHeaders });
     assert.equal(runtime.binding.config.model, "mia-auto");
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
       method: "PUT",
       headers: authHeaders,
-      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-hermes" }
+      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-claude-code" }
     });
 
     await jsonFetch(baseUrl, `/api/conversations/${ensured.conversation.id}/messages`, {
@@ -319,7 +321,51 @@ test("cloud server workers use the active platform model alias", async () => {
   }
 });
 
-test("POST bot reminder message is handed to cloud Hermes without app-side reminder parsing", async () => {
+test("cloud Claude Code workers use the saved DeepSeek gateway key", async () => {
+  const dataDir = tempDir("mia-cloud-agent-db-key-");
+  const previousAgentRoot = process.env.MIA_CLOUD_AGENT_ROOT;
+  const previousDeepSeekKey = process.env.MIA_DEEPSEEK_API_KEY;
+  const previousCloudClaudeKey = process.env.MIA_CLOUD_CLAUDE_CODE_API_KEY;
+  process.env.MIA_CLOUD_AGENT_ROOT = path.join(dataDir, "agent-users");
+  delete process.env.MIA_DEEPSEEK_API_KEY;
+  delete process.env.MIA_CLOUD_CLAUDE_CODE_API_KEY;
+  const preStore = createCloudStore({ dataDir });
+  try {
+    createModelGatewayStore(preStore.getDb()).saveSettings({
+      mode: "deepseek",
+      provider: "deepseek",
+      modelId: "mia-auto",
+      upstreamModel: "deepseek-chat",
+      apiBase: "https://api.deepseek.com/v1",
+      apiKey: "sk-from-db"
+    });
+  } finally {
+    preStore.close();
+  }
+  const server = createMiaCloudServer({
+    dataDir,
+    cloudAgentMode: "claude-code"
+  });
+  await listen(server);
+  try {
+    const worker = await server.mia.cloudAgentWorkerManager.ensureWorker("db-key-user");
+    assert.equal(worker.runtimeKind, "cloud-claude-code");
+    assert.equal(worker.hasApiKey, true);
+    assert.equal(worker.env.ANTHROPIC_API_KEY, "sk-from-db");
+    assert.equal(worker.env.ANTHROPIC_BASE_URL, "https://api.deepseek.com/anthropic");
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    if (previousAgentRoot === undefined) delete process.env.MIA_CLOUD_AGENT_ROOT;
+    else process.env.MIA_CLOUD_AGENT_ROOT = previousAgentRoot;
+    if (previousDeepSeekKey === undefined) delete process.env.MIA_DEEPSEEK_API_KEY;
+    else process.env.MIA_DEEPSEEK_API_KEY = previousDeepSeekKey;
+    if (previousCloudClaudeKey === undefined) delete process.env.MIA_CLOUD_CLAUDE_CODE_API_KEY;
+    else process.env.MIA_CLOUD_CLAUDE_CODE_API_KEY = previousCloudClaudeKey;
+  }
+});
+
+test("POST bot reminder message is handed to cloud Claude Code without app-side reminder parsing", async () => {
   const dataDir = tempDir("mia-cloud-agent-reminder-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -344,7 +390,7 @@ test("POST bot reminder message is handed to cloud Hermes without app-side remin
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
       method: "PUT",
       headers: authHeaders,
-      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-hermes" }
+      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-claude-code" }
     });
     const conversationId = ensured.conversation.id;
 
@@ -375,7 +421,7 @@ test("POST bot reminder message is handed to cloud Hermes without app-side remin
   }
 });
 
-test("POST group mention invokes cloud-hermes bot without desktop-local event fallback", async () => {
+test("POST group mention invokes cloud-claude-code bot without desktop-local event fallback", async () => {
   const dataDir = tempDir("mia-cloud-agent-group-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -408,7 +454,7 @@ test("POST group mention invokes cloud-hermes bot without desktop-local event fa
     const group = await jsonFetch(baseUrl, "/api/conversations", {
       method: "POST",
       headers: authHeaders,
-      body: { name: "Cloud Group", memberBots: [{ botId: "mia", runtimeKind: "cloud-hermes" }] }
+      body: { name: "Cloud Group", memberBots: [{ botId: "mia", runtimeKind: "cloud-claude-code" }] }
     });
     const conversationId = group.conversation.id;
     eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
@@ -524,8 +570,8 @@ test("POST group message routes named bot only and gives the agent group identit
       body: {
         name: "Cloud Group",
         memberBots: [
-          { botId: "mia", runtimeKind: "cloud-hermes" },
-          { botId: "kongling", runtimeKind: "cloud-hermes" }
+          { botId: "mia", runtimeKind: "cloud-claude-code" },
+          { botId: "kongling", runtimeKind: "cloud-claude-code" }
         ]
       }
     });
@@ -552,7 +598,7 @@ test("POST group message routes named bot only and gives the agent group identit
   }
 });
 
-test("POST cloud Hermes run cancel routes only through the cloud agent dispatcher", async () => {
+test("POST cloud Claude Code run cancel routes only through the cloud agent dispatcher", async () => {
   const dataDir = tempDir("mia-cloud-agent-cancel-");
   const interruptCalls = [];
   let releaseRun;
@@ -584,7 +630,7 @@ test("POST cloud Hermes run cancel routes only through the cloud agent dispatche
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
       method: "PUT",
       headers: authHeaders,
-      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-hermes" }
+      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-claude-code" }
     });
 
     await jsonFetch(baseUrl, `/api/conversations/${ensured.conversation.id}/messages`, {
@@ -651,7 +697,7 @@ test("POST group short message reaches the single-bot handler through the HTTP e
     const group = await jsonFetch(baseUrl, "/api/conversations", {
       method: "POST",
       headers: authHeaders,
-      body: { name: "Cloud Group", memberBots: [{ botId: "mia", runtimeKind: "cloud-hermes" }] }
+      body: { name: "Cloud Group", memberBots: [{ botId: "mia", runtimeKind: "cloud-claude-code" }] }
     });
 
     await jsonFetch(baseUrl, `/api/conversations/${group.conversation.id}/messages`, {

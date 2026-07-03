@@ -13,6 +13,12 @@ test("discover bot store uses a badge confirmation step without an enrollment fo
   assert.match(src, /function addPresetBot/);
   assert.match(src, /enabledSkills/);
   assert.match(src, /function runtimeTargetGroups/);
+  assert.match(src, /function cloudAgentRuntime/);
+  assert.match(src, /window\.miaCloudRuntime\?\.cloudAgentRuntimeFromState\?\.\(state\)/);
+  assert.match(src, /agentEngine:\s*cloudRuntime\.agentEngine/);
+  assert.match(src, /disabled:\s*!cloudRuntime\.available/);
+  assert.doesNotMatch(src, /runtimeKind:\s*"cloud-claude-code"[\s\S]{0,160}agentEngine:\s*"hermes"/);
+  assert.doesNotMatch(src, /runtimeKind:\s*"cloud-claude-code"[\s\S]{0,160}agentEngine:\s*"claude-code"/);
   assert.match(src, /function generateEnrollmentPrincipalId/);
   assert.match(src, /window\.miaIds\?\.generatePrincipalId/);
   assert.match(src, /function defaultConversationTagName/);

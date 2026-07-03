@@ -458,7 +458,7 @@
         name,
         identity: { kind: "bot", id, displayName: name, statusBadge: statusBadgeFrom(bot) },
         statusBadge: statusBadgeFrom(bot),
-        runtimeKind: bot.runtimeKind || bot.runtime_kind || "cloud-hermes",
+        runtimeKind: bot.runtimeKind || bot.runtime_kind || "cloud-claude-code",
         color: avatar.color,
         image: avatar.image,
         crop: avatar.crop,
@@ -498,7 +498,7 @@
         // Phase 5 cutover: every group is a cloud conversation. Login required.
         const memberBots = botEntries.map((e) => ({
           botId: e.id,
-          runtimeKind: e.runtimeKind || "cloud-hermes"
+          runtimeKind: e.runtimeKind || "cloud-claude-code"
         }));
         const res = await window.mia.social.createConversation({ name, memberBots, memberFriendUserIds });
         if (!res.ok) { alert("创建失败：" + (res.error || "")); confirmBtn.disabled = false; return; }

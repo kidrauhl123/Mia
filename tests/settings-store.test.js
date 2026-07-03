@@ -370,6 +370,29 @@ test("writeCloudSettings preserves and clears the memory sync cursor with cloud 
   assert.equal(loggedOut.lastMemorySyncAt, "");
 });
 
+test("writeCloudSettings preserves cloud agent runtime until logout", (t) => {
+  const { runtime, store } = setup(t);
+  const agentRuntime = {
+    runtimeKind: "cloud-claude-code",
+    agentEngine: "claude-code",
+    label: "Claude Code",
+    available: true
+  };
+  store.writeCloudSettings({
+    enabled: true,
+    token: "tok_alive",
+    user: { id: "u1" },
+    agentRuntime
+  });
+
+  const cursorOnly = store.writeCloudSettings({ lastEventSeq: 12 });
+  assert.deepEqual(cursorOnly.agentRuntime, agentRuntime);
+  assert.deepEqual(readJson(runtime.cloudSettings, {}).agentRuntime, agentRuntime);
+
+  const loggedOut = store.writeCloudSettings({ enabled: false, token: "", user: null });
+  assert.equal(loggedOut.agentRuntime, null);
+});
+
 test("memorySettings defaults on and persists explicit off", (t) => {
   const { runtime, store } = setup(t);
 
