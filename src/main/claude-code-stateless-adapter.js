@@ -1,6 +1,7 @@
 const { spawn: defaultSpawn } = require("node:child_process");
 const path = require("node:path");
 const { spawnExecutable } = require("./agent-runtime/process-launcher.js");
+const { mergeAssistantText } = require("../shared/assistant-content-blocks.js");
 
 function firstTextValue(value) {
   if (typeof value === "string") return value;
@@ -51,6 +52,10 @@ function stoppedError() {
   const stopped = new Error("生成已停止");
   stopped.code = "MIA_STOPPED";
   return stopped;
+}
+
+function sameTrimmedText(left, right) {
+  return String(left || "").trim() === String(right || "").trim();
 }
 
 function requireDependency(deps, key) {
@@ -113,16 +118,20 @@ function createClaudeCodeStatelessAdapter(deps = {}) {
       systemPrompt: { type: "preset", preset: "claude_code" }
     };
     const stream = query({ prompt: fullPrompt, options });
-    const chunks = [];
+    let assistantText = "";
+    let lastAssistantSnapshot = "";
     for await (const message of stream) {
       if (signal?.aborted) break;
       if (message?.type === "assistant") {
         const text = claudeMessageText(message);
-        if (text) chunks.push(text);
+        if (text && !sameTrimmedText(lastAssistantSnapshot, text)) {
+          assistantText = mergeAssistantText(assistantText, text).text;
+          lastAssistantSnapshot = text;
+        }
       }
     }
     if (signal?.aborted) throw stoppedError();
-    return { content: chunks.join("\n").trim() };
+    return { content: assistantText.trim() };
   }
 
   return { sendStateless };

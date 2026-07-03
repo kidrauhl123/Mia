@@ -1,5 +1,6 @@
 const crypto = require("node:crypto");
 const { normalizeCloudClaudeCodeModel } = require("./cloud-claude-code-model.js");
+const { mergeAssistantText } = require("../shared/assistant-content-blocks.js");
 
 let claudeAgentSdkModule = null;
 
@@ -77,12 +78,19 @@ function eventTextDelta(id, text) {
   return { type: "text_delta", id, text };
 }
 
+function sameTrimmedText(left, right) {
+  return String(left || "").trim() === String(right || "").trim();
+}
+
 function createSdkEventBridge(onEvent, randomUUID) {
   let activeTextId = null;
   const reasoningId = `reasoning_${randomUUID()}`;
   const blockIndex = new Map();
   let textCounter = 0;
   let sawStreamEvent = false;
+  let fallbackTextId = "";
+  let fallbackAssistantText = "";
+  let fallbackAssistantSnapshot = "";
 
   function emit(type, payload = {}) {
     if (typeof onEvent === "function") onEvent({ type, ...payload });
@@ -124,8 +132,23 @@ function createSdkEventBridge(onEvent, randomUUID) {
     activeTextId = null;
     const text = claudeMessageText(message);
     if (text && !sawStreamEvent) {
-      textCounter += 1;
-      emit("text_delta", eventTextDelta(`text_${textCounter}`, text));
+      if (!sameTrimmedText(fallbackAssistantSnapshot, text)) {
+        const merged = mergeAssistantText(fallbackAssistantText, text);
+        if (merged.kind === "start" || merged.kind === "append") {
+          textCounter += 1;
+          fallbackTextId = `text_${textCounter}`;
+          emit("text_delta", eventTextDelta(fallbackTextId, merged.delta));
+          fallbackAssistantText = merged.text;
+        } else if (merged.kind === "extend" && merged.delta) {
+          if (!fallbackTextId) {
+            textCounter += 1;
+            fallbackTextId = `text_${textCounter}`;
+          }
+          emit("text_delta", eventTextDelta(fallbackTextId, merged.delta));
+          fallbackAssistantText = merged.text;
+        }
+        fallbackAssistantSnapshot = text;
+      }
     }
     const contentBlocks = Array.isArray(message?.message?.content) ? message.message.content : [];
     for (const block of contentBlocks) {
@@ -202,7 +225,8 @@ function createCloudClaudeCodeClient(deps = {}) {
     };
     if (permissionMode === "bypassPermissions") options.allowDangerouslySkipPermissions = true;
 
-    const chunks = [];
+    let assistantText = "";
+    let lastAssistantSnapshot = "";
     const events = [];
     const eventBridge = createSdkEventBridge((event) => {
       events.push(event);
@@ -217,7 +241,10 @@ function createCloudClaudeCodeClient(deps = {}) {
         if (abortController.signal.aborted) break;
         if (message?.type === "assistant") {
           const text = claudeMessageText(message);
-          if (text) chunks.push(text);
+          if (text && !sameTrimmedText(lastAssistantSnapshot, text)) {
+            assistantText = mergeAssistantText(assistantText, text).text;
+            lastAssistantSnapshot = text;
+          }
         } else if (message?.type === "result" && message.subtype && message.subtype !== "success") {
           log(`[cloud-claude-code] result subtype=${message.subtype}`);
         }
@@ -226,13 +253,13 @@ function createCloudClaudeCodeClient(deps = {}) {
       if (abortController.signal.aborted) {
         return {
           runId,
-          content: chunks.join("\n").trim(),
+          content: assistantText.trim(),
           events: [...events, { type: "message.complete", status: "interrupted" }]
         };
       }
       return {
         runId,
-        content: chunks.join("\n").trim(),
+        content: assistantText.trim(),
         events: [...events, { type: "message.complete", status: "complete" }]
       };
     } finally {

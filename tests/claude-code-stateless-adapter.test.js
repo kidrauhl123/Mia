@@ -87,6 +87,21 @@ test("sendStateless uses prompt without persona append or resume", async () => {
   assert.deepEqual(response, { content: "stateless out" });
 });
 
+test("sendStateless dedupes progressive assistant snapshots", async () => {
+  const adapter = createClaudeCodeStatelessAdapter(createDeps([
+    { type: "assistant", message: { content: [{ text: "我先试试。" }] } },
+    { type: "assistant", message: { content: [{ text: "我先试试。\n\n还是不行。" }] } }
+  ]));
+
+  const response = await adapter.sendStateless({
+    systemPrompt: "sys",
+    userPrompt: "user",
+    signal: null
+  });
+
+  assert.deepEqual(response, { content: "我先试试。\n\n还是不行。" });
+});
+
 test("createClaudeCodeProcessSpawner runs direct executables hidden", () => {
   const spawnCalls = [];
   const fakeChild = {

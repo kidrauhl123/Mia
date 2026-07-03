@@ -167,6 +167,47 @@ test("cloud Claude Code client runs SDK query without Hermes gateway and streams
   assert.match(capture.params.prompt, /\/data\/attachments\/a\.txt maps to \/tmp\/mia-worker\/attachments\/a\.txt/);
 });
 
+test("cloud Claude Code client dedupes progressive assistant snapshots in fallback mode", async () => {
+  const events = [];
+  const client = createCloudClaudeCodeClient({
+    claudeAgentSdk: fakeSdk([
+      {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "我先试试。" }] }
+      },
+      {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "我先试试。\n\n还是不行。" }] }
+      }
+    ], {}),
+    randomUUID: () => "uuid-1"
+  });
+
+  const result = await client.runChat({
+    worker: {
+      hasApiKey: true,
+      model: "claude-sonnet-test",
+      permissionMode: "bypassPermissions",
+      env: { ANTHROPIC_API_KEY: "sk-test" },
+      paths: {
+        root: "/tmp/mia-worker",
+        workspace: "/tmp/mia-worker/workspace"
+      },
+      sandboxSettings: { enabled: true, failIfUnavailable: true }
+    },
+    input: "hello",
+    onEvent(event) {
+      events.push(event);
+    }
+  });
+
+  assert.equal(result.content, "我先试试。\n\n还是不行。");
+  assert.deepEqual(events.filter((event) => event.type === "text_delta").map((event) => event.text), [
+    "我先试试。",
+    "\n\n还是不行。"
+  ]);
+});
+
 test("cloud Claude Code client fails fast when DeepSeek credentials are absent", async () => {
   const client = createCloudClaudeCodeClient({ claudeAgentSdk: fakeSdk([], {}) });
   await assert.rejects(

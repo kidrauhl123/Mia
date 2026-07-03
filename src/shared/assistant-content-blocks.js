@@ -164,21 +164,39 @@
     return out;
   }
 
+  function appendTextSegment(currentText, nextText) {
+    const current = safeString(currentText);
+    const next = safeString(nextText);
+    if (!current) return next;
+    return /[\r\n]\s*$/.test(current) || /^\s*[\r\n]/.test(next)
+      ? `${current}${next}`
+      : `${current}\n\n${next}`;
+  }
+
   function bodyMdFromContentBlocks(input) {
     const textBlocks = normalizeContentBlocks(input)
       .filter((block) => block.type === "text")
       .map((block) => block.text);
     let body = "";
     for (const text of textBlocks) {
-      if (!body) {
-        body = text;
-        continue;
-      }
-      body += /[\r\n]\s*$/.test(body) || /^\s*[\r\n]/.test(text)
-        ? text
-        : `\n\n${text}`;
+      body = appendTextSegment(body, text);
     }
     return body.trim();
+  }
+
+  function mergeAssistantText(currentText, nextText) {
+    const current = safeString(currentText);
+    const next = safeString(nextText);
+    const currentTrim = current.trim();
+    const nextTrim = next.trim();
+    if (!nextTrim) return { kind: "noop", text: current, delta: "" };
+    if (!currentTrim) return { kind: "start", text: next, delta: next };
+    if (currentTrim === nextTrim) return { kind: "noop", text: current, delta: "" };
+    if (currentTrim.startsWith(nextTrim)) return { kind: "noop", text: current, delta: "" };
+    if (next.startsWith(current)) {
+      return { kind: "extend", text: next, delta: next.slice(current.length) };
+    }
+    return { kind: "append", text: appendTextSegment(current, next), delta: next };
   }
 
   function stripLegacyDuplicateFinalTextBlock(blocks) {
@@ -481,6 +499,7 @@
     contentBlocksWithFinalText,
     createAssistantContentBlockCollector,
     createStreamingTextSmoother,
+    mergeAssistantText,
     normalizeContentBlocks,
     normalizeStatus
   };
