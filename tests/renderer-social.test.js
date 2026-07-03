@@ -3428,6 +3428,39 @@ test("stale cloud agent run clears sidebar typing when terminal events are lost"
   assert.equal(headerPaints, 1);
 });
 
+test("daemon local-events disconnect clears busy cloud agent runs immediately", () => {
+  let renders = 0;
+  let headerPaints = 0;
+  const s = loadSocial();
+  s.initSocialModule({
+    getState: () => ({}),
+    render: () => { renders += 1; },
+    paintHeaderStatus: () => { headerPaints += 1; },
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.activeConversationId = "botc_u_a_codex";
+  s.moduleState.conversations = [{ id: "botc_u_a_codex", type: "bot", decorations: { botId: "codex" } }];
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_codex", runId: "car_lost", turnId: "turn_lost", botId: "codex" },
+  });
+  assert.equal(s.conversationRunIsBusy("botc_u_a_codex"), true);
+  renders = 0;
+  headerPaints = 0;
+
+  s.handleCloudEvent({
+    type: "daemon.local_events_status",
+    payload: { connected: false }
+  });
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_codex"), false);
+  assert.equal(s.conversationRunIsBusy("botc_u_a_codex"), false);
+  assert.equal(renders, 1);
+  assert.equal(headerPaints, 1);
+});
+
 test("cloud run streaming keeps canonical text while smoothing displayed text", () => {
   const frames = [];
   const s = loadSocial({

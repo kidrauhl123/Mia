@@ -27,6 +27,38 @@ function promptCancelledError() {
   return error;
 }
 
+function acpProcessStartupError(engineSpec = {}, errorOrExit = {}) {
+  if (errorOrExit instanceof Error) {
+    return errorOrExit;
+  }
+  const engineId = String(engineSpec.engineId || "unknown").trim() || "unknown";
+  const command = String(engineSpec.command || "").trim() || engineId;
+  const code = errorOrExit.code;
+  const signal = errorOrExit.signal;
+  const detail = signal ? `signal ${signal}` : `exit ${code ?? "unknown"}`;
+  return new Error(`ACP engine ${engineId} command '${command}' exited before startup completed (${detail}).`);
+}
+
+function createTransportStartupError(child, engineSpec = {}) {
+  if (!child || typeof child.once !== "function") return null;
+  const startupError = new Promise((_resolve, reject) => {
+    child.once("error", (error) => {
+      reject(acpProcessStartupError(engineSpec, error));
+    });
+    child.once("exit", (code, signal) => {
+      reject(acpProcessStartupError(engineSpec, { code, signal }));
+    });
+  });
+  startupError.catch(() => {});
+  return startupError;
+}
+
+async function raceTransportStartup(transport, promise) {
+  const startupError = transport?.startupError;
+  if (!startupError || typeof startupError.then !== "function") return promise;
+  return Promise.race([promise, startupError]);
+}
+
 function createPermissionFallback(params = {}) {
   const options = Array.isArray(params.options) ? params.options : [];
   const rejectOnce = options.find((option) => String(option?.kind || "") === "reject_once");
@@ -89,6 +121,7 @@ async function defaultCreateTransport(options = {}) {
   return {
     sdk,
     process: child,
+    startupError: createTransportStartupError(child, spawnEngineSpec),
     stream: sdk.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout)),
     async close() {
       try { child.stdin.end(); } catch {}
@@ -150,7 +183,7 @@ class AcpAgentSession extends EventEmitter {
         ...(this.env ? { env: this.env } : {}),
         spawnProcess: this.spawnProcess
       });
-      this.client = await this.createClient({
+      this.client = await raceTransportStartup(this.transport, this.createClient({
         transport: this.transport,
         engineSpec: this.engineSpec,
         sessionKey: this.sessionKey,
@@ -159,19 +192,19 @@ class AcpAgentSession extends EventEmitter {
         engineId: this.engineId,
         onSessionUpdate: (params) => this.handleSessionUpdate(params),
         onPermissionRequest: (params) => this.handlePermissionRequest(params)
-      });
+      }));
       if (typeof this.client.initialize === "function") {
         const sdk = this.transport?.sdk || await importAcpSdk();
-        await this.client.initialize({
+        await raceTransportStartup(this.transport, this.client.initialize({
           protocolVersion: sdk.PROTOCOL_VERSION || 1,
           clientCapabilities: {},
           clientInfo: {
             name: "mia-agent-session-acp-client",
             version: "1.0.0"
           }
-        });
+        }));
       }
-      const session = await this.client.newSession({
+      const session = await raceTransportStartup(this.transport, this.client.newSession({
         cwd: this.workspacePath,
         mcpServers: [],
         _meta: {
@@ -180,7 +213,7 @@ class AcpAgentSession extends EventEmitter {
           engineId: this.engineId,
           initializationMetadata: this.initializationMetadata
         }
-      });
+      }));
       this.acpSessionId = String(session?.sessionId || "").trim();
       if (!this.acpSessionId) {
         throw new Error("ACP session did not return a sessionId.");
@@ -193,6 +226,12 @@ class AcpAgentSession extends EventEmitter {
       return await this.startPromise;
     } catch (error) {
       this.startPromise = null;
+      const transport = this.transport;
+      this.transport = null;
+      this.client = null;
+      this.acpSessionId = "";
+      try { await transport?.close?.(); } catch {}
+      try { await transport?.kill?.(); } catch {}
       throw error;
     }
   }

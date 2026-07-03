@@ -98,6 +98,10 @@ function collectEvents(session) {
   return events;
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 test("start initializes the ACP session once", async () => {
   const { session, state } = createSession();
   const events = collectEvents(session);
@@ -592,6 +596,48 @@ test("startup errors emit message-failed with engine and session metadata", asyn
     turnId: "turn-start",
     error: failure
   }]);
+});
+
+test("transport startup process errors emit message-failed instead of hanging", async () => {
+  const error = new Error("spawn npx ENOENT");
+  error.code = "ENOENT";
+  const startupError = new Promise((_resolve, reject) => {
+    setImmediate(() => reject(error));
+  });
+  startupError.catch(() => {});
+  const transport = {
+    ...createFakeTransport(),
+    startupError
+  };
+  const { session } = createSession({
+    createTransport: async () => transport,
+    createClient: async () => ({
+      initialize: () => new Promise(() => {}),
+      newSession: async () => ({ sessionId: "never-reached" }),
+      prompt: async () => ({ stopReason: "end_turn" })
+    })
+  });
+  const events = collectEvents(session);
+
+  const result = await Promise.race([
+    session.sendUserInput({ turnId: "turn-enoent", text: "hi" })
+      .then(() => ({ status: "resolved" }), (thrown) => ({ status: "rejected", thrown })),
+    wait(60).then(() => ({ status: "timeout" }))
+  ]);
+
+  assert.equal(result.status, "rejected");
+  assert.equal(result.thrown, error);
+  assert.deepEqual(events, [[
+    "message-failed",
+    {
+      engineId: "codex",
+      conversationId: "conversation-1",
+      sessionKey: "conversation-1::codex::/repo",
+      workspacePath: "/repo",
+      turnId: "turn-enoent",
+      error
+    }
+  ]]);
 });
 
 test("normalizeAcpSessionUpdate maps ACP updates into AgentSession event kinds", () => {

@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { execFile: defaultExecFile } = require("node:child_process");
 const { createMiaCoreResolver, DEFAULT_PATH } = require("./daemon/executable-resolver.js");
@@ -55,6 +56,35 @@ function renderLaunchAgentPlist({
     `</plist>`,
     ``
   ].join("\n");
+}
+
+function uniquePathEntries(entries = []) {
+  const seen = new Set();
+  const result = [];
+  for (const entry of entries) {
+    const value = String(entry || "").trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function daemonPathEnv(env = {}, options = {}) {
+  const delimiter = options.delimiter || path.delimiter;
+  const home = String(env.HOME || options.home || os.homedir() || "").trim();
+  const userEntries = home
+    ? [
+        path.join(home, ".local", "bin"),
+        path.join(home, ".bun", "bin"),
+        path.join(home, ".cargo", "bin")
+      ]
+    : [];
+  return uniquePathEntries([
+    ...userEntries,
+    ...DEFAULT_PATH.split(":"),
+    ...String(env.PATH || "").split(delimiter)
+  ]).join(delimiter);
 }
 
 function createLaunchdService(deps = {}) {
@@ -131,7 +161,7 @@ function createLaunchdService(deps = {}) {
   }
 
   function daemonEnvironment() {
-    return { ...resolver.daemonEnvOverlay(), PATH: env.PATH || DEFAULT_PATH };
+    return { ...resolver.daemonEnvOverlay(), PATH: daemonPathEnv(env) };
   }
 
   // launchd chdir()s into WorkingDirectory before exec; the resolver always
@@ -215,6 +245,7 @@ function createLaunchdService(deps = {}) {
 
 module.exports = {
   createLaunchdService,
+  daemonPathEnv,
   renderLaunchAgentPlist,
   xmlEscape
 };

@@ -99,8 +99,30 @@ test("daemon launch agent carries the daemon environment and labels", (t) => {
   assert.match(plist, /<string>ai\.mia\.daemon<\/string>/);
   assert.match(plist, /<key>MIA_DAEMON<\/key>\n      <string>1<\/string>/);
   assert.match(plist, /<key>MIA_USER_DATA_DIR<\/key>/);
-  assert.match(plist, /<key>PATH<\/key>\n      <string>\/usr\/local\/bin:\/usr\/bin<\/string>/);
+  assert.match(plist, /<key>PATH<\/key>/);
+  assert.ok(daemonEnv.PATH.split(":").includes("/usr/local/bin"));
+  assert.ok(daemonEnv.PATH.split(":").includes("/opt/homebrew/bin"));
   assert.match(plist, new RegExp(`<string>${escapeRe(path.join(runtime.logsDir, "daemon.error.log"))}</string>`));
+});
+
+test("daemon launch agent expands GUI app PATH with common CLI directories", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-launchd-home-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const { service } = setup(t, {
+    env: {
+      HOME: home,
+      HERMES_LANGUAGE: "zh",
+      PATH: "/usr/bin:/bin:/usr/sbin:/sbin"
+    }
+  });
+
+  const pathEntries = service.daemonEnvironment().PATH.split(":");
+
+  assert.equal(pathEntries[0], path.join(home, ".local", "bin"));
+  assert.ok(pathEntries.includes("/opt/homebrew/bin"));
+  assert.ok(pathEntries.includes("/usr/local/bin"));
+  assert.ok(pathEntries.includes("/usr/bin"));
+  assert.equal(pathEntries.filter((entry) => entry === "/usr/bin").length, 1);
 });
 
 test("packaged resolver makes the launchd plist point ProgramArguments at mia-node, never Mia --daemon", (t) => {
@@ -207,5 +229,6 @@ test("daemon launch agent delegates command, workdir and env to an injected reso
   assert.match(plist, /Mia Core\.app\/Contents\/MacOS\/Mia Core/);
   const daemonEnv = service.daemonEnvironment();
   assert.equal(daemonEnv.MIA_DAEMON, "1");
-  assert.equal(daemonEnv.PATH, "/usr/local/bin:/usr/bin"); // from setup env, preserved
+  assert.ok(daemonEnv.PATH.split(":").includes("/usr/local/bin")); // from setup env, preserved
+  assert.ok(daemonEnv.PATH.split(":").includes("/opt/homebrew/bin"));
 });

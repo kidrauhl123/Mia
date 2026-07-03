@@ -1679,11 +1679,17 @@
   }
 
   function clearStaleCloudAgentRuns(now = Date.now()) {
+    return clearBusyCloudAgentRuns((run) => (
+      Number(now) - runActivityTimestamp(run) > CLOUD_AGENT_RUN_STALE_MS
+    ));
+  }
+
+  function clearBusyCloudAgentRuns(shouldClear = () => true) {
     let changed = false;
     let activeCleared = false;
     for (const [conversationId, run] of moduleState.cloudAgentRunsByConversation.entries()) {
       if (!isConversationRunBusy(run)) continue;
-      if (Number(now) - runActivityTimestamp(run) <= CLOUD_AGENT_RUN_STALE_MS) continue;
+      if (!shouldClear(run, conversationId)) continue;
       clearRunPermissions(run);
       moduleState.cloudAgentRunsByConversation.delete(conversationId);
       changed = true;
@@ -3217,6 +3223,13 @@
     // broadcast while we were disconnected stay invisible until restart.
     if (type === "events_ready") {
       bootstrapAfterLogin().catch((err) => console.warn("[social] rebootstrap on events_ready failed:", err));
+      return;
+    }
+
+    if (type === "daemon.local_events_status") {
+      if (payload?.connected === false) {
+        if (clearBusyCloudAgentRuns()) refreshCloudRunStatusTimer();
+      }
       return;
     }
 

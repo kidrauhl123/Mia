@@ -2952,7 +2952,12 @@ if (!IS_DAEMON_PROCESS) {
       }
       broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
     },
-    onStateChange: () => {
+    onStateChange: (connected) => {
+      const envelope = {
+        type: "daemon.local_events_status",
+        payload: { connected: Boolean(connected) }
+      };
+      broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
       startCloudRuntimeSockets();
     }
   });

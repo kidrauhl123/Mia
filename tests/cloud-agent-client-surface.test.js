@@ -16,6 +16,13 @@ test("desktop forwards cloud agent run events over the existing CloudEvent IPC",
   assert.match(source, /emitToRenderer\(\{\s*type:\s*message\.type,\s*payload:\s*message\s*\}\)/s);
 });
 
+test("desktop forwards local-events connection state so renderer can clear stale typing", () => {
+  const source = read("src/main.js");
+  assert.match(source, /type:\s*"daemon\.local_events_status"/);
+  assert.match(source, /connected:\s*Boolean\(connected\)/);
+  assert.match(source, /broadcastRendererEvent\(IpcChannel\.CloudEvent,\s*envelope\)/);
+});
+
 test("web cloud conversation rendering surfaces cloud agent streams and attachments", () => {
   const source = read("src/web/app.js");
   const html = read("src/web/app/index.html");
