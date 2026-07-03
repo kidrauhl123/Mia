@@ -65,7 +65,7 @@ test("markdown auto-links bare https URLs while leaving inline code alone", () =
 
   assert.match(
     html,
-    /<a class="message-link" data-external-link="https:\/\/jungui-cle\.pages\.dev" role="link" tabindex="0" title="https:\/\/jungui-cle\.pages\.dev">https:\/\/jungui-cle\.pages\.dev<\/a>/
+    /<a class="message-link" data-external-link="https:\/\/jungui-cle\.pages\.dev" role="link" tabindex="0" title="https:\/\/jungui-cle\.pages\.dev"><span class="message-link-site-icon"[^>]*><img class="message-link-site-icon-image" src="https:\/\/jungui-cle\.pages\.dev\/favicon\.ico"[^>]*><span class="message-link-site-icon-fallback"[^>]*><\/span><\/span><span class="message-link-label">https:\/\/jungui-cle\.pages\.dev<\/span><\/a>/
   );
   assert.match(html, /<code class="inline-code" tabindex="0" title="点击复制">1df7f38a\.jungui-cle\.pages\.dev<\/code>/);
   assert.doesNotMatch(html, /data-external-link="https:\/\/1df7f38a\.jungui-cle\.pages\.dev"/);
@@ -75,30 +75,25 @@ test("markdown keeps closing bold markers outside bare URL links", () => {
   const markdown = loadMarkdownHelpers();
   const html = markdown.renderMarkdown("**localhost 还活着，你可以自己点：http://localhost:3001/zh**");
 
-  assert.equal(
-    html,
-    '<p><strong>localhost 还活着，你可以自己点：<a class="message-link" data-external-link="http://localhost:3001/zh" role="link" tabindex="0" title="http://localhost:3001/zh">http://localhost:3001/zh</a></strong></p>'
-  );
+  assert.match(html, /^<p><strong>localhost 还活着，你可以自己点：/);
+  assert.match(html, /<a class="message-link" data-external-link="http:\/\/localhost:3001\/zh" role="link" tabindex="0" title="http:\/\/localhost:3001\/zh"><span class="message-link-site-icon"[^>]*><img class="message-link-site-icon-image" src="https:\/\/localhost\/favicon\.ico"[^>]*><span class="message-link-site-icon-fallback"[^>]*><\/span><\/span><span class="message-link-label">http:\/\/localhost:3001\/zh<\/span><\/a>/);
+  assert.match(html, /<\/strong><\/p>$/);
 });
 
 test("markdown keeps bold and following prose outside bare URL links", () => {
   const markdown = loadMarkdownHelpers();
   const html = markdown.renderMarkdown("**localhost 还活着，你可以自己点：http://localhost:3001/zh**（夜间模式是我截图时强切的）。");
 
-  assert.equal(
-    html,
-    '<p><strong>localhost 还活着，你可以自己点：<a class="message-link" data-external-link="http://localhost:3001/zh" role="link" tabindex="0" title="http://localhost:3001/zh">http://localhost:3001/zh</a></strong>（夜间模式是我截图时强切的）。</p>'
-  );
+  assert.match(html, /^<p><strong>localhost 还活着，你可以自己点：/);
+  assert.match(html, /<span class="message-link-label">http:\/\/localhost:3001\/zh<\/span><\/a><\/strong>（夜间模式是我截图时强切的）。<\/p>$/);
 });
 
 test("markdown renders multiline bold text around bare URL links", () => {
   const markdown = loadMarkdownHelpers();
   const html = markdown.renderMarkdown("**localhost 还活着，\n你可以自己点：http://localhost:3001/zh**（夜间模式是我截图时强切的）。");
 
-  assert.equal(
-    html,
-    '<p><strong>localhost 还活着，<br>你可以自己点：<a class="message-link" data-external-link="http://localhost:3001/zh" role="link" tabindex="0" title="http://localhost:3001/zh">http://localhost:3001/zh</a></strong>（夜间模式是我截图时强切的）。</p>'
-  );
+  assert.match(html, /^<p><strong>localhost 还活着，<br>你可以自己点：/);
+  assert.match(html, /<span class="message-link-label">http:\/\/localhost:3001\/zh<\/span><\/a><\/strong>（夜间模式是我截图时强切的）。<\/p>$/);
 });
 
 test("markdown keeps closing bold markers outside markdown links", () => {

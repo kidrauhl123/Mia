@@ -636,6 +636,10 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(messageLinkRule, /text-decoration-color:\s*var\(--accent\);/);
   assert.match(messageLinkRule, /text-decoration-thickness:\s*1px;/);
   assert.match(messageLinkRule, /cursor:\s*pointer;/);
+  assert.match(chatCss, /\.bubble a\.message-link \.message-link-site-icon\s*\{/);
+  assert.match(chatCss, /\.bubble a\.message-link \.message-link-site-icon-image\s*\{/);
+  assert.match(chatCss, /\.bubble a\.message-link \.message-link-site-icon-fallback\s*\{/);
+  assert.match(chatCss, /\.bubble a\.message-link \.message-link-label\s*\{/);
   assert.match(messageLinkHoverRule, /text-decoration:\s*underline;/);
   assert.match(messageLinkHoverRule, /text-decoration-color:\s*var\(--accent\);/);
   assert.match(messageLinkHoverRule, /text-decoration-thickness:\s*1px;/);

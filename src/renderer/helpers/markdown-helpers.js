@@ -177,6 +177,38 @@
     return null;
   }
 
+  function hasClassToken(className, token) {
+    const raw = String(className || "").trim();
+    if (!raw || !token) return false;
+    return new RegExp(`(?:^|\\s)${escapeRegExp(token)}(?:\\s|$)`).test(raw);
+  }
+
+  function externalLinkFaviconUrl(target) {
+    try {
+      const raw = String(target || "");
+      let host = "";
+      if (typeof URL === "function") {
+        const url = new URL(raw);
+        if (!/^https?:$/i.test(url.protocol)) return "";
+        host = url.hostname || "";
+      } else {
+        const match = raw.match(/^https?:\/\/(?:[^@\/?#]+@)?(\[[^\]/?#]+\]|[^\/?#:]+)(?::\d+)?(?:[/?#]|$)/i);
+        host = match?.[1] || "";
+      }
+      if (!host) return "";
+      if (host.includes(":") && !host.startsWith("[")) host = `[${host}]`;
+      return `https://${host}/favicon.ico`;
+    } catch {
+      return "";
+    }
+  }
+
+  function externalLinkInnerHtml(link, labelHtml) {
+    const faviconUrl = externalLinkFaviconUrl(link?.target);
+    if (!faviconUrl) return labelHtml;
+    return `<span class="message-link-site-icon" aria-hidden="true"><img class="message-link-site-icon-image" src="${escapeHtml(faviconUrl)}" width="14" height="14" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'"><span class="message-link-site-icon-fallback" style="display:none"></span></span><span class="message-link-label">${labelHtml}</span>`;
+  }
+
   function messageLinkAnchorHtml(link, options = {}) {
     const title = link.kind === "local-file" && link.line
       ? `${link.target}:${link.line}${link.column ? `:${link.column}` : ""}`
@@ -189,7 +221,13 @@
       : `data-external-link="${escapeHtml(link.target)}"`;
     const extraAttrs = options.attrs ? ` ${options.attrs}` : "";
     const tabIndex = options.tabIndex == null ? "0" : String(options.tabIndex);
-    return `<a class="${escapeHtml(options.className || "message-link")}" ${attr}${extraAttrs} role="link" tabindex="${escapeHtml(tabIndex)}" title="${escapeHtml(title)}">${options.innerHtml || escapeHtml(link.text)}</a>`;
+    const className = String(options.className || "message-link");
+    const body = options.innerHtml || escapeHtml(link.text);
+    const shouldDecorateExternal = link.kind === "external" &&
+      !hasClassToken(className, "inline-code-link") &&
+      !hasClassToken(className, "trace-link");
+    const innerHtml = shouldDecorateExternal ? externalLinkInnerHtml(link, body) : body;
+    return `<a class="${escapeHtml(className)}" ${attr}${extraAttrs} role="link" tabindex="${escapeHtml(tabIndex)}" title="${escapeHtml(title)}">${innerHtml}</a>`;
   }
 
   function messageLinkHtml(link) {

@@ -132,6 +132,7 @@ test("renderTraceBlocks linkifies URL and local path text only inside trace bodi
     html,
     /<a class="message-link trace-link" data-external-link="https:\/\/example\.com\/docs\?x=1"[^>]*data-trace-link="true"[^>]*>https:\/\/example\.com\/docs\?x=1<\/a>,/
   );
+  assert.doesNotMatch(html, /message-link-site-icon/);
   assert.match(
     html,
     /<a class="message-link trace-link" data-local-file-path="\/Users\/jung\/GitHub\/Mia\/src\/shared\/trace-blocks\.js" data-local-file-line="42" data-local-file-column="7"[^>]*data-trace-link="true"[^>]*>\/Users\/jung\/GitHub\/Mia\/src\/shared\/trace-blocks\.js:42:7<\/a>/
