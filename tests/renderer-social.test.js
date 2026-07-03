@@ -3385,6 +3385,49 @@ test("handleCloudEvent cloud_agent_run events track transient conversation strea
   assert.equal(run.tools.map((tool) => tool.name).join(","), "shell");
 });
 
+test("stale cloud agent run clears sidebar typing when terminal events are lost", () => {
+  let intervalCallback = null;
+  let clearedTimer = false;
+  let renders = 0;
+  let headerPaints = 0;
+  const s = loadSocial({
+    setInterval: (fn) => {
+      intervalCallback = fn;
+      return "cloud-run-status-timer";
+    },
+    clearInterval: (id) => {
+      if (id === "cloud-run-status-timer") clearedTimer = true;
+    }
+  });
+  s.initSocialModule({
+    getState: () => ({}),
+    render: () => { renders += 1; },
+    paintHeaderStatus: () => { headerPaints += 1; },
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.activeConversationId = "botc_u_a_codex";
+  s.moduleState.conversations = [{ id: "botc_u_a_codex", type: "bot", decorations: { botId: "codex" } }];
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_codex", runId: "car_lost", turnId: "turn_lost", botId: "codex" },
+  });
+  const run = s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_codex");
+  assert.ok(run, "run should be active immediately after start");
+  run.updatedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+  renders = 0;
+  headerPaints = 0;
+
+  assert.equal(typeof intervalCallback, "function");
+  intervalCallback();
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_codex"), false);
+  assert.equal(clearedTimer, true);
+  assert.equal(renders, 1);
+  assert.equal(headerPaints, 1);
+});
+
 test("cloud run streaming keeps canonical text while smoothing displayed text", () => {
   const frames = [];
   const s = loadSocial({

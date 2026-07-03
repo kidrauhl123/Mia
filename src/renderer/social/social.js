@@ -21,6 +21,7 @@
   const LAST_BOT_CONVERSATION_KEY = "mia.lastBotConversationByKey";
   const OTHER_DEVICE_CONVERSATION_FILTER = "__mia_other_devices__";
   const OTHER_DEVICE_CONVERSATION_LABEL = "其他设备";
+  const CLOUD_AGENT_RUN_STALE_MS = 30 * 60 * 1000;
 
   function isValidPublicUid(value) {
     const text = String(value || "").trim();
@@ -1644,13 +1645,15 @@
   function cloudRunFor(conversationId, runId = "") {
     const existing = moduleState.cloudAgentRunsByConversation.get(conversationId);
     if (existing) return existing;
+    const now = new Date().toISOString();
     const run = {
       conversationId,
       runId,
       text: "",
       reasoning: "",
       status: "running",
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
       tools: [],
       contentBlocks: [],
       contentBlockCollector: null,
@@ -1660,6 +1663,38 @@
     };
     moduleState.cloudAgentRunsByConversation.set(conversationId, run);
     return run;
+  }
+
+  function markCloudRunActivity(run) {
+    if (!run) return;
+    const now = new Date().toISOString();
+    if (!run.createdAt) run.createdAt = now;
+    run.updatedAt = now;
+  }
+
+  function runActivityTimestamp(run) {
+    const raw = String(run?.updatedAt || run?.createdAt || "").trim();
+    const parsed = raw ? Date.parse(raw) : NaN;
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+
+  function clearStaleCloudAgentRuns(now = Date.now()) {
+    let changed = false;
+    let activeCleared = false;
+    for (const [conversationId, run] of moduleState.cloudAgentRunsByConversation.entries()) {
+      if (!isConversationRunBusy(run)) continue;
+      if (Number(now) - runActivityTimestamp(run) <= CLOUD_AGENT_RUN_STALE_MS) continue;
+      clearRunPermissions(run);
+      moduleState.cloudAgentRunsByConversation.delete(conversationId);
+      changed = true;
+      if (conversationId === moduleState.activeConversationId) activeCleared = true;
+    }
+    if (!changed) return false;
+    renderAgentPermissionBanner();
+    if (deps && typeof deps.render === "function") deps.render();
+    if (deps && typeof deps.paintHeaderStatus === "function") deps.paintHeaderStatus();
+    if (activeCleared) scheduleCloudRunRender(moduleState.activeConversationId);
+    return true;
   }
 
   function normalizePermissionRequest(event = {}) {
@@ -2433,6 +2468,7 @@
   }
 
   function refreshCloudRunStatusTimer() {
+    clearStaleCloudAgentRuns();
     const hasRunningRun = Array.from(moduleState.cloudAgentRunsByConversation.values())
       .some((run) => isConversationRunBusy(run));
     if (!hasRunningRun) {
@@ -2444,6 +2480,10 @@
     }
     if (_cloudRunStatusTimer || typeof global.setInterval !== "function") return;
     _cloudRunStatusTimer = global.setInterval(() => {
+      if (clearStaleCloudAgentRuns()) {
+        refreshCloudRunStatusTimer();
+        return;
+      }
       const activeRun = activeConversationRun();
       if (!activeRun || !isConversationRunBusy(activeRun)) {
         refreshCloudRunStatusTimer();
@@ -3266,6 +3306,7 @@
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
       run.status = "running";
+      markCloudRunActivity(run);
       if (!wasBusy && deps && typeof deps.render === "function") deps.render();
       scheduleCloudRunRender(conversationId);
       refreshCloudRunStatusTimer();
@@ -3284,6 +3325,7 @@
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
       const hermesEventType = eventType(hermesEvent);
+      markCloudRunActivity(run);
       applyCloudAgentRunEvent(run, hermesEvent);
       if (hermesEventType === "approval.request" || hermesEventType === "approval.responded") {
         renderAgentPermissionBanner();
