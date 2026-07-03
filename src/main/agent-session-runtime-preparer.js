@@ -6,8 +6,12 @@ const path = require("node:path");
 
 const { createOpenClawMiaProfile } = require("./openclaw-mia-profile.js");
 const { createCodexMiaProxy } = require("./codex-mia-proxy.js");
+const {
+  DEFAULT_CODEX_MIA_MODEL_CATALOG,
+  codexMiaSessionConfig,
+  writeCodexMiaModelCatalog
+} = require("./codex-mia-runtime-config.js");
 
-const DEFAULT_CODEX_MIA_MODEL_CATALOG = "mia-codex-model-catalog.json";
 const DEFAULT_CODEX_MIA_LAUNCHER = process.platform === "win32"
   ? "mia-codex-launcher.cmd"
   : "mia-codex-launcher.sh";
@@ -25,62 +29,6 @@ function runtimeKeyForMiaRuntime(runtime = {}) {
   if (profileId) return profileId.startsWith("mia:") ? profileId : `mia:${profileId}`;
   const model = firstString(runtime, ["model"]) || "mia-auto";
   return model.startsWith("mia:") ? model : `mia:${model}`;
-}
-
-function codexModelDisplayName(model = "") {
-  const value = String(model || "").trim();
-  if (!value || value === "mia-auto" || value === "mia-default") return "Auto";
-  return value;
-}
-
-function createCodexMiaModelCatalog(model = "mia-auto") {
-  const slug = String(model || "mia-auto").trim() || "mia-auto";
-  const displayName = codexModelDisplayName(slug);
-  return {
-    models: [
-      {
-        slug,
-        display_name: displayName,
-        description: displayName,
-        base_instructions: "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals.",
-        default_reasoning_level: "high",
-        supported_reasoning_levels: [
-          { effort: "none", description: "Disable Thinking" },
-          { effort: "low", description: "Fast responses with lighter reasoning" },
-          { effort: "medium", description: "Balanced responses" },
-          { effort: "high", description: "Enabled Thinking" }
-        ],
-        shell_type: "shell_command",
-        visibility: "list",
-        supported_in_api: true,
-        priority: 1000,
-        additional_speed_tiers: [],
-        service_tiers: [],
-        availability_nux: null,
-        upgrade: null,
-        supports_reasoning_summaries: true,
-        default_reasoning_summary: "none",
-        support_verbosity: false,
-        truncation_policy: { mode: "bytes", limit: 10000 },
-        supports_parallel_tool_calls: false,
-        supports_image_detail_original: false,
-        context_window: 262144,
-        max_context_window: 262144,
-        effective_context_window_percent: 95,
-        experimental_supported_tools: [],
-        input_modalities: ["text"],
-        supports_search_tool: false
-      }
-    ]
-  };
-}
-
-function writeCodexMiaModelCatalog(catalogPath, model = "mia-auto") {
-  const target = String(catalogPath || "").trim();
-  if (!target) return "";
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, `${JSON.stringify(createCodexMiaModelCatalog(model), null, 2)}\n`, "utf8");
-  return target;
 }
 
 function codexMiaLauncherScript(platform = process.platform) {
@@ -117,27 +65,6 @@ function writeCodexMiaLauncher(launcherPath, platform = process.platform) {
   fs.writeFileSync(target, codexMiaLauncherScript(platform), "utf8");
   if (platform !== "win32") fs.chmodSync(target, 0o755);
   return target;
-}
-
-function codexConfigForMiaSession(session = {}, options = {}) {
-  const baseUrl = String(session.baseUrl || "").trim().replace(/\/+$/, "");
-  const model = String(session.model || "").trim();
-  const modelCatalogJson = String(options.modelCatalogJson || "").trim();
-  return {
-    model,
-    model_provider: "custom",
-    ...(modelCatalogJson ? { model_catalog_json: modelCatalogJson } : {}),
-    disable_response_storage: true,
-    model_providers: {
-      custom: {
-        name: "Mia",
-        base_url: baseUrl,
-        wire_api: "responses",
-        env_key: "CODEX_API_KEY",
-        requires_openai_auth: false
-      }
-    }
-  };
 }
 
 function createAgentSessionRuntimePreparer(options = {}) {
@@ -204,7 +131,7 @@ function createAgentSessionRuntimePreparer(options = {}) {
           MIA_CODEX_MODEL_CATALOG_JSON: modelCatalogJson,
           MIA_CODEX_REAL_PATH: codexRealPath,
           MODEL_PROVIDER: "custom",
-          CODEX_CONFIG: JSON.stringify(codexConfigForMiaSession(session, {
+          CODEX_CONFIG: JSON.stringify(codexMiaSessionConfig(session, {
             modelCatalogJson
           }))
         }

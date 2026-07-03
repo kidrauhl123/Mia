@@ -328,6 +328,62 @@ test("runCodexAppServerTurn preserves explicit provider base URL", async () => {
   assert.ok(spawnCalls[0].args.includes('openai_base_url="http://127.0.0.1:43123/v1"'));
 });
 
+test("runCodexAppServerTurn forwards per-turn config overrides to app-server startup", async () => {
+  const spawnCalls = [];
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+    child.stdout.end();
+    child.stderr.end();
+    child.emit("exit", 0, null);
+  };
+  child.stdin = {
+    destroyed: false,
+    write(line) {
+      const request = JSON.parse(line);
+      if (request.method === "initialize") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { ok: true } }) + "\n"));
+      } else if (request.method === "thread/start") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { thread: { id: "thread_1" } } }) + "\n"));
+      } else if (request.method === "turn/start") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({
+          id: request.id,
+          result: {
+            turn: {
+              id: "turn_1",
+              status: "completed",
+              items: [{ type: "agentMessage", text: "done" }]
+            }
+          }
+        }) + "\n"));
+      }
+    }
+  };
+
+  await runCodexAppServerTurn({
+    codexPath: "/bin/codex",
+    env: { PATH: "/bin" },
+    prompt: "hello",
+    options: {
+      workingDirectory: "/repo",
+      configOverrides: [
+        'model_provider="custom"',
+        'model_catalog_json="/tmp/mia-codex-model-catalog.json"'
+      ]
+    },
+    spawn: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      return child;
+    }
+  });
+
+  assert.ok(spawnCalls[0].args.includes('model_provider="custom"'));
+  assert.ok(spawnCalls[0].args.includes('model_catalog_json="/tmp/mia-codex-model-catalog.json"'));
+});
+
 test("runCodexAppServerTurn keeps full-access approval policy when using Codex permission profiles", async () => {
   const requests = [];
   const child = new EventEmitter();

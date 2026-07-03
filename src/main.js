@@ -2271,6 +2271,7 @@ async function sendChatStateless({ botKey, botSnapshot = null, runtimeConfig = n
     bot: miaCoreRuntime.botWithRuntimeConfig(bot, normalizeTurnRuntimeConfig(runtimeConfig), { agentEngine: runtimeAgentEngine }),
     systemPrompt,
     userPrompt,
+    runtimeConfig: normalizeTurnRuntimeConfig(runtimeConfig),
     signal
   });
 }
@@ -2314,6 +2315,8 @@ function createActiveCodexStatelessAdapter() {
     processEnvStrings,
     runCodexAppServerTurn,
     agentRuntimeEnv: localAgentEngineService.agentRuntimeEnv,
+    codexMiaProxy,
+    resolveManagedModelRuntime,
     resolveAgentRuntime: localAgentEngineService.resolveAgentRuntime,
     shellCommandPath: localAgentEngineService.shellCommandPath
   });

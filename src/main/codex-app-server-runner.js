@@ -613,6 +613,12 @@ async function runCodexAppServerTurn({
   if (shouldUseCodexChatGptHttpsProvider({ baseUrl, apiKey, env: managedEnv, options })) {
     configOverrides.push(...codexChatGptHttpsProviderOverrides());
   }
+  if (Array.isArray(options.configOverrides)) {
+    for (const override of options.configOverrides) {
+      const text = String(override || "").trim();
+      if (text) configOverrides.push(text);
+    }
+  }
   configOverrides.push(...codexConfigOverridesForMcpServers(mcpServers));
   if (baseUrl) configOverrides.push(`openai_base_url=${tomlString(baseUrl)}`);
 

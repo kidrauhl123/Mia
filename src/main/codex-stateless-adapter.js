@@ -1,4 +1,10 @@
 const path = require("node:path");
+const os = require("node:os");
+const {
+  DEFAULT_CODEX_MIA_MODEL_CATALOG,
+  codexMiaSessionConfigOverrides,
+  writeCodexMiaModelCatalog
+} = require("./codex-mia-runtime-config.js");
 
 const CODEX_MANAGED_PROTOCOLS = Object.freeze(["cli", "codex-cli", "codex-app-server"]);
 
@@ -50,6 +56,13 @@ function envWithExecutableDirFirst(env = {}, executablePath = "") {
   };
 }
 
+function runtimeConfigForContext(context = {}) {
+  return {
+    ...(context.bot?.engineConfig || context.bot?.engine_config || {}),
+    ...(context.runtimeConfig && typeof context.runtimeConfig === "object" ? context.runtimeConfig : {})
+  };
+}
+
 function createCodexStatelessAdapter(deps = {}) {
   const shellCommandPath = requireDependency(deps, "shellCommandPath");
   const runCodexAppServerTurn = requireDependency(deps, "runCodexAppServerTurn");
@@ -60,6 +73,12 @@ function createCodexStatelessAdapter(deps = {}) {
   const appendEngineLog = deps.appendEngineLog || (() => {});
   const resolveAgentRuntime = deps.resolveAgentRuntime || (() => null);
   const agentRuntimeEnv = deps.agentRuntimeEnv || null;
+  const resolveManagedModelRuntime = typeof deps.resolveManagedModelRuntime === "function"
+    ? deps.resolveManagedModelRuntime
+    : () => null;
+  const codexMiaProxy = deps.codexMiaProxy || null;
+  const codexModelCatalogPath = String(deps.codexModelCatalogPath || "").trim()
+    || path.join(os.tmpdir(), DEFAULT_CODEX_MIA_MODEL_CATALOG);
 
   function resolveCodexRuntimeCommand() {
     const runtime = resolveAgentRuntime("codex", { protocols: CODEX_MANAGED_PROTOCOLS });
@@ -74,7 +93,30 @@ function createCodexStatelessAdapter(deps = {}) {
     return envWithExecutableDirFirst(baseEnv, commandPath);
   }
 
-  async function sendStateless({ systemPrompt, userPrompt, signal }) {
+  async function miaRuntimeForContext(context = {}) {
+    const runtimeConfig = runtimeConfigForContext(context);
+    const managedRuntime = resolveManagedModelRuntime(runtimeConfig, { engine: "codex" });
+    if (!managedRuntime) return null;
+    if (!codexMiaProxy || typeof codexMiaProxy.createSession !== "function") {
+      throw new Error("Codex Mia proxy is not available.");
+    }
+    const session = await codexMiaProxy.createSession(managedRuntime);
+    const baseUrl = String(session?.baseUrl || "").trim();
+    const apiKey = String(session?.apiKey || "").trim();
+    const model = String(session?.model || "").trim();
+    if (!baseUrl || !apiKey || !model) {
+      throw new Error("Codex Mia proxy did not return a usable session.");
+    }
+    const modelCatalogJson = writeCodexMiaModelCatalog(codexModelCatalogPath, model);
+    return {
+      apiKey,
+      model,
+      configOverrides: codexMiaSessionConfigOverrides(session, { modelCatalogJson })
+    };
+  }
+
+  async function sendStateless(context = {}) {
+    const { systemPrompt, userPrompt, signal } = context;
     const { runtime: codexRuntime, commandPath } = resolveCodexRuntimeCommand();
     if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
     let codexHomePath = "";
@@ -84,13 +126,18 @@ function createCodexStatelessAdapter(deps = {}) {
       throw new Error(`Mia Codex home setup failed: ${error?.message || error}`);
     }
     if (!codexHomePath) throw new Error("Mia Codex home setup failed: missing CODEX_HOME.");
+    const miaRuntime = await miaRuntimeForContext(context);
     const turn = await runCodexAppServerTurn({
       codexPath: commandPath,
       env: envForCodexRuntime({ ...processEnvStrings(), CODEX_HOME: codexHomePath }, codexRuntime, commandPath),
+      baseUrl: "",
+      apiKey: miaRuntime?.apiKey || "",
       prompt: statelessPrompt(systemPrompt, userPrompt),
       options: {
         workingDirectory: cwd(),
         skipGitRepoCheck: true,
+        ...(miaRuntime?.model ? { model: miaRuntime.model } : {}),
+        ...(miaRuntime?.configOverrides ? { configOverrides: miaRuntime.configOverrides } : {}),
         modelReasoningEffort: normalizeEffortLevel("medium", "codex"),
         ...mapCodexPermissionMode("default"),
         approvalPolicy: "never"
