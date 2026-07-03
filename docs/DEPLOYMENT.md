@@ -1,6 +1,6 @@
 # Mia Deployment
 
-这份文档是 Mia 的部署总入口，覆盖桌面端打包、Cloud/Web 发布、生产验证、回滚和排障。Cloud 服务器的 systemd、nginx、LiteLLM、Docker worker 细节见 [cloud-deployment.md](cloud-deployment.md)。
+这份文档是 Mia 的部署总入口，覆盖桌面端打包、Cloud/Web 发布、生产验证、回滚和排障。桌面与 Cloud 的操作命令以这里为准，不再分散到其他 checklist。Cloud 服务器的 systemd、nginx、LiteLLM、Docker worker 细节见 [cloud-deployment.md](cloud-deployment.md)。
 
 ## 部署面
 
@@ -72,6 +72,27 @@ npm run cloud:deploy:dry-run
 
 ## Desktop 打包
 
+如果你是发布 automation 或 AI，只走这一段，不要再去拼接历史 checklist。
+
+桌面端只有两类命令：
+
+- 本地出包但不发布更新源：`npm run dist:mac` / `npm run dist:mac:intel` / `npm run dist:win`
+- 生成并发布桌面更新源：`npm run release:mac` / `npm run release:win`
+
+建议顺序：
+
+```bash
+npm run check
+npm run dist:mac
+```
+
+或 Intel：
+
+```bash
+npm run check
+npm run dist:mac:intel
+```
+
 macOS 包：
 
 ```bash
@@ -98,6 +119,26 @@ release/
 
 轻量包不会打包 Claude Code、Codex CLI，也不打包 Hermes runtime。
 
+`dist:mac` 和 `dist:mac:intel` 现在内置了 packaged-Core gate：打包后会自动运行 `scripts/verify-packaged-mia-core.js`，直接用产物里的 `mia-node` 启动 `app.asar.unpacked/src/core/mia-core.js`，并等待 `/health` 成功响应。这个 gate 的目的不是“看文件在不在”，而是阻断这类真实故障：
+
+- `package.json` 有依赖，但忘了放进 `asarUnpack`
+- Core 在 plain node 下启动即崩
+- 前台 `Mia.app` 能打开，但 `127.0.0.1:27861` 永远起不来
+
+需要单独重跑这个 gate 时，用：
+
+```bash
+npm run desktop:package:verify
+npm run desktop:package:verify -- --arch arm64
+npm run desktop:package:verify -- --arch x64
+```
+
+也可以显式指定产物：
+
+```bash
+npm run desktop:package:verify -- --app /path/to/Mia.app
+```
+
 桌面包验证至少包括：
 
 - 安装或打开产物。
@@ -106,7 +147,7 @@ release/
 - 用户自行安装的官方 Hermes（在 PATH 上）能被探测并复用；"安装官方 Hermes" 按钮能从 PyPI（国内走清华镜像、回退官方）装上并被检测到。
 - 登录 Cloud 后，桌面 Bridge 在 Web 端显示在线。
 
-如果正在运行 Mia，打包、覆盖、签名或删除 release 文件可能失败。先退出 app，再重新构建。
+如果正在运行 Mia，打包、覆盖、签名或删除 release 文件可能失败。先退出 app，再重新构建。`desktop:package:verify` 只验证后台 Core 能不能从产物里起来，不替代安装后的人机 smoke。
 
 ### macOS DMG 安装窗口样式
 
