@@ -15,7 +15,8 @@ const {
   createCloudClaudeCodeSandboxManager
 } = require("../src/cloud-agent/claude-code-sandbox-manager.js");
 const {
-  createCloudClaudeCodeClient
+  createCloudClaudeCodeClient,
+  normalizeClaudePermissionMode
 } = require("../src/cloud-agent/claude-code-sandbox-client.js");
 
 function tempDir(prefix) {
@@ -100,6 +101,16 @@ test("baseClaudeCodeEnv points Claude Code at DeepSeek Anthropic-compatible endp
   assert.equal(env.env.MIA_CLOUD_AGENT_PYTHON_VENV, DEFAULT_AGENT_PYTHON_VENV);
   assert.equal(env.env.PIP_INDEX_URL, DEFAULT_PIP_INDEX_URL);
   assert.equal(env.env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, "1");
+});
+
+test("cloud Claude Code permission normalization does not escalate stale read-only values", () => {
+  assert.equal(normalizeClaudePermissionMode(""), "bypassPermissions");
+  assert.equal(normalizeClaudePermissionMode("ask"), "default");
+  assert.equal(normalizeClaudePermissionMode("auto"), "auto");
+  assert.equal(normalizeClaudePermissionMode("bypassPermissions"), "bypassPermissions");
+  assert.equal(normalizeClaudePermissionMode("readOnly"), "plan");
+  assert.equal(normalizeClaudePermissionMode("deny"), "plan");
+  assert.equal(normalizeClaudePermissionMode("unknown-mode"), "default");
 });
 
 test("cloud Claude Code client runs SDK query without Hermes gateway and streams Mia events once", async () => {

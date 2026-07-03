@@ -34,7 +34,8 @@ function normalizeClaudePermissionMode(value) {
   if ([":danger-full-access", "danger-full-access", "yolo", "off", "never"].includes(id)) return "bypassPermissions";
   if (["default", "acceptEdits", "auto", "bypassPermissions", "plan", "dontAsk"].includes(id)) return id;
   if (id === "ask") return "default";
-  return "bypassPermissions";
+  if (["deny", "read", "readOnly", "read-only"].includes(id)) return "plan";
+  return "default";
 }
 
 function randomRunId() {

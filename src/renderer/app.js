@@ -4466,9 +4466,11 @@ function platformHermesModelEntries() {
 
 function platformHermesPermissionEntries() {
   return [
-    { value: "ask", label: "Ask" },
-    { value: "auto", label: "Auto" },
-    { value: "readOnly", label: "Read" }
+    {
+      value: "bypassPermissions",
+      label: "Sandbox",
+      title: "Mia Cloud runs Claude Code with tool permissions allowed inside the server sandbox."
+    }
   ];
 }
 

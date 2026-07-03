@@ -2184,6 +2184,16 @@ test("desktop Hermes conversation model picker uses platform model catalog", () 
   assert.match(socialApiSource, /\/api\/me\/model-catalog/);
 });
 
+test("desktop cloud Claude permission picker exposes only sandbox mode", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const body = extractFunctionSource(appSource, "platformHermesPermissionEntries");
+
+  assert.match(body, /value:\s*"bypassPermissions"/);
+  assert.match(body, /label:\s*"Sandbox"/);
+  assert.doesNotMatch(body, /value:\s*"ask"/);
+  assert.doesNotMatch(body, /value:\s*"readOnly"/);
+});
+
 test("desktop avatar picker supports video avatars with one trim row", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
