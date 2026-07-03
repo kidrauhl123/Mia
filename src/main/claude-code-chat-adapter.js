@@ -48,6 +48,18 @@ function claudeMessageText(message) {
   return firstTextValue(nested.content || nested.text || nested.delta);
 }
 
+function claudeAssistantStopReason(message) {
+  if (!message || typeof message !== "object") return "";
+  const nested = message.message || message.data || {};
+  return String(nested.stop_reason || nested.stopReason || message.stop_reason || message.stopReason || "")
+    .trim()
+    .toLowerCase();
+}
+
+function shouldPersistClaudeAssistantText(message) {
+  return claudeAssistantStopReason(message) !== "tool_use";
+}
+
 function normalizeClaudePermissionMode(value) {
   const id = String(value || "default").trim();
   if ([":danger-full-access", "danger-full-access", "yolo", "off", "never"].includes(id)) return "bypassPermissions";
@@ -529,7 +541,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
           const beta = message.message;
           const contentBlocks = Array.isArray(beta?.content) ? beta.content : [];
           const text = claudeMessageText(message);
-          if (text) chunks.push(text);
+          if (text && shouldPersistClaudeAssistantText(message)) chunks.push(text);
           if (!emit) continue;
           activeTextId = null;
           if (!runOptions.includePartialMessages && text) {
@@ -654,7 +666,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       if (signal?.aborted) break;
       if (message?.type === "assistant") {
         const text = claudeMessageText(message);
-        if (text) chunks.push(text);
+        if (text && shouldPersistClaudeAssistantText(message)) chunks.push(text);
       }
     }
     if (signal?.aborted) throw stoppedError();
@@ -666,6 +678,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
 
 module.exports = {
   claudeMessageText,
+  claudeAssistantStopReason,
   closeManagedClaudeProxySessions,
   createClaudeCodeProcessSpawner,
   createClaudeCodeChatAdapter,

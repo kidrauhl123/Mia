@@ -117,6 +117,71 @@ test("sendChat streams partials, stores session, and returns chat response", asy
   assert.equal(emitted.at(-1).kind, "complete");
 });
 
+test("sendChat excludes tool-use assistant stubs from the final response", async () => {
+  const deps = createDeps([
+    {
+      type: "assistant",
+      message: {
+        content: [{ type: "text", text: "让我看看 Mia 的实际工作方式。" }],
+        stop_reason: "tool_use"
+      }
+    },
+    {
+      type: "assistant",
+      message: {
+        content: [{ type: "text", text: "是的，但不全是。" }],
+        stop_reason: "end_turn"
+      }
+    }
+  ], { expandedPrompt: "expanded" });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  const response = await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    abortController: { abort() {} },
+    emit: () => {},
+    utility: false
+  });
+
+  assert.equal(response.choices[0].message.content, "是的，但不全是。");
+});
+
+test("sendChat does not replay a full assistant snapshot after streamed text deltas", async () => {
+  const deps = createDeps([
+    { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text" } } },
+    { type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "he" } } },
+    { type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "llo" } } },
+    {
+      type: "assistant",
+      message: {
+        content: [{ type: "text", text: "hello" }],
+        stop_reason: "end_turn"
+      }
+    }
+  ], { expandedPrompt: "expanded" });
+  const adapter = createClaudeCodeChatAdapter(deps);
+  const emitted = [];
+
+  const response = await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: {} },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    abortController: { abort() {} },
+    emit: (kind, data) => emitted.push({ kind, data }),
+    utility: false
+  });
+
+  assert.equal(response.choices[0].message.content, "hello");
+  assert.deepEqual(
+    emitted.filter((event) => event.kind === "text_delta").map((event) => event.data.text),
+    ["he", "llo"]
+  );
+});
+
 test("sendChat includes provided skill materialization in the Claude prompt", async () => {
   const deps = createDeps([
     { type: "assistant", message: { content: [{ type: "text", text: "ok" }] } }

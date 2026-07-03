@@ -30,6 +30,28 @@ test("real market listing does not expose the duplicate Anthropic xlsx skill", (
   assert.equal(list.some((skill) => skill.id === "xlsx"), false);
 });
 
+test("real market listing includes the LobsterAI content and search skills", () => {
+  const list = loadLocalSkillMarket();
+  const byId = new Map(list.map((skill) => [skill.id, skill]));
+  const expected = [
+    ["content-planner", "内容选题规划"],
+    ["article-writer", "多风格文章写作"],
+    ["daily-trending", "今日热榜"],
+    ["web-search", "网页搜索"],
+    ["weather", "天气查询"],
+    ["films-search", "影视资源搜索"],
+    ["music-search", "音乐资源搜索"]
+  ];
+
+  for (const [id, nameZh] of expected) {
+    const skill = byId.get(id);
+    assert.ok(skill, `${id} should be in the local skill market`);
+    assert.equal(skill.name_zh, nameZh);
+    assert.equal(skill.sourceLabel, "LobsterAI");
+    assert.ok(skill.summary_zh.length >= 20, `${id} should have a useful Chinese summary`);
+  }
+});
+
 test("real market listing keeps a broad curated catalog with quality-gated bodies", () => {
   const list = loadLocalSkillMarket();
   assert.ok(list.length >= 20, "market should stay broad, not shrink to a tiny shelf");
