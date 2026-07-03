@@ -846,7 +846,8 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
   }
 
   async function postManagedFailure(entry, { stage = "engine", error } = {}) {
-    if (!entry || entry.finalized) return false;
+    if (!entry || entry.finalized || entry.finalizing) return false;
+    entry.finalizing = true;
     const message = String(error?.message || error || "unknown error");
     emitRunEvent(entry, { type: "run.failed", error: message });
     const didPost = await postFailureMessage({
@@ -859,6 +860,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     });
     if (didPost) remember(entry.dedupKey);
     entry.finalized = true;
+    entry.finalizing = false;
     forgetManagedSession(entry);
     return didPost;
   }
@@ -1109,7 +1111,18 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         if (runtime?.env && typeof runtime.env === "object" && !Array.isArray(runtime.env)) {
           managedInput.env = { ...runtime.env };
         }
+        const pendingEntry = rememberManagedSession(managedInput, {
+          mode: "pending",
+          turnId,
+          runId: runIdForDedupKey(dedupKey),
+          dedupKey,
+          triggerMessageId: resolvedTriggerMessageId,
+          botId
+        });
         const accepted = await agentSessionManager.sendUserInput(managedInput);
+        if (pendingEntry?.finalized || pendingEntry?.finalizing) {
+          return true;
+        }
         if (accepted?.ok) {
           remember(dedupKey);
           const managedEntry = rememberManagedSession(managedInput, {
@@ -1123,6 +1136,8 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
           if (managedEntry && accepted.mode !== "queued") {
             emitManagedRunStarted(managedEntry);
           }
+        } else {
+          forgetManagedSession(pendingEntry);
         }
         return Boolean(accepted?.ok);
       } finally {

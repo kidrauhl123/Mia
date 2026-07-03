@@ -137,6 +137,14 @@ function convertAnthropicToolChoice(choice) {
   return undefined;
 }
 
+function anthropicThinkingEnabled(body = {}) {
+  const thinking = body?.thinking;
+  if (!thinking || typeof thinking !== "object") return false;
+  const type = String(thinking.type || "").trim().toLowerCase();
+  if (type === "disabled") return false;
+  return type === "enabled" || Number(thinking.budget_tokens || thinking.budgetTokens || 0) > 0;
+}
+
 function addSystemMessages(messages, system) {
   if (!system) return;
   if (typeof system === "string") {
@@ -229,7 +237,11 @@ function anthropicToOpenAiChatBody(body = {}, session = {}) {
   const tools = convertAnthropicTools(body.tools);
   if (tools) out.tools = tools;
   const toolChoice = convertAnthropicToolChoice(body.tool_choice);
-  if (toolChoice !== undefined) out.tool_choice = toolChoice;
+  if (toolChoice !== undefined) {
+    out.tool_choice = anthropicThinkingEnabled(body) && toolChoice !== "none"
+      ? "auto"
+      : toolChoice;
+  }
   if (body.stream === true) {
     out.stream_options = { ...(body.stream_options || {}), include_usage: true };
   }

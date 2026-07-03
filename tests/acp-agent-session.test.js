@@ -570,6 +570,30 @@ test("prompt errors emit message-failed with engine and session metadata", async
   }]);
 });
 
+test("startup errors emit message-failed with engine and session metadata", async () => {
+  const failure = new Error("acp failed to start");
+  const { session } = createSession({
+    createTransport: async () => {
+      throw failure;
+    }
+  });
+  const events = collectEvents(session);
+
+  await assert.rejects(
+    session.sendUserInput({ turnId: "turn-start", text: "hello" }),
+    /acp failed to start/
+  );
+
+  assert.deepEqual(events.at(-1), ["message-failed", {
+    engineId: "codex",
+    conversationId: "conversation-1",
+    sessionKey: "conversation-1::codex::/repo",
+    workspacePath: "/repo",
+    turnId: "turn-start",
+    error: failure
+  }]);
+});
+
 test("normalizeAcpSessionUpdate maps ACP updates into AgentSession event kinds", () => {
   const toolTitles = new Map([["tool-1", "Shell"]]);
 

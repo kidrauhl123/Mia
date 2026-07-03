@@ -954,6 +954,63 @@ test("managed AgentSession failures post a visible bot error", async () => {
   });
 });
 
+test("managed AgentSession startup failures emitted before acceptance are not lost", async () => {
+  const manager = new EventEmitter();
+  const calls = { manager: [], post: [], log: [], cloudEvents: [] };
+  manager.sendUserInput = async (input) => {
+    calls.manager.push(input);
+    manager.emit("message-failed", {
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId,
+      error: new Error("ACP bridge failed: connect ECONNREFUSED 127.0.0.1:18789")
+    });
+    return {
+      ok: true,
+      mode: "started",
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId
+    };
+  };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: manager,
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_start_failed:codex",
+    turnId: "t_start_failed",
+    runtimeConfig: { agentEngine: "codex" }
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.post.length, 1);
+  assert.equal(calls.post[0].conversationId, "g_1");
+  assert.equal(calls.post[0].body.botId, "codex");
+  assert.equal(calls.post[0].body.turnId, "t_start_failed");
+  assert.equal(calls.post[0].body.clientOpId, "op_bot_reply_error_m_start_failed_codex");
+  assert.match(calls.post[0].body.bodyMd, /^我这次没能生成回复：本地引擎连接失败。/);
+  assert.equal(
+    calls.cloudEvents.filter((event) => event.type === "cloud_agent_run_started").length,
+    0
+  );
+  assert.deepEqual(calls.cloudEvents.at(-1).event, {
+    type: "run.failed",
+    error: "ACP bridge failed: connect ECONNREFUSED 127.0.0.1:18789"
+  });
+});
+
 test("managed AgentSession queued turns keep separate reply metadata", async () => {
   const manager = new EventEmitter();
   const calls = { manager: [], post: [], log: [], cloudEvents: [] };

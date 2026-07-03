@@ -187,9 +187,17 @@ class AcpAgentSession extends EventEmitter {
       throw new Error("initializationMetadata must be provided as session metadata when creating the ACP session.");
     }
 
-    await this.start();
-
     const turnId = typeof nativeTurn.turnId === "string" ? nativeTurn.turnId.trim() : "";
+    try {
+      await this.start();
+    } catch (error) {
+      this.emit("message-failed", buildBaseEvent(this, {
+        ...(turnId ? { turnId } : {}),
+        error
+      }));
+      throw error;
+    }
+
     const text = typeof nativeTurn.text === "string" ? nativeTurn.text : "";
     const attachments = Array.isArray(nativeTurn.attachments) ? nativeTurn.attachments.slice() : [];
     const fileReferences = Array.isArray(nativeTurn.fileReferences) ? nativeTurn.fileReferences.slice() : [];
