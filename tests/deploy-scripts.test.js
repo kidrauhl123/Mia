@@ -48,6 +48,11 @@ test("server-local installer restores data backups during rollback", () => {
   assert.match(source, /require_command chown/);
   assert.match(source, /if is_legacy_hermes_agent; then[\s\S]*?require_command docker[\s\S]*?fi/);
   assert.match(source, /require_command nginx/);
+  assert.match(source, /ensure_claude_code_sandbox_deps\(\) \{/);
+  assert.match(source, /packages\+=\(bubblewrap\)/);
+  assert.match(source, /packages\+=\(socat\)/);
+  assert.match(source, /if command -v apt-get[\s\S]*?elif command -v dnf[\s\S]*?elif command -v yum/);
+  assert.match(source, /ensure_claude_code_sandbox_deps/);
   assert.match(source, /if is_legacy_hermes_agent && \[ -f "\$INSTALL_TMP\/hermes-image\/Dockerfile" \]; then/);
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODE=\$AGENT_MODE/);
   assert.match(source, /Environment=MIA_CLOUD_CLAUDE_CODE_BASE_URL=\$CLAUDE_CODE_BASE_URL/);
@@ -113,6 +118,11 @@ test("ssh deploy script restores data backups during install and public verifica
   assert.match(source, /ensure_service_user\(\) \{[\s\S]*?useradd_cmd=.*useradd[\s\S]*?--system --user-group --home-dir "\$DATA_DIR" --shell "\\\$login_shell" "\\\$SERVICE_USER"/);
   assert.match(source, /is_legacy_hermes_agent\(\) \{[\s\S]*?docker\|static\|hermes\|hermes-\*\|hermes:\*/);
   assert.match(source, /ensure_docker_access\(\) \{[\s\S]*?grep -q '\^docker:' \/etc\/group[\s\S]*?usermod_cmd=.*usermod[\s\S]*?run_as_root "\\\$usermod_cmd" -aG docker "\\\$SERVICE_USER"/);
+  assert.match(source, /ensure_claude_code_sandbox_deps\(\) \{/);
+  assert.match(source, /packages\+=\(bubblewrap\)/);
+  assert.match(source, /packages\+=\(socat\)/);
+  assert.match(source, /if command -v apt-get[\s\S]*?elif command -v dnf[\s\S]*?elif command -v yum/);
+  assert.match(source, /ensure_claude_code_sandbox_deps[\s\S]*?run_as_root mkdir -p "\$BACKUP_DIR"/);
   assert.match(source, /AGENT_DOCKER_NETWORK="\$\{MIA_CLOUD_AGENT_DOCKER_NETWORK:-mia-cloud\}"/);
   assert.match(source, /LITELLM_CONTAINER="\$\{MIA_LITELLM_CONTAINER:-litellm\}"/);
   assert.match(source, /SKIP_HERMES_IMAGE_BUILD="\$\{MIA_DEPLOY_SKIP_HERMES_IMAGE_BUILD:-\$\{MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD:-\$\{MIA_SKIP_HERMES_IMAGE_BUILD:-\}\}\}"/);

@@ -88,6 +88,57 @@ is_legacy_hermes_agent() {
   esac
 }
 
+truthy_value() {
+  case "$(printf "%s" "$1" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+needs_claude_code_sandbox_deps() {
+  case "$AGENT_MODE" in
+    claude|claude-code|cloud-claude-code) ;;
+    *) return 1 ;;
+  esac
+  truthy_value "$CLAUDE_CODE_SANDBOX" && truthy_value "$CLAUDE_CODE_SANDBOX_REQUIRED"
+}
+
+install_system_packages() {
+  if [ "$#" -eq 0 ]; then
+    return
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    run_as_root apt-get update
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+  elif command -v dnf >/dev/null 2>&1; then
+    run_as_root dnf install -y "$@"
+  elif command -v yum >/dev/null 2>&1; then
+    run_as_root yum install -y "$@"
+  else
+    echo "Missing package manager; install required packages manually: $*" >&2
+    exit 1
+  fi
+}
+
+ensure_claude_code_sandbox_deps() {
+  if ! needs_claude_code_sandbox_deps; then
+    return
+  fi
+  packages=()
+  if ! command -v bwrap >/dev/null 2>&1; then
+    packages+=(bubblewrap)
+  fi
+  if ! command -v socat >/dev/null 2>&1; then
+    packages+=(socat)
+  fi
+  if [ "${#packages[@]}" -gt 0 ]; then
+    echo "Installing Claude Code sandbox dependencies: ${packages[*]}"
+    install_system_packages "${packages[@]}"
+  fi
+  require_command bwrap
+  require_command socat
+}
+
 require_command() {
   command -v "$1" >/dev/null || {
     echo "Missing required command: $1" >&2
@@ -463,6 +514,7 @@ if is_legacy_hermes_agent; then
   require_command docker
 fi
 require_command nginx
+ensure_claude_code_sandbox_deps
 
 install_done=0
 trap rollback_install ERR

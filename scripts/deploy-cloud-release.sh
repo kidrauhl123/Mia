@@ -235,6 +235,57 @@ is_legacy_hermes_agent() {
   esac
 }
 
+truthy_value() {
+  case "\$(printf "%s" "\$1" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+needs_claude_code_sandbox_deps() {
+  case "\$AGENT_MODE" in
+    claude|claude-code|cloud-claude-code) ;;
+    *) return 1 ;;
+  esac
+  truthy_value "\$CLAUDE_CODE_SANDBOX" && truthy_value "\$CLAUDE_CODE_SANDBOX_REQUIRED"
+}
+
+install_system_packages() {
+  if [ "\$#" -eq 0 ]; then
+    return
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    run_as_root apt-get update
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "\$@"
+  elif command -v dnf >/dev/null 2>&1; then
+    run_as_root dnf install -y "\$@"
+  elif command -v yum >/dev/null 2>&1; then
+    run_as_root yum install -y "\$@"
+  else
+    echo "Missing package manager; install required packages manually: \$*" >&2
+    exit 1
+  fi
+}
+
+ensure_claude_code_sandbox_deps() {
+  if ! needs_claude_code_sandbox_deps; then
+    return
+  fi
+  packages=()
+  if ! command -v bwrap >/dev/null 2>&1; then
+    packages+=(bubblewrap)
+  fi
+  if ! command -v socat >/dev/null 2>&1; then
+    packages+=(socat)
+  fi
+  if [ "\${#packages[@]}" -gt 0 ]; then
+    echo "Installing Claude Code sandbox dependencies: \${packages[*]}"
+    install_system_packages "\${packages[@]}"
+  fi
+  command -v bwrap >/dev/null || { echo "Missing required command: bwrap" >&2; exit 1; }
+  command -v socat >/dev/null || { echo "Missing required command: socat" >&2; exit 1; }
+}
+
 restore_web_backup() {
   backup="\$1"
   tmp="\$(mktemp -d "\${TMPDIR:-/tmp}/mia-web-rollback.XXXXXX")"
@@ -458,6 +509,7 @@ fi
 echo "Release archive checksum OK: \$actual_sha"
 tar -xzf "$REMOTE_TMP" -C "$REMOTE_RELEASE_DIR" --strip-components=1
 
+ensure_claude_code_sandbox_deps
 run_as_root mkdir -p "$BACKUP_DIR"
 ensure_service_user
 if is_legacy_hermes_agent; then

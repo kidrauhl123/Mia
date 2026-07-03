@@ -25,6 +25,7 @@ Cloud 生产服务器：
 
 - Node.js 25+，因为 Cloud SQLite 路径依赖 `node:sqlite`。
 - `npm`、`rsync`、`systemctl`、`tar`、`docker`。
+- Claude Code sandbox 依赖 `bubblewrap`（提供 `bwrap`）和 `socat`；部署脚本会在 `MIA_CLOUD_CLAUDE_CODE_SANDBOX_REQUIRED=1` 时通过 `apt-get`、`dnf` 或 `yum` 自动补齐。
 - nginx 和有效 TLS 证书。
 - 非 root 的 `mia-cloud` 服务用户。
 - Mia 内部模型代理 secret，用于 Cloud Hermes worker 的付费平台模型网关；DeepSeek API Key 通过 `/admin/model` 保存，`MIA_DEEPSEEK_API_KEY` 仅作可选兜底；LiteLLM 仅在多供应商网关模式下可选。
