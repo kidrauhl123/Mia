@@ -631,7 +631,7 @@
 
 .message-attachment.file-card strong {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   color: inherit;
 }
 
@@ -837,6 +837,70 @@
   text-decoration: underline;
   text-decoration-color: var(--accent);
   text-decoration-thickness: 1px;
+}
+
+.bubble a.message-link .message-link-site-icon {
+  display: inline-grid;
+  grid-template-areas: "icon";
+  width: 0.98em;
+  height: 0.98em;
+  margin-right: 0.34em;
+  vertical-align: -0.12em;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+.bubble a.message-link .message-link-site-icon-image {
+  grid-area: icon;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.bubble a.message-link .message-link-site-icon-fallback {
+  position: relative;
+  grid-area: icon;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(15, 23, 42, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+  color: var(--text);
+}
+
+.bubble a.message-link .message-link-site-icon-fallback::before,
+.bubble a.message-link .message-link-site-icon-fallback::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+
+.bubble a.message-link .message-link-site-icon-fallback::before {
+  width: 62%;
+  height: 62%;
+  border: 1.2px solid currentColor;
+  border-radius: 999px;
+  opacity: 0.45;
+}
+
+.bubble a.message-link .message-link-site-icon-fallback::after {
+  width: 32%;
+  height: 62%;
+  border-left: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+  border-radius: 999px;
+  opacity: 0.32;
+}
+
+.bubble a.message-link .message-link-label {
+  vertical-align: baseline;
+  word-break: break-word;
 }
 
 .bubble code.inline-code {

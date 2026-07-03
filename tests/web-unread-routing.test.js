@@ -974,6 +974,10 @@ test("src/web/styles.css carries desktop-style rich bubble formatting", () => {
   assert.match(css, /\.bubble\.text-hit\s*\{[\s\S]*?cursor:\s*text;/);
   assert.doesNotMatch(css, /cursor:\s*var\(--message-text-cursor\)/);
   assert.match(css, /\.bubble a\.message-link\s*\{[\s\S]*?color:\s*var\(--accent\);[\s\S]*?text-decoration:\s*none;[\s\S]*?text-decoration-color:\s*var\(--accent\);[\s\S]*?text-decoration-thickness:\s*1px;[\s\S]*?cursor:\s*pointer;/);
+  assert.match(css, /\.bubble a\.message-link \.message-link-site-icon\s*\{/);
+  assert.match(css, /\.bubble a\.message-link \.message-link-site-icon-image\s*\{/);
+  assert.match(css, /\.bubble a\.message-link \.message-link-site-icon-fallback\s*\{/);
+  assert.match(css, /\.bubble a\.message-link \.message-link-label\s*\{/);
   assert.match(css, /\.bubble a\.message-link:hover\s*\{[\s\S]*?text-decoration:\s*underline;[\s\S]*?text-decoration-color:\s*var\(--accent\);[\s\S]*?text-decoration-thickness:\s*1px;/);
   assert.doesNotMatch(css, /\.message\.user \.bubble a\.message-link\s*\{/);
   assert.match(css, /\.bubble code\.inline-code\s*\{[\s\S]*?cursor:\s*default;/);
