@@ -20,4 +20,5 @@ test("main process delegates window and tasks IPC registration to modules", () =
   assert.match(tasksIpc, /function registerTasksIpc/);
   assert.match(utilIpc, /function registerUtilIpc/);
   assert.match(utilIpc, /IpcChannel\.UtilOpenLocalFile/);
+  assert.match(utilIpc, /IpcChannel\.UtilRevealLocalFile/);
 });

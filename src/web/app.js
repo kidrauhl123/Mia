@@ -791,7 +791,8 @@ function flashCopiedCode(code) {
 function attachmentGlyph(attachment = {}) {
   const mime = String(attachment.mimeType || attachment.mime || attachment.type || "").toLowerCase();
   const ext = attachmentExtension(attachment);
-  const kind = attachment.kind || attachmentKind(attachment);
+  const kindHint = String(attachment.kind || "").toLowerCase();
+  const kind = kindHint && kindHint !== "file" ? kindHint : attachmentKind(attachment);
   if (kind === "image") return "IMG";
   if (kind === "video") return "VID";
   if (kind === "audio") return "AUD";
@@ -809,19 +810,70 @@ function attachmentGlyph(attachment = {}) {
   return "FILE";
 }
 
+function attachmentVisualType(attachment = {}) {
+  const mime = String(attachment.mimeType || attachment.mime || attachment.type || "").toLowerCase();
+  const ext = attachmentExtension(attachment);
+  const kindHint = String(attachment.kind || "").toLowerCase();
+  const kind = kindHint && kindHint !== "file" ? kindHint : attachmentKind(attachment);
+  if (kind === "image") return "image";
+  if (kind === "video") return "video";
+  if (kind === "audio") return "audio";
+  if (kind === "pdf" || mime.includes("pdf") || ext === "pdf") return "pdf";
+  if (mime.includes("spreadsheet") || mime === "application/vnd.ms-excel" || ["xls", "xlsx", "xlsm", "csv", "tsv"].includes(ext)) return "xls";
+  if (mime.includes("wordprocessingml") || mime === "application/msword" || ["doc", "docx", "rtf"].includes(ext)) return "doc";
+  if (mime.includes("presentationml") || mime === "application/vnd.ms-powerpoint" || ["ppt", "pptx", "key"].includes(ext)) return "ppt";
+  if (mime.includes("zip") || ["zip", "rar", "7z", "tar", "gz"].includes(ext)) return "zip";
+  if (mime.includes("json") || ext === "json") return "json";
+  if (["md", "markdown"].includes(ext)) return "md";
+  if (["html", "css", "js", "jsx", "ts", "tsx", "py", "java", "c", "cc", "cpp", "go", "rs", "rb", "php", "swift", "kt", "sh"].includes(ext)) return "code";
+  if (kind === "text") return "txt";
+  return "file";
+}
+
+function attachmentIconName(attachment = {}) {
+  const visualType = attachmentVisualType(attachment);
+  if (visualType === "doc") return "doc";
+  if (visualType === "xls") return "xls";
+  if (visualType === "ppt") return "ppt";
+  if (visualType === "pdf") return "pdf";
+  if (visualType === "zip") return "zip";
+  if (visualType === "json") return "json";
+  if (visualType === "code") return "code";
+  if (visualType === "txt" || visualType === "md") return "txt";
+  return "file";
+}
+
 function attachmentThumb(attachment = {}, className = "message-attachment-thumb") {
   const src = String(attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || "").trim();
   if (!src || !src.startsWith("data:image/")) return `<span>${escapeHtml(attachmentGlyph(attachment))}</span>`;
   return `<img class="${escapeHtml(className)}" src="${escapeHtml(src)}" alt="">`;
 }
 
+function renderAttachmentFileIcon(attachment = {}, assetRoot = "assets/file-type-icons") {
+  return `
+    <span class="message-attachment-icon" aria-hidden="true">
+      <img class="message-attachment-icon-image" src="${escapeHtml(assetRoot)}/${escapeHtml(attachmentIconName(attachment))}.png" alt="">
+    </span>
+  `;
+}
+
+function renderStandaloneAttachmentBlock(attachmentHtml = "", attrs = "") {
+  if (!attachmentHtml) return "";
+  const extraAttrs = String(attrs || "").trim();
+  return attachmentHtml.replace(
+    '<div class="message-attachments"',
+    `<div class="message-attachments standalone"${extraAttrs ? ` ${extraAttrs}` : ""}`
+  );
+}
+
 function renderAttachmentChip(attachment = {}) {
-  const image = (attachment.kind || attachmentKind(attachment)) === "image"
+  const image = attachmentVisualType(attachment) === "image"
     && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
   const href = String(attachment.url || attachment.dataUrl || "").trim();
   const safeHref = /^(\/api\/files\/[A-Za-z0-9_-]+|data:[^"'<>]+)$/i.test(href) ? href : "";
   const tag = safeHref ? "a" : "span";
   const download = safeHref ? ` href="${escapeHtml(safeHref)}" download="${escapeHtml(attachment.name || "attachment")}"` : "";
+  const detail = formatBytes(attachment.size) || attachmentGlyph(attachment);
   if (image) {
     return `
       <${tag} class="message-attachment image"${download} title="${escapeHtml(attachment.name || "")}" aria-label="预览图片">
@@ -830,10 +882,12 @@ function renderAttachmentChip(attachment = {}) {
     `;
   }
   return `
-    <${tag} class="message-attachment"${download} title="${escapeHtml(attachment.path || attachment.name || "")}">
-      ${attachmentThumb(attachment)}
-      <strong>${escapeHtml(attachment.name || "附件")}</strong>
-      <em>${escapeHtml(formatBytes(attachment.size))}</em>
+    <${tag} class="message-attachment file-card type-${escapeHtml(attachmentVisualType(attachment))}"${download} title="${escapeHtml(attachment.path || attachment.name || "")}">
+      ${renderAttachmentFileIcon(attachment)}
+      <span class="message-attachment-meta">
+        <strong>${escapeHtml(attachment.name || "附件")}</strong>
+        <em>${escapeHtml(detail)}</em>
+      </span>
     </${tag}>
   `;
 }
@@ -2898,6 +2952,9 @@ function buildConversationMessageArticle(msg, conversation) {
     : "";
   const bodyHtml = spec.bodyMd ? `<div class="bubble">${senderTitleHtml}${highlightedBody}</div>` : "";
   const attachmentHtml = renderAttachmentChips(spec.attachments || msg.attachments || []);
+  const attachmentBlockHtml = !spec.bodyMd && !orderedBlocksHtml
+    ? renderStandaloneAttachmentBlock(attachmentHtml)
+    : attachmentHtml;
   const trace = !isOwn ? (orderedBlocksHtml ? "" : parseTraceJson(msg.trace_json || msg.trace)) : null;
   const traceHtml = trace
     ? window.miaTraceBlocks.renderTraceBlocks({
@@ -2914,7 +2971,7 @@ function buildConversationMessageArticle(msg, conversation) {
       <div class="message-stack">
         ${traceHtml}
         ${orderedBlocksHtml || bodyHtml}
-        ${attachmentHtml}
+        ${attachmentBlockHtml}
         <span class="message-time">${escapeHtml(formatMessageTime(spec.createdAt))}</span>
       </div>
     </article>

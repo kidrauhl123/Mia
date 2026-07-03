@@ -35,7 +35,8 @@
   function attachmentGlyph(attachment = {}) {
     const mime = String(attachment.mimeType || attachment.mime || attachment.type || "").toLowerCase();
     const ext = attachmentExtension(attachment);
-    const kind = attachment.kind || attachmentKind(attachment);
+    const kindHint = String(attachment.kind || "").toLowerCase();
+    const kind = kindHint && kindHint !== "file" ? kindHint : attachmentKind(attachment);
     if (kind === "image") return "IMG";
     if (kind === "video") return "VID";
     if (kind === "audio") return "AUD";
@@ -53,9 +54,44 @@
     return "FILE";
   }
 
+  function attachmentVisualType(attachment = {}) {
+    const mime = String(attachment.mimeType || attachment.mime || attachment.type || "").toLowerCase();
+    const ext = attachmentExtension(attachment);
+    const kindHint = String(attachment.kind || "").toLowerCase();
+    const kind = kindHint && kindHint !== "file" ? kindHint : attachmentKind(attachment);
+    if (kind === "image") return "image";
+    if (kind === "video") return "video";
+    if (kind === "audio") return "audio";
+    if (kind === "pdf" || mime.includes("pdf") || ext === "pdf") return "pdf";
+    if (mime.includes("spreadsheet") || mime === "application/vnd.ms-excel" || ["xls", "xlsx", "xlsm", "csv", "tsv"].includes(ext)) return "xls";
+    if (mime.includes("wordprocessingml") || mime === "application/msword" || ["doc", "docx", "rtf"].includes(ext)) return "doc";
+    if (mime.includes("presentationml") || mime === "application/vnd.ms-powerpoint" || ["ppt", "pptx", "key"].includes(ext)) return "ppt";
+    if (mime.includes("zip") || ["zip", "rar", "7z", "tar", "gz"].includes(ext)) return "zip";
+    if (mime.includes("json") || ext === "json") return "json";
+    if (["md", "markdown"].includes(ext)) return "md";
+    if (["html", "css", "js", "jsx", "ts", "tsx", "py", "java", "c", "cc", "cpp", "go", "rs", "rb", "php", "swift", "kt", "sh"].includes(ext)) return "code";
+    if (kind === "text") return "txt";
+    return "file";
+  }
+
+  function attachmentIconName(attachment = {}) {
+    const visualType = attachmentVisualType(attachment);
+    if (visualType === "doc") return "doc";
+    if (visualType === "xls") return "xls";
+    if (visualType === "ppt") return "ppt";
+    if (visualType === "pdf") return "pdf";
+    if (visualType === "zip") return "zip";
+    if (visualType === "json") return "json";
+    if (visualType === "code") return "code";
+    if (visualType === "txt" || visualType === "md") return "txt";
+    return "file";
+  }
+
   window.miaFormat = {
     formatBytes,
     attachmentKind,
     attachmentGlyph,
+    attachmentVisualType,
+    attachmentIconName,
   };
 })();

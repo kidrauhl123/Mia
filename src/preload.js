@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld("mia", {
   },
   openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
   openLocalFile: (target) => ipcRenderer.invoke(IpcChannel.UtilOpenLocalFile, target),
+  revealLocalFile: (target) => ipcRenderer.invoke(IpcChannel.UtilRevealLocalFile, target),
   readClipboardText: () => {
     try {
       return clipboard.readText();

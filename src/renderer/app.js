@@ -7501,17 +7501,10 @@ els.chat.addEventListener("click", async (event) => {
   }
   const fileCard = event.target.closest(".message-attachment.file-card");
   if (fileCard && els.chat.contains(fileCard)) {
-    if (fileCard.dataset.localFilePath) {
+    if (attachmentLocalFilePath(fileCard) || attachmentDownloadHref(fileCard)) {
       event.preventDefault();
       event.stopPropagation();
-      await window.mia?.openLocalFile?.(fileCard.dataset.localFilePath);
-      return;
-    }
-    if (attachmentDownloadHref(fileCard)) {
-      event.preventDefault();
-      event.stopPropagation();
-      await downloadAttachmentFromElement(fileCard);
-      return;
+      if (openAttachmentContextMenu(fileCard, event.clientX, event.clientY)) return;
     }
   }
   const imageButton = event.target.closest(".message-attachment.image");

@@ -13,6 +13,8 @@ test("desktop preload can load local shared contracts", () => {
   assert.match(preloadSource, /require\("\.\/shared\/ipc-channels"\)/);
   assert.match(channelSource, /UtilOpenLocalFile:\s*"util:open-local-file"/);
   assert.match(preloadSource, /openLocalFile: \(target\) => ipcRenderer\.invoke\(IpcChannel\.UtilOpenLocalFile, target\)/);
+  assert.match(channelSource, /UtilRevealLocalFile:\s*"util:reveal-local-file"/);
+  assert.match(preloadSource, /revealLocalFile: \(target\) => ipcRenderer\.invoke\(IpcChannel\.UtilRevealLocalFile, target\)/);
   assert.match(channelSource, /MemoryList:\s*"memory:list"/);
   assert.match(channelSource, /MemoryListAll:\s*"memory:list-all"/);
   assert.match(channelSource, /MemoryDelete:\s*"memory:delete"/);

@@ -60,3 +60,22 @@ test("openLocalFile reports invalid local file targets without calling shell", a
     error: "invalid-path"
   });
 });
+
+test("revealLocalFile delegates the normalized path to Electron shell.showItemInFolder", async () => {
+  const calls = [];
+  const service = createLocalFileOpenService({
+    shellOpenPath: async () => "",
+    shellShowItemInFolder: (target) => {
+      calls.push(target);
+    }
+  });
+
+  const result = await service.revealLocalFile("/Users/jung/Library/Application%20Support/Mia/demo.txt");
+
+  assert.deepEqual(calls, ["/Users/jung/Library/Application Support/Mia/demo.txt"]);
+  assert.deepEqual(result, {
+    ok: true,
+    path: "/Users/jung/Library/Application Support/Mia/demo.txt",
+    error: ""
+  });
+});

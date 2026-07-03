@@ -23,7 +23,7 @@ function normalizeLocalFileTarget(target) {
   return path.isAbsolute(decoded) ? decoded : "";
 }
 
-function createLocalFileOpenService({ shellOpenPath }) {
+function createLocalFileOpenService({ shellOpenPath, shellShowItemInFolder = null }) {
   if (typeof shellOpenPath !== "function") {
     throw new Error("shellOpenPath dependency is required.");
   }
@@ -39,7 +39,21 @@ function createLocalFileOpenService({ shellOpenPath }) {
     };
   }
 
-  return { openLocalFile };
+  async function revealLocalFile(target) {
+    const normalized = normalizeLocalFileTarget(target);
+    if (!normalized) return { ok: false, path: "", error: "invalid-path" };
+    if (typeof shellShowItemInFolder !== "function") {
+      return { ok: false, path: normalized, error: "unsupported" };
+    }
+    shellShowItemInFolder(normalized);
+    return {
+      ok: true,
+      path: normalized,
+      error: ""
+    };
+  }
+
+  return { openLocalFile, revealLocalFile };
 }
 
 module.exports = {

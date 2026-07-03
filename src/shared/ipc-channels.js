@@ -39,6 +39,7 @@
     UpdateEvent: "update:event",
     UtilOpenExternal: "util:open-external",
     UtilOpenLocalFile: "util:open-local-file",
+    UtilRevealLocalFile: "util:reveal-local-file",
     StatusBadgeAssetLoad: "status-badge:asset-load",
     EngineInstall: "engine:install",
     EngineInstallProgress: "engine:install-progress",

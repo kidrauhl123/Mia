@@ -102,6 +102,100 @@ function createChatAttachments({
     return value.slice(0, 20).map(normalizeAttachment).filter((item) => item.name || item.path);
   }
 
+  function cloudDownloadCachePath() {
+    return path.join(runtimePaths().attachmentsDir, ".cloud-download-cache.json");
+  }
+
+  function defaultCloudDownloadCache() {
+    return {
+      version: 1,
+      files: {}
+    };
+  }
+
+  function cloudDownloadCacheKeys(urlPath) {
+    const cleanPath = String(urlPath || "").trim();
+    if (!/^\/api\/files\/[a-zA-Z0-9_-]+$/.test(cleanPath)) return [];
+    const settings = getCloudSettings?.() || {};
+    const normalizedBase = String(settings?.url || "").trim() ? normalizeCloudUrl(settings.url) : "";
+    return [...new Set([
+      normalizedBase ? `${normalizedBase}${cleanPath}` : "",
+      cleanPath
+    ].filter(Boolean))];
+  }
+
+  function readCloudDownloadCache() {
+    initializeRuntime();
+    const filePath = cloudDownloadCachePath();
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      return {
+        version: 1,
+        files: parsed?.files && typeof parsed.files === "object" ? parsed.files : {}
+      };
+    } catch {
+      return defaultCloudDownloadCache();
+    }
+  }
+
+  function writeCloudDownloadCache(store = defaultCloudDownloadCache()) {
+    const filePath = cloudDownloadCachePath();
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(store, null, 2) + "\n", { mode: 0o600 });
+  }
+
+  function rememberCloudDownload(input = {}, saved = {}) {
+    const keys = cloudDownloadCacheKeys(input.url || input.path);
+    const filePath = String(saved.path || "").trim();
+    if (!keys.length || !filePath) return;
+    const store = readCloudDownloadCache();
+    const entry = {
+      path: filePath,
+      name: sanitizeAttachmentName(saved.name || input.name || path.basename(filePath)),
+      mime: String(saved.mime || input.mime || "").trim(),
+      savedAt: now()
+    };
+    for (const key of keys) store.files[key] = entry;
+    writeCloudDownloadCache(store);
+  }
+
+  function cachedCloudAttachment(input = {}) {
+    const urlPath = String(input.url || input.path || "").trim();
+    const keys = cloudDownloadCacheKeys(urlPath);
+    if (!keys.length) return null;
+    const store = readCloudDownloadCache();
+    for (const key of keys) {
+      const entry = store.files[key];
+      const cachedPath = String(entry?.path || "").trim();
+      if (!cachedPath) continue;
+      try {
+        if (!fs.existsSync(cachedPath) || !fs.statSync(cachedPath).isFile()) {
+          delete store.files[key];
+          continue;
+        }
+        const local = readLocalFileAttachment({ path: cachedPath });
+        const name = sanitizeAttachmentName(input.name || entry.name || local.name || path.basename(cachedPath));
+        const mime = String(input.mime || entry.mime || local.mime || "").trim() || local.mime;
+        const kind = attachmentKind({ mime, name });
+        return {
+          id: String(input.id || randomUUID()),
+          name,
+          path: cachedPath,
+          url: urlPath,
+          mime,
+          size: local.size,
+          kind,
+          thumbnailDataUrl: kind === "image" ? String(local.thumbnailDataUrl || "") : "",
+          dataUrl: local.dataUrl
+        };
+      } catch {
+        delete store.files[key];
+      }
+    }
+    writeCloudDownloadCache(store);
+    return null;
+  }
+
   function attachmentSummaryLine(attachment, index) {
     const parts = [
       `${index + 1}. ${attachment.name}`,
@@ -153,14 +247,17 @@ function createChatAttachments({
     const fileName = `${now()}-${randomUUID().slice(0, 8)}-${sanitizeAttachmentName(base, "attachment")}${ext}`;
     const target = path.join(p.attachmentsDir, fileName);
     fs.writeFileSync(target, data.data, { mode: 0o600 });
-    return normalizeAttachment({
+    const saved = normalizeAttachment({
       id: randomUUID(),
       name,
       path: target,
+      url: input.url,
       mime: input.mime || data.mime,
       size: data.data.length,
       thumbnailDataUrl: input.thumbnailDataUrl || input.thumbnail || input.previewDataUrl
     });
+    rememberCloudDownload(input, saved);
+    return saved;
   }
 
   function mimeForFilePath(filePath) {
@@ -244,6 +341,8 @@ function createChatAttachments({
   async function fetchCloudFileAttachment(input = {}) {
     const urlPath = String(input.url || input.path || "").trim();
     if (!/^\/api\/files\/[a-zA-Z0-9_-]+$/.test(urlPath)) throw new Error("Cloud file URL is invalid.");
+    const cached = cachedCloudAttachment(input);
+    if (cached) return cached;
     const settings = getCloudSettings();
     if (!settings.enabled || !settings.token) throw new Error("请先登录 Mia Cloud。");
     const response = await fetchImpl(`${normalizeCloudUrl(settings.url)}${urlPath}`, {

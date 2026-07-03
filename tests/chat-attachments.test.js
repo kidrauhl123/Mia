@@ -124,6 +124,40 @@ test("fetchCloudFileAttachment uses account settings without leaking token into 
   assert.equal(file.dataUrl, `data:text/plain;base64,${Buffer.from("cloud file").toString("base64")}`);
 });
 
+test("fetchCloudFileAttachment reuses a downloaded cloud file from the local cache", async (t) => {
+  const requests = [];
+  const { attachments, dir } = setup(t, {
+    fetchImpl: async (url) => {
+      requests.push(String(url));
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => "text/plain" },
+        arrayBuffer: async () => Buffer.from("network file")
+      };
+    }
+  });
+  const dataUrl = `data:text/plain;base64,${Buffer.from("cloud file").toString("base64")}`;
+
+  const saved = attachments.saveChatAttachment({
+    name: "note.txt",
+    url: "/api/files/file_123",
+    dataUrl
+  });
+
+  const cachePath = path.join(dir, "attachments", ".cloud-download-cache.json");
+  assert.equal(fs.existsSync(cachePath), true);
+
+  const file = await attachments.fetchCloudFileAttachment({ url: "/api/files/file_123", name: "note.txt" });
+
+  assert.deepEqual(requests, []);
+  assert.equal(file.name, "note.txt");
+  assert.equal(file.path, saved.path);
+  assert.equal(file.url, "/api/files/file_123");
+  assert.equal(file.size, 10);
+  assert.equal(file.dataUrl, dataUrl);
+});
+
 test("attachmentContext tells agents to use listed local paths instead of guessing paths", (t) => {
   const { attachments, dir } = setup(t);
   const filePath = path.join(dir, "业务信息调查表.docx");

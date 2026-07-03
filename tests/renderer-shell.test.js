@@ -1531,6 +1531,14 @@ test("local assistant bubble avatars render with bot sender kind for contact car
       function generatedAttachmentsForMessage() { return []; }
       function hydrateAttachmentPreview(value) { return value; }
       function renderAttachmentChips() { return ""; }
+      function renderStandaloneAttachmentBlock(attachmentHtml = "", attrs = "") {
+        if (!attachmentHtml) return "";
+        const extraAttrs = String(attrs || "").trim();
+        return attachmentHtml.replace(
+          '<div class="message-attachments"',
+          '<div class="message-attachments standalone"' + (extraAttrs ? " " + extraAttrs : "")
+        );
+      }
       ${extractFunctionSource(appSource, "renderMessageHtml")}
       return renderMessageHtml;
     }
@@ -1543,6 +1551,127 @@ test("local assistant bubble avatars render with bot sender kind for contact car
 
   assert.match(html, /data-sender-kind="bot"/);
   assert.doesNotMatch(html, /data-sender-kind="fellow"/);
+});
+
+test("local assistant attachments render after message text while user attachments stay before", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const renderMessageHtml = eval(`(
+    function () {
+      const state = { runtime: { cloud: { user: { id: "user_me" } } }, tasks: [] };
+      const ICON_PARK_PIN_SVG = "";
+      const window = {
+        miaMarkdown: {
+          escapeHtml: (value) => String(value ?? ""),
+          renderMarkdown: (value) => String(value ?? "")
+        },
+        miaAvatarResolve: {
+          resolveAvatarForContact: (input) => ({ image: input.avatarImage || "", crop: input.avatarCrop || null, color: "#5e5ce6", text: input.displayName || input.id || "?" })
+        },
+        miaTraceBlocks: { renderTraceBlocks: () => "" },
+        miaMessageHelpers: { replyQuoteHtml: () => "" },
+        miaMessageMenu: { translationHtml: () => "" },
+        miaAvatar: {
+          avatarHtml: ({ attrs }) => '<span class="avatar message-avatar" ' + attrs + '></span>'
+        }
+      };
+      function botAvatarIdentityId(ref) { return ref; }
+      function formatRunTime() { return ""; }
+      function renderMessageTime() { return ""; }
+      function renderCommandResultHtml() { return ""; }
+      function generatedAttachmentsForMessage() { return []; }
+      function hydrateAttachmentPreview(value) { return value; }
+      function renderAttachmentChips(items = []) { return items.length ? '<div class="message-attachments">ATTACH</div>' : ""; }
+      function renderStandaloneAttachmentBlock(attachmentHtml = "", attrs = "") {
+        if (!attachmentHtml) return "";
+        const extraAttrs = String(attrs || "").trim();
+        return attachmentHtml.replace(
+          '<div class="message-attachments"',
+          '<div class="message-attachments standalone"' + (extraAttrs ? " " + extraAttrs : "")
+        );
+      }
+      ${extractFunctionSource(appSource, "renderMessageHtml")}
+      return renderMessageHtml;
+    }
+  )()`);
+
+  const assistantHtml = renderMessageHtml(
+    {
+      role: "assistant",
+      content: "assistant body",
+      attachments: [{ name: "artifact.txt" }],
+      createdAt: "now"
+    },
+    { messageIndex: 0, user: { id: "user_me", displayName: "Me" }, persona: { key: "codex", name: "Codex" } }
+  );
+  assert.ok(assistantHtml.indexOf("assistant body") < assistantHtml.indexOf("message-attachments"));
+
+  const userHtml = renderMessageHtml(
+    {
+      role: "user",
+      content: "user body",
+      attachments: [{ name: "note.txt" }],
+      createdAt: "now"
+    },
+    { messageIndex: 1, user: { id: "user_me", displayName: "Me" }, persona: { key: "codex", name: "Codex" } }
+  );
+  assert.ok(userHtml.indexOf("message-attachments") < userHtml.indexOf("user body"));
+
+  const attachmentOnlyHtml = renderMessageHtml(
+    {
+      role: "assistant",
+      content: "",
+      attachments: [{ name: "artifact.txt" }],
+      createdAt: "later"
+    },
+    { messageIndex: 2, user: { id: "user_me", displayName: "Me" }, persona: { key: "codex", name: "Codex" } }
+  );
+  assert.match(attachmentOnlyHtml, /class="message-attachments standalone" data-message-index="2"/);
+  assert.doesNotMatch(attachmentOnlyHtml, /<div class="bubble/);
+});
+
+test("desktop attachment chips render non-image files as typed attachment cards", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const chatCss = fs.readFileSync(path.join(root, "src/renderer", "styles", "chat.css"), "utf8");
+  assert.match(appSource, /function renderAttachmentFileIcon\(attachment = \{\}, assetRoot = "\.\/assets\/file-type-icons"\)/);
+  assert.match(appSource, /class="message-attachment file-card type-\$\{window\.miaMarkdown\.escapeHtml\(window\.miaFormat\.attachmentVisualType\(attachment\)\)\}"/);
+  assert.match(appSource, /data-local-file-path="\$\{window\.miaMarkdown\.escapeHtml\(attachment\.path \|\| ""\)\}"/);
+  assert.match(appSource, /data-download-href="\$\{window\.miaMarkdown\.escapeHtml\(href\)\}"/);
+  assert.match(appSource, /data-download-name="\$\{window\.miaMarkdown\.escapeHtml\(attachment\.name \|\| "attachment"\)\}"/);
+  assert.match(appSource, /class="message-attachment-icon-image"/);
+  assert.match(appSource, /src="\$\{window\.miaMarkdown\.escapeHtml\(assetRoot\)\}\/\$\{window\.miaMarkdown\.escapeHtml\(window\.miaFormat\.attachmentIconName\(attachment\)\)\}\.png"/);
+  assert.match(appSource, /class="message-attachment-meta"/);
+  assert.match(chatCss, /\.message-attachment\.file-card\s*\{[\s\S]*background:\s*rgba\(37,\s*42,\s*51,\s*0\.34\)/);
+  assert.match(chatCss, /\.message-attachment\.file-card\s*\{[\s\S]*backdrop-filter:\s*blur\(10px\)\s+saturate\(125%\)/);
+  assert.doesNotMatch(chatCss, /--message-attachment-accent:\s*#f06a35/);
+});
+
+test("desktop chat context menu can target standalone attachment carriers", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  assert.match(appSource, /closest\("\.bubble\[data-message-index\], \.message-attachments\[data-message-index\]"\)/);
+  assert.match(appSource, /const attachmentEl = event\.target\.closest\("\.message-attachment"\);/);
+  assert.match(appSource, /openAttachmentContextMenu\(attachmentEl,\s*event\.clientX,\s*event\.clientY\)/);
+  assert.match(appSource, /label:\s*"下载"/);
+  assert.match(appSource, /label:\s*"打开文件夹"/);
+  assert.match(appSource, /window\.mia\?\.revealLocalFile\?\.\(/);
+});
+
+test("desktop attachment clicks open the same menu as right click", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  assert.match(appSource, /const fileCard = event\.target\.closest\("\.message-attachment\.file-card"\);/);
+  assert.match(appSource, /if \(fileCard && els\.chat\.contains\(fileCard\)\) \{/);
+  assert.match(appSource, /openAttachmentContextMenu\(fileCard,\s*event\.clientX,\s*event\.clientY\)/);
+  assert.doesNotMatch(appSource, /if \(fileCard\.dataset\.localFilePath\) \{[\s\S]*window\.mia\?\.openLocalFile\?\.\(fileCard\.dataset\.localFilePath\)/);
+});
+
+test("desktop attachment downloads save cloud files locally before later opens", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /function attachmentCloudFileUrl\(attachmentEl\)/);
+  assert.match(appSource, /window\.mia\?\.saveAttachment\?\.\(\{/);
+  assert.match(appSource, /url:\s*attachmentCloudFileUrl\(attachmentEl\)/);
+  assert.match(appSource, /attachmentEl\.dataset\.localFilePath = saved\.path/);
+  assert.match(appSource, /state\.generatedFiles\.set\(cloudUrl,\s*\{\s*status:\s*"ready",\s*attachment:\s*\{\s*\.\.\.saved,\s*url:\s*cloudUrl\s*\}\s*\}\)/);
+  assert.match(appSource, /if \(action === "download"\) \{[\s\S]*await downloadAttachmentFromElement\(attachmentEl\);/);
 });
 
 test("composer attachment tray is inside the composer card before the input row", () => {
@@ -1596,7 +1725,15 @@ test("local assistant messages render ordered content blocks before trace fallba
       function renderCommandResultHtml() { return ""; }
       function generatedAttachmentsForMessage() { return []; }
       function hydrateAttachmentPreview(value) { return value; }
-      function renderAttachmentChips() { return ""; }
+      function renderAttachmentChips(items = []) { return items.length ? '<div class="message-attachments">ATTACH</div>' : ""; }
+      function renderStandaloneAttachmentBlock(attachmentHtml = "", attrs = "") {
+        if (!attachmentHtml) return "";
+        const extraAttrs = String(attrs || "").trim();
+        return attachmentHtml.replace(
+          '<div class="message-attachments"',
+          '<div class="message-attachments standalone"' + (extraAttrs ? " " + extraAttrs : "")
+        );
+      }
       ${extractFunctionSource(appSource, "renderMessageHtml")}
       return renderMessageHtml;
     }
@@ -1606,6 +1743,7 @@ test("local assistant messages render ordered content blocks before trace fallba
     {
       role: "assistant",
       content: "我先看目录。\n\n结论是已确认。",
+      attachments: [{ name: "artifact.txt" }],
       reasoning: "legacy",
       tools: [{ name: "legacy-tool", status: "completed" }],
       contentBlocks: [
@@ -1622,6 +1760,7 @@ test("local assistant messages render ordered content blocks before trace fallba
   assert.ok(html.indexOf("检查上下文") < html.indexOf("我先看目录。"));
   assert.ok(html.indexOf("我先看目录。") < html.indexOf("shell"));
   assert.ok(html.indexOf("shell") < html.indexOf("结论是已确认。"));
+  assert.ok(html.indexOf("结论是已确认。") < html.indexOf("message-attachments"));
   assert.doesNotMatch(html, /legacy-trace/);
   assert.doesNotMatch(html, /legacy-tool/);
 

@@ -43,6 +43,20 @@ test("web cloud attachment chips use specific document glyph labels", () => {
   assert.match(source, /return "ZIP"/);
 });
 
+test("web cloud attachment chips render non-image files as typed attachment cards", () => {
+  const source = read("src/web/app.js");
+  const css = read("src/web/styles.css");
+  assert.match(source, /function attachmentVisualType\(attachment = \{\}\)/);
+  assert.match(source, /class="message-attachment file-card type-\$\{escapeHtml\(attachmentVisualType\(attachment\)\)\}"/);
+  assert.match(source, /function renderAttachmentFileIcon\(attachment = \{\}, assetRoot = "assets\/file-type-icons"\)/);
+  assert.match(source, /class="message-attachment-icon-image"/);
+  assert.match(source, /src="\$\{escapeHtml\(assetRoot\)\}\/\$\{escapeHtml\(attachmentIconName\(attachment\)\)\}\.png"/);
+  assert.match(source, /message-attachment-meta/);
+  assert.match(css, /\.message-attachment\.file-card\s*\{[\s\S]*background:\s*rgba\(37,\s*42,\s*51,\s*0\.34\)/);
+  assert.match(css, /\.message-attachment\.file-card\s*\{[\s\S]*backdrop-filter:\s*blur\(10px\)\s+saturate\(125%\)/);
+  assert.doesNotMatch(css, /--message-attachment-accent:\s*#f06a35/);
+});
+
 test("desktop cloud conversation rendering surfaces cloud agent streams and attachments", () => {
   const social = read("src/renderer/social/social.js");
   const groups = read("src/renderer/social/social-groups.js");
