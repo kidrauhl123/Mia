@@ -922,17 +922,26 @@
                 </div>
               </section>
               <section id="cloudMobileScanCard" class="connection-row cloud-mobile-scan-row hidden">
-                <div class="cloud-mobile-scan-copy">
-                  <div class="connection-row-head">
-                    <div class="cloud-account-status-copy">
-                      <strong>手机扫码登录</strong>
-                      <p id="cloudMobileScanMeta">登录后可用手机扫码，并在这台电脑上确认登录。</p>
-                    </div>
-                    <div class="cloud-actions">
-                      <button id="cloudMobileScanRefresh" class="secondary" type="button">刷新</button>
-                    </div>
+                <div class="cloud-mobile-scan-layout">
+                  <div class="cloud-account-status-copy cloud-mobile-scan-copy">
+                    <strong>手机扫码登录</strong>
+                    <p id="cloudMobileScanMeta">登录后可用手机扫码，并在这台电脑上确认登录。</p>
                   </div>
-                  <div id="cloudMobileScanQr" class="cloud-mobile-scan-qr" aria-live="polite"></div>
+                  <div class="cloud-mobile-scan-panel">
+                    <div id="cloudMobileScanQr" class="cloud-mobile-scan-qr" aria-live="polite"></div>
+                    <button
+                      id="cloudMobileScanRefresh"
+                      class="icon-button cloud-mobile-scan-refresh"
+                      type="button"
+                      title="刷新二维码"
+                      aria-label="刷新二维码"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+                        <path d="M20 5v5h-5"/>
+                        <path d="M20 10a8 8 0 1 0 2 5.5"/>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </section>
             </div>

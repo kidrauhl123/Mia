@@ -536,7 +536,8 @@
   function attachmentGlyph(attachment = {}) {
     const mime = String(attachment.mimeType || attachment.mime || attachment.type || "").toLowerCase();
     const ext = attachmentExtension(attachment);
-    const kind = attachment.kind || attachmentKind(attachment);
+    const kindHint = String(attachment.kind || "").toLowerCase();
+    const kind = kindHint && kindHint !== "file" ? kindHint : attachmentKind(attachment);
     if (kind === "image") return "IMG";
     if (kind === "video") return "VID";
     if (kind === "audio") return "AUD";
@@ -554,6 +555,39 @@
     return "FILE";
   }
 
+  function attachmentVisualType(attachment = {}) {
+    const mime = String(attachment.mimeType || attachment.mime || attachment.type || "").toLowerCase();
+    const ext = attachmentExtension(attachment);
+    const kindHint = String(attachment.kind || "").toLowerCase();
+    const kind = kindHint && kindHint !== "file" ? kindHint : attachmentKind(attachment);
+    if (kind === "image") return "image";
+    if (kind === "video") return "video";
+    if (kind === "audio") return "audio";
+    if (kind === "pdf" || mime.includes("pdf") || ext === "pdf") return "pdf";
+    if (mime.includes("spreadsheet") || mime === "application/vnd.ms-excel" || ["xls", "xlsx", "xlsm", "csv", "tsv"].includes(ext)) return "xls";
+    if (mime.includes("wordprocessingml") || mime === "application/msword" || ["doc", "docx", "rtf"].includes(ext)) return "doc";
+    if (mime.includes("presentationml") || mime === "application/vnd.ms-powerpoint" || ["ppt", "pptx", "key"].includes(ext)) return "ppt";
+    if (mime.includes("zip") || ["zip", "rar", "7z", "tar", "gz"].includes(ext)) return "zip";
+    if (mime.includes("json") || ext === "json") return "json";
+    if (["md", "markdown"].includes(ext)) return "md";
+    if (["html", "css", "js", "jsx", "ts", "tsx", "py", "java", "c", "cc", "cpp", "go", "rs", "rb", "php", "swift", "kt", "sh"].includes(ext)) return "code";
+    if (kind === "text") return "txt";
+    return "file";
+  }
+
+  function attachmentIconName(attachment = {}) {
+    const visualType = attachmentVisualType(attachment);
+    if (visualType === "doc") return "doc";
+    if (visualType === "xls") return "xls";
+    if (visualType === "ppt") return "ppt";
+    if (visualType === "pdf") return "pdf";
+    if (visualType === "zip") return "zip";
+    if (visualType === "json") return "json";
+    if (visualType === "code") return "code";
+    if (visualType === "txt" || visualType === "md") return "txt";
+    return "file";
+  }
+
   function formatBytes(value) {
     const bytes = Number(value) || 0;
     if (!bytes) return "";
@@ -568,27 +602,50 @@
     return `<img class="${escapeHtml(className)}" src="${escapeHtml(src)}" alt="">`;
   }
 
+  function renderAttachmentFileIcon(attachment = {}, assetRoot = "./assets/file-type-icons") {
+    return `
+      <span class="message-attachment-icon" aria-hidden="true">
+        <img class="message-attachment-icon-image" src="${escapeHtml(assetRoot)}/${escapeHtml(attachmentIconName(attachment))}.png" alt="">
+      </span>
+    `;
+  }
+
+  function renderStandaloneAttachmentBlock(attachmentHtml = "", attrs = "") {
+    if (!attachmentHtml) return "";
+    const extraAttrs = String(attrs || "").trim();
+    return attachmentHtml.replace(
+      '<div class="message-attachments"',
+      `<div class="message-attachments standalone"${extraAttrs ? ` ${extraAttrs}` : ""}`
+    );
+  }
+
   function renderAttachmentChip(attachment = {}) {
-    const image = (attachment.kind || attachmentKind(attachment)) === "image"
+    const image = attachmentVisualType(attachment) === "image"
       && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
     const imageSrc = String(attachment.dataUrl || attachment.previewDataUrl || attachment.thumbnailDataUrl || attachment.thumbnail || "").trim();
     const imageSrcAttr = imageSrc.startsWith("data:image/") ? ` data-image-src="${escapeHtml(imageSrc)}"` : "";
     const href = String(attachment.dataUrl || attachment.url || "").trim();
     const safeHref = /^data:[^"'<>]+$/i.test(href) ? href : "";
+    const localFilePathAttr = ` data-local-file-path="${escapeHtml(attachment.path || "")}"`;
+    const attachmentUrlAttr = attachment.url ? ` data-attachment-url="${escapeHtml(attachment.url)}"` : "";
+    const downloadHrefAttr = safeHref ? ` data-download-href="${escapeHtml(safeHref)}" data-download-name="${escapeHtml(attachment.name || "attachment")}"` : "";
     const tag = safeHref ? "a" : "span";
     const download = safeHref ? ` href="${escapeHtml(safeHref)}" download="${escapeHtml(attachment.name || "attachment")}"` : "";
+    const detail = formatBytes(attachment.size) || attachmentGlyph(attachment);
     if (image) {
       return `
-        <${tag} class="message-attachment image"${download}${imageSrcAttr} title="${escapeHtml(attachment.name || "")}" aria-label="预览图片">
+        <${tag} class="message-attachment image"${localFilePathAttr}${attachmentUrlAttr}${downloadHrefAttr}${download}${imageSrcAttr} title="${escapeHtml(attachment.name || "")}" aria-label="预览图片">
           ${renderAttachmentThumb(attachment)}
         </${tag}>
       `;
     }
     return `
-      <${tag} class="message-attachment"${download} title="${escapeHtml(attachment.path || attachment.name || "")}">
-        ${renderAttachmentThumb(attachment)}
-        <strong>${escapeHtml(attachment.name || "附件")}</strong>
-        <em>${escapeHtml(formatBytes(attachment.size))}</em>
+      <${tag} class="message-attachment file-card type-${escapeHtml(attachmentVisualType(attachment))}"${localFilePathAttr}${attachmentUrlAttr}${downloadHrefAttr}${download} title="${escapeHtml(attachment.path || attachment.name || "")}">
+        ${renderAttachmentFileIcon(attachment)}
+        <span class="message-attachment-meta">
+          <strong>${escapeHtml(attachment.name || "附件")}</strong>
+          <em>${escapeHtml(detail)}</em>
+        </span>
       </${tag}>
     `;
   }
@@ -3756,6 +3813,13 @@
     const skillsHtml = _renderMsgSkills(msg);
     const senderHtml = shouldRenderSenderTitle(conversation) ? senderTitleHtml(spec, avatarColor) : "";
     const attachmentHtml = renderAttachmentChips(spec?.attachments || msg.attachments || []);
+    const attachmentBeforeBodyHtml = isUser ? attachmentHtml : "";
+    const attachmentAfterBodyHtml = isUser
+      ? ""
+      : renderStandaloneAttachmentBlock(
+          attachmentHtml,
+          `data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}"`
+        );
     const contentBlocks = !isUser ? contentBlocksFromMessage(msg) : [];
     let renderedFirstTextBlock = false;
     const orderedBlocksHtml = contentBlocks.length
@@ -3764,7 +3828,7 @@
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`,
         renderTextBlock(block) {
-          const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentHtml}${senderHtml}${skillsHtml}`;
+          const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentBeforeBodyHtml}${senderHtml}${skillsHtml}`;
           renderedFirstTextBlock = true;
           return `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${prefixHtml}${_renderMsgBody(block.text || "")}</div>`;
         }
@@ -3781,16 +3845,16 @@
         scopeKey: `cloud-msg:${msg.id || ""}`
       })
       : "";
-    // Render the bubble for normal messages even when empty so attachment-only
-    // rows keep a context-menu carrier. Local run-status rows without content
-    // can stay as a compact status line.
-    const shouldRenderEmptyCarrier = !msg._localRunStatus || bodyHtml || attachmentHtml || senderHtml || skillsHtml;
-    const bubbleHtml = shouldRenderEmptyCarrier
-      ? `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentHtml}${senderHtml}${skillsHtml}${bodyHtml}</div>`
+    const bubbleBodyHtml = `${attachmentBeforeBodyHtml}${senderHtml}${skillsHtml}${bodyHtml}`;
+    const bubbleHtml = bubbleBodyHtml
+      ? `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${bubbleBodyHtml}</div>`
       : "";
-    const orderedBlocksWithAttachments = orderedBlocksHtml && !renderedFirstTextBlock && attachmentHtml
-      ? `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentHtml}${senderHtml}${skillsHtml}</div>${orderedBlocksHtml}`
-      : orderedBlocksHtml;
+    const orderedBlocksLeadingBubbleHtml = orderedBlocksHtml && !renderedFirstTextBlock && (attachmentBeforeBodyHtml || senderHtml || skillsHtml)
+      ? `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${attachmentBeforeBodyHtml}${senderHtml}${skillsHtml}</div>`
+      : "";
+    const orderedBlocksWithAttachments = orderedBlocksHtml
+      ? `${orderedBlocksLeadingBubbleHtml}${orderedBlocksHtml}${attachmentAfterBodyHtml}`
+      : "";
     const runStatusHtml = !isUser && msg._localRunStatus ? renderRunStatusLine(msg) : "";
     const createdAt = msg.created_at || msg.createdAt || "";
     const timeHtml = createdAt
@@ -3811,7 +3875,7 @@
       ${avatarHtml}
       <div class="message-stack">
         ${traceHtml}
-        ${orderedBlocksWithAttachments || bubbleHtml}
+        ${orderedBlocksWithAttachments || `${bubbleHtml}${attachmentAfterBodyHtml}`}
         ${_renderMsgTranslation(msg)}
         ${runStatusHtml}
         ${timeHtml}

@@ -181,7 +181,8 @@ if (isolatedUserDataDir) {
 }
 const startupTimer = createStartupTimer({ scope: "startup" });
 const localFileOpenService = createLocalFileOpenService({
-  shellOpenPath: (target) => shell.openPath(target)
+  shellOpenPath: (target) => shell.openPath(target),
+  shellShowItemInFolder: (target) => shell.showItemInFolder(target)
 });
 
 function localDeviceIdentity() {
@@ -2709,7 +2710,11 @@ agentPermissionProxy = createAgentPermissionProxy({
 });
 
 registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle });
-registerUtilIpc({ ipcMain, openLocalFile: localFileOpenService.openLocalFile });
+registerUtilIpc({
+  ipcMain,
+  openLocalFile: localFileOpenService.openLocalFile,
+  revealLocalFile: localFileOpenService.revealLocalFile
+});
 registerMcpIpc({ ipcMain, mcpService: userMcpService });
 
 ipcMain.handle(IpcChannel.RuntimeInitialize, async () => {
