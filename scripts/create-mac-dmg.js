@@ -180,6 +180,13 @@ function writeDsStoreLayout(volumePath) {
   ], { stdio: "inherit" });
 }
 
+function pruneTransientDmgFiles(volumePath) {
+  for (const entry of [".fseventsd", ".Spotlight-V100", ".Trashes"]) {
+    fs.rmSync(path.join(volumePath, entry), { recursive: true, force: true });
+  }
+  execFileSync("sync", [], { stdio: "ignore" });
+}
+
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-dmg-"));
 const stagingDir = path.join(tempRoot, "staging");
 const rwImage = path.join(tempRoot, `${productName}-rw.dmg`);
@@ -212,6 +219,7 @@ try {
   execFileSync("chflags", ["hidden", path.join(mountedVolume, ".background")], { stdio: "inherit" });
   writeDsStoreLayout(mountedVolume);
   applyFinderLayout(mountedVolume);
+  pruneTransientDmgFiles(mountedVolume);
   detachVolume(mountedVolume);
   mountedVolume = null;
 

@@ -166,6 +166,8 @@ test("custom macOS DMG script writes a Finder drag-to-Applications layout", () =
   assert.match(dmgScript, /"mac-alias==2\.2\.2"/);
   assert.match(dmgScript, /write-dmg-ds-store\.py/);
   assert.match(dmgScript, /MIA_DMG_PYTHON/);
+  assert.match(dmgScript, /pruneTransientDmgFiles/);
+  assert.match(dmgScript, /\.fseventsd/);
   assert.match(dsStoreScript, /DSStore\.open/);
   assert.match(dsStoreScript, /Bookmark\.for_file\(background_path\)\.to_bytes\(\)/);
   assert.match(dsStoreScript, /"backgroundImageAlias": background_bookmark/);
