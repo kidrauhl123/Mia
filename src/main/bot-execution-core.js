@@ -517,12 +517,19 @@ function createBotExecutionCore({
 
   async function stopChat(payload = {}) {
     let stopped = false;
+    const localBotResponder = getLocalBotResponder();
+    const localStop = localBotResponder?.stopActiveConversationRun?.(payload) || { stopped: false };
     const managedDescriptor = resolveManagedDescriptor(payload);
     if (managedDescriptor && agentSessionManager && typeof agentSessionManager.cancelActive === "function") {
-      const cancelled = await agentSessionManager.cancelActive(managedDescriptor);
-      forgetManagedDescriptor(managedDescriptor);
-      if (cancelled) {
+      if (localStop.stopped) {
         stopped = true;
+        forgetManagedDescriptor(managedDescriptor);
+      } else {
+        const cancelled = await agentSessionManager.cancelActive(managedDescriptor);
+        forgetManagedDescriptor(managedDescriptor);
+        if (cancelled) {
+          stopped = true;
+        }
       }
     }
     if (activeChatAbortController) {
@@ -530,8 +537,6 @@ function createBotExecutionCore({
       activeChatAbortController = null;
       stopped = true;
     }
-    const localBotResponder = getLocalBotResponder();
-    const localStop = localBotResponder?.stopActiveConversationRun?.(payload) || { stopped: false };
     const result = {
       stopped: stopped || Boolean(localStop.stopped),
       ...(localStop.conversationId ? { conversationId: localStop.conversationId } : {}),

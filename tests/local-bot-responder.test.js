@@ -1262,6 +1262,14 @@ test("stopActiveConversationRun cancels an AgentSession-backed social run using 
     turnId: "t_stop",
     status: "cancelling"
   });
+  assert.deepEqual(calls.cloudEvents.map((event) => ({
+    type: event.type,
+    runId: event.runId,
+    eventType: event.event?.type || ""
+  })), [
+    { type: "cloud_agent_run_started", runId: "local_bot_reply_m_stop_codex", eventType: "" },
+    { type: "cloud_agent_run_event", runId: "local_bot_reply_m_stop_codex", eventType: "run.cancelling" }
+  ]);
 });
 
 test("managed AgentSession workspace validation failure does not poison retries for the same dedupKey", async () => {

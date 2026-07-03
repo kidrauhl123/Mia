@@ -1009,6 +1009,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       return stoppedManagedRunResult(managedEntry, payload);
     }
     managedEntry.status = "cancelling";
+    emitRunEvent(managedEntry, { type: "run.cancelling" });
     void Promise.resolve(agentSessionManager.cancelActive(managedEntry.descriptor))
       .then((cancelled) => {
         if (!cancelled) managedEntry.status = "running";

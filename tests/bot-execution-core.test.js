@@ -57,6 +57,15 @@ function makeCore(overrides = {}) {
   return { core: createBotExecutionCore(deps), calls, deps };
 }
 
+function createDeferred() {
+  const deferred = {};
+  deferred.promise = new Promise((resolve, reject) => {
+    deferred.resolve = resolve;
+    deferred.reject = reject;
+  });
+  return deferred;
+}
+
 async function waitFor(predicate, timeoutMs = 1000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -594,6 +603,57 @@ test("stopChat cancels the requested managed AgentSession conversation instead o
     engineId: "hermes",
     workspacePath: "/repo/workspace"
   }]);
+});
+
+test("stopChat notifies the local responder before awaiting slow AgentSession cancellation", async () => {
+  const cancelDeferred = createDeferred();
+  const localStops = [];
+  const calls = { agentSession: [], cancelActive: [] };
+  const { core } = makeCore({
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.agentSession.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      },
+      cancelActive: async (descriptor) => {
+        calls.cancelActive.push(descriptor);
+        return cancelDeferred.promise;
+      }
+    },
+    localBotResponder: () => ({
+      stopActiveConversationRun: (payload) => {
+        localStops.push(payload);
+        return {
+          stopped: true,
+          conversationId: payload.conversationId,
+          runId: payload.runId,
+          status: "cancelling"
+        };
+      }
+    })
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [{ role: "user", id: "msg-1", content: "first" }]
+  });
+
+  const stopPromise = core.stopChat({ conversationId: "conversation:1", runId: "run-1" });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(localStops, [{ conversationId: "conversation:1", runId: "run-1" }]);
+  cancelDeferred.resolve(true);
+  const result = await stopPromise;
+  assert.equal(result.stopped, true);
+  assert.equal(result.status, "cancelling");
 });
 
 test("sendChat passes Claude Code Mia managed model runtime to AgentSession", async () => {
