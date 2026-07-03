@@ -3,6 +3,7 @@ const { spawn } = require("node:child_process");
 const { Readable, Writable } = require("node:stream");
 
 const { assertKnownAgentEngine } = require("./agent-session-contract.js");
+const { normalizeAcpMcpServers } = require("./acp-mcp-servers.js");
 const { normalizeAcpSessionUpdate } = require("./acp-event-normalizer.js");
 const { spawnAcpEngineProcess } = require("./acp-engine-specs.js");
 const { prepareNativeTurnInput } = require("./native-input-policy.js");
@@ -154,6 +155,10 @@ class AcpAgentSession extends EventEmitter {
     this.env = options.env && typeof options.env === "object" && !Array.isArray(options.env)
       ? { ...options.env }
       : null;
+    this.mcpServers = normalizeAcpMcpServers(options.mcpServers);
+    this.refreshMcpContext = typeof options.refreshMcpContext === "function" ? options.refreshMcpContext : null;
+    this.initialPromptPrefix = typeof options.initialPromptPrefix === "string" ? options.initialPromptPrefix.trim() : "";
+    this.pendingInitialPromptPrefix = false;
     this.createTransport = typeof options.createTransport === "function" ? options.createTransport : defaultCreateTransport;
     this.createClient = typeof options.createClient === "function" ? options.createClient : defaultCreateClient;
     this.spawnProcess = typeof options.spawnProcess === "function" ? options.spawnProcess : spawn;
@@ -206,7 +211,7 @@ class AcpAgentSession extends EventEmitter {
       }
       const session = await raceTransportStartup(this.transport, this.client.newSession({
         cwd: this.workspacePath,
-        mcpServers: [],
+        mcpServers: this.mcpServers,
         _meta: {
           sessionKey: this.sessionKey,
           conversationId: this.conversationId,
@@ -218,6 +223,7 @@ class AcpAgentSession extends EventEmitter {
       if (!this.acpSessionId) {
         throw new Error("ACP session did not return a sessionId.");
       }
+      this.pendingInitialPromptPrefix = Boolean(this.initialPromptPrefix);
       this.emit("session-started", buildBaseEvent(this, { acpSessionId: this.acpSessionId }));
       return session;
     })();
@@ -257,7 +263,12 @@ class AcpAgentSession extends EventEmitter {
       throw error;
     }
 
-    const text = typeof nativeTurn.text === "string" ? nativeTurn.text : "";
+    let text = typeof nativeTurn.text === "string" ? nativeTurn.text : "";
+    await this.refreshMcpContextForTurn({ turnId, text });
+    if (this.pendingInitialPromptPrefix && this.initialPromptPrefix) {
+      this.pendingInitialPromptPrefix = false;
+      text = `${this.initialPromptPrefix}\n\n${text}`;
+    }
     const attachments = Array.isArray(nativeTurn.attachments) ? nativeTurn.attachments.slice() : [];
     const fileReferences = Array.isArray(nativeTurn.fileReferences) ? nativeTurn.fileReferences.slice() : [];
     const promptRequest = {
@@ -308,6 +319,23 @@ class AcpAgentSession extends EventEmitter {
     this.activePrompt.cancelled = true;
     await this.client.cancel({ sessionId: this.acpSessionId });
     return true;
+  }
+
+  async refreshMcpContextForTurn({ turnId = "", text = "" } = {}) {
+    if (!this.refreshMcpContext) return;
+    try {
+      await this.refreshMcpContext({
+        engineId: this.engineId,
+        conversationId: this.conversationId,
+        sessionKey: this.sessionKey,
+        workspacePath: this.workspacePath,
+        acpSessionId: this.acpSessionId,
+        turnId,
+        text
+      });
+    } catch {
+      // MCP context refresh is best-effort; the session still has the MCP tools.
+    }
   }
 
   async kill() {

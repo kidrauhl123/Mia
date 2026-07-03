@@ -199,6 +199,52 @@ test("sendUserInput carries runtime env in the session descriptor without leakin
   ]);
 });
 
+test("sendUserInput carries MCP session config in the descriptor without leaking it to the prompt payload", async () => {
+  const builds = [];
+  const sends = [];
+  const session = createFakeSession();
+  session.sendUserInput = async (input) => {
+    sends.push(input);
+  };
+  const refreshMcpContext = async () => {};
+  const mcpServers = [{
+    name: "mia-app",
+    command: "/usr/bin/node",
+    args: ["/tmp/mia-app.js"],
+    env: [{ name: "MIA_DAEMON_URL", value: "http://127.0.0.1:27861" }]
+  }];
+  const manager = createAgentSessionManager(managerOptions(async (descriptor) => {
+    builds.push(descriptor);
+    return session;
+  }));
+
+  await manager.sendUserInput({
+    conversationId: "conversation-1",
+    engineId: "codex",
+    workspacePath: "/repo",
+    mcpFingerprint: "mcp-abc",
+    mcpServers,
+    refreshMcpContext,
+    initialPromptPrefix: "## Mia Scoped Context",
+    turnId: "turn-1",
+    text: "hello"
+  });
+
+  assert.equal(builds.length, 1);
+  assert.deepEqual(builds[0], {
+    conversationId: "conversation-1",
+    engineId: "codex",
+    workspacePath: "/repo",
+    mcpFingerprint: "mcp-abc",
+    mcpServers,
+    refreshMcpContext,
+    initialPromptPrefix: "## Mia Scoped Context",
+    sessionKey: "conversation-1::codex::/repo::mcp-abc",
+    engineSpec: null
+  });
+  assert.deepEqual(sends, [{ turnId: "turn-1", text: "hello" }]);
+});
+
 test("sendUserInput returns accepted metadata after dispatching the native send without waiting for turn completion", async () => {
   const nativeSend = createDeferred();
   const session = createFakeSession({

@@ -382,6 +382,10 @@ function createBotExecutionCore({
         if (runtime?.env && typeof runtime.env === "object" && !Array.isArray(runtime.env)) {
           descriptor.env = { ...runtime.env };
         }
+        if (runtime?.mcpFingerprint) descriptor.mcpFingerprint = String(runtime.mcpFingerprint || "").trim();
+        if (Array.isArray(runtime?.mcpServers)) descriptor.mcpServers = runtime.mcpServers.slice();
+        if (typeof runtime?.refreshMcpContext === "function") descriptor.refreshMcpContext = runtime.refreshMcpContext;
+        if (typeof runtime?.initialPromptPrefix === "string") descriptor.initialPromptPrefix = runtime.initialPromptPrefix;
         const accepted = await agentSessionManager.sendUserInput({
           ...descriptor,
           ...rawCurrentTurn

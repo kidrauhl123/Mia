@@ -119,6 +119,48 @@ test("sendChat routes interactive AgentSession turns through the session manager
   assert.equal(calls.notifyMessage.length, 0);
 });
 
+test("sendChat passes prepared MCP session config to AgentSession", async () => {
+  const refreshMcpContext = async () => {};
+  const mcpServers = [{
+    name: "mia-app",
+    command: "/usr/bin/node",
+    args: ["/tmp/mia-app.js"],
+    env: [{ name: "MIA_DAEMON_URL", value: "http://127.0.0.1:27861" }]
+  }];
+  const { core, calls } = makeCore({
+    prepareAgentSessionRuntime: async ({ engineId, conversationId, botId }) => {
+      assert.equal(engineId, "hermes");
+      assert.equal(conversationId, "conversation:1");
+      assert.equal(botId, "bot1");
+      return {
+        mcpFingerprint: "mcp-abc",
+        mcpServers,
+        refreshMcpContext,
+        initialPromptPrefix: "## Mia Scoped Context"
+      };
+    }
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [{ role: "user", id: "turn-1", content: "hello" }]
+  });
+
+  assert.equal(calls.agentSession.length, 1);
+  assert.deepEqual(calls.agentSession[0], {
+    conversationId: "conversation:1",
+    engineId: "hermes",
+    workspacePath: "/repo/workspace",
+    mcpFingerprint: "mcp-abc",
+    mcpServers,
+    refreshMcpContext,
+    initialPromptPrefix: "## Mia Scoped Context",
+    turnId: "turn-1",
+    text: "hello"
+  });
+});
+
 for (const [inputEngineId, expectedEngineId] of [
   ["claude-code", "claude"],
   ["codex", "codex"],

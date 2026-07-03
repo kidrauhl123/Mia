@@ -826,6 +826,72 @@ test("managed AgentSession turns pass prepared Claude Code Mia runtime env to th
   }]);
 });
 
+test("managed AgentSession turns pass prepared MCP session config to the manager", async () => {
+  const refreshMcpContext = async () => {};
+  const mcpServers = [{
+    name: "mia-app",
+    command: "/usr/bin/node",
+    args: ["/tmp/mia-app.js"],
+    env: [{ name: "MIA_DAEMON_URL", value: "http://127.0.0.1:27861" }]
+  }];
+  const calls = { manager: [], runtime: [], post: [], log: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace",
+    prepareAgentSessionRuntime: async (args) => {
+      calls.runtime.push(args);
+      return {
+        mcpFingerprint: "mcp-abc",
+        mcpServers,
+        refreshMcpContext,
+        initialPromptPrefix: "## Mia Scoped Context"
+      };
+    }
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_managed_mcp:codex",
+    turnId: "t_mcp",
+    botSnapshot: { key: "starter_100002_codex", name: "Codex", agentEngine: "codex" },
+    runtimeConfig: { agentEngine: "codex" }
+  });
+
+  assert.equal(calls.runtime.length, 1);
+  assert.equal(calls.runtime[0].engineId, "codex");
+  assert.deepEqual(calls.manager, [{
+    conversationId: "g_1",
+    engineId: "codex",
+    workspacePath: "/repo/workspace",
+    mcpFingerprint: "mcp-abc",
+    mcpServers,
+    refreshMcpContext,
+    initialPromptPrefix: "## Mia Scoped Context",
+    turnId: "t_mcp",
+    text: "hi"
+  }]);
+});
+
 test("starter engine bot ids route visible replies through AgentSession without runtime config", async () => {
   const calls = { manager: [], post: [], cloudEvents: [] };
   const responder = createLocalBotResponder({

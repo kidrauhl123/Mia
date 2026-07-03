@@ -587,14 +587,6 @@ function createCoreBotExecution({
     fetch: fetchImpl,
     appendLog: () => {}
   });
-  const agentSessionRuntimePreparer = typeof injectedPrepareAgentSessionRuntime === "function"
-    ? { prepare: injectedPrepareAgentSessionRuntime }
-    : createAgentSessionRuntimePreparer({
-      resolveManagedModelRuntime,
-      claudeCodeMiaProxy,
-      codexMiaProxy
-    });
-
   // ensureHermesReady: when Core owns the engine lifecycle (an ensureEngine is
   // injected), ADOPT-OR-SPAWN the Hermes engine so a GUI-less daemon turn always
   // has a running engine for slash commands. Otherwise fall back to a plain
@@ -691,6 +683,26 @@ function createCoreBotExecution({
   async function ensureUserMcpReady() {
     try { await userMcpService.awaitInitialization(); } catch { /* MCP optional; turn proceeds */ }
   }
+  const usesInjectedAgentSessionRuntime = typeof injectedPrepareAgentSessionRuntime === "function";
+  const agentSessionRuntimePreparer = usesInjectedAgentSessionRuntime
+    ? { prepare: injectedPrepareAgentSessionRuntime }
+    : createAgentSessionRuntimePreparer({
+      resolveManagedModelRuntime,
+      claudeCodeMiaProxy,
+      codexMiaProxy,
+      getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
+      getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
+      getUserMcpServers: (_engineId, options) => userMcpService.getEngineSpecs("openclaw", options),
+      getMcpFingerprint: userMcpService.fingerprint,
+      writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
+      writeSchedulerMcpContext: schedulerMcpBridge.writeContext
+    });
+  async function prepareCoreAgentSessionRuntime(input = {}) {
+    if (!usesInjectedAgentSessionRuntime) {
+      await ensureUserMcpReady();
+    }
+    return agentSessionRuntimePreparer.prepare(input);
+  }
 
   // Mia-owned agent workspace (never `/` or the user's home). Core owns
   // runtimePaths().workspace — the SAME default main.js uses (src/main.js:561).
@@ -739,7 +751,7 @@ function createCoreBotExecution({
     createActiveChatEngineAdapters,
     agentSessionManager,
     agentSessionWorkspacePath: agentWorkspaceDir,
-    prepareAgentSessionRuntime: agentSessionRuntimePreparer.prepare,
+    prepareAgentSessionRuntime: prepareCoreAgentSessionRuntime,
     // TODO(mia-core slice): wire the real local bot responder once Core owns
     // cloud-conversation handling; the stub keeps stopChat well-defined.
     localBotResponder: () => ({ stopActiveConversationRun: () => ({ stopped: false }) }),
@@ -766,7 +778,7 @@ function createCoreBotExecution({
   return Object.assign(botExecutionCore, {
     closeAgentEngines,
     miaCurrentSkills,
-    prepareAgentSessionRuntime: agentSessionRuntimePreparer.prepare
+    prepareAgentSessionRuntime: prepareCoreAgentSessionRuntime
   });
 }
 

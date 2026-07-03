@@ -305,3 +305,75 @@ test("does not touch OpenClaw profile for native OpenClaw runtime", async () => 
 
   assert.deepEqual(runtime, {});
 });
+
+test("prepares ACP MCP servers and scoped context prelude for AgentSession", async () => {
+  const contextWrites = [];
+  const preparer = createAgentSessionRuntimePreparer({
+    resolveManagedModelRuntime: () => null,
+    getMiaAppMcpSpec: (context) => {
+      contextWrites.push(["mia-app-spec", context]);
+      return {
+        type: "stdio",
+        command: "/usr/bin/node",
+        args: ["/tmp/mia-app-mcp-server.js"],
+        env: {
+          MIA_DAEMON_URL: "http://127.0.0.1:27861",
+          MIA_DAEMON_TOKEN: "tok"
+        }
+      };
+    },
+    getSchedulerMcpSpec: () => ({
+      type: "stdio",
+      command: "/usr/bin/node",
+      args: ["/tmp/scheduler-mcp-server.js"],
+      env: {
+        MIA_DAEMON_URL: "http://127.0.0.1:27861",
+        MIA_DAEMON_TOKEN: "tok"
+      }
+    }),
+    getUserMcpServers: (engineId, options) => {
+      assert.equal(engineId, "codex");
+      assert.deepEqual(options, { supportsHttp: false, supportsSse: false });
+      return [{
+        name: "docs",
+        command: "/usr/bin/node",
+        args: ["/tmp/docs-mcp.js"],
+        env: [{ name: "DOCS_TOKEN", value: "secret" }]
+      }];
+    },
+    getMcpFingerprint: () => "user-mcp-fingerprint",
+    writeMiaAppMcpContext: (context) => contextWrites.push(["mia-app-context", context]),
+    writeSchedulerMcpContext: (context) => contextWrites.push(["scheduler-context", context])
+  });
+
+  const runtime = await preparer.prepare({
+    engineId: "codex",
+    conversationId: "conversation:abc",
+    botId: "bot-1",
+    runtimeConfig: { agentEngine: "codex" }
+  });
+
+  assert.equal(runtime.mcpServers.length, 3);
+  assert.deepEqual(runtime.mcpServers.map((server) => server.name), ["docs", "mia-app", "mia-scheduler"]);
+  assert.deepEqual(runtime.mcpServers[1], {
+    name: "mia-app",
+    command: "/usr/bin/node",
+    args: ["/tmp/mia-app-mcp-server.js"],
+    env: [
+      { name: "MIA_DAEMON_TOKEN", value: "tok" },
+      { name: "MIA_DAEMON_URL", value: "http://127.0.0.1:27861" }
+    ]
+  });
+  assert.match(runtime.initialPromptPrefix, /Mia Scoped Context/);
+  assert.match(runtime.initialPromptPrefix, /skill_list_current/);
+  assert.match(runtime.initialPromptPrefix, /memory_search/);
+  assert.equal(typeof runtime.refreshMcpContext, "function");
+  assert.match(runtime.mcpFingerprint, /^mcp:/);
+
+  await runtime.refreshMcpContext({ turnId: "msg-1" });
+  assert.deepEqual(contextWrites, [
+    ["mia-app-spec", { botId: "bot-1", sessionId: "conversation:abc" }],
+    ["mia-app-context", { botId: "bot-1", sessionId: "conversation:abc", originMessageId: "msg-1" }],
+    ["scheduler-context", { botId: "bot-1", sessionId: "conversation:abc", originMessageId: "msg-1" }]
+  ]);
+});

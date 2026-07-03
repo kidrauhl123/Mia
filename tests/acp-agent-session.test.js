@@ -52,6 +52,9 @@ function createSession(options = {}) {
     conversationId: options.conversationId || "conversation-1",
     engineId: options.engineId || "codex",
     initializationMetadata: options.initializationMetadata,
+    mcpServers: options.mcpServers,
+    initialPromptPrefix: options.initialPromptPrefix,
+    refreshMcpContext: options.refreshMcpContext,
     env: options.env,
     createTransport: options.createTransport || (async () => state.transport),
     createClient: options.createClient || (async ({ onSessionUpdate, onPermissionRequest }) => ({
@@ -130,6 +133,60 @@ test("start initializes the ACP session once", async () => {
       acpSessionId: "acp-session-1"
     }]
   ]);
+});
+
+test("start injects configured MCP servers into ACP session/new", async () => {
+  const mcpServers = [{
+    name: "mia-app",
+    command: "/usr/bin/node",
+    args: ["/tmp/mia-app-mcp-server.js"],
+    env: [{ name: "MIA_DAEMON_URL", value: "http://127.0.0.1:27861" }]
+  }];
+  const { session, state } = createSession({ mcpServers });
+
+  await session.start();
+
+  assert.deepEqual(state.newSessionCalls[0].mcpServers, mcpServers);
+});
+
+test("sendUserInput prepends the session prelude only on the first prompt and refreshes MCP context each turn", async () => {
+  const refreshCalls = [];
+  const { session, state, deferredPrompt } = createSession({
+    initialPromptPrefix: "## Mia Scoped Context\nUse mia-app tools.",
+    refreshMcpContext: async (context) => {
+      refreshCalls.push(context);
+    }
+  });
+
+  const first = session.sendUserInput({ turnId: "turn-1", text: "hello" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(state.promptCalls[0].prompt, [{
+    type: "text",
+    text: "## Mia Scoped Context\nUse mia-app tools.\n\nhello"
+  }]);
+  deferredPrompt.resolve({ stopReason: "end_turn" });
+  await first;
+
+  const secondDeferred = createDeferred();
+  state.promptCalls.length = 0;
+  session.activePrompt = null;
+  const originalPrompt = session.client.prompt;
+  session.client.prompt = async (params) => {
+    state.promptCalls.push(params);
+    return secondDeferred.promise;
+  };
+  const second = session.sendUserInput({ turnId: "turn-2", text: "again" });
+  await new Promise((resolve) => setImmediate(resolve));
+  secondDeferred.resolve({ stopReason: "end_turn" });
+  await second;
+  session.client.prompt = originalPrompt;
+
+  assert.deepEqual(refreshCalls.map((call) => call.turnId), ["turn-1", "turn-2"]);
+  assert.equal(refreshCalls[0].acpSessionId, "acp-session-1");
+  assert.equal(refreshCalls[0].conversationId, "conversation-1");
+  assert.equal(refreshCalls[0].engineId, "codex");
+  assert.equal(refreshCalls[0].sessionKey, "conversation-1::codex::/repo");
+  assert.deepEqual(state.promptCalls[0].prompt, [{ type: "text", text: "again" }]);
 });
 
 test("start forwards per-session env to the ACP transport", async () => {

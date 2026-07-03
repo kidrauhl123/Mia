@@ -66,16 +66,17 @@ function assertKnownAgentEngine(value) {
   return engineId;
 }
 
-function createAgentSessionKey({ conversationId, engineId, workspacePath, runtimeKey = "" } = {}) {
+function createAgentSessionKey({ conversationId, engineId, workspacePath, runtimeKey = "", mcpFingerprint = "" } = {}) {
   const normalizedConversationId = String(conversationId || "").trim();
   const normalizedWorkspacePath = String(workspacePath || "").trim();
   const normalizedEngineId = assertKnownAgentEngine(engineId);
   const normalizedRuntimeKey = String(runtimeKey || "").trim();
+  const normalizedMcpFingerprint = String(mcpFingerprint || "").trim();
 
   if (!normalizedConversationId) throw new Error("conversationId is required.");
   if (!normalizedWorkspacePath) throw new Error("workspacePath is required.");
 
-  return [normalizedConversationId, normalizedEngineId, normalizedWorkspacePath, normalizedRuntimeKey]
+  return [normalizedConversationId, normalizedEngineId, normalizedWorkspacePath, normalizedRuntimeKey, normalizedMcpFingerprint]
     .filter((part, index) => index < 3 || part)
     .join("::");
 }

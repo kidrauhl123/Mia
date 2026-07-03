@@ -1,9 +1,12 @@
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
+const { normalizeAcpMcpServer, normalizeAcpMcpServers } = require("./agent-session/acp-mcp-servers.js");
+const { buildMiaContextResource, mcpContextPrompt } = require("./mia-context-resource.js");
 const { createOpenClawMiaProfile } = require("./openclaw-mia-profile.js");
 const { createCodexMiaProxy } = require("./codex-mia-proxy.js");
 const {
@@ -29,6 +32,29 @@ function runtimeKeyForMiaRuntime(runtime = {}) {
   if (profileId) return profileId.startsWith("mia:") ? profileId : `mia:${profileId}`;
   const model = firstString(runtime, ["model"]) || "mia-auto";
   return model.startsWith("mia:") ? model : `mia:${model}`;
+}
+
+function hashRuntimePart(value) {
+  return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
+}
+
+function userMcpEngineId(engineId = "") {
+  return engineId === "claude" ? "claude-code" : engineId;
+}
+
+function mergeRuntimeParts(base = {}, extra = {}) {
+  const merged = { ...(base || {}), ...(extra || {}) };
+  if (base.env || extra.env) {
+    merged.env = {
+      ...(base.env || {}),
+      ...(extra.env || {})
+    };
+  }
+  return Object.fromEntries(Object.entries(merged).filter(([, value]) => {
+    if (Array.isArray(value)) return value.length > 0;
+    if (value && typeof value === "object") return Object.keys(value).length > 0;
+    return value != null && value !== "";
+  }));
 }
 
 function codexMiaLauncherScript(platform = process.platform) {
@@ -79,18 +105,73 @@ function createAgentSessionRuntimePreparer(options = {}) {
   const codexLauncherPath = String(options.codexLauncherPath || "").trim()
     || path.join(os.tmpdir(), DEFAULT_CODEX_MIA_LAUNCHER);
   const codexRealPath = String(options.codexRealPath || process.env.CODEX_PATH || "codex").trim() || "codex";
+  const getMiaAppMcpSpec = typeof options.getMiaAppMcpSpec === "function" ? options.getMiaAppMcpSpec : () => null;
+  const getSchedulerMcpSpec = typeof options.getSchedulerMcpSpec === "function" ? options.getSchedulerMcpSpec : () => null;
+  const getUserMcpServers = typeof options.getUserMcpServers === "function" ? options.getUserMcpServers : () => [];
+  const getMcpFingerprint = typeof options.getMcpFingerprint === "function" ? options.getMcpFingerprint : () => "";
+  const writeMiaAppMcpContext = typeof options.writeMiaAppMcpContext === "function" ? options.writeMiaAppMcpContext : () => {};
+  const writeSchedulerMcpContext = typeof options.writeSchedulerMcpContext === "function" ? options.writeSchedulerMcpContext : () => {};
+
+  function mcpContextFor(input = {}) {
+    return {
+      botId: String(input.botId || input.botKey || "").trim(),
+      sessionId: String(input.conversationId || input.sessionId || "").trim()
+    };
+  }
+
+  function prepareMcpRuntime(input = {}, engineId = "") {
+    const context = mcpContextFor(input);
+    const userServers = normalizeAcpMcpServers(getUserMcpServers(userMcpEngineId(engineId), {
+      supportsHttp: false,
+      supportsSse: false
+    }));
+    const miaAppServer = normalizeAcpMcpServer("mia-app", getMiaAppMcpSpec(context));
+    const schedulerServer = normalizeAcpMcpServer("mia-scheduler", getSchedulerMcpSpec(context));
+    const byName = new Map();
+    for (const server of [...userServers, miaAppServer, schedulerServer].filter(Boolean)) {
+      byName.set(server.name, server);
+    }
+    const mcpServers = Array.from(byName.values());
+    if (!mcpServers.length) return {};
+
+    const resource = buildMiaContextResource({
+      engine: engineId,
+      botId: context.botId,
+      sessionId: context.sessionId,
+      mcpAvailable: true
+    });
+    const initialPromptPrefix = mcpContextPrompt(resource, { includeRuntime: false });
+    const userFingerprint = String(getMcpFingerprint() || "").trim();
+
+    return {
+      mcpServers,
+      mcpFingerprint: `mcp:${hashRuntimePart({ mcpServers, userFingerprint })}`,
+      initialPromptPrefix,
+      refreshMcpContext(turn = {}) {
+        const originMessageId = String(turn.turnId || turn.originMessageId || "").trim();
+        const payload = {
+          botId: context.botId,
+          sessionId: context.sessionId,
+          ...(originMessageId ? { originMessageId } : {})
+        };
+        writeMiaAppMcpContext(payload);
+        writeSchedulerMcpContext(payload);
+      }
+    };
+  }
 
   async function prepare(input = {}) {
     const engineId = String(input.engineId || "").trim();
     const runtimeConfig = input.runtimeConfig && typeof input.runtimeConfig === "object"
       ? input.runtimeConfig
       : {};
+    const mcpRuntime = prepareMcpRuntime(input, engineId);
 
     if (engineId === "openclaw") {
       const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "openclaw";
-      if (agentEngine !== "openclaw") return {};
+      if (agentEngine !== "openclaw") return mcpRuntime;
       const managedRuntime = resolveManagedModelRuntime(runtimeConfig, { engine: "openclaw" });
-      if (!managedRuntime) return {};
+      if (!managedRuntime) return mcpRuntime;
       if (!openClawMiaProfile || typeof openClawMiaProfile.ensure !== "function") {
         throw new Error("OpenClaw Mia profile manager is not available.");
       }
@@ -99,19 +180,19 @@ function createAgentSessionRuntimePreparer(options = {}) {
       if (!profileName) {
         throw new Error("OpenClaw Mia profile manager did not return a usable profile.");
       }
-      return {
+      return mergeRuntimeParts(mcpRuntime, {
         runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
         env: {
           MIA_OPENCLAW_PROFILE: profileName
         }
-      };
+      });
     }
 
     if (engineId === "codex") {
       const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "codex";
-      if (agentEngine !== "codex") return {};
+      if (agentEngine !== "codex") return mcpRuntime;
       const managedRuntime = resolveManagedModelRuntime(runtimeConfig, { engine: "codex" });
-      if (!managedRuntime) return {};
+      if (!managedRuntime) return mcpRuntime;
       if (!codexMiaProxy || typeof codexMiaProxy.createSession !== "function") {
         throw new Error("Codex Mia proxy is not available.");
       }
@@ -123,7 +204,7 @@ function createAgentSessionRuntimePreparer(options = {}) {
         throw new Error("Codex Mia proxy did not return a usable session.");
       }
       const modelCatalogJson = writeCodexMiaModelCatalog(codexModelCatalogPath, model);
-      return {
+      return mergeRuntimeParts(mcpRuntime, {
         runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
         env: {
           CODEX_API_KEY: apiKey,
@@ -135,16 +216,16 @@ function createAgentSessionRuntimePreparer(options = {}) {
             modelCatalogJson
           }))
         }
-      };
+      });
     }
 
-    if (engineId !== "claude") return {};
+    if (engineId !== "claude") return mcpRuntime;
 
     const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "claude-code";
-    if (agentEngine !== "claude-code") return {};
+    if (agentEngine !== "claude-code") return mcpRuntime;
 
     const managedRuntime = resolveManagedModelRuntime(runtimeConfig, { engine: "claude-code" });
-    if (!managedRuntime) return {};
+    if (!managedRuntime) return mcpRuntime;
     if (!claudeCodeMiaProxy || typeof claudeCodeMiaProxy.createSession !== "function") {
       throw new Error("Claude Code Mia proxy is not available.");
     }
@@ -156,13 +237,13 @@ function createAgentSessionRuntimePreparer(options = {}) {
       throw new Error("Claude Code Mia proxy did not return a usable session.");
     }
 
-    return {
+    return mergeRuntimeParts(mcpRuntime, {
       runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
       env: {
         ANTHROPIC_BASE_URL: baseUrl,
         ANTHROPIC_AUTH_TOKEN: authToken
       }
-    };
+    });
   }
 
   return { prepare };

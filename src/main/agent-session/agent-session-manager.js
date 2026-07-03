@@ -176,8 +176,19 @@ class AgentSessionManager extends EventEmitter {
     };
     const runtimeKey = String(input.runtimeKey || input.runtime_key || "").trim();
     if (runtimeKey) descriptor.runtimeKey = runtimeKey;
+    const mcpFingerprint = String(input.mcpFingerprint || input.mcp_fingerprint || "").trim();
+    if (mcpFingerprint) descriptor.mcpFingerprint = mcpFingerprint;
     if (input.env && typeof input.env === "object" && !Array.isArray(input.env)) {
       descriptor.env = { ...input.env };
+    }
+    if (Array.isArray(input.mcpServers)) {
+      descriptor.mcpServers = input.mcpServers.slice();
+    }
+    if (typeof input.refreshMcpContext === "function") {
+      descriptor.refreshMcpContext = input.refreshMcpContext;
+    }
+    if (typeof input.initialPromptPrefix === "string") {
+      descriptor.initialPromptPrefix = input.initialPromptPrefix;
     }
     return descriptor;
   }
@@ -191,7 +202,12 @@ class AgentSessionManager extends EventEmitter {
         || key === "workspacePath"
         || key === "runtimeKey"
         || key === "runtime_key"
+        || key === "mcpFingerprint"
+        || key === "mcp_fingerprint"
         || key === "env"
+        || key === "mcpServers"
+        || key === "refreshMcpContext"
+        || key === "initialPromptPrefix"
       ) continue;
       payload[key] = value;
     }

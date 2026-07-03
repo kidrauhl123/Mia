@@ -1114,6 +1114,10 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         if (runtime?.env && typeof runtime.env === "object" && !Array.isArray(runtime.env)) {
           managedInput.env = { ...runtime.env };
         }
+        if (runtime?.mcpFingerprint) managedInput.mcpFingerprint = String(runtime.mcpFingerprint || "").trim();
+        if (Array.isArray(runtime?.mcpServers)) managedInput.mcpServers = runtime.mcpServers.slice();
+        if (typeof runtime?.refreshMcpContext === "function") managedInput.refreshMcpContext = runtime.refreshMcpContext;
+        if (typeof runtime?.initialPromptPrefix === "string") managedInput.initialPromptPrefix = runtime.initialPromptPrefix;
         const pendingEntry = rememberManagedSession(managedInput, {
           mode: "pending",
           turnId,

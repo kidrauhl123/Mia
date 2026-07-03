@@ -2236,7 +2236,13 @@ const codexMiaProxy = createCodexMiaProxy({
 const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
   resolveManagedModelRuntime,
   claudeCodeMiaProxy,
-  codexMiaProxy
+  codexMiaProxy,
+  getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
+  getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
+  getUserMcpServers: (_engineId, options) => userMcpService.getEngineSpecs("openclaw", options),
+  getMcpFingerprint: userMcpService.fingerprint,
+  writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
+  writeSchedulerMcpContext: schedulerMcpBridge.writeContext
 });
 const prepareAgentSessionRuntime = (input) => agentSessionRuntimePreparer.prepare(input);
 
