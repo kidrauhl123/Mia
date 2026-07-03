@@ -223,7 +223,7 @@ export default function LoginScreen() {
     <ScrollView contentContainerStyle={styles.root} keyboardShouldPersistTaps="handled">
       <View style={styles.brandRow}>
         <Image source={require("../../assets/icon.png")} style={styles.mark} resizeMode="contain" />
-        <Brand>MIA</Brand>
+        <Brand>Mia</Brand>
       </View>
       <Sub style={[styles.tagline, typography.type.info]}>多 AI 伙伴工作台 · 扫码登录</Sub>
 

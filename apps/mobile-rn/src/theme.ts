@@ -50,6 +50,10 @@ export const TELEGRAM_FONT_SIZE_OPTIONS = [
 
 export type TelegramFontSize = typeof TELEGRAM_FONT_SIZE_OPTIONS[number]["value"];
 
+interface TelegramTypographyOptions {
+  brandFontFamily?: string;
+}
+
 export function normalizeTelegramFontSize(value: unknown): TelegramFontSize {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return TELEGRAM_DEFAULT_FONT_SIZE;
@@ -76,16 +80,35 @@ function lineHeight(size: number, ratio = 1.32): number {
   return Math.round(size * ratio);
 }
 
-export function createTelegramTypography(value: unknown = TELEGRAM_DEFAULT_FONT_SIZE) {
+export function createTelegramTypography(
+  value: unknown = TELEGRAM_DEFAULT_FONT_SIZE,
+  options: TelegramTypographyOptions = {},
+) {
   const chatBase = normalizeTelegramFontSize(value);
   const chatSmall = Math.round((2 * chatBase + 10) / 3);
   const chatAction = Math.max(16, chatBase) - 2;
   const code = Math.max(10, Math.min(chatBase - 1, chatBase - 2));
+  const brandType = options.brandFontFamily
+    ? {
+        fontFamily: options.brandFontFamily,
+        fontSize: 19,
+        lineHeight: 24,
+        fontWeight: "400" as const,
+        letterSpacing: 0.1,
+        color: color.ink,
+      }
+    : {
+        fontSize: 19,
+        lineHeight: 24,
+        fontWeight: "600" as const,
+        letterSpacing: 0.1,
+        color: color.ink,
+      };
 
   return {
     fontSize: chatBase,
     type: {
-      brand: { fontSize: 20, lineHeight: 24, fontWeight: "500" as const, color: color.ink },
+      brand: brandType,
       title: { fontSize: 20, lineHeight: 24, fontWeight: "500" as const, color: color.ink },
       body: { fontSize: 16, lineHeight: 22, fontWeight: "400" as const, color: color.ink },
       bodyStrong: { fontSize: 16, lineHeight: 22, fontWeight: "400" as const, color: color.ink },
