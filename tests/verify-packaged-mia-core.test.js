@@ -5,6 +5,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const {
+  canRunTargetArch,
   resolvePackagedAppPath,
   verifyPackagedMiaCore
 } = require("../scripts/verify-packaged-mia-core.js");
@@ -65,6 +66,30 @@ process.on("SIGINT", () => server.close(() => process.exit(0)));
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test("verifyPackagedMiaCore skips the runtime probe for a macOS arch the host cannot execute", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-cross-arch-"));
+  try {
+    const appPath = makeFakePackagedApp(tempDir, "process.exit(42);\n");
+    const result = await verifyPackagedMiaCore({
+      appPath,
+      arch: "arm64",
+      hostArch: "x64",
+      platform: "darwin",
+      timeoutMs: 100
+    });
+    assert.equal(result.ok, true, result.error || "expected cross-arch verification to pass structural checks");
+    assert.equal(result.skippedRuntimeProbe, true);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("canRunTargetArch only blocks known macOS cross-arch runtime probes", () => {
+  assert.equal(canRunTargetArch({ arch: "arm64", hostArch: "x64", platform: "darwin" }), false);
+  assert.equal(canRunTargetArch({ arch: "x64", hostArch: "x64", platform: "darwin" }), true);
+  assert.equal(canRunTargetArch({ arch: "arm64", hostArch: "x64", platform: "linux" }), true);
 });
 
 test("verifyPackagedMiaCore fails closed when the packaged Core crashes on startup", async () => {

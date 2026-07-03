@@ -9,6 +9,19 @@ const path = require("node:path");
 const root = path.join(__dirname, "..");
 const DEFAULT_TIMEOUT_MS = Number(process.env.MIA_PACKAGED_CORE_VERIFY_TIMEOUT_MS || 10000);
 
+function normalizeArch(arch = "") {
+  if (arch === "amd64") return "x64";
+  return arch;
+}
+
+function canRunTargetArch({ arch = "", hostArch = os.arch(), platform = process.platform } = {}) {
+  const targetArch = normalizeArch(arch);
+  const currentArch = normalizeArch(hostArch);
+  if (!targetArch || targetArch === currentArch) return true;
+  if (platform !== "darwin") return true;
+  return false;
+}
+
 function freePort(host = "127.0.0.1") {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -127,7 +140,9 @@ async function verifyPackagedMiaCore({
   appPath = "",
   arch = "",
   timeoutMs = DEFAULT_TIMEOUT_MS,
-  fetchImpl = fetch
+  fetchImpl = fetch,
+  hostArch = os.arch(),
+  platform = process.platform
 } = {}) {
   const resolvedAppPath = resolvePackagedAppPath({ rootDir, appPath, arch });
   if (!resolvedAppPath) {
@@ -144,6 +159,15 @@ async function verifyPackagedMiaCore({
       ok: false,
       appPath: resolvedAppPath,
       error: `Packaged Mia Core is incomplete: missing ${missing.join(", ")}`
+    };
+  }
+
+  if (!canRunTargetArch({ arch, hostArch, platform })) {
+    return {
+      ok: true,
+      appPath: resolvedAppPath,
+      skippedRuntimeProbe: true,
+      reason: `skipped runtime probe because target arch ${arch} cannot run on ${hostArch} ${platform}`
     };
   }
 
@@ -215,11 +239,16 @@ async function main(argv = process.argv.slice(2)) {
     process.stderr.write(`packaged Mia Core verification failed: ${detail}\n`);
     process.exit(1);
   }
+  if (result.skippedRuntimeProbe) {
+    process.stdout.write(`packaged Mia Core structure verified: ${result.appPath} (${result.reason})\n`);
+    return;
+  }
   process.stdout.write(`packaged Mia Core verified: ${result.appPath} -> ${result.baseUrl}\n`);
 }
 
 module.exports = {
   resolvePackagedAppPath,
+  canRunTargetArch,
   verifyPackagedMiaCore
 };
 
