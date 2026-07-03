@@ -59,6 +59,16 @@ test("desktop package includes OpenClaw ACP SDK runtime dependency", () => {
   );
 });
 
+test("desktop package unpacks packaged-Core runtime dependencies that are required at startup", () => {
+  const pkg = packageJson();
+
+  assert.ok(pkg.dependencies?.qrcode, "desktop sync client imports qrcode at runtime, so it must stay a production dependency");
+  assert.ok(
+    pkg.build.asarUnpack.includes("node_modules/qrcode/**"),
+    "Mia Core starts under plain node, so qrcode must be unpacked into app.asar.unpacked"
+  );
+});
+
 test("desktop auto-update uses Mia generic update source instead of GitHub", () => {
   const pkg = packageJson();
   assert.deepEqual(pkg.build.publish, {
@@ -108,10 +118,12 @@ test("desktop packaging scripts clean stale release artifacts before building", 
   assert.match(pkg.scripts["dist:mac"], /electron-builder\.mac-arm64\.js/);
   assert.match(pkg.scripts["dist:mac"], /--arm64/);
   assert.match(pkg.scripts["dist:mac"], /--mac dir zip/);
+  assert.match(pkg.scripts["dist:mac"], /node scripts\/verify-packaged-mia-core\.js --arch arm64/);
   assert.match(pkg.scripts["dist:mac"], /MIA_MAC_DMG_LABEL=Apple-Silicon node scripts\/create-mac-dmg\.js/);
   assert.match(pkg.scripts["dist:mac:intel"], /electron-builder\.mac-intel\.js/);
   assert.match(pkg.scripts["dist:mac:intel"], /--x64/);
   assert.match(pkg.scripts["dist:mac:intel"], /--mac dir zip/);
+  assert.match(pkg.scripts["dist:mac:intel"], /node scripts\/verify-packaged-mia-core\.js --arch x64/);
   assert.match(pkg.scripts["dist:mac:intel"], /MIA_MAC_DMG_LABEL=Intel node scripts\/create-mac-dmg\.js/);
   assert.match(pkg.scripts["dist:mac:x64"], /dist:mac:intel/);
 
@@ -122,6 +134,17 @@ test("desktop packaging scripts clean stale release artifacts before building", 
   assert.match(winBuilder, /"--tidy"/);
   assert.match(winBuilder, /ELECTRON_MIRROR/);
   assert.match(winBuilder, /ELECTRON_BUILDER_BINARIES_MIRROR/);
+});
+
+test("desktop package verification script exists as a standalone rerunnable gate", () => {
+  const pkg = packageJson();
+  const source = fs.readFileSync(path.join(root, "scripts", "verify-packaged-mia-core.js"), "utf8");
+
+  assert.equal(pkg.scripts["desktop:package:verify"], "node scripts/verify-packaged-mia-core.js");
+  assert.match(source, /verifyPackagedMiaCore/);
+  assert.match(source, /resolvePackagedAppPath/);
+  assert.match(source, /\/health/);
+  assert.match(source, /mia-node/);
 });
 
 test("base DMG artifact name uses the real architecture by default", () => {

@@ -1,5 +1,9 @@
 # Mia 第一版上线清单
 
+> 历史产品验收记录，不是当前发布 runbook。
+> 当前桌面打包、Cloud/Web 部署、生产验证和回滚命令统一以 [docs/DEPLOYMENT.md](DEPLOYMENT.md) 为准。
+> AI 或发布 automation 不应再把这篇当操作入口。
+
 这份清单来自 2026-06-10 讨论，用来判断第一版是否可以上线。状态只记录产品清单，不替代 `npm run check`、测试和生产部署 gate。
 
 ## 必须完成

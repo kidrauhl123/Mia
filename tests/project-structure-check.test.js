@@ -20,6 +20,7 @@ test("project structure check covers cloud release helpers and rejects root sour
   const source = fs.readFileSync(path.join(root, "src/check.js"), "utf8");
   assert.match(source, /scripts\/diagnose-deploy-ssh\.js/);
   assert.match(source, /scripts\/print-cloud-blockers\.js/);
+  assert.match(source, /scripts\/verify-packaged-mia-core\.js/);
   assert.match(source, /forbiddenRootDuplicates/);
   assert.match(source, /main\.js/);
   assert.match(source, /desktop-bridge-permission\.js/);
