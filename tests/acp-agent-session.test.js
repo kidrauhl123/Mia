@@ -719,3 +719,40 @@ test("defaultCreateTransport passes the AgentSession sessionKey to interactive O
   await transport.close();
   await transport.kill();
 });
+
+test("defaultCreateTransport launches OpenClaw ACP through the Mia profile gateway when prepared", async () => {
+  const spawnCalls = [];
+  const child = createFakeTransport().process;
+  child.stdin = new (require("node:stream").PassThrough)();
+  child.stdout = new (require("node:stream").PassThrough)();
+  child.kill = () => {};
+
+  const transport = await defaultCreateTransport({
+    engineSpec: {
+      engineId: "openclaw",
+      command: "openclaw",
+      args: ["acp", "--no-prefix-cwd"]
+    },
+    env: {
+      MIA_OPENCLAW_PROFILE: "mia"
+    },
+    sessionKey: "conversation-1::openclaw::/repo::mia:mia-auto",
+    workspacePath: "/repo",
+    spawnProcess: (file, args, options) => {
+      spawnCalls.push({ file, args, options });
+      return child;
+    }
+  });
+
+  assert.equal(spawnCalls[0].file, "openclaw");
+  assert.deepEqual(spawnCalls[0].args, [
+    "--profile",
+    "mia",
+    "acp",
+    "--no-prefix-cwd",
+    "--session",
+    "conversation-1::openclaw::/repo::mia:mia-auto"
+  ]);
+  await transport.close();
+  await transport.kill();
+});

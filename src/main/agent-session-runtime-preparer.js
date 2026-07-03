@@ -1,5 +1,7 @@
 "use strict";
 
+const { createOpenClawMiaProfile } = require("./openclaw-mia-profile.js");
+
 function firstString(source = {}, keys = []) {
   for (const key of keys) {
     const value = String(source?.[key] || "").trim();
@@ -20,14 +22,37 @@ function createAgentSessionRuntimePreparer(options = {}) {
     ? options.resolveManagedModelRuntime
     : () => null;
   const claudeCodeMiaProxy = options.claudeCodeMiaProxy || null;
+  const openClawMiaProfile = options.openClawMiaProfile || createOpenClawMiaProfile(options.openClawMiaProfileOptions || {});
 
   async function prepare(input = {}) {
     const engineId = String(input.engineId || "").trim();
-    if (engineId !== "claude") return {};
-
     const runtimeConfig = input.runtimeConfig && typeof input.runtimeConfig === "object"
       ? input.runtimeConfig
       : {};
+
+    if (engineId === "openclaw") {
+      const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "openclaw";
+      if (agentEngine !== "openclaw") return {};
+      const managedRuntime = resolveManagedModelRuntime(runtimeConfig, { engine: "openclaw" });
+      if (!managedRuntime) return {};
+      if (!openClawMiaProfile || typeof openClawMiaProfile.ensure !== "function") {
+        throw new Error("OpenClaw Mia profile manager is not available.");
+      }
+      const profile = await openClawMiaProfile.ensure(managedRuntime);
+      const profileName = String(profile?.profile || "").trim();
+      if (!profileName) {
+        throw new Error("OpenClaw Mia profile manager did not return a usable profile.");
+      }
+      return {
+        runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
+        env: {
+          MIA_OPENCLAW_PROFILE: profileName
+        }
+      };
+    }
+
+    if (engineId !== "claude") return {};
+
     const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "claude-code";
     if (agentEngine !== "claude-code") return {};
 

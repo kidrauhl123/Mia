@@ -100,3 +100,79 @@ test("does not prepare proxy env for non-Claude AgentSession engines", async () 
     }
   }), {});
 });
+
+test("prepares OpenClaw Mia profile for Mia managed model runtime", async () => {
+  const calls = [];
+  const managedModel = {
+    provider: "mia",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:mia-auto",
+    model: "mia-auto",
+    baseUrl: "https://mia.example/api/me/model-proxy/v1",
+    apiKey: "cloud-token",
+    managedByMia: true
+  };
+  const preparer = createAgentSessionRuntimePreparer({
+    resolveManagedModelRuntime: (runtimeConfig, context) => {
+      calls.push(["resolve", runtimeConfig, context]);
+      return managedModel;
+    },
+    openClawMiaProfile: {
+      ensure: async (runtime) => {
+        calls.push(["ensure", runtime]);
+        return {
+          profile: "mia"
+        };
+      }
+    }
+  });
+
+  const runtime = await preparer.prepare({
+    engineId: "openclaw",
+    runtimeConfig: {
+      agentEngine: "openclaw",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto"
+    }
+  });
+
+  assert.deepEqual(calls, [
+    ["resolve", {
+      agentEngine: "openclaw",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto"
+    }, { engine: "openclaw" }],
+    ["ensure", managedModel]
+  ]);
+  assert.deepEqual(runtime, {
+    runtimeKey: "mia:mia-auto",
+    env: {
+      MIA_OPENCLAW_PROFILE: "mia"
+    }
+  });
+});
+
+test("does not touch OpenClaw profile for native OpenClaw runtime", async () => {
+  const preparer = createAgentSessionRuntimePreparer({
+    resolveManagedModelRuntime: () => null,
+    openClawMiaProfile: {
+      ensure: async () => {
+        throw new Error("profile should not be prepared");
+      }
+    }
+  });
+
+  const runtime = await preparer.prepare({
+    engineId: "openclaw",
+    runtimeConfig: {
+      agentEngine: "openclaw",
+      providerConnectionId: "openclaw",
+      modelProfileId: "openclaw:auto",
+      model: "auto"
+    }
+  });
+
+  assert.deepEqual(runtime, {});
+});

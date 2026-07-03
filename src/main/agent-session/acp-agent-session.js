@@ -43,13 +43,33 @@ function createPermissionFallback(params = {}) {
   return { outcome: { outcome: "cancelled" } };
 }
 
+function openClawArgsWithMiaRuntime(args = [], env = {}) {
+  const next = Array.isArray(args) ? args.slice() : [];
+  const profile = String(env.MIA_OPENCLAW_PROFILE || "").trim();
+  if (profile && !next.includes("--profile")) {
+    next.unshift("--profile", profile);
+  }
+  const gatewayUrl = String(env.MIA_OPENCLAW_GATEWAY_URL || "").trim();
+  if (gatewayUrl && !next.includes("--url")) {
+    next.push("--url", gatewayUrl);
+  }
+  const gatewayTokenFile = String(env.MIA_OPENCLAW_GATEWAY_TOKEN_FILE || "").trim();
+  if (gatewayTokenFile && !next.includes("--token") && !next.includes("--token-file")) {
+    next.push("--token-file", gatewayTokenFile);
+  }
+  return next;
+}
+
 async function defaultCreateTransport(options = {}) {
   const sdk = await importAcpSdk();
   const engineSpec = options.engineSpec || {};
   const sessionKey = String(options.sessionKey || "").trim();
+  const engineArgs = engineSpec?.engineId === "openclaw"
+    ? openClawArgsWithMiaRuntime(engineSpec.args, options.env || {})
+    : (Array.isArray(engineSpec.args) ? engineSpec.args : []);
   const spawnEngineSpec = engineSpec?.engineId === "openclaw" && sessionKey
-    ? { ...engineSpec, args: [...(Array.isArray(engineSpec.args) ? engineSpec.args : []), "--session", sessionKey] }
-    : engineSpec;
+    ? { ...engineSpec, args: [...engineArgs, "--session", sessionKey] }
+    : (engineSpec?.engineId === "openclaw" ? { ...engineSpec, args: engineArgs } : engineSpec);
   const child = spawnAcpEngineProcess(
     options.spawnProcess || spawn,
     spawnEngineSpec,
@@ -294,5 +314,6 @@ module.exports = Object.freeze({
   defaultCreateClient,
   defaultCreateTransport,
   importAcpSdk,
+  openClawArgsWithMiaRuntime,
   promptCancelledError
 });
