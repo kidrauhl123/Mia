@@ -2092,6 +2092,11 @@ p {
   pointer-events: none;
 }
 
+.model-avatar.model-avatar--transparent {
+  background-color: transparent;
+  background-size: 16px 16px;
+}
+
 .model-avatar img {
   display: block;
   width: 16px;

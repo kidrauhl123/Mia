@@ -1001,6 +1001,17 @@ function providerIconSrc(provider = "") {
   return `./assets/provider-icons/${id}.svg`;
 }
 
+function isMiaModelIcon(icon = "") {
+  return /(?:^|\/)mia-logo\.png(?:[?#].*)?$/.test(String(icon || ""));
+}
+
+function applyComposerModelAvatar(modelAvatar, icon = "") {
+  if (!modelAvatar) return;
+  modelAvatar.textContent = icon ? "" : "◇";
+  modelAvatar.style.backgroundImage = icon ? `url("${icon}")` : "";
+  modelAvatar.classList.toggle("model-avatar--transparent", isMiaModelIcon(icon));
+}
+
 function modelIconSrc(model = {}) {
   const id = String(model.model || model.id || model.name || model.value || "").toLowerCase();
   const provider = String(model.provider || "").toLowerCase();
@@ -1053,8 +1064,7 @@ function setModelAvatar(engine, entry = {}, config = {}) {
   // the renderer. Web loads from "/app/", so we normalize at the render
   // boundary the same way avatar paths do (see normalizeAvatarUrl).
   const icon = normalizeAvatarUrl(rawIcon);
-  els.quickModelAvatar.textContent = icon ? "" : "◇";
-  els.quickModelAvatar.style.backgroundImage = icon ? `url("${icon}")` : "";
+  applyComposerModelAvatar(els.quickModelAvatar, icon);
 }
 
 function showToast(text) {

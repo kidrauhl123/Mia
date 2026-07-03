@@ -469,9 +469,32 @@ test("src/web/app.js normalizes model + provider icon URLs through the same boun
   );
   assert.match(
     setterMatch[0],
-    /style\.backgroundImage\s*=\s*icon\s*\?/,
-    "setModelAvatar still assigns the normalized URL to backgroundImage"
+    /applyComposerModelAvatar\(els\.quickModelAvatar,\s*icon\)/,
+    "setModelAvatar still sends the normalized URL into the composer avatar renderer"
   );
+  const helperMatch = source.match(/function applyComposerModelAvatar\([\s\S]*?\n\}/);
+  assert.ok(helperMatch, "applyComposerModelAvatar must exist");
+  assert.match(
+    helperMatch[0],
+    /style\.backgroundImage\s*=\s*icon\s*\?/,
+    "applyComposerModelAvatar still assigns the normalized URL to backgroundImage"
+  );
+});
+
+test("desktop and web composer render Mia Auto as transparent model art", () => {
+  const desktopSource = fs.readFileSync(path.join(ROOT, "src/renderer/app.js"), "utf8");
+  const desktopCss = fs.readFileSync(path.join(ROOT, "src/renderer/styles.css"), "utf8");
+  const webSource = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const webCss = fs.readFileSync(path.join(ROOT, "src/web/styles.css"), "utf8");
+
+  for (const source of [desktopSource, webSource]) {
+    assert.match(source, /function isMiaModelIcon\(/);
+    assert.match(source, /classList\.toggle\("model-avatar--transparent",\s*isMiaModelIcon\(icon\)\)/);
+  }
+  for (const css of [desktopCss, webCss]) {
+    assert.match(css, /\.model-avatar\.model-avatar--transparent\s*\{[\s\S]*background-color:\s*transparent/);
+    assert.match(css, /\.model-avatar\.model-avatar--transparent\s*\{[\s\S]*background-size:\s*16px 16px/);
+  }
 });
 
 test("src/renderer/index.html loads package avatar before helpers/avatar-helpers.js", () => {

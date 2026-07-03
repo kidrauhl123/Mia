@@ -7181,6 +7181,11 @@ select.select-open {
   pointer-events: none;
 }
 
+.model-avatar.model-avatar--transparent {
+  background-color: transparent;
+  background-size: 16px 16px;
+}
+
 .model-current-label {
   position: relative;
   z-index: 2;

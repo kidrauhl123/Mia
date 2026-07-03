@@ -249,6 +249,9 @@ test("Codex turns using Mia Auto receive Mia proxy env in Core AgentSession", as
   const codexConfig = JSON.parse(managerCalls[0].env.CODEX_CONFIG);
   assert.equal(codexConfig.model, "mia-auto");
   assert.equal(codexConfig.model_provider, "custom");
+  assert.equal(typeof codexConfig.model_catalog_json, "string");
+  assert.equal(fs.existsSync(codexConfig.model_catalog_json), true);
+  assert.equal(JSON.parse(fs.readFileSync(codexConfig.model_catalog_json, "utf8")).models[0].slug, "mia-auto");
   assert.equal(codexConfig.disable_response_storage, true);
   assert.equal(codexConfig.model_providers.custom.base_url.startsWith("http://127.0.0.1:"), true);
   assert.equal(codexConfig.model_providers.custom.wire_api, "responses");

@@ -399,6 +399,17 @@ function setText(el, value) {
   el.textContent = value;
 }
 
+function isMiaModelIcon(icon = "") {
+  return /(?:^|\/)mia-logo\.png(?:[?#].*)?$/.test(String(icon || ""));
+}
+
+function applyComposerModelAvatar(modelAvatar, icon = "") {
+  if (!modelAvatar) return;
+  modelAvatar.textContent = icon ? "" : "◇";
+  modelAvatar.style.backgroundImage = icon ? `url("${icon}")` : "";
+  modelAvatar.classList.toggle("model-avatar--transparent", isMiaModelIcon(icon));
+}
+
 function firstNonEmpty(...values) {
   for (const value of values) {
     const text = String(value || "").trim();
@@ -3283,11 +3294,7 @@ function render() {
     : connectedEntries.length
       ? window.miaModelHelpers.modelIconSrc(runtime.model || {})
       : "";
-  const modelAvatar = document.querySelector(".model-avatar");
-  if (modelAvatar) {
-    modelAvatar.textContent = activeIcon ? "" : "◇";
-    modelAvatar.style.backgroundImage = activeIcon ? `url("${activeIcon}")` : "";
-  }
+  applyComposerModelAvatar(document.querySelector(".model-avatar"), activeIcon);
   window.miaModelSettings.syncPermissionControl(runtime);
   syncConversationBotRuntimeControls();
 
@@ -4768,9 +4775,7 @@ function setComposerModelAvatar(entry = {}, engine = "hermes") {
     model: entry.model || entry.id || entry.value || ""
   });
   const modelAvatar = document.querySelector(".model-avatar");
-  if (!modelAvatar) return;
-  modelAvatar.textContent = icon ? "" : "◇";
-  modelAvatar.style.backgroundImage = icon ? `url("${icon}")` : "";
+  applyComposerModelAvatar(modelAvatar, icon);
 }
 
 function syncConversationBotRuntimeControls() {

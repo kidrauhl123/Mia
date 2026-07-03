@@ -1,5 +1,8 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const {
   createAgentSessionRuntimePreparer
@@ -78,7 +81,10 @@ test("does not prepare proxy env for native Claude Code runtime", async () => {
   assert.deepEqual(runtime, {});
 });
 
-test("prepares Codex Mia managed model proxy env for AgentSession", async () => {
+test("prepares Codex Mia managed model proxy env for AgentSession", async (t) => {
+  const catalogDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-codex-catalog-"));
+  t.after(() => fs.rmSync(catalogDir, { recursive: true, force: true }));
+  const catalogPath = path.join(catalogDir, "models.json");
   const proxyCalls = [];
   const managedModel = {
     provider: "mia",
@@ -104,7 +110,8 @@ test("prepares Codex Mia managed model proxy env for AgentSession", async () => 
           model: "mia-auto"
         };
       }
-    }
+    },
+    codexModelCatalogPath: catalogPath
   });
 
   const runtime = await preparer.prepare({
@@ -123,9 +130,18 @@ test("prepares Codex Mia managed model proxy env for AgentSession", async () => 
   assert.equal(runtime.env.CODEX_API_KEY, "mia-codex-session-token");
   assert.equal(runtime.env.OPENAI_API_KEY, undefined);
   assert.equal(runtime.env.MODEL_PROVIDER, "custom");
-  assert.deepEqual(JSON.parse(runtime.env.CODEX_CONFIG), {
+  const codexConfig = JSON.parse(runtime.env.CODEX_CONFIG);
+  assert.equal(codexConfig.model_catalog_json, catalogPath);
+  assert.equal(fs.existsSync(catalogPath), true);
+  const catalog = JSON.parse(fs.readFileSync(catalogPath, "utf8"));
+  assert.equal(catalog.models[0].slug, "mia-auto");
+  assert.equal(catalog.models[0].display_name, "Auto");
+  assert.equal(catalog.models[0].base_instructions.length > 0, true);
+  assert.deepEqual(catalog.models[0].supported_reasoning_levels.map((entry) => entry.effort), ["none", "low", "medium", "high"]);
+  assert.deepEqual(codexConfig, {
     model: "mia-auto",
     model_provider: "custom",
+    model_catalog_json: catalogPath,
     disable_response_storage: true,
     model_providers: {
       custom: {
