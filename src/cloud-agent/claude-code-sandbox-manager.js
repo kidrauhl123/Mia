@@ -5,6 +5,8 @@ const { DEFAULT_CLOUD_CLAUDE_CODE_MODEL, normalizeCloudClaudeCodeModel } = requi
 
 const DEFAULT_AGENT_ROOT = path.join(os.tmpdir(), "mia-cloud-claude-code");
 const DEFAULT_DEEPSEEK_ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic";
+const DEFAULT_AGENT_PYTHON_VENV = "/opt/mia-agent-runtime/python";
+const DEFAULT_PIP_INDEX_URL = "https://mirrors.tencent.com/pypi/simple";
 
 function envFlag(value, fallback = false) {
   const raw = String(value ?? "").trim().toLowerCase();
@@ -47,14 +49,37 @@ function deepSeekApiKey(options = {}) {
   ).trim();
 }
 
+function agentPythonVenv(options = {}) {
+  const value = options.pythonVenv !== undefined
+    ? options.pythonVenv
+    : (process.env.MIA_CLOUD_AGENT_PYTHON_VENV || process.env.MIA_AGENT_PYTHON_VENV || DEFAULT_AGENT_PYTHON_VENV);
+  if (value === false || envDisabled(value)) return "";
+  return String(value || "").trim();
+}
+
+function prependPathEntry(basePath, entry) {
+  const cleanEntry = String(entry || "").trim();
+  const parts = String(basePath || "").split(path.delimiter).filter(Boolean);
+  if (!cleanEntry) return parts.join(path.delimiter);
+  return [cleanEntry, ...parts.filter((part) => part !== cleanEntry)].join(path.delimiter);
+}
+
 function baseClaudeCodeEnv(options = {}) {
   const baseUrl = deepSeekAnthropicBaseUrl(options);
   const apiKey = deepSeekApiKey(options);
+  const pythonVenv = agentPythonVenv(options);
+  const pipIndexUrl = String(options.pipIndexUrl || process.env.MIA_PIP_INDEX_URL || DEFAULT_PIP_INDEX_URL).trim();
+  const pipExtraIndexUrl = String(options.pipExtraIndexUrl || process.env.MIA_PIP_EXTRA_INDEX_URL || "").trim();
   const env = {
-    PATH: process.env.PATH || "",
+    PATH: prependPathEntry(process.env.PATH || "", pythonVenv ? path.join(pythonVenv, "bin") : ""),
     LANG: process.env.LANG || "C.UTF-8",
     LC_ALL: process.env.LC_ALL || process.env.LANG || "C.UTF-8",
     SHELL: process.env.SHELL || "/bin/sh",
+    VIRTUAL_ENV: pythonVenv || undefined,
+    MIA_CLOUD_AGENT_PYTHON_VENV: pythonVenv || undefined,
+    PIP_INDEX_URL: pipIndexUrl || undefined,
+    PIP_EXTRA_INDEX_URL: pipExtraIndexUrl || undefined,
+    PIP_DISABLE_PIP_VERSION_CHECK: "1",
     ANTHROPIC_BASE_URL: baseUrl,
     ANTHROPIC_AUTH_TOKEN: apiKey || undefined,
     ANTHROPIC_API_KEY: apiKey || undefined,
@@ -104,6 +129,8 @@ function createCloudClaudeCodeSandboxManager(options = {}) {
       attachments: path.join(userRoot, "attachments"),
       logs: path.join(userRoot, "logs"),
       tmp: path.join(userRoot, "tmp"),
+      cache: path.join(userRoot, "home", ".cache"),
+      pythonUserBase: path.join(userRoot, "home", ".local"),
       agentHome: path.join(userRoot, "home", ".claude"),
       schedulerHome: path.join(userRoot, "home", ".mia")
     };
@@ -111,7 +138,7 @@ function createCloudClaudeCodeSandboxManager(options = {}) {
 
   async function ensureWorker(userId) {
     const paths = pathsForUser(userId);
-    for (const dir of [paths.root, paths.home, paths.workspace, paths.attachments, paths.logs, paths.tmp, paths.agentHome, paths.schedulerHome]) {
+    for (const dir of [paths.root, paths.home, paths.workspace, paths.attachments, paths.logs, paths.tmp, paths.cache, paths.pythonUserBase, paths.agentHome, paths.schedulerHome]) {
       mkdirPrivate(dir);
     }
     return {
@@ -133,7 +160,11 @@ function createCloudClaudeCodeSandboxManager(options = {}) {
         TMPDIR: paths.tmp,
         CLAUDE_CONFIG_DIR: paths.agentHome,
         MIA_CLOUD_AGENT_DATA_ROOT: paths.root,
-        MIA_CLOUD_AGENT_PUBLIC_ROOT: "/data"
+        MIA_CLOUD_AGENT_PUBLIC_ROOT: "/data",
+        XDG_CACHE_HOME: paths.cache,
+        MPLCONFIGDIR: path.join(paths.cache, "matplotlib"),
+        PIP_CACHE_DIR: path.join(paths.cache, "pip"),
+        PYTHONUSERBASE: paths.pythonUserBase
       }
     };
   }
@@ -155,6 +186,8 @@ function createCloudClaudeCodeSandboxManager(options = {}) {
 module.exports = {
   DEFAULT_AGENT_ROOT,
   DEFAULT_DEEPSEEK_ANTHROPIC_BASE_URL,
+  DEFAULT_AGENT_PYTHON_VENV,
+  DEFAULT_PIP_INDEX_URL,
   baseClaudeCodeEnv,
   createCloudClaudeCodeSandboxManager
 };

@@ -26,6 +26,10 @@ DEBIAN_APT_MIRROR="${MIA_DEBIAN_APT_MIRROR:-}"
 DEBIAN_APT_SECURITY_MIRROR="${MIA_DEBIAN_APT_SECURITY_MIRROR:-}"
 PIP_INDEX_URL="${MIA_PIP_INDEX_URL:-}"
 PIP_EXTRA_INDEX_URL="${MIA_PIP_EXTRA_INDEX_URL:-}"
+AGENT_PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tencent.com/pypi/simple}"
+AGENT_PYTHON_BIN="${MIA_CLOUD_AGENT_PYTHON_BIN:-python3.12}"
+AGENT_PYTHON_VENV="${MIA_CLOUD_AGENT_PYTHON_VENV:-/opt/mia-agent-runtime/python}"
+AGENT_PYTHON_PACKAGES="${MIA_CLOUD_AGENT_PYTHON_PACKAGES:-python-pptx python-docx openpyxl xlsxwriter pandas numpy matplotlib pillow reportlab pypdf requests beautifulsoup4 lxml markdown}"
 SKIP_HERMES_IMAGE_BUILD="${MIA_DEPLOY_SKIP_HERMES_IMAGE_BUILD:-${MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD:-${MIA_SKIP_HERMES_IMAGE_BUILD:-}}}"
 AGENT_DOCKER_NETWORK="${MIA_CLOUD_AGENT_DOCKER_NETWORK:-mia-cloud}"
 LITELLM_CONTAINER="${MIA_LITELLM_CONTAINER:-litellm}"
@@ -94,6 +98,10 @@ DEBIAN_APT_MIRROR_QUOTED="$(shell_quote "$DEBIAN_APT_MIRROR")"
 DEBIAN_APT_SECURITY_MIRROR_QUOTED="$(shell_quote "$DEBIAN_APT_SECURITY_MIRROR")"
 PIP_INDEX_URL_QUOTED="$(shell_quote "$PIP_INDEX_URL")"
 PIP_EXTRA_INDEX_URL_QUOTED="$(shell_quote "$PIP_EXTRA_INDEX_URL")"
+AGENT_PIP_INDEX_URL_QUOTED="$(shell_quote "$AGENT_PIP_INDEX_URL")"
+AGENT_PYTHON_BIN_QUOTED="$(shell_quote "$AGENT_PYTHON_BIN")"
+AGENT_PYTHON_VENV_QUOTED="$(shell_quote "$AGENT_PYTHON_VENV")"
+AGENT_PYTHON_PACKAGES_QUOTED="$(shell_quote "$AGENT_PYTHON_PACKAGES")"
 SKIP_HERMES_IMAGE_BUILD_QUOTED="$(shell_quote "$SKIP_HERMES_IMAGE_BUILD")"
 AGENT_MODE_QUOTED="$(shell_quote "$AGENT_MODE")"
 CLAUDE_CODE_BASE_URL_QUOTED="$(shell_quote "$CLAUDE_CODE_BASE_URL")"
@@ -205,6 +213,10 @@ DEBIAN_APT_MIRROR=$DEBIAN_APT_MIRROR_QUOTED
 DEBIAN_APT_SECURITY_MIRROR=$DEBIAN_APT_SECURITY_MIRROR_QUOTED
 PIP_INDEX_URL=$PIP_INDEX_URL_QUOTED
 PIP_EXTRA_INDEX_URL=$PIP_EXTRA_INDEX_URL_QUOTED
+AGENT_PIP_INDEX_URL=$AGENT_PIP_INDEX_URL_QUOTED
+AGENT_PYTHON_BIN=$AGENT_PYTHON_BIN_QUOTED
+AGENT_PYTHON_VENV=$AGENT_PYTHON_VENV_QUOTED
+AGENT_PYTHON_PACKAGES=$AGENT_PYTHON_PACKAGES_QUOTED
 SKIP_HERMES_IMAGE_BUILD=$SKIP_HERMES_IMAGE_BUILD_QUOTED
 AGENT_MODE=$AGENT_MODE_QUOTED
 CLAUDE_CODE_BASE_URL=$CLAUDE_CODE_BASE_URL_QUOTED
@@ -250,6 +262,20 @@ needs_claude_code_sandbox_deps() {
   truthy_value "\$CLAUDE_CODE_SANDBOX" && truthy_value "\$CLAUDE_CODE_SANDBOX_REQUIRED"
 }
 
+uses_claude_code_agent() {
+  case "\$AGENT_MODE" in
+    claude|claude-code|cloud-claude-code) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+agent_python_runtime_enabled() {
+  case "\$(printf "%s" "\$AGENT_PYTHON_VENV" | tr '[:upper:]' '[:lower:]')" in
+    ""|0|false|no|off) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 install_system_packages() {
   if [ "\$#" -eq 0 ]; then
     return
@@ -265,6 +291,54 @@ install_system_packages() {
     echo "Missing package manager; install required packages manually: \$*" >&2
     exit 1
   fi
+}
+
+ensure_agent_python_binary() {
+  if command -v "\$AGENT_PYTHON_BIN" >/dev/null 2>&1; then
+    return
+  fi
+  echo "Installing Agent Python runtime binary: \$AGENT_PYTHON_BIN"
+  if command -v apt-get >/dev/null 2>&1; then
+    install_system_packages "\$AGENT_PYTHON_BIN" "\$AGENT_PYTHON_BIN-venv" "\$AGENT_PYTHON_BIN-pip"
+  else
+    install_system_packages "\$AGENT_PYTHON_BIN" "\$AGENT_PYTHON_BIN-pip"
+  fi
+}
+
+write_agent_python_pip_conf() {
+  tmp_conf="\$(mktemp "\${TMPDIR:-/tmp}/mia-agent-pip.XXXXXX")"
+  {
+    printf '[global]\n'
+    printf 'index-url = %s\n' "\$AGENT_PIP_INDEX_URL"
+    printf 'trusted-host = mirrors.tencent.com\n'
+    printf 'retries = 5\n'
+    printf 'timeout = 60\n'
+    if [ -n "\$PIP_EXTRA_INDEX_URL" ]; then
+      printf 'extra-index-url = %s\n' "\$PIP_EXTRA_INDEX_URL"
+    fi
+  } > "\$tmp_conf"
+  run_as_root cp "\$tmp_conf" "\$AGENT_PYTHON_VENV/pip.conf"
+  rm -f "\$tmp_conf"
+}
+
+ensure_agent_python_runtime() {
+  if ! uses_claude_code_agent || ! agent_python_runtime_enabled; then
+    return
+  fi
+  ensure_agent_python_binary
+  run_as_root mkdir -p "\$(dirname "\$AGENT_PYTHON_VENV")"
+  if [ ! -x "\$AGENT_PYTHON_VENV/bin/python" ]; then
+    echo "Creating Agent Python venv: \$AGENT_PYTHON_VENV"
+    run_as_root "\$AGENT_PYTHON_BIN" -m venv "\$AGENT_PYTHON_VENV"
+  fi
+  write_agent_python_pip_conf
+  run_as_root env PIP_CONFIG_FILE="\$AGENT_PYTHON_VENV/pip.conf" "\$AGENT_PYTHON_VENV/bin/python" -m pip install --upgrade pip setuptools wheel
+  if [ -n "\$AGENT_PYTHON_PACKAGES" ]; then
+    echo "Installing Agent Python packages: \$AGENT_PYTHON_PACKAGES"
+    run_as_root env PIP_CONFIG_FILE="\$AGENT_PYTHON_VENV/pip.conf" "\$AGENT_PYTHON_VENV/bin/python" -m pip install \$AGENT_PYTHON_PACKAGES
+  fi
+  run_as_root chmod -R a+rX "\$AGENT_PYTHON_VENV"
+  run_as_root "\$AGENT_PYTHON_VENV/bin/python" -c 'import pptx, docx, openpyxl, pandas, matplotlib, PIL, reportlab, pypdf, requests, bs4, lxml, markdown; print("Agent Python runtime OK")'
 }
 
 ensure_claude_code_sandbox_deps() {
@@ -510,6 +584,7 @@ echo "Release archive checksum OK: \$actual_sha"
 tar -xzf "$REMOTE_TMP" -C "$REMOTE_RELEASE_DIR" --strip-components=1
 
 ensure_claude_code_sandbox_deps
+ensure_agent_python_runtime
 run_as_root mkdir -p "$BACKUP_DIR"
 ensure_service_user
 if is_legacy_hermes_agent; then
@@ -612,6 +687,9 @@ Environment=MIA_BRIDGE_RUN_TIMEOUT_MS=300000
 Environment=MIA_CLOUD_VERSION=2026-05-20
 Environment=MIA_CLOUD_AGENT_MODE=$AGENT_MODE
 Environment=MIA_CLOUD_AGENT_ROOT=$AGENT_ROOT
+Environment=MIA_CLOUD_AGENT_PYTHON_VENV=$AGENT_PYTHON_VENV
+Environment=MIA_PIP_INDEX_URL=$AGENT_PIP_INDEX_URL
+Environment=MIA_PIP_EXTRA_INDEX_URL=$PIP_EXTRA_INDEX_URL
 Environment=MIA_CLOUD_CLAUDE_CODE_BASE_URL=$CLAUDE_CODE_BASE_URL
 Environment=MIA_CLOUD_CLAUDE_CODE_MODEL=$CLAUDE_CODE_MODEL
 Environment=MIA_CLOUD_CLAUDE_CODE_SANDBOX=$CLAUDE_CODE_SANDBOX

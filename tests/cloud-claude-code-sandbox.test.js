@@ -9,6 +9,8 @@ const {
   normalizeCloudClaudeCodeModel
 } = require("../src/cloud-agent/cloud-claude-code-model.js");
 const {
+  DEFAULT_AGENT_PYTHON_VENV,
+  DEFAULT_PIP_INDEX_URL,
   baseClaudeCodeEnv,
   createCloudClaudeCodeSandboxManager
 } = require("../src/cloud-agent/claude-code-sandbox-manager.js");
@@ -55,6 +57,8 @@ test("cloud Claude Code sandbox manager creates per-user workspace and DeepSeek 
       anthropicBaseUrl: "https://api.deepseek.com/anthropic/",
       model: "mia-auto",
       platformModel: "mia-auto",
+      pythonVenv: path.join(root, "python"),
+      pipIndexUrl: "https://mirror.test/simple",
       sandboxRequired: true
     });
     const worker = await manager.ensureWorker("user:1");
@@ -65,9 +69,18 @@ test("cloud Claude Code sandbox manager creates per-user workspace and DeepSeek 
     assert.equal(worker.env.ANTHROPIC_BASE_URL, "https://api.deepseek.com/anthropic");
     assert.equal(worker.env.ANTHROPIC_API_KEY, "sk-deepseek");
     assert.equal(worker.env.ANTHROPIC_AUTH_TOKEN, "sk-deepseek");
+    assert.equal(worker.env.MIA_CLOUD_AGENT_PYTHON_VENV, path.join(root, "python"));
+    assert.equal(worker.env.VIRTUAL_ENV, path.join(root, "python"));
+    assert.equal(worker.env.PIP_INDEX_URL, "https://mirror.test/simple");
+    assert.equal(worker.env.PIP_DISABLE_PIP_VERSION_CHECK, "1");
+    assert.equal(worker.env.PATH.split(path.delimiter)[0], path.join(root, "python", "bin"));
+    assert.equal(worker.env.PYTHONUSERBASE, path.join(worker.paths.home, ".local"));
+    assert.equal(worker.env.PIP_CACHE_DIR, path.join(worker.paths.cache, "pip"));
+    assert.equal(worker.env.MPLCONFIGDIR, path.join(worker.paths.cache, "matplotlib"));
     assert.equal(worker.sandboxSettings.enabled, true);
     assert.equal(worker.sandboxSettings.failIfUnavailable, true);
     assert.ok(fs.statSync(worker.paths.workspace).isDirectory());
+    assert.ok(fs.statSync(worker.paths.pythonUserBase).isDirectory());
     assert.ok(fs.statSync(worker.paths.agentHome).isDirectory());
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -75,10 +88,17 @@ test("cloud Claude Code sandbox manager creates per-user workspace and DeepSeek 
 });
 
 test("baseClaudeCodeEnv points Claude Code at DeepSeek Anthropic-compatible endpoint", () => {
-  const env = baseClaudeCodeEnv({ apiKey: "sk-test", baseUrl: "https://example.test/anthropic/" });
+  const env = baseClaudeCodeEnv({
+    apiKey: "sk-test",
+    baseUrl: "https://example.test/anthropic/",
+    pythonVenv: DEFAULT_AGENT_PYTHON_VENV,
+    pipIndexUrl: DEFAULT_PIP_INDEX_URL
+  });
   assert.equal(env.baseUrl, "https://example.test/anthropic");
   assert.equal(env.apiKey, "sk-test");
   assert.equal(env.env.ANTHROPIC_BASE_URL, "https://example.test/anthropic");
+  assert.equal(env.env.MIA_CLOUD_AGENT_PYTHON_VENV, DEFAULT_AGENT_PYTHON_VENV);
+  assert.equal(env.env.PIP_INDEX_URL, DEFAULT_PIP_INDEX_URL);
   assert.equal(env.env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, "1");
 });
 
