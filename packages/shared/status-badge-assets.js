@@ -226,7 +226,7 @@
     }
     if (normalized.kind === "lottie" || normalized.kind === "gift") {
       const assetId = clean(normalized.assetId);
-      const asset = listedAssets().find((item) => item.id === assetId || item.assetId === assetId);
+      const asset = DEFAULT_ASSETS.find((item) => item.id === assetId || item.assetId === assetId);
       return asset?.id || "";
     }
     return "";

@@ -15,6 +15,11 @@ const yaml = require("js-yaml");
 const { attachDesktopReleaseNotes } = require("./desktop-release-notes.js");
 
 const root = path.resolve(__dirname, "..");
+if (!process.env.SSH_ASKPASS) {
+  process.env.SSH_ASKPASS = path.join(root, "scripts", "jms-askpass.sh");
+  process.env.SSH_ASKPASS_REQUIRE = "force";
+}
+
 const pkg = require(path.join(root, "package.json"));
 const productName = pkg.productName || "Mia";
 const version = pkg.version || "0.0.0";

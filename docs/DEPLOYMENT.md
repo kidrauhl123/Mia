@@ -122,6 +122,7 @@ release/
 
 - 发布命令：`npm run release:mac`（= `dist:mac` + `scripts/publish-mac-update.js`）暂存 `latest-mac.yml` + dmg/zip/blockmap；`npm run release:win`（= `dist:win` + `scripts/publish-win-update.js`）暂存 `latest.yml` + NSIS setup/blockmap。设置 `MIA_UPDATE_DEPLOY=1` 时同步到 VPS 的 `/var/www/mia-updates/`，由 `https://mia.gifgif.cn/updates/` 提供。
 - 发版必须先 **bump `package.json` 的 `version`**，并新增 `docs/releases/<version>.md`。发布脚本会把这份说明写进 `latest-mac.yml` / `latest.yml` 的 `releaseNotes`，桌面更新弹窗会展示摘要；缺失时发布会直接失败，避免旧客户端版本号不变或变更说明遗漏。
+- `docs/releases/<version>.md` 面向普通用户，不是内部变更日志。只写用户能感知的体验变化和问题修复，避免服务器、脚本、临时文件名、内部架构名、发包流程等实现细节；也不要写“发布了新安装包”“更新到某版本”这类用户已经知道的空话。
 - 当前更新通道 = **generic HTTPS**（`build.publish` = `generic`, `url` = `https://mia.gifgif.cn/updates/`）；客户端用 electron-updater 在 macOS 拉 `latest-mac.yml`，在 Windows 拉 `latest.yml`。
 - 客户端检查到新版本后是强制更新：主界面会被更新遮罩锁定，下载进度来自 `download-progress`，下载完成后自动进入安装并重启。进入安装态时只能锁页面交互，不能继续用 native `setClosable(false)` 锁窗口；macOS 的 Squirrel quit/install 路径需要窗口可关闭，否则可能出现进度到 100% 但 App 不退出，用户强制退出后才完成更新。
 - macOS 正式分发前应尽量公证并装订票据。一次性保存凭据：`xcrun notarytool store-credentials mia --apple-id <apple-id> --team-id S4NWU843M5`；然后执行 `npm run notarize:mac` 或 `npm run notarize:mac:intel`。若 Apple 返回 `403 Invalid or inaccessible developer team ID`，说明该 Apple ID 没有 `S4NWU843M5` 团队的公证权限，需要换有权限的账号或 App Store Connect API Key。
