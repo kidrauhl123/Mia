@@ -54,19 +54,33 @@
 
   function scrollChipButtonIntoView(button, behavior = "smooth") {
     const row = els?.skillChipRow;
-    if (!button || !row || typeof button.scrollIntoView !== "function") return;
-    if ((row.scrollWidth || 0) <= (row.clientWidth || 0)) return;
+    if (!button || !row) return;
+    const rowWidth = Number(row.clientWidth) || 0;
+    const scrollWidth = Number(row.scrollWidth) || 0;
+    if (scrollWidth <= rowWidth || rowWidth <= 0) return;
     const prefersReducedMotion = typeof window.matchMedia === "function"
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const rowRect = typeof row.getBoundingClientRect === "function" ? row.getBoundingClientRect() : { left: 0 };
+    const buttonRect = typeof button.getBoundingClientRect === "function" ? button.getBoundingClientRect() : { left: 0, width: 0 };
+    const buttonLeft = Number.isFinite(button.offsetLeft)
+      ? button.offsetLeft
+      : (Number(buttonRect.left) || 0) - (Number(rowRect.left) || 0) + (Number(row.scrollLeft) || 0);
+    const buttonWidth = Number.isFinite(button.offsetWidth) && button.offsetWidth > 0
+      ? button.offsetWidth
+      : (Number(buttonRect.width) || 0);
+    const maxLeft = Math.max(0, scrollWidth - rowWidth);
+    const targetLeft = Math.max(0, Math.min(maxLeft, buttonLeft - Math.max(0, rowWidth - buttonWidth) / 2));
+    if (Math.abs((Number(row.scrollLeft) || 0) - targetLeft) < 1) return;
     try {
-      button.scrollIntoView({
-        block: "nearest",
-        inline: "center",
+      row.scrollTo?.({
+        left: targetLeft,
+        top: Number(row.scrollTop) || 0,
         behavior: prefersReducedMotion ? "auto" : behavior
       });
     } catch {
-      button.scrollIntoView();
+      row.scrollLeft = targetLeft;
     }
+    if (typeof row.scrollTo !== "function") row.scrollLeft = targetLeft;
   }
 
   function syncChipRowIndicator(behavior = "auto") {
@@ -348,7 +362,12 @@
     };
     fn();
     restore();
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(restore);
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => {
+        restore();
+        requestAnimationFrame(restore);
+      });
+    }
   }
 
   function renderSkillLibrary(options = {}) {

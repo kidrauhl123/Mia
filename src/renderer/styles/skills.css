@@ -75,6 +75,7 @@
   padding: 98px 24px 24px;
   background: transparent;
   overflow: auto;
+  overflow-anchor: none;
 }
 .skills-layout.masonry-grid-stage {
   overflow-x: clip;

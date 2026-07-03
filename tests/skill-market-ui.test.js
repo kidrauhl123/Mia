@@ -560,6 +560,122 @@ test("background market refresh preserves the skill market scroll position", asy
   assert.match(els.skillCardGrid.innerHTML, /data-market-id="fresh"/);
 });
 
+test("skill category chip centering does not scroll the skills floor", () => {
+  const src = read("src/renderer/skills/skill-library.js");
+  const scroller = {
+    scrollTop: 420,
+    scrollLeft: 0,
+    scrollHeight: 1600,
+    clientHeight: 600,
+    isConnected: true
+  };
+  let chipScrollIntoViewCalled = false;
+  const activeChip = {
+    offsetLeft: 620,
+    offsetWidth: 100,
+    scrollIntoView: () => {
+      chipScrollIntoViewCalled = true;
+      scroller.scrollTop = 0;
+    },
+    getBoundingClientRect: () => ({ left: 620, width: 100, height: 28 })
+  };
+  const fakeEl = () => ({
+    innerHTML: "",
+    textContent: "",
+    style: { setProperty: () => {} },
+    classList: { contains: () => false, toggle: () => {}, add: () => {}, remove: () => {} },
+    setAttribute: () => {},
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+    closest: (selector) => selector === ".skills-layout" ? scroller : null,
+    getBoundingClientRect: () => ({ left: 0, width: 0, height: 0 })
+  });
+  const chipRow = {
+    ...fakeEl(),
+    scrollWidth: 1000,
+    clientWidth: 300,
+    scrollLeft: 0,
+    scrollTop: 0,
+    querySelector: (selector) => selector === "button.active" ? activeChip : null,
+    getBoundingClientRect: () => ({ left: 0, width: 300, height: 34 })
+  };
+  const state = {
+    skillFilter: "",
+    skillCategoryFilter: "",
+    skillCapabilityMode: "market",
+    skillMarketMode: true,
+    skillMarket: {
+      skills: [{ id: "anki", name: "anki", name_zh: "记忆卡片", category: "办公", description: "anki", sourceLabel: "来源" }],
+      categories: [
+        { category: "办公", count: 1 },
+        { category: "开发", count: 1 },
+        { category: "学习", count: 1 }
+      ],
+      loading: false,
+      refreshing: false,
+      loaded: true,
+      queryKey: JSON.stringify({ limit: 72 }),
+      error: ""
+    },
+    skillLibrary: { skills: [] },
+    installingSkillIds: new Set(),
+    selectedSkillId: "",
+    skillContextMenu: { open: false, skillId: "" }
+  };
+  const els = {
+    skillModeToggle: fakeEl(),
+    skillChipRow: chipRow,
+    skillCardGrid: fakeEl(),
+    skillPageTitle: fakeEl(),
+    skillContextMenu: fakeEl()
+  };
+  const context = {
+    console,
+    requestAnimationFrame: (fn) => { fn(); return 1; },
+    window: {
+      addEventListener: () => {},
+      innerWidth: 1024,
+      mia: { marketSkills: () => Promise.resolve({ skills: [], categories: [] }) },
+      miaMasonryGrid: { layout: () => {} },
+      miaSkillHelpers: {
+        skillDisplayName: (skill) => skill.name_zh || skill.name,
+        skillSummaryZh: (skill) => skill.description || "",
+        skillDisplayCategory: (skill) => skill.category || "",
+        skillAuthorLabel: (skill) => skill.sourceLabel || "Local",
+        skillTone: () => "blue",
+        skillInitials: () => "SK",
+        renderSkillMarkdownSource: (body) => body
+      }
+    }
+  };
+  vm.createContext(context);
+  vm.runInContext(src, context, { filename: "skill-library.js" });
+  context.window.miaSkillLibrary.initSkillLibrary({
+    state,
+    els,
+    mia: null,
+    escapeHtml: (value) => String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;"),
+    setText: (el, value) => { el.textContent = String(value || ""); },
+    menuItemHtml: () => "",
+    syncTopbarClickCapture: () => {},
+    closeGroupContextMenu: () => {},
+    showNarrowContent: () => {},
+    deleteSkill: () => {},
+    openSkillDirectory: () => {}
+  });
+
+  context.window.miaSkillLibrary.renderSkillLibrary();
+
+  assert.equal(chipScrollIntoViewCalled, false);
+  assert.equal(scroller.scrollTop, 420);
+  assert.equal(chipRow.scrollLeft, 520);
+});
+
 test("topbar keeps skills as one mode and moves mine into in-page filters", () => {
   const html = read("src/renderer/index.html");
   assert.match(html, /id="skillModeToggle"/);

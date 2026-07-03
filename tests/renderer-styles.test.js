@@ -1069,6 +1069,11 @@ test("discover, skill, and task controls float over one continuous workspace flo
       `${name} content should scroll as one floor from the top-left rather than a row-limited or centered panel`
     );
   }
+  assert.match(
+    skillCss,
+    /\.skills-layout\s*\{[^}]*overflow:\s*auto;[^}]*overflow-anchor:\s*none;/,
+    "skills content should not let browser scroll anchoring yank the market grid during refresh"
+  );
 });
 
 test("floating-floor pages remove the workspace frame even in narrow layouts", () => {
