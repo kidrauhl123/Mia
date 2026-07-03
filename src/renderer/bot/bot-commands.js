@@ -52,6 +52,30 @@
     "api_mode"
   ];
   const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "OpenClaw", "Hermes"];
+  const CLOUD_RUNTIME_KIND = "cloud-claude-code";
+
+  function normalizeRuntimeKind(value, fallback = "desktop-local") {
+    const raw = String(value || fallback || "").trim().toLowerCase().replace(/_/g, "-");
+    if (raw === "cloud-claude-code" || raw === "cloud-hermes" || raw === "mia-cloud" || raw === "miacloud") return CLOUD_RUNTIME_KIND;
+    if (raw === "desktop-local") return "desktop-local";
+    return fallback === CLOUD_RUNTIME_KIND ? CLOUD_RUNTIME_KIND : "desktop-local";
+  }
+
+  function cloudAgentRuntime(state = {}) {
+    return global.miaCloudRuntime?.cloudAgentRuntimeFromState?.(state) || {
+      runtimeKind: "",
+      agentEngine: "",
+      label: "",
+      available: false
+    };
+  }
+
+  function requireCloudAgentRuntime(state = {}) {
+    if (global.miaCloudRuntime?.requireCloudAgentRuntime) return global.miaCloudRuntime.requireCloudAgentRuntime(state);
+    const runtime = cloudAgentRuntime(state);
+    if (!runtime.available) throw new Error("Mia Cloud 运行内核未同步，请刷新运行状态后重试。");
+    return runtime;
+  }
 
   function botIdentity() {
     if (global.miaBotIdentity) return global.miaBotIdentity;
@@ -206,14 +230,17 @@
   }
 
   function cloudRuntimeDefaults({
+    state = {},
     current = null,
     cloudModelEntries = () => []
   } = {}) {
     const existing = current?.config && typeof current.config === "object" ? current.config : {};
+    const cloudRuntime = requireCloudAgentRuntime(state);
     return {
+      agentEngine: existing.agentEngine || existing.agent_engine || cloudRuntime.agentEngine,
       model: existing.model || cloudModelEntries()[0]?.id || "mia-auto",
       effortLevel: existing.effortLevel || "medium",
-      permissionMode: existing.permissionMode || "ask"
+      permissionMode: existing.permissionMode || "bypassPermissions"
     };
   }
 
@@ -235,28 +262,29 @@
     bot = botWithManualCreateDefaults(bot, isCreate);
     const explicitKey = String(bot.key || bot.id || "").trim();
     const key = explicitKey || (isCreate ? generateUntypedBotId(existingBotKeys(state, social)) : "");
-    const kind = String(runtimeKind || "desktop-local").trim() === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
+    const kind = normalizeRuntimeKind(runtimeKind);
     if (!key) return { saved: false, binding: null, conversation: null };
     if (!state.runtime?.cloud?.enabled || typeof api?.social?.saveBotIdentity !== "function") {
       throw new Error("请先登录 Mia Cloud。");
     }
-    const identity = kind === "cloud-hermes"
+    const cloudRuntime = kind === CLOUD_RUNTIME_KIND ? requireCloudAgentRuntime(state) : null;
+    const identity = kind === "cloud-claude-code"
       ? cloudHermesIdentityForBot({ ...bot, key })
       : cloudIdentityForBot({ ...bot, key });
     const saved = await api.social.saveBotIdentity(key, identity);
     if (saved && saved.ok === false) throw new Error(saved.error || "保存 Bot 身份失败");
 
     let config;
-    if (kind === "cloud-hermes") {
+    if (kind === "cloud-claude-code") {
       let current = null;
       try {
         current = typeof api.social.getBotRuntime === "function"
-          ? (await api.social.getBotRuntime(key, "cloud-hermes"))?.data?.binding
+          ? (await api.social.getBotRuntime(key, CLOUD_RUNTIME_KIND))?.data?.binding
           : null;
       } catch {
         current = null;
       }
-      config = cloudRuntimeDefaults({ current, cloudModelEntries });
+      config = cloudRuntimeDefaults({ state, current, cloudModelEntries });
     } else {
       config = desktopLocalRuntimeConfig({
         state,
@@ -294,7 +322,7 @@
       enabled: true,
       config
     };
-    const bindingKind = binding.runtimeKind || binding.runtime_kind || kind;
+    const bindingKind = normalizeRuntimeKind(binding.runtimeKind || binding.runtime_kind || kind);
     const bindingConfig = binding.config || binding.runtimeConfig || {};
     const bindingDeviceName = compactDeviceName(bindingConfig.deviceName || "");
     const conversation = social?.upsertBotConversation?.(conversationFromResult(ensured)) || conversationFromResult(ensured);
@@ -305,11 +333,11 @@
       sourceKinds: [...new Set([...sourceKinds(bot), "cloud"])],
       runtimeKind: bindingKind,
       runtimeConfig: bindingConfig,
-      agentEngine: bindingKind === "cloud-hermes" ? "hermes" : (bindingConfig.agentEngine || agentEngine),
+      agentEngine: normalizeRuntimeKind(bindingKind) === CLOUD_RUNTIME_KIND ? (bindingConfig.agentEngine || cloudRuntime?.agentEngine || "") : (bindingConfig.agentEngine || agentEngine),
       targetDeviceId: bindingConfig.deviceId || "",
       deviceId: bindingConfig.deviceId || "",
       deviceName: bindingDeviceName,
-      runtimeLabel: bindingKind === "cloud-hermes" ? "Mia Cloud" : (bindingDeviceName || "当前设备")
+      runtimeLabel: normalizeRuntimeKind(bindingKind) === CLOUD_RUNTIME_KIND ? "Mia Cloud" : (bindingDeviceName || "当前设备")
     };
     if (social?.moduleState) {
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
@@ -335,22 +363,23 @@
     }
     bot = botWithManualCreateDefaults(bot, isCreate);
     const key = bot.key || generateUntypedBotId(existingBotKeys(state, social));
+    const cloudRuntime = requireCloudAgentRuntime(state);
     const identity = cloudHermesIdentityForBot({ ...bot, key });
     const saved = await api.social.saveBotIdentity(key, identity);
     if (!saved?.ok) throw new Error(saved?.error || "保存 Bot 身份失败");
     if (isCreate || activateRuntime) {
       const runtime = await api.social.saveBotRuntime(key, {
-        runtimeKind: "cloud-hermes",
+        runtimeKind: CLOUD_RUNTIME_KIND,
         enabled: true,
         activate: true,
-        config: cloudRuntimeDefaults({ cloudModelEntries })
+        config: cloudRuntimeDefaults({ state, cloudModelEntries })
       });
       if (!runtime?.ok) throw new Error(runtime?.error || "保存 Mia Cloud 运行配置失败");
     }
     const ensured = await api.social.ensureBotSessionConversation(key, {
       botId: key,
       title: identity.name || key,
-      runtimeKind: "cloud-hermes"
+      runtimeKind: CLOUD_RUNTIME_KIND
     });
     if (!ensured?.ok) throw new Error(ensured?.error || "创建 Bot 会话失败");
     const cloudBot = {
@@ -358,9 +387,9 @@
       key,
       id: key,
       sourceKinds: [...new Set([...sourceKinds(bot), "cloud"])],
-      runtimeKind: "cloud-hermes",
+      runtimeKind: CLOUD_RUNTIME_KIND,
       runtimeLabel: "Mia Cloud",
-      agentEngine: "hermes"
+      agentEngine: cloudRuntime.agentEngine
     };
     if (social?.moduleState) {
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
@@ -374,8 +403,8 @@
   }
 
   async function saveBot(options = {}) {
-    const runtimeKind = String(options.runtimeKind || "desktop-local").trim();
-    if (runtimeKind === "cloud-hermes") return saveCloudHermesBot(options);
+    const runtimeKind = normalizeRuntimeKind(options.runtimeKind || "desktop-local");
+    if (runtimeKind === CLOUD_RUNTIME_KIND) return saveCloudHermesBot(options);
     if (!canUseCloudIdentity(options)) throw new Error("请先登录 Mia Cloud。");
     return saveBotRuntimeTarget({ ...options, runtimeKind: "desktop-local" });
   }
@@ -416,7 +445,7 @@
       personaText: bot.personaText || "",
       capabilities
     };
-    return String(bot.runtimeKind || bot.runtime_kind || "").trim() === "cloud-hermes"
+    return normalizeRuntimeKind(bot.runtimeKind || bot.runtime_kind || "") === CLOUD_RUNTIME_KIND
       ? {
         ...identity,
         bio: stripCopiedEngineIdentity(identity.bio, identity.name),
@@ -460,7 +489,7 @@
     return saveCloudHermesBotCapabilities(options);
   }
 
-  function runtimeCacheKey(botKey, runtimeKind = "cloud-hermes") {
+  function runtimeCacheKey(botKey, runtimeKind = "cloud-claude-code") {
     return `${botKey}:${runtimeKind}`;
   }
 
@@ -468,10 +497,10 @@
     api = global.mia,
     cache = null,
     botKey = "",
-    runtimeKind = "cloud-hermes"
+    runtimeKind = "cloud-claude-code"
   } = {}) {
     const key = String(botKey || "").trim();
-    const kind = String(runtimeKind || "cloud-hermes").trim();
+    const kind = String(runtimeKind || "cloud-claude-code").trim();
     if (!key) return null;
     const cacheKey = runtimeCacheKey(key, kind);
     if (cache?.has?.(cacheKey)) return cache.get(cacheKey);
@@ -487,11 +516,11 @@
     api = global.mia,
     cache = null,
     botKey = "",
-    runtimeKind = "cloud-hermes",
+    runtimeKind = "cloud-claude-code",
     patch = {}
   } = {}) {
     const key = String(botKey || "").trim();
-    const kind = String(runtimeKind || "cloud-hermes").trim();
+    const kind = String(runtimeKind || "cloud-claude-code").trim();
     if (!key) return { saved: false, binding: null };
     const current = await getBotRuntimeBinding({ api, cache, botKey: key, runtimeKind: kind }) || {
       botId: key,

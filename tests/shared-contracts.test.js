@@ -182,7 +182,7 @@ test("session history contract is shared by desktop and web clients", () => {
   const botIdentity = require("../packages/shared/bot-identity");
 
   assert.equal(nodeContract.conversationType({ id: "botc_u_mia" }), "bot");
-  assert.equal(browserContract.runtimeKind({ decorations: { runtimeKind: "cloud-hermes" } }), "cloud-hermes");
+  assert.equal(browserContract.runtimeKind({ decorations: { runtimeKind: "cloud-claude-code" } }), "cloud-claude-code");
   assert.equal(browserContract.canCreateSession({ type: "bot", decorations: { botId: "mia" } }), true);
   assert.equal(botIdentity.botConversationId("u_mia"), "botc_u_mia");
 });
@@ -197,7 +197,7 @@ test("bot runtime control contract saves model, effort, and permission patches",
       return {
         binding: {
           botId: "mia",
-          runtimeKind: "cloud-hermes",
+          runtimeKind: "cloud-claude-code",
           enabled: true,
           config: { model: "old-model", effortLevel: "low" }
         }
@@ -217,7 +217,7 @@ test("bot runtime control contract saves model, effort, and permission patches",
     api,
     cache,
     botKey: "mia",
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     field: "model",
     value: "mia-auto",
     modelEntries: [{ value: "mia-auto", model: "gpt-5.3", label: "GPT" }]
@@ -226,7 +226,7 @@ test("bot runtime control contract saves model, effort, and permission patches",
     api,
     cache,
     botKey: "mia",
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     field: "effort",
     value: "high"
   });
@@ -234,18 +234,18 @@ test("bot runtime control contract saves model, effort, and permission patches",
     api,
     cache,
     botKey: "mia",
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     field: "permission",
     value: "auto"
   });
 
   const putCalls = calls.filter((call) => call.options.method === "PUT");
-  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-hermes");
+  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-claude-code");
   assert.equal(putCalls.length, 3);
   assert.deepEqual(putCalls[0].options.body.config, { model: "gpt-5.3", effortLevel: "low" });
   assert.deepEqual(putCalls[1].options.body.config, { model: "gpt-5.3", effortLevel: "high" });
   assert.deepEqual(putCalls[2].options.body.config, { model: "gpt-5.3", effortLevel: "high", permissionMode: "auto" });
-  assert.deepEqual(cache.get("mia:cloud-hermes")?.config, {
+  assert.deepEqual(cache.get("mia:cloud-claude-code")?.config, {
     model: "gpt-5.3",
     effortLevel: "high",
     permissionMode: "auto"
@@ -261,18 +261,18 @@ test("bot runtime control accepts botId for runtime reads", async () => {
       return {
         binding: {
           botId: "mia",
-          runtimeKind: "cloud-hermes",
+          runtimeKind: "cloud-claude-code",
           enabled: true,
           config: { model: "mia-auto" }
         }
       };
     },
     botId: "mia",
-    runtimeKind: "cloud-hermes"
+    runtimeKind: "cloud-claude-code"
   });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-hermes");
+  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-claude-code");
   assert.equal(binding.botId, "mia");
 });
 
@@ -282,16 +282,16 @@ test("bot runtime control accepts botId for direct config saves", async () => {
   const result = await contract.saveBotRuntimeConfig({
     api: async (url, options = {}) => {
       calls.push({ url, options });
-      if (!options.method) return { binding: { botId: "mia", runtimeKind: "cloud-hermes", enabled: true, config: {} } };
+      if (!options.method) return { binding: { botId: "mia", runtimeKind: "cloud-claude-code", enabled: true, config: {} } };
       return { binding: { botId: "mia", runtimeKind: options.body.runtimeKind, enabled: true, config: options.body.config } };
     },
     botId: "mia",
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     patch: { model: "mia-auto" }
   });
 
   assert.equal(result.saved, true);
-  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-hermes");
+  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-claude-code");
   assert.equal(calls[1].url, "/api/me/bots/mia/runtime");
   assert.equal(calls[1].options.method, "PUT");
   assert.deepEqual(calls[1].options.body.config, { model: "mia-auto" });

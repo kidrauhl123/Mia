@@ -44,7 +44,7 @@ function loadBotManager(options = {}) {
       },
       normalizeRuntimeKind: (value, fallback = "desktop-local") => {
         const kind = String(value || fallback || "desktop-local").trim();
-        return kind === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
+        return kind === "cloud-claude-code" ? "cloud-claude-code" : "desktop-local";
       },
       runtimeLabelFor: () => ""
     },

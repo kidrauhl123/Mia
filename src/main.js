@@ -1626,6 +1626,7 @@ function cloudStatus(includeToken = false) {
       connecting: Boolean(localConnected && bridge?.connecting),
       url: settings.url,
       user: settings.user,
+      agentRuntime: settings.agentRuntime || null,
       deviceId: localConnected ? String(bridge?.deviceId || "") : "",
       lastError: !localConnected
         ? "Mia Core 未运行，Mia 暂不可用。"
@@ -1648,6 +1649,7 @@ function cloudStatus(includeToken = false) {
     connecting: false,
     url: settings.url,
     user: settings.user,
+    agentRuntime: settings.agentRuntime || null,
     deviceId: "",
     lastError: "",
     logs: pendingCloudLogs.slice(-80),

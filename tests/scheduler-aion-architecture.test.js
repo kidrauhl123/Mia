@@ -34,5 +34,5 @@ test("scheduler follows AION-style structured tool path without app-side reminde
   const schedulerSkill = read("skills/_builtin/mia-scheduler/SKILL.md");
   assert.match(schedulerSkill, /schedule_create/, "structured scheduler tool guidance must remain");
   assert.match(read("src/main/scheduler-mcp-server.js"), /name: "schedule_create"/, "desktop scheduler MCP tool must remain");
-  assert.match(read("src/main/engine-plugins-service.js"), /'name': 'schedule_create'/, "cloud Hermes scheduler MCP tool must remain");
+  assert.match(read("src/main/engine-plugins-service.js"), /'name': 'schedule_create'/, "cloud Claude Code scheduler MCP tool must remain");
 });

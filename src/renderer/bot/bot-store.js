@@ -129,6 +129,7 @@
   ];
 
   const ENGINE_META = {
+    unknown: { label: "内核未同步", department: "Mia Cloud", accent: "#6b7280" },
     hermes: { label: "Hermes", department: "Mia 本机 Agent", accent: "#5dcaa5" },
     "claude-code": { label: "Claude Code", department: "代码工程部", accent: "#7f77dd" },
     codex: { label: "Codex", department: "代码工程部", accent: "#378add" },
@@ -170,7 +171,28 @@
     return "hermes";
   }
 
+  function strictAgentEngine(value = "") {
+    const strict = window.miaCloudRuntime?.normalizeAgentEngineStrict?.(value);
+    if (strict) return strict;
+    const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+    if (raw === "claude" || raw === "claude-code") return "claude-code";
+    if (raw === "codex" || raw === "openai-codex") return "codex";
+    if (raw === "openclaw" || raw === "open-claw") return "openclaw";
+    if (raw === "hermes") return "hermes";
+    return "";
+  }
+
+  function cloudAgentRuntime() {
+    return window.miaCloudRuntime?.cloudAgentRuntimeFromState?.(state) || {
+      runtimeKind: "",
+      agentEngine: "",
+      label: "",
+      available: false
+    };
+  }
+
   function engineMeta(engine) {
+    if (!String(engine || "").trim()) return ENGINE_META.unknown;
     return ENGINE_META[normalizeAgentEngine(engine)] || ENGINE_META.hermes;
   }
 
@@ -425,13 +447,15 @@
   function runtimeTargetGroups(current = {}) {
     const groups = [];
     if (state?.runtime?.cloud?.enabled) {
+      const cloudRuntime = cloudAgentRuntime();
       groups.push({
         label: "Mia Cloud · 在线",
         targets: [{
-          runtimeKind: "cloud-hermes",
+          runtimeKind: "cloud-claude-code",
           deviceId: "",
           deviceName: "Mia Cloud",
-          agentEngine: "hermes"
+          agentEngine: cloudRuntime.agentEngine,
+          disabled: !cloudRuntime.available
         }]
       });
     }
@@ -459,18 +483,21 @@
   }
 
   function normalizeRuntimeTarget(target = {}) {
-    const kind = target.runtimeKind === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
+    const runtimeKind = String(target.runtimeKind || "").trim();
+    const kind = runtimeKind === "cloud-claude-code" || runtimeKind === "cloud-hermes" ? "cloud-claude-code" : "desktop-local";
     return {
       runtimeKind: kind,
-      deviceId: kind === "cloud-hermes" ? "" : String(target.deviceId || target.targetDeviceId || "").trim(),
-      deviceName: kind === "cloud-hermes" ? "Mia Cloud" : String(target.deviceName || target.targetDeviceName || "").trim(),
-      agentEngine: kind === "cloud-hermes" ? "hermes" : normalizeAgentEngine(target.agentEngine || state?.preferredAgentEngine || "hermes")
+      deviceId: kind === "cloud-claude-code" ? "" : String(target.deviceId || target.targetDeviceId || "").trim(),
+      deviceName: kind === "cloud-claude-code" ? "Mia Cloud" : String(target.deviceName || target.targetDeviceName || "").trim(),
+      agentEngine: kind === "cloud-claude-code" ? (strictAgentEngine(target.agentEngine) || cloudAgentRuntime().agentEngine) : normalizeAgentEngine(target.agentEngine || state?.preferredAgentEngine || "hermes"),
+      disabled: Boolean(target.disabled)
     };
   }
 
   function targetSummary(target = {}) {
     const t = normalizeRuntimeTarget(target);
-    const device = t.runtimeKind === "cloud-hermes" ? "Mia Cloud" : (t.deviceName || "本机");
+    const device = t.runtimeKind === "cloud-claude-code" ? "Mia Cloud" : (t.deviceName || "本机");
+    if (t.runtimeKind === "cloud-claude-code" && !t.agentEngine) return `${device} · 内核未同步`;
     return `${device} · ${engineLabel(t.agentEngine)}`;
   }
 
@@ -605,7 +632,7 @@
   function defaultEnrollmentTarget(f = {}) {
     const wantedEngine = normalizeAgentEngine(f.agentEngine || state?.preferredAgentEngine || "hermes");
     const groups = runtimeTargetGroups({ agentEngine: wantedEngine });
-    const flat = groups.flatMap((group) => group.targets);
+    const flat = groups.flatMap((group) => group.targets).filter((target) => !target.disabled);
     return flat.find((target) => target.runtimeKind === "desktop-local" && target.agentEngine === wantedEngine)
       || flat.find((target) => target.runtimeKind === "desktop-local")
       || flat[0]

@@ -4,14 +4,23 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
+global.miaCloudRuntime = require("../src/shared/cloud-runtime.js");
 const commands = require("../src/renderer/bot/bot-commands.js");
 const ids = require("../src/shared/ids.js");
 
-test("saveBot creates a cloud-hermes bot through identity, runtime, and conversation commands", async () => {
+const CLOUD_AGENT_RUNTIME = {
+  mode: "claude-code",
+  runtimeKind: "cloud-claude-code",
+  agentEngine: "claude-code",
+  label: "Claude Code",
+  available: true
+};
+
+test("saveBot creates a cloud-claude-code bot through identity, runtime, and conversation commands", async () => {
   const calls = [];
   const state = {
     runtime: {
-      cloud: { enabled: true },
+      cloud: { enabled: true, agentRuntime: CLOUD_AGENT_RUNTIME },
       bots: [{ key: "local", name: "Local" }]
     }
   };
@@ -45,7 +54,7 @@ test("saveBot creates a cloud-hermes bot through identity, runtime, and conversa
     state,
     api,
     social,
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     isCreate: true,
     cloudModelEntries: () => [{ id: "mia-fast", label: "Mia Fast" }],
     bot: {
@@ -70,15 +79,30 @@ test("saveBot creates a cloud-hermes bot through identity, runtime, and conversa
     "mia-official:xlsx"
   ]);
   assert.equal(calls[1][2].config.model, "mia-fast");
-  assert.equal(calls[2][2].runtimeKind, "cloud-hermes");
+  assert.equal(calls[1][2].config.agentEngine, "claude-code");
+  assert.equal(calls[2][2].runtimeKind, "cloud-claude-code");
   assert.equal(social.moduleState.bots[0].id, result.key);
 });
 
-test("saveBot strips copied local engine identity when saving cloud-hermes bots", async () => {
+test("saveBot refuses cloud-claude-code when cloud runtime metadata is missing", async () => {
+  await assert.rejects(
+    () => commands.saveBot({
+      state: { runtime: { cloud: { enabled: true } } },
+      api: { social: { saveBotIdentity() {} } },
+      social: { moduleState: { bots: [] } },
+      runtimeKind: "cloud-claude-code",
+      isCreate: true,
+      bot: { name: "Alice" }
+    }),
+    /Mia Cloud 运行内核未同步/
+  );
+});
+
+test("saveBot strips copied local engine identity when saving cloud-claude-code bots", async () => {
   const calls = [];
   const state = {
     runtime: {
-      cloud: { enabled: true },
+      cloud: { enabled: true, agentRuntime: CLOUD_AGENT_RUNTIME },
       bots: []
     }
   };
@@ -110,7 +134,7 @@ test("saveBot strips copied local engine identity when saving cloud-hermes bots"
     state,
     api,
     social,
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     isCreate: true,
     bot: {
       name: "？？",
@@ -326,7 +350,7 @@ test("saveBot retargets cloud-sourced desktop bots through cloud runtime binding
   assert.equal(social.moduleState.bots[0].runtimeKind, "desktop-local");
 });
 
-test("deleteBot removes a cloud-hermes bot through cloud identity commands", async () => {
+test("deleteBot removes a cloud-claude-code bot through cloud identity commands", async () => {
   const calls = [];
   const social = {
     moduleState: {
@@ -358,7 +382,7 @@ test("deleteBot removes a cloud-hermes bot through cloud identity commands", asy
     state: { runtime: { cloud: { enabled: true } } },
     api,
     social,
-    bot: { key: "alice", runtimeKind: "cloud-hermes" }
+    bot: { key: "alice", runtimeKind: "cloud-claude-code" }
   });
 
   assert.equal(result.deleted, true);
@@ -415,7 +439,7 @@ test("deleteBot requires the cloud identity delete API", async () => {
   );
 });
 
-test("saveBotCapabilities updates cloud-hermes identity and local bot cache", async () => {
+test("saveBotCapabilities updates cloud-claude-code identity and local bot cache", async () => {
   const { normalizeBotCapabilities } = require("../src/shared/bot-identity.js");
   const capabilities = normalizeBotCapabilities({ inheritEngineDefaults: false, enabledSkills: ["search"] });
   const social = {
@@ -443,7 +467,7 @@ test("saveBotCapabilities updates cloud-hermes identity and local bot cache", as
     bot: {
       key: "alice",
       name: "Alice",
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       bio: "helper",
       personaText: "Persona"
     },
@@ -469,7 +493,7 @@ test("saveBotCapabilities updates cloud-hermes identity and local bot cache", as
   ]);
 });
 
-test("saveBotCapabilities strips copied engine identity for cloud-hermes bots", async () => {
+test("saveBotCapabilities strips copied engine identity for cloud-claude-code bots", async () => {
   const capabilities = { inheritEngineDefaults: true };
   const calls = [];
   const api = {
@@ -488,7 +512,7 @@ test("saveBotCapabilities strips copied engine identity for cloud-hermes bots", 
     bot: {
       key: "4020623",
       name: "？？",
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       bio: "你是 Claude Code。专注代码任务、重构、解释和长上下文协作，保持清晰、稳健和可验证。",
       personaText: "你是 Claude Code。专注代码任务、重构、解释和长上下文协作，保持清晰、稳健和可验证。"
     },
@@ -577,14 +601,14 @@ test("getBotRuntimeBinding reads and caches bot runtime bindings by kind", async
     }
   };
 
-  const cloud = await commands.getBotRuntimeBinding({ api, cache, botKey: "alice", runtimeKind: "cloud-hermes" });
-  const cloudCached = await commands.getBotRuntimeBinding({ api, cache, botKey: "alice", runtimeKind: "cloud-hermes" });
+  const cloud = await commands.getBotRuntimeBinding({ api, cache, botKey: "alice", runtimeKind: "cloud-claude-code" });
+  const cloudCached = await commands.getBotRuntimeBinding({ api, cache, botKey: "alice", runtimeKind: "cloud-claude-code" });
   const desktop = await commands.getBotRuntimeBinding({ api, cache, botKey: "alice", runtimeKind: "desktop-local" });
 
-  assert.deepEqual(cloud, { botId: "alice", runtimeKind: "cloud-hermes", config: { model: "mia-default" } });
+  assert.deepEqual(cloud, { botId: "alice", runtimeKind: "cloud-claude-code", config: { model: "mia-default" } });
   assert.equal(cloudCached, cloud);
   assert.deepEqual(desktop, { botId: "alice", runtimeKind: "desktop-local", config: { model: "mia-default" } });
-  assert.deepEqual(calls, [["get", "alice", "cloud-hermes"], ["get", "alice", "desktop-local"]]);
+  assert.deepEqual(calls, [["get", "alice", "cloud-claude-code"], ["get", "alice", "desktop-local"]]);
 });
 
 test("saveBotRuntimeControl saves desktop-local hermes controls through bot runtime binding", async () => {
@@ -890,7 +914,7 @@ test("saveBotRuntimeConfig merges patch with current cloud runtime binding", asy
     api,
     cache,
     botKey: "alice",
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     patch: { effortLevel: "high", permissionMode: "ask" }
   });
 
@@ -902,9 +926,9 @@ test("saveBotRuntimeConfig merges patch with current cloud runtime binding", asy
     permissionMode: "ask"
   });
   assert.deepEqual(calls, [
-    ["get", "alice", "cloud-hermes"],
+    ["get", "alice", "cloud-claude-code"],
     ["save", "alice", {
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: true,
       config: {
         model: "mia-auto",
@@ -915,7 +939,7 @@ test("saveBotRuntimeConfig merges patch with current cloud runtime binding", asy
       }
     }]
   ]);
-  assert.equal(cache.get("alice:cloud-hermes"), result.binding);
+  assert.equal(cache.get("alice:cloud-claude-code"), result.binding);
 });
 
 test("syncDesktopLocalBotRuntimeBinding stores hermes config from current device settings", async () => {
@@ -1173,7 +1197,7 @@ test("ensureDesktopLocalBotConversation creates conversation and syncs external 
   assert.equal(upserted[0].id, "botc_codex");
 });
 
-test("saveBotRuntimeControl saves cloud-hermes controls through cloud runtime config", async () => {
+test("saveBotRuntimeControl saves cloud-claude-code controls through cloud runtime config", async () => {
   const calls = [];
   const api = {
     social: {
@@ -1190,16 +1214,16 @@ test("saveBotRuntimeControl saves cloud-hermes controls through cloud runtime co
 
   await commands.saveBotRuntimeControl({
     api,
-    bot: { key: "mia", runtimeKind: "cloud-hermes" },
+    bot: { key: "mia", runtimeKind: "cloud-claude-code" },
     field: "model",
     value: "mia-pro",
     modelEntries: [{ id: "mia-pro", model: "mia-pro", label: "Mia Pro" }]
   });
 
   assert.deepEqual(calls, [
-    ["get", "mia", "cloud-hermes"],
+    ["get", "mia", "cloud-claude-code"],
     ["save", "mia", {
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: true,
       config: { model: "mia-pro" }
     }]

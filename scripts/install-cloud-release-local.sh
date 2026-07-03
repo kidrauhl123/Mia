@@ -19,6 +19,7 @@ WEB_BASENAME="$(basename "$WEB_DIR")"
 UPDATES_DIR="${MIA_DEPLOY_UPDATES_DIR:-/var/www/mia-updates}"
 DATA_DIR="${MIA_DEPLOY_DATA_DIR:-/var/lib/mia-cloud}"
 AGENT_ROOT="${MIA_CLOUD_AGENT_ROOT:-/var/lib/mia-cloud-agent-users}"
+AGENT_MODE="${MIA_CLOUD_AGENT_MODE:-claude-code}"
 HERMES_IMAGE="${MIA_CLOUD_HERMES_IMAGE:-mia/hermes-cloud:2026.5.29}"
 DEBIAN_APT_MIRROR="${MIA_DEBIAN_APT_MIRROR:-}"
 DEBIAN_APT_SECURITY_MIRROR="${MIA_DEBIAN_APT_SECURITY_MIRROR:-}"
@@ -31,6 +32,10 @@ AGENT_MODEL_PROVIDER="${MIA_CLOUD_AGENT_MODEL_PROVIDER:-mia}"
 AGENT_MODEL_NAME="${MIA_CLOUD_AGENT_MODEL:-mia-auto}"
 AGENT_MODEL_BASE_URL="${MIA_CLOUD_AGENT_MODEL_BASE_URL:-http://litellm:4000/v1}"
 AGENT_MODEL_API_KEY="${MIA_CLOUD_AGENT_MODEL_API_KEY:-${MIA_LITELLM_API_KEY:-}}"
+CLAUDE_CODE_BASE_URL="${MIA_CLOUD_CLAUDE_CODE_BASE_URL:-${MIA_DEEPSEEK_ANTHROPIC_BASE_URL:-https://api.deepseek.com/anthropic}}"
+CLAUDE_CODE_MODEL="${MIA_CLOUD_CLAUDE_CODE_MODEL:-claude-sonnet-4-5}"
+CLAUDE_CODE_SANDBOX="${MIA_CLOUD_CLAUDE_CODE_SANDBOX:-1}"
+CLAUDE_CODE_SANDBOX_REQUIRED="${MIA_CLOUD_CLAUDE_CODE_SANDBOX_REQUIRED:-1}"
 BACKUP_DIR="${MIA_DEPLOY_BACKUP_DIR:-/root}"
 BACKUP_KEEP="${MIA_DEPLOY_BACKUP_KEEP:-3}"
 SERVICE="${MIA_DEPLOY_SERVICE:-mia-cloud}"
@@ -74,6 +79,13 @@ run_as_root() {
   else
     "$@"
   fi
+}
+
+is_legacy_hermes_agent() {
+  case "$AGENT_MODE" in
+    docker|static|hermes|hermes-*|hermes:*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 require_command() {
@@ -447,13 +459,17 @@ require_command rsync
 require_command systemctl
 require_command id
 require_command chown
-require_command docker
+if is_legacy_hermes_agent; then
+  require_command docker
+fi
 require_command nginx
 
 install_done=0
 trap rollback_install ERR
 ensure_service_user
-ensure_docker_access
+if is_legacy_hermes_agent; then
+  ensure_docker_access
+fi
 stop_legacy_service
 migrate_legacy_dir "$LEGACY_DATA_DIR" "$DATA_DIR" "data"
 migrate_legacy_dir "$LEGACY_AGENT_ROOT" "$AGENT_ROOT" "agent root"
@@ -490,7 +506,7 @@ if [ -f "$NGINX_SITE_CONF" ]; then
 fi
 
 run_as_root mkdir -p "$API_DIR" "$WEB_DIR" "$UPDATES_DIR" "$DATA_DIR" "$AGENT_ROOT"
-if [ -f "$INSTALL_TMP/hermes-image/Dockerfile" ]; then
+if is_legacy_hermes_agent && [ -f "$INSTALL_TMP/hermes-image/Dockerfile" ]; then
   if [ "$SKIP_HERMES_IMAGE_BUILD" = "1" ]; then
     if run_as_root docker image inspect "$HERMES_IMAGE" >/dev/null 2>&1; then
       echo "Skipping cloud Hermes worker image build; existing image found: $HERMES_IMAGE"
@@ -551,8 +567,12 @@ Environment=MIA_CLOUD_PUBLIC_URL=$PUBLIC_URL
 Environment=MIA_CLOUD_ALLOWED_ORIGINS=$ALLOWED_ORIGINS
 Environment=MIA_BRIDGE_RUN_TIMEOUT_MS=300000
 Environment=MIA_CLOUD_VERSION=2026-05-20
-Environment=MIA_CLOUD_AGENT_MODE=docker
+Environment=MIA_CLOUD_AGENT_MODE=$AGENT_MODE
 Environment=MIA_CLOUD_AGENT_ROOT=$AGENT_ROOT
+Environment=MIA_CLOUD_CLAUDE_CODE_BASE_URL=$CLAUDE_CODE_BASE_URL
+Environment=MIA_CLOUD_CLAUDE_CODE_MODEL=$CLAUDE_CODE_MODEL
+Environment=MIA_CLOUD_CLAUDE_CODE_SANDBOX=$CLAUDE_CODE_SANDBOX
+Environment=MIA_CLOUD_CLAUDE_CODE_SANDBOX_REQUIRED=$CLAUDE_CODE_SANDBOX_REQUIRED
 Environment=MIA_CLOUD_HERMES_IMAGE=$HERMES_IMAGE
 Environment=MIA_CLOUD_HERMES_CONTAINER_PORT=8765
 Environment=MIA_CLOUD_AGENT_DOCKER_NETWORK=$AGENT_DOCKER_NETWORK

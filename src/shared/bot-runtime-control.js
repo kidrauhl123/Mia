@@ -3,9 +3,10 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.miaBotRuntimeControl = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildBotRuntimeControl() {
-  function normalizeRuntimeKind(value, fallback = "cloud-hermes") {
-    const kind = String(value || fallback || "cloud-hermes").trim();
-    return kind || fallback || "cloud-hermes";
+  function normalizeRuntimeKind(value, fallback = "cloud-claude-code") {
+    const raw = String(value || fallback || "cloud-claude-code").trim();
+    const kind = raw === "cloud-hermes" || raw === "cloud_hermes" ? "cloud-claude-code" : raw;
+    return kind || fallback || "cloud-claude-code";
   }
 
   function botKeyFrom(options = {}) {
@@ -13,7 +14,7 @@
     return String(options.botKey || options.botId || bot.key || bot.id || "").trim();
   }
 
-  function runtimeCacheKey(botKey, runtimeKind = "cloud-hermes") {
+  function runtimeCacheKey(botKey, runtimeKind = "cloud-claude-code") {
     return `${String(botKey || "").trim()}:${normalizeRuntimeKind(runtimeKind)}`;
   }
 
@@ -56,7 +57,7 @@
     cache = null,
     botKey = "",
     botId = "",
-    runtimeKind = "cloud-hermes"
+    runtimeKind = "cloud-claude-code"
   } = {}) {
     const key = botKeyFrom({ botKey, botId });
     const kind = normalizeRuntimeKind(runtimeKind);
@@ -101,7 +102,7 @@
     cache = null,
     botKey = "",
     botId = "",
-    runtimeKind = "cloud-hermes",
+    runtimeKind = "cloud-claude-code",
     patch = {},
     current = undefined
   } = {}) {
@@ -126,7 +127,7 @@
     bot = {},
     botKey = "",
     botId = "",
-    runtimeKind = bot?.runtimeKind || bot?.runtime_kind || "cloud-hermes",
+    runtimeKind = bot?.runtimeKind || bot?.runtime_kind || "cloud-claude-code",
     field = "",
     value = "",
     modelEntries = []

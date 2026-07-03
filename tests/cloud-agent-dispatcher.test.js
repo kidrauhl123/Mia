@@ -46,7 +46,7 @@ function setup() {
   runtimeBindingsStore.upsertBinding({
     userId: user.id,
     botId: BOT_ID,
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     enabled: true,
     config: {}
   });
@@ -54,7 +54,7 @@ function setup() {
     id: `botc_${user.id}_${BOT_ID}`,
     type: "bot",
     name: "Alice Bot",
-    decorations: { botId: BOT_ID, runtimeKind: "cloud-hermes" }
+    decorations: { botId: BOT_ID, runtimeKind: "cloud-claude-code" }
   });
   socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "user", memberRef: user.id });
   socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: BOT_ID, ownerId: user.id });
@@ -104,14 +104,14 @@ function makeDispatcher(ctx, overrides = {}) {
   });
 }
 
-test("cloud-hermes DM runs the bot and appends a reply", async () => {
+test("cloud-claude-code DM runs the bot and appends a reply", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       botId: BOT_ID,
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: true,
       config: { model: "hermes-agent" }
     });
@@ -169,13 +169,13 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
   }
 });
 
-test("cloud-hermes prefixes gateway run ids when only the final result returns a runId", async () => {
+test("cloud-claude-code prefixes gateway run ids when only the final result returns a runId", async () => {
   const ctx = setup();
   try {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       botId: BOT_ID,
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: true,
       config: { model: "hermes-agent" }
     });
@@ -208,7 +208,7 @@ test("cloud-hermes prefixes gateway run ids when only the final result returns a
   }
 });
 
-test("cloud-hermes without gatewayWsUrl appends the visible config error", async () => {
+test("cloud-claude-code without gatewayWsUrl appends the visible config error", async () => {
   const ctx = setup();
   try {
     const dispatcher = makeDispatcher(ctx, {
@@ -231,17 +231,17 @@ test("cloud-hermes without gatewayWsUrl appends the visible config error", async
       message
     });
 
-    assert.equal(reply.body_md, "云端 Hermes gateway 未启动，请检查 worker 配置。");
+    assert.equal(reply.body_md, "云端 Agent gateway 未启动，请检查 worker 配置。");
     assert.deepEqual(JSON.parse(reply.error_json), {
-      type: "cloud_hermes_gateway_unavailable",
-      message: "云端 Hermes gateway 未启动，请检查 worker 配置。"
+      type: "cloud_agent_gateway_unavailable",
+      message: "云端 Agent gateway 未启动，请检查 worker 配置。"
     });
   } finally {
     ctx.cleanup();
   }
 });
 
-test("cloud-hermes archives generated worker file paths and hides server paths", async () => {
+test("cloud-claude-code archives generated worker file paths and hides server paths", async () => {
   const ctx = setup();
   const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-worker-files-"));
   const workerPaths = {
@@ -298,7 +298,7 @@ test("cloud-hermes archives generated worker file paths and hides server paths",
   }
 });
 
-test("cloud-hermes archives generated files mentioned only in streamed events", async () => {
+test("cloud-claude-code archives generated files mentioned only in streamed events", async () => {
   const ctx = setup();
   const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-worker-stream-files-"));
   const workerPaths = {
@@ -359,7 +359,7 @@ test("cloud-hermes archives generated files mentioned only in streamed events", 
   }
 });
 
-test("cloud-hermes attaches worker files requested directly by the user", async () => {
+test("cloud-claude-code attaches worker files requested directly by the user", async () => {
   const ctx = setup();
   const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-worker-request-files-"));
   const workerPaths = {
@@ -415,7 +415,7 @@ test("cloud-hermes attaches worker files requested directly by the user", async 
   }
 });
 
-test("cloud-hermes DM pins the bot identity over a copied engine persona", async () => {
+test("cloud-claude-code DM pins the bot identity over a copied engine persona", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
@@ -428,7 +428,7 @@ test("cloud-hermes DM pins the bot identity over a copied engine persona", async
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       botId: "4020623",
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: true,
       config: { model: "mia-auto" }
     });
@@ -436,7 +436,7 @@ test("cloud-hermes DM pins the bot identity over a copied engine persona", async
       id: "botc_4020623",
       type: "bot",
       name: "你还不",
-      decorations: { botId: "4020623", runtimeKind: "cloud-hermes" }
+      decorations: { botId: "4020623", runtimeKind: "cloud-claude-code" }
     });
     ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "user", memberRef: ctx.user.id });
     ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: "4020623", ownerId: ctx.user.id });
@@ -482,14 +482,14 @@ test("cloud-hermes DM pins the bot identity over a copied engine persona", async
   }
 });
 
-test("cloud-hermes maps old managed aliases to the worker platform model", async () => {
+test("cloud-claude-code maps old managed aliases to the worker platform model", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       botId: BOT_ID,
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: true,
       config: { model: "mia-default" }
     });
@@ -526,7 +526,7 @@ test("cloud-hermes maps old managed aliases to the worker platform model", async
   }
 });
 
-test("cloud-hermes persists ordered content blocks from streamed events", async () => {
+test("cloud-claude-code persists ordered content blocks from streamed events", async () => {
   const ctx = setup();
   try {
     const dispatcher = makeDispatcher(ctx, {
@@ -565,7 +565,7 @@ test("cloud-hermes persists ordered content blocks from streamed events", async 
   }
 });
 
-test("cloud-hermes preserves streamed process text when final text is returned separately", async () => {
+test("cloud-claude-code preserves streamed process text when final text is returned separately", async () => {
   const ctx = setup();
   try {
     const dispatcher = makeDispatcher(ctx, {
@@ -601,7 +601,7 @@ test("cloud-hermes preserves streamed process text when final text is returned s
   }
 });
 
-test("cloud-hermes reminder requests run Hermes instead of direct app-side task creation", async () => {
+test("cloud-claude-code reminder requests run Hermes instead of direct app-side task creation", async () => {
   const ctx = setup();
   const hermesCalls = [];
   const taskCalls = [];
@@ -648,7 +648,7 @@ test("cloud-hermes reminder requests run Hermes instead of direct app-side task 
   }
 });
 
-test("cloud-hermes scheduled fires use the delivery context instead of recreating tasks", async () => {
+test("cloud-claude-code scheduled fires use the delivery context instead of recreating tasks", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
@@ -736,7 +736,7 @@ test("desktop scheduled fires broadcast an internal task prompt instead of a vis
   }
 });
 
-test("cloud-hermes writes scheduler MCP context before each bot run", async () => {
+test("cloud-claude-code writes scheduler MCP context before each bot run", async () => {
   const ctx = setup();
   const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-worker-"));
   const hermesHome = path.join(workerRoot, "hermes-home");
@@ -776,7 +776,7 @@ test("cloud-hermes writes scheduler MCP context before each bot run", async () =
   }
 });
 
-test("cloud-hermes DM injects selected message skill context into the run input", async () => {
+test("cloud-claude-code DM injects selected message skill context into the run input", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
@@ -818,7 +818,7 @@ test("cloud-hermes DM injects selected message skill context into the run input"
   }
 });
 
-test("cloud-hermes handles LOAD_SKILL requests as an internal skill-loading retry", async () => {
+test("cloud-claude-code handles LOAD_SKILL requests as an internal skill-loading retry", async () => {
   const ctx = setup();
   const hermesCalls = [];
   const transientEvents = [];
@@ -881,7 +881,7 @@ test("cloud-hermes handles LOAD_SKILL requests as an internal skill-loading retr
   }
 });
 
-test("cloud-hermes DM surfaces run failures as visible bot messages", async () => {
+test("cloud-claude-code DM surfaces run failures as visible bot messages", async () => {
   const ctx = setup();
   const broadcasts = [];
   try {
@@ -920,7 +920,7 @@ test("cloud-hermes DM surfaces run failures as visible bot messages", async () =
   }
 });
 
-test("cloud-hermes interrupted gateway completions cancel the run without appending a reply", async () => {
+test("cloud-claude-code interrupted gateway completions cancel the run without appending a reply", async () => {
   const ctx = setup();
   const transientEvents = [];
   try {
@@ -968,7 +968,7 @@ test("cloud-hermes interrupted gateway completions cancel the run without append
   }
 });
 
-test("cloud-hermes drops a stale reply when a newer user message arrives before completion", async () => {
+test("cloud-claude-code drops a stale reply when a newer user message arrives before completion", async () => {
   const ctx = setup();
   const firstRun = deferred();
   try {
@@ -1011,7 +1011,7 @@ test("cloud-hermes drops a stale reply when a newer user message arrives before 
   }
 });
 
-test("cloud-hermes interrupts an active prior gateway run before starting a newer turn", async () => {
+test("cloud-claude-code interrupts an active prior gateway run before starting a newer turn", async () => {
   const ctx = setup();
   const firstRun = deferred();
   const runInputs = [];
@@ -1073,7 +1073,7 @@ test("cloud-hermes interrupts an active prior gateway run before starting a newe
   }
 });
 
-test("cloud-hermes refuses a contaminated bot binding owned by another user", async () => {
+test("cloud-claude-code refuses a contaminated bot binding owned by another user", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
@@ -1082,14 +1082,14 @@ test("cloud-hermes refuses a contaminated bot binding owned by another user", as
       id: `botc_${bob.id}_${BOT_ID}`,
       type: "bot",
       name: "Contaminated Bot",
-      decorations: { botId: BOT_ID, runtimeKind: "cloud-hermes" }
+      decorations: { botId: BOT_ID, runtimeKind: "cloud-claude-code" }
     });
     ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "user", memberRef: bob.id });
     ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: BOT_ID, ownerId: bob.id });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: bob.id,
       botId: BOT_ID,
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: true,
       config: { model: "hermes-agent" }
     });
@@ -1131,7 +1131,7 @@ test("desktop-local DM broadcasts a bot invocation and does not run inline", asy
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       botId: BOT_ID,
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: false,
       config: {}
     });
@@ -1201,7 +1201,7 @@ test("desktop-local DM broadcasts a bot invocation and does not run inline", asy
   }
 });
 
-test("active desktop-local binding wins over stale cloud-hermes binding", async () => {
+test("active desktop-local binding wins over stale cloud-claude-code binding", async () => {
   const ctx = setup();
   const broadcasts = [];
   const hermesCalls = [];
@@ -1209,7 +1209,7 @@ test("active desktop-local binding wins over stale cloud-hermes binding", async 
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       botId: BOT_ID,
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: true,
       config: { model: "mia-default" }
     });
@@ -1261,7 +1261,7 @@ test("desktop-local binding without a target device appends a visible error inst
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       botId: BOT_ID,
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: false,
       config: {}
     });
@@ -1306,7 +1306,7 @@ test("desktop-local binding ignores stale device aliases when validating bridge 
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       botId: BOT_ID,
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: false,
       config: {}
     });
@@ -1356,7 +1356,7 @@ test("desktop-local binding on an offline target appends a visible error instead
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       botId: BOT_ID,
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: false,
       config: {}
     });
@@ -1459,7 +1459,7 @@ test("single-bot group skips the conductor and replies directly", async () => {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       botId: BOT_ID,
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: true,
       config: { model: "hermes-agent" }
     });
@@ -1504,7 +1504,7 @@ test("multi-bot group routes by name in the body", async () => {
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
         botId,
-        runtimeKind: "cloud-hermes",
+        runtimeKind: "cloud-claude-code",
         enabled: true,
         config: { model: "hermes-agent" }
       });
@@ -1549,7 +1549,7 @@ test("multi-bot group falls back to the conductor when no name matches", async (
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
         botId,
-        runtimeKind: "cloud-hermes",
+        runtimeKind: "cloud-claude-code",
         enabled: true,
         config: { model: "hermes-agent" }
       });
@@ -1604,7 +1604,7 @@ test("conductor garbage falls back to the first bot member", async () => {
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
         botId,
-        runtimeKind: "cloud-hermes",
+        runtimeKind: "cloud-claude-code",
         enabled: true,
         config: { model: "hermes-agent" }
       });
@@ -1700,7 +1700,7 @@ test("@mention bypasses the conductor and picks only the mentioned bot", async (
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
         botId,
-        runtimeKind: "cloud-hermes",
+        runtimeKind: "cloud-claude-code",
         enabled: true,
         config: { model: "hermes-agent" }
       });
@@ -1746,7 +1746,7 @@ test("explicit botId on invokeBot runs that bot regardless of routing", async ()
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       botId: "bot_kongling",
-      runtimeKind: "cloud-hermes",
+      runtimeKind: "cloud-claude-code",
       enabled: true,
       config: { model: "hermes-agent" }
     });
@@ -1842,14 +1842,14 @@ test("respondApproval refuses non-gateway hermes run ids", async () => {
 
     assert.deepEqual(result, {
       ok: false,
-      error: "run is not a Hermes gateway session"
+      error: "run is not a cloud agent gateway session"
     });
   } finally {
     ctx.cleanup();
   }
 });
 
-test("stopRun interrupts only the owner's cloud Hermes gateway session", async () => {
+test("stopRun interrupts only the owner's cloud Claude Code gateway session", async () => {
   const ctx = setup();
   const interruptCalls = [];
   const transientEvents = [];
@@ -1910,7 +1910,7 @@ test("stopRun refuses non-gateway hermes run ids", async () => {
 
     assert.deepEqual(result, {
       ok: false,
-      error: "run is not a Hermes gateway session"
+      error: "run is not a cloud agent gateway session"
     });
   } finally {
     ctx.cleanup();

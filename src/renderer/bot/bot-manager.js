@@ -394,11 +394,13 @@
   }
 
   function engineLabel(engine = "") {
+    if (!engine) return "未同步";
     if (engine === "mia") return "Mia";
     return window.miaEngineContracts?.engineLabel?.(engine) || "Hermes";
   }
 
   function engineLogoKind(engine = "") {
+    if (!engine) return "unknown";
     const normalized = window.miaEngineContracts?.normalizeAgentEngine?.(engine) || engine;
     if (normalized === "claude-code") return "claude";
     if (normalized === "codex") return "codex";
@@ -414,6 +416,7 @@
       codex: "./assets/engine-icons/codex-color.svg",
       openclaw: "./assets/provider-icons/openclaw-color.svg"
     }[kind];
+    if (kind === "unknown") return `<span class="engine-row-logo contact-engine-logo unknown" aria-hidden="true"></span>`;
     if (!iconSrc) return `<span class="engine-row-logo contact-engine-logo ${window.miaMarkdown.escapeHtml(kind)}" aria-hidden="true"></span>`;
     return `<span class="engine-row-logo contact-engine-logo asset ${window.miaMarkdown.escapeHtml(kind)}" aria-hidden="true"><img src="${iconSrc}" alt=""></span>`;
   }
@@ -994,9 +997,35 @@
     return ["hermes", "claude-code", "codex", "openclaw"].includes(engine) ? [engine] : [];
   }
 
+  function strictAgentEngine(value = "") {
+    const strict = window.miaCloudRuntime?.normalizeAgentEngineStrict?.(value);
+    if (strict) return strict;
+    const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+    if (raw === "claude" || raw === "claude-code") return "claude-code";
+    if (raw === "codex" || raw === "openai-codex") return "codex";
+    if (raw === "openclaw" || raw === "open-claw") return "openclaw";
+    if (raw === "hermes") return "hermes";
+    return "";
+  }
+
+  function cloudAgentRuntime() {
+    return window.miaCloudRuntime?.cloudAgentRuntimeFromState?.(state) || {
+      runtimeKind: "",
+      agentEngine: "",
+      label: "",
+      available: false
+    };
+  }
+
   function activeRuntimeTarget(bot = {}) {
     const kind = window.miaBotDirectory.normalizeRuntimeKind(bot.runtimeKind || bot.runtime_kind, "desktop-local");
-    if (kind === "cloud-hermes") return { runtimeKind: "cloud-hermes", deviceId: "", agentEngine: "hermes" };
+    if (kind === "cloud-claude-code") {
+      return {
+        runtimeKind: "cloud-claude-code",
+        deviceId: "",
+        agentEngine: strictAgentEngine(bot.agentEngine || bot.agent_engine || bot.runtimeConfig?.agentEngine || bot.runtime_config?.agentEngine) || cloudAgentRuntime().agentEngine
+      };
+    }
     return {
       runtimeKind: "desktop-local",
       deviceId: firstNonEmpty(bot.targetDeviceId, bot.target_device_id, bot.deviceId, bot.device_id, bot.runtimeConfig?.deviceId, state?.runtime?.localDevice?.id, state?.runtime?.cloud?.deviceId, "current-device"),
@@ -1032,20 +1061,23 @@
 
   function targetButtonHtml({ bot, runtimeKind, device = null, engine = "hermes" }) {
     const active = activeRuntimeTarget(bot);
-    const selected = runtimeKind === "cloud-hermes"
-      ? active.runtimeKind === "cloud-hermes"
+    const selected = runtimeKind === "cloud-claude-code"
+      ? active.runtimeKind === "cloud-claude-code"
       : active.runtimeKind === "desktop-local" && device?.id === active.deviceId && active.agentEngine === engine;
-    const displayName = runtimeKind === "cloud-hermes" ? "Mia Cloud" : runtimeDeviceDisplayName(device);
-    const attrs = runtimeKind === "cloud-hermes"
-      ? 'data-runtime-kind="cloud-hermes"'
+    const displayName = runtimeKind === "cloud-claude-code" ? "Mia Cloud" : runtimeDeviceDisplayName(device);
+    const cloudRuntime = cloudAgentRuntime();
+    const cloudEngine = runtimeKind === "cloud-claude-code" ? cloudRuntime.agentEngine : "";
+    const disabled = runtimeKind === "cloud-claude-code" && !cloudRuntime.available;
+    const attrs = runtimeKind === "cloud-claude-code"
+      ? `data-runtime-kind="cloud-claude-code" data-agent-engine="${window.miaMarkdown.escapeHtml(cloudEngine)}"`
       : `data-runtime-kind="desktop-local" data-device-id="${window.miaMarkdown.escapeHtml(device?.id || "")}" data-device-name="${window.miaMarkdown.escapeHtml(displayName)}" data-agent-engine="${window.miaMarkdown.escapeHtml(engine)}"`;
-    const title = runtimeKind === "cloud-hermes" ? "Mia Cloud · Hermes" : `${displayName} · ${engineLabel(engine)}`;
+    const title = runtimeKind === "cloud-claude-code" ? `Mia Cloud · ${cloudRuntime.label || "内核未同步"}` : `${displayName} · ${engineLabel(engine)}`;
     const saving = state?.savingBotRuntimeTargets?.has?.(bot?.key);
     return `
-      <button type="button" class="runtime-target-option${selected ? " selected" : ""}${saving ? " saving" : ""}" ${attrs} title="${window.miaMarkdown.escapeHtml(title)}" ${saving ? "disabled" : ""}>
-        ${engineLogoHtml(runtimeKind === "cloud-hermes" ? "hermes" : engine)}
+      <button type="button" class="runtime-target-option${selected ? " selected" : ""}${saving ? " saving" : ""}" ${attrs} title="${window.miaMarkdown.escapeHtml(title)}" ${saving || disabled ? "disabled" : ""}>
+        ${engineLogoHtml(runtimeKind === "cloud-claude-code" ? cloudEngine : engine)}
         <span>
-          <strong>${window.miaMarkdown.escapeHtml(engineLabel(runtimeKind === "cloud-hermes" ? "hermes" : engine))}</strong>
+          <strong>${window.miaMarkdown.escapeHtml(engineLabel(runtimeKind === "cloud-claude-code" ? cloudEngine : engine))}</strong>
         </span>
       </button>
     `;
@@ -1073,7 +1105,7 @@
                   <small>在线</small>
                 </div>
                 <div>
-                  ${targetButtonHtml({ bot, runtimeKind: "cloud-hermes" })}
+                  ${targetButtonHtml({ bot, runtimeKind: "cloud-claude-code" })}
                 </div>
               </section>
             ` : ""}
@@ -1380,7 +1412,7 @@
           runtimeKind: button.dataset.runtimeKind || "desktop-local",
           deviceId: button.dataset.deviceId || "",
           deviceName: button.dataset.deviceName || "",
-          agentEngine: button.dataset.agentEngine || "hermes"
+          agentEngine: button.dataset.runtimeKind === "cloud-claude-code" ? (button.dataset.agentEngine || "") : (button.dataset.agentEngine || "hermes")
         });
       });
     });

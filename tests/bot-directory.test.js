@@ -4,7 +4,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
+global.miaCloudRuntime = require("../src/shared/cloud-runtime.js");
 const directoryPath = path.join(__dirname, "..", "src", "renderer", "bot", "bot-directory.js");
+const CLOUD_AGENT_RUNTIME = {
+  mode: "claude-code",
+  runtimeKind: "cloud-claude-code",
+  agentEngine: "claude-code",
+  label: "Claude Code",
+  available: true
+};
 
 test("bot directory normalizes cloud identities and ignores local-only manifest bots", () => {
   const { isCloudIdentityBot, isCloudRuntimeKind, listOwnedBots } = require(directoryPath);
@@ -18,7 +26,7 @@ test("bot directory normalizes cloud identities and ignores local-only manifest 
     ],
     runtime: {
       localDevice: { name: "Jung MacBook" },
-      cloud: { enabled: true }
+      cloud: { enabled: true, agentRuntime: CLOUD_AGENT_RUNTIME }
     }
   });
 
@@ -26,9 +34,9 @@ test("bot directory normalizes cloud identities and ignores local-only manifest 
   const codex = bots.find((bot) => bot.key === "codex");
 
   assert.equal(mia.name, "Mia");
-  assert.equal(mia.runtimeKind, "cloud-hermes");
+  assert.equal(mia.runtimeKind, "cloud-claude-code");
   assert.equal(mia.runtimeLabel, "Mia Cloud");
-  assert.equal(mia.agentEngine, "hermes");
+  assert.equal(mia.agentEngine, "claude-code");
   assert.equal(mia.canEditIdentity, true);
   assert.equal(mia.canDelete, true);
   assert.equal(mia.cloudOnly, undefined);
@@ -72,9 +80,9 @@ test("bot directory preserves cloud active runtime over a local mirror", () => {
       {
         id: "alice",
         name: "Alice Cloud",
-        runtimeKind: "cloud-hermes",
+        runtimeKind: "cloud-claude-code",
         runtimeLabel: "Mia Cloud",
-        agentEngine: "hermes"
+        agentEngine: "claude-code"
       }
     ],
     localBots: [
@@ -86,9 +94,9 @@ test("bot directory preserves cloud active runtime over a local mirror", () => {
   });
 
   assert.equal(bots.length, 1);
-  assert.equal(bots[0].runtimeKind, "cloud-hermes");
+  assert.equal(bots[0].runtimeKind, "cloud-claude-code");
   assert.equal(bots[0].runtimeLabel, "Mia Cloud");
-  assert.equal(bots[0].agentEngine, "hermes");
+  assert.equal(bots[0].agentEngine, "claude-code");
 });
 
 test("bot directory reads desktop active runtime from runtimeConfig", () => {
@@ -240,6 +248,6 @@ test("bot directory attaches as a browser global", () => {
   vm.runInContext(source, context, { filename: directoryPath });
 
   assert.equal(typeof window.miaBotDirectory.listOwnedBots, "function");
-  assert.equal(window.miaBotDirectory.runtimeLabelFor({ runtimeKind: "cloud-hermes" }), "Mia Cloud");
+  assert.equal(window.miaBotDirectory.runtimeLabelFor({ runtimeKind: "cloud-claude-code" }), "Mia Cloud");
   assert.equal(window["mia" + "FellowDirectory"], undefined);
 });

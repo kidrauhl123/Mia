@@ -478,6 +478,7 @@ function createSettingsStore(deps = {}) {
       url: MIA_CLOUD_DEFAULT_URL,
       token: "",
       user: null,
+      agentRuntime: null,
       lastMemorySyncAt: ""
     };
   }
@@ -505,6 +506,7 @@ function createSettingsStore(deps = {}) {
       url: normalizeCloudUrl(saved.url),
       token: String(saved.token || ""),
       user: saved.user && typeof saved.user === "object" ? saved.user : null,
+      agentRuntime: saved.agentRuntime && typeof saved.agentRuntime === "object" ? saved.agentRuntime : null,
       // Tracks the last user_events.seq this device has applied. Sent on
       // every WS connect via `?since_seq=N`; server replays everything
       // newer so disconnect/reconnect/replay is transparent (Phase 1.C).
@@ -528,6 +530,9 @@ function createSettingsStore(deps = {}) {
       url: normalizeCloudUrl(settings.url || current.url),
       token: String(settings.token !== undefined ? settings.token : current.token || ""),
       user: settings.user !== undefined ? settings.user : current.user,
+      agentRuntime: settings.agentRuntime !== undefined
+        ? (settings.agentRuntime && typeof settings.agentRuntime === "object" ? settings.agentRuntime : null)
+        : current.agentRuntime,
       lastEventSeq: settings.lastEventSeq !== undefined
         ? (Number.isFinite(Number(settings.lastEventSeq)) ? Number(settings.lastEventSeq) : current.lastEventSeq)
         : current.lastEventSeq,
@@ -538,6 +543,7 @@ function createSettingsStore(deps = {}) {
     if (!next.token) {
       next.enabled = false;
       next.user = null;
+      next.agentRuntime = null;
       // Different user / logout → discard the seq cursor so the next
       // login replays from 0 instead of trying to resume someone else's.
       next.lastEventSeq = 0;

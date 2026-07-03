@@ -110,10 +110,10 @@ function ctxWithCloudOwnedFellow() {
     moduleState: {
       myUserId: "bob",
       friends: [],
-      bots: [{ key: "mia", name: "Mia", runtimeKind: "cloud-hermes", runtimeLabel: "Mia Cloud" }],
+      bots: [{ key: "mia", name: "Mia", runtimeKind: "cloud-claude-code", runtimeLabel: "Mia Cloud" }],
     },
     adapterCtx: () => ({
-      bots: [{ key: "mia", name: "Mia", runtimeKind: "cloud-hermes", runtimeLabel: "Mia Cloud", color: "#5e5ce6" }],
+      bots: [{ key: "mia", name: "Mia", runtimeKind: "cloud-claude-code", runtimeLabel: "Mia Cloud", color: "#5e5ce6" }],
       friends: [],
       self: { id: "bob" },
     }),
@@ -168,7 +168,7 @@ test("owned cloud bot card reads runtime binding before exposing controls", () =
       calls.push(args);
       return {
         botId: "mia",
-        runtimeKind: "cloud-hermes",
+        runtimeKind: "cloud-claude-code",
         config: { model: "gpt-5.3", effortLevel: "high", permissionMode: "auto" }
       };
     }
@@ -179,7 +179,7 @@ test("owned cloud bot card reads runtime binding before exposing controls", () =
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].botKey, "mia");
-  assert.equal(calls[0].runtimeKind, "cloud-hermes");
+  assert.equal(calls[0].runtimeKind, "cloud-claude-code");
 });
 
 test("bot contact-card runtime edits go through bot command adapter", () => {

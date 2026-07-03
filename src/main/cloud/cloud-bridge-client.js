@@ -20,7 +20,8 @@ function normalizeAgentEngine(value, fallback = "codex") {
   if (raw === "claude" || raw === "claude-code" || raw === "anthropic") return "claude-code";
   if (raw === "codex" || raw === "openai-codex") return "codex";
   if (raw === "openclaw" || raw === "open-claw") return "openclaw";
-  if (raw === "hermes" || raw === "cloud-hermes") return "hermes";
+  if (raw === "cloud-claude-code") return "claude-code";
+  if (raw === "hermes") return "hermes";
   return fallback;
 }
 
@@ -158,6 +159,7 @@ function createCloudBridgeClient({
       connecting: Boolean(bridgeState.connecting),
       url: s.url,
       user: s.user,
+      agentRuntime: s.agentRuntime || null,
       deviceId: bridgeState.deviceId,
       lastError: bridgeState.lastError,
       logs: bridgeState.logs.slice(-80),

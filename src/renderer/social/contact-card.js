@@ -151,7 +151,7 @@
 
   function runtimeCacheKey(botKey, runtimeKind) {
     return global.miaBotCommands?.runtimeCacheKey?.(botKey, runtimeKind)
-      || `${botKey}:${runtimeKind || "cloud-hermes"}`;
+      || `${botKey}:${runtimeKind || "cloud-claude-code"}`;
   }
 
   function bindingForBot(botKey, runtimeKind) {
@@ -196,7 +196,7 @@
 
   function hydrateBotRuntimeBinding(card, bot, runtimeKind) {
     const botKey = String(bot?.key || bot?.id || "").trim();
-    if (!botKey || runtimeKind !== "cloud-hermes") return;
+    if (!botKey || runtimeKind !== "cloud-claude-code") return;
     if (typeof global.miaBotCommands?.getBotRuntimeBinding !== "function") return;
     global.miaBotCommands.getBotRuntimeBinding({
       api: global.mia,
@@ -280,7 +280,7 @@
     const runtimeKind = local.runtimeKind || "desktop-local";
     const engine = local.agentEngine || local.agent_engine || "hermes";
     const isExternal = Boolean(engineOptions?.isExternalAgentEngine?.(engine));
-    const isCloudHermes = runtimeKind === "cloud-hermes";
+    const isCloudHermes = runtimeKind === "cloud-claude-code";
     const botKey = String(local.key || local.id || ref || "").trim();
     const runtimeBinding = isCloudHermes ? bindingForBot(botKey, runtimeKind) : null;
     const config = isCloudHermes

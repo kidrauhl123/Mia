@@ -562,8 +562,11 @@ function verifyRelease() {
     "api/src/cloud/tasks-service.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
+    "api/src/cloud-agent/cloud-claude-code-model.js",
     "api/src/cloud-agent/cloud-hermes-model.js",
     "api/src/cloud-agent/cloud-hermes-sessions-store.js",
+    "api/src/cloud-agent/claude-code-sandbox-manager.js",
+    "api/src/cloud-agent/claude-code-sandbox-client.js",
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/hermes-worker-manager.js",
@@ -667,8 +670,11 @@ function verifyRelease() {
     "api/src/cloud/model-proxy-auth.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
+    "api/src/cloud-agent/cloud-claude-code-model.js",
     "api/src/cloud-agent/cloud-hermes-model.js",
     "api/src/cloud-agent/cloud-hermes-sessions-store.js",
+    "api/src/cloud-agent/claude-code-sandbox-manager.js",
+    "api/src/cloud-agent/claude-code-sandbox-client.js",
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/hermes-worker-manager.js",
@@ -851,8 +857,11 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud/model-proxy-auth.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/runtime-bindings-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-agent-runs-store.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-claude-code-model.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-hermes-model.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-hermes-sessions-store.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/claude-code-sandbox-manager.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/claude-code-sandbox-client.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/attachment-materializer.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/group-orchestrator.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-worker-manager.js"))});
@@ -898,6 +907,7 @@ function main() {
   copyFile("src/shared/cloud-events.js", path.join(apiDir, "src", "shared", "cloud-events.js"));
   copyFile("src/shared/assistant-content-blocks.js", path.join(apiDir, "src", "shared", "assistant-content-blocks.js"));
   copyFile("src/shared/engine-contracts.js", path.join(apiDir, "src", "shared", "engine-contracts.js"));
+  copyFile("src/shared/cloud-runtime.js", path.join(apiDir, "src", "shared", "cloud-runtime.js"));
   copyFile("src/shared/ids.js", path.join(apiDir, "src", "shared", "ids.js"));
   copyFile("src/shared/member-color.js", path.join(apiDir, "src", "shared", "member-color.js"));
   copyFile("src/shared/avatar-media.js", path.join(apiDir, "src", "shared", "avatar-media.js"));
@@ -932,6 +942,7 @@ function main() {
   copyFile("src/shared/message-spec.js", path.join(webDir, "shared", "message-spec.js"));
   copyFile("packages/shared/contact.js", path.join(webDir, "shared", "contact.js"));
   copyFile("src/shared/engine-contracts.js", path.join(webDir, "shared", "engine-contracts.js"));
+  copyFile("src/shared/cloud-runtime.js", path.join(webDir, "shared", "cloud-runtime.js"));
   copyFile("src/shared/ids.js", path.join(webDir, "shared", "ids.js"));
   copyFile("src/shared/conversation-kinds.js", path.join(webDir, "shared", "conversation-kinds.js"));
   copyFile("src/shared/conversation-tags.js", path.join(webDir, "shared", "conversation-tags.js"));
@@ -975,6 +986,7 @@ function main() {
       start: "node server.js"
     },
     dependencies: {
+      "@anthropic-ai/claude-agent-sdk": rootPackage.dependencies?.["@anthropic-ai/claude-agent-sdk"] || "^0.2.139",
       "adm-zip": rootPackage.dependencies?.["adm-zip"] || "^0.5.17",
       "cron-parser": rootPackage.dependencies?.["cron-parser"] || "^4.9.0",
       qrcode: rootPackage.dependencies?.qrcode || "^1.5.4",

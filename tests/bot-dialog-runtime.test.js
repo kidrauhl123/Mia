@@ -5,6 +5,14 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const root = path.join(__dirname, "..");
+const cloudRuntime = require("../src/shared/cloud-runtime.js");
+const CLOUD_AGENT_RUNTIME = {
+  mode: "claude-code",
+  runtimeKind: "cloud-claude-code",
+  agentEngine: "claude-code",
+  label: "Claude Code",
+  available: true
+};
 
 class FakeOption {
   constructor() {
@@ -79,6 +87,7 @@ function createBotDialogContext({ activeBinding, runtime = null, engineCapabilit
   const defaultRuntime = {
     cloud: {
       enabled: true,
+      agentRuntime: CLOUD_AGENT_RUNTIME,
       devices: [{
         id: "mac-1",
         deviceName: "Office Mac",
@@ -132,10 +141,10 @@ function createBotDialogContext({ activeBinding, runtime = null, engineCapabilit
       },
       miaBotDirectory: {
         normalizeRuntimeKind(value, fallback = "desktop-local") {
-          return value === "cloud-hermes" || value === "desktop-local" ? value : fallback;
+          return value === "cloud-claude-code" || value === "desktop-local" ? value : fallback;
         },
         normalizeAgentEngine(value, runtimeKind = "desktop-local") {
-          if (runtimeKind === "cloud-hermes") return "hermes";
+          if (runtimeKind === "cloud-claude-code") return cloudRuntime.cloudAgentRuntimeFromCloud(state.runtime.cloud).agentEngine;
           const id = String(value || "hermes").trim();
           return id === "claude-code" || id === "codex" || id === "openclaw" ? id : "hermes";
         },
@@ -169,6 +178,7 @@ function createBotDialogContext({ activeBinding, runtime = null, engineCapabilit
           }[engine] || engine;
         }
       },
+      miaCloudRuntime: cloudRuntime,
       mia: {
         social: {
           listBridgeDevices: listBridgeDevices
@@ -209,6 +219,7 @@ test("creating a bot exposes only Mia Cloud and local engines", () => {
     runtime: {
       cloud: {
         enabled: true,
+        agentRuntime: CLOUD_AGENT_RUNTIME,
         devices: [{
           id: "mac-remote",
           deviceName: "Studio Mac",
@@ -230,7 +241,7 @@ test("creating a bot exposes only Mia Cloud and local engines", () => {
   context.window.miaBotDialog.openBotDialog();
 
   const options = decodedRuntimeOptions(select);
-  assert.ok(options.some((option) => option.runtimeKind === "cloud-hermes"), "Mia Cloud should be available");
+  assert.ok(options.some((option) => option.runtimeKind === "cloud-claude-code"), "Mia Cloud should be available");
   assert.deepEqual(
     options
       .filter((option) => option.deviceId === "mac-local")
@@ -360,7 +371,7 @@ test("opening an existing id-only bot edits it instead of treating it as a creat
     id: "4020623",
     name: "？？",
     sourceKinds: ["cloud"],
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     agentEngine: "hermes"
   }, "你是 Claude Code。");
 
@@ -394,7 +405,7 @@ test("closing an edited bot dialog clears hidden form fields", () => {
 test("creating a bot supplements local engines from loaded engine capabilities", () => {
   const { context, select } = createBotDialogContext({
     runtime: {
-      cloud: { enabled: true, devices: [] },
+      cloud: { enabled: true, agentRuntime: CLOUD_AGENT_RUNTIME, devices: [] },
       localDevice: { id: "mac-local", name: "Work Mac" },
       agentEngines: {
         hermes: { available: true }
@@ -439,10 +450,10 @@ test("editing a bot hydrates the runtime target from the active binding", async 
     key: "bot_writer",
     name: "写作助手",
     sourceKinds: ["cloud"],
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     agentEngine: "hermes"
   }, "persona");
-  assert.equal(context.window.miaBotDialog.readSelectedRuntimeTarget().runtimeKind, "cloud-hermes");
+  assert.equal(context.window.miaBotDialog.readSelectedRuntimeTarget().runtimeKind, "cloud-claude-code");
 
   await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -493,7 +504,7 @@ test("editing a bot keeps a stale device id instead of resolving bridge aliases"
     key: "bot_writer",
     name: "写作助手",
     sourceKinds: ["cloud"],
-    runtimeKind: "cloud-hermes",
+    runtimeKind: "cloud-claude-code",
     agentEngine: "hermes"
   }, "persona");
 

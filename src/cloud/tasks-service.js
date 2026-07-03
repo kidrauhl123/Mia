@@ -29,10 +29,10 @@ function runtimeTargetDeviceId(config = {}) {
 function runtimeSnapshot(context, userId, botId) {
   const active = context.runtimeBindingsStore?.getActiveBinding?.(userId, botId) || null;
   const fallback = active
-    || context.runtimeBindingsStore?.getEnabledBinding?.(userId, botId, "cloud-hermes")
+    || context.runtimeBindingsStore?.getEnabledBinding?.(userId, botId, "cloud-claude-code")
     || context.runtimeBindingsStore?.getEnabledBinding?.(userId, botId, "desktop-local")
     || null;
-  const runtimeKind = String(fallback?.runtimeKind || "cloud-hermes").trim() || "cloud-hermes";
+  const runtimeKind = String(fallback?.runtimeKind || "cloud-claude-code").trim() || "cloud-claude-code";
   const config = fallback?.config && typeof fallback.config === "object" ? fallback.config : {};
   return {
     runtimeKind,

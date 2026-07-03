@@ -4,22 +4,18 @@
   const STARTER_ENGINE_ORDER = ["hermes", "openclaw", "codex", "claude-code"];
   const CLOUD_MIA_TAG_NAME = "云端";
   const STARTER_STATUS_BADGE_IDS = Object.freeze({
-    "cloud-hermes": "rainbow-fire",
+    "cloud-claude-code": "rainbow-fire",
     hermes: "blue-fire",
     openclaw: "pink-fire",
     codex: "cyan-fire",
     "claude-code": "red-orange-fire"
   });
   const CLOUD_MIA_STARTER = Object.freeze({
-    engineId: "cloud-hermes",
+    engineId: "cloud-claude-code",
     keySuffix: "mia",
-    runtimeKind: "cloud-hermes",
-    agentEngine: "hermes",
+    runtimeKind: "cloud-claude-code",
     name: "Mia",
     color: "#16a34a",
-    bio: "云端 Hermes，随时可用，不依赖本机 Agent。",
-    description: "Mia 云端助手，默认使用云端 Hermes。",
-    personaText: "你是 Mia。用云端 Hermes 简洁、可靠地帮助用户处理日常问题、创作、信息整理和自动化请求。",
     targetDeviceId: "",
     targetDeviceName: "Mia Cloud",
     tagNames: Object.freeze([CLOUD_MIA_TAG_NAME])
@@ -54,7 +50,7 @@
   function normalizeEngineId(value) {
     const raw = String(value || "").trim().toLowerCase();
     if (!raw) return "";
-    if (["cloud-hermes", "cloud_hermes", "mia-cloud", "miacloud"].includes(raw)) return "cloud-hermes";
+    if (["cloud-claude-code", "cloud_claude_code", "cloud-hermes", "cloud_hermes", "mia-cloud", "miacloud"].includes(raw)) return "cloud-claude-code";
     if (["claude", "claude_code", "claudecode"].includes(raw)) return "claude-code";
     if (["open-claw", "open_claw", "openclaw"].includes(raw)) return "openclaw";
     return raw;
@@ -154,7 +150,19 @@
   }
 
   function starterBotSpecs(runtime = {}) {
-    return [{ ...CLOUD_MIA_STARTER, statusBadge: starterStatusBadge("cloud-hermes") }, ...starterEngineBotSpecs(runtime)];
+    const cloudRuntime = global.miaCloudRuntime?.cloudAgentRuntimeFromCloud?.(runtime.cloud || runtime) || {};
+    const cloudLabel = cloudRuntime.label || "";
+    const cloudStarter = cloudRuntime.available && cloudRuntime.agentEngine
+      ? {
+        ...CLOUD_MIA_STARTER,
+        agentEngine: cloudRuntime.agentEngine,
+        bio: `云端 ${cloudLabel}，随时可用，不依赖本机 Agent。`,
+        description: `Mia 云端助手，默认使用云端 ${cloudLabel} sandbox。`,
+        personaText: `你是 Mia。用云端 ${cloudLabel} sandbox 简洁、可靠地帮助用户处理日常问题、创作、信息整理和自动化请求。`,
+        statusBadge: starterStatusBadge("cloud-claude-code")
+      }
+      : null;
+    return [...(cloudStarter ? [cloudStarter] : []), ...starterEngineBotSpecs(runtime)];
   }
 
   function settingsFromResponse(response) {
@@ -219,8 +227,8 @@
   function matchingBotForSpec(spec, bots = []) {
     return (Array.isArray(bots) ? bots : []).find((bot) =>
       botDisplayName(bot).toLowerCase() === spec.name.toLowerCase()
-      && (spec.runtimeKind === "cloud-hermes"
-        ? botRuntimeKind(bot) === "cloud-hermes"
+      && (spec.runtimeKind === "cloud-claude-code"
+        ? botRuntimeKind(bot) === "cloud-claude-code"
         : botEngineId(bot) === spec.engineId)) || null;
   }
 
@@ -353,7 +361,7 @@
     const existingBots = Array.isArray(social?.moduleState?.bots) ? social.moduleState.bots : [];
     const updated = await backfillStarterStatusBadges({ api, social, specs: allSpecs, existingBots });
     const specs = existingMarker.seededAt
-      ? allSpecs.filter((spec) => spec.engineId === "cloud-hermes" && !seededIds.has(spec.engineId))
+      ? allSpecs.filter((spec) => spec.engineId === "cloud-claude-code" && !seededIds.has(spec.engineId))
       : allSpecs;
     if (!specs.length) {
       return updated.length ? { skipped: false, created: [], updated } : { skipped: true, created: [] };

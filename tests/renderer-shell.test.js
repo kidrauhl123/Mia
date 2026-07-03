@@ -2165,7 +2165,7 @@ test("desktop-local bot runtime controls read cloud runtime bindings", () => {
   const runtimeFetchBlock = body.slice(body.indexOf("const runtimeCacheKey = botRuntimeCacheKey"));
 
   assert.match(appSource, /const botRuntimeControlInFlight = new Set\(\);/);
-  assert.doesNotMatch(runtimeFetchBlock, /context\.runtimeKind === "cloud-hermes"/);
+  assert.doesNotMatch(runtimeFetchBlock, /context\.runtimeKind === "cloud-claude-code"/);
   assert.match(runtimeFetchBlock, /if \(!botRuntimeControlCache\.has\(runtimeCacheKey\)/);
   assert.match(body, /!botRuntimeControlInFlight\.has\(runtimeCacheKey\)/);
   assert.match(body, /botRuntimeControlInFlight\.add\(runtimeCacheKey\)/);
@@ -2806,7 +2806,7 @@ test("desktop accordion helper animates managed details instead of native snap t
   assert.match(source, /global\.miaAccordion/);
 });
 
-test("bot creation branches cloud-hermes without saving local manifest", () => {
+test("bot creation branches cloud-claude-code without saving local manifest", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const commandsSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-commands.js"), "utf8");
@@ -2817,7 +2817,8 @@ test("bot creation branches cloud-hermes without saving local manifest", () => {
   assert.doesNotMatch(appSource, /window\.mia\.social\.saveFellowIdentity\(key,/);
   assert.match(commandsSource, /async function saveCloudHermesBot/);
   assert.match(commandsSource, /api\.social\.saveBotIdentity\(key,/);
-  assert.match(commandsSource, /runtimeKind:\s*"cloud-hermes"/);
+  assert.match(commandsSource, /const CLOUD_RUNTIME_KIND = "cloud-claude-code"/);
+  assert.match(commandsSource, /runtimeKind:\s*CLOUD_RUNTIME_KIND/);
   assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBot/);
   assert.doesNotMatch(commandsSource, /api\.saveBot\(bot\)/);
 });

@@ -463,7 +463,28 @@
   }
 
   function engineLabel(engine = "hermes") {
+    if (!engine) return "";
     return window.miaEngineContracts?.engineLabel?.(engine) || "Hermes";
+  }
+
+  function strictAgentEngine(value = "") {
+    const strict = window.miaCloudRuntime?.normalizeAgentEngineStrict?.(value);
+    if (strict) return strict;
+    const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+    if (raw === "claude" || raw === "claude-code") return "claude-code";
+    if (raw === "codex" || raw === "openai-codex") return "codex";
+    if (raw === "openclaw" || raw === "open-claw") return "openclaw";
+    if (raw === "hermes") return "hermes";
+    return "";
+  }
+
+  function cloudAgentRuntime() {
+    return window.miaCloudRuntime?.cloudAgentRuntimeFromState?.(state) || {
+      runtimeKind: "",
+      agentEngine: "",
+      label: "",
+      available: false
+    };
   }
 
   function compactDeviceName(value = "") {
@@ -619,23 +640,24 @@
   }
 
   function encodeRuntimeTarget(target = {}) {
+    const isCloud = ["cloud-claude-code", "cloud-hermes"].includes(String(target.runtimeKind || "").trim());
     return JSON.stringify({
-      runtimeKind: target.runtimeKind === "cloud-hermes" ? "cloud-hermes" : "desktop-local",
+      runtimeKind: isCloud ? "cloud-claude-code" : "desktop-local",
       deviceId: String(target.deviceId || "").trim(),
       deviceName: String(target.deviceName || "").trim(),
-      agentEngine: String(target.agentEngine || "hermes").trim()
+      agentEngine: isCloud ? strictAgentEngine(target.agentEngine) : String(target.agentEngine || "hermes").trim()
     });
   }
 
   function parseRuntimeTargetValue(value = "") {
     try {
       const parsed = JSON.parse(String(value || ""));
-      const runtimeKind = parsed.runtimeKind === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
+      const runtimeKind = ["cloud-claude-code", "cloud-hermes"].includes(String(parsed.runtimeKind || "").trim()) ? "cloud-claude-code" : "desktop-local";
       return {
         runtimeKind,
-        targetDeviceId: runtimeKind === "cloud-hermes" ? "" : String(parsed.deviceId || "").trim(),
-        targetDeviceName: runtimeKind === "cloud-hermes" ? "Mia Cloud" : String(parsed.deviceName || "").trim(),
-        agentEngine: runtimeKind === "cloud-hermes" ? "hermes" : String(parsed.agentEngine || "hermes").trim()
+        targetDeviceId: runtimeKind === "cloud-claude-code" ? "" : String(parsed.deviceId || "").trim(),
+        targetDeviceName: runtimeKind === "cloud-claude-code" ? "Mia Cloud" : String(parsed.deviceName || "").trim(),
+        agentEngine: runtimeKind === "cloud-claude-code" ? strictAgentEngine(parsed.agentEngine) : String(parsed.agentEngine || "hermes").trim()
       };
     } catch {
       return { runtimeKind: "desktop-local", targetDeviceId: "", targetDeviceName: "", agentEngine: "hermes" };
@@ -644,7 +666,7 @@
 
   function readSelectedRuntimeTarget() {
     const selected = parseRuntimeTargetValue(els?.botRuntimeTarget?.value || "");
-    if (selected.runtimeKind === "cloud-hermes") return selected;
+    if (selected.runtimeKind === "cloud-claude-code") return selected;
     const device = bridgeDeviceOptions().find((item) => item.id === selected.targetDeviceId);
     return {
       ...selected,
@@ -655,13 +677,18 @@
   function runtimeTargetFromBinding(binding = {}) {
     const runtimeKind = window.miaBotDirectory?.normalizeRuntimeKind?.(
       binding.runtimeKind || binding.runtime_kind,
-      "cloud-hermes"
-    ) || "cloud-hermes";
+      "cloud-claude-code"
+    ) || "cloud-claude-code";
     const config = binding.config && typeof binding.config === "object"
       ? binding.config
       : (binding.runtimeConfig && typeof binding.runtimeConfig === "object" ? binding.runtimeConfig : {});
-    if (runtimeKind === "cloud-hermes") {
-      return { runtimeKind: "cloud-hermes", deviceId: "", deviceName: "Mia Cloud", agentEngine: "hermes" };
+    if (runtimeKind === "cloud-claude-code") {
+      return {
+        runtimeKind: "cloud-claude-code",
+        deviceId: "",
+        deviceName: "Mia Cloud",
+        agentEngine: strictAgentEngine(config.agentEngine || config.agent_engine || binding.agentEngine || binding.agent_engine) || cloudAgentRuntime().agentEngine
+      };
     }
     return {
       runtimeKind: "desktop-local",
@@ -690,7 +717,7 @@
       targetDeviceName: target.deviceName,
       deviceId: target.deviceId,
       deviceName: target.deviceName,
-      runtimeLabel: target.runtimeKind === "cloud-hermes" ? "Mia Cloud" : (target.deviceName || "当前设备")
+      runtimeLabel: target.runtimeKind === "cloud-claude-code" ? "Mia Cloud" : (target.deviceName || "当前设备")
     };
   }
 
@@ -731,14 +758,16 @@
     const groups = [];
     const cloudEnabled = Boolean(state?.runtime?.cloud?.enabled);
     if (cloudEnabled) {
+      const cloudRuntime = cloudAgentRuntime();
       groups.push({
         label: "Mia Cloud · 在线",
         options: [{
-          runtimeKind: "cloud-hermes",
+          runtimeKind: "cloud-claude-code",
           deviceId: "",
           deviceName: "Mia Cloud",
-          agentEngine: "hermes",
-          label: "Hermes"
+          agentEngine: cloudRuntime.agentEngine,
+          label: cloudRuntime.label || "云端内核未同步",
+          disabled: !cloudRuntime.available
         }]
       });
     }
@@ -798,8 +827,9 @@
     const canonicalDevice = currentDeviceId
       ? bridgeDeviceOptions().find((device) => device.id === currentDeviceId)
       : null;
-    const wanted = encodeRuntimeTarget(current.runtimeKind === "cloud-hermes"
-      ? { runtimeKind: "cloud-hermes", agentEngine: "hermes" }
+    const cloudRuntime = cloudAgentRuntime();
+    const wanted = encodeRuntimeTarget(current.runtimeKind === "cloud-claude-code"
+      ? { runtimeKind: "cloud-claude-code", agentEngine: current.agentEngine || cloudRuntime.agentEngine }
       : {
         runtimeKind: "desktop-local",
         deviceId: canonicalDevice?.id || current.deviceId || localDevice?.id || "current-device",
@@ -891,7 +921,7 @@
     if (els.botStatusBadge) els.botStatusBadge.value = window.miaStatusBadgeControls?.statusBadgePresetValue?.(actualBot?.statusBadge || actualBot?.status_badge) || "";
     const runtimeKind = window.miaBotDirectory?.normalizeRuntimeKind?.(
       actualBot?.runtimeKind || actualBot?.runtime_kind || seed?.runtimeKind,
-      window.miaBotDirectory?.isCloudIdentityBot?.(actualBot) ? "cloud-hermes" : "desktop-local"
+      window.miaBotDirectory?.isCloudIdentityBot?.(actualBot) ? "cloud-claude-code" : "desktop-local"
     ) || "desktop-local";
     renderBotRuntimeTargetSelect({
       runtimeKind,

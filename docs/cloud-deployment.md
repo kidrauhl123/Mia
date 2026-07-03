@@ -21,13 +21,12 @@ MIA_CLOUD_PUBLIC_URL=https://mia.gifgif.cn
 MIA_CLOUD_ALLOWED_ORIGINS=https://mia.gifgif.cn,https://gifgif.cn
 MIA_BRIDGE_RUN_TIMEOUT_MS=300000
 MIA_CLOUD_VERSION=2026-05-20
-MIA_CLOUD_AGENT_MODE=docker
+MIA_CLOUD_AGENT_MODE=claude-code
 MIA_CLOUD_AGENT_ROOT=/var/lib/mia-cloud-agent-users
-MIA_CLOUD_HERMES_IMAGE=mia/hermes-cloud:2026.5.29
-MIA_CLOUD_HERMES_CONTAINER_PORT=8765
-MIA_CLOUD_AGENT_DOCKER_NETWORK=mia-cloud
-MIA_CLOUD_AGENT_MODEL_PROVIDER=mia
-MIA_CLOUD_AGENT_MODEL=mia-auto
+MIA_CLOUD_CLAUDE_CODE_BASE_URL=https://api.deepseek.com/anthropic
+MIA_CLOUD_CLAUDE_CODE_MODEL=claude-sonnet-4-5
+MIA_CLOUD_CLAUDE_CODE_SANDBOX=1
+MIA_CLOUD_CLAUDE_CODE_SANDBOX_REQUIRED=1
 MIA_CLOUD_ADMIN_USERNAME=<admin username>
 MIA_CLOUD_ADMIN_PASSWORD=<admin password>
 MIA_WECHAT_MP_APP_ID=<WeChat Official Account AppID>
@@ -38,16 +37,16 @@ MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>
 MIA_MODEL_INPUT_MICROUSD_PER_1M=140000
 MIA_MODEL_OUTPUT_MICROUSD_PER_1M=280000
 MIA_MODEL_MARKUP=1
-# Optional bootstrap fallback; the normal entry is /admin/model.
+# Required for Cloud Agent turns; keep this in /etc/mia-cloud/admin.env.
 # MIA_DEEPSEEK_API_KEY=<DeepSeek API key>
 ```
 
 `MIA_CLOUD_ALLOWED_ORIGINS` is required in production. Without it, WebSocket upgrades are limited to same-host/local origins only.
 `MIA_CLOUD_PORT` takes precedence over the generic `PORT`; if `MIA_CLOUD_PORT` is unset, the server honors `PORT` for platform-style deployments.
-`MIA_CLOUD_AGENT_MODE=docker` enables the Cloud-hosted Hermes runtime for Bot runs. The release includes `hermes-image/`, and the installer builds `MIA_CLOUD_HERMES_IMAGE` locally on the VPS so the runtime does not depend on pulling a private image. The service creates one worker container per user, mounts only `/var/lib/mia-cloud-agent-users/<userId>` at `/data`, binds the Hermes API to `127.0.0.1` on a random host port, and passes `HERMES_HOME=/data/hermes-home`, `HOME=/data/home`, `TERMINAL_CWD=/data/workspace`, and `HERMES_WRITE_SAFE_ROOT=/data/workspace` into the container. The worker container must not mount `/var/lib/mia-cloud`, global uploads, other users' agent directories, or `/var/run/docker.sock`.
+`MIA_CLOUD_AGENT_MODE=claude-code` enables the Cloud-hosted Claude Code SDK runtime for Bot runs. The service creates an isolated home/workspace/tmp tree per user under `MIA_CLOUD_AGENT_ROOT`, points Claude Code at DeepSeek's Anthropic-compatible endpoint, and asks the Claude Code SDK to enforce its sandbox for shell/file work. This is intentionally not one permanent Docker container per user.
 On China-hosted VPS networks, Debian apt metadata or PyPI downloads can hang when they use upstream defaults. Set `MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian` and `MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple` before running `install-cloud-release-local.sh` or `cloud:deploy`.
-If `MIA_CLOUD_HERMES_IMAGE` is already present on the VPS and the Hermes version did not change, `MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1` or `MIA_DEPLOY_SKIP_HERMES_IMAGE_BUILD=1` skips rebuilding the worker image after first verifying that image exists.
-`MIA_MODEL_GATEWAY=deepseek` makes Mia Cloud the paid model gateway: users spend Mia model credits, Mia calls DeepSeek with the server-side key, records usage in SQLite, and deducts the user's balance. Save the DeepSeek API Key, base URL, public Mia model name, and token pricing at `/admin/model`; `MIA_DEEPSEEK_API_KEY` is only a bootstrap fallback if the database setting has not been saved yet. Cloud Hermes workers receive a per-user internal proxy token generated from `MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY`; they do not receive the raw DeepSeek key. Put `MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY`, optional fallback `MIA_DEEPSEEK_API_KEY`, and admin credentials in `/etc/mia-cloud/admin.env`, not in the repository.
+If a rollback needs the old Cloud Hermes runtime, set `MIA_CLOUD_AGENT_MODE=docker` or `MIA_CLOUD_AGENT_MODE=static`; only then do the install scripts require Docker and build `hermes-image/`.
+`MIA_MODEL_GATEWAY=deepseek` still powers Mia's paid model gateway and admin billing. Cloud Claude Code uses `MIA_DEEPSEEK_API_KEY` or `MIA_CLOUD_CLAUDE_CODE_API_KEY` server-side. Put `MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY`, `MIA_DEEPSEEK_API_KEY`, and admin credentials in `/etc/mia-cloud/admin.env`, not in the repository.
 
 ## WeChat Official Account Login
 
@@ -87,7 +86,7 @@ docker run -d --name litellm --restart unless-stopped \
   --config /app/config.yaml --host 0.0.0.0 --port 4000
 ```
 
-Use the Mia admin page at `/admin/model` to save the provider API key and the `mia-auto` model alias into LiteLLM. Keep the LiteLLM UI private or disabled on the public internet. The Mia systemd unit should use a LiteLLM virtual key in `MIA_CLOUD_AGENT_MODEL_API_KEY`; Bot runs that target Cloud Hermes use this managed model gateway, and end users do not configure model providers inside the worker.
+Use the Mia admin page at `/admin/model` to save the provider API key and the `mia-auto` model alias into LiteLLM. Keep the LiteLLM UI private or disabled on the public internet. This path is optional for the current Claude Code cloud runtime; it is retained for older Cloud Hermes deployments and future multi-provider routing.
 
 ## systemd Unit
 
@@ -112,13 +111,12 @@ Environment=MIA_CLOUD_PUBLIC_URL=https://mia.gifgif.cn
 Environment=MIA_CLOUD_ALLOWED_ORIGINS=https://mia.gifgif.cn
 Environment=MIA_BRIDGE_RUN_TIMEOUT_MS=300000
 Environment=MIA_CLOUD_VERSION=2026-05-20
-Environment=MIA_CLOUD_AGENT_MODE=docker
+Environment=MIA_CLOUD_AGENT_MODE=claude-code
 Environment=MIA_CLOUD_AGENT_ROOT=/var/lib/mia-cloud-agent-users
-Environment=MIA_CLOUD_HERMES_IMAGE=mia/hermes-cloud:2026.5.29
-Environment=MIA_CLOUD_HERMES_CONTAINER_PORT=8765
-Environment=MIA_CLOUD_AGENT_DOCKER_NETWORK=mia-cloud
-Environment=MIA_CLOUD_AGENT_MODEL_PROVIDER=mia
-Environment=MIA_CLOUD_AGENT_MODEL=mia-auto
+Environment=MIA_CLOUD_CLAUDE_CODE_BASE_URL=https://api.deepseek.com/anthropic
+Environment=MIA_CLOUD_CLAUDE_CODE_MODEL=claude-sonnet-4-5
+Environment=MIA_CLOUD_CLAUDE_CODE_SANDBOX=1
+Environment=MIA_CLOUD_CLAUDE_CODE_SANDBOX_REQUIRED=1
 EnvironmentFile=-/etc/mia-cloud/admin.env
 NoNewPrivileges=true
 PrivateTmp=true

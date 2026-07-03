@@ -261,23 +261,24 @@ test("cloud bridge remote run is account-authenticated and does not add a separa
   assert.doesNotMatch(mainSource, /cloudBridgeReconnectTimer/, "main must not own bridge reconnect timer");
 });
 
-test("cloud Hermes legacy runs client files are removed", () => {
+test("cloud Claude Code legacy runs client files are removed", () => {
   assert.equal(
     fs.existsSync(path.join(root, "src/cloud-agent/hermes-runs-client.js")),
     false,
-    "legacy cloud Hermes runs client source should be removed"
+    "legacy cloud Claude Code runs client source should be removed"
   );
   assert.equal(
     fs.existsSync(path.join(root, "tests/cloud-agent-hermes-runs-client.test.js")),
     false,
-    "legacy cloud Hermes runs client test should be removed"
+    "legacy cloud Claude Code runs client test should be removed"
   );
 });
 
 test("cloud release builder ships gateway Hermes files and excludes the legacy runs client", () => {
   const source = fs.readFileSync(path.join(root, "scripts/build-cloud-release.js"), "utf8");
-  assert.match(source, /api\/src\/cloud-agent\/cloud-hermes-model\.js/);
-  assert.match(source, /api\/src\/cloud-agent\/cloud-hermes-sessions-store\.js/);
+  assert.match(source, /api\/src\/cloud-agent\/cloud-claude-code-model\.js/);
+  assert.match(source, /api\/src\/cloud-agent\/claude-code-sandbox-manager\.js/);
+  assert.match(source, /api\/src\/cloud-agent\/claude-code-sandbox-client\.js/);
   assert.match(source, /api\/src\/cloud-agent\/hermes-gateway-client\.js/);
   assert.match(source, /api\/src\/cloud-agent\/hermes-gateway-events\.js/);
   assert.match(source, /api\/src\/cloud-agent\/hermes-im-attachments\.js/);
