@@ -1806,10 +1806,20 @@ function mergeMarketSkillWithSnapshot(skill = {}, snapshot = null) {
 
 function normalizeDesktopMarketPayload(page = {}, params = {}) {
   const snapshots = skillMarketSnapshotAll();
-  const snapshotById = new Map((snapshots.skills || []).map((skill) => [String(skill.id || ""), skill]));
-  const skills = (Array.isArray(page.skills) ? page.skills : [])
-    .filter((skill) => !isHiddenRemoteMarketSkill(skill))
-    .map((skill) => mergeMarketSkillWithSnapshot(skill, snapshotById.get(String(skill?.id || ""))))
+  const snapshotSkills = Array.isArray(snapshots.skills) ? snapshots.skills : [];
+  const snapshotById = new Map(snapshotSkills.map((skill) => [String(skill.id || ""), skill]));
+  const skillsById = new Map(snapshotSkills.map((skill) => [String(skill.id || ""), skill]));
+  for (const skill of Array.isArray(page.skills) ? page.skills : []) {
+    const id = String(skill?.id || "").trim();
+    if (!id) continue;
+    const snapshot = snapshotById.get(id) || null;
+    if (isHiddenRemoteMarketSkill(skill)) {
+      if (snapshot) skillsById.set(id, snapshot);
+      continue;
+    }
+    skillsById.set(id, mergeMarketSkillWithSnapshot(skill, snapshot));
+  }
+  const skills = [...skillsById.values()]
     .filter((skill) => marketSkillMatchesParams(skill, params));
   return {
     skills,

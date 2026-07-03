@@ -25,10 +25,11 @@ test("main serves a snapshot-plus-cloud market and installs through the unified 
   assert.match(main, /SkillsMarketRead.*readDesktopMarketSkill/);
   assert.match(main, /function skillMarketSnapshot/);
   assert.match(main, /function cachedDesktopMarketPayload/);
+  assert.match(main, /const skillsById = new Map\(snapshotSkills\.map/);
   assert.match(main, /forceRefresh:\s*true/);
   assert.match(main, /cloudDesktopSync\(\)\.listMarketSkills/);
   assert.match(main, /function isHiddenRemoteMarketSkill/);
-  assert.match(main, /\.filter\(\(skill\) => !isHiddenRemoteMarketSkill\(skill\)\)/);
+  assert.match(main, /skillsById\.set\(id, mergeMarketSkillWithSnapshot\(skill, snapshot\)\)/);
   assert.match(main, /SkillsMarketInstall.*installDesktopMarketSkill/);
   assert.match(main, /function installDesktopMarketSkill/);
   assert.match(main, /function readDesktopMarketSkill/);
