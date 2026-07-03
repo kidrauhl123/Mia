@@ -826,6 +826,51 @@ test("managed AgentSession turns pass prepared Claude Code Mia runtime env to th
   }]);
 });
 
+test("starter engine bot ids route visible replies through AgentSession without runtime config", async () => {
+  const calls = { manager: [], post: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for starter AgentSession bots");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  assert.equal(await responder.respond({
+    ...base,
+    conversationId: "bot:u_1:codex",
+    botId: "codex",
+    dedupKey: "m_starter_codex:codex",
+    turnId: "t_starter",
+    userPrompt: "hello"
+  }), true);
+
+  assert.deepEqual(calls.manager, [{
+    conversationId: "bot:u_1:codex",
+    engineId: "codex",
+    workspacePath: "/repo/workspace",
+    turnId: "t_starter",
+    text: "hello"
+  }]);
+  assert.equal(calls.post.length, 0);
+});
+
 test("managed AgentSession deltas are streamed and posted as the bot reply", async () => {
   const manager = new EventEmitter();
   const calls = { manager: [], post: [], log: [], cloudEvents: [] };

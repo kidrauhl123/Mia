@@ -601,6 +601,7 @@ function resolveAgentSessionWorkspacePath(source) {
 
 function managedAgentSessionInput({
   conversationId,
+  botId = "",
   botSnapshot = null,
   runtimeConfig = null,
   turnId = null,
@@ -615,6 +616,7 @@ function managedAgentSessionInput({
     || runtimeConfig?.agent_engine
     || botSnapshot?.agentEngine
     || botSnapshot?.agent_engine
+    || botId
     || ""
   ).trim();
   const agentSessionSpec = getAcpEngineSpec(requestedEngine);
@@ -1083,6 +1085,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     try {
       managedInput = managedAgentSessionInput({
         conversationId,
+        botId,
         botSnapshot,
         runtimeConfig,
         turnId,
