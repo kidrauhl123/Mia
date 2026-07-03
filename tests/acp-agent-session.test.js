@@ -687,6 +687,22 @@ test("normalizeAcpSessionUpdate maps ACP updates into AgentSession event kinds",
   );
 });
 
+test("normalizeAcpSessionUpdate suppresses Codex Mia Auto metadata warnings", () => {
+  assert.deepEqual(
+    normalizeAcpSessionUpdate({
+      turnId: "turn-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "Warning: Model metadata for mia-auto not found.\nDefaulting to fallback metadata; this can degrade performance and cause issues.\n\n"
+        }
+      }
+    }),
+    []
+  );
+});
+
 test("defaultCreateTransport uses the shared OpenClaw ACP launcher for shimmed commands", async () => {
   const tempDir = require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "acp-openclaw-"));
   try {

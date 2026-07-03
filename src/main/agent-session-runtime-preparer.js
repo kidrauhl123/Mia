@@ -8,6 +8,9 @@ const { createOpenClawMiaProfile } = require("./openclaw-mia-profile.js");
 const { createCodexMiaProxy } = require("./codex-mia-proxy.js");
 
 const DEFAULT_CODEX_MIA_MODEL_CATALOG = "mia-codex-model-catalog.json";
+const DEFAULT_CODEX_MIA_LAUNCHER = process.platform === "win32"
+  ? "mia-codex-launcher.cmd"
+  : "mia-codex-launcher.sh";
 
 function firstString(source = {}, keys = []) {
   for (const key of keys) {
@@ -80,6 +83,42 @@ function writeCodexMiaModelCatalog(catalogPath, model = "mia-auto") {
   return target;
 }
 
+function codexMiaLauncherScript(platform = process.platform) {
+  if (platform === "win32") {
+    return [
+      "@echo off",
+      "set \"REAL_CODEX=%MIA_CODEX_REAL_PATH%\"",
+      "if \"%REAL_CODEX%\"==\"\" set \"REAL_CODEX=codex\"",
+      "if \"%1\"==\"app-server\" if not \"%MIA_CODEX_MODEL_CATALOG_JSON%\"==\"\" (",
+      "  \"%REAL_CODEX%\" %* -c \"model_catalog_json=\\\"%MIA_CODEX_MODEL_CATALOG_JSON%\\\"\"",
+      "  exit /b %ERRORLEVEL%",
+      ")",
+      "\"%REAL_CODEX%\" %*",
+      "exit /b %ERRORLEVEL%",
+      ""
+    ].join("\r\n");
+  }
+  return [
+    "#!/bin/sh",
+    "REAL_CODEX=\"${MIA_CODEX_REAL_PATH:-codex}\"",
+    "CATALOG=\"${MIA_CODEX_MODEL_CATALOG_JSON:-}\"",
+    "if [ \"${1:-}\" = \"app-server\" ] && [ -n \"$CATALOG\" ]; then",
+    "  exec \"$REAL_CODEX\" \"$@\" -c \"model_catalog_json=\\\"$CATALOG\\\"\"",
+    "fi",
+    "exec \"$REAL_CODEX\" \"$@\"",
+    ""
+  ].join("\n");
+}
+
+function writeCodexMiaLauncher(launcherPath, platform = process.platform) {
+  const target = String(launcherPath || "").trim();
+  if (!target) return "";
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, codexMiaLauncherScript(platform), "utf8");
+  if (platform !== "win32") fs.chmodSync(target, 0o755);
+  return target;
+}
+
 function codexConfigForMiaSession(session = {}, options = {}) {
   const baseUrl = String(session.baseUrl || "").trim().replace(/\/+$/, "");
   const model = String(session.model || "").trim();
@@ -110,6 +149,9 @@ function createAgentSessionRuntimePreparer(options = {}) {
   const openClawMiaProfile = options.openClawMiaProfile || createOpenClawMiaProfile(options.openClawMiaProfileOptions || {});
   const codexModelCatalogPath = String(options.codexModelCatalogPath || "").trim()
     || path.join(os.tmpdir(), DEFAULT_CODEX_MIA_MODEL_CATALOG);
+  const codexLauncherPath = String(options.codexLauncherPath || "").trim()
+    || path.join(os.tmpdir(), DEFAULT_CODEX_MIA_LAUNCHER);
+  const codexRealPath = String(options.codexRealPath || process.env.CODEX_PATH || "codex").trim() || "codex";
 
   async function prepare(input = {}) {
     const engineId = String(input.engineId || "").trim();
@@ -153,13 +195,17 @@ function createAgentSessionRuntimePreparer(options = {}) {
       if (!baseUrl || !apiKey || !model) {
         throw new Error("Codex Mia proxy did not return a usable session.");
       }
+      const modelCatalogJson = writeCodexMiaModelCatalog(codexModelCatalogPath, model);
       return {
         runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
         env: {
           CODEX_API_KEY: apiKey,
+          CODEX_PATH: writeCodexMiaLauncher(codexLauncherPath),
+          MIA_CODEX_MODEL_CATALOG_JSON: modelCatalogJson,
+          MIA_CODEX_REAL_PATH: codexRealPath,
           MODEL_PROVIDER: "custom",
           CODEX_CONFIG: JSON.stringify(codexConfigForMiaSession(session, {
-            modelCatalogJson: writeCodexMiaModelCatalog(codexModelCatalogPath, model)
+            modelCatalogJson
           }))
         }
       };

@@ -85,6 +85,7 @@ test("prepares Codex Mia managed model proxy env for AgentSession", async (t) =>
   const catalogDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-codex-catalog-"));
   t.after(() => fs.rmSync(catalogDir, { recursive: true, force: true }));
   const catalogPath = path.join(catalogDir, "models.json");
+  const launcherPath = path.join(catalogDir, process.platform === "win32" ? "codex-launcher.cmd" : "codex-launcher.sh");
   const proxyCalls = [];
   const managedModel = {
     provider: "mia",
@@ -111,7 +112,9 @@ test("prepares Codex Mia managed model proxy env for AgentSession", async (t) =>
         };
       }
     },
-    codexModelCatalogPath: catalogPath
+    codexModelCatalogPath: catalogPath,
+    codexLauncherPath: launcherPath,
+    codexRealPath: "/usr/local/bin/codex-real"
   });
 
   const runtime = await preparer.prepare({
@@ -130,6 +133,11 @@ test("prepares Codex Mia managed model proxy env for AgentSession", async (t) =>
   assert.equal(runtime.env.CODEX_API_KEY, "mia-codex-session-token");
   assert.equal(runtime.env.OPENAI_API_KEY, undefined);
   assert.equal(runtime.env.MODEL_PROVIDER, "custom");
+  assert.equal(runtime.env.CODEX_PATH, launcherPath);
+  assert.equal(runtime.env.MIA_CODEX_MODEL_CATALOG_JSON, catalogPath);
+  assert.equal(runtime.env.MIA_CODEX_REAL_PATH, "/usr/local/bin/codex-real");
+  assert.equal(fs.existsSync(launcherPath), true);
+  assert.match(fs.readFileSync(launcherPath, "utf8"), /model_catalog_json/);
   const codexConfig = JSON.parse(runtime.env.CODEX_CONFIG);
   assert.equal(codexConfig.model_catalog_json, catalogPath);
   assert.equal(fs.existsSync(catalogPath), true);
@@ -153,6 +161,50 @@ test("prepares Codex Mia managed model proxy env for AgentSession", async (t) =>
       }
     }
   });
+});
+
+test("Codex Mia launcher injects model catalog config into app-server startup", async (t) => {
+  if (process.platform === "win32") return;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-codex-launcher-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const realCodex = path.join(dir, "codex-real.sh");
+  const argsFile = path.join(dir, "args.txt");
+  fs.writeFileSync(realCodex, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argsFile}"\n`, { mode: 0o755 });
+  const launcherPath = path.join(dir, "codex-launcher.sh");
+  const catalogPath = path.join(dir, "models.json");
+  const preparer = createAgentSessionRuntimePreparer({
+    codexLauncherPath: launcherPath,
+    codexModelCatalogPath: catalogPath,
+    codexRealPath: realCodex,
+    resolveManagedModelRuntime: () => ({ provider: "mia", modelProfileId: "mia:mia-auto", model: "mia-auto", managedByMia: true }),
+    codexMiaProxy: {
+      createSession: async () => ({
+        baseUrl: "http://127.0.0.1:7654/v1",
+        apiKey: "mia-codex-session-token",
+        model: "mia-auto"
+      })
+    }
+  });
+
+  await preparer.prepare({
+    engineId: "codex",
+    runtimeConfig: { agentEngine: "codex", providerConnectionId: "mia", modelProfileId: "mia:mia-auto", model: "mia-auto" }
+  });
+
+  await new Promise((resolve, reject) => {
+    const spawned = require("node:child_process").spawn(launcherPath, ["app-server"], {
+      env: {
+        ...process.env,
+        MIA_CODEX_REAL_PATH: realCodex,
+        MIA_CODEX_MODEL_CATALOG_JSON: catalogPath
+      },
+      stdio: "ignore"
+    });
+    spawned.on("error", reject);
+    spawned.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`launcher exited ${code}`)));
+  });
+  const args = fs.readFileSync(argsFile, "utf8").trim().split(/\n/);
+  assert.deepEqual(args, ["app-server", "-c", `model_catalog_json="${catalogPath}"`]);
 });
 
 test("does not prepare Codex proxy env for native Codex runtime", async () => {
