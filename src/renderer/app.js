@@ -31,6 +31,8 @@ let personaListRenderSignature = "";
 let chatConversationMenuRenderSignature = "";
 let conversationFolderDrag = null;
 let conversationFolderSuppressClick = false;
+let cloudMobileScanRefreshTimer = 0;
+let cloudMobileScanPendingTimer = 0;
 const CONVERSATION_FOLDER_ORDER_KEY = "mia.conversationFolderOrder.v1";
 const CONVERSATION_FOLDER_ALL_KEY = "__all__";
 const CONVERSATION_FOLDER_LONG_PRESS_MS = 260;
@@ -315,6 +317,14 @@ const els = {
   cloudModelBalanceRow: document.getElementById("cloudModelBalanceRow"),
   cloudModelBalanceAmount: document.getElementById("cloudModelBalanceAmount"),
   cloudModelBalanceMeta: document.getElementById("cloudModelBalanceMeta"),
+  cloudMobileScanCard: document.getElementById("cloudMobileScanCard"),
+  cloudMobileScanMeta: document.getElementById("cloudMobileScanMeta"),
+  cloudMobileScanQr: document.getElementById("cloudMobileScanQr"),
+  cloudMobileScanRefresh: document.getElementById("cloudMobileScanRefresh"),
+  cloudLoginApproveDialog: document.getElementById("cloudLoginApproveDialog"),
+  cloudLoginApproveCopy: document.getElementById("cloudLoginApproveCopy"),
+  cloudLoginApproveDeny: document.getElementById("cloudLoginApproveDeny"),
+  cloudLoginApproveAllow: document.getElementById("cloudLoginApproveAllow"),
   cloudLogout: document.getElementById("cloudLogout"),
   checkUpdates: document.getElementById("checkUpdates"),
   daemonRestart: document.getElementById("daemonRestart"),
@@ -2657,25 +2667,48 @@ function renderAttachmentThumb(attachment = {}, className = "attachment-thumb") 
   return `<img class="${window.miaMarkdown.escapeHtml(className)}" src="${window.miaMarkdown.escapeHtml(src)}" alt="">`;
 }
 
+function renderAttachmentFileIcon(attachment = {}, assetRoot = "./assets/file-type-icons") {
+  return `
+    <span class="message-attachment-icon" aria-hidden="true">
+      <img class="message-attachment-icon-image" src="${window.miaMarkdown.escapeHtml(assetRoot)}/${window.miaMarkdown.escapeHtml(window.miaFormat.attachmentIconName(attachment))}.png" alt="">
+    </span>
+  `;
+}
+
+function renderStandaloneAttachmentBlock(attachmentHtml = "", attrs = "") {
+  if (!attachmentHtml) return "";
+  const extraAttrs = String(attrs || "").trim();
+  return attachmentHtml.replace(
+    '<div class="message-attachments"',
+    `<div class="message-attachments standalone"${extraAttrs ? ` ${extraAttrs}` : ""}`
+  );
+}
+
 function renderAttachmentChip(attachment = {}) {
-  const image = (attachment.kind || window.miaFormat.attachmentKind(attachment)) === "image" && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
+  const image = window.miaFormat.attachmentVisualType(attachment) === "image" && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
   const imageSrc = String(attachment.dataUrl || attachment.previewDataUrl || attachment.thumbnailDataUrl || attachment.thumbnail || "").trim();
   const imageSrcAttr = imageSrc.startsWith("data:image/") ? ` data-image-src="${window.miaMarkdown.escapeHtml(imageSrc)}"` : "";
   const href = String(attachment.dataUrl || "").startsWith("data:") ? String(attachment.dataUrl) : "";
+  const localFilePathAttr = ` data-local-file-path="${window.miaMarkdown.escapeHtml(attachment.path || "")}"`;
+  const attachmentUrlAttr = attachment.url ? ` data-attachment-url="${window.miaMarkdown.escapeHtml(attachment.url)}"` : "";
+  const downloadHrefAttr = href ? ` data-download-href="${window.miaMarkdown.escapeHtml(href)}" data-download-name="${window.miaMarkdown.escapeHtml(attachment.name || "attachment")}"` : "";
   const tag = href ? "a" : "span";
   const download = href ? ` href="${window.miaMarkdown.escapeHtml(href)}" download="${window.miaMarkdown.escapeHtml(attachment.name || "attachment")}"` : "";
+  const detail = window.miaFormat.formatBytes(attachment.size) || window.miaFormat.attachmentGlyph(attachment);
   if (image) {
     return `
-      <button class="message-attachment image" type="button"${imageSrcAttr} title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "")}" aria-label="预览图片">
+      <button class="message-attachment image" type="button"${localFilePathAttr}${attachmentUrlAttr}${downloadHrefAttr}${imageSrcAttr} title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "")}" aria-label="预览图片">
         ${renderAttachmentThumb(attachment, "message-attachment-thumb")}
       </button>
     `;
   }
   return `
-    <${tag} class="message-attachment"${download} title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "")}">
-      ${renderAttachmentThumb(attachment, "message-attachment-thumb")}
-      <strong>${window.miaMarkdown.escapeHtml(attachment.name || "附件")}</strong>
-      <em>${window.miaMarkdown.escapeHtml(window.miaFormat.formatBytes(attachment.size))}</em>
+    <${tag} class="message-attachment file-card type-${window.miaMarkdown.escapeHtml(window.miaFormat.attachmentVisualType(attachment))}"${localFilePathAttr}${attachmentUrlAttr}${downloadHrefAttr}${download} title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "")}">
+      ${renderAttachmentFileIcon(attachment)}
+      <span class="message-attachment-meta">
+        <strong>${window.miaMarkdown.escapeHtml(attachment.name || "附件")}</strong>
+        <em>${window.miaMarkdown.escapeHtml(detail)}</em>
+      </span>
     </${tag}>
   `;
 }
@@ -3564,6 +3597,15 @@ function renderView() {
       window.miaSettingsMemory?.loadMemorySettings?.();
     }
   }
+  if (state.activeView === "settings" && state.activeSettingsTab === "account" && state.runtime?.cloud?.enabled) {
+    refreshCloudMobileScan().catch(() => {});
+  }
+  if (state.runtime?.cloud?.enabled) {
+    if (!cloudMobileScanPendingTimer) pollCloudMobileScanPending().catch(() => {});
+  } else {
+    clearCloudMobileScanTimers();
+    closeCloudLoginApproveDialog();
+  }
   window.miaSkillLibrary.renderSkillLibrary();
   window.miaBotManager.renderContacts();
   window.miaTasksPanel?.renderTaskView();
@@ -4155,6 +4197,10 @@ function renderMessageHtml(message, ctx) {
   const replyHtml = window.miaMessageHelpers.replyQuoteHtml(message.replyTo);
   const translation = window.miaMessageMenu?.translationHtml(message, messageIndex) || "";
   const attachmentHtml = renderAttachmentChips([...(message.attachments || []), ...generatedAttachmentsForMessage(message)].map(hydrateAttachmentPreview));
+  const attachmentAfterBodyHtml = message.role === "assistant"
+    ? renderStandaloneAttachmentBlock(attachmentHtml, `data-message-index="${messageIndex}"`)
+    : "";
+  const attachmentBeforeBodyHtml = message.role === "assistant" ? "" : attachmentHtml;
   const pinnedHtml = message.pinned ? `<span class="message-pin-badge">${ICON_PARK_PIN_SVG}置顶</span>` : "";
   let contentBlocks = [];
   if (message.role === "assistant") {
@@ -4177,7 +4223,7 @@ function renderMessageHtml(message, ctx) {
       expanded: false,
       scopeKey: `msg:${message.createdAt || ""}`,
       renderTextBlock(block) {
-        const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentHtml}${pinnedHtml}${replyHtml}`;
+        const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentBeforeBodyHtml}${pinnedHtml}${replyHtml}`;
         renderedFirstTextBlock = true;
         const blockBodyHtml = String(block.text || "").trim() ? window.miaMarkdown.renderMarkdown(block.text) : "";
         return `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${prefixHtml}${blockBodyHtml}</div>`;
@@ -4211,10 +4257,16 @@ function renderMessageHtml(message, ctx) {
     text: activeAvatarSpec.image ? "" : activeAvatarSpec.text,
     attrs: `data-sender-kind="${senderKind}" data-sender-ref="${window.miaMarkdown.escapeHtml(senderRef)}" title="${window.miaMarkdown.escapeHtml(avatarTitle)}"`
   });
-  const orderedBlocksWithAttachments = orderedBlocksHtml && !renderedFirstTextBlock && attachmentHtml
-    ? `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${attachmentHtml}${pinnedHtml}${replyHtml}</div>${orderedBlocksHtml}`
-    : orderedBlocksHtml;
-  const defaultBubbleHtml = `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${attachmentHtml}${pinnedHtml}${replyHtml}${bodyHtml}${commandResultHtml}${translation}</div>`;
+  const orderedBlocksLeadingBubbleHtml = orderedBlocksHtml && !renderedFirstTextBlock && (attachmentBeforeBodyHtml || pinnedHtml || replyHtml)
+    ? `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${attachmentBeforeBodyHtml}${pinnedHtml}${replyHtml}</div>`
+    : "";
+  const orderedBlocksWithAttachments = orderedBlocksHtml
+    ? `${orderedBlocksLeadingBubbleHtml}${orderedBlocksHtml}${attachmentAfterBodyHtml}`
+    : "";
+  const bubbleBodyHtml = `${attachmentBeforeBodyHtml}${pinnedHtml}${replyHtml}${bodyHtml}${commandResultHtml}${translation}`;
+  const defaultBubbleHtml = bubbleBodyHtml
+    ? `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${bubbleBodyHtml}</div>${attachmentAfterBodyHtml}`
+    : attachmentAfterBodyHtml;
   return `<article class="message ${roleClass}">
       ${avatarHtml}
       <div class="message-stack">${taskAffordanceHtml}${traceHtml}${orderedBlocksWithAttachments || defaultBubbleHtml}${orderedBlocksHtml ? `${commandResultHtml}${translation}` : ""}${timeHtml}</div>
@@ -5080,6 +5132,7 @@ window.miaOpenBotConversation = openBotConversation;
 
 async function refreshRuntime() {
   const previousDaemon = state.runtime?.daemon || {};
+  const previousCloud = state.runtime?.cloud || {};
   const runtime = await window.mia.runtimeStatus();
   if (runtime?.daemon && Array.isArray(previousDaemon.links) && previousDaemon.links.length && !Array.isArray(runtime.daemon.links)) {
     runtime.daemon = {
@@ -5091,6 +5144,12 @@ async function refreshRuntime() {
     runtime.appearance = window.miaSettingsAppearance?.mergeCloudAppearance?.(state.runtime.appearance, runtime.appearance) || {
       ...(state.runtime.appearance || {}),
       ...runtime.appearance
+    };
+  }
+  if (runtime?.cloud && previousCloud?.mobileScan && !runtime.cloud.mobileScan) {
+    runtime.cloud = {
+      ...runtime.cloud,
+      mobileScan: previousCloud.mobileScan
     };
   }
   state.runtime = runtime;
@@ -5108,6 +5167,147 @@ async function refreshRuntime() {
   }
   maybeBootstrapSocialAfterRuntime(runtime);
   render();
+}
+
+function clearCloudMobileScanTimers() {
+  if (cloudMobileScanRefreshTimer) {
+    clearTimeout(cloudMobileScanRefreshTimer);
+    cloudMobileScanRefreshTimer = 0;
+  }
+  if (cloudMobileScanPendingTimer) {
+    clearTimeout(cloudMobileScanPendingTimer);
+    cloudMobileScanPendingTimer = 0;
+  }
+}
+
+function cloudMobileScanErrorCopy(error) {
+  const message = String(error?.message || error || "").trim();
+  if (/Mia Core 未运行|Mia 暂不可用/i.test(message)) return "需要先启动 Mia Core";
+  if (/Error invoking remote method 'cloud:login'/i.test(message)) {
+    const normalized = message.replace(/^Error invoking remote method 'cloud:login':\s*/i, "").trim();
+    if (/Mia Core 未运行|Mia 暂不可用/i.test(normalized)) return "需要先启动 Mia Core";
+    return normalized || "二维码生成失败";
+  }
+  return message || "二维码生成失败";
+}
+
+function closeCloudLoginApproveDialog() {
+  if (els.cloudLoginApproveDialog) els.cloudLoginApproveDialog.classList.add("hidden");
+  delete state.pendingCloudLoginRequest;
+}
+
+function openCloudLoginApproveDialog(request = {}) {
+  state.pendingCloudLoginRequest = request;
+  if (els.cloudLoginApproveCopy) {
+    const deviceLabel = String(request.deviceLabel || "").trim();
+    els.cloudLoginApproveCopy.textContent = deviceLabel
+      ? `允许 ${deviceLabel} 登录当前账号？`
+      : "允许这台手机登录当前账号？";
+  }
+  els.cloudLoginApproveDialog?.classList.remove("hidden");
+}
+
+function scheduleCloudMobileScanRefresh(expiresAt = "") {
+  if (cloudMobileScanRefreshTimer) clearTimeout(cloudMobileScanRefreshTimer);
+  const expireMs = Date.parse(String(expiresAt || ""));
+  if (!Number.isFinite(expireMs)) return;
+  const delay = Math.max(1000, expireMs - Date.now() + 250);
+  cloudMobileScanRefreshTimer = setTimeout(() => {
+    cloudMobileScanRefreshTimer = 0;
+    refreshCloudMobileScan(true).catch(() => {});
+  }, delay);
+}
+
+function renderCloudAccountFromState() {
+  window.miaSettingsRemote.renderCloudAccount(state.runtime?.cloud || {});
+}
+
+async function refreshCloudMobileScan(force = false) {
+  const cloud = state.runtime?.cloud || {};
+  if (!cloud.enabled) {
+    clearCloudMobileScanTimers();
+    closeCloudLoginApproveDialog();
+    return;
+  }
+  const current = cloud.mobileScan || {};
+  const expiresAtMs = Date.parse(String(current.expiresAt || ""));
+  const stillValid = Number.isFinite(expiresAtMs) && expiresAtMs > Date.now() + 1000;
+  if (!force && current.qrCodeUrl && stillValid) {
+    scheduleCloudMobileScanRefresh(current.expiresAt);
+    return;
+  }
+  try {
+    const started = await window.mia.cloudLogin({ action: "mobile-scan-start" });
+    state.runtime = {
+      ...state.runtime,
+      cloud: {
+        ...cloud,
+        mobileScan: started
+      }
+    };
+    renderCloudAccountFromState();
+    scheduleCloudMobileScanRefresh(started.expiresAt);
+  } catch (error) {
+    state.runtime = {
+      ...state.runtime,
+      cloud: {
+        ...cloud,
+        mobileScan: {
+          ...current,
+          error: cloudMobileScanErrorCopy(error)
+        }
+      }
+    };
+    renderCloudAccountFromState();
+  }
+}
+
+async function pollCloudMobileScanPending() {
+  const cloud = state.runtime?.cloud || {};
+  if (!cloud.enabled) {
+    clearCloudMobileScanTimers();
+    closeCloudLoginApproveDialog();
+    return;
+  }
+  try {
+    const pending = await window.mia.cloudLogin({ action: "mobile-scan-pending" });
+    if (pending?.requestId) openCloudLoginApproveDialog(pending);
+    else closeCloudLoginApproveDialog();
+  } catch {
+    closeCloudLoginApproveDialog();
+  } finally {
+    if (state.runtime?.cloud?.enabled) {
+      cloudMobileScanPendingTimer = setTimeout(() => {
+        cloudMobileScanPendingTimer = 0;
+        pollCloudMobileScanPending().catch(() => {});
+      }, 1500);
+    }
+  }
+}
+
+async function respondCloudLoginApproval(decision) {
+  const pending = state.pendingCloudLoginRequest || null;
+  if (!pending?.requestId) return;
+  if (els.cloudLoginApproveAllow) els.cloudLoginApproveAllow.disabled = true;
+  if (els.cloudLoginApproveDeny) els.cloudLoginApproveDeny.disabled = true;
+  try {
+    await window.mia.cloudLogin({
+      action: "mobile-scan-decision",
+      requestId: pending.requestId,
+      decision
+    });
+    closeCloudLoginApproveDialog();
+    if (decision === "approve") {
+      await refreshCloudMobileScan(true);
+    }
+  } catch (error) {
+    if (els.cloudLoginApproveCopy) {
+      els.cloudLoginApproveCopy.textContent = `操作失败：${error.message || error}`;
+    }
+  } finally {
+    if (els.cloudLoginApproveAllow) els.cloudLoginApproveAllow.disabled = false;
+    if (els.cloudLoginApproveDeny) els.cloudLoginApproveDeny.disabled = false;
+  }
 }
 
 function maybeBootstrapSocialAfterRuntime(runtime) {
@@ -5577,7 +5777,13 @@ els.chat?.addEventListener("contextmenu", (event) => {
     window.miaContactCard?.openContextMenu({ kind, ref, conversationId, anchor: avatarEl, x: event.clientX, y: event.clientY });
     return;
   }
-  const bubble = event.target.closest(".bubble[data-message-index]");
+  const attachmentEl = event.target.closest(".message-attachment");
+  if (attachmentEl && els.chat.contains(attachmentEl) && openAttachmentContextMenu(attachmentEl, event.clientX, event.clientY)) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  const bubble = event.target.closest(".bubble[data-message-index], .message-attachments[data-message-index]");
   if (!bubble || !els.chat.contains(bubble)) return;
   const selection = window.miaMessageMenu?.selectionInsideBubble(bubble);
   // Cloud-conversation bubbles (cloud DM + cloud group) carry data-message-source +
@@ -5866,6 +6072,8 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
 els.cloudLogout?.addEventListener("click", async () => {
   els.cloudLogout.disabled = true;
   try {
+    clearCloudMobileScanTimers();
+    closeCloudLoginApproveDialog();
     state.runtime = await window.mia.cloudLogout();
     render();
   } catch (error) {
@@ -5873,6 +6081,15 @@ els.cloudLogout?.addEventListener("click", async () => {
   } finally {
     els.cloudLogout.disabled = false;
   }
+});
+els.cloudMobileScanRefresh?.addEventListener("click", () => {
+  refreshCloudMobileScan(true).catch(() => {});
+});
+els.cloudLoginApproveAllow?.addEventListener("click", () => {
+  respondCloudLoginApproval("approve").catch(() => {});
+});
+els.cloudLoginApproveDeny?.addEventListener("click", () => {
+  respondCloudLoginApproval("deny").catch(() => {});
 });
 window.mia.onUpdateEvent?.((payload) => handleAppUpdateEvent(payload || {}));
 els.checkUpdates?.addEventListener("click", async () => {
@@ -6028,7 +6245,7 @@ if (window.mia.onCloudEvent) {
           ...envelope.cloud
         }
       };
-      window.miaSettingsRemote.renderCloudAccount(envelope.cloud);
+      renderCloudAccountFromState();
     }
     // Refresh runtime metadata (cloud connection / device list) only.
     // We intentionally do NOT reload chatStore here — that races with
@@ -7056,6 +7273,156 @@ function openMessageLink(link) {
   }
 }
 
+let attachmentContextMenuOutsideClickHandler = null;
+let attachmentContextMenuEscapeHandler = null;
+
+function attachmentLocalFilePath(attachmentEl) {
+  return String(attachmentEl?.dataset?.localFilePath || "").trim();
+}
+
+function attachmentDownloadHref(attachmentEl) {
+  return String(attachmentEl?.dataset?.downloadHref || attachmentEl?.getAttribute?.("href") || "").trim();
+}
+
+function attachmentCloudFileUrl(attachmentEl) {
+  return String(attachmentEl?.dataset?.attachmentUrl || "").trim();
+}
+
+function attachmentDownloadName(attachmentEl) {
+  return String(attachmentEl?.dataset?.downloadName || attachmentEl?.getAttribute?.("download") || "attachment").trim() || "attachment";
+}
+
+function closeAttachmentContextMenu() {
+  const menu = els.messageContextMenu;
+  if (!menu || menu.dataset.menuKind !== "attachment") return;
+  menu.classList.add("hidden");
+  menu.innerHTML = "";
+  menu.dataset.menuKind = "";
+  if (attachmentContextMenuOutsideClickHandler) {
+    document.removeEventListener("click", attachmentContextMenuOutsideClickHandler, true);
+    attachmentContextMenuOutsideClickHandler = null;
+  }
+  if (attachmentContextMenuEscapeHandler) {
+    document.removeEventListener("keydown", attachmentContextMenuEscapeHandler);
+    attachmentContextMenuEscapeHandler = null;
+  }
+}
+
+async function openAttachmentFromElement(attachmentEl) {
+  const localFilePath = attachmentLocalFilePath(attachmentEl);
+  if (!localFilePath) return false;
+  await window.mia?.openLocalFile?.(localFilePath);
+  return true;
+}
+
+function rememberSavedAttachmentDownload(attachmentEl, saved) {
+  if (!attachmentEl || !saved?.path) return false;
+  attachmentEl.dataset.localFilePath = saved.path;
+  attachmentEl.setAttribute("data-local-file-path", saved.path);
+  const cloudUrl = attachmentCloudFileUrl(attachmentEl) || String(saved.url || "").trim();
+  if (cloudUrl) {
+    state.generatedFiles.set(cloudUrl, { status: "ready", attachment: { ...saved, url: cloudUrl } });
+  }
+  return true;
+}
+
+async function downloadAttachmentFromElement(attachmentEl) {
+  const href = attachmentDownloadHref(attachmentEl);
+  if (!href) return false;
+  if (href.startsWith("data:") && typeof window.mia?.saveAttachment === "function") {
+    try {
+      const saved = await window.mia?.saveAttachment?.({
+        name: attachmentDownloadName(attachmentEl),
+        url: attachmentCloudFileUrl(attachmentEl),
+        dataUrl: href
+      });
+      if (saved?.path) return rememberSavedAttachmentDownload(attachmentEl, saved);
+    } catch (error) {
+      appendTransientChat("assistant", `附件下载失败: ${error.message || error}`);
+      return false;
+    }
+  }
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = attachmentDownloadName(attachmentEl);
+  link.click();
+  return true;
+}
+
+async function revealAttachmentInFolderFromElement(attachmentEl) {
+  const localFilePath = attachmentLocalFilePath(attachmentEl);
+  if (!localFilePath) return false;
+  await window.mia?.revealLocalFile?.(localFilePath);
+  return true;
+}
+
+function openAttachmentContextMenu(attachmentEl, x, y) {
+  const menu = els.messageContextMenu;
+  if (!menu || !attachmentEl) return false;
+  closeAttachmentContextMenu();
+  window.miaSocialMessageMenu?.closeSocialMessageMenu?.();
+  window.miaMessageMenu?.closeMessageContextMenu?.();
+  window.miaSkillLibrary?.closeSkillContextMenu?.();
+  window.miaBotManager?.closeBotContextMenu?.();
+
+  const actions = attachmentLocalFilePath(attachmentEl)
+    ? [
+        { key: "open", icon: "preview", label: "打开" },
+        { key: "reveal", icon: "folderOpen", label: "打开文件夹" }
+      ]
+    : attachmentDownloadHref(attachmentEl)
+      ? [{ key: "download", icon: "download", label: "下载" }]
+      : [];
+  if (!actions.length) return false;
+
+  menu.dataset.menuKind = "attachment";
+  menu.innerHTML = actions.map((action) => window.miaMarkdown.menuItemHtml({
+    icon: action.icon,
+    label: action.label,
+    attrs: `data-attachment-menu-action="${action.key}"`
+  })).join("");
+  menu.classList.remove("hidden");
+  window.miaLottieIcons?.init(menu);
+
+  const rect = menu.getBoundingClientRect();
+  const width = rect.width || 148;
+  const height = rect.height || 132;
+  menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - height - 8))}px`;
+
+  menu.querySelectorAll("[data-attachment-menu-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const action = button.dataset.attachmentMenuAction;
+      closeAttachmentContextMenu();
+      if (action === "open") {
+        await openAttachmentFromElement(attachmentEl);
+        return;
+      }
+      if (action === "reveal") {
+        await revealAttachmentInFolderFromElement(attachmentEl);
+        return;
+      }
+      if (action === "download") {
+        await downloadAttachmentFromElement(attachmentEl);
+      }
+    });
+  });
+
+  setTimeout(() => {
+    attachmentContextMenuOutsideClickHandler = (event) => {
+      if (menu.contains(event.target)) return;
+      closeAttachmentContextMenu();
+    };
+    document.addEventListener("click", attachmentContextMenuOutsideClickHandler, true);
+    attachmentContextMenuEscapeHandler = (event) => {
+      if (event.key === "Escape") closeAttachmentContextMenu();
+    };
+    document.addEventListener("keydown", attachmentContextMenuEscapeHandler);
+  }, 0);
+
+  return true;
+}
+
 window.addEventListener("keydown", (event) => {
   if (event.key === "Meta" || event.key === "Control" || event.metaKey || event.ctrlKey) {
     updateTraceLinkModifierState(event);
@@ -7131,6 +7498,21 @@ els.chat.addEventListener("click", async (event) => {
       resumeButton.disabled = false;
     }
     return;
+  }
+  const fileCard = event.target.closest(".message-attachment.file-card");
+  if (fileCard && els.chat.contains(fileCard)) {
+    if (fileCard.dataset.localFilePath) {
+      event.preventDefault();
+      event.stopPropagation();
+      await window.mia?.openLocalFile?.(fileCard.dataset.localFilePath);
+      return;
+    }
+    if (attachmentDownloadHref(fileCard)) {
+      event.preventDefault();
+      event.stopPropagation();
+      await downloadAttachmentFromElement(fileCard);
+      return;
+    }
   }
   const imageButton = event.target.closest(".message-attachment.image");
   if (imageButton && els.chat.contains(imageButton)) {

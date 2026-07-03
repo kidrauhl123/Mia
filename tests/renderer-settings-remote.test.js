@@ -186,6 +186,46 @@ test("settings account card hides model balance when signed out", async () => {
   assert.deepEqual(els.cloudModelBalanceRow.classList.toggles.at(-1), ["hidden", true]);
 });
 
+test("settings account card includes the mobile scan qr shell and shows it only when signed in", async () => {
+  const { api } = loadSettingsRemote();
+  const state = { runtime: { cloud: {} } };
+  const els = {
+    cloudAccountHint: el(),
+    cloudLogout: el(),
+    cloudAccountProfile: el(),
+    cloudAccountAvatar: el(),
+    cloudAccountName: el(),
+    cloudAccountUid: el(),
+    cloudModelBalanceRow: el(),
+    cloudModelBalanceAmount: el(),
+    cloudModelBalanceMeta: el(),
+    cloudMobileScanCard: el(),
+    cloudMobileScanMeta: el()
+  };
+  api.initSettingsRemote({ state, els });
+
+  await api.renderCloudAccount({
+    enabled: true,
+    connected: true,
+    mobileScan: {
+      qrUrl: "https://mia.test/mobile-scan?grant=ms_1",
+      expiresAt: "2026-07-03T00:05:00.000Z"
+    },
+    user: { id: "100001", username: "wx_8067aabb7153", displayName: "我耳塞呢" }
+  });
+  assert.deepEqual(els.cloudMobileScanCard.classList.toggles.at(-1), ["hidden", false]);
+
+  await api.renderCloudAccount({ enabled: false, connected: false });
+  assert.deepEqual(els.cloudMobileScanCard.classList.toggles.at(-1), ["hidden", true]);
+
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  assert.match(html, /id="cloudMobileScanCard"/);
+  assert.match(html, /id="cloudMobileScanRefresh"/);
+  assert.match(html, /id="cloudMobileScanQr"/);
+  assert.match(html, /id="cloudLoginApproveDialog"/);
+  assert.match(html, /允许这台手机登录当前账号/);
+});
+
 test("settings account card caches stale-main IPC failures without flashing raw errors", async () => {
   const { api, cloudCalls } = loadSettingsRemote({
     modelBalance: new Error("Error invoking remote method 'cloud:model-balance': Error: No handler registered for 'cloud:model-balance'")

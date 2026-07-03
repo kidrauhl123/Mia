@@ -53,6 +53,48 @@
     if (els?.cloudModelBalanceMeta) els.cloudModelBalanceMeta.textContent = "登录后可查看 Mia 模型额度。";
   }
 
+  function renderMobileScanSignedOut() {
+    els?.cloudMobileScanCard?.classList.toggle("hidden", true);
+    if (els?.cloudMobileScanMeta) {
+      els.cloudMobileScanMeta.textContent = "登录后可用手机扫码登录。";
+    }
+    if (els?.cloudMobileScanQr) {
+      els.cloudMobileScanQr.textContent = "";
+      if (els.cloudMobileScanQr.dataset) delete els.cloudMobileScanQr.dataset.qrUrl;
+    }
+  }
+
+  function renderMobileScan(cloud = {}, enabled = false) {
+    if (!els?.cloudMobileScanCard) return;
+    if (!enabled) {
+      renderMobileScanSignedOut();
+      return;
+    }
+    const mobileScan = cloud.mobileScan || {};
+    const qrUrl = String(mobileScan.qrUrl || "").trim();
+    const qrCodeUrl = String(mobileScan.qrCodeUrl || "").trim();
+    const error = String(mobileScan.error || "").trim();
+    els.cloudMobileScanCard.classList.toggle("hidden", false);
+    if (els?.cloudMobileScanMeta) {
+      els.cloudMobileScanMeta.textContent = error
+        ? `二维码生成失败：${error}`
+        : qrUrl
+        ? "手机扫一扫，电脑上点一次允许。"
+        : "正在生成二维码。";
+    }
+    if (els?.cloudMobileScanQr) {
+      if (qrCodeUrl) {
+        els.cloudMobileScanQr.innerHTML = `<img src="${qrCodeUrl.replaceAll('"', "&quot;")}" alt="手机扫码登录 Mia">`;
+      } else {
+        els.cloudMobileScanQr.textContent = error ? "二维码生成失败" : qrUrl ? "二维码已就绪" : "二维码准备中…";
+      }
+      if (els.cloudMobileScanQr.dataset) {
+        if (qrUrl) els.cloudMobileScanQr.dataset.qrUrl = qrUrl;
+        else delete els.cloudMobileScanQr.dataset.qrUrl;
+      }
+    }
+  }
+
   function renderModelBalancePayload(payload) {
     const balance = payload?.balance || {};
     const usage = Array.isArray(payload?.recentUsage) ? payload.recentUsage[0] : null;
@@ -216,6 +258,7 @@
       els.cloudAccountHint.textContent = "登录后，这台电脑会自动作为本机 Agent 出现在 Web 和手机端。";
     }
     els.cloudLogout?.classList.toggle("hidden", !enabled);
+    renderMobileScan(cloud, enabled);
     await refreshModelBalance({ ...cloud, enabled });
   }
 

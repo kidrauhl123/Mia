@@ -324,6 +324,15 @@ function createCloudStore(options = {}) {
     return token;
   }
 
+  function createSessionForUser(userId) {
+    const row = getUserById(userId);
+    if (!row) throw new Error("用户不存在。");
+    return {
+      token: createSession(userId),
+      user: rowToUser(row)
+    };
+  }
+
   // (ensureWorkspace removed in Phase 4 cutover — workspace snapshots
   //  are no longer the conversation store. The `workspaces` table is
   //  left intact but unused; a future commit can DROP it once we've
@@ -747,6 +756,7 @@ function createCloudStore(options = {}) {
 
   return {
     loginWithWechat,
+    createSessionForUser,
     logoutSession,
     authenticateToken,
     saveImageDataUrl,

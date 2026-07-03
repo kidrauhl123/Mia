@@ -921,6 +921,20 @@
                   <div class="cloud-model-balance-amount" id="cloudModelBalanceAmount" aria-live="polite"></div>
                 </div>
               </section>
+              <section id="cloudMobileScanCard" class="connection-row cloud-mobile-scan-row hidden">
+                <div class="cloud-mobile-scan-copy">
+                  <div class="connection-row-head">
+                    <div class="cloud-account-status-copy">
+                      <strong>手机扫码登录</strong>
+                      <p id="cloudMobileScanMeta">登录后可用手机扫码，并在这台电脑上确认登录。</p>
+                    </div>
+                    <div class="cloud-actions">
+                      <button id="cloudMobileScanRefresh" class="secondary" type="button">刷新</button>
+                    </div>
+                  </div>
+                  <div id="cloudMobileScanQr" class="cloud-mobile-scan-qr" aria-live="polite"></div>
+                </div>
+              </section>
             </div>
             <div class="runtime-card app-update-card">
               <section class="connection-row app-update-row">
@@ -994,6 +1008,22 @@
         </section>
         <div class="avatar-colors" id="profileAvatarColors" role="radiogroup" aria-label="头像颜色"></div>
       </form>
+    </section>
+
+    <section id="cloudLoginApproveDialog" class="cloud-login-approve-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="cloudLoginApproveTitle">
+      <div class="cloud-login-approve-backdrop"></div>
+      <div class="cloud-login-approve-panel">
+        <header class="bot-dialog-head">
+          <div>
+            <h2 id="cloudLoginApproveTitle">允许登录</h2>
+            <p id="cloudLoginApproveCopy">允许这台手机登录当前账号？</p>
+          </div>
+        </header>
+        <div class="cloud-login-approve-actions">
+          <button id="cloudLoginApproveDeny" class="secondary" type="button">取消</button>
+          <button id="cloudLoginApproveAllow" class="primary" type="button">允许</button>
+        </div>
+      </div>
     </section>
 
     <section id="botDialog" class="bot-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="botDialogTitle">

@@ -9162,6 +9162,73 @@ select.select-open {
   white-space: nowrap;
 }
 
+.cloud-mobile-scan-row {
+  gap: 10px;
+}
+
+.cloud-mobile-scan-copy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.cloud-mobile-scan-qr {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 168px;
+  min-height: 168px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--faint);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.cloud-mobile-scan-qr img {
+  display: block;
+  width: 152px;
+  height: 152px;
+  border-radius: 8px;
+}
+
+.cloud-login-approve-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  display: grid;
+  place-items: center;
+}
+
+.cloud-login-approve-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 20, 39, 0.16);
+  backdrop-filter: blur(6px);
+}
+
+.cloud-login-approve-panel {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 360px);
+  padding: 18px 18px 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+}
+
+.cloud-login-approve-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 .connection-row-head strong {
   font-size: 13px;
   font-weight: 400;

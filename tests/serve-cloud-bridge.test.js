@@ -385,6 +385,104 @@ test("cloud logout invalidates bearer sessions", async () => {
   }
 });
 
+test("mobile scan request stays pending until desktop approval then returns a normal session", async () => {
+  const dataDir = tempDataDir();
+  const server = createMiaCloudServer({ dataDir, publicUrl: "https://mia.test" });
+  const baseUrl = await listen(server);
+  try {
+    const account = createAccount(server, "mobile_scan");
+    const headers = { Authorization: `Bearer ${account.token}` };
+
+    const started = await jsonFetch(baseUrl, "/api/auth/mobile-scan/start", {
+      method: "POST",
+      headers,
+      body: {}
+    });
+    assert.match(started.grant, /^ms_/);
+    assert.equal(started.qrUrl, `https://mia.test/mobile-scan?grant=${encodeURIComponent(started.grant)}`);
+
+    const requested = await jsonFetch(baseUrl, "/api/auth/mobile-scan/request", {
+      method: "POST",
+      body: {
+        grant: started.grant,
+        deviceLabel: "iPhone",
+        platform: "ios"
+      }
+    });
+    assert.match(requested.requestId, /^msr_/);
+    assert.equal(requested.status, "pending");
+
+    const pending = await jsonFetch(baseUrl, "/api/auth/mobile-scan/complete", {
+      method: "POST",
+      body: { requestId: requested.requestId }
+    });
+    assert.equal(pending.status, "pending");
+
+    const queued = await jsonFetch(baseUrl, "/api/auth/mobile-scan/pending", {
+      method: "GET",
+      headers
+    });
+    assert.equal(queued.requestId, requested.requestId);
+    assert.equal(queued.deviceLabel, "iPhone");
+
+    const approved = await jsonFetch(baseUrl, "/api/auth/mobile-scan/decision", {
+      method: "POST",
+      headers,
+      body: { requestId: requested.requestId, decision: "approve" }
+    });
+    assert.equal(approved.status, "approved");
+
+    const completed = await jsonFetch(baseUrl, "/api/auth/mobile-scan/complete", {
+      method: "POST",
+      body: { requestId: requested.requestId }
+    });
+    assert.equal(completed.status, "approved");
+    assert.equal(completed.user.id, account.user.id);
+    assert.equal(server.mia.cloudStore.authenticateToken(completed.token).user.id, account.user.id);
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("mobile scan deny returns a denied status without issuing a session", async () => {
+  const dataDir = tempDataDir();
+  const server = createMiaCloudServer({ dataDir, publicUrl: "https://mia.test" });
+  const baseUrl = await listen(server);
+  try {
+    const account = createAccount(server, "mobile_scan_deny");
+    const headers = { Authorization: `Bearer ${account.token}` };
+
+    const started = await jsonFetch(baseUrl, "/api/auth/mobile-scan/start", {
+      method: "POST",
+      headers,
+      body: {}
+    });
+    const requested = await jsonFetch(baseUrl, "/api/auth/mobile-scan/request", {
+      method: "POST",
+      body: { grant: started.grant, deviceLabel: "iPhone", platform: "ios" }
+    });
+
+    const denied = await jsonFetch(baseUrl, "/api/auth/mobile-scan/decision", {
+      method: "POST",
+      headers,
+      body: { requestId: requested.requestId, decision: "deny" }
+    });
+    assert.equal(denied.status, "denied");
+
+    const completed = await jsonFetch(baseUrl, "/api/auth/mobile-scan/complete", {
+      method: "POST",
+      body: { requestId: requested.requestId }
+    });
+    assert.equal(completed.ok, false);
+    assert.equal(completed.status, "denied");
+    assert.equal(server.mia.cloudStore.authenticateToken(completed.token || ""), null);
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("cloud applies security headers and restricts browser CORS origins", async () => {
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({

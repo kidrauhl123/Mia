@@ -214,6 +214,12 @@ try {
     wechatMpConfig
   } = require("./src/cloud/wechat-auth.js"));
 }
+let createMobileScanLoginFlow = null;
+try {
+  ({ createMobileScanLoginFlow } = require("../src/cloud/mobile-scan-login.js"));
+} catch {
+  ({ createMobileScanLoginFlow } = require("./src/cloud/mobile-scan-login.js"));
+}
 let createAttachmentMaterializer = null;
 try {
   ({ createAttachmentMaterializer } = require("../src/cloud-agent/attachment-materializer.js"));
@@ -3124,9 +3130,39 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, { ok: result.status !== "failed", ...compactAuthAccount(result) });
     }
 
+    if (req.method === "POST" && url.pathname === "/api/auth/mobile-scan/request") {
+      const body = await readJson(req);
+      return writeJson(res, 200, context.mobileScanLogin.createRequest(body || {}));
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/mobile-scan/complete") {
+      const body = await readJson(req);
+      return writeJson(res, 200, context.mobileScanLogin.completeRequest(body || {}));
+    }
+
     const auth = cloudStore.authenticateToken(tokenFromRequest(req));
     if (req.method === "GET" && serveAuthorizedFile(req, res, context, auth, url.pathname)) return;
     if (!auth) return writeError(res, 401, "请先登录。");
+
+    if (req.method === "POST" && url.pathname === "/api/auth/mobile-scan/start") {
+      return writeJson(res, 200, context.mobileScanLogin.startGrant({
+        userId: auth.user.id,
+        cloudBase: publicOriginFromContext(context)
+      }));
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/auth/mobile-scan/pending") {
+      return writeJson(res, 200, context.mobileScanLogin.getPendingRequestForUser(auth.user.id));
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/mobile-scan/decision") {
+      const body = await readJson(req);
+      return writeJson(res, 200, context.mobileScanLogin.decideRequest({
+        userId: auth.user.id,
+        requestId: body?.requestId,
+        decision: body?.decision
+      }));
+    }
 
     if (await handleUserModelProxy(req, res, context, url, auth.user.id)) return;
 
@@ -4478,7 +4514,8 @@ function createMiaCloudServer(options = {}) {
     wechatMpAppSecret: options.wechatMpAppSecret || process.env.MIA_WECHAT_MP_APP_SECRET || "",
     wechatMpToken: options.wechatMpToken || process.env.MIA_WECHAT_MP_TOKEN || "",
     publicUrl: options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || "",
-    wechatAuth: null
+    wechatAuth: null,
+    mobileScanLogin: null
   };
   context.socialStore = createSocialStore(context.cloudStore.getDb());
   context.messagesStore = createMessagesStore(context.cloudStore.getDb());
@@ -4599,6 +4636,9 @@ function createMiaCloudServer(options = {}) {
     cloudStore: context.cloudStore,
     fetchImpl: options.fetchImpl || fetch,
     onLogin: (account) => ensureCloudAgentBootstrap(context, account.user.id)
+  });
+  context.mobileScanLogin = createMobileScanLoginFlow({
+    cloudStore: context.cloudStore
   });
   const server = http.createServer((req, res) => handleRequest(req, res, context));
   const wss = new WebSocketServer({ noServer: true });

@@ -1,5 +1,7 @@
 "use strict";
 
+const QRCode = require("qrcode");
+
 const {
   DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
   normalizeSkillMarketParams
@@ -414,7 +416,40 @@ function createCloudDesktopSyncClient({
     return status(false);
   }
 
+  async function startMobileScanLogin() {
+    const started = await cloudApi("/api/auth/mobile-scan/start", {
+      method: "POST",
+      body: {}
+    });
+    const qrUrl = String(started?.qrUrl || "").trim();
+    if (!qrUrl) throw new Error("手机登录二维码缺失。");
+    return {
+      ...started,
+      qrCodeUrl: await QRCode.toDataURL(qrUrl, {
+        width: 240,
+        margin: 1
+      })
+    };
+  }
+
+  async function pendingMobileScanLogin() {
+    return cloudApi("/api/auth/mobile-scan/pending", { method: "GET" });
+  }
+
+  async function decideMobileScanLogin({ requestId = "", decision = "deny" } = {}) {
+    return cloudApi("/api/auth/mobile-scan/decision", {
+      method: "POST",
+      body: {
+        requestId: String(requestId || "").trim(),
+        decision: String(decision || "").trim().toLowerCase() === "approve" ? "approve" : "deny"
+      }
+    });
+  }
+
   async function login(options = {}) {
+    if (options?.action === "mobile-scan-start") return startMobileScanLogin();
+    if (options?.action === "mobile-scan-pending") return pendingMobileScanLogin();
+    if (options?.action === "mobile-scan-decision") return decideMobileScanLogin(options);
     if (options?.action === "start") return startWechatLogin(options);
     if (options?.action === "complete") return completeWechatLogin(options);
     return loginWithWechat(options);

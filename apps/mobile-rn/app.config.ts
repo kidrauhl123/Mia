@@ -35,6 +35,7 @@ const config: ExpoConfig = {
     infoPlist: {
       // Allow opening / querying the WeChat app from the login screen.
       LSApplicationQueriesSchemes: ["weixin"],
+      NSCameraUsageDescription: "用于扫描电脑端二维码登录 Mia",
     },
   },
   web: {

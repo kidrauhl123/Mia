@@ -511,3 +511,39 @@ test("logout clears local cloud auth even when remote logout fails and stops soc
   assert.equal(calls.stoppedBridge, 1);
   assert.equal(getSettings().token, "");
 });
+
+test("login supports desktop mobile-scan start, pending lookup, and approval decisions", async () => {
+  const { client, calls } = setup({
+    responses: [
+      jsonResponse({
+        ok: true,
+        grant: "ms_1",
+        qrUrl: "https://cloud.example/mobile-scan?grant=ms_1",
+        expiresAt: "2026-07-03T00:05:00.000Z"
+      }),
+      jsonResponse({
+        requestId: "msr_1",
+        deviceLabel: "iPhone",
+        platform: "ios",
+        status: "pending",
+        expiresAt: "2026-07-03T00:01:30.000Z"
+      }),
+      jsonResponse({ ok: true, status: "approved" })
+    ]
+  });
+
+  const started = await client.login({ action: "mobile-scan-start" });
+  const pending = await client.login({ action: "mobile-scan-pending" });
+  const approved = await client.login({ action: "mobile-scan-decision", requestId: "msr_1", decision: "approve" });
+
+  assert.equal(started.grant, "ms_1");
+  assert.equal(started.qrUrl, "https://cloud.example/mobile-scan?grant=ms_1");
+  assert.equal(pending.requestId, "msr_1");
+  assert.equal(pending.deviceLabel, "iPhone");
+  assert.equal(approved.status, "approved");
+  assert.deepEqual(calls.fetch.map((request) => [request.method, request.url, request.body]), [
+    ["POST", "https://cloud.example/api/auth/mobile-scan/start", {}],
+    ["GET", "https://cloud.example/api/auth/mobile-scan/pending", null],
+    ["POST", "https://cloud.example/api/auth/mobile-scan/decision", { requestId: "msr_1", decision: "approve" }]
+  ]);
+});
