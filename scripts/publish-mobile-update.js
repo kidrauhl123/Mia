@@ -20,6 +20,7 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..");
+const MOBILE_CONFIG = path.join(ROOT, "apps", "mobile-rn", "app.config.ts");
 
 function arg(name, fallback = "") {
   const i = process.argv.indexOf(`--${name}`);
@@ -28,12 +29,18 @@ function arg(name, fallback = "") {
 function flag(name) {
   return process.argv.includes(`--${name}`);
 }
+function currentMobileRuntimeVersion() {
+  const source = fs.readFileSync(MOBILE_CONFIG, "utf8");
+  const match = source.match(/\bruntimeVersion\s*:\s*["']([^"']+)["']/);
+  if (!match) throw new Error(`unable to read runtimeVersion from ${MOBILE_CONFIG}`);
+  return match[1];
+}
 
 const REMOTE = process.env.MIA_DEPLOY_REMOTE || "mia-jms-deploy";
 const DOWNLOADS_DIR = process.env.MIA_WEB_DOWNLOADS_DIR || "/var/www/mia-web/downloads";
 const PUBLIC_BASE = (process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn").replace(/\/+$/, "");
 const CHANNEL = arg("channel", "preview");
-const RUNTIME = arg("runtime-version", "2");
+const RUNTIME = arg("runtime-version", currentMobileRuntimeVersion());
 const MIN_SUPPORTED = Number(arg("min-supported", "1"));
 const MANDATORY = flag("mandatory");
 const NOTES = arg("notes") ? arg("notes").split("|").map((s) => s.trim()).filter(Boolean) : [];
