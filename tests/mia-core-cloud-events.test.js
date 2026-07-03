@@ -8,10 +8,6 @@ const {
 } = require("../src/core/mia-core.js");
 const { CloudEvent } = require("../src/shared/cloud-events.js");
 
-// Minimal mock matching exactly what cloud-events-client.js drives on the socket:
-// constructor(url, protocols); on(name, handler) for open/pong/message/error/close;
-// readyState against the static CONNECTING/OPEN/CLOSED; ping(); close(code, reason).
-// We drive it directly (emit) — no real network, no wall-clock waits.
 function mockWebSocketClass() {
   const sockets = [];
   class MockWebSocket {
@@ -40,19 +36,12 @@ function mockWebSocketClass() {
   return { MockWebSocket, sockets };
 }
 
-function fakeHermesResponse(content) {
-  return {
-    id: "run_fake",
-    object: "chat.completion",
-    created: 1,
-    model: "hermes-agent",
-    choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
-    mia: { transport: "runs", run_id: "run_fake", bot_id: "bot1", events: [] }
-  };
-}
-
 function makeRuntimePaths() {
-  return () => ({ botManifest: "/dev/null/does-not-exist", botDir: "/dev/null" });
+  return () => ({
+    botManifest: "/dev/null/does-not-exist",
+    botDir: "/dev/null",
+    workspace: "/tmp/mia-core-cloud-events-workspace"
+  });
 }
 
 function botInvocationFrame({ deviceId, seq }) {
@@ -80,23 +69,39 @@ function botInvocationFrame({ deviceId, seq }) {
 }
 
 function buildHarness({ enabled = true, token = "tok_core", deviceId = "device_core_fixture" } = {}) {
-  const sendChatSeen = [];
+  const managerCalls = [];
+  const sendHermesChatSeen = [];
+  const agentSessionManager = {
+    sendUserInput: async (input) => {
+      managerCalls.push(input);
+      return {
+        ok: true,
+        mode: "started",
+        conversationId: input.conversationId,
+        engineId: input.engineId,
+        turnId: input.turnId
+      };
+    },
+    cancelActive: async () => true,
+    closeAllSessions: async () => {}
+  };
   const botExecution = createCoreBotExecution({
     runtimePaths: makeRuntimePaths(),
     settingsStore: { daemonSettings: () => ({ enabled: false }) },
     hermesBaseUrl: "",
     apiKey: "test-key",
     sendHermesChat: async (context) => {
-      sendChatSeen.push(context);
-      return fakeHermesResponse("hi from core");
-    }
+      sendHermesChatSeen.push(context);
+      throw new Error("legacy Hermes HTTP path should not run");
+    },
+    agentSessionManager
   });
 
   const posts = [];
   const socialApi = {
     postConversationMessageAsBot: async (conversationId, body) => {
       posts.push({ conversationId, body });
-      return { ok: true, message: { id: "posted_1", body_md: body.bodyMd } };
+      return { ok: true };
     },
     listConversationMessages: async () => ({ messages: [] })
   };
@@ -104,12 +109,13 @@ function buildHarness({ enabled = true, token = "tok_core", deviceId = "device_c
   const localEvents = [];
   const cloudRouting = createCoreCloudRouting({
     runtimePaths: makeRuntimePaths(),
-    settingsStore: { cloudSettings: () => ({ enabled, token }), normalizeCloudUrl: (v) => String(v || "") },
+    settingsStore: { cloudSettings: () => ({ enabled, token }), normalizeCloudUrl: (value) => String(value || "") },
     botExecution,
     socialApi,
     emitLocalEvent: (envelope) => localEvents.push(envelope),
     deviceId,
-    log: () => {}
+    log: () => {},
+    agentSessionManager
   });
 
   const settingsWrites = [];
@@ -127,14 +133,13 @@ function buildHarness({ enabled = true, token = "tok_core", deviceId = "device_c
     log: () => {}
   });
 
-  return { events, sockets, MockWebSocket, posts, sendChatSeen, localEvents, settingsWrites };
+  return { events, sockets, MockWebSocket, posts, managerCalls, sendHermesChatSeen, localEvents, settingsWrites };
 }
 
-test("cloud events socket → dispatcher → Core sendChat (Hermes) → socialApi post, node-only mock transport", async () => {
+test("cloud events socket forwards Hermes bot invocations into AgentSession instead of Hermes HTTP chat", async () => {
   const deviceId = "device_core_fixture";
-  const { events, sockets, MockWebSocket, posts, sendChatSeen } = buildHarness({ enabled: true, deviceId });
+  const { events, sockets, MockWebSocket, posts, managerCalls, sendHermesChatSeen } = buildHarness({ enabled: true, deviceId });
 
-  // Connect: opens exactly one /api/events socket with the resume cursor + token.
   const status = events.start();
   assert.equal(status.connecting, true);
   assert.equal(sockets.length, 1);
@@ -143,28 +148,21 @@ test("cloud events socket → dispatcher → Core sendChat (Hermes) → socialAp
 
   const ws = sockets[0];
   ws.readyState = MockWebSocket.OPEN;
-
-  // Server completes the handshake, then delivers a bot-invocation frame.
   ws.emit("message", JSON.stringify({ type: CloudEvent.EventsReady, sinceSeq: 0, serverSeq: 0 }));
   ws.emit("message", JSON.stringify(botInvocationFrame({ deviceId, seq: 1 })));
 
-  // The dispatcher returns a promise; let the routing graph settle.
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
 
-  // (a) The frame reached dispatcher.handleCloudEvent → Core's real sendChat ran
-  // (only the lowest-level Hermes HTTP send is faked).
-  assert.equal(sendChatSeen.length, 1);
-  assert.equal(sendChatSeen[0].bot.key, "bot1");
-  assert.equal(sendChatSeen[0].bot.agentEngine, "hermes");
+  assert.equal(sendHermesChatSeen.length, 0);
+  assert.equal(posts.length, 0);
+  assert.equal(managerCalls.length, 1);
+  assert.equal(managerCalls[0].conversationId, "dm:userA:bot1");
+  assert.equal(managerCalls[0].engineId, "hermes");
+  assert.equal(managerCalls[0].turnId, "turn_1");
+  assert.equal(managerCalls[0].text, "hello core");
+  assert.equal(typeof managerCalls[0].workspacePath, "string");
 
-  // (b) The reply was posted as the bot through the mock socialApi.
-  assert.equal(posts.length, 1);
-  assert.equal(posts[0].conversationId, "dm:userA:bot1");
-  assert.equal(posts[0].body.botId, "bot1");
-  assert.equal(posts[0].body.bodyMd, "hi from core");
-
-  // Teardown: no lingering socket/reconnect timer so node --test exits.
   events.stop();
   assert.equal(ws.closed?.code, 1000);
 });

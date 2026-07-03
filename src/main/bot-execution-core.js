@@ -5,12 +5,15 @@
 // reassigns at runtime (or constructs after this factory) are injected as
 // accessor functions so the late binding still resolves.
 
+const crypto = require("node:crypto");
+
 const { intentSkillIdsForMessages } = require("../shared/skill-intent-detector.js");
 const {
   createSkillLoadRequestGate,
   extractLoadSkillRequests,
   stripLoadSkillRequests
 } = require("../shared/skill-load-protocol.js");
+const { createAgentSessionKey, getAcpEngineSpec } = require("./agent-session/index.js");
 
 const MAX_SKILL_LOAD_ROUNDS = 3;
 const MAX_MEMORY_EXTRACTION_MESSAGES = 12;
@@ -143,6 +146,47 @@ function scheduleMemoryExtraction({
   return true;
 }
 
+function lastUserMessage(messages = []) {
+  const rows = Array.isArray(messages) ? messages : [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    if (rows[index] && rows[index].role === "user") return rows[index];
+  }
+  return null;
+}
+
+function currentTurnId(message = null) {
+  const id = String(message?.id || message?.messageId || "").trim();
+  return id || `turn_${crypto.randomUUID()}`;
+}
+
+function currentTurnInput(messages = []) {
+  const message = lastUserMessage(messages);
+  const input = {
+    turnId: currentTurnId(message),
+    text: textContent(message?.content || message?.text || "")
+  };
+  if (Array.isArray(message?.attachments) && message.attachments.length) {
+    input.attachments = message.attachments.slice();
+  }
+  if (Array.isArray(message?.fileReferences) && message.fileReferences.length) {
+    input.fileReferences = message.fileReferences.slice();
+  }
+  return input;
+}
+
+function resolveAgentSessionWorkspacePath(source) {
+  const value = typeof source === "function" ? source() : source;
+  return String(value || "").trim();
+}
+
+function managedConversationId(value = "") {
+  return String(value || "").trim();
+}
+
+function managedDescriptorKey(descriptor = {}) {
+  return createAgentSessionKey(descriptor);
+}
+
 function createBotExecutionCore({
   createChatEventEmitter,
   cloudBotSnapshotForTurn,
@@ -156,9 +200,11 @@ function createBotExecutionCore({
   responseMessageContent,
   schedulerSkillIdsForTurn,
   skillsLoader,
-  hermesRunService,
+  nativeTurnHelpers,
   sendWithChatEngineAdapter,
   createActiveChatEngineAdapters,
+  agentSessionManager = null,
+  agentSessionWorkspacePath = "",
   // Late-bound: constructed after this factory and takes `sendChat` as a dep.
   localBotResponder,
   isDaemonProcess,
@@ -167,11 +213,14 @@ function createBotExecutionCore({
   appendCloudLog,
   miaMemoryService = null,
   isMemoryEnabled = null,
-  onMemoryExtracted = null
+  onMemoryExtracted = null,
+  prepareAgentSessionRuntime = null
 }) {
   // Single-flight interactive chat controller — factory state, not a module
   // global. Group/utility/background turns keep their own controllers.
   let activeChatAbortController = null;
+  const activeManagedSessionsByKey = new Map();
+  const activeManagedSessionKeysByConversationId = new Map();
 
   const getLocalBotResponder = typeof localBotResponder === "function"
     ? localBotResponder
@@ -183,6 +232,53 @@ function createBotExecutionCore({
     ? isDaemonProcess
     : () => isDaemonProcess;
 
+  function rememberManagedDescriptor(descriptor) {
+    const key = managedDescriptorKey(descriptor);
+    activeManagedSessionsByKey.set(key, descriptor);
+    const conversationId = descriptor.conversationId;
+    const keys = activeManagedSessionKeysByConversationId.get(conversationId) || [];
+    activeManagedSessionKeysByConversationId.set(
+      conversationId,
+      [...keys.filter((entry) => entry !== key), key]
+    );
+    return key;
+  }
+
+  function forgetManagedDescriptor(descriptor) {
+    const key = managedDescriptorKey(descriptor);
+    activeManagedSessionsByKey.delete(key);
+    const conversationId = descriptor.conversationId;
+    const keys = (activeManagedSessionKeysByConversationId.get(conversationId) || []).filter((entry) => entry !== key);
+    if (keys.length) {
+      activeManagedSessionKeysByConversationId.set(conversationId, keys);
+    } else {
+      activeManagedSessionKeysByConversationId.delete(conversationId);
+    }
+    return key;
+  }
+
+  function resolveManagedDescriptor(payload = {}) {
+    const conversationId = managedConversationId(payload.conversationId || payload.sessionId);
+    const engineId = String(payload.engineId || "").trim();
+    const workspacePath = String(payload.workspacePath || "").trim();
+    if (conversationId && engineId && workspacePath) {
+      return activeManagedSessionsByKey.get(managedDescriptorKey({
+        conversationId,
+        engineId,
+        workspacePath
+      })) || null;
+    }
+    if (conversationId) {
+      const keys = activeManagedSessionKeysByConversationId.get(conversationId) || [];
+      const key = keys.at(-1) || "";
+      return key ? activeManagedSessionsByKey.get(key) || null : null;
+    }
+    if (activeManagedSessionsByKey.size === 1) {
+      return activeManagedSessionsByKey.values().next().value || null;
+    }
+    return null;
+  }
+
   async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [], signal: externalSignal = null, abortController: externalAbortController = null }) {
     utility = Boolean(utility);
     const shouldPersistAgentSession = persistAgentSession == null
@@ -191,21 +287,7 @@ function createBotExecutionCore({
     let abortController = externalAbortController && typeof externalAbortController.abort === "function"
       ? externalAbortController
       : null;
-    if (!abortController && (group || utility || background)) {
-      // Group dispatches run in parallel; each gets its own controller.
-      // Utility calls also skip the 1v1 "single active chat" semantics.
-      // Background runs (scheduled tasks) must not share the interactive
-      // single-flight controller — otherwise any foreground/web chat (or an
-      // overlapping task) aborts the task mid-generation ("生成已停止").
-      abortController = new AbortController();
-    } else if (!abortController) {
-      if (activeChatAbortController) {
-        activeChatAbortController.abort();
-      }
-      abortController = new AbortController();
-      activeChatAbortController = abortController;
-    }
-    const signal = externalSignal || abortController.signal;
+    let signal = externalSignal || abortController?.signal || null;
     // chat:event drives background/remote trace capture (see runRemoteChatRequest's
     // tracedEventSink). Interactive cloud-conversation chats publish their own
     // cloud:event stream via local-bot-responder — those
@@ -234,7 +316,19 @@ function createBotExecutionCore({
         };
       }
       const chatEngine = resolveChatEngineAdapter(botForTurn);
-      const agentEngine = chatEngine.id;
+      const adapterEngineId = chatEngine.id;
+      const agentSessionSpec = getAcpEngineSpec(adapterEngineId)
+        || getAcpEngineSpec(botForTurn.agentEngine || botForTurn.agent_engine || "");
+      const managedAgentSessionTurn = Boolean(
+        agentSessionSpec
+        && !group
+        && !utility
+        && !background
+        && !scheduledFire
+        && !String(sessionId || "").startsWith("title:")
+      );
+      const sessionStartedEngineId = managedAgentSessionTurn ? agentSessionSpec.engineId : adapterEngineId;
+      const rawCurrentTurn = currentTurnInput(messages);
       const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
       const completeWithPetMessage = (response) => {
         if (shouldNotifyPet) botPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
@@ -250,7 +344,7 @@ function createBotExecutionCore({
           sessionId,
           messages,
           assistantText: responseMessageContent(response),
-          agentEngine,
+          agentEngine: adapterEngineId,
           group,
           utility,
           background,
@@ -259,7 +353,41 @@ function createBotExecutionCore({
         return completeWithPetMessage(response);
       };
       if (emit) {
-        emit("session_started", { botKey: botForTurn.key, engine: agentEngine });
+        emit("session_started", { botKey: botForTurn.key, engine: sessionStartedEngineId });
+      }
+      if (managedAgentSessionTurn) {
+        if (!agentSessionManager || typeof agentSessionManager.sendUserInput !== "function") {
+          throw new Error(`AgentSession manager is required for interactive ${agentSessionSpec.engineId} turns.`);
+        }
+        const workspacePath = resolveAgentSessionWorkspacePath(agentSessionWorkspacePath);
+        if (!workspacePath) {
+          throw new Error(`AgentSession workspace path is required for interactive ${agentSessionSpec.engineId} turns.`);
+        }
+        const descriptor = {
+          conversationId: managedConversationId(sessionId),
+          engineId: agentSessionSpec.engineId,
+          workspacePath
+        };
+        const runtime = typeof prepareAgentSessionRuntime === "function"
+          ? await prepareAgentSessionRuntime({
+            engineId: agentSessionSpec.engineId,
+            conversationId: descriptor.conversationId,
+            botId: botForTurn.key || botForTurn.id || key,
+            botSnapshot: botForTurn,
+            runtimeConfig: turnRuntimeConfig,
+            workspacePath
+          })
+          : null;
+        if (runtime?.runtimeKey) descriptor.runtimeKey = String(runtime.runtimeKey || "").trim();
+        if (runtime?.env && typeof runtime.env === "object" && !Array.isArray(runtime.env)) {
+          descriptor.env = { ...runtime.env };
+        }
+        const accepted = await agentSessionManager.sendUserInput({
+          ...descriptor,
+          ...rawCurrentTurn
+        });
+        rememberManagedDescriptor(descriptor);
+        return accepted;
       }
       // Composer "使用" chips are turn-local: make them resolvable for this turn,
       // then materialize full skill bodies only for those explicit selections.
@@ -289,6 +417,21 @@ function createBotExecutionCore({
           messages = next;
         }
       }
+      if (!abortController && (group || utility || background)) {
+        // Group dispatches run in parallel; each gets its own controller.
+        // Utility calls also skip the 1v1 "single active chat" semantics.
+        // Background runs (scheduled tasks) must not share the interactive
+        // single-flight controller — otherwise any foreground/web chat (or an
+        // overlapping task) aborts the task mid-generation ("生成已停止").
+        abortController = new AbortController();
+      } else if (!abortController) {
+        if (activeChatAbortController) {
+          activeChatAbortController.abort();
+        }
+        abortController = new AbortController();
+        activeChatAbortController = abortController;
+      }
+      signal = externalSignal || abortController.signal;
       let requestedSkillIds = [];
       const resolveSkillMaterialization = () => (typeof skillsLoader?.resolveSkillMaterialization === "function"
         ? skillsLoader.resolveSkillMaterialization({
@@ -300,7 +443,9 @@ function createBotExecutionCore({
           })
         : null);
       let skillMaterialization = resolveSkillMaterialization();
-      const slashText = allowSlashCommands ? hermesRunService.slashCommandText(messages) : "";
+      const slashText = allowSlashCommands && typeof nativeTurnHelpers?.slashCommandText === "function"
+        ? nativeTurnHelpers.slashCommandText(messages)
+        : "";
       for (let round = 0; round <= MAX_SKILL_LOAD_ROUNDS; round += 1) {
         const eventGate = createSkillLoadRequestGate(emit);
         const response = await sendWithChatEngineAdapter(createActiveChatEngineAdapters(), {
@@ -353,7 +498,7 @@ function createBotExecutionCore({
       }
       throw new Error("Skill loading did not converge.");
     } catch (error) {
-      if (signal.aborted) {
+      if (signal?.aborted) {
         if (emit) emit("complete", { finishReason: "cancelled", aborted: true });
         const stopped = new Error("生成已停止");
         stopped.code = "MIA_STOPPED";
@@ -368,6 +513,14 @@ function createBotExecutionCore({
 
   async function stopChat(payload = {}) {
     let stopped = false;
+    const managedDescriptor = resolveManagedDescriptor(payload);
+    if (managedDescriptor && agentSessionManager && typeof agentSessionManager.cancelActive === "function") {
+      const cancelled = await agentSessionManager.cancelActive(managedDescriptor);
+      forgetManagedDescriptor(managedDescriptor);
+      if (cancelled) {
+        stopped = true;
+      }
+    }
     if (activeChatAbortController) {
       activeChatAbortController.abort();
       activeChatAbortController = null;

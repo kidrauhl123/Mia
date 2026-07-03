@@ -66,20 +66,18 @@ function setup(overrides = {}) {
     isDaemonEnabled: () => true,
     cloudBridgeUrl: () => "wss://cloud.example/api/bridge?deviceName=Mac",
     cloudWebSocketProtocols: (s) => [`mia-token.${s.token}`],
-    createActiveBridgeChatAdapter: (engine) => ({
-      sendChat: async (args) => {
-        calls.engines.push(engine);
-        calls.chat.push(args);
-        return {
-          choices: [{
-            message: {
-              content: "done",
-              attachments: [{ type: "image", name: "cat.webp", dataUrl: "data:image/webp;base64,abc" }]
-            }
-          }]
-        };
-      }
-    }),
+    runBridgeBotTurn: async (args) => {
+      calls.engines.push(args.runtimeConfig?.agentEngine || args.botSnapshot?.agentEngine || args.bot?.agentEngine);
+      calls.chat.push(args);
+      return {
+        choices: [{
+          message: {
+            content: "done",
+            attachments: [{ type: "image", name: "cat.webp", dataUrl: "data:image/webp;base64,abc" }]
+          }
+        }]
+      };
+    },
     resolveBotCapabilities: overrides.resolveBotCapabilities || (() => ({})),
     randomUUID: () => "uuid_1",
     setTimeoutFn: (fn, delayMs) => {
@@ -187,7 +185,7 @@ test("device identity conflict resets local identity and schedules reconnect", (
   assert.equal(calls.timers.length, 1);
 });
 
-test("run messages execute the requested Agent engine through the bridge Module", async () => {
+test("run messages execute the requested Agent engine through the direct bridge sender seam", async () => {
   const { client, calls, sockets, FakeWebSocket } = setup();
   client.start();
   const ws = sockets[0];
@@ -205,8 +203,8 @@ test("run messages execute the requested Agent engine through the bridge Module"
 
   assert.equal(calls.chat.length, 1);
   assert.deepEqual(calls.engines, ["codex"]);
-  assert.equal(calls.chat[0].bot.agentEngine, "codex");
-  assert.equal(calls.chat[0].bot.engineConfig.permissionMode, undefined);
+  assert.equal(calls.chat[0].botSnapshot.agentEngine, "codex");
+  assert.equal(calls.chat[0].botSnapshot.engineConfig.permissionMode, undefined);
   assert.equal(calls.chat[0].runtimeConfig.agentEngine, "codex");
   assert.equal(calls.chat[0].sessionId, "cloud:c_1");
   assert.equal(calls.chat[0].messages[0].content, "生成猫图");
@@ -246,10 +244,10 @@ test("run messages forward resolved bot capabilities to the bridge adapter", asy
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.deepEqual(calls.chat[0].bot.capabilities, { enabledSkills: ["mia-official:paper-research"] });
+  assert.deepEqual(calls.chat[0].botSnapshot.capabilities, { enabledSkills: ["mia-official:paper-research"] });
 });
 
-test("run messages can choose Claude Code instead of the legacy Codex bridge", async () => {
+test("run messages can choose Claude Code and carry runtime metadata through the direct sender seam", async () => {
   const { client, calls, sockets, FakeWebSocket } = setup();
   client.start();
   const ws = sockets[0];
@@ -272,12 +270,14 @@ test("run messages can choose Claude Code instead of the legacy Codex bridge", a
   await Promise.resolve();
 
   assert.deepEqual(calls.engines, ["claude-code"]);
-  assert.equal(calls.chat[0].bot.key, "helper");
-  assert.equal(calls.chat[0].bot.name, "Helper");
-  assert.equal(calls.chat[0].bot.agentEngine, "claude-code");
-  assert.equal(calls.chat[0].bot.engineConfig.permissionMode, undefined);
-  assert.equal(calls.chat[0].bot.engineConfig.model, "sonnet");
+  assert.equal(calls.chat[0].botSnapshot.key, "helper");
+  assert.equal(calls.chat[0].botSnapshot.name, "Helper");
+  assert.equal(calls.chat[0].botSnapshot.agentEngine, "claude-code");
+  assert.equal(calls.chat[0].botSnapshot.engineConfig.permissionMode, undefined);
+  assert.equal(calls.chat[0].botSnapshot.engineConfig.model, "sonnet");
   assert.equal(calls.chat[0].runtimeConfig.agentEngine, "claude-code");
+  assert.equal(calls.chat[0].botKey, "helper");
+  assert.equal(calls.chat[0].botId, "helper");
   assert.ok(!ws.sent.some((msg) => /已开始运行/.test(msg.event?.text || "")));
 });
 
@@ -322,23 +322,23 @@ test("run messages normalize cloud bridge runtime config to Core-shaped referenc
     effortLevel: "high",
     permissionMode: "bypassPermissions"
   });
-  assert.deepEqual(calls.chat[0].bot.engineConfig, {
+  assert.deepEqual(calls.chat[0].botSnapshot.engineConfig, {
     providerConnectionId: "mia",
     model: "mia-auto-override",
     effortLevel: "high"
   });
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "modelProfileId"), false);
-  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "modelProfileId"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].botSnapshot.engineConfig, "modelProfileId"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "baseUrl"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "apiKeyEnv"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "apiMode"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "providerLabel"), false);
   assert.equal(Object.hasOwn(calls.chat[0].runtimeConfig, "authType"), false);
-  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "baseUrl"), false);
-  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "apiKeyEnv"), false);
-  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "apiMode"), false);
-  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "providerLabel"), false);
-  assert.equal(Object.hasOwn(calls.chat[0].bot.engineConfig, "authType"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].botSnapshot.engineConfig, "baseUrl"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].botSnapshot.engineConfig, "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].botSnapshot.engineConfig, "apiMode"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].botSnapshot.engineConfig, "providerLabel"), false);
+  assert.equal(Object.hasOwn(calls.chat[0].botSnapshot.engineConfig, "authType"), false);
 });
 
 test("Hermes bridge run treats an empty selection with only Mia Auto entry as mia-auto", async () => {
@@ -378,7 +378,7 @@ test("Hermes bridge run treats an empty selection with only Mia Auto entry as mi
     effortLevel: "medium",
     permissionMode: "ask"
   });
-  assert.deepEqual(calls.chat[0].bot.engineConfig, {
+  assert.deepEqual(calls.chat[0].botSnapshot.engineConfig, {
     effortLevel: "medium",
     permissionMode: "ask",
     providerConnectionId: "mia",
@@ -390,15 +390,13 @@ test("Hermes bridge run treats an empty selection with only Mia Auto entry as mi
 test("cancel messages abort the active bridge run", async () => {
   let resolveRun;
   const { client, calls, sockets, FakeWebSocket } = setup({
-    createActiveBridgeChatAdapter: (engine) => ({
-      sendChat: async (args) => {
-        calls.engines.push(engine);
-        calls.chat.push(args);
-        return new Promise((resolve) => {
-          resolveRun = () => resolve({ choices: [{ message: { content: "cancelled" } }] });
-        });
-      }
-    })
+    runBridgeBotTurn: async (args) => {
+      calls.engines.push(args.runtimeConfig?.agentEngine || args.botSnapshot?.agentEngine);
+      calls.chat.push(args);
+      return new Promise((resolve) => {
+        resolveRun = () => resolve({ choices: [{ message: { content: "cancelled" } }] });
+      });
+    }
   });
   client.start();
   const ws = sockets[0];

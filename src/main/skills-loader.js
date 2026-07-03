@@ -5,7 +5,7 @@
 // engine's reported enable/disable state, and the CRUD surface
 // (read/delete/openDirectory/install + the slash-command expander).
 //
-// Pattern matches src/main/codex-chat-adapter.js: CommonJS module
+// Pattern matches src/main/codex-stateless-adapter.js: CommonJS module
 // exporting createSkillsLoader({...deps}) — main.js wires runtime
 // references (runtimePaths, engineState, apiKey, etc.) at startup.
 

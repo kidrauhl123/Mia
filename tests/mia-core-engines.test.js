@@ -5,23 +5,43 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { createCoreBotExecution } = require("../src/core/mia-core.js");
+const { createLocalAgentEngineService } = require("../src/main/local-agent-engine-service.js");
+const { getAcpEngineSpec, listAcpEngineSpecs } = require("../src/main/agent-session/index.js");
 const { createRuntimePaths } = require("../src/main/runtime-paths.js");
 
-// PART B proof: a bot turn with agentEngine = codex / claude-code / openclaw
-// routes through the REAL adapter Core constructs — the legacy
-// "engine not available in Mia Core yet" throw is GONE.
-//
-// To be deterministic (and NOT spawn a real external agent on the test machine),
-// we inject a fake localAgentEngineService whose shellCommandPath returns "" — so
-// each engine's REAL adapter hits its OWN distinctive "本机没有检测到 <CLI>" guard.
-// That guard lives INSIDE the real adapter (claude-code/codex/openclaw-chat-adapter),
-// so reaching it proves Core constructed + invoked the real adapter, not the throw.
-//
-// A second positive test injects a FAKE claude CLI path + FAKE Claude Agent SDK
-// and captures the SDK `query` call — proving the real Claude adapter ran its full
-// launch path through to the SDK (constructed + invoked), all node-only.
+test("Task 7: all four bot conversation engines resolve to AgentSession ACP specs", () => {
+  const specs = listAcpEngineSpecs();
 
-const ENGINE_NOT_AVAILABLE = "engine not available in Mia Core yet";
+  assert.deepEqual(
+    specs.map((spec) => spec.engineId),
+    ["claude", "codex", "hermes", "openclaw"]
+  );
+
+  for (const spec of specs) {
+    assert.equal(spec.transport, "acp");
+    assert.equal(spec.supportsNativeSession, true);
+    assert.equal(spec.supportsQueuedInput, true);
+  }
+});
+
+test("Task 7: app-facing engine ids resolve through getAcpEngineSpec()", () => {
+  const cases = [
+    ["claude-code", "claude"],
+    ["codex", "codex"],
+    ["hermes", "hermes"],
+    ["openclaw", "openclaw"],
+    ["open-claw", "openclaw"]
+  ];
+
+  for (const [inputEngineId, expectedEngineId] of cases) {
+    const spec = getAcpEngineSpec(inputEngineId);
+    assert.ok(spec, `${inputEngineId} should resolve to an AgentSession ACP spec`);
+    assert.equal(spec.engineId, expectedEngineId, `${inputEngineId} should normalize to ${expectedEngineId}`);
+    assert.equal(spec.transport, "acp");
+    assert.equal(spec.supportsNativeSession, true);
+    assert.equal(spec.supportsQueuedInput, true);
+  }
+});
 
 test("Task 6: Mia Core constructs the Core MCP service without the main wrapper", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "core", "mia-core.js"), "utf8");
@@ -58,202 +78,244 @@ const loggedInSettingsStore = {
   normalizeCloudUrl: (v) => String(v || "").replace(/\/+$/, "")
 };
 
-// A fake local-agent-engine service whose CLI lookup is empty (CLI absent) and
-// whose env/runtime helpers are inert — pure node, no spawn.
-function cliAbsentEngineService() {
+function recordingAgentSessionManager(calls) {
   return {
-    shellCommandPath: () => "",
-    processEnvWithCliPath: () => ({ PATH: "" }),
-    agentRuntimeEnv: () => ({}),
-    resolveAgentRuntime: () => null,
-    localAgentEngines: () => ({})
+    sendUserInput: async (input) => {
+      calls.push(input);
+      return {
+        ok: true,
+        mode: "started",
+        conversationId: input.conversationId,
+        engineId: input.engineId,
+        turnId: input.turnId
+      };
+    },
+    closeAllSessions: async () => {}
   };
 }
 
-const CLI_GUARDS = {
-  codex: /没有检测到 Codex CLI/,
-  "claude-code": /没有检测到 Claude Code CLI/,
-  openclaw: /没有检测到 OpenClaw CLI/
-};
+function makeLocalAgentService(t, overrides = {}) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-engine-health-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const execCalls = [];
+  const service = createLocalAgentEngineService({
+    homeDir: () => home,
+    env: { PATH: "" },
+    platform: "darwin",
+    fs: {
+      accessSync: () => {
+        throw new Error("missing");
+      }
+    },
+    spawnSync: () => ({ status: 1, stdout: "", stderr: "" }),
+    execFile: (file, args, options, cb) => {
+      execCalls.push({ file, args, options });
+      return cb(new Error("not found"), "", "");
+    },
+    ...overrides
+  });
+  return { service, execCalls };
+}
 
-for (const engine of ["codex", "claude-code", "openclaw"]) {
-  test(`PART B: a ${engine} turn routes through the REAL adapter (engineUnavailable throw is GONE)`, async () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), `mia-core-engine-${engine}-`));
+for (const [inputEngineId, expectedEngineId] of [
+  ["claude-code", "claude"],
+  ["codex", "codex"],
+  ["hermes", "hermes"],
+  ["openclaw", "openclaw"]
+]) {
+  test(`interactive ${inputEngineId} turns in Mia Core route through AgentSession ACP`, async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), `mia-core-engine-${expectedEngineId}-`));
     try {
+      const managerCalls = [];
       const core = createCoreBotExecution({
         runtimePaths: makeRuntimePaths(home),
-        settingsStore,
-        hermesBaseUrl: "http://hermes.local",
-        apiKey: "k",
-        fetchImpl: () => Promise.reject(new Error("no network")),
-        localAgentEngineService: cliAbsentEngineService()
+        settingsStore: inputEngineId === "claude-code" ? loggedInSettingsStore : settingsStore,
+        agentSessionManager: recordingAgentSessionManager(managerCalls)
       });
 
-      let error = null;
-      try {
-        await core.sendChat({
-          botKey: `bot-${engine}`,
-          botSnapshot: { key: `bot-${engine}`, name: engine, agentEngine: engine },
-          sessionId: "s1",
-          messages: [{ role: "user", content: "hi" }]
-        });
-      } catch (e) {
-        error = e;
-      }
+      const response = await core.sendChat({
+        botKey: `bot-${expectedEngineId}`,
+        botSnapshot: { key: `bot-${expectedEngineId}`, name: expectedEngineId, agentEngine: inputEngineId, capabilities: {} },
+        sessionId: "conversation:s1",
+        messages: [{ role: "user", id: "turn_1", content: "hi" }]
+      });
 
-      assert.ok(error, `${engine}: expected the real adapter's CLI-absent error`);
-      const message = String(error.message || "");
-      // NOT the Core throw — the real adapter's own distinctive guard.
-      assert.notEqual(message, ENGINE_NOT_AVAILABLE, `${engine} still hit the engineUnavailable throw`);
-      assert.match(message, CLI_GUARDS[engine], `${engine}: expected the real adapter's CLI guard, got: ${message}`);
+      assert.deepEqual(response, {
+        ok: true,
+        mode: "started",
+        conversationId: "conversation:s1",
+        engineId: expectedEngineId,
+        turnId: "turn_1"
+      });
+      assert.equal(managerCalls.length, 1);
+      assert.deepEqual(managerCalls[0], {
+        conversationId: "conversation:s1",
+        engineId: expectedEngineId,
+        workspacePath: makeRuntimePaths(home)().workspace,
+        turnId: "turn_1",
+        text: "hi"
+      });
+
+      await core.closeAgentEngines();
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }
   });
 }
 
-test("PART B (positive): a claude-code turn reaches the REAL Claude Agent SDK query (node-only capture)", async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-claude-pos-"));
-  try {
-    // Fake `claude` CLI path so the adapter passes its CLI guard.
-    const fakeCliPath = path.join(home, "claude");
-    fs.writeFileSync(fakeCliPath, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-
-    const engineService = {
-      shellCommandPath: (cmd) => (cmd === "claude" ? fakeCliPath : ""),
-      processEnvWithCliPath: () => ({ PATH: path.dirname(fakeCliPath) }),
-      agentRuntimeEnv: () => ({}),
-      resolveAgentRuntime: () => null,
-      localAgentEngines: () => ({})
-    };
-
-    let capturedQuery = null;
-    // Fake Claude Agent SDK: `query` yields one assistant result frame and records
-    // that the real adapter reached it with the fake CLI executable path.
-    const fakeClaudeAgentSdk = async () => ({
-      query(opts) {
-        capturedQuery = opts;
-        async function* gen() {
-          yield { type: "assistant", message: { content: [{ type: "text", text: "done-via-sdk" }] } };
-          yield { type: "result", subtype: "success", session_id: "sess-1" };
-        }
-        return gen();
-      }
-    });
-
-    const core = createCoreBotExecution({
-      runtimePaths: makeRuntimePaths(home),
-      settingsStore,
-      hermesBaseUrl: "http://hermes.local",
-      apiKey: "k",
-      fetchImpl: () => Promise.reject(new Error("no network")),
-      localAgentEngineService: engineService,
-      claudeAgentSdk: fakeClaudeAgentSdk
-    });
-
-    const result = await core.sendChat({
-      botKey: "bot-claude",
-      botSnapshot: { key: "bot-claude", name: "Claude Bot", agentEngine: "claude-code" },
-      sessionId: "s1",
-      messages: [{ role: "user", content: "hi" }]
-    });
-
-    // The real Claude adapter ran its full launch path and reached the SDK.
-    assert.ok(capturedQuery, "expected the real Claude adapter to call the SDK query()");
-    assert.equal(capturedQuery.options.pathToClaudeCodeExecutable, fakeCliPath, "adapter passed the PATH-resolved claude executable to the SDK");
-    assert.ok(result && result.choices && result.choices[0].message.content.includes("done-via-sdk"), "expected the SDK result to flow back");
-
-    // Close the user-MCP bridge the turn opened so the test process exits cleanly.
-    await core.closeAgentEngines();
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test("PART B (positive): Core injects profileless mia-auto into Claude Code through the Mia proxy", async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-claude-mia-auto-"));
-  try {
-    const fakeCliPath = path.join(home, "claude");
-    fs.writeFileSync(fakeCliPath, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-
-    const engineService = {
-      shellCommandPath: (cmd) => (cmd === "claude" ? fakeCliPath : ""),
-      processEnvWithCliPath: () => ({
-        PATH: path.dirname(fakeCliPath),
-        ANTHROPIC_MODEL: "old-native-model",
-        ANTHROPIC_CUSTOM_MODEL_OPTION: "old-native-model",
-        CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1"
-      }),
-      agentRuntimeEnv: () => ({}),
-      resolveAgentRuntime: () => null,
-      localAgentEngines: () => ({})
-    };
-
-    let capturedQuery = null;
-    const fakeClaudeAgentSdk = async () => ({
-      query(opts) {
-        capturedQuery = opts;
-        async function* gen() {
-          yield { type: "assistant", message: { content: [{ type: "text", text: "done-via-mia-auto" }] } };
-          yield { type: "result", subtype: "success", session_id: "sess-1" };
-        }
-        return gen();
-      }
-    });
-
-    let capturedManagedModel = null;
-    const fakeClaudeProxy = {
-      createSession: async (managedModel) => {
-        capturedManagedModel = managedModel;
+test("Claude Code turns using Mia Auto receive Mia proxy env in Core AgentSession", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-claude-mia-runtime-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const managerCalls = [];
+  const proxyCalls = [];
+  const core = createCoreBotExecution({
+    runtimePaths: makeRuntimePaths(home),
+    settingsStore: loggedInSettingsStore,
+    agentSessionManager: recordingAgentSessionManager(managerCalls),
+    claudeCodeMiaProxy: {
+      createSession: async (runtime) => {
+        proxyCalls.push(runtime);
         return {
-          baseUrl: "http://127.0.0.1:49123",
+          baseUrl: "http://127.0.0.1:4321",
           authToken: "proxy-token",
-          release() {}
+          model: "mia-auto"
         };
       },
-      closeAll: () => {}
-    };
+      stop: async () => {}
+    }
+  });
 
-    const core = createCoreBotExecution({
-      runtimePaths: makeRuntimePaths(home),
-      settingsStore: loggedInSettingsStore,
-      hermesBaseUrl: "http://hermes.local",
-      apiKey: "k",
-      fetchImpl: () => Promise.reject(new Error("no network")),
-      localAgentEngineService: engineService,
-      claudeAgentSdk: fakeClaudeAgentSdk,
-      claudeCodeMiaProxy: fakeClaudeProxy
-    });
+  await core.sendChat({
+    botKey: "bot-claude",
+    botSnapshot: { key: "bot-claude", name: "Claude", agentEngine: "claude-code", capabilities: {} },
+    sessionId: "conversation:s1",
+    runtimeConfig: {
+      agentEngine: "claude-code",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto"
+    },
+    messages: [{ role: "user", id: "turn_1", content: "hi" }]
+  });
 
-    const result = await core.sendChat({
-      botKey: "bot-claude-auto",
-      botSnapshot: {
-        key: "bot-claude-auto",
-        name: "Claude Auto Bot",
-        agentEngine: "claude-code",
-        engineConfig: { model: "mia-auto" }
-      },
-      sessionId: "s1",
-      messages: [{ role: "user", content: "hi" }]
-    });
+  assert.equal(proxyCalls.length, 1);
+  assert.equal(proxyCalls[0].baseUrl, "https://cloud.mia.test/api/me/model-proxy/v1");
+  assert.equal(proxyCalls[0].apiKey, "tok-xyz");
+  assert.deepEqual(managerCalls[0], {
+    conversationId: "conversation:s1",
+    engineId: "claude",
+    workspacePath: makeRuntimePaths(home)().workspace,
+    runtimeKey: "mia:mia-auto",
+    env: {
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+      ANTHROPIC_AUTH_TOKEN: "proxy-token"
+    },
+    turnId: "turn_1",
+    text: "hi"
+  });
 
-    assert.ok(capturedManagedModel, "expected Core to resolve bare mia-auto as a Mia managed model");
-    assert.equal(capturedManagedModel.provider, "mia");
-    assert.equal(capturedManagedModel.model, "mia-auto");
-    assert.equal(capturedManagedModel.modelProfileId, "mia:mia-auto");
-    assert.equal(capturedManagedModel.baseUrl, "https://cloud.mia.test/api/me/model-proxy/v1");
-    assert.ok(capturedQuery, "expected Claude Code SDK query");
-    assert.equal(capturedQuery.options.model, undefined, "Mia proxy mode must not pass mia-auto as a native Claude model");
-    assert.equal(capturedQuery.options.env.ANTHROPIC_BASE_URL, "http://127.0.0.1:49123");
-    assert.equal(capturedQuery.options.env.ANTHROPIC_AUTH_TOKEN, "proxy-token");
-    assert.equal(capturedQuery.options.env.ANTHROPIC_API_KEY, "proxy-token");
-    assert.equal(Object.hasOwn(capturedQuery.options.env, "ANTHROPIC_MODEL"), false);
-    assert.equal(Object.hasOwn(capturedQuery.options.env, "ANTHROPIC_CUSTOM_MODEL_OPTION"), false);
-    assert.equal(Object.hasOwn(capturedQuery.options.env, "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"), false);
-    assert.ok(result.choices[0].message.content.includes("done-via-mia-auto"));
+  await core.closeAgentEngines();
+});
 
-    await core.closeAgentEngines();
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+test("native Claude Code model profiles do not require provider connections in Core AgentSession", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-claude-native-runtime-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const managerCalls = [];
+  const core = createCoreBotExecution({
+    runtimePaths: makeRuntimePaths(home),
+    settingsStore: loggedInSettingsStore,
+    agentSessionManager: recordingAgentSessionManager(managerCalls),
+    claudeCodeMiaProxy: {
+      createSession: async () => {
+        throw new Error("native Claude Code model should not start the Mia proxy");
+      }
+    }
+  });
+
+  await core.sendChat({
+    botKey: "bot-claude",
+    botSnapshot: { key: "bot-claude", name: "Claude", agentEngine: "claude-code", capabilities: {} },
+    sessionId: "conversation:s1",
+    runtimeConfig: {
+      providerConnectionId: "anthropic",
+      modelProfileId: "anthropic:claude",
+      model: "claude"
+    },
+    messages: [{ role: "user", id: "turn_1", content: "hi" }]
+  });
+
+  assert.deepEqual(managerCalls[0], {
+    conversationId: "conversation:s1",
+    engineId: "claude",
+    workspacePath: makeRuntimePaths(home)().workspace,
+    turnId: "turn_1",
+    text: "hi"
+  });
+
+  await core.closeAgentEngines();
+});
+
+test("Task 13: local agent deep checks probe the ACP launch commands each interactive engine now requires", async (t) => {
+  const { service, execCalls } = makeLocalAgentService(t, {
+    execFile: (file, args, options, cb) => {
+      execCalls.push({ file, args, options });
+      if (file === "zsh" && args[1] === "command -v npx") return cb(null, "/bin/npx\n", "");
+      if (file === "zsh" && args[1] === "command -v hermes") return cb(null, "/bin/hermes\n", "");
+      if (file === "zsh" && args[1] === "command -v openclaw") return cb(null, "/bin/openclaw\n", "");
+      if (file === "/bin/npx" && args[0] === "--version") return cb(null, "10.9.0\n", "");
+      if (file === "/bin/hermes" && args[0] === "--version") return cb(null, "Hermes Agent v0.16.0\n", "");
+      if (file === "/bin/openclaw" && args[0] === "--version") return cb(null, "openclaw 0.1.0\n", "");
+      if (file === "/bin/npx" && args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")) return cb(null, "claude acp help\n", "");
+      if (file === "/bin/npx" && args.includes("@zed-industries/codex-acp@0.14.0")) return cb(null, "codex acp help\n", "");
+      if (file === "/bin/hermes" && args[0] === "acp") return cb(null, "hermes acp help\n", "");
+      if (file === "/bin/openclaw" && args[0] === "acp") return cb(null, "openclaw acp help\n", "");
+      return cb(new Error("not found"), "", "");
+    }
+  });
+
+  const inventory = await service.scanAgentsAsync();
+  const agentsById = Object.fromEntries(inventory.agents.map((agent) => [agent.id, agent]));
+
+  assert.equal(agentsById["claude-code"].usableInMia, true);
+  assert.equal(agentsById["claude-code"].readiness.status, "ready");
+  assert.equal(agentsById.codex.usableInMia, true);
+  assert.equal(agentsById.codex.readiness.status, "ready");
+  assert.equal(agentsById.hermes.usableInMia, true);
+  assert.equal(agentsById.hermes.readiness.status, "ready");
+  assert.equal(agentsById.openclaw.usableInMia, true);
+  assert.equal(agentsById.openclaw.readiness.status, "ready");
+
+  assert.ok(execCalls.some((call) => call.file === "/bin/npx" && call.args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")));
+  assert.ok(execCalls.some((call) => call.file === "/bin/npx" && call.args.includes("@zed-industries/codex-acp@0.14.0")));
+  assert.ok(execCalls.some((call) => call.file === "/bin/hermes" && call.args[0] === "acp"));
+  assert.ok(execCalls.some((call) => call.file === "/bin/openclaw" && call.args[0] === "acp"));
+});
+
+test("Task 13: blocked readiness identifies the missing ACP command path instead of legacy engine health", async (t) => {
+  const { service } = makeLocalAgentService(t, {
+    isHermesInstalled: () => true,
+    isHermesApiRuntimeReady: () => false,
+    hermesSource: () => "system",
+    execFile: (file, args, _options, cb) => {
+      if (file === "zsh" && args[1] === "command -v hermes") return cb(null, "/bin/hermes\n", "");
+      if (file === "zsh" && args[1] === "command -v openclaw") return cb(null, "/bin/openclaw\n", "");
+      if (file === "/bin/hermes" && args[0] === "--version") return cb(null, "Hermes Agent v0.16.0\n", "");
+      if (file === "/bin/openclaw" && args[0] === "--version") return cb(null, "openclaw 0.1.0\n", "");
+      if (file === "/bin/hermes" && args[0] === "acp") return cb(new Error("spawn failed"), "", "missing hermes acp");
+      if (file === "/bin/openclaw" && args[0] === "acp") return cb(new Error("spawn failed"), "", "missing openclaw acp");
+      return cb(new Error("not found"), "", "");
+    }
+  });
+
+  const inventory = await service.scanAgentsAsync();
+  const agentsById = Object.fromEntries(inventory.agents.map((agent) => [agent.id, agent]));
+
+  assert.equal(agentsById.hermes.health, "blocked");
+  assert.equal(agentsById.hermes.readiness.status, "blocked");
+  assert.match(agentsById.hermes.readiness.detail, /hermes acp/i);
+  assert.doesNotMatch(agentsById.hermes.readiness.summary, /Hermes API/i);
+
+  assert.equal(agentsById.openclaw.health, "blocked");
+  assert.equal(agentsById.openclaw.readiness.status, "blocked");
+  assert.match(agentsById.openclaw.readiness.detail, /openclaw.*acp/i);
 });

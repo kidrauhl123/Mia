@@ -242,7 +242,9 @@ test("cloud bridge remote run is account-authenticated and does not add a separa
   assert.doesNotMatch(body, /confirmCloudBridgeRun\(/);
   assert.doesNotMatch(body, /等待本机权限确认/);
   assert.match(body, /runtimeConfigFromMessage\(message\)/);
-  assert.match(body, /createActiveBridgeChatAdapter\(agentEngine\)/);
+  assert.match(body, /runBridgeBotTurn\(/);
+  assert.doesNotMatch(body, /createActiveBridgeChatAdapter\(agentEngine\)/);
+  assert.doesNotMatch(body, /adapter\.sendChat/);
   assert.match(body, /engineConfig: botEngineConfigFromRuntime\(runtimeConfig, agentEngine\)/);
   assert.match(engineConfigHelper, /agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/);
   assert.match(engineConfigHelper, /providerConnectionId: runtimeConfig\.providerConnectionId/);
@@ -254,7 +256,7 @@ test("cloud bridge remote run is account-authenticated and does not add a separa
   const botTurnHelpersSource = fs.readFileSync(path.join(root, "src/main/bot-turn-helpers.js"), "utf8");
   assert.match(botTurnHelpersSource, /enginePermissionStoreTarget\(agentEngine\) !== "root-mode"[\s\S]*delete configForEngine\.permissionMode/);
   assert.match(mainSource, /createCloudBridgeClient/, "main must instantiate the cloud bridge Module");
-  assert.match(mainSource, /createActiveBridgeChatAdapter/, "main must provide a generic bridge adapter factory");
+  assert.match(mainSource, /runBridgeBotTurn:/, "main must provide a direct bridge bot turn sender");
   assert.doesNotMatch(mainSource, /async function runCloudBridgeRequest/, "main must not own bridge run implementation");
   assert.doesNotMatch(mainSource, /function handleCloudBridgeMessage/, "main must not own bridge message routing");
   assert.doesNotMatch(mainSource, /cloudBridgeAbortControllers/, "main must not own bridge run abort controllers");
@@ -476,18 +478,19 @@ test("bot pet assets, generation jobs, and pet windows live behind a main bot-pe
   assert.doesNotMatch(mainSource, /function resolveOfficialLibraryRoot/, "main must not own packaged library root resolution");
 });
 
-test("Hermes run payload and event stream parsing live behind a main hermes-run service", () => {
+test("legacy Hermes HTTP bot execution path is retired from main and Mia Core", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const runSource = fs.readFileSync(path.join(root, "src/main/hermes-run-service.js"), "utf8");
+  const coreSource = fs.readFileSync(path.join(root, "src/core/mia-core.js"), "utf8");
+  const adapterSource = fs.readFileSync(path.join(root, "src/main/chat-engine-adapters.js"), "utf8");
+  const checkSource = fs.readFileSync(path.join(root, "src/check.js"), "utf8");
 
-  assert.match(runSource, /function createHermesRunService/, "Hermes run service should exist");
-  assert.match(mainSource, /createHermesRunService/, "main should instantiate the Hermes run service");
-  assert.doesNotMatch(mainSource, /function normalizeRunMessages/, "main must not own run message normalization");
-  assert.doesNotMatch(mainSource, /function buildRunPayload/, "main must not own Hermes run payload shaping");
-  assert.doesNotMatch(mainSource, /function parseSseFrame/, "main must not own Hermes SSE parsing");
-  assert.doesNotMatch(mainSource, /async function readRunEventStream/, "main must not own Hermes run stream reading");
-  assert.doesNotMatch(mainSource, /function lastUserPrompt/, "main must not own adapter prompt extraction");
-  assert.doesNotMatch(mainSource, /function normalizeHermesError/, "main must not own Hermes error normalization");
+  assert.equal(fs.existsSync(path.join(root, "src/main/hermes-chat-adapter.js")), false, "legacy Hermes HTTP chat adapter should be deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/hermes-run-service.js")), false, "legacy Hermes HTTP run service should be deleted");
+  assert.doesNotMatch(mainSource, /hermes-chat-adapter|hermes-run-service|createActiveHermesChatAdapter|sendHermesChat|sendHermesStateless/, "main must not import or wire legacy Hermes HTTP chat execution");
+  assert.doesNotMatch(coreSource, /hermes-chat-adapter|hermes-run-service|sendHermesChat/, "Mia Core must not construct or inject the legacy Hermes HTTP graph");
+  assert.doesNotMatch(adapterSource, /sendHermesChat|sendHermesStateless/, "chat-engine adapters must not dispatch Hermes bot chat through the deleted HTTP adapter");
+  assert.doesNotMatch(checkSource, /hermes-chat-adapter|hermes-run-service/, "project structure inventory must not require deleted Hermes HTTP files");
+  assert.doesNotMatch(mainSource, /function normalizeRunMessages|function buildRunPayload|function parseSseFrame|async function readRunEventStream|function normalizeHermesError/, "main must not inline deleted Hermes HTTP helper logic");
 });
 
 test("Hermes slash-command execution lives behind a main hermes-slash-command service", () => {
@@ -567,12 +570,8 @@ test("Mia memory lives behind a scoped service and adapters avoid native memory 
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const runtimePathsSource = fs.readFileSync(path.join(root, "src/main/runtime-paths.js"), "utf8");
   const memorySource = fs.readFileSync(path.join(root, "src/main/mia-memory-service.js"), "utf8");
-  const adapterSource = [
-    "src/main/hermes-chat-adapter.js",
-    "src/main/claude-code-chat-adapter.js",
-    "src/main/codex-chat-adapter.js",
-    "src/main/openclaw-chat-adapter.js"
-  ].map((relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8")).join("\n");
+  const runtimeContextSource = fs.readFileSync(path.join(root, "src/main/mia-runtime-context.js"), "utf8");
+  const adapterSource = fs.readFileSync(path.join(root, "src/main/openclaw-chat-adapter.js"), "utf8");
 
   assert.match(memorySource, /function createMiaMemoryService/, "Mia memory service should exist");
   assert.match(runtimePathsSource, /mia-memory\.json/, "runtime paths should retain the legacy Mia memory migration path");
@@ -581,7 +580,7 @@ test("Mia memory lives behind a scoped service and adapters avoid native memory 
   assert.match(mainSource, /miaMemoryService/, "main should route Mia memory through the shared service");
   assert.match(memorySource, /rememberMemory/, "Mia memory service should expose scoped write requests");
   assert.match(memorySource, /searchMemories/, "Mia memory service should expose scoped search");
-  assert.match(adapterSource, /sanitizeMiaMemorySpoof/, "adapters should neutralize user-spoofed Mia memory headers");
+  assert.match(runtimeContextSource, /sanitizeMiaMemorySpoof/, "Mia runtime context should expose user-spoofed memory header neutralization");
   assert.equal(fs.existsSync(path.join(root, "src/main/native-memory-context.js")), false, "old prompt-rendered native memory helper must stay deleted");
   assert.doesNotMatch(adapterSource, /memoryBlock/, "chat adapters must not accept or call a prompt-rendered memoryBlock hook");
   assert.doesNotMatch(adapterSource, /memoryInjectionMode|nativeMemoryInjectionMode/, "chat adapters must ignore legacy prompt memory injection mode config");
@@ -675,6 +674,7 @@ test("engine port selection and health probing live behind a main engine-health 
 
 test("Hermes startup and chat recovery stay owned by Mia Core", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const nativeTurnHelpersSource = fs.readFileSync(path.join(root, "src/main/native-turn-helpers.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const rendererSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const ipcChannelsSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
@@ -691,10 +691,17 @@ test("Hermes startup and chat recovery stay owned by Mia Core", () => {
     "Core-owned Hermes startup must spawn its own API process instead of adopting orphan gateways"
   );
   assert.match(startEngineSource, /writeRuntimeConfig\(port\)/, "Core-owned Hermes startup must write config for the port it owns");
-  assert.match(
+  assert.doesNotMatch(
     mainSource,
     /recoverHermesAfterFailure:\s*recoverHermesChatEngineAfterFailure/,
-    "Hermes adapters must be wired to restart through Mia Core after local API disconnects"
+    "retired Hermes HTTP adapters must not keep a direct-retry recovery hook in main"
+  );
+  assert.doesNotMatch(nativeTurnHelpersSource, /会话前文（按时间顺序）/, "native prompt helpers must not serialize prior visible turns");
+  assert.match(nativeTurnHelpersSource, /function currentUserPrompt/, "native prompt helpers should expose current-turn-only prompt extraction");
+  assert.match(
+    mainSource,
+    /ensureHermesReady:\s*ensureHermesChatEngineReady/,
+    "Hermes slash commands should still ensure the Core-owned engine is available"
   );
   assert.doesNotMatch(mainSource, /ipcMain\.handle\(IpcChannel\.EngineStart/, "foreground must not expose direct Hermes start IPC");
   assert.doesNotMatch(mainSource, /ipcMain\.handle\(IpcChannel\.EngineStop/, "foreground must not expose direct Hermes stop IPC");
@@ -851,18 +858,49 @@ test("foreground chat materializes skills per turn instead of full enabled-skill
   const coreSource = fs.readFileSync(path.join(root, "src/main/bot-execution-core.js"), "utf8");
   const loaderSource = fs.readFileSync(path.join(root, "src/main/skills-loader.js"), "utf8");
   const schedulerDefaults = fs.readFileSync(path.join(root, "src/main/scheduler-skill-defaults.js"), "utf8");
-  const adapterSource = [
-    "src/main/hermes-chat-adapter.js",
-    "src/main/claude-code-chat-adapter.js",
-    "src/main/codex-chat-adapter.js",
-    "src/main/openclaw-chat-adapter.js"
-  ].map((file) => fs.readFileSync(path.join(root, file), "utf8")).join("\n\n");
+  const nativeContextBridgeSource = fs.readFileSync(path.join(root, "src/main/mia-native-context-bridge.js"), "utf8");
+  const adapterSource = fs.readFileSync(path.join(root, "src/main/openclaw-chat-adapter.js"), "utf8");
 
   assert.doesNotMatch(coreSource, /handleReminderChatTurn|app-scheduler-reminder|reminder-intent/, "foreground chat must not use direct reminder parsing");
   assert.match(coreSource, /resolveSkillMaterialization/, "bot execution core should materialize skill context once per turn");
   assert.match(coreSource, /skillMaterialization/, "bot execution core should pass materialized skills to adapters");
-  assert.match(adapterSource, /buildSkillMaterializationContext/, "adapters should consume materialized skill context");
+  assert.match(nativeContextBridgeSource, /renderNativeToolsMd[\s\S]*skillMaterialization/, "native AgentSession context bridge should consume materialized skill context");
   assert.doesNotMatch(adapterSource, /buildEnabledSkillsContext/, "adapters must not inject full enabled skills directly");
   assert.doesNotMatch(loaderSource, /function buildEnabledSkillsContext/, "skills loader must not expose full enabled-skill prompt injection");
   assert.match(schedulerDefaults, /return dedupeSkillIds\(activeSkillIds\)/, "scheduler defaults should preserve explicit skill chips only");
+});
+
+test("OpenClaw bot chat wiring stays on AgentSession and the adapter file is stateless-only", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const coreSource = fs.readFileSync(path.join(root, "src/core/mia-core.js"), "utf8");
+  const adapterSource = fs.readFileSync(path.join(root, "src/main/openclaw-chat-adapter.js"), "utf8");
+
+  assert.doesNotMatch(mainSource, /sendOpenClawChat/, "main must not wire a direct OpenClaw bot chat dependency");
+  assert.doesNotMatch(coreSource, /sendOpenClawChat/, "Mia Core must not wire a direct OpenClaw bot chat dependency");
+  assert.match(adapterSource, /createOpenClawStatelessAdapter/, "OpenClaw adapter should expose a stateless constructor");
+  assert.doesNotMatch(adapterSource, /async function sendChat\s*\(/, "OpenClaw adapter must not retain a bot sendChat implementation");
+  assert.doesNotMatch(adapterSource, /createOpenClawChatAdapter/, "OpenClaw adapter should not keep the old bot adapter constructor");
+  assert.doesNotMatch(adapterSource, /createOpenClawStatelessAdapter:\s*createOpenClawChatAdapter/, "OpenClaw adapter export should not alias the old bot adapter name");
+});
+
+test("Claude Code and Codex bot chat wiring stays on AgentSession and prompt utilities are stateless-only", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const coreSource = fs.readFileSync(path.join(root, "src/core/mia-core.js"), "utf8");
+  const adapterGraphSource = fs.readFileSync(path.join(root, "src/main/chat-engine-adapters.js"), "utf8");
+  const claudeSource = fs.readFileSync(path.join(root, "src/main/claude-code-stateless-adapter.js"), "utf8");
+  const codexSource = fs.readFileSync(path.join(root, "src/main/codex-stateless-adapter.js"), "utf8");
+  const claudeBotPromptPattern = new RegExp(`promptWith${"Group"}|includedHistory${"Chars"}`);
+  const codexBotPromptPattern = new RegExp(`promptWith${"Group"}|codex${"Prompt"}|includedHistory${"Chars"}`);
+  const botTransportPattern = new RegExp(`runCodexAppServer${"Turn"}|claudeAgentSdk|query\\(\\{`);
+
+  assert.match(claudeSource, /function createClaudeCodeStatelessAdapter/, "Claude utility should expose a stateless constructor");
+  assert.match(codexSource, /function createCodexStatelessAdapter/, "Codex utility should expose a stateless constructor");
+  assert.doesNotMatch(claudeSource, /createClaudeCodeChatAdapter|async function sendChat\s*\(/, "Claude utility must not retain a bot chat adapter path");
+  assert.doesNotMatch(codexSource, /createCodexChatAdapter|async function sendChat\s*\(/, "Codex utility must not retain a bot chat adapter path");
+  assert.doesNotMatch(claudeSource, claudeBotPromptPattern, "Claude stateless utility must not carry bot conversation prompt assembly");
+  assert.doesNotMatch(codexSource, codexBotPromptPattern, "Codex stateless utility must not carry bot conversation prompt assembly");
+
+  assert.doesNotMatch(mainSource, /createActiveClaudeCodeChatAdapter|createActiveCodexChatAdapter/, "main must not construct Claude/Codex direct bot chat adapters");
+  assert.doesNotMatch(coreSource, /activeClaudeCodeAdapter|activeCodexAdapter|createClaudeCodeChatAdapter|createCodexChatAdapter/, "Mia Core must not construct Claude/Codex direct bot chat adapters");
+  assert.doesNotMatch(adapterGraphSource, botTransportPattern, "production bot adapter graph must not wire prompt transports");
 });

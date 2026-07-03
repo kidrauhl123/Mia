@@ -1735,14 +1735,15 @@ test("sendInActiveConversation keeps later pending messages after an earlier ser
   assert.deepEqual(entry.messages.map((m) => m.body_md), ["first", "second"]);
 });
 
-test("sendInActiveConversation blocks a second user message while the active bot run is running", async () => {
+test("sendInActiveConversation still posts and previews user messages while the active bot run is running", async () => {
   const s = loadSocial();
+  const post = deferred();
   const posted = [];
   s.moduleState.myUserId = "u_me";
   s.__mockWindow.mia.social = {
     postConversationMessage: async (conversationId, body) => {
       posted.push({ conversationId, body });
-      return { ok: true, data: { message: { id: "m_server", seq: 1, body_md: body.bodyMd } } };
+      return post.promise;
     }
   };
   s.moduleState.activeConversationId = "g_busy";
@@ -1755,25 +1756,34 @@ test("sendInActiveConversation blocks a second user message while the active bot
     status: "running"
   });
 
-  const result = await s.sendInActiveConversation("too soon");
+  const sendPromise = s.sendInActiveConversation("too soon");
+  const entry = s.moduleState.messageCache.get("g_busy");
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
-    ok: false,
-    status: 409,
-    error: "CONVERSATION_RUN_IN_PROGRESS"
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].conversationId, "g_busy");
+  assert.equal(posted[0].body.bodyMd, "too soon");
+  assert.equal(entry.messages.length, 1);
+  assert.equal(entry.messages[0].status, "sending");
+  assert.equal(entry.messages[0].body_md, "too soon");
+
+  post.resolve({
+    ok: true,
+    data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "too soon" } }
   });
-  assert.equal(posted.length, 0);
-  assert.equal(s.moduleState.messageCache.get("g_busy").messages.length, 0);
+  await sendPromise;
+
+  assert.deepEqual(entry.messages.map((message) => message.id), ["m_server"]);
 });
 
-test("sendInActiveConversation blocks user messages while the active bot run is cancelling", async () => {
+test("sendInActiveConversation still posts and previews user messages while the active bot run is cancelling", async () => {
   const s = loadSocial();
+  const post = deferred();
   const posted = [];
   s.moduleState.myUserId = "u_me";
   s.__mockWindow.mia.social = {
     postConversationMessage: async (conversationId, body) => {
       posted.push({ conversationId, body });
-      return { ok: true, data: { message: { id: "m_server", seq: 1, body_md: body.bodyMd } } };
+      return post.promise;
     }
   };
   s.moduleState.activeConversationId = "g_cancelling";
@@ -1786,15 +1796,23 @@ test("sendInActiveConversation blocks user messages while the active bot run is 
     status: "cancelling"
   });
 
-  const result = await s.sendInActiveConversation("too soon");
+  const sendPromise = s.sendInActiveConversation("too soon");
+  const entry = s.moduleState.messageCache.get("g_cancelling");
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
-    ok: false,
-    status: 409,
-    error: "CONVERSATION_RUN_IN_PROGRESS"
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].conversationId, "g_cancelling");
+  assert.equal(posted[0].body.bodyMd, "too soon");
+  assert.equal(entry.messages.length, 1);
+  assert.equal(entry.messages[0].status, "sending");
+  assert.equal(entry.messages[0].body_md, "too soon");
+
+  post.resolve({
+    ok: true,
+    data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "too soon" } }
   });
-  assert.equal(posted.length, 0);
-  assert.equal(s.moduleState.messageCache.get("g_cancelling").messages.length, 0);
+  await sendPromise;
+
+  assert.deepEqual(entry.messages.map((message) => message.id), ["m_server"]);
 });
 
 test("sendInActiveConversation posts and previews attachment-only messages", async () => {
@@ -3365,6 +3383,49 @@ test("handleCloudEvent cloud_agent_run events track transient conversation strea
   assert.equal(run.hermesRunId, "hr_1");
   assert.equal(run.text, "hello ");
   assert.equal(run.tools.map((tool) => tool.name).join(","), "shell");
+});
+
+test("stale cloud agent run clears sidebar typing when terminal events are lost", () => {
+  let intervalCallback = null;
+  let clearedTimer = false;
+  let renders = 0;
+  let headerPaints = 0;
+  const s = loadSocial({
+    setInterval: (fn) => {
+      intervalCallback = fn;
+      return "cloud-run-status-timer";
+    },
+    clearInterval: (id) => {
+      if (id === "cloud-run-status-timer") clearedTimer = true;
+    }
+  });
+  s.initSocialModule({
+    getState: () => ({}),
+    render: () => { renders += 1; },
+    paintHeaderStatus: () => { headerPaints += 1; },
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.activeConversationId = "botc_u_a_codex";
+  s.moduleState.conversations = [{ id: "botc_u_a_codex", type: "bot", decorations: { botId: "codex" } }];
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_codex", runId: "car_lost", turnId: "turn_lost", botId: "codex" },
+  });
+  const run = s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_codex");
+  assert.ok(run, "run should be active immediately after start");
+  run.updatedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+  renders = 0;
+  headerPaints = 0;
+
+  assert.equal(typeof intervalCallback, "function");
+  intervalCallback();
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_codex"), false);
+  assert.equal(clearedTimer, true);
+  assert.equal(renders, 1);
+  assert.equal(headerPaints, 1);
 });
 
 test("cloud run streaming keeps canonical text while smoothing displayed text", () => {

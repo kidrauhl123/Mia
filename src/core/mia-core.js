@@ -83,14 +83,15 @@ const { chatCompletionResponse, responseMessageContent } = require("../main/chat
 const { adapterForEngine, normalizeAgentEngine, resolveChatEngineAdapter } = require("../main/chat-engine-registry.js");
 const { enginePermissionStoreTarget } = require("../shared/agent-engine-policy.js");
 const { createChatEngineAdapters, sendWithChatEngineAdapter } = require("../main/chat-engine-adapters.js");
+const { createNativeTurnHelpers } = require("../main/native-turn-helpers.js");
 const { normalizeTurnRuntimeConfig } = require("../main/runtime-config-normalizer.js");
 const { schedulerSkillIdsForTurn } = require("../main/scheduler-skill-defaults.js");
-const { createHermesRunService } = require("../main/hermes-run-service.js");
-const { createHermesChatAdapter } = require("../main/hermes-chat-adapter.js");
 const {
   createMiaCoreModelRuntimeResolver,
   isMiaManagedRuntime
 } = require("../main/mia-core/model-runtime-resolver.js");
+const { createClaudeCodeMiaProxy } = require("../main/claude-code-mia-proxy.js");
+const { createAgentSessionRuntimePreparer } = require("../main/agent-session-runtime-preparer.js");
 
 // Memory + skills collaborators — the SAME pure-node factories main.js drives
 // (src/main.js ~293 createMiaMemoryService, ~525 createSkillsLoader; no fork).
@@ -109,7 +110,7 @@ const { createSkillsLoader } = require("../main/skills-loader.js");
 //   - createChatAttachments: the two methods Core needs (normalizeAttachments,
 //     attachmentContext) are pure fs/path. The save/read/cloud-fetch methods
 //     (which alone touch initializeRuntime/getCloudSettings) are never reached on
-//     the hermes-run-service payload path, so node sinks for those deps are safe.
+//     the native turn-helper prompt path, so node sinks for those deps are safe.
 //   - createSchedulerMcpBridge / createMiaAppMcpBridge: writeContext is a pure fs
 //     write of {botId, sessionId, originMessageId} to context.json under Core's
 //     own runtime home. Core owns that home AND the daemon control server the MCP
@@ -118,39 +119,18 @@ const { createChatAttachments } = require("../main/chat-attachments.js");
 const { createSchedulerMcpBridge } = require("../main/scheduler-mcp-bridge.js");
 const { createMiaAppMcpBridge } = require("../main/mia-app-mcp-bridge.js");
 
-// PART B — active Codex / Claude Code / OpenClaw engines in Core. The 4 adapter
-// MODULES + every dependency service below are pure node (0 electron requires —
-// verified): external CLIs (claude/codex/openclaw) are resolved from PATH, never
-// packaged (per AGENTS.md). Core constructs the SAME adapters main.js drives
-// (src/main.js createActiveCodexChatAdapter / createActiveClaudeCodeChatAdapter /
-// createActiveOpenClawChatAdapter — no fork), with node values for the few deps
-// main.js sources from electron-coupled collaborators.
-const { createClaudeCodeChatAdapter } = require("../main/claude-code-chat-adapter.js");
-const { createCodexChatAdapter } = require("../main/codex-chat-adapter.js");
-const { createOpenClawChatAdapter } = require("../main/openclaw-chat-adapter.js");
-const { runCodexAppServerTurn } = require("../main/codex-app-server-runner.js");
+// PART B — active external Agent engines in Core. Bot conversations use
+// AgentSession ACP; prompt-shaped Claude/Codex utilities live only in explicit
+// stateless desktop paths, not in Core's bot execution graph.
 const { createLocalAgentEngineService } = require("../main/local-agent-engine-service.js");
 const { createAgentPermissionCoordinator } = require("../main/agent-permission-coordinator.js");
-const { createAgentSessionStore } = require("../main/agent-session-store.js");
-const { createClaudeBridgePluginService } = require("../main/claude-bridge-plugin-service.js");
-const { createClaudeCodeMiaProxy } = require("../main/claude-code-mia-proxy.js");
-const { createCodexMiaProxy } = require("../main/codex-mia-proxy.js");
+const { createAgentSessionManager } = require("../main/agent-session/index.js");
 const { createMcpSdkClientManager } = require("../main/mcp/mcp-sdk-client.js");
 const { createMcpBridgeServer } = require("../main/mcp/mcp-bridge-server.js");
 const { createCoreMcpService } = require("./mcp/service.js");
 const { createManagedConnectorSupervisor } = require("./mcp/managed-connector-supervisor.js");
 const { createCoreMcpOAuthService } = require("./mcp/oauth-service.js");
 const { createCoreMcpOAuthTokenStore } = require("./mcp/oauth-token-store.js");
-
-// Claude Agent SDK — plain-node ESM package (NOT electron). main.js loads it via
-// `await import("@anthropic-ai/claude-agent-sdk")`; Core does the same. For a
-// PACKAGED Core (plain node), the package must be asarUnpack'd so node can
-// import it from outside app.asar — see package.json build.asarUnpack.
-let claudeAgentSdkModule = null;
-async function coreClaudeAgentSdk() {
-  if (!claudeAgentSdkModule) claudeAgentSdkModule = await import("@anthropic-ai/claude-agent-sdk");
-  return claudeAgentSdkModule;
-}
 
 // Cloud bot-invocation routing — the SAME pure-node social modules the Electron
 // main process drives (no fork). Core is the single owner when running, so the
@@ -358,28 +338,17 @@ function coreResolveOfficialLibraryRoot(root = "") {
 // Build the REAL bot-execution core for the node Core process. This constructs
 // the same adapter graph the Electron main process builds — createChatEngineAdapters
 // → sendWithChatEngineAdapter → adapter.send — reusing the real shared helpers
-// (bot snapshot/runtime-config/skill/scheduler normalization). All FOUR engines
-// are wired to their REAL adapters: Hermes (HTTP), and — PART B — Codex / Claude
-// Code / OpenClaw (external CLIs resolved from PATH). The Hermes lowest-level
-// `sendHermesChat` is host-injectable (real adapter.sendChat in production; a fake
-// in tests) so only the engine HTTP layer is replaced while the graph stays real.
+// (bot snapshot/runtime-config/skill/scheduler normalization). Interactive
+// Hermes turns route through AgentSession ACP; Codex / Claude Code / OpenClaw
+// use their real adapters with PATH-resolved CLIs.
 function createCoreBotExecution({
   env = process.env,
   runtimePaths,
   settingsStore,
   hermesBaseUrl,
   apiKey,
-  sendHermesChat,
   fetchImpl = fetch,
-  // BLOCKER #2: ensure the Hermes engine is running before a turn. In production
-  // Core injects its engine supervisor's ensureRunning (adopt-or-spawn); when
-  // absent (older callers / pure-adapter tests) Core falls back to a plain
-  // /health probe, preserving the prior behaviour.
   ensureEngine = null,
-  // PART A: managed-model runtime. `hermesHome` locates config.yaml for the
-  // model/provider write; `engineOwnedByCore` reports whether Core SPAWNED the
-  // engine (vs adopted the GUI's). Core writes the model block ONLY when it owns
-  // the engine — see resolveManagedModelRuntime / writeModelRuntimeConfig below.
   hermesHome = null,
   engineOwnedByCore = null,
   // PART B: the daemon-control facts the scheduler/Mia-app MCP specs embed so a
@@ -394,16 +363,13 @@ function createCoreBotExecution({
   // distinctive guard) WITHOUT spawning a real external agent. Production passes
   // nothing → the real createLocalAgentEngineService is used.
   localAgentEngineService: injectedLocalAgentEngineService = null,
-  // PART B test seam: override the Claude Agent SDK loader so a proof test can
-  // assert the real Claude adapter reached the SDK without loading the npm package.
-  claudeAgentSdk: injectedClaudeAgentSdk = null,
-  // Test seam: override the Claude/Codex managed-model proxies so a shutdown test
-  // can assert closeAgentEngines() stops their loopback servers.
-  claudeCodeMiaProxy: injectedClaudeProxy = null,
-  codexMiaProxy: injectedCodexProxy = null
+  agentSessionManager: injectedAgentSessionManager = null,
+  claudeCodeMiaProxy: injectedClaudeCodeMiaProxy = null,
+  prepareAgentSessionRuntime: injectedPrepareAgentSessionRuntime = null
 } = {}) {
   const baseUrl = typeof hermesBaseUrl === "function" ? hermesBaseUrl : () => String(hermesBaseUrl || "");
   const apiKeyFn = typeof apiKey === "function" ? apiKey : () => String(apiKey || "");
+  const agentSessionManager = injectedAgentSessionManager || createAgentSessionManager();
 
   // Real bot manifest read-side: local fallback when a turn carries no cloud
   // snapshot. Core owns the same runtime home, so it reads the same manifest.
@@ -532,13 +498,9 @@ function createCoreBotExecution({
     };
   }
 
-  // REAL chat-attachments — pure node (fs/path) for the two methods the run
-  // service uses. normalizeAttachments + attachmentContext read local file
-  // metadata / text previews exactly like the Electron path (src/main.js:466).
-  // The save/read/cloud-fetch methods are never reached on the payload path, so
-  // their electron-ish deps are inert node sinks: initializeRuntime is a no-op
-  // (Core owns runtimePaths.attachmentsDir already), and the cloud deps reuse
-  // Core's own cloud settings if present.
+  // REAL chat-attachments — pure node (fs/path). Core reuses the same
+  // normalizeAttachments + attachmentContext helpers the Electron path does so
+  // native-session prompt extraction and attachment previews stay aligned.
   const chatAttachments = createChatAttachments({
     initializeRuntime: () => {},
     runtimePaths,
@@ -550,16 +512,9 @@ function createCoreBotExecution({
       : (value) => String(value || "")
   });
 
-  // Real Hermes run service (payload/stream/slash helpers) — now with the REAL
-  // attachment deps so a Hermes turn carrying local attachments injects the same
-  // "附件上下文" block + text previews the Electron daemon does (src/main.js:487).
-  const hermesRunService = createHermesRunService({
+  const nativeTurnHelpers = createNativeTurnHelpers({
     normalizeAttachments: chatAttachments.normalizeAttachments,
-    attachmentContext: chatAttachments.attachmentContext,
-    baseUrl,
-    apiKey: apiKeyFn,
-    fetchImpl,
-    randomUUID: () => crypto.randomUUID()
+    attachmentContext: chatAttachments.attachmentContext
   });
 
   // PART B — local agent engine service (pure node). Provides the PATH-resolved
@@ -619,111 +574,25 @@ function createCoreBotExecution({
     modelSettings: () => ({})
   });
 
-  function resolveManagedModelRuntime(config = {}) {
-    const runtime = modelRuntimeResolver.resolveModelRuntime(config, {});
+  function resolveManagedModelRuntime(config = {}, context = {}) {
+    const runtime = modelRuntimeResolver.resolveModelRuntime(config, context);
     return isMiaManagedRuntime(runtime) ? runtime : null;
   }
-
-  // PART A — writeModelRuntimeConfig. Minimal read-modify-write of the Hermes
-  // config.yaml model/provider block, mirroring ONLY the model-related key paths
-  // of engineRuntimeConfigService.writeRuntimeConfig (config.model.{provider,
-  // default,base_url,api_mode} + config.providers[provider].{name,base_url,
-  // key_env,api_key,default_model,api_mode}). Every other key (api_server,
-  // approvals, agent, skills, mcp_servers, mia, ...) is preserved untouched.
-  //
-  // SINGLE-OWNER (AION): the backend that OWNS the engine owns this config write.
-  // Core writes ONLY when it SPAWNED the engine (engineOwnedByCore() === true).
-  // If Core ADOPTED the GUI's engine, the GUI owns config.yaml and already wrote
-  // the model — Core must not fight it (no-op). When no ownership predicate is
-  // injected (pure-adapter tests), Core writes so the proof can assert the keys.
-  const resolveHermesHome = typeof hermesHome === "function"
-    ? hermesHome
-    : () => String(hermesHome || (runtimePaths && runtimePaths().hermesHome) || "");
-
-  function writeModelRuntimeConfig(settings = {}) {
-    if (typeof engineOwnedByCore === "function" && !engineOwnedByCore()) return;
-    const home = resolveHermesHome();
-    if (!home) return;
-    const configPath = path.join(home, "config.yaml");
-    let config = {};
-    try {
-      if (fs.existsSync(configPath)) config = yaml.load(fs.readFileSync(configPath, "utf8")) || {};
-    } catch {
-      config = {};
-    }
-    if (!config || typeof config !== "object") config = {};
-
-    const provider = String(settings.provider || "").trim();
-    const model = String(settings.model || "").trim();
-    const apiKeyEnv = String(settings.apiKeyEnv || "").trim();
-    const baseUrl = String(settings.baseUrl || "").trim();
-    const apiMode = String(settings.apiMode || "").trim();
-
-    const modelConfig = config.model && typeof config.model === "object" ? { ...config.model } : {};
-    if (provider) modelConfig.provider = provider;
-    if (model) modelConfig.default = model;
-    if (baseUrl) modelConfig.base_url = baseUrl;
-    if (apiMode) modelConfig.api_mode = apiMode;
-    if (Object.keys(modelConfig).length) config.model = modelConfig;
-
-    if (provider && baseUrl) {
-      const providers = config.providers && typeof config.providers === "object" ? { ...config.providers } : {};
-      const providerConfig = providers[provider] && typeof providers[provider] === "object" ? { ...providers[provider] } : {};
-      providerConfig.name = settings.providerLabel || provider;
-      providerConfig.base_url = baseUrl;
-      if (apiKeyEnv) providerConfig.key_env = apiKeyEnv;
-      if (settings.apiKey) providerConfig.api_key = settings.apiKey;
-      if (model) providerConfig.default_model = model;
-      if (apiMode) providerConfig.api_mode = apiMode;
-      providers[provider] = providerConfig;
-      config.providers = providers;
-    }
-
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    const tmpPath = `${configPath}.${process.pid}.tmp`;
-    fs.writeFileSync(tmpPath, yaml.dump(config, { lineWidth: 100, noRefs: true }), { mode: 0o600 });
-    fs.renameSync(tmpPath, configPath);
-  }
-
-  // Real Hermes chat adapter — provides slashCommandResponse and (in production)
-  // the real sendChat. The MCP context writes are the genuine bridges; PART A
-  // wires the REAL managed-model resolve + config write (above); the adapter
-  // itself is genuine.
-  const hermesAdapter = createHermesChatAdapter({
-    apiKey: apiKeyFn,
-    baseUrl,
-    buildGroupHeader: () => "",
-    buildRunPayload: hermesRunService.buildRunPayload,
-    normalizeError: hermesRunService.normalizeError,
-    readRunEventStream: hermesRunService.readRunEventStream,
-    responseModel: adapterForEngine("hermes").responseModel,
+  const claudeCodeMiaProxy = injectedClaudeCodeMiaProxy || createClaudeCodeMiaProxy({
     fetch: fetchImpl,
-    // REAL scheduler MCP context write — Core owns the scheduler subsystem, so a
-    // schedule_create from this turn fires the reminder back into this conversation.
-    writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
-    // REAL Mia app MCP context write — same per-turn context under Core's home.
-    writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
-    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-    // PART A — REAL managed-model runtime. resolveManagedModelRuntime returns the
-    // Mia cloud model-proxy provider for a Mia-managed-model bot; writeModelRuntimeConfig
-    // writes ONLY the model/provider block into config.yaml (single-owner gated:
-    // Core writes only when it SPAWNED the engine, see above).
-    resolveManagedModelRuntime,
-    writeModelRuntimeConfig,
-    appendEngineLog: () => {}
+    appendLog: () => {}
   });
-
-  // In production `sendHermesChat` is `hermesAdapter.sendChat`. Tests inject a
-  // fake so only the lowest-level Hermes HTTP send is replaced — the rest of the
-  // graph stays real.
-  const hermesChatSend = typeof sendHermesChat === "function"
-    ? sendHermesChat
-    : hermesAdapter.sendChat;
+  const agentSessionRuntimePreparer = typeof injectedPrepareAgentSessionRuntime === "function"
+    ? { prepare: injectedPrepareAgentSessionRuntime }
+    : createAgentSessionRuntimePreparer({
+      resolveManagedModelRuntime,
+      claudeCodeMiaProxy
+    });
 
   // ensureHermesReady: when Core owns the engine lifecycle (an ensureEngine is
   // injected), ADOPT-OR-SPAWN the Hermes engine so a GUI-less daemon turn always
-  // has a running engine (BLOCKER #2). Otherwise fall back to a plain /health
-  // probe (legacy behaviour: the Electron app owns the engine).
+  // has a running engine for slash commands. Otherwise fall back to a plain
+  // /health probe.
   async function ensureHermesReady() {
     if (typeof ensureEngine === "function") {
       await ensureEngine();
@@ -743,32 +612,14 @@ function createCoreBotExecution({
   };
 
   // ====================================================================
-  // PART B — active Codex / Claude Code / OpenClaw engines (all pure node).
-  // Core constructs the SAME adapters main.js drives (createActiveCodexChatAdapter
-  // / createActiveClaudeCodeChatAdapter / createActiveOpenClawChatAdapter — no
-  // fork), substituting node values for the few deps main.js sources from
-  // electron-coupled collaborators. The external CLIs (claude/codex/openclaw) are
-  // resolved from PATH via localAgentEngineService.shellCommandPath (per AGENTS.md:
-  // engines are never packaged). Every dependency below is node-constructible
-  // (audited: 0 electron requires in any adapter module or its dep services).
+  // PART B — active external Agent engines (all pure node).
+  // Bot conversations use AgentSession ACP. Core does not construct the retired
+  // Claude/Codex prompt adapters.
   // ====================================================================
 
-  // Per-engine permission policy + cross-turn agent-session map: pure JSON I/O
-  // under Core's single-owner runtime home — the SAME stores main.js drives.
+  // Per-engine permission policy: pure JSON I/O under Core's single-owner
+  // runtime home.
   const agentPermissionCoordinator = createAgentPermissionCoordinator({ runtimePaths, readJson });
-  const agentSessionStore = createAgentSessionStore({
-    runtimePaths,
-    readJson,
-    normalizeBotAgentEngine: normalizeAgentEngine
-  });
-
-  // Claude bridge plugin + Mia model proxies (Claude/Codex managed model over the
-  // Mia cloud model-proxy) — pure node (fs/fetch). The proxies start a local
-  // loopback HTTP server lazily ONLY when a managed-model turn calls createSession
-  // — never at construction, so importing Core has no side effect.
-  const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
-  const claudeCodeMiaProxy = injectedClaudeProxy || createClaudeCodeMiaProxy({ appendLog: () => {}, fetch: fetchImpl });
-  const codexMiaProxy = injectedCodexProxy || createCodexMiaProxy({ appendLog: () => {}, fetch: fetchImpl });
 
   // User-defined MCP servers (the same registry main.js drives). All node: the
   // manager/bridge/service are pure JS; the bridge binds a loopback port lazily on
@@ -843,133 +694,18 @@ function createCoreBotExecution({
     return dir;
   }
 
-  const enginePermissionMode = settingsStore && typeof settingsStore.enginePermissionMode === "function"
-    ? settingsStore.enginePermissionMode
-    : () => "default";
-  const normalizeEffortLevel = settingsStore && typeof settingsStore.normalizeEffortLevel === "function"
-    ? settingsStore.normalizeEffortLevel
-    : (value) => String(value || "medium").trim() || "medium";
-
-  // The three active adapters — constructed exactly like main.js (deps mapped to
-  // Core's node services). Lazily built so a failure in one engine doesn't break
-  // the others, and so building Core has no side effect.
-  let cachedClaudeCodeAdapter = null;
-  function activeClaudeCodeAdapter() {
-    if (!cachedClaudeCodeAdapter) {
-      cachedClaudeCodeAdapter = createClaudeCodeChatAdapter({
-        appendEngineLog: () => {},
-        cwd: agentWorkspaceDir,
-        chatCompletionResponse,
-        claudeAgentSdk: typeof injectedClaudeAgentSdk === "function" ? injectedClaudeAgentSdk : coreClaudeAgentSdk,
-        ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
-        ensureUserMcpReady,
-        expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-        clearAgentSessionEntry: agentSessionStore.deleteEntry,
-        enginePermissionMode,
-        ensureMiaClaudeProxy: (managedModel) => claudeCodeMiaProxy.createSession(managedModel),
-        getAgentSessionEntry: agentSessionStore.getEntry,
-        getMcpFingerprint: userMcpService.fingerprint,
-        getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-        getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
-        getUserMcpSpecs: () => userMcpService.getEngineSpecs("claude-code"),
-        injectGroupContextForSdk: (userMessage) => userMessage,
-        lastUserPrompt: hermesRunService.lastUserPrompt,
-        normalizeEffortLevel,
-        permissionCoordinator: agentPermissionCoordinator,
-        processEnvStrings,
-        readBotPersona,
-        resolveManagedModelRuntime,
-        setAgentSessionEntry: agentSessionStore.setEntry,
-        shellCommandPath: localAgentEngineService.shellCommandPath,
-        writeSchedulerMcpContext: schedulerMcpBridge.writeContext
-      });
-    }
-    return cachedClaudeCodeAdapter;
-  }
-
-  let cachedCodexAdapter = null;
-  function activeCodexAdapter() {
-    if (!cachedCodexAdapter) {
-      cachedCodexAdapter = createCodexChatAdapter({
-        chatCompletionResponse,
-        cwd: agentWorkspaceDir,
-        appendEngineLog: () => {},
-        enginePermissionMode,
-        ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
-        ensureMiaCodexProxy: (managedModel) => codexMiaProxy.createSession(managedModel),
-        ensureUserMcpReady,
-        expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-        getAgentSessionEntry: agentSessionStore.getEntry,
-        getAgentSessionId: agentSessionStore.getId,
-        getMcpFingerprint: userMcpService.fingerprint,
-        getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-        getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
-        getUserMcpSpecs: () => userMcpService.getEngineSpecs("codex"),
-        injectGroupContextForSdk: (userMessage) => userMessage,
-        lastUserPrompt: hermesRunService.lastUserPrompt,
-        normalizeEffortLevel,
-        permissionCoordinator: agentPermissionCoordinator,
-        processEnvStrings,
-        readBotPersona,
-        resolveManagedModelRuntime,
-        runCodexAppServerTurn,
-        setAgentSessionEntry: agentSessionStore.setEntry,
-        setAgentSessionId: agentSessionStore.setId,
-        agentRuntimeEnv: localAgentEngineService.agentRuntimeEnv,
-        resolveAgentRuntime: localAgentEngineService.resolveAgentRuntime,
-        shellCommandPath: localAgentEngineService.shellCommandPath,
-        writeSchedulerMcpContext: schedulerMcpBridge.writeContext
-      });
-    }
-    return cachedCodexAdapter;
-  }
-
-  let cachedOpenClawAdapter = null;
-  function activeOpenClawAdapter() {
-    if (!cachedOpenClawAdapter) {
-      cachedOpenClawAdapter = createOpenClawChatAdapter({
-        chatCompletionResponse,
-        cwd: agentWorkspaceDir,
-        appendEngineLog: () => {},
-        enginePermissionMode,
-        ensureUserMcpReady,
-        expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-        getAgentSessionId: agentSessionStore.getId,
-        getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-        getMcpFingerprint: userMcpService.fingerprint,
-        getUserMcpServers: (options) => userMcpService.getEngineSpecs("openclaw", options),
-        injectGroupContextForSdk: (userMessage) => userMessage,
-        lastUserPrompt: hermesRunService.lastUserPrompt,
-        normalizeEffortLevel,
-        permissionCoordinator: agentPermissionCoordinator,
-        processEnvStrings,
-        readBotPersona,
-        resolveManagedModelRuntime,
-        setAgentSessionId: agentSessionStore.setId,
-        shellCommandPath: localAgentEngineService.shellCommandPath,
-        syncNativeMemoryFiles: syncNativeMemoryFilesForAgent
-      });
-    }
-    return cachedOpenClawAdapter;
-  }
-
-  // REAL adapter graph: Hermes + Codex + Claude Code + OpenClaw all wired to real
-  // adapters. The legacy "engine not available" throw is GONE; every engine routes
-  // through its real adapter (the external CLI is resolved from PATH at turn time).
+  // REAL adapter graph: Claude Code, Codex, Hermes, and OpenClaw bot turns route
+  // through AgentSession ACP. This graph only keeps slash-command fallbacks that
+  // fail closed when Core has no slash service.
   function createActiveChatEngineAdapters() {
     return createChatEngineAdapters({
       chatCompletionResponse,
       ensureHermesReady,
-      hermesSlashCommandResponse: hermesAdapter.slashCommandResponse,
       runHermesSlashCommand: () => "",
-      sendHermesChat: hermesChatSend,
       // External agent slash commands aren't wired in Core yet (no
       // externalAgentCommandService); a slash command on a non-Hermes engine is
       // rare and surfaces the same "not available" — the CHAT path below is real.
-      runExternalSlashCommand: engineUnavailable,
-      sendClaudeCodeChat: activeClaudeCodeAdapter().sendChat,
-      sendCodexChat: activeCodexAdapter().sendChat,
-      sendOpenClawChat: activeOpenClawAdapter().sendChat
+      runExternalSlashCommand: engineUnavailable
     });
   }
 
@@ -992,9 +728,12 @@ function createCoreBotExecution({
     // wiring). Same loader instance that backs the Hermes adapter's enabled-skills
     // context above.
     skillsLoader,
-    hermesRunService,
+    nativeTurnHelpers,
     sendWithChatEngineAdapter,
     createActiveChatEngineAdapters,
+    agentSessionManager,
+    agentSessionWorkspacePath: agentWorkspaceDir,
+    prepareAgentSessionRuntime: agentSessionRuntimePreparer.prepare,
     // TODO(mia-core slice): wire the real local bot responder once Core owns
     // cloud-conversation handling; the stub keeps stopChat well-defined.
     localBotResponder: () => ({ stopActiveConversationRun: () => ({ stopped: false }) }),
@@ -1006,22 +745,22 @@ function createCoreBotExecution({
     isMemoryEnabled: miaMemoryEnabled
   });
 
-  // PART B teardown: the user-MCP bridge (createMcpBridgeServer) opens a loopback
-  // HTTP server when a Codex/Claude/OpenClaw turn first calls ensureUserMcpReady.
-  // createMiaCore.stop() (and tests) call closeAgentEngines() to close it + any
-  // managed Mia model-proxy sessions, so the process exits cleanly. No-op before
-  // the bridge has started.
+  // PART B teardown: close the user-MCP loopback bridge, user MCP clients,
+  // active AgentSession ACP sessions, and memory file handles so the process
+  // exits cleanly. No-op before optional resources have started.
   async function closeAgentEngines() {
     try { if (userMcpBridge && typeof userMcpBridge.stop === "function") await userMcpBridge.stop(); } catch { /* already closed */ }
     try { if (userMcpManager && typeof userMcpManager.stopAll === "function") await userMcpManager.stopAll(); } catch { /* best effort */ }
-    // Close the Claude/Codex managed-model proxy loopback HTTP servers a turn may
-    // have opened (createSession). Mirrors main.js quit (src/main.js:3027-3028).
-    try { if (claudeCodeMiaProxy && typeof claudeCodeMiaProxy.stop === "function") await claudeCodeMiaProxy.stop(); } catch { /* best effort */ }
-    try { if (codexMiaProxy && typeof codexMiaProxy.stop === "function") await codexMiaProxy.stop(); } catch { /* best effort */ }
+    try { if (agentSessionManager && typeof agentSessionManager.closeAllSessions === "function") await agentSessionManager.closeAllSessions(); } catch { /* best effort */ }
+    try { if (!injectedClaudeCodeMiaProxy && claudeCodeMiaProxy && typeof claudeCodeMiaProxy.stop === "function") await claudeCodeMiaProxy.stop(); } catch { /* best effort */ }
     try { if (miaMemoryService && typeof miaMemoryService.close === "function") miaMemoryService.close(); } catch { /* best effort */ }
   }
 
-  return Object.assign(botExecutionCore, { closeAgentEngines, miaCurrentSkills });
+  return Object.assign(botExecutionCore, {
+    closeAgentEngines,
+    miaCurrentSkills,
+    prepareAgentSessionRuntime: agentSessionRuntimePreparer.prepare
+  });
 }
 
 // Wire the CLOUD bot-invocation routing into Core, reusing the SAME pure-node
@@ -1048,7 +787,9 @@ function createCoreCloudRouting({
   timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs),
   emitLocalEvent = () => {},
   deviceId = "",
-  log = () => {}
+  log = () => {},
+  agentSessionManager = null,
+  prepareAgentSessionRuntime = null
 } = {}) {
   if (!botExecution || typeof botExecution.sendChat !== "function") {
     throw new Error("createCoreCloudRouting requires a botExecution with sendChat");
@@ -1081,7 +822,12 @@ function createCoreCloudRouting({
     // sink; a no-op/collector is fine until the local-events fan-out lands.
     emitCloudEvent: (message) => emitLocalEvent({ type: message.type, payload: message }),
     log,
-    artifactWorkspaceDir: artifactWorkspaceDir || (() => runtimePaths?.().workspace)
+    artifactWorkspaceDir: artifactWorkspaceDir || (() => runtimePaths?.().workspace),
+    agentSessionManager,
+    agentSessionWorkspacePath: artifactWorkspaceDir || (() => runtimePaths?.().workspace),
+    prepareAgentSessionRuntime: typeof prepareAgentSessionRuntime === "function"
+      ? prepareAgentSessionRuntime
+      : (typeof botExecution.prepareAgentSessionRuntime === "function" ? botExecution.prepareAgentSessionRuntime : null)
   });
 
   function stopChat(payload = {}) {
@@ -1223,20 +969,21 @@ function coreCloudBridgeUrl(settings = {}, { deviceId = "", deviceName = "", ver
 // Wire the REAL cloud BRIDGE WebSocket client into Core, reusing the SAME
 // pure-node module main.js drives (src/main.js ~2654, no fork). The bridge hosts
 // the desktop-agent side of web/mobile "remote run" requests: a `run` frame on
-// /api/bridge calls runCloudBridgeRequest → the bridge chat adapter's sendChat →
+// /api/bridge calls runCloudBridgeRequest → the bridge direct sender seam →
 // (here) Core's own botExecution.sendChat → run_event/run_result frames back over
 // the socket.
 //
 // BRIDGE RUN CONTRACT (from cloud-bridge-client.js runCloudBridgeRequest): the
-// client calls `createActiveBridgeChatAdapter(agentEngine).sendChat({ bot, sessionId,
-// messages, signal, emit, utility:false, runtimeConfig })` and reads the result's
-// `choices[0].message` (content + attachments). Core's bridge adapter maps that
-// onto botExecution.sendChat by passing the bridge `bot` object as `botSnapshot`
-// (+ botKey/botId) and forwarding sessionId/messages/signal/emit/utility/runtimeConfig.
+// client calls `runBridgeBotTurn({ botKey, botId, botSnapshot, sessionId,
+// messages, signal, emit, utility:false, runtimeConfig })` and reads the
+// result's `choices[0].message` (content + attachments). Core's bridge sender
+// maps that onto botExecution.sendChat by forwarding the bridge `botSnapshot`
+// (+ botKey/botId) plus sessionId/messages/signal/emit/utility/runtimeConfig.
 // The engine is selected by runtimeConfig.agentEngine inside sendChat
-// (botWithRuntimeConfig), so each of hermes / codex / claude-code / openclaw runs
-// its REAL adapter graph (PART B). A missing external CLI surfaces that adapter's
-// own "CLI not found" error — not a Core-level "engine not available" throw.
+// (botWithRuntimeConfig), so each of hermes / codex / claude-code / openclaw
+// runs its REAL adapter graph (PART B). A missing external CLI surfaces that
+// adapter's own "CLI not found" error — not a Core-level "engine not available"
+// throw.
 //
 // SINGLE-OWNER: like the events client, the bridge client's own
 // isDaemonProcess/isDaemonEnabled gate connects only while cloud is enabled+tokened;
@@ -1244,11 +991,9 @@ function coreCloudBridgeUrl(settings = {}, { deviceId = "", deviceName = "", ver
 //
 // ELECTRON-COUPLED deps replaced with node values here:
 //   cloudBridgeUrl              → coreCloudBridgeUrl (all-engines capabilities),
-//   createActiveCodexChatAdapter→ null (the bridge's codex slash-command path is
-//                                 unused; codex CHAT routes via botExecution.sendChat),
 //   resetLocalDeviceIdentity    → Core's persisted desktop device identity reset,
 //   resolveBotCapabilities      → caller-injected (default {}),
-//   broadcast/run streams        → emitLocalEvent via the bridge adapter's emit.
+//   broadcast/run streams        → emitLocalEvent via the bridge sender's emit.
 //
 // Injection points (for tests): `WebSocketImpl` (a mock socket) and `botExecution`
 // (a createCoreBotExecution graph with a faked Hermes send).
@@ -1279,25 +1024,23 @@ function createCoreCloudBridge({
     return Boolean(s.enabled && s.token);
   };
 
-  // Thin bridge chat adapter: routes a bridge run into Core's real botExecution
-  // graph. The bridge passes a full `bot` object (key/id/name/agentEngine/
-  // capabilities/engineConfig); Core forwards it as `botSnapshot` so no manifest
-  // read is needed for cloud-supplied bots. Engine selection lives inside
+  // Thin bridge sender: routes a bridge run into Core's real botExecution
+  // graph. The bridge passes a `botSnapshot` object (key/id/name/agentEngine/
+  // capabilities/engineConfig); Core forwards it unchanged so no manifest read
+  // is needed for cloud-supplied bots. Engine selection lives inside
   // botExecution.sendChat (botWithRuntimeConfig), so each of hermes / codex /
   // claude-code / openclaw runs its REAL adapter (PART B).
-  const createActiveBridgeChatAdapter = () => ({
-    sendChat: ({ bot, sessionId, messages, signal, emit, utility = false, runtimeConfig }) => botExecution.sendChat({
-      botKey: bot?.key || bot?.id || "",
-      botId: bot?.id || bot?.key || "",
-      botSnapshot: bot || null,
+  const runBridgeBotTurn = ({ botKey, botId, botSnapshot, sessionId, messages, signal, emit, utility = false, runtimeConfig }) => botExecution.sendChat({
+      botKey: botKey || botSnapshot?.key || botSnapshot?.id || "",
+      botId: botId || botSnapshot?.id || botSnapshot?.key || "",
+      botSnapshot: botSnapshot || null,
       sessionId,
       messages,
       signal,
       emit,
       utility,
       runtimeConfig
-    })
-  });
+    });
 
   const buildBridgeUrl = typeof cloudBridgeUrl === "function"
     ? cloudBridgeUrl
@@ -1314,12 +1057,7 @@ function createCoreCloudBridge({
     isDaemonEnabled: cloudEnabled,
     cloudBridgeUrl: buildBridgeUrl,
     cloudWebSocketProtocols,
-    createActiveBridgeChatAdapter,
-    // The bridge client's createActiveCodexChatAdapter dep is only used by its
-    // codex SLASH-command path (not chat). Codex CHAT routes through
-    // createActiveBridgeChatAdapter → botExecution.sendChat → the real codex
-    // adapter (PART B), so the slash-command hook stays null here.
-    createActiveCodexChatAdapter: null,
+    runBridgeBotTurn,
     resolveBotCapabilities,
     resetLocalDeviceIdentity: resetDeviceIdentity,
     randomUUID: () => crypto.randomUUID()
@@ -2127,6 +1865,7 @@ function createMiaCore(options = {}) {
   }
 
   let cachedBotExecution = null;
+  const agentSessionManager = createAgentSessionManager();
   function botExecution(overrides = {}) {
     if (cachedBotExecution && !Object.keys(overrides).length) return cachedBotExecution;
     const built = createCoreBotExecution({
@@ -2152,6 +1891,7 @@ function createMiaCore(options = {}) {
       daemonStatus: () => controlServer.status?.() || {},
       daemonSettings: () => settingsStore.daemonSettings(),
       daemonToken,
+      agentSessionManager,
       ...overrides
     });
     if (!Object.keys(overrides).length) cachedBotExecution = built;
@@ -2175,6 +1915,7 @@ function createMiaCore(options = {}) {
       emitLocalEvent: (envelope) => controlServer.publishLocalEvent?.(envelope),
       deviceId: coreDeviceId,
       log: () => {},
+      agentSessionManager,
       ...overrides
     });
     if (!Object.keys(overrides).length) cachedCloudRouting = built;

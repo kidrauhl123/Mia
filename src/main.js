@@ -35,22 +35,18 @@ const { createAgentCommandProvider } = require("./main/agent-command-provider.js
 const { createClaudeBridgePluginService } = require("./main/claude-bridge-plugin-service.js");
 const { requireBot } = require("./main/bot-registry.js");
 const {
-  closeManagedClaudeProxySessions,
-  createClaudeCodeChatAdapter
-} = require("./main/claude-code-chat-adapter.js");
-const { createClaudeCodeMiaProxy } = require("./main/claude-code-mia-proxy.js");
-const { createCodexMiaProxy } = require("./main/codex-mia-proxy.js");
+  createClaudeCodeStatelessAdapter
+} = require("./main/claude-code-stateless-adapter.js");
 const {
-  closeManagedCodexProxySessions,
-  createCodexChatAdapter,
+  createCodexStatelessAdapter,
   mapCodexPermissionMode
-} = require("./main/codex-chat-adapter.js");
+} = require("./main/codex-stateless-adapter.js");
 const { syncCodexConfigForPermission } = require("./main/codex-config-sync.js");
-const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
 const {
   closeOpenClawAcpRuntimes,
-  createOpenClawChatAdapter
+  createOpenClawStatelessAdapter
 } = require("./main/openclaw-chat-adapter.js");
+const { createNativeTurnHelpers } = require("./main/native-turn-helpers.js");
 const { normalizeTurnRuntimeConfig } = require("./main/runtime-config-normalizer.js");
 const { createMiaMemoryProvider } = require("./main/mia-memory-provider.js");
 const { createMiaMemoryService } = require("./main/mia-memory-service.js");
@@ -124,18 +120,20 @@ const { createAuthService } = require("./main/auth-service.js");
 const { createEngineCatalogService } = require("./main/engine-catalog-service.js");
 const { createExternalAgentCommandService } = require("./main/external-agent-command-service.js");
 const { createBotPetService } = require("./main/bot-pet-service.js");
-const { createHermesRunService } = require("./main/hermes-run-service.js");
 const { createHermesSlashCommandService } = require("./main/hermes-slash-command-service.js");
 const { createLaunchdService } = require("./main/launchd-service.js");
 const { createEnginePluginsService } = require("./main/engine-plugins-service.js");
 const { createLocalAgentEngineService } = require("./main/local-agent-engine-service.js");
 const { createAgentSessionStore } = require("./main/agent-session-store.js");
+const { createAgentSessionManager } = require("./main/agent-session/index.js");
 const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
 const { createAgentPermissionProxy } = require("./main/agent-permission-proxy.js");
 const {
   createMiaCoreModelRuntimeResolver,
   isMiaManagedRuntime
 } = require("./main/mia-core/model-runtime-resolver.js");
+const { createClaudeCodeMiaProxy } = require("./main/claude-code-mia-proxy.js");
+const { createAgentSessionRuntimePreparer } = require("./main/agent-session-runtime-preparer.js");
 const { createMiaCoreRuntimeService } = require("./main/mia-core/runtime-service.js");
 const {
   closeCodexAppServerRuntimes,
@@ -293,8 +291,6 @@ const miaMemoryService = createMiaMemoryService({
   memoryProvider: miaMemoryProvider
 });
 const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
-const claudeCodeMiaProxy = createClaudeCodeMiaProxy({ appendLog: appendEngineLog, fetch });
-const codexMiaProxy = createCodexMiaProxy({ appendLog: appendEngineLog, fetch });
 const enginePluginsService = createEnginePluginsService({ runtimePaths });
 let localAgentEngineService = null;
 const systemHermesService = createSystemHermesService({
@@ -660,19 +656,15 @@ const botPetService = createBotPetService({
   randomUUID: () => crypto.randomUUID()
 });
 
-const hermesRunService = createHermesRunService({
+const nativeTurnHelpers = createNativeTurnHelpers({
   normalizeAttachments,
-  attachmentContext,
-  baseUrl: () => engineState.baseUrl,
-  apiKey,
-  fetchImpl: fetch,
-  randomUUID: () => crypto.randomUUID()
+  attachmentContext
 });
 const hermesSlashCommandService = createHermesSlashCommandService({
   runtimePaths,
   readJson,
   defaultUserProfile: () => settingsStore.defaultUserProfile(),
-  cleanRunSessionId: hermesRunService.cleanRunSessionId,
+  cleanRunSessionId: nativeTurnHelpers.cleanSessionId,
   enginePython: engineInstallService.enginePython,
   effectiveHermesHome,
   buildPythonPath,
@@ -2221,6 +2213,14 @@ function resolveManagedModelRuntime(config = {}, context = {}) {
   const runtime = resolveModelRuntime(config, context);
   return isMiaManagedRuntime(runtime) ? runtime : null;
 }
+const claudeCodeMiaProxy = createClaudeCodeMiaProxy({
+  appendLog: (line) => appendCloudLog(line)
+});
+const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
+  resolveManagedModelRuntime,
+  claudeCodeMiaProxy
+});
+const prepareAgentSessionRuntime = (input) => agentSessionRuntimePreparer.prepare(input);
 
 async function restartEngineIfRunning() {
   const shouldRestart = Boolean(engineProcess || engineState.running || engineState.starting);
@@ -2230,16 +2230,12 @@ async function restartEngineIfRunning() {
 }
 
 function createActiveStatelessChatEngineAdapters() {
-  const claudeAdapter = createActiveClaudeCodeChatAdapter();
-  const codexAdapter = createActiveCodexChatAdapter();
-  const hermesAdapter = createActiveHermesChatAdapter();
-  const openClawAdapter = createActiveOpenClawChatAdapter();
+  const claudeAdapter = createActiveClaudeCodeStatelessAdapter();
+  const codexAdapter = createActiveCodexStatelessAdapter();
+  const openClawAdapter = createActiveOpenClawStatelessAdapter();
   return createStatelessChatEngineAdapters({
-    ensureHermesReady: ensureHermesChatEngineReady,
-    recoverHermesAfterFailure: recoverHermesChatEngineAfterFailure,
     sendClaudeCodeStateless: claudeAdapter.sendStateless,
     sendCodexStateless: codexAdapter.sendStateless,
-    sendHermesStateless: hermesAdapter.sendStateless,
     sendOpenClawStateless: openClawAdapter.sendStateless
   });
 }
@@ -2275,12 +2271,6 @@ async function ensureHermesChatEngineReady() {
   }
 }
 
-async function recoverHermesChatEngineAfterFailure(error) {
-  appendEngineLog(`Hermes API request failed during chat; restarting through Mia Core before retry. ${error?.message || error}`);
-  await stopEngine();
-  return startEngine();
-}
-
 // Group-context plumbing carried over from the local-group era. Cloud group
 // conversations don't currently set group.contextBlock — the dep is wired through
 // the adapters as a no-op so existing call sites stay valid until/unless
@@ -2288,91 +2278,32 @@ async function recoverHermesChatEngineAfterFailure(error) {
 function _noopGroupHeader() { return ""; }
 function _passthroughGroupContext(userMessage) { return userMessage; }
 
-function createActiveHermesChatAdapter() {
-  return createHermesChatAdapter({
-    apiKey,
-    baseUrl: () => engineState.baseUrl,
-    buildGroupHeader: _noopGroupHeader,
-    buildRunPayload: hermesRunService.buildRunPayload,
-    normalizeError: hermesRunService.normalizeError,
-    readRunEventStream: hermesRunService.readRunEventStream,
-    responseModel: adapterForEngine("hermes").responseModel,
-    writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
-    writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
-    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-    resolveModelRuntime,
-    writeModelRuntimeConfig: (settings) => writeRuntimeConfig(engineState.port || readConfiguredPort(), {
-      modelSettings: settings
-    }),
-    appendEngineLog
-  });
-}
-
-function createActiveClaudeCodeChatAdapter() {
-  return createClaudeCodeChatAdapter({
+function createActiveClaudeCodeStatelessAdapter() {
+  return createClaudeCodeStatelessAdapter({
     appendEngineLog,
     cwd: agentWorkspaceDir,
-    chatCompletionResponse,
     claudeAgentSdk,
-    ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
-    ensureUserMcpReady: () => ensureUserMcpReady("Claude Code chat"),
-    expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-    clearAgentSessionEntry: agentSessionStore.deleteEntry,
-    enginePermissionMode: settingsStore.enginePermissionMode,
-    ensureMiaClaudeProxy: (managedModel) => claudeCodeMiaProxy.createSession(managedModel),
-    getAgentSessionEntry: agentSessionStore.getEntry,
-    getMcpFingerprint: userMcpService.fingerprint,
-    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-    getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
-    getUserMcpSpecs: () => userMcpService.getEngineSpecs("claude-code"),
-    injectGroupContextForSdk: _passthroughGroupContext,
-    lastUserPrompt: hermesRunService.lastUserPrompt,
-    normalizeEffortLevel: settingsStore.normalizeEffortLevel,
-    permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
-    readBotPersona,
-    resolveManagedModelRuntime,
-    setAgentSessionEntry: agentSessionStore.setEntry,
-    shellCommandPath: localAgentEngineService.shellCommandPath,
-    writeSchedulerMcpContext: schedulerMcpBridge.writeContext
+    shellCommandPath: localAgentEngineService.shellCommandPath
   });
 }
 
-function createActiveCodexChatAdapter() {
-  return createCodexChatAdapter({
-    chatCompletionResponse,
+function createActiveCodexStatelessAdapter() {
+  return createCodexStatelessAdapter({
     cwd: agentWorkspaceDir,
     appendEngineLog,
-    enginePermissionMode: settingsStore.enginePermissionMode,
     ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
-    ensureMiaCodexProxy: (managedModel) => codexMiaProxy.createSession(managedModel),
-    ensureUserMcpReady: () => ensureUserMcpReady("Codex chat"),
-    expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-    getAgentSessionEntry: agentSessionStore.getEntry,
-    getAgentSessionId: agentSessionStore.getId,
-    getMcpFingerprint: userMcpService.fingerprint,
-    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-    getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
-    getUserMcpSpecs: () => userMcpService.getEngineSpecs("codex"),
-    injectGroupContextForSdk: _passthroughGroupContext,
-    lastUserPrompt: hermesRunService.lastUserPrompt,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
-    permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
-    readBotPersona,
-    resolveModelRuntime,
     runCodexAppServerTurn,
-    setAgentSessionEntry: agentSessionStore.setEntry,
-    setAgentSessionId: agentSessionStore.setId,
     agentRuntimeEnv: localAgentEngineService.agentRuntimeEnv,
     resolveAgentRuntime: localAgentEngineService.resolveAgentRuntime,
-    shellCommandPath: localAgentEngineService.shellCommandPath,
-    writeSchedulerMcpContext: schedulerMcpBridge.writeContext
+    shellCommandPath: localAgentEngineService.shellCommandPath
   });
 }
 
-function createActiveOpenClawChatAdapter() {
-  return createOpenClawChatAdapter({
+function createActiveOpenClawStatelessAdapter() {
+  return createOpenClawStatelessAdapter({
     chatCompletionResponse,
     cwd: agentWorkspaceDir,
     appendEngineLog,
@@ -2384,7 +2315,7 @@ function createActiveOpenClawChatAdapter() {
     getMcpFingerprint: userMcpService.fingerprint,
     getUserMcpServers: (options) => userMcpService.getEngineSpecs("openclaw", options),
     injectGroupContextForSdk: _passthroughGroupContext,
-    lastUserPrompt: hermesRunService.lastUserPrompt,
+    currentUserPrompt: nativeTurnHelpers.currentUserPrompt,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
@@ -2398,21 +2329,11 @@ function createActiveOpenClawChatAdapter() {
 }
 
 function createActiveChatEngineAdapters() {
-  const claudeAdapter = createActiveClaudeCodeChatAdapter();
-  const codexAdapter = createActiveCodexChatAdapter();
-  const hermesAdapter = createActiveHermesChatAdapter();
-  const openClawAdapter = createActiveOpenClawChatAdapter();
   return createChatEngineAdapters({
     chatCompletionResponse,
     ensureHermesReady: ensureHermesChatEngineReady,
-    recoverHermesAfterFailure: recoverHermesChatEngineAfterFailure,
-    hermesSlashCommandResponse: hermesAdapter.slashCommandResponse,
     runExternalSlashCommand: (input) => externalAgentCommandService.runSlashCommand(input),
-    runHermesSlashCommand: hermesSlashCommandService.run,
-    sendClaudeCodeChat: claudeAdapter.sendChat,
-    sendCodexChat: codexAdapter.sendChat,
-    sendHermesChat: hermesAdapter.sendChat,
-    sendOpenClawChat: openClawAdapter.sendChat
+    runHermesSlashCommand: hermesSlashCommandService.run
   });
 }
 
@@ -2424,19 +2345,6 @@ async function createAppScheduledTask(input) {
   return result.task;
 }
 
-function createActiveBridgeChatAdapter(agentEngine = "codex") {
-  const chatEngine = resolveChatEngineAdapter({ agentEngine: normalizeAgentEngine(agentEngine, "codex") });
-  const adapters = createActiveChatEngineAdapters();
-  return {
-    sendChat(context = {}) {
-      return sendWithChatEngineAdapter(adapters, {
-        ...context,
-        chatEngine
-      });
-    }
-  };
-}
-
 // `cloudBotSnapshotForTurn` and `botWithRuntimeConfig` now live in
 // src/main/bot-turn-helpers.js so the standalone Mia Core node process builds
 // the same turn-normalization pipeline — no fork. Behaviour is byte-identical;
@@ -2445,6 +2353,7 @@ const { botWithRuntimeConfig, cloudBotSnapshotForTurn } = createBotTurnHelpers({
   normalizeAgentEngine,
   enginePermissionStoreTarget
 });
+const agentSessionManager = createAgentSessionManager();
 
 // Single shared bot-execution core: `sendChat`/`stopChat` (and the single-flight
 // abort state) live in src/main/bot-execution-core.js so the standalone Mia Core
@@ -2464,9 +2373,11 @@ const botExecutionCore = createBotExecutionCore({
   responseMessageContent,
   schedulerSkillIdsForTurn,
   skillsLoader,
-  hermesRunService,
+  nativeTurnHelpers,
   sendWithChatEngineAdapter,
   createActiveChatEngineAdapters,
+  agentSessionManager,
+  agentSessionWorkspacePath: agentWorkspaceDir,
   localBotResponder: () => localBotResponder,
   isDaemonProcess: IS_DAEMON_PROCESS,
   daemonTasksClient: () => miaCoreTasksClient,
@@ -2474,7 +2385,8 @@ const botExecutionCore = createBotExecutionCore({
   appendCloudLog,
   miaMemoryService,
   isMemoryEnabled: miaMemoryEnabled,
-  onMemoryExtracted: (result, scope) => publishRendererMemoryEvent("remember", result, scope)
+  onMemoryExtracted: (result, scope) => publishRendererMemoryEvent("remember", result, scope),
+  prepareAgentSessionRuntime
 });
 
 function sendChat(payload) {
@@ -2650,7 +2562,7 @@ const modelSettingsService = createModelSettingsService({
 
 const conversationTitleService = createConversationTitleService({
   randomUUID: () => crypto.randomUUID(),
-  sendChat
+  sendChatStateless
 });
 
 function applyNativePermissionConfig(settings = {}) {
@@ -2905,8 +2817,27 @@ cloudBridgeRuntime = createCloudBridgeClient({
   isDaemonEnabled: () => daemonOwnsCloudBridge(),
   cloudBridgeUrl,
   cloudWebSocketProtocols,
-  createActiveBridgeChatAdapter,
-  createActiveCodexChatAdapter,
+  runBridgeBotTurn: ({
+    botKey,
+    botId,
+    botSnapshot,
+    sessionId,
+    messages,
+    signal,
+    emit,
+    utility = false,
+    runtimeConfig
+  } = {}) => sendChat({
+    botKey,
+    botId,
+    botSnapshot,
+    sessionId,
+    messages,
+    signal,
+    emit,
+    utility,
+    runtimeConfig
+  }),
   resetLocalDeviceIdentity,
   resolveBotCapabilities: ({ botKey, botName }) => {
     const bot = { key: botKey, id: botKey, name: botName };
@@ -2931,7 +2862,10 @@ const localBotResponder = createLocalBotResponder({
     if (IS_DAEMON_PROCESS) miaCoreControlServer?.publishLocalEvent?.(envelope);
   },
   log: (line) => appendCloudLog(line),
-  artifactWorkspaceDir: agentWorkspaceDir
+  artifactWorkspaceDir: agentWorkspaceDir,
+  agentSessionManager,
+  agentSessionWorkspacePath: agentWorkspaceDir,
+  prepareAgentSessionRuntime
 });
 async function shouldHandleCloudConversationAi() {
   const daemonSettings = settingsStore.daemonSettings();
@@ -3256,10 +3190,8 @@ ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates()
 app.on("before-quit", () => {
   closeCodexAppServerRuntimes();
   closeOpenClawAcpRuntimes();
-  closeManagedClaudeProxySessions();
-  closeManagedCodexProxySessions();
-  claudeCodeMiaProxy.stop().catch((error) => appendEngineLog(`Claude Code Mia proxy stop failed: ${error?.message || error}`));
-  codexMiaProxy.stop().catch((error) => appendEngineLog(`Codex Mia proxy stop failed: ${error?.message || error}`));
+  agentSessionManager.closeAllSessions().catch((error) => appendEngineLog(`AgentSession cleanup failed: ${error?.message || error}`));
+  claudeCodeMiaProxy.stop().catch((error) => appendCloudLog(`Claude Code Mia proxy cleanup failed: ${error?.message || error}`));
 });
 
 app.whenReady().then(async () => {

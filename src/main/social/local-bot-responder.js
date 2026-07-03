@@ -7,6 +7,7 @@ const path = require("node:path");
 const { fileURLToPath } = require("node:url");
 const { CloudEvent } = require("../../shared/cloud-events.js");
 const { createAssistantContentBlockCollector } = require("../../shared/assistant-content-blocks.js");
+const { getAcpEngineSpec } = require("../agent-session/index.js");
 
 const PROCESSED_CAP = 500;
 const CANCEL_DRAIN_TIMEOUT_MS = 15000;
@@ -593,6 +594,47 @@ function elapsedMs(startedAt) {
   return `${Math.max(0, Date.now() - startedAt)}ms`;
 }
 
+function resolveAgentSessionWorkspacePath(source) {
+  const value = typeof source === "function" ? source() : source;
+  return String(value || "").trim();
+}
+
+function managedAgentSessionInput({
+  conversationId,
+  botSnapshot = null,
+  runtimeConfig = null,
+  turnId = null,
+  userPrompt = "",
+  userAttachments = [],
+  agentSessionManager = null,
+  agentSessionWorkspacePath = ""
+} = {}) {
+  if (!agentSessionManager || typeof agentSessionManager.sendUserInput !== "function") return null;
+  const requestedEngine = String(
+    runtimeConfig?.agentEngine
+    || runtimeConfig?.agent_engine
+    || botSnapshot?.agentEngine
+    || botSnapshot?.agent_engine
+    || ""
+  ).trim();
+  const agentSessionSpec = getAcpEngineSpec(requestedEngine);
+  if (!agentSessionSpec?.engineId) return null;
+  const workspacePath = resolveAgentSessionWorkspacePath(agentSessionWorkspacePath);
+  if (!workspacePath) {
+    throw new Error(`AgentSession workspace path is required for interactive ${agentSessionSpec.engineId} turns.`);
+  }
+  const input = {
+    conversationId: String(conversationId || "").trim(),
+    engineId: agentSessionSpec.engineId,
+    workspacePath,
+    turnId: String(turnId || "").trim(),
+    text: String(userPrompt || "")
+  };
+  const attachments = normalizeResponderAttachments(userAttachments);
+  if (attachments.length) input.attachments = attachments;
+  return input;
+}
+
 function hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId, turnId }) {
   const rows = Array.isArray(messages) ? messages : [];
   const targetBot = String(botId || "");
@@ -612,10 +654,12 @@ function hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId
   return false;
 }
 
-function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {}, artifactWorkspaceDir = null, fetchFileAttachment = null }) {
+function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {}, artifactWorkspaceDir = null, fetchFileAttachment = null, agentSessionManager = null, agentSessionWorkspacePath = "", prepareAgentSessionRuntime = null }) {
   const processed = new Set();
   const inFlight = new Set();
   const activeRunsByConversation = new Map();
+  const managedSessionsByConversation = new Map();
+  const managedSessionsByTurn = new Map();
   const queuedInvocationsByConversation = new Map();
 
   function remember(key) {
@@ -626,6 +670,63 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
   function clearActiveRun(conversationId, dedupKey) {
     const entry = activeRunsByConversation.get(conversationId);
     if (entry && entry.dedupKey === dedupKey) activeRunsByConversation.delete(conversationId);
+  }
+
+  function rememberManagedSession(input = {}, meta = {}) {
+    const conversationId = String(input.conversationId || "").trim();
+    if (!conversationId) return null;
+    const turnId = String(meta.turnId || input.turnId || "").trim();
+    const existing = (turnId && managedSessionsByTurn.get(turnId)) || {};
+    const next = {
+      descriptor: {
+        conversationId,
+        engineId: String(input.engineId || "").trim(),
+        workspacePath: String(input.workspacePath || "").trim()
+      },
+      conversationId,
+      botId: String(meta.botId || existing.botId || "").trim(),
+      turnId: String(turnId || existing.turnId || "").trim(),
+      runId: String(meta.runId || existing.runId || "").trim(),
+      dedupKey: String(meta.dedupKey || existing.dedupKey || "").trim(),
+      triggerMessageId: String(meta.triggerMessageId || existing.triggerMessageId || "").trim(),
+      status: meta.mode === "queued" ? "queued" : "running",
+      finalized: false,
+      startedEmitted: Boolean(existing.startedEmitted),
+      text: String(existing.text || ""),
+      trace: existing.trace || createTraceCollector(),
+      contentBlockCollector: existing.contentBlockCollector
+        ? existing.contentBlockCollector
+        : createAssistantContentBlockCollector()
+    };
+    if (next.turnId) managedSessionsByTurn.set(next.turnId, next);
+    if (next.status !== "queued" || !managedSessionsByConversation.get(conversationId)) {
+      managedSessionsByConversation.set(conversationId, next);
+    }
+    return next;
+  }
+
+  function resolveManagedSession(payload = {}) {
+    const turnId = String(payload?.turnId || payload?.turn_id || "").trim();
+    if (turnId && managedSessionsByTurn.has(turnId)) {
+      return managedSessionsByTurn.get(turnId) || null;
+    }
+    const conversationId = String(payload?.conversationId || "").trim();
+    if (conversationId) return managedSessionsByConversation.get(conversationId) || null;
+    if (managedSessionsByConversation.size === 1) {
+      return managedSessionsByConversation.values().next().value || null;
+    }
+    return null;
+  }
+
+  function forgetManagedSession(entry) {
+    if (!entry) return;
+    const turnId = String(entry.turnId || "").trim();
+    if (turnId && managedSessionsByTurn.get(turnId) === entry) {
+      managedSessionsByTurn.delete(turnId);
+    }
+    if (managedSessionsByConversation.get(entry.conversationId) === entry) {
+      managedSessionsByConversation.delete(entry.conversationId);
+    }
   }
 
   function queueInvocation(args, activeRun) {
@@ -657,6 +758,164 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       botId: entry.botId,
       event
     });
+  }
+
+  function emitManagedRunStarted(entry) {
+    if (!entry || entry.startedEmitted) return;
+    entry.startedEmitted = true;
+    emitCloudEvent({
+      type: "cloud_agent_run_started",
+      runId: entry.runId,
+      turnId: entry.turnId,
+      conversationId: entry.conversationId,
+      botId: entry.botId,
+      triggerMessageId: entry.triggerMessageId
+    });
+  }
+
+  function managedRunEventForAgentSessionEvent(kind, payload = {}) {
+    if (kind === "assistant-delta") {
+      return {
+        type: "text_delta",
+        id: String(payload.messageId || payload.message_id || payload.turnId || payload.turn_id || ""),
+        text: String(payload.text || "")
+      };
+    }
+    if (kind === "tool-call-started") {
+      return {
+        type: "tool_call_started",
+        id: String(payload.toolCallId || payload.tool_call_id || ""),
+        name: String(payload.title || payload.name || "工具"),
+        preview: String(payload.preview || "")
+      };
+    }
+    if (kind === "tool-call-delta") {
+      return {
+        type: "tool_call_delta",
+        id: String(payload.toolCallId || payload.tool_call_id || ""),
+        name: String(payload.title || payload.name || ""),
+        preview: String(payload.preview || "")
+      };
+    }
+    if (kind === "tool-call-completed") {
+      return {
+        type: "tool_call_completed",
+        id: String(payload.toolCallId || payload.tool_call_id || ""),
+        name: String(payload.title || payload.name || ""),
+        status: String(payload.status || "completed"),
+        preview: String(payload.preview || ""),
+        error: Boolean(payload.error)
+      };
+    }
+    return null;
+  }
+
+  async function postManagedSuccess(entry) {
+    if (!entry || entry.finalized) return false;
+    const text = String(entry.text || "").trim();
+    if (!text) {
+      return postManagedFailure(entry, {
+        stage: "empty",
+        error: new Error("本地模型这次没有产生任何文本回复（可能是工具权限被拒，或本轮只调用了工具）")
+      });
+    }
+    try {
+      const contentBlocks = entry.contentBlockCollector?.payload?.(text) || [];
+      const trace = entry.trace?.payload?.() || null;
+      const result = await postConversationMessageAsBot(entry.conversationId, {
+        botId: entry.botId,
+        bodyMd: text,
+        turnId: entry.turnId,
+        clientOpId: clientOpIdForDedupKey(entry.dedupKey),
+        ...(trace ? { trace } : {}),
+        ...(contentBlocks.length ? { contentBlocks } : {})
+      });
+      if (result && result.ok === false) throw new Error(result.error || result.message || "post failed");
+      emitPostedMessage(entry.conversationId, result);
+      remember(entry.dedupKey);
+      entry.finalized = true;
+      forgetManagedSession(entry);
+      return true;
+    } catch (error) {
+      log(`[local-bot-responder] managed post failed: ${error?.message || error}`);
+      emitRunEvent(entry, { type: "run.failed", error: String(error?.message || error) });
+      entry.finalized = true;
+      forgetManagedSession(entry);
+      return false;
+    }
+  }
+
+  async function postManagedFailure(entry, { stage = "engine", error } = {}) {
+    if (!entry || entry.finalized || entry.finalizing) return false;
+    entry.finalizing = true;
+    const message = String(error?.message || error || "unknown error");
+    emitRunEvent(entry, { type: "run.failed", error: message });
+    const didPost = await postFailureMessage({
+      conversationId: entry.conversationId,
+      botId: entry.botId,
+      dedupKey: entry.dedupKey,
+      turnId: entry.turnId,
+      stage,
+      error
+    });
+    if (didPost) remember(entry.dedupKey);
+    entry.finalized = true;
+    entry.finalizing = false;
+    forgetManagedSession(entry);
+    return didPost;
+  }
+
+  function handleManagedAgentSessionEvent(kind, payload = {}) {
+    const entry = resolveManagedSession(payload);
+    if (!entry || entry.finalized) return;
+    if (kind === "message-started") {
+      entry.status = "running";
+      managedSessionsByConversation.set(entry.conversationId, entry);
+      emitManagedRunStarted(entry);
+      return;
+    }
+    if (kind === "message-cancelled") {
+      finishCancelledRun(entry, { reason: "agent_session_cancelled" });
+      forgetManagedSession(entry);
+      return;
+    }
+    if (kind === "message-failed") {
+      void postManagedFailure(entry, { stage: "engine", error: payload.error || payload.message || "AgentSession failed" });
+      return;
+    }
+    const runEvent = managedRunEventForAgentSessionEvent(kind, payload);
+    if (runEvent) {
+      entry.status = "running";
+      managedSessionsByConversation.set(entry.conversationId, entry);
+      emitManagedRunStarted(entry);
+      if (runEvent.type === "text_delta") entry.text += String(runEvent.text || "");
+      entry.trace?.collect?.(runEvent.type, runEvent);
+      entry.contentBlockCollector?.collect?.(runEvent.type, runEvent);
+      emitRunEvent(entry, runEvent);
+      return;
+    }
+    if (kind === "message-completed") {
+      entry.status = "running";
+      managedSessionsByConversation.set(entry.conversationId, entry);
+      emitManagedRunStarted(entry);
+      emitRunEvent(entry, { type: "run.completed", text: String(entry.text || "") });
+      void postManagedSuccess(entry);
+    }
+  }
+
+  if (agentSessionManager && typeof agentSessionManager.on === "function") {
+    for (const kind of [
+      "message-started",
+      "assistant-delta",
+      "tool-call-started",
+      "tool-call-delta",
+      "tool-call-completed",
+      "message-completed",
+      "message-cancelled",
+      "message-failed"
+    ]) {
+      agentSessionManager.on(kind, (payload = {}) => handleManagedAgentSessionEvent(kind, payload));
+    }
   }
 
   function clearCancelDrainTimer(entry) {
@@ -704,6 +963,18 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     };
   }
 
+  function stoppedManagedRunResult(entry, payload = {}) {
+    const requestedRunId = String(payload?.runId || "").trim();
+    const requestedTurnId = String(payload?.turnId || payload?.turn_id || "").trim();
+    return {
+      stopped: true,
+      conversationId: entry.conversationId,
+      ...(requestedRunId || entry.runId ? { runId: requestedRunId || entry.runId } : {}),
+      ...(requestedTurnId || entry.turnId ? { turnId: requestedTurnId || entry.turnId } : {}),
+      status: "cancelling"
+    };
+  }
+
   function stopActiveConversationRun(payload = {}) {
     const conversationId = String(payload?.conversationId || "").trim();
     const runId = String(payload?.runId || "").trim();
@@ -716,16 +987,35 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       if (turnId) return item.turnId === turnId;
       return !runId || item.runId === runId;
     });
-    if (!entry) return { stopped: false };
-    if (entry.status === "cancelling" || entry.abortController.signal.aborted) {
+    if (entry) {
+      if (entry.status === "cancelling" || entry.abortController.signal.aborted) {
+        return stoppedRunResult(entry);
+      }
+      entry.status = "cancelling";
+      entry.cancelRequestedAt = new Date().toISOString();
+      emitRunEvent(entry, { type: "run.cancelling" });
+      scheduleCancelDrainTimeout(entry);
+      entry.abortController.abort();
       return stoppedRunResult(entry);
     }
-    entry.status = "cancelling";
-    entry.cancelRequestedAt = new Date().toISOString();
-    emitRunEvent(entry, { type: "run.cancelling" });
-    scheduleCancelDrainTimeout(entry);
-    entry.abortController.abort();
-    return stoppedRunResult(entry);
+
+    const managedEntry = resolveManagedSession(payload);
+    if (!managedEntry || !agentSessionManager || typeof agentSessionManager.cancelActive !== "function") {
+      return { stopped: false };
+    }
+    if (managedEntry.status === "cancelling") {
+      return stoppedManagedRunResult(managedEntry, payload);
+    }
+    managedEntry.status = "cancelling";
+    void Promise.resolve(agentSessionManager.cancelActive(managedEntry.descriptor))
+      .then((cancelled) => {
+        if (!cancelled) managedEntry.status = "running";
+      })
+      .catch((error) => {
+        managedEntry.status = "running";
+        log(`[local-bot-responder] managed cancel failed: ${error?.message || error}`);
+      });
+    return stoppedManagedRunResult(managedEntry, payload);
   }
 
   function emitPostedMessage(conversationId, result) {
@@ -781,17 +1071,83 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     if (!conversationId || !botId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
     if (inFlight.has(dedupKey)) return;
-    const requestStartedAt = Date.now();
-    const activeRun = activeRunsByConversation.get(conversationId);
-    if (activeRun && !activeRun.finalized) {
-      queueInvocation({ conversationId, conversationType, botId, botSnapshot, dedupKey, triggerMessageId, triggerSeq, systemPrompt, historyMessages, userPrompt, userAttachments, turnId, runtimeConfig, activeSkillIds }, activeRun);
-      return false;
-    }
     inFlight.add(dedupKey);
 
     const resolvedTriggerMessageId = triggerMessageId || triggerMessageIdForDedupKey(dedupKey);
     if (await replyAlreadyExists({ conversationId, botId, triggerSeq, triggerMessageId: resolvedTriggerMessageId, turnId })) {
       remember(dedupKey);
+      inFlight.delete(dedupKey);
+      return false;
+    }
+    let managedInput = null;
+    try {
+      managedInput = managedAgentSessionInput({
+        conversationId,
+        botSnapshot,
+        runtimeConfig,
+        turnId,
+        userPrompt,
+        userAttachments,
+        agentSessionManager,
+        agentSessionWorkspacePath
+      });
+    } catch (error) {
+      inFlight.delete(dedupKey);
+      throw error;
+    }
+    if (managedInput) {
+      try {
+        const runtime = typeof prepareAgentSessionRuntime === "function"
+          ? await prepareAgentSessionRuntime({
+            engineId: managedInput.engineId,
+            conversationId,
+            botId,
+            botSnapshot,
+            runtimeConfig,
+            workspacePath: managedInput.workspacePath
+          })
+          : null;
+        if (runtime?.runtimeKey) managedInput.runtimeKey = String(runtime.runtimeKey || "").trim();
+        if (runtime?.env && typeof runtime.env === "object" && !Array.isArray(runtime.env)) {
+          managedInput.env = { ...runtime.env };
+        }
+        const pendingEntry = rememberManagedSession(managedInput, {
+          mode: "pending",
+          turnId,
+          runId: runIdForDedupKey(dedupKey),
+          dedupKey,
+          triggerMessageId: resolvedTriggerMessageId,
+          botId
+        });
+        const accepted = await agentSessionManager.sendUserInput(managedInput);
+        if (pendingEntry?.finalized || pendingEntry?.finalizing) {
+          return true;
+        }
+        if (accepted?.ok) {
+          remember(dedupKey);
+          const managedEntry = rememberManagedSession(managedInput, {
+            mode: accepted.mode,
+            turnId,
+            runId: runIdForDedupKey(dedupKey),
+            dedupKey,
+            triggerMessageId: resolvedTriggerMessageId,
+            botId
+          });
+          if (managedEntry && accepted.mode !== "queued") {
+            emitManagedRunStarted(managedEntry);
+          }
+        } else {
+          forgetManagedSession(pendingEntry);
+        }
+        return Boolean(accepted?.ok);
+      } finally {
+        inFlight.delete(dedupKey);
+      }
+    }
+    const requestStartedAt = Date.now();
+    const activeRun = activeRunsByConversation.get(conversationId);
+    if (activeRun && !activeRun.finalized) {
+      queueInvocation({ conversationId, conversationType, botId, botSnapshot, dedupKey, triggerMessageId, triggerSeq, systemPrompt, historyMessages, userPrompt, userAttachments, turnId, runtimeConfig, activeSkillIds }, activeRun);
       inFlight.delete(dedupKey);
       return false;
     }

@@ -69,19 +69,17 @@ test("cloud conversation composer sends pending attachments and clears the tray"
   assert.match(appSource, /window\.miaComposer\.renderComposerAttachments\(\);/);
 });
 
-test("cloud conversation composer checks active runs before clearing the draft", () => {
+test("cloud conversation composer keeps accepting sends even while the active run is busy", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const submitStart = appSource.indexOf('els.chatForm.addEventListener("submit"');
   const submitEnd = appSource.indexOf("// Cloud-only:", submitStart);
   const submitBody = appSource.slice(submitStart, submitEnd);
-  const busyGuard = submitBody.indexOf("isActiveConversationBusy()");
   const clearDraft = submitBody.indexOf('els.chatInput.value = "";');
 
   assert.ok(submitStart >= 0, "chat submit handler should exist");
   assert.ok(submitEnd > submitStart, "cloud conversation branch should be extractable");
   assert.ok(clearDraft >= 0, "cloud conversation branch should clear the draft after accepting a send");
-  assert.ok(busyGuard >= 0, "cloud conversation submit must check the active run state");
-  assert.ok(busyGuard < clearDraft, "busy guard must run before clearing the composer draft");
+  assert.doesNotMatch(submitBody, /if \(isActiveConversationBusy\(\)\) \{[\s\S]*?return;[\s\S]*?\}/);
 });
 
 test("active conversation stop passes the conversation id through preload to main", () => {

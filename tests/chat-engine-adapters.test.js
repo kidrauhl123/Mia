@@ -29,14 +29,6 @@ function createDeps(overrides = {}) {
     ensureHermesReady: async () => {
       calls.push(["ensure-hermes"]);
     },
-    sendClaudeCodeChat: async (context) => {
-      calls.push(["send-claude", context.sessionId]);
-      return { engine: "claude-code" };
-    },
-    sendCodexChat: async (context) => {
-      calls.push(["send-codex", context.sessionId]);
-      return { engine: "codex" };
-    },
     sendHermesChat: async (context) => {
       calls.push(["send-hermes", context.sessionId]);
       return { engine: "hermes" };
@@ -70,19 +62,37 @@ test("claude adapter returns local slash command response without SDK call", asy
   assert.deepEqual(deps.calls, [["external-slash", "claude-code", "/help"]]);
 });
 
-test("codex adapter falls through to SDK call when slash is not local", async () => {
+test("claude adapter rejects the retired direct bot chat path when slash is not local", async () => {
   const deps = createDeps({ externalSlashResult: null });
   const adapters = createChatEngineAdapters(deps);
-  const response = await adapters.codex.send({
-    bot,
-    sessionId: "s2",
-    slashText: "/unknown"
-  });
 
-  assert.deepEqual(response, { engine: "codex" });
+  await assert.rejects(
+    () => adapters["claude-code"].send({
+      bot,
+      sessionId: "s2",
+      slashText: "/unknown"
+    }),
+    /AgentSession/
+  );
   assert.deepEqual(deps.calls, [
-    ["external-slash", "codex", "/unknown"],
-    ["send-codex", "s2"]
+    ["external-slash", "claude-code", "/unknown"]
+  ]);
+});
+
+test("codex adapter rejects the retired direct bot chat path when slash is not local", async () => {
+  const deps = createDeps({ externalSlashResult: null });
+  const adapters = createChatEngineAdapters(deps);
+
+  await assert.rejects(
+    () => adapters.codex.send({
+      bot,
+      sessionId: "s-codex",
+      slashText: "/unknown"
+    }),
+    /AgentSession/
+  );
+  assert.deepEqual(deps.calls, [
+    ["external-slash", "codex", "/unknown"]
   ]);
 });
 
@@ -115,111 +125,49 @@ test("hermes adapter starts runtime before local slash command", async () => {
     slashText: "/model"
   });
 
-  assert.deepEqual(response, {
-    id: "cmd_test",
-    model: "hermes-agent",
-    content: "settings saved"
+  assert.equal(response.id, "cmd_test");
+  assert.equal(response.model, "hermes-agent");
+  assert.equal(response.choices[0].message.content, "settings saved");
+  assert.deepEqual(response.mia, {
+    transport: "local-command",
+    engine: "hermes",
+    bot_id: "alice"
   });
   assert.deepEqual(deps.calls, [
     ["ensure-hermes"],
-    ["hermes-slash", "/model"],
-    ["hermes-slash-response", "cmd_test", "settings saved"]
+    ["hermes-slash", "/model"]
   ]);
 });
 
-test("hermes adapter starts runtime before normal run", async () => {
+test("hermes adapter rejects the retired direct desktop chat path", async () => {
   const deps = createDeps();
   const adapters = createChatEngineAdapters(deps);
-  const response = await adapters.hermes.send({
-    bot,
-    sessionId: "s4",
-    slashText: ""
-  });
 
-  assert.deepEqual(response, { engine: "hermes" });
-  assert.deepEqual(deps.calls, [
-    ["ensure-hermes"],
-    ["send-hermes", "s4"]
-  ]);
+  await assert.rejects(
+    () => adapters.hermes.send({
+      bot,
+      sessionId: "s4",
+      slashText: ""
+    }),
+    /AgentSession/
+  );
+  assert.deepEqual(deps.calls, []);
 });
 
-test("hermes adapter restarts and retries once after local API disconnect", async () => {
-  const deps = createDeps();
-  const error = new Error("Hermes API is unreachable: fetch failed");
-  error.code = "HERMES_API_UNREACHABLE";
-  error.stage = "create_run";
-  deps.sendHermesChat = async (context) => {
-    deps.calls.push(["send-hermes", context.sessionId]);
-    if (deps.calls.filter((call) => call[0] === "send-hermes").length === 1) throw error;
-    return { engine: "hermes", recovered: true };
-  };
-  deps.recoverHermesAfterFailure = async (failure) => {
-    deps.calls.push(["recover-hermes", failure.code, failure.stage]);
-  };
-  const adapters = createChatEngineAdapters(deps);
-
-  const response = await adapters.hermes.send({
-    bot,
-    sessionId: "s-recover",
-    slashText: ""
-  });
-
-  assert.deepEqual(response, { engine: "hermes", recovered: true });
-  assert.deepEqual(deps.calls, [
-    ["ensure-hermes"],
-    ["send-hermes", "s-recover"],
-    ["recover-hermes", "HERMES_API_UNREACHABLE", "create_run"],
-    ["ensure-hermes"],
-    ["send-hermes", "s-recover"]
-  ]);
-});
-
-test("hermes adapter restarts and retries once after managed model config failure", async () => {
-  const deps = createDeps();
-  const error = new Error("Mia Hermes 已启动，但 Mia 官方模型（Auto）暂时不能调用。");
-  error.code = "HERMES_MODEL_CONFIG_UNAVAILABLE";
-  error.stage = "run_events";
-  deps.sendHermesChat = async (context) => {
-    deps.calls.push(["send-hermes", context.sessionId]);
-    if (deps.calls.filter((call) => call[0] === "send-hermes").length === 1) throw error;
-    return { engine: "hermes", recovered: true };
-  };
-  deps.recoverHermesAfterFailure = async (failure) => {
-    deps.calls.push(["recover-hermes", failure.code, failure.stage]);
-  };
-  const adapters = createChatEngineAdapters(deps);
-
-  const response = await adapters.hermes.send({
-    bot,
-    sessionId: "s-managed-recover",
-    slashText: ""
-  });
-
-  assert.deepEqual(response, { engine: "hermes", recovered: true });
-  assert.deepEqual(deps.calls, [
-    ["ensure-hermes"],
-    ["send-hermes", "s-managed-recover"],
-    ["recover-hermes", "HERMES_MODEL_CONFIG_UNAVAILABLE", "run_events"],
-    ["ensure-hermes"],
-    ["send-hermes", "s-managed-recover"]
-  ]);
-});
-
-test("sendWithChatEngineAdapter falls back to hermes adapter", async () => {
+test("sendWithChatEngineAdapter surfaces the retired hermes direct-chat error on fallback", async () => {
   const deps = createDeps();
   const adapters = createChatEngineAdapters(deps);
-  const response = await sendWithChatEngineAdapter(adapters, {
-    chatEngine: { id: "unknown" },
-    bot,
-    sessionId: "s5",
-    slashText: ""
-  });
 
-  assert.deepEqual(response, { engine: "hermes" });
-  assert.deepEqual(deps.calls, [
-    ["ensure-hermes"],
-    ["send-hermes", "s5"]
-  ]);
+  await assert.rejects(
+    () => sendWithChatEngineAdapter(adapters, {
+      chatEngine: { id: "unknown" },
+      bot,
+      sessionId: "s5",
+      slashText: ""
+    }),
+    /AgentSession/
+  );
+  assert.deepEqual(deps.calls, []);
 });
 
 test("openclaw adapter uses local slash commands before ACP backend send", async () => {
@@ -236,30 +184,30 @@ test("openclaw adapter uses local slash commands before ACP backend send", async
   assert.deepEqual(deps.calls, [["external-slash", "openclaw", "/help"]]);
 });
 
-test("openclaw adapter falls through to ACP backend send when slash is not local", async () => {
+test("openclaw adapter rejects the retired direct bot chat path when slash is not local", async () => {
   const deps = createDeps({ externalSlashResult: null });
   const adapters = createChatEngineAdapters(deps);
-  const response = await adapters.openclaw.send({
-    bot,
-    sessionId: "s-openclaw",
-    slashText: "/unknown"
-  });
 
-  assert.deepEqual(response, { engine: "openclaw" });
+  await assert.rejects(
+    () => adapters.openclaw.send({
+      bot,
+      sessionId: "s-openclaw",
+      slashText: "/unknown"
+    }),
+    /AgentSession ACP/
+  );
   assert.deepEqual(deps.calls, [
-    ["external-slash", "openclaw", "/unknown"],
-    ["send-openclaw", "s-openclaw"]
+    ["external-slash", "openclaw", "/unknown"]
   ]);
 });
 
-test("openclaw adapter fails explicitly when chat integration is not provided", async () => {
+test("openclaw adapter fails closed even if a legacy direct chat dependency is provided", async () => {
   const deps = createDeps();
-  delete deps.sendOpenClawChat;
   const adapters = createChatEngineAdapters(deps);
 
   await assert.rejects(
     () => adapters.openclaw.send({ bot, sessionId: "s-openclaw", slashText: "" }),
-    /OpenClaw .*聊天适配器/
+    /AgentSession ACP/
   );
   assert.deepEqual(deps.calls, []);
 });
@@ -317,66 +265,36 @@ test("stateless adapters dispatch claude and codex without hermes startup", asyn
   ]);
 });
 
-test("stateless hermes adapter ensures runtime first", async () => {
+test("stateless hermes adapter rejects the retired desktop HTTP path", async () => {
   const deps = createStatelessDeps();
   const adapters = createStatelessChatEngineAdapters(deps);
 
-  assert.deepEqual(await adapters.hermes.send({
-    chatEngine: { id: "hermes" },
-    bot,
-    systemPrompt: "sys",
-    userPrompt: "user"
-  }), { content: "hermes" });
-  assert.deepEqual(deps.calls, [
-    ["ensure-hermes"],
-    ["stateless-hermes", "sys", "user"]
-  ]);
+  await assert.rejects(
+    () => adapters.hermes.send({
+      chatEngine: { id: "hermes" },
+      bot,
+      systemPrompt: "sys",
+      userPrompt: "user"
+    }),
+    /legacy HTTP execution path/
+  );
+  assert.deepEqual(deps.calls, []);
 });
 
-test("stateless hermes adapter restarts and retries once after local API disconnect", async () => {
-  const deps = createStatelessDeps();
-  const error = new Error("Hermes API is unreachable: fetch failed");
-  error.code = "HERMES_API_UNREACHABLE";
-  error.stage = "create_run";
-  deps.sendHermesStateless = async (context) => {
-    deps.calls.push(["stateless-hermes", context.systemPrompt, context.userPrompt]);
-    if (deps.calls.filter((call) => call[0] === "stateless-hermes").length === 1) throw error;
-    return { content: "recovered" };
-  };
-  deps.recoverHermesAfterFailure = async (failure) => {
-    deps.calls.push(["recover-hermes", failure.code, failure.stage]);
-  };
-  const adapters = createStatelessChatEngineAdapters(deps);
-
-  assert.deepEqual(await adapters.hermes.send({
-    chatEngine: { id: "hermes" },
-    bot,
-    systemPrompt: "sys",
-    userPrompt: "user"
-  }), { content: "recovered" });
-  assert.deepEqual(deps.calls, [
-    ["ensure-hermes"],
-    ["stateless-hermes", "sys", "user"],
-    ["recover-hermes", "HERMES_API_UNREACHABLE", "create_run"],
-    ["ensure-hermes"],
-    ["stateless-hermes", "sys", "user"]
-  ]);
-});
-
-test("sendWithStatelessChatEngineAdapter falls back to hermes adapter", async () => {
+test("sendWithStatelessChatEngineAdapter surfaces the retired hermes stateless error on fallback", async () => {
   const deps = createStatelessDeps();
   const adapters = createStatelessChatEngineAdapters(deps);
 
-  assert.deepEqual(await sendWithStatelessChatEngineAdapter(adapters, {
-    chatEngine: { id: "unknown" },
-    bot,
-    systemPrompt: "",
-    userPrompt: "user"
-  }), { content: "hermes" });
-  assert.deepEqual(deps.calls, [
-    ["ensure-hermes"],
-    ["stateless-hermes", "", "user"]
-  ]);
+  await assert.rejects(
+    () => sendWithStatelessChatEngineAdapter(adapters, {
+      chatEngine: { id: "unknown" },
+      bot,
+      systemPrompt: "",
+      userPrompt: "user"
+    }),
+    /legacy HTTP execution path/
+  );
+  assert.deepEqual(deps.calls, []);
 });
 
 test("stateless openclaw adapter dispatches to ACP backend adapter", async () => {

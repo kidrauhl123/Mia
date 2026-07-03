@@ -21,6 +21,7 @@
   const LAST_BOT_CONVERSATION_KEY = "mia.lastBotConversationByKey";
   const OTHER_DEVICE_CONVERSATION_FILTER = "__mia_other_devices__";
   const OTHER_DEVICE_CONVERSATION_LABEL = "其他设备";
+  const CLOUD_AGENT_RUN_STALE_MS = 30 * 60 * 1000;
 
   function isValidPublicUid(value) {
     const text = String(value || "").trim();
@@ -1644,13 +1645,15 @@
   function cloudRunFor(conversationId, runId = "") {
     const existing = moduleState.cloudAgentRunsByConversation.get(conversationId);
     if (existing) return existing;
+    const now = new Date().toISOString();
     const run = {
       conversationId,
       runId,
       text: "",
       reasoning: "",
       status: "running",
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
       tools: [],
       contentBlocks: [],
       contentBlockCollector: null,
@@ -1660,6 +1663,38 @@
     };
     moduleState.cloudAgentRunsByConversation.set(conversationId, run);
     return run;
+  }
+
+  function markCloudRunActivity(run) {
+    if (!run) return;
+    const now = new Date().toISOString();
+    if (!run.createdAt) run.createdAt = now;
+    run.updatedAt = now;
+  }
+
+  function runActivityTimestamp(run) {
+    const raw = String(run?.updatedAt || run?.createdAt || "").trim();
+    const parsed = raw ? Date.parse(raw) : NaN;
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+
+  function clearStaleCloudAgentRuns(now = Date.now()) {
+    let changed = false;
+    let activeCleared = false;
+    for (const [conversationId, run] of moduleState.cloudAgentRunsByConversation.entries()) {
+      if (!isConversationRunBusy(run)) continue;
+      if (Number(now) - runActivityTimestamp(run) <= CLOUD_AGENT_RUN_STALE_MS) continue;
+      clearRunPermissions(run);
+      moduleState.cloudAgentRunsByConversation.delete(conversationId);
+      changed = true;
+      if (conversationId === moduleState.activeConversationId) activeCleared = true;
+    }
+    if (!changed) return false;
+    renderAgentPermissionBanner();
+    if (deps && typeof deps.render === "function") deps.render();
+    if (deps && typeof deps.paintHeaderStatus === "function") deps.paintHeaderStatus();
+    if (activeCleared) scheduleCloudRunRender(moduleState.activeConversationId);
+    return true;
   }
 
   function normalizePermissionRequest(event = {}) {
@@ -2433,6 +2468,7 @@
   }
 
   function refreshCloudRunStatusTimer() {
+    clearStaleCloudAgentRuns();
     const hasRunningRun = Array.from(moduleState.cloudAgentRunsByConversation.values())
       .some((run) => isConversationRunBusy(run));
     if (!hasRunningRun) {
@@ -2444,6 +2480,10 @@
     }
     if (_cloudRunStatusTimer || typeof global.setInterval !== "function") return;
     _cloudRunStatusTimer = global.setInterval(() => {
+      if (clearStaleCloudAgentRuns()) {
+        refreshCloudRunStatusTimer();
+        return;
+      }
       const activeRun = activeConversationRun();
       if (!activeRun || !isConversationRunBusy(activeRun)) {
         refreshCloudRunStatusTimer();
@@ -3266,6 +3306,7 @@
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
       run.status = "running";
+      markCloudRunActivity(run);
       if (!wasBusy && deps && typeof deps.render === "function") deps.render();
       scheduleCloudRunRender(conversationId);
       refreshCloudRunStatusTimer();
@@ -3284,6 +3325,7 @@
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
       const hermesEventType = eventType(hermesEvent);
+      markCloudRunActivity(run);
       applyCloudAgentRunEvent(run, hermesEvent);
       if (hermesEventType === "approval.request" || hermesEventType === "approval.responded") {
         renderAgentPermissionBanner();
@@ -3964,14 +4006,12 @@
         "",
         text
       ].join("\n");
-      const cryptoRandomId = () => (window.crypto?.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
-      const response = await window.mia.sendChat({
+      const response = await window.mia.sendChatStateless({
         botKey,
-        sessionId: `utility:translate:${cryptoRandomId()}`,
-        utility: true,
-        messages: [{ role: "user", content: prompt }]
+        systemPrompt: "",
+        userPrompt: prompt
       });
-      const translated = String(response?.choices?.[0]?.message?.content || "").trim();
+      const translated = String(response?.content || "").trim();
       msg.translation = translated
         ? { status: "done", text: translated, error: "", sourceText: selected }
         : { status: "error", text: "", error: "模型没有返回译文。", sourceText: selected };
@@ -4702,13 +4742,6 @@
   async function sendInActiveConversation(text, options = {}) {
     const conversationId = moduleState.activeConversationId;
     if (!conversationId) return;
-    if (conversationRunIsBusy(conversationId)) {
-      return {
-        ok: false,
-        status: 409,
-        error: "CONVERSATION_RUN_IN_PROGRESS"
-      };
-    }
     const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
     const conversationType = conversationTypeFor(conversation, conversationId);
     const members = _conversationMembersCache.get(conversationId) || [];

@@ -1,5 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -8,9 +9,6 @@ const {
   createLocalBotResponder,
   shouldHandleLocalCloudConversationAi
 } = require("../src/main/social/local-bot-responder.js");
-const { createChatAttachments } = require("../src/main/chat-attachments.js");
-const { createHermesChatAdapter } = require("../src/main/hermes-chat-adapter.js");
-const { createHermesRunService } = require("../src/main/hermes-run-service.js");
 
 function setup(overrides = {}) {
   const calls = { engine: [], post: [], log: [], cloudEvents: [], task: [] };
@@ -57,79 +55,12 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function hermesJsonResponse(body) {
-  return {
-    ok: true,
-    status: 200,
-    statusText: "OK",
-    text: async () => JSON.stringify(body)
-  };
-}
-
-function hermesSseResponse(frames) {
-  const text = frames.map((frame) => [
-    `event: ${frame.event}`,
-    `data: ${JSON.stringify(frame.data || {})}`,
-    "",
-    ""
-  ].join("\n")).join("");
-  const encoder = new TextEncoder();
-  return {
-    ok: true,
-    status: 200,
-    statusText: "OK",
-    body: new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(text));
-        controller.close();
-      }
-    })
-  };
-}
-
 async function waitFor(predicate, timeoutMs = 1000) {
   const started = Date.now();
   while (!predicate()) {
     if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for condition.");
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
-}
-
-function createHermesAdapterForLocalResponder(fetchImpl) {
-  const chatAttachments = createChatAttachments({
-    initializeRuntime: () => {},
-    runtimePaths: () => ({ attachmentsDir: path.join(os.tmpdir(), "mia-test-chat-attachments") }),
-    getCloudSettings: () => ({ enabled: false }),
-    normalizeCloudUrl: (value) => String(value || ""),
-    fetchImpl,
-    timeoutSignal: () => undefined,
-    randomUUID: () => "uuid_attachment",
-    now: () => 1770000000000
-  });
-  const runService = createHermesRunService({
-    normalizeAttachments: chatAttachments.normalizeAttachments,
-    attachmentContext: chatAttachments.attachmentContext,
-    baseUrl: () => "http://hermes.test",
-    apiKey: () => "secret",
-    fetchImpl,
-    randomUUID: () => "uuid_hermes"
-  });
-  return createHermesChatAdapter({
-    apiKey: () => "secret",
-    baseUrl: () => "http://hermes.test",
-    buildGroupHeader: () => "",
-    buildRunPayload: runService.buildRunPayload,
-    normalizeError: runService.normalizeError,
-    readRunEventStream: runService.readRunEventStream,
-    submitRunApproval: runService.submitRunApproval,
-    responseModel: "hermes-agent",
-    memoryBlock: () => "",
-    writeSchedulerMcpContext: () => {},
-    writeMiaAppMcpContext: () => {},
-    getMiaAppMcpSpec: () => null,
-    appendEngineLog: () => {},
-    fetch: fetchImpl
-  });
 }
 
 test("respond runs the local engine and posts the reply as the bot", async () => {
@@ -364,54 +295,43 @@ test("respond materializes cloud file URLs carried in the attachment path field"
   fs.rmSync(path.dirname(attachment.path), { recursive: true, force: true });
 });
 
-test("respond sends materialized docx attachment paths into the Hermes run input", async (t) => {
+test("respond forwards trigger attachments into AgentSession input for Hermes ACP turns", async () => {
   const docMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  let capturedRunBody = null;
-  let materializedPath = "";
-  const fetchImpl = async (url, options = {}) => {
-    const value = String(url);
-    if (value === "http://hermes.test/v1/runs") {
-      capturedRunBody = JSON.parse(options.body);
-      return hermesJsonResponse({ run_id: "run_docx" });
-    }
-    if (value === "http://hermes.test/v1/runs/run_docx/events") {
-      return hermesSseResponse([{ event: "run.completed", data: { content: "解析完成" } }]);
-    }
-    throw new Error(`unexpected fetch ${value}`);
-  };
-  const hermesAdapter = createHermesAdapterForLocalResponder(fetchImpl);
-  const { responder, calls } = setup({
-    sendChat: (args) => hermesAdapter.sendChat({
-      bot: { key: args.botKey || args.botId, name: "Hermes", agentEngine: "hermes" },
-      sessionId: args.sessionId,
-      messages: args.messages,
-      group: args.group,
-      signal: args.signal,
-      emit: args.emit,
-      utility: args.utility,
-      persistAgentSession: args.persistAgentSession,
-      runtimeConfig: { permissionMode: "ask" }
-    }),
-    fetchFileAttachment: async (request) => ({
-      id: "file_doc",
-      name: "业务信息调查表.docx",
-      url: request.url,
-      mimeType: docMime,
-      kind: "file",
-      size: 9,
-      dataUrl: `data:${docMime};base64,${Buffer.from("doc bytes").toString("base64")}`
-    })
-  });
-  t.after(() => {
-    if (materializedPath) fs.rmSync(path.dirname(materializedPath), { recursive: true, force: true });
+  const calls = { engine: [], manager: [], post: [], log: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      return { choices: [{ message: { content: "should not run" } }] };
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace"
   });
 
-  await responder.respond({
+  assert.equal(await responder.respond({
     ...base,
-    conversationId: "botc_docx",
+    conversationId: "g_docx",
     botId: "hermes",
     dedupKey: "m_docx:hermes",
+    turnId: "t_docx",
     userPrompt: "请读取这份调查表",
+    runtimeConfig: { agentEngine: "hermes" },
     userAttachments: [{
       id: "file_doc",
       name: "业务信息调查表.docx",
@@ -420,18 +340,24 @@ test("respond sends materialized docx attachment paths into the Hermes run input
       kind: "file",
       size: 9
     }]
-  });
-
-  assert.equal(calls.post[0].body.bodyMd, "解析完成");
-  assert.ok(capturedRunBody, "expected Hermes /v1/runs body to be captured");
-  assert.match(capturedRunBody.input, /附件上下文/);
-  assert.match(capturedRunBody.input, /本地路径：/);
-  assert.match(capturedRunBody.input, /业务信息调查表\.docx/);
-  assert.doesNotMatch(capturedRunBody.input, /\/Users\/jung\/业务信息调查表\.docx/);
-  const match = capturedRunBody.input.match(/本地路径：([^；\n]+)/);
-  materializedPath = match ? match[1] : "";
-  assert.ok(materializedPath && path.isAbsolute(materializedPath), "expected an absolute materialized attachment path");
-  assert.equal(fs.readFileSync(materializedPath, "utf8"), "doc bytes");
+  }), true);
+  assert.equal(calls.engine.length, 0);
+  assert.equal(calls.post.length, 0);
+  assert.deepEqual(calls.manager, [{
+    conversationId: "g_docx",
+    engineId: "hermes",
+    workspacePath: "/repo/workspace",
+    turnId: "t_docx",
+    text: "请读取这份调查表",
+    attachments: [{
+      id: "file_doc",
+      name: "业务信息调查表.docx",
+      url: "/api/files/file_doc",
+      mimeType: docMime,
+      kind: "file",
+      size: 9
+    }]
+  }]);
 });
 
 test("respond sends explicit reminder requests through the engine scheduler path", async () => {
@@ -748,6 +674,533 @@ test("respond queues the latest same-conversation invocation instead of dropping
   assert.equal(calls.post[1].body.turnId, "t_3");
   assert.equal(calls.log.some((line) => line.includes("queue m_2:codex")), true);
   assert.equal(calls.log.some((line) => line.includes("queue m_3:codex")), true);
+});
+
+test("respond hands same-conversation AgentSession sends to the manager immediately instead of queueing local sendChat work", async () => {
+  const releaseFirst = deferred();
+  const calls = { engine: [], manager: [], post: [], log: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      return { choices: [{ message: { content: "should not run" } }] };
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        if (calls.manager.length === 1) {
+          await releaseFirst.promise;
+          return {
+            ok: true,
+            mode: "started",
+            conversationId: input.conversationId,
+            engineId: input.engineId,
+            turnId: input.turnId
+          };
+        }
+        return {
+          ok: true,
+          mode: "queued",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId,
+          queueDepth: 1
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  const first = responder.respond({
+    ...base,
+    dedupKey: "m_1:codex",
+    userPrompt: "first",
+    turnId: "t_1",
+    runtimeConfig: { agentEngine: "claude" },
+    historyMessages: [{ role: "user", content: "older visible history" }]
+  });
+  await waitFor(() => calls.manager.length === 1);
+
+  const second = responder.respond({
+    ...base,
+    dedupKey: "m_2:codex",
+    userPrompt: "second",
+    turnId: "t_2",
+    runtimeConfig: { agentEngine: "claude" },
+    historyMessages: [{ role: "assistant", content: "should not be replayed" }]
+  });
+  await waitFor(() => calls.manager.length === 2);
+
+  assert.equal(calls.engine.length, 0);
+  assert.deepEqual(calls.manager, [
+    {
+      conversationId: "g_1",
+      engineId: "claude",
+      workspacePath: "/repo/workspace",
+      turnId: "t_1",
+      text: "first"
+    },
+    {
+      conversationId: "g_1",
+      engineId: "claude",
+      workspacePath: "/repo/workspace",
+      turnId: "t_2",
+      text: "second"
+    }
+  ]);
+  assert.equal(calls.log.some((line) => line.includes("queue m_2:codex")), false);
+
+  releaseFirst.resolve();
+  assert.equal(await first, true);
+  assert.equal(await second, true);
+});
+
+test("managed AgentSession turns pass prepared Claude Code Mia runtime env to the manager", async () => {
+  const calls = { manager: [], runtime: [], post: [], log: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace",
+    prepareAgentSessionRuntime: async (args) => {
+      calls.runtime.push(args);
+      return {
+        runtimeKey: "mia:mia-auto",
+        env: {
+          ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+          ANTHROPIC_AUTH_TOKEN: "proxy-token"
+        }
+      };
+    }
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_managed_runtime:claude",
+    turnId: "t_runtime",
+    botSnapshot: { key: "starter_100001_claude_code", name: "Claude", agentEngine: "claude-code" },
+    runtimeConfig: {
+      agentEngine: "claude-code",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto"
+    }
+  });
+
+  assert.equal(calls.runtime.length, 1);
+  assert.equal(calls.runtime[0].engineId, "claude");
+  assert.deepEqual(calls.manager, [{
+    conversationId: "g_1",
+    engineId: "claude",
+    workspacePath: "/repo/workspace",
+    runtimeKey: "mia:mia-auto",
+    env: {
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+      ANTHROPIC_AUTH_TOKEN: "proxy-token"
+    },
+    turnId: "t_runtime",
+    text: "hi"
+  }]);
+});
+
+test("managed AgentSession deltas are streamed and posted as the bot reply", async () => {
+  const manager = new EventEmitter();
+  const calls = { manager: [], post: [], log: [], cloudEvents: [] };
+  manager.sendUserInput = async (input) => {
+    calls.manager.push(input);
+    return {
+      ok: true,
+      mode: "started",
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId
+    };
+  };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true, message: { id: "posted_1", ...body } };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: manager,
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_managed:claude",
+    turnId: "t_managed",
+    runtimeConfig: { agentEngine: "claude" }
+  });
+
+  manager.emit("assistant-delta", {
+    conversationId: "g_1",
+    engineId: "claude",
+    turnId: "t_managed",
+    text: "hello "
+  });
+  manager.emit("assistant-delta", {
+    conversationId: "g_1",
+    engineId: "claude",
+    turnId: "t_managed",
+    text: "world"
+  });
+  manager.emit("message-completed", {
+    conversationId: "g_1",
+    engineId: "claude",
+    turnId: "t_managed"
+  });
+
+  await waitFor(() => calls.post.length === 1);
+  assert.equal(calls.post[0].conversationId, "g_1");
+  assert.deepEqual(calls.post[0].body, {
+    botId: "codex",
+    bodyMd: "hello world",
+    turnId: "t_managed",
+    clientOpId: "op_bot_reply_m_managed_claude",
+    contentBlocks: [{ type: "text", id: "t_managed", text: "hello world" }]
+  });
+  const runEvents = calls.cloudEvents.filter((event) => event.type !== "conversation.message_appended");
+  assert.deepEqual(runEvents.map((event) => event.type), [
+    "cloud_agent_run_started",
+    "cloud_agent_run_event",
+    "cloud_agent_run_event",
+    "cloud_agent_run_event"
+  ]);
+  assert.deepEqual(runEvents.slice(1).map((event) => event.event.type), [
+    "text_delta",
+    "text_delta",
+    "run.completed"
+  ]);
+});
+
+test("managed AgentSession failures post a visible bot error", async () => {
+  const manager = new EventEmitter();
+  const calls = { manager: [], post: [], log: [], cloudEvents: [] };
+  manager.sendUserInput = async (input) => {
+    calls.manager.push(input);
+    return {
+      ok: true,
+      mode: "started",
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId
+    };
+  };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: manager,
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_failed:codex",
+    turnId: "t_failed",
+    runtimeConfig: { agentEngine: "codex" }
+  });
+
+  manager.emit("message-failed", {
+    conversationId: "g_1",
+    engineId: "codex",
+    turnId: "t_failed",
+    error: new Error("401 Invalid authentication credentials")
+  });
+
+  await waitFor(() => calls.post.length === 1);
+  assert.equal(calls.post[0].conversationId, "g_1");
+  assert.equal(calls.post[0].body.botId, "codex");
+  assert.equal(calls.post[0].body.turnId, "t_failed");
+  assert.equal(calls.post[0].body.clientOpId, "op_bot_reply_error_m_failed_codex");
+  assert.match(calls.post[0].body.bodyMd, /^我这次没能生成回复：本地引擎认证失败。/);
+  assert.deepEqual(calls.cloudEvents.at(-1).event, {
+    type: "run.failed",
+    error: "401 Invalid authentication credentials"
+  });
+});
+
+test("managed AgentSession startup failures emitted before acceptance are not lost", async () => {
+  const manager = new EventEmitter();
+  const calls = { manager: [], post: [], log: [], cloudEvents: [] };
+  manager.sendUserInput = async (input) => {
+    calls.manager.push(input);
+    manager.emit("message-failed", {
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId,
+      error: new Error("ACP bridge failed: connect ECONNREFUSED 127.0.0.1:18789")
+    });
+    return {
+      ok: true,
+      mode: "started",
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId
+    };
+  };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: manager,
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_start_failed:codex",
+    turnId: "t_start_failed",
+    runtimeConfig: { agentEngine: "codex" }
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.post.length, 1);
+  assert.equal(calls.post[0].conversationId, "g_1");
+  assert.equal(calls.post[0].body.botId, "codex");
+  assert.equal(calls.post[0].body.turnId, "t_start_failed");
+  assert.equal(calls.post[0].body.clientOpId, "op_bot_reply_error_m_start_failed_codex");
+  assert.match(calls.post[0].body.bodyMd, /^我这次没能生成回复：本地引擎连接失败。/);
+  assert.equal(
+    calls.cloudEvents.filter((event) => event.type === "cloud_agent_run_started").length,
+    0
+  );
+  assert.deepEqual(calls.cloudEvents.at(-1).event, {
+    type: "run.failed",
+    error: "ACP bridge failed: connect ECONNREFUSED 127.0.0.1:18789"
+  });
+});
+
+test("managed AgentSession queued turns keep separate reply metadata", async () => {
+  const manager = new EventEmitter();
+  const calls = { manager: [], post: [], log: [], cloudEvents: [] };
+  manager.sendUserInput = async (input) => {
+    calls.manager.push(input);
+    return {
+      ok: true,
+      mode: calls.manager.length === 1 ? "started" : "queued",
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId,
+      ...(calls.manager.length === 1 ? {} : { queueDepth: 1 })
+    };
+  };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true, message: { id: `posted_${calls.post.length}`, ...body } };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: manager,
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_first:codex",
+    turnId: "t_first",
+    userPrompt: "first",
+    runtimeConfig: { agentEngine: "codex" }
+  });
+  await responder.respond({
+    ...base,
+    dedupKey: "m_second:codex",
+    turnId: "t_second",
+    userPrompt: "second",
+    runtimeConfig: { agentEngine: "codex" }
+  });
+
+  manager.emit("assistant-delta", { conversationId: "g_1", turnId: "t_first", text: "first reply" });
+  manager.emit("message-completed", { conversationId: "g_1", turnId: "t_first" });
+  await waitFor(() => calls.post.length === 1);
+  manager.emit("message-started", { conversationId: "g_1", turnId: "t_second" });
+  manager.emit("assistant-delta", { conversationId: "g_1", turnId: "t_second", text: "second reply" });
+  manager.emit("message-completed", { conversationId: "g_1", turnId: "t_second" });
+
+  await waitFor(() => calls.post.length === 2);
+  assert.deepEqual(calls.post.map((item) => ({
+    bodyMd: item.body.bodyMd,
+    turnId: item.body.turnId,
+    clientOpId: item.body.clientOpId
+  })), [
+    {
+      bodyMd: "first reply",
+      turnId: "t_first",
+      clientOpId: "op_bot_reply_m_first_codex"
+    },
+    {
+      bodyMd: "second reply",
+      turnId: "t_second",
+      clientOpId: "op_bot_reply_m_second_codex"
+    }
+  ]);
+  const runEvents = calls.cloudEvents.filter((event) => event.type !== "conversation.message_appended");
+  assert.deepEqual(runEvents.map((event) => ({
+    type: event.type,
+    runId: event.runId,
+    eventType: event.event?.type || ""
+  })), [
+    { type: "cloud_agent_run_started", runId: "local_bot_reply_m_first_codex", eventType: "" },
+    { type: "cloud_agent_run_event", runId: "local_bot_reply_m_first_codex", eventType: "text_delta" },
+    { type: "cloud_agent_run_event", runId: "local_bot_reply_m_first_codex", eventType: "run.completed" },
+    { type: "cloud_agent_run_started", runId: "local_bot_reply_m_second_codex", eventType: "" },
+    { type: "cloud_agent_run_event", runId: "local_bot_reply_m_second_codex", eventType: "text_delta" },
+    { type: "cloud_agent_run_event", runId: "local_bot_reply_m_second_codex", eventType: "run.completed" }
+  ]);
+});
+
+test("stopActiveConversationRun cancels an AgentSession-backed social run using the stored session descriptor", async () => {
+  const calls = { engine: [], manager: [], cancel: [], post: [], log: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      return { choices: [{ message: { content: "should not run" } }] };
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      },
+      cancelActive: async (descriptor) => {
+        calls.cancel.push(descriptor);
+        return true;
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  assert.equal(await responder.respond({
+    ...base,
+    dedupKey: "m_stop:codex",
+    userPrompt: "first",
+    turnId: "t_stop",
+    runtimeConfig: { agentEngine: "claude" }
+  }), true);
+
+  const stopResult = await responder.stopActiveConversationRun({
+    conversationId: "g_1",
+    runId: "car_managed_1",
+    turnId: "t_stop"
+  });
+
+  assert.deepEqual(calls.cancel, [{
+    conversationId: "g_1",
+    engineId: "claude",
+    workspacePath: "/repo/workspace"
+  }]);
+  assert.deepEqual(stopResult, {
+    stopped: true,
+    conversationId: "g_1",
+    runId: "car_managed_1",
+    turnId: "t_stop",
+    status: "cancelling"
+  });
+});
+
+test("managed AgentSession workspace validation failure does not poison retries for the same dedupKey", async () => {
+  let workspacePath = "";
+  const calls = { manager: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run");
+    },
+    postConversationMessageAsBot: async () => ({ ok: true }),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => workspacePath
+  });
+
+  await assert.rejects(
+    responder.respond({
+      ...base,
+      dedupKey: "m_retry:codex",
+      turnId: "t_retry",
+      runtimeConfig: { agentEngine: "claude" }
+    }),
+    /AgentSession workspace path is required/
+  );
+
+  workspacePath = "/repo/workspace";
+
+  assert.equal(await responder.respond({
+    ...base,
+    dedupKey: "m_retry:codex",
+    turnId: "t_retry",
+    runtimeConfig: { agentEngine: "claude" }
+  }), true);
+  assert.deepEqual(calls.manager, [{
+    conversationId: "g_1",
+    engineId: "claude",
+    workspacePath: "/repo/workspace",
+    turnId: "t_retry",
+    text: "hi"
+  }]);
 });
 
 test("respond streams local engine trace events through cloud run events and saves final trace", async () => {

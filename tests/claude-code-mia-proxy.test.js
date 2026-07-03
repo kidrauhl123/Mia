@@ -63,6 +63,28 @@ test("anthropicToOpenAiChatBody maps messages, tools, and the Mia model override
   assert.deepEqual(converted.tool_choice, { type: "function", function: { name: "Bash" } });
 });
 
+test("anthropicToOpenAiChatBody does not force a tool while Anthropic thinking is enabled", () => {
+  const converted = anthropicToOpenAiChatBody({
+    model: "claude-sonnet-4-5",
+    thinking: { type: "enabled", budget_tokens: 4096 },
+    messages: [{ role: "user", content: "搜索一下今天的新闻" }],
+    tools: [{
+      name: "WebSearch",
+      description: "Search the web.",
+      input_schema: {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"]
+      }
+    }],
+    tool_choice: { type: "tool", name: "WebSearch" }
+  }, { model: "mia-auto" });
+
+  assert.equal(converted.model, "mia-auto");
+  assert.equal(converted.tools[0].function.name, "WebSearch");
+  assert.equal(converted.tool_choice, "auto");
+});
+
 test("Mia Claude proxy forwards Anthropic messages to chat completions", async (t) => {
   let upstreamCall = null;
   const proxy = createClaudeCodeMiaProxy({
