@@ -1679,7 +1679,10 @@ function createMiaCore(options = {}) {
       kind,
       command: path.basename(process.execPath),
       usesGuiAppIdentity,
-      workingDirectory: process.cwd()
+      workingDirectory: process.cwd(),
+      ...(env.MIA_DAEMON_SOURCE_FINGERPRINT ? {
+        sourceFingerprint: String(env.MIA_DAEMON_SOURCE_FINGERPRINT || "")
+      } : {})
     };
   }
 

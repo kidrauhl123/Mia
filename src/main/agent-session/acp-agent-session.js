@@ -320,9 +320,12 @@ class AcpAgentSession extends EventEmitter {
   }
 
   async handleSessionUpdate(params = {}) {
+    const update = params.update && typeof params.update === "object"
+      ? params.update
+      : params;
     const normalized = normalizeAcpSessionUpdate({
       turnId: this.activePrompt?.turnId || "",
-      update: params.update || {},
+      update,
       toolTitles: this.toolTitles
     });
     for (const event of normalized) {

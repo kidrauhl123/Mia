@@ -2,6 +2,7 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 
 const DEFAULT_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
@@ -32,6 +33,62 @@ function packagedCoreEntry(resourcesPath) {
   const base = String(resourcesPath || "").trim();
   if (!base) return "";
   return path.join(base, "app.asar.unpacked", "src", "core", "mia-core.js");
+}
+
+function defaultSourceFingerprint(coreEntryPath, fsImpl = fs) {
+  const entry = String(coreEntryPath || "").trim();
+  if (!entry) return "";
+  const repoRoot = path.resolve(path.dirname(entry), "..", "..");
+  const roots = [
+    path.join(repoRoot, "src", "core"),
+    path.join(repoRoot, "src", "main"),
+    path.join(repoRoot, "shared"),
+    path.join(repoRoot, "packages", "shared")
+  ];
+  const hash = crypto.createHash("sha256");
+  let count = 0;
+
+  function addFile(filePath) {
+    if (count > 6000) return;
+    let stat;
+    try {
+      stat = fsImpl.statSync(filePath);
+    } catch {
+      return;
+    }
+    if (!stat.isFile()) return;
+    const ext = path.extname(filePath);
+    if (![".cjs", ".css", ".html", ".js", ".json", ".mjs", ".toml"].includes(ext)) return;
+    count += 1;
+    hash.update(path.relative(repoRoot, filePath));
+    hash.update(":");
+    hash.update(String(stat.size || 0));
+    hash.update(":");
+    hash.update(String(Math.floor(Number(stat.mtimeMs) || 0)));
+    hash.update("\n");
+  }
+
+  function walk(dir) {
+    if (count > 6000) return;
+    let entries;
+    try {
+      entries = fsImpl.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries.sort((a, b) => String(a.name).localeCompare(String(b.name)))) {
+      if (entry.name === "node_modules" || entry.name === ".git") continue;
+      const child = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(child);
+      else if (entry.isFile()) addFile(child);
+    }
+  }
+
+  for (const root of roots) walk(root);
+  addFile(path.join(repoRoot, "package.json"));
+  addFile(path.join(repoRoot, "package-lock.json"));
+  if (!count) addFile(entry);
+  return count ? hash.digest("hex").slice(0, 24) : "";
 }
 
 // Resolves how the desktop launches its background daemon. After migration slice
@@ -71,7 +128,8 @@ function createMiaCoreResolver(deps = {}) {
     // `unresolved`, so assertLaunchable() throws a clear error. Injectable for
     // tests; the injected dev/test node+coreEntry paths are trusted as-is (the
     // caller already resolved them via `which node` / the on-disk Core entry).
-    existsSync = (p) => fs.existsSync(p)
+    existsSync = (p) => fs.existsSync(p),
+    sourceFingerprint = (entry) => defaultSourceFingerprint(entry, fs)
   } = deps;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
   if (typeof effectiveHermesHome !== "function") throw new Error("effectiveHermesHome dependency is required.");
@@ -98,12 +156,14 @@ function createMiaCoreResolver(deps = {}) {
     const node = injectedNode || (derivedNode && existsSync(derivedNode) ? derivedNode : "");
     const entry = injectedEntry || (derivedEntry && existsSync(derivedEntry) ? derivedEntry : "");
     if (node && entry) {
+      const fingerprint = String(sourceFingerprint(entry) || "").trim();
       return {
         kind: "node-core",
         command: node,
         args: [entry, "--daemon"],
         workingDirectory: path.dirname(entry),
-        usesGuiAppIdentity: false
+        usesGuiAppIdentity: false,
+        ...(fingerprint ? { sourceFingerprint: fingerprint } : {})
       };
     }
     // No node-core target resolved. On macOS (dev or packaged) this is fail-closed
@@ -150,7 +210,8 @@ function createMiaCoreResolver(deps = {}) {
       HERMES_LANGUAGE: env.HERMES_LANGUAGE || "zh",
       PYTHONUNBUFFERED: "1",
       MIA_DAEMON_TARGET_KIND: r.kind,
-      MIA_DAEMON_USES_GUI_IDENTITY: r.usesGuiAppIdentity ? "1" : "0"
+      MIA_DAEMON_USES_GUI_IDENTITY: r.usesGuiAppIdentity ? "1" : "0",
+      MIA_DAEMON_SOURCE_FINGERPRINT: String(r.sourceFingerprint || "")
     };
   }
 
@@ -175,7 +236,8 @@ function createMiaCoreResolver(deps = {}) {
       kind: r.kind,
       command: path.basename(r.command),
       usesGuiAppIdentity: r.usesGuiAppIdentity,
-      workingDirectory: r.workingDirectory
+      workingDirectory: r.workingDirectory,
+      ...(r.sourceFingerprint ? { sourceFingerprint: r.sourceFingerprint } : {})
     };
   }
 

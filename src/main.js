@@ -2637,7 +2637,10 @@ miaCoreControlServer = createMiaCoreControlServer({
         kind,
         command: path.basename(process.execPath),
         usesGuiAppIdentity: String(process.env.MIA_DAEMON_USES_GUI_IDENTITY || "") === "1",
-        workingDirectory: process.cwd()
+        workingDirectory: process.cwd(),
+        ...(process.env.MIA_DAEMON_SOURCE_FINGERPRINT ? {
+          sourceFingerprint: String(process.env.MIA_DAEMON_SOURCE_FINGERPRINT || "")
+        } : {})
       };
     }
     return miaCoreResolver.describe();

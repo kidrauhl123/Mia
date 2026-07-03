@@ -779,9 +779,11 @@ function daemonTargetMatchesExpected(target = {}, expected = {}) {
   const expectedKind = String(expected.kind || "").trim();
   const expectedCommand = String(expected.command || "").trim();
   const expectedWorkingDirectory = String(expected.workingDirectory || "").trim();
+  const expectedSourceFingerprint = String(expected.sourceFingerprint || "").trim();
   if (expectedKind && String(target.kind || "").trim() !== expectedKind) return false;
   if (expectedCommand && String(target.command || "").trim() !== expectedCommand) return false;
   if (expectedWorkingDirectory && String(target.workingDirectory || "").trim() !== expectedWorkingDirectory) return false;
+  if (expectedSourceFingerprint && String(target.sourceFingerprint || "").trim() !== expectedSourceFingerprint) return false;
   if (
     Object.prototype.hasOwnProperty.call(expected, "usesGuiAppIdentity")
     && Boolean(target.usesGuiAppIdentity) !== Boolean(expected.usesGuiAppIdentity)

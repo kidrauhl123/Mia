@@ -167,6 +167,17 @@ test("assertLaunchable returns the node-core resolution for launchable targets",
   assert.equal(r.kind, "node-core");
 });
 
+test("node-core daemon target carries a source fingerprint for dev replacement", () => {
+  const resolver = setup({
+    nodePath: () => "/usr/local/bin/node",
+    coreEntry: () => "/repo/src/core/mia-core.js",
+    sourceFingerprint: () => "source-a"
+  });
+
+  assert.equal(resolver.describe().sourceFingerprint, "source-a");
+  assert.equal(resolver.daemonEnvOverlay().MIA_DAEMON_SOURCE_FINGERPRINT, "source-a");
+});
+
 test("packaged path helpers derive the bundled node + unpacked Core entry from resourcesPath", () => {
   const res = "/Applications/Mia.app/Contents/Resources";
   assert.equal(packagedNodePath(res, "darwin"), path.join(res, "mia-node"));

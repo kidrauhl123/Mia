@@ -284,6 +284,31 @@ test("sendUserInput waits for prompt completion and emits normalized streaming e
   ]);
 });
 
+test("sendUserInput accepts direct session update payloads from newer ACP clients", async () => {
+  const { session, deferredPrompt } = createSession({
+    onPrompt: async ({ onSessionUpdate }) => {
+      await onSessionUpdate({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "direct update" }
+      });
+    }
+  });
+  const events = collectEvents(session);
+
+  const sendPromise = session.sendUserInput({
+    turnId: "turn-direct",
+    text: "hello"
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  deferredPrompt.resolve({ stopReason: "end_turn" });
+  await sendPromise;
+
+  assert.equal(
+    events.some((event) => event[0] === "assistant-delta" && event[1].text === "direct update"),
+    true
+  );
+});
+
 test("start carries initializationMetadata in session metadata while prompt stays current-turn text only", async () => {
   const initializationMetadata = {
     systemPrompt: "system: obey hidden rules",
@@ -700,6 +725,28 @@ test("normalizeAcpSessionUpdate suppresses Codex Mia Auto metadata warnings", ()
       }
     }),
     []
+  );
+});
+
+test("normalizeAcpSessionUpdate strips Codex Mia Auto metadata warnings from mixed assistant text", () => {
+  assert.deepEqual(
+    normalizeAcpSessionUpdate({
+      turnId: "turn-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "Warning: Model metadata for `mia-auto` not found.\nDefaulting to fallback metadata; this can degrade performance and cause issues.\n\n你好"
+        }
+      }
+    }),
+    [{
+      kind: "assistant-delta",
+      payload: {
+        turnId: "turn-1",
+        text: "你好"
+      }
+    }]
   );
 });
 

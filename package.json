@@ -65,7 +65,7 @@
     "electron-builder": "^26.0.12"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.20.0",
+    "@agentclientprotocol/sdk": "^1.1.0",
     "@anthropic-ai/claude-agent-sdk": "^0.2.139",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "adm-zip": "^0.5.17",

@@ -23,6 +23,13 @@ function isCodexMiaAutoMetadataWarning(text = "") {
   return /^Warning: Model metadata for `?mia-auto`? not found\. Defaulting to fallback metadata; this can degrade performance and cause issues\.$/.test(normalized);
 }
 
+function stripCodexMiaAutoMetadataWarning(text = "") {
+  return String(text || "").replace(
+    /^\s*Warning: Model metadata for `?mia-auto`? not found\.\s+Defaulting to fallback metadata; this can degrade performance and cause issues\.\s*/i,
+    ""
+  );
+}
+
 function normalizeAcpSessionUpdate(options = {}) {
   const update = options.update || {};
   const toolTitles = options.toolTitles instanceof Map ? options.toolTitles : new Map();
@@ -30,7 +37,7 @@ function normalizeAcpSessionUpdate(options = {}) {
   const events = [];
 
   if (update.sessionUpdate === "agent_message_chunk") {
-    const text = textFromAcpContent(update.content);
+    const text = stripCodexMiaAutoMetadataWarning(textFromAcpContent(update.content));
     if (!text) return events;
     if (isCodexMiaAutoMetadataWarning(text)) return events;
     events.push({

@@ -600,6 +600,11 @@ test("shouldReuseDaemon rejects a GUI-identity daemon and missing/version-mismat
   assert.equal(shouldReuseDaemon({ ok: true, mode: "daemon", version: v, daemonTarget: { kind: "node-core", usesGuiAppIdentity: false } }, v), true);
   assert.equal(shouldReuseDaemon({ ok: true, mode: "daemon", version: v, daemonTarget: target }, v, { expectedDaemonTarget: target }), true);
   assert.equal(shouldReuseDaemon(
+    { ok: true, mode: "daemon", version: v, daemonTarget: { ...target, sourceFingerprint: "old" } },
+    v,
+    { expectedDaemonTarget: { ...target, sourceFingerprint: "new" } }
+  ), false);
+  assert.equal(shouldReuseDaemon(
     { ok: true, mode: "daemon", version: v, daemonTarget: { ...target, workingDirectory: "/Applications/Mia.app/Contents/Resources/app.asar.unpacked/src/core" } },
     v,
     { expectedDaemonTarget: target }
