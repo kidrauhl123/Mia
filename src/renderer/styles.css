@@ -9235,7 +9235,14 @@ select.select-open {
 .cloud-mobile-scan-refresh svg {
   width: 14px;
   height: 14px;
-  stroke-width: 3.6;
+  fill: currentColor;
+  stroke: none;
+}
+
+.cloud-mobile-scan-refresh svg path {
+  stroke: none;
+  stroke-width: 0;
+  vector-effect: none;
 }
 
 @media (max-width: 900px) {

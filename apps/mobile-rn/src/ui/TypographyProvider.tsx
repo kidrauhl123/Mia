@@ -22,7 +22,13 @@ const PrefCtx = createContext<{
   setFontSize: () => {},
 });
 
-export function TypographyProvider({ children }: { children: React.ReactNode }) {
+export function TypographyProvider({
+  children,
+  brandFontFamily,
+}: {
+  children: React.ReactNode;
+  brandFontFamily?: string;
+}) {
   const [fontSize, setFontSizeState] = useState<TelegramFontSize>(TELEGRAM_DEFAULT_FONT_SIZE);
   const [saving, setSaving] = useState(false);
 
@@ -45,7 +51,10 @@ export function TypographyProvider({ children }: { children: React.ReactNode }) 
       .finally(() => setSaving(false));
   }, []);
 
-  const value = useMemo(() => createTelegramTypography(fontSize), [fontSize]);
+  const value = useMemo(
+    () => createTelegramTypography(fontSize, { brandFontFamily }),
+    [brandFontFamily, fontSize],
+  );
   const preference = useMemo(() => ({ fontSize, saving, setFontSize }), [fontSize, saving, setFontSize]);
   return (
     <PrefCtx.Provider value={preference}>
