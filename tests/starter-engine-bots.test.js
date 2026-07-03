@@ -60,6 +60,31 @@ test("starterBotSpecs assigns flame status badges to default bots", () => {
   );
 });
 
+test("starterBotSpecs assigns default avatar logos to starter bots", () => {
+  const specs = starter.starterBotSpecs({
+    cloud: cloudSettings(),
+    agentInventory: {
+      agents: [
+        { id: "hermes", label: "Hermes", usableInMia: true },
+        { id: "openclaw", label: "OpenClaw", usableInMia: true },
+        { id: "codex", label: "Codex", usableInMia: true },
+        { id: "claude-code", label: "Claude Code", usableInMia: true }
+      ]
+    }
+  });
+
+  assert.deepEqual(
+    specs.map((spec) => [spec.engineId, spec.avatarImage || ""]),
+    [
+      ["cloud-claude-code", "./assets/mia-logo.png"],
+      ["hermes", "./assets/engine-icons/hermesagent.svg"],
+      ["openclaw", "./assets/provider-icons/openclaw-color.svg"],
+      ["codex", "./assets/engine-icons/codex-color.svg"],
+      ["claude-code", "./assets/engine-icons/claudecode.svg"]
+    ]
+  );
+});
+
 test("ensureStarterEngineBots creates missing engine bots once and stores the account marker", async () => {
   const calls = [];
   const state = {
@@ -117,10 +142,14 @@ test("ensureStarterEngineBots creates missing engine bots once and stores the ac
   assert.equal(saveBots[0][1], "cloud-claude-code");
   assert.equal(saveBots[0][2].name, "Mia");
   assert.equal(saveBots[0][2].key, "starter_u_123_mia");
+  assert.equal(saveBots[0][2].avatarImage, "./assets/mia-logo.png");
+  assert.equal(saveBots[0][2].avatarCrop, null);
   assert.deepEqual(saveBots[0][2].statusBadge, { kind: "lottie", assetId: "rainbow-fire", label: "七彩火焰", loop: "always" });
   assert.equal(saveBots[1][1], "desktop-local");
   assert.equal(saveBots[1][2].name, "Hermes");
   assert.equal(saveBots[1][2].key, "starter_u_123_hermes");
+  assert.equal(saveBots[1][2].avatarImage, "./assets/engine-icons/hermesagent.svg");
+  assert.equal(saveBots[1][2].avatarCrop, null);
   assert.deepEqual(saveBots[1][2].statusBadge, { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰", loop: "always" });
   const settingsPut = calls.find((call) => call[0] === "settingsPut");
   assert.deepEqual(settingsPut[1].starterEngineBots, {
@@ -190,6 +219,8 @@ test("ensureStarterEngineBots creates an editable cloud Mia bot and tags its con
     description: "Mia 云端助手，默认使用云端 Claude Code sandbox。",
     bio: "云端 Claude Code，随时可用，不依赖本机 Agent。",
     color: "#16a34a",
+    avatarImage: "./assets/mia-logo.png",
+    avatarCrop: null,
     statusBadge: { kind: "lottie", assetId: "rainbow-fire", label: "七彩火焰", loop: "always" },
     personaText: "你是 Mia。用云端 Claude Code sandbox 简洁、可靠地帮助用户处理日常问题、创作、信息整理和自动化请求。",
     agentEngine: "claude-code",
@@ -381,6 +412,8 @@ test("ensureStarterEngineBots backfills missing badges on existing starter bots 
           name: "Codex",
           agentEngine: "codex",
           color: "#111827",
+          avatarImage: "data:image/png;base64,custom",
+          avatarCrop: { x: 50, y: 50, zoom: 1 },
           statusBadge: { kind: "emoji", emoji: "⭐", label: "Custom" }
         }
       ]
@@ -419,6 +452,8 @@ test("ensureStarterEngineBots backfills missing badges on existing starter bots 
   const update = calls.find((call) => call[0] === "saveBotIdentity");
   assert.equal(update[1], "starter_u_1_hermes");
   assert.equal(update[2].name, "Hermes");
+  assert.equal(update[2].avatarImage, "./assets/engine-icons/hermesagent.svg");
+  assert.equal(update[2].avatarCrop, null);
   assert.equal(update[2].bio, "existing bio");
   assert.equal(update[2].personaText, "existing persona");
   assert.deepEqual(update[2].statusBadge, { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰", loop: "always" });
@@ -428,4 +463,212 @@ test("ensureStarterEngineBots backfills missing badges on existing starter bots 
     label: "蓝色火焰",
     loop: "always"
   });
+});
+
+test("ensureStarterEngineBots backfills missing avatar logos on existing starter bots without overwriting custom avatars", async () => {
+  const calls = [];
+  const state = {
+    runtime: {
+      cloud: cloudSettings(),
+      agentInventory: {
+        agents: [
+          { id: "hermes", label: "Hermes", usableInMia: true },
+          { id: "codex", label: "Codex", usableInMia: true }
+        ]
+      }
+    }
+  };
+  const social = {
+    moduleState: {
+      myUserId: "u_1",
+      bots: [
+        {
+          id: "starter_u_1_hermes",
+          key: "starter_u_1_hermes",
+          name: "Hermes",
+          agentEngine: "hermes",
+          color: "#2563eb",
+          bio: "existing bio",
+          personaText: "existing persona",
+          avatarImage: "",
+          avatarCrop: null,
+          statusBadge: { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰", loop: "always" }
+        },
+        {
+          id: "starter_u_1_codex",
+          key: "starter_u_1_codex",
+          name: "Codex",
+          agentEngine: "codex",
+          color: "#111827",
+          avatarImage: "data:image/png;base64,custom",
+          avatarCrop: { x: 50, y: 50, zoom: 1 },
+          statusBadge: { kind: "lottie", assetId: "cyan-fire", label: "青色火焰", loop: "always" }
+        }
+      ]
+    }
+  };
+  const api = {
+    social: {
+      async settingsGet() {
+        calls.push(["settingsGet"]);
+        return { settings: { version: 3, starterEngineBots: { seededAt: "2026-06-25T00:00:00.000Z", engineIds: ["cloud-claude-code", "hermes", "codex"] } } };
+      },
+      async settingsPut(body) {
+        calls.push(["settingsPut", body]);
+      },
+      async saveBotIdentity(key, body) {
+        calls.push(["saveBotIdentity", key, body]);
+        return {
+          ok: true,
+          bot: {
+            id: key,
+            key,
+            name: body.name,
+            avatarImage: body.avatarImage,
+            avatarCrop: body.avatarCrop,
+            statusBadge: body.statusBadge
+          }
+        };
+      }
+    }
+  };
+
+  const result = await starter.ensureStarterEngineBots({
+    state,
+    api,
+    social,
+    commands: {
+      async saveBot() {
+        throw new Error("should not recreate starter bots");
+      }
+    }
+  });
+
+  assert.deepEqual(result.updated.map((entry) => [entry.engineId, entry.key]), [["hermes", "starter_u_1_hermes"]]);
+  assert.equal(calls.filter((call) => call[0] === "settingsPut").length, 0);
+  assert.equal(calls.filter((call) => call[0] === "saveBotIdentity").length, 1);
+  const update = calls.find((call) => call[0] === "saveBotIdentity");
+  assert.equal(update[1], "starter_u_1_hermes");
+  assert.equal(update[2].avatarImage, "./assets/engine-icons/hermesagent.svg");
+  assert.equal(update[2].avatarCrop, null);
+  assert.deepEqual(social.moduleState.bots.find((bot) => bot.key === "starter_u_1_hermes").avatarImage, "./assets/engine-icons/hermesagent.svg");
+  assert.equal(social.moduleState.bots.find((bot) => bot.key === "starter_u_1_codex").avatarImage, "data:image/png;base64,custom");
+});
+
+test("ensureStarterEngineBots backfills avatar for legacy cloud-hermes Mia starter bots", async () => {
+  const calls = [];
+  const state = {
+    runtime: {
+      cloud: cloudSettings(),
+      agentInventory: { agents: [] }
+    }
+  };
+  const social = {
+    moduleState: {
+      myUserId: "u_1",
+      bots: [
+        {
+          id: "starter_u_1_mia",
+          key: "starter_u_1_mia",
+          name: "Mia",
+          agentEngine: "hermes",
+          runtimeKind: "cloud-hermes",
+          color: "#16a34a",
+          avatarImage: "",
+          avatarCrop: null,
+          statusBadge: { kind: "lottie", assetId: "rainbow-fire", label: "七彩火焰", loop: "always" }
+        }
+      ]
+    }
+  };
+  const api = {
+    social: {
+      async settingsGet() {
+        calls.push(["settingsGet"]);
+        return { settings: { version: 3, starterEngineBots: { seededAt: "2026-06-25T00:00:00.000Z", engineIds: ["cloud-claude-code"] } } };
+      },
+      async saveBotIdentity(key, body) {
+        calls.push(["saveBotIdentity", key, body]);
+        return { ok: true, bot: { id: key, key, name: body.name, avatarImage: body.avatarImage, avatarCrop: body.avatarCrop, statusBadge: body.statusBadge } };
+      }
+    }
+  };
+
+  const result = await starter.ensureStarterEngineBots({
+    state,
+    api,
+    social,
+    commands: {
+      async saveBot() {
+        throw new Error("should not recreate starter bots");
+      }
+    }
+  });
+
+  assert.deepEqual(result.updated.map((entry) => [entry.engineId, entry.key]), [["cloud-claude-code", "starter_u_1_mia"]]);
+  const update = calls.find((call) => call[0] === "saveBotIdentity");
+  assert.equal(update[1], "starter_u_1_mia");
+  assert.equal(update[2].avatarImage, "./assets/mia-logo.png");
+  assert.equal(update[2].avatarCrop, null);
+});
+
+test("ensureStarterEngineBots backfills existing starter avatars even when the engine is not currently usable", async () => {
+  const calls = [];
+  const state = {
+    runtime: {
+      cloud: cloudSettings(),
+      agentInventory: {
+        agents: [
+          { id: "hermes", label: "Hermes", usableInMia: true }
+        ]
+      }
+    }
+  };
+  const social = {
+    moduleState: {
+      myUserId: "u_1",
+      bots: [
+        {
+          id: "starter_u_1_codex",
+          key: "starter_u_1_codex",
+          name: "Codex",
+          agentEngine: "codex",
+          runtimeKind: "desktop-local",
+          color: "#111827",
+          avatarImage: "",
+          avatarCrop: null,
+          statusBadge: { kind: "lottie", assetId: "cyan-fire", label: "青色火焰", loop: "always" }
+        }
+      ]
+    }
+  };
+  const api = {
+    social: {
+      async settingsGet() {
+        calls.push(["settingsGet"]);
+        return { settings: { version: 3, starterEngineBots: { seededAt: "2026-06-25T00:00:00.000Z", engineIds: ["hermes", "codex"] } } };
+      },
+      async saveBotIdentity(key, body) {
+        calls.push(["saveBotIdentity", key, body]);
+        return { ok: true, bot: { id: key, key, name: body.name, avatarImage: body.avatarImage, avatarCrop: body.avatarCrop, statusBadge: body.statusBadge } };
+      }
+    }
+  };
+
+  const result = await starter.ensureStarterEngineBots({
+    state,
+    api,
+    social,
+    commands: {
+      async saveBot() {
+        throw new Error("should not recreate starter bots");
+      }
+    }
+  });
+
+  assert.deepEqual(result.updated.map((entry) => [entry.engineId, entry.key]), [["codex", "starter_u_1_codex"]]);
+  const update = calls.find((call) => call[0] === "saveBotIdentity");
+  assert.equal(update[1], "starter_u_1_codex");
+  assert.equal(update[2].avatarImage, "./assets/engine-icons/codex-color.svg");
+  assert.equal(update[2].avatarCrop, null);
 });

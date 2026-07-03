@@ -8,11 +8,14 @@ function makeImg() {
   return {
     className: "",
     _attrs: {},
+    _events: {},
     draggable: true,
     parentElement: null,
     isConnected: false,
     getAttribute(k) { return this._attrs[k]; },
     setAttribute(k, v) { this._attrs[k] = v; },
+    addEventListener(type, handler) { this._events[type] = handler; },
+    dispatch(type) { if (typeof this._events[type] === "function") this._events[type](); },
     remove() { this.parentElement && this.parentElement._remove(this); }
   };
 }
@@ -80,6 +83,23 @@ test("remote avatar image keeps a generated fallback while the media loads", () 
   assert.equal(img.getAttribute("src"), "https://example.test/avatar.png");
   assert.equal(el.style.backgroundImage.startsWith('url("data:image/svg+xml,'), true);
   assert.match(decodeURIComponent(el.style.backgroundImage), /棕野/);
+});
+
+test("loaded avatar image clears the generated fallback background", () => {
+  const avatar = loadAvatar();
+  const el = makeEl();
+  avatar.applyAvatarMedia(el, "./assets/mia-logo.png", {}, "#16a34a", "Mi");
+  const img = el._children[0];
+  assert.equal(img.getAttribute("src"), "./assets/mia-logo.png");
+  assert.equal(el.style.backgroundImage.startsWith('url("data:image/svg+xml,'), true);
+
+  img.dispatch("load");
+
+  assert.equal(el.style.backgroundColor, "transparent");
+  assert.equal(el.style.backgroundImage, "");
+  assert.equal(el.style.backgroundSize, "");
+  assert.equal(el.style.backgroundPosition, "");
+  assert.equal(el.style.backgroundRepeat, "");
 });
 
 test("former preset image with an explicit user crop still renders as the generated fallback", () => {

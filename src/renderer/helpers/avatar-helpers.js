@@ -261,8 +261,10 @@
 
   function updateAvatarImageElement(imageEl, image, crop = {}) {
     const src = avatarImageSrc(image);
+    bindAvatarImageLifecycle(imageEl);
     if (imageEl.getAttribute("src") !== src) {
       imageEl.setAttribute("src", src);
+      imageEl.__miaAvatarLoaded = false;
     }
     imageEl.setAttribute("alt", "");
     imageEl.setAttribute("aria-hidden", "true");
@@ -273,6 +275,9 @@
     // full-frame here while thumbnails render it face-cropped — the same image
     // framed two ways. avatarCropForImage is a no-op for non-preset images.
     imageEl.setAttribute("style", videoObjectStyle(normalizeCrop(avatarCropForImage(image, crop))));
+    if (imageEl.complete && Number(imageEl.naturalWidth) > 0) {
+      imageEl.__miaAvatarLoaded = true;
+    }
   }
 
   function createAvatarImageElement(image, crop = {}) {
@@ -297,6 +302,36 @@
 
   function avatarFallbackDataUri(color, fallbackText) {
     return avatarResolve().generatedAvatarDataUri(color || "#5e5ce6", fallbackText || "");
+  }
+
+  function setAvatarImageFallback(el, color = "#5e5ce6", fallbackText = "") {
+    if (!el) return;
+    el.style.backgroundColor = color || "#5e5ce6";
+    el.style.backgroundImage = `url("${avatarFallbackDataUri(color, fallbackText)}")`;
+    el.style.backgroundSize = "cover";
+    el.style.backgroundPosition = "center";
+    el.style.backgroundRepeat = "no-repeat";
+  }
+
+  function clearAvatarImageFallback(el) {
+    if (!el) return;
+    el.style.backgroundColor = "transparent";
+    el.style.backgroundImage = "";
+    el.style.backgroundSize = "";
+    el.style.backgroundPosition = "";
+    el.style.backgroundRepeat = "";
+  }
+
+  function bindAvatarImageLifecycle(imageEl) {
+    if (!imageEl || imageEl.__miaAvatarLifecycleBound) return;
+    imageEl.__miaAvatarLifecycleBound = true;
+    imageEl.addEventListener?.("load", () => {
+      imageEl.__miaAvatarLoaded = true;
+      clearAvatarImageFallback(imageEl.parentElement);
+    });
+    imageEl.addEventListener?.("error", () => {
+      imageEl.__miaAvatarLoaded = false;
+    });
   }
 
   function applyAvatarMedia(el, image, crop = {}, color = "#5e5ce6", fallbackText = "", options = {}) {
@@ -354,11 +389,7 @@
       el.classList.add("media-avatar");
       el.classList.remove("video-avatar");
       el.classList.remove("emoji-avatar");
-      el.style.backgroundColor = color || "#5e5ce6";
-      el.style.backgroundImage = `url("${avatarFallbackDataUri(color, fallbackText)}")`;
-      el.style.backgroundSize = "cover";
-      el.style.backgroundPosition = "center";
-      el.style.backgroundRepeat = "no-repeat";
+      setAvatarImageFallback(el, color, fallbackText);
       removeAvatarVideos(el);
       removeAvatarEmojis(el);
       const images = Array.from(el.querySelectorAll?.(":scope > .avatar-image") || []);
@@ -367,6 +398,7 @@
       if (!options.preserveChildren) removeAvatarChildrenExcept(el, imageEl);
       updateAvatarImageElement(imageEl, src, crop);
       if (imageEl.parentElement !== el || imageEl !== el.firstElementChild) el.prepend(imageEl);
+      if (imageEl.__miaAvatarLoaded) clearAvatarImageFallback(el);
       return;
     }
     el.classList.remove("media-avatar");
