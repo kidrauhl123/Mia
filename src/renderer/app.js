@@ -63,6 +63,10 @@ const state = window.miaAppState.createInitialState({
   sidebarWidth: savedSidebarWidth(),
   windowWidth: window.innerWidth
 });
+let coreStartupProgressTimer = 0;
+let coreStartupSettleTimer = 0;
+let coreStartupNudgeTimer = 0;
+let coreStartupWatchdogTimer = 0;
 let desktopWindowFocused = true;
 const agentSetupLaunch = new URLSearchParams(window.location.search || "").get("mode") === "agent-setup";
 if (agentSetupLaunch && !state.onboardingStep && !state.setupGuideDismissed && !state.agentSetupSkipped) {
@@ -408,6 +412,143 @@ function setText(el, value) {
     return;
   }
   el.textContent = value;
+}
+
+function coreStartupStatusText() {
+  const mode = state.coreStartup?.mode || "start";
+  const percent = Math.max(0, Math.min(100, Number(state.coreStartup?.percent) || 0));
+  return `Mia Core ${mode === "restart" ? "重启" : "启动"}中 ${percent}%`;
+}
+
+function isCoreStartupStatusVisible() {
+  return Boolean(state.coreStartup?.active && activeConversationBotContext());
+}
+
+function isCoreStartupSendBlocked() {
+  return Boolean(state.coreStartup?.active && activeConversationBotContext());
+}
+
+function renderCoreStartupStatus() {
+  const showCoreStartupStatus = isCoreStartupStatusVisible();
+  els.modelSwitchStatus?.classList.toggle("core-starting", showCoreStartupStatus);
+  els.modelSwitchStatus?.classList.toggle("is-nudging", showCoreStartupStatus && Boolean(state.coreStartup?.nudgeTick));
+  if (!showCoreStartupStatus) return;
+  setText(els.modelSwitchStatus, coreStartupStatusText());
+}
+
+function setModelSwitchStatusText(value) {
+  const showCoreStartupStatus = isCoreStartupStatusVisible();
+  els.modelSwitchStatus?.classList.toggle("core-starting", showCoreStartupStatus);
+  els.modelSwitchStatus?.classList.toggle("is-nudging", showCoreStartupStatus && Boolean(state.coreStartup?.nudgeTick));
+  if (showCoreStartupStatus) {
+    setText(els.modelSwitchStatus, coreStartupStatusText());
+    return;
+  }
+  setText(els.modelSwitchStatus, value);
+}
+
+function clearCoreStartupTimers() {
+  if (coreStartupProgressTimer) {
+    clearTimeout(coreStartupProgressTimer);
+    coreStartupProgressTimer = 0;
+  }
+  if (coreStartupSettleTimer) {
+    clearTimeout(coreStartupSettleTimer);
+    coreStartupSettleTimer = 0;
+  }
+  if (coreStartupNudgeTimer) {
+    clearTimeout(coreStartupNudgeTimer);
+    coreStartupNudgeTimer = 0;
+  }
+  if (coreStartupWatchdogTimer) {
+    clearTimeout(coreStartupWatchdogTimer);
+    coreStartupWatchdogTimer = 0;
+  }
+}
+
+function beginCoreStartupProgress(mode = "start") {
+  clearCoreStartupTimers();
+  state.coreStartup = {
+    ...(state.coreStartup || {}),
+    active: true,
+    mode,
+    percent: 10,
+    nudgeTick: 0
+  };
+  renderCoreStartupStatus();
+  renderSendButton();
+  coreStartupProgressTimer = setTimeout(() => {
+    coreStartupProgressTimer = 0;
+    advanceCoreStartupProgress(35);
+  }, 180);
+  coreStartupWatchdogTimer = setTimeout(() => {
+    coreStartupWatchdogTimer = 0;
+    completeCoreStartupProgress(false);
+  }, 12000);
+}
+
+function advanceCoreStartupProgress(percent) {
+  if (!state.coreStartup?.active) return;
+  const next = Math.max(Number(state.coreStartup?.percent) || 0, Math.max(0, Math.min(100, Math.round(Number(percent) || 0))));
+  state.coreStartup = {
+    ...(state.coreStartup || {}),
+    percent: next
+  };
+  renderCoreStartupStatus();
+  renderSendButton();
+}
+
+function completeCoreStartupProgress(success = true) {
+  if (!state.coreStartup) return;
+  clearCoreStartupTimers();
+  const finish = () => {
+    state.coreStartup = {
+      ...(state.coreStartup || {}),
+      active: false,
+      mode: "",
+      percent: 0,
+      nudgeTick: 0
+    };
+    renderCoreStartupStatus();
+    renderSendButton();
+  };
+  if (success && state.coreStartup.active) {
+    state.coreStartup = {
+      ...(state.coreStartup || {}),
+      percent: 100
+    };
+    renderCoreStartupStatus();
+    renderSendButton();
+    coreStartupSettleTimer = setTimeout(() => {
+      coreStartupSettleTimer = 0;
+      finish();
+    }, 240);
+    return;
+  }
+  finish();
+}
+
+function nudgeCoreStartupStatus() {
+  if (!isCoreStartupSendBlocked()) return;
+  state.coreStartup = {
+    ...(state.coreStartup || {}),
+    nudgeTick: Number(state.coreStartup?.nudgeTick || 0) + 1
+  };
+  renderCoreStartupStatus();
+  if (els.modelSwitchStatus) {
+    els.modelSwitchStatus.classList.remove("is-nudging");
+    void els.modelSwitchStatus.offsetWidth;
+    els.modelSwitchStatus.classList.add("is-nudging");
+  }
+  if (coreStartupNudgeTimer) clearTimeout(coreStartupNudgeTimer);
+  coreStartupNudgeTimer = setTimeout(() => {
+    coreStartupNudgeTimer = 0;
+    state.coreStartup = {
+      ...(state.coreStartup || {}),
+      nudgeTick: 0
+    };
+    renderCoreStartupStatus();
+  }, 420);
 }
 
 function isMiaModelIcon(icon = "") {
@@ -2022,11 +2163,18 @@ function renderSendButton() {
   const generating = status === "running";
   const cancelling = status === "cancelling";
   const busy = generating || cancelling;
+  const blockedByCoreStartup = !busy && canSend && isCoreStartupSendBlocked();
   els.sendChat.classList.toggle("stop", busy);
   els.sendChat.classList.toggle("stopping", cancelling);
-  const title = cancelling ? "正在停止" : (generating ? "停止生成" : "发送");
+  els.sendChat.classList.toggle("core-blocked", blockedByCoreStartup);
+  const title = cancelling
+    ? "正在停止"
+    : (generating
+      ? "停止生成"
+      : (blockedByCoreStartup ? coreStartupStatusText() : "发送"));
   els.sendChat.title = title;
   els.sendChat.setAttribute("aria-label", title);
+  els.sendChat.setAttribute("aria-disabled", blockedByCoreStartup ? "true" : "false");
   els.sendChat.disabled = cancelling || (!generating && !canSend);
 }
 
@@ -3113,9 +3261,13 @@ async function loadTasksFromDaemonForStartup() {
 
 async function runFirstRunBackgroundServices() {
   if (typeof window.mia?.startupBackgroundServices !== "function") return null;
+  beginCoreStartupProgress("start");
   try {
-    return await trackStartupTask("启动 Mia Core", () => window.mia.startupBackgroundServices());
+    const result = await trackStartupTask("启动 Mia Core", () => window.mia.startupBackgroundServices());
+    advanceCoreStartupProgress(70);
+    return result;
   } catch (error) {
+    completeCoreStartupProgress(false);
     console.warn("[Mia startup] failed to start background services", error);
     return { ok: false, error: error?.message || String(error || "Unknown error") };
   }
@@ -3310,7 +3462,7 @@ function render() {
   window.miaModelSettings.syncEffortControl(runtime);
   const connectedEntries = window.miaModelSettings.connectedModelEntries(runtime);
   const engine = window.miaEngineOptions.activeAgentEngine();
-  setText(els.modelSwitchStatus, window.miaEngineOptions.isExternalAgentEngine(engine)
+  setModelSwitchStatusText(window.miaEngineOptions.isExternalAgentEngine(engine)
     ? window.miaEngineOptions.localEngineStatusText(runtime, engine)
     : connectedEntries.length ? (runtime.engineRunning ? "已连接" : runtime.engineInstalled ? "未启动" : "未安装") : "先连接提供商");
   if (els.quickModelSelect) {
@@ -3331,6 +3483,7 @@ function render() {
   applyComposerModelAvatar(document.querySelector(".model-avatar"), activeIcon);
   window.miaModelSettings.syncPermissionControl(runtime);
   syncConversationBotRuntimeControls();
+  renderCoreStartupStatus();
 
   const personas = allOwnedBotsForIdentity();
   const social = window.miaSocial;
@@ -4867,7 +5020,7 @@ function syncConversationBotRuntimeControls() {
   if (!context) {
     if (window.miaSocial?.getActiveConversationId?.()) {
       setRuntimeControlDisabled(true);
-      setText(els.modelSwitchStatus, "当前聊天不支持切换模型");
+      setModelSwitchStatusText("当前聊天不支持切换模型");
     }
     return false;
   }
@@ -4905,7 +5058,7 @@ function syncConversationBotRuntimeControls() {
   if (els.quickModelSelect) els.quickModelSelect.disabled = false;
   if (els.effortSelect) els.effortSelect.disabled = false;
   if (els.permissionMode) els.permissionMode.disabled = false;
-  setText(els.modelSwitchStatus, context.runtimeKind === "cloud-claude-code"
+  setModelSwitchStatusText(context.runtimeKind === "cloud-claude-code"
     ? (engine ? "Mia Cloud" : "Mia Cloud · 内核未同步")
     : window.miaEngineContracts?.engineLabel?.(engine) || engine);
   if (!platformModelCatalog.loaded && !platformModelCatalog.loading) {
@@ -4924,7 +5077,7 @@ function syncConversationBotRuntimeControls() {
         if (latest?.conversationId === context.conversationId) render();
       })
       .catch((error) => {
-        setText(els.modelSwitchStatus, "运行配置读取失败");
+        setModelSwitchStatusText("运行配置读取失败");
         console.warn("[renderer] bot runtime load failed:", error?.message || error);
       })
       .finally(() => {
@@ -4943,7 +5096,7 @@ function setRuntimeControlDisabled(disabled) {
 async function saveActiveBotRuntimeControl(field, value, pendingText, successText, errorPrefix, modelEntries = []) {
   const context = activeBotRuntimeControlContext();
   if (!context) return false;
-  setText(els.modelSwitchStatus, pendingText);
+  setModelSwitchStatusText(pendingText);
   setRuntimeControlDisabled(true);
   try {
     const result = await window.miaBotCommands.saveBotRuntimeControl({
@@ -4958,10 +5111,10 @@ async function saveActiveBotRuntimeControl(field, value, pendingText, successTex
     });
     if (!result?.saved) return false;
     if (result.runtime) state.runtime = result.runtime;
-    setText(els.modelSwitchStatus, successText);
+    setModelSwitchStatusText(successText);
     render();
   } catch (error) {
-    setText(els.modelSwitchStatus, "保存失败");
+    setModelSwitchStatusText("保存失败");
     appendTransientChat("assistant", `${errorPrefix}: ${error.message || error}`);
     syncConversationBotRuntimeControls();
   } finally {
@@ -4983,17 +5136,17 @@ async function saveActivePermissionRuntimeControl(mode) {
       "Permission mode failed"
     );
   }
-  setText(els.modelSwitchStatus, "保存权限...");
+  setModelSwitchStatusText("保存权限...");
   setRuntimeControlDisabled(true);
   try {
     state.runtime = await window.mia.savePermissions({
       engine,
       mode: mode || "default"
     });
-    setText(els.modelSwitchStatus, "权限已更新");
+    setModelSwitchStatusText("权限已更新");
     render();
   } catch (error) {
-    setText(els.modelSwitchStatus, "保存失败");
+    setModelSwitchStatusText("保存失败");
     appendTransientChat("assistant", `Permission mode failed: ${error.message || error}`);
     syncConversationBotRuntimeControls();
   } finally {
@@ -5193,6 +5346,9 @@ async function refreshRuntime() {
     };
   }
   state.runtime = runtime;
+  if (state.coreStartup?.active && runtime?.daemon?.running) {
+    completeCoreStartupProgress(true);
+  }
   renderDaemonStatus(runtime.daemon || {});
   state.petJobs = state.runtime?.petJobs || state.petJobs;
   if (state.botDialogOpen
@@ -5406,6 +5562,10 @@ async function initializeRuntime(options = {}) {
     advanceOnboarding("engine");
   }
   state.runtime = runtime;
+  if (!blockStartup && !runtime?.daemon?.running) {
+    beginCoreStartupProgress("start");
+    advanceCoreStartupProgress(35);
+  }
   // Initialize extracted renderer modules BEFORE any subsequent trackStartupTask
   // call, because trackStartupTask itself triggers render() at start and finish;
   // once state.runtime is set, render() no longer early-returns and will call
@@ -5638,12 +5798,13 @@ async function initializeRuntime(options = {}) {
     setTimeout(refreshRuntime, 120);
   }
   if (blockStartup) {
-    await runFirstRunBackgroundServices();
+    const backgroundStartup = await runFirstRunBackgroundServices();
     await loadInitialRuntimeData();
     await loadTasksFromDaemonForStartup();
     await trackStartupTask("刷新运行状态", () => refreshRuntime()).catch((error) => {
       console.warn("[Mia startup] failed to refresh runtime", error);
     });
+    completeCoreStartupProgress(backgroundStartup?.ok !== false);
     return;
   }
   setTimeout(() => {
@@ -6173,13 +6334,22 @@ async function refreshDaemonControls() {
 }
 
 els.daemonRestart?.addEventListener("click", async () => {
+  const mode = state.runtime?.daemon?.running ? "restart" : "start";
+  beginCoreStartupProgress(mode);
   els.daemonRestart.disabled = true;
-  setText(els.daemonHint, "Mia Core 重启中…");
+  setText(els.daemonHint, `Mia Core ${mode === "restart" ? "重启" : "启动"}中…`);
   try {
-    await window.mia.stopDaemon();
+    if (mode === "restart") await window.mia.stopDaemon();
+    advanceCoreStartupProgress(35);
     await window.mia.startDaemon();
+    advanceCoreStartupProgress(70);
+    await refreshRuntime().catch((error) => {
+      console.warn("[Mia startup] failed to refresh runtime after manual daemon start", error);
+    });
+    completeCoreStartupProgress(true);
   } catch (error) {
-    setText(els.daemonHint, `Mia Core 重启失败：${error.message || error}`);
+    completeCoreStartupProgress(false);
+    setText(els.daemonHint, `Mia Core ${mode === "restart" ? "重启" : "启动"}失败：${error.message || error}`);
   }
   await refreshDaemonControls();
 });
@@ -7479,6 +7649,12 @@ window.addEventListener("blur", () => {
 });
 
 els.sendChat.addEventListener("click", async (event) => {
+  if (isCoreStartupSendBlocked()) {
+    event.preventDefault();
+    event.stopPropagation();
+    nudgeCoreStartupStatus();
+    return;
+  }
   const activeRun = window.miaSocial?.activeConversationRun?.();
   if (activeRun?.status !== "running") return;
   event.preventDefault();
@@ -7655,6 +7831,10 @@ els.chat.addEventListener("toggle", (event) => {
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (window.miaMessageHelpers.isComposerComposing()) return;
+  if (isCoreStartupSendBlocked()) {
+    nudgeCoreStartupStatus();
+    return;
+  }
   // Branch: a cloud conversation (dm / group / bot) is active → send via social.
   if (window.miaSocial?.getActiveConversationId?.()) {
     const conversationId = window.miaSocial.getActiveConversationId();

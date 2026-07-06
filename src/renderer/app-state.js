@@ -21,6 +21,7 @@
       generatingTitleIds: new Set(),
       generatedFiles: new Map(),
       startupTasks: [],
+      coreStartup: { active: false, mode: "", percent: 0, nudgeTick: 0 },
       firstRun: false,
       setupGuideDismissed: readLocal(storage, SETUP_GUIDE_DISMISSED_KEY) === "1",
       agentSetupSkipped: readLocal(storage, AGENT_SETUP_SKIPPED_KEY) === "1",

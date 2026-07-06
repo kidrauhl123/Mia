@@ -193,6 +193,42 @@ test("runtime refresh re-renders the daemon status card from observed daemon sta
   );
 });
 
+test("bot composer shows Mia Core startup progress through the right-side status slot", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const appStateSource = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(appStateSource, /coreStartup:\s*\{\s*active:\s*false,\s*mode:\s*"",\s*percent:\s*0,\s*nudgeTick:\s*0\s*\}/);
+  assert.match(appSource, /function coreStartupStatusText\(\)\s*\{/);
+  assert.match(appSource, /return `Mia Core \$\{mode === "restart" \? "重启" : "启动"\}中 \$\{percent\}%`;/);
+  assert.match(appSource, /function setModelSwitchStatusText\(value\)\s*\{/);
+  assert.match(appSource, /const showCoreStartupStatus = isCoreStartupStatusVisible\(\);/);
+  assert.match(appSource, /els\.modelSwitchStatus\?\.classList\.toggle\("core-starting",\s*showCoreStartupStatus\)/);
+  assert.match(appSource, /runFirstRunBackgroundServices\(\)[\s\S]*?beginCoreStartupProgress\("start"\)/);
+  assert.match(appSource, /els\.daemonRestart\?\.addEventListener\("click", async \(\) => \{[\s\S]*?beginCoreStartupProgress\(/);
+  assert.match(css, /\.model-switch-status\.core-starting\s*\{/);
+  assert.match(css, /\.model-switch-status\.core-starting\.is-nudging\s*\{/);
+});
+
+test("only bot conversations block sends while Mia Core startup is in progress", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const clickStart = appSource.indexOf('els.sendChat.addEventListener("click"');
+  const clickEnd = appSource.indexOf('els.chat.addEventListener("click"', clickStart);
+  const clickBody = appSource.slice(clickStart, clickEnd);
+  const submitStart = appSource.indexOf('els.chatForm.addEventListener("submit"');
+  const submitEnd = appSource.indexOf("// Cloud-only:", submitStart);
+  const submitBody = appSource.slice(submitStart, submitEnd);
+
+  assert.match(appSource, /function isCoreStartupSendBlocked\(\)\s*\{\s*return Boolean\(state\.coreStartup\?\.active && activeConversationBotContext\(\)\);\s*\}/);
+  assert.match(appSource, /function nudgeCoreStartupStatus\(\)\s*\{/);
+  assert.match(appSource, /els\.sendChat\.classList\.toggle\("core-blocked",\s*blockedByCoreStartup\)/);
+  assert.match(clickBody, /if \(isCoreStartupSendBlocked\(\)\) \{[\s\S]*?nudgeCoreStartupStatus\(\);[\s\S]*?return;\s*\}/);
+  assert.match(submitBody, /if \(isCoreStartupSendBlocked\(\)\) \{[\s\S]*?nudgeCoreStartupStatus\(\);[\s\S]*?return;\s*\}/);
+  assert.match(css, /\.send-button\.core-blocked\s*\{/);
+  assert.match(css, /@keyframes\s+composerCoreStartupNudge\s*\{/);
+});
+
 test("cloud conversation send and render do not depend on activeKey being empty", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
