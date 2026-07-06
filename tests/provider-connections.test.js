@@ -109,3 +109,21 @@ test("summaries do not report codex as connected without codex auth tokens", () 
     false
   );
 });
+
+test("get returns the synthetic Codex OAuth connection after Codex login", () => {
+  const { service } = createHarness({
+    codexAuthStatus: () => ({ codexLoggedIn: true })
+  });
+
+  assert.deepEqual(service.get("openai-codex"), {
+    provider: "openai-codex",
+    providerLabel: "OpenAI Codex",
+    authType: "oauth_external",
+    apiKeyEnv: "",
+    apiKey: "",
+    baseUrl: "https://chatgpt.com/backend-api/codex",
+    apiMode: "codex_responses",
+    connectedAt: "",
+    hasApiKey: true
+  });
+});

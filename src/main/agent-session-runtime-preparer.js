@@ -245,6 +245,14 @@ function createAgentSessionRuntimePreparer(options = {}) {
       else delete config.skills;
     }
     fs.mkdirSync(targetHome, { recursive: true });
+    const sourceAuthPath = path.join(sourceHome, "auth.json");
+    const targetAuthPath = path.join(targetHome, "auth.json");
+    if (fs.existsSync(sourceAuthPath)) {
+      fs.copyFileSync(sourceAuthPath, targetAuthPath);
+      fs.chmodSync(targetAuthPath, 0o600);
+    } else {
+      fs.rmSync(targetAuthPath, { force: true });
+    }
     fs.writeFileSync(
       path.join(targetHome, "config.yaml"),
       yaml.dump(config, { lineWidth: 100, noRefs: true }),

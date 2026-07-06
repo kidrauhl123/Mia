@@ -350,6 +350,49 @@ test("native Claude Code model profiles do not require provider connections in C
   await core.closeAgentEngines();
 });
 
+test("Hermes Codex OAuth model profiles resolve through Core AgentSession", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-hermes-codex-runtime-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(home, "auth.json"), JSON.stringify({
+    providers: {
+      "openai-codex": {
+        tokens: {
+          access_token: "codex-access-token",
+          refresh_token: "codex-refresh-token"
+        }
+      }
+    }
+  }, null, 2));
+  const managerCalls = [];
+  const runtimePaths = makeRuntimePaths(home);
+  const core = createCoreBotExecution({
+    runtimePaths,
+    settingsStore: loggedInSettingsStore,
+    agentSessionManager: recordingAgentSessionManager(managerCalls)
+  });
+
+  await core.sendChat({
+    botKey: "bot-hermes",
+    botSnapshot: { key: "bot-hermes", name: "Hermes", agentEngine: "hermes", capabilities: {} },
+    sessionId: "conversation:s1",
+    runtimeConfig: {
+      agentEngine: "hermes",
+      providerConnectionId: "openai-codex",
+      modelProfileId: "openai-codex:gpt-5.5",
+      model: "gpt-5.5"
+    },
+    messages: [{ role: "user", id: "turn_1", content: "hi" }]
+  });
+
+  assert.equal(managerCalls[0].conversationId, "conversation:s1");
+  assert.equal(managerCalls[0].engineId, "hermes");
+  assert.equal(managerCalls[0].runtimeKey, "openai-codex:gpt-5.5");
+  assert.equal(managerCalls[0].text, "hi");
+  assert.match(managerCalls[0].env.HERMES_HOME, /openai-codex_gpt-5\.5-/);
+
+  await core.closeAgentEngines();
+});
+
 test("Task 13: local agent deep checks probe the ACP launch commands each interactive engine now requires", async (t) => {
   const { service, execCalls } = makeLocalAgentService(t, {
     execFile: (file, args, options, cb) => {

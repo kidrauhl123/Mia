@@ -462,5 +462,7 @@ function createAuthService({
 }
 
 module.exports = {
-  createAuthService
+  CODEX_CHATGPT_BASE_URL,
+  createAuthService,
+  hasCodexRuntimeCredentials
 };

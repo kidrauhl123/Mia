@@ -316,6 +316,11 @@ test("prepares Hermes Mia managed runtime in a session-scoped Hermes home", asyn
       external_dirs: ["/skills/a"]
     }
   }), "utf8");
+  fs.writeFileSync(path.join(hermesHome, "auth.json"), JSON.stringify({
+    credential_pool: {
+      "openai-codex": [{ access_token: "codex-access", refresh_token: "codex-refresh" }]
+    }
+  }, null, 2));
 
   const preparer = createAgentSessionRuntimePreparer({
     resolveManagedModelRuntime: (runtimeConfig, context) => {
@@ -374,6 +379,8 @@ test("prepares Hermes Mia managed runtime in a session-scoped Hermes home", asyn
   assert.equal(parsed.approvals.mode, "yolo");
   assert.equal(parsed.agent.reasoning_effort, "medium");
   assert.equal(parsed.skills?.external_dirs, undefined);
+  const copiedAuth = JSON.parse(fs.readFileSync(path.join(runtime.env.HERMES_HOME, "auth.json"), "utf8"));
+  assert.equal(copiedAuth.credential_pool["openai-codex"][0].access_token, "codex-access");
 });
 
 test("preparing OpenClaw managed runtime strips unsupported per-session MCP servers", async () => {

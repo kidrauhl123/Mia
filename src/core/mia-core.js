@@ -90,6 +90,8 @@ const {
   createMiaCoreModelRuntimeResolver,
   isMiaManagedRuntime
 } = require("../main/mia-core/model-runtime-resolver.js");
+const { createProviderConnections } = require("../main/provider-connections.js");
+const { hasCodexRuntimeCredentials } = require("../main/auth-service.js");
 const { createClaudeCodeMiaProxy } = require("../main/claude-code-mia-proxy.js");
 const { createCodexMiaProxy } = require("../main/codex-mia-proxy.js");
 const { createAgentSessionRuntimePreparer } = require("../main/agent-session-runtime-preparer.js");
@@ -587,10 +589,30 @@ function createCoreBotExecution({
   const normalizeCloudUrl = settingsStore && typeof settingsStore.normalizeCloudUrl === "function"
     ? settingsStore.normalizeCloudUrl
     : (value) => String(value || "");
+  function coreCodexAuthStatus() {
+    let loggedIn = false;
+    try {
+      loggedIn = loggedIn || hasCodexRuntimeCredentials(readJson(runtimePaths().authJson, {}));
+    } catch {
+      loggedIn = loggedIn || false;
+    }
+    try {
+      loggedIn = loggedIn || hasCodexRuntimeCredentials(readJson(path.join(runtimePaths().hermesHome, "auth.json"), {}));
+    } catch {
+      loggedIn = loggedIn || false;
+    }
+    return { codexLoggedIn: loggedIn };
+  }
+  const providerConnections = createProviderConnections({
+    runtimePaths,
+    readJson,
+    modelSettings: () => ({}),
+    codexAuthStatus: coreCodexAuthStatus
+  });
   const modelRuntimeResolver = createMiaCoreModelRuntimeResolver({
     cloudStatus: () => coreCloudSettings(),
     normalizeCloudUrl,
-    providerConnection: () => null,
+    providerConnection: (providerId) => providerConnections.get(providerId),
     modelSettings: () => ({})
   });
 
