@@ -29,6 +29,25 @@ function hasCodexRuntimeCredentials(auth = {}) {
   return entries.some((entry) => String(entry?.access_token || "").trim());
 }
 
+function firstHttpUrl(value) {
+  const match = String(value || "").match(/https?:\/\/[^\s)]+/);
+  return match ? match[0] : "";
+}
+
+function isLoopbackUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return ["127.0.0.1", "::1", "localhost"].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function authVerificationUrl(value) {
+  const url = firstHttpUrl(value);
+  return url && !isLoopbackUrl(url) ? url : "";
+}
+
 function createAuthService({
   runtimePaths,
   readJson,
@@ -71,10 +90,11 @@ function createAuthService({
       .replace(/(access_token|refresh_token)["']?\s*[:=]\s*["']?[^"',\s]+/gi, "$1=[REDACTED]");
     const codeMatch = clean.match(/\b[A-Z0-9]{4}-[A-Z0-9]{4,8}\b/);
     if (codeMatch) authState.codexUserCode = codeMatch[0];
-    const urlMatch = clean.match(/https?:\/\/[^\s)]+/);
-    if (urlMatch) authState.codexVerificationUrl = urlMatch[0];
+    const verificationUrl = authVerificationUrl(clean);
+    if (verificationUrl) authState.codexVerificationUrl = verificationUrl;
     authState.logs.push(clean);
     if (authState.logs.length > 240) authState.logs = authState.logs.slice(-240);
+    return verificationUrl;
   }
 
   function status() {
@@ -411,19 +431,29 @@ function createAuthService({
     };
     appendLog(`Starting ${providerLabel} OAuth...`);
 
-    const args = ["-m", "hermes_cli.main", "auth", "add", provider, "--type", "oauth"];
+    const args = ["-m", "hermes_cli.main", "auth", "add", provider, "--type", "oauth", "--no-browser"];
     authProcess = spawnProcess(enginePython(), args, {
       cwd: p.engine,
       env: {
         ...process.env,
         HERMES_HOME: effectiveHermesHome(),
         MIA_HOME: p.home,
-        PYTHONPATH: buildPythonPath()
+        PYTHONPATH: buildPythonPath(),
+        PYTHONUNBUFFERED: "1"
       },
       stdio: ["ignore", "pipe", "pipe"]
     });
+    let openedVerificationUrl = "";
     const onOutput = (chunk) => {
-      for (const line of String(chunk).split(/\r?\n/).filter(Boolean)) appendLog(line);
+      for (const line of String(chunk).split(/\r?\n/).filter(Boolean)) {
+        const verificationUrl = appendLog(line);
+        if (verificationUrl && !openedVerificationUrl) {
+          openedVerificationUrl = verificationUrl;
+          Promise.resolve(shellOpenExternal(verificationUrl)).catch((error) => {
+            appendLog(`Could not automatically open ${providerLabel} login page: ${error?.message || error}`);
+          });
+        }
+      }
     };
     authProcess.stdout.on("data", onOutput);
     authProcess.stderr.on("data", onOutput);
