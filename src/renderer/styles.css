@@ -3849,33 +3849,6 @@ body.topbar-click-capture .topbar {
   background: var(--surface);
 }
 
-@container chat-view (max-width: 560px) {
-  #chatView .topbar {
-    gap: 8px;
-  }
-
-  #chatView .group-title,
-  #chatView .active-conversation-menu-button {
-    min-width: 0;
-    overflow: hidden;
-  }
-
-  #chatView .active-conversation-menu-button {
-    max-width: 100%;
-  }
-
-  #chatView .session-trigger {
-    grid-template-columns: 16px;
-    place-items: center;
-    width: 38px;
-    padding: 0;
-  }
-
-  #chatView .session-trigger .current-session-title {
-    display: none;
-  }
-}
-
 .session-new-button {
   width: 38px;
   height: 38px;
@@ -11148,6 +11121,33 @@ pre {
   #chatView .session-trigger {
     grid-template-columns: 16px;
     justify-content: center;
+    width: 38px;
+    padding: 0;
+  }
+
+  #chatView .session-trigger .current-session-title {
+    display: none;
+  }
+}
+
+@container chat-view (max-width: 560px) {
+  #chatView .topbar {
+    gap: 8px;
+  }
+
+  #chatView .group-title,
+  #chatView .active-conversation-menu-button {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  #chatView .active-conversation-menu-button {
+    max-width: 100%;
+  }
+
+  #chatView .session-trigger {
+    grid-template-columns: 16px;
+    place-items: center;
     width: 38px;
     padding: 0;
   }

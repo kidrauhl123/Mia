@@ -648,6 +648,8 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const appStateSource = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const chatViewCompactRuleIndex = styleSource.indexOf("@container chat-view (max-width: 560px)");
+  const narrowSessionRuleIndex = styleSource.indexOf("#chatView .session-trigger", styleSource.indexOf("@media (max-width: 720px)"));
 
   assert.match(html, /<div class="group-title">[\s\S]*?<button class="narrow-back-button"[\s\S]*?data-narrow-back[\s\S]*?<\/button>[\s\S]*?<div id="activeConversationMenuButton"[\s\S]*?role="button"[\s\S]*?aria-controls="chatConversationMenu"[\s\S]*?<div id="activeChatAvatar"/);
   assert.match(html, /<div id="chatConversationMenu" class="chat-conversation-menu hidden" role="listbox" aria-label="切换对话">[\s\S]*?<div id="chatConversationList" class="chat-conversation-list"><\/div>/);
@@ -680,6 +682,7 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   assert.match(styleSource, /\.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);[\s\S]*?-webkit-backdrop-filter:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(styleSource, /:root\[data-theme="dark"\] \.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);/);
   assert.match(styleSource, /@container\s+chat-view\s+\(max-width:\s*560px\)\s*\{[\s\S]*?#chatView \.session-trigger\s*\{[\s\S]*?grid-template-columns:\s*16px;[\s\S]*?width:\s*38px;[\s\S]*?#chatView \.session-trigger \.current-session-title\s*\{[\s\S]*?display:\s*none;/);
+  assert.ok(chatViewCompactRuleIndex > narrowSessionRuleIndex, "chat-view container compact rule must override viewport narrow session trigger rule");
   assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.topbar\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) auto;[\s\S]*?min-height:\s*38px;[\s\S]*?padding:\s*0;[\s\S]*?background:\s*transparent;[\s\S]*?pointer-events:\s*none;/);
   assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?body\.platform-darwin \.app-shell\[data-nav-layout="sidebar-bottom"\]\[data-shell-layout="single"\]\[data-narrow-pane="content"\] #chatView \.topbar\s*\{[\s\S]*?left:\s*86px;/);
   assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.narrow-back-button\s*\{[\s\S]*?display:\s*grid;/);
