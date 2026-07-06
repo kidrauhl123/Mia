@@ -214,6 +214,7 @@ test("settings account card includes the mobile scan qr shell and shows it only 
     user: { id: "100001", username: "wx_8067aabb7153", displayName: "我耳塞呢" }
   });
   assert.deepEqual(els.cloudMobileScanCard.classList.toggles.at(-1), ["hidden", false]);
+  assert.equal(els.cloudMobileScanMeta.textContent, "");
 
   await api.renderCloudAccount({ enabled: false, connected: false });
   assert.deepEqual(els.cloudMobileScanCard.classList.toggles.at(-1), ["hidden", true]);
@@ -224,6 +225,14 @@ test("settings account card includes the mobile scan qr shell and shows it only 
   assert.match(html, /id="cloudMobileScanQr"/);
   assert.match(html, /id="cloudLoginApproveDialog"/);
   assert.match(html, /允许这台手机登录当前账号/);
+});
+
+test("mobile scan confirmation polling stays responsive without hard-coded long delay", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /const CLOUD_MOBILE_SCAN_PENDING_POLL_MS = 700;/);
+  assert.match(appSource, /pollCloudMobileScanPending\(\)\.catch\(\(\) => \{\}\);\s*\n\s*\}, CLOUD_MOBILE_SCAN_PENDING_POLL_MS\);/);
+  assert.doesNotMatch(appSource, /pollCloudMobileScanPending\(\)\.catch\(\(\) => \{\}\);\s*\n\s*\}, 1500\);/);
 });
 
 test("settings account card caches stale-main IPC failures without flashing raw errors", async () => {

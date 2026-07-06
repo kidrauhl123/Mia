@@ -33,6 +33,7 @@ let conversationFolderDrag = null;
 let conversationFolderSuppressClick = false;
 let cloudMobileScanRefreshTimer = 0;
 let cloudMobileScanPendingTimer = 0;
+const CLOUD_MOBILE_SCAN_PENDING_POLL_MS = 700;
 const CONVERSATION_FOLDER_ORDER_KEY = "mia.conversationFolderOrder.v1";
 const CONVERSATION_FOLDER_ALL_KEY = "__all__";
 const CONVERSATION_FOLDER_LONG_PRESS_MS = 260;
@@ -5153,6 +5154,7 @@ async function refreshRuntime() {
     };
   }
   state.runtime = runtime;
+  renderDaemonStatus(runtime.daemon || {});
   state.petJobs = state.runtime?.petJobs || state.petJobs;
   if (state.botDialogOpen
     && typeof window.miaBotDialog?.readSelectedRuntimeTarget === "function"
@@ -5280,7 +5282,7 @@ async function pollCloudMobileScanPending() {
       cloudMobileScanPendingTimer = setTimeout(() => {
         cloudMobileScanPendingTimer = 0;
         pollCloudMobileScanPending().catch(() => {});
-      }, 1500);
+      }, CLOUD_MOBILE_SCAN_PENDING_POLL_MS);
     }
   }
 }

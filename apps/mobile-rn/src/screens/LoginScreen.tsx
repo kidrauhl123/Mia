@@ -269,7 +269,6 @@ export default function LoginScreen() {
         <BodyStrong style={[styles.stepsTitle, typography.type.settingHeader]}>扫码登录</BodyStrong>
         <Sub style={[styles.step, typography.type.info]}>· 打开电脑端 Mia，进入「设置 → 账号与同步」</Sub>
         <Sub style={[styles.step, typography.type.info]}>· 用手机直接扫描电脑上的二维码</Sub>
-        <Sub style={[styles.step, typography.type.info]}>· 电脑上点一次「允许」后，手机会直接进入 Mia</Sub>
       </View>
 
       {scanError ? <Sub style={[styles.error, typography.type.info]}>{scanError}</Sub> : null}
