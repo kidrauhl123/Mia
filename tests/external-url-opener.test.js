@@ -4,12 +4,16 @@ const { test } = require("node:test");
 
 const { createExternalUrlOpener } = require("../src/main/external-url-opener.js");
 
-function spawnedChild({ error = null } = {}) {
+function spawnedChild({ error = null, exitCode = 0 } = {}) {
   const child = new EventEmitter();
   child.unref = () => {};
   queueMicrotask(() => {
-    if (error) child.emit("error", error);
-    else child.emit("spawn");
+    if (error) {
+      child.emit("error", error);
+      return;
+    }
+    child.emit("spawn");
+    queueMicrotask(() => child.emit("close", exitCode, null));
   });
   return child;
 }
@@ -49,7 +53,7 @@ test("openExternalUrl uses macOS open command for browser urls", async () => {
     "spawn",
     "open",
     ["https://auth.openai.com/codex/device"],
-    { detached: true, stdio: "ignore" }
+    { stdio: "ignore" }
   ]]);
 });
 
@@ -69,6 +73,24 @@ test("openExternalUrl falls back to Electron shell when macOS open fails", async
   assert.equal(await openExternalUrl("https://auth.openai.com/codex/device"), true);
   assert.equal(calls.at(-1)[0], "shell");
   assert.equal(calls.at(-1)[1], "https://auth.openai.com/codex/device");
+});
+
+test("openExternalUrl falls back to Electron shell when macOS open exits unsuccessfully", async () => {
+  const calls = [];
+  const openExternalUrl = createExternalUrlOpener({
+    platform: "darwin",
+    spawnProcess: (...args) => {
+      calls.push(["spawn", ...args]);
+      return spawnedChild({ exitCode: 1 });
+    },
+    shellOpenExternal: async (url) => {
+      calls.push(["shell", url]);
+    }
+  });
+
+  assert.equal(await openExternalUrl("https://auth.x.ai/oauth2/authorize?state=abc"), true);
+  assert.equal(calls.at(-1)[0], "shell");
+  assert.equal(calls.at(-1)[1], "https://auth.x.ai/oauth2/authorize?state=abc");
 });
 
 test("openExternalUrl uses Electron shell outside macOS", async () => {
