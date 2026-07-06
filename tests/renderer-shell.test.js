@@ -728,10 +728,13 @@ test("session history menu keeps long lists inside the rounded card", () => {
 test("session history rename action is a real button separate from row selection", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const renderSessionMenuSource = extractFunctionSource(appSource, "renderCloudConversationSessionMenu");
 
   assert.doesNotMatch(appSource, /window\.prompt\("重命名这个会话"/);
   assert.match(appSource, /function startCloudSessionRename\(conversation\)/);
   assert.match(appSource, /function commitCloudSessionRename\(conversation\)/);
+  assert.match(appSource, /function shouldHoldCloudSessionRenameDom\(conversations\)/);
+  assert.match(renderSessionMenuSource, /if \(shouldHoldCloudSessionRenameDom\(conversations\)\) return;/);
   assert.match(appSource, /const row = document\.createElement\("div"\);/);
   assert.match(appSource, /row\.setAttribute\("role",\s*"option"\);/);
   assert.match(appSource, /row\.dataset\.cloudSessionSelect = conversation\.id;/);

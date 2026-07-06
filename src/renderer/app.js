@@ -4282,10 +4282,20 @@ async function selectCloudSessionConversation(conversation, { skipMessageLoad = 
   render();
 }
 
+function shouldHoldCloudSessionRenameDom(conversations) {
+  const rename = state.sessionRename || {};
+  if (!state.sessionMenuOpen || !rename.conversationId || rename.saving) return false;
+  if (!conversations.some((conversation) => conversation?.id === rename.conversationId)) return false;
+  const rows = Array.from(els.sessionList?.querySelectorAll?.(".session-row.editing") || []);
+  const row = rows.find((candidate) => candidate.dataset.cloudSessionSelect === rename.conversationId);
+  return Boolean(row?.querySelector?.("[data-cloud-session-rename-input]"));
+}
+
 function renderCloudConversationSessionMenu(activeConversation) {
   const conversations = cloudSessionConversationsForConversation(activeConversation);
   const activeId = activeConversation.id;
   updateCurrentSessionTitle(cloudSessionTitle(activeConversation));
+  if (shouldHoldCloudSessionRenameDom(conversations)) return;
   els.sessionList.innerHTML = "";
   for (const conversation of conversations) {
     const rename = state.sessionRename || {};
