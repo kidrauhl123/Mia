@@ -892,6 +892,75 @@ test("managed AgentSession turns pass prepared MCP session config to the manager
   }]);
 });
 
+test("managed AgentSession turns pass prompt-fallback skill metadata to the manager", async () => {
+  const calls = { manager: [], runtime: [], post: [], log: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace",
+    prepareAgentSessionRuntime: async (args) => {
+      calls.runtime.push(args);
+      return {
+        skillFingerprint: "skills:abc",
+        turnPromptPrefix: "## Prompt Fallback",
+        skillFallback: {
+          maxRounds: 2,
+          detectRequests: () => [],
+          materializePrompt: async () => "",
+          fallbackText: () => ""
+        }
+      };
+    }
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_managed_skill_fallback:openclaw",
+    turnId: "t_skill_fallback",
+    botSnapshot: { key: "starter_100003_openclaw", name: "OpenClaw", agentEngine: "openclaw" },
+    runtimeConfig: { agentEngine: "openclaw" }
+  });
+
+  assert.equal(calls.runtime.length, 1);
+  assert.deepEqual(calls.manager, [{
+    conversationId: "g_1",
+    engineId: "openclaw",
+    workspacePath: "/repo/workspace",
+    skillFingerprint: "skills:abc",
+    turnPromptPrefix: "## Prompt Fallback",
+    skillFallback: {
+      maxRounds: 2,
+      detectRequests: calls.manager[0]?.skillFallback?.detectRequests,
+      materializePrompt: calls.manager[0]?.skillFallback?.materializePrompt,
+      fallbackText: calls.manager[0]?.skillFallback?.fallbackText
+    },
+    turnId: "t_skill_fallback",
+    text: "hi"
+  }]);
+  assert.equal(typeof calls.manager[0].skillFallback.detectRequests, "function");
+  assert.equal(typeof calls.manager[0].skillFallback.materializePrompt, "function");
+  assert.equal(typeof calls.manager[0].skillFallback.fallbackText, "function");
+});
+
 test("starter engine bot ids route visible replies through AgentSession without runtime config", async () => {
   const calls = { manager: [], post: [], cloudEvents: [] };
   const responder = createLocalBotResponder({

@@ -113,7 +113,7 @@ export default function BotDetailScreen({ navigation, route }: Props) {
         </View>
       </View>
       <View style={styles.section}>
-        <Row label="运行时" value={runtime.data?.runtimeKind || "cloud-hermes"} />
+        <Row label="运行时" value={runtime.data?.runtimeKind || "cloud-claude-code"} />
         <Row label="启用" value={runtime.data?.enabled === false ? "否" : "是"} />
         <Row label="所有者" value={data.ownerUserId || data.owner_user_id || ""} />
       </View>

@@ -54,7 +54,7 @@ export function botDetailPath(botId: string): string {
   return `/api/me/bots/${encodeURIComponent(botId)}`;
 }
 
-export function botRuntimePath(botId: string, kind = "cloud-hermes"): string {
+export function botRuntimePath(botId: string, kind = "cloud-claude-code"): string {
   return withQuery(`/api/me/bots/${encodeURIComponent(botId)}/runtime`, { kind });
 }
 

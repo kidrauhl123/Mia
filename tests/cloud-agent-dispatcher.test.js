@@ -76,6 +76,11 @@ function setup() {
 }
 
 function makeDispatcher(ctx, overrides = {}) {
+  const defaultAgentClient = {
+    async runChat() {
+      return { runId: "hr_test", content: "reply", events: [] };
+    }
+  };
   return createCloudAgentDispatcher({
     socialStore: ctx.socialStore,
     messagesStore: ctx.messagesStore,
@@ -87,11 +92,7 @@ function makeDispatcher(ctx, overrides = {}) {
         return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway" };
       }
     },
-    hermesImClient: {
-      async runChat() {
-        return { runId: "hr_test", content: "reply", events: [] };
-      }
-    },
+    agentClient: overrides.agentClient || overrides.hermesImClient || defaultAgentClient,
     broadcastPersistedEvent() {},
     broadcastTransientEvent() {},
     listBridgeDevices() {

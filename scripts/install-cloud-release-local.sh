@@ -20,7 +20,6 @@ UPDATES_DIR="${MIA_DEPLOY_UPDATES_DIR:-/var/www/mia-updates}"
 DATA_DIR="${MIA_DEPLOY_DATA_DIR:-/var/lib/mia-cloud}"
 AGENT_ROOT="${MIA_CLOUD_AGENT_ROOT:-/var/lib/mia-cloud-agent-users}"
 AGENT_MODE="${MIA_CLOUD_AGENT_MODE:-claude-code}"
-HERMES_IMAGE="${MIA_CLOUD_HERMES_IMAGE:-mia/hermes-cloud:2026.5.29}"
 DEBIAN_APT_MIRROR="${MIA_DEBIAN_APT_MIRROR:-}"
 DEBIAN_APT_SECURITY_MIRROR="${MIA_DEBIAN_APT_SECURITY_MIRROR:-}"
 PIP_INDEX_URL="${MIA_PIP_INDEX_URL:-}"
@@ -29,9 +28,6 @@ AGENT_PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tencent.com/pypi/simple}"
 AGENT_PYTHON_BIN="${MIA_CLOUD_AGENT_PYTHON_BIN:-python3.12}"
 AGENT_PYTHON_VENV="${MIA_CLOUD_AGENT_PYTHON_VENV:-/opt/mia-agent-runtime/python}"
 AGENT_PYTHON_PACKAGES="${MIA_CLOUD_AGENT_PYTHON_PACKAGES:-python-pptx python-docx openpyxl xlsxwriter pandas numpy matplotlib pillow reportlab pypdf requests beautifulsoup4 lxml markdown}"
-SKIP_HERMES_IMAGE_BUILD="${MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD:-${MIA_SKIP_HERMES_IMAGE_BUILD:-}}"
-AGENT_DOCKER_NETWORK="${MIA_CLOUD_AGENT_DOCKER_NETWORK:-mia-cloud}"
-LITELLM_CONTAINER="${MIA_LITELLM_CONTAINER:-litellm}"
 AGENT_MODEL_PROVIDER="${MIA_CLOUD_AGENT_MODEL_PROVIDER:-mia}"
 AGENT_MODEL_NAME="${MIA_CLOUD_AGENT_MODEL:-mia-auto}"
 AGENT_MODEL_BASE_URL="${MIA_CLOUD_AGENT_MODEL_BASE_URL:-http://litellm:4000/v1}"
@@ -83,13 +79,6 @@ run_as_root() {
   else
     "$@"
   fi
-}
-
-is_legacy_hermes_agent() {
-  case "$AGENT_MODE" in
-    docker|static|hermes|hermes-*|hermes:*) return 0 ;;
-    *) return 1 ;;
-  esac
 }
 
 truthy_value() {
@@ -237,31 +226,6 @@ ensure_service_user() {
     login_shell="/bin/false"
   fi
   run_as_root "$useradd_cmd" --system --user-group --home-dir "$DATA_DIR" --shell "$login_shell" "$SERVICE_USER"
-}
-
-ensure_docker_access() {
-  if ! grep -q '^docker:' /etc/group; then
-    echo "Missing docker group; install Docker with a docker group before enabling cloud Hermes workers." >&2
-    exit 1
-  fi
-  if [ -n "$AGENT_DOCKER_NETWORK" ] && [ "$AGENT_DOCKER_NETWORK" != "bridge" ]; then
-    run_as_root docker network inspect "$AGENT_DOCKER_NETWORK" >/dev/null 2>&1 || run_as_root docker network create "$AGENT_DOCKER_NETWORK" >/dev/null
-    if run_as_root docker container inspect "$LITELLM_CONTAINER" >/dev/null 2>&1; then
-      run_as_root docker network connect "$AGENT_DOCKER_NETWORK" "$LITELLM_CONTAINER" >/dev/null 2>&1 || true
-    fi
-  fi
-  if id -nG "$SERVICE_USER" | tr ' ' '\n' | grep -qx docker; then
-    return
-  fi
-  usermod_cmd="$(command -v usermod || true)"
-  if [ -z "$usermod_cmd" ] && [ -x /usr/sbin/usermod ]; then
-    usermod_cmd="/usr/sbin/usermod"
-  fi
-  if [ -z "$usermod_cmd" ]; then
-    echo "Missing required command: usermod; add '$SERVICE_USER' to the docker group manually." >&2
-    exit 1
-  fi
-  run_as_root "$usermod_cmd" -aG docker "$SERVICE_USER"
 }
 
 stop_legacy_service() {
@@ -576,9 +540,6 @@ require_command rsync
 require_command systemctl
 require_command id
 require_command chown
-if is_legacy_hermes_agent; then
-  require_command docker
-fi
 require_command nginx
 ensure_claude_code_sandbox_deps
 ensure_agent_python_runtime
@@ -586,9 +547,6 @@ ensure_agent_python_runtime
 install_done=0
 trap rollback_install ERR
 ensure_service_user
-if is_legacy_hermes_agent; then
-  ensure_docker_access
-fi
 stop_legacy_service
 migrate_legacy_dir "$LEGACY_DATA_DIR" "$DATA_DIR" "data"
 migrate_legacy_dir "$LEGACY_AGENT_ROOT" "$AGENT_ROOT" "agent root"
@@ -625,32 +583,6 @@ if [ -f "$NGINX_SITE_CONF" ]; then
 fi
 
 run_as_root mkdir -p "$API_DIR" "$WEB_DIR" "$UPDATES_DIR" "$DATA_DIR" "$AGENT_ROOT"
-if is_legacy_hermes_agent && [ -f "$INSTALL_TMP/hermes-image/Dockerfile" ]; then
-  if [ "$SKIP_HERMES_IMAGE_BUILD" = "1" ]; then
-    if run_as_root docker image inspect "$HERMES_IMAGE" >/dev/null 2>&1; then
-      echo "Skipping cloud Hermes worker image build; existing image found: $HERMES_IMAGE"
-    else
-      echo "MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1 but image is missing: $HERMES_IMAGE" >&2
-      exit 1
-    fi
-  else
-    echo "Building cloud Hermes worker image: $HERMES_IMAGE"
-    docker_build_args=()
-    if [ -n "$DEBIAN_APT_MIRROR" ]; then
-      docker_build_args+=(--build-arg "DEBIAN_APT_MIRROR=$DEBIAN_APT_MIRROR")
-    fi
-    if [ -n "$DEBIAN_APT_SECURITY_MIRROR" ]; then
-      docker_build_args+=(--build-arg "DEBIAN_APT_SECURITY_MIRROR=$DEBIAN_APT_SECURITY_MIRROR")
-    fi
-    if [ -n "$PIP_INDEX_URL" ]; then
-      docker_build_args+=(--build-arg "PIP_INDEX_URL=$PIP_INDEX_URL")
-    fi
-    if [ -n "$PIP_EXTRA_INDEX_URL" ]; then
-      docker_build_args+=(--build-arg "PIP_EXTRA_INDEX_URL=$PIP_EXTRA_INDEX_URL")
-    fi
-    run_as_root docker build "${docker_build_args[@]}" -t "$HERMES_IMAGE" "$INSTALL_TMP/hermes-image"
-  fi
-fi
 run_as_root rsync -a --delete "$INSTALL_TMP/api/" "$API_DIR/"
 run_as_root cp "$INSTALL_TMP/manifest.json" "$API_DIR/release-manifest.json"
 sync_web_release
@@ -695,9 +627,6 @@ Environment=MIA_CLOUD_CLAUDE_CODE_BASE_URL=$CLAUDE_CODE_BASE_URL
 Environment=MIA_CLOUD_CLAUDE_CODE_MODEL=$CLAUDE_CODE_MODEL
 Environment=MIA_CLOUD_CLAUDE_CODE_SANDBOX=$CLAUDE_CODE_SANDBOX
 Environment=MIA_CLOUD_CLAUDE_CODE_SANDBOX_REQUIRED=$CLAUDE_CODE_SANDBOX_REQUIRED
-Environment=MIA_CLOUD_HERMES_IMAGE=$HERMES_IMAGE
-Environment=MIA_CLOUD_HERMES_CONTAINER_PORT=8765
-Environment=MIA_CLOUD_AGENT_DOCKER_NETWORK=$AGENT_DOCKER_NETWORK
 Environment=MIA_CLOUD_AGENT_MODEL_PROVIDER=$AGENT_MODEL_PROVIDER
 Environment=MIA_CLOUD_AGENT_MODEL=$AGENT_MODEL_NAME
 Environment=MIA_CLOUD_AGENT_MODEL_BASE_URL=$AGENT_MODEL_BASE_URL

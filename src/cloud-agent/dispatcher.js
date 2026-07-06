@@ -20,7 +20,6 @@ const {
   stripLoadSkillRequests
 } = require("../shared/skill-load-protocol.js");
 const { miaRuntimeSystemPrompt } = require("../main/mia-runtime-context.js");
-const { normalizeCloudHermesModel } = require("./cloud-hermes-model.js");
 const { normalizeCloudClaudeCodeModel } = require("./cloud-claude-code-model.js");
 
 const BOT_MEMBER_KIND = "bot";
@@ -29,7 +28,6 @@ const DESKTOP_INVOCATION_HISTORY_LIMIT = 200;
 const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "OpenClaw", "Hermes"];
 const MAX_SKILL_LOAD_ROUNDS = 3;
 const CLOUD_CLAUDE_CODE_RUNTIME_KIND = "cloud-claude-code";
-const LEGACY_CLOUD_HERMES_RUNTIME_KIND = "cloud-hermes";
 
 function botForMember(member, bots) {
   const ref = member?.member_ref;
@@ -302,7 +300,7 @@ function runResultIsInterrupted(result = {}) {
 
 function isCloudRuntimeKind(value = "") {
   const runtimeKind = String(value || "").trim();
-  return runtimeKind === CLOUD_CLAUDE_CODE_RUNTIME_KIND || runtimeKind === LEGACY_CLOUD_HERMES_RUNTIME_KIND;
+  return runtimeKind === CLOUD_CLAUDE_CODE_RUNTIME_KIND;
 }
 
 function messageRole(row) {
@@ -336,9 +334,7 @@ function hasRuntimeRunPrefix(runtimeRunId = "") {
 
 function normalizeCloudRuntimeModel(value, { runtimeKind = "", worker = {}, agentClient = {} } = {}) {
   const defaultModel = worker.model || worker.workerModel || "mia-auto";
-  return runtimeKind === LEGACY_CLOUD_HERMES_RUNTIME_KIND || agentClient.requiresGateway !== false
-    ? normalizeCloudHermesModel(value, { defaultModel })
-    : normalizeCloudClaudeCodeModel(value, { defaultModel });
+  return normalizeCloudClaudeCodeModel(value, { defaultModel });
 }
 
 function createCloudAgentDispatcher(deps = {}) {
@@ -348,7 +344,7 @@ function createCloudAgentDispatcher(deps = {}) {
   const runtimeBindingsStore = requireDep(deps, "runtimeBindingsStore");
   const cloudAgentRunsStore = requireDep(deps, "cloudAgentRunsStore");
   const workerManager = requireDep(deps, "workerManager");
-  const agentClient = deps.agentClient || deps.cloudAgentClient || deps.hermesImClient;
+  const agentClient = deps.agentClient || deps.cloudAgentClient;
   if (!agentClient) throw new Error("agentClient dependency is required");
   const attachmentMaterializer = deps.attachmentMaterializer || null;
   const broadcastPersistedEvent = typeof deps.broadcastPersistedEvent === "function"
@@ -1008,7 +1004,6 @@ function createCloudAgentDispatcher(deps = {}) {
       ? activeBinding
       : (!activeBinding
         ? runtimeBindingsStore.getEnabledBinding(ownerId, botId, CLOUD_CLAUDE_CODE_RUNTIME_KIND)
-          || runtimeBindingsStore.getEnabledBinding(ownerId, botId, LEGACY_CLOUD_HERMES_RUNTIME_KIND)
         : null);
     if (cloudBinding) {
       return runCloudInline({

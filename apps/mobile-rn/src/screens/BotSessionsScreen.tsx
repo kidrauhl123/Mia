@@ -47,7 +47,7 @@ export default function BotSessionsScreen({ navigation, route }: Props) {
     if (!active) return;
     const payload = createBotSessionPayload(active as any, randomSessionId(), {
       title: "新对话",
-      runtimeKindFallback: runtimeKind(active as any, "cloud-hermes"),
+      runtimeKindFallback: runtimeKind(active as any, "cloud-claude-code"),
     });
     if (!payload.botId) return;
     const res = await createSession.mutateAsync({

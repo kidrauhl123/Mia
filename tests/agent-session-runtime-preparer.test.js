@@ -50,12 +50,12 @@ test("prepares Claude Code Mia managed model proxy env for AgentSession", async 
 
   assert.equal(proxyCalls.length, 1);
   assert.equal(proxyCalls[0], managedModel);
-  assert.deepEqual(runtime, {
-    runtimeKey: "mia:mia-auto",
-    env: {
-      ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
-      ANTHROPIC_AUTH_TOKEN: "proxy-token"
-    }
+  assert.equal(runtime.runtimeKey, "mia:mia-auto");
+  assert.equal(runtime.skillDeliveryMode, "native-link");
+  assert.match(runtime.skillFingerprint, /^[a-f0-9]{16}$/);
+  assert.deepEqual(runtime.env, {
+    ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+    ANTHROPIC_AUTH_TOKEN: "proxy-token"
   });
 });
 
@@ -79,7 +79,10 @@ test("does not prepare proxy env for native Claude Code runtime", async () => {
     }
   });
 
-  assert.deepEqual(runtime, {});
+  assert.equal(runtime.skillDeliveryMode, "native-link");
+  assert.match(runtime.skillFingerprint, /^[a-f0-9]{16}$/);
+  assert.equal(runtime.runtimeKey, undefined);
+  assert.equal(runtime.env, undefined);
 });
 
 test("prepares Codex Mia managed model proxy env for AgentSession", async (t) => {
@@ -228,7 +231,10 @@ test("does not prepare Codex proxy env for native Codex runtime", async () => {
     }
   });
 
-  assert.deepEqual(runtime, {});
+  assert.equal(runtime.skillDeliveryMode, "native-link");
+  assert.match(runtime.skillFingerprint, /^[a-f0-9]{16}$/);
+  assert.equal(runtime.runtimeKey, undefined);
+  assert.equal(runtime.env, undefined);
 });
 
 test("prepares OpenClaw Mia profile for Mia managed model runtime", async () => {
@@ -276,11 +282,11 @@ test("prepares OpenClaw Mia profile for Mia managed model runtime", async () => 
     }, { engine: "openclaw" }],
     ["ensure", managedModel]
   ]);
-  assert.deepEqual(runtime, {
-    runtimeKey: "mia:mia-auto",
-    env: {
-      MIA_OPENCLAW_PROFILE: "mia"
-    }
+  assert.equal(runtime.runtimeKey, "mia:mia-auto");
+  assert.equal(runtime.skillDeliveryMode, "prompt-fallback");
+  assert.match(runtime.skillFingerprint, /^[a-f0-9]{16}$/);
+  assert.deepEqual(runtime.env, {
+    MIA_OPENCLAW_PROFILE: "mia"
   });
 });
 
@@ -367,7 +373,7 @@ test("prepares Hermes Mia managed runtime in a session-scoped Hermes home", asyn
   assert.equal(parsed.providers.mia.default_model, "mia-auto");
   assert.equal(parsed.approvals.mode, "yolo");
   assert.equal(parsed.agent.reasoning_effort, "medium");
-  assert.deepEqual(parsed.skills.external_dirs, ["/skills/a"]);
+  assert.equal(parsed.skills?.external_dirs, undefined);
 });
 
 test("preparing OpenClaw managed runtime strips unsupported per-session MCP servers", async () => {
@@ -441,7 +447,10 @@ test("does not touch OpenClaw profile for native OpenClaw runtime", async () => 
     }
   });
 
-  assert.deepEqual(runtime, {});
+  assert.equal(runtime.skillDeliveryMode, "prompt-fallback");
+  assert.match(runtime.skillFingerprint, /^[a-f0-9]{16}$/);
+  assert.equal(runtime.runtimeKey, undefined);
+  assert.equal(runtime.env, undefined);
 });
 
 test("prepares ACP MCP servers and scoped context prelude for AgentSession", async () => {
@@ -505,6 +514,8 @@ test("prepares ACP MCP servers and scoped context prelude for AgentSession", asy
   assert.match(runtime.initialPromptPrefix, /Mia Scoped Context/);
   assert.match(runtime.initialPromptPrefix, /skill_list_current/);
   assert.match(runtime.initialPromptPrefix, /memory_search/);
+  assert.equal(runtime.skillDeliveryMode, "native-link");
+  assert.match(runtime.skillFingerprint, /^[a-f0-9]{16}$/);
   assert.equal(typeof runtime.refreshMcpContext, "function");
   assert.match(runtime.mcpFingerprint, /^mcp:/);
 
@@ -514,4 +525,40 @@ test("prepares ACP MCP servers and scoped context prelude for AgentSession", asy
     ["mia-app-context", { botId: "bot-1", sessionId: "conversation:abc", originMessageId: "msg-1" }],
     ["scheduler-context", { botId: "bot-1", sessionId: "conversation:abc", originMessageId: "msg-1" }]
   ]);
+});
+
+test("prepare wires native skill runtime state into the AgentSession result", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agent-session-runtime-"));
+  try {
+    const preparer = createAgentSessionRuntimePreparer({
+      resolveManagedModelRuntime: () => null,
+      skillRuntimeOwner: {
+        async prepareAgentSessionSkillRuntime(input) {
+          assert.equal(input.engineId, "claude");
+          fs.mkdirSync(path.join(dir, ".claude", "skills"), { recursive: true });
+          fs.mkdirSync(path.join(dir, ".claude", "skills", "pdf"));
+          return {
+            skillFingerprint: "skills:1234",
+            skillDeliveryMode: "native-link",
+            initialPromptPrefix: ""
+          };
+        }
+      }
+    });
+
+    const runtime = await preparer.prepare({
+      engineId: "claude",
+      conversationId: "conversation_1",
+      botId: "bot1",
+      botSnapshot: { key: "bot1", agentEngine: "claude-code" },
+      runtimeConfig: { agentEngine: "claude-code" },
+      workspacePath: dir
+    });
+
+    assert.equal(runtime.skillFingerprint, "skills:1234");
+    assert.equal(runtime.skillDeliveryMode, "native-link");
+    assert.equal(fs.existsSync(path.join(dir, ".claude", "skills", "pdf")), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

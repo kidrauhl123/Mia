@@ -56,7 +56,7 @@
 
   function normalizeRuntimeKind(value, fallback = "desktop-local") {
     const raw = String(value || "").trim();
-    if (raw === "cloud-claude-code" || raw === "cloud-hermes") return "cloud-claude-code";
+    if (raw === "cloud-claude-code") return "cloud-claude-code";
     if (raw === "desktop-local") return "desktop-local";
     return fallback === "cloud-claude-code" ? "cloud-claude-code" : "desktop-local";
   }

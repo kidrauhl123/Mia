@@ -621,7 +621,10 @@ function createSkillsLoader(deps = {}) {
         id: key,
         name: found.skill?.name || key,
         description: found.skill?.description || "",
-        body: String(found.raw || "").trim()
+        body: String(found.raw || "").trim(),
+        sourcePath: path.dirname(found.filePath),
+        filePath: found.filePath,
+        linkName: path.basename(path.dirname(found.filePath))
       });
     }
     return records;
@@ -671,7 +674,10 @@ function createSkillsLoader(deps = {}) {
       id: found.skill?.id || key,
       name: found.skill?.name || key,
       description: found.skill?.description || "",
-      body: String(found.raw || "").trim()
+      body: String(found.raw || "").trim(),
+      sourcePath: path.dirname(found.filePath),
+      filePath: found.filePath,
+      linkName: path.basename(path.dirname(found.filePath))
     };
   }
 

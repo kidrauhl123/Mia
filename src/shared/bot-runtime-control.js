@@ -4,9 +4,13 @@
   if (root) root.miaBotRuntimeControl = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildBotRuntimeControl() {
   function normalizeRuntimeKind(value, fallback = "cloud-claude-code") {
-    const raw = String(value || fallback || "cloud-claude-code").trim();
-    const kind = raw === "cloud-hermes" || raw === "cloud_hermes" ? "cloud-claude-code" : raw;
-    return kind || fallback || "cloud-claude-code";
+    const raw = String(value || "").trim();
+    if (raw === "cloud-claude-code" || raw === "desktop-local") return raw;
+    const normalizedFallback = String(fallback || "").trim();
+    if (normalizedFallback === "cloud-claude-code" || normalizedFallback === "desktop-local") {
+      return normalizedFallback;
+    }
+    return "";
   }
 
   function botKeyFrom(options = {}) {

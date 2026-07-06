@@ -9,11 +9,7 @@ const root = path.resolve(__dirname, "..");
 const distDir = path.join(root, "dist", "mia-cloud-release");
 const apiDir = path.join(distDir, "api");
 const webDir = path.join(distDir, "web");
-const hermesImageDir = path.join(distDir, "hermes-image");
-const rootPackage = require("../package.json");
-const { pluginFiles } = require("../src/main/engine-plugins-service.js");
 const releaseAssetStamp = new Date().toISOString().replace(/[^0-9A-Za-z]/g, "").slice(0, 14);
-const hermesVersion = rootPackage.hermes?.version || "2026.5.7";
 
 function copyFile(source, target) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -28,18 +24,6 @@ function copyDir(source, target) {
   fs.rmSync(target, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.cpSync(path.join(root, source), target, { recursive: true, filter: shouldCopyReleaseEntry });
-}
-
-function hermesArchiveSource(version) {
-  const fileName = `hermes-agent-${version}.tar.gz`;
-  const candidates = [
-    process.env.MIA_HERMES_ARCHIVE,
-    path.join("/tmp", fileName),
-    path.join(root, "dist", fileName),
-    path.join(root, "cloud", "hermes-image", "hermes-agent-archive", fileName)
-  ].filter(Boolean);
-
-  return candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile()) || "";
 }
 
 function newestReleaseArtifact(sourcePatterns) {
@@ -244,31 +228,6 @@ function writeReleaseManifest() {
   });
 }
 
-function writeHermesImageContext() {
-  copyFile("cloud/hermes-image/Dockerfile", path.join(hermesImageDir, "Dockerfile"));
-  copyFile("cloud/hermes-image/entrypoint.sh", path.join(hermesImageDir, "entrypoint.sh"));
-
-  const pluginDir = path.join(hermesImageDir, "mia_plugins");
-  fs.mkdirSync(pluginDir, { recursive: true });
-  for (const [fileName, content] of Object.entries(pluginFiles())) {
-    fs.writeFileSync(path.join(pluginDir, fileName), content);
-  }
-
-  const archiveDir = path.join(hermesImageDir, "hermes-agent-archive");
-  fs.mkdirSync(archiveDir, { recursive: true });
-  const archiveSource = hermesArchiveSource(hermesVersion);
-  if (archiveSource) {
-    fs.copyFileSync(archiveSource, path.join(archiveDir, `hermes-agent-${hermesVersion}.tar.gz`));
-  }
-
-  const dockerfile = path.join(hermesImageDir, "Dockerfile");
-  const source = fs.readFileSync(dockerfile, "utf8");
-  fs.writeFileSync(
-    dockerfile,
-    source.replace(/ARG HERMES_VERSION=.*/, `ARG HERMES_VERSION=${hermesVersion}`)
-  );
-}
-
 function writeReleaseReadme() {
   fs.writeFileSync(path.join(distDir, "README.md"), `# Mia Cloud Release
 
@@ -305,7 +264,7 @@ Set the Official Account \`网页授权域名\` to \`mia.gifgif.cn\`. Mia create
 
 ## Platform Model Gateway
 
-Mia can sell a platform DeepSeek model without exposing provider keys to users. Set \`MIA_MODEL_GATEWAY=deepseek\` and \`MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>\` in \`/etc/mia-cloud/admin.env\`, then open \`/admin/model\` to save the DeepSeek API Key, base URL, public Mia model name, and token pricing. \`MIA_DEEPSEEK_API_KEY=<DeepSeek API key>\` is an optional bootstrap fallback if the database setting has not been saved yet. Cloud Hermes workers receive per-user internal proxy tokens and call \`/api/internal/model-proxy/v1\`; Mia Cloud forwards to DeepSeek, records token usage in SQLite, and deducts the user's Mia model balance. The release includes a \`hermes-image/\` Docker build context and the installer builds \`MIA_CLOUD_HERMES_IMAGE\` on the VPS, so worker startup does not depend on pulling a private external image. On China-hosted VPS networks, set \`MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian\` and \`MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple\` before running the installer if upstream Debian/PyPI downloads hang. If \`MIA_CLOUD_HERMES_IMAGE\` is already present on the VPS and the Hermes version did not change, set \`MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1\` to skip rebuilding after first verifying that image exists. LiteLLM remains optional for a future multi-provider gateway.
+Mia can sell a platform DeepSeek model without exposing provider keys to users. Set \`MIA_MODEL_GATEWAY=deepseek\` and \`MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>\` in \`/etc/mia-cloud/admin.env\`, then open \`/admin/model\` to save the DeepSeek API Key, base URL, public Mia model name, and token pricing. \`MIA_DEEPSEEK_API_KEY=<DeepSeek API key>\` is an optional bootstrap fallback if the database setting has not been saved yet. Cloud Claude Code sandboxes receive per-user internal proxy tokens and call \`/api/internal/model-proxy/v1\`; Mia Cloud forwards to DeepSeek, records token usage in SQLite, and deducts the user's Mia model balance. On China-hosted VPS networks, set \`MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian\` and \`MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple\` before running the installer if upstream Debian/PyPI downloads hang. LiteLLM remains optional for a future multi-provider gateway.
 
 Manual first-version credit grant:
 
@@ -563,17 +522,10 @@ function verifyRelease() {
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
     "api/src/cloud-agent/cloud-claude-code-model.js",
-    "api/src/cloud-agent/cloud-hermes-model.js",
-    "api/src/cloud-agent/cloud-hermes-sessions-store.js",
     "api/src/cloud-agent/claude-code-sandbox-manager.js",
     "api/src/cloud-agent/claude-code-sandbox-client.js",
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
-    "api/src/cloud-agent/hermes-worker-manager.js",
-    "api/src/cloud-agent/hermes-gateway-client.js",
-    "api/src/cloud-agent/hermes-gateway-events.js",
-    "api/src/cloud-agent/hermes-im-attachments.js",
-    "api/src/cloud-agent/hermes-im-client.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
     "api/src/shared/conversation-tags.js",
@@ -643,13 +595,6 @@ function verifyRelease() {
     "diagnose-deploy-ssh.js",
     "install-cloud-release-local.sh",
     "cloud-deployment.md",
-    "hermes-image/Dockerfile",
-    "hermes-image/entrypoint.sh",
-    "hermes-image/mia_plugins/__init__.py",
-    "hermes-image/mia_plugins/__main__.py",
-    "hermes-image/mia_plugins/bot_overlay.py",
-    "hermes-image/mia_plugins/scheduler_mcp.py",
-    "hermes-image/mia_plugins/web_search_mcp.py",
     "nginx/mia-websocket-map.conf",
     "nginx/mia-cloud-site.conf",
     "manifest.json"
@@ -671,17 +616,10 @@ function verifyRelease() {
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
     "api/src/cloud-agent/cloud-claude-code-model.js",
-    "api/src/cloud-agent/cloud-hermes-model.js",
-    "api/src/cloud-agent/cloud-hermes-sessions-store.js",
     "api/src/cloud-agent/claude-code-sandbox-manager.js",
     "api/src/cloud-agent/claude-code-sandbox-client.js",
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
-    "api/src/cloud-agent/hermes-worker-manager.js",
-    "api/src/cloud-agent/hermes-gateway-client.js",
-    "api/src/cloud-agent/hermes-gateway-events.js",
-    "api/src/cloud-agent/hermes-im-attachments.js",
-    "api/src/cloud-agent/hermes-im-client.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
     "api/src/shared/conversation-tags.js",
@@ -725,9 +663,6 @@ function verifyRelease() {
     });
   }
   childProcess.execFileSync("bash", ["-n", assertFile("install-cloud-release-local.sh")], {
-    stdio: "inherit"
-  });
-  childProcess.execFileSync("bash", ["-n", assertFile("hermes-image/entrypoint.sh")], {
     stdio: "inherit"
   });
 
@@ -837,7 +772,6 @@ function verifyRelease() {
     !/\/admin\/model/.test(releaseReadme) ||
     !/MIA_DEEPSEEK_API_KEY=<DeepSeek API key>` is an optional bootstrap fallback/.test(releaseReadme) ||
     !/MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>/.test(releaseReadme) ||
-    !/hermes-image\/` Docker build context/.test(releaseReadme) ||
     !/\/api\/internal\/model-proxy\/v1/.test(releaseReadme) ||
     !/\/api\/admin\/model-credits\/grant/.test(releaseReadme) ||
     !/LiteLLM remains optional/.test(releaseReadme)
@@ -858,17 +792,10 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud-agent/runtime-bindings-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-agent-runs-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-claude-code-model.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-hermes-model.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-hermes-sessions-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/claude-code-sandbox-manager.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/claude-code-sandbox-client.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/attachment-materializer.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/group-orchestrator.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-worker-manager.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-gateway-client.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-gateway-events.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-im-attachments.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-im-client.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/dispatcher.js"))});
     require(${JSON.stringify(assertFile("api/src/permission-modes.js"))});
     require(${JSON.stringify(assertFile("api/server.js"))});
@@ -973,7 +900,6 @@ function main() {
   copyFile("scripts/diagnose-deploy-ssh.js", path.join(distDir, "diagnose-deploy-ssh.js"));
   copyFile("scripts/install-cloud-release-local.sh", path.join(distDir, "install-cloud-release-local.sh"));
   copyFile("docs/cloud-deployment.md", path.join(distDir, "cloud-deployment.md"));
-  writeHermesImageContext();
   writeReleaseReadme();
   writeNginxConfigs();
 

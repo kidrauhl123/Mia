@@ -15,6 +15,7 @@ test("agent engine policy keeps runtime scope decisions in one table", () => {
     id: "codex",
     homeStrategy: "native-user-home",
     nativeHomeSubdir: ".codex",
+    nativeSkillsDirs: [".codex/skills"],
     permissionScope: "engine",
     permissionStore: "engine-map",
     permissionCodec: "codex-permission-profile",
@@ -27,6 +28,7 @@ test("agent engine policy keeps runtime scope decisions in one table", () => {
     id: "claude-code",
     homeStrategy: "native-engine-default",
     nativeHomeSubdir: "",
+    nativeSkillsDirs: [".claude/skills"],
     permissionScope: "engine",
     permissionStore: "engine-map",
     permissionCodec: "claude-code-permission-mode",
@@ -39,6 +41,7 @@ test("agent engine policy keeps runtime scope decisions in one table", () => {
     id: "openclaw",
     homeStrategy: "native-engine-default",
     nativeHomeSubdir: "",
+    nativeSkillsDirs: null,
     permissionScope: "engine",
     permissionStore: "engine-map",
     permissionCodec: "openclaw-acp-permission-mode",
@@ -51,6 +54,7 @@ test("agent engine policy keeps runtime scope decisions in one table", () => {
     id: "hermes",
     homeStrategy: "native-user-home",
     nativeHomeSubdir: ".hermes",
+    nativeSkillsDirs: null,
     permissionScope: "engine",
     permissionStore: "root-mode",
     permissionCodec: "hermes-approvals-mode",
@@ -85,4 +89,11 @@ test("native home path is explicit only for engines that need Mia to pass one", 
   assert.equal(nativeHomePathForEngine("claude-code", userHome), "");
   assert.equal(nativeHomePathForEngine("openclaw", userHome), "");
   assert.equal(nativeHomePathForEngine("hermes", userHome), path.join(userHome, ".hermes"));
+});
+
+test("agent engine policy exposes native skill directory metadata", () => {
+  assert.deepEqual(agentEnginePolicy("claude-code").nativeSkillsDirs, [".claude/skills"]);
+  assert.deepEqual(agentEnginePolicy("codex").nativeSkillsDirs, [".codex/skills"]);
+  assert.equal(agentEnginePolicy("hermes").nativeSkillsDirs, null);
+  assert.equal(agentEnginePolicy("openclaw").nativeSkillsDirs, null);
 });

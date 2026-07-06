@@ -141,6 +141,12 @@ async function defaultCreateClient(options = {}) {
   }), options.transport.stream);
 }
 
+function prependPromptPrefix(prefix = "", text = "") {
+  const normalizedPrefix = String(prefix || "").trim();
+  const normalizedText = typeof text === "string" ? text : "";
+  return normalizedPrefix ? `${normalizedPrefix}\n\n${normalizedText}` : normalizedText;
+}
+
 class AcpAgentSession extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -170,6 +176,106 @@ class AcpAgentSession extends EventEmitter {
     this.closed = false;
     this.activePrompt = null;
     this.toolTitles = new Map();
+  }
+
+  buildPromptRequest(text, attachments = [], fileReferences = []) {
+    const promptRequest = {
+      sessionId: this.acpSessionId,
+      prompt: [{ type: "text", text }]
+    };
+    if (attachments.length > 0 || fileReferences.length > 0) {
+      promptRequest._meta = {
+        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(fileReferences.length > 0 ? { fileReferences } : {})
+      };
+    }
+    return promptRequest;
+  }
+
+  resetAttemptBuffering() {
+    if (!this.activePrompt) return;
+    this.activePrompt.bufferedEvents = [];
+    this.activePrompt.bufferAssistantText = "";
+  }
+
+  emitBufferedAttemptEvents() {
+    const events = Array.isArray(this.activePrompt?.bufferedEvents)
+      ? this.activePrompt.bufferedEvents.slice()
+      : [];
+    if (this.activePrompt) {
+      this.activePrompt.bufferedEvents = [];
+      this.activePrompt.bufferAssistantText = "";
+    }
+    for (const event of events) {
+      this.emit(event.kind, buildBaseEvent(this, event.payload));
+    }
+  }
+
+  discardBufferedAttemptEvents() {
+    if (!this.activePrompt) return;
+    this.activePrompt.bufferedEvents = [];
+    this.activePrompt.bufferAssistantText = "";
+  }
+
+  emitSyntheticAssistantDelta(turnId = "", text = "") {
+    const normalizedText = String(text || "").trim();
+    if (!normalizedText) return;
+    this.emit("assistant-delta", buildBaseEvent(this, {
+      ...(turnId ? { turnId } : {}),
+      text: normalizedText
+    }));
+  }
+
+  async runPromptWithFallback(nativeTurn = {}, attachments = [], fileReferences = []) {
+    const baseText = typeof nativeTurn.text === "string" ? nativeTurn.text : "";
+    const basePrefix = typeof nativeTurn.turnPromptPrefix === "string" ? nativeTurn.turnPromptPrefix : "";
+    const skillFallback = nativeTurn.skillFallback && typeof nativeTurn.skillFallback === "object"
+      ? nativeTurn.skillFallback
+      : null;
+
+    if (!skillFallback) {
+      const promptText = prependPromptPrefix(basePrefix, baseText);
+      return this.client.prompt(this.buildPromptRequest(promptText, attachments, fileReferences));
+    }
+
+    const detectRequests = typeof skillFallback.detectRequests === "function"
+      ? skillFallback.detectRequests
+      : () => [];
+    const materializePrompt = typeof skillFallback.materializePrompt === "function"
+      ? skillFallback.materializePrompt
+      : async () => "";
+    const fallbackText = typeof skillFallback.fallbackText === "function"
+      ? skillFallback.fallbackText
+      : () => "";
+    const maxRounds = Number.isInteger(skillFallback.maxRounds) && skillFallback.maxRounds >= 0
+      ? skillFallback.maxRounds
+      : 0;
+    let requestedSkillIds = [];
+    let promptPrefix = basePrefix;
+
+    for (let round = 0; round <= maxRounds; round += 1) {
+      this.toolTitles.clear();
+      this.resetAttemptBuffering();
+      const promptText = prependPromptPrefix(promptPrefix, baseText);
+      const response = await this.client.prompt(this.buildPromptRequest(promptText, attachments, fileReferences));
+      const assistantText = String(this.activePrompt?.bufferAssistantText || "");
+      const loadRequests = detectRequests(assistantText);
+      const nextRequests = loadRequests.filter((id) => !requestedSkillIds.includes(id));
+      if (!nextRequests.length) {
+        this.emitBufferedAttemptEvents();
+        return response;
+      }
+      if (round >= maxRounds) {
+        this.discardBufferedAttemptEvents();
+        this.emitSyntheticAssistantDelta(this.activePrompt?.turnId || "", fallbackText(nextRequests));
+        return response;
+      }
+      requestedSkillIds = [...requestedSkillIds, ...nextRequests];
+      promptPrefix = String(await materializePrompt(requestedSkillIds) || "").trim();
+      this.discardBufferedAttemptEvents();
+    }
+
+    return this.client.prompt(this.buildPromptRequest(prependPromptPrefix(basePrefix, baseText), attachments, fileReferences));
   }
 
   async start() {
@@ -271,23 +377,21 @@ class AcpAgentSession extends EventEmitter {
     }
     const attachments = Array.isArray(nativeTurn.attachments) ? nativeTurn.attachments.slice() : [];
     const fileReferences = Array.isArray(nativeTurn.fileReferences) ? nativeTurn.fileReferences.slice() : [];
-    const promptRequest = {
-      sessionId: this.acpSessionId,
-      prompt: [{ type: "text", text }]
-    };
-    if (attachments.length > 0 || fileReferences.length > 0) {
-      promptRequest._meta = {
-        ...(attachments.length > 0 ? { attachments } : {}),
-        ...(fileReferences.length > 0 ? { fileReferences } : {})
-      };
-    }
 
     this.toolTitles.clear();
-    this.activePrompt = { turnId, cancelled: false };
+    this.activePrompt = {
+      turnId,
+      cancelled: false,
+      bufferedEvents: null,
+      bufferAssistantText: ""
+    };
     this.emit("message-started", buildBaseEvent(this, turnId ? { turnId } : {}));
 
     try {
-      const response = await this.client.prompt(promptRequest);
+      const response = await this.runPromptWithFallback({
+        ...nativeTurn,
+        text
+      }, attachments, fileReferences);
       if (response?.stopReason === "cancelled") {
         const error = promptCancelledError();
         this.emit("message-cancelled", buildBaseEvent(this, turnId ? { turnId } : {}));
@@ -357,6 +461,13 @@ class AcpAgentSession extends EventEmitter {
       toolTitles: this.toolTitles
     });
     for (const event of normalized) {
+      if (Array.isArray(this.activePrompt?.bufferedEvents)) {
+        if (event.kind === "assistant-delta" && typeof event.payload?.text === "string") {
+          this.activePrompt.bufferAssistantText += event.payload.text;
+        }
+        this.activePrompt.bufferedEvents.push(event);
+        continue;
+      }
       this.emit(event.kind, buildBaseEvent(this, event.payload));
     }
   }

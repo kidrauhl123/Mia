@@ -142,7 +142,7 @@ export function botDetailPath(botId: string): string {
   return `/api/me/bots/${encodeURIComponent(botId)}`;
 }
 
-export function botRuntimePath(botId: string, kind = "cloud-hermes"): string {
+export function botRuntimePath(botId: string, kind = "cloud-claude-code"): string {
   return withQuery(`/api/me/bots/${encodeURIComponent(botId)}/runtime`, { kind });
 }
 
@@ -343,7 +343,7 @@ export function useBotDetail(botId: string | undefined) {
   });
 }
 
-export function useBotRuntime(botId: string | undefined, kind = "cloud-hermes") {
+export function useBotRuntime(botId: string | undefined, kind = "cloud-claude-code") {
   const api = useApi();
   return useQuery<BotRuntimeBinding | null>({
     queryKey: ["bot-runtime", botId, kind],
@@ -1111,7 +1111,7 @@ export default function BotDetailScreen({ route }: Props) {
         </View>
       </View>
       <View style={styles.section}>
-        <Row label="运行时" value={runtime.data?.runtimeKind || "cloud-hermes"} />
+        <Row label="运行时" value={runtime.data?.runtimeKind || "cloud-claude-code"} />
         <Row label="启用" value={runtime.data?.enabled === false ? "否" : "是"} />
         <Row label="所有者" value={data.ownerUserId || data.owner_user_id || ""} />
       </View>

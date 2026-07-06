@@ -3617,7 +3617,7 @@ function openWebAvatarCropEditor({ draft, root, image, crop }) {
 }
 
 function webRuntimeTargetValue(target = {}) {
-  const isCloud = ["cloud-claude-code", "cloud-hermes"].includes(String(target.runtimeKind || "").trim());
+  const isCloud = String(target.runtimeKind || "").trim() === "cloud-claude-code";
   return JSON.stringify({
     runtimeKind: target.runtimeKind === "desktop-local" && !isCloud ? "desktop-local" : "cloud-claude-code",
     deviceId: String(target.deviceId || target.targetDeviceId || "").trim(),

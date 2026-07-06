@@ -94,7 +94,7 @@ test("session-history resolves runtime kind from explicit root or runtime config
     id: "botc_alias",
     type: "bot",
     decorations: { botId: "bot_alias", runtimeKind: "cloud-hermes" }
-  }, "desktop-local"), "cloud-claude-code");
+  }, "desktop-local"), "cloud-hermes");
 });
 
 test("session-history treats default and bot-name titles as untitled bot sessions", () => {

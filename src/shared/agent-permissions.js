@@ -5,7 +5,7 @@
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildAgentPermissions() {
   // Run-event kinds that carry an interactive tool-permission handshake. The
   // desktop coordinator (agent-permission-coordinator.js) emits these on the
-  // chat event stream; the cloud Hermes approval relay re-emits them under the
+  // chat event stream; the cloud agent approval relay re-emits them under the
   // same names so the web banner speaks one vocabulary regardless of engine.
   const PermissionEventKind = Object.freeze({
     Request: "permission_request",

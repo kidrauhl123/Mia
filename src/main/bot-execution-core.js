@@ -329,6 +329,22 @@ function createBotExecutionCore({
       );
       const sessionStartedEngineId = managedAgentSessionTurn ? agentSessionSpec.engineId : adapterEngineId;
       const rawCurrentTurn = currentTurnInput(messages);
+      const intentSkillIds = intentSkillIdsForMessages(messages);
+      const turnEnabledSkillIds = [
+        ...schedulerSkillIdsForTurn({ activeSkillIds, background, scheduledFire }),
+        ...intentSkillIds
+      ];
+      let botForManagedTurn = botForTurn;
+      if (turnEnabledSkillIds.length) {
+        const caps = botForManagedTurn.capabilities || {};
+        botForManagedTurn = {
+          ...botForManagedTurn,
+          capabilities: {
+            ...caps,
+            enabledSkills: [...new Set([...(caps.enabledSkills || []), ...turnEnabledSkillIds.map((id) => String(id))])]
+          }
+        };
+      }
       const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
       const completeWithPetMessage = (response) => {
         if (shouldNotifyPet) botPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
@@ -373,9 +389,11 @@ function createBotExecutionCore({
             engineId: agentSessionSpec.engineId,
             conversationId: descriptor.conversationId,
             botId: botForTurn.key || botForTurn.id || key,
-            botSnapshot: botForTurn,
+            botSnapshot: botForManagedTurn,
             runtimeConfig: turnRuntimeConfig,
-            workspacePath
+            workspacePath,
+            activeSkillIds,
+            intentSkillIds
           })
           : null;
         if (runtime?.runtimeKey) descriptor.runtimeKey = String(runtime.runtimeKey || "").trim();
@@ -383,23 +401,21 @@ function createBotExecutionCore({
           descriptor.env = { ...runtime.env };
         }
         if (runtime?.mcpFingerprint) descriptor.mcpFingerprint = String(runtime.mcpFingerprint || "").trim();
+        if (runtime?.skillFingerprint) descriptor.skillFingerprint = String(runtime.skillFingerprint || "").trim();
         if (Array.isArray(runtime?.mcpServers)) descriptor.mcpServers = runtime.mcpServers.slice();
         if (typeof runtime?.refreshMcpContext === "function") descriptor.refreshMcpContext = runtime.refreshMcpContext;
         if (typeof runtime?.initialPromptPrefix === "string") descriptor.initialPromptPrefix = runtime.initialPromptPrefix;
         const accepted = await agentSessionManager.sendUserInput({
           ...descriptor,
-          ...rawCurrentTurn
+          ...rawCurrentTurn,
+          ...(typeof runtime?.turnPromptPrefix === "string" ? { turnPromptPrefix: runtime.turnPromptPrefix } : {}),
+          ...(runtime?.skillFallback ? { skillFallback: runtime.skillFallback } : {})
         });
         rememberManagedDescriptor(descriptor);
         return accepted;
       }
       // Composer "使用" chips are turn-local: make them resolvable for this turn,
       // then materialize full skill bodies only for those explicit selections.
-      const intentSkillIds = intentSkillIdsForMessages(messages);
-      const turnEnabledSkillIds = [
-        ...schedulerSkillIdsForTurn({ activeSkillIds, background, scheduledFire }),
-        ...intentSkillIds
-      ];
       if (turnEnabledSkillIds.length) {
         const caps = botForTurn.capabilities || {};
         botForTurn = {

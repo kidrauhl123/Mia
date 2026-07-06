@@ -1,7 +1,6 @@
 "use strict";
 
 const { MemberKind } = require("../shared/conversation-kinds.js");
-const { normalizeCloudHermesModel } = require("./cloud-hermes-model.js");
 const { normalizeCloudClaudeCodeModel } = require("./cloud-claude-code-model.js");
 
 const BOT_MEMBER_KIND = "bot";
@@ -227,12 +226,11 @@ function createGroupOrchestrator({
   botsStore,
   workerManager,
   agentClient,
-  hermesImClient,
   loadPrompts = async () => ({ dispatch: DEFAULT_BOT_DISPATCH_PROMPT }),
   getUserPublic = () => null,
   log = () => {}
 }) {
-  const conductorClient = agentClient || hermesImClient;
+  const conductorClient = agentClient;
 
   async function runConductor({ userId, conversationId, conversation, message, botMembers, bots, recentMessages }) {
     const prompts = await loadPrompts().catch((error) => {
@@ -249,9 +247,6 @@ function createGroupOrchestrator({
     });
     try {
       const worker = await workerManager.ensureWorker(userId);
-      const normalizeModel = conductorClient?.requiresGateway === false
-        ? normalizeCloudClaudeCodeModel
-        : normalizeCloudHermesModel;
       const result = await conductorClient.runChat({
         gatewayWsUrl: worker.gatewayWsUrl,
         apiKey: worker.apiKey,
@@ -260,7 +255,7 @@ function createGroupOrchestrator({
         bot: ORCHESTRATOR_BOT,
         conversationId,
         transient: true,
-        model: normalizeModel("", { defaultModel: worker.model }),
+        model: normalizeCloudClaudeCodeModel("", { defaultModel: worker.model }),
         workerModel: worker.workerModel || worker.platformModel || worker.model || "mia-auto",
         modelProvider: worker.modelProvider || "mia",
         effortLevel: "medium",

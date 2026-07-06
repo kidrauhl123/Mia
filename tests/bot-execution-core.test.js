@@ -170,6 +170,32 @@ test("sendChat passes prepared MCP session config to AgentSession", async () => 
   });
 });
 
+test("managed AgentSession turns carry prompt-fallback metadata from runtime preparation", async () => {
+  const { core, calls } = makeCore({
+    prepareAgentSessionRuntime: async () => ({
+      skillFingerprint: "skills:abc",
+      skillDeliveryMode: "prompt-fallback",
+      turnPromptPrefix: "## Prompt Fallback",
+      skillFallback: {
+        maxRounds: 2,
+        detectRequests: () => [],
+        materializePrompt: async () => "",
+        fallbackText: () => ""
+      }
+    })
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [{ role: "user", id: "msg-1", content: "hello" }]
+  });
+
+  assert.equal(calls.agentSession[0].skillFingerprint, "skills:abc");
+  assert.equal(calls.agentSession[0].turnPromptPrefix, "## Prompt Fallback");
+  assert.equal(typeof calls.agentSession[0].skillFallback.detectRequests, "function");
+});
+
 for (const [inputEngineId, expectedEngineId] of [
   ["claude-code", "claude"],
   ["codex", "codex"],

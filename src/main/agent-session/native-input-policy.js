@@ -17,7 +17,9 @@ const ALLOWED_KEYS = new Set([
   "workspacePath",
   "cwd",
   "sessionId",
-  "initializationMetadata"
+  "initializationMetadata",
+  "turnPromptPrefix",
+  "skillFallback"
 ]);
 
 function nativeInputPolicyError(reason) {

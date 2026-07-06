@@ -43,6 +43,6 @@ export function groupCreatePayload(inputName: string, members: GroupMemberDraft[
     memberFriendUserIds: members.filter((member) => member.kind === "friend").map((member) => member.id),
     memberBots: members
       .filter((member) => member.kind === "bot")
-      .map((member) => ({ botId: member.id, runtimeKind: member.runtimeKind || "cloud-hermes" })),
+      .map((member) => ({ botId: member.id, runtimeKind: member.runtimeKind || "cloud-claude-code" })),
   };
 }

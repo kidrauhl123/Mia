@@ -555,7 +555,7 @@ test("ensureStarterEngineBots backfills missing avatar logos on existing starter
   assert.equal(social.moduleState.bots.find((bot) => bot.key === "starter_u_1_codex").avatarImage, "data:image/png;base64,custom");
 });
 
-test("ensureStarterEngineBots backfills avatar for legacy cloud-hermes Mia starter bots", async () => {
+test("ensureStarterEngineBots backfills avatar for existing Mia starter bots", async () => {
   const calls = [];
   const state = {
     runtime: {
@@ -571,8 +571,8 @@ test("ensureStarterEngineBots backfills avatar for legacy cloud-hermes Mia start
           id: "starter_u_1_mia",
           key: "starter_u_1_mia",
           name: "Mia",
-          agentEngine: "hermes",
-          runtimeKind: "cloud-hermes",
+          agentEngine: "claude-code",
+          runtimeKind: "cloud-claude-code",
           color: "#16a34a",
           avatarImage: "",
           avatarCrop: null,

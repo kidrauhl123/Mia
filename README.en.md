@@ -4,7 +4,7 @@ Treat a roomful of AIs like coworkers.
 
 Mia is a desktop app that puts Claude, Codex, Hermes and other AI tools into one chat window. No app switching, no commands to memorize — just talk to them like you would on a messenger, and they get things done.
 
-Bot identities are Cloud-backed account objects. Runtime labels such as `desktop-local` and `cloud-hermes` describe where a Bot run executes; they are not separate local-vs-cloud Bot identities.
+Bot identities are Cloud-backed account objects. Runtime labels such as `desktop-local` and `cloud-claude-code` describe where a Bot run executes; they are not separate local-vs-cloud Bot identities.
 
 ## What it does
 

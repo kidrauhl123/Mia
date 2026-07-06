@@ -58,8 +58,6 @@ function setup(t, overrides = {}) {
     defaultDaemonSettings: () => ({ enabled: true }),
     defaultUserProfile: () => ({ displayName: "Boss" }),
     defaultAppearanceSettings: () => ({ theme: "system" }),
-    ensureClaudeBridgePlugin: () => calls.push(["claude-bridge"]),
-    appendEngineLog: (line) => calls.push(["log", line]),
     getRuntimeStatus: (created) => ({ created, ok: true }),
     ...overrides
   });
@@ -70,7 +68,7 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
-test("initializeRuntimeCore creates runtime directories, default files, and bridge plugins", (t) => {
+test("initializeRuntimeCore creates runtime directories and default files", (t) => {
   const { calls, runtime, service } = setup(t);
 
   const status = service.initializeRuntimeCore();
@@ -95,8 +93,7 @@ test("initializeRuntimeCore creates runtime directories, default files, and brid
   assert.equal(fs.readdirSync(runtime.botDir).length, 0);
   assert.deepEqual(calls, [
     ["engine-plugins"],
-    ["write-config", 18777],
-    ["claude-bridge"]
+    ["write-config", 18777]
   ]);
   assert.ok(status.created.includes("runtime/hermes-engine/README.md"));
   assert.ok(status.created.includes("~/.hermes/mia-api-server.key"));
@@ -123,17 +120,4 @@ test("initializeRuntimeCore does not overwrite existing user-owned runtime files
   assert.equal(status.created.includes("~/.hermes/mia-api-server.key"), false);
   assert.equal(status.created.includes("runtime/engine-home/mia-model.json"), false);
   assert.equal(status.created.includes("runtime/engine-home/bots/mei.md"), false);
-});
-
-test("initializeRuntimeCore logs Claude bridge setup failure without aborting runtime initialization", (t) => {
-  const { calls, service } = setup(t, {
-    ensureClaudeBridgePlugin: () => { throw new Error("bridge denied"); }
-  });
-
-  const status = service.initializeRuntimeCore();
-
-  assert.equal(status.ok, true);
-  assert.deepEqual(calls.filter((call) => call[0] === "log"), [
-    ["log", "Claude bridge plugin setup failed: bridge denied"]
-  ]);
 });

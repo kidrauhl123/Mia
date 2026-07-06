@@ -56,7 +56,7 @@
 
   function normalizeRuntimeKind(value, fallback = "desktop-local") {
     const raw = String(value || fallback || "").trim().toLowerCase().replace(/_/g, "-");
-    if (raw === "cloud-claude-code" || raw === "cloud-hermes" || raw === "mia-cloud" || raw === "miacloud") return CLOUD_RUNTIME_KIND;
+    if (raw === "cloud-claude-code" || raw === "mia-cloud" || raw === "miacloud") return CLOUD_RUNTIME_KIND;
     if (raw === "desktop-local") return "desktop-local";
     return fallback === CLOUD_RUNTIME_KIND ? CLOUD_RUNTIME_KIND : "desktop-local";
   }
@@ -349,7 +349,7 @@
     return { saved: true, key, bot: cloudBot, binding, conversation, runtime: state.runtime };
   }
 
-  async function saveCloudHermesBot({
+  async function saveCloudClaudeCodeBot({
     state = {},
     api = global.mia,
     social = global.miaSocial,
@@ -404,12 +404,12 @@
 
   async function saveBot(options = {}) {
     const runtimeKind = normalizeRuntimeKind(options.runtimeKind || "desktop-local");
-    if (runtimeKind === CLOUD_RUNTIME_KIND) return saveCloudHermesBot(options);
+    if (runtimeKind === CLOUD_RUNTIME_KIND) return saveCloudClaudeCodeBot(options);
     if (!canUseCloudIdentity(options)) throw new Error("请先登录 Mia Cloud。");
     return saveBotRuntimeTarget({ ...options, runtimeKind: "desktop-local" });
   }
 
-  async function deleteCloudHermesBot({
+  async function deleteCloudClaudeCodeBot({
     state = {},
     api = global.mia,
     social = global.miaSocial,
@@ -433,7 +433,7 @@
   async function deleteBot(options = {}) {
     const bot = options.bot || {};
     if (bot.canDelete === false) return { deleted: false, runtime: options.state?.runtime };
-    return deleteCloudHermesBot(options);
+    return deleteCloudClaudeCodeBot(options);
   }
 
   function identityForCapabilities(bot = {}, capabilities) {
@@ -454,7 +454,7 @@
       : identity;
   }
 
-  async function saveCloudHermesBotCapabilities({
+  async function saveCloudClaudeCodeBotCapabilities({
     state = {},
     api = global.mia,
     social = global.miaSocial,
@@ -486,7 +486,7 @@
   }
 
   async function saveBotCapabilities(options = {}) {
-    return saveCloudHermesBotCapabilities(options);
+    return saveCloudClaudeCodeBotCapabilities(options);
   }
 
   function runtimeCacheKey(botKey, runtimeKind = "cloud-claude-code") {
@@ -885,12 +885,12 @@
   const api = {
     generateUntypedBotId,
     existingBotKeys,
-    saveCloudHermesBot,
+    saveCloudClaudeCodeBot,
     saveBotRuntimeTarget,
     saveBot,
-    deleteCloudHermesBot,
+    deleteCloudClaudeCodeBot,
     deleteBot,
-    saveCloudHermesBotCapabilities,
+    saveCloudClaudeCodeBotCapabilities,
     saveBotCapabilities,
     runtimeCacheKey,
     getBotRuntimeBinding,

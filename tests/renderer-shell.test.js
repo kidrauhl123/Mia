@@ -2349,7 +2349,7 @@ test("conversation runtime controls do not fall back to an unrelated persona dur
   assert.match(syncControls, /当前聊天不支持切换模型/);
 });
 
-test("active cloud bot conversations normalize legacy cloud-hermes runtime aliases", () => {
+test("active cloud bot conversations use session-history runtime resolution", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const activeContext = extractFunctionSource(appSource, "activeConversationBotContext");
 
@@ -2843,7 +2843,7 @@ test("contact detail deletes bots through runtime-backed ownership rules", () =>
 
   assert.doesNotMatch(appSource, /if \(!bot \|\| bot\.key === "mia"\) return;/);
   assert.match(appSource, /if \(bot\.canDelete === false\) return;/);
-  assert.match(commandsSource, /async function deleteCloudHermesBot/);
+  assert.match(commandsSource, /async function deleteCloudClaudeCodeBot/);
   assert.doesNotMatch(commandsSource, /async function deleteDesktopLocalBot/);
   assert.match(botManagerSource, /const canDeleteBot = bot\.canDelete !== false;/);
   assert.doesNotMatch(fs.readFileSync(path.join(root, "src/renderer/bot/bot-directory.js"), "utf8"), /key !== "mia"/);
@@ -2864,7 +2864,7 @@ test("contact capability saves go through bot command adapters", () => {
   assert.match(botManagerSource, /window\.miaBotCommands\.saveBotCapabilities\(\{/);
   assert.doesNotMatch(botManagerSource, /window\.mia\.social\.saveFellowIdentity/);
   assert.doesNotMatch(botManagerSource, /window\.mia\.saveFellow\(\{/);
-  assert.match(commandsSource, /async function saveCloudHermesBotCapabilities/);
+  assert.match(commandsSource, /async function saveCloudClaudeCodeBotCapabilities/);
   assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBotCapabilities/);
 });
 
@@ -3066,7 +3066,7 @@ test("bot creation branches cloud-claude-code without saving local manifest", ()
   assert.match(appSource, /window\.miaBotCommands\.saveBot\(\{/);
   assert.doesNotMatch(appSource, /async function createCloudHermesBot/);
   assert.doesNotMatch(appSource, /window\.mia\.social\.saveFellowIdentity\(key,/);
-  assert.match(commandsSource, /async function saveCloudHermesBot/);
+  assert.match(commandsSource, /async function saveCloudClaudeCodeBot/);
   assert.match(commandsSource, /api\.social\.saveBotIdentity\(key,/);
   assert.match(commandsSource, /const CLOUD_RUNTIME_KIND = "cloud-claude-code"/);
   assert.match(commandsSource, /runtimeKind:\s*CLOUD_RUNTIME_KIND/);

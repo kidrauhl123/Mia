@@ -54,7 +54,7 @@ function normalizeAgentEngine(value, fallback = "codex") {
   if (raw === "claude" || raw === "claude-code" || raw === "anthropic") return "claude-code";
   if (raw === "codex" || raw === "openai-codex") return "codex";
   if (raw === "openclaw" || raw === "open-claw") return "openclaw";
-  if (raw === "hermes" || raw === "cloud-hermes") return "hermes";
+  if (raw === "hermes") return "hermes";
   if (raw === "echo") return "echo";
   return fallback;
 }

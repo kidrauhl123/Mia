@@ -97,7 +97,7 @@ function closeWs(ws) {
   try { ws.close(); } catch { /* test cleanup */ }
 }
 
-async function upsertCloudHermesBot(baseUrl, authHeaders, botId, displayName = botId, personaText = "") {
+async function upsertCloudClaudeCodeBot(baseUrl, authHeaders, botId, displayName = botId, personaText = "") {
   await jsonFetch(baseUrl, `/api/me/bots/${encodeURIComponent(botId)}`, {
     method: "PUT",
     headers: authHeaders,
@@ -205,7 +205,7 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
         };
       }
     },
-    cloudAgentHermesImClient: {
+    cloudAgentClient: {
       async runChat(args) {
         hermesCalls.push(args);
         args.onRunCreated?.("hr_server_1");
@@ -219,7 +219,7 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
   try {
     const account = createAccount(server, "alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
-    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
+    await upsertCloudClaudeCodeBot(baseUrl, authHeaders, "mia", "Mia");
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
       method: "PUT",
       headers: authHeaders,
@@ -271,18 +271,27 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
 
 test("cloud server workers use the active platform model alias", async () => {
   const dataDir = tempDir("mia-cloud-agent-platform-model-");
-  const hermesCalls = [];
-  const previousBaseUrl = process.env.MIA_CLOUD_HERMES_BASE_URL;
-  const previousAgentRoot = process.env.MIA_CLOUD_AGENT_ROOT;
-  process.env.MIA_CLOUD_HERMES_BASE_URL = "http://worker";
-  process.env.MIA_CLOUD_AGENT_ROOT = path.join(dataDir, "agent-users");
+  const cloudAgentCalls = [];
   const server = createMiaCloudServer({
     dataDir,
-    cloudAgentMode: "static",
     platformModelId: "mia-auto",
-    cloudAgentHermesImClient: {
+    cloudAgentWorkerManager: {
+      defaultModel: "mia-auto",
+      async ensureWorker(userId) {
+        return {
+          userId,
+          baseUrl: "http://worker",
+          apiKey: "mia-cloud",
+          model: "mia-auto",
+          workerModel: "mia-auto",
+          modelProvider: "mia"
+        };
+      }
+    },
+    cloudAgentClient: {
+      requiresGateway: false,
       async runChat(args) {
-        hermesCalls.push(args);
+        cloudAgentCalls.push(args);
         return { runId: "hr_platform_model", content: "ok", events: [] };
       }
     }
@@ -291,7 +300,7 @@ test("cloud server workers use the active platform model alias", async () => {
   try {
     const account = createAccount(server, "platform_model_alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
-    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
+    await upsertCloudClaudeCodeBot(baseUrl, authHeaders, "mia", "Mia");
     const runtime = await jsonFetch(baseUrl, "/api/me/bots/mia/runtime?kind=cloud-claude-code", { headers: authHeaders });
     assert.equal(runtime.binding.config.model, "mia-auto");
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
@@ -307,17 +316,12 @@ test("cloud server workers use the active platform model alias", async () => {
     });
     await server.mia.cloudAgentDispatcher.idle();
 
-    assert.equal(hermesCalls.length, 1);
-    assert.equal(hermesCalls[0].gatewayWsUrl, "ws://worker/api/ws?token=mia-cloud");
-    assert.equal(hermesCalls[0].model, "mia-auto");
-    assert.equal(hermesCalls[0].modelProvider, "mia");
+    assert.equal(cloudAgentCalls.length, 1);
+    assert.equal(cloudAgentCalls[0].model, "mia-auto");
+    assert.equal(cloudAgentCalls[0].modelProvider, "mia");
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });
-    if (previousBaseUrl === undefined) delete process.env.MIA_CLOUD_HERMES_BASE_URL;
-    else process.env.MIA_CLOUD_HERMES_BASE_URL = previousBaseUrl;
-    if (previousAgentRoot === undefined) delete process.env.MIA_CLOUD_AGENT_ROOT;
-    else process.env.MIA_CLOUD_AGENT_ROOT = previousAgentRoot;
   }
 });
 
@@ -375,7 +379,7 @@ test("POST bot reminder message is handed to cloud Claude Code without app-side 
         return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://worker/api/ws" };
       }
     },
-    cloudAgentHermesImClient: {
+    cloudAgentClient: {
       async runChat(args) {
         hermesCalls.push(args);
         return { runId: "hr_scheduler", content: "我会通过 schedule_create 设置这个提醒。", events: [] };
@@ -386,7 +390,7 @@ test("POST bot reminder message is handed to cloud Claude Code without app-side 
   try {
     const account = createAccount(server, "reminder_alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
-    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
+    await upsertCloudClaudeCodeBot(baseUrl, authHeaders, "mia", "Mia");
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
       method: "PUT",
       headers: authHeaders,
@@ -437,7 +441,7 @@ test("POST group mention invokes cloud-claude-code bot without desktop-local eve
         };
       }
     },
-    cloudAgentHermesImClient: {
+    cloudAgentClient: {
       async runChat(args) {
         hermesCalls.push(args);
         args.onRunCreated?.("hr_group_1");
@@ -450,7 +454,7 @@ test("POST group mention invokes cloud-claude-code bot without desktop-local eve
   try {
     const account = createAccount(server, "alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
-    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
+    await upsertCloudClaudeCodeBot(baseUrl, authHeaders, "mia", "Mia");
     const group = await jsonFetch(baseUrl, "/api/conversations", {
       method: "POST",
       headers: authHeaders,
@@ -550,7 +554,7 @@ test("POST group message routes named bot only and gives the agent group identit
         };
       }
     },
-    cloudAgentHermesImClient: {
+    cloudAgentClient: {
       async runChat(args) {
         hermesCalls.push(args);
         args.onRunCreated?.(`hr_${args.bot.id}`);
@@ -562,8 +566,8 @@ test("POST group message routes named bot only and gives the agent group identit
   try {
     const account = createAccount(server, "alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
-    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
-    await upsertCloudHermesBot(baseUrl, authHeaders, "kongling", "空铃", "你是空铃，群聊里的 Bot。");
+    await upsertCloudClaudeCodeBot(baseUrl, authHeaders, "mia", "Mia");
+    await upsertCloudClaudeCodeBot(baseUrl, authHeaders, "kongling", "空铃", "你是空铃，群聊里的 Bot。");
     const group = await jsonFetch(baseUrl, "/api/conversations", {
       method: "POST",
       headers: authHeaders,
@@ -609,7 +613,7 @@ test("POST cloud Claude Code run cancel routes only through the cloud agent disp
         return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://worker/api/ws" };
       }
     },
-    cloudAgentHermesImClient: {
+    cloudAgentClient: {
       async runChat(args) {
         args.onRunCreated?.("hr_cancel");
         return new Promise((resolve) => {
@@ -626,7 +630,7 @@ test("POST cloud Claude Code run cancel routes only through the cloud agent disp
   try {
     const account = createAccount(server, "cancel_alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
-    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
+    await upsertCloudClaudeCodeBot(baseUrl, authHeaders, "mia", "Mia");
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
       method: "PUT",
       headers: authHeaders,
@@ -682,7 +686,7 @@ test("POST group short message reaches the single-bot handler through the HTTP e
         };
       }
     },
-    cloudAgentHermesImClient: {
+    cloudAgentClient: {
       async runChat(args) {
         hermesCalls.push(args);
         return { runId: "hr_ok", content: "good", events: [] };
@@ -693,7 +697,7 @@ test("POST group short message reaches the single-bot handler through the HTTP e
   try {
     const account = createAccount(server, "alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
-    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
+    await upsertCloudClaudeCodeBot(baseUrl, authHeaders, "mia", "Mia");
     const group = await jsonFetch(baseUrl, "/api/conversations", {
       method: "POST",
       headers: authHeaders,

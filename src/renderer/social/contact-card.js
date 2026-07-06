@@ -280,23 +280,23 @@
     const runtimeKind = local.runtimeKind || "desktop-local";
     const engine = local.agentEngine || local.agent_engine || "hermes";
     const isExternal = Boolean(engineOptions?.isExternalAgentEngine?.(engine));
-    const isCloudHermes = runtimeKind === "cloud-claude-code";
+    const isCloudRuntime = runtimeKind === "cloud-claude-code";
     const botKey = String(local.key || local.id || ref || "").trim();
-    const runtimeBinding = isCloudHermes ? bindingForBot(botKey, runtimeKind) : null;
-    const config = isCloudHermes
+    const runtimeBinding = isCloudRuntime ? bindingForBot(botKey, runtimeKind) : null;
+    const config = isCloudRuntime
       ? { ...(local.engineConfig || local.engine_config || {}), ...(runtimeBinding?.config || {}) }
       : (local.engineConfig || local.engine_config || {});
 
     // Reuse the same entry sources the topbar composer-bottom uses so the
     // dropdown contents (and labels / logos) match private chat exactly.
-    const modelEntries = isCloudHermes
+    const modelEntries = isCloudRuntime
       ? (global.miaEngineContracts?.miaModelEntries?.({ platformModels: appState.platformModels || [] })
         || [{ id: "mia-auto", model: "mia-auto", label: "Auto", provider: "mia" }])
       : isExternal
       ? (engineOptions?.externalModelEntries?.(engine) || [])
       : (modelSettings?.connectedModelEntries?.(runtime) || []);
     const effortEntries = engineOptions?.effortOptions?.(engine) || [];
-    const permissionEntries = isCloudHermes
+    const permissionEntries = isCloudRuntime
       ? [
         { value: "ask", label: "Ask" },
         { value: "auto", label: "Auto" },
@@ -306,7 +306,7 @@
 
     // Current selections.
     const currentModelEntry = (() => {
-      if (isCloudHermes) {
+      if (isCloudRuntime) {
         const cur = config.model || "mia-auto";
         return modelEntries.find((m) => m.model === cur || m.id === cur) || modelEntries[0] || null;
       }
@@ -337,7 +337,7 @@
       || "";
     const currentEffortLabel = effortEntries.find((e) => e.value === currentEffort)?.label || "Medium";
 
-    const currentPermission = isCloudHermes
+    const currentPermission = isCloudRuntime
       ? (config.permissionMode
         || permissionEntries.find((p) => p.value === "ask")?.value
         || permissionEntries[0]?.value
@@ -377,7 +377,7 @@
             fallbackName: name,
             statusBadge: statusBadgeFrom(local)
           })}</strong>
-          <span class="contact-card-kind">${escapeHtml(local.runtimeLabel || (isCloudHermes ? "Mia Cloud" : engine))}</span>
+          <span class="contact-card-kind">${escapeHtml(local.runtimeLabel || (isCloudRuntime ? "Mia Cloud" : engine))}</span>
         </div>
       </div>
       <dl class="contact-card-controls">
@@ -454,7 +454,7 @@
       if (labelSpan) labelSpan.textContent = newLabel;
       persistField(sel.dataset.botField, sel.value);
     });
-    if (isCloudHermes) hydrateBotRuntimeBinding(card, local, runtimeKind);
+    if (isCloudRuntime) hydrateBotRuntimeBinding(card, local, runtimeKind);
     card.addEventListener("click", (event) => {
       const btn = event.target.closest("[data-card-action]");
       if (!btn) return;

@@ -640,7 +640,7 @@
   }
 
   function encodeRuntimeTarget(target = {}) {
-    const isCloud = ["cloud-claude-code", "cloud-hermes"].includes(String(target.runtimeKind || "").trim());
+    const isCloud = String(target.runtimeKind || "").trim() === "cloud-claude-code";
     return JSON.stringify({
       runtimeKind: isCloud ? "cloud-claude-code" : "desktop-local",
       deviceId: String(target.deviceId || "").trim(),
@@ -652,7 +652,7 @@
   function parseRuntimeTargetValue(value = "") {
     try {
       const parsed = JSON.parse(String(value || ""));
-      const runtimeKind = ["cloud-claude-code", "cloud-hermes"].includes(String(parsed.runtimeKind || "").trim()) ? "cloud-claude-code" : "desktop-local";
+      const runtimeKind = String(parsed.runtimeKind || "").trim() === "cloud-claude-code" ? "cloud-claude-code" : "desktop-local";
       return {
         runtimeKind,
         targetDeviceId: runtimeKind === "cloud-claude-code" ? "" : String(parsed.deviceId || "").trim(),

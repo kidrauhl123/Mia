@@ -29,13 +29,13 @@ test("groupNameFromMembers uses explicit name or joins selected names", () => {
 test("groupCreatePayload splits friends and bots for the cloud API", () => {
   expect(groupCreatePayload("", [
     { kind: "friend", id: "u1", name: "Alice" },
-    { kind: "bot", id: "mia", name: "Mia", runtimeKind: "cloud-hermes" },
+    { kind: "bot", id: "mia", name: "Mia", runtimeKind: "cloud-claude-code" },
     { kind: "bot", id: "codex", name: "Codex", runtimeKind: "desktop-local" },
   ])).toEqual({
     name: "Alice · Mia · Codex",
     memberFriendUserIds: ["u1"],
     memberBots: [
-      { botId: "mia", runtimeKind: "cloud-hermes" },
+      { botId: "mia", runtimeKind: "cloud-claude-code" },
       { botId: "codex", runtimeKind: "desktop-local" },
     ],
   });

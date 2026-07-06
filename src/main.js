@@ -33,7 +33,7 @@ const { createBotExecutionCore } = require("./main/bot-execution-core.js");
 const { createBotTurnHelpers } = require("./main/bot-turn-helpers.js");
 const { chatCompletionResponse, responseMessageContent } = require("./main/chat-response.js");
 const { createAgentCommandProvider } = require("./main/agent-command-provider.js");
-const { createClaudeBridgePluginService } = require("./main/claude-bridge-plugin-service.js");
+const { createSkillRuntimeOwner } = require("./main/mia-core/skill-runtime-owner.js");
 const { requireBot } = require("./main/bot-registry.js");
 const {
   createClaudeCodeStatelessAdapter
@@ -295,7 +295,6 @@ const miaMemoryService = createMiaMemoryService({
   currentUserId: currentMiaUserId,
   memoryProvider: miaMemoryProvider
 });
-const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
 const enginePluginsService = createEnginePluginsService({ runtimePaths });
 let localAgentEngineService = null;
 const systemHermesService = createSystemHermesService({
@@ -335,15 +334,6 @@ const engineRuntimeConfigService = createEngineRuntimeConfigService({
   permissionSettings: () => settingsStore?.permissionSettings() || { mode: "ask" },
   effortSettings: () => settingsStore?.effortSettings() || { level: "medium" },
   engineSource: engineInstallService.engineSource,
-  // Surface the user's skills to the Hermes runtime so it auto-uses them by
-  // description (no slash command). Installed/authored skills live under
-  // <home>/skills; bundled official skills (skill-creator etc.) under _builtin.
-  // Lazy thunk: invoked at writeRuntimeConfig time, after botPetService init.
-  externalSkillDirs: () => {
-    const dirs = [path.join(runtimePaths().home, "skills")];
-    try { dirs.push(path.join(botPetService.miaSkillsRoot(), "_builtin")); } catch { /* bundled root not found */ }
-    return dirs;
-  },
   // Lazy: schedulerMcpBridge is created later in this module; the thunk is
   // only invoked at writeRuntimeConfig time (runtime), by which point it
   // exists. Lets the Hermes config.yaml carry the mia-scheduler MCP.
@@ -690,7 +680,6 @@ const runtimeInitializerService = createRuntimeInitializerService({
   defaultDaemonSettings: () => settingsStore.defaultDaemonSettings(),
   defaultUserProfile: () => settingsStore.defaultUserProfile(),
   defaultAppearanceSettings: () => settingsStore.defaultAppearanceSettings(),
-  ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
   appendEngineLog,
   getRuntimeStatus
 });
@@ -746,7 +735,6 @@ const externalAgentCommandService = createExternalAgentCommandService({
   enginePermissionMode: settingsStore.enginePermissionMode,
   setAgentSessionId: agentSessionStore.setId,
   setAgentSessionEntry: agentSessionStore.setEntry,
-  ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
   loadAgentSessionMap: agentSessionStore.loadMap,
   sourceDeviceId: () => cloudBridgeRuntime?.status()?.deviceId || ""
 });
@@ -2245,7 +2233,19 @@ const claudeCodeMiaProxy = createClaudeCodeMiaProxy({
 const codexMiaProxy = createCodexMiaProxy({
   appendLog: (line) => appendCloudLog(line)
 });
+const skillRuntimeOwner = createSkillRuntimeOwner({
+  listSkillRecordsForBot: (bot) => skillsLoader.skillRecordsForBot(bot),
+  materializePromptFallback: ({ bot, activeSkillIds, intentSkillIds, requestedSkillIds }) =>
+    skillsLoader.resolveSkillMaterialization({
+      bot,
+      activeSkillIds,
+      intentSkillIds,
+      requestedSkillIds,
+      mode: "index"
+    })
+});
 const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
+  skillRuntimeOwner,
   resolveModelRuntime,
   resolveManagedModelRuntime,
   claudeCodeMiaProxy,

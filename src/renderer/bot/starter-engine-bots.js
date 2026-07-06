@@ -57,7 +57,7 @@
   function normalizeEngineId(value) {
     const raw = String(value || "").trim().toLowerCase();
     if (!raw) return "";
-    if (["cloud-claude-code", "cloud_claude_code", "cloud-hermes", "cloud_hermes", "mia-cloud", "miacloud"].includes(raw)) return "cloud-claude-code";
+    if (["cloud-claude-code", "cloud_claude_code", "mia-cloud", "miacloud"].includes(raw)) return "cloud-claude-code";
     if (["claude", "claude_code", "claudecode"].includes(raw)) return "claude-code";
     if (["open-claw", "open_claw", "openclaw"].includes(raw)) return "openclaw";
     return raw;
@@ -285,7 +285,7 @@
     return (Array.isArray(bots) ? bots : []).find((bot) =>
       botDisplayName(bot).toLowerCase() === spec.name.toLowerCase()
       && (spec.runtimeKind === "cloud-claude-code"
-        ? ["cloud-claude-code", "cloud-hermes"].includes(botRuntimeKind(bot))
+        ? ["cloud-claude-code"].includes(botRuntimeKind(bot))
           || botKey(bot).endsWith(`_${spec.keySuffix || "mia"}`)
         : botEngineId(bot) === spec.engineId
           || botKey(bot).endsWith(`_${spec.keySuffix || spec.engineId}`))) || null;

@@ -29,7 +29,6 @@ function makeService(overrides = {}) {
     enginePermissionMode: () => "default",
     setAgentSessionId: (...args) => calls.push(["set-id", ...args]),
     setAgentSessionEntry: (...args) => calls.push(["set-entry", ...args]),
-    ensureClaudeBridgePlugin: () => ({ fingerprint: "bridge_fp" }),
     loadAgentSessionMap: () => ({}),
     listExternalAgentSessions: () => [],
     sourceDeviceId: () => "device_1",
@@ -204,5 +203,5 @@ test("runSlashCommand binds resume ids through the engine-specific session write
   });
 
   assert.match(result, new RegExp(nextId));
-  assert.deepEqual(calls, [["set-entry", "claude-code", "alice", "local_1", nextId, "bridge_fp", "/repo"]]);
+  assert.deepEqual(calls, [["set-entry", "claude-code", "alice", "local_1", nextId, "", "/repo"]]);
 });

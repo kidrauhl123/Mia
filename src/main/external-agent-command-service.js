@@ -74,7 +74,6 @@ function createExternalAgentCommandService(deps = {}) {
   const enginePermissionMode = deps.enginePermissionMode || (() => "default");
   const setAgentSessionId = deps.setAgentSessionId || (() => {});
   const setAgentSessionEntry = deps.setAgentSessionEntry || (() => {});
-  const ensureClaudeBridgePlugin = deps.ensureClaudeBridgePlugin || (() => ({ fingerprint: "" }));
   const loadAgentSessionMap = deps.loadAgentSessionMap || (() => ({}));
   const listExternalAgentSessions = deps.listExternalAgentSessions || defaultListExternalAgentSessions;
   const sourceDeviceId = deps.sourceDeviceId || (() => "");
@@ -289,9 +288,7 @@ function createExternalAgentCommandService(deps = {}) {
         return "session-id 看起来不是有效 UUID。用法：/resume <session-id>";
       }
       if (engine === "claude-code") {
-        let fingerprint = "";
-        try { fingerprint = ensureClaudeBridgePlugin().fingerprint || ""; } catch { /* bridge refresh failure falls back to legacy storage */ }
-        setAgentSessionEntry(engine, bot.key, sessionId, next, fingerprint, workspacePath);
+        setAgentSessionEntry(engine, bot.key, sessionId, next, "", workspacePath);
       } else {
         setAgentSessionId(engine, bot.key, sessionId, next, workspacePath);
       }

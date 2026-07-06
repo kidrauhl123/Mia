@@ -18,8 +18,6 @@ function createRuntimeInitializerService(deps = {}) {
   const defaultDaemonSettings = deps.defaultDaemonSettings || (() => ({}));
   const defaultUserProfile = deps.defaultUserProfile || (() => ({}));
   const defaultAppearanceSettings = deps.defaultAppearanceSettings || (() => ({}));
-  const ensureClaudeBridgePlugin = deps.ensureClaudeBridgePlugin || (() => {});
-  const appendEngineLog = deps.appendEngineLog || (() => {});
   const getRuntimeStatus = deps.getRuntimeStatus || ((created) => ({ created }));
 
   function writeFileIfMissing(filePath, content, mode) {
@@ -111,12 +109,6 @@ function createRuntimeInitializerService(deps = {}) {
       ""
     ].join("\n"))) {
       created.push("runtime/engine-home/SOUL.md");
-    }
-
-    try {
-      ensureClaudeBridgePlugin();
-    } catch (error) {
-      appendEngineLog(`Claude bridge plugin setup failed: ${error?.message || error}`);
     }
 
     return getRuntimeStatus(created);

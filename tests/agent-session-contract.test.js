@@ -78,6 +78,16 @@ test("createAgentSessionKey is stable and rejects missing values", () => {
     }),
     "conversation_1::codex::/repo::mcp:abc"
   );
+  assert.equal(
+    contract.createAgentSessionKey({
+      conversationId: "conversation_1",
+      engineId: "claude",
+      workspacePath: "/repo",
+      mcpFingerprint: "mcp:abc",
+      skillFingerprint: "skills:def"
+    }),
+    "conversation_1::claude::/repo::mcp:abc::skills:def"
+  );
   assert.notEqual(
     contract.createAgentSessionKey({
       conversationId: "conversation_1",

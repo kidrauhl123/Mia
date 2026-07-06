@@ -484,7 +484,7 @@
 
   function normalizeRuntimeTarget(target = {}) {
     const runtimeKind = String(target.runtimeKind || "").trim();
-    const kind = runtimeKind === "cloud-claude-code" || runtimeKind === "cloud-hermes" ? "cloud-claude-code" : "desktop-local";
+    const kind = runtimeKind === "cloud-claude-code" ? "cloud-claude-code" : "desktop-local";
     return {
       runtimeKind: kind,
       deviceId: kind === "cloud-claude-code" ? "" : String(target.deviceId || target.targetDeviceId || "").trim(),

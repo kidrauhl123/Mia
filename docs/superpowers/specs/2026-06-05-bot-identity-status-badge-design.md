@@ -18,7 +18,7 @@ The product is not formally launched, so this migration can be breaking and dest
 4. `ownerUserId` is a management and permission field. It does not participate in bot identity uniqueness.
 5. UI should render names, avatars, and status badges from a single identity object. UI should not care whether the identity is a human user or a bot.
 6. `fellow` should be removed from production source naming, protocol fields, routes, IPC channels, schema tables, enum values, CSS feature names, and mobile/web types.
-7. Bot identity writes are Cloud-only. Runtime kinds such as `desktop-local` and `cloud-hermes` are execution bindings for the same cloud-owned Bot identity, not distinct local/cloud Bot identity classes.
+7. Bot identity writes are Cloud-only. Runtime kinds such as `desktop-local` and `cloud-claude-code` are execution bindings for the same cloud-owned Bot identity, not distinct local/cloud Bot identity classes.
 
 ## Identity Contract
 
@@ -114,7 +114,7 @@ The bot identity belongs in conversation data:
   "type": "bot",
   "decorations": {
     "botId": "bot_abcd",
-    "runtimeKind": "cloud-hermes"
+    "runtimeKind": "cloud-claude-code"
   }
 }
 ```

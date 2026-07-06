@@ -277,15 +277,18 @@ test("cloud Claude Code legacy runs client files are removed", () => {
   );
 });
 
-test("cloud release builder ships gateway Hermes files and excludes the legacy runs client", () => {
+test("cloud release builder ships only cloud Claude Code agent files and excludes legacy cloud agent files", () => {
   const source = fs.readFileSync(path.join(root, "scripts/build-cloud-release.js"), "utf8");
   assert.match(source, /api\/src\/cloud-agent\/cloud-claude-code-model\.js/);
   assert.match(source, /api\/src\/cloud-agent\/claude-code-sandbox-manager\.js/);
   assert.match(source, /api\/src\/cloud-agent\/claude-code-sandbox-client\.js/);
-  assert.match(source, /api\/src\/cloud-agent\/hermes-gateway-client\.js/);
-  assert.match(source, /api\/src\/cloud-agent\/hermes-gateway-events\.js/);
-  assert.match(source, /api\/src\/cloud-agent\/hermes-im-attachments\.js/);
-  assert.match(source, /api\/src\/cloud-agent\/hermes-im-client\.js/);
+  assert.doesNotMatch(source, /api\/src\/cloud-agent\/cloud-hermes-model\.js/);
+  assert.doesNotMatch(source, /api\/src\/cloud-agent\/cloud-hermes-sessions-store\.js/);
+  assert.doesNotMatch(source, /api\/src\/cloud-agent\/hermes-worker-manager\.js/);
+  assert.doesNotMatch(source, /api\/src\/cloud-agent\/hermes-gateway-client\.js/);
+  assert.doesNotMatch(source, /api\/src\/cloud-agent\/hermes-gateway-events\.js/);
+  assert.doesNotMatch(source, /api\/src\/cloud-agent\/hermes-im-attachments\.js/);
+  assert.doesNotMatch(source, /api\/src\/cloud-agent\/hermes-im-client\.js/);
   assert.doesNotMatch(source, /api\/src\/cloud-agent\/hermes-runs-client\.js/);
 });
 
@@ -449,12 +452,11 @@ test("external Agent command execution and session binding live behind a main ex
   assert.doesNotMatch(mainSource, /function skillRoots/, "main must not keep dead skill root helpers");
 });
 
-test("Claude bridge plugin generation lives behind a main claude-bridge-plugin service", () => {
+test("legacy Claude bridge plugin generation is deleted", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const bridgeSource = fs.readFileSync(path.join(root, "src/main/claude-bridge-plugin-service.js"), "utf8");
 
-  assert.match(bridgeSource, /function createClaudeBridgePluginService/, "Claude bridge plugin service should exist");
-  assert.match(mainSource, /createClaudeBridgePluginService/, "main should instantiate Claude bridge plugin setup");
+  assert.equal(fs.existsSync(path.join(root, "src/main/claude-bridge-plugin-service.js")), false, "Claude bridge plugin service should be deleted");
+  assert.doesNotMatch(mainSource, /createClaudeBridgePluginService/, "main should not instantiate Claude bridge plugin setup");
   assert.doesNotMatch(mainSource, /function ensureClaudeBridgePlugin/, "main must not own Claude bridge plugin generation");
   assert.doesNotMatch(mainSource, /\.claude-plugin/, "main must not own Claude plugin manifest paths");
   assert.doesNotMatch(mainSource, /mia-skills/, "main must not own Claude plugin manifest content");
@@ -862,13 +864,12 @@ test("foreground chat materializes skills per turn instead of full enabled-skill
   const coreSource = fs.readFileSync(path.join(root, "src/main/bot-execution-core.js"), "utf8");
   const loaderSource = fs.readFileSync(path.join(root, "src/main/skills-loader.js"), "utf8");
   const schedulerDefaults = fs.readFileSync(path.join(root, "src/main/scheduler-skill-defaults.js"), "utf8");
-  const nativeContextBridgeSource = fs.readFileSync(path.join(root, "src/main/mia-native-context-bridge.js"), "utf8");
   const adapterSource = fs.readFileSync(path.join(root, "src/main/openclaw-chat-adapter.js"), "utf8");
 
   assert.doesNotMatch(coreSource, /handleReminderChatTurn|app-scheduler-reminder|reminder-intent/, "foreground chat must not use direct reminder parsing");
   assert.match(coreSource, /resolveSkillMaterialization/, "bot execution core should materialize skill context once per turn");
   assert.match(coreSource, /skillMaterialization/, "bot execution core should pass materialized skills to adapters");
-  assert.match(nativeContextBridgeSource, /renderNativeToolsMd[\s\S]*skillMaterialization/, "native AgentSession context bridge should consume materialized skill context");
+  assert.equal(fs.existsSync(path.join(root, "src/main/mia-native-context-bridge.js")), false, "legacy native context bridge should be deleted");
   assert.doesNotMatch(adapterSource, /buildEnabledSkillsContext/, "adapters must not inject full enabled skills directly");
   assert.doesNotMatch(loaderSource, /function buildEnabledSkillsContext/, "skills loader must not expose full enabled-skill prompt injection");
   assert.match(schedulerDefaults, /return dedupeSkillIds\(activeSkillIds\)/, "scheduler defaults should preserve explicit skill chips only");

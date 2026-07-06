@@ -178,6 +178,8 @@ class AgentSessionManager extends EventEmitter {
     if (runtimeKey) descriptor.runtimeKey = runtimeKey;
     const mcpFingerprint = String(input.mcpFingerprint || input.mcp_fingerprint || "").trim();
     if (mcpFingerprint) descriptor.mcpFingerprint = mcpFingerprint;
+    const skillFingerprint = String(input.skillFingerprint || input.skill_fingerprint || "").trim();
+    if (skillFingerprint) descriptor.skillFingerprint = skillFingerprint;
     if (input.env && typeof input.env === "object" && !Array.isArray(input.env)) {
       descriptor.env = { ...input.env };
     }
@@ -204,6 +206,8 @@ class AgentSessionManager extends EventEmitter {
         || key === "runtime_key"
         || key === "mcpFingerprint"
         || key === "mcp_fingerprint"
+        || key === "skillFingerprint"
+        || key === "skill_fingerprint"
         || key === "env"
         || key === "mcpServers"
         || key === "refreshMcpContext"

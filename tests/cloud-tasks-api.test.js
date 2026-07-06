@@ -78,7 +78,7 @@ test("cloud tasks API creates account-scoped tasks and records run history", asy
         return { userId, baseUrl: "http://worker", apiKey: "worker-key", gatewayWsUrl: "ws://worker/api/ws" };
       }
     },
-    cloudAgentHermesImClient: {
+    cloudAgentClient: {
       async runChat(args) {
         hermesCalls.push(args);
         return { runId: "hr_task", content: "任务完成", events: [] };
@@ -146,7 +146,7 @@ test("internal cloud task API accepts worker-scoped user tokens", async () => {
         return { userId, baseUrl: "http://worker", apiKey: "worker-key", gatewayWsUrl: "ws://worker/api/ws" };
       }
     },
-    cloudAgentHermesImClient: {
+    cloudAgentClient: {
       async runChat() {
         return { runId: "hr_internal", content: "ok", events: [] };
       }
@@ -189,7 +189,7 @@ test("cloud task scheduler fires persisted due tasks and advances cron cursor", 
         return { userId, baseUrl: "http://worker", apiKey: "worker-key", gatewayWsUrl: "ws://worker/api/ws" };
       }
     },
-    cloudAgentHermesImClient: {
+    cloudAgentClient: {
       async runChat() {
         return { runId: "hr_due", content: "到点执行", events: [] };
       }
@@ -237,7 +237,7 @@ test("cloud task fire does not append a visible user trigger message", async () 
         return { userId, baseUrl: "http://worker", apiKey: "worker-key", gatewayWsUrl: "ws://worker/api/ws" };
       }
     },
-    cloudAgentHermesImClient: {
+    cloudAgentClient: {
       async runChat(args) {
         hermesCalls.push(args);
         return { runId: "hr_reminder", content: "该睡觉了", events: [] };
@@ -287,7 +287,7 @@ test("direct delivery tasks append a bot message without running Hermes", async 
         return { userId, baseUrl: "http://worker", apiKey: "worker-key", gatewayWsUrl: "ws://worker/api/ws" };
       }
     },
-    cloudAgentHermesImClient: {
+    cloudAgentClient: {
       async runChat(args) {
         hermesCalls.push(args);
         return { runId: "hr_should_not_run", content: "wrong", events: [] };

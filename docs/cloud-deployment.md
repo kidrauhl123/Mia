@@ -48,7 +48,7 @@ MIA_MODEL_MARKUP=1
 `MIA_CLOUD_AGENT_MODE=claude-code` enables the Cloud-hosted Claude Code SDK runtime for Bot runs. The service creates an isolated home/workspace/tmp tree per user under `MIA_CLOUD_AGENT_ROOT`, points Claude Code at DeepSeek's Anthropic-compatible endpoint, and asks the Claude Code SDK to enforce its sandbox for shell/file work. This is intentionally not one permanent Docker container per user.
 Cloud Claude Code also prepends the shared Agent Python venv to `PATH`. The default venv is `/opt/mia-agent-runtime/python`; deploy scripts create it with Python 3.12 and preinstall common office/data packages such as `python-pptx`, `python-docx`, `openpyxl`, `pandas`, `matplotlib`, `pillow`, `reportlab`, `pypdf`, `requests`, `beautifulsoup4`, and `lxml`. Override with `MIA_CLOUD_AGENT_PYTHON_VENV`, `MIA_CLOUD_AGENT_PYTHON_BIN`, or `MIA_CLOUD_AGENT_PYTHON_PACKAGES` if a host needs a different toolchain.
 On China-hosted VPS networks, Debian apt metadata or PyPI downloads can hang when they use upstream defaults. Set `MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian` and `MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple` before running `install-cloud-release-local.sh` or `cloud:deploy`. If unset, the shared Agent Python venv uses the Tencent PyPI mirror by default.
-If a rollback needs the old Cloud Hermes runtime, set `MIA_CLOUD_AGENT_MODE=docker` or `MIA_CLOUD_AGENT_MODE=static`; only then do the install scripts require Docker and build `hermes-image/`.
+Cloud runtime now supports `cloud-claude-code` only.
 `MIA_MODEL_GATEWAY=deepseek` still powers Mia's paid model gateway and admin billing. Cloud Claude Code uses `MIA_DEEPSEEK_API_KEY` or `MIA_CLOUD_CLAUDE_CODE_API_KEY` server-side. Put `MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY`, `MIA_DEEPSEEK_API_KEY`, and admin credentials in `/etc/mia-cloud/admin.env`, not in the repository.
 
 ## WeChat Official Account Login
@@ -89,7 +89,7 @@ docker run -d --name litellm --restart unless-stopped \
   --config /app/config.yaml --host 0.0.0.0 --port 4000
 ```
 
-Use the Mia admin page at `/admin/model` to save the provider API key and the `mia-auto` model alias into LiteLLM. Keep the LiteLLM UI private or disabled on the public internet. This path is optional for the current Claude Code cloud runtime; it is retained for older Cloud Hermes deployments and future multi-provider routing.
+Use the Mia admin page at `/admin/model` to save the provider API key and the `mia-auto` model alias into LiteLLM. Keep the LiteLLM UI private or disabled on the public internet. This path is optional for the current Claude Code cloud runtime and future multi-provider routing.
 
 ## systemd Unit
 

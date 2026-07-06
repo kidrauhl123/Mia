@@ -48,7 +48,7 @@ function memberRows(friends: Friend[], bots: Bot[]): GroupMemberRow[] {
     ...bots.map((bot, index) => {
       const id = botId(bot, index);
       const name = botName(bot, id);
-      const runtimeKind = bot.runtimeKind || bot.runtime_kind || "cloud-hermes";
+      const runtimeKind = bot.runtimeKind || bot.runtime_kind || "cloud-claude-code";
       return {
         key: `bot:${id}`,
         kind: "bot" as const,

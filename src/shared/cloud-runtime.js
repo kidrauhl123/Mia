@@ -4,12 +4,10 @@
   if (root) root.miaCloudRuntime = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildCloudRuntime() {
   const CLOUD_RUNTIME_KIND = "cloud-claude-code";
-  const LEGACY_CLOUD_RUNTIME_KIND = "cloud-hermes";
 
   function normalizeRuntimeKind(value = "") {
     const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
     if (raw === CLOUD_RUNTIME_KIND || raw === "mia-cloud" || raw === "miacloud") return CLOUD_RUNTIME_KIND;
-    if (raw === LEGACY_CLOUD_RUNTIME_KIND) return LEGACY_CLOUD_RUNTIME_KIND;
     return "";
   }
 
@@ -18,7 +16,7 @@
     if (raw === "claude" || raw === "claude-code" || raw === "anthropic") return "claude-code";
     if (raw === "codex" || raw === "openai-codex") return "codex";
     if (raw === "openclaw" || raw === "open-claw") return "openclaw";
-    if (raw === "hermes" || raw === LEGACY_CLOUD_RUNTIME_KIND) return "hermes";
+    if (raw === "hermes") return "hermes";
     return "";
   }
 
@@ -85,7 +83,6 @@
 
   return {
     CLOUD_RUNTIME_KIND,
-    LEGACY_CLOUD_RUNTIME_KIND,
     normalizeRuntimeKind,
     normalizeAgentEngineStrict,
     engineLabel,

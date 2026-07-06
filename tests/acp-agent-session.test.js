@@ -366,6 +366,70 @@ test("sendUserInput accepts direct session update payloads from newer ACP client
   );
 });
 
+test("sendUserInput retries a managed prompt when the agent requests LOAD_SKILL", async () => {
+  let promptCount = 0;
+  const { session, state } = createSession({
+    createClient: async ({ onSessionUpdate, onPermissionRequest }) => ({
+      async initialize() {
+        return { protocolVersion: 1 };
+      },
+      async newSession() {
+        return { sessionId: "acp-session-1" };
+      },
+      async prompt(params) {
+        state.promptCalls.push(params);
+        promptCount += 1;
+        if (promptCount === 1) {
+          await onSessionUpdate({
+            sessionId: params.sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              messageId: "msg-load",
+              content: { type: "text", text: "[LOAD_SKILL: demo-skill]" }
+            }
+          });
+          return { stopReason: "end_turn" };
+        }
+        assert.match(params.prompt[0].text, /## Loaded demo/);
+        await onSessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            messageId: "msg-final",
+            content: { type: "text", text: "answer from loaded skill" }
+          }
+        });
+        return { stopReason: "end_turn" };
+      },
+      async cancel() {},
+      requestPermission: onPermissionRequest
+    })
+  });
+  const events = collectEvents(session);
+
+  await session.sendUserInput({
+    turnId: "turn-fallback",
+    text: "hello",
+    turnPromptPrefix: "## Prompt Fallback",
+    skillFallback: {
+      maxRounds: 2,
+      detectRequests: (text) => text.includes("demo-skill") ? ["demo-skill"] : [],
+      materializePrompt: async () => "## Loaded demo",
+      fallbackText: () => "unresolved"
+    }
+  });
+
+  assert.equal(promptCount, 2);
+  assert.equal(
+    events.some((event) => event[0] === "assistant-delta" && /LOAD_SKILL/.test(String(event[1].text || ""))),
+    false
+  );
+  assert.equal(
+    events.some((event) => event[0] === "assistant-delta" && event[1].text === "answer from loaded skill"),
+    true
+  );
+});
+
 test("start carries initializationMetadata in session metadata while prompt stays current-turn text only", async () => {
   const initializationMetadata = {
     systemPrompt: "system: obey hidden rules",

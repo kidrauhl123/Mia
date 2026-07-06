@@ -28,7 +28,6 @@ function createEngineRuntimeConfigService(deps = {}) {
   const permissionSettings = deps.permissionSettings || (() => ({ mode: "ask" }));
   const effortSettings = deps.effortSettings || (() => ({ level: "medium" }));
   const engineSource = deps.engineSource || (() => "none");
-  const externalSkillDirsSource = deps.externalSkillDirs || (() => []);
   const getMiaAppMcpSpec = typeof deps.getMiaAppMcpSpec === "function"
     ? deps.getMiaAppMcpSpec
     : () => null;
@@ -198,24 +197,6 @@ function createEngineRuntimeConfigService(deps = {}) {
     }
   }
 
-  function externalSkillDirs() {
-    const candidates = typeof externalSkillDirsSource === "function"
-      ? externalSkillDirsSource()
-      : externalSkillDirsSource;
-    const seen = new Set();
-    const result = [];
-    for (const candidate of candidates || []) {
-      if (seen.has(candidate)) continue;
-      seen.add(candidate);
-      try {
-        if (fsImpl.statSync(candidate).isDirectory()) result.push(candidate);
-      } catch {
-        // skip missing/inaccessible paths
-      }
-    }
-    return result;
-  }
-
   function atomicWriteFile(filePath, content, mode = 0o600) {
     const dir = path.dirname(filePath);
     fsImpl.mkdirSync(dir, { recursive: true });
@@ -287,14 +268,11 @@ function createEngineRuntimeConfigService(deps = {}) {
     ]);
     config.agent = agent;
 
-    const extDirs = externalSkillDirs();
-    if (extDirs.length) {
-      const skills = isPlainObject(config.skills) ? { ...config.skills } : {};
-      skills.external_dirs = uniqueStrings([
-        ...(Array.isArray(skills.external_dirs) ? skills.external_dirs : []),
-        ...extDirs
-      ]);
-      config.skills = skills;
+    if (isPlainObject(config.skills)) {
+      const skills = { ...config.skills };
+      delete skills.external_dirs;
+      if (Object.keys(skills).length) config.skills = skills;
+      else delete config.skills;
     }
     const builtInMcpServers = {};
     const miaAppSpec = (() => {
@@ -360,7 +338,6 @@ function createEngineRuntimeConfigService(deps = {}) {
     apiKey,
     atomicWriteFile,
     effectiveHermesHome,
-    externalSkillDirs,
     modelSettings,
     modelRuntimeEnv,
     readConfiguredPort,

@@ -9,7 +9,7 @@
     const raw = String(value || fallback || "").trim();
     if (!raw) return fallback;
     const normalized = raw.toLowerCase().replace(/_/g, "-");
-    if (normalized === "cloud-claude-code" || normalized === "cloud-hermes" || normalized === "mia-cloud" || normalized === "miacloud") {
+    if (normalized === "cloud-claude-code" || normalized === "mia-cloud" || normalized === "miacloud") {
       return "cloud-claude-code";
     }
     if (normalized === "desktop-local") return "desktop-local";

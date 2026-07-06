@@ -80,15 +80,8 @@ test("modelSettings returns defaults until model, provider, or api key is config
   });
 });
 
-test("writeRuntimeConfig writes the native Hermes config with auth, model, approvals, effort, and skill dirs", (t) => {
-  const { dir, runtime, service } = setup(t, {
-    externalSkillDirs: () => [
-      path.join(dir, "skills-a"),
-      path.join(dir, "missing"),
-      path.join(dir, "skills-a")
-    ]
-  });
-  fs.mkdirSync(path.join(dir, "skills-a"), { recursive: true });
+test("writeRuntimeConfig writes the native Hermes config with auth, model, approvals, and effort", (t) => {
+  const { runtime, service } = setup(t);
   fs.mkdirSync(path.dirname(runtime.modelSettings), { recursive: true });
   fs.writeFileSync(runtime.modelSettings, JSON.stringify({
     provider: "openai",
@@ -111,7 +104,7 @@ test("writeRuntimeConfig writes the native Hermes config with auth, model, appro
   assert.equal(parsed.approvals.mode, "ask");
   assert.equal(parsed.agent.reasoning_effort, "high");
   assert.deepEqual(parsed.agent.disabled_toolsets, ["cronjob"]);
-  assert.deepEqual(parsed.skills.external_dirs, [path.join(dir, "skills-a")]);
+  assert.equal(parsed.skills, undefined);
   assert.equal(parsed.mia.runtime_schema, 1);
   assert.equal(parsed.mia.bots_manifest, runtime.botManifest);
   // No scheduler spec supplied → no mcp_servers block.

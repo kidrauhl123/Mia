@@ -390,7 +390,7 @@ export function useBotDetail(botId: string | undefined) {
   });
 }
 
-export function useBotRuntime(botId: string | undefined, kind = "cloud-hermes") {
+export function useBotRuntime(botId: string | undefined, kind = "cloud-claude-code") {
   const api = useApi();
   return useQuery<BotRuntimeBinding | null>({
     queryKey: ["bot-runtime", botId, kind],
@@ -448,7 +448,7 @@ export function useCreateCloudBot() {
       const runtime = await api.api(botRuntimeSavePath(botId), {
         method: "PUT",
         body: {
-          runtimeKind: "cloud-hermes",
+          runtimeKind: "cloud-claude-code",
           enabled: true,
           config: botRuntimeDefaultConfig(defaultModel),
         },
@@ -458,7 +458,7 @@ export function useCreateCloudBot() {
         body: {
           botId,
           title: identity.name,
-          runtimeKind: "cloud-hermes",
+          runtimeKind: "cloud-claude-code",
         },
       });
       return {
@@ -473,7 +473,7 @@ export function useCreateCloudBot() {
       qc.setQueryData<Bot[]>(["bots"], (old) => [bot, ...(old || []).filter((item) => String(item.id || item.key || "") !== vars.botId)]);
       void saveCachedValue(cacheScope, sqliteCacheKeys.bots, qc.getQueryData<Bot[]>(["bots"]) || []);
       qc.setQueryData(["bot-detail", vars.botId], bot);
-      if (data.binding) qc.setQueryData(["bot-runtime", vars.botId, "cloud-hermes"], data.binding);
+      if (data.binding) qc.setQueryData(["bot-runtime", vars.botId, "cloud-claude-code"], data.binding);
       if (data.conversation?.id) {
         qc.setQueryData<Conversation[]>(["conversations"], (old) => prependConversation(old, data.conversation));
         void upsertCachedConversation(cacheScope, data.conversation);

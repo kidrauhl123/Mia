@@ -1053,20 +1053,6 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_cloud_agent_runs_conversation
       ON cloud_agent_runs(conversation_id, created_at);
 
-    CREATE TABLE IF NOT EXISTS cloud_hermes_sessions (
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      bot_id TEXT NOT NULL,
-      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-      runtime_session_id TEXT NOT NULL DEFAULT '',
-      stored_session_id TEXT NOT NULL DEFAULT '',
-      last_trigger_message_id TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (user_id, bot_id, conversation_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_cloud_hermes_sessions_conversation
-      ON cloud_hermes_sessions(conversation_id, updated_at);
-
     CREATE TABLE IF NOT EXISTS skills (
       id            TEXT PRIMARY KEY,
       name          TEXT NOT NULL,
@@ -1488,6 +1474,14 @@ function migrate(db) {
   // v23: cloud Hermes runtime session mapping. Hermes sessions are runtime-side
   // state only; Mia Cloud keeps the durable conversation-to-runtime lookup here.
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (23, ?)")
+    .run(nowIso());
+  db.exec(`
+    DELETE FROM bot_runtime_bindings
+    WHERE runtime_kind = 'cloud-hermes';
+    DROP INDEX IF EXISTS idx_cloud_hermes_sessions_conversation;
+    DROP TABLE IF EXISTS cloud_hermes_sessions;
+  `);
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (24, ?)")
     .run(nowIso());
 }
 

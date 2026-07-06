@@ -1,13 +1,13 @@
 # Mia Deployment
 
-这份文档是 Mia 的部署总入口，覆盖桌面端打包、Cloud/Web 发布、生产验证、回滚和排障。桌面与 Cloud 的操作命令以这里为准，不再分散到其他 checklist。Cloud 服务器的 systemd、nginx、LiteLLM、Docker worker 细节见 [cloud-deployment.md](cloud-deployment.md)。
+这份文档是 Mia 的部署总入口，覆盖桌面端打包、Cloud/Web 发布、生产验证、回滚和排障。桌面与 Cloud 的操作命令以这里为准，不再分散到其他 checklist。Cloud 服务器的 systemd、nginx、LiteLLM、云端 Claude Code 运行时细节见 [cloud-deployment.md](cloud-deployment.md)。
 
 ## 部署面
 
 Mia 当前有三个需要区分的部署面：
 
 - Desktop：Electron 桌面端，产物在 `release/`，macOS Apple Silicon 和 Intel 分开打包；Windows 脚本已存在，按实际验证结果发布。
-- Cloud/Web：Cloud API、Web 静态资源、Hermes worker 镜像上下文和部署脚本，产物在 `dist/`。
+- Cloud/Web：Cloud API、Web 静态资源、Cloud release bundle 和部署脚本，产物在 `dist/`。
 - Bridge：桌面端或独立 `npm run bridge` 连接 Cloud，让同账号 Web/移动端调用在线桌面 Agent。
 
 不要把这三类混在同一次验证里。Desktop 包能启动，不代表 Cloud 已部署；Cloud `/api/health` 正常，也不代表线上是当前 release。
@@ -24,12 +24,12 @@ Mia 当前有三个需要区分的部署面：
 Cloud 生产服务器：
 
 - Node.js 25+，因为 Cloud SQLite 路径依赖 `node:sqlite`。
-- `npm`、`rsync`、`systemctl`、`tar`、`docker`。
+- `npm`、`rsync`、`systemctl`、`tar`。
 - Claude Code sandbox 依赖 `bubblewrap`（提供 `bwrap`）和 `socat`；部署脚本会在 `MIA_CLOUD_CLAUDE_CODE_SANDBOX_REQUIRED=1` 时通过 `apt-get`、`dnf` 或 `yum` 自动补齐。
 - Cloud Claude Code 会使用共享只读 Python 工具环境，默认路径是 `/opt/mia-agent-runtime/python`；部署脚本会用 Python 3.12 创建 venv，并预装 `python-pptx`、`python-docx`、Excel/PDF/图片/图表/HTML 处理等常用库。可用 `MIA_CLOUD_AGENT_PYTHON_VENV`、`MIA_CLOUD_AGENT_PYTHON_BIN`、`MIA_CLOUD_AGENT_PYTHON_PACKAGES` 和 `MIA_PIP_INDEX_URL` 覆盖。
 - nginx 和有效 TLS 证书。
 - 非 root 的 `mia-cloud` 服务用户。
-- Mia 内部模型代理 secret，用于 Cloud Hermes worker 的付费平台模型网关；DeepSeek API Key 通过 `/admin/model` 保存，`MIA_DEEPSEEK_API_KEY` 仅作可选兜底；LiteLLM 仅在多供应商网关模式下可选。
+- Mia 内部模型代理 secret，用于 Cloud 付费模型网关和云端 Agent 运行时；DeepSeek API Key 通过 `/admin/model` 保存，`MIA_DEEPSEEK_API_KEY` 仅作可选兜底；LiteLLM 仅在多供应商网关模式下可选。
 
 默认生产布局：
 
@@ -383,7 +383,7 @@ nginx -t
 journalctl -u nginx -n 100 --no-pager
 ```
 
-Docker / LiteLLM：
+LiteLLM / optional Docker:
 
 ```bash
 docker ps
@@ -398,7 +398,7 @@ docker network inspect mia-cloud
 - WebSocket 连不上：确认 nginx 保留 `Sec-WebSocket-Protocol`，并且 `MIA_CLOUD_ALLOWED_ORIGINS` 包含公网 origin。
 - release freshness 失败：重跑 `npm run cloud:release:handoff:file && npm run cloud:release:handoff:verify`，再跑 `cloud:prod:verify`。
 - Bridge smoke 失败：确认桌面端登录同一个 smoke 账号，Cloud bridge device 在线，且 Agent 权限模式允许当前 smoke run。
-- Cloud Hermes worker 起不来：确认 Docker 可用、`mia-cloud` 用户在 docker group、LiteLLM 容器和 Hermes worker 在同一 Docker network。
+- Cloud Claude Code 运行失败：先看 `journalctl -u mia-cloud`，确认 `bwrap` / `socat` / 共享 Python venv 安装完成，并检查 `/etc/mia-cloud/admin.env` 里的模型与 API Key 配置。
 
 ## 什么时候更新这份文档
 
@@ -406,6 +406,6 @@ docker network inspect mia-cloud
 
 - 新增或删除部署脚本。
 - 改动 release 产物路径。
-- 改动 systemd/nginx/LiteLLM/Docker worker 要求。
+- 改动 systemd/nginx/LiteLLM/云端 Agent 运行时要求。
 - 改动生产验证、smoke、doctor、handoff 语义。
 - 改动 Desktop 打包目标或 release 发布方式。

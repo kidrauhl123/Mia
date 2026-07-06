@@ -8,6 +8,7 @@ const yaml = require("js-yaml");
 
 const { normalizeAcpMcpServer, normalizeAcpMcpServers } = require("./agent-session/acp-mcp-servers.js");
 const { buildMiaContextResource, mcpContextPrompt } = require("./mia-context-resource.js");
+const { createSkillRuntimeOwner } = require("./mia-core/skill-runtime-owner.js");
 const { createOpenClawMiaProfile } = require("./openclaw-mia-profile.js");
 const { createCodexMiaProxy } = require("./codex-mia-proxy.js");
 const {
@@ -156,6 +157,14 @@ function createAgentSessionRuntimePreparer(options = {}) {
   const getMcpFingerprint = typeof options.getMcpFingerprint === "function" ? options.getMcpFingerprint : () => "";
   const writeMiaAppMcpContext = typeof options.writeMiaAppMcpContext === "function" ? options.writeMiaAppMcpContext : () => {};
   const writeSchedulerMcpContext = typeof options.writeSchedulerMcpContext === "function" ? options.writeSchedulerMcpContext : () => {};
+  const skillRuntimeOwner = options.skillRuntimeOwner || createSkillRuntimeOwner({
+    listSkillRecordsForBot: typeof options.listSkillRecordsForBot === "function"
+      ? options.listSkillRecordsForBot
+      : undefined,
+    materializePromptFallback: typeof options.materializePromptFallback === "function"
+      ? options.materializePromptFallback
+      : undefined
+  });
 
   function resolvedHermesRuntime(runtimeConfig = {}) {
     if (resolveModelRuntime) {
@@ -229,6 +238,12 @@ function createAgentSessionRuntimePreparer(options = {}) {
         bots_manifest: path.join(resolvedMiaHome, "bots", "manifest.json")
       };
     }
+    if (isPlainObject(config.skills)) {
+      const skills = { ...config.skills };
+      delete skills.external_dirs;
+      if (Object.keys(skills).length) config.skills = skills;
+      else delete config.skills;
+    }
     fs.mkdirSync(targetHome, { recursive: true });
     fs.writeFileSync(
       path.join(targetHome, "config.yaml"),
@@ -293,26 +308,39 @@ function createAgentSessionRuntimePreparer(options = {}) {
     };
   }
 
+  async function prepareSkillRuntime(input = {}, engineId = "", runtimeConfig = {}) {
+    if (!skillRuntimeOwner || typeof skillRuntimeOwner.prepareAgentSessionSkillRuntime !== "function") {
+      return {};
+    }
+    return skillRuntimeOwner.prepareAgentSessionSkillRuntime({
+      ...input,
+      engineId,
+      runtimeConfig
+    });
+  }
+
   async function prepare(input = {}) {
     const engineId = String(input.engineId || "").trim();
     const runtimeConfig = input.runtimeConfig && typeof input.runtimeConfig === "object"
       ? input.runtimeConfig
       : {};
     const mcpRuntime = prepareMcpRuntime(input, engineId);
+    const skillRuntime = await prepareSkillRuntime(input, engineId, runtimeConfig);
 
     if (engineId === "hermes") {
       const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "hermes";
-      if (agentEngine !== "hermes") return mcpRuntime;
+      const baseRuntime = mergeRuntimeParts(mcpRuntime, skillRuntime);
+      if (agentEngine !== "hermes") return baseRuntime;
       const runtime = resolvedHermesRuntime(runtimeConfig);
-      if (!runtime) return mcpRuntime;
-      return mergeRuntimeParts(mcpRuntime, ensureHermesSessionProfile(runtime, runtimeConfig));
+      if (!runtime) return baseRuntime;
+      return mergeRuntimeParts(baseRuntime, ensureHermesSessionProfile(runtime, runtimeConfig));
     }
 
     if (engineId === "openclaw") {
       const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "openclaw";
-      if (agentEngine !== "openclaw") return {};
+      if (agentEngine !== "openclaw") return skillRuntime;
       const managedRuntime = resolveManagedModelRuntime(runtimeConfig, { engine: "openclaw" });
-      if (!managedRuntime) return {};
+      if (!managedRuntime) return skillRuntime;
       if (!openClawMiaProfile || typeof openClawMiaProfile.ensure !== "function") {
         throw new Error("OpenClaw Mia profile manager is not available.");
       }
@@ -328,7 +356,7 @@ function createAgentSessionRuntimePreparer(options = {}) {
         ...(gatewayUrl ? { MIA_OPENCLAW_GATEWAY_URL: gatewayUrl } : {}),
         ...(gatewayTokenFile ? { MIA_OPENCLAW_GATEWAY_TOKEN_FILE: gatewayTokenFile } : {})
       };
-      return mergeRuntimeParts({}, {
+      return mergeRuntimeParts(skillRuntime, {
         runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
         env
       });
@@ -336,9 +364,10 @@ function createAgentSessionRuntimePreparer(options = {}) {
 
     if (engineId === "codex") {
       const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "codex";
-      if (agentEngine !== "codex") return mcpRuntime;
+      const baseRuntime = mergeRuntimeParts(mcpRuntime, skillRuntime);
+      if (agentEngine !== "codex") return baseRuntime;
       const managedRuntime = resolveManagedModelRuntime(runtimeConfig, { engine: "codex" });
-      if (!managedRuntime) return mcpRuntime;
+      if (!managedRuntime) return baseRuntime;
       if (!codexMiaProxy || typeof codexMiaProxy.createSession !== "function") {
         throw new Error("Codex Mia proxy is not available.");
       }
@@ -350,7 +379,7 @@ function createAgentSessionRuntimePreparer(options = {}) {
         throw new Error("Codex Mia proxy did not return a usable session.");
       }
       const modelCatalogJson = writeCodexMiaModelCatalog(codexModelCatalogPath, model);
-      return mergeRuntimeParts(mcpRuntime, {
+      return mergeRuntimeParts(baseRuntime, {
         runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
         env: {
           CODEX_API_KEY: apiKey,
@@ -365,13 +394,14 @@ function createAgentSessionRuntimePreparer(options = {}) {
       });
     }
 
-    if (engineId !== "claude") return mcpRuntime;
+    if (engineId !== "claude") return mergeRuntimeParts(mcpRuntime, skillRuntime);
 
     const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "claude-code";
-    if (agentEngine !== "claude-code") return mcpRuntime;
+    const baseRuntime = mergeRuntimeParts(mcpRuntime, skillRuntime);
+    if (agentEngine !== "claude-code") return baseRuntime;
 
     const managedRuntime = resolveManagedModelRuntime(runtimeConfig, { engine: "claude-code" });
-    if (!managedRuntime) return mcpRuntime;
+    if (!managedRuntime) return baseRuntime;
     if (!claudeCodeMiaProxy || typeof claudeCodeMiaProxy.createSession !== "function") {
       throw new Error("Claude Code Mia proxy is not available.");
     }
@@ -383,7 +413,7 @@ function createAgentSessionRuntimePreparer(options = {}) {
       throw new Error("Claude Code Mia proxy did not return a usable session.");
     }
 
-    return mergeRuntimeParts(mcpRuntime, {
+    return mergeRuntimeParts(baseRuntime, {
       runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
       env: {
         ANTHROPIC_BASE_URL: baseUrl,

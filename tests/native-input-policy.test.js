@@ -71,3 +71,20 @@ test("prepareNativeTurnInput rejects role-array transcript replay under other ke
     /native input policy/i
   );
 });
+
+test("prepareNativeTurnInput allows managed prompt-fallback metadata", () => {
+  const prepared = prepareNativeTurnInput({
+    turnId: "turn-1",
+    text: "hello",
+    turnPromptPrefix: "## Prompt Fallback",
+    skillFallback: {
+      maxRounds: 2,
+      detectRequests: () => ["demo-skill"],
+      materializePrompt: async () => "## Loaded demo",
+      fallbackText: () => "unable"
+    }
+  });
+
+  assert.equal(prepared.turnPromptPrefix, "## Prompt Fallback");
+  assert.equal(typeof prepared.skillFallback.detectRequests, "function");
+});
