@@ -185,6 +185,16 @@ function readJson(file, fallback) {
   }
 }
 
+function resolveCoreAgentWorkspace({ runtimePaths, settingsStore } = {}) {
+  const paths = typeof runtimePaths === "function" ? runtimePaths() : {};
+  const custom = String(settingsStore?.agentWorkspace?.()?.path || "").trim();
+  const dir = custom && fs.existsSync(custom) ? custom : String(paths.workspace || "").trim();
+  if (dir) {
+    try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best effort */ }
+  }
+  return dir;
+}
+
 // Hermes engine endpoint discovery — Core's own source of truth.
 //
 // In production the daemon env does NOT set MIA_HERMES_BASE_URL /
@@ -711,12 +721,10 @@ function createCoreBotExecution({
     return agentSessionRuntimePreparer.prepare(input);
   }
 
-  // Mia-owned agent workspace (never `/` or the user's home). Core owns
-  // runtimePaths().workspace — the SAME default main.js uses (src/main.js:561).
+  // Core owns the agent workspace decision. A user-picked workspace (Settings)
+  // wins when it still exists; otherwise fall back to Mia's owned default.
   function agentWorkspaceDir() {
-    const dir = runtimePaths().workspace;
-    try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best effort */ }
-    return dir;
+    return resolveCoreAgentWorkspace({ runtimePaths, settingsStore });
   }
 
   // REAL adapter graph: Claude Code, Codex, Hermes, and OpenClaw bot turns route
@@ -837,6 +845,7 @@ function createCoreCloudRouting({
     fetchImpl,
     timeoutSignal
   });
+  const agentWorkspaceDir = artifactWorkspaceDir || (() => resolveCoreAgentWorkspace({ runtimePaths, settingsStore }));
 
   const localBotResponder = createLocalBotResponder({
     sendChat: botExecution.sendChat,
@@ -848,9 +857,9 @@ function createCoreCloudRouting({
     // sink; a no-op/collector is fine until the local-events fan-out lands.
     emitCloudEvent: (message) => emitLocalEvent({ type: message.type, payload: message }),
     log,
-    artifactWorkspaceDir: artifactWorkspaceDir || (() => runtimePaths?.().workspace),
+    artifactWorkspaceDir: agentWorkspaceDir,
     agentSessionManager,
-    agentSessionWorkspacePath: artifactWorkspaceDir || (() => runtimePaths?.().workspace),
+    agentSessionWorkspacePath: agentWorkspaceDir,
     prepareAgentSessionRuntime: typeof prepareAgentSessionRuntime === "function"
       ? prepareAgentSessionRuntime
       : (typeof botExecution.prepareAgentSessionRuntime === "function" ? botExecution.prepareAgentSessionRuntime : null)
@@ -1810,7 +1819,8 @@ function createMiaCore(options = {}) {
     initSchedulerSubsystem: () => schedulerSubsystem().initSchedulerSubsystem(),
     tasksRoutes: () => schedulerSubsystem().tasksRoutes,
     getMiaContextSnapshot: miaContextSnapshot,
-    getMiaCurrentSkills: (scope) => botExecution().miaCurrentSkills(scope)
+    getMiaCurrentSkills: (scope) => botExecution().miaCurrentSkills(scope),
+    sendChat: (payload) => botExecution().sendChat(payload || {})
   });
 
   function coreRemoteRouter() {

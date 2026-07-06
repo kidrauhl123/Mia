@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 function defaultReadJson(filePath, fallback) {
   try {
@@ -33,17 +34,29 @@ function createAgentSessionStore(deps = {}) {
     if (typeof fsImpl.chmodSync === "function") fsImpl.chmodSync(filePath, 0o600);
   }
 
-  function sessionKey(engine, botId, sessionId) {
-    return [
+  function workspaceKey(workspacePath = "") {
+    const raw = String(workspacePath || "").trim();
+    if (!raw) return "";
+    const normalized = path.resolve(raw);
+    return crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+  }
+
+  function sessionKey(engine, botId, sessionId, workspacePath = "") {
+    const parts = [
       normalizeBotAgentEngine(engine),
       String(botId || "mia").trim() || "mia",
       String(sessionId || "default").trim() || "default"
-    ].join(":");
+    ];
+    const scopedWorkspace = workspaceKey(workspacePath);
+    if (scopedWorkspace) {
+      parts.push("workspace", scopedWorkspace);
+    }
+    return parts.join(":");
   }
 
-  function getEntry(engine, botId, sessionId) {
+  function getEntry(engine, botId, sessionId, workspacePath = "") {
     const store = loadMap();
-    const entry = store[sessionKey(engine, botId, sessionId)];
+    const entry = store[sessionKey(engine, botId, sessionId, workspacePath)];
     if (!entry) return { id: "", fingerprint: "" };
     if (typeof entry === "string") return { id: entry.trim(), fingerprint: "" };
     return {
@@ -52,26 +65,26 @@ function createAgentSessionStore(deps = {}) {
     };
   }
 
-  function getId(engine, botId, sessionId) {
-    return getEntry(engine, botId, sessionId).id;
+  function getId(engine, botId, sessionId, workspacePath = "") {
+    return getEntry(engine, botId, sessionId, workspacePath).id;
   }
 
-  function setEntry(engine, botId, sessionId, externalSessionId, fingerprint) {
+  function setEntry(engine, botId, sessionId, externalSessionId, fingerprint, workspacePath = "") {
     const id = String(externalSessionId || "").trim();
     if (!id) return;
     const fp = String(fingerprint || "").trim();
     const store = loadMap();
-    store[sessionKey(engine, botId, sessionId)] = fp ? { id, fingerprint: fp } : id;
+    store[sessionKey(engine, botId, sessionId, workspacePath)] = fp ? { id, fingerprint: fp } : id;
     saveMap(store);
   }
 
-  function setId(engine, botId, sessionId, externalSessionId) {
-    setEntry(engine, botId, sessionId, externalSessionId, "");
+  function setId(engine, botId, sessionId, externalSessionId, workspacePath = "") {
+    setEntry(engine, botId, sessionId, externalSessionId, "", workspacePath);
   }
 
-  function deleteEntry(engine, botId, sessionId) {
+  function deleteEntry(engine, botId, sessionId, workspacePath = "") {
     const store = loadMap();
-    const key = sessionKey(engine, botId, sessionId);
+    const key = sessionKey(engine, botId, sessionId, workspacePath);
     const existed = Object.prototype.hasOwnProperty.call(store, key);
     if (!existed) return false;
     delete store[key];

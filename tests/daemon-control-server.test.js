@@ -140,6 +140,71 @@ test("daemon permission routes resolve and list coordinator-owned requests", asy
   ]);
 });
 
+test("daemon chat send delegates to Core and publishes chat events locally", async (t) => {
+  const port = await freePort();
+  const sendCalls = [];
+  const { server } = setup(t, {
+    sendChat: async (payload) => {
+      sendCalls.push(payload);
+      payload.emit("text_delta", { text: "hi" });
+      return { ok: true, mode: "started", conversationId: payload.sessionId, engineId: "codex", turnId: "m1" };
+    }
+  });
+  t.after(() => server.stop());
+  const status = await server.start({ host: "127.0.0.1", port });
+
+  const received = [];
+  const stream = await fetch(`${status.baseUrl}/api/local-events`, {
+    headers: { Authorization: "Bearer secret-token" }
+  });
+  const reader = stream.body.getReader();
+  const decoder = new TextDecoder();
+  await reader.read(); // connected comment
+
+  const response = await fetch(`${status.baseUrl}/api/chat/send`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer secret-token",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      botKey: "bot-codex",
+      sessionId: "conversation:1",
+      messages: [{ role: "user", id: "m1", content: "hello" }]
+    })
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    mode: "started",
+    conversationId: "conversation:1",
+    engineId: "codex",
+    turnId: "m1"
+  });
+  assert.equal(sendCalls.length, 1);
+  assert.equal(typeof sendCalls[0].emit, "function");
+  const chunk = decoder.decode((await reader.read()).value);
+  for (const block of chunk.split("\n\n")) {
+    const line = block.split("\n").find((entry) => entry.startsWith("data: "));
+    if (!line) continue;
+    received.push(JSON.parse(line.slice(6)));
+  }
+  await reader.cancel();
+
+  assert.deepEqual(received, [{
+    type: "chat:event",
+    payload: {
+      runId: received[0].payload.runId,
+      sessionId: "conversation:1",
+      seq: 1,
+      kind: "text_delta",
+      data: { text: "hi" },
+      ts: received[0].payload.ts
+    }
+  }]);
+});
+
 test("daemon exposes authorized scoped Mia context snapshots for MCP tools", async (t) => {
   const port = await freePort();
   const snapshotCalls = [];

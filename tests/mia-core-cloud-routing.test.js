@@ -38,8 +38,10 @@ function botInvocationEvent({ deviceId }) {
   };
 }
 
-test("cloud routing hands interactive Hermes turns to AgentSession instead of Hermes HTTP chat", async () => {
+test("cloud routing hands interactive Hermes turns to AgentSession instead of Hermes HTTP chat", async (t) => {
   const deviceId = "device_core_fixture";
+  const customWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-routing-workspace-"));
+  t.after(() => fs.rmSync(customWorkspace, { recursive: true, force: true }));
   const sendHermesChatSeen = [];
   const managerCalls = [];
   const localEvents = [];
@@ -70,6 +72,9 @@ test("cloud routing hands interactive Hermes turns to AgentSession instead of He
     },
     agentSessionManager
   });
+  t.after(async () => {
+    try { await botExecution.closeAgentEngines(); } catch { /* best effort */ }
+  });
 
   const socialApi = {
     postConversationMessageAsBot: async (conversationId, body) => {
@@ -81,7 +86,11 @@ test("cloud routing hands interactive Hermes turns to AgentSession instead of He
 
   const routing = createCoreCloudRouting({
     runtimePaths: makeRuntimePaths(),
-    settingsStore: { cloudSettings: () => ({ enabled: false }), normalizeCloudUrl: (value) => String(value || "") },
+    settingsStore: {
+      cloudSettings: () => ({ enabled: false }),
+      normalizeCloudUrl: (value) => String(value || ""),
+      agentWorkspace: () => ({ path: customWorkspace })
+    },
     botExecution,
     socialApi,
     emitLocalEvent: (envelope) => localEvents.push(envelope),
@@ -100,15 +109,14 @@ test("cloud routing hands interactive Hermes turns to AgentSession instead of He
   assert.equal(managerCalls[0].engineId, "hermes");
   assert.equal(managerCalls[0].turnId, "turn_1");
   assert.equal(managerCalls[0].text, "hello core");
-  assert.equal(typeof managerCalls[0].workspacePath, "string");
-  assert.notEqual(managerCalls[0].workspacePath, "");
+  assert.equal(managerCalls[0].workspacePath, customWorkspace);
   assert.equal(localEvents.length, 1);
   assert.equal(localEvents[0].type, "cloud_agent_run_started");
   assert.equal(localEvents[0].payload.conversationId, "dm:userA:bot1");
   assert.equal(localEvents[0].payload.turnId, "turn_1");
 });
 
-test("core cloud routing stopChat cancels the active AgentSession conversation", async () => {
+test("core cloud routing stopChat cancels the active AgentSession conversation", async (t) => {
   const deviceId = "device_core_fixture";
   const cancelled = [];
   const agentSessionManager = {
@@ -131,6 +139,9 @@ test("core cloud routing stopChat cancels the active AgentSession conversation",
     hermesBaseUrl: "",
     apiKey: "test-key",
     agentSessionManager
+  });
+  t.after(async () => {
+    try { await botExecution.closeAgentEngines(); } catch { /* best effort */ }
   });
   const routing = createCoreCloudRouting({
     runtimePaths: makeRuntimePaths(),
@@ -196,7 +207,6 @@ test("createCoreCloudRouting requires an explicit persisted device id", () => {
 
 test("createMiaCore cloud routing accepts invocations for the persisted desktop device identity", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-routing-identity-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   fs.writeFileSync(path.join(home, "mia-device.json"), JSON.stringify({
     id: "device_existing_air7",
     createdAt: "2026-06-18T03:09:46.142Z"
@@ -204,6 +214,10 @@ test("createMiaCore cloud routing accepts invocations for the persisted desktop 
 
   const managerCalls = [];
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "0.0.0-test" });
+  t.after(async () => {
+    try { await core.stop(); } catch { /* best effort */ }
+    fs.rmSync(home, { recursive: true, force: true });
+  });
   const { dispatcher } = core.cloudRouting({
     agentSessionManager: {
       sendUserInput: async (input) => {
@@ -225,7 +239,6 @@ test("createMiaCore cloud routing accepts invocations for the persisted desktop 
 
 test("createMiaCore cloud routing rereads the persisted device identity", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-routing-reset-identity-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const identityPath = path.join(home, "mia-device.json");
   fs.writeFileSync(identityPath, JSON.stringify({
     id: "device_existing_air7",
@@ -234,6 +247,10 @@ test("createMiaCore cloud routing rereads the persisted device identity", async 
 
   const managerCalls = [];
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "0.0.0-test" });
+  t.after(async () => {
+    try { await core.stop(); } catch { /* best effort */ }
+    fs.rmSync(home, { recursive: true, force: true });
+  });
   const { dispatcher } = core.cloudRouting({
     agentSessionManager: {
       sendUserInput: async (input) => {

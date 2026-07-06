@@ -28,6 +28,7 @@ const {
   sendWithStatelessChatEngineAdapter
 } = require("./main/chat-engine-adapters.js");
 const { createChatEventEmitter } = require("./main/chat-events.js");
+const { createChatSendDelegator } = require("./main/chat-send-delegation.js");
 const { createBotExecutionCore } = require("./main/bot-execution-core.js");
 const { createBotTurnHelpers } = require("./main/bot-turn-helpers.js");
 const { chatCompletionResponse, responseMessageContent } = require("./main/chat-response.js");
@@ -114,6 +115,7 @@ const {
   coreNeedsReplacement,
   shouldReuseCore
 } = require("./main/mia-core/local-process-control.js");
+const { rendererChannelForLocalEvent } = require("./main/daemon/local-event-renderer-router.js");
 const { createMiaCoreResolver } = require("./main/daemon/executable-resolver.js");
 const { windowsTitleBarOverlayForAppearance, applyWindowsTitleBarOverlay } = require("./main/windows-title-bar.js");
 const { createProviderConnections } = require("./main/provider-connections.js");
@@ -2420,9 +2422,14 @@ const botExecutionCore = createBotExecutionCore({
   prepareAgentSessionRuntime
 });
 
-function sendChat(payload) {
-  return botExecutionCore.sendChat(payload);
-}
+const sendChat = createChatSendDelegator({
+  isDaemonProcess: IS_DAEMON_PROCESS,
+  requireDaemonRuntimeAvailable,
+  daemonClient: {
+    call: (...args) => miaCoreTasksClient.call(...args)
+  },
+  fallbackSendChat: (payload) => botExecutionCore.sendChat(payload)
+});
 
 function stopChat(payload = {}) {
   return botExecutionCore.stopChat(payload);
@@ -2979,7 +2986,8 @@ if (!IS_DAEMON_PROCESS) {
         startCloudRuntimeSockets();
         return;
       }
-      broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
+      const channel = rendererChannelForLocalEvent(envelope, IpcChannel);
+      broadcastRendererEvent(channel, channel === IpcChannel.ChatEvent ? envelope.payload : envelope);
     },
     onStateChange: (connected) => {
       const envelope = {

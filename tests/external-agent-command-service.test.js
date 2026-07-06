@@ -102,8 +102,12 @@ test("executeCommand rejects a custom command outside allowed command roots", ()
 });
 
 test("runSlashCommand reports external agent status from injected engine and session state", () => {
+  const getCalls = [];
   const { service } = makeService({
-    getAgentSessionId: () => "thread_1",
+    getAgentSessionId: (...args) => {
+      getCalls.push(args);
+      return "thread_1";
+    },
     enginePermissionMode: () => ":danger-full-access"
   });
 
@@ -125,6 +129,7 @@ test("runSlashCommand reports external agent status from injected engine and ses
   assert.match(result, /CLI：\/bin\/codex/);
   assert.match(result, /版本：codex 2\.3\.4/);
   assert.match(result, /外部会话：thread_1/);
+  assert.deepEqual(getCalls, [["codex", "alice", "local_1", "/repo"]]);
 });
 
 test("runSlashCommand reports OpenClaw status without falling back to Codex labels", () => {
@@ -199,5 +204,5 @@ test("runSlashCommand binds resume ids through the engine-specific session write
   });
 
   assert.match(result, new RegExp(nextId));
-  assert.deepEqual(calls, [["set-entry", "claude-code", "alice", "local_1", nextId, "bridge_fp"]]);
+  assert.deepEqual(calls, [["set-entry", "claude-code", "alice", "local_1", nextId, "bridge_fp", "/repo"]]);
 });

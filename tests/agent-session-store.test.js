@@ -35,6 +35,18 @@ test("sessionKey normalizes engine, bot, and local session defaults", (t) => {
   assert.equal(service.sessionKey("", "", ""), "engine:hermes:mia:default");
 });
 
+test("sessionKey scopes persisted external ids by workspace when provided", (t) => {
+  const { service } = setup(t);
+
+  const repoA = service.sessionKey("codex", "alice", "local_1", "/repo/a");
+  const repoB = service.sessionKey("codex", "alice", "local_1", "/repo/b");
+  const legacy = service.sessionKey("codex", "alice", "local_1");
+
+  assert.notEqual(repoA, repoB);
+  assert.notEqual(repoA, legacy);
+  assert.match(repoA, /^engine:codex:alice:local_1:workspace:[0-9a-f]{16}$/);
+});
+
 test("loadMap falls back to an empty object and saveMap persists with private permissions", (t) => {
   const { runtime, service } = setup(t);
   fs.mkdirSync(path.dirname(runtime.agentSessions), { recursive: true });
@@ -73,6 +85,19 @@ test("setId and setEntry update the store and ignore empty external ids", (t) =>
     "engine:codex:alice:local_1": "thread_1",
     "engine:claude-code:alice:local_2": { id: "thread_2", fingerprint: "fp_1" }
   });
+});
+
+test("workspace-scoped entries do not reuse legacy or other-workspace external ids", (t) => {
+  const { service } = setup(t);
+
+  service.setId("codex", "alice", "local_1", "legacy_thread");
+  service.setId("codex", "alice", "local_1", "repo_a_thread", "/repo/a");
+  service.setId("codex", "alice", "local_1", "repo_b_thread", "/repo/b");
+
+  assert.equal(service.getId("codex", "alice", "local_1"), "legacy_thread");
+  assert.equal(service.getId("codex", "alice", "local_1", "/repo/a"), "repo_a_thread");
+  assert.equal(service.getId("codex", "alice", "local_1", "/repo/b"), "repo_b_thread");
+  assert.equal(service.getId("codex", "alice", "local_1", "/repo/c"), "");
 });
 
 test("deleteEntry removes a stored session and reports whether it existed", (t) => {

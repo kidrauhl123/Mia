@@ -8,6 +8,7 @@ const { createCoreBotExecution } = require("../src/core/mia-core.js");
 const { createLocalAgentEngineService } = require("../src/main/local-agent-engine-service.js");
 const { getAcpEngineSpec, listAcpEngineSpecs } = require("../src/main/agent-session/index.js");
 const { createRuntimePaths } = require("../src/main/runtime-paths.js");
+const { createSettingsStore } = require("../src/main/settings-store.js");
 
 test("Task 7: all four bot conversation engines resolve to AgentSession ACP specs", () => {
   const specs = listAcpEngineSpecs();
@@ -61,6 +62,26 @@ function makeRuntimePaths(home) {
     MIA_DAEMON_SERVICE_LABEL: "ai.mia.daemon",
     env: { MIA_HOME: home }
   }).runtimePaths;
+}
+
+function readJson(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+function makeSettingsStore(runtimePaths) {
+  return createSettingsStore({
+    runtimePaths,
+    readJson,
+    writeRuntimeConfig: () => {},
+    readConfiguredPort: () => 27861,
+    getEngineState: () => ({}),
+    MIA_DAEMON_DEFAULT_PORT: 27861,
+    MIA_CLOUD_DEFAULT_URL: "https://cloud.mia.test"
+  });
 }
 
 const settingsStore = {
@@ -162,6 +183,36 @@ for (const [inputEngineId, expectedEngineId] of [
     }
   });
 }
+
+test("Mia Core AgentSession turns honor the persisted custom workspace setting", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-workspace-home-"));
+  const customWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-custom-workspace-"));
+  t.after(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(customWorkspace, { recursive: true, force: true });
+  });
+  const runtimePaths = makeRuntimePaths(home);
+  const realSettingsStore = makeSettingsStore(runtimePaths);
+  realSettingsStore.writeAgentWorkspace(customWorkspace);
+  const managerCalls = [];
+  const core = createCoreBotExecution({
+    runtimePaths,
+    settingsStore: realSettingsStore,
+    agentSessionManager: recordingAgentSessionManager(managerCalls)
+  });
+  t.after(async () => {
+    try { await core.closeAgentEngines(); } catch { /* best effort */ }
+  });
+
+  await core.sendChat({
+    botKey: "bot-codex",
+    botSnapshot: { key: "bot-codex", name: "Codex", agentEngine: "codex", capabilities: {} },
+    sessionId: "conversation:workspace",
+    messages: [{ role: "user", id: "turn_1", content: "hi" }]
+  });
+
+  assert.equal(managerCalls[0].workspacePath, customWorkspace);
+});
 
 test("Claude Code turns using Mia Auto receive Mia proxy env in Core AgentSession", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-claude-mia-runtime-"));

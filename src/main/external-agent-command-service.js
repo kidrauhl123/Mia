@@ -151,7 +151,8 @@ function createExternalAgentCommandService(deps = {}) {
     const model = config.model || defaultModelLabel(engine);
     const permission = enginePermissionMode(engine) || "default";
     const effort = normalizeEffortLevel(config.effortLevel || (engine === "openclaw" ? "off" : "medium"), engine);
-    const externalSessionId = getAgentSessionId(engine, bot.key, sessionId) || "尚未创建";
+    const workspacePath = cwd();
+    const externalSessionId = getAgentSessionId(engine, bot.key, sessionId, workspacePath) || "尚未创建";
     const label = localEngineLabel(engine);
     return [
       `${bot.name || "当前 Bot"} 使用 ${label} 本地引擎。`,
@@ -248,7 +249,8 @@ function createExternalAgentCommandService(deps = {}) {
       return "本地外部引擎的模型和权限在输入框下方选择器里查看和切换；更底层的账号、默认模型、权限策略仍以用户本机 CLI 配置为准。";
     }
     if (command === "/resume") {
-      const current = getAgentSessionId(engine, bot.key, sessionId);
+      const workspacePath = cwd();
+      const current = getAgentSessionId(engine, bot.key, sessionId, workspacePath);
       const next = argText.split(/\s+/).filter(Boolean)[0] || "";
       if (!next) {
         const boundRows = listBoundExternalAgentSessions({ engine, bot, limit: 10 })
@@ -289,9 +291,9 @@ function createExternalAgentCommandService(deps = {}) {
       if (engine === "claude-code") {
         let fingerprint = "";
         try { fingerprint = ensureClaudeBridgePlugin().fingerprint || ""; } catch { /* bridge refresh failure falls back to legacy storage */ }
-        setAgentSessionEntry(engine, bot.key, sessionId, next, fingerprint);
+        setAgentSessionEntry(engine, bot.key, sessionId, next, fingerprint, workspacePath);
       } else {
-        setAgentSessionId(engine, bot.key, sessionId, next);
+        setAgentSessionId(engine, bot.key, sessionId, next, workspacePath);
       }
       return `已把当前 Mia 会话绑定到外部 session：${next}\n下一条消息会从这个 session 继续。`;
     }

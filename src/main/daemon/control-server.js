@@ -3,6 +3,7 @@
 const http = require("node:http");
 const os = require("node:os");
 const { memoryChangedEnvelope } = require("../../shared/memory-events.js");
+const { createChatEventEmitter } = require("../chat-events.js");
 
 function createDaemonControlServer({
   isDaemonProcess = false,
@@ -25,6 +26,7 @@ function createDaemonControlServer({
   tasksRoutes,
   getMiaContextSnapshot = null,
   getMiaCurrentSkills = null,
+  sendChat = null,
   miaMemoryService = null,
   isMemoryEnabled = () => true,
   onMemoryChanged = null,
@@ -357,6 +359,25 @@ function createDaemonControlServer({
     return localEventSubscribers.size;
   }
 
+  async function handleChatSend(req, res) {
+    if (typeof sendChat !== "function") {
+      writeJson(res, 501, { error: "chat send unavailable" });
+      return;
+    }
+    const body = await readBody(req);
+    const { emit } = createChatEventEmitter({
+      sessionId: String(body?.sessionId || ""),
+      emitImpl: (channel, envelope) => {
+        publishLocalEvent({ type: channel, payload: envelope });
+      }
+    });
+    const result = await sendChat({
+      ...(body || {}),
+      emit
+    });
+    writeJson(res, 200, result);
+  }
+
   async function handleRequest(req, res) {
     const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
     if (req.method === "OPTIONS") {
@@ -402,6 +423,10 @@ function createDaemonControlServer({
         }
         const sessionId = url.searchParams.get("sessionId") || "";
         writeJson(res, 200, { requests: agentPermissionCoordinator.listPending({ sessionId }) });
+        return;
+      }
+      if (url.pathname === "/api/chat/send" && req.method === "POST") {
+        await handleChatSend(req, res);
         return;
       }
       if (url.pathname === "/api/mia/context" && req.method === "GET") {
