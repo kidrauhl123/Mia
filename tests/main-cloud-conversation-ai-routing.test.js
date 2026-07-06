@@ -115,6 +115,15 @@ test("cloud runtime status exposes events socket health separately from bridge h
   );
 });
 
+test("foreground shutdown cleanup does not dereference daemon-only AgentSession manager", () => {
+  const main = read("src/main.js");
+  assert.match(
+    main,
+    /if\s*\(\s*agentSessionManager\s*&&\s*typeof\s+agentSessionManager\.closeAllSessions\s*===\s*"function"\s*\)\s*\{[\s\S]*agentSessionManager\.closeAllSessions\(\)/,
+    "shutdown cleanup should only close AgentSession sessions when the daemon-owned manager exists"
+  );
+});
+
 test("daemon startup does not run foreground MCP initialization before serving control API", () => {
   const main = read("src/main.js");
   const core = read("src/core/mia-core.js");

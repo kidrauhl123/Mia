@@ -3277,7 +3277,9 @@ ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates()
 app.on("before-quit", () => {
   closeCodexAppServerRuntimes();
   closeOpenClawAcpRuntimes();
-  agentSessionManager.closeAllSessions().catch((error) => appendEngineLog(`AgentSession cleanup failed: ${error?.message || error}`));
+  if (agentSessionManager && typeof agentSessionManager.closeAllSessions === "function") {
+    agentSessionManager.closeAllSessions().catch((error) => appendEngineLog(`AgentSession cleanup failed: ${error?.message || error}`));
+  }
   claudeCodeMiaProxy.stop().catch((error) => appendCloudLog(`Claude Code Mia proxy cleanup failed: ${error?.message || error}`));
   codexMiaProxy.stop().catch((error) => appendCloudLog(`Codex Mia proxy cleanup failed: ${error?.message || error}`));
 });
