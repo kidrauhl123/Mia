@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const yaml = require("js-yaml");
 
 const { normalizeAcpMcpServer, normalizeAcpMcpServers } = require("./agent-session/acp-mcp-servers.js");
 const { buildMiaContextResource, mcpContextPrompt } = require("./mia-context-resource.js");
@@ -57,6 +58,44 @@ function mergeRuntimeParts(base = {}, extra = {}) {
   }));
 }
 
+function isPlainObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function deepClone(value) {
+  if (Array.isArray(value)) return value.map((entry) => deepClone(entry));
+  if (isPlainObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, deepClone(entry)])
+    );
+  }
+  return value;
+}
+
+function readYamlObject(filePath) {
+  try {
+    const parsed = yaml.load(fs.readFileSync(filePath, "utf8"));
+    return isPlainObject(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function valueFromOption(source, fallback = "") {
+  const resolved = typeof source === "function" ? source() : source;
+  const value = String(resolved || "").trim();
+  return value || fallback;
+}
+
+function runtimeKeyForResolvedRuntime(runtime = {}) {
+  const profileId = firstString(runtime, ["modelProfileId", "model_profile_id"]);
+  if (profileId) return profileId;
+  const provider = firstString(runtime, ["providerConnectionId", "provider_connection_id", "provider"]);
+  const model = firstString(runtime, ["model"]);
+  if (provider && model) return `${provider}:${model}`;
+  return model || provider;
+}
+
 function codexMiaLauncherScript(platform = process.platform) {
   if (platform === "win32") {
     return [
@@ -97,6 +136,9 @@ function createAgentSessionRuntimePreparer(options = {}) {
   const resolveManagedModelRuntime = typeof options.resolveManagedModelRuntime === "function"
     ? options.resolveManagedModelRuntime
     : () => null;
+  const resolveModelRuntime = typeof options.resolveModelRuntime === "function"
+    ? options.resolveModelRuntime
+    : null;
   const claudeCodeMiaProxy = options.claudeCodeMiaProxy || null;
   const codexMiaProxy = options.codexMiaProxy || createCodexMiaProxy(options.codexMiaProxyOptions || {});
   const openClawMiaProfile = options.openClawMiaProfile || createOpenClawMiaProfile(options.openClawMiaProfileOptions || {});
@@ -105,12 +147,103 @@ function createAgentSessionRuntimePreparer(options = {}) {
   const codexLauncherPath = String(options.codexLauncherPath || "").trim()
     || path.join(os.tmpdir(), DEFAULT_CODEX_MIA_LAUNCHER);
   const codexRealPath = String(options.codexRealPath || process.env.CODEX_PATH || "codex").trim() || "codex";
+  const hermesHomePath = options.hermesHomePath || (() => process.env.HERMES_HOME || path.join(os.homedir(), ".hermes"));
+  const miaHomePath = options.miaHomePath || (() => process.env.MIA_HOME || "");
+  const hermesSessionProfilesRoot = options.hermesSessionProfilesRoot || path.join(os.tmpdir(), "mia-hermes-session-profiles");
   const getMiaAppMcpSpec = typeof options.getMiaAppMcpSpec === "function" ? options.getMiaAppMcpSpec : () => null;
   const getSchedulerMcpSpec = typeof options.getSchedulerMcpSpec === "function" ? options.getSchedulerMcpSpec : () => null;
   const getUserMcpServers = typeof options.getUserMcpServers === "function" ? options.getUserMcpServers : () => [];
   const getMcpFingerprint = typeof options.getMcpFingerprint === "function" ? options.getMcpFingerprint : () => "";
   const writeMiaAppMcpContext = typeof options.writeMiaAppMcpContext === "function" ? options.writeMiaAppMcpContext : () => {};
   const writeSchedulerMcpContext = typeof options.writeSchedulerMcpContext === "function" ? options.writeSchedulerMcpContext : () => {};
+
+  function resolvedHermesRuntime(runtimeConfig = {}) {
+    if (resolveModelRuntime) {
+      return resolveModelRuntime(runtimeConfig, { engine: "hermes" });
+    }
+    return resolveManagedModelRuntime(runtimeConfig, { engine: "hermes" });
+  }
+
+  function hermesProfileDirFor(runtime = {}, runtimeConfig = {}) {
+    const runtimeKey = runtimeKeyForResolvedRuntime(runtime) || "default";
+    const safeRuntimeKey = runtimeKey.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) || "default";
+    const fingerprint = hashRuntimePart({
+      runtimeKey,
+      provider: firstString(runtime, ["providerConnectionId", "provider_connection_id", "provider"]),
+      model: firstString(runtime, ["model"]),
+      baseUrl: firstString(runtime, ["baseUrl", "base_url"]),
+      apiMode: firstString(runtime, ["apiMode", "api_mode"]),
+      permissionMode: firstString(runtimeConfig, ["permissionMode", "permission_mode"]),
+      effortLevel: firstString(runtimeConfig, ["effortLevel", "effort_level"])
+    });
+    return path.join(hermesSessionProfilesRoot, `${safeRuntimeKey}-${fingerprint}`);
+  }
+
+  function ensureHermesSessionProfile(runtime = {}, runtimeConfig = {}) {
+    const sourceHome = valueFromOption(hermesHomePath, path.join(os.homedir(), ".hermes"));
+    const targetHome = hermesProfileDirFor(runtime, runtimeConfig);
+    const sourceConfig = readYamlObject(path.join(sourceHome, "config.yaml"));
+    const config = deepClone(sourceConfig);
+    const provider = firstString(runtime, ["providerConnectionId", "provider_connection_id", "provider"]) || "mia";
+    const providerLabel = firstString(runtime, ["providerLabel", "provider_label"]) || provider;
+    const model = firstString(runtime, ["model"]) || "mia-auto";
+    const apiKeyEnv = firstString(runtime, ["apiKeyEnv", "api_key_env"]) || "MIA_CLOUD_MODEL_TOKEN";
+    const apiKey = firstString(runtime, ["apiKey", "api_key"]);
+    const baseUrl = firstString(runtime, ["baseUrl", "base_url"]);
+    const apiMode = firstString(runtime, ["apiMode", "api_mode"]) || "chat_completions";
+    const permissionMode = firstString(runtimeConfig, ["permissionMode", "permission_mode"]);
+    const effortLevel = firstString(runtimeConfig, ["effortLevel", "effort_level"]);
+    const nextModel = isPlainObject(config.model) ? { ...config.model } : {};
+    nextModel.provider = provider;
+    nextModel.default = model;
+    if (baseUrl) nextModel.base_url = baseUrl;
+    if (apiMode) nextModel.api_mode = apiMode;
+    config.model = nextModel;
+    const providers = isPlainObject(config.providers) ? { ...config.providers } : {};
+    const providerConfig = isPlainObject(providers[provider]) ? { ...providers[provider] } : {};
+    providerConfig.name = providerLabel;
+    if (baseUrl) providerConfig.base_url = baseUrl;
+    if (apiKeyEnv) providerConfig.key_env = apiKeyEnv;
+    if (apiKey) providerConfig.api_key = apiKey;
+    providerConfig.default_model = model;
+    if (apiMode) providerConfig.api_mode = apiMode;
+    providers[provider] = providerConfig;
+    config.providers = providers;
+    if (permissionMode) {
+      config.approvals = {
+        ...(isPlainObject(config.approvals) ? config.approvals : {}),
+        mode: permissionMode
+      };
+    }
+    if (effortLevel) {
+      config.agent = {
+        ...(isPlainObject(config.agent) ? config.agent : {}),
+        reasoning_effort: effortLevel
+      };
+    }
+    const resolvedMiaHome = valueFromOption(miaHomePath);
+    if (resolvedMiaHome) {
+      config.mia = {
+        ...(isPlainObject(config.mia) ? config.mia : {}),
+        runtime_schema: 1,
+        bots_manifest: path.join(resolvedMiaHome, "bots", "manifest.json")
+      };
+    }
+    fs.mkdirSync(targetHome, { recursive: true });
+    fs.writeFileSync(
+      path.join(targetHome, "config.yaml"),
+      yaml.dump(config, { lineWidth: 100, noRefs: true }),
+      { mode: 0o600 }
+    );
+    return {
+      runtimeKey: runtimeKeyForResolvedRuntime(runtime),
+      env: {
+        HERMES_HOME: targetHome,
+        ...(resolvedMiaHome ? { MIA_HOME: resolvedMiaHome } : {}),
+        ...(apiKeyEnv && apiKey ? { [apiKeyEnv]: apiKey } : {})
+      }
+    };
+  }
 
   function mcpContextFor(input = {}) {
     return {
@@ -166,6 +299,14 @@ function createAgentSessionRuntimePreparer(options = {}) {
       ? input.runtimeConfig
       : {};
     const mcpRuntime = prepareMcpRuntime(input, engineId);
+
+    if (engineId === "hermes") {
+      const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "hermes";
+      if (agentEngine !== "hermes") return mcpRuntime;
+      const runtime = resolvedHermesRuntime(runtimeConfig);
+      if (!runtime) return mcpRuntime;
+      return mergeRuntimeParts(mcpRuntime, ensureHermesSessionProfile(runtime, runtimeConfig));
+    }
 
     if (engineId === "openclaw") {
       const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "openclaw";
@@ -256,5 +397,6 @@ function createAgentSessionRuntimePreparer(options = {}) {
 
 module.exports = {
   createAgentSessionRuntimePreparer,
-  runtimeKeyForMiaRuntime
+  runtimeKeyForMiaRuntime,
+  runtimeKeyForResolvedRuntime
 };

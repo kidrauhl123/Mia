@@ -709,6 +709,65 @@ test("sendChat passes Claude Code Mia managed model runtime to AgentSession", as
   }]);
 });
 
+test("sendChat passes Hermes Mia managed runtime to AgentSession", async () => {
+  const { core, calls } = makeCore({
+    cloudBotSnapshotForTurn: () => ({
+      key: "bot1",
+      id: "bot1",
+      name: "Bot One",
+      agentEngine: "hermes",
+      capabilities: {}
+    }),
+    prepareAgentSessionRuntime: async ({ engineId, runtimeConfig }) => {
+      assert.equal(engineId, "hermes");
+      assert.deepEqual(runtimeConfig, {
+        agentEngine: "hermes",
+        providerConnectionId: "mia",
+        modelProfileId: "mia:mia-auto",
+        model: "mia-auto",
+        effortLevel: "medium",
+        permissionMode: "yolo"
+      });
+      return {
+        runtimeKey: "mia:mia-auto",
+        env: {
+          HERMES_HOME: "/tmp/mia-hermes-session",
+          MIA_HOME: "/tmp/mia-home",
+          MIA_CLOUD_MODEL_TOKEN: "cloud-token"
+        }
+      };
+    }
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    runtimeConfig: {
+      agentEngine: "hermes",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto",
+      effortLevel: "medium",
+      permissionMode: "yolo"
+    },
+    messages: [{ role: "user", id: "turn-hermes", content: "latest prompt" }]
+  });
+
+  assert.deepEqual(calls.agentSession, [{
+    conversationId: "conversation:1",
+    engineId: "hermes",
+    workspacePath: "/repo/workspace",
+    runtimeKey: "mia:mia-auto",
+    env: {
+      HERMES_HOME: "/tmp/mia-hermes-session",
+      MIA_HOME: "/tmp/mia-home",
+      MIA_CLOUD_MODEL_TOKEN: "cloud-token"
+    },
+    turnId: "turn-hermes",
+    text: "latest prompt"
+  }]);
+});
+
 test("stopChat honors full managed AgentSession tuple when the same conversation uses different workspaces", async () => {
   let workspacePath = "/repo/a";
   const { core, calls } = makeCore({

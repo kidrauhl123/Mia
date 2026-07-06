@@ -687,9 +687,12 @@ function createCoreBotExecution({
   const agentSessionRuntimePreparer = usesInjectedAgentSessionRuntime
     ? { prepare: injectedPrepareAgentSessionRuntime }
     : createAgentSessionRuntimePreparer({
+      resolveModelRuntime,
       resolveManagedModelRuntime,
       claudeCodeMiaProxy,
       codexMiaProxy,
+      hermesHomePath: () => runtimePaths().hermesHome,
+      miaHomePath: () => runtimePaths().home,
       getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
       getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
       getUserMcpServers: (_engineId, options) => userMcpService.getEngineSpecs("openclaw", options),

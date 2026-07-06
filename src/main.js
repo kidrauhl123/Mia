@@ -2235,9 +2235,12 @@ const codexMiaProxy = createCodexMiaProxy({
   appendLog: (line) => appendCloudLog(line)
 });
 const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
+  resolveModelRuntime,
   resolveManagedModelRuntime,
   claudeCodeMiaProxy,
   codexMiaProxy,
+  hermesHomePath: () => runtimePaths().hermesHome,
+  miaHomePath: () => runtimePaths().home,
   getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
   getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
   getUserMcpServers: (_engineId, options) => userMcpService.getEngineSpecs("openclaw", options),

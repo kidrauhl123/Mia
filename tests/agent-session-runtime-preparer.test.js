@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const yaml = require("js-yaml");
 
 const {
   createAgentSessionRuntimePreparer
@@ -281,6 +282,92 @@ test("prepares OpenClaw Mia profile for Mia managed model runtime", async () => 
       MIA_OPENCLAW_PROFILE: "mia"
     }
   });
+});
+
+test("prepares Hermes Mia managed runtime in a session-scoped Hermes home", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-hermes-session-runtime-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const hermesHome = path.join(dir, "native-hermes");
+  const miaHome = path.join(dir, "mia-home");
+  const profilesRoot = path.join(dir, "profiles");
+  fs.mkdirSync(hermesHome, { recursive: true });
+  fs.writeFileSync(path.join(hermesHome, "config.yaml"), yaml.dump({
+    model: {
+      provider: "openai-codex",
+      default: "gpt-5.5",
+      base_url: "https://chatgpt.com/backend-api/codex",
+      api_mode: "codex_responses"
+    },
+    providers: {
+      "openai-codex": {
+        name: "OpenAI Codex",
+        base_url: "https://chatgpt.com/backend-api/codex",
+        default_model: "gpt-5.5",
+        api_mode: "codex_responses"
+      }
+    },
+    skills: {
+      external_dirs: ["/skills/a"]
+    }
+  }), "utf8");
+
+  const preparer = createAgentSessionRuntimePreparer({
+    resolveManagedModelRuntime: (runtimeConfig, context) => {
+      assert.deepEqual(context, { engine: "hermes" });
+      assert.deepEqual(runtimeConfig, {
+        agentEngine: "hermes",
+        providerConnectionId: "mia",
+        modelProfileId: "mia:mia-auto",
+        model: "mia-auto",
+        effortLevel: "medium",
+        permissionMode: "yolo"
+      });
+      return {
+        provider: "mia",
+        providerConnectionId: "mia",
+        providerLabel: "Mia",
+        authType: "mia_account",
+        modelProfileId: "mia:mia-auto",
+        model: "mia-auto",
+        apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+        apiKey: "cloud-token",
+        baseUrl: "https://mia.example/api/me/model-proxy/v1",
+        apiMode: "chat_completions",
+        managedByMia: true
+      };
+    },
+    hermesHomePath: hermesHome,
+    miaHomePath: miaHome,
+    hermesSessionProfilesRoot: profilesRoot
+  });
+
+  const runtime = await preparer.prepare({
+    engineId: "hermes",
+    runtimeConfig: {
+      agentEngine: "hermes",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto",
+      effortLevel: "medium",
+      permissionMode: "yolo"
+    }
+  });
+
+  assert.equal(runtime.runtimeKey, "mia:mia-auto");
+  assert.equal(runtime.env.MIA_HOME, miaHome);
+  assert.equal(runtime.env.MIA_CLOUD_MODEL_TOKEN, "cloud-token");
+  assert.ok(runtime.env.HERMES_HOME.startsWith(profilesRoot));
+  assert.notEqual(runtime.env.HERMES_HOME, hermesHome);
+  const parsed = yaml.load(fs.readFileSync(path.join(runtime.env.HERMES_HOME, "config.yaml"), "utf8"));
+  assert.equal(parsed.model.provider, "mia");
+  assert.equal(parsed.model.default, "mia-auto");
+  assert.equal(parsed.model.base_url, "https://mia.example/api/me/model-proxy/v1");
+  assert.equal(parsed.providers.mia.api_key, "cloud-token");
+  assert.equal(parsed.providers.mia.key_env, "MIA_CLOUD_MODEL_TOKEN");
+  assert.equal(parsed.providers.mia.default_model, "mia-auto");
+  assert.equal(parsed.approvals.mode, "yolo");
+  assert.equal(parsed.agent.reasoning_effort, "medium");
+  assert.deepEqual(parsed.skills.external_dirs, ["/skills/a"]);
 });
 
 test("preparing OpenClaw managed runtime strips unsupported per-session MCP servers", async () => {
