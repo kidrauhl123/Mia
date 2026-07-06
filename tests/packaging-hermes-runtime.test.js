@@ -67,6 +67,14 @@ test("desktop package unpacks packaged-Core runtime dependencies that are requir
     pkg.build.asarUnpack.includes("node_modules/qrcode/**"),
     "Mia Core starts under plain node, so qrcode must be unpacked into app.asar.unpacked"
   );
+  assert.ok(
+    pkg.build.asarUnpack.includes("node_modules/dijkstrajs/**"),
+    "qrcode/lib/core/segments.js requires dijkstrajs at runtime, so packaged apps must unpack it for Mia Core"
+  );
+  assert.ok(
+    pkg.build.asarUnpack.includes("node_modules/pngjs/**"),
+    "qrcode/lib/renderer/png.js requires pngjs at runtime, so packaged apps must unpack it for Mia Core"
+  );
 });
 
 test("desktop auto-update uses Mia generic update source instead of GitHub", () => {

@@ -1,6 +1,6 @@
 {
   "name": "mia",
-  "version": "0.1.38",
+  "version": "0.1.39",
   "private": true,
   "workspaces": [
     "apps/mobile-rn",
@@ -98,6 +98,8 @@
       "node_modules/luxon/**",
       "node_modules/js-yaml/**",
       "node_modules/qrcode/**",
+      "node_modules/dijkstrajs/**",
+      "node_modules/pngjs/**",
       "node_modules/argparse/**",
       "node_modules/@agentclientprotocol/sdk/**",
       "node_modules/@anthropic-ai/claude-agent-sdk/**",
