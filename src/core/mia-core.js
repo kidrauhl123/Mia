@@ -1848,10 +1848,19 @@ function createMiaCore(options = {}) {
       matches: isChatStopRoute,
       route: async (request = {}) => {
         if (!isChatStopRoute(request)) return { handled: false };
-        const routing = cachedCloudRouting || cloudRouting();
+        const payload = request.body || {};
+        if (cachedCloudRouting && typeof cachedCloudRouting.stopChat === "function") {
+          const routedStop = await cachedCloudRouting.stopChat(payload);
+          if (routedStop?.stopped) {
+            return {
+              handled: true,
+              data: routedStop
+            };
+          }
+        }
         return {
           handled: true,
-          data: routing.stopChat(request.body || {})
+          data: await botExecution().stopChat(payload)
         };
       }
     };

@@ -142,12 +142,24 @@ test("mia-core control server applies delegated cloud-settings writes (not 501)"
   assert.equal(persisted.enabled, true);
 });
 
-test("mia-core control server exposes chat stop for window delegation", async (t) => {
+test("mia-core control server delegates chat stop to Core botExecution", async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-chat-stop-"));
   const port = await freePort();
 
   const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });
   stopCoreAndRemoveHome(t, core, home);
+  const stopCalls = [];
+  const ownedBotExecution = core.botExecution();
+  ownedBotExecution.stopChat = async (payload) => {
+    stopCalls.push(payload);
+    return {
+      stopped: true,
+      conversationId: payload.conversationId,
+      runId: payload.runId,
+      turnId: payload.turnId,
+      status: "cancelling"
+    };
+  };
   core.writeDaemonSettings({ host: "127.0.0.1", port });
   const status = await core.start();
 
@@ -157,13 +169,67 @@ test("mia-core control server exposes chat stop for window delegation", async (t
       "Content-Type": "application/json",
       Authorization: `Bearer ${core.daemonToken()}`
     },
-    body: JSON.stringify({ conversationId: "dm:userA:bot1", runId: "local_1" })
+    body: JSON.stringify({ conversationId: "dm:userA:bot1", runId: "local_1", turnId: "turn_1" })
   });
 
   assert.notEqual(res.status, 404, "Core daemon must route /api/chat/stop");
   assert.equal(res.status, 200);
   const out = await res.json();
-  assert.equal(typeof out.stopped, "boolean");
+  assert.deepEqual(stopCalls, [{ conversationId: "dm:userA:bot1", runId: "local_1", turnId: "turn_1" }]);
+  assert.deepEqual(out, {
+    stopped: true,
+    conversationId: "dm:userA:bot1",
+    runId: "local_1",
+    turnId: "turn_1",
+    status: "cancelling"
+  });
+});
+
+test("mia-core chat stop prefers cached cloud-routing run state before botExecution fallback", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-chat-stop-cloud-"));
+  const port = await freePort();
+
+  const core = createMiaCore({ env: { MIA_HOME: home }, version: "1.0.0" });
+  stopCoreAndRemoveHome(t, core, home);
+  const cloudStopCalls = [];
+  const botStopCalls = [];
+  const ownedCloudRouting = core.cloudRouting();
+  ownedCloudRouting.stopChat = async (payload) => {
+    cloudStopCalls.push(payload);
+    return {
+      stopped: true,
+      conversationId: payload.conversationId,
+      runId: payload.runId,
+      turnId: payload.turnId,
+      status: "cancelling"
+    };
+  };
+  core.botExecution().stopChat = async (payload) => {
+    botStopCalls.push(payload);
+    return { stopped: true, conversationId: payload.conversationId, status: "botExecution" };
+  };
+  core.writeDaemonSettings({ host: "127.0.0.1", port });
+  const status = await core.start();
+
+  const res = await fetch(`${status.baseUrl}/api/chat/stop`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${core.daemonToken()}`
+    },
+    body: JSON.stringify({ conversationId: "dm:userA:bot1", runId: "local_1", turnId: "turn_1" })
+  });
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(cloudStopCalls, [{ conversationId: "dm:userA:bot1", runId: "local_1", turnId: "turn_1" }]);
+  assert.deepEqual(botStopCalls, []);
+  assert.deepEqual(await res.json(), {
+    stopped: true,
+    conversationId: "dm:userA:bot1",
+    runId: "local_1",
+    turnId: "turn_1",
+    status: "cancelling"
+  });
 });
 
 test("mia-core exposes scoped Mia context snapshots with memory tools", async (t) => {
