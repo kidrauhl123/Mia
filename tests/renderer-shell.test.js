@@ -602,7 +602,7 @@ test("narrow desktop shell collapses the expanded rail into one content column",
   assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="index"\] \.sidebar:not\(\.hidden\)\s*\{[\s\S]*?animation:\s*miaPanePopIn 190ms/);
   assert.match(css, /\.app-shell\[data-shell-layout="single"\] \.persona\.active,[\s\S]*?\.app-shell\[data-shell-layout="single"\] \.contact-row\.active\s*\{[\s\S]*?background:\s*transparent;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView\.workspace\s*\{[\s\S]*?grid-column:\s*4 \/ -1;[\s\S]*?margin:\s*0;[\s\S]*?border-radius:\s*0;/);
-  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.session-menu-wrap\s*\{[\s\S]*?display:\s*block;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.session-menu-wrap\s*\{[\s\S]*?display:\s*inline-flex;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.top-actions\s*\{[\s\S]*?display:\s*flex;[\s\S]*?min-height:\s*38px;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.composer\s*\{[\s\S]*?padding:\s*8px 12px 14px;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.model-switcher\s*\{[\s\S]*?max-width:\s*112px;/);
@@ -695,6 +695,26 @@ test("session history trigger uses a compact icon pill", () => {
   assert.match(trigger, /<svg viewBox="0 0 48 48"/);
   assert.match(trigger, /id="currentSessionTitle"/);
   assert.doesNotMatch(html, /聊天记录/);
+});
+
+test("session history create action is always beside the trigger and the menu is list-only", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const triggerIndex = html.indexOf('id="sessionMenuButton"');
+  const createIndex = html.indexOf('id="newSession"');
+  const menuIndex = html.indexOf('id="sessionMenu"');
+
+  assert.ok(triggerIndex > 0, "session trigger exists");
+  assert.ok(createIndex > triggerIndex, "new session button follows the trigger");
+  assert.ok(menuIndex > createIndex, "session menu follows the always-visible create button");
+  assert.match(html, /id="newSession" class="icon-button session-new-button"/);
+  assert.doesNotMatch(html, /session-menu-head/);
+  assert.doesNotMatch(html, /session-menu-head-icon/);
+  assert.match(html, /<div id="sessionMenu" class="session-menu hidden">\s*<div id="sessionList" class="session-list"><\/div>\s*<\/div>/);
+  assert.match(css, /\.session-menu-wrap\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?align-items:\s*center;[\s\S]*?gap:\s*6px;/);
+  assert.match(css, /\.session-new-button\s*\{[\s\S]*?width:\s*38px;[\s\S]*?height:\s*38px;[\s\S]*?border-radius:\s*19px;/);
+  assert.match(css, /\.session-menu\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);[\s\S]*?gap:\s*0;/);
+  assert.doesNotMatch(css, /\.session-menu-head/);
 });
 
 test("session history menu keeps long lists inside the rounded card", () => {
@@ -2017,6 +2037,7 @@ test("desktop cloud human and group conversations hide the chat history session 
   assert.match(appSource, /const hideSessionSelector = activeIsGroup \|\| activeIsHumanDm;/);
   assert.match(appSource, /if \(hideSessionSelector\) state\.sessionMenuOpen = false;/);
   assert.match(appSource, /sessionMenuButton\.classList\.toggle\("hidden",\s*hideSessionSelector\)/);
+  assert.match(appSource, /newSession\?\..*classList\.toggle\("hidden",\s*hideSessionSelector\)/);
 });
 
 test("active chat meta text helper clears stale typing rich text even when slot value is unchanged", () => {

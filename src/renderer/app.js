@@ -3546,6 +3546,7 @@ function render() {
       els.sessionMenuButton.classList.remove("hidden");
       els.sessionMenuButton.classList.toggle("hidden", hideSessionSelector);
     }
+    els.newSession?.classList.toggle("hidden", hideSessionSelector);
     if (composerBottom) composerBottom.classList.toggle("hidden", !showPrivateAiControls);
   } else if (cloudSignedIn) {
     if (els.activeChatAvatar) {
@@ -3556,6 +3557,7 @@ function render() {
     if (els.activeChatMeta) setText(els.activeChatMeta, "云端同步已开启");
     if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
     if (els.sessionMenuButton) els.sessionMenuButton.classList.add("hidden");
+    els.newSession?.classList.add("hidden");
     if (composerBottom) composerBottom.classList.toggle("hidden", true);
   } else if (active) {
     if (els.activeChatAvatar) {
@@ -3577,6 +3579,7 @@ function render() {
     }
     if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
     if (els.sessionMenuButton) els.sessionMenuButton.classList.remove("hidden");
+    els.newSession?.classList.add("hidden");
     if (composerBottom) composerBottom.classList.remove("hidden");
   }
   // Cloud-only: the sidebar lists cloud conversations exclusively. Local bot
@@ -4163,7 +4166,6 @@ function renderSessionMenu() {
     return;
   }
   // Cloud-only: with no active conversation the menu is empty.
-  els.newSession?.classList.add("hidden");
   els.sessionList.innerHTML = "";
   updateCurrentSessionTitle("新对话");
 }
@@ -4235,9 +4237,7 @@ async function selectCloudSessionConversation(conversation, { skipMessageLoad = 
 function renderCloudConversationSessionMenu(activeConversation) {
   const conversations = cloudSessionConversationsForConversation(activeConversation);
   const activeId = activeConversation.id;
-  const canCreate = sessionHistory.canCreateSession(activeConversation);
   updateCurrentSessionTitle(cloudSessionTitle(activeConversation));
-  els.newSession?.classList.toggle("hidden", !canCreate);
   els.sessionList.innerHTML = "";
   for (const conversation of conversations) {
     const row = document.createElement("button");

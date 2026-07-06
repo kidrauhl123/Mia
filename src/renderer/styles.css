@@ -3817,6 +3817,9 @@ body.topbar-click-capture .topbar {
 
 .session-menu-wrap {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .session-trigger {
@@ -3842,6 +3845,20 @@ body.topbar-click-capture .topbar {
 
 #chatView .session-trigger:hover {
   background: var(--surface);
+}
+
+.session-new-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 19px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--muted);
+  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.05), 0 8px 22px rgba(16, 20, 39, 0.07);
+}
+
+.session-new-button:hover {
+  background: var(--surface);
+  color: var(--text);
 }
 
 .session-trigger-icon {
@@ -3888,8 +3905,8 @@ body.topbar-click-capture .topbar {
   right: 0;
   z-index: 12;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
   width: min(280px, calc(100vw - 380px));
   max-height: min(430px, calc(100vh - 88px));
   overflow: hidden;
@@ -3906,36 +3923,6 @@ body.topbar-click-capture .topbar {
 
 :root[data-theme="dark"] .session-menu {
   background: var(--surface);
-}
-
-.session-menu-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 2px 2px 6px;
-  border-bottom: 1px solid var(--menu-separator);
-}
-
-.session-menu-head strong {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 400;
-}
-
-.session-menu-head-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  color: var(--muted);
-}
-
-.session-menu-head-icon svg {
-  width: 16px;
-  height: 16px;
 }
 
 .session-list {
@@ -10927,7 +10914,7 @@ pre {
   }
 
   #chatView .session-menu-wrap {
-    display: block;
+    display: inline-flex;
   }
 
   #chatView .top-actions {
