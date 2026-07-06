@@ -87,6 +87,7 @@ const {
 } = require("./main/social/local-bot-responder.js");
 const { createMainBotRuntimeDispatcher } = require("./main/social/bot-runtime-dispatcher.js");
 const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js");
+const { finalizeCloudLoginIpcResult } = require("./main/cloud-login-ipc.js");
 const {
   cloudWebSocketUrl: buildCloudWebSocketUrl,
   cloudWebSocketProtocols: buildCloudWebSocketProtocols,
@@ -2773,8 +2774,11 @@ ipcMain.handle(IpcChannel.CloudModelBalance, () => fetchCloudModelBalance());
 ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {
   requireDaemonRuntimeAvailable();
   const result = await loginMiaCloud(payload || {});
-  if (result?.kind === "wechat-login-start" || result?.kind === "wechat-login-pending") return result;
-  return getRuntimeStatus();
+  return finalizeCloudLoginIpcResult({
+    payload: payload || {},
+    result,
+    runtimeStatus: getRuntimeStatus()
+  });
 });
 // Phase 3: cross-device settings (pin / read marks / appearance). Renderer
 // asks main for current bag; mutations PUT to /api/me/settings whose

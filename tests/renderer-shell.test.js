@@ -183,6 +183,16 @@ test("settings exposes manual update checks through the preload bridge", () => {
   assert.match(mainSource, /prepareForUpdateInstall:\s*async\s*\([^)]*\)\s*=>\s*\{\s*await stopDaemonService\(\);?\s*\}/);
 });
 
+test("runtime refresh re-renders the daemon status card from observed daemon state", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(
+    appSource,
+    /async function refreshRuntime\(\)[\s\S]*renderDaemonStatus\(runtime\.daemon\s*\|\|\s*\{\}\)/,
+    "refreshRuntime should push observed daemon status into the settings card so auto-start updates the UI"
+  );
+});
+
 test("cloud conversation send and render do not depend on activeKey being empty", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 

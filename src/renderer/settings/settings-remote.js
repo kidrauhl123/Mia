@@ -79,7 +79,7 @@
       els.cloudMobileScanMeta.textContent = error
         ? `二维码生成失败：${error}`
         : qrUrl
-        ? "手机扫一扫，电脑上点一次允许。"
+        ? ""
         : "正在生成二维码。";
     }
     if (els?.cloudMobileScanQr) {

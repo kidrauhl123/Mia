@@ -52,7 +52,6 @@ function withTabBarVisibility<P extends { navigation: { getParent?: () => { setO
   };
 }
 
-const ConversationListWithTabBar = withTabBarVisibility(ConversationListScreen, true);
 const ChatWithoutTabBar = withTabBarVisibility(ChatScreen, false);
 const GroupDetailWithoutTabBar = withTabBarVisibility(GroupDetailScreen, false);
 const BotSessionsWithoutTabBar = withTabBarVisibility(BotSessionsScreen, false);
@@ -75,7 +74,7 @@ function MessagesStack() {
     <MessagesStackNav.Navigator screenOptions={headerOptions}>
       <MessagesStackNav.Screen
         name="Conversations"
-        component={ConversationListWithTabBar}
+        component={ConversationListScreen}
         options={{ title: "消息", headerShown: conversationHomeChrome.nativeHeaderShown }}
       />
       <MessagesStackNav.Screen

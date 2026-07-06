@@ -15,6 +15,7 @@ import {
   unreadCountsQueryKey,
   type UnreadCounts,
 } from "../logic/unreadState";
+import { shouldReconcileUnreadFromQueryCacheEvent } from "../logic/queryCacheEvent";
 import { useAuth } from "./auth";
 import type { Bot, BotRuntimeBinding, ChatMessage, Conversation, MessageRow, UserSettings } from "../api/types";
 import {
@@ -144,8 +145,7 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
     if (!session?.token) return undefined;
     reconcileUnreadFromCachedReadMarks();
     const unsubscribe = qc.getQueryCache().subscribe((event) => {
-      const key = event.query?.queryKey;
-      if (Array.isArray(key) && (key[0] === "settings" || key[0] === "conversations")) {
+      if (shouldReconcileUnreadFromQueryCacheEvent(event)) {
         reconcileUnreadFromCachedReadMarks();
       }
     });
