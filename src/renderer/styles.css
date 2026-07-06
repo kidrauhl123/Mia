@@ -3487,6 +3487,8 @@ button.persona-tag-chip {
 #chatView {
   position: relative;
   grid-template-rows: minmax(0, 1fr);
+  container-type: inline-size;
+  container-name: chat-view;
 }
 
 .topbar {
@@ -3845,6 +3847,33 @@ body.topbar-click-capture .topbar {
 
 #chatView .session-trigger:hover {
   background: var(--surface);
+}
+
+@container chat-view (max-width: 560px) {
+  #chatView .topbar {
+    gap: 8px;
+  }
+
+  #chatView .group-title,
+  #chatView .active-conversation-menu-button {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  #chatView .active-conversation-menu-button {
+    max-width: 100%;
+  }
+
+  #chatView .session-trigger {
+    grid-template-columns: 16px;
+    place-items: center;
+    width: 38px;
+    padding: 0;
+  }
+
+  #chatView .session-trigger .current-session-title {
+    display: none;
+  }
 }
 
 .session-new-button {
@@ -10975,7 +11004,7 @@ pre {
     min-height: 38px;
   }
 
-  .narrow-back-button {
+  .app-shell[data-shell-layout="single"][data-narrow-pane="content"] .narrow-back-button {
     display: grid;
   }
 

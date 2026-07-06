@@ -661,6 +661,7 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   assert.match(appSource, /state\.chatConversationMenuOpen = false;[\s\S]*?onClick\?\.\(\);/);
   assert.match(appSource, /els\.activeConversationMenuButton\?\.addEventListener\("click",[\s\S]*?state\.chatConversationMenuOpen = !state\.chatConversationMenuOpen;/);
   assert.match(styleSource, /#chatView\s*\{[\s\S]*?position:\s*relative;[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);/);
+  assert.match(styleSource, /#chatView\s*\{[\s\S]*?container-type:\s*inline-size;[\s\S]*?container-name:\s*chat-view;/);
   assert.match(styleSource, /#chatView \.topbar\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*16px;[\s\S]*?background:\s*transparent;[\s\S]*?pointer-events:\s*none;/);
   assert.match(styleSource, /#chatView \.topbar > \*\s*\{[\s\S]*?pointer-events:\s*auto;/);
   assert.match(styleSource, /#chatView \.group-title\s*\{[\s\S]*?position:\s*relative;[\s\S]*?min-height:\s*38px;[\s\S]*?padding:\s*3px 12px 3px 5px;[\s\S]*?border-radius:\s*19px;[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface\) 94%, transparent\);/);
@@ -678,8 +679,11 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   assert.match(styleSource, /\.session-trigger-icon\s*\{[\s\S]*?width:\s*16px;[\s\S]*?height:\s*16px;/);
   assert.match(styleSource, /\.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);[\s\S]*?-webkit-backdrop-filter:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(styleSource, /:root\[data-theme="dark"\] \.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);/);
+  assert.match(styleSource, /@container\s+chat-view\s+\(max-width:\s*560px\)\s*\{[\s\S]*?#chatView \.session-trigger\s*\{[\s\S]*?grid-template-columns:\s*16px;[\s\S]*?width:\s*38px;[\s\S]*?#chatView \.session-trigger \.current-session-title\s*\{[\s\S]*?display:\s*none;/);
   assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.topbar\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) auto;[\s\S]*?min-height:\s*38px;[\s\S]*?padding:\s*0;[\s\S]*?background:\s*transparent;[\s\S]*?pointer-events:\s*none;/);
   assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?body\.platform-darwin \.app-shell\[data-nav-layout="sidebar-bottom"\]\[data-shell-layout="single"\]\[data-narrow-pane="content"\] #chatView \.topbar\s*\{[\s\S]*?left:\s*86px;/);
+  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.narrow-back-button\s*\{[\s\S]*?display:\s*grid;/);
+  assert.doesNotMatch(styleSource, /(^|\n)\s*\.narrow-back-button\s*\{\s*display:\s*grid;/);
   assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.group-title\s*\{[\s\S]*?min-height:\s*38px;[\s\S]*?padding:\s*3px 10px 3px 4px;[\s\S]*?border-radius:\s*19px;[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface\) 94%, transparent\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.14\);/);
   assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.session-trigger\s*\{[\s\S]*?grid-template-columns:\s*16px minmax\(0,\s*82px\);[\s\S]*?height:\s*38px;[\s\S]*?max-width:\s*118px;[\s\S]*?border-radius:\s*19px;/);
   assert.match(styleSource, /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?#chatView \.session-trigger\s*\{[\s\S]*?grid-template-columns:\s*16px;[\s\S]*?width:\s*38px;[\s\S]*?#chatView \.session-trigger \.current-session-title\s*\{[\s\S]*?display:\s*none;/);
