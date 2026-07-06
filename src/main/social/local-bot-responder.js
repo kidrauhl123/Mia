@@ -1115,7 +1115,8 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
             botId,
             botSnapshot,
             runtimeConfig,
-            workspacePath: managedInput.workspacePath
+            workspacePath: managedInput.workspacePath,
+            activeSkillIds
           })
           : null;
         if (runtime?.runtimeKey) managedInput.runtimeKey = String(runtime.runtimeKey || "").trim();

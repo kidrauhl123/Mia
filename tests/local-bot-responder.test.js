@@ -936,11 +936,13 @@ test("managed AgentSession turns pass prompt-fallback skill metadata to the mana
     ...base,
     dedupKey: "m_managed_skill_fallback:openclaw",
     turnId: "t_skill_fallback",
+    activeSkillIds: ["deep-research"],
     botSnapshot: { key: "starter_100003_openclaw", name: "OpenClaw", agentEngine: "openclaw" },
     runtimeConfig: { agentEngine: "openclaw" }
   });
 
   assert.equal(calls.runtime.length, 1);
+  assert.deepEqual(calls.runtime[0].activeSkillIds, ["deep-research"]);
   assert.deepEqual(calls.manager, [{
     conversationId: "g_1",
     engineId: "openclaw",
@@ -960,6 +962,64 @@ test("managed AgentSession turns pass prompt-fallback skill metadata to the mana
   assert.equal(typeof calls.manager[0].skillFallback.materializePrompt, "function");
   assert.equal(typeof calls.manager[0].skillFallback.fallbackText, "function");
 });
+
+for (const [agentEngine, expectedEngineId] of [
+  ["hermes", "hermes"],
+  ["claude-code", "claude"],
+  ["codex", "codex"],
+  ["openclaw", "openclaw"]
+]) {
+  test(`managed AgentSession turns forward selected skill ids into runtime preparation for ${agentEngine}`, async () => {
+    const calls = { manager: [], runtime: [], post: [], log: [], cloudEvents: [] };
+    const responder = createLocalBotResponder({
+      sendChat: async () => {
+        throw new Error("sendChat should not run for managed AgentSession turns");
+      },
+      postConversationMessageAsBot: async (conversationId, body) => {
+        calls.post.push({ conversationId, body });
+        return { ok: true };
+      },
+      emitCloudEvent: (event) => calls.cloudEvents.push(event),
+      log: (line) => calls.log.push(line),
+      agentSessionManager: {
+        sendUserInput: async (input) => {
+          calls.manager.push(input);
+          return {
+            ok: true,
+            mode: "started",
+            conversationId: input.conversationId,
+            engineId: input.engineId,
+            turnId: input.turnId
+          };
+        }
+      },
+      agentSessionWorkspacePath: () => "/repo/workspace",
+      prepareAgentSessionRuntime: async (args) => {
+        calls.runtime.push(args);
+        return {};
+      }
+    });
+
+    await responder.respond({
+      ...base,
+      dedupKey: `m_managed_skill_ids:${agentEngine}`,
+      turnId: `t_skill_ids_${expectedEngineId}`,
+      activeSkillIds: ["deep-research"],
+      botSnapshot: {
+        key: `starter_skill_ids_${agentEngine.replace(/[^a-z0-9]+/gi, "_")}`,
+        name: `Bot ${agentEngine}`,
+        agentEngine
+      },
+      runtimeConfig: { agentEngine }
+    });
+
+    assert.equal(calls.runtime.length, 1);
+    assert.equal(calls.runtime[0].engineId, expectedEngineId);
+    assert.deepEqual(calls.runtime[0].activeSkillIds, ["deep-research"]);
+    assert.equal(calls.manager.length, 1);
+    assert.equal(calls.manager[0].engineId, expectedEngineId);
+  });
+}
 
 test("starter engine bot ids route visible replies through AgentSession without runtime config", async () => {
   const calls = { manager: [], post: [], cloudEvents: [] };

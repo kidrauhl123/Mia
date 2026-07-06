@@ -317,6 +317,28 @@ test("resolveSkillMaterialization loads full skill only for active or intent ski
   }
 });
 
+test("resolveSkillMaterialization resolves turn-local active and intent skills without mutating bot enabled skills", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
+  try {
+    const loader = makeBundledLoader(home);
+    const byActive = loader.resolveSkillMaterialization({
+      bot: { capabilities: { enabledSkills: [] } },
+      activeSkillIds: ["mia-scheduler"],
+      intentSkillIds: []
+    });
+    const byIntent = loader.resolveSkillMaterialization({
+      bot: { capabilities: { enabledSkills: [] } },
+      activeSkillIds: [],
+      intentSkillIds: ["mia-scheduler"]
+    });
+
+    assert.match(byActive.loadedBlock, /schedule_create/);
+    assert.match(byIntent.loadedBlock, /schedule_create/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("resolveSkillMaterialization loads requested installed skills even when not preset-enabled", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {

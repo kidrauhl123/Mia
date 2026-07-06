@@ -74,20 +74,6 @@ function skillAliases(record = {}) {
   ]);
 }
 
-function mergeBotEnabledSkills(bot = {}, extraSkillIds = []) {
-  const currentIds = Array.isArray(bot?.capabilities?.enabledSkills)
-    ? bot.capabilities.enabledSkills
-    : [];
-  const enabledSkills = uniqueStrings([...currentIds, ...extraSkillIds]);
-  return {
-    ...(bot || {}),
-    capabilities: {
-      ...(bot?.capabilities || {}),
-      enabledSkills
-    }
-  };
-}
-
 function hashSkillFingerprint(value = null) {
   return crypto.createHash("sha256")
     .update(JSON.stringify(value))
@@ -186,33 +172,26 @@ function createSkillRuntimeOwner(options = {}) {
     const engine = normalizeAgentEngine(agentEngine || bot.agentEngine || bot.agent_engine || "hermes");
     const policy = agentEnginePolicy(engine);
     const nativeSkillsDirs = Array.isArray(policy.nativeSkillsDirs) ? policy.nativeSkillsDirs.slice() : [];
-    const mergedBot = mergeBotEnabledSkills(bot, [
+    const records = stableSkillEntries(listSkillRecordsForBot(bot));
+    const resolvedSkills = records;
+    const resolvedSkillIds = resolvedSkills.map((record) => record.id);
+    const turnSkillIds = uniqueStrings([
       ...activeSkillIds,
       ...intentSkillIds,
       ...requestedSkillIds
     ]);
-    const records = stableSkillEntries(listSkillRecordsForBot(mergedBot));
-    const requestedAliases = new Set(uniqueStrings([
-      ...(Array.isArray(mergedBot?.capabilities?.enabledSkills) ? mergedBot.capabilities.enabledSkills : []),
-      ...activeSkillIds,
-      ...intentSkillIds,
-      ...requestedSkillIds
-    ]));
-    const resolvedSkills = records.filter((record) => {
-      if (!requestedAliases.size) return true;
-      return skillAliases(record).some((alias) => requestedAliases.has(alias));
-    });
-    const resolvedSkillIds = resolvedSkills.map((record) => record.id);
     const deliveryMode = nativeSkillsDirs.length > 0 ? "native-link" : "prompt-fallback";
-    const skillMaterialization = deliveryMode === "prompt-fallback"
+    const shouldMaterializePrompt = deliveryMode === "prompt-fallback" || turnSkillIds.length > 0;
+    const skillMaterialization = shouldMaterializePrompt
       ? (materializePromptFallback({
-          bot: mergedBot,
+          bot,
           engine,
           resolvedSkillIds,
           resolvedSkills,
           activeSkillIds: uniqueStrings(activeSkillIds),
           intentSkillIds: uniqueStrings(intentSkillIds),
-          requestedSkillIds: uniqueStrings(requestedSkillIds)
+          requestedSkillIds: uniqueStrings(requestedSkillIds),
+          mode: deliveryMode === "native-link" ? "none" : "index"
         }) || fallbackMaterialization())
       : null;
     const skillFingerprint = hashSkillFingerprint({

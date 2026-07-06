@@ -330,21 +330,6 @@ function createBotExecutionCore({
       const sessionStartedEngineId = managedAgentSessionTurn ? agentSessionSpec.engineId : adapterEngineId;
       const rawCurrentTurn = currentTurnInput(messages);
       const intentSkillIds = intentSkillIdsForMessages(messages);
-      const turnEnabledSkillIds = [
-        ...schedulerSkillIdsForTurn({ activeSkillIds, background, scheduledFire }),
-        ...intentSkillIds
-      ];
-      let botForManagedTurn = botForTurn;
-      if (turnEnabledSkillIds.length) {
-        const caps = botForManagedTurn.capabilities || {};
-        botForManagedTurn = {
-          ...botForManagedTurn,
-          capabilities: {
-            ...caps,
-            enabledSkills: [...new Set([...(caps.enabledSkills || []), ...turnEnabledSkillIds.map((id) => String(id))])]
-          }
-        };
-      }
       const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
       const completeWithPetMessage = (response) => {
         if (shouldNotifyPet) botPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
@@ -389,7 +374,7 @@ function createBotExecutionCore({
             engineId: agentSessionSpec.engineId,
             conversationId: descriptor.conversationId,
             botId: botForTurn.key || botForTurn.id || key,
-            botSnapshot: botForManagedTurn,
+            botSnapshot: botForTurn,
             runtimeConfig: turnRuntimeConfig,
             workspacePath,
             activeSkillIds,
@@ -414,17 +399,9 @@ function createBotExecutionCore({
         rememberManagedDescriptor(descriptor);
         return accepted;
       }
-      // Composer "使用" chips are turn-local: make them resolvable for this turn,
-      // then materialize full skill bodies only for those explicit selections.
-      if (turnEnabledSkillIds.length) {
-        const caps = botForTurn.capabilities || {};
-        botForTurn = {
-          ...botForTurn,
-          capabilities: {
-            ...caps,
-            enabledSkills: [...new Set([...(caps.enabledSkills || []), ...turnEnabledSkillIds.map((id) => String(id))])]
-          }
-        };
+      // Composer "使用" chips stay turn-local. Materialization resolves their
+      // skill bodies directly instead of mutating the Bot's session skill set.
+      if (activeSkillIds.length) {
         const directive = skillsLoader.buildActiveSkillsDirective(activeSkillIds);
         if (directive && Array.isArray(messages)) {
           const next = messages.slice();

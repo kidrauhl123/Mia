@@ -266,6 +266,35 @@ test("sendChat keeps managed AgentSession turn text raw even when active skill d
   assert.equal(calls.agentSession[0].text, "raw user turn");
 });
 
+test("managed AgentSession turns keep session bot skills stable while forwarding turn-local skill ids separately", async () => {
+  const runtimeCalls = [];
+  const { core } = makeCore({
+    cloudBotSnapshotForTurn: () => ({
+      key: "bot1",
+      id: "bot1",
+      name: "Bot One",
+      agentEngine: "claude-code",
+      capabilities: { enabledSkills: ["session-skill"] }
+    }),
+    schedulerSkillIdsForTurn: ({ activeSkillIds }) => activeSkillIds,
+    prepareAgentSessionRuntime: async (input) => {
+      runtimeCalls.push(input);
+      return {};
+    }
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    messages: [{ role: "user", id: "msg-11", content: "raw user turn" }],
+    activeSkillIds: ["turn-skill"]
+  });
+
+  assert.equal(runtimeCalls.length, 1);
+  assert.deepEqual(runtimeCalls[0].activeSkillIds, ["turn-skill"]);
+  assert.deepEqual(runtimeCalls[0].botSnapshot.capabilities.enabledSkills, ["session-skill"]);
+});
+
 test("sendChat fails loudly when an interactive AgentSession turn has no manager", async () => {
   const { core, calls } = makeCore({ agentSessionManager: null });
 
@@ -498,7 +527,7 @@ test("sendChat passes turn skill materialization to the adapter", async () => {
   });
 
   assert.deepEqual(resolveCalls.map((call) => call.activeSkillIds), [["active-skill"]]);
-  assert.deepEqual(resolveCalls[0].bot.capabilities.enabledSkills, ["index-skill", "active-skill"]);
+  assert.deepEqual(resolveCalls[0].bot.capabilities.enabledSkills, ["index-skill"]);
   assert.deepEqual(calls.adapter[0].skillMaterialization, {
     indexBlock: "INDEX",
     loadedBlock: "LOADED",
@@ -532,7 +561,7 @@ test("sendChat materializes xlsx skill when the user asks for an Excel deliverab
 
   assert.deepEqual(resolveCalls[0].activeSkillIds, []);
   assert.deepEqual(resolveCalls[0].intentSkillIds, [XLSX_SKILL_ID]);
-  assert.deepEqual(resolveCalls[0].bot.capabilities.enabledSkills, [XLSX_SKILL_ID]);
+  assert.equal(resolveCalls[0].bot.capabilities.enabledSkills, undefined);
   assert.equal(calls.adapter[0].skillMaterialization.loadedBlock, "XLSX GUIDE");
 });
 

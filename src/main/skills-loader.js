@@ -707,7 +707,10 @@ function createSkillsLoader(deps = {}) {
 
   function resolveSkillMaterialization({ bot, activeSkillIds = [], intentSkillIds = [], requestedSkillIds = [], mode = "index" } = {}) {
     return materializeSkillsForTurn({
-      availableSkills: appendRequestedSkillRecords(skillRecordsForBot(bot || {}), requestedSkillIds),
+      availableSkills: appendRequestedSkillRecords(
+        skillRecordsForBot(bot || {}),
+        [...activeSkillIds, ...intentSkillIds, ...requestedSkillIds]
+      ),
       activeSkillIds,
       intentSkillIds,
       requestedSkillIds,
@@ -717,8 +720,8 @@ function createSkillsLoader(deps = {}) {
 
   // Composer "使用" chips: the user explicitly picked these skills for THIS
   // turn. Their full content is materialized by resolveSkillMaterialization
-  // after the caller merges them into the turn-local enabledSkills set, so this
-  // only tells the agent to prioritize those selected guides.
+  // as turn-local state without mutating the Bot's session-level enabledSkills,
+  // so this only tells the agent to prioritize those selected guides.
   function buildActiveSkillsDirective(activeSkillIds) {
     const ids = Array.isArray(activeSkillIds) ? activeSkillIds : [];
     const names = [];

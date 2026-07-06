@@ -84,3 +84,50 @@ test("reconcileWorkspaceSkills deletes only Mia-managed stale links", async (t) 
   assert.equal(fs.existsSync(path.join(dir, ".claude", "skills", "user-owned")), true);
   assert.equal(result.manifestPath, managedManifestPath(dir));
 });
+
+test("native-link session fingerprint ignores turn-local skills while current-turn prompt supplement can still carry them", async () => {
+  const owner = createSkillRuntimeOwner({
+    listSkillRecordsForBot: (bot) => {
+      const enabled = new Set((bot?.capabilities?.enabledSkills || []).map((id) => String(id)));
+      return (bot.skillRecords || []).filter((record) => enabled.has(String(record.id || record.name || "")));
+    },
+    materializePromptFallback: ({ activeSkillIds, intentSkillIds, mode }) => ({
+      indexBlock: mode === "none" ? "" : "INDEX:session",
+      loadedBlock: [...activeSkillIds, ...intentSkillIds].length
+        ? `LOADED:${[...activeSkillIds, ...intentSkillIds].join(",")}`
+        : "",
+      loadedSkillIds: [...activeSkillIds, ...intentSkillIds]
+    })
+  });
+
+  const withoutTurnSkill = await owner.prepareAgentSessionSkillRuntime({
+    engineId: "claude",
+    runtimeConfig: { agentEngine: "claude-code" },
+    botSnapshot: {
+      capabilities: { enabledSkills: ["pdf"] },
+      skillRecords: [
+        { id: "pdf", name: "pdf", sourcePath: "/skills/pdf", body: "# pdf" },
+        { id: "deep-research", name: "deep-research", sourcePath: "/skills/deep-research", body: "# deep" }
+      ]
+    }
+  });
+  const withTurnSkill = await owner.prepareAgentSessionSkillRuntime({
+    engineId: "claude",
+    runtimeConfig: { agentEngine: "claude-code" },
+    activeSkillIds: ["deep-research"],
+    botSnapshot: {
+      capabilities: { enabledSkills: ["pdf"] },
+      skillRecords: [
+        { id: "pdf", name: "pdf", sourcePath: "/skills/pdf", body: "# pdf" },
+        { id: "deep-research", name: "deep-research", sourcePath: "/skills/deep-research", body: "# deep" }
+      ]
+    }
+  });
+
+  assert.equal(withoutTurnSkill.skillDeliveryMode, "native-link");
+  assert.equal(withTurnSkill.skillDeliveryMode, "native-link");
+  assert.equal(withoutTurnSkill.skillFingerprint, withTurnSkill.skillFingerprint);
+  assert.equal(withoutTurnSkill.turnPromptPrefix, undefined);
+  assert.equal(withTurnSkill.turnPromptPrefix, "LOADED:deep-research");
+  assert.equal(withTurnSkill.skillFallback, undefined);
+});

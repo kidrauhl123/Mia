@@ -2235,13 +2235,13 @@ const codexMiaProxy = createCodexMiaProxy({
 });
 const skillRuntimeOwner = createSkillRuntimeOwner({
   listSkillRecordsForBot: (bot) => skillsLoader.skillRecordsForBot(bot),
-  materializePromptFallback: ({ bot, activeSkillIds, intentSkillIds, requestedSkillIds }) =>
+  materializePromptFallback: ({ bot, activeSkillIds, intentSkillIds, requestedSkillIds, mode = "index" }) =>
     skillsLoader.resolveSkillMaterialization({
       bot,
       activeSkillIds,
       intentSkillIds,
       requestedSkillIds,
-      mode: "index"
+      mode
     })
 });
 const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
