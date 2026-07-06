@@ -286,7 +286,7 @@ test("desktop window controls use frameless Windows chrome off macOS", () => {
   assert.match(css, /body\.platform-win32 \.window-control\.minimize::before[\s\S]*?body\.platform-win32 \.window-control\.green::before[\s\S]*?body\.platform-win32 \.window-control\.close::before/);
   assert.match(css, /body\.platform-darwin \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
   assert.match(css, /--traffic-spacer-height:\s*52px;/);
-  assert.match(css, /--mac-traffic-spacer-height:\s*64px;/);
+  assert.match(css, /--mac-traffic-spacer-height:\s*44px;/);
   assert.match(css, /--win-titlebar-height:\s*32px;/);
   assert.match(css, /--win-titlebar-control-width:\s*138px;/);
   assert.match(css, /--win-titlebar-bg:\s*#f2f4f7;/);
