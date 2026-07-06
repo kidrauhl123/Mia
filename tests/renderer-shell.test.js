@@ -2262,6 +2262,24 @@ test("desktop renderer routes markdown local file links through preload", () => 
   assert.match(appSource, /window\.mia\?\.openExternal\?\.\(link\.dataset\.externalLink\)/);
 });
 
+test("desktop OAuth device login renders clickable and copyable auth details", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(appSource, /function codexAuthDetailsMarkdown\(auth = \{\}\)/);
+  assert.match(appSource, /if \(auth\.codexStarting && verificationUrl\) lines\.push/);
+  assert.match(appSource, /const codexMarkdown = codexAuthDetailsMarkdown\(auth\);[\s\S]*els\.codexCode\.innerHTML = window\.miaMarkdown\.renderMarkdown\(codexMarkdown\)/);
+  assert.match(appSource, /els\.codexInlineAuth\?\.addEventListener\("click", async \(event\)/);
+  assert.ok(
+    appSource.indexOf("const messageLinkSelector") < appSource.indexOf("els.codexInlineAuth?.addEventListener"),
+    "shared message link selector should be initialized before OAuth click handling"
+  );
+  assert.match(appSource, /if \(link && els\.codexInlineAuth\.contains\(link\)\) \{/);
+  assert.match(appSource, /openMessageLink\(link\)/);
+  assert.match(appSource, /copyTextToClipboard\(code\.textContent\)/);
+  assert.match(css, /\.inline-auth :where\(\.auth-code, \.auth-code \*, pre\)\s*\{[\s\S]*?user-select:\s*text;/);
+});
+
 test("trace links require the platform modifier before opening", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const webAppSource = fs.readFileSync(path.join(root, "src/web/app.js"), "utf8");

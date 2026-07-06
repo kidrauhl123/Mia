@@ -70,7 +70,8 @@ function createModelSettingsService({
     };
     const nextAuthType = String(settings.authType || existingConnection?.authType || (next.provider === "openai-codex" ? "oauth_external" : "api_key")).trim();
     const nextProviderLabel = String(settings.providerLabel || existingConnection?.providerLabel || next.provider).trim();
-    if (next.provider && (submittedApiKey || next.apiKey || next.provider === "lmstudio" || nextAuthType !== "api_key")) {
+    const hasExistingOauthConnection = Boolean(existingConnection && nextAuthType !== "api_key");
+    if (next.provider && (submittedApiKey || next.apiKey || next.provider === "lmstudio" || hasExistingOauthConnection)) {
       saveProviderConnection({
         provider: next.provider,
         providerLabel: nextProviderLabel,

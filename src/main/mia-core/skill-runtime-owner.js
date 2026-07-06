@@ -161,6 +161,9 @@ function createSkillRuntimeOwner(options = {}) {
   const materializePromptFallback = typeof options.materializePromptFallback === "function"
     ? options.materializePromptFallback
     : fallbackMaterialization;
+  const buildActiveSkillsDirective = typeof options.buildActiveSkillsDirective === "function"
+    ? options.buildActiveSkillsDirective
+    : () => "";
 
   function resolveRuntimeSkillState({
     bot = {},
@@ -289,7 +292,9 @@ function createSkillRuntimeOwner(options = {}) {
       });
     }
 
+    const selectedSkillDirective = cleanText(buildActiveSkillsDirective(baseInput.activeSkillIds));
     const turnPromptPrefix = joinPromptBlocks([
+      selectedSkillDirective,
       state.skillMaterialization?.indexBlock,
       state.skillMaterialization?.loadedBlock
     ]);
@@ -310,6 +315,7 @@ function createSkillRuntimeOwner(options = {}) {
                   requestedSkillIds
                 });
                 return joinPromptBlocks([
+                  selectedSkillDirective,
                   nextState.skillMaterialization?.indexBlock,
                   nextState.skillMaterialization?.loadedBlock
                 ]);

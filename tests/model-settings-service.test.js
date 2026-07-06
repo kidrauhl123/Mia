@@ -117,6 +117,58 @@ test("saveModelSelection preserves no-key lmstudio provider connections", async 
   }]);
 });
 
+test("saveModelSelection does not create codex OAuth connections before login completes", async () => {
+  const { calls, service } = setup();
+
+  const result = await service.saveModelSelection({
+    provider: "openai-codex",
+    providerLabel: "OpenAI Codex",
+    authType: "oauth_external",
+    model: "gpt-5.5",
+    baseUrl: "https://chatgpt.com/backend-api/codex",
+    apiMode: "codex_responses"
+  });
+
+  assert.deepEqual(calls.providerSaves, []);
+  assert.deepEqual(calls.modelWrites, [{
+    provider: "openai-codex",
+    model: "gpt-5.5",
+    apiKeyEnv: "OPENAI_API_KEY",
+    apiKey: "",
+    baseUrl: "https://chatgpt.com/backend-api/codex",
+    apiMode: "codex_responses"
+  }]);
+  assert.deepEqual(result, { runtime: true });
+  assert.equal(calls.restarts, 0);
+});
+
+test("saveModelSelection can update an existing OAuth provider connection", async () => {
+  const { calls, service } = setup({
+    providerConnection: (provider) => provider === "some-oauth"
+      ? { provider, providerLabel: "Some OAuth", authType: "oauth_external", apiKeyEnv: "", apiKey: "", baseUrl: "", apiMode: "" }
+      : null
+  });
+
+  await service.saveModelSelection({
+    provider: "some-oauth",
+    providerLabel: "Some OAuth",
+    authType: "oauth_external",
+    model: "oauth-model",
+    baseUrl: "https://oauth.example/v1",
+    apiMode: "responses"
+  });
+
+  assert.deepEqual(calls.providerSaves, [{
+    provider: "some-oauth",
+    providerLabel: "Some OAuth",
+    authType: "oauth_external",
+    apiKeyEnv: "OPENAI_API_KEY",
+    apiKey: "",
+    baseUrl: "https://oauth.example/v1",
+    apiMode: "responses"
+  }]);
+});
+
 test("saveModelSelection persists compact Mia-managed settings without transport defaults", async () => {
   const { calls, service } = setup();
 

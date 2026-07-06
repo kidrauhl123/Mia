@@ -10277,6 +10277,25 @@ textarea:focus {
   color: var(--accent);
 }
 
+.inline-auth :where(.auth-code, .auth-code *, pre) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.inline-auth .auth-code.bubble {
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.inline-auth .auth-code.bubble p {
+  margin: 0;
+}
+
+.inline-auth .auth-code.bubble p + p {
+  margin-top: 4px;
+}
+
 .notice {
   padding: 8px 10px;
   border-radius: 8px;

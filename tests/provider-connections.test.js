@@ -89,3 +89,23 @@ test("summaries hide API keys and merge codex/model fallbacks", () => {
   assert.ok(summaries.every((entry) => !Object.hasOwn(entry, "apiKey")));
   assert.equal(summaries.find((entry) => entry.provider === "fallback-provider").apiKeyEnv, "FALLBACK_KEY");
 });
+
+test("summaries do not report codex as connected without codex auth tokens", () => {
+  const { service } = createHarness({
+    codexAuthStatus: () => ({ codexLoggedIn: false })
+  });
+
+  service.save({
+    provider: "openai-codex",
+    providerLabel: "OpenAI Codex",
+    authType: "oauth_external",
+    apiKey: "",
+    baseUrl: "https://chatgpt.com/backend-api/codex",
+    apiMode: "codex_responses"
+  });
+
+  assert.equal(
+    service.connectedSummaries().some((entry) => entry.provider === "openai-codex"),
+    false
+  );
+});

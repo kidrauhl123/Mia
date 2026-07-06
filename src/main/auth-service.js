@@ -2,6 +2,32 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
+
+const CODEX_CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
+
+function isPlainObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function codexTokenPair(tokens = {}) {
+  const accessToken = String(tokens.access_token || "").trim();
+  const refreshToken = String(tokens.refresh_token || "").trim();
+  if (!accessToken || !refreshToken) return null;
+  return {
+    access_token: accessToken,
+    refresh_token: refreshToken
+  };
+}
+
+function hasCodexRuntimeCredentials(auth = {}) {
+  const providers = isPlainObject(auth.providers) ? auth.providers : {};
+  const providerTokens = codexTokenPair(providers["openai-codex"]?.tokens);
+  if (providerTokens) return true;
+  const pool = isPlainObject(auth.credential_pool) ? auth.credential_pool : {};
+  const entries = Array.isArray(pool["openai-codex"]) ? pool["openai-codex"] : [];
+  return entries.some((entry) => String(entry?.access_token || "").trim());
+}
 
 function createAuthService({
   runtimePaths,
@@ -62,8 +88,18 @@ function createAuthService({
     if (Array.isArray(codexPool?.entries)) poolCount = codexPool.entries.length;
     else if (Array.isArray(codexPool)) poolCount = codexPool.length;
 
-    const providerTokens = Boolean(codexState?.tokens?.access_token);
-    const loggedIn = providerTokens || poolCount > 0;
+    const providerTokens = codexTokenPair(codexState?.tokens);
+    let hermesReady = hermesCodexUsable();
+    if (providerTokens && !hermesReady) {
+      try {
+        saveHermesCodexTokens(providerTokens, codexState?.last_refresh || auth?.updated_at || nowIso());
+        hermesReady = hermesCodexUsable();
+      } catch (error) {
+        authState.codexLastError = `Could not sync OpenAI Codex login to Hermes: ${error?.message || error}`;
+        appendLog(authState.codexLastError);
+      }
+    }
+    const loggedIn = hermesReady || (!providerTokens && poolCount > 0);
     authState.codexLoggedIn = loggedIn;
     return {
       codexStarting: authState.codexStarting,
@@ -80,20 +116,102 @@ function createAuthService({
 
   function saveCodexTokens(tokens) {
     const p = runtimePaths();
+    const normalizedTokens = codexTokenPair(tokens);
+    if (!normalizedTokens) throw new Error("Codex OAuth tokens are missing access_token or refresh_token.");
+    const lastRefresh = nowIso().replace("+00:00", "Z");
     const auth = readJson(p.authJson, { version: 2, providers: {} });
     if (!auth || typeof auth !== "object") throw new Error("Invalid auth store.");
     if (!auth.providers || typeof auth.providers !== "object") auth.providers = {};
     auth.providers["openai-codex"] = {
       ...(auth.providers["openai-codex"] || {}),
-      tokens,
-      last_refresh: nowIso().replace("+00:00", "Z"),
+      tokens: normalizedTokens,
+      last_refresh: lastRefresh,
       auth_mode: "chatgpt"
     };
     auth.active_provider = "openai-codex";
     auth.version = auth.version || 2;
-    auth.updated_at = nowIso();
+    auth.updated_at = lastRefresh;
     fs.mkdirSync(path.dirname(p.authJson), { recursive: true });
     fs.writeFileSync(p.authJson, JSON.stringify(auth, null, 2) + "\n", { mode: 0o600 });
+    saveHermesCodexTokens(normalizedTokens, lastRefresh);
+  }
+
+  function hermesAuthPath() {
+    const hermesHome = String(effectiveHermesHome?.() || "").trim();
+    return hermesHome ? path.join(hermesHome, "auth.json") : "";
+  }
+
+  function hermesCodexUsable() {
+    const filePath = hermesAuthPath();
+    if (!filePath) return false;
+    return hasCodexRuntimeCredentials(readJson(filePath, {}));
+  }
+
+  function saveHermesCodexTokens(tokens, lastRefresh = nowIso().replace("+00:00", "Z")) {
+    const filePath = hermesAuthPath();
+    if (!filePath) return;
+    const normalizedTokens = codexTokenPair(tokens);
+    if (!normalizedTokens) throw new Error("Codex OAuth tokens are missing access_token or refresh_token.");
+    const auth = readJson(filePath, { version: 1, providers: {} });
+    const next = isPlainObject(auth) ? auth : { version: 1, providers: {} };
+    next.version = next.version || 1;
+    if (!isPlainObject(next.providers)) next.providers = {};
+    const existingProvider = isPlainObject(next.providers["openai-codex"])
+      ? next.providers["openai-codex"]
+      : {};
+    next.providers["openai-codex"] = {
+      ...existingProvider,
+      tokens: normalizedTokens,
+      last_refresh: lastRefresh,
+      auth_mode: "chatgpt",
+      label: String(existingProvider.label || "OpenAI Codex")
+    };
+    next.active_provider = "openai-codex";
+
+    if (!isPlainObject(next.credential_pool)) next.credential_pool = {};
+    const existingEntries = Array.isArray(next.credential_pool["openai-codex"])
+      ? next.credential_pool["openai-codex"]
+      : [];
+    let hasDeviceCodeEntry = false;
+    next.credential_pool["openai-codex"] = existingEntries.map((entry) => {
+      if (!isPlainObject(entry)) return entry;
+      if (entry.source !== "device_code" && entry.source !== "manual:device_code") return entry;
+      hasDeviceCodeEntry = hasDeviceCodeEntry || entry.source === "device_code";
+      return {
+        ...entry,
+        access_token: normalizedTokens.access_token,
+        refresh_token: normalizedTokens.refresh_token,
+        base_url: entry.base_url || CODEX_CHATGPT_BASE_URL,
+        last_refresh: lastRefresh,
+        last_status: null,
+        last_status_at: null,
+        last_error_code: null,
+        last_error_reason: null,
+        last_error_message: null,
+        last_error_reset_at: null
+      };
+    });
+    if (!hasDeviceCodeEntry) {
+      next.credential_pool["openai-codex"].push({
+        id: randomUUID().replace(/-/g, "").slice(0, 6),
+        label: "OpenAI Codex",
+        auth_type: "oauth",
+        priority: 0,
+        source: "device_code",
+        access_token: normalizedTokens.access_token,
+        refresh_token: normalizedTokens.refresh_token,
+        base_url: CODEX_CHATGPT_BASE_URL,
+        last_refresh: lastRefresh,
+        last_status: null,
+        last_status_at: null,
+        last_error_code: null,
+        last_error_reason: null,
+        last_error_message: null,
+        last_error_reset_at: null
+      });
+    }
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
   }
 
   async function requestCodexDeviceCode() {
@@ -215,7 +333,11 @@ function createAuthService({
     authState.codexUserCode = String(deviceData.user_code || "");
     appendLog(`Open ${codexDeviceUrl}`);
     appendLog(`Enter device code: ${authState.codexUserCode}`);
-    shellOpenExternal(codexDeviceUrl).catch(() => {});
+    try {
+      await shellOpenExternal(codexDeviceUrl);
+    } catch (error) {
+      appendLog(`Could not automatically open OpenAI Codex login page: ${error?.message || error}`);
+    }
     authProcess = { kind: "codex-oauth" };
     activeCompletion = finishCodexOAuth(deviceData);
 

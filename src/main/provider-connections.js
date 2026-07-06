@@ -74,8 +74,16 @@ function createProviderConnections({
   }
 
   function connectedSummaries(codexAuth = codexAuthStatus()) {
+    function isConnectedEntry(entry) {
+      if (!entry?.provider) return false;
+      if (entry.provider === "lmstudio") return true;
+      if (entry.provider === "openai-codex") return Boolean(codexAuth?.codexLoggedIn);
+      if (entry.authType !== "api_key") return true;
+      return Boolean(entry.apiKey);
+    }
+
     const summaries = Object.values(store().providers)
-      .filter((entry) => entry.provider && (entry.apiKey || entry.authType !== "api_key" || entry.provider === "lmstudio"))
+      .filter(isConnectedEntry)
       .map((entry) => ({
         provider: entry.provider,
         providerLabel: entry.providerLabel || entry.provider,
@@ -84,7 +92,7 @@ function createProviderConnections({
         baseUrl: entry.baseUrl || "",
         apiMode: entry.apiMode || "",
         connectedAt: entry.connectedAt || "",
-        hasApiKey: Boolean(entry.apiKey) || entry.authType !== "api_key" || entry.provider === "lmstudio"
+        hasApiKey: true
       }));
 
     if (codexAuth.codexLoggedIn && !summaries.some((entry) => entry.provider === "openai-codex")) {

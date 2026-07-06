@@ -98,7 +98,7 @@ function createHarness(overrides = {}) {
 test("status reads codex auth tokens and credential pools", () => {
   const { paths, service } = createHarness();
   fs.writeFileSync(paths.authJson, JSON.stringify({
-    providers: { "openai-codex": { tokens: { access_token: "access" } } },
+    providers: { "openai-codex": { tokens: { access_token: "access", refresh_token: "refresh" } } },
     credential_pool: {}
   }));
 
@@ -106,6 +106,21 @@ test("status reads codex auth tokens and credential pools", () => {
 
   assert.equal(status.codexLoggedIn, true);
   assert.equal(status.codexAuthPath, paths.authJson);
+});
+
+test("status does not report codex logged in when Hermes auth sync fails", () => {
+  const { paths, service } = createHarness({
+    effectiveHermesHome: () => path.join(paths.home, "not-a-directory")
+  });
+  fs.writeFileSync(path.join(paths.home, "not-a-directory"), "");
+  fs.writeFileSync(paths.authJson, JSON.stringify({
+    providers: { "openai-codex": { tokens: { access_token: "access", refresh_token: "refresh" } } }
+  }));
+
+  const status = service.status();
+
+  assert.equal(status.codexLoggedIn, false);
+  assert.match(status.codexLastError, /Could not sync OpenAI Codex login to Hermes/);
 });
 
 test("appendLog redacts token values and captures device code hints", () => {
@@ -127,14 +142,37 @@ test("startCodexOAuth completes device auth in the background and persists token
   await service.waitForIdle();
 
   const auth = JSON.parse(fs.readFileSync(paths.authJson, "utf8"));
+  const hermesAuth = JSON.parse(fs.readFileSync(path.join(paths.hermesHome, "auth.json"), "utf8"));
   assert.deepEqual(started, { runtime: true });
   assert.equal(calls.opened[0], "https://auth.openai.com/codex/device");
   assert.equal(auth.active_provider, "openai-codex");
   assert.equal(auth.providers["openai-codex"].tokens.access_token, "access-token");
   assert.equal(auth.providers["openai-codex"].tokens.refresh_token, "refresh-token");
+  assert.equal(hermesAuth.active_provider, "openai-codex");
+  assert.equal(hermesAuth.providers["openai-codex"].tokens.access_token, "access-token");
+  assert.equal(hermesAuth.providers["openai-codex"].tokens.refresh_token, "refresh-token");
+  assert.equal(hermesAuth.credential_pool["openai-codex"][0].source, "device_code");
+  assert.equal(hermesAuth.credential_pool["openai-codex"][0].auth_type, "oauth");
+  assert.equal(hermesAuth.credential_pool["openai-codex"][0].access_token, "access-token");
+  assert.equal(hermesAuth.credential_pool["openai-codex"][0].refresh_token, "refresh-token");
+  assert.equal(hermesAuth.credential_pool["openai-codex"][0].base_url, "https://chatgpt.com/backend-api/codex");
+  assert.equal(hermesAuth.credential_pool["openai-codex"][0].last_refresh, "2026-05-25T00:00:00.000Z");
   assert.equal(calls.codexApplied, 1);
   assert.equal(calls.restarted, 1);
   assert.equal(service.status().codexStarting, false);
+});
+
+test("startCodexOAuth logs automatic browser open failures", async () => {
+  const { service } = createHarness({
+    shellOpenExternal: async () => {
+      throw new Error("no default browser");
+    }
+  });
+
+  await service.startCodexOAuth();
+  await service.waitForIdle();
+
+  assert.match(service.status().codexLogs.join("\n"), /Could not automatically open OpenAI Codex login page: no default browser/);
 });
 
 test("startProviderOAuth spawns hermes auth and saves provider on success", async () => {

@@ -61,6 +61,7 @@ const { setMacNativeControlsVisible } = require("./main/mac-window-controls.js")
 const { createChatAttachments } = require("./main/chat-attachments.js");
 const { createBotManifest } = require("./main/bot-manifest.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
+const { createExternalUrlOpener } = require("./main/external-url-opener.js");
 const {
   localDeviceIdentity: loadLocalDeviceIdentity,
   resetLocalDeviceIdentity: resetPersistedLocalDeviceIdentity,
@@ -751,6 +752,10 @@ const providerConnectionStore = providerConnections.store;
 const saveProviderConnection = providerConnections.save;
 const providerConnection = providerConnections.get;
 const connectedProviderSummaries = providerConnections.connectedSummaries;
+const openExternalUrl = createExternalUrlOpener({
+  shellOpenExternal: (url) => shell.openExternal(url),
+  spawnProcess: spawn
+});
 const miaCoreModelRuntimeResolver = createMiaCoreModelRuntimeResolver({
   cloudStatus,
   normalizeCloudUrl: settingsStore.normalizeCloudUrl,
@@ -766,7 +771,7 @@ authService = createAuthService({
   readJson,
   fetchImpl: fetch,
   spawnProcess: spawn,
-  shellOpenExternal: (url) => shell.openExternal(url),
+  shellOpenExternal: openExternalUrl,
   initializeRuntime,
   isEngineInstalled: engineInstallService.isInstalled,
   getRuntimeStatus,
@@ -908,7 +913,7 @@ const userMcpOAuthTokenStore = createCoreMcpOAuthTokenStore({ runtimePaths, fs }
 const userMcpOAuthService = createCoreMcpOAuthService({
   tokenStore: userMcpOAuthTokenStore,
   fetch,
-  openExternal: (url) => shell.openExternal(url)
+  openExternal: openExternalUrl
 });
 const userMcpManager = createMcpSdkClientManager({
   processEnvStrings,
@@ -2235,6 +2240,7 @@ const codexMiaProxy = createCodexMiaProxy({
 });
 const skillRuntimeOwner = createSkillRuntimeOwner({
   listSkillRecordsForBot: (bot) => skillsLoader.skillRecordsForBot(bot),
+  buildActiveSkillsDirective: (activeSkillIds) => skillsLoader.buildActiveSkillsDirective(activeSkillIds),
   materializePromptFallback: ({ bot, activeSkillIds, intentSkillIds, requestedSkillIds, mode = "index" }) =>
     skillsLoader.resolveSkillMaterialization({
       bot,
@@ -2803,15 +2809,7 @@ ipcMain.handle(IpcChannel.DaemonSettingsSave, (_event, settings) => {
   return getDaemonStatus();
 });
 ipcMain.handle(IpcChannel.UtilOpenExternal, async (_event, url) => {
-  let parsed;
-  try {
-    parsed = new URL(String(url || "").trim());
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-  await shell.openExternal(parsed.href);
-  return true;
+  return openExternalUrl(url);
 });
 ipcMain.handle(IpcChannel.StatusBadgeAssetLoad, (_event, assetId) => loadStatusBadgeAsset(assetId));
 ipcMain.handle(IpcChannel.CloudStatus, () => cloudStatus(false));

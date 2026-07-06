@@ -131,3 +131,47 @@ test("native-link session fingerprint ignores turn-local skills while current-tu
   assert.equal(withTurnSkill.turnPromptPrefix, "LOADED:deep-research");
   assert.equal(withTurnSkill.skillFallback, undefined);
 });
+
+test("managed turns prepend an explicit selected-skill directive for prompt-fallback engines", async () => {
+  const owner = createSkillRuntimeOwner({
+    buildActiveSkillsDirective: (ids) => ids.length ? `ACTIVE:${ids.join(",")}` : "",
+    materializePromptFallback: ({ activeSkillIds, mode }) => ({
+      indexBlock: mode === "index" ? "INDEX:session" : "",
+      loadedBlock: activeSkillIds.length ? `LOADED:${activeSkillIds.join(",")}` : "",
+      loadedSkillIds: activeSkillIds
+    })
+  });
+
+  const runtime = await owner.prepareAgentSessionSkillRuntime({
+    engineId: "openclaw",
+    runtimeConfig: { agentEngine: "openclaw" },
+    activeSkillIds: ["mia:docx"]
+  });
+
+  assert.equal(runtime.turnPromptPrefix, "ACTIVE:mia:docx\n\nINDEX:session\n\nLOADED:mia:docx");
+  assert.equal(typeof runtime.skillFallback?.materializePrompt, "function");
+  assert.equal(
+    await runtime.skillFallback.materializePrompt(["mia:docx"]),
+    "ACTIVE:mia:docx\n\nINDEX:session\n\nLOADED:mia:docx"
+  );
+});
+
+test("managed turns prepend an explicit selected-skill directive for native-link engines", async () => {
+  const owner = createSkillRuntimeOwner({
+    buildActiveSkillsDirective: (ids) => ids.length ? `ACTIVE:${ids.join(",")}` : "",
+    materializePromptFallback: ({ activeSkillIds }) => ({
+      indexBlock: "",
+      loadedBlock: activeSkillIds.length ? `LOADED:${activeSkillIds.join(",")}` : "",
+      loadedSkillIds: activeSkillIds
+    })
+  });
+
+  const runtime = await owner.prepareAgentSessionSkillRuntime({
+    engineId: "claude",
+    runtimeConfig: { agentEngine: "claude-code" },
+    activeSkillIds: ["deep-research"]
+  });
+
+  assert.equal(runtime.turnPromptPrefix, "ACTIVE:deep-research\n\nLOADED:deep-research");
+  assert.equal(runtime.skillFallback, undefined);
+});

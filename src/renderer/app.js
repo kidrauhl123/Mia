@@ -7,6 +7,7 @@ const SIDEBAR_WIDTH_MIN = 260;
 const SIDEBAR_WIDTH_MAX = 460;
 const SIDEBAR_WIDTH_DEFAULT = 320;
 const SHELL_SINGLE_MAX_WIDTH = 720;
+const messageLinkSelector = "a.message-link[data-external-link], a.message-link[data-local-file-path]";
 let skillPickerHoverCloseTimer = 0;
 let profilePopoverHideTimer = 0;
 let profileSaveDebounceTimer = 0;
@@ -3332,6 +3333,16 @@ function focusedSidebarTagInput() {
   return { conversationId, value: input.value || "" };
 }
 
+function codexAuthDetailsMarkdown(auth = {}) {
+  const lines = [];
+  const verificationUrl = String(auth.codexVerificationUrl || "").trim();
+  const userCode = String(auth.codexUserCode || "").trim();
+  if (auth.codexStarting && verificationUrl) lines.push(`打开登录页面：${verificationUrl}`);
+  if (auth.codexStarting && userCode) lines.push(`在浏览器页面输入：\`${userCode}\``);
+  if (!lines.length && auth.codexStarting) lines.push("正在请求设备码...");
+  return lines.join("\n\n");
+}
+
 function render() {
   const runtime = state.runtime;
   if (!runtime) {
@@ -3425,14 +3436,10 @@ function render() {
         : `需要登录 ${selectedProviderLabel}`;
   }
   els.codexCheck?.classList.toggle("authorized", Boolean(selectedConnected));
-  const codexCodeText = auth.codexUserCode
-    ? `在浏览器页面输入：${auth.codexUserCode}`
-    : auth.codexStarting
-      ? (auth.codexVerificationUrl ? `打开：${auth.codexVerificationUrl}` : "正在请求设备码...")
-      : "";
   if (els.codexCode) {
-    els.codexCode.textContent = codexCodeText;
-    els.codexCode.classList.toggle("hidden", !codexCodeText);
+    const codexMarkdown = codexAuthDetailsMarkdown(auth);
+    els.codexCode.innerHTML = window.miaMarkdown.renderMarkdown(codexMarkdown);
+    els.codexCode.classList.toggle("hidden", !codexMarkdown);
   }
   const codexLogsText = [
     auth.codexLastError ? `ERROR: ${auth.codexLastError}` : "",
@@ -6511,6 +6518,19 @@ els.codexCancel.addEventListener("click", async () => {
   render();
 });
 
+els.codexInlineAuth?.addEventListener("click", async (event) => {
+  const link = event.target.closest(messageLinkSelector);
+  if (link && els.codexInlineAuth.contains(link)) {
+    event.preventDefault();
+    event.stopPropagation();
+    openMessageLink(link);
+    return;
+  }
+  const code = event.target.closest("code.inline-code");
+  if (!code || !els.codexInlineAuth.contains(code)) return;
+  if (await copyTextToClipboard(code.textContent)) flashCopiedCode(code);
+});
+
 els.modelPreset.addEventListener("change", () => {
   window.miaModelSettings.fillModelFieldsFromPreset(els.modelPreset.value);
 });
@@ -7447,7 +7467,6 @@ els.chatInput?.addEventListener("paste", (event) => {
   }
   window.miaComposer.handleComposerPlainTextPaste(event);
 });
-const messageLinkSelector = "a.message-link[data-external-link], a.message-link[data-local-file-path]";
 const TRACE_LINK_MODIFIER_CLASS = "trace-link-modifier-active";
 function traceLinkUsesAppleModifier() {
   const platform = typeof navigator !== "undefined" ? String(navigator.platform || "") : "";
