@@ -1341,6 +1341,65 @@ test("stopActiveConversationRun cancels an AgentSession-backed social run using 
   ]);
 });
 
+test("stopActiveConversationRun preserves runtime-scoped AgentSession descriptor fields", async () => {
+  const calls = { manager: [], runtime: [], cancel: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async () => ({ ok: true }),
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      },
+      cancelActive: async (descriptor) => {
+        calls.cancel.push(descriptor);
+        return true;
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace",
+    prepareAgentSessionRuntime: async (args) => {
+      calls.runtime.push(args);
+      return {
+        runtimeKey: "mia:mia-auto",
+        mcpFingerprint: "mcp-abc",
+        skillFingerprint: "skills:abc"
+      };
+    }
+  });
+
+  assert.equal(await responder.respond({
+    ...base,
+    dedupKey: "m_stop_runtime_scoped:codex",
+    turnId: "t_stop_runtime_scoped",
+    botSnapshot: { key: "starter_100002_codex", name: "Codex", agentEngine: "codex" },
+    runtimeConfig: { agentEngine: "codex" }
+  }), true);
+
+  const stopResult = await responder.stopActiveConversationRun({
+    conversationId: "g_1",
+    turnId: "t_stop_runtime_scoped"
+  });
+
+  assert.deepEqual(calls.cancel, [{
+    conversationId: "g_1",
+    engineId: "codex",
+    workspacePath: "/repo/workspace",
+    runtimeKey: "mia:mia-auto",
+    mcpFingerprint: "mcp-abc",
+    skillFingerprint: "skills:abc"
+  }]);
+  assert.equal(stopResult.stopped, true);
+});
+
 test("managed AgentSession workspace validation failure does not poison retries for the same dedupKey", async () => {
   let workspacePath = "";
   const calls = { manager: [] };

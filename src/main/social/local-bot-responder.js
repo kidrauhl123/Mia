@@ -679,12 +679,19 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     if (!conversationId) return null;
     const turnId = String(meta.turnId || input.turnId || "").trim();
     const existing = (turnId && managedSessionsByTurn.get(turnId)) || {};
+    const descriptor = {
+      conversationId,
+      engineId: String(input.engineId || "").trim(),
+      workspacePath: String(input.workspacePath || "").trim()
+    };
+    const runtimeKey = String(input.runtimeKey || input.runtime_key || "").trim();
+    const mcpFingerprint = String(input.mcpFingerprint || input.mcp_fingerprint || "").trim();
+    const skillFingerprint = String(input.skillFingerprint || input.skill_fingerprint || "").trim();
+    if (runtimeKey) descriptor.runtimeKey = runtimeKey;
+    if (mcpFingerprint) descriptor.mcpFingerprint = mcpFingerprint;
+    if (skillFingerprint) descriptor.skillFingerprint = skillFingerprint;
     const next = {
-      descriptor: {
-        conversationId,
-        engineId: String(input.engineId || "").trim(),
-        workspacePath: String(input.workspacePath || "").trim()
-      },
+      descriptor,
       conversationId,
       botId: String(meta.botId || existing.botId || "").trim(),
       turnId: String(turnId || existing.turnId || "").trim(),
