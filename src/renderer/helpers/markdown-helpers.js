@@ -218,7 +218,7 @@
       : "";
     const attr = link.kind === "local-file"
       ? `data-local-file-path="${escapeHtml(link.target)}"${lineAttr}`
-      : `data-external-link="${escapeHtml(link.target)}"`;
+      : `data-external-link="${escapeHtml(link.target)}" href="${escapeHtml(link.target)}" target="_blank" rel="noopener noreferrer"`;
     const extraAttrs = options.attrs ? ` ${options.attrs}` : "";
     const tabIndex = options.tabIndex == null ? "0" : String(options.tabIndex);
     const className = String(options.className || "message-link");

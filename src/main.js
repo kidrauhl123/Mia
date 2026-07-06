@@ -2539,6 +2539,12 @@ function createWindow() {
   setMacNativeControlsVisible(win, process.platform === "darwin");
   if (initialWindow.maximized) win.maximize();
   if (!onboarding) windowStateManager.attachWindowStatePersistence(win);
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalUrl(url).catch((error) => {
+      appendEngineLog(`Open external link failed: ${error?.message || error}`);
+    });
+    return { action: "deny" };
+  });
   const sendWindowEvent = (channel, payload) => {
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
   };
