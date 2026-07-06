@@ -9,15 +9,34 @@ function read(rel) {
   return fs.readFileSync(path.join(ROOT, rel), "utf8");
 }
 
-test("main owns cloud conversation bot invocation execution without group coordination", () => {
+test("main gates cloud conversation bot invocation execution behind the Core process", () => {
   const main = read("src/main.js");
   const cloudEventsClient = read("src/main/cloud/cloud-events-client.js");
 
-  assert.match(main, /createLocalBotResponder/, "main must instantiate the local bot responder Module");
-  assert.match(main, /createCloudEventsClient/, "main must instantiate the cloud events client Module");
+  assert.doesNotMatch(
+    main,
+    /const\s+botExecutionCore\s*=\s*createBotExecutionCore\(/,
+    "foreground main must not unconditionally instantiate the bot execution Module"
+  );
+  assert.match(
+    main,
+    /const\s+botExecutionCore\s*=\s*IS_DAEMON_PROCESS\s*\?\s*createBotExecutionCore\(/,
+    "bot execution may only be constructed by the Core/daemon process"
+  );
+  assert.doesNotMatch(
+    main,
+    /const\s+localBotResponder\s*=\s*createLocalBotResponder\(/,
+    "foreground main must not unconditionally instantiate the local bot responder Module"
+  );
+  assert.match(
+    main,
+    /const\s+localBotResponder\s*=\s*IS_DAEMON_PROCESS\s*\?\s*createLocalBotResponder\(/,
+    "local bot responder may only be constructed by the Core/daemon process"
+  );
+  assert.match(main, /createCloudEventsClient/, "main may construct the cloud events adapter, but it must not host sockets in foreground");
   assert.doesNotMatch(main, /createMainGroupConductor/, "main must not instantiate a desktop group conductor");
   assert.doesNotMatch(main, /createMainBotConversationResponder/, "main must not instantiate a desktop DM auto-responder");
-  assert.match(main, /createMainBotRuntimeDispatcher/, "main must instantiate the unified bot runtime dispatcher Module");
+  assert.match(main, /createMainBotRuntimeDispatcher/, "main must instantiate the unified bot runtime dispatcher adapter");
   assert.match(main, /shouldHandleLocalCloudConversationAi/, "main must gate AI execution with cloud idempotency aware process ownership");
   assert.match(
     cloudEventsClient,

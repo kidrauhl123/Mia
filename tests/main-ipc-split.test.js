@@ -22,3 +22,23 @@ test("main process delegates window and tasks IPC registration to modules", () =
   assert.match(utilIpc, /IpcChannel\.UtilOpenLocalFile/);
   assert.match(utilIpc, /IpcChannel\.UtilRevealLocalFile/);
 });
+
+test("main delegates agent workspace settings to Core", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+
+  assert.match(
+    mainSource,
+    /IpcChannel\.EngineWorkspaceGet[\s\S]*readAgentWorkspaceFromCore\(\)/,
+    "foreground workspace reads must go through Core"
+  );
+  assert.match(
+    mainSource,
+    /IpcChannel\.EngineWorkspacePick[\s\S]*writeAgentWorkspaceToCore\(picked\)/,
+    "foreground workspace writes must go through Core"
+  );
+  assert.doesNotMatch(
+    mainSource,
+    /if \(picked\) \{[\s\S]*settingsStore\.writeAgentWorkspace\(picked\)/,
+    "foreground picker must not write agent workspace settings directly"
+  );
+});

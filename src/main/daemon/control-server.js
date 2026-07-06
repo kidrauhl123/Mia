@@ -27,6 +27,8 @@ function createDaemonControlServer({
   getMiaContextSnapshot = null,
   getMiaCurrentSkills = null,
   sendChat = null,
+  getAgentWorkspace = null,
+  writeAgentWorkspace = null,
   miaMemoryService = null,
   isMemoryEnabled = () => true,
   onMemoryChanged = null,
@@ -427,6 +429,23 @@ function createDaemonControlServer({
       }
       if (url.pathname === "/api/chat/send" && req.method === "POST") {
         await handleChatSend(req, res);
+        return;
+      }
+      if (url.pathname === "/api/agent-workspace" && req.method === "GET") {
+        if (typeof getAgentWorkspace !== "function") {
+          writeJson(res, 501, { error: "agent workspace unavailable" });
+          return;
+        }
+        writeJson(res, 200, getAgentWorkspace());
+        return;
+      }
+      if (url.pathname === "/api/agent-workspace" && req.method === "POST") {
+        if (typeof writeAgentWorkspace !== "function") {
+          writeJson(res, 501, { error: "agent workspace unavailable" });
+          return;
+        }
+        const body = await readBody(req);
+        writeJson(res, 200, writeAgentWorkspace(body?.path || body?.workspacePath || ""));
         return;
       }
       if (url.pathname === "/api/mia/context" && req.method === "GET") {

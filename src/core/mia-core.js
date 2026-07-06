@@ -195,6 +195,15 @@ function resolveCoreAgentWorkspace({ runtimePaths, settingsStore } = {}) {
   return dir;
 }
 
+function coreAgentWorkspaceSnapshot({ runtimePaths, settingsStore } = {}) {
+  const paths = typeof runtimePaths === "function" ? runtimePaths() : {};
+  return {
+    path: resolveCoreAgentWorkspace({ runtimePaths, settingsStore }),
+    custom: String(settingsStore?.agentWorkspace?.()?.path || ""),
+    default: String(paths.workspace || "")
+  };
+}
+
 // Hermes engine endpoint discovery — Core's own source of truth.
 //
 // In production the daemon env does NOT set MIA_HERMES_BASE_URL /
@@ -1820,6 +1829,11 @@ function createMiaCore(options = {}) {
     tasksRoutes: () => schedulerSubsystem().tasksRoutes,
     getMiaContextSnapshot: miaContextSnapshot,
     getMiaCurrentSkills: (scope) => botExecution().miaCurrentSkills(scope),
+    getAgentWorkspace: () => coreAgentWorkspaceSnapshot({ runtimePaths, settingsStore }),
+    writeAgentWorkspace: (workspacePath) => {
+      settingsStore.writeAgentWorkspace(workspacePath);
+      return coreAgentWorkspaceSnapshot({ runtimePaths, settingsStore });
+    },
     sendChat: (payload) => botExecution().sendChat(payload || {})
   });
 

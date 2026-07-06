@@ -9,11 +9,15 @@ function read(rel) {
   return fs.readFileSync(path.join(root, rel), "utf8");
 }
 
-test("main wires the desktop bot runtime dispatcher and listens for invocation requests", () => {
+test("main wires the bot runtime dispatcher without foreground execution ownership", () => {
   const main = read("src/main.js");
   const routedSource = `${main}\n${read("src/main/cloud/cloud-events-client.js")}`;
 
-  assert.match(main, /createLocalBotResponder/);
+  assert.match(
+    main,
+    /const\s+localBotResponder\s*=\s*IS_DAEMON_PROCESS\s*\?\s*createLocalBotResponder\(/,
+    "local bot responder must be daemon-only"
+  );
   assert.match(main, /createMainBotRuntimeDispatcher/);
   assert.doesNotMatch(main, /createMainGroupConductor/);
   assert.doesNotMatch(main, /createMainBotConversationResponder/);

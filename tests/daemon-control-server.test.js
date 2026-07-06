@@ -205,6 +205,58 @@ test("daemon chat send delegates to Core and publishes chat events locally", asy
   }]);
 });
 
+test("daemon owns agent workspace read and write routes", async (t) => {
+  const port = await freePort();
+  const writes = [];
+  let customWorkspace = "";
+  const { dir, server } = setup(t, {
+    getAgentWorkspace: () => ({
+      path: customWorkspace || path.join(dir, "home", "workspace"),
+      custom: customWorkspace,
+      default: path.join(dir, "home", "workspace")
+    }),
+    writeAgentWorkspace: (workspacePath) => {
+      customWorkspace = String(workspacePath || "").trim();
+      writes.push(customWorkspace);
+      return {
+        path: customWorkspace || path.join(dir, "home", "workspace"),
+        custom: customWorkspace,
+        default: path.join(dir, "home", "workspace")
+      };
+    }
+  });
+  t.after(() => server.stop());
+  const status = await server.start({ host: "127.0.0.1", port });
+
+  const before = await fetch(`${status.baseUrl}/api/agent-workspace`, {
+    headers: { Authorization: "Bearer secret-token" }
+  });
+  assert.equal(before.status, 200);
+  assert.deepEqual(await before.json(), {
+    path: path.join(dir, "home", "workspace"),
+    custom: "",
+    default: path.join(dir, "home", "workspace")
+  });
+
+  const picked = path.join(dir, "project");
+  const update = await fetch(`${status.baseUrl}/api/agent-workspace`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer secret-token",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ path: picked })
+  });
+
+  assert.equal(update.status, 200);
+  assert.deepEqual(await update.json(), {
+    path: picked,
+    custom: picked,
+    default: path.join(dir, "home", "workspace")
+  });
+  assert.deepEqual(writes, [picked]);
+});
+
 test("daemon exposes authorized scoped Mia context snapshots for MCP tools", async (t) => {
   const port = await freePort();
   const snapshotCalls = [];

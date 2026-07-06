@@ -28,7 +28,7 @@ const {
   sendWithStatelessChatEngineAdapter
 } = require("./main/chat-engine-adapters.js");
 const { createChatEventEmitter } = require("./main/chat-events.js");
-const { createChatSendDelegator } = require("./main/chat-send-delegation.js");
+const { createChatSendDelegator, createChatStopDelegator } = require("./main/chat-send-delegation.js");
 const { createBotExecutionCore } = require("./main/bot-execution-core.js");
 const { createBotTurnHelpers } = require("./main/bot-turn-helpers.js");
 const { chatCompletionResponse, responseMessageContent } = require("./main/chat-response.js");
@@ -717,6 +717,15 @@ function agentWorkspaceDir() {
   try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best effort */ }
   return dir;
 }
+
+function agentWorkspaceSnapshot() {
+  return {
+    path: agentWorkspaceDir(),
+    custom: String(settingsStore.agentWorkspace().path || ""),
+    default: runtimePaths().workspace
+  };
+}
+
 const agentCommandProvider = createAgentCommandProvider({
   appendEngineLog,
   claudeAgentSdk,
@@ -2378,6 +2387,21 @@ async function createAppScheduledTask(input) {
   return result.task;
 }
 
+function readAgentWorkspaceFromCore() {
+  requireDaemonRuntimeAvailable();
+  return miaCoreTasksClient.call("/api/agent-workspace", { method: "GET" });
+}
+
+async function writeAgentWorkspaceToCore(workspacePath) {
+  requireDaemonRuntimeAvailable();
+  const result = await miaCoreTasksClient.call("/api/agent-workspace", {
+    method: "POST",
+    body: JSON.stringify({ path: workspacePath })
+  });
+  localAgentEngineService?.resetCache?.();
+  return result;
+}
+
 // `cloudBotSnapshotForTurn` and `botWithRuntimeConfig` now live in
 // src/main/bot-turn-helpers.js so the standalone Mia Core node process builds
 // the same turn-normalization pipeline — no fork. Behaviour is byte-identical;
@@ -2386,14 +2410,14 @@ const { botWithRuntimeConfig, cloudBotSnapshotForTurn } = createBotTurnHelpers({
   normalizeAgentEngine,
   enginePermissionStoreTarget
 });
-const agentSessionManager = createAgentSessionManager();
+const agentSessionManager = IS_DAEMON_PROCESS ? createAgentSessionManager() : null;
 
 // Single shared bot-execution core: `sendChat`/`stopChat` (and the single-flight
 // abort state) live in src/main/bot-execution-core.js so the standalone Mia Core
 // node process drives the exact same implementation — no fork. Late-bound deps
 // (localBotResponder, miaCoreTasksClient, settingsStore) are injected as accessors
 // because they are constructed after this point / reassigned at runtime.
-const botExecutionCore = createBotExecutionCore({
+const botExecutionCore = IS_DAEMON_PROCESS ? createBotExecutionCore({
   createChatEventEmitter,
   cloudBotSnapshotForTurn,
   loadBotManifest,
@@ -2420,7 +2444,7 @@ const botExecutionCore = createBotExecutionCore({
   isMemoryEnabled: miaMemoryEnabled,
   onMemoryExtracted: (result, scope) => publishRendererMemoryEvent("remember", result, scope),
   prepareAgentSessionRuntime
-});
+}) : null;
 
 const sendChat = createChatSendDelegator({
   isDaemonProcess: IS_DAEMON_PROCESS,
@@ -2431,9 +2455,14 @@ const sendChat = createChatSendDelegator({
   fallbackSendChat: (payload) => botExecutionCore.sendChat(payload)
 });
 
-function stopChat(payload = {}) {
-  return botExecutionCore.stopChat(payload);
-}
+const stopChat = createChatStopDelegator({
+  isDaemonProcess: IS_DAEMON_PROCESS,
+  requireDaemonRuntimeAvailable,
+  daemonClient: {
+    call: (...args) => miaCoreTasksClient.call(...args)
+  },
+  fallbackStopChat: (payload) => botExecutionCore.stopChat(payload)
+});
 
 function shouldOpenAgentSetupWindow() {
   if (process.env.MIA_FORCE_AGENT_SETUP_WINDOW === "1") return true;
@@ -2695,6 +2724,12 @@ miaCoreControlServer = createMiaCoreControlServer({
   tasksRoutes: () => tasksRoutes,
   getMiaContextSnapshot: miaContextSnapshot,
   getMiaCurrentSkills: miaCurrentSkills,
+  getAgentWorkspace: agentWorkspaceSnapshot,
+  writeAgentWorkspace: (workspacePath) => {
+    settingsStore.writeAgentWorkspace(workspacePath);
+    localAgentEngineService?.resetCache?.();
+    return agentWorkspaceSnapshot();
+  },
   getCloudSettings: () => settingsStore.cloudSettings(),
   normalizeCloudUrl: settingsStore.normalizeCloudUrl,
   fetchImpl: fetch,
@@ -2894,7 +2929,7 @@ cloudBridgeRuntime = createCloudBridgeClient({
   randomUUID: () => crypto.randomUUID()
 });
 for (const line of pendingCloudLogs.splice(0)) cloudBridgeRuntime.appendLog(line);
-const localBotResponder = createLocalBotResponder({
+const localBotResponder = IS_DAEMON_PROCESS ? createLocalBotResponder({
   sendChat,
   postConversationMessageAsBot: (conversationId, body) => socialApi.postConversationMessageAsBot(conversationId, body),
   listConversationMessages: (conversationId, sinceSeq, limit) => socialApi.listConversationMessages(conversationId, sinceSeq, limit),
@@ -2914,7 +2949,7 @@ const localBotResponder = createLocalBotResponder({
   agentSessionManager,
   agentSessionWorkspacePath: agentWorkspaceDir,
   prepareAgentSessionRuntime
-});
+}) : null;
 async function shouldHandleCloudConversationAi() {
   const daemonSettings = settingsStore.daemonSettings();
   return shouldHandleLocalCloudConversationAi({
@@ -3074,11 +3109,7 @@ ipcMain.handle(IpcChannel.EngineScan, async (event) => {
   });
   return { inventory, agentEngines: localAgentEngineService.cachedLocalAgentEngines() };
 });
-ipcMain.handle(IpcChannel.EngineWorkspaceGet, () => ({
-  path: agentWorkspaceDir(),
-  custom: String(settingsStore.agentWorkspace().path || ""),
-  default: runtimePaths().workspace,
-}));
+ipcMain.handle(IpcChannel.EngineWorkspaceGet, () => readAgentWorkspaceFromCore());
 ipcMain.handle(IpcChannel.EngineWorkspacePick, async (event) => {
   const target = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showOpenDialog(target, {
@@ -3087,14 +3118,16 @@ ipcMain.handle(IpcChannel.EngineWorkspacePick, async (event) => {
   });
   const picked = result.canceled ? "" : (result.filePaths?.[0] || "");
   if (picked) {
-    settingsStore.writeAgentWorkspace(picked);
-    localAgentEngineService?.resetCache?.();
+    const workspace = await writeAgentWorkspaceToCore(picked);
+    return {
+      ...workspace,
+      changed: true
+    };
   }
+  const workspace = await readAgentWorkspaceFromCore();
   return {
-    path: agentWorkspaceDir(),
-    custom: String(settingsStore.agentWorkspace().path || ""),
-    default: runtimePaths().workspace,
-    changed: Boolean(picked),
+    ...workspace,
+    changed: false
   };
 });
 ipcMain.handle(IpcChannel.EngineRepair, async (event) => {

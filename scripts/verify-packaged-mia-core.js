@@ -1,6 +1,7 @@
 "use strict";
 
 const childProcess = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const net = require("node:net");
 const os = require("node:os");
@@ -135,6 +136,65 @@ async function waitForHealth(baseUrl, { timeoutMs = DEFAULT_TIMEOUT_MS, fetchImp
   };
 }
 
+function writeVerifyDaemonToken(home) {
+  const token = crypto.randomBytes(32).toString("hex");
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, "mia-daemon.key"), `${token}\n`, { mode: 0o600 });
+  return token;
+}
+
+async function probeJson(baseUrl, route, { method = "GET", token = "", body = null, fetchImpl = fetch } = {}) {
+  const response = await fetchImpl(`${baseUrl}${route}`, {
+    method,
+    headers: {
+      Authorization: token ? `Bearer ${token}` : "",
+      "Content-Type": "application/json"
+    },
+    ...(body === null ? {} : { body: JSON.stringify(body) })
+  });
+  const text = await response.text().catch(() => "");
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+  return { route, status: response.status, ok: response.ok, text, json };
+}
+
+async function probeRequiredCoreRoutes(baseUrl, { token = "", fetchImpl = fetch } = {}) {
+  const workspace = await probeJson(baseUrl, "/api/agent-workspace", { token, fetchImpl });
+  if (!workspace.ok || !workspace.json || typeof workspace.json.path !== "string") {
+    return {
+      ok: false,
+      route: workspace.route,
+      error: `${workspace.route} did not return a workspace snapshot (HTTP ${workspace.status})`
+    };
+  }
+
+  const chatSend = await probeJson(baseUrl, "/api/chat/send", {
+    method: "POST",
+    token,
+    fetchImpl,
+    body: {}
+  });
+  if (chatSend.status === 404 || chatSend.status === 501) {
+    return {
+      ok: false,
+      route: chatSend.route,
+      error: `${chatSend.route} missing or unavailable in packaged Core (HTTP ${chatSend.status})`
+    };
+  }
+
+  return {
+    ok: true,
+    routes: {
+      agentWorkspace: workspace,
+      chatSend
+    }
+  };
+}
+
 async function verifyPackagedMiaCore({
   rootDir = root,
   appPath = "",
@@ -172,6 +232,7 @@ async function verifyPackagedMiaCore({
   }
 
   const verifyHome = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-"));
+  const verifyToken = writeVerifyDaemonToken(verifyHome);
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   let stdout = "";
@@ -203,6 +264,19 @@ async function verifyPackagedMiaCore({
         error: health.error
       };
     }
+    const routes = await probeRequiredCoreRoutes(baseUrl, { token: verifyToken, fetchImpl });
+    if (!routes.ok) {
+      await stopChild(child);
+      return {
+        ok: false,
+        appPath: resolvedAppPath,
+        baseUrl,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+        health: health.body,
+        error: routes.error
+      };
+    }
     await stopChild(child);
     return {
       ok: true,
@@ -210,7 +284,8 @@ async function verifyPackagedMiaCore({
       baseUrl,
       stdout: stdout.trim(),
       stderr: stderr.trim(),
-      health: health.body
+      health: health.body,
+      routeProbes: routes.routes
     };
   } finally {
     fs.rmSync(verifyHome, { recursive: true, force: true });

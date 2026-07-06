@@ -52,6 +52,16 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ ok: true, mode: "daemon" }));
     return;
   }
+  if (req.url === "/api/agent-workspace") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ path: process.env.MIA_HOME + "/workspace", custom: "", default: process.env.MIA_HOME + "/workspace" }));
+    return;
+  }
+  if (req.url === "/api/chat/send") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, mode: "started" }));
+    return;
+  }
   res.writeHead(404);
   res.end("not found");
 });
@@ -63,6 +73,42 @@ process.on("SIGINT", () => server.close(() => process.exit(0)));
     const result = await verifyPackagedMiaCore({ appPath, timeoutMs: 5000 });
     assert.equal(result.ok, true, result.error || result.stderr || "expected packaged core verification to pass");
     assert.match(result.baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.equal(result.routeProbes.agentWorkspace.status, 200);
+    assert.equal(result.routeProbes.chatSend.status, 200);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("verifyPackagedMiaCore fails when required Core routes are missing", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-missing-route-"));
+  try {
+    const appPath = makeFakePackagedApp(tempDir, `
+const http = require("node:http");
+const host = process.env.MIA_DAEMON_HOST || "127.0.0.1";
+const port = Number(process.env.MIA_DAEMON_PORT || "0");
+const server = http.createServer((req, res) => {
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, mode: "daemon" }));
+    return;
+  }
+  if (req.url === "/api/agent-workspace") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ path: process.env.MIA_HOME + "/workspace", custom: "", default: process.env.MIA_HOME + "/workspace" }));
+    return;
+  }
+  res.writeHead(404);
+  res.end("not found");
+});
+server.listen(port, host);
+process.on("SIGTERM", () => server.close(() => process.exit(0)));
+process.on("SIGINT", () => server.close(() => process.exit(0)));
+`);
+
+    const result = await verifyPackagedMiaCore({ appPath, timeoutMs: 5000 });
+    assert.equal(result.ok, false);
+    assert.match(result.error || "", /\/api\/chat\/send/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

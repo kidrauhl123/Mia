@@ -34,7 +34,32 @@ function createChatSendDelegator({
   };
 }
 
+function createChatStopDelegator({
+  isDaemonProcess = false,
+  requireDaemonRuntimeAvailable = () => {},
+  daemonClient = null,
+  fallbackStopChat = null
+} = {}) {
+  const isDaemon = typeof isDaemonProcess === "function" ? isDaemonProcess : () => Boolean(isDaemonProcess);
+
+  return async function delegatedStopChat(payload = {}) {
+    if (isDaemon()) {
+      if (typeof fallbackStopChat !== "function") throw new Error("fallbackStopChat is required in daemon process.");
+      return fallbackStopChat(payload || {});
+    }
+    requireDaemonRuntimeAvailable();
+    if (!daemonClient || typeof daemonClient.call !== "function") {
+      throw new Error("Mia Core daemon client is unavailable.");
+    }
+    return daemonClient.call("/api/chat/stop", {
+      method: "POST",
+      body: JSON.stringify(payload || {})
+    });
+  };
+}
+
 module.exports = {
   createChatSendDelegator,
+  createChatStopDelegator,
   daemonChatPayload
 };
