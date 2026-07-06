@@ -697,6 +697,14 @@ test("session history trigger uses a compact icon pill", () => {
   assert.doesNotMatch(html, /聊天记录/);
 });
 
+test("session history menu keeps long lists inside the rounded card", () => {
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(css, /\.session-menu\s*\{[\s\S]*?max-height:\s*min\(430px,\s*calc\(100vh - 88px\)\);/);
+  assert.match(css, /\.session-list\s*\{[\s\S]*?padding:\s*4px 0 2px;[\s\S]*?overflow-y:\s*auto;/);
+  assert.match(css, /\.session-row\s*\{[\s\S]*?min-height:\s*46px;[\s\S]*?padding:\s*5px 8px;/);
+});
+
 test("chat scrollbar overlay stops at the composer top edge", () => {
   const scrollbarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/scrollbar-overlay.js"), "utf8");
 

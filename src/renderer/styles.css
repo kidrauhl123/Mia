@@ -3891,7 +3891,7 @@ body.topbar-click-capture .topbar {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
   width: min(280px, calc(100vw - 380px));
-  max-height: 430px;
+  max-height: min(430px, calc(100vh - 88px));
   overflow: hidden;
   padding: 8px;
   border: 1px solid var(--menu-border);
@@ -3942,6 +3942,7 @@ body.topbar-click-capture .topbar {
   display: grid;
   gap: 2px;
   min-height: 0;
+  padding: 4px 0 2px;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -3952,7 +3953,7 @@ body.topbar-click-capture .topbar {
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: 32px;
+  min-height: 46px;
   padding: 5px 8px;
   border-radius: 9px;
   background: transparent;
