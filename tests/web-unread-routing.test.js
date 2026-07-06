@@ -836,7 +836,10 @@ test("src/web/app.js supports desktop-style markdown links and code copy", () =>
 
 test("src/web/app.js lets web controls update desktop-local bot runtime bindings", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
-  assert.match(source, /function runtimeKindForBotConversation\(conversation, bot\)[\s\S]*return sessionHistory\.runtimeKind\(conversation, "desktop-local"\);/);
+  assert.match(source, /function runtimeKindForBotConversation\(conversation, bot\)/);
+  assert.match(source, /const defaultRuntimeKind = sessionHistory\.runtimeKind\(conversation, "desktop-local"\);/);
+  assert.match(source, /const botRuntimeKind = sessionHistory\.runtimeKind\(bot, ""\);/);
+  assert.match(source, /return defaultRuntimeKind === "desktop-local" && botRuntimeKind/);
   assert.doesNotMatch(source, /return runtimeKind \|\| "cloud-claude-code";/);
   assert.doesNotMatch(source, /runtimeKind === "desktop-local"\)\s*return null/);
   assert.doesNotMatch(source, /Desktop controls/);
@@ -853,6 +856,23 @@ test("src/web/app.js lets web controls update desktop-local bot runtime bindings
   assert.match(source, /if \(!isExternalAgentEngine\(engine\)\) config\.permissionMode = "ask";/);
   assert.doesNotMatch(source, /permissionMode: engine === "hermes" \? "ask" : "default"/);
   assert.doesNotMatch(source, /body:\s*\{ runtimeKind, enabled: true, config \}/);
+});
+
+test("src/web/app.js resolves providerless saved desktop model bindings from modelProfileId", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const helper = source.slice(
+    source.indexOf("function runtimeConfigModelProvider"),
+    source.indexOf("function setSelectOptions", source.indexOf("function runtimeConfigModelProvider"))
+  );
+  const body = source.slice(
+    source.indexOf("const savedModel ="),
+    source.indexOf("const modelLabel =", source.indexOf("const savedModel ="))
+  );
+
+  assert.match(helper, /runtimeConfigModelProfileId/);
+  assert.match(helper, /config\.providerConnectionId/);
+  assert.match(helper, /split\(":"\)/);
+  assert.match(body, /savedRuntimeModelEntry/);
 });
 
 test("shared bot runtime control owns Web PUT runtime writes", () => {

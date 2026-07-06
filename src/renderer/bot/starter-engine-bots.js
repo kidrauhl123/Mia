@@ -12,10 +12,10 @@
   });
   const STARTER_AVATAR_IMAGES = Object.freeze({
     "cloud-claude-code": "./assets/mia-logo.png",
-    hermes: "./assets/engine-icons/hermesagent.svg",
-    openclaw: "./assets/provider-icons/openclaw-color.svg",
+    hermes: "./assets/engine-icons/hermesagent-starter.svg",
+    openclaw: "./assets/provider-icons/openclaw-starter.svg",
     codex: "./assets/engine-icons/codex-color.svg",
-    "claude-code": "./assets/engine-icons/claudecode.svg"
+    "claude-code": "./assets/engine-icons/claudecode-starter.svg"
   });
   const CLOUD_MIA_STARTER = Object.freeze({
     engineId: "cloud-claude-code",

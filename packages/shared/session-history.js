@@ -5,6 +5,17 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.miaSessionHistory = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildSessionHistory() {
+  function normalizeRuntimeKind(value, fallback = "desktop-local") {
+    const raw = String(value || fallback || "").trim();
+    if (!raw) return fallback;
+    const normalized = raw.toLowerCase().replace(/_/g, "-");
+    if (normalized === "cloud-claude-code" || normalized === "cloud-hermes" || normalized === "mia-cloud" || normalized === "miacloud") {
+      return "cloud-claude-code";
+    }
+    if (normalized === "desktop-local") return "desktop-local";
+    return raw;
+  }
+
   function conversationType(conversation, conversationId = "") {
     const id = String(conversationId || conversation?.id || "");
     return conversation?.type
@@ -19,7 +30,18 @@
   }
 
   function runtimeKind(conversation, fallback = "desktop-local") {
-    return String(conversation?.decorations?.runtimeKind || "").trim() || fallback;
+    return normalizeRuntimeKind(
+      conversation?.decorations?.runtimeKind
+      || conversation?.decorations?.runtime_kind
+      || conversation?.runtimeKind
+      || conversation?.runtime_kind
+      || conversation?.runtimeConfig?.runtimeKind
+      || conversation?.runtimeConfig?.runtime_kind
+      || conversation?.runtime_config?.runtimeKind
+      || conversation?.runtime_config?.runtime_kind
+      || "",
+      fallback
+    );
   }
 
   function conversationSortTime(conversation, messageCache) {
@@ -178,6 +200,7 @@
   return {
     conversationType,
     botId,
+    normalizeRuntimeKind,
     runtimeKind,
     conversationSortTime,
     sessionTitle,

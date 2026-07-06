@@ -2303,6 +2303,25 @@ test("desktop bot controls save through bot runtime control adapter", () => {
   assert.match(appSource, /const conversationPersona = personas\.find[\s\S]*if \(conversationPersona\) return conversationPersona;\s*return null;/);
 });
 
+test("conversation runtime controls do not fall back to an unrelated persona during non-bot chats", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const activeContext = extractFunctionSource(appSource, "activeBotRuntimeControlContext");
+  const syncControls = extractFunctionSource(appSource, "syncConversationBotRuntimeControls");
+
+  assert.match(activeContext, /const activeConversationId = window\.miaSocial\?\.getActiveConversationId\?\. \(\)/);
+  assert.match(activeContext, /if \(activeConversationId\) return null;/);
+  assert.match(syncControls, /当前聊天不支持切换模型/);
+});
+
+test("active cloud bot conversations normalize legacy cloud-hermes runtime aliases", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const activeContext = extractFunctionSource(appSource, "activeConversationBotContext");
+
+  assert.match(activeContext, /const defaultRuntimeKind = runtimeKindForBotConversation\(conversation\);/);
+  assert.match(activeContext, /const botRuntimeKind = sessionHistory\.runtimeKind\(bot,\s*""\);/);
+  assert.doesNotMatch(activeContext, /const botRuntimeKind = String\(bot\?\.runtimeKind/);
+});
+
 test("desktop-local bot runtime controls read cloud runtime bindings", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const body = appSource.slice(
@@ -2341,6 +2360,45 @@ test("desktop cloud Claude permission picker exposes only sandbox mode", () => {
   assert.match(body, /label:\s*"Sandbox"/);
   assert.doesNotMatch(body, /value:\s*"ask"/);
   assert.doesNotMatch(body, /value:\s*"readOnly"/);
+});
+
+test("desktop bot runtime model selection resolves providerless saved bindings from modelProfileId", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const start = appSource.indexOf("function runtimeControlModelProfileId");
+  const end = appSource.indexOf("function permissionEntriesForRuntimeControl", start);
+  const source = appSource.slice(start, end).trim();
+  const sandbox = {
+    state: {
+      runtime: {
+        model: {
+          provider: "openai-codex",
+          model: "gpt-5.5"
+        }
+      }
+    },
+    agentEngineForRuntimeControl: () => "hermes",
+    isExternalAgentEngineForRuntimeControl: () => false,
+    window: {
+      miaModelHelpers: {
+        catalogEntryForModel: () => ({ id: "openai-codex::gpt-5.5" })
+      }
+    }
+  };
+  vm.runInNewContext(`${source}; this.modelValueForRuntimeControl = modelValueForRuntimeControl;`, sandbox);
+
+  const selected = sandbox.modelValueForRuntimeControl(
+    { runtimeKind: "desktop-local" },
+    [
+      { id: "openai-codex::gpt-5.4", value: "openai-codex::gpt-5.4", provider: "openai-codex", model: "gpt-5.4", label: "gpt-5.4" },
+      { id: "mia-auto", value: "mia-auto", provider: "mia", model: "mia-auto", label: "Auto", modelProfileId: "mia:mia-auto" }
+    ],
+    {
+      model: "gpt-5.4",
+      modelProfileId: "openai-codex:gpt-5.4"
+    }
+  );
+
+  assert.equal(selected, "openai-codex::gpt-5.4");
 });
 
 test("desktop avatar picker supports video avatars with one trim row", () => {

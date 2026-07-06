@@ -2779,6 +2779,8 @@
   }
 
   function runtimeKindForBotConversation(conversation = {}) {
+    const botRuntimeKind = String(botRecordForConversationRuntime(conversation)?.runtimeKind || "").trim();
+    if (botRuntimeKind) return botRuntimeKind;
     const history = sessionHistoryShared();
     if (typeof history.runtimeKind === "function") {
       return history.runtimeKind(conversation, "desktop-local");

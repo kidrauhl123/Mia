@@ -169,22 +169,27 @@ function createAgentSessionRuntimePreparer(options = {}) {
 
     if (engineId === "openclaw") {
       const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "openclaw";
-      if (agentEngine !== "openclaw") return mcpRuntime;
+      if (agentEngine !== "openclaw") return {};
       const managedRuntime = resolveManagedModelRuntime(runtimeConfig, { engine: "openclaw" });
-      if (!managedRuntime) return mcpRuntime;
+      if (!managedRuntime) return {};
       if (!openClawMiaProfile || typeof openClawMiaProfile.ensure !== "function") {
         throw new Error("OpenClaw Mia profile manager is not available.");
       }
       const profile = await openClawMiaProfile.ensure(managedRuntime);
       const profileName = String(profile?.profile || "").trim();
+      const gatewayUrl = String(profile?.gatewayUrl || "").trim();
+      const gatewayTokenFile = String(profile?.gatewayTokenFile || "").trim();
       if (!profileName) {
         throw new Error("OpenClaw Mia profile manager did not return a usable profile.");
       }
-      return mergeRuntimeParts(mcpRuntime, {
+      const env = {
+        MIA_OPENCLAW_PROFILE: profileName,
+        ...(gatewayUrl ? { MIA_OPENCLAW_GATEWAY_URL: gatewayUrl } : {}),
+        ...(gatewayTokenFile ? { MIA_OPENCLAW_GATEWAY_TOKEN_FILE: gatewayTokenFile } : {})
+      };
+      return mergeRuntimeParts({}, {
         runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
-        env: {
-          MIA_OPENCLAW_PROFILE: profileName
-        }
+        env
       });
     }
 

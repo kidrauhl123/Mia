@@ -828,15 +828,17 @@ test("Core task HTTP client and task event stream use the daemon compatibility M
 test("desktop Hermes bot runtime controls select saved Core provider references", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const body = appSource.slice(
-    appSource.indexOf("function modelValueForRuntimeControl"),
+    appSource.indexOf("function runtimeControlModelProfileId"),
     appSource.indexOf("function permissionEntriesForRuntimeControl")
   );
 
+  assert.match(body, /function runtimeControlModelProvider/);
   assert.match(body, /config\.providerConnectionId/);
-  assert.match(body, /providerConnectionId/);
+  assert.match(body, /profileId\.split\(":"\)/);
+  assert.match(body, /function savedRuntimeModelEntryForControl/);
   assert.match(body, /entries\.find\(\(item\) => \(item\.providerConnectionId \|\| item\.provider\) === provider/);
   assert.ok(
-    body.indexOf("entries.find((item) => (item.providerConnectionId || item.provider) === provider") <
+    body.indexOf("savedRuntimeModelEntryForControl(entries, config)") <
       body.indexOf("window.miaModelHelpers.catalogEntryForModel(runtimeModel)"),
     "saved bot runtime model refs should be matched before falling back to the global runtime model"
   );

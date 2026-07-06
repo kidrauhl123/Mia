@@ -493,6 +493,10 @@
     return `${botKey}:${runtimeKind}`;
   }
 
+  function socialApi(api = global?.mia) {
+    return api?.social || api || null;
+  }
+
   async function getBotRuntimeBinding({
     api = global.mia,
     cache = null,
@@ -504,8 +508,9 @@
     if (!key) return null;
     const cacheKey = runtimeCacheKey(key, kind);
     if (cache?.has?.(cacheKey)) return cache.get(cacheKey);
-    if (typeof api?.social?.getBotRuntime !== "function") throw new Error("Bot 运行绑定读取接口不可用。");
-    const response = await api.social.getBotRuntime(key, kind);
+    const social = socialApi(api);
+    if (typeof social?.getBotRuntime !== "function") throw new Error("Bot 运行绑定读取接口不可用。");
+    const response = await social.getBotRuntime(key, kind);
     if (!response?.ok) throw new Error(response?.error || "读取 Bot 运行绑定失败");
     const binding = response.data?.binding || null;
     cache?.set?.(cacheKey, binding);
@@ -529,8 +534,9 @@
       config: {}
     };
     const mergedConfig = sanitizePersistedRuntimeConfig({ ...(current.config || {}), ...(patch || {}) });
-    if (typeof api?.social?.saveBotRuntime !== "function") throw new Error("Bot 运行绑定保存接口不可用。");
-    const response = await api.social.saveBotRuntime(key, {
+    const social = socialApi(api);
+    if (typeof social?.saveBotRuntime !== "function") throw new Error("Bot 运行绑定保存接口不可用。");
+    const response = await social.saveBotRuntime(key, {
       runtimeKind: kind,
       enabled: true,
       config: mergedConfig
@@ -666,6 +672,26 @@
       .filter((entry) => entry.value || entry.model === "");
   }
 
+  function modelEntryIdentity(entry = {}) {
+    const provider = String(entry?.providerConnectionId || entry?.provider || "").trim();
+    const model = String(entry?.model || entry?.value || entry?.id || "").trim();
+    return provider || model ? `${provider}:${model}` : "";
+  }
+
+  function mergeModelEntries(primary = [], secondary = []) {
+    const merged = [];
+    const seen = new Set();
+    for (const entry of [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])]) {
+      const normalized = normalizeModelEntry(entry);
+      if (!normalized.value) continue;
+      const identity = modelEntryIdentity(normalized);
+      if (!identity || seen.has(identity)) continue;
+      seen.add(identity);
+      merged.push(normalized);
+    }
+    return merged;
+  }
+
   function runtimeProfilePatch(entry = {}, fallbackValue = "") {
     const provider = String(
       entry?.providerConnectionId
@@ -687,11 +713,13 @@
   function desktopLocalRuntimeConfig({
     state = {},
     bot = {},
+    binding = null,
     engineContracts = global?.miaEngineContracts,
     modelSettings = global?.miaModelSettings,
     engineOptions = global?.miaEngineOptions
   } = {}) {
     const runtime = state.runtime || {};
+    const bindingConfig = sanitizePersistedRuntimeConfig(binding?.config || {});
     const engine = normalizeAgentEngine(bot?.agentEngine || bot?.agent_engine || "hermes", engineContracts);
     const engineConfig = bot?.engineConfig || bot?.engine_config || {};
     const deviceId = String(
@@ -726,12 +754,28 @@
       config.modelEntries = modelEntries;
       return config;
     }
-    const modelEntries = localHermesModelEntries(runtime, modelSettings);
-    const modelPatch = patchForRuntimeField("model", String(runtime.model?.model || "").trim(), modelEntries);
+    const modelEntries = mergeModelEntries(
+      localHermesModelEntries(runtime, modelSettings),
+      bindingConfig.modelEntries || []
+    );
+    const savedModel = String(bindingConfig.model || "").trim();
+    const savedProvider = String(
+      bindingConfig.providerConnectionId
+      || bindingConfig.provider_connection_id
+      || bindingConfig.provider
+      || bindingConfig.modelProvider
+      || bindingConfig.model_provider
+      || ""
+    ).trim();
+    const savedProfileId = String(bindingConfig.modelProfileId || bindingConfig.model_profile_id || "").trim();
+    const hasSavedSelection = Boolean(savedModel || savedProvider || savedProfileId);
+    const modelPatch = hasSavedSelection
+      ? runtimeProfilePatch(bindingConfig, savedModel)
+      : patchForRuntimeField("model", String(runtime.model?.model || "").trim(), modelEntries);
     Object.assign(config, modelPatch);
     if (!modelPatch.providerConnectionId) Object.assign(config, runtimeProfilePatch(runtime.model, String(runtime.model?.model || "").trim()));
-    config.effortLevel = String(runtime.effort?.level || "medium").trim();
-    config.permissionMode = String(runtime.permissions?.mode || "ask").trim();
+    config.effortLevel = String(bindingConfig.effortLevel || runtime.effort?.level || "medium").trim();
+    config.permissionMode = String(bindingConfig.permissionMode || runtime.permissions?.mode || "ask").trim();
     config.modelEntries = modelEntries;
     return config;
   }
@@ -746,15 +790,23 @@
     activateRuntime = false
   } = {}) {
     const botKey = String(bot?.key || bot?.id || "").trim();
-    if (!botKey || typeof api?.saveBotRuntime !== "function") return null;
+    const social = socialApi(api);
+    if (!botKey || typeof social?.saveBotRuntime !== "function") return null;
+    const binding = typeof social?.getBotRuntime === "function"
+      ? await getBotRuntimeBinding({
+        api: social,
+        botKey,
+        runtimeKind: "desktop-local"
+      })
+      : null;
     const body = {
       runtimeKind: "desktop-local",
       activate: activateRuntime,
       preserveEnabled: activateRuntime === false,
       enabled: true,
-      config: desktopLocalRuntimeConfig({ state, bot, engineContracts, modelSettings, engineOptions })
+      config: desktopLocalRuntimeConfig({ state, bot, binding, engineContracts, modelSettings, engineOptions })
     };
-    const response = await api.saveBotRuntime(botKey, body);
+    const response = await social.saveBotRuntime(botKey, body);
     if (response && response.ok === false) throw new Error(response.error || "保存桌面运行配置失败");
     return response?.data?.binding || response?.binding || { botId: botKey, ...body };
   }

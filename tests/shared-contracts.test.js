@@ -220,7 +220,13 @@ test("bot runtime control contract saves model, effort, and permission patches",
     runtimeKind: "cloud-claude-code",
     field: "model",
     value: "mia-auto",
-    modelEntries: [{ value: "mia-auto", model: "gpt-5.3", label: "GPT" }]
+    modelEntries: [{
+      value: "mia-auto",
+      model: "gpt-5.3",
+      label: "GPT",
+      provider: "mia",
+      modelProfileId: "mia:gpt-5.3"
+    }]
   });
   await contract.saveBotRuntimeControl({
     api,
@@ -242,11 +248,29 @@ test("bot runtime control contract saves model, effort, and permission patches",
   const putCalls = calls.filter((call) => call.options.method === "PUT");
   assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-claude-code");
   assert.equal(putCalls.length, 3);
-  assert.deepEqual(putCalls[0].options.body.config, { model: "gpt-5.3", effortLevel: "low" });
-  assert.deepEqual(putCalls[1].options.body.config, { model: "gpt-5.3", effortLevel: "high" });
-  assert.deepEqual(putCalls[2].options.body.config, { model: "gpt-5.3", effortLevel: "high", permissionMode: "auto" });
+  assert.deepEqual(putCalls[0].options.body.config, {
+    model: "gpt-5.3",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:gpt-5.3",
+    effortLevel: "low"
+  });
+  assert.deepEqual(putCalls[1].options.body.config, {
+    model: "gpt-5.3",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:gpt-5.3",
+    effortLevel: "high"
+  });
+  assert.deepEqual(putCalls[2].options.body.config, {
+    model: "gpt-5.3",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:gpt-5.3",
+    effortLevel: "high",
+    permissionMode: "auto"
+  });
   assert.deepEqual(cache.get("mia:cloud-claude-code")?.config, {
     model: "gpt-5.3",
+    providerConnectionId: "mia",
+    modelProfileId: "mia:gpt-5.3",
     effortLevel: "high",
     permissionMode: "auto"
   });

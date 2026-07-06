@@ -2075,8 +2075,11 @@ function botAvatarFor(conversation, botKey) {
 }
 
 function runtimeKindForBotConversation(conversation, bot) {
-  void bot;
-  return sessionHistory.runtimeKind(conversation, "desktop-local");
+  const defaultRuntimeKind = sessionHistory.runtimeKind(conversation, "desktop-local");
+  const botRuntimeKind = sessionHistory.runtimeKind(bot, "");
+  return defaultRuntimeKind === "desktop-local" && botRuntimeKind
+    ? botRuntimeKind
+    : defaultRuntimeKind;
 }
 
 function engineForRuntimeKind(runtimeKind) {
@@ -2231,6 +2234,35 @@ function selectEntriesForPermission(engine, runtimeKind) {
   return externalPermissionOptions(engine);
 }
 
+function runtimeConfigModelProfileId(config = {}) {
+  return String(config.modelProfileId || config.model_profile_id || config.profileId || config.profile_id || "").trim();
+}
+
+function runtimeConfigModelProvider(config = {}) {
+  const explicit = String(config.providerConnectionId || config.provider_connection_id || config.provider || "").trim();
+  if (explicit) return explicit;
+  const [provider = ""] = runtimeConfigModelProfileId(config).split(":");
+  return provider.trim();
+}
+
+function runtimeConfigModelName(config = {}) {
+  const model = String(config.model || "").trim();
+  if (model) return model;
+  const profileId = runtimeConfigModelProfileId(config);
+  const separator = profileId.indexOf(":");
+  return separator >= 0 ? profileId.slice(separator + 1).trim() : "";
+}
+
+function savedRuntimeModelEntry(entries = [], config = {}) {
+  const provider = runtimeConfigModelProvider(config);
+  const model = runtimeConfigModelName(config);
+  if (!provider || !model) return null;
+  return (Array.isArray(entries) ? entries : []).find((entry) => (
+    String(entry?.provider || "").trim() === provider
+      && [entry?.model, entry?.value, entry?.id].some((item) => String(item || "").trim() === model)
+  )) || null;
+}
+
 function setSelectOptions(select, entries, selectedValue, fallbackLabel) {
   if (!select) return "";
   const normalized = (Array.isArray(entries) ? entries : [])
@@ -2270,11 +2302,13 @@ function renderComposerControls(conversation = null) {
 
   const cloudModelEntries = selectEntriesForModel(engine, runtimeKind, config);
   const isDesktopExternal = isDesktopExternalRuntime(engine, runtimeKind);
-  const modelValue = config.provider === "mia" && config.model
-    ? (cloudModelEntries.find((entry) => entry.provider === "mia" && entry.model === config.model)?.value || config.model)
-    : (config.model || (isDesktopExternal ? "default" : cloudModelEntries[0]?.value || "mia-auto"));
+  const savedModel = savedRuntimeModelEntry(cloudModelEntries, config);
+  const modelValue = savedModel?.value
+    || runtimeConfigModelName(config)
+    || (isDesktopExternal ? "default" : cloudModelEntries[0]?.value || "mia-auto");
   const modelLabel = setSelectOptions(els.quickModelSelect, cloudModelEntries, modelValue, config.model || "Default");
   const selectedModelEntry = cloudModelEntries.find((entry) => String(entry.value) === String(els.quickModelSelect?.value || modelValue))
+    || savedModel
     || cloudModelEntries.find((entry) => String(entry.model) === String(config.model || ""))
     || {};
   setModelAvatar(engine, selectedModelEntry, config);

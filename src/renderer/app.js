@@ -4386,11 +4386,16 @@ function activeConversationBotContext() {
   if (conversationTypeForComposer(conversation, conversationId) !== "bot") return null;
   const botKey = botKeyForConversation(conversation);
   if (!botKey) return null;
+  const defaultRuntimeKind = runtimeKindForBotConversation(conversation);
+  const bot = allOwnedBotsForIdentity().find((item) => String(item?.key || item?.id || "") === botKey) || {};
+  const botRuntimeKind = sessionHistory.runtimeKind(bot, "");
   return {
     conversation,
     conversationId,
     botKey,
-    runtimeKind: runtimeKindForBotConversation(conversation)
+    runtimeKind: defaultRuntimeKind === "desktop-local" && botRuntimeKind
+      ? botRuntimeKind
+      : defaultRuntimeKind
   };
 }
 
@@ -4451,6 +4456,8 @@ function activeBotRuntimeControlContext() {
       }
     };
   }
+  const activeConversationId = window.miaSocial?.getActiveConversationId?. ();
+  if (activeConversationId) return null;
   const bot = activePersona();
   const botKey = String(bot?.key || bot?.id || "").trim();
   if (!botKey) return null;
@@ -4458,7 +4465,7 @@ function activeBotRuntimeControlContext() {
     conversation: null,
     conversationId: "",
     botKey,
-    runtimeKind: bot.runtimeKind || bot.runtime_kind || "desktop-local",
+    runtimeKind: sessionHistory.runtimeKind(bot, "desktop-local"),
     bot: { ...bot, key: botKey }
   };
 }
@@ -4790,23 +4797,47 @@ function runtimeConfigForControl(context = activeBotRuntimeControlContext()) {
   };
 }
 
+function runtimeControlModelProfileId(config = {}) {
+  return String(config.modelProfileId || config.model_profile_id || config.profileId || config.profile_id || "").trim();
+}
+
+function runtimeControlModelProvider(config = {}) {
+  const explicit = String(config.providerConnectionId || config.provider_connection_id || config.provider || "").trim();
+  if (explicit) return explicit;
+  const profileId = runtimeControlModelProfileId(config);
+  const [provider = ""] = profileId.split(":");
+  return provider.trim();
+}
+
+function runtimeControlModelName(config = {}) {
+  const model = String(config.model || "").trim();
+  if (model) return model;
+  const profileId = runtimeControlModelProfileId(config);
+  const separator = profileId.indexOf(":");
+  return separator >= 0 ? profileId.slice(separator + 1).trim() : "";
+}
+
+function savedRuntimeModelEntryForControl(entries = [], config = {}) {
+  const provider = runtimeControlModelProvider(config);
+  const model = runtimeControlModelName(config);
+  if (provider === "mia" && model) {
+    return entries.find((item) => (item.providerConnectionId || item.provider) === "mia" && (item.model === model || item.id === model || item.value === model)) || null;
+  }
+  if (!provider || !model) return null;
+  return entries.find((item) => (item.providerConnectionId || item.provider) === provider && (item.model === model || item.id === model || item.value === model)) || null;
+}
+
 function modelValueForRuntimeControl(context, entries = [], config = {}) {
   const engine = agentEngineForRuntimeControl(context);
-  const provider = String(config.providerConnectionId || config.provider_connection_id || config.provider || "").trim();
-  const model = String(config.model || "").trim();
-  if (provider === "mia" && model) {
-    const entry = entries.find((item) => (item.providerConnectionId || item.provider) === "mia" && (item.model === model || item.id === model || item.value === model));
-    return entry?.id || entry?.value || model;
-  }
+  const model = runtimeControlModelName(config);
+  const savedEntry = savedRuntimeModelEntryForControl(entries, config);
+  if (savedEntry) return savedEntry.id || savedEntry.value || model;
   if (context?.runtimeKind === "cloud-claude-code") return model || entries[0]?.id || entries[0]?.value || "mia-auto";
   if (isExternalAgentEngineForRuntimeControl(engine)) {
     if (!model) return "default";
     const entry = entries.find((item) => item.model === model || item.id === model || item.value === model);
     return entry?.id || entry?.value || model;
   }
-  const savedEntry = provider && model
-    ? entries.find((item) => (item.providerConnectionId || item.provider) === provider && item.model === model)
-    : null;
   const runtimeModel = state.runtime?.model || {};
   return savedEntry?.id
     || savedEntry?.value
@@ -4833,7 +4864,13 @@ function setComposerModelAvatar(entry = {}, engine = "hermes") {
 
 function syncConversationBotRuntimeControls() {
   const context = activeConversationBotContext();
-  if (!context) return false;
+  if (!context) {
+    if (window.miaSocial?.getActiveConversationId?.()) {
+      setRuntimeControlDisabled(true);
+      setText(els.modelSwitchStatus, "当前聊天不支持切换模型");
+    }
+    return false;
+  }
   const controlContext = activeBotRuntimeControlContext();
   const config = runtimeConfigForControl(controlContext);
   const engine = agentEngineForRuntimeControl(controlContext);
@@ -4842,6 +4879,7 @@ function syncConversationBotRuntimeControls() {
   const modelLabel = setComposerSelectOptions(els.quickModelSelect, modelEntries, selectedModelValue);
   setText(els.quickModelLabel, modelLabel || "Default");
   const selectedModelEntry = modelEntries.find((entry) => String(entry.id || entry.value || "") === String(els.quickModelSelect?.value || selectedModelValue))
+    || savedRuntimeModelEntryForControl(modelEntries, config)
     || modelEntries.find((entry) => String(entry.model || "") === String(config.model || ""))
     || modelEntries[0]
     || {};
@@ -5040,9 +5078,10 @@ async function createNewSessionForActive() {
 }
 
 async function createNewCloudSessionForActive(conversation) {
+  const runtimeKindFallback = activeConversationBotContext()?.runtimeKind || runtimeKindForBotConversation(conversation);
   const payload = sessionHistory.createBotSessionPayload(conversation, cryptoRandomId(), {
     title: "新对话",
-    runtimeKindFallback: "desktop-local"
+    runtimeKindFallback
   });
   const botId = payload.botId;
   const ownerUserId = String(state.runtime?.cloud?.user?.id || state.runtime?.cloud?.user?.userId || "").trim();

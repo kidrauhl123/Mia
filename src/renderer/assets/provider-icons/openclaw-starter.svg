@@ -1,0 +1,5 @@
+<svg viewBox="0 0 24 24" width="1em" height="1em" xmlns="http://www.w3.org/2000/svg">
+  <title>OpenClaw Starter</title>
+  <circle cx="12" cy="12" r="10.5" fill="#ffffff"></circle>
+  <image href="./openclaw-color.svg" x="3" y="3" width="18" height="18" preserveAspectRatio="xMidYMid meet"></image>
+</svg>

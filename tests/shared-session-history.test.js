@@ -75,6 +75,28 @@ test("session-history derives title and new-session payload consistently", () =>
   });
 });
 
+test("session-history resolves runtime kind from explicit root or runtime config before desktop-local fallback", () => {
+  assert.equal(sessionHistory.runtimeKind({
+    id: "botc_root",
+    type: "bot",
+    runtimeKind: "cloud-claude-code",
+    decorations: { botId: "bot_root" }
+  }, "desktop-local"), "cloud-claude-code");
+
+  assert.equal(sessionHistory.runtimeKind({
+    id: "botc_cfg",
+    type: "bot",
+    runtime_config: { runtimeKind: "cloud-claude-code" },
+    decorations: { botId: "bot_cfg" }
+  }, "desktop-local"), "cloud-claude-code");
+
+  assert.equal(sessionHistory.runtimeKind({
+    id: "botc_alias",
+    type: "bot",
+    decorations: { botId: "bot_alias", runtimeKind: "cloud-hermes" }
+  }, "desktop-local"), "cloud-claude-code");
+});
+
 test("session-history treats default and bot-name titles as untitled bot sessions", () => {
   assert.equal(sessionHistory.isUntitledBotConversation({
     id: "botc_s1",

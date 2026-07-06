@@ -283,6 +283,57 @@ test("prepares OpenClaw Mia profile for Mia managed model runtime", async () => 
   });
 });
 
+test("preparing OpenClaw managed runtime strips unsupported per-session MCP servers", async () => {
+  const preparer = createAgentSessionRuntimePreparer({
+    resolveManagedModelRuntime: () => ({
+      provider: "mia",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto",
+      baseUrl: "https://mia.example/api/me/model-proxy/v1",
+      apiKey: "cloud-token",
+      managedByMia: true
+    }),
+    getUserMcpServers: () => [{
+      name: "playwright",
+      command: "npx",
+      args: ["-y", "@playwright/mcp@latest"]
+    }],
+    getMiaAppMcpSpec: () => ({
+      type: "stdio",
+      command: process.execPath,
+      args: ["/tmp/mia-app-mcp-server.js"],
+      env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
+    }),
+    openClawMiaProfile: {
+      ensure: async () => ({
+        profile: "mia",
+        gatewayUrl: "ws://127.0.0.1:18790",
+        gatewayTokenFile: "/tmp/openclaw-token"
+      })
+    }
+  });
+
+  const runtime = await preparer.prepare({
+    engineId: "openclaw",
+    runtimeConfig: {
+      agentEngine: "openclaw",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto"
+    },
+    conversationId: "botc_claw",
+    botId: "claw"
+  });
+
+  assert.equal(runtime.runtimeKey, "mia:mia-auto");
+  assert.equal(runtime.env.MIA_OPENCLAW_PROFILE, "mia");
+  assert.equal(runtime.env.MIA_OPENCLAW_GATEWAY_URL, "ws://127.0.0.1:18790");
+  assert.equal(runtime.env.MIA_OPENCLAW_GATEWAY_TOKEN_FILE, "/tmp/openclaw-token");
+  assert.equal(runtime.mcpServers, undefined);
+  assert.equal(runtime.mcpFingerprint, undefined);
+});
+
 test("does not touch OpenClaw profile for native OpenClaw runtime", async () => {
   const preparer = createAgentSessionRuntimePreparer({
     resolveManagedModelRuntime: () => null,

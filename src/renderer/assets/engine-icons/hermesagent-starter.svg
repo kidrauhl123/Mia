@@ -1,0 +1,5 @@
+<svg viewBox="0 0 24 24" width="1em" height="1em" xmlns="http://www.w3.org/2000/svg">
+  <title>Hermes Agent Starter</title>
+  <circle cx="12" cy="12" r="10.5" fill="#ffffff"></circle>
+  <image href="./hermesagent.svg" x="3.5" y="3.5" width="17" height="17" preserveAspectRatio="xMidYMid meet"></image>
+</svg>

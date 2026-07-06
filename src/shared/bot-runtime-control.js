@@ -81,6 +81,16 @@
     return value;
   }
 
+  function providerConnectionIdFromEntry(entry = {}) {
+    return String(entry.providerConnectionId || entry.provider_connection_id || entry.provider || "").trim();
+  }
+
+  function modelProfileIdFromEntry(entry = {}, provider = "", model = "") {
+    const explicit = String(entry.modelProfileId || entry.model_profile_id || entry.profileId || entry.profile_id || "").trim();
+    if (explicit) return explicit;
+    return provider && model ? `${provider}:${model}` : "";
+  }
+
   function normalizedField(field = "") {
     if (field === "effort") return "effortLevel";
     if (field === "permission") return "permissionMode";
@@ -91,7 +101,14 @@
     const normalized = normalizedField(field);
     if (normalized === "model") {
       const entry = modelEntryForValue(modelEntries, value);
-      return { model: selectedModelFromEntry(entry, value) };
+      const model = selectedModelFromEntry(entry, value);
+      const providerConnectionId = providerConnectionIdFromEntry(entry);
+      const modelProfileId = modelProfileIdFromEntry(entry, providerConnectionId, model);
+      return {
+        model,
+        ...(providerConnectionId ? { providerConnectionId } : {}),
+        ...(modelProfileId ? { modelProfileId } : {})
+      };
     }
     if (normalized === "effortLevel" || normalized === "permissionMode") return { [normalized]: value };
     return {};

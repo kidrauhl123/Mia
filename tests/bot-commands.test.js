@@ -945,6 +945,10 @@ test("saveBotRuntimeConfig merges patch with current cloud runtime binding", asy
 test("syncDesktopLocalBotRuntimeBinding stores hermes config from current device settings", async () => {
   const calls = [];
   const api = {
+    async getBotRuntime(botId, runtimeKind) {
+      calls.push(["get", botId, runtimeKind]);
+      return { ok: true, data: { binding: null } };
+    },
     async saveBotRuntime(botId, body) {
       calls.push(["runtime", botId, body]);
       return { ok: true, data: { binding: { botId, ...body } } };
@@ -970,10 +974,9 @@ test("syncDesktopLocalBotRuntimeBinding stores hermes config from current device
   });
 
   assert.equal(result.botId, "alice");
-  assert.deepEqual(calls, [[
-    "runtime",
-    "alice",
-    {
+  assert.deepEqual(calls, [
+    ["get", "alice", "desktop-local"],
+    ["runtime", "alice", {
       runtimeKind: "desktop-local",
       activate: false,
       preserveEnabled: true,
@@ -989,11 +992,121 @@ test("syncDesktopLocalBotRuntimeBinding stores hermes config from current device
           { value: "deepseek-chat", label: "DeepSeek", model: "deepseek-chat", provider: "deepseek", providerLabel: "DeepSeek" }
         ]
       }
+    }]
+  ]);
+  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "baseUrl"), false);
+  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "apiMode"), false);
+});
+
+test("syncDesktopLocalBotRuntimeBinding preserves saved Hermes runtime selection over device defaults", async () => {
+  const calls = [];
+  const api = {
+    async getBotRuntime(botId, runtimeKind) {
+      calls.push(["get", botId, runtimeKind]);
+      return {
+        ok: true,
+        data: {
+          binding: {
+            botId,
+            runtimeKind,
+            enabled: true,
+            config: {
+              agentEngine: "hermes",
+              model: "mia-auto",
+              providerConnectionId: "mia",
+              modelProfileId: "mia:mia-auto",
+              effortLevel: "low",
+              permissionMode: "ask",
+              modelEntries: [{
+                value: "mia-auto",
+                label: "Auto",
+                model: "mia-auto",
+                provider: "mia",
+                providerLabel: "Mia",
+                authType: "mia_account",
+                modelProfileId: "mia:mia-auto"
+              }]
+            }
+          }
+        }
+      };
+    },
+    async saveBotRuntime(botId, body) {
+      calls.push(["runtime", botId, body]);
+      return { ok: true, data: { binding: { botId, ...body } } };
     }
-  ]]);
-  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "apiKeyEnv"), false);
-  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "baseUrl"), false);
-  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "apiMode"), false);
+  };
+
+  await commands.syncDesktopLocalBotRuntimeBinding({
+    api,
+    state: {
+      runtime: {
+        model: { provider: "openai-codex", model: "gpt-5.5" },
+        effort: { level: "high" },
+        permissions: { mode: "yolo" }
+      }
+    },
+    bot: { key: "alice", name: "Alice" },
+    modelSettings: {
+      connectedModelEntries: () => [
+        {
+          id: "mia-auto",
+          model: "mia-auto",
+          label: "Auto",
+          provider: "mia",
+          providerLabel: "Mia",
+          authType: "mia_account",
+          modelProfileId: "mia:mia-auto"
+        },
+        {
+          id: "gpt-5.5",
+          model: "gpt-5.5",
+          label: "GPT-5.5",
+          provider: "openai-codex",
+          providerLabel: "Codex",
+          modelProfileId: "openai-codex:gpt-5.5"
+        }
+      ]
+    }
+  });
+
+  assert.deepEqual(calls, [
+    ["get", "alice", "desktop-local"],
+    ["runtime", "alice", {
+      runtimeKind: "desktop-local",
+      activate: false,
+      preserveEnabled: true,
+      enabled: true,
+      config: {
+        agentEngine: "hermes",
+        model: "mia-auto",
+        providerConnectionId: "mia",
+        modelProfileId: "mia:mia-auto",
+        effortLevel: "low",
+        permissionMode: "ask",
+        modelEntries: [
+          {
+            value: "mia-auto",
+            label: "Auto",
+            model: "mia-auto",
+            provider: "mia",
+            providerLabel: "Mia",
+            authType: "mia_account",
+            modelProfileId: "mia:mia-auto"
+          },
+          {
+            value: "gpt-5.5",
+            label: "GPT-5.5",
+            model: "gpt-5.5",
+            provider: "openai-codex",
+            providerLabel: "Codex",
+            modelProfileId: "openai-codex:gpt-5.5"
+          }
+        ]
+      }
+    }]
+  ]);
 });
 
 test("syncDesktopLocalBotRuntimeBinding includes Mia model ownership metadata", async () => {
