@@ -4197,15 +4197,63 @@ function cloudSessionConversationsForConversation(conversation) {
   });
 }
 
-async function renameCloudSessionConversation(conversation) {
-  const title = window.prompt("重命名这个会话", cloudSessionTitle(conversation));
-  if (!title || !title.trim()) return;
-  const response = await window.mia.social.updateConversation(conversation.id, { name: title.trim() });
-  if (!response?.ok) {
-    alert(`重命名失败：${response?.error || "未知错误"}`);
+function resetCloudSessionRename() {
+  state.sessionRename = { conversationId: "", draft: "", saving: false, error: "" };
+}
+
+function focusCloudSessionRenameInput() {
+  requestAnimationFrame(() => {
+    const input = els.sessionList?.querySelector?.(".session-row-rename-input");
+    input?.focus?.();
+    input?.select?.();
+  });
+}
+
+function startCloudSessionRename(conversation) {
+  if (!conversation?.id) return;
+  state.sessionRename = {
+    conversationId: conversation.id,
+    draft: cloudSessionTitle(conversation),
+    saving: false,
+    error: ""
+  };
+  renderSessionMenu();
+  focusCloudSessionRenameInput();
+}
+
+function cancelCloudSessionRename() {
+  resetCloudSessionRename();
+  renderSessionMenu();
+}
+
+async function commitCloudSessionRename(conversation) {
+  const rename = state.sessionRename || {};
+  if (!conversation?.id || rename.conversationId !== conversation.id) return;
+  const title = String(rename.draft || "").trim();
+  if (!title) {
+    state.sessionRename = { ...rename, saving: false, error: "名称不能为空" };
+    renderSessionMenu();
+    focusCloudSessionRenameInput();
     return;
   }
-  window.miaSocial?.upsertBotConversation?.(response.data?.conversation || response.conversation || { ...conversation, name: title.trim() });
+  if (title === cloudSessionTitle(conversation).trim()) {
+    cancelCloudSessionRename();
+    return;
+  }
+
+  state.sessionRename = { ...rename, draft: title, saving: true, error: "" };
+  renderSessionMenu();
+  try {
+    const response = await window.mia.social.updateConversation(conversation.id, { name: title });
+    if (!response?.ok) throw new Error(response?.error || "未知错误");
+    resetCloudSessionRename();
+    window.miaSocial?.upsertBotConversation?.(response.data?.conversation || response.conversation || { ...conversation, name: title });
+    renderSessionMenu();
+  } catch (error) {
+    state.sessionRename = { ...rename, draft: title, saving: false, error: `重命名失败：${error?.message || error}` };
+    renderSessionMenu();
+    focusCloudSessionRenameInput();
+  }
 }
 
 async function selectCloudSessionConversation(conversation, { skipMessageLoad = false } = {}) {
@@ -4240,32 +4288,72 @@ function renderCloudConversationSessionMenu(activeConversation) {
   updateCurrentSessionTitle(cloudSessionTitle(activeConversation));
   els.sessionList.innerHTML = "";
   for (const conversation of conversations) {
+    const rename = state.sessionRename || {};
+    const isRenaming = rename.conversationId === conversation.id;
+    const savingRename = Boolean(isRenaming && rename.saving);
+    const escapedConversationId = window.miaMarkdown.escapeHtml(conversation.id);
     const row = document.createElement("div");
-    row.className = `session-row${conversation.id === activeId ? " active" : ""}`;
+    row.className = `session-row${conversation.id === activeId ? " active" : ""}${isRenaming ? " editing" : ""}`;
     row.setAttribute("role", "option");
     row.setAttribute("tabindex", "0");
     row.dataset.cloudSessionSelect = conversation.id;
-    row.innerHTML = `
-      <span>
-        <strong>${window.miaMarkdown.escapeHtml(cloudSessionTitle(conversation))}</strong>
-        <small>${window.miaMarkdown.escapeHtml(new Date(cloudConversationSortTime(conversation) || Date.now()).toLocaleString())}</small>
-      </span>
-      <button class="session-row-edit" type="button" title="重命名" aria-label="重命名会话" data-cloud-session-edit="${window.miaMarkdown.escapeHtml(conversation.id)}">${window.miaMarkdown.iconParkIcon("edit", "session-row-edit-icon")}</button>
-    `;
+    if (isRenaming) {
+      row.innerHTML = `
+        <form class="session-row-rename" data-cloud-session-rename="${escapedConversationId}">
+          <input class="session-row-rename-input" data-cloud-session-rename-input value="${window.miaMarkdown.escapeHtml(rename.draft || "")}" aria-label="会话名称" ${savingRename ? "disabled" : ""}>
+          <button class="session-row-rename-save" type="submit" data-cloud-session-rename-save ${savingRename ? "disabled" : ""}>确定</button>
+          <button class="session-row-rename-cancel" type="button" data-cloud-session-rename-cancel ${savingRename ? "disabled" : ""}>取消</button>
+          ${rename.error ? `<small class="session-row-rename-error">${window.miaMarkdown.escapeHtml(rename.error)}</small>` : ""}
+        </form>
+      `;
+    } else {
+      row.innerHTML = `
+        <span>
+          <strong>${window.miaMarkdown.escapeHtml(cloudSessionTitle(conversation))}</strong>
+          <small>${window.miaMarkdown.escapeHtml(new Date(cloudConversationSortTime(conversation) || Date.now()).toLocaleString())}</small>
+        </span>
+        <button class="session-row-edit" type="button" title="重命名" aria-label="重命名会话" data-cloud-session-edit="${escapedConversationId}">${window.miaMarkdown.iconParkIcon("edit", "session-row-edit-icon")}</button>
+      `;
+    }
     row.addEventListener("click", async (event) => {
+      if (event.target.closest("[data-cloud-session-rename-cancel]")) {
+        event.preventDefault();
+        event.stopPropagation();
+        cancelCloudSessionRename();
+        return;
+      }
+      if (event.target.closest("[data-cloud-session-rename]")) return;
       const editTarget = event.target.closest("[data-cloud-session-edit]");
       if (editTarget) {
         event.preventDefault();
         event.stopPropagation();
-        await renameCloudSessionConversation(conversation);
+        startCloudSessionRename(conversation);
+        return;
       } else {
         await selectCloudSessionConversation(conversation);
       }
       render();
     });
+    row.addEventListener("input", (event) => {
+      if (!event.target.closest("[data-cloud-session-rename-input]")) return;
+      state.sessionRename = { ...state.sessionRename, draft: event.target.value, error: "" };
+    });
+    row.addEventListener("submit", async (event) => {
+      if (!event.target.closest("[data-cloud-session-rename]")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      await commitCloudSessionRename(conversation);
+    });
     row.addEventListener("keydown", async (event) => {
+      if (event.target.closest("[data-cloud-session-rename-input]")) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          cancelCloudSessionRename();
+        }
+        return;
+      }
       if (event.key !== "Enter" && event.key !== " ") return;
-      if (event.target.closest("[data-cloud-session-edit]")) return;
+      if (event.target.closest("[data-cloud-session-edit], [data-cloud-session-rename]")) return;
       event.preventDefault();
       await selectCloudSessionConversation(conversation);
       render();

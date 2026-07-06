@@ -3954,6 +3954,10 @@ body.topbar-click-capture .topbar {
   background: var(--hover-background);
 }
 
+.session-row.editing {
+  background: var(--hover-background);
+}
+
 .session-row.active {
   background: var(--list-active);
 }
@@ -4007,6 +4011,54 @@ body.topbar-click-capture .topbar {
 .session-row-edit:hover {
   background: var(--hover-background);
   color: var(--accent);
+}
+
+.session-row-rename {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.session-row-rename-input {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  outline: none;
+  background: var(--field);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.session-row-rename-save,
+.session-row-rename-cancel {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.session-row-rename-save {
+  background: var(--list-active);
+  color: var(--list-active-text);
+}
+
+.session-row-rename-save:hover,
+.session-row-rename-cancel:hover {
+  background: var(--hover-background);
+  color: var(--text);
+}
+
+.session-row-rename-error {
+  grid-column: 1 / -1;
+  color: var(--danger);
+  font-size: 11px;
 }
 
 .contacts-workspace {

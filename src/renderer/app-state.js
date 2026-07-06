@@ -38,6 +38,7 @@
       agentSetupInstallProgressTimer: 0,
       forceScrollToBottom: false,
       sessionMenuOpen: false,
+      sessionRename: { conversationId: "", draft: "", saving: false, error: "" },
       chatConversationMenuOpen: false,
       activeView: "chat",
       navLayout: readLocal(storage, "mia.navLayout.v1", "rail") === "sidebar-bottom" ? "sidebar-bottom" : "rail",

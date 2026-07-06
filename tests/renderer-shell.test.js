@@ -729,13 +729,21 @@ test("session history rename action is a real button separate from row selection
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
+  assert.doesNotMatch(appSource, /window\.prompt\("重命名这个会话"/);
+  assert.match(appSource, /function startCloudSessionRename\(conversation\)/);
+  assert.match(appSource, /function commitCloudSessionRename\(conversation\)/);
   assert.match(appSource, /const row = document\.createElement\("div"\);/);
   assert.match(appSource, /row\.setAttribute\("role",\s*"option"\);/);
   assert.match(appSource, /row\.dataset\.cloudSessionSelect = conversation\.id;/);
   assert.match(appSource, /<button class="session-row-edit" type="button" title="重命名" aria-label="重命名会话" data-cloud-session-edit=/);
-  assert.match(appSource, /if \(editTarget\) \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?await renameCloudSessionConversation\(conversation\);/);
+  assert.match(appSource, /if \(editTarget\) \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?startCloudSessionRename\(conversation\);/);
+  assert.match(appSource, /<form class="session-row-rename" data-cloud-session-rename=/);
+  assert.match(appSource, /<input class="session-row-rename-input" data-cloud-session-rename-input/);
+  assert.match(appSource, /data-cloud-session-rename-save/);
+  assert.match(appSource, /data-cloud-session-rename-cancel/);
   assert.doesNotMatch(appSource, /<em title="重命名" data-cloud-session-edit=/);
   assert.match(css, /\.session-row-edit\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?background:\s*transparent;/);
+  assert.match(css, /\.session-row-rename\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) auto auto;/);
   assert.doesNotMatch(css, /\.session-row em/);
 });
 
