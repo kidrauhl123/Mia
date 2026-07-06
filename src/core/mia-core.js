@@ -575,8 +575,12 @@ function createCoreBotExecution({
     modelSettings: () => ({})
   });
 
+  function resolveModelRuntime(config = {}, context = {}) {
+    return modelRuntimeResolver.resolveModelRuntime(config, context);
+  }
+
   function resolveManagedModelRuntime(config = {}, context = {}) {
-    const runtime = modelRuntimeResolver.resolveModelRuntime(config, context);
+    const runtime = resolveModelRuntime(config, context);
     return isMiaManagedRuntime(runtime) ? runtime : null;
   }
   const claudeCodeMiaProxy = injectedClaudeCodeMiaProxy || createClaudeCodeMiaProxy({
