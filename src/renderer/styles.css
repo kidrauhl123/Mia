@@ -11147,6 +11147,7 @@ pre {
 
   #chatView .session-trigger {
     grid-template-columns: 16px;
+    justify-content: center;
     place-items: center;
     width: 38px;
     padding: 0;
