@@ -725,6 +725,20 @@ test("session history menu keeps long lists inside the rounded card", () => {
   assert.match(css, /\.session-row\s*\{[\s\S]*?min-height:\s*46px;[\s\S]*?padding:\s*5px 8px;/);
 });
 
+test("session history rename action is a real button separate from row selection", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(appSource, /const row = document\.createElement\("div"\);/);
+  assert.match(appSource, /row\.setAttribute\("role",\s*"option"\);/);
+  assert.match(appSource, /row\.dataset\.cloudSessionSelect = conversation\.id;/);
+  assert.match(appSource, /<button class="session-row-edit" type="button" title="重命名" aria-label="重命名会话" data-cloud-session-edit=/);
+  assert.match(appSource, /if \(editTarget\) \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?await renameCloudSessionConversation\(conversation\);/);
+  assert.doesNotMatch(appSource, /<em title="重命名" data-cloud-session-edit=/);
+  assert.match(css, /\.session-row-edit\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?background:\s*transparent;/);
+  assert.doesNotMatch(css, /\.session-row em/);
+});
+
 test("chat scrollbar overlay stops at the composer top edge", () => {
   const scrollbarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/scrollbar-overlay.js"), "utf8");
 

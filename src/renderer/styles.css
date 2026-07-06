@@ -3963,7 +3963,7 @@ body.topbar-click-capture .topbar {
 }
 
 .session-row.active small,
-.session-row.active em {
+.session-row.active .session-row-edit {
   color: var(--list-active-muted);
 }
 
@@ -3985,14 +3985,15 @@ body.topbar-click-capture .topbar {
   font-weight: 400;
 }
 
-.session-row em {
+.session-row-edit {
   display: grid;
   place-items: center;
   width: 28px;
   height: 28px;
+  padding: 0;
   border-radius: 8px;
+  background: transparent;
   color: var(--muted);
-  font-style: normal;
   font-size: 0;
   font-weight: 400;
 }
@@ -4003,7 +4004,7 @@ body.topbar-click-capture .topbar {
   height: 15px;
 }
 
-.session-row em:hover {
+.session-row-edit:hover {
   background: var(--hover-background);
   color: var(--accent);
 }

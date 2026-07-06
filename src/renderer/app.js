@@ -4240,24 +4240,34 @@ function renderCloudConversationSessionMenu(activeConversation) {
   updateCurrentSessionTitle(cloudSessionTitle(activeConversation));
   els.sessionList.innerHTML = "";
   for (const conversation of conversations) {
-    const row = document.createElement("button");
-    row.type = "button";
+    const row = document.createElement("div");
     row.className = `session-row${conversation.id === activeId ? " active" : ""}`;
+    row.setAttribute("role", "option");
+    row.setAttribute("tabindex", "0");
+    row.dataset.cloudSessionSelect = conversation.id;
     row.innerHTML = `
       <span>
         <strong>${window.miaMarkdown.escapeHtml(cloudSessionTitle(conversation))}</strong>
         <small>${window.miaMarkdown.escapeHtml(new Date(cloudConversationSortTime(conversation) || Date.now()).toLocaleString())}</small>
       </span>
-      <em title="重命名" data-cloud-session-edit="${window.miaMarkdown.escapeHtml(conversation.id)}">${window.miaMarkdown.iconParkIcon("edit", "session-row-edit-icon")}</em>
+      <button class="session-row-edit" type="button" title="重命名" aria-label="重命名会话" data-cloud-session-edit="${window.miaMarkdown.escapeHtml(conversation.id)}">${window.miaMarkdown.iconParkIcon("edit", "session-row-edit-icon")}</button>
     `;
     row.addEventListener("click", async (event) => {
       const editTarget = event.target.closest("[data-cloud-session-edit]");
       if (editTarget) {
+        event.preventDefault();
         event.stopPropagation();
         await renameCloudSessionConversation(conversation);
       } else {
         await selectCloudSessionConversation(conversation);
       }
+      render();
+    });
+    row.addEventListener("keydown", async (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      if (event.target.closest("[data-cloud-session-edit]")) return;
+      event.preventDefault();
+      await selectCloudSessionConversation(conversation);
       render();
     });
     els.sessionList.appendChild(row);
