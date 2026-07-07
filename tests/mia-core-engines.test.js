@@ -132,6 +132,24 @@ function assertManagedAgentTurn(call, {
   assert.equal(call.turnPromptPrefix, undefined);
 }
 
+function installTestSkill(home, {
+  dirName = "deep-research",
+  skillName = "deep-research",
+  description = "Deep research skill."
+} = {}) {
+  const skillDir = path.join(home, "skills", dirName);
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    `---\nname: ${skillName}\ndescription: ${description}\n---\n# ${skillName}\n`,
+    "utf8"
+  );
+  return {
+    skillDir,
+    skillPath: path.join(skillDir, "SKILL.md")
+  };
+}
+
 function makeLocalAgentService(t, overrides = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-engine-health-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -193,6 +211,43 @@ for (const [inputEngineId, expectedEngineId] of [
         turnId: "turn_1",
         text: "hi"
       });
+
+      await core.closeAgentEngines();
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const [inputEngineId, expectedEngineId] of [
+  ["claude-code", "claude"],
+  ["codex", "codex"],
+  ["hermes", "hermes"],
+  ["openclaw", "openclaw"]
+]) {
+  test(`selected skill chips in Mia Core resolve to local SKILL.md paths for ${inputEngineId}`, async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), `mia-core-skill-path-${expectedEngineId}-`));
+    try {
+      const managerCalls = [];
+      const { skillPath } = installTestSkill(home);
+      const core = createCoreBotExecution({
+        runtimePaths: makeRuntimePaths(home),
+        settingsStore,
+        agentSessionManager: recordingAgentSessionManager(managerCalls)
+      });
+
+      await core.sendChat({
+        botKey: `bot-${expectedEngineId}`,
+        botSnapshot: { key: `bot-${expectedEngineId}`, name: expectedEngineId, agentEngine: inputEngineId, capabilities: {} },
+        sessionId: "conversation:skill-chip",
+        activeSkillIds: ["mia:deep-research"],
+        runtimeConfig: { agentEngine: inputEngineId },
+        messages: [{ role: "user", id: "turn_skill", content: "这个呢" }]
+      });
+
+      assert.equal(managerCalls.length, 1);
+      assert.match(String(managerCalls[0].turnPromptPrefix || ""), /<selected_skill_paths>/);
+      assert.match(String(managerCalls[0].turnPromptPrefix || ""), new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
       await core.closeAgentEngines();
     } finally {

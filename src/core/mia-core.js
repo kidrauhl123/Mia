@@ -106,6 +106,7 @@ const { createAgentSessionRuntimePreparer } = require("../main/agent-session-run
 const { createMiaMemoryProvider } = require("../main/mia-memory-provider.js");
 const { createMiaMemoryService } = require("../main/mia-memory-service.js");
 const { createSkillsLoader } = require("../main/skills-loader.js");
+const { createSkillRuntimeOwner } = require("../main/mia-core/skill-runtime-owner.js");
 
 // Attachments + MCP context bridges — the SAME pure-node factories main.js drives
 // (src/main.js ~453 createChatAttachments, ~631/640 the scheduler/Mia-app MCP
@@ -494,6 +495,19 @@ function createCoreBotExecution({
     appendEngineLog: () => {},
     isChildPath
   });
+  const skillRuntimeOwner = createSkillRuntimeOwner({
+    listSkillRecordsForBot: (bot) => skillsLoader.skillRecordsForBot(bot),
+    resolveSkillRecord: (skillId) => skillsLoader.resolveLocalSkillRecord(skillId),
+    buildActiveSkillsDirective: (activeSkillIds) => skillsLoader.buildActiveSkillsDirective(activeSkillIds),
+    materializePromptFallback: ({ bot, activeSkillIds, intentSkillIds, requestedSkillIds, mode = "index" }) =>
+      skillsLoader.resolveSkillMaterialization({
+        bot,
+        activeSkillIds,
+        intentSkillIds,
+        requestedSkillIds,
+        mode
+      })
+  });
 
   function botForMiaContext(botId = "") {
     const key = String(botId || "mia").trim() || "mia";
@@ -732,6 +746,7 @@ function createCoreBotExecution({
   const agentSessionRuntimePreparer = usesInjectedAgentSessionRuntime
     ? { prepare: injectedPrepareAgentSessionRuntime }
     : createAgentSessionRuntimePreparer({
+      skillRuntimeOwner,
       resolveModelRuntime,
       resolveManagedModelRuntime,
       claudeCodeMiaProxy,
