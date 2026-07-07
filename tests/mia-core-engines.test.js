@@ -115,6 +115,23 @@ function recordingAgentSessionManager(calls) {
   };
 }
 
+function assertManagedAgentTurn(call, {
+  conversationId,
+  engineId,
+  workspacePath,
+  turnId,
+  text
+}) {
+  assert.equal(call.conversationId, conversationId);
+  assert.equal(call.engineId, engineId);
+  assert.equal(call.workspacePath, workspacePath);
+  assert.equal(call.turnId, turnId);
+  assert.equal(call.text, text);
+  assert.match(call.skillFingerprint, /^[a-f0-9]{16}$/);
+  assert.equal(call.initialPromptPrefix, undefined);
+  assert.equal(call.turnPromptPrefix, undefined);
+}
+
 function makeLocalAgentService(t, overrides = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-engine-health-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -169,7 +186,7 @@ for (const [inputEngineId, expectedEngineId] of [
         turnId: "turn_1"
       });
       assert.equal(managerCalls.length, 1);
-      assert.deepEqual(managerCalls[0], {
+      assertManagedAgentTurn(managerCalls[0], {
         conversationId: "conversation:s1",
         engineId: expectedEngineId,
         workspacePath: makeRuntimePaths(home)().workspace,
@@ -252,17 +269,17 @@ test("Claude Code turns using Mia Auto receive Mia proxy env in Core AgentSessio
   assert.equal(proxyCalls.length, 1);
   assert.equal(proxyCalls[0].baseUrl, "https://cloud.mia.test/api/me/model-proxy/v1");
   assert.equal(proxyCalls[0].apiKey, "tok-xyz");
-  assert.deepEqual(managerCalls[0], {
+  assertManagedAgentTurn(managerCalls[0], {
     conversationId: "conversation:s1",
     engineId: "claude",
     workspacePath: makeRuntimePaths(home)().workspace,
-    runtimeKey: "mia:mia-auto",
-    env: {
-      ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
-      ANTHROPIC_AUTH_TOKEN: "proxy-token"
-    },
     turnId: "turn_1",
     text: "hi"
+  });
+  assert.equal(managerCalls[0].runtimeKey, "mia:mia-auto");
+  assert.deepEqual(managerCalls[0].env, {
+    ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
+    ANTHROPIC_AUTH_TOKEN: "proxy-token"
   });
 
   await core.closeAgentEngines();
@@ -294,6 +311,9 @@ test("Codex turns using Mia Auto receive Mia proxy env in Core AgentSession", as
   assert.equal(managerCalls[0].conversationId, "conversation:s1");
   assert.equal(managerCalls[0].engineId, "codex");
   assert.equal(managerCalls[0].runtimeKey, "mia:mia-auto");
+  assert.match(managerCalls[0].skillFingerprint, /^[a-f0-9]{16}$/);
+  assert.equal(managerCalls[0].initialPromptPrefix, undefined);
+  assert.equal(managerCalls[0].turnPromptPrefix, undefined);
   assert.equal(managerCalls[0].env.MODEL_PROVIDER, "custom");
   assert.equal(managerCalls[0].env.OPENAI_API_KEY, undefined);
   assert.match(managerCalls[0].env.CODEX_API_KEY, /^mia_codex_/);
@@ -339,7 +359,7 @@ test("native Claude Code model profiles do not require provider connections in C
     messages: [{ role: "user", id: "turn_1", content: "hi" }]
   });
 
-  assert.deepEqual(managerCalls[0], {
+  assertManagedAgentTurn(managerCalls[0], {
     conversationId: "conversation:s1",
     engineId: "claude",
     workspacePath: makeRuntimePaths(home)().workspace,
