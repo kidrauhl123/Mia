@@ -3907,7 +3907,7 @@ body.topbar-click-capture .topbar {
   right: 0;
   z-index: 12;
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 0;
   width: min(280px, calc(100vw - 380px));
   max-height: min(430px, calc(100vh - 88px));

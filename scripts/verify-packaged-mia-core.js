@@ -22,7 +22,6 @@ function canRunTargetArch({ arch = "", hostArch = os.arch(), platform = process.
   if (platform !== "darwin") return true;
   return false;
 }
-
 function freePort(host = "127.0.0.1") {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -194,7 +193,6 @@ async function probeRequiredCoreRoutes(baseUrl, { token = "", fetchImpl = fetch 
     }
   };
 }
-
 async function verifyPackagedMiaCore({
   rootDir = root,
   appPath = "",

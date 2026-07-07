@@ -228,7 +228,6 @@ test("only bot conversations block sends while Mia Core startup is in progress",
   assert.match(css, /\.send-button\.core-blocked\s*\{/);
   assert.match(css, /@keyframes\s+composerCoreStartupNudge\s*\{/);
 });
-
 test("cloud conversation send and render do not depend on activeKey being empty", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 

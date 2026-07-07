@@ -137,7 +137,6 @@ test("canRunTargetArch only blocks known macOS cross-arch runtime probes", () =>
   assert.equal(canRunTargetArch({ arch: "x64", hostArch: "x64", platform: "darwin" }), true);
   assert.equal(canRunTargetArch({ arch: "arm64", hostArch: "x64", platform: "linux" }), true);
 });
-
 test("verifyPackagedMiaCore fails closed when the packaged Core crashes on startup", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-fail-"));
   try {
