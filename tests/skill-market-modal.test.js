@@ -32,6 +32,23 @@ test("detail modal shows Chinese name + summary, body toggle, and add action", (
   assert.match(src, /installMarketSkill\(skill\.id\)/);
 });
 
+test("market modal refreshes its add button after install state changes", () => {
+  const src = read("src/renderer/skills/skill-library.js");
+
+  assert.match(src, /function renderMarketSkillInstallState\(skillId\)/);
+  assert.match(src, /state\.installingSkillIds\.add\(skillId\);\s*renderMarketSkillInstallState\(skillId\);/);
+  assert.match(src, /state\.installingSkillIds\.delete\(skillId\);\s*renderMarketSkillInstallState\(skillId\);/);
+  assert.match(src, /skillModal\.kind === "market" && skillModal\.skillId === skillId[\s\S]*renderSkillModal\(\)/);
+});
+
+test("market modal uses a text-only theme-color button after install", () => {
+  const css = read("src/renderer/styles/skills.css");
+
+  assert.match(css, /\.skill-market-modal \.smm-add\.smm-add-installed\s*\{[\s\S]*background:\s*transparent;[\s\S]*color:\s*var\(--accent/);
+  assert.match(css, /\.skill-market-modal \.smm-add\.smm-add-installed:hover\s*\{[\s\S]*background:\s*transparent;[\s\S]*filter:\s*none;/);
+  assert.doesNotMatch(css, /\.skill-market-modal \.smm-add\.smm-add-installed\s*\{[\s\S]*background:\s*var\(--surface-muted\);/);
+});
+
 test("local skill cards reuse the shared market modal and keep the body entry", () => {
   const src = read("src/renderer/skills/skill-library.js");
   assert.match(src, /\[data-skill-select\][\s\S]*addEventListener\("click", \(\) => selectSkill/);

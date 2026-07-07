@@ -633,8 +633,14 @@
 }
 
 .skill-market-modal .smm-add.smm-add-installed {
-  background: var(--surface-muted);
-  color: var(--text);
+  background: transparent;
+  color: var(--accent, #7c3aed);
+}
+
+.skill-market-modal .smm-add.smm-add-installed:hover {
+  background: transparent;
+  color: var(--accent, #7c3aed);
+  filter: none;
 }
 
 .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="skills"] #skillsView {
