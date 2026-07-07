@@ -150,6 +150,38 @@ test("collector preserves file edit blocks in the same ordered stream", () => {
   ]);
 });
 
+test("collector replaces empty Editing files tool rows with the file edit block", () => {
+  const collector = createAssistantContentBlockCollector();
+
+  collector.collect("tool_call_started", { id: "tool_1", name: "Editing files" });
+  collector.collect("tool_call_completed", { id: "tool_1", name: "Editing files", status: "completed" });
+  collector.collect("file_edit", {
+    id: "tool_1_diff_0",
+    toolCallId: "tool_1",
+    path: "src/web/app.js",
+    action: "update",
+    diff: "@@\n-old\n+new",
+    additions: 1,
+    deletions: 1,
+    status: "completed"
+  });
+
+  assert.deepEqual(collector.payload(), [
+    {
+      type: "file_edit",
+      id: "tool_1_diff_0",
+      path: "src/web/app.js",
+      action: "update",
+      title: "Edited src/web/app.js (+1 -1)",
+      diff: "@@\n-old\n+new",
+      additions: 1,
+      deletions: 1,
+      status: "completed",
+      error: false
+    }
+  ]);
+});
+
 test("normalizer keeps only valid ordered content blocks", () => {
   assert.deepEqual(normalizeContentBlocks([
     { type: "text", id: "t1", text: "hello" },

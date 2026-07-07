@@ -4,7 +4,10 @@ const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
 
-const { createAgentSessionStore } = require("../src/main/agent-session-store.js");
+const {
+  createAgentSessionManagerPersistence,
+  createAgentSessionStore
+} = require("../src/main/agent-session-store.js");
 
 function readJson(filePath, fallback) {
   try {
@@ -112,4 +115,23 @@ test("deleteEntry removes a stored session and reports whether it existed", (t) 
   assert.deepEqual(service.loadMap(), {
     "engine:claude-code:alice:local_2": { id: "thread_2", fingerprint: "fp_1" }
   });
+});
+
+test("createAgentSessionManagerPersistence maps manager descriptors to workspace-scoped native ids", (t) => {
+  const { service } = setup(t);
+  const persistence = createAgentSessionManagerPersistence(service);
+  const descriptor = {
+    conversationId: "conversation-1",
+    botId: "codex-bot",
+    engineId: "codex",
+    workspacePath: "/repo/a"
+  };
+
+  assert.equal(persistence.loadNativeSessionId(descriptor), "");
+
+  persistence.saveNativeSessionId(descriptor, " native-1 ");
+
+  assert.equal(persistence.loadNativeSessionId(descriptor), "native-1");
+  assert.equal(service.getId("codex", "codex-bot", "conversation-1", "/repo/a"), "native-1");
+  assert.equal(service.getId("codex", "codex-bot", "conversation-1", "/repo/b"), "");
 });

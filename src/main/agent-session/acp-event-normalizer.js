@@ -1,3 +1,8 @@
+const {
+  fileEditPayloadsFromAcpContent,
+  fileEditPayloadsFromToolPayload
+} = require("../agent-file-edit-events.js");
+
 function stringifyPreview(value) {
   if (value == null) return "";
   if (typeof value === "string") return value;
@@ -28,6 +33,35 @@ function stripCodexMiaAutoMetadataWarning(text = "") {
     /^\s*Warning: Model metadata for `?mia-auto`? not found\.\s+Defaulting to fallback metadata; this can degrade performance and cause issues\.\s*/i,
     ""
   );
+}
+
+function fileEditPayloadsFromToolUpdate(update = {}, options = {}) {
+  const status = typeof options.status === "string" && options.status.trim()
+    ? options.status.trim()
+    : "completed";
+  const error = status === "failed" || status === "error";
+  const baseOptions = {
+    idPrefix: options.toolCallId || "tool",
+    status: error ? "failed" : "completed",
+    error
+  };
+  const sources = [];
+  if (update.rawOutput != null) sources.push(update.rawOutput);
+  if (update.content != null) sources.push(update.content);
+  const payloads = [];
+  const seen = new Set();
+  for (const source of sources) {
+    const next = source && typeof source === "object" && !Array.isArray(source)
+      ? fileEditPayloadsFromToolPayload(source, baseOptions)
+      : fileEditPayloadsFromAcpContent(source, baseOptions);
+    for (const payload of next) {
+      const key = `${payload.id}\0${payload.path}\0${payload.diff}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      payloads.push(payload);
+    }
+  }
+  return payloads;
 }
 
 function normalizeAcpSessionUpdate(options = {}) {
@@ -82,8 +116,9 @@ function normalizeAcpSessionUpdate(options = {}) {
     const status = typeof update.status === "string" && update.status.trim()
       ? update.status.trim()
       : "";
+    const completed = status === "completed" || status === "failed";
     events.push({
-      kind: status === "completed" || status === "failed" ? "tool-call-completed" : "tool-call-delta",
+      kind: completed ? "tool-call-completed" : "tool-call-delta",
       payload: {
         ...(turnId ? { turnId } : {}),
         ...(toolCallId ? { toolCallId } : {}),
@@ -92,6 +127,18 @@ function normalizeAcpSessionUpdate(options = {}) {
         preview: stringifyPreview(update.rawOutput || update.content)
       }
     });
+    if (completed) {
+      for (const payload of fileEditPayloadsFromToolUpdate(update, { toolCallId, status })) {
+        events.push({
+          kind: "file-edit",
+          payload: {
+            ...(turnId ? { turnId } : {}),
+            ...(toolCallId ? { toolCallId } : {}),
+            ...payload
+          }
+        });
+      }
+    }
     return events;
   }
 
@@ -100,6 +147,7 @@ function normalizeAcpSessionUpdate(options = {}) {
 
 module.exports = Object.freeze({
   normalizeAcpSessionUpdate,
+  fileEditPayloadsFromToolUpdate,
   stringifyPreview,
   textFromAcpContent
 });

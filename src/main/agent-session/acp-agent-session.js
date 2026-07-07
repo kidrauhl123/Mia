@@ -76,6 +76,113 @@ function createPermissionFallback(params = {}) {
   return { outcome: { outcome: "cancelled" } };
 }
 
+function isAutoAllowPermissionMode(value = "") {
+  const normalized = String(value || "").trim();
+  return [
+    ":danger-full-access",
+    "danger-full-access",
+    "full-access",
+    "bypassPermissions",
+    "yolo",
+    "yoloNoSandbox",
+    "off",
+    "never"
+  ].includes(normalized);
+}
+
+function createPermissionAutoApproval(params = {}) {
+  const options = Array.isArray(params.options) ? params.options : [];
+  const allowAlways = options.find((option) => String(option?.kind || "") === "allow_always");
+  if (allowAlways?.optionId) {
+    return { outcome: { outcome: "selected", optionId: allowAlways.optionId } };
+  }
+  const allowOnce = options.find((option) => String(option?.kind || "") === "allow_once");
+  if (allowOnce?.optionId) {
+    return { outcome: { outcome: "selected", optionId: allowOnce.optionId } };
+  }
+  const transientAllow = options.find((option) => {
+    const kind = String(option?.kind || "");
+    return kind.includes("allow") && kind !== "allow_never";
+  });
+  if (transientAllow?.optionId) {
+    return { outcome: { outcome: "selected", optionId: transientAllow.optionId } };
+  }
+  return createPermissionFallback(params);
+}
+
+function acpPermissionEngineId(engineId = "") {
+  const normalized = String(engineId || "").trim();
+  return normalized === "claude" ? "claude-code" : normalized;
+}
+
+function firstString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function normalizedRawInput(value) {
+  if (!value) return {};
+  if (typeof value === "object" && !Array.isArray(value)) return value;
+  return { input: value };
+}
+
+function previewForPermissionInput(input = {}) {
+  const command = firstString(input.command, input.cmd, input.shellCommand, input.args);
+  if (command) return command;
+  try {
+    return JSON.stringify(input, null, 2).slice(0, 4000);
+  } catch {
+    return String(input || "").slice(0, 4000);
+  }
+}
+
+function buildPermissionCoordinatorRequest(session, params = {}) {
+  const toolCall = params.toolCall || params.tool_call || {};
+  const input = normalizedRawInput(
+    toolCall.rawInput
+    || toolCall.raw_input
+    || params.input
+    || params.rawInput
+    || params.raw_input
+  );
+  const toolName = firstString(
+    toolCall.title,
+    toolCall.name,
+    params.toolName,
+    params.tool_name,
+    toolCall.kind,
+    params.tool
+  ) || "tool";
+  return {
+    engine: acpPermissionEngineId(session.engineId),
+    botId: session.botId,
+    sessionId: session.conversationId,
+    toolName,
+    title: firstString(params.title, toolCall.title) || `${acpPermissionEngineId(session.engineId)} requests ${toolName}`,
+    description: firstString(params.description, toolCall.description),
+    preview: previewForPermissionInput(input),
+    input,
+    rawRequest: params
+  };
+}
+
+function permissionDecisionOption(params = {}, decision = {}) {
+  const options = Array.isArray(params.options) ? params.options : [];
+  const rawDecision = String(decision?.decision || decision?.action || "").trim();
+  const rawScope = String(decision?.scope || "").trim();
+  const wantsAllow = rawDecision.startsWith("allow");
+  const preferred = wantsAllow
+    ? (rawScope === "always" || rawDecision === "allow_always" ? ["allow_always", "allow_once"] : ["allow_once", "allow_always"])
+    : (rawScope === "always" || rawDecision === "reject_always" ? ["reject_always", "reject_once"] : ["reject_once", "reject_always"]);
+  for (const kind of preferred) {
+    const option = options.find((item) => String(item?.kind || "") === kind);
+    if (option?.optionId) return { outcome: { outcome: "selected", optionId: option.optionId } };
+  }
+  return wantsAllow ? createPermissionAutoApproval(params) : createPermissionFallback(params);
+}
+
 async function defaultCreateTransport(options = {}) {
   const sdk = await importAcpSdk();
   const engineSpec = options.engineSpec || {};
@@ -127,6 +234,37 @@ function prependPromptPrefix(prefix = "", text = "") {
   return normalizedPrefix ? `${normalizedPrefix}\n\n${normalizedText}` : normalizedText;
 }
 
+function agentCapabilitiesFromInitialize(response = {}) {
+  if (!response || typeof response !== "object") return {};
+  const capabilities = response.agentCapabilities || response.agent_capabilities || {};
+  return capabilities && typeof capabilities === "object" ? capabilities : {};
+}
+
+function supportsLoadSession(capabilities = {}) {
+  return capabilities.loadSession === true || capabilities.load_session === true;
+}
+
+function supportsResumeSession(capabilities = {}) {
+  const sessionCapabilities = capabilities.sessionCapabilities || capabilities.session_capabilities || {};
+  if (!sessionCapabilities || typeof sessionCapabilities !== "object") return false;
+  return Boolean(sessionCapabilities.resume);
+}
+
+function isAcpSessionNotFoundError(error) {
+  const text = [
+    error?.code,
+    error?.message,
+    error?.data?.code,
+    error?.data?.message,
+    error?.cause?.code,
+    error?.cause?.message
+  ].map((part) => String(part || "")).join(" ").toLowerCase();
+  return (
+    /session[_\s-]*not[_\s-]*found/.test(text)
+    || (/session/.test(text) && /not\s+found/.test(text))
+  );
+}
+
 class AcpAgentSession extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -135,6 +273,10 @@ class AcpAgentSession extends EventEmitter {
     this.workspacePath = String(options.workspacePath || "").trim();
     this.conversationId = String(options.conversationId || "").trim();
     this.engineId = assertKnownAgentEngine(options.engineId || options.engineSpec?.engineId || "");
+    this.botId = String(options.botId || options.bot_id || "").trim();
+    this.permissionMode = String(options.permissionMode || options.permission_mode || "").trim();
+    this.requestPermission = typeof options.requestPermission === "function" ? options.requestPermission : null;
+    this.nativeSessionId = String(options.nativeSessionId || options.native_session_id || options.acpSessionId || "").trim();
     this.initializationMetadata = options.initializationMetadata && typeof options.initializationMetadata === "object"
       ? { ...options.initializationMetadata }
       : null;
@@ -152,10 +294,37 @@ class AcpAgentSession extends EventEmitter {
     this.startPromise = null;
     this.transport = null;
     this.client = null;
+    this.agentCapabilities = {};
     this.acpSessionId = "";
     this.closed = false;
     this.activePrompt = null;
     this.toolTitles = new Map();
+    this.suppressSessionReplay = false;
+  }
+
+  sessionMetadata(extra = {}) {
+    return {
+      sessionKey: this.sessionKey,
+      conversationId: this.conversationId,
+      engineId: this.engineId,
+      initializationMetadata: this.initializationMetadata,
+      ...extra
+    };
+  }
+
+  sessionSetupRequest(extraMeta = {}) {
+    return {
+      cwd: this.workspacePath,
+      mcpServers: this.mcpServers,
+      _meta: this.sessionMetadata(extraMeta)
+    };
+  }
+
+  sessionResumeRequest(sessionId) {
+    return {
+      sessionId,
+      ...this.sessionSetupRequest()
+    };
   }
 
   buildPromptRequest(text, attachments = [], fileReferences = []) {
@@ -286,7 +455,7 @@ class AcpAgentSession extends EventEmitter {
       }));
       if (typeof this.client.initialize === "function") {
         const sdk = this.transport?.sdk || await importAcpSdk();
-        await raceTransportStartup(this.transport, this.client.initialize({
+        const initialized = await raceTransportStartup(this.transport, this.client.initialize({
           protocolVersion: sdk.PROTOCOL_VERSION || 1,
           clientCapabilities: {},
           clientInfo: {
@@ -294,22 +463,14 @@ class AcpAgentSession extends EventEmitter {
             version: "1.0.0"
           }
         }));
+        this.agentCapabilities = agentCapabilitiesFromInitialize(initialized);
       }
-      const session = await raceTransportStartup(this.transport, this.client.newSession({
-        cwd: this.workspacePath,
-        mcpServers: this.mcpServers,
-        _meta: {
-          sessionKey: this.sessionKey,
-          conversationId: this.conversationId,
-          engineId: this.engineId,
-          initializationMetadata: this.initializationMetadata
-        }
-      }));
+      const { session, restored } = await this.openAcpSession();
       this.acpSessionId = String(session?.sessionId || "").trim();
       if (!this.acpSessionId) {
         throw new Error("ACP session did not return a sessionId.");
       }
-      this.pendingInitialPromptPrefix = Boolean(this.initialPromptPrefix);
+      this.pendingInitialPromptPrefix = Boolean(this.initialPromptPrefix && !restored);
       this.emit("session-started", buildBaseEvent(this, { acpSessionId: this.acpSessionId }));
       return session;
     })();
@@ -326,6 +487,80 @@ class AcpAgentSession extends EventEmitter {
       try { await transport?.kill?.(); } catch {}
       throw error;
     }
+  }
+
+  async openAcpSession() {
+    const nativeSessionId = String(this.nativeSessionId || "").trim();
+    if (!nativeSessionId) {
+      return this.openFreshAcpSession();
+    }
+
+    if (this.engineId === "claude") {
+      try {
+        const session = await raceTransportStartup(this.transport, this.client.newSession(this.sessionSetupRequest({
+          claudeCode: {
+            options: {
+              resume: nativeSessionId
+            }
+          }
+        })));
+        return { session, restored: true };
+      } catch (error) {
+        if (isAcpSessionNotFoundError(error)) return this.openFreshAcpSession();
+        throw error;
+      }
+    }
+
+    if (supportsLoadSession(this.agentCapabilities)) {
+      if (typeof this.client.loadSession !== "function") {
+        throw new Error("ACP agent advertised session/load but the client does not expose loadSession.");
+      }
+      this.suppressSessionReplay = true;
+      try {
+        const session = await raceTransportStartup(this.transport, this.client.loadSession(this.sessionResumeRequest(nativeSessionId)));
+        return {
+          session: {
+            ...(session && typeof session === "object" ? session : {}),
+            sessionId: String(session?.sessionId || nativeSessionId).trim() || nativeSessionId
+          },
+          restored: true
+        };
+      } catch (error) {
+        if (isAcpSessionNotFoundError(error)) return this.openFreshAcpSession();
+        throw error;
+      } finally {
+        this.suppressSessionReplay = false;
+      }
+    }
+
+    if (supportsResumeSession(this.agentCapabilities)) {
+      if (typeof this.client.resumeSession !== "function") {
+        throw new Error("ACP agent advertised session/resume but the client does not expose resumeSession.");
+      }
+      try {
+        const session = await raceTransportStartup(this.transport, this.client.resumeSession(this.sessionResumeRequest(nativeSessionId)));
+        return {
+          session: {
+            ...(session && typeof session === "object" ? session : {}),
+            sessionId: String(session?.sessionId || nativeSessionId).trim() || nativeSessionId
+          },
+          restored: true
+        };
+      } catch (error) {
+        if (isAcpSessionNotFoundError(error)) return this.openFreshAcpSession();
+        throw error;
+      }
+    }
+
+    return {
+      session: { sessionId: nativeSessionId },
+      restored: true
+    };
+  }
+
+  async openFreshAcpSession() {
+    const session = await raceTransportStartup(this.transport, this.client.newSession(this.sessionSetupRequest()));
+    return { session, restored: false };
   }
 
   async sendUserInput(payload = {}) {
@@ -432,6 +667,7 @@ class AcpAgentSession extends EventEmitter {
   }
 
   async handleSessionUpdate(params = {}) {
+    if (this.suppressSessionReplay) return;
     const update = params.update && typeof params.update === "object"
       ? params.update
       : params;
@@ -460,6 +696,25 @@ class AcpAgentSession extends EventEmitter {
     if (this.activePrompt?.cancelled) {
       return { outcome: { outcome: "cancelled" } };
     }
+    if (isAutoAllowPermissionMode(this.permissionMode)) {
+      return createPermissionAutoApproval(params);
+    }
+    if (this.requestPermission) {
+      const request = buildPermissionCoordinatorRequest(this, params);
+      const decision = await this.requestPermission({
+        ...request,
+        emit: (type, payload = {}) => {
+          this.emit("permission-requested", buildBaseEvent(this, {
+            ...(this.activePrompt?.turnId ? { turnId: this.activePrompt.turnId } : {}),
+            event: {
+              type,
+              ...payload
+            }
+          }));
+        }
+      });
+      return permissionDecisionOption(params, decision);
+    }
     return createPermissionFallback(params);
   }
 }
@@ -471,9 +726,11 @@ function createAcpAgentSession(options = {}) {
 module.exports = Object.freeze({
   AcpAgentSession,
   createAcpAgentSession,
+  createPermissionAutoApproval,
   createPermissionFallback,
   defaultCreateClient,
   defaultCreateTransport,
   importAcpSdk,
+  isAutoAllowPermissionMode,
   promptCancelledError
 });

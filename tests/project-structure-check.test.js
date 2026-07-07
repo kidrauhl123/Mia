@@ -864,6 +864,11 @@ test("foreground permission IPC routes through the daemon-owned permission proxy
 
   assert.match(proxySource, /createAgentPermissionProxy/, "permission proxy Module should exist");
   assert.match(mainSource, /createAgentPermissionProxy/, "main should instantiate the permission proxy");
+  assert.match(
+    mainSource,
+    /const\s+agentPermissionCoordinator\s*=\s*IS_DAEMON_PROCESS\s*\?\s*createAgentPermissionCoordinator/,
+    "only the daemon side of main may own the local permission coordinator"
+  );
   assert.match(respondHandler, /agentPermissionProxy\.respond/, "permission response IPC should route through the daemon-owned proxy");
   assert.match(listHandler, /agentPermissionProxy\.list/, "permission list IPC should route through the daemon-owned proxy");
   assert.doesNotMatch(respondHandler, /agentPermissionCoordinator/, "foreground permission response IPC must not resolve local coordinator state");

@@ -49,6 +49,8 @@ class AgentSessionManager extends EventEmitter {
     this.sessionsByKey = new Map();
     this.runningByKey = new Map();
     this.queuesByKey = new Map();
+    this.loadNativeSessionId = typeof options.loadNativeSessionId === "function" ? options.loadNativeSessionId : null;
+    this.saveNativeSessionId = typeof options.saveNativeSessionId === "function" ? options.saveNativeSessionId : null;
   }
 
   createSessionKey(descriptor = {}) {
@@ -66,13 +68,18 @@ class AgentSessionManager extends EventEmitter {
 
     const engineSpec = this.engineSpecsById.get(String(descriptor.engineId || "").trim()) || null;
     const buildPromise = (async () => {
+      const buildDescriptor = { ...descriptor };
+      if (!buildDescriptor.nativeSessionId && this.loadNativeSessionId) {
+        const nativeSessionId = String(await this.loadNativeSessionId(buildDescriptor) || "").trim();
+        if (nativeSessionId) buildDescriptor.nativeSessionId = nativeSessionId;
+      }
       const session = await this.createSessionFactory({
-        ...descriptor,
+        ...buildDescriptor,
         sessionKey,
         engineSpec
       });
       this.sessionsByKey.set(sessionKey, session);
-      this.attachSession(sessionKey, descriptor, session);
+      this.attachSession(sessionKey, buildDescriptor, session);
       return session;
     })().finally(() => {
       this.buildLocks.delete(sessionKey);
@@ -174,12 +181,18 @@ class AgentSessionManager extends EventEmitter {
       engineId: String(input.engineId || "").trim(),
       workspacePath: String(input.workspacePath || "").trim()
     };
+    const botId = String(input.botId || input.bot_id || "").trim();
+    if (botId) descriptor.botId = botId;
+    const nativeSessionId = String(input.nativeSessionId || input.native_session_id || input.acpSessionId || "").trim();
+    if (nativeSessionId) descriptor.nativeSessionId = nativeSessionId;
     const runtimeKey = String(input.runtimeKey || input.runtime_key || "").trim();
     if (runtimeKey) descriptor.runtimeKey = runtimeKey;
     const mcpFingerprint = String(input.mcpFingerprint || input.mcp_fingerprint || "").trim();
     if (mcpFingerprint) descriptor.mcpFingerprint = mcpFingerprint;
     const skillFingerprint = String(input.skillFingerprint || input.skill_fingerprint || "").trim();
     if (skillFingerprint) descriptor.skillFingerprint = skillFingerprint;
+    const permissionMode = String(input.permissionMode || input.permission_mode || "").trim();
+    if (permissionMode) descriptor.permissionMode = permissionMode;
     if (input.env && typeof input.env === "object" && !Array.isArray(input.env)) {
       descriptor.env = { ...input.env };
     }
@@ -200,14 +213,21 @@ class AgentSessionManager extends EventEmitter {
     for (const [key, value] of Object.entries(input)) {
       if (
         key === "conversationId"
+        || key === "botId"
+        || key === "bot_id"
         || key === "engineId"
         || key === "workspacePath"
+        || key === "nativeSessionId"
+        || key === "native_session_id"
+        || key === "acpSessionId"
         || key === "runtimeKey"
         || key === "runtime_key"
         || key === "mcpFingerprint"
         || key === "mcp_fingerprint"
         || key === "skillFingerprint"
         || key === "skill_fingerprint"
+        || key === "permissionMode"
+        || key === "permission_mode"
         || key === "env"
         || key === "mcpServers"
         || key === "refreshMcpContext"
@@ -234,6 +254,10 @@ class AgentSessionManager extends EventEmitter {
           this.recordActiveMessageStart(sessionKey, payload);
         }
 
+        if (eventKind === "session-started") {
+          this.persistNativeSessionId(descriptor, payload);
+        }
+
         if (TERMINAL_MESSAGE_EVENTS.has(eventKind)) {
           this.completeActiveRunFromTerminalEvent(sessionKey, payload);
         }
@@ -245,6 +269,17 @@ class AgentSessionManager extends EventEmitter {
           this.buildLocks.delete(sessionKey);
         }
       });
+    }
+  }
+
+  persistNativeSessionId(descriptor = {}, payload = {}) {
+    if (!this.saveNativeSessionId) return;
+    const nativeSessionId = String(payload.acpSessionId || payload.nativeSessionId || payload.sessionId || "").trim();
+    if (!nativeSessionId) return;
+    try {
+      void Promise.resolve(this.saveNativeSessionId(descriptor, nativeSessionId)).catch(() => {});
+    } catch {
+      // Session persistence is best-effort; the active native session remains usable.
     }
   }
 

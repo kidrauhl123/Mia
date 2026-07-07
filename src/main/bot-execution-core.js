@@ -224,7 +224,8 @@ function createBotExecutionCore({
   miaMemoryService = null,
   isMemoryEnabled = null,
   onMemoryExtracted = null,
-  prepareAgentSessionRuntime = null
+  prepareAgentSessionRuntime = null,
+  resolveAgentSessionPermissionMode = null
 }) {
   // Single-flight interactive chat controller — factory state, not a module
   // global. Group/utility/background turns keep their own controllers.
@@ -379,9 +380,23 @@ function createBotExecutionCore({
         }
         const descriptor = {
           conversationId: managedConversationId(sessionId),
+          botId: String(botForTurn.key || botForTurn.id || key || agentSessionSpec.engineId || "").trim(),
           engineId: agentSessionSpec.engineId,
           workspacePath
         };
+        const explicitPermissionMode = String(turnRuntimeConfig.permissionMode || turnRuntimeConfig.permission_mode || "").trim();
+        const permissionMode = explicitPermissionMode || (
+          typeof resolveAgentSessionPermissionMode === "function"
+            ? String(resolveAgentSessionPermissionMode({
+              engineId: agentSessionSpec.engineId,
+              requestedEngine: botForTurn.agentEngine || botForTurn.agent_engine || adapterEngineId,
+              botId: descriptor.botId,
+              botSnapshot: botForTurn,
+              runtimeConfig: turnRuntimeConfig
+            }) || "").trim()
+            : ""
+        );
+        if (permissionMode) descriptor.permissionMode = permissionMode;
         const runtime = typeof prepareAgentSessionRuntime === "function"
           ? await prepareAgentSessionRuntime({
             engineId: agentSessionSpec.engineId,
@@ -389,6 +404,7 @@ function createBotExecutionCore({
             botId: botForTurn.key || botForTurn.id || key,
             botSnapshot: botForTurn,
             runtimeConfig: turnRuntimeConfig,
+            permissionMode,
             workspacePath,
             activeSkillIds,
             intentSkillIds

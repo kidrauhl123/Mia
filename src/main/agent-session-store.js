@@ -104,6 +104,36 @@ function createAgentSessionStore(deps = {}) {
   };
 }
 
+function managerDescriptorBotId(descriptor = {}) {
+  return String(descriptor.botId || descriptor.bot_id || descriptor.engineId || "mia").trim() || "mia";
+}
+
+function createAgentSessionManagerPersistence(agentSessionStore) {
+  const store = agentSessionStore || {};
+  return {
+    loadNativeSessionId(descriptor = {}) {
+      if (typeof store.getId !== "function") return "";
+      return store.getId(
+        descriptor.engineId,
+        managerDescriptorBotId(descriptor),
+        descriptor.conversationId,
+        descriptor.workspacePath
+      );
+    },
+    saveNativeSessionId(descriptor = {}, nativeSessionId = "") {
+      if (typeof store.setId !== "function") return;
+      store.setId(
+        descriptor.engineId,
+        managerDescriptorBotId(descriptor),
+        descriptor.conversationId,
+        nativeSessionId,
+        descriptor.workspacePath
+      );
+    }
+  };
+}
+
 module.exports = {
+  createAgentSessionManagerPersistence,
   createAgentSessionStore
 };

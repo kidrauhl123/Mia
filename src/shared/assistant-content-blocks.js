@@ -481,6 +481,14 @@
     function appendFileEdit(event = {}) {
       const filePath = safeString(event.path || event.file || event.file_path || event.data?.path || "").trim();
       if (!filePath) return;
+      const toolCallId = safeString(event.toolCallId || event.tool_call_id || event.data?.toolCallId || event.data?.tool_call_id || "").trim();
+      if (toolCallId) {
+        const last = blocks[blocks.length - 1];
+        if (last?.type === "tool" && last.id === toolCallId && !safeString(last.preview).trim()) {
+          blocks.pop();
+          toolsById.delete(toolCallId);
+        }
+      }
       const action = normalizeFileAction(event.action || event.kind || event.data?.kind);
       const additions = nonNegativeInt(event.additions || event.data?.additions);
       const deletions = nonNegativeInt(event.deletions || event.data?.deletions);

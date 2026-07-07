@@ -34,10 +34,11 @@ function createFakeSession(overrides = {}) {
   return Object.assign(session, overrides);
 }
 
-function managerOptions(createSession, engineSpecs = [{ engineId: "claude", supportsSteerInput: false }]) {
+function managerOptions(createSession, engineSpecs = [{ engineId: "claude", supportsSteerInput: false }], extra = {}) {
   return {
     createSession,
-    engineSpecs
+    engineSpecs,
+    ...extra
   };
 }
 
@@ -164,6 +165,7 @@ test("sendUserInput carries runtime env in the session descriptor without leakin
     engineId: "claude",
     workspacePath: "/repo",
     runtimeKey: "mia:mia-auto",
+    permissionMode: "bypassPermissions",
     env: {
       ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
       ANTHROPIC_AUTH_TOKEN: "proxy-token"
@@ -186,17 +188,68 @@ test("sendUserInput carries runtime env in the session descriptor without leakin
     engineId: "claude",
     workspacePath: "/repo",
     runtimeKey: "mia:mia-auto",
+    permissionMode: "bypassPermissions",
     env: {
       ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
       ANTHROPIC_AUTH_TOKEN: "proxy-token"
     },
-    sessionKey: "conversation-1::claude::/repo::mia:mia-auto",
+    sessionKey: "conversation-1::claude::/repo::mia:mia-auto::bypassPermissions",
     engineSpec: { engineId: "claude", supportsSteerInput: false }
   });
   assert.deepEqual(sessions.map((session) => session.sendCalls), [
     [{ turnId: "turn-1", text: "hello" }],
     [{ turnId: "turn-2", text: "hello again" }]
   ]);
+});
+
+test("sendUserInput restores and persists native ACP session ids outside the prompt payload", async () => {
+  const builds = [];
+  const saves = [];
+  const session = createFakeSession({
+    sendUserInput: async (input) => {
+      session.sendCalls.push(input);
+      session.emit("session-started", { acpSessionId: "native-new" });
+    }
+  });
+  const manager = createAgentSessionManager(managerOptions(
+    async (descriptor) => {
+      builds.push(descriptor);
+      return session;
+    },
+    [{ engineId: "codex", supportsSteerInput: false }],
+    {
+      loadNativeSessionId: (descriptor) => {
+        assert.equal(descriptor.botId, "codex-bot");
+        assert.equal(descriptor.conversationId, "conversation-1");
+        assert.equal(descriptor.engineId, "codex");
+        assert.equal(descriptor.workspacePath, "/repo");
+        return "native-existing";
+      },
+      saveNativeSessionId: (descriptor, nativeSessionId) => {
+        saves.push({ descriptor, nativeSessionId });
+      }
+    }
+  ));
+
+  await manager.sendUserInput({
+    conversationId: "conversation-1",
+    botId: "codex-bot",
+    engineId: "codex",
+    workspacePath: "/repo",
+    turnId: "turn-1",
+    text: "continue"
+  });
+
+  assert.equal(builds.length, 1);
+  assert.equal(builds[0].nativeSessionId, "native-existing");
+  assert.equal(builds[0].botId, "codex-bot");
+  assert.deepEqual(session.sendCalls, [{ turnId: "turn-1", text: "continue" }]);
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].nativeSessionId, "native-new");
+  assert.equal(saves[0].descriptor.botId, "codex-bot");
+  assert.equal(saves[0].descriptor.conversationId, "conversation-1");
+  assert.equal(saves[0].descriptor.engineId, "codex");
+  assert.equal(saves[0].descriptor.workspacePath, "/repo");
 });
 
 test("sendUserInput carries MCP session config in the descriptor without leaking it to the prompt payload", async () => {

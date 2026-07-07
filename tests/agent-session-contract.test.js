@@ -11,6 +11,7 @@ const AGENT_SESSION_EVENT_KINDS = [
   "tool-call-started",
   "tool-call-delta",
   "tool-call-completed",
+  "file-edit",
   "message-completed",
   "message-cancelled",
   "message-failed",

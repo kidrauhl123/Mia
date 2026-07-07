@@ -2,6 +2,7 @@ const path = require("node:path");
 const os = require("node:os");
 const {
   DEFAULT_CODEX_MIA_MODEL_CATALOG,
+  codexPermissionConfig,
   codexMiaSessionConfigOverrides,
   writeCodexMiaModelCatalog
 } = require("./codex-mia-runtime-config.js");
@@ -9,22 +10,7 @@ const {
 const CODEX_MANAGED_PROTOCOLS = Object.freeze(["cli", "codex-cli", "codex-app-server"]);
 
 function mapCodexPermissionMode(value) {
-  const id = String(value || "default").trim();
-  if (id === ":read-only") {
-    return { permissionProfile: ":read-only", sandboxMode: "read-only", approvalPolicy: "never" };
-  }
-  if (id === ":workspace") {
-    return { permissionProfile: ":workspace", sandboxMode: "workspace-write", approvalPolicy: "never" };
-  }
-  if (id === ":danger-full-access") {
-    return { permissionProfile: ":danger-full-access", sandboxMode: "danger-full-access", approvalPolicy: "never" };
-  }
-  if (id === "acceptEdits") return { sandboxMode: "workspace-write", approvalPolicy: "on-request" };
-  if (id === "bypassPermissions" || id === "yolo" || id === "off" || id === "never") {
-    return { sandboxMode: "danger-full-access", approvalPolicy: "never" };
-  }
-  if (id === "readOnly") return { sandboxMode: "read-only", approvalPolicy: "never" };
-  return { sandboxMode: "workspace-write", approvalPolicy: "untrusted" };
+  return codexPermissionConfig(value);
 }
 
 function statelessPrompt(systemPrompt, userPrompt) {

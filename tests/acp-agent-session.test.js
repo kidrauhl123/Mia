@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   AcpAgentSession,
   createAcpAgentSession,
+  createPermissionAutoApproval,
   createPermissionFallback,
   defaultCreateTransport
 } = require("../src/main/agent-session/acp-agent-session.js");
@@ -40,6 +41,8 @@ function createSession(options = {}) {
     transport: options.transport || createFakeTransport(),
     initializeCalls: [],
     newSessionCalls: [],
+    loadSessionCalls: [],
+    resumeSessionCalls: [],
     promptCalls: [],
     cancelCalls: []
   };
@@ -51,6 +54,10 @@ function createSession(options = {}) {
     workspacePath: options.workspacePath || "/repo",
     conversationId: options.conversationId || "conversation-1",
     engineId: options.engineId || "codex",
+    botId: options.botId,
+    permissionMode: options.permissionMode,
+    requestPermission: options.requestPermission,
+    nativeSessionId: options.nativeSessionId,
     initializationMetadata: options.initializationMetadata,
     mcpServers: options.mcpServers,
     initialPromptPrefix: options.initialPromptPrefix,
@@ -60,11 +67,22 @@ function createSession(options = {}) {
     createClient: options.createClient || (async ({ onSessionUpdate, onPermissionRequest }) => ({
       async initialize(params) {
         state.initializeCalls.push(params);
-        return { protocolVersion: 1 };
+        return options.initializeResult || { protocolVersion: 1 };
       },
       async newSession(params) {
         state.newSessionCalls.push(params);
         return { sessionId: "acp-session-1" };
+      },
+      async loadSession(params) {
+        state.loadSessionCalls.push(params);
+        if (typeof options.onLoadSession === "function") {
+          await options.onLoadSession({ params, onSessionUpdate, state });
+        }
+        return options.loadSessionResult || {};
+      },
+      async resumeSession(params) {
+        state.resumeSessionCalls.push(params);
+        return options.resumeSessionResult || { sessionId: params.sessionId };
       },
       async prompt(params) {
         state.promptCalls.push(params);
@@ -133,6 +151,124 @@ test("start initializes the ACP session once", async () => {
       acpSessionId: "acp-session-1"
     }]
   ]);
+});
+
+test("start loads a persisted ACP session and suppresses replayed history updates", async () => {
+  const { session, state } = createSession({
+    nativeSessionId: "acp-session-existing",
+    initializeResult: {
+      protocolVersion: 1,
+      agentCapabilities: { loadSession: true }
+    },
+    onLoadSession: async ({ params, onSessionUpdate }) => {
+      await onSessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: "historical-msg",
+          content: { type: "text", text: "old assistant text" }
+        }
+      });
+    }
+  });
+  const events = collectEvents(session);
+
+  await session.start();
+
+  assert.equal(state.newSessionCalls.length, 0);
+  assert.equal(state.loadSessionCalls.length, 1);
+  assert.deepEqual(state.loadSessionCalls[0], {
+    sessionId: "acp-session-existing",
+    cwd: "/repo",
+    mcpServers: [],
+    _meta: {
+      sessionKey: "conversation-1::codex::/repo",
+      conversationId: "conversation-1",
+      engineId: "codex",
+      initializationMetadata: null
+    }
+  });
+  assert.deepEqual(events, [
+    ["session-started", {
+      engineId: "codex",
+      conversationId: "conversation-1",
+      sessionKey: "conversation-1::codex::/repo",
+      workspacePath: "/repo",
+      acpSessionId: "acp-session-existing"
+    }]
+  ]);
+});
+
+test("start rebuilds a fresh ACP session when the persisted session id is stale", async () => {
+  const { session, state } = createSession({
+    nativeSessionId: "acp-session-stale",
+    initialPromptPrefix: "## Mia Scoped Context",
+    initializeResult: {
+      protocolVersion: 1,
+      agentCapabilities: { loadSession: true }
+    },
+    createClient: async () => ({
+      async initialize(params) {
+        state.initializeCalls.push(params);
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: true }
+        };
+      },
+      async newSession(params) {
+        state.newSessionCalls.push(params);
+        return { sessionId: "acp-session-new" };
+      },
+      async loadSession(params) {
+        state.loadSessionCalls.push(params);
+        throw new Error("Session not found: acp-session-stale");
+      },
+      async prompt(params) {
+        state.promptCalls.push(params);
+        return { stopReason: "end_turn" };
+      },
+      async cancel() {}
+    })
+  });
+
+  await session.sendUserInput({ turnId: "turn-1", text: "continue" });
+
+  assert.equal(state.loadSessionCalls.length, 1);
+  assert.equal(state.newSessionCalls.length, 1);
+  assert.equal(session.acpSessionId, "acp-session-new");
+  assert.deepEqual(state.promptCalls[0], {
+    sessionId: "acp-session-new",
+    prompt: [{ type: "text", text: "## Mia Scoped Context\n\ncontinue" }]
+  });
+});
+
+test("start resumes a persisted Claude ACP session through claudeCode metadata", async () => {
+  const { session, state } = createSession({
+    engineId: "claude",
+    engineSpec: { engineId: "claude", command: "claude", args: [] },
+    nativeSessionId: "claude-session-existing",
+    loadSessionResult: { sessionId: "should-not-be-used" }
+  });
+
+  await session.start();
+
+  assert.equal(state.loadSessionCalls.length, 0);
+  assert.deepEqual(state.newSessionCalls, [{
+    cwd: "/repo",
+    mcpServers: [],
+    _meta: {
+      sessionKey: "conversation-1::codex::/repo",
+      conversationId: "conversation-1",
+      engineId: "claude",
+      initializationMetadata: null,
+      claudeCode: {
+        options: {
+          resume: "claude-session-existing"
+        }
+      }
+    }
+  }]);
+  assert.equal(session.acpSessionId, "acp-session-1");
 });
 
 test("start injects configured MCP servers into ACP session/new", async () => {
@@ -572,6 +708,134 @@ test("createPermissionFallback prefers reject_once over reject_always", () => {
   });
 });
 
+test("createPermissionAutoApproval prefers allow_always for full access runs", () => {
+  const result = createPermissionAutoApproval({
+    options: [
+      { optionId: "allow-once", kind: "allow_once" },
+      { optionId: "reject-once", kind: "reject_once" },
+      { optionId: "allow-always", kind: "allow_always" }
+    ]
+  });
+
+  assert.deepEqual(result, {
+    outcome: { outcome: "selected", optionId: "allow-always" }
+  });
+});
+
+test("permission requests without full access wait for the injected approval coordinator", async () => {
+  let permissionHandler;
+  const permissionEvents = [];
+  const requestCalls = [];
+  const { session } = createSession({
+    requestPermission: async (request) => {
+      requestCalls.push(request);
+      request.emit("permission_request", {
+        requestId: "perm_acp_1",
+        engine: request.engine,
+        botId: request.botId,
+        sessionId: request.sessionId,
+        toolName: request.toolName,
+        title: request.title,
+        preview: request.preview
+      });
+      await Promise.resolve();
+      request.emit("permission_resolved", {
+        requestId: "perm_acp_1",
+        decision: "allow_once"
+      });
+      return { decision: "allow", scope: "once" };
+    },
+    createClient: async ({ onSessionUpdate, onPermissionRequest }) => {
+      permissionHandler = onPermissionRequest;
+      return {
+        async initialize() {
+          return { protocolVersion: 1 };
+        },
+        async newSession() {
+          return { sessionId: "acp-session-1" };
+        },
+        async prompt() {
+          return new Promise(() => {});
+        },
+        async cancel() {}
+      };
+    }
+  });
+  session.on("permission-requested", (payload) => permissionEvents.push(payload));
+
+  const sendPromise = session.sendUserInput({
+    turnId: "turn-1",
+    text: "show process list"
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const result = await permissionHandler({
+    toolCall: {
+      toolCallId: "tool-1",
+      kind: "execute",
+      title: "Shell command",
+      rawInput: { command: "ps -axo rss=,comm=" }
+    },
+    options: [
+      { optionId: "allow-once", name: "Allow", kind: "allow_once" },
+      { optionId: "reject-once", name: "Reject", kind: "reject_once" }
+    ]
+  });
+
+  assert.equal(requestCalls.length, 1);
+  assert.equal(requestCalls[0].engine, "codex");
+  assert.equal(requestCalls[0].sessionId, "conversation-1");
+  assert.equal(requestCalls[0].toolName, "Shell command");
+  assert.match(requestCalls[0].preview, /ps -axo/);
+  assert.deepEqual(result, { outcome: { outcome: "selected", optionId: "allow-once" } });
+  assert.equal(permissionEvents.length, 3);
+  assert.equal(permissionEvents[1].event.type, "permission_request");
+  assert.equal(permissionEvents[1].event.requestId, "perm_acp_1");
+  assert.equal(permissionEvents[2].event.type, "permission_resolved");
+
+  void sendPromise;
+});
+
+test("full access permission mode auto-approves ACP permission requests", async () => {
+  let permissionHandler;
+  const { session } = createSession({
+    permissionMode: ":danger-full-access",
+    createClient: async ({ onSessionUpdate, onPermissionRequest }) => {
+      permissionHandler = onPermissionRequest;
+      return {
+        async initialize() {
+          return { protocolVersion: 1 };
+        },
+        async newSession() {
+          return { sessionId: "acp-session-1" };
+        },
+        async prompt() {
+          return new Promise(() => {});
+        },
+        async cancel() {}
+      };
+    }
+  });
+
+  const sendPromise = session.sendUserInput({
+    turnId: "turn-1",
+    text: "start dev server"
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(
+    await permissionHandler({
+      options: [
+        { optionId: "allow-once", kind: "allow_once" },
+        { optionId: "reject-once", kind: "reject_once" }
+      ]
+    }),
+    { outcome: { outcome: "selected", optionId: "allow-once" } }
+  );
+
+  void sendPromise;
+});
+
 test("permission requests after cancel return cancelled for the active prompt", async () => {
   let permissionHandler;
   const { session } = createSession({
@@ -830,6 +1094,58 @@ test("normalizeAcpSessionUpdate maps ACP updates into AgentSession event kinds",
         preview: "{\"stdout\":\"/repo\"}"
       }
     }]
+  );
+});
+
+test("normalizeAcpSessionUpdate extracts ACP file diffs from completed tool output", () => {
+  const toolTitles = new Map([["tool-1", "Editing files"]]);
+
+  assert.deepEqual(
+    normalizeAcpSessionUpdate({
+      turnId: "turn-1",
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-1",
+        status: "completed",
+        rawOutput: {
+          result_display: {
+            file_diff: {
+              path: "src/app.js",
+              diff: "@@\n-old\n+new"
+            }
+          }
+        }
+      },
+      toolTitles
+    }),
+    [
+      {
+        kind: "tool-call-completed",
+        payload: {
+          turnId: "turn-1",
+          toolCallId: "tool-1",
+          title: "Editing files",
+          status: "completed",
+          preview: "{\"result_display\":{\"file_diff\":{\"path\":\"src/app.js\",\"diff\":\"@@\\n-old\\n+new\"}}}"
+        }
+      },
+      {
+        kind: "file-edit",
+        payload: {
+          turnId: "turn-1",
+          toolCallId: "tool-1",
+          id: "tool-1_diff_0",
+          path: "src/app.js",
+          action: "update",
+          title: "Edited src/app.js (+1 -1)",
+          diff: "@@\n-old\n+new",
+          additions: 1,
+          deletions: 1,
+          status: "completed",
+          error: false
+        }
+      }
+    ]
   );
 });
 

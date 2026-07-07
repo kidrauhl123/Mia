@@ -396,11 +396,15 @@ function createCoreBotExecution({
 } = {}) {
   const baseUrl = typeof hermesBaseUrl === "function" ? hermesBaseUrl : () => String(hermesBaseUrl || "");
   const apiKeyFn = typeof apiKey === "function" ? apiKey : () => String(apiKey || "");
-  const agentSessionManager = injectedAgentSessionManager || createAgentSessionManager(createAgentSessionManagerPersistence(createAgentSessionStore({
-    runtimePaths,
-    readJson,
-    normalizeBotAgentEngine: normalizeAgentEngine
-  })));
+  const agentPermissionCoordinator = createAgentPermissionCoordinator({ runtimePaths, readJson });
+  const agentSessionManager = injectedAgentSessionManager || createAgentSessionManager({
+    ...createAgentSessionManagerPersistence(createAgentSessionStore({
+      runtimePaths,
+      readJson,
+      normalizeBotAgentEngine: normalizeAgentEngine
+    })),
+    requestPermission: (request) => agentPermissionCoordinator.requestPermission(request)
+  });
 
   // Real bot manifest read-side: local fallback when a turn carries no cloud
   // snapshot. Core owns the same runtime home, so it reads the same manifest.
@@ -682,10 +686,6 @@ function createCoreBotExecution({
   // Claude/Codex prompt adapters.
   // ====================================================================
 
-  // Per-engine permission policy: pure JSON I/O under Core's single-owner
-  // runtime home.
-  const agentPermissionCoordinator = createAgentPermissionCoordinator({ runtimePaths, readJson });
-
   // User-defined MCP servers (the same registry main.js drives). All node: the
   // manager/bridge/service are pure JS; the bridge binds a loopback port lazily on
   // initialize(), not at construction. processEnvStrings reuses the PATH-augmented
@@ -781,6 +781,12 @@ function createCoreBotExecution({
     return resolveCoreAgentWorkspace({ runtimePaths, settingsStore });
   }
 
+  function resolveAgentSessionPermissionMode({ engineId = "", requestedEngine = "" } = {}) {
+    if (!settingsStore || typeof settingsStore.enginePermissionMode !== "function") return "";
+    const engine = String(requestedEngine || engineId || "").trim();
+    return settingsStore.enginePermissionMode(engine);
+  }
+
   // REAL adapter graph: Claude Code, Codex, and Hermes bot turns route
   // through AgentSession ACP. This graph only keeps slash-command fallbacks that
   // fail closed when Core has no slash service.
@@ -821,6 +827,7 @@ function createCoreBotExecution({
     agentSessionManager,
     agentSessionWorkspacePath: agentWorkspaceDir,
     prepareAgentSessionRuntime: prepareCoreAgentSessionRuntime,
+    resolveAgentSessionPermissionMode,
     // TODO(mia-core slice): wire the real local bot responder once Core owns
     // cloud-conversation handling; the stub keeps stopChat well-defined.
     localBotResponder: () => ({ stopActiveConversationRun: () => ({ stopped: false }) }),
@@ -916,7 +923,11 @@ function createCoreCloudRouting({
     agentSessionWorkspacePath: agentWorkspaceDir,
     prepareAgentSessionRuntime: typeof prepareAgentSessionRuntime === "function"
       ? prepareAgentSessionRuntime
-      : (typeof botExecution.prepareAgentSessionRuntime === "function" ? botExecution.prepareAgentSessionRuntime : null)
+      : (typeof botExecution.prepareAgentSessionRuntime === "function" ? botExecution.prepareAgentSessionRuntime : null),
+    resolveAgentSessionPermissionMode: ({ engineId = "", requestedEngine = "" } = {}) => {
+      if (!settingsStore || typeof settingsStore.enginePermissionMode !== "function") return "";
+      return settingsStore.enginePermissionMode(String(requestedEngine || engineId || "").trim());
+    }
   });
 
   function stopChat(payload = {}) {
@@ -1661,6 +1672,7 @@ function createMiaCore(options = {}) {
     MIA_CLOUD_DEFAULT_URL: cloudUrl,
     env
   });
+  const agentPermissionCoordinator = createAgentPermissionCoordinator({ runtimePaths, readJson });
   const coreBotManifest = createBotManifest({
     runtimePaths,
     readJson,
@@ -1879,6 +1891,7 @@ function createMiaCore(options = {}) {
       settingsStore.writeAgentWorkspace(workspacePath);
       return coreAgentWorkspaceSnapshot({ runtimePaths, settingsStore });
     },
+    agentPermissionCoordinator,
     sendChat: (payload) => botExecution().sendChat(payload || {})
   });
 
@@ -1972,11 +1985,14 @@ function createMiaCore(options = {}) {
   }
 
   let cachedBotExecution = null;
-  const agentSessionManager = createAgentSessionManager(createAgentSessionManagerPersistence(createAgentSessionStore({
-    runtimePaths,
-    readJson,
-    normalizeBotAgentEngine: normalizeAgentEngine
-  })));
+  const agentSessionManager = createAgentSessionManager({
+    ...createAgentSessionManagerPersistence(createAgentSessionStore({
+      runtimePaths,
+      readJson,
+      normalizeBotAgentEngine: normalizeAgentEngine
+    })),
+    requestPermission: (request) => agentPermissionCoordinator.requestPermission(request)
+  });
   function botExecution(overrides = {}) {
     if (cachedBotExecution && !Object.keys(overrides).length) return cachedBotExecution;
     const built = createCoreBotExecution({

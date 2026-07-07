@@ -9,6 +9,7 @@ const AGENT_SESSION_EVENT_KINDS = Object.freeze([
   "tool-call-started",
   "tool-call-delta",
   "tool-call-completed",
+  "file-edit",
   "message-completed",
   "message-cancelled",
   "message-failed",
@@ -63,18 +64,19 @@ function assertKnownAgentEngine(value) {
   return engineId;
 }
 
-function createAgentSessionKey({ conversationId, engineId, workspacePath, runtimeKey = "", mcpFingerprint = "", skillFingerprint = "" } = {}) {
+function createAgentSessionKey({ conversationId, engineId, workspacePath, runtimeKey = "", mcpFingerprint = "", skillFingerprint = "", permissionMode = "" } = {}) {
   const normalizedConversationId = String(conversationId || "").trim();
   const normalizedWorkspacePath = String(workspacePath || "").trim();
   const normalizedEngineId = assertKnownAgentEngine(engineId);
   const normalizedRuntimeKey = String(runtimeKey || "").trim();
   const normalizedMcpFingerprint = String(mcpFingerprint || "").trim();
   const normalizedSkillFingerprint = String(skillFingerprint || "").trim();
+  const normalizedPermissionMode = String(permissionMode || "").trim();
 
   if (!normalizedConversationId) throw new Error("conversationId is required.");
   if (!normalizedWorkspacePath) throw new Error("workspacePath is required.");
 
-  return [normalizedConversationId, normalizedEngineId, normalizedWorkspacePath, normalizedRuntimeKey, normalizedMcpFingerprint, normalizedSkillFingerprint]
+  return [normalizedConversationId, normalizedEngineId, normalizedWorkspacePath, normalizedRuntimeKey, normalizedMcpFingerprint, normalizedSkillFingerprint, normalizedPermissionMode]
     .filter((part, index) => index < 3 || part)
     .join("::");
 }

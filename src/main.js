@@ -613,10 +613,10 @@ const agentSessionStore = createAgentSessionStore({
   normalizeBotAgentEngine: normalizeBotAgentEngine
 });
 const agentSessionPersistence = createAgentSessionManagerPersistence(agentSessionStore);
-const agentPermissionCoordinator = createAgentPermissionCoordinator({
+const agentPermissionCoordinator = IS_DAEMON_PROCESS ? createAgentPermissionCoordinator({
   runtimePaths,
   readJson
-});
+}) : null;
 
 const chatAttachments = createChatAttachments({
   initializeRuntime,
@@ -706,6 +706,11 @@ function agentWorkspaceDir() {
   const dir = custom && fs.existsSync(custom) ? custom : runtimePaths().workspace;
   try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best effort */ }
   return dir;
+}
+
+function resolveAgentSessionPermissionMode({ engineId = "", requestedEngine = "" } = {}) {
+  const engine = String(requestedEngine || engineId || "").trim();
+  return settingsStore.enginePermissionMode(engine);
 }
 
 function agentWorkspaceSnapshot() {
@@ -920,6 +925,12 @@ const userMcpManager = createMcpSdkClientManager({
   appendLog: appendEngineLog,
   oauthService: userMcpOAuthService,
   authorizeToolCall: async ({ args, options = {} }) => {
+    if (!agentPermissionCoordinator || typeof agentPermissionCoordinator.requestPermission !== "function") {
+      return {
+        allowed: false,
+        reason: "Mia Core owns tool permission approval; foreground cannot authorize local tool calls."
+      };
+    }
     const toolLabel = String(options.toolLabel || "").trim() || "mcp.tool";
     let preview = "";
     try {
@@ -2381,7 +2392,10 @@ const { botWithRuntimeConfig, cloudBotSnapshotForTurn } = createBotTurnHelpers({
   normalizeAgentEngine,
   enginePermissionStoreTarget
 });
-const agentSessionManager = IS_DAEMON_PROCESS ? createAgentSessionManager(agentSessionPersistence) : null;
+const agentSessionManager = IS_DAEMON_PROCESS ? createAgentSessionManager({
+  ...agentSessionPersistence,
+  requestPermission: (request) => agentPermissionCoordinator.requestPermission(request)
+}) : null;
 
 // Single shared bot-execution core: `sendChat`/`stopChat` (and the single-flight
 // abort state) live in src/main/bot-execution-core.js so the standalone Mia Core
@@ -2414,7 +2428,8 @@ const botExecutionCore = IS_DAEMON_PROCESS ? createBotExecutionCore({
   miaMemoryService,
   isMemoryEnabled: miaMemoryEnabled,
   onMemoryExtracted: (result, scope) => publishRendererMemoryEvent("remember", result, scope),
-  prepareAgentSessionRuntime
+  prepareAgentSessionRuntime,
+  resolveAgentSessionPermissionMode
 }) : null;
 
 const sendChat = createChatSendDelegator({
@@ -2917,7 +2932,8 @@ const localBotResponder = IS_DAEMON_PROCESS ? createLocalBotResponder({
   artifactWorkspaceDir: agentWorkspaceDir,
   agentSessionManager,
   agentSessionWorkspacePath: agentWorkspaceDir,
-  prepareAgentSessionRuntime
+  prepareAgentSessionRuntime,
+  resolveAgentSessionPermissionMode
 }) : null;
 async function shouldHandleCloudConversationAi() {
   const daemonSettings = settingsStore.daemonSettings();

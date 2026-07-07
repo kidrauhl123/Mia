@@ -345,6 +345,7 @@ test("respond forwards trigger attachments into AgentSession input for Hermes AC
   assert.equal(calls.post.length, 0);
   assert.deepEqual(calls.manager, [{
     conversationId: "g_docx",
+    botId: "hermes",
     engineId: "hermes",
     workspacePath: "/repo/workspace",
     turnId: "t_docx",
@@ -740,6 +741,7 @@ test("respond hands same-conversation AgentSession sends to the manager immediat
   assert.deepEqual(calls.manager, [
     {
       conversationId: "g_1",
+      botId: "codex",
       engineId: "claude",
       workspacePath: "/repo/workspace",
       turnId: "t_1",
@@ -747,6 +749,7 @@ test("respond hands same-conversation AgentSession sends to the manager immediat
     },
     {
       conversationId: "g_1",
+      botId: "codex",
       engineId: "claude",
       workspacePath: "/repo/workspace",
       turnId: "t_2",
@@ -806,7 +809,8 @@ test("managed AgentSession turns pass prepared Claude Code Mia runtime env to th
       agentEngine: "claude-code",
       providerConnectionId: "mia",
       modelProfileId: "mia:mia-auto",
-      model: "mia-auto"
+      model: "mia-auto",
+      permissionMode: "bypassPermissions"
     }
   });
 
@@ -814,14 +818,67 @@ test("managed AgentSession turns pass prepared Claude Code Mia runtime env to th
   assert.equal(calls.runtime[0].engineId, "claude");
   assert.deepEqual(calls.manager, [{
     conversationId: "g_1",
+    botId: "starter_100001_claude_code",
     engineId: "claude",
     workspacePath: "/repo/workspace",
+    permissionMode: "bypassPermissions",
     runtimeKey: "mia:mia-auto",
     env: {
       ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
       ANTHROPIC_AUTH_TOKEN: "proxy-token"
     },
     turnId: "t_runtime",
+    text: "hi"
+  }]);
+});
+
+test("managed AgentSession turns resolve engine permission when runtime config omits permissionMode", async () => {
+  const calls = { manager: [], resolver: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async () => ({ ok: true }),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace",
+    resolveAgentSessionPermissionMode: (context) => {
+      calls.resolver.push(context);
+      return ":danger-full-access";
+    }
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_managed_permission:codex",
+    turnId: "t_permission",
+    botSnapshot: { key: "starter_100002_codex", name: "Codex", agentEngine: "codex" },
+    runtimeConfig: {
+      agentEngine: "codex",
+      model: "gpt-5.5"
+    }
+  });
+
+  assert.equal(calls.resolver.length, 1);
+  assert.equal(calls.resolver[0].engineId, "codex");
+  assert.equal(calls.resolver[0].requestedEngine, "codex");
+  assert.deepEqual(calls.manager, [{
+    conversationId: "g_1",
+    botId: "starter_100002_codex",
+    engineId: "codex",
+    workspacePath: "/repo/workspace",
+    permissionMode: ":danger-full-access",
+    turnId: "t_permission",
     text: "hi"
   }]);
 });
@@ -881,6 +938,7 @@ test("managed AgentSession turns pass prepared MCP session config to the manager
   assert.equal(calls.runtime[0].engineId, "codex");
   assert.deepEqual(calls.manager, [{
     conversationId: "g_1",
+    botId: "starter_100002_codex",
     engineId: "codex",
     workspacePath: "/repo/workspace",
     mcpFingerprint: "mcp-abc",
@@ -945,6 +1003,7 @@ test("managed AgentSession turns pass prompt-fallback skill metadata to the mana
   assert.deepEqual(calls.runtime[0].activeSkillIds, ["deep-research"]);
   assert.deepEqual(calls.manager, [{
     conversationId: "g_1",
+    botId: "starter_100003_codex",
     engineId: "codex",
     workspacePath: "/repo/workspace",
     skillFingerprint: "skills:abc",
@@ -1057,6 +1116,7 @@ test("starter engine bot ids route visible replies through AgentSession without 
 
   assert.deepEqual(calls.manager, [{
     conversationId: "bot:u_1:codex",
+    botId: "codex",
     engineId: "codex",
     workspacePath: "/repo/workspace",
     turnId: "t_starter",
@@ -1138,6 +1198,170 @@ test("managed AgentSession deltas are streamed and posted as the bot reply", asy
     "text_delta",
     "run.completed"
   ]);
+});
+
+test("managed AgentSession permission events are streamed to the desktop approval banner", async () => {
+  const manager = new EventEmitter();
+  const calls = { manager: [], post: [], log: [], cloudEvents: [] };
+  manager.sendUserInput = async (input) => {
+    calls.manager.push(input);
+    return {
+      ok: true,
+      mode: "started",
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId
+    };
+  };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true, message: { id: "posted_1", ...body } };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: manager,
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_managed_permission_event:codex",
+    turnId: "t_managed_permission_event",
+    runtimeConfig: { agentEngine: "codex" }
+  });
+
+  manager.emit("permission-requested", {
+    conversationId: "g_1",
+    engineId: "codex",
+    turnId: "t_managed_permission_event",
+    event: {
+      type: "permission_request",
+      requestId: "perm_1",
+      engine: "codex",
+      botId: "codex",
+      sessionId: "g_1",
+      toolName: "shell",
+      title: "Codex 想执行命令",
+      preview: "ps -axo rss=,comm="
+    }
+  });
+  manager.emit("permission-requested", {
+    conversationId: "g_1",
+    engineId: "codex",
+    turnId: "t_managed_permission_event",
+    event: {
+      type: "permission_resolved",
+      requestId: "perm_1",
+      decision: "allow_once"
+    }
+  });
+
+  const runEvents = calls.cloudEvents.filter((event) => event.type === "cloud_agent_run_event");
+  assert.deepEqual(runEvents.map((event) => event.event.type), [
+    "permission_request",
+    "permission_resolved"
+  ]);
+  assert.equal(runEvents[0].event.requestId, "perm_1");
+  assert.equal(runEvents[0].event.preview, "ps -axo rss=,comm=");
+});
+
+test("managed AgentSession file-edit events are saved as ordered file edit blocks", async () => {
+  const manager = new EventEmitter();
+  const calls = { manager: [], post: [], log: [], cloudEvents: [] };
+  manager.sendUserInput = async (input) => {
+    calls.manager.push(input);
+    return {
+      ok: true,
+      mode: "started",
+      conversationId: input.conversationId,
+      engineId: input.engineId,
+      turnId: input.turnId
+    };
+  };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true, message: { id: "posted_1", ...body } };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: manager,
+    agentSessionWorkspacePath: () => "/repo/workspace"
+  });
+
+  await responder.respond({
+    ...base,
+    dedupKey: "m_managed_file_edit:codex",
+    turnId: "t_managed_file_edit",
+    runtimeConfig: { agentEngine: "codex" }
+  });
+
+  manager.emit("assistant-delta", {
+    conversationId: "g_1",
+    engineId: "codex",
+    turnId: "t_managed_file_edit",
+    text: "done"
+  });
+  manager.emit("tool-call-started", {
+    conversationId: "g_1",
+    engineId: "codex",
+    turnId: "t_managed_file_edit",
+    toolCallId: "tool_1",
+    title: "Editing files"
+  });
+  manager.emit("tool-call-completed", {
+    conversationId: "g_1",
+    engineId: "codex",
+    turnId: "t_managed_file_edit",
+    toolCallId: "tool_1",
+    title: "Editing files",
+    status: "completed"
+  });
+  manager.emit("file-edit", {
+    conversationId: "g_1",
+    engineId: "codex",
+    turnId: "t_managed_file_edit",
+    toolCallId: "tool_1",
+    id: "tool_1_diff_0",
+    path: "src/app.js",
+    action: "update",
+    title: "Edited src/app.js (+1 -1)",
+    diff: "@@\n-old\n+new",
+    additions: 1,
+    deletions: 1,
+    status: "completed",
+    error: false
+  });
+  manager.emit("message-completed", {
+    conversationId: "g_1",
+    engineId: "codex",
+    turnId: "t_managed_file_edit"
+  });
+
+  await waitFor(() => calls.post.length === 1);
+  assert.deepEqual(calls.post[0].body.contentBlocks, [
+    { type: "text", id: "t_managed_file_edit", text: "done" },
+    {
+      type: "file_edit",
+      id: "tool_1_diff_0",
+      path: "src/app.js",
+      action: "update",
+      title: "Edited src/app.js (+1 -1)",
+      diff: "@@\n-old\n+new",
+      additions: 1,
+      deletions: 1,
+      status: "completed",
+      error: false
+    }
+  ]);
+  assert.equal(calls.cloudEvents.some((event) => event.event?.type === "file_edit"), true);
 });
 
 test("managed AgentSession failures post a visible bot error", async () => {
@@ -1553,6 +1777,7 @@ test("managed AgentSession workspace validation failure does not poison retries 
   }), true);
   assert.deepEqual(calls.manager, [{
     conversationId: "g_1",
+    botId: "codex",
     engineId: "claude",
     workspacePath: "/repo/workspace",
     turnId: "t_retry",
@@ -1607,6 +1832,47 @@ test("respond streams local engine trace events through cloud run events and sav
       error: false
     },
     { type: "text", id: "text_2", text: "结论是 done。" }
+  ]);
+});
+
+test("respond saves AgentSession file-edit events as ordered file edit blocks", async () => {
+  const { responder, calls } = setup({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      args.emit("text_delta", { id: "text_1", text: "我先改文件。" });
+      args.emit("file_edit", {
+        id: "tool_1_diff_0",
+        path: "src/app.js",
+        action: "update",
+        title: "Edited src/app.js (+1 -1)",
+        diff: "@@\n-old\n+new",
+        additions: 1,
+        deletions: 1,
+        status: "completed",
+        error: false
+      });
+      args.emit("text_delta", { id: "text_2", text: "改完了。" });
+      return { choices: [{ message: { content: "我先改文件。\n\n改完了。" } }] };
+    }
+  });
+
+  await responder.respond(base);
+
+  assert.deepEqual(calls.post[0].body.contentBlocks, [
+    { type: "text", id: "text_1", text: "我先改文件。" },
+    {
+      type: "file_edit",
+      id: "tool_1_diff_0",
+      path: "src/app.js",
+      action: "update",
+      title: "Edited src/app.js (+1 -1)",
+      diff: "@@\n-old\n+new",
+      additions: 1,
+      deletions: 1,
+      status: "completed",
+      error: false
+    },
+    { type: "text", id: "text_2", text: "改完了。" }
   ]);
 });
 

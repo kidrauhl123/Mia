@@ -57,14 +57,31 @@ function writeCodexMiaModelCatalog(catalogPath, model = "mia-auto") {
   return target;
 }
 
+function codexPermissionConfig(value) {
+  const id = String(value || "default").trim();
+  if (id === ":read-only") return { permissionProfile: ":read-only", sandboxMode: "read-only", approvalPolicy: "never" };
+  if (id === ":workspace") return { permissionProfile: ":workspace", sandboxMode: "workspace-write", approvalPolicy: "never" };
+  if (id === ":danger-full-access") return { permissionProfile: ":danger-full-access", sandboxMode: "danger-full-access", approvalPolicy: "never" };
+  if (id === "acceptEdits") return { sandboxMode: "workspace-write", approvalPolicy: "on-request" };
+  if (id === "bypassPermissions" || id === "yolo" || id === "off" || id === "never") {
+    return { sandboxMode: "danger-full-access", approvalPolicy: "never" };
+  }
+  if (id === "readOnly") return { sandboxMode: "read-only", approvalPolicy: "never" };
+  return { sandboxMode: "workspace-write", approvalPolicy: "untrusted" };
+}
+
 function codexMiaSessionConfig(session = {}, options = {}) {
   const baseUrl = String(session.baseUrl || "").trim().replace(/\/+$/, "");
   const model = String(session.model || "").trim();
   const modelCatalogJson = String(options.modelCatalogJson || "").trim();
+  const permissionMode = String(options.permissionMode || options.permission_mode || "").trim();
+  const permission = permissionMode ? codexPermissionConfig(permissionMode) : null;
   return {
     ...(model ? { model } : {}),
     model_provider: "custom",
     ...(modelCatalogJson ? { model_catalog_json: modelCatalogJson } : {}),
+    ...(permission?.approvalPolicy ? { approval_policy: permission.approvalPolicy } : {}),
+    ...(permission?.sandboxMode ? { sandbox_mode: permission.sandboxMode } : {}),
     disable_response_storage: true,
     model_providers: {
       custom: {
@@ -85,6 +102,8 @@ function codexMiaSessionConfigOverrides(session = {}, options = {}) {
     ...(config.model ? [`model=${tomlString(config.model)}`] : []),
     `model_provider=${tomlString(config.model_provider)}`,
     ...(config.model_catalog_json ? [`model_catalog_json=${tomlString(config.model_catalog_json)}`] : []),
+    ...(config.approval_policy ? [`approval_policy=${tomlString(config.approval_policy)}`] : []),
+    ...(config.sandbox_mode ? [`sandbox_mode=${tomlString(config.sandbox_mode)}`] : []),
     `disable_response_storage=true`,
     `model_providers.custom.name=${tomlString(custom.name)}`,
     `model_providers.custom.base_url=${tomlString(custom.base_url)}`,
@@ -96,6 +115,7 @@ function codexMiaSessionConfigOverrides(session = {}, options = {}) {
 
 module.exports = {
   DEFAULT_CODEX_MIA_MODEL_CATALOG,
+  codexPermissionConfig,
   codexMiaModelCatalog,
   codexMiaSessionConfig,
   codexMiaSessionConfigOverrides,

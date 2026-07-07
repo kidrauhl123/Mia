@@ -608,7 +608,8 @@ function managedAgentSessionInput({
   userPrompt = "",
   userAttachments = [],
   agentSessionManager = null,
-  agentSessionWorkspacePath = ""
+  agentSessionWorkspacePath = "",
+  resolveAgentSessionPermissionMode = null
 } = {}) {
   if (!agentSessionManager || typeof agentSessionManager.sendUserInput !== "function") return null;
   const requestedEngine = String(
@@ -627,11 +628,25 @@ function managedAgentSessionInput({
   }
   const input = {
     conversationId: String(conversationId || "").trim(),
+    botId: String(botSnapshot?.key || botSnapshot?.id || botId || agentSessionSpec.engineId || "").trim(),
     engineId: agentSessionSpec.engineId,
     workspacePath,
     turnId: String(turnId || "").trim(),
     text: String(userPrompt || "")
   };
+  const explicitPermissionMode = String(runtimeConfig?.permissionMode || runtimeConfig?.permission_mode || "").trim();
+  const permissionMode = explicitPermissionMode || (
+    typeof resolveAgentSessionPermissionMode === "function"
+      ? String(resolveAgentSessionPermissionMode({
+        engineId: agentSessionSpec.engineId,
+        requestedEngine,
+        botId: input.botId,
+        botSnapshot,
+        runtimeConfig
+      }) || "").trim()
+      : ""
+  );
+  if (permissionMode) input.permissionMode = permissionMode;
   const attachments = normalizeResponderAttachments(userAttachments);
   if (attachments.length) input.attachments = attachments;
   return input;
@@ -656,7 +671,7 @@ function hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId
   return false;
 }
 
-function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {}, artifactWorkspaceDir = null, fetchFileAttachment = null, agentSessionManager = null, agentSessionWorkspacePath = "", prepareAgentSessionRuntime = null }) {
+function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {}, artifactWorkspaceDir = null, fetchFileAttachment = null, agentSessionManager = null, agentSessionWorkspacePath = "", prepareAgentSessionRuntime = null, resolveAgentSessionPermissionMode = null }) {
   const processed = new Set();
   const inFlight = new Set();
   const activeRunsByConversation = new Map();
@@ -816,6 +831,27 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         error: Boolean(payload.error)
       };
     }
+    if (kind === "file-edit") {
+      return {
+        type: "file_edit",
+        id: String(payload.id || payload.toolCallId || payload.tool_call_id || ""),
+        toolCallId: String(payload.toolCallId || payload.tool_call_id || ""),
+        path: String(payload.path || payload.file || payload.file_path || ""),
+        action: String(payload.action || "update"),
+        title: String(payload.title || payload.name || ""),
+        diff: String(payload.diff || payload.preview || ""),
+        additions: Number(payload.additions || 0) || 0,
+        deletions: Number(payload.deletions || 0) || 0,
+        status: String(payload.status || "completed"),
+        error: Boolean(payload.error)
+      };
+    }
+    if (kind === "permission-requested") {
+      const event = payload.event && typeof payload.event === "object" ? payload.event : null;
+      if (event?.type === "permission_request" || event?.type === "permission_resolved") {
+        return { ...event };
+      }
+    }
     return null;
   }
 
@@ -919,6 +955,8 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       "tool-call-started",
       "tool-call-delta",
       "tool-call-completed",
+      "file-edit",
+      "permission-requested",
       "message-completed",
       "message-cancelled",
       "message-failed"
@@ -1100,7 +1138,8 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         userPrompt,
         userAttachments,
         agentSessionManager,
-        agentSessionWorkspacePath
+        agentSessionWorkspacePath,
+        resolveAgentSessionPermissionMode
       });
     } catch (error) {
       inFlight.delete(dedupKey);
@@ -1124,6 +1163,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
             botId,
             botSnapshot,
             runtimeConfig,
+            permissionMode: managedInput.permissionMode,
             workspacePath: managedInput.workspacePath,
             activeSkillIds
           })

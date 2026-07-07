@@ -42,7 +42,8 @@ function createAgentSessionManager(options = {}) {
     ? options.createSession
     : async (descriptor = {}) => createAcpAgentSession({
       ...descriptor,
-      engineSpec: descriptor.engineSpec || getAcpEngineSpec(descriptor.engineId)
+      engineSpec: descriptor.engineSpec || getAcpEngineSpec(descriptor.engineId),
+      ...(typeof options.requestPermission === "function" ? { requestPermission: options.requestPermission } : {})
     });
 
   return new AgentSessionManager({

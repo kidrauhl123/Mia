@@ -123,6 +123,7 @@ test("prepares Codex Mia managed model proxy env for AgentSession", async (t) =>
 
   const runtime = await preparer.prepare({
     engineId: "codex",
+    permissionMode: ":danger-full-access",
     runtimeConfig: {
       agentEngine: "codex",
       providerConnectionId: "mia",
@@ -154,6 +155,8 @@ test("prepares Codex Mia managed model proxy env for AgentSession", async (t) =>
     model: "mia-auto",
     model_provider: "custom",
     model_catalog_json: catalogPath,
+    approval_policy: "never",
+    sandbox_mode: "danger-full-access",
     disable_response_storage: true,
     model_providers: {
       custom: {

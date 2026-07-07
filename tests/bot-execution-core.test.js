@@ -112,6 +112,7 @@ test("sendChat routes interactive AgentSession turns through the session manager
   assert.equal(calls.adapter.length, 0);
   assert.deepEqual(calls.agentSession, [{
     conversationId: "conversation:1",
+    botId: "bot1",
     engineId: "hermes",
     workspacePath: "/repo/workspace",
     turnId: "msg-9",
@@ -159,6 +160,7 @@ test("sendChat passes prepared MCP session config to AgentSession", async () => 
   assert.equal(calls.agentSession.length, 1);
   assert.deepEqual(calls.agentSession[0], {
     conversationId: "conversation:1",
+    botId: "bot1",
     engineId: "hermes",
     workspacePath: "/repo/workspace",
     mcpFingerprint: "mcp-abc",
@@ -227,6 +229,7 @@ for (const [inputEngineId, expectedEngineId] of [
     assert.equal(calls.adapter.length, 0);
     assert.deepEqual(calls.agentSession, [{
       conversationId: "conversation:1",
+      botId: "bot1",
       engineId: expectedEngineId,
       workspacePath: "/repo/workspace",
       turnId: `turn-${expectedEngineId}`,
@@ -653,6 +656,7 @@ test("stopChat cancels the active interactive AgentSession turn", async () => {
   assert.equal(result.stopped, true);
   assert.deepEqual(calls.cancelActive, [{
     conversationId: "conversation:1",
+    botId: "bot1",
     engineId: "hermes",
     workspacePath: "/repo/workspace"
   }]);
@@ -678,6 +682,7 @@ test("stopChat cancels the requested managed AgentSession conversation instead o
   assert.equal(result.stopped, true);
   assert.deepEqual(calls.cancelActive, [{
     conversationId: "conversation:1",
+    botId: "bot1",
     engineId: "hermes",
     workspacePath: "/repo/workspace"
   }]);
@@ -749,7 +754,8 @@ test("sendChat passes Claude Code Mia managed model runtime to AgentSession", as
         agentEngine: "claude-code",
         providerConnectionId: "mia",
         modelProfileId: "mia:mia-auto",
-        model: "mia-auto"
+        model: "mia-auto",
+        permissionMode: "bypassPermissions"
       });
       return {
         runtimeKey: "mia:mia-auto",
@@ -768,21 +774,64 @@ test("sendChat passes Claude Code Mia managed model runtime to AgentSession", as
       agentEngine: "claude-code",
       providerConnectionId: "mia",
       modelProfileId: "mia:mia-auto",
-      model: "mia-auto"
+      model: "mia-auto",
+      permissionMode: "bypassPermissions"
     },
     messages: [{ role: "user", id: "turn-claude", content: "latest prompt" }]
   });
 
   assert.deepEqual(calls.agentSession, [{
     conversationId: "conversation:1",
+    botId: "bot1",
     engineId: "claude",
     workspacePath: "/repo/workspace",
+    permissionMode: "bypassPermissions",
     runtimeKey: "mia:mia-auto",
     env: {
       ANTHROPIC_BASE_URL: "http://127.0.0.1:4321",
       ANTHROPIC_AUTH_TOKEN: "proxy-token"
     },
     turnId: "turn-claude",
+    text: "latest prompt"
+  }]);
+});
+
+test("sendChat resolves engine permission for managed AgentSession when runtime config omits permissionMode", async () => {
+  const resolverCalls = [];
+  const { core, calls } = makeCore({
+    cloudBotSnapshotForTurn: () => ({
+      key: "bot1",
+      id: "bot1",
+      name: "Bot One",
+      agentEngine: "codex",
+      capabilities: {}
+    }),
+    resolveAgentSessionPermissionMode: (context) => {
+      resolverCalls.push(context);
+      return ":danger-full-access";
+    }
+  });
+
+  await core.sendChat({
+    botKey: "bot1",
+    sessionId: "conversation:1",
+    runtimeConfig: {
+      agentEngine: "codex",
+      model: "gpt-5.5"
+    },
+    messages: [{ role: "user", id: "turn-codex", content: "latest prompt" }]
+  });
+
+  assert.equal(resolverCalls.length, 1);
+  assert.equal(resolverCalls[0].engineId, "codex");
+  assert.equal(resolverCalls[0].requestedEngine, "codex");
+  assert.deepEqual(calls.agentSession, [{
+    conversationId: "conversation:1",
+    botId: "bot1",
+    engineId: "codex",
+    workspacePath: "/repo/workspace",
+    permissionMode: ":danger-full-access",
+    turnId: "turn-codex",
     text: "latest prompt"
   }]);
 });
@@ -833,8 +882,10 @@ test("sendChat passes Hermes Mia managed runtime to AgentSession", async () => {
 
   assert.deepEqual(calls.agentSession, [{
     conversationId: "conversation:1",
+    botId: "bot1",
     engineId: "hermes",
     workspacePath: "/repo/workspace",
+    permissionMode: "yolo",
     runtimeKey: "mia:mia-auto",
     env: {
       HERMES_HOME: "/tmp/mia-hermes-session",
@@ -874,6 +925,7 @@ test("stopChat honors full managed AgentSession tuple when the same conversation
   assert.equal(result.stopped, true);
   assert.deepEqual(calls.cancelActive, [{
     conversationId: "conversation:1",
+    botId: "bot1",
     engineId: "hermes",
     workspacePath: "/repo/a"
   }]);

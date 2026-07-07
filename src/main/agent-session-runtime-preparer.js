@@ -335,6 +335,8 @@ function createAgentSessionRuntimePreparer(options = {}) {
     const runtimeConfig = input.runtimeConfig && typeof input.runtimeConfig === "object"
       ? input.runtimeConfig
       : {};
+    const permissionMode = firstString(input, ["permissionMode", "permission_mode"])
+      || firstString(runtimeConfig, ["permissionMode", "permission_mode"]);
     const mcpRuntime = prepareMcpRuntime(input, engineId);
     const skillRuntime = await prepareSkillRuntime(input, engineId, runtimeConfig);
 
@@ -373,7 +375,8 @@ function createAgentSessionRuntimePreparer(options = {}) {
           MIA_CODEX_REAL_PATH: codexRealPath,
           MODEL_PROVIDER: "custom",
           CODEX_CONFIG: JSON.stringify(codexMiaSessionConfig(session, {
-            modelCatalogJson
+            modelCatalogJson,
+            permissionMode
           }))
         }
       });
