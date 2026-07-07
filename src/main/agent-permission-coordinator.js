@@ -51,7 +51,6 @@ function permissionEngineLabel(engine = "") {
   const normalized = String(engine || "").trim().toLowerCase();
   if (normalized === "codex") return "Codex";
   if (normalized === "claude-code") return "Claude Code";
-  if (normalized === "openclaw") return "OpenClaw";
   if (normalized === "mcp") return "MCP";
   return String(engine || "").trim() || "Agent";
 }

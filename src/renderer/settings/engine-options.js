@@ -41,7 +41,6 @@
     const raw = String(engine || "hermes").trim().toLowerCase().replace(/_/g, "-");
     if (raw === "claude" || raw === "claude-code") return "claude-code";
     if (raw === "codex" || raw === "openai-codex") return "codex";
-    if (raw === "openclaw" || raw === "open-claw") return "openclaw";
     return "hermes";
   }
 
@@ -58,7 +57,6 @@
     const info = runtime?.agentEngines || {};
     if (normalized === "claude-code") return info.claudeCode || {};
     if (normalized === "codex") return info.codex || {};
-    if (normalized === "openclaw") return info.openclaw || {};
     return {};
   }
 
@@ -72,7 +70,6 @@
     const normalized = normalizeAgentEngine(engine);
     if (normalized === "claude-code") return "anthropic";
     if (normalized === "codex") return "openai-codex";
-    if (normalized === "openclaw") return "openclaw";
     return normalized;
   }
 
@@ -80,7 +77,6 @@
     const normalized = normalizeAgentEngine(engine);
     if (normalized === "claude-code") return "claude";
     if (normalized === "codex") return "codex";
-    if (normalized === "openclaw") return "openclaw";
     return normalized;
   }
 
@@ -117,7 +113,7 @@
         { value: "bypassPermissions", label: "Bypass Permissions", title: "Claude Code may use tools without Mia asking first." }
       ];
     }
-    if (normalized === "codex" || normalized === "openclaw") {
+    if (normalized === "codex") {
       return [{ value: "default", label: "Ask", title: "" }];
     }
     // Hermes — pull from real engine capabilities (probed via SETTINGS_SCHEMA).
@@ -142,7 +138,7 @@
       });
     }
     const normalized = engineContracts.normalizeAgentEngine ? engineContracts.normalizeAgentEngine(engine) : engine;
-    if (normalized === "claude-code" || normalized === "codex" || normalized === "openclaw") {
+    if (normalized === "claude-code" || normalized === "codex") {
       return [{ value: "medium", label: EFFORT_LABELS.medium || "Medium" }];
     }
     // Hermes — pull from real engine capabilities (probed via SETTINGS_SCHEMA at

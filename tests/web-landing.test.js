@@ -114,9 +114,10 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.doesNotMatch(js, /展示准备包/);
   assert.doesNotMatch(js, /mw-result/);
   assert.match(html, /Enter 发送/);
-  assert.match(html, /Claude Code[\s\S]*Codex[\s\S]*OpenClaw/);
+  assert.match(html, /Claude Code[\s\S]*Codex/);
   assert.match(html, /Hermes/);
-  assert.match(html, /assets\/icons\/openclaw\.svg/);
+  assert.doesNotMatch(html, /OpenClaw/);
+  assert.doesNotMatch(html, /assets\/icons\/openclaw\.svg/);
   assert.doesNotMatch(html, /Permission request/);
   assert.match(html, /多模型可选/);
   assert.match(html, /创建提醒: 明晚 22:00 复习展示稿/);

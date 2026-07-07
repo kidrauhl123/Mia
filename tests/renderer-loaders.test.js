@@ -84,7 +84,7 @@ test("loadSlashCommands keeps Hermes catalog empty instead of using placeholder 
 
   const state = {
     slashCommands: [{ command: "/stale", description: "old" }],
-    agentSlashCommands: { "claude-code": [], codex: [], openclaw: [] }
+    agentSlashCommands: { "claude-code": [], codex: [] }
   };
   context.window.miaLoaders.initLoaders({
     state,
@@ -97,7 +97,6 @@ test("loadSlashCommands keeps Hermes catalog empty instead of using placeholder 
   assert.deepEqual(plain(state.slashCommands), []);
   assert.deepEqual(plain(state.agentSlashCommands["claude-code"]), [{ command: "/claude-code-native", description: "claude-code" }]);
   assert.deepEqual(plain(state.agentSlashCommands.codex), [{ command: "/codex-native", description: "codex" }]);
-  assert.deepEqual(plain(state.agentSlashCommands.openclaw), [{ command: "/openclaw-native", description: "openclaw" }]);
 });
 
 test("loadSlashCommands keeps Hermes catalog empty when discovery fails", async () => {
@@ -117,7 +116,7 @@ test("loadSlashCommands keeps Hermes catalog empty when discovery fails", async 
 
   const state = {
     slashCommands: [{ command: "/stale", description: "old" }],
-    agentSlashCommands: { "claude-code": [], codex: [], openclaw: [] }
+    agentSlashCommands: { "claude-code": [], codex: [] }
   };
   context.window.miaLoaders.initLoaders({
     state,

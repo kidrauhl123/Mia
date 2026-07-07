@@ -156,7 +156,7 @@
       selectedSkillDetail: null,
       skillsLoading: false,
       slashCommands: [],
-      agentSlashCommands: { "claude-code": [], codex: [], openclaw: [] },
+      agentSlashCommands: { "claude-code": [], codex: [] },
       slashMenuOpen: false,
       composerAddMenuOpen: false,
       composerDrafts: new Map(),

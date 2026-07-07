@@ -404,7 +404,6 @@
     const normalized = window.miaEngineContracts?.normalizeAgentEngine?.(engine) || engine;
     if (normalized === "claude-code") return "claude";
     if (normalized === "codex") return "codex";
-    if (normalized === "openclaw") return "openclaw";
     return "hermes";
   }
 
@@ -413,8 +412,7 @@
     const iconSrc = {
       hermes: "./assets/engine-icons/hermesagent.svg",
       claude: "./assets/engine-icons/claudecode.svg",
-      codex: "./assets/engine-icons/codex-color.svg",
-      openclaw: "./assets/provider-icons/openclaw-color.svg"
+      codex: "./assets/engine-icons/codex-color.svg"
     }[kind];
     if (kind === "unknown") return `<span class="engine-row-logo contact-engine-logo unknown" aria-hidden="true"></span>`;
     if (!iconSrc) return `<span class="engine-row-logo contact-engine-logo ${window.miaMarkdown.escapeHtml(kind)}" aria-hidden="true"></span>`;
@@ -905,7 +903,6 @@
     }
     const engineStatus = (engine) => {
       if (engine === "claude-code") return runtime.agentEngines?.claudeCode || runtime.agentEngines?.["claude-code"] || {};
-      if (engine === "openclaw") return runtime.agentEngines?.openClaw || runtime.agentEngines?.openclaw || {};
       return runtime.agentEngines?.[engine] || {};
     };
     const capabilities = state?.engineCapabilities?.engines || {};
@@ -929,10 +926,9 @@
     const legacySources = {
       hermes: engineStatus("hermes").available || engineStatus("hermes").installed || runtime.engineInstalled || runtime.engineRunning,
       "claude-code": engineStatus("claude-code").available || engineStatus("claude-code").installed,
-      codex: engineStatus("codex").available || engineStatus("codex").installed,
-      openclaw: engineStatus("openclaw").available || engineStatus("openclaw").installed
+      codex: engineStatus("codex").available || engineStatus("codex").installed
     };
-    return ["hermes", "claude-code", "codex", "openclaw"]
+    return ["hermes", "claude-code", "codex"]
       .filter((id) => inventoryUsable(id) || legacySources[id] || capabilityAvailable(id));
   }
 
@@ -992,9 +988,9 @@
     const advertised = Array.isArray(device.capabilities?.engines)
       ? device.capabilities.engines.map((id) => String(id || "").trim()).filter(Boolean)
       : [];
-    if (advertised.length) return advertised.filter((id) => ["hermes", "claude-code", "codex", "openclaw"].includes(id));
+    if (advertised.length) return advertised.filter((id) => ["hermes", "claude-code", "codex"].includes(id));
     const engine = String(device.engine || "").trim();
-    return ["hermes", "claude-code", "codex", "openclaw"].includes(engine) ? [engine] : [];
+    return ["hermes", "claude-code", "codex"].includes(engine) ? [engine] : [];
   }
 
   function strictAgentEngine(value = "") {
@@ -1003,7 +999,6 @@
     const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
     if (raw === "claude" || raw === "claude-code") return "claude-code";
     if (raw === "codex" || raw === "openai-codex") return "codex";
-    if (raw === "openclaw" || raw === "open-claw") return "openclaw";
     if (raw === "hermes") return "hermes";
     return "";
   }

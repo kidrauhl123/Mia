@@ -22,7 +22,7 @@ function log(message) {
 }
 
 function bridgeCapabilities() {
-  const engines = ["hermes", "claude-code", "codex", "openclaw"].includes(defaultEngine)
+  const engines = ["hermes", "claude-code", "codex"].includes(defaultEngine)
     ? [defaultEngine]
     : [];
   return {
@@ -53,7 +53,6 @@ function normalizeAgentEngine(value, fallback = "codex") {
   const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
   if (raw === "claude" || raw === "claude-code" || raw === "anthropic") return "claude-code";
   if (raw === "codex" || raw === "openai-codex") return "codex";
-  if (raw === "openclaw" || raw === "open-claw") return "openclaw";
   if (raw === "hermes") return "hermes";
   if (raw === "echo") return "echo";
   return fallback;
@@ -62,7 +61,6 @@ function normalizeAgentEngine(value, fallback = "codex") {
 function engineLabel(value) {
   const engine = normalizeAgentEngine(value, "codex");
   if (engine === "claude-code") return "Claude Code";
-  if (engine === "openclaw") return "OpenClaw";
   if (engine === "hermes") return "Hermes";
   if (engine === "echo") return "Echo";
   return "Codex";

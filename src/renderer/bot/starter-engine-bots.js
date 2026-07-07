@@ -1,19 +1,17 @@
 (function attachStarterEngineBots(global) {
   "use strict";
 
-  const STARTER_ENGINE_ORDER = ["hermes", "openclaw", "codex", "claude-code"];
+  const STARTER_ENGINE_ORDER = ["hermes", "codex", "claude-code"];
   const CLOUD_MIA_TAG_NAME = "云端";
   const STARTER_STATUS_BADGE_IDS = Object.freeze({
     "cloud-claude-code": "rainbow-fire",
     hermes: "blue-fire",
-    openclaw: "pink-fire",
     codex: "cyan-fire",
     "claude-code": "red-orange-fire"
   });
   const STARTER_AVATAR_IMAGES = Object.freeze({
     "cloud-claude-code": "./assets/mia-logo.png",
     hermes: "./assets/engine-icons/hermesagent-starter.svg",
-    openclaw: "./assets/provider-icons/openclaw-starter.svg",
     codex: "./assets/engine-icons/codex-color.svg",
     "claude-code": "./assets/engine-icons/claudecode-starter.svg"
   });
@@ -34,12 +32,6 @@
       bio: "连接本机 Hermes，处理日常任务、文件和自动化。",
       personaText: "你是 Hermes。优先用本机可用能力推进用户的日常任务、文件处理和自动化请求。"
     },
-    openclaw: {
-      name: "OpenClaw",
-      color: "#0f766e",
-      bio: "连接本机 OpenClaw，适合开放模型和本地工具链任务。",
-      personaText: "你是 OpenClaw。优先使用本机 OpenClaw 能力，简洁地完成开放模型、本地工具链和自动化任务。"
-    },
     codex: {
       name: "Codex",
       color: "#111827",
@@ -59,7 +51,6 @@
     if (!raw) return "";
     if (["cloud-claude-code", "cloud_claude_code", "mia-cloud", "miacloud"].includes(raw)) return "cloud-claude-code";
     if (["claude", "claude_code", "claudecode"].includes(raw)) return "claude-code";
-    if (["open-claw", "open_claw", "openclaw"].includes(raw)) return "openclaw";
     return raw;
   }
 
@@ -124,9 +115,6 @@
     }
     if (engineId === "codex") {
       return { id: "codex", usableInMia: Boolean(engines.codex?.available) };
-    }
-    if (engineId === "openclaw") {
-      return { id: "openclaw", usableInMia: Boolean(engines.openClaw?.available || engines.openClaw?.installed) };
     }
     return null;
   }

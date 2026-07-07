@@ -43,10 +43,6 @@ const {
   mapCodexPermissionMode
 } = require("./main/codex-stateless-adapter.js");
 const { syncCodexConfigForPermission } = require("./main/codex-config-sync.js");
-const {
-  closeOpenClawAcpRuntimes,
-  createOpenClawStatelessAdapter
-} = require("./main/openclaw-chat-adapter.js");
 const { createNativeTurnHelpers } = require("./main/native-turn-helpers.js");
 const { normalizeTurnRuntimeConfig } = require("./main/runtime-config-normalizer.js");
 const { createMiaMemoryProvider } = require("./main/mia-memory-provider.js");
@@ -128,7 +124,10 @@ const { createHermesSlashCommandService } = require("./main/hermes-slash-command
 const { createLaunchdService } = require("./main/launchd-service.js");
 const { createEnginePluginsService } = require("./main/engine-plugins-service.js");
 const { createLocalAgentEngineService } = require("./main/local-agent-engine-service.js");
-const { createAgentSessionStore } = require("./main/agent-session-store.js");
+const {
+  createAgentSessionManagerPersistence,
+  createAgentSessionStore
+} = require("./main/agent-session-store.js");
 const { createAgentSessionManager } = require("./main/agent-session/index.js");
 const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
 const { createAgentPermissionProxy } = require("./main/agent-permission-proxy.js");
@@ -613,6 +612,7 @@ const agentSessionStore = createAgentSessionStore({
   readJson,
   normalizeBotAgentEngine: normalizeBotAgentEngine
 });
+const agentSessionPersistence = createAgentSessionManagerPersistence(agentSessionStore);
 const agentPermissionCoordinator = createAgentPermissionCoordinator({
   runtimePaths,
   readJson
@@ -1033,7 +1033,7 @@ function getRuntimeStatus(created = [], options = {}) {
   const connectedProviders = connectedProviderSummaries(codexAuth);
   // Skip the synchronous local-agent scan while signed out: the login screen
   // never needs the agent inventory, and the scan's shell probes for missing
-  // agents (hermes/openclaw) would block the main process and beachball the
+  // agents (hermes) would block the main process and beachball the
   // window on open. Once signed in, the scan runs for the prepare/app views.
   const cloudState = cloudStatus(false);
   // Never block the main process on the local-agent scan: while signed out the
@@ -2014,7 +2014,6 @@ function bridgeEngineIdsFromView(engines = {}) {
   if (engines.hermes?.available || engines.hermes?.installed) ids.push("hermes");
   if (engines.claudeCode?.available) ids.push("claude-code");
   if (engines.codex?.available) ids.push("codex");
-  if (engines.openClaw?.available || engines.openClaw?.installed) ids.push("openclaw");
   return ids;
 }
 
@@ -2261,7 +2260,7 @@ const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
   miaHomePath: () => runtimePaths().home,
   getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
   getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
-  getUserMcpServers: (_engineId, options) => userMcpService.getEngineSpecs("openclaw", options),
+  getUserMcpServers: (engineId, options) => userMcpService.getEngineSpecs(engineId, options),
   getMcpFingerprint: userMcpService.fingerprint,
   writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
   writeSchedulerMcpContext: schedulerMcpBridge.writeContext
@@ -2278,11 +2277,9 @@ async function restartEngineIfRunning() {
 function createActiveStatelessChatEngineAdapters() {
   const claudeAdapter = createActiveClaudeCodeStatelessAdapter();
   const codexAdapter = createActiveCodexStatelessAdapter();
-  const openClawAdapter = createActiveOpenClawStatelessAdapter();
   return createStatelessChatEngineAdapters({
     sendClaudeCodeStateless: claudeAdapter.sendStateless,
-    sendCodexStateless: codexAdapter.sendStateless,
-    sendOpenClawStateless: openClawAdapter.sendStateless
+    sendCodexStateless: codexAdapter.sendStateless
   });
 }
 
@@ -2318,13 +2315,6 @@ async function ensureHermesChatEngineReady() {
   }
 }
 
-// Group-context plumbing carried over from the local-group era. Cloud group
-// conversations don't currently set group.contextBlock — the dep is wired through
-// the adapters as a no-op so existing call sites stay valid until/unless
-// cloud-side conductor needs a different injection shape.
-function _noopGroupHeader() { return ""; }
-function _passthroughGroupContext(userMessage) { return userMessage; }
-
 function createActiveClaudeCodeStatelessAdapter() {
   return createClaudeCodeStatelessAdapter({
     appendEngineLog,
@@ -2348,32 +2338,6 @@ function createActiveCodexStatelessAdapter() {
     resolveManagedModelRuntime,
     resolveAgentRuntime: localAgentEngineService.resolveAgentRuntime,
     shellCommandPath: localAgentEngineService.shellCommandPath
-  });
-}
-
-function createActiveOpenClawStatelessAdapter() {
-  return createOpenClawStatelessAdapter({
-    chatCompletionResponse,
-    cwd: agentWorkspaceDir,
-    appendEngineLog,
-    enginePermissionMode: settingsStore.enginePermissionMode,
-    ensureUserMcpReady: () => ensureUserMcpReady("OpenClaw chat"),
-    expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
-    getAgentSessionId: agentSessionStore.getId,
-    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-    getMcpFingerprint: userMcpService.fingerprint,
-    getUserMcpServers: (options) => userMcpService.getEngineSpecs("openclaw", options),
-    injectGroupContextForSdk: _passthroughGroupContext,
-    currentUserPrompt: nativeTurnHelpers.currentUserPrompt,
-    normalizeEffortLevel: settingsStore.normalizeEffortLevel,
-    permissionCoordinator: agentPermissionCoordinator,
-    processEnvStrings,
-    readBotPersona,
-    resolveModelRuntime,
-    runtimePaths,
-    setAgentSessionId: agentSessionStore.setId,
-    shellCommandPath: localAgentEngineService.shellCommandPath,
-    syncNativeMemoryFiles: syncNativeMemoryFilesForAgent
   });
 }
 
@@ -2417,7 +2381,7 @@ const { botWithRuntimeConfig, cloudBotSnapshotForTurn } = createBotTurnHelpers({
   normalizeAgentEngine,
   enginePermissionStoreTarget
 });
-const agentSessionManager = IS_DAEMON_PROCESS ? createAgentSessionManager() : null;
+const agentSessionManager = IS_DAEMON_PROCESS ? createAgentSessionManager(agentSessionPersistence) : null;
 
 // Single shared bot-execution core: `sendChat`/`stopChat` (and the single-flight
 // abort state) live in src/main/bot-execution-core.js so the standalone Mia Core
@@ -3281,7 +3245,6 @@ ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates()
 
 app.on("before-quit", () => {
   closeCodexAppServerRuntimes();
-  closeOpenClawAcpRuntimes();
   if (agentSessionManager && typeof agentSessionManager.closeAllSessions === "function") {
     agentSessionManager.closeAllSessions().catch((error) => appendEngineLog(`AgentSession cleanup failed: ${error?.message || error}`));
   }

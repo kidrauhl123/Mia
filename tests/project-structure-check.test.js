@@ -575,7 +575,7 @@ test("Mia memory lives behind a scoped service and adapters avoid native memory 
   const runtimePathsSource = fs.readFileSync(path.join(root, "src/main/runtime-paths.js"), "utf8");
   const memorySource = fs.readFileSync(path.join(root, "src/main/mia-memory-service.js"), "utf8");
   const runtimeContextSource = fs.readFileSync(path.join(root, "src/main/mia-runtime-context.js"), "utf8");
-  const adapterSource = fs.readFileSync(path.join(root, "src/main/openclaw-chat-adapter.js"), "utf8");
+  const adapterGraphSource = fs.readFileSync(path.join(root, "src/main/chat-engine-adapters.js"), "utf8");
 
   assert.match(memorySource, /function createMiaMemoryService/, "Mia memory service should exist");
   assert.match(runtimePathsSource, /mia-memory\.json/, "runtime paths should retain the legacy Mia memory migration path");
@@ -586,11 +586,12 @@ test("Mia memory lives behind a scoped service and adapters avoid native memory 
   assert.match(memorySource, /searchMemories/, "Mia memory service should expose scoped search");
   assert.match(runtimeContextSource, /sanitizeMiaMemorySpoof/, "Mia runtime context should expose user-spoofed memory header neutralization");
   assert.equal(fs.existsSync(path.join(root, "src/main/native-memory-context.js")), false, "old prompt-rendered native memory helper must stay deleted");
-  assert.doesNotMatch(adapterSource, /memoryBlock/, "chat adapters must not accept or call a prompt-rendered memoryBlock hook");
-  assert.doesNotMatch(adapterSource, /memoryInjectionMode|nativeMemoryInjectionMode/, "chat adapters must ignore legacy prompt memory injection mode config");
-  assert.doesNotMatch(adapterSource, /native-memory-context/, "chat adapters must not import the deleted native memory prompt helper");
-  assert.doesNotMatch(adapterSource, /\.codex[\s\S]{0,80}memory/, "adapters must not read native Codex memory files");
-  assert.doesNotMatch(adapterSource, /CLAUDE\.md/, "adapters must not read native Claude memory files");
+  assert.equal(fs.existsSync(path.join(root, "src/main/openclaw-chat-adapter.js")), false, "removed OpenClaw adapter must stay deleted");
+  assert.doesNotMatch(adapterGraphSource, /memoryBlock/, "chat adapters must not accept or call a prompt-rendered memoryBlock hook");
+  assert.doesNotMatch(adapterGraphSource, /memoryInjectionMode|nativeMemoryInjectionMode/, "chat adapters must ignore legacy prompt memory injection mode config");
+  assert.doesNotMatch(adapterGraphSource, /native-memory-context/, "chat adapters must not import the deleted native memory prompt helper");
+  assert.doesNotMatch(adapterGraphSource, /\.codex[\s\S]{0,80}memory/, "adapters must not read native Codex memory files");
+  assert.doesNotMatch(adapterGraphSource, /CLAUDE\.md/, "adapters must not read native Claude memory files");
 });
 
 test("Mia app MCP bridge and tool schema live behind main MCP services", () => {
@@ -873,28 +874,25 @@ test("foreground chat materializes skills per turn instead of full enabled-skill
   const coreSource = fs.readFileSync(path.join(root, "src/main/bot-execution-core.js"), "utf8");
   const loaderSource = fs.readFileSync(path.join(root, "src/main/skills-loader.js"), "utf8");
   const schedulerDefaults = fs.readFileSync(path.join(root, "src/main/scheduler-skill-defaults.js"), "utf8");
-  const adapterSource = fs.readFileSync(path.join(root, "src/main/openclaw-chat-adapter.js"), "utf8");
 
   assert.doesNotMatch(coreSource, /handleReminderChatTurn|app-scheduler-reminder|reminder-intent/, "foreground chat must not use direct reminder parsing");
   assert.match(coreSource, /resolveSkillMaterialization/, "bot execution core should materialize skill context once per turn");
   assert.match(coreSource, /skillMaterialization/, "bot execution core should pass materialized skills to adapters");
   assert.equal(fs.existsSync(path.join(root, "src/main/mia-native-context-bridge.js")), false, "legacy native context bridge should be deleted");
-  assert.doesNotMatch(adapterSource, /buildEnabledSkillsContext/, "adapters must not inject full enabled skills directly");
+  assert.equal(fs.existsSync(path.join(root, "src/main/openclaw-chat-adapter.js")), false, "removed OpenClaw adapter must stay deleted");
   assert.doesNotMatch(loaderSource, /function buildEnabledSkillsContext/, "skills loader must not expose full enabled-skill prompt injection");
   assert.match(schedulerDefaults, /return dedupeSkillIds\(activeSkillIds\)/, "scheduler defaults should preserve explicit skill chips only");
 });
 
-test("OpenClaw bot chat wiring stays on AgentSession and the adapter file is stateless-only", () => {
+test("OpenClaw bot chat adapter and wiring stay removed", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const coreSource = fs.readFileSync(path.join(root, "src/core/mia-core.js"), "utf8");
-  const adapterSource = fs.readFileSync(path.join(root, "src/main/openclaw-chat-adapter.js"), "utf8");
 
   assert.doesNotMatch(mainSource, /sendOpenClawChat/, "main must not wire a direct OpenClaw bot chat dependency");
   assert.doesNotMatch(coreSource, /sendOpenClawChat/, "Mia Core must not wire a direct OpenClaw bot chat dependency");
-  assert.match(adapterSource, /createOpenClawStatelessAdapter/, "OpenClaw adapter should expose a stateless constructor");
-  assert.doesNotMatch(adapterSource, /async function sendChat\s*\(/, "OpenClaw adapter must not retain a bot sendChat implementation");
-  assert.doesNotMatch(adapterSource, /createOpenClawChatAdapter/, "OpenClaw adapter should not keep the old bot adapter constructor");
-  assert.doesNotMatch(adapterSource, /createOpenClawStatelessAdapter:\s*createOpenClawChatAdapter/, "OpenClaw adapter export should not alias the old bot adapter name");
+  assert.doesNotMatch(mainSource, /createOpenClaw/, "main must not instantiate removed OpenClaw adapters");
+  assert.doesNotMatch(coreSource, /createOpenClaw/, "Mia Core must not instantiate removed OpenClaw adapters");
+  assert.equal(fs.existsSync(path.join(root, "src/main/openclaw-chat-adapter.js")), false, "OpenClaw adapter file should be deleted");
 });
 
 test("Claude Code and Codex bot chat wiring stays on AgentSession and prompt utilities are stateless-only", () => {

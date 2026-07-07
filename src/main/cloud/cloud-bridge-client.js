@@ -19,7 +19,6 @@ function normalizeAgentEngine(value, fallback = "codex") {
   const raw = String(value || "").trim().toLowerCase();
   if (raw === "claude" || raw === "claude-code" || raw === "anthropic") return "claude-code";
   if (raw === "codex" || raw === "openai-codex") return "codex";
-  if (raw === "openclaw" || raw === "open-claw") return "openclaw";
   if (raw === "cloud-claude-code") return "claude-code";
   if (raw === "hermes") return "hermes";
   return fallback;
@@ -28,7 +27,6 @@ function normalizeAgentEngine(value, fallback = "codex") {
 function engineLabel(engine) {
   if (engine === "claude-code") return "Claude Code";
   if (engine === "codex") return "Codex";
-  if (engine === "openclaw") return "OpenClaw";
   return "Hermes";
 }
 

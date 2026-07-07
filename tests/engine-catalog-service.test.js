@@ -8,8 +8,7 @@ const { test } = require("node:test");
 
 const {
   choicesFromHelp,
-  createEngineCatalogService,
-  normalizeOpenClawModels
+  createEngineCatalogService
 } = require("../src/main/engine-catalog-service.js");
 const { createCodexAppServerConnection } = require("../src/main/codex-app-server-runner.js");
 const { createSchedulerMcpBridge } = require("../src/main/scheduler-mcp-bridge.js");
@@ -138,21 +137,6 @@ test("loadEngineCapabilities and loadHermesSlashCommands parse runtime output", 
         error: ""
       },
       codex: { models: [], effortLevels: [], effortOptions: [], permissionProfiles: [] },
-      openclaw: {
-        available: false,
-        cliPath: "",
-        models: [],
-        effortLevels: [],
-        effortOptions: [],
-        permissionModes: ["default", "bypassPermissions"],
-        permissionOptions: [
-          { value: "default", label: "Ask", title: "OpenClaw asks Mia before tool use.", aliases: [], source: "mia-acp-adapter" },
-          { value: "bypassPermissions", label: "Full Access", title: "OpenClaw may use tools without Mia asking first.", aliases: ["yolo", "off", "never"], source: "mia-acp-adapter" }
-        ],
-        permissionSource: "mia-acp-adapter",
-        source: "openclaw",
-        error: ""
-      }
     }
   });
   assert.deepEqual(await service.loadHermesSlashCommands(), [{ command: "/goal", description: "Set goal" }]);
@@ -178,7 +162,7 @@ test("loadHermesSlashCommands returns an empty catalog when runtime reports no c
   assert.deepEqual(await service.loadHermesSlashCommands(), []);
 });
 
-test("choicesFromHelp parses Claude Code and OpenClaw CLI choice text", () => {
+test("choicesFromHelp parses Claude Code CLI choice text", () => {
   const help = `
   --model <model>            Model alias such as 'fable', 'opus', 'sonnet' or model's full name (e.g. 'claude-fable-5')
   --effort <level>           Reasoning effort (choices: low, medium, high, xhigh, max)
@@ -190,29 +174,6 @@ test("choicesFromHelp parses Claude Code and OpenClaw CLI choice text", () => {
   assert.deepEqual(choicesFromHelp(help, "--effort"), ["low", "medium", "high", "xhigh", "max"]);
   assert.deepEqual(choicesFromHelp(help, "--permission-mode"), ["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"]);
   assert.deepEqual(choicesFromHelp(help, "--thinking"), ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"]);
-});
-
-test("normalizeOpenClawModels accepts current models list JSON shape", () => {
-  assert.deepEqual(normalizeOpenClawModels({
-    count: 4,
-    models: [
-      { key: "openai/gpt-5.5", name: "gpt-5.5", contextWindow: 200000, available: false, tags: ["default"], missing: false },
-      { key: "missing/model", name: "Missing", missing: true },
-      { key: "mia/mia-auto", name: "Auto", contextWindow: 200000, available: true, missing: false },
-      { key: "openai/gpt-5.6", name: "gpt-5.6", contextWindow: 200000, available: true, tags: ["default"], missing: false }
-    ]
-  }), [{
-    id: "openai/gpt-5.6",
-    provider: "openclaw",
-    providerLabel: "OpenClaw",
-    model: "openai/gpt-5.6",
-    label: "gpt-5.6",
-    source: "openclaw-models-list",
-    description: "",
-    available: true,
-    contextWindow: 200000,
-    tags: ["default"]
-  }]);
 });
 
 test("loadEngineCapabilities probes Claude Code SDK settings and CLI help", async () => {
@@ -248,76 +209,6 @@ test("loadEngineCapabilities probes Claude Code SDK settings and CLI help", asyn
   assert.equal(claude.models.some((entry) => entry.model === "sonnet"), true);
   assert.equal(claude.models.some((entry) => entry.model === "claude-fable-5"), true);
   assert.equal(claude.models.some((entry) => entry.model.includes("full name")), false);
-});
-
-test("loadEngineCapabilities probes OpenClaw models and thinking levels from the CLI", async () => {
-  const execCalls = [];
-  const { service } = createHarness({
-    shellCommandPath: (command) => command === "openclaw" ? "/opt/openclaw-node/bin/openclaw" : "",
-    processEnvStrings: () => ({ PATH: "/bad-node/bin:/usr/bin:/opt/openclaw-node/bin" }),
-    execFile: (file, args, options, callback) => {
-      execCalls.push({ file, args, options });
-      if (args.join(" ") === "agent --help") {
-        callback(null, `
-  --thinking <level>         Thinking level: off | minimal | low | medium | high
-                             | xhigh | adaptive | max where supported
-`, "");
-        return;
-      }
-      callback(null, JSON.stringify({
-        models: [{ key: "openai/gpt-5.6", name: "gpt-5.6", contextWindow: 200000, available: true, tags: ["default"] }]
-      }), "");
-    }
-  });
-
-  const caps = await service.loadEngineCapabilities();
-  const openclaw = caps.engines.openclaw;
-
-  assert.deepEqual(execCalls.map((call) => call.args), [["agent", "--help"], ["models", "list", "--json"]]);
-  assert.deepEqual(execCalls.map((call) => call.options.env.PATH), [
-    "/opt/openclaw-node/bin:/bad-node/bin:/usr/bin",
-    "/opt/openclaw-node/bin:/bad-node/bin:/usr/bin"
-  ]);
-  assert.equal(openclaw.available, true);
-  assert.deepEqual(openclaw.effortLevels, ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"]);
-  assert.deepEqual(openclaw.permissionModes, ["default", "bypassPermissions"]);
-  assert.equal(openclaw.models[0].model, "openai/gpt-5.6");
-});
-
-test("loadEngineCapabilities falls back to OpenClaw dev help only for thinking levels", async () => {
-  const execCalls = [];
-  const { service } = createHarness({
-    shellCommandPath: (command) => command === "openclaw" ? "/opt/openclaw-node/bin/openclaw" : "",
-    processEnvStrings: () => ({ PATH: "/bad-node/bin:/usr/bin:/opt/openclaw-node/bin" }),
-    execFile: (file, args, options, callback) => {
-      execCalls.push({ file, args, options });
-      if (args.join(" ") === "agent --help") {
-        const error = new Error("bad config");
-        error.code = 1;
-        callback(error, "", "invalid config");
-        return;
-      }
-      if (args.join(" ") === "--dev agent --help") {
-        callback(null, "  --thinking <level>         Thinking level: off | minimal | adaptive | max where supported\n", "");
-        return;
-      }
-      const error = new Error("bad config");
-      error.code = 1;
-      callback(error, "", "invalid config");
-    }
-  });
-
-  const caps = await service.loadEngineCapabilities();
-  const openclaw = caps.engines.openclaw;
-
-  assert.deepEqual(execCalls.map((call) => call.args), [
-    ["agent", "--help"],
-    ["--dev", "agent", "--help"],
-    ["models", "list", "--json"]
-  ]);
-  assert.deepEqual(openclaw.effortLevels, ["off", "minimal", "adaptive", "max"]);
-  assert.deepEqual(openclaw.models, []);
-  assert.match(openclaw.error, /models-list/);
 });
 
 test("loadEngineCapabilities probes Codex app-server models and permission profiles", async () => {

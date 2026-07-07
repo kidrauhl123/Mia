@@ -52,19 +52,6 @@
         version: engines.codex?.version || "",
         source: engines.codex?.available ? "system" : "missing",
         health: engines.codex?.available ? "ready" : "missing"
-      },
-      {
-        id: "openclaw",
-        label: "OpenClaw",
-        installed: Boolean(engines.openClaw?.installed || engines.openClaw?.available),
-        usableInMia: Boolean(engines.openClaw?.available),
-        installable: true,
-        installAction: engines.openClaw?.installed || engines.openClaw?.available ? "" : "install-openclaw",
-        detectionOnly: Boolean(engines.openClaw?.detectionOnly),
-        path: engines.openClaw?.path || "",
-        version: engines.openClaw?.version || "",
-        source: engines.openClaw?.available ? "system" : "missing",
-        health: engines.openClaw?.available ? "ready" : "missing"
       }
     ];
   }
@@ -103,8 +90,7 @@
   const AGENT_ICON_PATHS = {
     hermes: "./assets/engine-icons/hermesagent.svg",
     "claude-code": "./assets/engine-icons/claudecode.svg",
-    codex: "./assets/engine-icons/codex-color.svg",
-    openclaw: "./assets/provider-icons/openclaw-color.svg"
+    codex: "./assets/engine-icons/codex-color.svg"
   };
 
   function agentIcon(agent) {
@@ -138,7 +124,6 @@
     if (agent.id === "hermes") return "未检测到，可安装官方 Hermes";
     if (agent.id === "claude-code") return "未检测到，可一键安装 Claude Code";
     if (agent.id === "codex") return "未检测到，可一键安装 Codex";
-    if (agent.id === "openclaw") return "未检测到，可一键安装 OpenClaw";
     return "未检测到";
   }
 
@@ -204,7 +189,7 @@
           <div class="setup-guide-main">
             <span class="setup-kicker">Agent 内核设置</span>
             <strong>正在扫描本机 Agent</strong>
-            <p>正在检查 Hermes、Claude Code、Codex 和 OpenClaw 的本机安装状态。</p>
+            <p>正在检查 Hermes、Claude Code 和 Codex 的本机安装状态。</p>
           </div>
         </article>
       `;

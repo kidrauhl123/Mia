@@ -7,7 +7,6 @@ const path = require("node:path");
 const { MCP_ENGINE_IDS } = require("../../shared/mcp-contracts.js");
 const {
   bridgeMcpSpec,
-  mcpServersForOpenClawAcp,
   mcpSpecsForClaudeSdk,
   mcpSpecsForCodex,
   mcpSpecsForHermes
@@ -1166,7 +1165,6 @@ function createCoreMcpService(deps = {}) {
     if (engineId === "claude-code") return mcpSpecsForClaudeSdk(records, conversionOptions);
     if (engineId === "codex") return mcpSpecsForCodex(records, conversionOptions);
     if (engineId === "hermes") return mcpSpecsForHermes(records, conversionOptions);
-    if (engineId === "openclaw") return mcpServersForOpenClawAcp(records, conversionOptions);
     return {};
   }
 

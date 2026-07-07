@@ -38,19 +38,6 @@ test("agent engine policy keeps runtime scope decisions in one table", () => {
     configApply: "adapter-options"
   });
 
-  assert.deepEqual(agentEnginePolicy("open-claw"), {
-    id: "openclaw",
-    homeStrategy: "native-engine-default",
-    nativeHomeSubdir: "",
-    nativeSkillsDirs: null,
-    permissionScope: "engine",
-    permissionStore: "engine-map",
-    permissionCodec: "openclaw-acp-permission-mode",
-    modelScope: "partner",
-    effortScope: "partner",
-    configApply: "adapter-options"
-  });
-
   assert.deepEqual(agentEnginePolicy("hermes"), {
     id: "hermes",
     homeStrategy: "native-user-home",
@@ -63,6 +50,8 @@ test("agent engine policy keeps runtime scope decisions in one table", () => {
     effortScope: "partner",
     configApply: "hermes-runtime-config"
   });
+
+  assert.equal(agentEnginePolicy("open-claw").id, "hermes");
 });
 
 test("engine permission policy preserves each engine's native permission values", () => {
@@ -70,8 +59,8 @@ test("engine permission policy preserves each engine's native permission values"
   assert.equal(normalizeEnginePermissionMode("hermes", "default"), "ask");
   assert.equal(normalizeEnginePermissionMode("codex", ":danger-full-access"), ":danger-full-access");
   assert.equal(normalizeEnginePermissionMode("claude-code", "bypassPermissions"), "bypassPermissions");
-  assert.equal(normalizeEnginePermissionMode("openclaw", "bypassPermissions"), "bypassPermissions");
-  assert.equal(normalizeEnginePermissionMode("openclaw", ""), "default");
+  assert.equal(normalizeEnginePermissionMode("openclaw", "bypassPermissions"), "ask");
+  assert.equal(normalizeEnginePermissionMode("openclaw", ""), "ask");
 });
 
 test("policy identifies where permission settings are stored and applied", () => {
@@ -79,8 +68,8 @@ test("policy identifies where permission settings are stored and applied", () =>
   assert.equal(enginePermissionStoreTarget("codex"), "engine-map");
   assert.equal(shouldApplyNativePermissionConfig("codex"), true);
   assert.equal(shouldApplyNativePermissionConfig("claude-code"), false);
-  assert.equal(shouldApplyNativePermissionConfig("openclaw"), false);
   assert.equal(shouldApplyNativePermissionConfig("hermes"), false);
+  assert.equal(shouldApplyNativePermissionConfig("openclaw"), false);
 });
 
 test("native home path is explicit only for engines that need Mia to pass one", () => {
@@ -88,15 +77,15 @@ test("native home path is explicit only for engines that need Mia to pass one", 
 
   assert.equal(nativeHomePathForEngine("codex", userHome), path.join(userHome, ".codex"));
   assert.equal(nativeHomePathForEngine("claude-code", userHome), "");
-  assert.equal(nativeHomePathForEngine("openclaw", userHome), "");
   assert.equal(nativeHomePathForEngine("hermes", userHome), path.join(userHome, ".hermes"));
+  assert.equal(nativeHomePathForEngine("openclaw", userHome), path.join(userHome, ".hermes"));
 });
 
 test("agent engine policy exposes native skill directory metadata", () => {
   assert.deepEqual(agentEnginePolicy("claude-code").nativeSkillsDirs, [".claude/skills"]);
   assert.deepEqual(agentEnginePolicy("codex").nativeSkillsDirs, [".codex/skills"]);
   assert.deepEqual(agentEnginePolicy("hermes").nativeSkillsDirs, []);
-  assert.equal(agentEnginePolicy("openclaw").nativeSkillsDirs, null);
+  assert.deepEqual(agentEnginePolicy("openclaw").nativeSkillsDirs, []);
 });
 
 test("native skill dir resolution prefers runtime and bot metadata over fallback policy", () => {
@@ -108,14 +97,14 @@ test("native skill dir resolution prefers runtime and bot metadata over fallback
   );
 
   assert.deepEqual(
-    resolveNativeSkillsDirs("openclaw", {
+    resolveNativeSkillsDirs("hermes", {
       runtimeConfig: {
         agentMetadata: {
-          native_skills_dirs: [".openclaw/skills"]
+          native_skills_dirs: [".custom/skills"]
         }
       }
     }),
-    [".openclaw/skills"]
+    [".custom/skills"]
   );
 
   assert.equal(
@@ -130,5 +119,5 @@ test("native skill dir resolution prefers runtime and bot metadata over fallback
   );
 
   assert.deepEqual(resolveNativeSkillsDirs("codex"), [".codex/skills"]);
-  assert.equal(resolveNativeSkillsDirs("openclaw"), null);
+  assert.deepEqual(resolveNativeSkillsDirs("openclaw"), []);
 });

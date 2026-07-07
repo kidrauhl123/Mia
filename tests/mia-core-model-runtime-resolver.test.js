@@ -141,10 +141,10 @@ test("returns null for native cli selected model profiles", () => {
     model: "gpt-5.3-codex"
   }, { engine: "codex" }), null);
   assert.equal(resolver.resolveModelRuntime({
-    providerConnectionId: "openclaw",
-    modelProfileId: "openclaw:auto",
-    model: "auto"
-  }, { engine: "openclaw" }), null);
+    providerConnectionId: "claude-code",
+    modelProfileId: "claude-code:sonnet",
+    model: "sonnet"
+  }, { engine: "claude-code" }), null);
 });
 
 test("requires Mia Cloud login for Mia managed profiles", () => {

@@ -174,6 +174,16 @@ function currentTurnInput(messages = []) {
   return input;
 }
 
+function isRemovedOpenClawEngine(value = "") {
+  const id = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  return id === "openclaw" || id === "open-claw";
+}
+
+function assertSupportedRequestedEngine(value = "") {
+  if (!isRemovedOpenClawEngine(value)) return;
+  throw new Error("OpenClaw support has been removed from Mia. Please switch this Bot to Hermes, Claude Code, or Codex.");
+}
+
 function resolveAgentSessionWorkspacePath(source) {
   const value = typeof source === "function" ? source() : source;
   return String(value || "").trim();
@@ -300,12 +310,15 @@ function createBotExecutionCore({
       : { emit: null };
     try {
       const key = botKey || botId;
+      assertSupportedRequestedEngine(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine);
+      assertSupportedRequestedEngine(botSnapshot?.agentEngine || botSnapshot?.agent_engine || botSnapshot?.engine);
       const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, key, runtimeConfig);
       let bot = snapshotBot;
       if (!bot) {
         const manifest = loadBotManifest();
         ({ bot } = requireBot(manifest, key, "还没有可用的 bot，请先在引导里创建一个再发起对话。"));
       }
+      assertSupportedRequestedEngine(bot?.agentEngine || bot?.agent_engine || bot?.engine);
       const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
       const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
       let botForTurn = botWithRuntimeConfig(bot, turnRuntimeConfig, { agentEngine: runtimeAgentEngine });

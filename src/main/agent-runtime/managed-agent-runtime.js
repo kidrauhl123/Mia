@@ -8,8 +8,7 @@ const {
 const ENGINE_TOOL_IDS = Object.freeze({
   hermes: ["hermes", "hermes-agent"],
   "claude-code": ["claude-code", "claude-acp", "claude"],
-  codex: ["codex-acp", "codex"],
-  openclaw: ["openclaw-acp", "openclaw", "claw"]
+  codex: ["codex-acp", "codex"]
 });
 
 const MANAGED_RESOURCE_GROUPS = Object.freeze(["agents", "acp", "cli"]);
@@ -21,7 +20,6 @@ function runtimeKey(platform = process.platform, arch = process.arch) {
 function normalizeEngineId(value = "") {
   const id = String(value || "").trim().toLowerCase().replace(/_/g, "-");
   if (id === "claude") return "claude-code";
-  if (id === "open-claw") return "openclaw";
   if (id === "openai-codex") return "codex";
   return id;
 }

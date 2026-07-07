@@ -153,7 +153,7 @@ test("default agent discovery service uses runner", async (t) => {
   const result = await service.getAgentConfigs();
 
   assert.equal(result.success, true);
-  assert.deepEqual(result.data.sources.map((source) => source.source), ["claude-code", "codex", "openclaw", "hermes"]);
+  assert.deepEqual(result.data.sources.map((source) => source.source), ["claude-code", "codex", "hermes"]);
   assert.equal(result.data.sources[0].servers[0].name, "xhs");
   assert.ok(calls.includes("claude"));
 });

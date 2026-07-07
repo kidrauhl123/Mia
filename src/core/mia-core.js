@@ -129,6 +129,10 @@ const { createMiaAppMcpBridge } = require("../main/mia-app-mcp-bridge.js");
 const { createLocalAgentEngineService } = require("../main/local-agent-engine-service.js");
 const { createAgentPermissionCoordinator } = require("../main/agent-permission-coordinator.js");
 const { createAgentSessionManager } = require("../main/agent-session/index.js");
+const {
+  createAgentSessionManagerPersistence,
+  createAgentSessionStore
+} = require("../main/agent-session-store.js");
 const { createMcpSdkClientManager } = require("../main/mcp/mcp-sdk-client.js");
 const { createMcpBridgeServer } = require("../main/mcp/mcp-bridge-server.js");
 const { createCoreMcpService } = require("./mcp/service.js");
@@ -362,7 +366,7 @@ function coreResolveOfficialLibraryRoot(root = "") {
 // the same adapter graph the Electron main process builds — createChatEngineAdapters
 // → sendWithChatEngineAdapter → adapter.send — reusing the real shared helpers
 // (bot snapshot/runtime-config/skill/scheduler normalization). Interactive
-// Hermes turns route through AgentSession ACP; Codex / Claude Code / OpenClaw
+// Hermes turns route through AgentSession ACP; Codex / Claude Code
 // use their real adapters with PATH-resolved CLIs.
 function createCoreBotExecution({
   env = process.env,
@@ -375,7 +379,7 @@ function createCoreBotExecution({
   hermesHome = null,
   engineOwnedByCore = null,
   // PART B: the daemon-control facts the scheduler/Mia-app MCP specs embed so a
-  // Codex/Claude/OpenClaw turn's MCP servers can call back into Core's daemon
+  // Codex/Claude turn's MCP servers can call back into Core's daemon
   // (MIA_DAEMON_URL/TOKEN). All optional: absent (tests / Hermes-only callers) →
   // getSpec degrades to null (no MCP) and the engines still run their turn.
   daemonStatus = null,
@@ -392,7 +396,11 @@ function createCoreBotExecution({
 } = {}) {
   const baseUrl = typeof hermesBaseUrl === "function" ? hermesBaseUrl : () => String(hermesBaseUrl || "");
   const apiKeyFn = typeof apiKey === "function" ? apiKey : () => String(apiKey || "");
-  const agentSessionManager = injectedAgentSessionManager || createAgentSessionManager();
+  const agentSessionManager = injectedAgentSessionManager || createAgentSessionManager(createAgentSessionManagerPersistence(createAgentSessionStore({
+    runtimePaths,
+    readJson,
+    normalizeBotAgentEngine: normalizeAgentEngine
+  })));
 
   // Real bot manifest read-side: local fallback when a turn carries no cloud
   // snapshot. Core owns the same runtime home, so it reads the same manifest.
@@ -554,7 +562,7 @@ function createCoreBotExecution({
   });
 
   // PART B — local agent engine service (pure node). Provides the PATH-resolved
-  // CLI lookup (shellCommandPath: claude/codex/openclaw/node), the codex runtime
+  // CLI lookup (shellCommandPath: claude/codex/node), the codex runtime
   // env/profile helpers, and processEnvWithCliPath — the SAME service main.js
   // drives (src/main.js:425). Constructed from node values only (homeDir/env/
   // resourcesPath/spawnSync + node predicates); external CLIs come from PATH.
@@ -755,7 +763,7 @@ function createCoreBotExecution({
       miaHomePath: () => runtimePaths().home,
       getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
       getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
-      getUserMcpServers: (_engineId, options) => userMcpService.getEngineSpecs("openclaw", options),
+      getUserMcpServers: (engineId, options) => userMcpService.getEngineSpecs(engineId, options),
       getMcpFingerprint: userMcpService.fingerprint,
       writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
       writeSchedulerMcpContext: schedulerMcpBridge.writeContext
@@ -773,7 +781,7 @@ function createCoreBotExecution({
     return resolveCoreAgentWorkspace({ runtimePaths, settingsStore });
   }
 
-  // REAL adapter graph: Claude Code, Codex, Hermes, and OpenClaw bot turns route
+  // REAL adapter graph: Claude Code, Codex, and Hermes bot turns route
   // through AgentSession ACP. This graph only keeps slash-command fallbacks that
   // fail closed when Core has no slash service.
   function createActiveChatEngineAdapters() {
@@ -1019,10 +1027,10 @@ function createCoreCloudEvents({
 // cloudWebSocketUrl("/api/bridge", ...): same address + token-protocol derivation,
 // the persisted desktop device identity, and a capabilities advertisement
 // spanning all engines Core now runs — hermes (HTTP) + codex / claude-code /
-// openclaw (PART B, external CLIs resolved from PATH). The actual CLI
+// external CLIs resolved from PATH. The actual CLI
 // availability is probed at turn time; the adapter surfaces its own "CLI not
 // found" error if one is missing.
-const CORE_BRIDGE_ENGINE_IDS = ["hermes", "codex", "claude-code", "openclaw"];
+const CORE_BRIDGE_ENGINE_IDS = ["hermes", "codex", "claude-code"];
 
 function coreCloudBridgeUrl(settings = {}, { deviceId = "", deviceName = "", version = "" } = {}) {
   const ownedDeviceId = String(deviceId || "").trim();
@@ -1061,7 +1069,7 @@ function coreCloudBridgeUrl(settings = {}, { deviceId = "", deviceName = "", ver
 // maps that onto botExecution.sendChat by forwarding the bridge `botSnapshot`
 // (+ botKey/botId) plus sessionId/messages/signal/emit/utility/runtimeConfig.
 // The engine is selected by runtimeConfig.agentEngine inside sendChat
-// (botWithRuntimeConfig), so each of hermes / codex / claude-code / openclaw
+// (botWithRuntimeConfig), so each of hermes / codex / claude-code
 // runs its REAL adapter graph (PART B). A missing external CLI surfaces that
 // adapter's own "CLI not found" error — not a Core-level "engine not available"
 // throw.
@@ -1110,7 +1118,7 @@ function createCoreCloudBridge({
   // capabilities/engineConfig); Core forwards it unchanged so no manifest read
   // is needed for cloud-supplied bots. Engine selection lives inside
   // botExecution.sendChat (botWithRuntimeConfig), so each of hermes / codex /
-  // claude-code / openclaw runs its REAL adapter (PART B).
+  // claude-code runs its REAL adapter (PART B).
   const runBridgeBotTurn = ({ botKey, botId, botSnapshot, sessionId, messages, signal, emit, utility = false, runtimeConfig }) => botExecution.sendChat({
       botKey: botKey || botSnapshot?.key || botSnapshot?.id || "",
       botId: botId || botSnapshot?.id || botSnapshot?.key || "",
@@ -1964,7 +1972,11 @@ function createMiaCore(options = {}) {
   }
 
   let cachedBotExecution = null;
-  const agentSessionManager = createAgentSessionManager();
+  const agentSessionManager = createAgentSessionManager(createAgentSessionManagerPersistence(createAgentSessionStore({
+    runtimePaths,
+    readJson,
+    normalizeBotAgentEngine: normalizeAgentEngine
+  })));
   function botExecution(overrides = {}) {
     if (cachedBotExecution && !Object.keys(overrides).length) return cachedBotExecution;
     const built = createCoreBotExecution({
@@ -1984,7 +1996,7 @@ function createMiaCore(options = {}) {
       // engine's owner wrote the model).
       hermesHome: () => runtimePaths().hermesHome,
       engineOwnedByCore: envHermesBaseUrl ? () => false : () => engineSupervisor().isManaged(),
-      // PART B: the daemon-control facts the Codex/Claude/OpenClaw MCP specs embed
+      // PART B: the daemon-control facts the Codex/Claude MCP specs embed
       // so their MCP servers can call back into Core's own control server. Core IS
       // the daemon, so it reports its own status/settings/token (single owner).
       daemonStatus: () => controlServer.status?.() || {},
@@ -2101,7 +2113,7 @@ function createMiaCore(options = {}) {
       // left running — Core is not its owner). No-op if never built/spawned.
       if (cachedEngineSupervisor) cachedEngineSupervisor.stop();
       // PART B: close the user-MCP bridge (loopback HTTP) + managed proxy sessions
-      // a Codex/Claude/OpenClaw turn may have opened, so the daemon exits cleanly.
+      // a Codex/Claude turn may have opened, so the daemon exits cleanly.
       // MUST await — closeAgentEngines closes loopback HTTP servers; not awaiting
       // leaves their handles alive and blocks a clean process exit.
       if (cachedBotExecution && typeof cachedBotExecution.closeAgentEngines === "function") {

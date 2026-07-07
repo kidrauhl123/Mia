@@ -22,12 +22,12 @@ test("native context mode reads engine-specific runtime and bot config keys", ()
   assert.equal(nativeContextModeFromConfig(
     { engineConfig: { nativeContextMode: "prompt" } },
     null,
-    "openclaw"
+    "codex"
   ), "prompt");
   assert.equal(nativeContextModeFromConfig(
-    { engineConfig: { openclawContextMode: "mcp" } },
+    { engineConfig: { codexContextMode: "mcp" } },
     null,
-    "openclaw"
+    "codex"
   ), "mcp");
   assert.equal(nativeContextModeFromConfig(
     { engineConfig: { nativeContextMode: "prompt" } },
@@ -37,12 +37,12 @@ test("native context mode reads engine-specific runtime and bot config keys", ()
 });
 
 test("context snapshot instruction is scoped to one bot and session", () => {
-  const text = contextSnapshotInstruction({ engine: "openclaw", botId: "mei", sessionId: "conversation:1" });
+  const text = contextSnapshotInstruction({ engine: "codex", botId: "mei", sessionId: "conversation:1" });
   assert.match(text, /context_snapshot/);
   assert.match(text, /scope: current bot \+ current session only/);
   assert.match(text, /memory_tools: .*memory_search/);
   assert.match(text, /skill_tools: .*skill_read_current/);
-  assert.match(text, /engine: openclaw/);
+  assert.match(text, /engine: codex/);
   assert.match(text, /bot: mei/);
   assert.match(text, /session: conversation:1/);
 });

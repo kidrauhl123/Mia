@@ -945,11 +945,9 @@ test("initialize restores bridge specs for cold-start getEngineSpecs", async (t)
 
   const initialized = await service.initialize();
   const codexSpecs = service.getEngineSpecs("codex");
-  const openClawServers = service.getEngineSpecs("openclaw", { supportsHttp: false, supportsSse: false });
 
   assert.equal(initialized.success, true);
   assert.equal(codexSpecs["mia-mcp-bridge"].command, "/usr/local/bin/node");
-  assert.deepEqual(openClawServers.map((server) => server.name), ["mia-mcp-bridge"]);
 });
 
 test("getEngineSpecs triggers lazy initialization and initialize stays bounded when refresh hangs", async (t) => {

@@ -37,12 +37,13 @@ test("engine contract normalizes aliases and exposes shared labels", () => {
   assert.equal(nodeContract.EngineId.Hermes, "hermes");
   assert.equal(nodeContract.EngineId.ClaudeCode, "claude-code");
   assert.equal(nodeContract.EngineId.Codex, "codex");
-  assert.equal(nodeContract.EngineId.OpenClaw, "openclaw");
+  assert.equal(Object.prototype.hasOwnProperty.call(nodeContract.EngineId, "OpenClaw"), false);
   assert.equal(nodeContract.normalizeAgentEngine("claude"), "claude-code");
   assert.equal(nodeContract.normalizeAgentEngine("openai_codex"), "codex");
-  assert.equal(nodeContract.normalizeAgentEngine("open-claw"), "openclaw");
+  assert.equal(nodeContract.normalizeAgentEngine("open-claw"), "hermes");
+  assert.equal(nodeContract.normalizeAgentEngine("openclaw"), "hermes");
   assert.equal(nodeContract.normalizeAgentEngine("unknown"), "hermes");
-  assert.equal(nodeContract.engineLabel("openclaw"), "OpenClaw");
+  assert.equal(nodeContract.engineLabel("openclaw"), "Hermes");
   assert.equal(nodeContract.engineLabel("claude-code"), "Claude Code");
   assert.deepEqual(plain(browserContract.EngineId), plain(nodeContract.EngineId));
   assert.equal(browserContract.normalizeAgentEngine("openai-codex"), "codex");
@@ -53,12 +54,9 @@ test("engine contract owns external model and mode options for browser clients",
 
   assert.equal(contract.isExternalEngine("claude-code"), true);
   assert.equal(contract.isExternalEngine("codex"), true);
-  assert.equal(contract.isExternalEngine("openclaw"), true);
+  assert.equal(contract.isExternalEngine("openclaw"), false);
   assert.equal(contract.isExternalEngine("hermes"), false);
-  assert.equal(contract.adapterForEngine("openclaw").usesRuntime, true);
-  assert.equal(contract.adapterForEngine("openclaw").transport, "acp-backend");
-  assert.equal(contract.adapterForEngine("openclaw").agentType, "acp");
-  assert.equal(contract.adapterForEngine("openclaw").backend, "openclaw");
+  assert.equal(contract.adapterForEngine("openclaw").id, "hermes");
   assert.deepEqual(contract.externalModelEntries("claude-code").map((entry) => entry.id), ["default", "mia-auto"]);
   assert.equal(contract.externalModelEntries("claude-code").find((entry) => entry.provider === "mia").authType, "mia_account");
   assert.deepEqual(
@@ -79,24 +77,7 @@ test("engine contract owns external model and mode options for browser clients",
   );
   assert.equal(contract.platformModelDisplayLabel({ id: "mia-auto", label: "Mia DeepSeek" }), "Auto");
   assert.equal(contract.platformModelDisplayLabel({ id: "mia-pro", label: "Mia Pro" }), "Pro");
-  assert.deepEqual(
-    contract.externalModelEntries("openclaw", {
-      engineCapabilities: {
-        engines: {
-          openclaw: {
-            models: [{ id: "openai/gpt-5.5", provider: "openclaw", providerLabel: "OpenClaw", model: "openai/gpt-5.5", label: "gpt-5.5" }]
-          }
-        }
-      }
-    }).map((entry) => ({ id: entry.id, model: entry.model, label: entry.label, provider: entry.provider })),
-    [
-      { id: "openai/gpt-5.5", model: "openai/gpt-5.5", label: "gpt-5.5", provider: "openclaw" },
-      { id: "mia-auto", model: "mia-auto", label: "Auto", provider: "mia" }
-    ]
-  );
-  assert.equal(contract.externalModelEntries("openclaw", {
-    platformModels: [{ id: "mia-auto", label: "Mia DeepSeek" }]
-  }).find((entry) => entry.provider === "mia")?.label, "Auto");
+  assert.deepEqual(contract.externalModelEntries("openclaw"), []);
   assert.deepEqual(
     contract.externalModelEntries("codex", {
       codexModels: [{
@@ -143,19 +124,7 @@ test("engine contract owns external model and mode options for browser clients",
       { value: ":danger-full-access", label: "Full Access", aliases: ["bypassPermissions", "yolo", "off", "never", "danger-full-access"] }
     ]
   );
-  assert.deepEqual(
-    contract.externalPermissionOptions("openclaw", {
-      engineCapabilities: { engines: { openclaw: { permissionOptions: [{ value: "readOnly", label: "Read" }] } } }
-    }).map((item) => ({ value: item.value, label: item.label })),
-    [{ value: "readOnly", label: "Read" }]
-  );
-  assert.deepEqual(
-    contract.externalPermissionOptions("openclaw").map((item) => ({ value: item.value, label: item.label, aliases: item.aliases })),
-    [
-      { value: "default", label: "Ask", aliases: [] },
-      { value: "bypassPermissions", label: "Full Access", aliases: ["yolo", "off", "never"] }
-    ]
-  );
+  assert.deepEqual(contract.externalPermissionOptions("openclaw"), []);
   assert.deepEqual(contract.effortOptions("codex", {
     codexModels: [{ supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "high" }] }]
   }), [
@@ -163,13 +132,7 @@ test("engine contract owns external model and mode options for browser clients",
     { value: "high", label: "High", title: "" }
   ]);
   assert.deepEqual(contract.effortOptions("codex").map((item) => item.value), ["medium"]);
-  assert.deepEqual(
-    contract.effortOptions("openclaw", {
-      engineCapabilities: { engines: { openclaw: { effortLevels: ["off", "adaptive", "max"] } } }
-    }).map((item) => item.value),
-    ["off", "adaptive", "max"]
-  );
-  assert.deepEqual(contract.effortOptions("openclaw").map((item) => item.value), ["off"]);
+  assert.deepEqual(contract.effortOptions("openclaw").map((item) => item.value), ["low", "medium", "high"]);
   assert.deepEqual(
     contract.effortOptions("hermes", { effortLevels: ["low", "high"], effortLabels: { high: "High" } }),
     [{ value: "low", label: "low" }, { value: "high", label: "High" }]

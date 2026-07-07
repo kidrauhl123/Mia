@@ -44,18 +44,18 @@ test("packaged Mia Core node runtime is new enough and requires sqlite fts5", ()
   assert.match(source, /await assertTargetFts5Enabled\(source, targetPlatform, targetArch\)/);
 });
 
-test("desktop package includes OpenClaw ACP SDK runtime dependency", () => {
+test("desktop package includes AgentSession ACP SDK runtime dependency", () => {
   const pkg = packageJson();
 
-  assert.ok(pkg.dependencies?.["@agentclientprotocol/sdk"], "OpenClaw ACP SDK must be a production dependency");
-  assert.ok(pkg.dependencies?.zod, "OpenClaw ACP SDK imports zod at runtime, so zod must be a production dependency");
+  assert.ok(pkg.dependencies?.["@agentclientprotocol/sdk"], "AgentSession ACP SDK must be a production dependency");
+  assert.ok(pkg.dependencies?.zod, "AgentSession ACP SDK imports zod at runtime, so zod must be a production dependency");
   assert.ok(
     pkg.build.asarUnpack.includes("node_modules/@agentclientprotocol/sdk/**"),
-    "OpenClaw adapter imports @agentclientprotocol/sdk at runtime, so packaged apps must unpack it"
+    "AgentSession imports @agentclientprotocol/sdk at runtime, so packaged apps must unpack it"
   );
   assert.ok(
     pkg.build.asarUnpack.includes("node_modules/zod/**"),
-    "OpenClaw ACP SDK imports zod at runtime, so packaged apps must unpack it"
+    "AgentSession ACP SDK imports zod at runtime, so packaged apps must unpack it"
   );
 });
 

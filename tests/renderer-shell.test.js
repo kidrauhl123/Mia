@@ -1080,13 +1080,13 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   assert.match(appSource, /finish-agent-scan/);
   assert.doesNotMatch(noAgentGuideSource, /data-action="cloud-login"/);
   assert.match(appSource, /AGENT_SETUP_SKIPPED_KEY/);
-  assert.match(appSource, /engineRowOpenClaw/);
-  assert.match(htmlSource, /id="engineRowOpenClaw"/);
+  assert.doesNotMatch(appSource, /engineRowOpenClaw/);
+  assert.doesNotMatch(htmlSource, /id="engineRowOpenClaw"/);
   assert.match(htmlSource, /assets\/engine-icons\/hermesagent\.svg/);
   assert.match(htmlSource, /assets\/engine-icons\/claudecode\.svg/);
   assert.match(htmlSource, /assets\/engine-icons\/codex-color\.svg/);
-  assert.match(htmlSource, /assets\/provider-icons\/openclaw-color\.svg/);
-  assert.match(stylesSource, /engine-row-logo\.openclaw/);
+  assert.doesNotMatch(htmlSource, /assets\/provider-icons\/openclaw-color\.svg/);
+  assert.doesNotMatch(stylesSource, /engine-row-logo\.openclaw/);
   assert.match(stylesSource, /body\.onboarding-window \.setup-guide \{[\s\S]*?border:\s*0;/);
   assert.match(stylesSource, /body\.onboarding-window \.setup-guide \{[\s\S]*?-webkit-app-region:\s*drag;/);
   assert.match(stylesSource, /body\.onboarding-window \.setup-engine-row \{[\s\S]*?border:\s*0;/);
@@ -1428,8 +1428,7 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
     els: {
       engineRowHermes: { textContent: "" },
       engineRowClaude: { textContent: "" },
-      engineRowCodex: { textContent: "" },
-      engineRowOpenClaw: { textContent: "" }
+      engineRowCodex: { textContent: "" }
     }
   };
   vm.runInNewContext(`${renderSource}; this.renderEngineDetection = renderEngineDetection;`, sandbox);
@@ -1439,15 +1438,13 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
     engineRunning: true,
     agentEngines: {
       claudeCode: { available: true, path: "/usr/local/bin/claude", version: "1.2.3 build" },
-      codex: { available: true, path: "/usr/local/bin/codex", version: "4.5.6 build" },
-      openClaw: { available: true, detectionOnly: true }
+      codex: { available: true, path: "/usr/local/bin/codex", version: "4.5.6 build" }
     }
   });
 
   assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
   assert.equal(sandbox.els.engineRowClaude.textContent, "/usr/local/bin/claude · 1.2.3 build");
   assert.equal(sandbox.els.engineRowCodex.textContent, "/usr/local/bin/codex · 4.5.6 build");
-  assert.equal(sandbox.els.engineRowOpenClaw.textContent, "已就绪");
 
   sandbox.renderEngineDetection({
     engineSource: "managed",
@@ -1502,11 +1499,9 @@ test("engine detection renderer surfaces install progress and failures in settin
       engineRowHermes: { textContent: "" },
       engineRowClaude: { textContent: "" },
       engineRowCodex: { textContent: "" },
-      engineRowOpenClaw: { textContent: "" },
       engineRowHermesActions: { innerHTML: "" },
       engineRowClaudeActions: { innerHTML: "" },
       engineRowCodexActions: { innerHTML: "" },
-      engineRowOpenClawActions: { innerHTML: "" },
       engineInstallActions: {
         classList: { add: () => {}, toggle: () => {} },
         innerHTML: ""
@@ -3118,7 +3113,7 @@ test("bot creation dialog combines runtime location and agent engine into one gr
   assert.match(dialogSource, /document\.createElement\("optgroup"\)/);
   assert.match(dialogSource, /refreshBridgeDevicesForDialog/);
   assert.match(dialogSource, /state\?\.runtime\?\.cloud\?\.enabled/);
-  assert.match(dialogSource, /openclaw/);
+  assert.doesNotMatch(dialogSource, /openclaw/);
 });
 
 test("desktop accordion helper animates managed details instead of native snap toggles", () => {
@@ -3257,5 +3252,5 @@ test("renderer app state factory owns default mutable state", () => {
   assert.equal(state.isNarrowWindow, true);
   assert.equal(state.sidebarWidth, 300);
   assert.deepEqual(plain(state.slashCommands), []);
-  assert.deepEqual(plain(state.agentSlashCommands), { "claude-code": [], codex: [], openclaw: [] });
+  assert.deepEqual(plain(state.agentSlashCommands), { "claude-code": [], codex: [] });
 });

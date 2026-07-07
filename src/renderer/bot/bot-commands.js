@@ -51,7 +51,7 @@
     "base_url",
     "api_mode"
   ];
-  const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "OpenClaw", "Hermes"];
+  const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "Hermes"];
   const CLOUD_RUNTIME_KIND = "cloud-claude-code";
 
   function normalizeRuntimeKind(value, fallback = "desktop-local") {
@@ -558,7 +558,6 @@
     const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
     if (id === "claude" || id === "claude-code") return "claude-code";
     if (id === "codex" || id === "openai-codex") return "codex";
-    if (id === "openclaw" || id === "open-claw") return "openclaw";
     return "hermes";
   }
 

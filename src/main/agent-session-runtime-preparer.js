@@ -9,7 +9,6 @@ const yaml = require("js-yaml");
 const { normalizeAcpMcpServer, normalizeAcpMcpServers } = require("./agent-session/acp-mcp-servers.js");
 const { buildMiaContextResource, mcpContextPrompt } = require("./mia-context-resource.js");
 const { createSkillRuntimeOwner } = require("./mia-core/skill-runtime-owner.js");
-const { createOpenClawMiaProfile } = require("./openclaw-mia-profile.js");
 const { createCodexMiaProxy } = require("./codex-mia-proxy.js");
 const {
   DEFAULT_CODEX_MIA_MODEL_CATALOG,
@@ -142,7 +141,6 @@ function createAgentSessionRuntimePreparer(options = {}) {
     : null;
   const claudeCodeMiaProxy = options.claudeCodeMiaProxy || null;
   const codexMiaProxy = options.codexMiaProxy || createCodexMiaProxy(options.codexMiaProxyOptions || {});
-  const openClawMiaProfile = options.openClawMiaProfile || createOpenClawMiaProfile(options.openClawMiaProfileOptions || {});
   const codexModelCatalogPath = String(options.codexModelCatalogPath || "").trim()
     || path.join(os.tmpdir(), DEFAULT_CODEX_MIA_MODEL_CATALOG);
   const codexLauncherPath = String(options.codexLauncherPath || "").trim()
@@ -347,32 +345,6 @@ function createAgentSessionRuntimePreparer(options = {}) {
       const runtime = resolvedHermesRuntime(runtimeConfig);
       if (!runtime) return baseRuntime;
       return mergeRuntimeParts(baseRuntime, ensureHermesSessionProfile(runtime, runtimeConfig, skillRuntime));
-    }
-
-    if (engineId === "openclaw") {
-      const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "openclaw";
-      if (agentEngine !== "openclaw") return skillRuntime;
-      const managedRuntime = resolveManagedModelRuntime(runtimeConfig, { engine: "openclaw" });
-      if (!managedRuntime) return skillRuntime;
-      if (!openClawMiaProfile || typeof openClawMiaProfile.ensure !== "function") {
-        throw new Error("OpenClaw Mia profile manager is not available.");
-      }
-      const profile = await openClawMiaProfile.ensure(managedRuntime);
-      const profileName = String(profile?.profile || "").trim();
-      const gatewayUrl = String(profile?.gatewayUrl || "").trim();
-      const gatewayTokenFile = String(profile?.gatewayTokenFile || "").trim();
-      if (!profileName) {
-        throw new Error("OpenClaw Mia profile manager did not return a usable profile.");
-      }
-      const env = {
-        MIA_OPENCLAW_PROFILE: profileName,
-        ...(gatewayUrl ? { MIA_OPENCLAW_GATEWAY_URL: gatewayUrl } : {}),
-        ...(gatewayTokenFile ? { MIA_OPENCLAW_GATEWAY_TOKEN_FILE: gatewayTokenFile } : {})
-      };
-      return mergeRuntimeParts(skillRuntime, {
-        runtimeKey: runtimeKeyForMiaRuntime(managedRuntime),
-        env
-      });
     }
 
     if (engineId === "codex") {

@@ -10,12 +10,12 @@ const { getAcpEngineSpec, listAcpEngineSpecs } = require("../src/main/agent-sess
 const { createRuntimePaths } = require("../src/main/runtime-paths.js");
 const { createSettingsStore } = require("../src/main/settings-store.js");
 
-test("Task 7: all four bot conversation engines resolve to AgentSession ACP specs", () => {
+test("Task 7: supported bot conversation engines resolve to AgentSession ACP specs", () => {
   const specs = listAcpEngineSpecs();
 
   assert.deepEqual(
     specs.map((spec) => spec.engineId),
-    ["claude", "codex", "hermes", "openclaw"]
+    ["claude", "codex", "hermes"]
   );
 
   for (const spec of specs) {
@@ -29,9 +29,7 @@ test("Task 7: app-facing engine ids resolve through getAcpEngineSpec()", () => {
   const cases = [
     ["claude-code", "claude"],
     ["codex", "codex"],
-    ["hermes", "hermes"],
-    ["openclaw", "openclaw"],
-    ["open-claw", "openclaw"]
+    ["hermes", "hermes"]
   ];
 
   for (const [inputEngineId, expectedEngineId] of cases) {
@@ -176,8 +174,7 @@ function makeLocalAgentService(t, overrides = {}) {
 for (const [inputEngineId, expectedEngineId] of [
   ["claude-code", "claude"],
   ["codex", "codex"],
-  ["hermes", "hermes"],
-  ["openclaw", "openclaw"]
+  ["hermes", "hermes"]
 ]) {
   test(`interactive ${inputEngineId} turns in Mia Core route through AgentSession ACP`, async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), `mia-core-engine-${expectedEngineId}-`));
@@ -222,8 +219,7 @@ for (const [inputEngineId, expectedEngineId] of [
 for (const [inputEngineId, expectedEngineId] of [
   ["claude-code", "claude"],
   ["codex", "codex"],
-  ["hermes", "hermes"],
-  ["openclaw", "openclaw"]
+  ["hermes", "hermes"]
 ]) {
   test(`selected skill chips in Mia Core resolve to local SKILL.md paths for ${inputEngineId}`, async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), `mia-core-skill-path-${expectedEngineId}-`));
@@ -474,14 +470,11 @@ test("Task 13: local agent deep checks probe the ACP launch commands each intera
       execCalls.push({ file, args, options });
       if (file === "zsh" && args[1] === "command -v npx") return cb(null, "/bin/npx\n", "");
       if (file === "zsh" && args[1] === "command -v hermes") return cb(null, "/bin/hermes\n", "");
-      if (file === "zsh" && args[1] === "command -v openclaw") return cb(null, "/bin/openclaw\n", "");
       if (file === "/bin/npx" && args[0] === "--version") return cb(null, "10.9.0\n", "");
       if (file === "/bin/hermes" && args[0] === "--version") return cb(null, "Hermes Agent v0.16.0\n", "");
-      if (file === "/bin/openclaw" && args[0] === "--version") return cb(null, "openclaw 0.1.0\n", "");
       if (file === "/bin/npx" && args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")) return cb(null, "claude acp help\n", "");
       if (file === "/bin/npx" && args.includes("@agentclientprotocol/codex-acp@1.1.0")) return cb(null, "codex acp help\n", "");
       if (file === "/bin/hermes" && args[0] === "acp") return cb(null, "hermes acp help\n", "");
-      if (file === "/bin/openclaw" && args[0] === "acp") return cb(null, "openclaw acp help\n", "");
       return cb(new Error("not found"), "", "");
     }
   });
@@ -495,13 +488,12 @@ test("Task 13: local agent deep checks probe the ACP launch commands each intera
   assert.equal(agentsById.codex.readiness.status, "ready");
   assert.equal(agentsById.hermes.usableInMia, true);
   assert.equal(agentsById.hermes.readiness.status, "ready");
-  assert.equal(agentsById.openclaw.usableInMia, true);
-  assert.equal(agentsById.openclaw.readiness.status, "ready");
+  assert.equal(agentsById.openclaw, undefined);
 
   assert.ok(execCalls.some((call) => call.file === "/bin/npx" && call.args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")));
   assert.ok(execCalls.some((call) => call.file === "/bin/npx" && call.args.includes("@agentclientprotocol/codex-acp@1.1.0")));
   assert.ok(execCalls.some((call) => call.file === "/bin/hermes" && call.args[0] === "acp"));
-  assert.ok(execCalls.some((call) => call.file === "/bin/openclaw" && call.args[0] === "acp"));
+  assert.equal(execCalls.some((call) => call.file === "/bin/openclaw"), false);
 });
 
 test("Task 13: blocked readiness identifies the missing ACP command path instead of legacy engine health", async (t) => {
@@ -511,11 +503,8 @@ test("Task 13: blocked readiness identifies the missing ACP command path instead
     hermesSource: () => "system",
     execFile: (file, args, _options, cb) => {
       if (file === "zsh" && args[1] === "command -v hermes") return cb(null, "/bin/hermes\n", "");
-      if (file === "zsh" && args[1] === "command -v openclaw") return cb(null, "/bin/openclaw\n", "");
       if (file === "/bin/hermes" && args[0] === "--version") return cb(null, "Hermes Agent v0.16.0\n", "");
-      if (file === "/bin/openclaw" && args[0] === "--version") return cb(null, "openclaw 0.1.0\n", "");
       if (file === "/bin/hermes" && args[0] === "acp") return cb(new Error("spawn failed"), "", "missing hermes acp");
-      if (file === "/bin/openclaw" && args[0] === "acp") return cb(new Error("spawn failed"), "", "missing openclaw acp");
       return cb(new Error("not found"), "", "");
     }
   });
@@ -527,8 +516,5 @@ test("Task 13: blocked readiness identifies the missing ACP command path instead
   assert.equal(agentsById.hermes.readiness.status, "blocked");
   assert.match(agentsById.hermes.readiness.detail, /hermes acp/i);
   assert.doesNotMatch(agentsById.hermes.readiness.summary, /Hermes API/i);
-
-  assert.equal(agentsById.openclaw.health, "blocked");
-  assert.equal(agentsById.openclaw.readiness.status, "blocked");
-  assert.match(agentsById.openclaw.readiness.detail, /openclaw.*acp/i);
+  assert.equal(agentsById.openclaw, undefined);
 });

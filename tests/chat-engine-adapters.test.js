@@ -32,10 +32,6 @@ function createDeps(overrides = {}) {
     sendHermesChat: async (context) => {
       calls.push(["send-hermes", context.sessionId]);
       return { engine: "hermes" };
-    },
-    sendOpenClawChat: async (context) => {
-      calls.push(["send-openclaw", context.sessionId]);
-      return { engine: "openclaw" };
     }
   };
 }
@@ -154,7 +150,7 @@ test("hermes adapter rejects the retired direct desktop chat path", async () => 
   assert.deepEqual(deps.calls, []);
 });
 
-test("sendWithChatEngineAdapter surfaces the retired hermes direct-chat error on fallback", async () => {
+test("sendWithChatEngineAdapter rejects unknown adapters", async () => {
   const deps = createDeps();
   const adapters = createChatEngineAdapters(deps);
 
@@ -165,49 +161,23 @@ test("sendWithChatEngineAdapter surfaces the retired hermes direct-chat error on
       sessionId: "s5",
       slashText: ""
     }),
-    /AgentSession/
+    /No chat engine adapter for unknown/
   );
   assert.deepEqual(deps.calls, []);
 });
 
-test("openclaw adapter uses local slash commands before ACP backend send", async () => {
+test("sendWithChatEngineAdapter rejects removed OpenClaw adapter requests", async () => {
   const deps = createDeps({ externalSlashResult: "openclaw help" });
   const adapters = createChatEngineAdapters(deps);
-  const response = await adapters.openclaw.send({
-    bot,
-    sessionId: "s-openclaw",
-    slashText: "/help"
-  });
-
-  assert.equal(response.model, "openclaw-acp");
-  assert.equal(response.choices[0].message.content, "openclaw help");
-  assert.deepEqual(deps.calls, [["external-slash", "openclaw", "/help"]]);
-});
-
-test("openclaw adapter rejects the retired direct bot chat path when slash is not local", async () => {
-  const deps = createDeps({ externalSlashResult: null });
-  const adapters = createChatEngineAdapters(deps);
 
   await assert.rejects(
-    () => adapters.openclaw.send({
+    () => sendWithChatEngineAdapter(adapters, {
+      chatEngine: { id: "openclaw" },
       bot,
       sessionId: "s-openclaw",
-      slashText: "/unknown"
+      slashText: "/help"
     }),
-    /AgentSession ACP/
-  );
-  assert.deepEqual(deps.calls, [
-    ["external-slash", "openclaw", "/unknown"]
-  ]);
-});
-
-test("openclaw adapter fails closed even if a legacy direct chat dependency is provided", async () => {
-  const deps = createDeps();
-  const adapters = createChatEngineAdapters(deps);
-
-  await assert.rejects(
-    () => adapters.openclaw.send({ bot, sessionId: "s-openclaw", slashText: "" }),
-    /AgentSession ACP/
+    /No chat engine adapter for openclaw/
   );
   assert.deepEqual(deps.calls, []);
 });
@@ -234,10 +204,6 @@ function createStatelessDeps() {
     sendHermesStateless: async (context) => {
       calls.push(["stateless-hermes", context.systemPrompt, context.userPrompt]);
       return { content: "hermes" };
-    },
-    sendOpenClawStateless: async (context) => {
-      calls.push(["stateless-openclaw", context.systemPrompt, context.userPrompt]);
-      return { content: "openclaw" };
     }
   };
 }
@@ -281,7 +247,7 @@ test("stateless hermes adapter rejects the retired desktop HTTP path", async () 
   assert.deepEqual(deps.calls, []);
 });
 
-test("sendWithStatelessChatEngineAdapter surfaces the retired hermes stateless error on fallback", async () => {
+test("sendWithStatelessChatEngineAdapter rejects unknown adapters", async () => {
   const deps = createStatelessDeps();
   const adapters = createStatelessChatEngineAdapters(deps);
 
@@ -292,32 +258,23 @@ test("sendWithStatelessChatEngineAdapter surfaces the retired hermes stateless e
       systemPrompt: "",
       userPrompt: "user"
     }),
-    /legacy HTTP execution path/
+    /No stateless chat engine adapter for unknown/
   );
   assert.deepEqual(deps.calls, []);
 });
 
-test("stateless openclaw adapter dispatches to ACP backend adapter", async () => {
+test("sendWithStatelessChatEngineAdapter rejects removed OpenClaw adapter requests", async () => {
   const deps = createStatelessDeps();
-  const adapters = createStatelessChatEngineAdapters(deps);
-
-  assert.deepEqual(await adapters.openclaw.send({
-    chatEngine: { id: "openclaw" },
-    bot,
-    systemPrompt: "sys",
-    userPrompt: "user"
-  }), { content: "openclaw" });
-  assert.deepEqual(deps.calls, [["stateless-openclaw", "sys", "user"]]);
-});
-
-test("stateless openclaw adapter fails explicitly when chat integration is not provided", async () => {
-  const deps = createStatelessDeps();
-  delete deps.sendOpenClawStateless;
   const adapters = createStatelessChatEngineAdapters(deps);
 
   await assert.rejects(
-    () => adapters.openclaw.send({ bot, systemPrompt: "", userPrompt: "user" }),
-    /OpenClaw .*聊天适配器/
+    () => sendWithStatelessChatEngineAdapter(adapters, {
+      chatEngine: { id: "openclaw" },
+      bot,
+      systemPrompt: "",
+      userPrompt: "user"
+    }),
+    /No stateless chat engine adapter for openclaw/
   );
   assert.deepEqual(deps.calls, []);
 });

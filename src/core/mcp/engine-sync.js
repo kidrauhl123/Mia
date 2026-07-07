@@ -1,13 +1,5 @@
 "use strict";
 
-function envArray(env = {}) {
-  return Object.entries(env || {}).map(([name, value]) => ({ name, value: String(value) }));
-}
-
-function headerArray(headers = {}) {
-  return Object.entries(headers || {}).map(([name, value]) => ({ name, value: String(value) }));
-}
-
 function enabled(records = []) {
   return (Array.isArray(records) ? records : []).filter((record) => record?.enabled !== false && !record?.deletedAt);
 }
@@ -152,61 +144,6 @@ function mcpSpecsForHermes(records = [], options = {}) {
   }
   if (needsBridge && bridge) specs["mia-mcp-bridge"] = bridge;
   return specs;
-}
-
-function mcpServersForOpenClawAcp(records = [], options = {}) {
-  const {
-    supportsHttp = false,
-    supportsSse = false,
-    bridge = null
-  } = options;
-  const servers = [];
-  let needsBridge = false;
-  for (const record of enabled(records)) {
-    const transport = record.transport || {};
-    if (transport.type === "stdio") {
-      servers.push({
-        name: mcpNativeName(record),
-        command: transport.command,
-        args: Array.isArray(transport.args) ? transport.args.slice() : [],
-        env: envArray(transport.env)
-      });
-      continue;
-    }
-    if ((transport.type === "http" || transport.type === "streamable_http") && supportsHttp) {
-      servers.push({
-        type: "http",
-        name: mcpNativeName(record),
-        url: transport.url,
-        headers: headerArray(transport.headers)
-      });
-      continue;
-    }
-    if (transport.type === "sse" && supportsSse) {
-      servers.push({
-        type: "sse",
-        name: mcpNativeName(record),
-        url: transport.url,
-        headers: headerArray(transport.headers)
-      });
-      continue;
-    }
-    needsBridge = true;
-    if (!bridge) {
-      reportUnsupported(options, unsupportedStatus(record, "openclaw", "bridge_required_for_unsupported_transport", {
-        bridgeRequired: true
-      }));
-    }
-  }
-  if (needsBridge && bridge) {
-    servers.push({
-      name: "mia-mcp-bridge",
-      command: bridge.command,
-      args: Array.isArray(bridge.args) ? bridge.args.slice() : [],
-      env: envArray(bridge.env)
-    });
-  }
-  return servers;
 }
 
 function planCodexCliSync(records = []) {
@@ -430,7 +367,6 @@ async function runNativeMcpCliSync({
 
 module.exports = {
   bridgeMcpSpec,
-  mcpServersForOpenClawAcp,
   mcpSpecsForClaudeSdk,
   mcpSpecsForCodex,
   mcpSpecsForHermes,

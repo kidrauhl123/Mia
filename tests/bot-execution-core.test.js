@@ -198,8 +198,7 @@ test("managed AgentSession turns carry prompt-fallback metadata from runtime pre
 
 for (const [inputEngineId, expectedEngineId] of [
   ["claude-code", "claude"],
-  ["codex", "codex"],
-  ["openclaw", "openclaw"]
+  ["codex", "codex"]
 ]) {
   test(`sendChat routes interactive ${inputEngineId} turns through AgentSession ACP`, async () => {
     const { core, calls } = makeCore({
@@ -235,6 +234,30 @@ for (const [inputEngineId, expectedEngineId] of [
     }]);
   });
 }
+
+test("sendChat rejects removed OpenClaw runtime requests before routing", async () => {
+  const { core, calls } = makeCore({
+    cloudBotSnapshotForTurn: () => ({
+      key: "bot1",
+      id: "bot1",
+      name: "Bot One",
+      agentEngine: "openclaw",
+      capabilities: {}
+    })
+  });
+
+  await assert.rejects(
+    () => core.sendChat({
+      botKey: "bot1",
+      sessionId: "conversation:1",
+      runtimeConfig: { agentEngine: "openclaw" },
+      messages: [{ role: "user", id: "turn-openclaw", content: "latest prompt" }]
+    }),
+    /OpenClaw support has been removed/
+  );
+  assert.deepEqual(calls.agentSession, []);
+  assert.deepEqual(calls.adapter, []);
+});
 
 test("sendChat keeps managed AgentSession turn text raw even when active skill directive text is available", async () => {
   const { core, calls } = makeCore({

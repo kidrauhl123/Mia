@@ -32,7 +32,7 @@ test("Mia context resource uses MCP tools without prompt-rendering memory", () =
 
 test("Mia context resource keeps prompt fallback bounded when MCP is unavailable", () => {
   const resource = buildMiaContextResource({
-    engine: "openclaw",
+    engine: "hermes",
     bot: { key: "mei", engineConfig: { nativeContextMode: "auto" } },
     sessionId: "session-1",
     mcpAvailable: false
@@ -49,7 +49,7 @@ test("Mia context resource keeps prompt fallback bounded when MCP is unavailable
 
 test("Mia context resource prefers native files over prompt fallback when available", () => {
   const resource = buildMiaContextResource({
-    engine: "openclaw",
+    engine: "hermes",
     bot: { key: "mei", engineConfig: { nativeContextMode: "auto" } },
     sessionId: "session-1",
     mcpAvailable: false,

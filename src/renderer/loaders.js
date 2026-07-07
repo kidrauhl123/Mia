@@ -13,7 +13,7 @@
 (function () {
   "use strict";
 
-  const AGENT_SLASH_COMMAND_ENGINES = Object.freeze(["claude-code", "codex", "openclaw"]);
+  const AGENT_SLASH_COMMAND_ENGINES = Object.freeze(["claude-code", "codex"]);
 
   let state;
   let render;

@@ -6,8 +6,7 @@
   const EngineId = Object.freeze({
     Hermes: "hermes",
     ClaudeCode: "claude-code",
-    Codex: "codex",
-    OpenClaw: "openclaw"
+    Codex: "codex"
   });
   const MiaProviderId = "mia";
 
@@ -37,17 +36,6 @@
       cliCommand: "codex",
       usesRuntime: false,
       usesSdkPromptPrefix: true
-    }),
-    [EngineId.OpenClaw]: Object.freeze({
-      id: EngineId.OpenClaw,
-      label: "OpenClaw",
-      responseModel: "openclaw-acp",
-      transport: "acp-backend",
-      agentType: "acp",
-      backend: "openclaw",
-      cliCommand: "openclaw",
-      usesRuntime: true,
-      usesSdkPromptPrefix: false
     })
   });
 
@@ -90,7 +78,6 @@
     const id = String(value || EngineId.Hermes).trim().toLowerCase().replace(/_/g, "-");
     if (id === "claude" || id === EngineId.ClaudeCode) return EngineId.ClaudeCode;
     if (id === EngineId.Codex || id === "openai-codex") return EngineId.Codex;
-    if (id === EngineId.OpenClaw || id === "open-claw") return EngineId.OpenClaw;
     return EngineId.Hermes;
   }
 
@@ -112,7 +99,7 @@
 
   function isExternalEngine(value) {
     const engine = normalizeAgentEngine(value);
-    return engine === EngineId.ClaudeCode || engine === EngineId.Codex || engine === EngineId.OpenClaw;
+    return engine === EngineId.ClaudeCode || engine === EngineId.Codex;
   }
 
   function capabilitiesForEngine(engine, options = {}) {
@@ -229,13 +216,6 @@
         ...miaEntries
       ];
     }
-    if (engine === EngineId.OpenClaw) {
-      const dynamic = Array.isArray(capability.models) ? capability.models : [];
-      return [
-        ...dedupeModelEntries(dynamic.map((entry, index) => normalizeExternalModelEntry(engine, entry, index)).filter(Boolean)),
-        ...miaEntries
-      ];
-    }
     if (engine !== EngineId.Codex) return [];
 
     const entries = [defaultEntry];
@@ -319,15 +299,6 @@
         : options.codexPermissionProfiles;
       return codexPermissionOptionsFromProfiles(profiles);
     }
-    if (engine === EngineId.OpenClaw) return [
-      { value: "default", label: "Ask", title: "OpenClaw asks Mia before tool use.", aliases: [] },
-      {
-        value: "bypassPermissions",
-        label: "Full Access",
-        title: "OpenClaw may use tools without Mia asking first.",
-        aliases: ["yolo", "off", "never"]
-      }
-    ];
     if (engine === EngineId.ClaudeCode) return [
       { value: "default", label: "Ask Permissions", title: "Claude Code asks Mia before tool use.", aliases: [] },
       { value: "acceptEdits", label: "Accept Edits", title: "Claude Code can apply edit tools without asking first.", aliases: [] },
@@ -387,9 +358,7 @@
       }
       if (dynamic.length) return dynamic;
     }
-    if (engine === EngineId.OpenClaw) {
-      levels = ["off"];
-    } else if (engine === EngineId.ClaudeCode || engine === EngineId.Codex) {
+    if (engine === EngineId.ClaudeCode || engine === EngineId.Codex) {
       levels = ["medium"];
     } else {
       levels = (Array.isArray(options.effortLevels) && options.effortLevels.length)

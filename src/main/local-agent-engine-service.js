@@ -50,16 +50,6 @@ const AGENT_DEFINITIONS = Object.freeze([
     managedProtocols: ["cli", "codex-cli", "codex-app-server"],
     installable: true,
     detectionOnly: false
-  },
-  {
-    id: "openclaw",
-    legacyKey: "openClaw",
-    label: "OpenClaw",
-    commands: ["openclaw", "claw"],
-    doctorArgs: ["--help"],
-    managedProtocols: ["cli", "openclaw-cli"],
-    installable: true,
-    detectionOnly: false
   }
 ]);
 
@@ -151,11 +141,7 @@ function windowsAgentPathSegments(home, env) {
     codexHome ? path.join(codexHome, "packages", "standalone", "current", "bin") : "",
     codexHome ? path.join(codexHome, "packages", "standalone", "current") : "",
 
-    // npm global shims and OpenClaw's portable Node bootstrap location.
     appData ? path.join(appData, "npm") : "",
-    localAppData ? path.join(localAppData, "OpenClaw", "deps", "portable-node") : "",
-    localAppData ? path.join(localAppData, "OpenClaw", "deps", "portable-node", "node_modules", ".bin") : "",
-    home ? path.join(home, "openclaw", "node_modules", ".bin") : "",
     home ? path.join(home, "scoop", "shims") : ""
   ].filter(Boolean);
 }
@@ -787,7 +773,6 @@ function createLocalAgentEngineService(deps = {}) {
     const hermes = byId("hermes");
     const claudeCode = byId("claude-code");
     const codex = byId("codex");
-    const openClaw = byId("openclaw");
     return {
       hermes: {
         id: "hermes",
@@ -823,18 +808,6 @@ function createLocalAgentEngineService(deps = {}) {
         health: codex.health || "missing",
         installAction: codex.installAction || "",
         readiness: codex.readiness || null
-      },
-      openClaw: {
-        id: "openclaw",
-        label: "OpenClaw",
-        available: Boolean(openClaw.usableInMia),
-        installed: Boolean(openClaw.installed),
-        path: openClaw.path || "",
-        version: openClaw.version || "",
-        health: openClaw.health || "missing",
-        installAction: openClaw.installAction || "",
-        readiness: openClaw.readiness || null,
-        detectionOnly: Boolean(openClaw.detectionOnly)
       }
     };
   }
@@ -883,15 +856,6 @@ function createLocalAgentEngineService(deps = {}) {
         installed: false,
         path: "",
         version: ""
-      },
-      openClaw: {
-        id: "openclaw",
-        label: "OpenClaw",
-        available: false,
-        installed: false,
-        path: "",
-        version: "",
-        detectionOnly: false
       }
     };
   }

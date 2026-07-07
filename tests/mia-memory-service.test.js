@@ -386,10 +386,10 @@ test("native memory file sync exports only visible scoped memories", (t) => {
     confidence: 0.9
   });
 
-  const result = service.syncNativeMemoryFiles({ engine: "openclaw", botId: "mei", sessionId: "s1" });
+  const result = service.syncNativeMemoryFiles({ engine: "hermes", botId: "mei", sessionId: "s1" });
   assert.equal(result.ok, true);
   assert.equal(result.count, 3);
-  assert.match(result.memoryPath, /native-memory[\\/]openclaw[\\/]mei[\\/]MEMORY\.md$/);
+  assert.match(result.memoryPath, /native-memory[\\/]hermes[\\/]mei[\\/]MEMORY\.md$/);
 
   const content = fs.readFileSync(result.memoryPath, "utf8");
   assert.match(content, /# Mia Memories/);
@@ -401,9 +401,9 @@ test("native memory file sync exports only visible scoped memories", (t) => {
   assert.match(content, /native memory files/);
   assert.doesNotMatch(content, /Other bot private memory/);
 
-  const explicitWorkspace = path.join(dir, "explicit-openclaw-workspace");
+  const explicitWorkspace = path.join(dir, "explicit-hermes-workspace");
   const explicit = service.syncNativeMemoryFiles({
-    engine: "openclaw",
+    engine: "hermes",
     botId: "mei",
     sessionId: "s1",
     includeSession: false,

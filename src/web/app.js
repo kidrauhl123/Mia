@@ -22,14 +22,12 @@ const normalizeAgentEngine = engineContracts.normalizeAgentEngine || ((value) =>
   const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
   if (id === "claude" || id === "claude-code") return "claude-code";
   if (id === "codex" || id === "openai-codex") return "codex";
-  if (id === "openclaw" || id === "open-claw") return "openclaw";
   return "hermes";
 });
 const engineLabel = engineContracts.engineLabel || ((value) => {
   const engine = normalizeAgentEngine(value);
   if (engine === "claude-code") return "Claude Code";
   if (engine === "codex") return "Codex";
-  if (engine === "openclaw") return "OpenClaw";
   return "Hermes";
 });
 const CHAT_SCROLL_STICK_THRESHOLD_PX = 80;
@@ -88,7 +86,7 @@ function externalPermissionOptions(value) {
   }
   const engine = normalizeAgentEngine(value);
   if (engine === "claude-code") return [{ value: "default", label: "Ask Permissions" }];
-  if (engine === "codex" || engine === "openclaw") return [{ value: "default", label: "Ask" }];
+  if (engine === "codex") return [{ value: "default", label: "Ask" }];
   return [{ value: "ask", label: "Ask" }];
 }
 
@@ -1304,9 +1302,7 @@ function normalizeWebCloudAgentRuntime(input = {}) {
     ? "claude-code"
     : (rawEngine === "codex" || rawEngine === "openai-codex"
       ? "codex"
-      : (rawEngine === "openclaw" || rawEngine === "open-claw"
-        ? "openclaw"
-        : (rawEngine === "hermes" ? "hermes" : "")));
+      : (rawEngine === "hermes" ? "hermes" : ""));
   const runtimeKind = String(input.runtimeKind || input.runtime_kind || "").trim();
   return {
     runtimeKind,
@@ -2183,7 +2179,7 @@ function selectEntriesForModel(engine, runtimeKind, config = {}) {
       value: entry.model || entry.id,
       model: entry.model,
       label: entry.label || entry.model || entry.id,
-      provider: entry.provider || (engine === "codex" ? "openai-codex" : engine === "claude-code" ? "anthropic" : "openclaw"),
+      provider: entry.provider || (engine === "codex" ? "openai-codex" : "anthropic"),
       providerLabel: entry.providerLabel || entry.provider_label || "",
       authType: entry.authType || entry.auth_type || "",
       modelProfileId: entry.modelProfileId || entry.model_profile_id || "",
@@ -3650,10 +3646,10 @@ function webDeviceEngineIds(device = {}) {
     ? device.capabilities.engines.map((id) => String(id || "").trim()).filter(Boolean)
     : [];
   const supported = advertised.map(normalizeAgentEngine)
-    .filter((id) => ["hermes", "claude-code", "codex", "openclaw"].includes(id));
+    .filter((id) => ["hermes", "claude-code", "codex"].includes(id));
   if (supported.length) return [...new Set(supported)];
   const engine = String(device.engine || "").trim();
-  return ["hermes", "claude-code", "codex", "openclaw"].includes(engine) ? [engine] : [];
+  return ["hermes", "claude-code", "codex"].includes(engine) ? [engine] : [];
 }
 
 function webDeviceStatusLabel(device = {}) {

@@ -46,7 +46,6 @@ function looksLikeUuid(value) {
 function localEngineInfoFor(engine, info = {}) {
   if (engine === "claude-code") return info.claudeCode || {};
   if (engine === "codex") return info.codex || {};
-  if (engine === "openclaw") return info.openclaw || {};
   return {};
 }
 
@@ -149,7 +148,7 @@ function createExternalAgentCommandService(deps = {}) {
     const config = normalizeBotEngineConfig(bot.engineConfig);
     const model = config.model || defaultModelLabel(engine);
     const permission = enginePermissionMode(engine) || "default";
-    const effort = normalizeEffortLevel(config.effortLevel || (engine === "openclaw" ? "off" : "medium"), engine);
+    const effort = normalizeEffortLevel(config.effortLevel || "medium", engine);
     const workspacePath = cwd();
     const externalSessionId = getAgentSessionId(engine, bot.key, sessionId, workspacePath) || "尚未创建";
     const label = localEngineLabel(engine);

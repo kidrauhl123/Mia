@@ -178,13 +178,13 @@ test("writeAppearanceSettings rejects removed font presets", (t) => {
   assert.equal(store.writeAppearanceSettings({ fontPreset: "pingfang" }).fontPreset, "system");
 });
 
-test("normalizeEffortLevel keeps OpenClaw CLI thinking levels", (t) => {
+test("normalizeEffortLevel keeps supported engine effort levels", (t) => {
   const { store } = setup(t);
 
-  assert.equal(store.normalizeEffortLevel("adaptive", "openclaw"), "adaptive");
-  assert.equal(store.normalizeEffortLevel("max", "openclaw"), "max");
-  assert.equal(store.normalizeEffortLevel("none", "openclaw"), "off");
-  assert.equal(store.normalizeEffortLevel("", "openclaw"), "off");
+  assert.equal(store.normalizeEffortLevel("minimal", "codex"), "minimal");
+  assert.equal(store.normalizeEffortLevel("max", "claude-code"), "max");
+  assert.equal(store.normalizeEffortLevel("adaptive", "hermes"), "medium");
+  assert.equal(store.normalizeEffortLevel("", "hermes"), "medium");
   assert.equal(store.normalizeStoredEffortLevel("adaptive"), "adaptive");
   assert.equal(store.normalizeStoredEffortLevel("off"), "off");
 });

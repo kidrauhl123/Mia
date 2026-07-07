@@ -56,7 +56,7 @@ function providerFromProfileId(config = {}) {
 }
 
 function isNativeCliEngine(engine = "") {
-  return engine === "codex" || engine === "claude-code" || engine === "openclaw";
+  return engine === "codex" || engine === "claude-code";
 }
 
 function isNativeCliProvider(engine = "", provider = "") {

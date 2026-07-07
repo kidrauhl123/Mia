@@ -109,12 +109,10 @@ const els = {
   engineRowHermes: document.getElementById("engineRowHermes"),
   engineRowClaude: document.getElementById("engineRowClaude"),
   engineRowCodex: document.getElementById("engineRowCodex"),
-  engineRowOpenClaw: document.getElementById("engineRowOpenClaw"),
   engineRowHermesButton: document.querySelector('[data-engine-row="hermes"]'),
   engineRowHermesActions: document.getElementById("engineRowHermesActions"),
   engineRowClaudeActions: document.getElementById("engineRowClaudeActions"),
   engineRowCodexActions: document.getElementById("engineRowCodexActions"),
-  engineRowOpenClawActions: document.getElementById("engineRowOpenClawActions"),
   engineDetection: document.getElementById("engineDetection"),
   engineInstallActions: document.getElementById("engineInstallActions"),
   openPersonaSearch: document.getElementById("openPersonaSearch"),
@@ -4049,7 +4047,6 @@ function engineRowActionElement(engineId) {
   if (engineId === "hermes") return els.engineRowHermesActions;
   if (engineId === "claude-code") return els.engineRowClaudeActions;
   if (engineId === "codex") return els.engineRowCodexActions;
-  if (engineId === "openclaw") return els.engineRowOpenClawActions;
   return null;
 }
 
@@ -4117,7 +4114,7 @@ function syncHermesConfigAvailability(runtime, hermes) {
 
 function renderEngineInstallActions(runtime) {
   const inventory = agentInventoryById(runtime);
-  for (const engineId of ["hermes", "claude-code", "codex", "openclaw"]) {
+  for (const engineId of ["hermes", "claude-code", "codex"]) {
     renderEngineRowAction(engineId, agentInstallAction(inventory[engineId]));
   }
   if (els.engineInstallActions) {
@@ -4144,13 +4141,6 @@ function renderEngineDetection(runtime) {
 
   if (els.engineRowCodex) {
     setEngineStatusText(els.engineRowCodex, detectedAgentLine(inventory.codex || legacyAgentStatus("codex", engines.codex), "codex"));
-  }
-
-  if (els.engineRowOpenClaw) {
-    setEngineStatusText(els.engineRowOpenClaw, detectedAgentLine(
-      inventory.openclaw || legacyAgentStatus("openclaw", engines.openClaw),
-      "openclaw"
-    ));
   }
 
   renderEngineInstallActions(runtime);
@@ -4984,7 +4974,6 @@ function normalizeAgentEngineForRuntime(value) {
   const raw = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
   if (raw === "claude" || raw === "claude-code") return "claude-code";
   if (raw === "codex" || raw === "openai-codex") return "codex";
-  if (raw === "openclaw" || raw === "open-claw") return "openclaw";
   return "hermes";
 }
 
@@ -4994,7 +4983,6 @@ function strictAgentEngineForRuntime(value = "") {
   const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
   if (raw === "claude" || raw === "claude-code") return "claude-code";
   if (raw === "codex" || raw === "openai-codex") return "codex";
-  if (raw === "openclaw" || raw === "open-claw") return "openclaw";
   if (raw === "hermes") return "hermes";
   return "";
 }

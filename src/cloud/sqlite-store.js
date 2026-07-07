@@ -125,7 +125,7 @@ function defaultWorkspace(user, now = nowIso, id = randomId) {
     }],
     contacts: [
       { id: "contact_mia", title: "Mia", meta: "智能体", avatar: "./assets/avatar-01.png", status: "可用", note: "负责日常对话、信息整理和轻量任务推进。" },
-      { id: "contact_codex", title: "Codex", meta: "代码与自动化", avatar: "./assets/avatar-08.png", status: "本地桥接待接入", note: "通过桌面端 Bridge 调用本机 Hermes / Claude Code / Codex / OpenClaw。" }
+      { id: "contact_codex", title: "Codex", meta: "代码与自动化", avatar: "./assets/avatar-08.png", status: "本地桥接待接入", note: "通过桌面端 Bridge 调用本机 Hermes / Claude Code / Codex。" }
     ],
     skills: [
       { id: "skill_image", title: "图片生成", meta: "生成并同步图片附件", icon: "IMG", status: "已启用" },
@@ -567,7 +567,7 @@ function createCloudStore(options = {}) {
     const engines = Array.isArray(input.capabilities?.engines)
       ? input.capabilities.engines.map((engine) => String(engine || "").trim()).filter(Boolean)
       : [];
-    return explicit || engines.find((engine) => ["hermes", "claude-code", "codex", "openclaw"].includes(engine)) || "mia-desktop";
+    return explicit || engines.find((engine) => ["hermes", "claude-code", "codex"].includes(engine)) || "mia-desktop";
   }
 
   function upsertBridgeDevice(userId, input = {}) {

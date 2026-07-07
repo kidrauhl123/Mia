@@ -52,14 +52,12 @@ function createEngineInstallService(deps = {}) {
   const npmFallbackRegistry = configuredValue("npmFallbackRegistry", "MIA_NPM_FALLBACK_REGISTRY", "https://registry.npmjs.org");
   const NPM_ENGINE_PACKAGES = {
     "claude-code": "@anthropic-ai/claude-code",
-    codex: "@openai/codex",
-    openclaw: "openclaw"
+    codex: "@openai/codex"
   };
   const ENGINE_COMMANDS = {
     hermes: ["hermes"],
     "claude-code": ["claude"],
-    codex: ["codex"],
-    openclaw: ["openclaw", "claw"]
+    codex: ["codex"]
   };
   const WINDOWS_ENGINE_INSTALLERS = {
     hermes: {
@@ -74,10 +72,6 @@ function createEngineInstallService(deps = {}) {
       url: "https://chatgpt.com/codex/install.ps1",
       args: [],
       env: { CODEX_NON_INTERACTIVE: "1" }
-    },
-    openclaw: {
-      url: "https://openclaw.ai/install.ps1",
-      args: ["-NoOnboard"]
     }
   };
 
@@ -384,7 +378,7 @@ function createEngineInstallService(deps = {}) {
 
   function assertWindowsInstallDetected(engineId, output = "") {
     if (isWindowsEngineDetected(engineId)) return;
-    const label = engineId === "claude-code" ? "Claude Code" : engineId === "hermes" ? "Hermes" : engineId === "openclaw" ? "OpenClaw" : "Codex";
+    const label = engineId === "claude-code" ? "Claude Code" : engineId === "hermes" ? "Hermes" : "Codex";
     const tail = installOutputTail(output);
     throw new Error(`Official ${label} installer finished, but Mia still cannot detect ${label}.${tail ? ` Last output: ${tail}` : ""}`);
   }

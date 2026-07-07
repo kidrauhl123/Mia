@@ -173,8 +173,7 @@ test("shellCommandPath scans official Windows agent install directories before P
   const hermes = path.join(root, "AppData", "Local", "hermes", "hermes-agent", "venv", "Scripts", "hermes.exe");
   const claude = path.join(root, ".claude", "local", "bin", "claude.exe");
   const codex = path.join(root, "AppData", "Local", "Programs", "OpenAI", "Codex", "bin", "codex.exe");
-  const openclaw = path.join(root, "AppData", "Roaming", "npm", "openclaw.cmd");
-  for (const filePath of [hermes, claude, codex, openclaw]) {
+  for (const filePath of [hermes, claude, codex]) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, "");
   }
@@ -182,7 +181,6 @@ test("shellCommandPath scans official Windows agent install directories before P
   assert.equal(service.shellCommandPath("hermes"), hermes);
   assert.equal(service.shellCommandPath("claude"), claude);
   assert.equal(service.shellCommandPath("codex"), codex);
-  assert.equal(service.shellCommandPath("openclaw"), openclaw);
   assert.deepEqual(calls, []);
 });
 
@@ -337,7 +335,7 @@ test("localAgentEngines reports the legacy engine view and caches CLI probes unt
   assert.equal(first.codex.version, "10.9.0");
   assert.equal(cached, first);
   assert.notEqual(refreshed, first);
-  assert.equal(calls.filter((call) => call[0] === "zsh").length, 8);
+  assert.equal(calls.filter((call) => call[0] === "zsh").length, 6);
 });
 
 test("pendingAgentInventory reports checking state without spawning CLI probes", (t) => {
@@ -370,12 +368,8 @@ test("agentInventory does not treat legacy managed Hermes source as usable", (t)
       if (command === "zsh" && args[1] === "command -v npx") {
         return { status: 0, stdout: "/bin/npx\n", stderr: "" };
       }
-      if (command === "zsh" && args[1] === "command -v openclaw") {
-        return { status: 0, stdout: "/bin/openclaw\n", stderr: "" };
-      }
       if (command === "/bin/hermes") return { status: 0, stdout: "hermes 0.4.0\n", stderr: "" };
       if (command === "/bin/npx") return { status: 0, stdout: "10.9.0\n", stderr: "" };
-      if (command === "/bin/openclaw") return { status: 0, stdout: "openclaw 0.1.0\n", stderr: "" };
       return { status: 1, stdout: "", stderr: "" };
     }
   });
@@ -386,8 +380,8 @@ test("agentInventory does not treat legacy managed Hermes source as usable", (t)
   const agentsById = Object.fromEntries(inventory.agents.map((agent) => [agent.id, agent]));
 
   assert.equal(cached, inventory);
-  assert.equal(inventory.summary.installedCount, 4);
-  assert.equal(inventory.summary.usableCount, 3);
+  assert.equal(inventory.summary.installedCount, 3);
+  assert.equal(inventory.summary.usableCount, 2);
   assert.equal(inventory.summary.missingCount, 0);
   assert.equal(inventory.summary.hasUsableAgent, true);
   assert.equal(inventory.summary.recommendedAction, "continue");
@@ -403,9 +397,7 @@ test("agentInventory does not treat legacy managed Hermes source as usable", (t)
   });
   assert.equal(agentsById["claude-code"].usableInMia, true);
   assert.equal(agentsById.codex.usableInMia, true);
-  assert.equal(agentsById.openclaw.installed, true);
-  assert.equal(agentsById.openclaw.usableInMia, true);
-  assert.equal(agentsById.openclaw.detectionOnly, false);
+  assert.equal(agentsById.openclaw, undefined);
 });
 
 test("agentInventory treats system Hermes as usable when Mia can launch its Python runtime", (t) => {
@@ -492,19 +484,17 @@ test("agentInventory recommends Hermes install when no usable agent is detected"
 
   assert.equal(inventory.summary.installedCount, 0);
   assert.equal(inventory.summary.usableCount, 0);
-  assert.equal(inventory.summary.missingCount, 4);
+  assert.equal(inventory.summary.missingCount, 3);
   assert.equal(inventory.summary.hasUsableAgent, false);
   assert.equal(inventory.summary.recommendedAction, "install-hermes");
   assert.equal(agentsById.hermes.installable, true);
   assert.equal(agentsById.hermes.installAction, "install-hermes");
   assert.equal(agentsById.hermes.health, "missing");
-  assert.equal(agentsById.openclaw.installable, true);
-  assert.equal(agentsById.openclaw.installAction, "install-openclaw");
-  assert.equal(agentsById.openclaw.detectionOnly, false);
+  assert.equal(agentsById.openclaw, undefined);
   assert.equal(legacy.hermes.available, false);
   assert.equal(legacy.claudeCode.available, false);
   assert.equal(legacy.codex.available, false);
-  assert.equal(legacy.openClaw.available, false);
+  assert.equal(legacy.openClaw, undefined);
 });
 
 test("agentInventory ignores legacy local-source Hermes runtime", (t) => {
@@ -550,8 +540,8 @@ test("scanAgentsAsync probes agents asynchronously, reports progress, and warms 
 
   const inventory = await service.scanAgentsAsync((agent) => progress.push(agent.id));
 
-  assert.equal(inventory.agents.length, 4);
-  assert.equal(progress.length, 4, "every agent reported once");
+  assert.equal(inventory.agents.length, 3);
+  assert.equal(progress.length, 3, "every agent reported once");
   const claude = inventory.agents.find((a) => a.id === "claude-code");
   assert.equal(claude.path, "/bin/npx");
   assert.equal(claude.usableInMia, true);

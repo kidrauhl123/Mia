@@ -6,7 +6,7 @@
 
 - `src/main.js` 只做启动、窗口、模块装配和少量全局生命周期。不要继续把业务逻辑塞进来。
 - `src/main/ipc/` 放 IPC 注册模块。新增 channel 时优先建或扩同领域 IPC 文件。
-- Bot 对话的 Agent 引擎统一走 AgentSession/ACP runtime；不要把 Claude/Codex/Hermes/OpenClaw 的 prompt 直连路径重新接回 bot 执行。
+- Bot 对话的 Agent 引擎统一走 AgentSession/ACP runtime；不要把 Claude/Codex/Hermes 的 prompt 直连路径重新接回 bot 执行。
 - `src/main/*-stateless-adapter.js` 只服务明确的 stateless/utility 调用。保留 prompt-shaped helper 时必须有具体 callsite 和测试，不能伪装成 bot conversation adapter。
 - `src/main/*service*.js` 这类模块负责本地系统、runtime、缓存、设置和云同步。保持单一 owner。
 - `src/shared/` 放 main/preload/renderer/cloud/mobile 共用 contract。
@@ -43,7 +43,7 @@ Handler 返回值要是可序列化对象。不要把 `BrowserWindow`、Node str
 - 起进程时传入受控 env；如果用户选定了某个 CLI 绝对路径，PATH 要优先包含该可执行文件目录，避免拿错 node/runtime。
 - 每个 adapter 只负责把 Mia 消息、工具、权限、取消信号映射到该引擎。共享状态放 registry 或 shared contract。
 - 引擎 runtime 策略集中在 `src/shared/agent-engine-policy.js`。新增引擎时先补 policy 和测试，再接 settings / renderer / adapter。
-- 外部 Agent 的用户级配置是正常集成入口。Codex 固定使用用户 `~/.codex`；Hermes 使用用户原生 `~/.hermes`；Claude Code / OpenClaw 使用各自原生默认用户环境。伙伴级模型、推理强度由 adapter 每次运行显式传入，权限按引擎级设置保存。用户修改权限时，只对需要用户级配置的引擎做一次 apply；不要做每次运行前的配置 sync。
+- 外部 Agent 的用户级配置是正常集成入口。Codex 固定使用用户 `~/.codex`；Hermes 使用用户原生 `~/.hermes`；Claude Code 使用原生默认用户环境。伙伴级模型、推理强度由 adapter 每次运行显式传入，权限按引擎级设置保存。用户修改权限时，只对需要用户级配置的引擎做一次 apply；不要做每次运行前的配置 sync。
 - Hermes 行为以实际安装版本或云端镜像 pin 为准，不要假设上游源码就是用户正在跑的二进制。
 
 ## Runtime 生命周期

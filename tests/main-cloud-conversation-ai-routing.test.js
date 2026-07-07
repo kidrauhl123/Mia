@@ -146,9 +146,10 @@ test("daemon bridge capability URL warms local Agent inventory when cache is col
   const main = read("src/main.js");
   assert.match(
     main,
-    /function bridgeEngineIdsFromView\(engines = \{\}\) \{[\s\S]*engines\.codex\?\.available[\s\S]*engines\.openClaw\?\.available/,
-    "bridge capabilities must include all usable local Agent engines, not just Hermes"
+    /function bridgeEngineIdsFromView\(engines = \{\}\) \{[\s\S]*engines\.codex\?\.available[\s\S]*ids\.push\("codex"\)/,
+    "bridge capabilities must include supported usable local Agent engines, not just Hermes"
   );
+  assert.doesNotMatch(main, /engines\.openClaw/, "bridge capabilities must not advertise removed OpenClaw support");
   assert.match(
     main,
     /IS_DAEMON_PROCESS && !ids\.length && typeof localAgentEngineService\?\.localAgentEngines === "function"[\s\S]*localAgentEngineService\.localAgentEngines\(\)/,

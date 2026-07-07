@@ -40,7 +40,7 @@ function loadBotManager(options = {}) {
       listOwnedBots: ({ cloudBots }) => cloudBots,
       normalizeAgentEngine: (value) => {
         const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
-        return ["hermes", "claude-code", "codex", "openclaw"].includes(id) ? id : "hermes";
+        return ["hermes", "claude-code", "codex"].includes(id) ? id : "hermes";
       },
       normalizeRuntimeKind: (value, fallback = "desktop-local") => {
         const kind = String(value || fallback || "desktop-local").trim();

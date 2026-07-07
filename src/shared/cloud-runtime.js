@@ -15,7 +15,6 @@
     const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
     if (raw === "claude" || raw === "claude-code" || raw === "anthropic") return "claude-code";
     if (raw === "codex" || raw === "openai-codex") return "codex";
-    if (raw === "openclaw" || raw === "open-claw") return "openclaw";
     if (raw === "hermes") return "hermes";
     return "";
   }
@@ -23,7 +22,6 @@
   function engineLabel(engine = "") {
     if (engine === "claude-code") return "Claude Code";
     if (engine === "codex") return "Codex";
-    if (engine === "openclaw") return "OpenClaw";
     if (engine === "hermes") return "Hermes";
     return "";
   }

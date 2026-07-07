@@ -2,7 +2,6 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
   bridgeMcpSpec,
-  mcpServersForOpenClawAcp,
   mcpSpecsForClaudeSdk,
   mcpSpecsForCodex,
   mcpSpecsForHermes,
@@ -114,31 +113,6 @@ test("mcpSpecsForHermes reports unsupported non-stdio records when bridge is abs
   ]);
 });
 
-test("mcpServersForOpenClawAcp maps records into ACP wire shape", () => {
-  const acp = mcpServersForOpenClawAcp(records, { supportsHttp: true, supportsSse: true, bridge: null });
-  assert.deepEqual(acp[0], { name: "stdio", command: "npx", args: ["-y", "pkg"], env: [{ name: "TOKEN", value: "abc" }] });
-  assert.deepEqual(acp[1], { type: "http", name: "xhs", url: "http://127.0.0.1:18060/mcp", headers: [] });
-});
-
-test("managed HTTP MCP is exposed directly to OpenClaw when HTTP is supported", () => {
-  const servers = mcpServersForOpenClawAcp([
-    {
-      name: "小红书 MCP",
-      nativeName: "xiaohongshu",
-      enabled: true,
-      managementMode: "managed",
-      transport: { type: "http", url: "http://127.0.0.1:18060/mcp", headers: {} }
-    }
-  ], { supportsHttp: true });
-
-  assert.deepEqual(servers, [{
-    type: "http",
-    name: "xiaohongshu",
-    url: "http://127.0.0.1:18060/mcp",
-    headers: []
-  }]);
-});
-
 test("managed HTTP MCP uses Mia bridge for Hermes when URL MCP is unsupported", () => {
   const bridge = bridgeMcpSpec({ command: "/usr/bin/node", scriptPath: "/app/mcp-stdio-proxy-server.js", bridgeUrl: "http://127.0.0.1:3333", secret: "sec" });
   const specs = mcpSpecsForHermes([
@@ -165,25 +139,6 @@ test("Codex and Claude receive native stdio built-ins without manual command ste
 
   assert.equal(mcpSpecsForCodex(builtinRecords).context7.command, "npx");
   assert.equal(mcpSpecsForClaudeSdk(builtinRecords).context7.command, "npx");
-});
-
-test("mcpServersForOpenClawAcp reports unsupported records when bridge is absent", () => {
-  const statusCollector = [];
-  const acp = mcpServersForOpenClawAcp(records, {
-    supportsHttp: false,
-    supportsSse: false,
-    bridge: null,
-    statusCollector
-  });
-
-  assert.deepEqual(acp, [
-    { name: "stdio", command: "npx", args: ["-y", "pkg"], env: [{ name: "TOKEN", value: "abc" }] }
-  ]);
-  assert.deepEqual(statusCollector.map((entry) => [entry.engine, entry.name, entry.reason]), [
-    ["openclaw", "xhs", "bridge_required_for_unsupported_transport"],
-    ["openclaw", "header-http", "bridge_required_for_unsupported_transport"],
-    ["openclaw", "header-bearer-http", "bridge_required_for_unsupported_transport"]
-  ]);
 });
 
 test("native CLI planners generate safe command argument arrays", () => {

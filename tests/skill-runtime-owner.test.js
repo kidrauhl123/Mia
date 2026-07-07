@@ -51,20 +51,6 @@ test("skill runtime owner resolves native-link and prompt-fallback deterministic
   assert.equal(fallbackState.skillMaterialization, null);
   assert.deepEqual(fallbackState.skillExternalDirs, ["/skills/xlsx"]);
 
-  const openClawState = owner.resolveRuntimeSkillState({
-    bot: {
-      capabilities: { enabledSkills: ["xlsx"] },
-      skillRecords: [{ id: "xlsx", name: "xlsx", sourcePath: "/skills/xlsx", body: "# xlsx" }]
-    },
-    agentEngine: "openclaw",
-    activeSkillIds: [],
-    intentSkillIds: [],
-    requestedSkillIds: []
-  });
-
-  assert.equal(openClawState.deliveryMode, "prompt-fallback");
-  assert.equal(openClawState.nativeSkillsDirs, null);
-  assert.match(openClawState.skillMaterialization.indexBlock, /^INDEX:/);
 });
 
 test("skill runtime owner honors runtime metadata skill dirs over engine defaults", () => {
@@ -76,14 +62,14 @@ test("skill runtime owner honors runtime metadata skill dirs over engine default
     bot: {
       skillRecords: [{ id: "pdf", name: "pdf", sourcePath: "/skills/pdf", body: "# pdf" }]
     },
-    agentEngine: "openclaw",
+    agentEngine: "hermes",
     runtimeConfig: {
-      nativeSkillsDirs: [".openclaw/skills"]
+      nativeSkillsDirs: [".custom/skills"]
     }
   });
 
   assert.equal(state.deliveryMode, "native-link");
-  assert.deepEqual(state.nativeSkillsDirs, [".openclaw/skills"]);
+  assert.deepEqual(state.nativeSkillsDirs, [".custom/skills"]);
 });
 
 test("reconcileWorkspaceSkills deletes only Mia-managed stale links and mounts session-level skills", async (t) => {

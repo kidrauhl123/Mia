@@ -36,7 +36,7 @@ test("botWithRuntimeConfig applies normalized Core profile references", () => {
 
 test("cloudBotSnapshotForTurn accepts runtime-selected engine", () => {
   const service = createMiaCoreRuntimeService({
-    normalizeAgentEngine: (value) => value === "open-claw" ? "openclaw" : (value || "hermes"),
+    normalizeAgentEngine: (value) => value === "open-claw" ? "hermes" : (value || "hermes"),
     enginePermissionStoreTarget: () => "root-mode",
     sendWithChatEngineAdapter: async () => null
   });
@@ -47,5 +47,5 @@ test("cloudBotSnapshotForTurn accepts runtime-selected engine", () => {
     { agentEngine: "open-claw" }
   );
 
-  assert.equal(bot.agentEngine, "openclaw");
+  assert.equal(bot.agentEngine, "hermes");
 });

@@ -340,15 +340,12 @@ function createSettingsStore(deps = {}) {
     const raw = String(value || "").trim().toLowerCase();
     const normalized = raw === "extra-high" || raw === "extra_high" ? "xhigh" : raw;
     const engineId = String(engine || "hermes").trim().toLowerCase().replace(/_/g, "-");
-    const openClawValue = engineId === "openclaw" && normalized === "none" ? "off" : normalized;
     const valid = engineId === "claude-code"
       ? ["low", "medium", "high", "xhigh", "max"]
       : engineId === "codex"
         ? ["minimal", "low", "medium", "high", "xhigh"]
-        : engineId === "openclaw"
-          ? ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"]
-          : ["none", "minimal", "low", "medium", "high", "xhigh"];
-    return valid.includes(openClawValue) ? openClawValue : (engineId === "openclaw" ? "off" : "medium");
+        : ["none", "minimal", "low", "medium", "high", "xhigh"];
+    return valid.includes(normalized) ? normalized : "medium";
   }
 
   function normalizeStoredEffortLevel(value) {

@@ -143,7 +143,7 @@ npm run desktop:package:verify -- --app /path/to/Mia.app
 
 - 安装或打开产物。
 - 首次启动能创建 runtime。
-- 已安装的 `claude` / `codex` / `openclaw` 可以被探测；缺失时本机引擎区的安装按钮会调用官方包索引安装。
+- 已安装的 `claude` / `codex` 可以被探测；缺失时本机引擎区的安装按钮会调用官方包索引安装。
 - 用户自行安装的官方 Hermes（在 PATH 上）能被探测并复用；"安装官方 Hermes" 按钮能从 PyPI（国内走清华镜像、回退官方）装上并被检测到。
 - 登录 Cloud 后，桌面 Bridge 在 Web 端显示在线。
 

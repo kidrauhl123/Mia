@@ -110,8 +110,7 @@ test("installEngine uses official Windows installers for Windows agents", (t) =>
     systemHermesPython: () => "C:\\Users\\me\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
     shellCommandPath: (command) => ({
       claude: "C:\\Users\\me\\.claude\\local\\bin\\claude.exe",
-      codex: "C:\\Users\\me\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe",
-      openclaw: "C:\\Users\\me\\AppData\\Roaming\\npm\\openclaw.cmd"
+      codex: "C:\\Users\\me\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe"
     })[command] || "",
     spawnSync: (command, args, options) => {
       calls.push({ type: "spawn", command, args, options });
@@ -122,20 +121,18 @@ test("installEngine uses official Windows installers for Windows agents", (t) =>
   service.installEngine("hermes");
   service.installEngine("claude-code");
   service.installEngine("codex");
-  service.installEngine("openclaw");
+  assert.throws(() => service.installEngine("openclaw"), /not installable/);
 
   const commands = calls
     .filter((call) => call.type === "spawn")
     .map((call) => [call.command, call.args.join(" ")]);
-  assert.equal(commands.length, 4);
+  assert.equal(commands.length, 3);
   assert.equal(commands.every(([command]) => command === "powershell.exe"), true);
   assert.match(commands[0][1], /hermes-agent\.nousresearch\.com\/install\.ps1/);
   assert.match(commands[0][1], /-NonInteractive/);
   assert.match(commands[1][1], /claude\.ai\/install\.ps1/);
   assert.match(commands[2][1], /chatgpt\.com\/codex\/install\.ps1/);
   assert.match(commands[2][1], /CODEX_NON_INTERACTIVE/);
-  assert.match(commands[3][1], /openclaw\.ai\/install\.ps1/);
-  assert.match(commands[3][1], /-NoOnboard/);
   assert.doesNotMatch(commands.map((entry) => entry[1]).join("\n"), /npm install -g|pip install/);
 });
 
@@ -512,7 +509,7 @@ test("installEngine maps npm engines to their official packages and rejects unkn
   });
 
   service.installEngine("codex");
-  service.installEngine("openclaw");
-  assert.deepEqual(installs, ["@openai/codex", "openclaw"]);
+  assert.deepEqual(installs, ["@openai/codex"]);
+  assert.throws(() => service.installEngine("openclaw"), /not installable/);
   assert.throws(() => service.installEngine("missing-engine"), /not installable/);
 });

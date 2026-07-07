@@ -1219,7 +1219,7 @@ test("syncDesktopLocalBotRuntimeBinding defaults empty Hermes model to only Mia 
   });
 });
 
-test("syncDesktopLocalBotRuntimeBinding preserves openclaw as a desktop target", async () => {
+test("syncDesktopLocalBotRuntimeBinding preserves Codex as a desktop target", async () => {
   const calls = [];
   const api = {
     async saveBotRuntime(botId, body) {
@@ -1231,7 +1231,7 @@ test("syncDesktopLocalBotRuntimeBinding preserves openclaw as a desktop target",
   await commands.syncDesktopLocalBotRuntimeBinding({
     api,
     state: { runtime: { localDevice: { id: "mac-1", name: "Mac" } } },
-    bot: { key: "claw", name: "Claw", agentEngine: "openclaw" },
+    bot: { key: "codex", name: "Codex", agentEngine: "codex" },
     engineOptions: {
       externalModelEntries: () => [],
       effortOptions: () => [{ value: "off", label: "Off" }],
@@ -1239,7 +1239,7 @@ test("syncDesktopLocalBotRuntimeBinding preserves openclaw as a desktop target",
     }
   });
 
-  assert.equal(calls[0][2].config.agentEngine, "openclaw");
+  assert.equal(calls[0][2].config.agentEngine, "codex");
   assert.equal(calls[0][2].config.deviceId, "mac-1");
   assert.equal(calls[0][2].config.effortLevel, "off");
 });

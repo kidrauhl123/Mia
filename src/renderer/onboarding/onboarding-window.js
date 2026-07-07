@@ -17,13 +17,11 @@
     { id: "hermes", label: "Hermes" },
     { id: "claude-code", label: "Claude Code" },
     { id: "codex", label: "Codex" },
-    { id: "openclaw", label: "OpenClaw" },
   ];
   const AGENT_ICONS = {
     hermes: "../assets/engine-icons/hermesagent.svg",
     "claude-code": "../assets/engine-icons/claudecode.svg",
-    codex: "../assets/engine-icons/codex-color.svg",
-    openclaw: "../assets/provider-icons/openclaw-color.svg"
+    codex: "../assets/engine-icons/codex-color.svg"
   };
   const INSTALL_MESSAGE_MAX = 72;
 
@@ -31,7 +29,7 @@
   let hint = "";
   let loginFlow = null;
   let loginAttempt = 0;
-  let scan = { done: 0, total: 4, byId: {} };
+  let scan = { done: 0, total: 3, byId: {} };
   let inventory = null;
   let renderTimer = 0;
   let nativeControlsVisible = null;
@@ -123,7 +121,6 @@
     if (agent.health === "broken" || readiness.status === "repairable") {
       return { text: readinessText || "可修复", cls: "error" };
     }
-    if (agent.id === "openclaw" && agent.installed) return { text: "已就绪", cls: "ok" };
     if (agent.usableInMia) return { text: "已就绪", cls: "ok" };
     if (agent.installed) return { text: "已检测到", cls: "" };
     return { text: "未检测到", cls: "missing" };
@@ -350,7 +347,7 @@
   }
 
   async function startScan() {
-    scan = { done: 0, total: 4, byId: {} };
+    scan = { done: 0, total: AGENTS.length, byId: {} };
     const unsubscribe = mia.onAgentScanProgress?.((payload) => {
       if (!payload || !payload.agent) return;
       scan.byId[payload.agent.id] = payload.agent;

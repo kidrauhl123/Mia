@@ -7,7 +7,7 @@ const yaml = require("js-yaml");
 
 const { normalizeTransport, publicCoreMcpRecord, sanitizeSecretText } = require("./records.js");
 
-const SOURCE_ORDER = ["claude-code", "codex", "openclaw", "hermes"];
+const SOURCE_ORDER = ["claude-code", "codex", "hermes"];
 
 function detected(source, name, transport, importable = true, importSkipReason = "") {
   return {
@@ -151,18 +151,6 @@ function parseCodexMcpListJson(output = "") {
     .filter(Boolean);
 }
 
-function parseOpenClawMcpListJson(output = "") {
-  const parsed = String(output || "").trim() ? JSON.parse(output) : [];
-  const entries = Array.isArray(parsed) ? parsed : Object.entries(parsed.mcpServers || parsed.mcp_servers || parsed.servers || {})
-    .map(([name, spec]) => ({ name, ...spec }));
-  return entries
-    .map((entry) => {
-      const enabled = entry.enabled !== false;
-      return normalizeDetected("openclaw", entry.name, transportFromJsonEntry(entry), enabled, enabled ? "" : "Disabled");
-    })
-    .filter(Boolean);
-}
-
 function parseHermesConfigYaml(content = "") {
   const parsed = yaml.load(String(content || "")) || {};
   const servers = parsed.mcp_servers && typeof parsed.mcp_servers === "object" ? parsed.mcp_servers : {};
@@ -267,10 +255,6 @@ function createCoreMcpAgentConfigService(deps = {}) {
     return runCliSource("codex", "codex", ["mcp", "list", "--json"], parseCodexMcpListJson);
   }
 
-  async function openclawConfigs() {
-    return runCliSource("openclaw", "openclaw", ["mcp", "list", "--json"], parseOpenClawMcpListJson);
-  }
-
   async function hermesConfigs() {
     try {
       const paths = runtimePaths() || {};
@@ -289,7 +273,6 @@ function createCoreMcpAgentConfigService(deps = {}) {
     const sources = await Promise.all([
       claudeConfigs(),
       codexConfigs(),
-      openclawConfigs(),
       hermesConfigs()
     ]);
     const bySource = new Map(sources.map((source) => [source.source, source]));
@@ -321,7 +304,6 @@ module.exports = {
   parseClaudeMcpList,
   parseCodexMcpListJson,
   parseHermesConfigYaml,
-  parseOpenClawMcpListJson,
   publicAgentConfigSource,
   publicAgentConfigSources
 };

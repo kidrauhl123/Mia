@@ -25,7 +25,7 @@ const { normalizeCloudClaudeCodeModel } = require("./cloud-claude-code-model.js"
 const BOT_MEMBER_KIND = "bot";
 const BOT_SENDER_KIND = "bot";
 const DESKTOP_INVOCATION_HISTORY_LIMIT = 200;
-const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "OpenClaw", "Hermes"];
+const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "Hermes"];
 const MAX_SKILL_LOAD_ROUNDS = 3;
 const CLOUD_CLAUDE_CODE_RUNTIME_KIND = "cloud-claude-code";
 
@@ -135,8 +135,7 @@ function cloudBotIdentityInstructions(bot = {}) {
   return [
     `你是 ${name}，Mia Cloud 里的 Bot。`,
     id && id !== name ? `你的 Bot ID 是 ${id}。` : "",
-    `当用户询问你的名字、身份或“你是谁”时，请回答你是 ${name}。`,
-    "不要自称 Claude Code、Codex、OpenClaw 或其它底层运行引擎名称，除非用户明确询问底层运行引擎，或该名称就是你的 Bot 名。"
+    `当用户询问你的名字、身份或“你是谁”时，请回答你是 ${name}。`
   ].filter(Boolean).join("\n");
 }
 

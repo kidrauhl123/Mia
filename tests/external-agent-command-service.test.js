@@ -22,8 +22,7 @@ function makeService(overrides = {}) {
     normalizeEffortLevel: (level) => String(level || "medium"),
     localAgentEngines: () => ({
       claudeCode: { path: "/bin/claude", version: "claude 1.2.3" },
-      codex: { path: "/bin/codex", version: "codex 2.3.4" },
-      openclaw: { path: "/bin/openclaw", version: "openclaw 0.9.0" }
+      codex: { path: "/bin/codex", version: "codex 2.3.4" }
     }),
     getAgentSessionId: () => "",
     enginePermissionMode: () => "default",
@@ -129,32 +128,6 @@ test("runSlashCommand reports external agent status from injected engine and ses
   assert.match(result, /版本：codex 2\.3\.4/);
   assert.match(result, /外部会话：thread_1/);
   assert.deepEqual(getCalls, [["codex", "alice", "local_1", "/repo"]]);
-});
-
-test("runSlashCommand reports OpenClaw status without falling back to Codex labels", () => {
-  const { service } = makeService({
-    getAgentSessionId: () => "claw_session_1",
-    enginePermissionMode: () => "bypassPermissions"
-  });
-
-  const result = service.runSlashCommand({
-    text: "/status",
-    engine: "openclaw",
-    sessionId: "local_1",
-    bot: {
-      key: "claw",
-      name: "Claw",
-      engineConfig: { effortLevel: "adaptive" }
-    }
-  });
-
-  assert.match(result, /Claw 使用 OpenClaw 本地引擎/);
-  assert.match(result, /模型：OpenClaw 默认模型/);
-  assert.match(result, /推理强度：adaptive/);
-  assert.match(result, /权限：bypassPermissions/);
-  assert.match(result, /CLI：\/bin\/openclaw/);
-  assert.match(result, /版本：openclaw 0\.9\.0/);
-  assert.match(result, /外部会话：claw_session_1/);
 });
 
 test("runSlashCommand lists Mia-bound external sessions before raw CLI history", () => {

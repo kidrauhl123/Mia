@@ -8,8 +8,7 @@
   const EngineId = Object.freeze({
     Hermes: "hermes",
     ClaudeCode: "claude-code",
-    Codex: "codex",
-    OpenClaw: "openclaw"
+    Codex: "codex"
   });
   const hasOwn = Object.prototype.hasOwnProperty;
   const NATIVE_SKILL_DIR_KEYS = Object.freeze(["nativeSkillsDirs", "native_skills_dirs"]);
@@ -27,7 +26,6 @@
     const id = String(value || EngineId.Hermes).trim().toLowerCase().replace(/_/g, "-");
     if (id === "claude" || id === EngineId.ClaudeCode) return EngineId.ClaudeCode;
     if (id === EngineId.Codex || id === "openai-codex") return EngineId.Codex;
-    if (id === EngineId.OpenClaw || id === "open-claw") return EngineId.OpenClaw;
     return EngineId.Hermes;
   }
 
@@ -76,18 +74,6 @@
       modelScope: "partner",
       effortScope: "partner",
       configApply: "codex-permission-on-change"
-    }),
-    [EngineId.OpenClaw]: Object.freeze({
-      id: EngineId.OpenClaw,
-      homeStrategy: "native-engine-default",
-      nativeHomeSubdir: "",
-      nativeSkillsDirs: null,
-      permissionScope: "engine",
-      permissionStore: "engine-map",
-      permissionCodec: "openclaw-acp-permission-mode",
-      modelScope: "partner",
-      effortScope: "partner",
-      configApply: "adapter-options"
     })
   });
 

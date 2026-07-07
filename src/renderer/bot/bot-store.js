@@ -132,8 +132,7 @@
     unknown: { label: "内核未同步", department: "Mia Cloud", accent: "#6b7280" },
     hermes: { label: "Hermes", department: "Mia 本机 Agent", accent: "#5dcaa5" },
     "claude-code": { label: "Claude Code", department: "代码工程部", accent: "#7f77dd" },
-    codex: { label: "Codex", department: "代码工程部", accent: "#378add" },
-    openclaw: { label: "OpenClaw", department: "开放 Agent 部", accent: "#ef9f27" }
+    codex: { label: "Codex", department: "代码工程部", accent: "#378add" }
   };
   const CATEGORY_ORDER = ["学习", "项目", "事务", "代码", "情报", "娱乐", "推荐"];
 
@@ -167,7 +166,6 @@
     const raw = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
     if (raw === "claude" || raw === "claude-code") return "claude-code";
     if (raw === "codex" || raw === "openai-codex") return "codex";
-    if (raw === "openclaw" || raw === "open-claw") return "openclaw";
     return "hermes";
   }
 
@@ -177,7 +175,6 @@
     const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
     if (raw === "claude" || raw === "claude-code") return "claude-code";
     if (raw === "codex" || raw === "openai-codex") return "codex";
-    if (raw === "openclaw" || raw === "open-claw") return "openclaw";
     if (raw === "hermes") return "hermes";
     return "";
   }
@@ -379,10 +376,9 @@
     const legacySources = {
       hermes: runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed || runtime.engineInstalled || runtime.engineRunning,
       "claude-code": runtime.agentEngines?.claudeCode?.available,
-      codex: runtime.agentEngines?.codex?.available,
-      openclaw: runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed
+      codex: runtime.agentEngines?.codex?.available
     };
-    return ["hermes", "claude-code", "codex", "openclaw"]
+    return ["hermes", "claude-code", "codex"]
       .filter((id) => inventory.get(id)?.usableInMia === true || legacySources[id]);
   }
 
@@ -438,10 +434,10 @@
     const advertised = Array.isArray(device.capabilities?.engines)
       ? device.capabilities.engines.map((id) => normalizeAgentEngine(id)).filter(Boolean)
       : [];
-    const supported = advertised.filter((id) => ["hermes", "claude-code", "codex", "openclaw"].includes(id));
+    const supported = advertised.filter((id) => ["hermes", "claude-code", "codex"].includes(id));
     if (supported.length) return [...new Set(supported)];
     const engine = normalizeAgentEngine(device.engine || "");
-    return ["hermes", "claude-code", "codex", "openclaw"].includes(engine) ? [engine] : [];
+    return ["hermes", "claude-code", "codex"].includes(engine) ? [engine] : [];
   }
 
   function runtimeTargetGroups(current = {}) {

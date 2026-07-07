@@ -473,7 +473,6 @@
     const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
     if (raw === "claude" || raw === "claude-code") return "claude-code";
     if (raw === "codex" || raw === "openai-codex") return "codex";
-    if (raw === "openclaw" || raw === "open-claw") return "openclaw";
     if (raw === "hermes") return "hermes";
     return "";
   }
@@ -575,7 +574,6 @@
     };
     const engineStatus = (engine) => {
       if (engine === "claude-code") return runtime.agentEngines?.claudeCode || runtime.agentEngines?.["claude-code"] || {};
-      if (engine === "openclaw") return runtime.agentEngines?.openClaw || runtime.agentEngines?.openclaw || {};
       return runtime.agentEngines?.[engine] || {};
     };
     const scanInProgress = Boolean(runtime.agentInventory?.summary?.scanning);
@@ -588,10 +586,9 @@
     const engineSources = {
       hermes: engineStatus("hermes").available || engineStatus("hermes").installed || runtime.engineInstalled || runtime.engineRunning,
       "claude-code": engineStatus("claude-code").available || engineStatus("claude-code").installed,
-      codex: engineStatus("codex").available || engineStatus("codex").installed,
-      openclaw: engineStatus("openclaw").available || engineStatus("openclaw").installed
+      codex: engineStatus("codex").available || engineStatus("codex").installed
     };
-    const engines = ["hermes", "claude-code", "codex", "openclaw"]
+    const engines = ["hermes", "claude-code", "codex"]
       .filter((id) => inventoryUsable(id) || engineSources[id] || capabilityAvailable(id));
     if (!engines.length) engines.push(window.miaBotDirectory?.normalizeAgentEngine?.(state?.preferredAgentEngine || "hermes", "desktop-local") || "hermes");
     return normalizedDevice({
@@ -633,10 +630,10 @@
     const advertised = Array.isArray(device.capabilities?.engines)
       ? device.capabilities.engines.map((id) => String(id || "").trim()).filter(Boolean)
       : [];
-    const supported = advertised.filter((id) => ["hermes", "claude-code", "codex", "openclaw"].includes(id));
+    const supported = advertised.filter((id) => ["hermes", "claude-code", "codex"].includes(id));
     if (supported.length) return supported;
     const engine = String(device.engine || "").trim();
-    return ["hermes", "claude-code", "codex", "openclaw"].includes(engine) ? [engine] : [];
+    return ["hermes", "claude-code", "codex"].includes(engine) ? [engine] : [];
   }
 
   function encodeRuntimeTarget(target = {}) {

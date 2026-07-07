@@ -9,10 +9,10 @@ const {
 test("personaBlockForNativeSession injects persona once until the block changes", () => {
   clearNativePersonaCache();
   const context = {
-    engine: "openclaw",
+    engine: "hermes",
     botId: "alice",
     sessionId: "s1",
-    nativeSessionId: "openclaw:mia:alice:s1",
+    nativeSessionId: "mia:alice:s1",
     persistAgentSession: true
   };
 
@@ -25,7 +25,7 @@ test("personaBlockForNativeSession keeps legacy always mode and non-persistent t
   clearNativePersonaCache();
 
   assert.equal(personaBlockForNativeSession({
-    engine: "openclaw",
+    engine: "hermes",
     botId: "alice",
     sessionId: "s1",
     persistAgentSession: true,
@@ -34,7 +34,7 @@ test("personaBlockForNativeSession keeps legacy always mode and non-persistent t
   }), "PERSONA");
 
   assert.equal(personaBlockForNativeSession({
-    engine: "openclaw",
+    engine: "hermes",
     botId: "alice",
     sessionId: "s1",
     persistAgentSession: false,
@@ -45,10 +45,10 @@ test("personaBlockForNativeSession keeps legacy always mode and non-persistent t
 test("personaBlockForNativeSession reinjects after native session reset", () => {
   clearNativePersonaCache();
   const context = {
-    engine: "openclaw",
-    botId: "claw",
+    engine: "hermes",
+    botId: "mei",
     sessionId: "s1",
-    nativeSessionId: "openclaw:mia:claw:s1",
+    nativeSessionId: "mia:mei:s1",
     persistAgentSession: true,
     personaBlock: "PERSONA"
   };
@@ -62,26 +62,26 @@ test("personaBlockForNativeSession isolates bot ids and conversation sessions", 
   clearNativePersonaCache();
 
   assert.equal(personaBlockForNativeSession({
-    engine: "openclaw",
+    engine: "hermes",
     botId: "alice",
     sessionId: "s1",
-    nativeSessionId: "openclaw:mia:alice:s1",
+    nativeSessionId: "mia:alice:s1",
     persistAgentSession: true,
     personaBlock: "PERSONA"
   }), "PERSONA");
   assert.equal(personaBlockForNativeSession({
-    engine: "openclaw",
+    engine: "hermes",
     botId: "alice",
     sessionId: "s2",
-    nativeSessionId: "openclaw:mia:alice:s2",
+    nativeSessionId: "mia:alice:s2",
     persistAgentSession: true,
     personaBlock: "PERSONA"
   }), "PERSONA");
   assert.equal(personaBlockForNativeSession({
-    engine: "openclaw",
+    engine: "hermes",
     botId: "bob",
     sessionId: "s1",
-    nativeSessionId: "openclaw:mia:bob:s1",
+    nativeSessionId: "mia:bob:s1",
     persistAgentSession: true,
     personaBlock: "PERSONA"
   }), "PERSONA");
@@ -91,8 +91,8 @@ test("personaBlockForNativeSession can disable persona prompt injection", () => 
   clearNativePersonaCache();
 
   assert.equal(personaBlockForNativeSession({
-    engine: "openclaw",
-    botId: "claw",
+    engine: "hermes",
+    botId: "mei",
     sessionId: "s1",
     persistAgentSession: true,
     personaInjectionMode: "none",

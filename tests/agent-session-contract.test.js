@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 
 const contract = require("../src/main/agent-session/agent-session-contract.js");
 
-const ENGINE_IDS = ["claude", "codex", "hermes", "openclaw"];
+const ENGINE_IDS = ["claude", "codex", "hermes"];
 const AGENT_SESSION_EVENT_KINDS = [
   "session-started",
   "message-started",

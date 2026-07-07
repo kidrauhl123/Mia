@@ -934,18 +934,18 @@ test("managed AgentSession turns pass prompt-fallback skill metadata to the mana
 
   await responder.respond({
     ...base,
-    dedupKey: "m_managed_skill_fallback:openclaw",
+    dedupKey: "m_managed_skill_fallback:codex",
     turnId: "t_skill_fallback",
     activeSkillIds: ["deep-research"],
-    botSnapshot: { key: "starter_100003_openclaw", name: "OpenClaw", agentEngine: "openclaw" },
-    runtimeConfig: { agentEngine: "openclaw" }
+    botSnapshot: { key: "starter_100003_codex", name: "Codex", agentEngine: "codex" },
+    runtimeConfig: { agentEngine: "codex" }
   });
 
   assert.equal(calls.runtime.length, 1);
   assert.deepEqual(calls.runtime[0].activeSkillIds, ["deep-research"]);
   assert.deepEqual(calls.manager, [{
     conversationId: "g_1",
-    engineId: "openclaw",
+    engineId: "codex",
     workspacePath: "/repo/workspace",
     skillFingerprint: "skills:abc",
     turnPromptPrefix: "## Prompt Fallback",
@@ -966,8 +966,7 @@ test("managed AgentSession turns pass prompt-fallback skill metadata to the mana
 for (const [agentEngine, expectedEngineId] of [
   ["hermes", "hermes"],
   ["claude-code", "claude"],
-  ["codex", "codex"],
-  ["openclaw", "openclaw"]
+  ["codex", "codex"]
 ]) {
   test(`managed AgentSession turns forward selected skill ids into runtime preparation for ${agentEngine}`, async () => {
     const calls = { manager: [], runtime: [], post: [], log: [], cloudEvents: [] };

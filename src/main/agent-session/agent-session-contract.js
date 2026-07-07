@@ -1,6 +1,6 @@
 const BOT_CONVERSATION_ENGINE_CONTRACT = "AgentSession";
 
-const ENGINE_IDS = Object.freeze(["claude", "codex", "hermes", "openclaw"]);
+const ENGINE_IDS = Object.freeze(["claude", "codex", "hermes"]);
 
 const AGENT_SESSION_EVENT_KINDS = Object.freeze([
   "session-started",
@@ -38,9 +38,7 @@ const ENGINE_SPECS = Object.freeze(
           ? "Claude Code"
           : engineId === "codex"
             ? "Codex"
-            : engineId === "hermes"
-              ? "Hermes"
-              : "OpenClaw",
+            : "Hermes",
       supportsNativeSession: true,
       supportsQueuedInput: true,
       supportsSteerInput: false
@@ -54,7 +52,6 @@ function normalizeAgentEngineId(value) {
   if (id === "claude" || id === "claude-code" || id === "claude-code-agent") return "claude";
   if (id === "codex" || id === "openai-codex" || id === "codex-cli") return "codex";
   if (id === "hermes" || id === "hermes-cli") return "hermes";
-  if (id === "openclaw" || id === "open-claw") return "openclaw";
   return id;
 }
 

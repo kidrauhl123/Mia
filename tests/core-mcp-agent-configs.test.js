@@ -7,8 +7,7 @@ const {
   createCoreMcpAgentConfigService,
   parseClaudeMcpList,
   parseCodexMcpListJson,
-  parseHermesConfigYaml,
-  parseOpenClawMcpListJson
+  parseHermesConfigYaml
 } = require("../src/core/mcp/agent-configs.js");
 
 test("parses Claude MCP list output and marks plugin or failed entries not importable", () => {
@@ -51,15 +50,6 @@ test("parses object-shaped Codex MCP JSON output with disabled entries not impor
   assert.equal(servers.find((server) => server.name === "remote").transport.headers.Authorization, "Bearer secret");
 });
 
-test("parses OpenClaw MCP JSON output with source override", () => {
-  const servers = parseOpenClawMcpListJson(JSON.stringify([
-    { name: "xhs", enabled: true, transport: { type: "http", url: "http://127.0.0.1:18060/mcp" } }
-  ]));
-
-  assert.equal(servers[0].source, "openclaw");
-  assert.equal(servers[0].name, "xhs");
-});
-
 test("parses Hermes config yaml mcp_servers with stdio http and sse", () => {
   const servers = parseHermesConfigYaml("mcp_servers:\n  xhs:\n    url: http://127.0.0.1:18060/mcp\n  pw:\n    command: npx\n    args:\n      - -y\n      - '@playwright/mcp'\n  events:\n    type: sse\n    url: https://example.com/sse\n");
 
@@ -82,18 +72,16 @@ test("getAgentConfigs uses runner and temp Hermes home without writing", async (
       commands.push([command, args]);
       if (command === "claude") return { ok: true, stdout: "claude-pw: npx -y pw - ✓ Connected", stderr: "" };
       if (command === "codex") return { ok: true, stdout: JSON.stringify([{ name: "codex-pw", enabled: true, transport: { type: "stdio", command: "npx", args: ["-y", "pw"] } }]), stderr: "" };
-      if (command === "openclaw") return { ok: false, stdout: "", stderr: "unsupported TOKEN=secret" };
       return { ok: false, stdout: "", stderr: "" };
     }
   });
 
   const sources = await service.getAgentConfigs();
 
-  assert.deepEqual(sources.map((source) => source.source), ["claude-code", "codex", "openclaw", "hermes"]);
+  assert.deepEqual(sources.map((source) => source.source), ["claude-code", "codex", "hermes"]);
   assert.equal(sources.find((source) => source.source === "hermes").servers[0].name, "xhs");
-  assert.equal(sources.find((source) => source.source === "openclaw").installed, false);
-  assert.equal(sources.find((source) => source.source === "openclaw").error, "unsupported TOKEN=[redacted]");
   assert.ok(commands.some(([command]) => command === "claude"));
+  assert.equal(commands.some(([command]) => command === "openclaw"), false);
 });
 
 test("getAgentConfigs returns sanitized errors for invalid JSON and YAML", async (t) => {

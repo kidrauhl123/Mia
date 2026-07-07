@@ -67,7 +67,6 @@
     const id = String(value || "").trim().toLowerCase().replace(/_/g, "-");
     if (id === "claude" || id === "claude-code") return "claude-code";
     if (id === "codex" || id === "openai-codex") return "codex";
-    if (id === "openclaw" || id === "open-claw") return "openclaw";
     if (id === "hermes") return "hermes";
     return "";
   }
@@ -79,7 +78,6 @@
   function normalizeAgentEngine(value, runtimeKind = "desktop-local", runtime = {}) {
     if (runtimeKind === "cloud-claude-code") return strictAgentEngine(value) || cloudAgentEngine(runtime);
     const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
-    if (id === "openclaw" || id === "open-claw") return "openclaw";
     const normalizer = global.miaEngineContracts?.normalizeAgentEngine;
     if (typeof normalizer === "function") return normalizer(value);
     if (id === "claude" || id === "claude-code") return "claude-code";

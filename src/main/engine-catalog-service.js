@@ -30,16 +30,6 @@ const CLAUDE_PERMISSION_TITLES = Object.freeze({
   plan: "Claude Code 计划模式，只读规划。"
 });
 
-const OPENCLAW_PERMISSION_OPTIONS = Object.freeze([
-  { value: "default", label: "Ask", title: "OpenClaw asks Mia before tool use.", aliases: [] },
-  {
-    value: "bypassPermissions",
-    label: "Full Access",
-    title: "OpenClaw may use tools without Mia asking first.",
-    aliases: ["yolo", "off", "never"]
-  }
-]);
-
 function normalizeCodexReasoningOption(option) {
   const effort = String(
     option?.effort
@@ -261,37 +251,6 @@ function permissionOptionsFromModes(modes = [], labelMap = {}, titleMap = {}) {
   }));
 }
 
-function normalizeOpenClawModels(payload = {}) {
-  const rows = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.models)
-      ? payload.models
-      : Array.isArray(payload?.rows)
-        ? payload.rows
-        : Array.isArray(payload?.data)
-          ? payload.data
-          : [];
-  const seen = new Set();
-  const result = [];
-  for (const row of rows) {
-    if (!row || row.hidden === true || row.missing === true) continue;
-    if (row.available === false) continue;
-    const rawModelId = String(row.key || row.id || row.model || "").trim().toLowerCase();
-    // Mia-managed models are added from the platform catalog so they keep provider/auth metadata.
-    if (rawModelId.startsWith("mia/") || String(row.provider || "").trim().toLowerCase() === "mia") continue;
-    const model = normalizeExternalModelEntry(row, {
-      provider: "openclaw",
-      providerLabel: "OpenClaw",
-      source: "openclaw-models-list",
-      index: result.length
-    });
-    if (!model || seen.has(model.id)) continue;
-    seen.add(model.id);
-    result.push(model);
-  }
-  return result;
-}
-
 function createEngineCatalogService({
   isEngineInstalled,
   initializeRuntime,
@@ -313,7 +272,6 @@ function createEngineCatalogService({
 }) {
   let codexCapabilityCache = { at: 0, value: null };
   let claudeCapabilityCache = { at: 0, value: null };
-  let openClawCapabilityCache = { at: 0, value: null };
 
   function fallbackModelCatalog() {
     return [
@@ -534,87 +492,6 @@ function createEngineCatalogService({
     return value;
   }
 
-  async function loadOpenClawRuntimeCapabilities() {
-    if (openClawCapabilityCache.value && (now() - openClawCapabilityCache.at) < EXTERNAL_CAPABILITY_CACHE_TTL_MS) {
-      return openClawCapabilityCache.value;
-    }
-
-    const value = {
-      available: false,
-      cliPath: "",
-      models: [],
-      effortLevels: [],
-      effortOptions: [],
-      permissionModes: OPENCLAW_PERMISSION_OPTIONS.map((item) => item.value),
-      permissionOptions: OPENCLAW_PERMISSION_OPTIONS.map((item) => ({ ...item, source: "mia-acp-adapter" })),
-      permissionSource: "mia-acp-adapter",
-      source: "openclaw",
-      error: ""
-    };
-
-    const openClawPath = String(shellCommandPath("openclaw") || shellCommandPath("claw") || "").trim();
-    value.available = Boolean(openClawPath);
-    value.cliPath = openClawPath;
-    if (!openClawPath) {
-      openClawCapabilityCache = { at: now(), value };
-      return value;
-    }
-
-    const env = envWithExecutableDirFirst(
-      typeof processEnvStrings === "function" ? processEnvStrings() : process.env,
-      openClawPath
-    );
-    const helpOptions = {
-      cwd: cwd(),
-      env,
-      encoding: "utf8",
-      timeout: 5000,
-      maxBuffer: 1024 * 1024
-    };
-    let helpResult = await execFileResult(execFile, openClawPath, ["agent", "--help"], helpOptions);
-    let help = `${helpResult.stdout}\n${helpResult.stderr}`;
-    let thinkingLevels = helpResult.status === 0 ? choicesFromHelp(help, "--thinking") : [];
-    if (!thinkingLevels.length) {
-      appendEngineLog(`OpenClaw thinking capability probe failed: ${helpResult.stderr || helpResult.error?.message || `openclaw agent --help exited ${helpResult.status}`}`);
-      const fallbackHelp = await execFileResult(execFile, openClawPath, ["--dev", "agent", "--help"], helpOptions);
-      if (fallbackHelp.status === 0) {
-        helpResult = fallbackHelp;
-        help = `${fallbackHelp.stdout}\n${fallbackHelp.stderr}`;
-        thinkingLevels = choicesFromHelp(help, "--thinking");
-      }
-      if (!thinkingLevels.length) {
-        value.error = `agent-help: ${helpResult.stderr || helpResult.error?.message || helpResult.status}`;
-      }
-    }
-    value.effortLevels = thinkingLevels;
-    value.effortOptions = value.effortLevels.map((level) => ({
-      value: level,
-      label: titleCaseWords(level) || level
-    }));
-
-    const modelsResult = await execFileResult(execFile, openClawPath, ["models", "list", "--json"], {
-      cwd: cwd(),
-      env,
-      encoding: "utf8",
-      timeout: 8000,
-      maxBuffer: 4 * 1024 * 1024
-    });
-    if (modelsResult.status === 0) {
-      try {
-        value.models = normalizeOpenClawModels(JSON.parse(String(modelsResult.stdout || "{}")));
-      } catch (error) {
-        appendEngineLog(`OpenClaw model capability parse failed: ${error?.message || error}`);
-        value.error = [value.error, `models-parse: ${error?.message || error}`].filter(Boolean).join("; ");
-      }
-    } else {
-      appendEngineLog(`OpenClaw model capability probe failed: ${modelsResult.stderr || modelsResult.error?.message || `openclaw models list exited ${modelsResult.status}`}`);
-      value.error = [value.error, `models-list: ${modelsResult.stderr || modelsResult.error?.message || modelsResult.status}`].filter(Boolean).join("; ");
-    }
-
-    openClawCapabilityCache = { at: now(), value };
-    return value;
-  }
-
   async function loadHermesModelCatalogInner() {
     const p = runtimePaths();
     const script = String.raw`
@@ -740,10 +617,9 @@ print(json.dumps(result))
 
   async function loadEngineCapabilities() {
     const hermes = await loadHermesEngineCapabilities();
-    const [codexRuntime, claudeRuntime, openClawRuntime] = await Promise.all([
+    const [codexRuntime, claudeRuntime] = await Promise.all([
       loadCodexRuntimeCapabilities(),
-      loadClaudeRuntimeCapabilities(),
-      loadOpenClawRuntimeCapabilities()
+      loadClaudeRuntimeCapabilities()
     ]);
     const codexModels = codexRuntime.models.length ? codexRuntime.models : loadCodexModels();
     const codexEffortOptions = codexEffortOptionsFromModels(codexModels);
@@ -757,8 +633,7 @@ print(json.dumps(result))
           effortLevels: codexEffortOptions.map((item) => item.value),
           effortOptions: codexEffortOptions,
           permissionProfiles: codexRuntime.permissionProfiles
-        },
-        openclaw: openClawRuntime
+        }
       }
     };
   }
@@ -824,6 +699,5 @@ module.exports = {
   createEngineCatalogService,
   normalizeClaudeModelEntries,
   normalizeCodexModels,
-  normalizeCodexPermissionProfiles,
-  normalizeOpenClawModels
+  normalizeCodexPermissionProfiles
 };

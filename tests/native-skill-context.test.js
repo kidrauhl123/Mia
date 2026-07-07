@@ -53,10 +53,10 @@ test("skillMaterializationForNativeSession keeps legacy always mode and non-pers
 test("skillMaterializationForNativeSession reinjects index after native session reset", () => {
   clearNativeSkillIndexCache();
   const context = {
-    engine: "openclaw",
-    botId: "claw",
+    engine: "hermes",
+    botId: "mei",
     sessionId: "s1",
-    nativeSessionId: "openclaw:mia:claw:s1",
+    nativeSessionId: "mia:mei:s1",
     persistAgentSession: true,
     skillMaterialization
   };
@@ -102,8 +102,8 @@ test("skillMaterializationForNativeSession can disable index injection", () => {
   clearNativeSkillIndexCache();
 
   assert.deepEqual(skillMaterializationForNativeSession({
-    engine: "openclaw",
-    botId: "claw",
+    engine: "hermes",
+    botId: "mei",
     sessionId: "s1",
     persistAgentSession: true,
     skillIndexMode: "none",

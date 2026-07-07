@@ -1549,7 +1549,6 @@ function normalizeRuntimeAgentEngine(value) {
   const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
   if (raw === "claude" || raw === "claude-code" || raw === "anthropic" || raw === "cloud-claude-code") return "claude-code";
   if (raw === "codex" || raw === "openai-codex") return "codex";
-  if (raw === "openclaw" || raw === "open-claw") return "openclaw";
   if (raw === "hermes") return "hermes";
   return "";
 }
@@ -2466,7 +2465,7 @@ function bridgeCapabilityEngines(capabilities = {}) {
   const engines = Array.isArray(capabilities?.engines) ? capabilities.engines : [];
   return [...new Set(engines
     .map((engine) => String(engine || "").trim())
-    .filter((engine) => ["hermes", "claude-code", "codex", "openclaw"].includes(engine)))];
+    .filter((engine) => ["hermes", "claude-code", "codex"].includes(engine)))];
 }
 
 function bridgeDeviceEngine(engine, capabilities = {}) {

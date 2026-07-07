@@ -146,7 +146,7 @@ function createBotDialogContext({ activeBinding, runtime = null, engineCapabilit
         normalizeAgentEngine(value, runtimeKind = "desktop-local") {
           if (runtimeKind === "cloud-claude-code") return cloudRuntime.cloudAgentRuntimeFromCloud(state.runtime.cloud).agentEngine;
           const id = String(value || "hermes").trim();
-          return id === "claude-code" || id === "codex" || id === "openclaw" ? id : "hermes";
+          return id === "claude-code" || id === "codex" ? id : "hermes";
         },
         isCloudIdentityBot(bot) {
           return Array.isArray(bot?.sourceKinds) && bot.sourceKinds.includes("cloud");
@@ -173,8 +173,7 @@ function createBotDialogContext({ activeBinding, runtime = null, engineCapabilit
           return {
             hermes: "Hermes",
             "claude-code": "Claude Code",
-            codex: "Codex",
-            openclaw: "OpenClaw"
+            codex: "Codex"
           }[engine] || engine;
         }
       },
@@ -224,15 +223,14 @@ test("creating a bot exposes only Mia Cloud and local engines", () => {
           id: "mac-remote",
           deviceName: "Studio Mac",
           status: "online",
-          capabilities: { engines: ["codex", "openclaw"] }
+          capabilities: { engines: ["codex"] }
         }]
       },
       localDevice: { id: "mac-local", name: "Work Mac" },
       agentEngines: {
         hermes: { available: true },
         claudeCode: { available: true },
-        codex: { available: true },
-        openClaw: { available: true }
+        codex: { available: true }
       },
       preferredAgentEngine: "codex"
     }
@@ -247,7 +245,7 @@ test("creating a bot exposes only Mia Cloud and local engines", () => {
       .filter((option) => option.deviceId === "mac-local")
       .map((option) => option.agentEngine)
       .sort(),
-    ["claude-code", "codex", "hermes", "openclaw"]
+    ["claude-code", "codex", "hermes"]
   );
   assert.equal(options.some((option) => option.deviceId === "mac-remote"), false);
 });
@@ -285,8 +283,7 @@ test("creating a bot uses normalized local agent inventory for engine choices", 
         agents: [
           { id: "hermes", usableInMia: true },
           { id: "claude-code", usableInMia: true },
-          { id: "codex", usableInMia: true },
-          { id: "openclaw", usableInMia: true }
+          { id: "codex", usableInMia: true }
         ]
       },
       preferredAgentEngine: "hermes"
@@ -299,7 +296,7 @@ test("creating a bot uses normalized local agent inventory for engine choices", 
     decodedRuntimeOptions(select)
       .filter((option) => option.deviceId === "win-local")
       .map((option) => option.agentEngine),
-    ["hermes", "claude-code", "codex", "openclaw"]
+    ["hermes", "claude-code", "codex"]
   );
 });
 
@@ -314,8 +311,7 @@ test("creating a bot keeps local engine choices while agent scan is still runnin
         agents: [
           { id: "hermes", health: "checking", source: "checking", usableInMia: false },
           { id: "claude-code", health: "checking", source: "checking", usableInMia: false },
-          { id: "codex", health: "checking", source: "checking", usableInMia: false },
-          { id: "openclaw", health: "checking", source: "checking", usableInMia: false }
+          { id: "codex", health: "checking", source: "checking", usableInMia: false }
         ]
       },
       preferredAgentEngine: "hermes"
@@ -328,7 +324,7 @@ test("creating a bot keeps local engine choices while agent scan is still runnin
     decodedRuntimeOptions(select)
       .filter((option) => option.deviceId === "win-local")
       .map((option) => option.agentEngine),
-    ["hermes", "claude-code", "codex", "openclaw"]
+    ["hermes", "claude-code", "codex"]
   );
 });
 
@@ -415,8 +411,7 @@ test("creating a bot supplements local engines from loaded engine capabilities",
     engineCapabilities: {
       engines: {
         "claude-code": { available: true },
-        codex: { available: true },
-        openclaw: { available: true }
+        codex: { available: true }
       }
     }
   });
@@ -428,7 +423,7 @@ test("creating a bot supplements local engines from loaded engine capabilities",
       .filter((option) => option.deviceId === "mac-local")
       .map((option) => option.agentEngine)
       .sort(),
-    ["claude-code", "codex", "hermes", "openclaw"]
+    ["claude-code", "codex", "hermes"]
   );
 });
 

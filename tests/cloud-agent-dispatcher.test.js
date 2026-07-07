@@ -473,7 +473,7 @@ test("cloud-claude-code DM pins the bot identity over a copied engine persona", 
     assert.match(hermesCalls[0].instructions, /专注代码任务/);
     assert.match(hermesCalls[0].instructions, /你是 ？？/);
     assert.doesNotMatch(hermesCalls[0].instructions, /你是 Claude Code/);
-    assert.match(hermesCalls[0].instructions, /不要自称 Claude Code/);
+    assert.doesNotMatch(hermesCalls[0].instructions, /不要自称/);
     assert.ok(
       hermesCalls[0].instructions.lastIndexOf("你是 ？？") > hermesCalls[0].instructions.indexOf("专注代码任务"),
       "display-name identity should be the final identity instruction"

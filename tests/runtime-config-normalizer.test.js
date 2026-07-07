@@ -8,7 +8,7 @@ test("normalizeTurnRuntimeConfig prefers Core profile references", () => {
     provider_connection_id: "mia",
     model_profile_id: "mia:mia-auto",
     model: "mia-auto",
-    agent_engine: "openclaw",
+    agent_engine: "codex",
     device_id: "mac-1",
     device_name: "MacBook Pro",
     effort_level: "medium",
@@ -17,7 +17,7 @@ test("normalizeTurnRuntimeConfig prefers Core profile references", () => {
     api_key_env: "RENDERER_SHOULD_NOT_OWN_THIS",
     ignored: "value"
   }), {
-    agentEngine: "openclaw",
+    agentEngine: "codex",
     deviceId: "mac-1",
     deviceName: "MacBook Pro",
     providerConnectionId: "mia",

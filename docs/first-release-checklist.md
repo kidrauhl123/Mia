@@ -9,11 +9,11 @@
 ## 必须完成
 
 1. OpenClaw 正式兼容
-   - 状态：代码已接入 ACP/OpenClaw 运行目标、检测、模型/权限选项和测试覆盖。
-   - 剩余：有 OpenClaw Gateway 的真机 smoke。
+   - 状态：已取消；OpenClaw 支持从 Mia 主线移除。
+   - 剩余：无。
 
 2. 模型切换完整
-   - 状态：Hermes、Claude Code、Codex、OpenClaw 已走统一模型、effort、permission/runtime config 控制。
+   - 状态：Hermes、Claude Code、Codex 已走统一模型、effort、permission/runtime config 控制。
    - 剩余：桌面端视觉走查。
 
 3. 设置界面按现状整理
@@ -43,14 +43,14 @@
 
 ```bash
 npm run check
-node --test tests/openclaw-chat-adapter.test.js tests/shared-contracts.test.js tests/chat-engine-registry.test.js tests/local-agent-engine-service.test.js tests/bot-commands.test.js tests/bot-directory.test.js tests/renderer-shell.test.js tests/skill-market-ui.test.js tests/skills-loader-install.test.js tests/cloud-skills-api.test.js tests/hermes-skills-source.test.js
+node --test tests/shared-contracts.test.js tests/chat-engine-registry.test.js tests/local-agent-engine-service.test.js tests/bot-commands.test.js tests/bot-directory.test.js tests/renderer-shell.test.js tests/skill-market-ui.test.js tests/skills-loader-install.test.js tests/cloud-skills-api.test.js tests/hermes-skills-source.test.js
 ```
 
 ## 真机验收矩阵
 
 | 平台 | 必测项 |
 | --- | --- |
-| macOS Apple Silicon | 安装、启动、Claude Code/Codex/OpenClaw/Hermes 检测、模型切换、Cloud Bridge 在线 |
+| macOS Apple Silicon | 安装、启动、Claude Code/Codex/Hermes 检测、模型切换、Cloud Bridge 在线 |
 | macOS Intel | 安装、启动、Agent 检测、模型切换、Cloud Bridge 在线 |
 | Windows | 安装、启动、Agent 检测、Cloud 登录、基础聊天 |
 

@@ -21,7 +21,6 @@ test("starterEngineBotSpecs lists only usable local engines in product order", (
     agentInventory: {
       agents: [
         { id: "codex", label: "Codex", usableInMia: true },
-        { id: "openclaw", label: "OpenClaw", usableInMia: false, installed: true },
         { id: "hermes", label: "Hermes", usableInMia: true },
         { id: "claude-code", label: "Claude Code", usableInMia: true }
       ]
@@ -41,7 +40,6 @@ test("starterBotSpecs assigns flame status badges to default bots", () => {
     agentInventory: {
       agents: [
         { id: "hermes", label: "Hermes", usableInMia: true },
-        { id: "openclaw", label: "OpenClaw", usableInMia: true },
         { id: "codex", label: "Codex", usableInMia: true },
         { id: "claude-code", label: "Claude Code", usableInMia: true }
       ]
@@ -53,7 +51,6 @@ test("starterBotSpecs assigns flame status badges to default bots", () => {
     [
       ["cloud-claude-code", "rainbow-fire"],
       ["hermes", "blue-fire"],
-      ["openclaw", "pink-fire"],
       ["codex", "cyan-fire"],
       ["claude-code", "red-orange-fire"]
     ]
@@ -66,7 +63,6 @@ test("starterBotSpecs assigns default avatar logos to starter bots", () => {
     agentInventory: {
       agents: [
         { id: "hermes", label: "Hermes", usableInMia: true },
-        { id: "openclaw", label: "OpenClaw", usableInMia: true },
         { id: "codex", label: "Codex", usableInMia: true },
         { id: "claude-code", label: "Claude Code", usableInMia: true }
       ]
@@ -78,7 +74,6 @@ test("starterBotSpecs assigns default avatar logos to starter bots", () => {
     [
       ["cloud-claude-code", "./assets/mia-logo.png"],
       ["hermes", "./assets/engine-icons/hermesagent-starter.svg"],
-      ["openclaw", "./assets/provider-icons/openclaw-starter.svg"],
       ["codex", "./assets/engine-icons/codex-color.svg"],
       ["claude-code", "./assets/engine-icons/claudecode-starter.svg"]
     ]
@@ -94,8 +89,7 @@ test("ensureStarterEngineBots creates missing engine bots once and stores the ac
       agentInventory: {
         agents: [
           { id: "hermes", label: "Hermes", usableInMia: true },
-          { id: "codex", label: "Codex", usableInMia: true },
-          { id: "openclaw", label: "OpenClaw", usableInMia: false }
+          { id: "codex", label: "Codex", usableInMia: true }
         ]
       }
     }

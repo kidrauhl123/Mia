@@ -552,11 +552,6 @@ body.window-blurred .onb-window-control:not(:hover) {
   object-fit: contain;
 }
 
-.onb-row-icon.openclaw img {
-  width: 32px;
-  height: 32px;
-}
-
 .onb-row-icon.monogram {
   font-size: 10px;
   font-weight: var(--ui-text-max-weight, 500);

@@ -5204,12 +5204,6 @@ body.topbar-click-capture .topbar {
   display: block;
 }
 
-.setup-engine-icon.openclaw img {
-  width: 24px;
-  height: 24px;
-  border-radius: 5px;
-}
-
 .setup-engine-icon.monogram {
   font-size: 10px;
   font-weight: var(--ui-text-max-weight, 500);
@@ -5431,12 +5425,6 @@ body.onboarding-window .setup-engine-icon img {
   height: 22px;
 }
 
-body.onboarding-window .setup-engine-icon.openclaw img {
-  width: 24px;
-  height: 24px;
-  border-radius: 0;
-}
-
 body.onboarding-window .setup-actions {
   justify-content: flex-start;
   max-width: none;
@@ -5573,12 +5561,6 @@ body.onboarding-window .setup-guide.ready .setup-engine-icon {
 body.onboarding-window .setup-guide.ready .setup-engine-icon img {
   width: 30px;
   height: 30px;
-}
-
-body.onboarding-window .setup-guide.ready .setup-engine-icon.openclaw img {
-  width: 32px;
-  height: 32px;
-  border-radius: 0;
 }
 
 .setup-guide.ready .setup-engine-body strong {
@@ -9946,17 +9928,6 @@ textarea:focus {
 
 .engine-row-logo.codex:not(.asset)::before {
   display: none;
-}
-
-.engine-row-logo.openclaw:not(.asset)::before {
-  content: "OC";
-  width: auto;
-  height: auto;
-  background: transparent;
-  -webkit-mask: none;
-  mask: none;
-  font-size: 10px;
-  font-weight: var(--ui-text-max-weight, 500);
 }
 
 .engine-row-logo img {
