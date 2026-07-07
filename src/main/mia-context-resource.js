@@ -106,7 +106,7 @@ function buildMiaContextResource({
 
 function mcpContextPrompt(resource = {}, { includeRuntime = false } = {}) {
   const runtimePrompt = includeRuntime ? resource?.runtime?.prompt : "";
-  return joinBlocks(runtimePrompt, resource?.mcp?.snapshotInstruction);
+  return joinBlocks(runtimePrompt);
 }
 
 module.exports = {

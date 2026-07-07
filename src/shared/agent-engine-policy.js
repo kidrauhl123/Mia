@@ -11,6 +11,16 @@
     Codex: "codex",
     OpenClaw: "openclaw"
   });
+  const hasOwn = Object.prototype.hasOwnProperty;
+  const NATIVE_SKILL_DIR_KEYS = Object.freeze(["nativeSkillsDirs", "native_skills_dirs"]);
+  const NATIVE_SKILL_DIR_CONTAINER_KEYS = Object.freeze([
+    "agentMetadata",
+    "agent_metadata",
+    "engineMetadata",
+    "engine_metadata",
+    "engineConfig",
+    "engine_config"
+  ]);
 
   function normalizeAgentEngine(value) {
     if (typeof contracts.normalizeAgentEngine === "function") return contracts.normalizeAgentEngine(value);
@@ -35,7 +45,7 @@
       id: EngineId.Hermes,
       homeStrategy: "native-user-home",
       nativeHomeSubdir: ".hermes",
-      nativeSkillsDirs: null,
+      nativeSkillsDirs: Object.freeze([]),
       permissionScope: "engine",
       permissionStore: "root-mode",
       permissionCodec: "hermes-approvals-mode",
@@ -86,6 +96,62 @@
     return ENGINE_RUNTIME_POLICIES[normalized] || ENGINE_RUNTIME_POLICIES[EngineId.Hermes];
   }
 
+  function isPlainObject(value) {
+    return Boolean(value && typeof value === "object" && !Array.isArray(value));
+  }
+
+  function normalizeNativeSkillsDirsValue(value) {
+    if (value == null) return null;
+    let raw = value;
+    if (typeof raw === "string") {
+      const text = raw.trim();
+      if (!text) return [];
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        raw = [text];
+      }
+    }
+    if (raw == null) return null;
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    const seen = new Set();
+    for (const entry of raw) {
+      const normalized = String(entry || "").trim();
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
+    }
+    return out;
+  }
+
+  function findNativeSkillsDirsOverride(source) {
+    if (!isPlainObject(source)) return { found: false, value: null };
+    for (const key of NATIVE_SKILL_DIR_KEYS) {
+      if (hasOwn.call(source, key)) {
+        return {
+          found: true,
+          value: normalizeNativeSkillsDirsValue(source[key])
+        };
+      }
+    }
+    for (const key of NATIVE_SKILL_DIR_CONTAINER_KEYS) {
+      if (!hasOwn.call(source, key)) continue;
+      const nested = findNativeSkillsDirsOverride(source[key]);
+      if (nested.found) return nested;
+    }
+    return { found: false, value: null };
+  }
+
+  function resolveNativeSkillsDirs(engine = EngineId.Hermes, options = {}) {
+    const runtimeOverride = findNativeSkillsDirsOverride(options?.runtimeConfig);
+    if (runtimeOverride.found) return runtimeOverride.value;
+    const botOverride = findNativeSkillsDirsOverride(options?.bot);
+    if (botOverride.found) return botOverride.value;
+    const fallback = agentEnginePolicy(engine).nativeSkillsDirs;
+    return Array.isArray(fallback) ? fallback.slice() : null;
+  }
+
   function enginePermissionStoreTarget(engine = EngineId.Hermes) {
     return agentEnginePolicy(engine).permissionStore;
   }
@@ -117,6 +183,7 @@
     nativeHomePathForEngine,
     normalizeAgentEngine,
     normalizeEnginePermissionMode,
+    resolveNativeSkillsDirs,
     shouldApplyNativePermissionConfig
   });
 });

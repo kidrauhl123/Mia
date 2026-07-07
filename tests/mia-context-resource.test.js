@@ -66,7 +66,7 @@ test("Mia context resource prefers native files over prompt fallback when availa
   assert.equal(resource.memory.prompt, "");
 });
 
-test("Mia context resource composes the Claude MCP system append without memory text", () => {
+test("Mia context resource leaves MCP scope to tool metadata unless explicit runtime rules exist", () => {
   const resource = buildMiaContextResource({
     engine: "claude-code",
     bot: { key: "mei" },
@@ -76,9 +76,6 @@ test("Mia context resource composes the Claude MCP system append without memory 
   });
   const prompt = mcpContextPrompt(resource, { includeRuntime: true });
 
-  assert.match(prompt, /^Runtime line/);
-  assert.match(prompt, /context_snapshot/);
-  assert.match(prompt, /memory_search/);
-  assert.doesNotMatch(prompt, /## Mia Memories/);
-  assert.equal(mcpContextPrompt(resource, { includeRuntime: false }).startsWith("## Mia Scoped Context"), true);
+  assert.equal(prompt, "Runtime line");
+  assert.equal(mcpContextPrompt(resource, { includeRuntime: false }), "");
 });

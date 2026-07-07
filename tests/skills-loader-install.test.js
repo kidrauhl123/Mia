@@ -514,17 +514,24 @@ test("installMarketplaceSkill rejects a missing package", async () => {
   }
 });
 
-test("buildActiveSkillsDirective names selected, resolvable skills as a 'use this now' directive", async () => {
+test("buildActiveSkillsDirective emits only the selected skill path block", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {
     const loader = makeLoader(home);
-    await loader.installMarketplaceSkill({ id: "demo-skill", zipBuffer: makeZip() });
+    await loader.installMarketplaceSkill({
+      id: "demo-skill",
+      zipBuffer: makeZip(),
+      marketMeta: {
+        nameZh: "演示技能",
+        summaryZh: "按这个技能的流程处理当前任务。"
+      }
+    });
 
-    const directive = loader.buildActiveSkillsDirective(["demo-skill"]);
-    assert.match(directive, /明确选择了 Skill/);
-    assert.match(directive, /「demo-skill」/);
-
-    // No selection, or an unresolvable id, yields no directive (so nothing is forced).
+    const prompt = loader.buildActiveSkillsDirective(["demo-skill"]);
+    assert.match(prompt, /selected_skill_paths/);
+    assert.match(prompt, /<path>.*demo-skill\/SKILL\.md<\/path>/);
+    assert.doesNotMatch(prompt, /demo-skill<\/id>|演示技能|directory|location/);
+    assert.doesNotMatch(prompt, /# Demo Skill/);
     assert.equal(loader.buildActiveSkillsDirective([]), "");
     assert.equal(loader.buildActiveSkillsDirective(["does-not-exist"]), "");
   } finally {

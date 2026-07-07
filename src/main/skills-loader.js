@@ -16,6 +16,7 @@ const AdmZip = require("adm-zip");
 const { botCapabilitiesWithPresetDefaults } = require("../shared/bot-identity.js");
 const { materializeSkillsForTurn } = require("../shared/skill-materializer.js");
 const { isSafeId, isSafeEntryName, assertInside, MAX_FILES, MAX_UNCOMPRESSED_BYTES } = require("../shared/skill-safety.js");
+const { buildSelectedSkillRoutingPrompt } = require("./selected-skill-routing-prompt.js");
 
 function cleanYamlScalar(value) {
   return String(value || "").trim().replace(/^['"]|['"]$/g, "");
@@ -228,6 +229,27 @@ function createSkillsLoader(deps = {}) {
     skill.marketSummaryZh = marker.summaryZh || marker.summary_zh || "";
     skill.marketCategoryZh = marker.categoryZh || marker.category_zh || "";
     return skill;
+  }
+
+  function skillDisplayName(skill = {}, fallback = "") {
+    return String(
+      skill.marketNameZh
+      || skill.name_zh
+      || skill.title
+      || skill.name
+      || fallback
+      || ""
+    ).trim();
+  }
+
+  function skillSummary(skill = {}, fallback = "") {
+    return String(
+      skill.marketSummaryZh
+      || skill.summary_zh
+      || skill.description
+      || fallback
+      || ""
+    ).trim();
   }
 
   function simpleYamlValue(text, key) {
@@ -620,7 +642,9 @@ function createSkillsLoader(deps = {}) {
       records.push({
         id: key,
         name: found.skill?.name || key,
+        displayName: skillDisplayName(found.skill, key),
         description: found.skill?.description || "",
+        summary: skillSummary(found.skill),
         body: String(found.raw || "").trim(),
         sourcePath: path.dirname(found.filePath),
         filePath: found.filePath,
@@ -673,12 +697,22 @@ function createSkillsLoader(deps = {}) {
     return {
       id: found.skill?.id || key,
       name: found.skill?.name || key,
+      displayName: skillDisplayName(found.skill, key),
       description: found.skill?.description || "",
+      summary: skillSummary(found.skill),
       body: String(found.raw || "").trim(),
       sourcePath: path.dirname(found.filePath),
       filePath: found.filePath,
       linkName: path.basename(path.dirname(found.filePath))
     };
+  }
+
+  function resolveLocalSkillRecord(skillId) {
+    const key = String(skillId || "").trim();
+    if (!key) return null;
+    const found = resolveLocalSkill(key);
+    if (!found) return null;
+    return skillRecordFromResolved(key, found);
   }
 
   function appendRequestedSkillRecords(records, requestedSkillIds = []) {
@@ -722,21 +756,18 @@ function createSkillsLoader(deps = {}) {
   // turn. Their full content is materialized by resolveSkillMaterialization
   // as turn-local state without mutating the Bot's session-level enabledSkills,
   // so this only tells the agent to prioritize those selected guides.
-  function buildActiveSkillsDirective(activeSkillIds) {
-    const ids = Array.isArray(activeSkillIds) ? activeSkillIds : [];
-    const names = [];
+  function buildActiveSkillsDirective(_activeSkillIds) {
+    const selected = [];
     const seen = new Set();
-    for (const id of ids) {
-      const key = String(id || "").trim();
+    for (const skillId of Array.isArray(_activeSkillIds) ? _activeSkillIds : []) {
+      const key = String(skillId || "").trim();
       if (!key || seen.has(key)) continue;
-      seen.add(key);
       const found = resolveLocalSkill(key);
-      if (!found) continue; // unresolved → no content was injected, so don't name it
-      names.push(found.skill?.name || key);
+      if (!found) continue;
+      selected.push(skillRecordFromResolved(key, found));
+      seen.add(key);
     }
-    if (!names.length) return "";
-    const list = names.map((name) => `「${name}」`).join("、");
-    return `用户为这条消息明确选择了 Skill：${list}。请优先严格按这些 Skill 的指南完成本次任务。`;
+    return buildSelectedSkillRoutingPrompt(selected);
   }
 
   function expandLeadingSkillCommand(text, { mode = "inline" } = {}) {
@@ -803,6 +834,7 @@ function createSkillsLoader(deps = {}) {
     listCurrentBotSkills,
     readCurrentBotSkill,
     resolveSkillMaterialization,
+    resolveLocalSkillRecord,
     buildActiveSkillsDirective,
     botCapabilitiesWithPresetDefaults: (bot) => botCapabilitiesWithPresetDefaults(bot, readMiaOfficialBotPresets()),
     readMiaOfficialBotPresets,

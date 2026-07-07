@@ -5,10 +5,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const {
-  agentEnginePolicy,
-  normalizeAgentEngine
+  normalizeAgentEngine,
+  resolveNativeSkillsDirs
 } = require("../../shared/agent-engine-policy.js");
 const { extractLoadSkillRequests } = require("../../shared/skill-load-protocol.js");
+const { buildSelectedSkillRoutingPrompt } = require("../selected-skill-routing-prompt.js");
 
 const MANAGED_SKILL_MANIFEST_RELATIVE_PATH = path.join(".mia", "skill-runtime.json");
 const MAX_SKILL_LOAD_ROUNDS = 3;
@@ -30,8 +31,11 @@ function uniqueStrings(values = []) {
 }
 
 function normalizeSkillRecord(record = {}) {
+  if (!record || typeof record !== "object") return null;
   const id = cleanText(record.id || record.key || record.name);
   const name = cleanText(record.name || record.displayName || record.display_name || id);
+  const displayName = cleanText(record.displayName || record.display_name || record.title || name || id);
+  const summary = cleanText(record.summary || record.description || record.desc || "");
   const sourcePath = cleanText(
     record.sourcePath
     || record.source_path
@@ -48,7 +52,9 @@ function normalizeSkillRecord(record = {}) {
   return {
     id: id || name,
     name: name || id,
-    description: cleanText(record.description || record.desc || ""),
+    displayName: displayName || name || id,
+    description: cleanText(record.description || record.desc || summary),
+    summary,
     body: cleanText(record.body || record.raw || ""),
     sourcePath,
     linkName
@@ -67,6 +73,7 @@ function stableSkillEntries(records = []) {
 }
 
 function skillAliases(record = {}) {
+  if (!record || typeof record !== "object") return [];
   return uniqueStrings([
     record.id,
     record.name,
@@ -158,6 +165,9 @@ function createSkillRuntimeOwner(options = {}) {
   const listSkillRecordsForBot = typeof options.listSkillRecordsForBot === "function"
     ? options.listSkillRecordsForBot
     : (bot) => Array.isArray(bot?.skillRecords) ? bot.skillRecords : [];
+  const resolveSkillRecord = typeof options.resolveSkillRecord === "function"
+    ? options.resolveSkillRecord
+    : () => null;
   const materializePromptFallback = typeof options.materializePromptFallback === "function"
     ? options.materializePromptFallback
     : fallbackMaterialization;
@@ -165,39 +175,64 @@ function createSkillRuntimeOwner(options = {}) {
     ? options.buildActiveSkillsDirective
     : () => "";
 
+  function resolveSelectedSkillRecords(skillIds = [], resolvedSkills = []) {
+    const records = stableSkillEntries(resolvedSkills);
+    const out = [];
+    const seen = new Set();
+    for (const skillId of Array.isArray(skillIds) ? skillIds : []) {
+      const target = cleanText(skillId);
+      if (!target) continue;
+      const existing = records.find((record) => skillAliases(record).includes(target));
+      const resolved = existing || normalizeSkillRecord(resolveSkillRecord(target));
+      if (!resolved) continue;
+      const canonicalId = cleanText(resolved.id || target);
+      const dedupeKey = canonicalId || target;
+      if (!dedupeKey || seen.has(dedupeKey)) continue;
+      out.push(resolved);
+      for (const alias of skillAliases(resolved)) seen.add(alias);
+      seen.add(dedupeKey);
+    }
+    return stableSkillEntries(out);
+  }
+
+  function externalSkillDirs(resolvedSkills = []) {
+    return uniqueStrings(
+      stableSkillEntries(Array.isArray(resolvedSkills) ? resolvedSkills : [])
+        .map((record) => record.sourcePath)
+    );
+  }
+
   function resolveRuntimeSkillState({
     bot = {},
     agentEngine = "",
+    runtimeConfig = null,
     activeSkillIds = [],
     intentSkillIds = [],
     requestedSkillIds = []
   } = {}) {
     const engine = normalizeAgentEngine(agentEngine || bot.agentEngine || bot.agent_engine || "hermes");
-    const policy = agentEnginePolicy(engine);
-    const nativeSkillsDirs = Array.isArray(policy.nativeSkillsDirs) ? policy.nativeSkillsDirs.slice() : [];
+    const nativeSkillsDirs = resolveNativeSkillsDirs(engine, { runtimeConfig, bot });
+    const hasNativeSkillDelivery = Array.isArray(nativeSkillsDirs);
     const records = stableSkillEntries(listSkillRecordsForBot(bot));
     const resolvedSkills = records;
     const resolvedSkillIds = resolvedSkills.map((record) => record.id);
-    const turnSkillIds = uniqueStrings([
-      ...activeSkillIds,
-      ...intentSkillIds,
-      ...requestedSkillIds
-    ]);
-    const deliveryMode = nativeSkillsDirs.length > 0 ? "native-link" : "prompt-fallback";
-    const shouldMaterializePrompt = deliveryMode === "prompt-fallback" || turnSkillIds.length > 0;
+    const turnSelectedSkills = resolveSelectedSkillRecords(activeSkillIds, resolvedSkills);
+    const deliveryMode = hasNativeSkillDelivery ? "native-link" : "prompt-fallback";
+    const shouldMaterializePrompt = deliveryMode === "prompt-fallback";
     const skillMaterialization = shouldMaterializePrompt
-      ? (materializePromptFallback({
+        ? (materializePromptFallback({
           bot,
           engine,
           resolvedSkillIds,
           resolvedSkills,
-          activeSkillIds: uniqueStrings(activeSkillIds),
+          activeSkillIds: [],
           intentSkillIds: uniqueStrings(intentSkillIds),
           requestedSkillIds: uniqueStrings(requestedSkillIds),
           mode: deliveryMode === "native-link" ? "none" : "index"
         }) || fallbackMaterialization())
       : null;
-    const skillFingerprint = hashSkillFingerprint({
+    const skillExternalDirs = externalSkillDirs(resolvedSkills);
+    const fingerprintPayload = {
       deliveryMode,
       nativeSkillsDirs,
       resolvedSkills: resolvedSkills.map((record) => ({
@@ -207,14 +242,18 @@ function createSkillRuntimeOwner(options = {}) {
         sourcePath: record.sourcePath,
         bodyHash: hashSkillFingerprint(record.body)
       }))
-    });
+    };
+    if (engine === "hermes") fingerprintPayload.skillExternalDirs = skillExternalDirs;
+    const skillFingerprint = hashSkillFingerprint(fingerprintPayload);
 
     return {
       deliveryMode,
       nativeSkillsDirs,
       resolvedSkillIds,
       resolvedSkills,
+      turnSelectedSkills,
       skillFingerprint,
+      skillExternalDirs,
       skillMaterialization,
       initialPromptPrefix: ""
     };
@@ -228,14 +267,18 @@ function createSkillRuntimeOwner(options = {}) {
     const managedTargets = [];
 
     if (normalizedWorkspacePath && state?.deliveryMode === "native-link") {
+      const linkedSkills = stableSkillEntries(Array.isArray(state.resolvedSkills) ? state.resolvedSkills : []);
       for (const relativeDir of Array.isArray(state.nativeSkillsDirs) ? state.nativeSkillsDirs : []) {
         const normalizedRelativeDir = cleanText(relativeDir);
         if (!normalizedRelativeDir) continue;
         const nativeSkillDir = path.join(normalizedWorkspacePath, normalizedRelativeDir);
         fs.mkdirSync(nativeSkillDir, { recursive: true });
-        for (const skill of stableSkillEntries(state.resolvedSkills)) {
+        const seenTargets = new Set();
+        for (const skill of linkedSkills) {
           if (!skill.sourcePath || !skill.linkName) continue;
           const targetRelativePath = path.join(normalizedRelativeDir, skill.linkName).replace(/\\/g, "/");
+          if (seenTargets.has(targetRelativePath)) continue;
+          seenTargets.add(targetRelativePath);
           const targetPath = path.join(normalizedWorkspacePath, targetRelativePath);
           const linked = ensureManagedSkillLink({
             targetPath,
@@ -276,6 +319,7 @@ function createSkillRuntimeOwner(options = {}) {
     const baseInput = {
       bot: input.botSnapshot || input.bot || {},
       agentEngine: input.runtimeConfig?.agentEngine || input.runtimeConfig?.agent_engine || input.engineId,
+      runtimeConfig: input.runtimeConfig || null,
       activeSkillIds: input.activeSkillIds || [],
       intentSkillIds: input.intentSkillIds || []
     };
@@ -292,9 +336,9 @@ function createSkillRuntimeOwner(options = {}) {
       });
     }
 
-    const selectedSkillDirective = cleanText(buildActiveSkillsDirective(baseInput.activeSkillIds));
+    const selectedSkillRoutingPrompt = buildSelectedSkillRoutingPrompt(state.turnSelectedSkills);
     const turnPromptPrefix = joinPromptBlocks([
-      selectedSkillDirective,
+      selectedSkillRoutingPrompt,
       state.skillMaterialization?.indexBlock,
       state.skillMaterialization?.loadedBlock
     ]);
@@ -302,6 +346,9 @@ function createSkillRuntimeOwner(options = {}) {
     return {
       skillFingerprint: state.skillFingerprint,
       skillDeliveryMode: state.deliveryMode,
+      ...(Array.isArray(state.skillExternalDirs) && state.skillExternalDirs.length
+        ? { skillExternalDirs: state.skillExternalDirs.slice() }
+        : {}),
       ...(cleanText(state.initialPromptPrefix) ? { initialPromptPrefix: cleanText(state.initialPromptPrefix) } : {}),
       ...(turnPromptPrefix ? { turnPromptPrefix } : {}),
       ...(state.deliveryMode === "prompt-fallback"
@@ -315,7 +362,7 @@ function createSkillRuntimeOwner(options = {}) {
                   requestedSkillIds
                 });
                 return joinPromptBlocks([
-                  selectedSkillDirective,
+                  selectedSkillRoutingPrompt,
                   nextState.skillMaterialization?.indexBlock,
                   nextState.skillMaterialization?.loadedBlock
                 ]);

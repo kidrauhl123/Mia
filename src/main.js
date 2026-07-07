@@ -2240,6 +2240,7 @@ const codexMiaProxy = createCodexMiaProxy({
 });
 const skillRuntimeOwner = createSkillRuntimeOwner({
   listSkillRecordsForBot: (bot) => skillsLoader.skillRecordsForBot(bot),
+  resolveSkillRecord: (skillId) => skillsLoader.resolveLocalSkillRecord(skillId),
   buildActiveSkillsDirective: (activeSkillIds) => skillsLoader.buildActiveSkillsDirective(activeSkillIds),
   materializePromptFallback: ({ bot, activeSkillIds, intentSkillIds, requestedSkillIds, mode = "index" }) =>
     skillsLoader.resolveSkillMaterialization({
