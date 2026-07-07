@@ -1107,7 +1107,16 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       throw error;
     }
     if (managedInput) {
+      let pendingEntry = null;
       try {
+        pendingEntry = rememberManagedSession(managedInput, {
+          mode: "pending",
+          turnId,
+          runId: runIdForDedupKey(dedupKey),
+          dedupKey,
+          triggerMessageId: resolvedTriggerMessageId,
+          botId
+        });
         const runtime = typeof prepareAgentSessionRuntime === "function"
           ? await prepareAgentSessionRuntime({
             engineId: managedInput.engineId,
@@ -1130,7 +1139,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         if (typeof runtime?.initialPromptPrefix === "string") managedInput.initialPromptPrefix = runtime.initialPromptPrefix;
         if (typeof runtime?.turnPromptPrefix === "string") managedInput.turnPromptPrefix = runtime.turnPromptPrefix;
         if (runtime?.skillFallback) managedInput.skillFallback = runtime.skillFallback;
-        const pendingEntry = rememberManagedSession(managedInput, {
+        pendingEntry = rememberManagedSession(managedInput, {
           mode: "pending",
           turnId,
           runId: runIdForDedupKey(dedupKey),
@@ -1159,6 +1168,20 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
           forgetManagedSession(pendingEntry);
         }
         return Boolean(accepted?.ok);
+      } catch (error) {
+        if (pendingEntry) {
+          await postManagedFailure(pendingEntry, { stage: "runtime", error });
+        } else {
+          await postFailureMessage({
+            conversationId,
+            botId,
+            dedupKey,
+            turnId,
+            stage: "runtime",
+            error
+          });
+        }
+        return false;
       } finally {
         inFlight.delete(dedupKey);
       }

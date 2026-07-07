@@ -2240,6 +2240,7 @@ const codexMiaProxy = createCodexMiaProxy({
 });
 const skillRuntimeOwner = createSkillRuntimeOwner({
   listSkillRecordsForBot: (bot) => skillsLoader.skillRecordsForBot(bot),
+  resolveSkillRecord: (skillId) => skillsLoader.resolveLocalSkillRecord(skillId),
   buildActiveSkillsDirective: (activeSkillIds) => skillsLoader.buildActiveSkillsDirective(activeSkillIds),
   materializePromptFallback: ({ bot, activeSkillIds, intentSkillIds, requestedSkillIds, mode = "index" }) =>
     skillsLoader.resolveSkillMaterialization({
@@ -2539,6 +2540,12 @@ function createWindow() {
   setMacNativeControlsVisible(win, process.platform === "darwin");
   if (initialWindow.maximized) win.maximize();
   if (!onboarding) windowStateManager.attachWindowStatePersistence(win);
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalUrl(url).catch((error) => {
+      appendEngineLog(`Open external link failed: ${error?.message || error}`);
+    });
+    return { action: "deny" };
+  });
   const sendWindowEvent = (channel, payload) => {
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
   };

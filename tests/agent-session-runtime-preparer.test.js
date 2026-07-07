@@ -316,6 +316,11 @@ test("prepares Hermes Mia managed runtime in a session-scoped Hermes home", asyn
       external_dirs: ["/skills/a"]
     }
   }), "utf8");
+  fs.writeFileSync(path.join(hermesHome, "auth.json"), JSON.stringify({
+    credential_pool: {
+      "openai-codex": [{ access_token: "codex-access", refresh_token: "codex-refresh" }]
+    }
+  }, null, 2));
 
   const preparer = createAgentSessionRuntimePreparer({
     resolveManagedModelRuntime: (runtimeConfig, context) => {
@@ -374,6 +379,65 @@ test("prepares Hermes Mia managed runtime in a session-scoped Hermes home", asyn
   assert.equal(parsed.approvals.mode, "yolo");
   assert.equal(parsed.agent.reasoning_effort, "medium");
   assert.equal(parsed.skills?.external_dirs, undefined);
+  const copiedAuth = JSON.parse(fs.readFileSync(path.join(runtime.env.HERMES_HOME, "auth.json"), "utf8"));
+  assert.equal(copiedAuth.credential_pool["openai-codex"][0].access_token, "codex-access");
+});
+
+test("prepares Hermes Mia managed runtime with session-level skill external dirs in the session profile", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-hermes-session-selected-skill-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const hermesHome = path.join(dir, "native-hermes");
+  const miaHome = path.join(dir, "mia-home");
+  const profilesRoot = path.join(dir, "profiles");
+  const selectedSkillDir = path.join(dir, "skills", "deep-research");
+  fs.mkdirSync(hermesHome, { recursive: true });
+  fs.mkdirSync(selectedSkillDir, { recursive: true });
+  fs.writeFileSync(path.join(hermesHome, "config.yaml"), yaml.dump({
+    model: {
+      provider: "openai-codex",
+      default: "gpt-5.5"
+    }
+  }), "utf8");
+
+  const preparer = createAgentSessionRuntimePreparer({
+    resolveManagedModelRuntime: () => ({
+      provider: "mia",
+      providerConnectionId: "mia",
+      providerLabel: "Mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto",
+      apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+      apiKey: "cloud-token",
+      baseUrl: "https://mia.example/api/me/model-proxy/v1",
+      apiMode: "chat_completions",
+      managedByMia: true
+    }),
+    hermesHomePath: hermesHome,
+    miaHomePath: miaHome,
+    hermesSessionProfilesRoot: profilesRoot,
+    skillRuntimeOwner: {
+      async prepareAgentSessionSkillRuntime() {
+        return {
+          skillFingerprint: "skills:selected",
+          skillDeliveryMode: "native-link",
+          skillExternalDirs: [selectedSkillDir]
+        };
+      }
+    }
+  });
+
+  const runtime = await preparer.prepare({
+    engineId: "hermes",
+    runtimeConfig: {
+      agentEngine: "hermes",
+      providerConnectionId: "mia",
+      modelProfileId: "mia:mia-auto",
+      model: "mia-auto"
+    }
+  });
+
+  const parsed = yaml.load(fs.readFileSync(path.join(runtime.env.HERMES_HOME, "config.yaml"), "utf8"));
+  assert.deepEqual(parsed.skills?.external_dirs, [selectedSkillDir]);
 });
 
 test("preparing OpenClaw managed runtime strips unsupported per-session MCP servers", async () => {
@@ -511,9 +575,7 @@ test("prepares ACP MCP servers and scoped context prelude for AgentSession", asy
       { name: "MIA_DAEMON_URL", value: "http://127.0.0.1:27861" }
     ]
   });
-  assert.match(runtime.initialPromptPrefix, /Mia Scoped Context/);
-  assert.match(runtime.initialPromptPrefix, /skill_list_current/);
-  assert.match(runtime.initialPromptPrefix, /memory_search/);
+  assert.equal(runtime.initialPromptPrefix, undefined);
   assert.equal(runtime.skillDeliveryMode, "native-link");
   assert.match(runtime.skillFingerprint, /^[a-f0-9]{16}$/);
   assert.equal(typeof runtime.refreshMcpContext, "function");

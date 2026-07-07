@@ -186,10 +186,11 @@ test("startProviderOAuth spawns hermes auth and saves provider on success", asyn
   });
 
   assert.equal(calls.spawned[0][0], "/python");
-  assert.deepEqual(calls.spawned[0][1], ["-m", "hermes_cli.main", "auth", "add", "anthropic", "--type", "oauth"]);
+  assert.deepEqual(calls.spawned[0][1], ["-m", "hermes_cli.main", "auth", "add", "anthropic", "--type", "oauth", "--no-browser"]);
   assert.equal(calls.spawned[0][2].env.HERMES_HOME, paths.hermesHome);
   assert.equal(calls.spawned[0][2].env.MIA_HOME, paths.home);
   assert.notEqual(calls.spawned[0][2].env.HERMES_HOME, calls.spawned[0][2].env.MIA_HOME);
+  assert.equal(calls.spawned[0][2].env.PYTHONUNBUFFERED, "1");
 
   calls.spawnedProcesses[0].stdout.emit("data", "Open https://auth.anthropic.example\n");
   calls.spawnedProcesses[0].emit("exit", 0, null);
@@ -206,4 +207,28 @@ test("startProviderOAuth spawns hermes auth and saves provider on success", asyn
   }]);
   assert.equal(calls.restarted, 1);
   assert.equal(service.status().oauthProvider, "");
+});
+
+test("startProviderOAuth opens provider authorization URLs emitted by Hermes", async () => {
+  const { calls, service } = createHarness();
+
+  await service.startProviderOAuth({
+    provider: "xai-oauth",
+    providerLabel: "xAI Grok OAuth",
+    baseUrl: "https://api.x.ai/v1",
+    apiMode: "chat_completions"
+  });
+
+  calls.spawnedProcesses[0].stdout.emit(
+    "data",
+    [
+      "Open this URL to authorize Hermes with xAI:",
+      "https://auth.x.ai/oauth2/authorize?client_id=hermes&state=abc",
+      "",
+      "Waiting for callback on http://127.0.0.1:56121/callback"
+    ].join("\n")
+  );
+
+  assert.equal(calls.opened[0], "https://auth.x.ai/oauth2/authorize?client_id=hermes&state=abc");
+  assert.equal(service.status().codexVerificationUrl, "https://auth.x.ai/oauth2/authorize?client_id=hermes&state=abc");
 });

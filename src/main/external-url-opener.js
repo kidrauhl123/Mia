@@ -13,11 +13,17 @@ function normalizeBrowserUrl(input) {
 
 function spawnMacOpen(spawnProcess, url) {
   return new Promise((resolve, reject) => {
-    const child = spawnProcess("open", [url], { detached: true, stdio: "ignore" });
-    child.once("error", reject);
-    child.once("spawn", () => {
-      try { child.unref?.(); } catch { /* ignore */ }
-      resolve(true);
+    const child = spawnProcess("open", [url], { stdio: "ignore" });
+    let settled = false;
+    const settle = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+    child.once("error", (error) => settle(reject, error));
+    child.once("close", (code, signal) => {
+      if (code === 0) settle(resolve, true);
+      else settle(reject, new Error(`macOS open exited with code ${code ?? "null"} signal ${signal ?? "null"}`));
     });
   });
 }

@@ -742,7 +742,7 @@
     // Desktop install uses the unified market path: local snapshot when current,
     // cloud package download when the skill is new or newer than the snapshot.
     state.installingSkillIds.add(skillId);
-    renderSkillLibrary();
+    renderMarketSkillInstallState(skillId);
     try {
       const result = await window.mia.installMarketSkill(skillId);
       if (result?.library) state.skillLibrary = result.library;
@@ -753,7 +753,7 @@
       window.alert(`安装失败：${error?.message || error}`);
     } finally {
       state.installingSkillIds.delete(skillId);
-      renderSkillLibrary();
+      renderMarketSkillInstallState(skillId);
     }
   }
 
@@ -789,6 +789,11 @@
   // keeps a visible 「展开正文」 path to the raw SKILL.md body.
   let skillModal = { kind: "", skillId: "", showBody: false };
   let skillModalEl = null;
+
+  function renderMarketSkillInstallState(skillId) {
+    renderSkillLibrary();
+    if (skillModal.kind === "market" && skillModal.skillId === skillId) renderSkillModal();
+  }
 
   function findMarketSkill(skillId) {
     return (state?.skillMarket?.skills || []).find((skill) => skill.id === skillId) || null;

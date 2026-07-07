@@ -1194,6 +1194,57 @@ test("managed AgentSession failures post a visible bot error", async () => {
   });
 });
 
+test("managed AgentSession runtime preparation failures post a visible bot error", async () => {
+  const calls = { manager: [], post: [], log: [], cloudEvents: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async () => {
+      throw new Error("sendChat should not run for managed AgentSession turns");
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line),
+    agentSessionManager: {
+      sendUserInput: async (input) => {
+        calls.manager.push(input);
+        return {
+          ok: true,
+          mode: "started",
+          conversationId: input.conversationId,
+          engineId: input.engineId,
+          turnId: input.turnId
+        };
+      }
+    },
+    agentSessionWorkspacePath: () => "/repo/workspace",
+    prepareAgentSessionRuntime: async () => {
+      throw new Error("Provider connection openai-codex is not available. Please reconnect it in Mia settings.");
+    }
+  });
+
+  assert.equal(await responder.respond({
+    ...base,
+    dedupKey: "m_runtime_prepare_failed:codex",
+    turnId: "t_runtime_prepare_failed",
+    runtimeConfig: { agentEngine: "codex" }
+  }), false);
+
+  assert.equal(calls.manager.length, 0);
+  assert.equal(calls.post.length, 1);
+  assert.equal(calls.post[0].conversationId, "g_1");
+  assert.equal(calls.post[0].body.botId, "codex");
+  assert.equal(calls.post[0].body.turnId, "t_runtime_prepare_failed");
+  assert.equal(calls.post[0].body.clientOpId, "op_bot_reply_error_m_runtime_prepare_failed_codex");
+  assert.match(calls.post[0].body.bodyMd, /^我这次没能生成回复：本地引擎配置有问题。/);
+  assert.match(calls.post[0].body.bodyMd, /Provider connection openai-codex is not available/);
+  assert.deepEqual(calls.cloudEvents.at(-1).event, {
+    type: "run.failed",
+    error: "Provider connection openai-codex is not available. Please reconnect it in Mia settings."
+  });
+});
+
 test("managed AgentSession startup failures emitted before acceptance are not lost", async () => {
   const manager = new EventEmitter();
   const calls = { manager: [], post: [], log: [], cloudEvents: [] };

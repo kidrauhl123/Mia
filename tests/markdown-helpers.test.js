@@ -65,10 +65,20 @@ test("markdown auto-links bare https URLs while leaving inline code alone", () =
 
   assert.match(
     html,
-    /<a class="message-link" data-external-link="https:\/\/jungui-cle\.pages\.dev" role="link" tabindex="0" title="https:\/\/jungui-cle\.pages\.dev"><span class="message-link-site-icon"[^>]*><img class="message-link-site-icon-image" src="https:\/\/jungui-cle\.pages\.dev\/favicon\.ico"[^>]*><span class="message-link-site-icon-fallback"[^>]*><\/span><\/span><span class="message-link-label">https:\/\/jungui-cle\.pages\.dev<\/span><\/a>/
+    /<a class="message-link" data-external-link="https:\/\/jungui-cle\.pages\.dev" href="https:\/\/jungui-cle\.pages\.dev" target="_blank" rel="noopener noreferrer" role="link" tabindex="0" title="https:\/\/jungui-cle\.pages\.dev"><span class="message-link-site-icon"[^>]*><img class="message-link-site-icon-image" src="https:\/\/jungui-cle\.pages\.dev\/favicon\.ico"[^>]*><span class="message-link-site-icon-fallback"[^>]*><\/span><\/span><span class="message-link-label">https:\/\/jungui-cle\.pages\.dev<\/span><\/a>/
   );
   assert.match(html, /<code class="inline-code" tabindex="0" title="点击复制">1df7f38a\.jungui-cle\.pages\.dev<\/code>/);
   assert.doesNotMatch(html, /data-external-link="https:\/\/1df7f38a\.jungui-cle\.pages\.dev"/);
+});
+
+test("markdown external links include native browser fallback attributes", () => {
+  const markdown = loadMarkdownHelpers();
+  const html = markdown.renderMarkdown("打开登录页面： https://auth.x.ai/oauth2/authorize?state=abc");
+
+  assert.match(html, /data-external-link="https:\/\/auth\.x\.ai\/oauth2\/authorize\?state=abc"/);
+  assert.match(html, /href="https:\/\/auth\.x\.ai\/oauth2\/authorize\?state=abc"/);
+  assert.match(html, /target="_blank"/);
+  assert.match(html, /rel="noopener noreferrer"/);
 });
 
 test("markdown keeps closing bold markers outside bare URL links", () => {
@@ -76,7 +86,7 @@ test("markdown keeps closing bold markers outside bare URL links", () => {
   const html = markdown.renderMarkdown("**localhost 还活着，你可以自己点：http://localhost:3001/zh**");
 
   assert.match(html, /^<p><strong>localhost 还活着，你可以自己点：/);
-  assert.match(html, /<a class="message-link" data-external-link="http:\/\/localhost:3001\/zh" role="link" tabindex="0" title="http:\/\/localhost:3001\/zh"><span class="message-link-site-icon"[^>]*><img class="message-link-site-icon-image" src="https:\/\/localhost\/favicon\.ico"[^>]*><span class="message-link-site-icon-fallback"[^>]*><\/span><\/span><span class="message-link-label">http:\/\/localhost:3001\/zh<\/span><\/a>/);
+  assert.match(html, /<a class="message-link" data-external-link="http:\/\/localhost:3001\/zh" href="http:\/\/localhost:3001\/zh" target="_blank" rel="noopener noreferrer" role="link" tabindex="0" title="http:\/\/localhost:3001\/zh"><span class="message-link-site-icon"[^>]*><img class="message-link-site-icon-image" src="https:\/\/localhost\/favicon\.ico"[^>]*><span class="message-link-site-icon-fallback"[^>]*><\/span><\/span><span class="message-link-label">http:\/\/localhost:3001\/zh<\/span><\/a>/);
   assert.match(html, /<\/strong><\/p>$/);
 });
 
@@ -112,7 +122,7 @@ test("markdown renders inline-code URLs as links while keeping code styling", ()
 
   assert.equal(
     html,
-    '<p>后端在 <a class="message-link inline-code-link" data-external-link="https://premsir.com/shop-api" role="link" tabindex="0" title="https://premsir.com/shop-api"><code class="inline-code">https://premsir.com/shop-api</code></a>。</p>'
+    '<p>后端在 <a class="message-link inline-code-link" data-external-link="https://premsir.com/shop-api" href="https://premsir.com/shop-api" target="_blank" rel="noopener noreferrer" role="link" tabindex="0" title="https://premsir.com/shop-api"><code class="inline-code">https://premsir.com/shop-api</code></a>。</p>'
   );
 });
 

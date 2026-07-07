@@ -3487,6 +3487,8 @@ button.persona-tag-chip {
 #chatView {
   position: relative;
   grid-template-rows: minmax(0, 1fr);
+  container-type: inline-size;
+  container-name: chat-view;
 }
 
 .topbar {
@@ -3954,6 +3956,10 @@ body.topbar-click-capture .topbar {
   background: var(--hover-background);
 }
 
+.session-row.editing {
+  background: var(--hover-background);
+}
+
 .session-row.active {
   background: var(--list-active);
 }
@@ -3963,7 +3969,7 @@ body.topbar-click-capture .topbar {
 }
 
 .session-row.active small,
-.session-row.active em {
+.session-row.active .session-row-edit {
   color: var(--list-active-muted);
 }
 
@@ -3985,14 +3991,15 @@ body.topbar-click-capture .topbar {
   font-weight: 400;
 }
 
-.session-row em {
+.session-row-edit {
   display: grid;
   place-items: center;
   width: 28px;
   height: 28px;
+  padding: 0;
   border-radius: 8px;
+  background: transparent;
   color: var(--muted);
-  font-style: normal;
   font-size: 0;
   font-weight: 400;
 }
@@ -4003,9 +4010,57 @@ body.topbar-click-capture .topbar {
   height: 15px;
 }
 
-.session-row em:hover {
+.session-row-edit:hover {
   background: var(--hover-background);
   color: var(--accent);
+}
+
+.session-row-rename {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.session-row-rename-input {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  outline: none;
+  background: var(--field);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.session-row-rename-save,
+.session-row-rename-cancel {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.session-row-rename-save {
+  background: var(--list-active);
+  color: var(--list-active-text);
+}
+
+.session-row-rename-save:hover,
+.session-row-rename-cancel:hover {
+  background: var(--hover-background);
+  color: var(--text);
+}
+
+.session-row-rename-error {
+  grid-column: 1 / -1;
+  color: var(--danger);
+  font-size: 11px;
 }
 
 .contacts-workspace {
@@ -10922,7 +10977,7 @@ pre {
     min-height: 38px;
   }
 
-  .narrow-back-button {
+  .app-shell[data-shell-layout="single"][data-narrow-pane="content"] .narrow-back-button {
     display: grid;
   }
 
@@ -11066,6 +11121,34 @@ pre {
   #chatView .session-trigger {
     grid-template-columns: 16px;
     justify-content: center;
+    width: 38px;
+    padding: 0;
+  }
+
+  #chatView .session-trigger .current-session-title {
+    display: none;
+  }
+}
+
+@container chat-view (max-width: 560px) {
+  #chatView .topbar {
+    gap: 8px;
+  }
+
+  #chatView .group-title,
+  #chatView .active-conversation-menu-button {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  #chatView .active-conversation-menu-button {
+    max-width: 100%;
+  }
+
+  #chatView .session-trigger {
+    grid-template-columns: 16px;
+    justify-content: center;
+    place-items: center;
     width: 38px;
     padding: 0;
   }

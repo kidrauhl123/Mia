@@ -39,7 +39,10 @@ test("native context mode reads engine-specific runtime and bot config keys", ()
 test("context snapshot instruction is scoped to one bot and session", () => {
   const text = contextSnapshotInstruction({ engine: "openclaw", botId: "mei", sessionId: "conversation:1" });
   assert.match(text, /context_snapshot/);
+  assert.match(text, /scope: current bot \+ current session only/);
+  assert.match(text, /memory_tools: .*memory_search/);
+  assert.match(text, /skill_tools: .*skill_read_current/);
+  assert.match(text, /engine: openclaw/);
   assert.match(text, /bot: mei/);
   assert.match(text, /session: conversation:1/);
-  assert.match(text, /Do not reuse persona, memory, or session history/);
 });

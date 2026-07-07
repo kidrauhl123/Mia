@@ -6,6 +6,7 @@ const {
   agentEnginePolicy,
   enginePermissionStoreTarget,
   nativeHomePathForEngine,
+  resolveNativeSkillsDirs,
   normalizeEnginePermissionMode,
   shouldApplyNativePermissionConfig
 } = require("../src/shared/agent-engine-policy.js");
@@ -54,7 +55,7 @@ test("agent engine policy keeps runtime scope decisions in one table", () => {
     id: "hermes",
     homeStrategy: "native-user-home",
     nativeHomeSubdir: ".hermes",
-    nativeSkillsDirs: null,
+    nativeSkillsDirs: [],
     permissionScope: "engine",
     permissionStore: "root-mode",
     permissionCodec: "hermes-approvals-mode",
@@ -94,6 +95,40 @@ test("native home path is explicit only for engines that need Mia to pass one", 
 test("agent engine policy exposes native skill directory metadata", () => {
   assert.deepEqual(agentEnginePolicy("claude-code").nativeSkillsDirs, [".claude/skills"]);
   assert.deepEqual(agentEnginePolicy("codex").nativeSkillsDirs, [".codex/skills"]);
-  assert.equal(agentEnginePolicy("hermes").nativeSkillsDirs, null);
+  assert.deepEqual(agentEnginePolicy("hermes").nativeSkillsDirs, []);
   assert.equal(agentEnginePolicy("openclaw").nativeSkillsDirs, null);
+});
+
+test("native skill dir resolution prefers runtime and bot metadata over fallback policy", () => {
+  assert.deepEqual(
+    resolveNativeSkillsDirs("codex", {
+      runtimeConfig: { nativeSkillsDirs: [".runtime-codex/skills"] }
+    }),
+    [".runtime-codex/skills"]
+  );
+
+  assert.deepEqual(
+    resolveNativeSkillsDirs("openclaw", {
+      runtimeConfig: {
+        agentMetadata: {
+          native_skills_dirs: [".openclaw/skills"]
+        }
+      }
+    }),
+    [".openclaw/skills"]
+  );
+
+  assert.equal(
+    resolveNativeSkillsDirs("claude-code", {
+      bot: {
+        engineConfig: {
+          nativeSkillsDirs: null
+        }
+      }
+    }),
+    null
+  );
+
+  assert.deepEqual(resolveNativeSkillsDirs("codex"), [".codex/skills"]);
+  assert.equal(resolveNativeSkillsDirs("openclaw"), null);
 });

@@ -797,6 +797,15 @@ test("foreground window stays hidden until the renderer is ready to avoid startu
   assert.match(windowIpcSource, /IpcChannel\.UiFirstPaint[\s\S]*?miaShowWhenReady\(\)/, "renderer first paint IPC should reveal the real window immediately");
 });
 
+test("foreground window routes target blank browser links through external opener", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const createWindowSource = mainSource.match(/function createWindow\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(createWindowSource, /win\.webContents\.setWindowOpenHandler/);
+  assert.match(createWindowSource, /openExternalUrl\(url\)/);
+  assert.match(createWindowSource, /action:\s*"deny"/);
+});
+
 test("Core control server uses the daemon compatibility Module behind a Mia Core wrapper", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const controlSource = fs.readFileSync(path.join(root, "src/main/daemon/control-server.js"), "utf8");

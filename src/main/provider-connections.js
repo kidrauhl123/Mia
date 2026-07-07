@@ -3,6 +3,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const { CODEX_CHATGPT_BASE_URL } = require("./auth-service.js");
+
 function createProviderConnections({
   runtimePaths,
   readJson,
@@ -29,6 +31,20 @@ function createProviderConnections({
       baseUrl: String(input.baseUrl || "").trim(),
       apiMode: String(input.apiMode || "").trim(),
       connectedAt: String(input.connectedAt || now())
+    };
+  }
+
+  function codexOAuthConnection(source = {}) {
+    return {
+      provider: "openai-codex",
+      providerLabel: String(source.providerLabel || source.provider_label || source.label || "OpenAI Codex").trim() || "OpenAI Codex",
+      authType: "oauth_external",
+      apiKeyEnv: "",
+      apiKey: "",
+      baseUrl: String(source.baseUrl || source.base_url || CODEX_CHATGPT_BASE_URL).trim() || CODEX_CHATGPT_BASE_URL,
+      apiMode: String(source.apiMode || source.api_mode || "codex_responses").trim() || "codex_responses",
+      connectedAt: String(source.connectedAt || source.connected_at || "").trim(),
+      hasApiKey: true
     };
   }
 
@@ -70,7 +86,11 @@ function createProviderConnections({
   function get(provider) {
     const id = String(provider || "").trim();
     if (!id) return null;
-    return store().providers[id] || null;
+    const saved = store().providers[id] || null;
+    if (id === "openai-codex" && codexAuthStatus()?.codexLoggedIn) {
+      return codexOAuthConnection(saved || {});
+    }
+    return saved;
   }
 
   function connectedSummaries(codexAuth = codexAuthStatus()) {
@@ -96,14 +116,15 @@ function createProviderConnections({
       }));
 
     if (codexAuth.codexLoggedIn && !summaries.some((entry) => entry.provider === "openai-codex")) {
+      const codex = codexOAuthConnection();
       summaries.push({
-        provider: "openai-codex",
-        providerLabel: "OpenAI Codex",
-        authType: "oauth_external",
-        apiKeyEnv: "",
-        baseUrl: "",
-        apiMode: "codex_responses",
-        connectedAt: "",
+        provider: codex.provider,
+        providerLabel: codex.providerLabel,
+        authType: codex.authType,
+        apiKeyEnv: codex.apiKeyEnv,
+        baseUrl: codex.baseUrl,
+        apiMode: codex.apiMode,
+        connectedAt: codex.connectedAt,
         hasApiKey: true
       });
     }

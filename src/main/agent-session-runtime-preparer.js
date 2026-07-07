@@ -161,6 +161,9 @@ function createAgentSessionRuntimePreparer(options = {}) {
     listSkillRecordsForBot: typeof options.listSkillRecordsForBot === "function"
       ? options.listSkillRecordsForBot
       : undefined,
+    resolveSkillRecord: typeof options.resolveSkillRecord === "function"
+      ? options.resolveSkillRecord
+      : undefined,
     materializePromptFallback: typeof options.materializePromptFallback === "function"
       ? options.materializePromptFallback
       : undefined
@@ -188,7 +191,7 @@ function createAgentSessionRuntimePreparer(options = {}) {
     return path.join(hermesSessionProfilesRoot, `${safeRuntimeKey}-${fingerprint}`);
   }
 
-  function ensureHermesSessionProfile(runtime = {}, runtimeConfig = {}) {
+  function ensureHermesSessionProfile(runtime = {}, runtimeConfig = {}, skillRuntime = {}) {
     const sourceHome = valueFromOption(hermesHomePath, path.join(os.homedir(), ".hermes"));
     const targetHome = hermesProfileDirFor(runtime, runtimeConfig);
     const sourceConfig = readYamlObject(path.join(sourceHome, "config.yaml"));
@@ -238,13 +241,23 @@ function createAgentSessionRuntimePreparer(options = {}) {
         bots_manifest: path.join(resolvedMiaHome, "bots", "manifest.json")
       };
     }
-    if (isPlainObject(config.skills)) {
-      const skills = { ...config.skills };
-      delete skills.external_dirs;
-      if (Object.keys(skills).length) config.skills = skills;
-      else delete config.skills;
-    }
+    const externalSkillDirs = Array.isArray(skillRuntime?.skillExternalDirs)
+      ? [...new Set(skillRuntime.skillExternalDirs.map((value) => String(value || "").trim()).filter(Boolean))]
+      : [];
+    const skills = isPlainObject(config.skills) ? { ...config.skills } : {};
+    if (externalSkillDirs.length) skills.external_dirs = externalSkillDirs;
+    else delete skills.external_dirs;
+    if (Object.keys(skills).length) config.skills = skills;
+    else delete config.skills;
     fs.mkdirSync(targetHome, { recursive: true });
+    const sourceAuthPath = path.join(sourceHome, "auth.json");
+    const targetAuthPath = path.join(targetHome, "auth.json");
+    if (fs.existsSync(sourceAuthPath)) {
+      fs.copyFileSync(sourceAuthPath, targetAuthPath);
+      fs.chmodSync(targetAuthPath, 0o600);
+    } else {
+      fs.rmSync(targetAuthPath, { force: true });
+    }
     fs.writeFileSync(
       path.join(targetHome, "config.yaml"),
       yaml.dump(config, { lineWidth: 100, noRefs: true }),
@@ -333,7 +346,7 @@ function createAgentSessionRuntimePreparer(options = {}) {
       if (agentEngine !== "hermes") return baseRuntime;
       const runtime = resolvedHermesRuntime(runtimeConfig);
       if (!runtime) return baseRuntime;
-      return mergeRuntimeParts(baseRuntime, ensureHermesSessionProfile(runtime, runtimeConfig));
+      return mergeRuntimeParts(baseRuntime, ensureHermesSessionProfile(runtime, runtimeConfig, skillRuntime));
     }
 
     if (engineId === "openclaw") {
