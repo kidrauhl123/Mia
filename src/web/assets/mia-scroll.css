@@ -262,6 +262,11 @@
 }
 .squad-viz-orbit .orbit-ring:nth-child(2) { animation-duration: 11s; animation-direction: reverse; opacity: 0.72; }
 .squad-viz-orbit .orbit-dot { fill: currentColor; opacity: 0.92; }
+.hero-demo--squad:not(.is-active) .squad-viz-bars rect,
+.hero-demo--squad:not(.is-active) .squad-viz-dots circle,
+.hero-demo--squad:not(.is-active) .squad-viz-orbit .orbit-ring {
+  animation-play-state: paused;
+}
 .squad-card--cover {
   align-items: center;
   background: #fd4401;

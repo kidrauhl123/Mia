@@ -1,6 +1,6 @@
 {
   "name": "mia",
-  "version": "0.1.39",
+  "version": "0.1.42",
   "private": true,
   "workspaces": [
     "apps/mobile-rn",

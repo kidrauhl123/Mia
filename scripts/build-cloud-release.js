@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
+const rootPackage = require(path.join(root, "package.json"));
 const distDir = path.join(root, "dist", "mia-cloud-release");
 const apiDir = path.join(distDir, "api");
 const webDir = path.join(distDir, "web");

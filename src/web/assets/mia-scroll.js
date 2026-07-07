@@ -167,6 +167,7 @@
   var finalFeatureTailScreens = 0.68;
   var squadFlipped = false;
   var squadExtractionWasActive = false;
+  var squadVizzesInitialized = false;
   if (squadGsap) {
     if (window.ScrollTrigger && typeof squadGsap.registerPlugin === 'function') squadGsap.registerPlugin(window.ScrollTrigger);
     squadGsap.set(squadCards, { rotate: 0 });
@@ -219,7 +220,13 @@
     return document.createElementNS('http://www.w3.org/2000/svg', name);
   }
 
+  function isSquadActive() {
+    return !heroDemo || heroDemo.classList.contains('is-active');
+  }
+
   function initSquadVizzes() {
+    if (squadVizzesInitialized) return;
+    squadVizzesInitialized = true;
     var nodes = Array.prototype.slice.call(document.querySelectorAll('[data-squad-viz]'));
     nodes.forEach(function (node) {
       var type = node.getAttribute('data-squad-viz');
@@ -295,6 +302,10 @@
         textNode.setAttribute('y', '79');
         svg.appendChild(textNode);
         function typeLoop() {
+          if (!isSquadActive()) {
+            window.setTimeout(typeLoop, 400);
+            return;
+          }
           var out = '';
           var done = 0;
           queue.forEach(function (item) {
@@ -348,6 +359,12 @@
         }
         var start = null;
         function rippleLoop(ts) {
+          if (!isSquadActive()) {
+            window.setTimeout(function () {
+              window.requestAnimationFrame(rippleLoop);
+            }, 400);
+            return;
+          }
           if (start === null) start = ts;
           var t = (ts - start) / 1000;
           for (var r = 0; r < lines; r++) {
@@ -364,7 +381,7 @@
       }
     });
   }
-  initSquadVizzes();
+  if (reduce) initSquadVizzes();
 
   function setSquadFlip(next) {
     if (!squadGsap || !squadFlipStage || !squadCards.length || squadFlipped === next) return;
@@ -388,7 +405,12 @@
   function updateSquadCards(scrolled, stackStart, whiteOn, ih) {
     if (!squadGsap || !squadStack || !squadCover || !squadFlipStage || !squadLayers.length || !squadCards.length) return;
     var visible = scrolled >= stackStart && scrolled < whiteOn ? 1 : 0;
-    if (heroDemo) heroDemo.style.opacity = visible ? '1' : '0';
+    var shouldPrepare = scrolled >= stackStart - ih * 0.75 && scrolled < whiteOn + ih;
+    if (shouldPrepare) initSquadVizzes();
+    if (heroDemo) {
+      heroDemo.style.opacity = visible ? '1' : '0';
+      heroDemo.classList.toggle('is-active', Boolean(visible));
+    }
 
     var coverDuration = ih * squadCoverScreens;
     var flipAt = stackStart + coverDuration;
