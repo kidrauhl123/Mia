@@ -639,7 +639,9 @@
 
 .skill-market-modal .smm-add.smm-add-installed:hover {
   background: transparent;
-  color: var(--accent, #7c3aed);
+  color: color-mix(in srgb, var(--accent, #7c3aed) 78%, var(--text));
+  text-decoration: underline;
+  text-underline-offset: 3px;
   filter: none;
 }
 

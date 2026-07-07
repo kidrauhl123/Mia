@@ -45,7 +45,9 @@ test("market modal uses a text-only theme-color button after install", () => {
   const css = read("src/renderer/styles/skills.css");
 
   assert.match(css, /\.skill-market-modal \.smm-add\.smm-add-installed\s*\{[\s\S]*background:\s*transparent;[\s\S]*color:\s*var\(--accent/);
-  assert.match(css, /\.skill-market-modal \.smm-add\.smm-add-installed:hover\s*\{[\s\S]*background:\s*transparent;[\s\S]*filter:\s*none;/);
+  assert.match(css, /\.skill-market-modal \.smm-add\.smm-add-installed:hover\s*\{[\s\S]*background:\s*transparent;[\s\S]*color:\s*color-mix\(in srgb, var\(--accent/);
+  assert.match(css, /\.skill-market-modal \.smm-add\.smm-add-installed:hover\s*\{[\s\S]*text-decoration:\s*underline;/);
+  assert.match(css, /\.skill-market-modal \.smm-add\.smm-add-installed:hover\s*\{[\s\S]*text-underline-offset:\s*3px;[\s\S]*filter:\s*none;/);
   assert.doesNotMatch(css, /\.skill-market-modal \.smm-add\.smm-add-installed\s*\{[\s\S]*background:\s*var\(--surface-muted\);/);
 });
 
