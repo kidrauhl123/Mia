@@ -8,6 +8,7 @@ use mia_core_conversation::{ConversationService, CurrentSkillService};
 use mia_core_mcp::McpService;
 use mia_core_memory::MemoryService;
 use mia_core_realtime::EventBus;
+use mia_core_runtime::RuntimeSessionManager;
 use mia_core_system::{AgentPermissionService, SystemService};
 use mia_core_tasks::TaskService;
 
@@ -30,6 +31,7 @@ pub struct ModuleStates {
     pub cloud_events: CloudEventsManager,
     pub realtime: EventBus,
     pub runtime: RuntimeRegistry,
+    pub runtime_sessions: RuntimeSessionManager,
 }
 
 pub fn build_module_states(services: &AppServices) -> ModuleStates {
@@ -51,5 +53,6 @@ pub fn build_module_states(services: &AppServices) -> ModuleStates {
         cloud_events: services.cloud_events.clone(),
         realtime: services.realtime.clone(),
         runtime: services.runtime.clone(),
+        runtime_sessions: services.runtime_sessions.clone(),
     }
 }

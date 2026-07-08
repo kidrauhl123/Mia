@@ -24,6 +24,7 @@ pub struct AppCloudBridgeRunner {
     conversation: ConversationService,
     realtime: EventBus,
     runtime: RuntimeRegistry,
+    runtime_sessions: RuntimeSessionManager,
 }
 
 impl AppCloudBridgeRunner {
@@ -32,12 +33,14 @@ impl AppCloudBridgeRunner {
         conversation: ConversationService,
         realtime: EventBus,
         runtime: RuntimeRegistry,
+        runtime_sessions: RuntimeSessionManager,
     ) -> Self {
         Self {
             cloud,
             conversation,
             realtime,
             runtime,
+            runtime_sessions,
         }
     }
 }
@@ -53,6 +56,7 @@ impl CloudBridgeRunHandler for AppCloudBridgeRunner {
             &self.conversation,
             &self.realtime,
             &self.runtime,
+            &self.runtime_sessions,
             request,
         )
         .await
@@ -71,6 +75,7 @@ pub async fn execute_cloud_bridge_run(
     conversation: &ConversationService,
     realtime: &EventBus,
     runtime: &RuntimeRegistry,
+    runtime_sessions: &RuntimeSessionManager,
     request: CloudBridgeRunRequest,
 ) -> Result<CloudBridgeRunResponse, CloudError> {
     let prepared = cloud.prepare_bridge_run(request)?;
@@ -153,10 +158,18 @@ pub async fn execute_cloud_bridge_run(
             let name = event.name.clone();
             let data = event.data.clone();
             if name == EVENT_RUNTIME_STDOUT {
-                for run_event in cloud_run_events_from_stdout(
-                    &runtime_event_engine,
-                    data.get("text").and_then(Value::as_str).unwrap_or(""),
-                ) {
+                let run_events = data
+                    .get("event")
+                    .filter(|event| event.is_object())
+                    .cloned()
+                    .map(|event| vec![event])
+                    .unwrap_or_else(|| {
+                        cloud_run_events_from_stdout(
+                            &runtime_event_engine,
+                            data.get("text").and_then(Value::as_str).unwrap_or(""),
+                        )
+                    });
+                for run_event in run_events {
                     event_realtime.emit(
                         "cloud_agent_run_event",
                         json!({
@@ -186,7 +199,7 @@ pub async fn execute_cloud_bridge_run(
             }
             event_realtime.emit(name, data);
         });
-        let execution = RuntimeSessionManager::default()
+        let execution = runtime_sessions
             .send_message(runtime_plan.clone(), sink, Some(cancellation))
             .await
             .map_err(|error| CloudError::Runtime(error.to_string()));

@@ -13,8 +13,7 @@ use mia_core_conversation::{
     plan_agent_session_skill_runtime,
 };
 use mia_core_runtime::{
-    EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_FINISHED, RuntimeEventSink,
-    RuntimeSessionManager, RuntimeTurnPlan,
+    EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_FINISHED, RuntimeEventSink, RuntimeTurnPlan,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -185,7 +184,8 @@ pub async fn run_conversation_utility_turn(
     let sink = RuntimeEventSink::new(move |event| {
         event_realtime.emit(event.name, event.data);
     });
-    let execution = RuntimeSessionManager::default()
+    let execution = states
+        .runtime_sessions
         .send_message(runtime_plan.clone(), sink, None)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -216,7 +216,8 @@ fn spawn_runtime_turn(
         let sink = RuntimeEventSink::new(move |event| {
             event_realtime.emit(event.name, event.data);
         });
-        let execution = RuntimeSessionManager::default()
+        let execution = states
+            .runtime_sessions
             .send_message(runtime_plan.clone(), sink, Some(cancellation))
             .await;
         runtime_registry.remove(&runtime_plan.turn_id);

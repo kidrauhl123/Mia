@@ -14,6 +14,7 @@ use mia_core_db::{
 use mia_core_mcp::McpService;
 use mia_core_memory::MemoryService;
 use mia_core_realtime::EventBus;
+use mia_core_runtime::RuntimeSessionManager;
 use mia_core_system::{AgentPermissionService, SystemService};
 use mia_core_tasks::TaskService;
 
@@ -37,6 +38,7 @@ pub struct AppServices {
     pub cloud_events: CloudEventsManager,
     pub realtime: EventBus,
     pub runtime: RuntimeRegistry,
+    pub runtime_sessions: RuntimeSessionManager,
 }
 
 impl AppServices {
@@ -65,11 +67,13 @@ impl AppServices {
         let cloud = CloudService::new(database.pool().clone());
         let realtime = EventBus::default();
         let runtime = RuntimeRegistry::default();
+        let runtime_sessions = RuntimeSessionManager::native_acp();
         let cloud_bridge_runner = Arc::new(AppCloudBridgeRunner::new(
             cloud.clone(),
             conversation.clone(),
             realtime.clone(),
             runtime.clone(),
+            runtime_sessions.clone(),
         ));
         let cloud_bridge = CloudBridgeManager::new(cloud.clone(), cloud_bridge_runner.clone());
         let cloud_events_realtime = realtime.clone();
@@ -99,6 +103,7 @@ impl AppServices {
             cloud_events,
             realtime,
             runtime,
+            runtime_sessions,
         }
     }
 }

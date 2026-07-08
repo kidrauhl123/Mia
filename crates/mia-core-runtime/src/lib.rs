@@ -322,6 +322,10 @@ impl RuntimeSessionManager {
         }
     }
 
+    pub fn native_acp() -> Self {
+        Self::new(NativeAcpSessionManager::real())
+    }
+
     pub fn new_without_native_acp_for_tests() -> Self {
         Self::default()
     }
@@ -983,6 +987,13 @@ mod tests {
                 .to_string()
                 .contains("native ACP runtime is unavailable")
         );
+    }
+
+    #[test]
+    fn runtime_session_manager_can_construct_native_acp_manager_for_app_services() {
+        let manager = RuntimeSessionManager::native_acp();
+
+        assert!(format!("{manager:?}").contains("RuntimeSessionManager"));
     }
 
     #[tokio::test]

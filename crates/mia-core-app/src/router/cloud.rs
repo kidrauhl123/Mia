@@ -102,6 +102,7 @@ pub async fn run_cloud_bridge(
         &states.conversation,
         &states.realtime,
         &states.runtime,
+        &states.runtime_sessions,
         request,
     )
     .await
