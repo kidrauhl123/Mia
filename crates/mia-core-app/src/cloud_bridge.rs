@@ -804,7 +804,7 @@ fn codex_json_line_to_run_events(value: &Value) -> Vec<Value> {
             if let Some(item) = value.get("item")
                 && let Some(item_type) = item.get("type").and_then(Value::as_str)
             {
-                if item_type == "message" {
+                if item_type == "message" || item_type == "agent_message" {
                     let text = block_text(item);
                     if !text.trim().is_empty() {
                         events.push(json!({ "type": "message.complete", "text": text }));
@@ -1205,6 +1205,17 @@ fn clean_runtime_stderr_status(engine: &str, text: &str) -> Option<String> {
 }
 
 fn clean_runtime_stderr_for_display(engine: &str, stderr: &str) -> String {
+    if engine == "codex" {
+        return stderr
+            .lines()
+            .filter_map(|line| {
+                (!is_runtime_status_noise_line(engine, line))
+                    .then(|| line.trim())
+                    .filter(|line| !line.is_empty())
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
     if engine != "claude-code" {
         return stderr.trim().to_string();
     }
@@ -1248,7 +1259,10 @@ fn is_runtime_status_noise_line(engine: &str, line: &str) -> bool {
     match engine {
         "codex" => matches!(
             trimmed,
-            "Reading prompt from stdin..." | "Reading prompt from stdin…"
+            "Reading prompt from stdin..."
+                | "Reading prompt from stdin…"
+                | "Reading additional input from stdin..."
+                | "Reading additional input from stdin…"
         ),
         _ => false,
     }
@@ -1304,5 +1318,27 @@ mod tests {
         let output = normalize_runtime_output("codex", "Reading prompt from stdin...\n", "");
 
         assert_eq!(output.text, "");
+    }
+
+    #[test]
+    fn codex_additional_input_status_noise_is_not_treated_as_reply_text() {
+        let output =
+            normalize_runtime_output("codex", "Reading additional input from stdin...\n", "");
+
+        assert_eq!(output.text, "");
+    }
+
+    #[test]
+    fn codex_item_completed_agent_message_is_treated_as_reply_text() {
+        let output = normalize_runtime_output(
+            "codex",
+            r#"Reading additional input from stdin...
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Hi. What do you want to work on in Mia?"}}
+{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2}}
+"#,
+            "",
+        );
+
+        assert_eq!(output.text, "Hi. What do you want to work on in Mia?");
     }
 }

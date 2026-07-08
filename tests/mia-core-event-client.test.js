@@ -162,6 +162,19 @@ test("Core Codex stdout mapper suppresses status noise and extracts JSONL text",
     null
   );
 
+  assert.equal(
+    coreConversationRuntimeEnvelope({
+      name: "conversation.runtimeStdout",
+      data: {
+        conversationId: "conv_1",
+        turnId: "turn_1",
+        engine: "codex",
+        text: "Reading additional input from stdin...\n"
+      }
+    }),
+    null
+  );
+
   assert.deepEqual(
     coreConversationRuntimeEnvelope({
       name: "conversation.runtimeStdout",
@@ -173,6 +186,22 @@ test("Core Codex stdout mapper suppresses status noise and extracts JSONL text",
       }
     }).payload.event,
     { type: "message.delta", text: "hello" }
+  );
+
+  assert.deepEqual(
+    coreConversationRuntimeEnvelope({
+      name: "conversation.runtimeStdout",
+      data: {
+        conversationId: "conv_1",
+        turnId: "turn_1",
+        engine: "codex",
+        text: JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: "Hi. What do you want to work on in Mia?" }
+        }) + "\n"
+      }
+    }).payload.event,
+    { type: "message.complete", text: "Hi. What do you want to work on in Mia?" }
   );
 });
 

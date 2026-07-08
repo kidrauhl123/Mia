@@ -326,17 +326,40 @@ where
             break;
         }
         output.push_str(&line);
-        sink.emit(
-            event_name,
-            json!({
-                "turnId": turn_id,
-                "conversationId": conversation_id,
-                "engine": engine,
-                "text": line,
-            }),
-        );
+        if should_emit_runtime_stream_line(&engine, &line) {
+            sink.emit(
+                event_name,
+                json!({
+                    "turnId": turn_id,
+                    "conversationId": conversation_id,
+                    "engine": engine,
+                    "text": line,
+                }),
+            );
+        }
     }
     Ok(output)
+}
+
+fn should_emit_runtime_stream_line(engine: &str, line: &str) -> bool {
+    !is_runtime_status_noise_line(engine, line)
+}
+
+fn is_runtime_status_noise_line(engine: &str, line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    match engine {
+        "codex" => matches!(
+            trimmed,
+            "Reading prompt from stdin..."
+                | "Reading prompt from stdin…"
+                | "Reading additional input from stdin..."
+                | "Reading additional input from stdin…"
+        ),
+        _ => false,
+    }
 }
 
 async fn write_stdin(stdin: Option<ChildStdin>, input: String) {
@@ -920,6 +943,41 @@ mod tests {
 
         assert_eq!(result.exit_code, Some(0));
         assert_eq!(result.stdout, "args:-m|gpt-5-codex|hello codex\nstdin:");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn runtime_executor_does_not_emit_codex_stdin_status_noise() {
+        let mut plan = test_plan(shell_command(
+            "printf 'Reading additional input from stdin...\\n'; printf '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"hi\"}}\\n'",
+        ));
+        plan.engine = "codex".into();
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = {
+            let events = events.clone();
+            RuntimeEventSink::new(move |event| events.lock().unwrap().push(event))
+        };
+
+        let result = RuntimeExecutor
+            .execute_plan(plan, sink, None)
+            .await
+            .unwrap();
+        let events = events.lock().unwrap();
+
+        assert!(
+            result
+                .stdout
+                .contains("Reading additional input from stdin...")
+        );
+        assert!(!events.iter().any(|event| {
+            event.name == EVENT_RUNTIME_STDOUT
+                && event.data["text"] == "Reading additional input from stdin...\n"
+        }));
+        assert!(events.iter().any(|event| {
+            event.name == EVENT_RUNTIME_STDOUT
+                && event.data["text"]
+                    == "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"hi\"}}\n"
+        }));
     }
 
     #[cfg(unix)]

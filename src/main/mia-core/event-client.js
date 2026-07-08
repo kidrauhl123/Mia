@@ -116,7 +116,7 @@ function codexJsonLineToRunEvent(value) {
   const item = value?.item;
   if (item && typeof item === "object") {
     const itemType = String(item.type || "");
-    if (itemType === "message") {
+    if (itemType === "message" || itemType === "agent_message") {
       const text = blockText(item);
       return text.trim() ? { type: "message.complete", text } : null;
     }
@@ -190,7 +190,10 @@ function runtimeStatusNoiseLine(engine, text) {
   const trimmed = String(text || "").trim();
   if (!trimmed) return true;
   if (engine === "codex") {
-    return trimmed === "Reading prompt from stdin..." || trimmed === "Reading prompt from stdin…";
+    return trimmed === "Reading prompt from stdin..."
+      || trimmed === "Reading prompt from stdin…"
+      || trimmed === "Reading additional input from stdin..."
+      || trimmed === "Reading additional input from stdin…";
   }
   return false;
 }
