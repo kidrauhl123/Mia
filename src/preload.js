@@ -165,8 +165,8 @@ function isCloudClaudeCodeBotPost(body = {}) {
 }
 
 function isDesktopLocalBotConversationPost(conversationId, body = {}) {
-  if (isCoreConversationId(conversationId)) return false;
   if (isDesktopLocalBotPost(body)) return true;
+  if (isCoreConversationId(conversationId)) return false;
   if (!isBotConversationId(conversationId)) return false;
   return !isCloudClaudeCodeBotPost(body);
 }

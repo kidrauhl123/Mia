@@ -166,6 +166,12 @@ test("conversation preload bridge keeps legacy social data primary with Rust Cor
   assert.match(preload, /async function listLocalDesktopBotMessages\(conversationId,\s*sinceSeq,\s*limit\)/);
   assert.match(preload, /async function postLocalDesktopBotMessage\(conversationId,\s*body = \{\}\)/);
   assert.match(preload, /id:\s*firstText\(response\?\.messageId,\s*response\?\.message_id,\s*`msg_\$\{runId\}`\)/);
+  const desktopBotPostSource = extractFunctionSource(preload, "isDesktopLocalBotConversationPost");
+  assert.match(
+    desktopBotPostSource,
+    /if \(isDesktopLocalBotPost\(body\)\) return true;[\s\S]*if \(isCoreConversationId\(conversationId\)\) return false;/,
+    "desktop-local bot posts must use the local bridge even when the ensured bot conversation id is Core-owned"
+  );
   const postConversationSource = extractFunctionSource(preload, "postConversationMessageCompat");
   assert.match(postConversationSource, /if \(isDesktopLocalBotConversationPost\(conversationId,\s*body\)\) \{\s*return postLocalDesktopBotMessage\(conversationId,\s*body\);\s*\}/);
   assert.match(postConversationSource, /isCloudClaudeCodeBotPost\(body\)/);
