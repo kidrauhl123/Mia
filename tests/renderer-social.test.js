@@ -1852,6 +1852,67 @@ test("sendInActiveConversation appends returned local runtime bot reply without 
   assert.equal(messages[1].body_md, "hello");
 });
 
+test("sendInActiveConversation does not duplicate a bridge bot reply when websocket final arrives before POST returns", async () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  const post = deferred();
+  const conversationId = "botc_bridge_final_first";
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{
+    id: conversationId,
+    type: "bot",
+    name: "Codex",
+    decorations: { botId: "codex", sessionId: "bridge_final_first", runtimeKind: "desktop-local" }
+  }];
+  s.moduleState.messageCache.set(conversationId, { maxSeq: 0, messages: [] });
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async () => post.promise
+  };
+
+  const sendPromise = s.sendInActiveConversation("你好");
+  await flushPromises();
+  const entry = s.moduleState.messageCache.get(conversationId);
+  const localTurnId = String(entry.messages[0]?.turn_id || "turn_bridge_final_first");
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId,
+      message: {
+        id: "core_bot_reply",
+        seq: 2,
+        sender_kind: "bot",
+        sender_ref: "codex",
+        body_md: "你好，我在。",
+        turn_id: localTurnId
+      },
+    },
+  });
+
+  post.resolve({
+    ok: true,
+    data: {
+      message: { id: "core_user", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "你好", turn_id: localTurnId },
+      botMessage: {
+        id: "local_reply_run_1",
+        seq: 2,
+        sender_kind: "bot",
+        sender_ref: "codex",
+        body_md: "你好，我在。",
+        turn_id: localTurnId,
+        _cloudBridgeRunId: "run_1",
+        _localCoreConversationId: "cloud_bridge_botc_bridge_final_first"
+      }
+    }
+  });
+  await sendPromise;
+
+  const messages = s.moduleState.messageCache.get(conversationId).messages;
+  assert.deepEqual(Array.from(messages, (message) => message.id), ["core_user", "core_bot_reply"]);
+  assert.equal(messages.filter((message) => message.sender_kind === "bot").length, 1);
+});
+
 test("sendInActiveConversation keeps desktop-local bot history on the visible conversation id", async () => {
   const s = loadSocial();
   const calls = [];
@@ -4356,7 +4417,8 @@ test("cloud agent run start exposes typing state to the conversation header", ()
   };
   s.renderConversationChat(chat);
 
-  assert.equal(chat.children.length, 0);
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /agent-run-status/);
 });
 
 test("cloud agent run cancelling keeps the conversation busy until the terminal event", () => {
@@ -4425,6 +4487,36 @@ test("renderConversationChat does not label tool-only agent activity as typing",
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /TOOL/);
   assert.doesNotMatch(chat.children[0].innerHTML, /typing-status/);
+});
+
+test("renderConversationChat shows a status row while an agent run has not streamed text yet", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /streaming/);
+  assert.match(chat.children[0].innerHTML, /agent-run-status/);
+  assert.match(chat.children[0].innerHTML, /agent-run-status-loading-dots/);
 });
 
 test("renderConversationChat renders active cloud run status at the bottom of the stream", () => {

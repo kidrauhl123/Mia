@@ -2446,7 +2446,13 @@
   function streamingRunHasRenderableOutput(run) {
     if (!run) return false;
     const blocks = displayedContentBlocksPayloadFromRun(run) || [];
-    return Boolean(run.text || run.reasoning || (Array.isArray(run.tools) && run.tools.length) || blocks.length);
+    return Boolean(
+      run.text
+      || run.reasoning
+      || (Array.isArray(run.tools) && run.tools.length)
+      || blocks.length
+      || isConversationRunBusy(run)
+    );
   }
 
   function copyStreamingArticleIdentity(target, source) {
@@ -3911,10 +3917,8 @@
 
   function _buildCloudAgentStreamingArticle(conversationId, accentColor, members = [], options = {}) {
     const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
-    // Typing-only state ("running" with no text/reasoning/tools yet) shows in the
-    // conversation header instead of a placeholder bubble — see paintHeaderStatus.
     const runBlocks = displayedContentBlocksPayloadFromRun(run) || [];
-    if (!run || (!run.text && !run.reasoning && !run.tools.length && !runBlocks.length)) return null;
+    if (!streamingRunHasRenderableOutput(run)) return null;
     let conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
     const botKey = run.botId || sessionHistoryShared().botId(conversation) || "mia";
     const synthetic = {
@@ -4582,6 +4586,27 @@
       incoming.seq = nextLocalTimelineSeq(entry);
     }
     const existingIdx = entry.messages.findIndex((message) => message && message.id === incoming.id);
+    if (existingIdx < 0 && _isCloudBridgeBotMirror(incoming)) {
+      const fingerprint = _messageVisualFingerprint(incoming);
+      const incomingTurnId = String(incoming.turn_id || incoming.turnId || "").trim();
+      const matchingCoreIdx = entry.messages.findIndex((message) => {
+        if (!message || message.id === incoming.id || message.sender_kind !== conversationKinds().SenderKind.Bot) return false;
+        if (_isCloudBridgeBotMirror(message)) return false;
+        if (String(message.sender_ref || "") !== String(incoming.sender_ref || "")) return false;
+        if (_messageVisualFingerprint(message) !== fingerprint) return false;
+        const existingTurnId = String(message.turn_id || message.turnId || "").trim();
+        return Boolean(incomingTurnId && existingTurnId && incomingTurnId === existingTurnId);
+      });
+      if (matchingCoreIdx >= 0) {
+        entry.messages[matchingCoreIdx] = _mergeCloudBridgeMirrorFields(incoming, entry.messages[matchingCoreIdx]);
+        sortMessagesByTimelineSeq(entry.messages);
+        const seq = Number(incoming.seq) || 0;
+        if (seq > entry.maxSeq) entry.maxSeq = seq;
+        if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
+        if (deps && typeof deps.render === "function") deps.render();
+        return true;
+      }
+    }
     if (existingIdx >= 0) {
       entry.messages[existingIdx] = mergeFetchedMessage(entry.messages[existingIdx], incoming);
     } else {
