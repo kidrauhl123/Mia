@@ -6,9 +6,9 @@ function createMiaAppMcpBridge(deps = {}) {
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
 
   const fsImpl = deps.fs || fs;
-  const daemonStatus = typeof deps.daemonStatus === "function" ? deps.daemonStatus : () => ({});
-  const daemonSettings = typeof deps.daemonSettings === "function" ? deps.daemonSettings : () => ({});
-  const daemonToken = typeof deps.daemonToken === "function" ? deps.daemonToken : () => "";
+  const coreStatus = typeof deps.coreStatus === "function" ? deps.coreStatus : () => ({});
+  const coreSettings = typeof deps.coreSettings === "function" ? deps.coreSettings : () => ({});
+  const coreToken = typeof deps.coreToken === "function" ? deps.coreToken : () => "";
   const nodePath = typeof deps.nodePath === "function" ? deps.nodePath : () => "";
   const ddgsPythonPath = typeof deps.ddgsPythonPath === "function" ? deps.ddgsPythonPath : () => "";
   const serverScriptPath = typeof deps.serverScriptPath === "function"
@@ -67,16 +67,16 @@ function createMiaAppMcpBridge(deps = {}) {
     fsImpl.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
   }
 
-  function daemonBaseUrl() {
-    const status = daemonStatus();
+  function coreBaseUrl() {
+    const status = coreStatus();
     if (status?.baseUrl) return status.baseUrl;
-    const settings = daemonSettings();
+    const settings = coreSettings();
     if (settings?.host && settings?.port) return `http://${settings.host}:${settings.port}`;
     return "";
   }
 
   function getSpec(context = {}) {
-    const baseUrl = daemonBaseUrl();
+    const baseUrl = coreBaseUrl();
     if (!baseUrl) return null;
     const scriptPath = materializeServerScript();
     if (!scriptPath) return null;
@@ -89,8 +89,8 @@ function createMiaAppMcpBridge(deps = {}) {
       command,
       args: [scriptPath],
       env: {
-        MIA_DAEMON_URL: baseUrl,
-        MIA_DAEMON_TOKEN: daemonToken(),
+        MIA_CORE_URL: baseUrl,
+        MIA_CORE_TOKEN: coreToken(),
         MIA_APP_CONTEXT_FILE: contextPath(),
         ...(ddgsPython ? { MIA_DDGS_PYTHON: ddgsPython } : {})
       },
@@ -100,7 +100,7 @@ function createMiaAppMcpBridge(deps = {}) {
 
   return {
     contextPath,
-    daemonBaseUrl,
+    coreBaseUrl,
     getSpec,
     materializeServerScript,
     resetNodePathCache,

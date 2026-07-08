@@ -9,26 +9,27 @@ function read(rel) {
   return fs.readFileSync(path.join(root, rel), "utf8");
 }
 
-test("main wires the bot runtime dispatcher without foreground execution ownership", () => {
+test("main no longer routes Cloud Events frames through the JS bot runtime dispatcher", () => {
   const main = read("src/main.js");
   const routedSource = `${main}\n${read("src/main/cloud/cloud-events-client.js")}`;
 
-  assert.match(
+  assert.doesNotMatch(
     main,
-    /const\s+localBotResponder\s*=\s*IS_DAEMON_PROCESS\s*\?\s*createLocalBotResponder\(/,
-    "local bot responder must be daemon-only"
+    /createLocalBotResponder|const\s+localBotResponder\b/,
+    "Electron main must not construct the retired JS local bot responder"
   );
-  assert.match(main, /createMainBotRuntimeDispatcher/);
+  assert.doesNotMatch(main, /createMainBotRuntimeDispatcher/);
+  assert.doesNotMatch(main, /createBotExecutionCore|botExecutionCore/, "Electron main must not wire the retired JS bot execution core");
   assert.doesNotMatch(main, /createMainGroupConductor/);
   assert.doesNotMatch(main, /createMainBotConversationResponder/);
-  assert.match(
+  assert.doesNotMatch(
     routedSource,
     /message\.type === CloudEvent\.ConversationBotInvocationRequested[\s\S]*botRuntimeDispatcher\?\.handleCloudEvent\?\.\(message\)/
   );
-  const dispatcher = read("src/main/social/bot-runtime-dispatcher.js");
-  assert.match(dispatcher, /localBotResponder\.respond/);
-  assert.doesNotMatch(dispatcher, /mainGroupConductor/);
-  assert.doesNotMatch(dispatcher, /mainBotConversationResponder/);
+  assert.match(routedSource, /\/api\/cloud\/events\/start/);
+  assert.equal(fs.existsSync(path.join(root, "src/main/social/bot-runtime-dispatcher.js")), false);
+  assert.equal(fs.existsSync(path.join(root, "src/main/social/local-bot-responder.js")), false);
+  assert.equal(fs.existsSync(path.join(root, "src/main/bot-execution-core.js")), false);
 });
 
 test("renderer no longer executes local bot replies for cloud conversation events", () => {

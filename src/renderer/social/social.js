@@ -2639,36 +2639,15 @@
     return String(value || "").trim().toLowerCase() === OTHER_DEVICE_CONVERSATION_FILTER;
   }
 
-  function botRecordForConversationRuntime(conversation = {}) {
+  function botRecordForConversation(conversation = {}) {
     if (sessionHistoryShared().conversationType(conversation, conversation?.id || "") !== "bot") return null;
     const botId = sessionHistoryShared().botId(conversation);
     if (!botId) return null;
-    const existing = moduleState.bots.find((item) => botKeyFromRecord(item) === botId) || null;
-    const decorations = conversation.decorations || {};
-    const runtimeConfig = existing?.runtimeConfig || existing?.runtime_config || decorations.runtimeConfig || decorations.runtime_config || {};
-    return {
-      ...(existing || {}),
-      key: botId,
-      id: botId,
-      runtimeKind: firstText(
-        existing?.runtimeKind,
-        existing?.runtime_kind,
-        decorations.runtimeKind,
-        decorations.runtime_kind,
-        runtimeConfig.runtimeKind,
-        runtimeConfig.runtime_kind
-      ),
-      runtimeConfig,
-      agentEngine: firstText(existing?.agentEngine, existing?.agent_engine, decorations.agentEngine, decorations.agent_engine, runtimeConfig.agentEngine, runtimeConfig.agent_engine),
-      targetDeviceId: firstText(existing?.targetDeviceId, existing?.target_device_id, decorations.targetDeviceId, decorations.target_device_id, runtimeConfig.deviceId, runtimeConfig.device_id),
-      targetDeviceName: firstText(existing?.targetDeviceName, existing?.target_device_name, decorations.targetDeviceName, decorations.target_device_name, runtimeConfig.deviceName, runtimeConfig.device_name),
-      deviceId: firstText(existing?.deviceId, existing?.device_id, decorations.deviceId, decorations.device_id, runtimeConfig.deviceId, runtimeConfig.device_id),
-      deviceName: firstText(existing?.deviceName, existing?.device_name, decorations.deviceName, decorations.device_name, runtimeConfig.deviceName, runtimeConfig.device_name)
-    };
+    return moduleState.bots.find((item) => botKeyFromRecord(item) === botId) || null;
   }
 
   function conversationRunsOnOtherDevice(conversation = {}) {
-    const bot = botRecordForConversationRuntime(conversation);
+    const bot = botRecordForConversation(conversation);
     return Boolean(bot && global.miaBotManager?.botRunsOnOtherDevice?.(bot));
   }
 
@@ -2757,8 +2736,6 @@
         state: currentState(),
         ["bot"]: { ...bot, key: botKey },
         engineContracts: window.miaEngineContracts,
-        modelSettings: window.miaModelSettings,
-        engineOptions: window.miaEngineOptions,
         onConversation: upsertConversation
       });
       const conversation = result.conversation || null;
@@ -2779,7 +2756,8 @@
   }
 
   function runtimeKindForBotConversation(conversation = {}) {
-    const botRuntimeKind = String(botRecordForConversationRuntime(conversation)?.runtimeKind || "").trim();
+    const bot = botRecordForConversation(conversation);
+    const botRuntimeKind = firstText(bot?.runtimeKind, bot?.runtime_kind);
     if (botRuntimeKind) return botRuntimeKind;
     const history = sessionHistoryShared();
     if (typeof history.runtimeKind === "function") {
@@ -2787,6 +2765,45 @@
     }
     const decorations = conversation?.decorations || {};
     return firstText(decorations.runtimeKind, decorations.runtime_kind, "desktop-local");
+  }
+
+  function agentEngineForBotConversation(conversation = {}) {
+    const bot = botRecordForConversation(conversation);
+    const decorations = conversation?.decorations || {};
+    const metadata = conversation?.metadata || {};
+    const candidate = firstText(
+      bot?.agentEngine,
+      bot?.agent_engine,
+      decorations.agentEngine,
+      decorations.agent_engine,
+      decorations.starterEngineId,
+      decorations.starter_engine_id,
+      metadata.starterEngineId,
+      metadata.starter_engine_id,
+      sessionHistoryShared().botId(conversation)
+    );
+    const normalized = candidate.toLowerCase().replace(/_/g, "-");
+    if (normalized.includes("claude")) return "claude-code";
+    if (normalized.includes("hermes")) return "hermes";
+    if (normalized.includes("codex")) return "codex";
+    return candidate;
+  }
+
+  function botPostContextForConversation(conversation = {}, conversationId = "") {
+    if (conversationTypeFor(conversation, conversationId) !== "bot") return null;
+    const botId = sessionHistoryShared().botId(conversation);
+    const sessionId = botSessionIdForConversation(conversation, conversationId);
+    const runtimeKind = runtimeKindForBotConversation(conversation);
+    if (!runtimeKind) return null;
+    const context = { runtimeKind };
+    if (botId) context.botId = botId;
+    if (sessionId) context.sessionId = sessionId;
+    if (runtimeKind === "desktop-local") {
+      const agentEngine = agentEngineForBotConversation(conversation);
+      if (agentEngine) context.agentEngine = agentEngine;
+      if (conversation?.name || conversation?.title) context.botName = conversation.name || conversation.title;
+    }
+    return context;
   }
 
   function ensuredConversationFromResult(result) {
@@ -2865,6 +2882,10 @@
       ctx
     );
     return Boolean(contact && contact.id && contact.id === ctx.self?.id);
+  }
+
+  function currentSelfUserId() {
+    return String(moduleState.myUserId || window.__miaCoreUserId || "").trim();
   }
 
   function memberNameForSender(conversationId, senderKind, senderRef) {
@@ -2982,7 +3003,7 @@
     const self = window.miaSelfIdentity.resolveSelfIdentity({
       cloudUser,
       localUser,
-      myUserId: moduleState.myUserId,
+      myUserId: currentSelfUserId(),
       myUsername: moduleState.myUsername
     });
     return {
@@ -3072,7 +3093,6 @@
     const runtimeFields = {};
     for (const field of [
       "runtimeKind",
-      "runtimeConfig",
       "agentEngine",
       "targetDeviceId",
       "targetDeviceName",
@@ -3432,6 +3452,7 @@
       }
       const entry = moduleState.messageCache.get(conversationId);
       if (_reconcileEchoedConversationMessage(conversationId, cachedMessage)) return;
+      if (_reconcileCloudBridgeBotMirror(conversationId, cachedMessage)) return;
       // De-dup by id
       const fresh = !entry.messages.find((m) => m.id === cachedMessage.id);
       if (fresh) {
@@ -3893,7 +3914,7 @@
     // conversation header instead of a placeholder bubble — see paintHeaderStatus.
     const runBlocks = displayedContentBlocksPayloadFromRun(run) || [];
     if (!run || (!run.text && !run.reasoning && !run.tools.length && !runBlocks.length)) return null;
-    const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
+    let conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
     const botKey = run.botId || sessionHistoryShared().botId(conversation) || "mia";
     const synthetic = {
       id: `cloud-agent-stream-${run.runId || conversationId}`,
@@ -4215,7 +4236,7 @@
       id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       seq: nextLocalTimelineSeq(entry),
       sender_kind: conversationKinds().SenderKind.User,
-      sender_ref: moduleState.myUserId || "",
+      sender_ref: currentSelfUserId(),
       body_md: prepared.bodyMd,
       attachments,
       mentions: prepared.mentions || [],
@@ -4300,6 +4321,64 @@
     return Boolean(senderRef && moduleState.myUserId && senderRef === moduleState.myUserId) || _isMessageFromSelf(message);
   }
 
+  function _isCloudBridgeBotMirror(message) {
+    const { SenderKind } = conversationKinds();
+    if (!message || message.sender_kind !== SenderKind.Bot) return false;
+    return Boolean(
+      message._cloudBridgeRunId
+      || message._localCoreConversationId
+      || String(message.local_conversation_id || "").startsWith("cloud_bridge_")
+    );
+  }
+
+  function _mergeCloudBridgeMirrorFields(localMsg, sentMsg) {
+    const merged = { ...sentMsg };
+    if (!merged.trace && !merged.trace_json && localMsg?.trace) merged.trace = localMsg.trace;
+    if (!merged.trace_json && localMsg?.trace_json) merged.trace_json = localMsg.trace_json;
+    if (!merged.contentBlocks && !merged.content_blocks_json && localMsg?.contentBlocks) {
+      merged.contentBlocks = localMsg.contentBlocks;
+    }
+    if (!merged.content_blocks_json && localMsg?.content_blocks_json) {
+      merged.content_blocks_json = localMsg.content_blocks_json;
+    }
+    return merged;
+  }
+
+  function _reconcileCloudBridgeBotMirror(conversationId, sentMsg) {
+    if (!conversationId || !sentMsg || !sentMsg.id) return false;
+    const { SenderKind } = conversationKinds();
+    if (sentMsg.sender_kind !== SenderKind.Bot || _isCloudBridgeBotMirror(sentMsg)) return false;
+    const entry = moduleState.messageCache.get(conversationId);
+    if (!entry) return false;
+    const fingerprint = _messageVisualFingerprint(sentMsg);
+    const localIdx = entry.messages.findIndex((message) => (
+      message
+      && message.id !== sentMsg.id
+      && _isCloudBridgeBotMirror(message)
+      && String(message.sender_ref || "") === String(sentMsg.sender_ref || "")
+      && _messageVisualFingerprint(message) === fingerprint
+    ));
+    if (localIdx < 0) return false;
+    const localMsg = entry.messages[localIdx];
+    const previousId = localMsg?.id || sentMsg.id;
+    const serverIdx = entry.messages.findIndex((message) => message && message.id === sentMsg.id);
+    const mergedMsg = _mergeCloudBridgeMirrorFields(localMsg, sentMsg);
+    if (serverIdx >= 0) {
+      entry.messages[serverIdx] = _mergeCloudBridgeMirrorFields(localMsg, entry.messages[serverIdx]);
+      entry.messages.splice(localIdx, 1);
+    } else {
+      entry.messages[localIdx] = mergedMsg;
+    }
+    sortMessagesByTimelineSeq(entry.messages);
+    if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
+    if (conversationId === moduleState.activeConversationId) {
+      const didSilentReconcile = syncActiveChatAfterSilentMessageReconcile(conversationId, previousId, mergedMsg, entry);
+      if (!didSilentReconcile) _reRenderActiveChat();
+    }
+    if (deps && typeof deps.render === "function") deps.render();
+    return true;
+  }
+
   function _resequencePendingMessagesAfterServerSeq(entry, serverSeq) {
     if (!entry || !Array.isArray(entry.messages)) return;
     let cursor = Math.max(safeMessageSeq(serverSeq), safeMessageSeq(entry.maxSeq));
@@ -4314,7 +4393,9 @@
   }
 
   function _localPendingEchoIndexWithoutTurnId(entry, sentMsg) {
-    if (sentMsg.turn_id || sentMsg.sender_kind !== conversationKinds().SenderKind.User || !_messageLooksFromSelf(sentMsg)) return -1;
+    if (sentMsg.turn_id || sentMsg.sender_kind !== conversationKinds().SenderKind.User) return -1;
+    const senderRef = String(sentMsg.sender_ref || sentMsg.senderRef || "").trim();
+    if (senderRef && !_messageLooksFromSelf(sentMsg)) return -1;
     const sentBody = String(sentMsg.body_md || "");
     const sentAttachments = _messageAttachmentsFingerprint(sentMsg);
     const matches = [];
@@ -4374,7 +4455,10 @@
 
   function _reconcileEchoedConversationMessage(conversationId, sentMsg) {
     if (!conversationId || !sentMsg || !sentMsg.id) return false;
-    if (sentMsg.sender_kind !== conversationKinds().SenderKind.User || !_messageLooksFromSelf(sentMsg)) return false;
+    if (sentMsg.sender_kind !== conversationKinds().SenderKind.User) return false;
+    const senderRef = String(sentMsg.sender_ref || sentMsg.senderRef || "").trim();
+    if (senderRef && !_messageLooksFromSelf(sentMsg)) return false;
+    sentMsg._localBackfillPending = true;
     const entry = moduleState.messageCache.get(conversationId);
     if (!entry) return false;
     const localIdx = sentMsg.turn_id
@@ -4407,11 +4491,32 @@
     const localIdx = entry.messages.findIndex((m) => m.id === localId);
     const localMsg = localIdx >= 0 ? entry.messages[localIdx] : null;
     const existingServerMsg = serverIdx >= 0 ? entry.messages[serverIdx] : null;
+    if (
+      localMsg
+      && sentMsg.sender_kind === conversationKinds().SenderKind.User
+      && !String(sentMsg.sender_ref || sentMsg.senderRef || "").trim()
+    ) {
+      const knownSelfRef = String(localMsg.sender_ref || currentSelfUserId() || "").trim();
+      if (knownSelfRef) sentMsg.sender_ref = knownSelfRef;
+    }
+    const shouldProtectUntilBackfill = Boolean(
+      (
+        localMsg
+        && localMsg._localPending
+        && sentMsg.sender_kind === conversationKinds().SenderKind.User
+      )
+      || (
+        sentMsg.sender_kind === conversationKinds().SenderKind.User
+        && _messageLooksFromSelf(sentMsg)
+      )
+    );
+    if (shouldProtectUntilBackfill) sentMsg._localBackfillPending = true;
     const previousId = localMsg?.id || existingServerMsg?.id || sentMsg.id;
     const previousIdx = localIdx >= 0 ? localIdx : serverIdx;
     let canSilentReconcile = Boolean(localMsg || existingServerMsg)
       && _messageVisualFingerprint(localMsg || existingServerMsg) === _messageVisualFingerprint(sentMsg);
     if (serverIdx >= 0) {
+      if (shouldProtectUntilBackfill && existingServerMsg) existingServerMsg._localBackfillPending = true;
       if (localIdx >= 0 && localIdx !== serverIdx) entry.messages.splice(localIdx, 1);
     } else if (localIdx >= 0) {
       entry.messages[localIdx] = sentMsg;
@@ -4428,6 +4533,37 @@
       && nextIdx === previousIdx
       && syncActiveChatAfterSilentMessageReconcile(conversationId, previousId, sentMsg, entry);
     if (conversationId === moduleState.activeConversationId && !didSilentReconcile) _reRenderActiveChat();
+    if (deps && typeof deps.render === "function") deps.render();
+    return true;
+  }
+
+  function _appendReturnedConversationBotMessage(conversationId, botMessage) {
+    if (!conversationId || !botMessage || !botMessage.id) return false;
+    if (botMessage.sender_kind !== conversationKinds().SenderKind.Bot) return false;
+    if (!moduleState.messageCache.has(conversationId)) {
+      moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+    }
+    const entry = moduleState.messageCache.get(conversationId);
+    const incoming = { ...botMessage };
+    if (!Number.isFinite(Number(incoming.seq)) || Number(incoming.seq) <= 0) {
+      incoming.seq = nextLocalTimelineSeq(entry);
+    }
+    const existingIdx = entry.messages.findIndex((message) => message && message.id === incoming.id);
+    if (existingIdx >= 0) {
+      entry.messages[existingIdx] = mergeFetchedMessage(entry.messages[existingIdx], incoming);
+    } else {
+      entry.messages.push(incoming);
+    }
+    sortMessagesByTimelineSeq(entry.messages);
+    const seq = Number(incoming.seq) || 0;
+    if (seq > entry.maxSeq) entry.maxSeq = seq;
+    if (conversationId === moduleState.activeConversationId) {
+      if (existingIdx >= 0) {
+        _reRenderActiveChat();
+      } else {
+        _appendMessageToActiveChat(incoming, { stick: true });
+      }
+    }
     if (deps && typeof deps.render === "function") deps.render();
     return true;
   }
@@ -4821,7 +4957,7 @@
   async function sendInActiveConversation(text, options = {}) {
     const conversationId = moduleState.activeConversationId;
     if (!conversationId) return;
-    const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
+    let conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
     const conversationType = conversationTypeFor(conversation, conversationId);
     const members = _conversationMembersCache.get(conversationId) || [];
     // Composer skill chips selected for this message (the user's 「使用」).
@@ -4851,16 +4987,19 @@
       if (conversationType === "bot") {
         const ensured = await ensurePostableConversation(conversationId, conversation);
         postConversationId = ensured.conversationId || conversationId;
+        conversation = ensured.conversation || conversation;
         if (postConversationId !== conversationId && localMsg) {
           _moveLocalOutgoingConversationMessage(conversationId, postConversationId, localMsg.id);
         }
       }
+      const botPostContext = botPostContextForConversation(conversation, postConversationId);
       const res = await window.mia.social.postConversationMessage(postConversationId, {
         bodyMd: prepared.bodyMd,
         turnId: prepared.clientTraceId,
         ...(prepared.attachments.length ? { attachments: prepared.attachments } : {}),
         ...(mentions.length ? { mentions } : {}),
-        ...(skills ? { skills } : {})
+        ...(skills ? { skills } : {}),
+        ...(botPostContext || {})
       });
       if (!res.ok) {
         console.warn("[social] postConversationMessage failed:", res.error);
@@ -4871,6 +5010,10 @@
       const sentMsg = res.data?.message;
       if (!sentMsg || !sentMsg.id) return; // server didn't return a message somehow — skip optimistic
       _reconcileSentConversationMessage(postConversationId, localMsg?.id, sentMsg);
+      _appendReturnedConversationBotMessage(
+        postConversationId,
+        res.data?.botMessage || res.data?.assistantMessage || res.botMessage || null
+      );
     } catch (err) {
       if (localMsg) _markLocalOutgoingConversationMessageFailed(postConversationId, localMsg.id, err?.message || err);
       console.warn("[social] sendInActiveConversation error:", err);
@@ -4885,6 +5028,14 @@
   function mergeFetchedMessage(existing, incoming) {
     if (!existing) return incoming;
     const merged = { ...existing, ...incoming };
+    const incomingSenderKind = incoming.sender_kind || incoming.senderKind || existing.sender_kind || existing.senderKind;
+    if (
+      incomingSenderKind === conversationKinds().SenderKind.User
+      && String(existing.sender_ref || "").trim()
+      && !String(incoming.sender_ref || incoming.senderRef || "").trim()
+    ) {
+      merged.sender_ref = existing.sender_ref;
+    }
     if (existing.translation && incoming.translation == null) merged.translation = existing.translation;
     if (existing.trace_json && incoming.trace_json == null) merged.trace_json = existing.trace_json;
     if (existing.trace && incoming.trace == null) merged.trace = existing.trace;
@@ -4951,13 +5102,36 @@
     const completeWindow = fresh.length < cap;
     const upperSeq = completeWindow ? Infinity : Math.max(...seqs, lowerSeq);
     const before = entry.messages.length;
+    for (const msg of entry.messages) {
+      if (msg?._localBackfillPending && visibleIds.has(String(msg.id || ""))) {
+        delete msg._localBackfillPending;
+      }
+    }
     entry.messages = entry.messages.filter((msg) => {
+      if (isTransientLocalConversationMessage(msg)) return true;
       const seq = Number(msg?.seq);
       if (!Number.isFinite(seq) || seq <= lowerSeq) return true;
       if (upperSeq !== Infinity && seq > upperSeq) return true;
       return visibleIds.has(String(msg.id || ""));
     });
     return entry.messages.length !== before;
+  }
+
+  function isTransientLocalConversationMessage(msg) {
+    if (!msg || typeof msg !== "object") return false;
+    const id = String(msg.id || "");
+    const status = String(msg.status || "");
+    const seq = Number(msg.seq);
+    return Boolean(
+      msg._localPending
+      || msg._localRunId
+      || msg._cloudBridgeRunId
+      || msg._localCoreConversationId
+      || msg._localBackfillPending
+      || id.startsWith("local_")
+      || status === "sending"
+      || (Number.isFinite(seq) && seq >= LOCAL_TIMELINE_SEQ_SENTINEL)
+    );
   }
 
   function cachedMessageById(conversationId, messageId) {

@@ -7,8 +7,6 @@ const https = require("node:https");
 const readline = require("node:readline");
 const { spawn: defaultSpawn } = require("node:child_process");
 
-const DAEMON_URL = (process.env.MIA_DAEMON_URL || "http://127.0.0.1:27861").replace(/\/$/, "");
-const DAEMON_TOKEN = process.env.MIA_DAEMON_TOKEN || "";
 const CONTEXT_FILE = process.env.MIA_APP_CONTEXT_FILE || "";
 const DDGS_TIMEOUT_MS = 35000;
 
@@ -241,9 +239,17 @@ function queryString(params = {}) {
   return text ? `?${text}` : "";
 }
 
-function daemonFetch(method, urlPath, body) {
+function coreUrl() {
+  return (process.env.MIA_CORE_URL || "http://127.0.0.1:27861").replace(/\/$/, "");
+}
+
+function coreToken() {
+  return process.env.MIA_CORE_TOKEN || "";
+}
+
+function coreFetch(method, urlPath, body) {
   return new Promise((resolve, reject) => {
-    const parsed = new URL(`${DAEMON_URL}${urlPath}`);
+    const parsed = new URL(`${coreUrl()}${urlPath}`);
     const transport = parsed.protocol === "https:" ? https : http;
     const bodyStr = body == null ? null : JSON.stringify(body);
     const req = transport.request({
@@ -252,7 +258,7 @@ function daemonFetch(method, urlPath, body) {
       path: parsed.pathname + parsed.search,
       method,
       headers: {
-        Authorization: `Bearer ${DAEMON_TOKEN}`,
+        Authorization: `Bearer ${coreToken()}`,
         "Content-Type": "application/json",
         ...(bodyStr == null ? {} : { "Content-Length": Buffer.byteLength(bodyStr) })
       }
@@ -781,6 +787,88 @@ function nextFireForTask(task = {}) {
   return null;
 }
 
+function coreScheduleFromLegacyTask(input = {}) {
+  if (Object.prototype.hasOwnProperty.call(input, "schedule")) return input.schedule;
+  const trigger = input.trigger && typeof input.trigger === "object" ? input.trigger : {};
+  if (trigger.type === "cron") {
+    return {
+      type: "cron",
+      cron: String(trigger.cron || ""),
+      timezone: String(input.timezone || "Asia/Shanghai")
+    };
+  }
+  if (trigger.type === "oneshot") return { type: "oneshot", at: String(trigger.at || "") };
+  if (trigger.type === "every") return { type: "every", everyMs: Number(trigger.everyMs || trigger.every_ms || 0) };
+  return {};
+}
+
+function legacyTriggerFromCoreSchedule(schedule = {}) {
+  if (schedule?.type === "cron") return { type: "cron", cron: String(schedule.cron || "") };
+  if (schedule?.type === "oneshot") {
+    const atMs = Number(schedule.atMs || 0);
+    return { type: "oneshot", at: atMs > 0 ? new Date(atMs).toISOString() : String(schedule.at || "") };
+  }
+  if (schedule?.type === "every") return { type: "every", everyMs: Number(schedule.everyMs || schedule.every_ms || 0) };
+  return {};
+}
+
+function legacyTaskFromCoreJob(job = {}) {
+  const target = job.target && typeof job.target === "object" ? job.target : {};
+  const schedule = job.schedule && typeof job.schedule === "object" ? job.schedule : {};
+  return {
+    id: job.id || "",
+    title: target.title || job.title || job.kind || "未命名任务",
+    botId: target.botId || target.bot_id || "",
+    conversationId: target.conversationId || target.conversation_id || "",
+    sessionId: target.sessionId || target.session_id || target.conversationId || target.conversation_id || "",
+    originMessageId: target.originMessageId || "",
+    trigger: legacyTriggerFromCoreSchedule(schedule),
+    timezone: schedule.timezone || target.timezone || "Asia/Shanghai",
+    prompt: job.instructions || target.prompt || "",
+    fireMode: target.fireMode || job.kind || "agent",
+    deliveryText: target.deliveryText || "",
+    status: job.status || "active",
+    runs: Array.isArray(target.runs) ? target.runs : [],
+    nextFireAt: job.nextRunAt ?? null,
+    coreJob: job
+  };
+}
+
+function coreTaskJobRequest(input = {}) {
+  const payload = input && typeof input === "object" ? input : {};
+  return {
+    kind: payload.fireMode || payload.kind || "agent",
+    schedule: coreScheduleFromLegacyTask(payload),
+    target: {
+      botId: payload.botId || payload.bot_id || "",
+      conversationId: payload.conversationId || payload.conversation_id || payload.sessionId || "",
+      sessionId: payload.sessionId || payload.conversationId || "",
+      title: payload.title || payload.name || "未命名任务",
+      timezone: payload.timezone || "Asia/Shanghai",
+      fireMode: payload.fireMode || "agent",
+      deliveryText: payload.deliveryText || "",
+      originMessageId: payload.originMessageId || ""
+    },
+    instructions: payload.prompt || payload.instructions || payload.deliveryText || ""
+  };
+}
+
+function coreTaskJobPatch(input = {}) {
+  const partial = input && typeof input === "object" ? input : {};
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(partial, "schedule") || Object.prototype.hasOwnProperty.call(partial, "trigger")) {
+    patch.schedule = coreScheduleFromLegacyTask(partial);
+  }
+  if (Object.prototype.hasOwnProperty.call(partial, "prompt") || Object.prototype.hasOwnProperty.call(partial, "instructions")) {
+    patch.instructions = partial.prompt || partial.instructions || "";
+  }
+  if (Object.prototype.hasOwnProperty.call(partial, "status")) patch.status = partial.status;
+  if ((partial.botId || partial.bot_id) && (partial.conversationId || partial.conversation_id || partial.sessionId)) {
+    patch.target = coreTaskJobRequest(partial).target;
+  }
+  return patch;
+}
+
 function formatLocalFireTime(ms, timezone = "Asia/Shanghai") {
   const at = Number(ms);
   if (!Number.isFinite(at)) return "";
@@ -815,19 +903,19 @@ function taskToolPayload(task = {}) {
 }
 
 function assertOk(status, body) {
-  if (status < 200 || status >= 300) throw new Error(body?.error || `Daemon returned ${status}`);
+  if (status < 200 || status >= 300) throw new Error(body?.error || `Core returned ${status}`);
   return body;
 }
 
-async function daemonJson(method, urlPath, body) {
-  const response = await daemonFetch(method, urlPath, body);
+async function coreJson(method, urlPath, body) {
+  const response = await coreFetch(method, urlPath, body);
   return assertOk(response.status, response.body);
 }
 
 async function callTool(name, args = {}) {
   const ctx = readContext();
   switch (name) {
-    case "schedule_create": {
+	    case "schedule_create": {
       const payload = {
         title: args.title,
         botId: ctx.botId || args.botId || "",
@@ -840,41 +928,47 @@ async function callTool(name, args = {}) {
       };
       if (args.schedule) payload.schedule = args.schedule;
       else if (args.trigger) payload.trigger = args.trigger;
-      const { status, body } = await daemonFetch("POST", "/api/tasks", payload);
-      const created = assertOk(status, body);
-      return { ...created, ...taskToolPayload(created.task) };
-    }
-    case "schedule_list":
-      return daemonJson("GET", "/api/tasks", null);
-    case "schedule_update": {
-      const { id, ...partial } = args;
-      if (!id) throw new Error("id is required");
-      return daemonJson("PATCH", `/api/tasks/${encodeURIComponent(id)}`, partial);
-    }
-    case "schedule_delete":
-      if (!args.id) throw new Error("id is required");
-      return daemonJson("DELETE", `/api/tasks/${encodeURIComponent(args.id)}`, null);
-    case "schedule_pause":
-      if (!args.id) throw new Error("id is required");
-      return daemonJson("POST", `/api/tasks/${encodeURIComponent(args.id)}/pause`, {});
-    case "schedule_resume":
-      if (!args.id) throw new Error("id is required");
-      return daemonJson("POST", `/api/tasks/${encodeURIComponent(args.id)}/resume`, {});
+	      const { status, body } = await coreFetch("POST", "/api/tasks/jobs", coreTaskJobRequest(payload));
+	      const created = assertOk(status, body);
+	      const task = legacyTaskFromCoreJob(created.job || created.task || {});
+	      return { taskId: task.id, task, ...taskToolPayload(task) };
+	    }
+	    case "schedule_list": {
+	      const listed = await coreJson("GET", "/api/tasks/jobs", null);
+	      return { tasks: (Array.isArray(listed.jobs) ? listed.jobs : []).map(legacyTaskFromCoreJob) };
+	    }
+	    case "schedule_update": {
+	      const { id, ...partial } = args;
+	      if (!id) throw new Error("id is required");
+	      const updated = await coreJson("PATCH", `/api/tasks/jobs/${encodeURIComponent(id)}`, coreTaskJobPatch(partial));
+	      return { task: legacyTaskFromCoreJob(updated.job || updated.task || {}) };
+	    }
+	    case "schedule_delete":
+	      if (!args.id) throw new Error("id is required");
+	      return coreJson("DELETE", `/api/tasks/jobs/${encodeURIComponent(args.id)}`, null);
+	    case "schedule_pause":
+	      if (!args.id) throw new Error("id is required");
+	      return coreJson("PATCH", `/api/tasks/jobs/${encodeURIComponent(args.id)}`, { status: "paused" })
+	        .then((updated) => ({ task: legacyTaskFromCoreJob(updated.job || updated.task || {}) }));
+	    case "schedule_resume":
+	      if (!args.id) throw new Error("id is required");
+	      return coreJson("PATCH", `/api/tasks/jobs/${encodeURIComponent(args.id)}`, { status: "active" })
+	        .then((updated) => ({ task: legacyTaskFromCoreJob(updated.job || updated.task || {}) }));
     case "context_snapshot": {
       const botId = args.botId || ctx.botId || "";
       const sessionId = args.sessionId || ctx.sessionId || "";
       const originMessageId = args.originMessageId || ctx.originMessageId || "";
-      return daemonJson("GET", `/api/mia/context${queryString({ botId, sessionId, originMessageId })}`, null);
+      return coreJson("GET", `/api/mia/context${queryString({ botId, sessionId, originMessageId })}`, null);
     }
     case "memory_search":
-      return daemonJson("POST", "/api/mia/memory/search", {
+      return coreJson("POST", "/api/mia/memory/search", {
         context: ctx,
         query: args.query || args.q || "",
         limit: args.limit,
         scopes: args.scopes
       });
     case "memory_list":
-      return daemonJson("POST", "/api/mia/memory/search", {
+      return coreJson("POST", "/api/mia/memory/search", {
         context: ctx,
         query: "",
         limit: args.limit,
@@ -882,7 +976,7 @@ async function callTool(name, args = {}) {
       });
     case "memory_remember":
       if (!args.text) throw new Error("text is required");
-      return daemonJson("POST", "/api/mia/memory/remember", {
+      return coreJson("POST", "/api/mia/memory/remember", {
         context: ctx,
         text: args.text,
         scope: args.scope,
@@ -898,7 +992,7 @@ async function callTool(name, args = {}) {
     case "memory_update":
       if (!args.text) throw new Error("text is required");
       if (!args.memoryId && !args.oldText) throw new Error("memoryId or oldText is required");
-      return daemonJson("POST", "/api/mia/memory/update", {
+      return coreJson("POST", "/api/mia/memory/update", {
         context: ctx,
         memoryId: args.memoryId || args.id,
         oldText: args.oldText || args.old_text,
@@ -915,7 +1009,7 @@ async function callTool(name, args = {}) {
       });
     case "memory_forget":
       if (!args.memoryId && !args.oldText) throw new Error("memoryId or oldText is required");
-      return daemonJson("POST", "/api/mia/memory/forget", {
+      return coreJson("POST", "/api/mia/memory/forget", {
         context: ctx,
         memoryId: args.memoryId || args.id,
         oldText: args.oldText || args.old_text,
@@ -923,29 +1017,29 @@ async function callTool(name, args = {}) {
         reason: args.reason
       });
     case "skill_list_current":
-      return daemonJson("GET", `/api/mia/skills/current${queryString({ botId: ctx.botId || "" })}`, null);
+      return coreJson("GET", `/api/mia/skills/current${queryString({ botId: ctx.botId || "" })}`, null);
     case "skill_read_current":
       if (!args.id) throw new Error("id is required");
-      return daemonJson("GET", `/api/mia/skills/current/read${queryString({ botId: ctx.botId || "", id: args.id })}`, null);
+      return coreJson("GET", `/api/mia/skills/current/read${queryString({ botId: ctx.botId || "", id: args.id })}`, null);
     case "skill_search":
-      return daemonJson("GET", `/api/skills${queryString({ q: args.query, category: args.category, limit: args.limit })}`, null);
+      return coreJson("GET", `/api/skills${queryString({ q: args.query, category: args.category, limit: args.limit })}`, null);
     case "skill_show":
       if (!args.id) throw new Error("id is required");
-      return daemonJson("GET", `/api/skills/${encodeURIComponent(args.id)}`, null);
+      return coreJson("GET", `/api/skills/${encodeURIComponent(args.id)}`, null);
     case "skill_install":
       if (!args.id) throw new Error("id is required");
-      return daemonJson("POST", `/api/skills/${encodeURIComponent(args.id)}/install`, {});
+      return coreJson("POST", `/api/skills/${encodeURIComponent(args.id)}/install`, {});
     case "conversation_list":
-      return daemonJson("GET", "/api/conversations", null);
+      return coreJson("GET", "/api/conversations", null);
     case "conversation_create_group":
-      return daemonJson("POST", "/api/conversations", {
+      return coreJson("POST", "/api/conversations", {
         type: "group",
         title: args.title || args.name || "",
         memberIds: args.memberIds || args.members || []
       });
     case "conversation_post_message":
       if (!args.conversationId) throw new Error("conversationId is required");
-      return daemonJson("POST", `/api/conversations/${encodeURIComponent(args.conversationId)}/messages`, {
+      return coreJson("POST", `/api/conversations/${encodeURIComponent(args.conversationId)}/messages`, {
         bodyMd: args.bodyMd || args.body || args.message || ""
       });
     case "web_search":

@@ -308,176 +308,6 @@
     return "";
   }
 
-  function compactDeviceName(value = "") {
-    return String(value || "")
-      .trim()
-      .replace(/\s*(?:·|-)?\s*Mia\s+(?:Desktop|Bridge)(?=\s*(?:·|-|$))/gi, "")
-      .replace(/\.local(?=\s|$)/gi, "")
-      .replace(/\s*(?:·|-)\s*(?:本机|在线|离线)\s*$/i, "")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  function normalizeDevice(input = {}) {
-    const id = String(input.id || input.deviceId || "").trim();
-    if (!id) return null;
-    return {
-      ...input,
-      id,
-      deviceName: firstNonEmpty(input.deviceName, input.device_name, input.name, id),
-      status: String(input.status || "").trim(),
-      isLocal: Boolean(input.isLocal),
-      capabilities: input.capabilities && typeof input.capabilities === "object" ? input.capabilities : {}
-    };
-  }
-
-  function mergeEngineLists(left = {}, right = {}) {
-    const out = [];
-    for (const source of [left, right]) {
-      const engines = Array.isArray(source.capabilities?.engines) ? source.capabilities.engines : [];
-      for (const engine of engines) {
-        const id = normalizeAgentEngine(engine);
-        if (id && !out.includes(id)) out.push(id);
-      }
-    }
-    return out;
-  }
-
-  function mergeDevices(existing, incoming) {
-    if (!existing) return incoming;
-    const engines = mergeEngineLists(existing, incoming);
-    const isLocal = Boolean(existing.isLocal || incoming.isLocal);
-    const status = isLocal
-      ? "local"
-      : ([existing.status, incoming.status].includes("online") ? "online" : (incoming.status || existing.status || ""));
-    return {
-      ...existing,
-      ...incoming,
-      id: existing.id || incoming.id,
-      deviceName: incoming.deviceName || existing.deviceName,
-      status,
-      isLocal,
-      capabilities: {
-        ...(existing.capabilities || {}),
-        ...(incoming.capabilities || {}),
-        ...(engines.length ? { engines } : {})
-      }
-    };
-  }
-
-  function localRuntimeEngineIds(runtime = {}) {
-    const inventory = new Map();
-    for (const agent of Array.isArray(runtime.agentInventory?.agents) ? runtime.agentInventory.agents : []) {
-      const rawId = String(agent?.id || "").trim();
-      if (!rawId) continue;
-      const id = normalizeAgentEngine(rawId);
-      if (id && !inventory.has(id)) inventory.set(id, agent);
-    }
-    const legacySources = {
-      hermes: runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed || runtime.engineInstalled || runtime.engineRunning,
-      "claude-code": runtime.agentEngines?.claudeCode?.available,
-      codex: runtime.agentEngines?.codex?.available
-    };
-    return ["hermes", "claude-code", "codex"]
-      .filter((id) => inventory.get(id)?.usableInMia === true || legacySources[id]);
-  }
-
-  function localDeviceCandidate() {
-    const runtime = state?.runtime || {};
-    const engines = localRuntimeEngineIds(runtime);
-    if (!engines.length) engines.push(normalizeAgentEngine(state?.preferredAgentEngine || "hermes"));
-    return normalizeDevice({
-      id: firstNonEmpty(runtime.localDevice?.id, runtime.cloud?.deviceId, "current-device"),
-      deviceName: firstNonEmpty(runtime.localDevice?.name, runtime.cloud?.deviceName, "当前设备"),
-      status: "local",
-      isLocal: true,
-      capabilities: { engines }
-    });
-  }
-
-  function runtimeDevices() {
-    const byId = new Map();
-    const add = (device) => {
-      const normalized = normalizeDevice(device);
-      if (!normalized) return;
-      byId.set(normalized.id, mergeDevices(byId.get(normalized.id), normalized));
-    };
-    for (const device of state?.runtime?.cloud?.devices || state?.runtime?.cloud?.bridgeDevices || []) add(device);
-    add(localDeviceCandidate());
-    return [...byId.values()];
-  }
-
-  function editableRuntimeDevices() {
-    const local = localDeviceCandidate();
-    return local ? [local] : [];
-  }
-
-  function deviceStatusLabel(device = {}) {
-    if (device.isLocal || device.status === "local") return "本机";
-    if (device.status === "online") return "在线";
-    if (device.status === "offline") return "离线";
-    return device.status || "离线";
-  }
-
-  function runtimeDeviceDisplayName(device = {}) {
-    if (device.isLocal || device.status === "local") return "本机";
-    return compactDeviceName(device.deviceName || device.device_name || device.name || "") || String(device.id || "").trim() || "设备";
-  }
-
-  function runtimeDeviceGroupLabel(device = {}) {
-    const name = runtimeDeviceDisplayName(device);
-    const status = deviceStatusLabel(device);
-    return status && status !== name ? `${name} · ${status}` : name;
-  }
-
-  function deviceEngines(device = {}) {
-    const advertised = Array.isArray(device.capabilities?.engines)
-      ? device.capabilities.engines.map((id) => normalizeAgentEngine(id)).filter(Boolean)
-      : [];
-    const supported = advertised.filter((id) => ["hermes", "claude-code", "codex"].includes(id));
-    if (supported.length) return [...new Set(supported)];
-    const engine = normalizeAgentEngine(device.engine || "");
-    return ["hermes", "claude-code", "codex"].includes(engine) ? [engine] : [];
-  }
-
-  function runtimeTargetGroups(current = {}) {
-    const groups = [];
-    if (state?.runtime?.cloud?.enabled) {
-      const cloudRuntime = cloudAgentRuntime();
-      groups.push({
-        label: "Mia Cloud · 在线",
-        targets: [{
-          runtimeKind: "cloud-claude-code",
-          deviceId: "",
-          deviceName: "Mia Cloud",
-          agentEngine: cloudRuntime.agentEngine,
-          disabled: !cloudRuntime.available
-        }]
-      });
-    }
-    const wantedDeviceId = String(current.deviceId || "").trim();
-    const devices = editableRuntimeDevices();
-    if (wantedDeviceId && !devices.some((device) => device.id === wantedDeviceId)) {
-      devices.push(normalizeDevice({
-        id: wantedDeviceId,
-        deviceName: current.deviceName || wantedDeviceId,
-        status: "offline",
-        capabilities: { engines: [current.agentEngine || "hermes"] }
-      }));
-    }
-    for (const device of devices.filter(Boolean)) {
-      const targets = deviceEngines(device).map((engine) => ({
-        runtimeKind: "desktop-local",
-        deviceId: device.id,
-        deviceName: runtimeDeviceDisplayName(device),
-        agentEngine: engine
-      }));
-      if (!targets.length) continue;
-      groups.push({ label: runtimeDeviceGroupLabel(device), targets });
-    }
-    return groups;
-  }
-
   function normalizeRuntimeTarget(target = {}) {
     const runtimeKind = String(target.runtimeKind || "").trim();
     const kind = runtimeKind === "cloud-claude-code" ? "cloud-claude-code" : "desktop-local";
@@ -486,15 +316,64 @@
       deviceId: kind === "cloud-claude-code" ? "" : String(target.deviceId || target.targetDeviceId || "").trim(),
       deviceName: kind === "cloud-claude-code" ? "Mia Cloud" : String(target.deviceName || target.targetDeviceName || "").trim(),
       agentEngine: kind === "cloud-claude-code" ? (strictAgentEngine(target.agentEngine) || cloudAgentRuntime().agentEngine) : normalizeAgentEngine(target.agentEngine || state?.preferredAgentEngine || "hermes"),
+      title: String(target.title || "").trim(),
+      engineLabel: String(target.engineLabel || target.engine_label || "").trim(),
+      iconKind: String(target.iconKind || target.icon_kind || "").trim(),
       disabled: Boolean(target.disabled)
     };
   }
 
   function targetSummary(target = {}) {
+    const coreTitle = String(target.title || "").trim();
+    if (coreTitle) return coreTitle;
     const t = normalizeRuntimeTarget(target);
     const device = t.runtimeKind === "cloud-claude-code" ? "Mia Cloud" : (t.deviceName || "本机");
     if (t.runtimeKind === "cloud-claude-code" && !t.agentEngine) return `${device} · 内核未同步`;
-    return `${device} · ${engineLabel(t.agentEngine)}`;
+    return `${device} · ${t.engineLabel || engineLabel(t.agentEngine)}`;
+  }
+
+  function runtimeTargetOptionsRequest(f = {}) {
+    const wantedEngine = normalizeAgentEngine(f.agentEngine || state?.preferredAgentEngine || "hermes");
+    return {
+      bot: {
+        runtimeKind: "desktop-local",
+        targetIntent: { agentEngine: wantedEngine }
+      },
+      runtime: state?.runtime || {},
+      engineCapabilities: state?.engineCapabilities || {},
+      preferredAgentEngine: wantedEngine
+    };
+  }
+
+  function runtimeTargetFromCoreOption(option = {}) {
+    const runtimeKind = String(option.runtimeKind || option.runtime_kind || "").trim();
+    return normalizeRuntimeTarget({
+      runtimeKind,
+      deviceId: option.deviceId || option.device_id || "",
+      deviceName: option.deviceName || option.device_name || "",
+      agentEngine: option.agentEngine || option.agent_engine || "",
+      title: option.title || "",
+      engineLabel: option.engineLabel || option.engine_label || "",
+      iconKind: option.iconKind || option.icon_kind || "",
+      disabled: option.disabled
+    });
+  }
+
+  async function defaultEnrollmentTarget(f = {}) {
+    const api = mia?.social?.getBotRuntimeTargetOptions || window.mia?.social?.getBotRuntimeTargetOptions;
+    if (typeof api !== "function") throw new Error("运行目标接口不可用，请稍后重试。");
+    const wantedEngine = normalizeAgentEngine(f.agentEngine || state?.preferredAgentEngine || "hermes");
+    const result = await api(runtimeTargetOptionsRequest(f));
+    const data = result?.data || result || {};
+    const flat = (Array.isArray(data.groups) ? data.groups : [])
+      .flatMap((group) => Array.isArray(group.options) ? group.options : [])
+      .map(runtimeTargetFromCoreOption)
+      .filter((target) => !target.disabled);
+    const target = flat.find((item) => item.runtimeKind === "desktop-local" && item.agentEngine === wantedEngine)
+      || flat.find((item) => item.runtimeKind === "desktop-local")
+      || flat[0];
+    if (!target) throw new Error("没有可用的运行目标。");
+    return target;
   }
 
   function principalId(f = {}) {
@@ -625,16 +504,6 @@
     return `--bot-card-bg:${c1};--bot-card-fg:${c2}`;
   }
 
-  function defaultEnrollmentTarget(f = {}) {
-    const wantedEngine = normalizeAgentEngine(f.agentEngine || state?.preferredAgentEngine || "hermes");
-    const groups = runtimeTargetGroups({ agentEngine: wantedEngine });
-    const flat = groups.flatMap((group) => group.targets).filter((target) => !target.disabled);
-    return flat.find((target) => target.runtimeKind === "desktop-local" && target.agentEngine === wantedEngine)
-      || flat.find((target) => target.runtimeKind === "desktop-local")
-      || flat[0]
-      || normalizeRuntimeTarget({ runtimeKind: "desktop-local", agentEngine: wantedEngine });
-  }
-
   function renderGrid() {
     const grid = els.botStoreGrid;
     if (!grid) return;
@@ -703,18 +572,19 @@
     scrim.classList.add("open");
   }
 
-  function addPresetBot(f = {}) {
+  async function addPresetBot(f = {}) {
     const sheet = els.botStoreSheet;
     const scrim = els.botStoreScrim;
     if (!sheet || !scrim) return;
     let plannedKey = "";
+    let target = null;
     try {
       plannedKey = generateEnrollmentPrincipalId(f);
+      target = normalizeRuntimeTarget(await defaultEnrollmentTarget(f));
     } catch (error) {
-      window.alert(error?.message || "无法生成 AI 助手账号 ID。");
+      window.alert(error?.message || "无法准备 AI 助手运行目标。");
       return;
     }
-    const target = normalizeRuntimeTarget(defaultEnrollmentTarget(f));
     const meta = engineMeta(target.agentEngine);
     const skills = skillSummary(f);
     sheet.classList.add("is-enrolling");

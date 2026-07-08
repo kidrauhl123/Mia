@@ -14,7 +14,7 @@ function createRuntimePaths(deps = {}) {
   const {
     app,
     MIA_GATEWAY_SERVICE_LABEL,
-    MIA_DAEMON_SERVICE_LABEL,
+    MIA_CORE_SERVICE_LABEL,
     env = process.env,
   } = deps;
 
@@ -26,6 +26,7 @@ function createRuntimePaths(deps = {}) {
     const root = path.dirname(runtime);
     const engine = path.join(runtime, "hermes-engine");
     const pluginsDir = path.join(runtime, "mia-plugins");
+    const coreLaunchAgent = path.join(app.getPath("home"), "Library", "LaunchAgents", `${MIA_CORE_SERVICE_LABEL}.plist`);
     return {
       root,
       runtime,
@@ -36,30 +37,26 @@ function createRuntimePaths(deps = {}) {
       // Default agent working directory. A Mia-owned, non-protected location so
       // local agents (claude/codex) never default to `/` or the user's home and
       // trip macOS TCC prompts for Desktop/Documents/Downloads/Photos. Real
-      // user folders are opted into explicitly via the workspace setting.
+      // user folders are opted into explicitly via Rust Core agent workspace settings.
       workspace: path.join(home, "workspace"),
-      // Persisted override for the agent working directory (a user-picked folder).
-      workspaceSettings: path.join(home, "mia-workspace.json"),
       config: path.join(hermesHome, "config.yaml"),
       soul: path.join(home, "SOUL.md"),
       botManifest: path.join(home, "bots", "manifest.json"),
       botDir: path.join(home, "bots"),
       legacyPersonaManifest: path.join(home, "personas", "manifest.json"),
       legacyPersonaDir: path.join(home, "personas", "accounts"),
-      apiKey: path.join(hermesHome, "mia-api-server.key"),
+      apiServerKey: path.join(hermesHome, "mia-api-server.key"),
       authJson: path.join(home, "auth.json"),
       userProfile: path.join(home, "mia-user.json"),
-      modelSettings: path.join(home, "mia-model.json"),
       memory: path.join(home, "mia-memory.json"),
       memoryDb: path.join(home, "mia-memory.sqlite"),
-      memorySettings: path.join(home, "mia-memory-settings.json"),
-      providerConnections: path.join(home, "mia-providers.json"),
       permissionSettings: path.join(home, "mia-permissions.json"),
       agentPermissionRules: path.join(home, "mia-agent-permissions.json"),
       effortSettings: path.join(home, "mia-effort.json"),
       agentSessions: path.join(home, "mia-agent-sessions.json"),
-      daemonSettings: path.join(home, "mia-daemon.json"),
-      daemonToken: path.join(home, "mia-daemon.key"),
+      coreSettings: path.join(home, "mia-core.json"),
+      daemonSettings: path.join(home, "mia-core.json"),
+      coreToken: path.join(home, "mia-core.key"),
       deviceIdentity: path.join(home, "mia-device.json"),
       cloudSettings: path.join(home, "mia-cloud.json"),
       cloudWorkspace: path.join(home, "mia-cloud-workspace.json"),
@@ -74,7 +71,8 @@ function createRuntimePaths(deps = {}) {
       petJobsDir: path.join(home, "pet-jobs"),
       logsDir: path.join(home, "logs"),
       launchAgent: path.join(app.getPath("home"), "Library", "LaunchAgents", `${MIA_GATEWAY_SERVICE_LABEL}.plist`),
-      daemonLaunchAgent: path.join(app.getPath("home"), "Library", "LaunchAgents", `${MIA_DAEMON_SERVICE_LABEL}.plist`)
+      coreLaunchAgent,
+      daemonLaunchAgent: coreLaunchAgent
     };
   }
 

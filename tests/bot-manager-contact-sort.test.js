@@ -30,6 +30,34 @@ function mockEl() {
   };
 }
 
+function coreCapabilityOptions({ capabilities = {}, summary = "未设置默认技能", enabled = [], addable = [] } = {}) {
+  return {
+    ok: true,
+    data: {
+      capabilities,
+      summary,
+      groups: [
+        {
+          id: "enabled-skills",
+          label: "已启用技能",
+          kind: "skill",
+          options: enabled.map((item) => ({ ...item, checked: true }))
+        },
+        {
+          id: "addable-skills",
+          label: "添加技能",
+          kind: "skill",
+          options: addable.map((item) => ({ ...item, checked: false }))
+        }
+      ]
+    }
+  };
+}
+
+function flushAsyncWork() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 function loadBotManager(options = {}) {
   const source = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
   const timers = [];
@@ -240,10 +268,22 @@ test("contact detail exposes the contact uid", () => {
   assert.match(contactDetail.innerHTML, /review-bot/);
 });
 
-test("contact detail keeps capability rows stable across unchanged renders", () => {
-  const { manager, window } = loadBotManager();
+test("contact detail keeps Core capability rows stable across unchanged renders", async () => {
+  const { manager, window } = loadBotManager({
+    mia: {
+      social: {
+        getBotCapabilityOptions: async () => coreCapabilityOptions({
+          capabilities: { inheritEngineDefaults: false, enabledSkills: ["mia-official:document-editor"], disabledSkills: [] },
+          summary: "1 个默认技能",
+          enabled: [{ id: "mia-official:document-editor", capabilityId: "mia-official:document-editor", label: "文档编辑", source: "mia-official" }],
+          addable: [{ id: "mia-official:lab-report", capabilityId: "mia-official:lab-report", label: "实验报告", source: "mia-official" }]
+        })
+      }
+    }
+  });
   const contactList = mockEl();
   const contactDetail = mockEl();
+  const contactPageMeta = mockEl();
   const state = {
     skillsLoading: true,
     skillLibrary: {
@@ -270,7 +310,7 @@ test("contact detail keeps capability rows stable across unchanged renders", () 
 
   manager.initBotManager({
     state,
-    els: { contactList, contactDetail, contactPageTitle: mockEl(), contactPageMeta: mockEl() },
+    els: { contactList, contactDetail, contactPageTitle: mockEl(), contactPageMeta },
     setText(el, value) { if (el) el.textContent = value; },
     loadSkills: async () => {},
     showNarrowContent() {},
@@ -282,6 +322,7 @@ test("contact detail keeps capability rows stable across unchanged renders", () 
   });
 
   manager.renderContactDetail(bot);
+  await flushAsyncWork();
   const writes = contactDetail.innerHTMLWrites;
   manager.renderContactDetail(bot);
 
@@ -297,10 +338,29 @@ test("contact detail keeps capability rows stable across unchanged renders", () 
   assert.doesNotMatch(enabledListHtml, /<small>/);
 });
 
-test("contact detail shows inherited preset skills as defaults and keeps other skills in add list", () => {
-  const { manager, window } = loadBotManager();
+test("contact detail renders preset defaults from Core capability options", async () => {
+  const { manager, window } = loadBotManager({
+    mia: {
+      social: {
+        getBotCapabilityOptions: async () => coreCapabilityOptions({
+          capabilities: {
+            inheritEngineDefaults: false,
+            enabledSkills: ["mia-official:spreadsheet-organizer", "mia-official:xlsx"],
+            disabledSkills: []
+          },
+          summary: "2 个默认技能",
+          enabled: [
+            { id: "mia-official:spreadsheet-organizer", capabilityId: "mia-official:spreadsheet-organizer", label: "表格整理", source: "mia-official" },
+            { id: "mia-official:xlsx", capabilityId: "mia-official:xlsx", label: "Excel 文件", source: "mia-official" }
+          ],
+          addable: [{ id: "mia-official:lab-report", capabilityId: "mia-official:lab-report", label: "实验报告", source: "mia-official" }]
+        })
+      }
+    }
+  });
   const contactList = mockEl();
   const contactDetail = mockEl();
+  const contactPageMeta = mockEl();
   const state = {
     skillsLoading: false,
     skillLibrary: {
@@ -337,7 +397,7 @@ test("contact detail shows inherited preset skills as defaults and keeps other s
 
   manager.initBotManager({
     state,
-    els: { contactList, contactDetail, contactPageTitle: mockEl(), contactPageMeta: mockEl() },
+    els: { contactList, contactDetail, contactPageTitle: mockEl(), contactPageMeta },
     setText(el, value) { if (el) el.textContent = value; },
     loadSkills: async () => {},
     showNarrowContent() {},
@@ -349,6 +409,7 @@ test("contact detail shows inherited preset skills as defaults and keeps other s
   });
 
   manager.renderContactDetail(bot);
+  await flushAsyncWork();
 
   const enabledListHtml = contactDetail.innerHTML.match(/<div class="capability-list capability-list-enabled">([\s\S]*?)<\/div>/)?.[1] || "";
   const addListHtml = contactDetail.innerHTML.match(/<div class="capability-list capability-list-add">([\s\S]*?)<\/div>/)?.[1] || "";
@@ -357,6 +418,95 @@ test("contact detail shows inherited preset skills as defaults and keeps other s
   assert.match(enabledListHtml, />Excel 文件</);
   assert.doesNotMatch(enabledListHtml, />实验报告</);
   assert.match(addListHtml, />实验报告</);
+});
+
+test("contact runtime target panel renders Core-owned target options", async () => {
+  const calls = [];
+  const { manager, window } = loadBotManager({
+    mia: {
+      social: {
+        getBotRuntimeTargetOptions: async (input) => {
+          calls.push(input);
+          return {
+            ok: true,
+            data: {
+              runtimeLabel: "本机运行",
+              runsOnOtherDevice: false,
+              groups: [{
+                id: "mac-local",
+                label: "本机",
+                statusLabel: "本机",
+                runtimeKind: "desktop-local",
+                options: [{
+                  id: "desktop-local:mac-local:codex",
+                  runtimeKind: "desktop-local",
+                  deviceId: "mac-local",
+                  deviceName: "本机",
+                  agentEngine: "codex",
+                  label: "Codex",
+                  engineLabel: "Codex",
+                  iconKind: "codex",
+                  title: "本机 · Codex",
+                  selected: true,
+                  disabled: false
+                }]
+              }]
+            }
+          };
+        }
+      }
+    }
+  });
+  const contactList = mockEl();
+  const contactDetail = mockEl();
+  const contactPageMeta = mockEl();
+  const state = {
+    skillsLoading: true,
+    skillLibrary: { extensions: [], skills: [] },
+    runtime: {
+      localDevice: { id: "mac-local", name: "Studio Mac" },
+      agentInventory: { agents: [{ id: "codex", usableInMia: true }] }
+    },
+    engineCapabilities: { engines: { codex: { available: true } } },
+    preferredAgentEngine: "codex",
+    contactFilter: "",
+    activeContactKey: "codex-bot",
+    savingBotCapabilities: new Set(),
+    savingBotRuntimeTargets: new Set()
+  };
+  const bot = {
+    key: "codex-bot",
+    id: "codex-bot",
+    name: "Codex",
+    runtimeKind: "desktop-local",
+    agentEngine: "codex"
+  };
+  window.miaSocial.moduleState.bots = [bot];
+
+  manager.initBotManager({
+    state,
+    els: { contactList, contactDetail, contactPageTitle: mockEl(), contactPageMeta },
+    setText(el, value) { if (el) el.textContent = value; },
+    loadSkills: async () => {},
+    showNarrowContent() {},
+    render() {},
+    closeGroupContextMenu() {},
+    openEditBotDialog() {},
+    deleteBot() {},
+    setBotPinned() {},
+  });
+
+  manager.renderContactDetail(bot);
+  assert.match(contactDetail.innerHTML, />正在同步运行目标/);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].bot.key, "codex-bot");
+  assert.equal(calls[0].runtime.agentInventory.agents[0].id, "codex");
+  assert.equal(contactPageMeta.textContent, "本机运行");
+  assert.match(contactDetail.innerHTML, /data-agent-engine="codex"/);
+  assert.match(contactDetail.innerHTML, /runtime-target-option selected/);
 });
 
 test("contact memory starts in loading state before deferred list invoke runs", () => {

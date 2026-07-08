@@ -56,7 +56,7 @@ test("choosePort returns 0 when no candidate port can bind", async () => {
 test("isEngineHealthy verifies the authenticated Mia probe route", async () => {
   const calls = [];
   const service = createEngineHealthService({
-    apiKey: () => "key_1",
+    apiServerKey: () => "key_1",
     timeoutSignal: (timeoutMs) => `timeout:${timeoutMs}`,
     fetchImpl: async (url, options) => {
       calls.push([url, options]);
@@ -75,7 +75,7 @@ test("isEngineHealthy verifies the authenticated Mia probe route", async () => {
   ]]);
 
   const rejected = createEngineHealthService({
-    apiKey: () => "key_1",
+    apiServerKey: () => "key_1",
     fetchImpl: async () => ({ status: 401 })
   });
   assert.equal(await rejected.isEngineHealthy("http://127.0.0.1:18642"), false);
@@ -85,7 +85,7 @@ test("adoptRunningEngine adopts a healthy configured local engine", async () => 
   let state = { running: false, starting: true, port: 18642, baseUrl: "", managedBy: "process" };
   const probes = [];
   const service = createEngineHealthService({
-    apiKey: () => "key_1",
+    apiServerKey: () => "key_1",
     readConfiguredPort: () => 18642,
     getEngineState: () => state,
     setEngineState: (next) => { state = next; },
@@ -119,7 +119,7 @@ test("refreshRunningEngineHealth clears stale running state when the remembered 
   };
   const probes = [];
   const service = createEngineHealthService({
-    apiKey: () => "key_1",
+    apiServerKey: () => "key_1",
     getEngineState: () => state,
     setEngineState: (next) => { state = next; },
     fetchImpl: async (url) => {
@@ -146,7 +146,7 @@ test("waitForHealth polls /health until the gateway is ready and can require a l
   let now = 0;
   let attempts = 0;
   const service = createEngineHealthService({
-    apiKey: () => "key_1",
+    apiServerKey: () => "key_1",
     now: () => now,
     sleep: async (delayMs) => { now += delayMs; },
     getEngineProcess: () => ({ exitCode: null }),

@@ -1,0 +1,251 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { test } = require("node:test");
+
+const {
+  createMiaCoreResolver,
+  DEFAULT_PATH,
+  packagedRustCorePath
+} = require("../src/main/mia-core/process-resolver.js");
+
+const SRC_ROOT = path.join(__dirname, "..", "src");
+const LEGACY_DAEMON_ENV = `MIA_${"DAEMON"}`;
+const LEGACY_DAEMON_TARGET_KIND_ENV = `${LEGACY_DAEMON_ENV}_TARGET_KIND`;
+
+test("no GUI-identity daemon target remains anywhere in the resolver / launch path", () => {
+  for (const rel of [
+    "main/mia-core/process-resolver.js",
+    "main/mia-core/process-launcher.js",
+    "main/launchd-service.js"
+  ]) {
+    const src = fs.readFileSync(path.join(SRC_ROOT, rel), "utf8");
+    assert.doesNotMatch(src, /["']legacy-gui["']/, `${rel} must not reference the deleted legacy-gui target`);
+    assert.doesNotMatch(src, /["']electron-dev["']/, `${rel} must not reference the deleted electron-dev target`);
+    assert.doesNotMatch(src, /usesGuiAppIdentity:\s*true/, `${rel} must never emit a GUI-identity Core target`);
+  }
+});
+
+test("startDaemonService asserts a launchable rust-core target before launching Core", () => {
+  const main = fs.readFileSync(path.join(SRC_ROOT, "main.js"), "utf8");
+  const startBody = main.slice(
+    main.indexOf("async function startDaemonService()"),
+    main.indexOf("async function stopDaemonService()")
+  );
+  assert.ok(
+    startBody.indexOf("await launchdService.cleanupLegacyNodeCore();") >= 0,
+    "startDaemonService must call legacy Node daemon cleanup"
+  );
+  assert.ok(
+    startBody.indexOf("await launchdService.cleanupLegacyNodeCore();") < startBody.indexOf("miaCoreResolver.assertLaunchable();"),
+    "startDaemonService must clean legacy Node daemon jobs before launching Rust Core"
+  );
+  assert.match(
+    main,
+    /miaCoreResolver\.assertLaunchable\(\);[\s\S]{0,400}?(launchdService\.startCore\(\)|miaCoreProcessLauncher\.start\(\))/,
+    "startDaemonService must call assertLaunchable() before launching Core"
+  );
+  assert.ok(
+    startBody.indexOf("miaCoreProcessLauncher.stopObservedProcess(existing.pid);") > startBody.indexOf("miaCoreResolver.assertLaunchable();")
+      && startBody.indexOf("miaCoreProcessLauncher.stopObservedProcess(existing.pid);") < startBody.indexOf("miaCoreProcessLauncher.start()"),
+    "process-mode start must stop a stale observed Core before starting a replacement"
+  );
+  assert.doesNotMatch(
+    main,
+    /if \(IS_CORE_PROCESS\) \{[\s\S]*?app\.dock/,
+    "main must not contain the deleted Electron daemon-boot branch"
+  );
+});
+
+test("update install path removes legacy Node daemon before quitting", () => {
+  const main = fs.readFileSync(path.join(SRC_ROOT, "main.js"), "utf8");
+  assert.match(
+    main,
+    /prepareForUpdateInstall:\s*async\s*\(\)\s*=>\s*\{[\s\S]{0,260}?await launchdService\.cleanupLegacyNodeCore\(\);[\s\S]{0,260}?await stopDaemonService\(\);/,
+    "update install preparation must remove legacy Node daemon before stopping Core"
+  );
+});
+
+test("dev verification can start Core as a process without touching launchd", () => {
+  const main = fs.readFileSync(path.join(SRC_ROOT, "main.js"), "utf8");
+
+  assert.match(main, /function shouldUseLaunchdForCore\(\)/);
+  assert.match(main, /MIA_CORE_START_MODE/);
+  assert.match(main, /MIA_FORCE_MAIN_WINDOW/);
+  assert.match(main, /!process\.defaultApp/);
+  assert.match(main, /coreStartMode\(\) !== "process"/);
+  assert.match(main, /const onboarding = !forceMainWindow && !Boolean/);
+  assert.match(main, /MIA_CORE_START_MODE=process: starting Mia Rust Core as a child process/);
+  assert.match(main, /Mia Rust Core reachable at \$\{ping\.baseUrl\}/);
+});
+
+function setup(overrides = {}) {
+  const root = path.join(path.sep, "tmp", "mia-root");
+  const runtime = {
+    root,
+    home: path.join(root, "runtime", "core-home"),
+    engine: path.join(root, "runtime", "hermes-engine"),
+    pluginsDir: path.join(root, "runtime", "mia-plugins")
+  };
+  return createMiaCoreResolver({
+    runtimePaths: () => runtime,
+    effectiveHermesHome: () => path.join(root, ".hermes"),
+    appPath: () => "/dev/app.asar",
+    execPath: () => "/Applications/Mia.app/Contents/MacOS/Mia",
+    defaultApp: () => true,
+    platform: "darwin",
+    arch: "arm64",
+    env: { HERMES_LANGUAGE: "en" },
+    parentPid: () => 4321,
+    repoRoot: () => "/repo",
+    cargoPath: () => "/usr/local/bin/cargo",
+    appVersion: () => "0.1.39",
+    ...overrides
+  });
+}
+
+test("dev rust-core target launches cargo run with configured port and Core-owned data dirs", () => {
+  const r = setup().resolve();
+
+  assert.equal(r.kind, "rust-core");
+  assert.equal(r.command, "/usr/local/bin/cargo");
+  assert.deepEqual(r.args, [
+    "run",
+    "-p",
+    "mia-core-app",
+    "--",
+    "serve",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "27861",
+    "--data-dir",
+    path.join(path.sep, "tmp", "mia-root", "runtime", "core-home"),
+    "--workspace-dir",
+    path.join(path.sep, "tmp", "mia-root", "runtime", "core-home", "workspace"),
+    "--parent-pid",
+    "4321",
+    "--language",
+    "en"
+  ]);
+  assert.equal(r.workingDirectory, "/repo");
+  assert.equal(r.usesGuiAppIdentity, false);
+});
+
+test("MIA_CORE_BIN overrides dev cargo and packaged resource resolution", () => {
+  const bin = "/opt/mia-core/bin/mia-core";
+  const r = setup({ env: { MIA_CORE_BIN: bin, HERMES_LANGUAGE: "zh" } }).resolve();
+
+  assert.equal(r.kind, "rust-core");
+  assert.equal(r.command, bin);
+  assert.deepEqual(r.args.slice(0, 7), [
+    "serve",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "27861",
+    "--data-dir",
+    path.join(path.sep, "tmp", "mia-root", "runtime", "core-home")
+  ]);
+  assert.equal(r.workingDirectory, path.dirname(bin));
+});
+
+test("packaged build resolves rust-core from bundled resources", () => {
+  const res = "/Applications/Mia.app/Contents/Resources";
+  const bundled = packagedRustCorePath(res, "darwin", "arm64");
+  const r = setup({
+    defaultApp: () => false,
+    resourcesPath: () => res,
+    existsSync: (candidate) => candidate === bundled
+  }).resolve();
+
+  assert.equal(r.kind, "rust-core");
+  assert.equal(r.command, bundled);
+  assert.equal(r.workingDirectory, path.dirname(bundled));
+  assert.deepEqual(r.args.slice(0, 5), ["serve", "--host", "127.0.0.1", "--port", "27861"]);
+});
+
+test("packaged helper derives resources/bundled-mia-core platform arch path", () => {
+  const res = "/Applications/Mia.app/Contents/Resources";
+  assert.equal(
+    packagedRustCorePath(res, "darwin", "arm64"),
+    path.join(res, "bundled-mia-core", "darwin-arm64", "mia-core")
+  );
+  assert.equal(packagedRustCorePath("", "darwin", "arm64"), "");
+  assert.equal(packagedRustCorePath(undefined, "darwin", "arm64"), "");
+});
+
+test("packaged build with a missing bundled rust-core is unresolved and fail-closed", () => {
+  const missing = setup({
+    defaultApp: () => false,
+    resourcesPath: () => "/Applications/Mia.app/Contents/Resources",
+    existsSync: () => false
+  });
+
+  assert.equal(missing.resolve().kind, "unresolved");
+  assert.equal(missing.resolve().usesGuiAppIdentity, false);
+  assert.throws(() => missing.assertLaunchable(), /Rust Core executable not found/);
+});
+
+test("core env overlay stamps rust-core target identity without daemon aliases", () => {
+  const env = setup().coreEnvOverlay();
+
+  assert.equal(env.MIA_CORE, "1");
+  assert.equal(env.MIA_CORE_HOST, "127.0.0.1");
+  assert.equal(env.MIA_CORE_PORT, "27861");
+  assert.equal(env.MIA_CORE_HOME, path.join(path.sep, "tmp", "mia-root", "runtime", "core-home"));
+  assert.equal(env.MIA_CORE_APP_VERSION, "0.1.39");
+  assert.equal(env.MIA_OFFICIAL_SKILLS_DIR, path.join("/repo", "skills", "_builtin"));
+  assert.equal(env.MIA_HERMES_ENGINE_DIR, path.join(path.sep, "tmp", "mia-root", "runtime", "hermes-engine"));
+  assert.equal(env.MIA_PLUGINS_DIR, path.join(path.sep, "tmp", "mia-root", "runtime", "mia-plugins"));
+  assert.equal(env.MIA_CORE_TARGET_KIND, "rust-core");
+  assert.equal(env.MIA_CORE_TARGET_COMMAND, "cargo");
+  assert.equal(env.MIA_CORE_WORKING_DIRECTORY, "/repo");
+  assert.equal(env.MIA_CORE_USES_GUI_IDENTITY, "0");
+  assert.equal(env.HERMES_LANGUAGE, "en");
+  assert.equal(env.PYTHONUNBUFFERED, "1");
+  assert.equal(env[LEGACY_DAEMON_ENV], undefined);
+  assert.equal(env.MIA_USER_DATA_DIR, undefined);
+  assert.equal(env[LEGACY_DAEMON_TARGET_KIND_ENV], undefined);
+});
+
+test("core settings override Core host and port in args and env overlay", () => {
+  const resolver = setup({
+    coreSettings: () => ({ host: "localhost", port: 27991 })
+  });
+  const r = resolver.resolve();
+  const env = resolver.coreEnvOverlay();
+
+  assert.deepEqual(r.args.slice(3, 8), ["--", "serve", "--host", "localhost", "--port"]);
+  assert.equal(r.args[8], "27991");
+  assert.equal(env.MIA_CORE_HOST, "localhost");
+  assert.equal(env.MIA_CORE_PORT, "27991");
+});
+
+test("core env overlay points packaged Rust Core at extraResource official skills", () => {
+  const res = "/Applications/Mia.app/Contents/Resources";
+  const bundled = packagedRustCorePath(res, "darwin", "arm64");
+  const env = setup({
+    defaultApp: () => false,
+    resourcesPath: () => res,
+    existsSync: (candidate) => candidate === bundled
+  }).coreEnvOverlay();
+
+  assert.equal(env.MIA_OFFICIAL_SKILLS_DIR, path.join(res, "skills", "_builtin"));
+});
+
+test("assertLaunchable returns rust-core resolution for launchable targets", () => {
+  const r = setup().assertLaunchable();
+  assert.equal(r.kind, "rust-core");
+});
+
+test("Core resolver exposes the default launch PATH", () => {
+  assert.equal(typeof DEFAULT_PATH, "string");
+});
+
+test("describe exposes basename and identity flag for diagnostics", () => {
+  const d = setup().describe();
+  assert.equal(d.kind, "rust-core");
+  assert.equal(d.command, "cargo");
+  assert.equal(d.usesGuiAppIdentity, false);
+});

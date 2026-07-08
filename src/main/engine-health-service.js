@@ -10,7 +10,7 @@ function createEngineHealthService(deps = {}) {
   const timeoutSignal = deps.timeoutSignal || ((timeoutMs) => AbortSignal.timeout(timeoutMs));
   const sleep = deps.sleep || defaultSleep;
   const now = deps.now || (() => Date.now());
-  const apiKey = deps.apiKey || (() => "");
+  const apiServerKey = deps.apiServerKey || (() => "");
   const getEngineState = deps.getEngineState || (() => ({}));
   const setEngineState = deps.setEngineState || (() => {});
   const getEngineProcess = deps.getEngineProcess || (() => null);
@@ -42,7 +42,7 @@ function createEngineHealthService(deps = {}) {
     try {
       const probe = await fetchImpl(`${baseUrl}/v1/runs/_mia_probe/events`, {
         method: "GET",
-        headers: { Authorization: `Bearer ${apiKey()}` },
+        headers: { Authorization: `Bearer ${apiServerKey()}` },
         signal: timeoutSignal(timeoutMs)
       });
       return probe.status === 404 || probe.status === 200;
@@ -86,7 +86,7 @@ function createEngineHealthService(deps = {}) {
     while (now() - started < timeoutMs) {
       try {
         const response = await fetchImpl(`${baseUrl}/health`, {
-          headers: { Authorization: `Bearer ${apiKey()}` }
+          headers: { Authorization: `Bearer ${apiServerKey()}` }
         });
         const child = getEngineProcess();
         if (response.ok && (!requireChildProcess || (child && child.exitCode === null))) return true;

@@ -119,10 +119,10 @@ release/
 
 轻量包不会打包 Claude Code、Codex CLI，也不打包 Hermes runtime。
 
-`dist:mac` 和 `dist:mac:intel` 现在内置了 packaged-Core gate：打包后会自动运行 `scripts/verify-packaged-mia-core.js`，直接用产物里的 `mia-node` 启动 `app.asar.unpacked/src/core/mia-core.js`，并等待 `/health` 成功响应。这个 gate 的目的不是“看文件在不在”，而是阻断这类真实故障：
+`dist:mac` 和 `dist:mac:intel` 现在内置了 packaged-Core gate：打包前会运行 `scripts/prepare-mia-core-rs.js`，把 release Rust Core 放进 `resources/bundled-mia-core/<platform>-<arch>/mia-core`；打包后会自动运行 `scripts/verify-packaged-mia-core.js`，直接启动产物里的 Rust Core 并等待 `/health` 成功响应。这个 gate 的目的不是“看文件在不在”，而是阻断这类真实故障：
 
-- `package.json` 有依赖，但忘了放进 `asarUnpack`
-- Core 在 plain node 下启动即崩
+- `beforePack` 没有生成对应平台/架构的 Rust Core
+- Core 二进制缺失、不可执行或启动即崩
 - 前台 `Mia.app` 能打开，但 `127.0.0.1:27861` 永远起不来
 
 需要单独重跑这个 gate 时，用：

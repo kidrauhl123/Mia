@@ -5,15 +5,15 @@ const path = require("node:path");
 const { test } = require("node:test");
 const { createMiaAppMcpBridge } = require("../src/main/mia-app-mcp-bridge.js");
 
-test("Mia app MCP spec exposes stdio command and scoped daemon token", (t) => {
+test("Mia app MCP spec exposes stdio command and scoped Core token", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-app-mcp-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const sourceServer = path.join(dir, "source-server.js");
   fs.writeFileSync(sourceServer, "process.exit(0);\n");
   const bridge = createMiaAppMcpBridge({
     runtimePaths: () => ({ runtime: path.join(dir, "runtime") }),
-    daemonStatus: () => ({ baseUrl: "http://127.0.0.1:18000" }),
-    daemonToken: () => "daemon-token",
+    coreStatus: () => ({ baseUrl: "http://127.0.0.1:18000" }),
+    coreToken: () => "core-token",
     nodePath: () => "/opt/node",
     ddgsPythonPath: () => "/opt/hermes/bin/python",
     serverScriptPath: () => sourceServer
@@ -23,8 +23,8 @@ test("Mia app MCP spec exposes stdio command and scoped daemon token", (t) => {
 
   assert.equal(spec.type, "stdio");
   assert.equal(spec.command, "/opt/node");
-  assert.equal(spec.env.MIA_DAEMON_URL, "http://127.0.0.1:18000");
-  assert.equal(spec.env.MIA_DAEMON_TOKEN, "daemon-token");
+  assert.equal(spec.env.MIA_CORE_URL, "http://127.0.0.1:18000");
+  assert.equal(spec.env.MIA_CORE_TOKEN, "core-token");
   assert.equal(spec.env.MIA_APP_CONTEXT_FILE.endsWith("context.json"), true);
   assert.equal(spec.env.MIA_DDGS_PYTHON, "/opt/hermes/bin/python");
   assert.deepEqual(spec.args, [path.join(dir, "runtime", "mia-app-mcp", "mia-app-mcp-server.js")]);
@@ -34,14 +34,14 @@ test("Mia app MCP spec exposes stdio command and scoped daemon token", (t) => {
   });
 });
 
-test("Mia app MCP spec is null until daemon, server, and node are available", (t) => {
+test("Mia app MCP spec is null until Core, server, and node are available", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-app-mcp-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const bridge = createMiaAppMcpBridge({
     runtimePaths: () => ({ runtime: path.join(dir, "runtime") }),
-    daemonStatus: () => ({}),
-    daemonSettings: () => ({}),
-    daemonToken: () => "daemon-token",
+    coreStatus: () => ({}),
+    coreSettings: () => ({}),
+    coreToken: () => "core-token",
     nodePath: () => "/opt/node",
     serverScriptPath: () => path.join(dir, "missing.js")
   });

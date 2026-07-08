@@ -1,0 +1,20 @@
+[package]
+name = "mia-core-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mia-core-api-types.workspace = true
+mia-core-db.workspace = true
+oauth2.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+axum.workspace = true

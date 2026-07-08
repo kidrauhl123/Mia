@@ -3,7 +3,7 @@
 // Standalone stdio MCP server (JSON-RPC 2.0) for Mia scheduler.
 // Spawned by Claude Code / Codex adapters as a child process.
 // Reads per-turn context from MIA_SCHEDULER_CONTEXT_FILE (path to JSON).
-// Calls daemon HTTP API at MIA_DAEMON_URL with MIA_DAEMON_TOKEN auth.
+// Calls Rust Core HTTP API at MIA_CORE_URL with MIA_CORE_TOKEN auth.
 
 "use strict";
 
@@ -13,8 +13,8 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const DAEMON_URL = (process.env.MIA_DAEMON_URL || "http://127.0.0.1:27861").replace(/\/$/, "");
-const DAEMON_TOKEN = process.env.MIA_DAEMON_TOKEN || "";
+const CORE_URL = (process.env.MIA_CORE_URL || process.env.MIA_DAEMON_URL || "http://127.0.0.1:27861").replace(/\/$/, "");
+const CORE_TOKEN = process.env.MIA_CORE_TOKEN || process.env.MIA_DAEMON_TOKEN || "";
 const CONTEXT_FILE = process.env.MIA_SCHEDULER_CONTEXT_FILE || "";
 
 function readContext() {
@@ -26,9 +26,9 @@ function readContext() {
   }
 }
 
-function daemonFetch(method, urlPath, body) {
+function coreFetch(method, urlPath, body) {
   return new Promise((resolve, reject) => {
-    const fullUrl = `${DAEMON_URL}${urlPath}`;
+    const fullUrl = `${CORE_URL}${urlPath}`;
     const parsed = new URL(fullUrl);
     const isHttps = parsed.protocol === "https:";
     const transport = isHttps ? https : http;
@@ -39,7 +39,7 @@ function daemonFetch(method, urlPath, body) {
       path: parsed.pathname + (parsed.search || ""),
       method,
       headers: {
-        "Authorization": `Bearer ${DAEMON_TOKEN}`,
+        "Authorization": `Bearer ${CORE_TOKEN}`,
         "Content-Type": "application/json",
         ...(bodyStr != null ? { "Content-Length": Buffer.byteLength(bodyStr) } : {})
       }
@@ -52,7 +52,7 @@ function daemonFetch(method, urlPath, body) {
           const text = Buffer.concat(chunks).toString("utf8");
           resolve({ status: res.statusCode, body: JSON.parse(text) });
         } catch (e) {
-          reject(new Error(`Daemon response parse failed: ${e.message}`));
+          reject(new Error(`Core response parse failed: ${e.message}`));
         }
       });
     });
@@ -63,7 +63,13 @@ function daemonFetch(method, urlPath, body) {
 }
 
 function nextFireForTask(task = {}) {
-  if (Number.isFinite(Number(task.nextFireAt))) return Number(task.nextFireAt);
+  if (task.nextRunAt != null && Number.isFinite(Number(task.nextRunAt))) return Number(task.nextRunAt);
+  if (task.nextFireAt != null && Number.isFinite(Number(task.nextFireAt))) return Number(task.nextFireAt);
+  if (task.schedule?.atMs != null && Number.isFinite(Number(task.schedule.atMs))) return Number(task.schedule.atMs);
+  if (task.schedule?.type === "oneshot" && task.schedule?.at) {
+    const at = new Date(task.schedule.at).getTime();
+    return Number.isNaN(at) ? null : at;
+  }
   if (task.trigger?.type === "oneshot") {
     const at = new Date(task.trigger.at).getTime();
     return Number.isNaN(at) ? null : at;
@@ -102,6 +108,84 @@ function taskToolPayload(task = {}) {
     ...(nextFireAt == null ? {} : { nextFireAt }),
     ...(nextFireAt == null ? {} : { nextFireAtLocal: formatLocalFireTime(nextFireAt, timezone) }),
     timezone
+  };
+}
+
+function legacyTriggerFromCoreSchedule(schedule = {}) {
+  if (schedule?.type === "cron") return { type: "cron", cron: String(schedule.cron || "") };
+  if (schedule?.type === "oneshot") {
+    const atMs = Number(schedule.atMs || 0);
+    return { type: "oneshot", at: atMs > 0 ? new Date(atMs).toISOString() : String(schedule.at || "") };
+  }
+  if (schedule?.type === "every") return { type: "every", everyMs: Number(schedule.everyMs || 0) };
+  return {};
+}
+
+function coreScheduleFromArgs(args = {}) {
+  if (Object.prototype.hasOwnProperty.call(args, "schedule")) return args.schedule;
+  const trigger = args.trigger && typeof args.trigger === "object" ? args.trigger : {};
+  if (trigger.type === "cron") {
+    return {
+      type: "cron",
+      cron: String(trigger.cron || ""),
+      timezone: String(args.timezone || "Asia/Shanghai")
+    };
+  }
+  if (trigger.type === "oneshot") return { type: "oneshot", at: String(trigger.at || "") };
+  if (trigger.type === "every") return { type: "every", everyMs: Number(trigger.everyMs || 0) };
+  return {};
+}
+
+function coreTaskPayload(args = {}, context = {}) {
+  const fireMode = String(args.fireMode || (args.deliveryText ? "deliver" : "agent")).trim() || "agent";
+  return {
+    kind: fireMode,
+    schedule: coreScheduleFromArgs(args),
+    target: {
+      botId: context.botId || "",
+      conversationId: context.sessionId || "",
+      sessionId: context.sessionId || "",
+      title: args.title || "未命名任务",
+      timezone: args.timezone || "Asia/Shanghai",
+      fireMode,
+      deliveryText: args.deliveryText || "",
+      originMessageId: context.originMessageId || ""
+    },
+    instructions: args.prompt || args.deliveryText || ""
+  };
+}
+
+function coreTaskPatch(args = {}) {
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(args, "schedule") || Object.prototype.hasOwnProperty.call(args, "trigger")) {
+    patch.schedule = coreScheduleFromArgs(args);
+  }
+  const target = {};
+  for (const key of ["title", "timezone", "fireMode", "deliveryText"]) {
+    if (Object.prototype.hasOwnProperty.call(args, key)) target[key] = args[key];
+  }
+  if (Object.keys(target).length) patch.target = target;
+  if (Object.prototype.hasOwnProperty.call(args, "prompt")) patch.instructions = args.prompt || "";
+  return patch;
+}
+
+function legacyTaskFromCoreJob(job = {}) {
+  const target = job.target && typeof job.target === "object" ? job.target : {};
+  const schedule = job.schedule && typeof job.schedule === "object" ? job.schedule : {};
+  return {
+    id: job.id || "",
+    title: target.title || job.kind || "未命名任务",
+    botId: target.botId || target.bot_id || "",
+    conversationId: target.conversationId || target.conversation_id || "",
+    sessionId: target.sessionId || target.session_id || target.conversationId || "",
+    originMessageId: target.originMessageId || "",
+    trigger: legacyTriggerFromCoreSchedule(schedule),
+    timezone: schedule.timezone || target.timezone || "Asia/Shanghai",
+    prompt: job.instructions || "",
+    fireMode: target.fireMode || job.kind || "agent",
+    deliveryText: target.deliveryText || "",
+    status: job.status || "active",
+    nextFireAt: job.nextRunAt ?? null
   };
 }
 
@@ -218,51 +302,41 @@ async function callTool(name, args) {
 
   switch (name) {
     case "schedule_create": {
-      const payload = {
-        title: args.title,
-        botId,
-        sessionId,
-        originMessageId,
-        timezone: args.timezone || "Asia/Shanghai",
-        fireMode: args.fireMode,
-        deliveryText: args.deliveryText,
-        prompt: args.prompt
-      };
-      if (args.schedule) payload.schedule = args.schedule;
-      else if (args.trigger) payload.trigger = args.trigger;
-      const { status, body } = await daemonFetch("POST", "/api/tasks", payload);
-      if (status !== 201) throw new Error(body?.error || `Daemon returned ${status}`);
-      return { taskId: body.task?.id, ...taskToolPayload(body.task) };
+      const payload = coreTaskPayload(args, { botId, sessionId, originMessageId });
+      const { status, body } = await coreFetch("POST", "/api/tasks/jobs", payload);
+      if (status !== 200 && status !== 201) throw new Error(body?.error || `Core returned ${status}`);
+      const task = legacyTaskFromCoreJob(body.job || body.task || {});
+      return { taskId: task.id, ...taskToolPayload(task) };
     }
     case "schedule_list": {
-      const { status, body } = await daemonFetch("GET", "/api/tasks", null);
-      if (status !== 200) throw new Error(body?.error || `Daemon returned ${status}`);
-      return { tasks: body.tasks };
+      const { status, body } = await coreFetch("GET", "/api/tasks/jobs", null);
+      if (status !== 200) throw new Error(body?.error || `Core returned ${status}`);
+      return { tasks: Array.isArray(body.jobs) ? body.jobs.map(legacyTaskFromCoreJob) : body.tasks };
     }
     case "schedule_update": {
       const { id, ...partial } = args;
       if (!id) throw new Error("id is required");
-      const { status, body } = await daemonFetch("PATCH", `/api/tasks/${encodeURIComponent(id)}`, partial);
-      if (status !== 200) throw new Error(body?.error || `Daemon returned ${status}`);
-      return { task: body.task };
+      const { status, body } = await coreFetch("PATCH", `/api/tasks/jobs/${encodeURIComponent(id)}`, coreTaskPatch(partial));
+      if (status !== 200) throw new Error(body?.error || `Core returned ${status}`);
+      return { task: legacyTaskFromCoreJob(body.job || body.task || {}) };
     }
     case "schedule_delete": {
       if (!args.id) throw new Error("id is required");
-      const { status, body } = await daemonFetch("DELETE", `/api/tasks/${encodeURIComponent(args.id)}`, null);
-      if (status !== 200) throw new Error(body?.error || `Daemon returned ${status}`);
+      const { status, body } = await coreFetch("DELETE", `/api/tasks/jobs/${encodeURIComponent(args.id)}`, null);
+      if (status !== 200) throw new Error(body?.error || `Core returned ${status}`);
       return { ok: true };
     }
     case "schedule_pause": {
       if (!args.id) throw new Error("id is required");
-      const { status, body } = await daemonFetch("POST", `/api/tasks/${encodeURIComponent(args.id)}/pause`, {});
-      if (status !== 200) throw new Error(body?.error || `Daemon returned ${status}`);
-      return { task: body.task };
+      const { status, body } = await coreFetch("PATCH", `/api/tasks/jobs/${encodeURIComponent(args.id)}`, { status: "paused" });
+      if (status !== 200) throw new Error(body?.error || `Core returned ${status}`);
+      return { task: legacyTaskFromCoreJob(body.job || body.task || {}) };
     }
     case "schedule_resume": {
       if (!args.id) throw new Error("id is required");
-      const { status, body } = await daemonFetch("POST", `/api/tasks/${encodeURIComponent(args.id)}/resume`, {});
-      if (status !== 200) throw new Error(body?.error || `Daemon returned ${status}`);
-      return { task: body.task };
+      const { status, body } = await coreFetch("PATCH", `/api/tasks/jobs/${encodeURIComponent(args.id)}`, { status: "active" });
+      if (status !== 200) throw new Error(body?.error || `Core returned ${status}`);
+      return { task: legacyTaskFromCoreJob(body.job || body.task || {}) };
     }
     default:
       throw new Error(`Unknown tool: ${name}`);

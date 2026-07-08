@@ -10,10 +10,11 @@ function read(rel) {
 }
 
 test("desktop forwards cloud agent run events over the existing CloudEvent IPC", () => {
-  const source = read("src/main/cloud/cloud-events-client.js");
-  assert.match(source, /CloudEvent\.CloudAgentRunStarted/);
-  assert.match(source, /CloudEvent\.CloudAgentRunEvent/);
-  assert.match(source, /emitToRenderer\(\{\s*type:\s*message\.type,\s*payload:\s*message\s*\}\)/s);
+  const eventClient = read("src/main/mia-core/event-client.js");
+  const main = read("src/main.js");
+  assert.match(eventClient, /const type = String\(envelope\?\.name \|\| envelope\?\.type \|\| ""\)\.trim\(\)/);
+  assert.match(eventClient, /payload,\s*coreEnvelope/s);
+  assert.match(main, /broadcastRendererEvent\(IpcChannel\.CloudEvent,\s*envelope\)/);
 });
 
 test("desktop forwards local-events connection state so renderer can clear stale typing", () => {

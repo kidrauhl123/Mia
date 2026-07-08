@@ -24,8 +24,8 @@ test("pluginFiles exposes the Mia gateway wrapper and bot overlay plugin", (t) =
   const files = service.pluginFiles();
 
   assert.deepEqual(Object.keys(files).sort(), ["__init__.py", "__main__.py", "bot_overlay.py", "scheduler_mcp.py", "web_search_mcp.py"]);
-  assert.match(files["__main__.py"], /_load_mia_env/);
-  assert.match(files["__main__.py"], /mia-model\.json/);
+  assert.doesNotMatch(files["__main__.py"], /_load_mia_env|mia-model\.json|apiKeyEnv|apiKey/);
+  assert.match(files["__main__.py"], /runpy\.run_module\('hermes_cli\.main'/);
   assert.match(files["bot_overlay.py"], /X-Mia-Bot/);
   assert.match(files["bot_overlay.py"], /X-Mia-Group-Context/);
   assert.match(files["bot_overlay.py"], /ephemeral_system_prompt/);

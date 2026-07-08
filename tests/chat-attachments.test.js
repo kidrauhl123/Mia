@@ -51,56 +51,6 @@ test("normalizeAttachment sanitizes names, file URLs, and image data URLs", (t) 
   assert.match(normalized.thumbnailDataUrl, /^data:image\/png;base64,/);
 });
 
-test("saveChatAttachment writes bounded data URLs into the runtime attachment dir", (t) => {
-  const { attachments, calls, dir } = setup(t);
-
-  const saved = attachments.saveChatAttachment({
-    name: "pixel.png",
-    dataUrl: `data:image/png;base64,${Buffer.from("png").toString("base64")}`
-  });
-
-  assert.equal(calls.initialize, 1);
-  assert.equal(saved.name, "pixel.png");
-  assert.equal(saved.mime, "image/png");
-  assert.equal(saved.size, 3);
-  assert.equal(fs.readFileSync(saved.path, "utf8"), "png");
-  assert.equal(path.dirname(saved.path), path.join(dir, "attachments"));
-});
-
-test("readLocalFileAttachment and safeFetchFileAttachment handle local files and errors", async (t) => {
-  const { attachments } = setup(t);
-  const filePath = path.join(os.tmpdir(), `mia-local-${process.pid}.txt`);
-  fs.writeFileSync(filePath, "local text", "utf8");
-  try {
-    const local = attachments.readLocalFileAttachment({ path: filePath });
-    assert.equal(local.name, path.basename(filePath));
-    assert.equal(local.mime, "text/plain");
-    assert.match(local.dataUrl, /^data:text\/plain;base64,/);
-    assert.deepEqual(await attachments.safeFetchFileAttachment({ path: "/no/such/file" }), {
-      error: true,
-      message: "File not found.",
-      path: "/no/such/file"
-    });
-  } finally {
-    fs.rmSync(filePath, { force: true });
-  }
-});
-
-test("readLocalFileAttachment preserves Office MIME types for cloud upload", (t) => {
-  const { attachments } = setup(t);
-  const filePath = path.join(os.tmpdir(), `mia-local-${process.pid}.xlsx`);
-  fs.writeFileSync(filePath, "xlsx bytes", "utf8");
-  try {
-    const local = attachments.readLocalFileAttachment({ path: filePath });
-
-    assert.equal(local.name, path.basename(filePath));
-    assert.equal(local.mime, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    assert.match(local.dataUrl, /^data:application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet;base64,/);
-  } finally {
-    fs.rmSync(filePath, { force: true });
-  }
-});
-
 test("fetchCloudFileAttachment uses account settings without leaking token into URL", async (t) => {
   let request = null;
   const { attachments } = setup(t, {
@@ -137,13 +87,14 @@ test("fetchCloudFileAttachment reuses a downloaded cloud file from the local cac
       };
     }
   });
-  const dataUrl = `data:text/plain;base64,${Buffer.from("cloud file").toString("base64")}`;
-
-  const saved = attachments.saveChatAttachment({
+  const saved = {
+    path: path.join(dir, "attachments", "note.txt"),
     name: "note.txt",
-    url: "/api/files/file_123",
-    dataUrl
-  });
+    mime: "text/plain"
+  };
+  fs.mkdirSync(path.dirname(saved.path), { recursive: true });
+  fs.writeFileSync(saved.path, "cloud file", "utf8");
+  attachments.rememberCloudDownload({ url: "/api/files/file_123", name: "note.txt" }, saved);
 
   const cachePath = path.join(dir, "attachments", ".cloud-download-cache.json");
   assert.equal(fs.existsSync(cachePath), true);
@@ -155,7 +106,7 @@ test("fetchCloudFileAttachment reuses a downloaded cloud file from the local cac
   assert.equal(file.path, saved.path);
   assert.equal(file.url, "/api/files/file_123");
   assert.equal(file.size, 10);
-  assert.equal(file.dataUrl, dataUrl);
+  assert.equal(file.dataUrl, `data:text/plain;base64,${Buffer.from("cloud file").toString("base64")}`);
 });
 
 test("attachmentContext tells agents to use listed local paths instead of guessing paths", (t) => {

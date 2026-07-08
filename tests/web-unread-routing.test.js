@@ -881,6 +881,9 @@ test("shared bot runtime control owns Web PUT runtime writes", () => {
   assert.match(source, /method === "POST" \|\| method === "PUT" \|\| method === "PATCH" \|\| method === "DELETE"/);
   assert.match(shared, /\/api\/me\/bots\/\$\{encodeURIComponent\(botKey\)\}\/runtime/);
   assert.match(shared, /method:\s*"PUT"/);
+  assert.match(shared, /controlIntent/);
+  assert.doesNotMatch(shared, /saveBotRuntimeConfig/);
+  assert.doesNotMatch(shared, /body\.config/);
   assert.doesNotMatch(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(botKey\)\}\/runtime[\s\S]*method:\s*"PUT"/);
 });
 

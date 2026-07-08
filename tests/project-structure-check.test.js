@@ -4,6 +4,25 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const root = path.resolve(__dirname, "..");
+const LEGACY_CORE_ENTRY = path.join("src", "core", "mia-core.js");
+const RETIRED_NODE_UTILITY_RUNTIME_FILES = [
+  "src/main/chat-engine-adapters.js",
+  "src/main/claude-code-stateless-adapter.js",
+  "src/main/codex-stateless-adapter.js",
+  "src/main/codex-app-server-runner.js",
+  "src/main/codex-mia-proxy.js",
+  "tests/chat-engine-adapters.test.js",
+  "tests/claude-code-stateless-adapter.test.js",
+  "tests/codex-stateless-adapter.test.js",
+  "tests/codex-app-server-runner.test.js",
+  "tests/codex-mia-proxy.test.js"
+];
+
+function assertRetiredFilesDeleted(files, message) {
+  for (const relativePath of files) {
+    assert.equal(fs.existsSync(path.join(root, relativePath)), false, `${relativePath} ${message}`);
+  }
+}
 
 function walkFiles(dir) {
   const out = [];
@@ -228,40 +247,74 @@ test("runtime code composes bot conversation ids through shared bot identity hel
   }
 });
 
-test("cloud bridge remote run is account-authenticated and does not add a separate local approval gate", () => {
+test("cloud bridge remote run delegates backend execution decisions to Rust Core", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const runtimeServiceSource = fs.readFileSync(path.join(root, "src/main/mia-core/runtime-service.js"), "utf8");
   const bridgeSource = fs.readFileSync(path.join(root, "src/main/cloud/cloud-bridge-client.js"), "utf8");
-  const runStart = bridgeSource.indexOf("async function runCloudBridgeRequest");
-  const runEnd = bridgeSource.indexOf("\n  function handleMessage", runStart);
-  const body = runStart >= 0 && runEnd > runStart ? bridgeSource.slice(runStart, runEnd) : "";
-  const engineConfigHelper = bridgeSource.match(
-    /function botEngineConfigFromRuntime\(runtimeConfig = \{\}, agentEngine = "codex"\) \{[\s\S]*?\n\}/
-  )?.[0] || "";
-  assert.ok(body, "runCloudBridgeRequest should exist");
-  assert.ok(engineConfigHelper, "cloud bridge should centralize bot engine config shaping");
-  assert.doesNotMatch(body, /confirmCloudBridgeRun\(/);
-  assert.doesNotMatch(body, /等待本机权限确认/);
-  assert.match(body, /runtimeConfigFromMessage\(message\)/);
-  assert.match(body, /runBridgeBotTurn\(/);
-  assert.doesNotMatch(body, /createActiveBridgeChatAdapter\(agentEngine\)/);
-  assert.doesNotMatch(body, /adapter\.sendChat/);
-  assert.match(body, /engineConfig: botEngineConfigFromRuntime\(runtimeConfig, agentEngine\)/);
-  assert.match(engineConfigHelper, /agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}/);
-  assert.match(engineConfigHelper, /providerConnectionId: runtimeConfig\.providerConnectionId/);
-  assert.match(engineConfigHelper, /modelProfileId: runtimeConfig\.modelProfileId/);
-  assert.match(engineConfigHelper, /model: runtimeConfig\.model/);
-  assert.doesNotMatch(body, /\n\s*permissionMode:\s*runtimeConfig\.permissionMode\s*(?:,|\n)/);
-  // botWithRuntimeConfig's permission-strip logic now lives in the shared
-  // bot-turn-helpers Module (extracted from main.js so Mia Core reuses it).
-  const botTurnHelpersSource = fs.readFileSync(path.join(root, "src/main/bot-turn-helpers.js"), "utf8");
-  assert.match(botTurnHelpersSource, /enginePermissionStoreTarget\(agentEngine\) !== "root-mode"[\s\S]*delete configForEngine\.permissionMode/);
+  const cloudRouterSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/cloud.rs"), "utf8");
+  const cloudCrateSource = fs.readFileSync(path.join(root, "crates/mia-core-cloud/src/bridge.rs"), "utf8");
+  const cloudEventsCoreSource = fs.readFileSync(path.join(root, "crates/mia-core-cloud/src/events.rs"), "utf8");
+  assert.match(bridgeSource, /startCloudBridgeRequest/, "cloud bridge JS should only request Core lifecycle start");
+  assert.match(bridgeSource, /stopCloudBridgeRequest/, "cloud bridge JS should only request Core lifecycle stop");
+  assert.match(mainSource, /route:\s*"\/api\/cloud\/bridge\/start"/, "main should start bridge lifecycle through Rust Core");
+  assert.match(mainSource, /route:\s*"\/api\/cloud\/bridge\/stop"/, "main should stop bridge lifecycle through Rust Core");
+  assert.match(cloudRouterSource, /start_cloud_bridge/, "Rust Core should expose the cloud bridge lifecycle route");
+  assert.match(cloudCrateSource, /CloudBridgeManager/, "Rust Core cloud crate should own the bridge lifecycle manager");
+  assert.match(cloudCrateSource, /TungsteniteCloudBridgeTransport/, "Rust Core cloud crate should own the remote bridge WebSocket transport");
+  assert.match(cloudCrateSource, /\"run_result\"/, "Rust Core cloud crate should write cloud run result envelopes");
+  assert.doesNotMatch(bridgeSource, /confirmCloudBridgeRun\(|等待本机权限确认/, "cloud account auth should remain the gate; JS must not add a local approval gate");
+  assert.doesNotMatch(bridgeSource, /normalizeTurnRuntimeConfig|runtimeConfigFromMessage|botEngineConfigFromRuntime|normalizeAgentEngine|resolveBotCapabilities|botSnapshot|runBridgeBotTurn/, "cloud bridge must not own runtime config or bot snapshot assembly");
+  assert.doesNotMatch(bridgeSource, /createActiveBridgeChatAdapter|adapter\.sendChat|AbortController|abortControllers/, "cloud bridge must not execute or cancel local agent runs in JS");
+  assert.doesNotMatch(bridgeSource, /WebSocketImpl|new WebSocket|handleMessage|heartbeat|reconnect|ping\(|run_result|device_identity_conflict/, "cloud bridge JS must not own remote socket lifecycle or cloud frame handling");
+  assert.doesNotMatch(mainSource, /runBridgeBotTurn:|resolveBotCapabilities:/, "main must not inject a direct JS bridge bot turn sender");
+  assert.doesNotMatch(mainSource, /cloudBridgeUrl\(|route:\s*"\/api\/cloud\/bridge\/run"[\s\S]*createCloudBridgeClient/, "main must not build the remote bridge socket URL or inject run-frame handlers into JS");
+  assert.equal(fs.existsSync(path.join(root, "src/main/mia-core/runtime-service.js")), false, "old Node Core runtime service should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "tests/mia-core-runtime-service.test.js")), false, "old Node Core runtime service tests should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/bot-turn-helpers.js")), false, "old JS bot turn runtime injection helper should stay deleted");
+  assert.doesNotMatch(mainSource, /createBotTurnHelpers/, "main should not use a foreground bot turn runtime injection helper");
+  assert.doesNotMatch(mainSource, /createMiaCoreRuntimeService|miaCoreRuntime|runtime-service/, "main must not reintroduce the old Node Core runtime service");
   assert.match(mainSource, /createCloudBridgeClient/, "main must instantiate the cloud bridge Module");
-  assert.match(mainSource, /runBridgeBotTurn:/, "main must provide a direct bridge bot turn sender");
   assert.doesNotMatch(mainSource, /async function runCloudBridgeRequest/, "main must not own bridge run implementation");
   assert.doesNotMatch(mainSource, /function handleCloudBridgeMessage/, "main must not own bridge message routing");
   assert.doesNotMatch(mainSource, /cloudBridgeAbortControllers/, "main must not own bridge run abort controllers");
+
+  const cloudEventsSource = fs.readFileSync(path.join(root, "src/main/cloud/cloud-events-client.js"), "utf8");
+  assert.equal(fs.existsSync(path.join(root, "src/main/cloud/cloud-events-url.js")), false, "cloud events URL/protocol helper should move into Rust Core");
+  assert.match(mainSource, /route:\s*"\/api\/cloud\/events\/start"/, "main should start cloud events lifecycle through Rust Core");
+  assert.match(mainSource, /route:\s*"\/api\/cloud\/events\/stop"/, "main should stop cloud events lifecycle through Rust Core");
+  assert.match(cloudRouterSource, /start_cloud_events/, "Rust Core should expose the cloud events lifecycle route");
+  assert.match(cloudEventsCoreSource, /CloudEventsManager/, "Rust Core cloud crate should own the cloud events lifecycle manager");
+  assert.match(cloudEventsCoreSource, /\/api\/events\?since_seq=/, "Rust Core should construct the remote events websocket URL with the cursor");
+  assert.doesNotMatch(cloudEventsSource, /WebSocketImpl|new WebSocket|handleMessage|heartbeat|reconnect|ping\(|persistCursor|writeCloudSettings|lastEventSeq.*write|botRuntimeDispatcher|memorySync|messageCache/, "cloud events JS must not own remote socket lifecycle, cursor writes, or cloud frame side effects");
+  assert.doesNotMatch(mainSource, /cloudEventsUrl|cloudWebSocketProtocols|cloud-events-url|persistCursor|botRuntimeDispatcher:|memorySync:\s*\(\)\s*=>\s*cloudDesktopSync\(\)\.syncMemories/, "main must not inject cloud events socket or frame handlers into JS");
   assert.doesNotMatch(mainSource, /cloudBridgeReconnectTimer/, "main must not own bridge reconnect timer");
+});
+
+test("Electron main no longer owns provider runtime resolution", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const engineRuntimeSource = fs.readFileSync(path.join(root, "src/main/engine-runtime-config-service.js"), "utf8");
+  const agentSessionRuntimeSource = fs.readFileSync(path.join(root, "src/main/agent-session-runtime-preparer.js"), "utf8");
+
+  assert.equal(fs.existsSync(path.join(root, "src/main/mia-core/model-runtime-resolver.js")), false, "old JS model-runtime resolver should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "tests/mia-core-model-runtime-resolver.test.js")), false, "old JS model-runtime resolver tests should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/claude-code-mia-proxy.js")), false, "old JS Claude managed-model proxy should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "tests/claude-code-mia-proxy.test.js")), false, "old JS Claude managed-model proxy tests should stay deleted");
+  assert.doesNotMatch(mainSource, /model-runtime-resolver|createMiaCoreModelRuntimeResolver|isMiaManagedRuntime/, "main must not import or instantiate the deleted JS model-runtime resolver");
+  assert.doesNotMatch(mainSource, /createClaudeCodeMiaProxy|claudeCodeMiaProxy/, "main must not instantiate the deleted JS Claude managed-model proxy");
+  assert.doesNotMatch(mainSource, /resolveModelRuntime:\s*\(/, "main must not inject a JS provider runtime resolver into Hermes config generation");
+  assert.match(engineRuntimeSource, /\/api\/engines\/hermes\/runtime-config/, "engine runtime config adapter should delegate Hermes config preparation to Rust Core");
+  assert.doesNotMatch(engineRuntimeSource, /apiKeyEnv|api_key_env|apiKey|api_key|baseUrl|base_url|apiMode|api_mode|resolveModelRuntime|writeRuntimeConfig|modelSettings/, "engine runtime config adapter must not assemble provider runtime transport");
+  assert.doesNotMatch(agentSessionRuntimeSource, /resolveManagedModelRuntime|claudeCodeMiaProxy|codexMiaProxy|apiKeyEnv|api_key_env|apiKey|api_key|baseUrl|base_url|apiMode|api_mode|CODEX_CONFIG|ANTHROPIC_BASE_URL|HERMES_HOME/, "AgentSession preparer must not assemble provider transport or managed-model proxy env");
+});
+
+test("old Node Core skill runtime owner path is retired", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const preparerSource = fs.readFileSync(path.join(root, "src/main/agent-session-runtime-preparer.js"), "utf8");
+
+  assert.equal(fs.existsSync(path.join(root, "src/main/mia-core/skill-runtime-owner.js")), false, "old Node Core skill runtime owner should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "tests/skill-runtime-owner.test.js")), false, "old Node Core skill runtime owner tests should stay deleted");
+  assert.match(mainSource, /createAgentSessionSkillRuntimeAdapter/, "main should use the AgentSession skill runtime adapter name");
+  assert.match(preparerSource, /createAgentSessionSkillRuntimeAdapter/, "runtime preparer should default to the AgentSession adapter");
+  assert.doesNotMatch(`${mainSource}\n${preparerSource}`, /createSkillRuntimeOwner|skillRuntimeOwner|mia-core\/skill-runtime-owner/, "old skill runtime owner naming/path must not return");
 });
 
 test("cloud Claude Code legacy runs client files are removed", () => {
@@ -296,11 +349,23 @@ test("cloud desktop sync lives behind a main/cloud Module instead of main.js", (
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const syncSource = fs.readFileSync(path.join(root, "src/main/cloud/desktop-sync-client.js"), "utf8");
   assert.match(syncSource, /function createCloudDesktopSyncClient/, "cloud desktop sync Module should exist");
+  assert.match(syncSource, /syncCloudMemory/, "cloud memory sync should be delegated to Rust Core");
   assert.match(mainSource, /createCloudDesktopSyncClient/, "main should instantiate the cloud desktop sync Module");
+  assert.match(mainSource, /route:\s*"\/api\/cloud\/memory\/sync"/, "main should bridge cloud memory sync through Mia Core HTTP");
   assert.doesNotMatch(mainSource, /async function cloudApi/, "main must not own low-level cloud HTTP requests");
+  assert.doesNotMatch(mainSource, /memoryService:\s*miaMemoryService/, "main must not inject the JS memory service into cloud sync");
+  assert.doesNotMatch(syncSource, /\bmemoryService\b|listSyncMemories|applySyncedMemories|\/api\/me\/memory\/push/, "cloud desktop sync must not own memory CRUD or direct memory push");
   assert.doesNotMatch(mainSource, /function\s+\w*Workspace\w*\([^)]*\)\s*\{[\s\S]{0,200}\.syncWorkspace\(/, "main must not wrap workspace sync orchestration");
   assert.doesNotMatch(mainSource, /async function pushAllFellowSessionsToCloudConversations/, "main must not own fellow conversation backfill");
   assert.doesNotMatch(mainSource, /async function mirrorFellowSessionToCloudConversation/, "main must not own fellow-conversation message mirroring");
+});
+
+test("scheduled task replies no longer bypass Rust Core conversation ownership through the social API", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  assert.equal(fs.existsSync(path.join(root, "src/main/task-reply-delivery.js")), false, "task reply cloud delivery helper should be retired");
+  assert.equal(fs.existsSync(path.join(root, "tests/task-reply-delivery.test.js")), false, "old social API task reply tests should be retired");
+  assert.doesNotMatch(mainSource, /deliverTaskReplyToConversation/);
+  assert.doesNotMatch(mainSource, /async function runRemoteChatRequest|normalizeRemoteUserMessage|resolveRemoteChatBot|collectChatTraceEnvelope/, "main must not keep the old remote chat execution path");
 });
 
 test("legacy mobile pairing and relay web control path are retired", () => {
@@ -308,7 +373,7 @@ test("legacy mobile pairing and relay web control path are retired", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const ipcSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
-  const daemonSource = fs.readFileSync(path.join(root, "src/main/daemon/control-server.js"), "utf8");
+  const daemonSource = fs.readFileSync(path.join(root, "src/main/mia-core/control-server.js"), "utf8");
   const rendererHtml = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const rendererApp = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const remoteSettings = fs.readFileSync(path.join(root, "src/renderer/settings/settings-remote.js"), "utf8");
@@ -327,15 +392,43 @@ test("legacy mobile pairing and relay web control path are retired", () => {
 test("remote control API routes are shared by the daemon HTTP adapter", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const routerSource = fs.readFileSync(path.join(root, "src/main/remote/remote-control-router.js"), "utf8");
-  const modelSource = fs.readFileSync(path.join(root, "src/main/model-settings-service.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const channelSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
+  const remoteRouterStart = mainSource.indexOf("remoteControlRouter = createRemoteControlRouter");
+  const remoteRouterEnd = mainSource.indexOf("\n});", remoteRouterStart);
+  const remoteRouterWiring = remoteRouterStart >= 0 && remoteRouterEnd > remoteRouterStart
+    ? mainSource.slice(remoteRouterStart, remoteRouterEnd)
+    : "";
   assert.match(routerSource, /function createRemoteControlRouter/, "remote control router Module should exist");
   assert.match(mainSource, /createRemoteControlRouter/, "main should instantiate the shared remote router");
-  assert.match(modelSource, /function createModelSettingsService/, "model settings service should own model save normalization");
-  assert.match(mainSource, /createModelSettingsService/, "main should instantiate the shared model settings service");
+  assert.equal(fs.existsSync(path.join(root, "src/main/model-settings-service.js")), false, "Node model settings save service must be deleted");
+  assert.match(preloadSource, /function saveCoreModelSelection/, "preload should keep only a Core model-selection UI adapter");
+  assert.match(preloadSource, /\/api\/settings\/model-selection/, "model selection should use the typed Core route");
+  assert.doesNotMatch(preloadSource, /IpcChannel\.ModelSave/, "preload must not route model selection through main IPC");
+  assert.doesNotMatch(channelSource, /ModelSave/, "shared IPC channels must not expose the obsolete raw model settings writer");
+  assert.doesNotMatch(mainSource, /IpcChannel\.ModelSave/, "main must not handle the obsolete raw model settings writer");
+  assert.doesNotMatch(preloadSource, /\/api\/providers/, "model selection adapter must not split provider writes into low-level JS requests");
+  assert.doesNotMatch(preloadSource, /saveEffort/, "preload must not expose the obsolete raw effort settings writer");
+  assert.doesNotMatch(channelSource, /EffortSave/, "shared IPC channels must not expose the obsolete raw effort settings writer");
+  assert.doesNotMatch(mainSource, /IpcChannel\.EffortSave/, "main must not handle the obsolete raw effort settings writer");
+  assert.doesNotMatch(preloadSource, /savePermissions/, "preload must not expose the obsolete raw permission settings writer");
+  assert.doesNotMatch(channelSource, /PermissionsSave/, "shared IPC channels must not expose the obsolete raw permission settings writer");
+  assert.doesNotMatch(mainSource, /IpcChannel\.PermissionsSave/, "main must not handle the obsolete raw permission settings writer");
+  assert.doesNotMatch(mainSource, /createModelSettingsService/, "main must not instantiate a Node model settings save service");
+  assert.match(routerSource, /CORE_TURN_CANCEL_PATTERN/, "remote router should only keep typed Core turn cancellation");
+  assert.ok(remoteRouterWiring, "remote router wiring should be extractable");
+  assert.doesNotMatch(routerSource, /\/health|\/api\/runtime\/status|\/api\/model\/catalog|\/api\/codex\/models|\/api\/engine\/capabilities|\/api\/commands\/slash|\/api\/commands\/agent-list|\/api\/chat\/attachment|\/api\/file\/fetch|\/api\/commands\/agent-execute/, "remote router must not expose legacy remote-control aggregate routes");
+  assert.doesNotMatch(routerSource, /getRuntimeStatus|loadHermesModelCatalog|loadCodexModels|loadEngineCapabilities|loadHermesSlashCommands|loadExternalAgentCommands|saveChatAttachment|readLocalFileAttachment|executeExternalAgentCommand/, "remote router must not own legacy remote-control callbacks");
+  assert.doesNotMatch(remoteRouterWiring, /getRuntimeStatus|loadHermesModelCatalog|loadCodexModels|loadEngineCapabilities|loadHermesSlashCommands|loadExternalAgentCommands|saveChatAttachment|readLocalFileAttachment|executeExternalAgentCommand/, "main must not inject legacy remote-control callbacks into the remote router");
+  assert.doesNotMatch(routerSource, /\/api\/model\/save|\/api\/effort\/save|\/api\/permissions\/save/, "remote router must not expose raw backend setting mutations");
+  assert.doesNotMatch(routerSource, /saveModelSelection|writeEffortSettings|writePermissionSettings/, "remote router must not own setting mutation callbacks");
+  assert.doesNotMatch(remoteRouterWiring, /saveModelSelection:\s*\(settings\)|writeEffortSettings:\s*\(body\)|writePermissionSettings:\s*writePermissionSettingsAndApply/, "main must not inject raw setting mutations into the remote router");
   assert.doesNotMatch(routerSource, /modelSettings\(\)/, "remote router must not duplicate model settings normalization");
   assert.doesNotMatch(routerSource, /providerConnection\(/, "remote router must not duplicate provider lookup");
   assert.doesNotMatch(routerSource, /writeModelSettings\(next\)/, "remote router must not write model settings directly");
   assert.doesNotMatch(mainSource, /url\.pathname === "\/api\/chat\/send"/, "main must not duplicate remote chat route matching");
+  assert.doesNotMatch(mainSource, /url\.pathname === "\/api\/chat\/stream"/, "main must not duplicate remote chat stream route matching");
+  assert.doesNotMatch(routerSource, /\/api\/chat\/stream|runRemoteChatRequest|emitStream/, "remote router must not expose old Node chat stream compatibility");
   assert.doesNotMatch(mainSource, /url\.pathname === "\/api\/model\/save"/, "main must not duplicate remote model route matching");
 });
 
@@ -351,11 +444,25 @@ test("cloud-only conversation path has no local chat-session persistence service
   assert.doesNotMatch(ipcSource, /ChatSessionsLoad|ChatSessionSave|ChatReadStateSave|ChatSessionCreate|ChatSessionRename/);
 });
 
-test("chat attachment normalization and transfer live behind a main chat-attachments module", () => {
+test("chat attachment normalization stays in UI helpers while local attachment IO routes through Rust Core", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const attachmentSource = fs.readFileSync(path.join(root, "src/main/chat-attachments.js"), "utf8");
+  const adapterSource = fs.readFileSync(path.join(root, "src/main/chat-attachment-core-adapter.js"), "utf8");
+  const coreRoutesSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/routes.rs"), "utf8");
+  const coreAttachmentSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/attachment.rs"), "utf8");
   assert.match(attachmentSource, /function createChatAttachments/, "chat attachments module should exist");
   assert.match(mainSource, /createChatAttachments/, "main should instantiate chat attachments");
+  assert.match(adapterSource, /\/api\/attachments\/save/, "attachment adapter should call Core save route");
+  assert.match(adapterSource, /\/api\/attachments\/file/, "attachment adapter should call Core file route");
+  assert.match(mainSource, /createChatAttachmentCoreAdapter/, "main should instantiate the Core attachment adapter");
+  assert.match(coreRoutesSource, /\/api\/attachments\/save/, "Rust Core should expose attachment save route");
+  assert.match(coreRoutesSource, /\/api\/attachments\/file/, "Rust Core should expose local file attachment route");
+  assert.match(coreAttachmentSource, /pub async fn save_attachment/, "Rust Core should own attachment save IO");
+  assert.match(coreAttachmentSource, /pub async fn fetch_file_attachment/, "Rust Core should own local attachment read IO");
+  assert.doesNotMatch(attachmentSource, /saveChatAttachment,|safeFetchFileAttachment,|safeReadLocalFileAttachment,/, "chat attachment helper must not export local Node IO compatibility APIs");
+  assert.doesNotMatch(attachmentSource, /function saveChatAttachment|function safeFetchFileAttachment|function safeReadLocalFileAttachment/, "chat attachment helper must not keep obsolete local Node IO entrypoints");
+  assert.doesNotMatch(mainSource, /saveChatAttachment\(payload\)/, "main IPC must not call Node attachment writes");
+  assert.doesNotMatch(mainSource, /safeFetchFileAttachment\(payload\)/, "main IPC must not call Node local file reads");
   assert.doesNotMatch(mainSource, /function normalizeAttachment\(/, "main must not own attachment normalization");
   assert.doesNotMatch(mainSource, /function saveChatAttachment/, "main must not own attachment writes");
   assert.doesNotMatch(mainSource, /function readLocalFileAttachment/, "main must not own local attachment reads");
@@ -380,16 +487,37 @@ test("bot identity writes are cloud-only; retired local bot service stays remove
   assert.match(manifestSource, /Product Bot identity is cloud-owned/, "bot manifest docs should mark identity as cloud-owned");
 });
 
-test("provider connection persistence lives behind a main provider connections Module", () => {
+test("RuntimeStatus model and provider display are overlaid from Rust Core", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const providerSource = fs.readFileSync(path.join(root, "src/main/provider-connections.js"), "utf8");
+  const snapshotSource = fs.readFileSync(path.join(root, "src/main/runtime-status-core-snapshot.js"), "utf8");
+  const engineRuntimeSource = fs.readFileSync(path.join(root, "src/main/engine-runtime-config-service.js"), "utf8");
+  const enginePluginsSource = fs.readFileSync(path.join(root, "src/main/engine-plugins-service.js"), "utf8");
+  const runtimePathsSource = fs.readFileSync(path.join(root, "src/main/runtime-paths.js"), "utf8");
+  const getRuntimeStatusBlock = mainSource.match(/function getRuntimeStatus\([\s\S]*?\n}\n\nasync function runtimeStatusWithCoreModelProviders/)?.[0] || "";
 
-  assert.match(providerSource, /function createProviderConnections/, "provider connections Module should exist");
-  assert.match(mainSource, /createProviderConnections/, "main should instantiate provider connections");
+  assert.equal(fs.existsSync(path.join(root, "src/main/provider-connections.js")), false, "old provider JSON mirror module should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "tests/provider-connections.test.js")), false, "old provider JSON mirror tests should stay deleted");
+  assert.match(snapshotSource, /function createRuntimeStatusCoreSnapshot/, "Core runtime snapshot adapter should exist");
+  assert.match(snapshotSource, /\/api\/settings\/client/, "RuntimeStatus overlay should read Core client settings");
+  assert.match(snapshotSource, /\/api\/providers/, "RuntimeStatus overlay should read Core provider summaries");
+  assert.doesNotMatch(snapshotSource, /apiKeyEnv|baseUrl|apiMode/, "RuntimeStatus Core overlay must not expose provider transport config");
+  assert.match(mainSource, /const runtimeStatusCoreSnapshot = createRuntimeStatusCoreSnapshot/, "main should instantiate the Core snapshot adapter");
+  assert.match(mainSource, /IpcChannel\.RuntimeInitialize[\s\S]{0,260}runtimeStatusWithCoreModelProviders/, "runtime initialize should return the Core-overlaid status");
+  assert.match(mainSource, /IpcChannel\.RuntimeStatus[\s\S]{0,220}runtimeStatusWithCoreModelProviders/, "runtime status should return the Core-overlaid status");
+  assert.doesNotMatch(getRuntimeStatusBlock, /apiKeyEnv:|baseUrl:|apiMode:/, "fallback RuntimeStatus model must not expose provider transport config");
+  assert.doesNotMatch(mainSource, /resolveHermesModelSettingsFromCore|route:\s*"\/api\/providers\/resolve"|const settings = await resolveHermesModelSettingsFromCore\(\)/, "Hermes startup must not pull resolved provider transport back into Electron main");
+  assert.match(mainSource, /prepareRuntimeConfig\(port\)/, "Hermes startup should ask Rust Core to prepare the runtime config for the selected port");
+  assert.match(engineRuntimeSource, /route:\s*"\/api\/engines\/hermes\/runtime-config"/, "Hermes config preparation should use the Rust Core runtime-config endpoint");
+  assert.match(mainSource, /async function saveProviderConnection/, "provider OAuth completion should use a Core-backed save adapter");
+  assert.match(mainSource, /route:\s*"\/api\/settings\/model-selection"/, "provider OAuth completion should persist through Core model-selection");
+  assert.doesNotMatch(mainSource, /createProviderConnections|providerConnections\.|providerConnectionStore|connectedProviderSummaries/, "main must not import, write, read, or summarize the old provider JSON mirror");
+  assert.doesNotMatch(runtimePathsSource, /providerConnections|mia-providers\.json/, "runtime paths must not expose the old provider JSON mirror path");
+  assert.doesNotMatch(runtimePathsSource, /modelSettings|mia-model\.json/, "runtime paths must not expose the old model settings JSON path");
+  assert.doesNotMatch(enginePluginsSource, /mia-providers\.json/, "Hermes plugin wrapper must not read old provider JSON mirror env");
+  assert.doesNotMatch(mainSource, /function writeModelSettings|fs\.writeFileSync\(p\.modelSettings/, "main must not write the old model settings JSON");
   assert.doesNotMatch(mainSource, /function defaultProviderStore/, "main must not own provider connection defaults");
   assert.doesNotMatch(mainSource, /function normalizeProviderConnection/, "main must not own provider connection normalization");
   assert.doesNotMatch(mainSource, /function providerConnectionStore/, "main must not own provider connection persistence");
-  assert.doesNotMatch(mainSource, /function connectedProviderSummaries/, "main must not own provider summary shaping");
 });
 
 test("profile and appearance preferences live behind the main settings store", () => {
@@ -422,12 +550,22 @@ test("auth and provider OAuth lifecycle live behind a main auth service", () => 
   assert.doesNotMatch(mainSource, /function startProviderOAuth/, "main must not own provider OAuth lifecycle");
 });
 
-test("engine catalog, capabilities, and slash command discovery live behind a main engine catalog Module", () => {
+test("engine catalog, capabilities, and slash command discovery live behind Rust Core routes", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const catalogSource = fs.readFileSync(path.join(root, "src/main/engine-catalog-service.js"), "utf8");
+  const adapterSource = fs.readFileSync(path.join(root, "src/main/engine-catalog-core-adapter.js"), "utf8");
+  const routesSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/routes.rs"), "utf8");
+  const engineSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/engine.rs"), "utf8");
 
-  assert.match(catalogSource, /function createEngineCatalogService/, "engine catalog Module should exist");
-  assert.match(mainSource, /createEngineCatalogService/, "main should instantiate engine catalog discovery");
+  assert.match(adapterSource, /function createEngineCatalogCoreAdapter/, "main should use a thin Core adapter");
+  assert.match(mainSource, /createEngineCatalogCoreAdapter/, "main should instantiate Core-backed engine catalog discovery");
+  assert.match(routesSource, /\/api\/engines\/model-catalog/, "Rust Core should own model catalog HTTP route");
+  assert.match(routesSource, /\/api\/engines\/codex\/models/, "Rust Core should own Codex model list route");
+  assert.match(routesSource, /\/api\/engines\/capabilities/, "Rust Core should own engine capability route");
+  assert.match(routesSource, /\/api\/engines\/slash-commands/, "Rust Core should own slash command route");
+  assert.match(engineSource, /fallback_model_catalog/, "Rust Core should own model catalog fallbacks");
+  assert.equal(fs.existsSync(path.join(root, "src/main/engine-catalog-service.js")), false, "old Node engine catalog service should be deleted");
+  assert.doesNotMatch(mainSource, /createEngineCatalogService/, "main must not instantiate Node engine catalog discovery");
+  assert.doesNotMatch(mainSource, /engineCatalogService/, "main must not call the Node engine catalog service");
   assert.doesNotMatch(mainSource, /function fallbackModelCatalog/, "main must not own model catalog fallbacks");
   assert.doesNotMatch(mainSource, /async function loadHermesModelCatalogInner/, "main must not own Hermes model discovery scripts");
   assert.doesNotMatch(mainSource, /function loadCodexModels/, "main must not own Codex model cache parsing");
@@ -436,12 +574,22 @@ test("engine catalog, capabilities, and slash command discovery live behind a ma
   assert.doesNotMatch(mainSource, /async function loadHermesSlashCommandsInner/, "main must not own Hermes slash command discovery scripts");
 });
 
-test("external Agent command execution and session binding live behind a main external-agent-command Module", () => {
+test("external Agent command execution and session binding live behind Rust Core routes", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const commandSource = fs.readFileSync(path.join(root, "src/main/external-agent-command-service.js"), "utf8");
+  const adapterSource = fs.readFileSync(path.join(root, "src/main/external-agent-command-core-adapter.js"), "utf8");
+  const routesSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/routes.rs"), "utf8");
+  const commandSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/agent_command.rs"), "utf8");
 
-  assert.match(commandSource, /function createExternalAgentCommandService/, "external Agent command Module should exist");
-  assert.match(mainSource, /createExternalAgentCommandService/, "main should instantiate external Agent command execution");
+  assert.equal(fs.existsSync(path.join(root, "src/main/external-agent-command-service.js")), false, "old Node external Agent command service should be deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/agent-command-provider.js")), false, "old Node Agent command provider should be deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/agent-session-index.js")), false, "old Node external Agent session index should be deleted");
+  assert.match(adapterSource, /function createExternalAgentCommandCoreAdapter/, "main should use a thin Core command adapter");
+  assert.match(mainSource, /createExternalAgentCommandCoreAdapter/, "main should instantiate Core-backed external Agent command execution");
+  assert.match(routesSource, /\/api\/agents\/commands\/list/, "Rust Core should own external Agent command list route");
+  assert.match(routesSource, /\/api\/agents\/commands\/execute/, "Rust Core should own external Agent command execute route");
+  assert.match(commandSource, /mia-agent-sessions\.json/, "Rust Core should own external Agent session binding persistence");
+  assert.doesNotMatch(mainSource, /createExternalAgentCommandService/, "main must not instantiate Node external Agent command execution");
+  assert.doesNotMatch(mainSource, /createAgentCommandProvider/, "main must not instantiate Node Agent command discovery");
   assert.doesNotMatch(mainSource, /const externalAgentBuiltInCommands/, "main must not own external Agent built-in command definitions");
   assert.doesNotMatch(mainSource, /function splitCommandInvocation/, "main must not keep unused Agent command parsing helpers");
   assert.doesNotMatch(mainSource, /function executeExternalAgentCommand/, "main must not own external Agent command execution");
@@ -482,17 +630,27 @@ test("bot pet assets, generation jobs, and pet windows live behind a main bot-pe
   assert.doesNotMatch(mainSource, /function resolveOfficialLibraryRoot/, "main must not own packaged library root resolution");
 });
 
-test("legacy Hermes HTTP bot execution path is retired from main and Mia Core", () => {
+test("legacy Node Core entry is deleted after Rust Core cutover", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const coreSource = fs.readFileSync(path.join(root, "src/core/mia-core.js"), "utf8");
-  const adapterSource = fs.readFileSync(path.join(root, "src/main/chat-engine-adapters.js"), "utf8");
+  const resolverSource = fs.readFileSync(path.join(root, "src/main/mia-core/process-resolver.js"), "utf8");
+  const launcherSource = fs.readFileSync(path.join(root, "src/main/mia-core/process-launcher.js"), "utf8");
+
+  assert.equal(fs.existsSync(path.join(root, LEGACY_CORE_ENTRY)), false, "old Node Core entry must stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/daemon/executable-resolver.js")), false, "old daemon resolver path must stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/daemon/process-launcher.js")), false, "old daemon process launcher path must stay deleted");
+  assert.match(resolverSource, /mia-core-app|bundled-mia-core|MIA_CORE_BIN/, "Core resolver should target the Rust Core binary or cargo app");
+  assert.doesNotMatch(`${resolverSource}\n${launcherSource}`, /daemonEnvOverlay|createDaemonProcessLauncher|daemonEnvironment|daemonProgramArguments|daemonWorkingDirectory/, "Core resolver and launcher must not expose old daemon aliases");
+  assert.doesNotMatch(mainSource, /src\/core\/mia-core|require\(["']\.\/core\/mia-core\.js["']\)|createMiaCore\(/, "Electron main must not import or instantiate the old Node Core");
+});
+
+test("legacy Hermes HTTP bot execution path is retired from main", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const checkSource = fs.readFileSync(path.join(root, "src/check.js"), "utf8");
 
   assert.equal(fs.existsSync(path.join(root, "src/main/hermes-chat-adapter.js")), false, "legacy Hermes HTTP chat adapter should be deleted");
   assert.equal(fs.existsSync(path.join(root, "src/main/hermes-run-service.js")), false, "legacy Hermes HTTP run service should be deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/chat-engine-adapters.js")), false, "legacy stateless chat adapter graph should be deleted");
   assert.doesNotMatch(mainSource, /hermes-chat-adapter|hermes-run-service|createActiveHermesChatAdapter|sendHermesChat|sendHermesStateless/, "main must not import or wire legacy Hermes HTTP chat execution");
-  assert.doesNotMatch(coreSource, /hermes-chat-adapter|hermes-run-service|sendHermesChat/, "Mia Core must not construct or inject the legacy Hermes HTTP graph");
-  assert.doesNotMatch(adapterSource, /sendHermesChat|sendHermesStateless/, "chat-engine adapters must not dispatch Hermes bot chat through the deleted HTTP adapter");
   assert.doesNotMatch(checkSource, /hermes-chat-adapter|hermes-run-service/, "project structure inventory must not require deleted Hermes HTTP files");
   assert.doesNotMatch(mainSource, /function normalizeRunMessages|function buildRunPayload|function parseSseFrame|async function readRunEventStream|function normalizeHermesError/, "main must not inline deleted Hermes HTTP helper logic");
 });
@@ -534,6 +692,7 @@ test("Mia Hermes plugin files and install cleanup live behind a main engine-plug
 
   assert.match(pluginSource, /function createEnginePluginsService/, "engine plugins service should exist");
   assert.match(mainSource, /createEnginePluginsService/, "main should instantiate engine plugin installation");
+  assert.doesNotMatch(pluginSource, /mia-model\.json|apiKeyEnv|apiKey/, "Hermes plugin wrapper must not read legacy provider secret files");
   assert.doesNotMatch(mainSource, /function miaPluginFiles/, "main must not own embedded Python plugin source");
   assert.doesNotMatch(mainSource, /function ensureEnginePlugins/, "main must not own engine plugin install cleanup");
   assert.doesNotMatch(mainSource, /X-Mia-Fellow/, "main must not embed Hermes overlay Python code");
@@ -570,28 +729,30 @@ test("external Agent session binding persistence lives behind a main agent-sessi
   assert.doesNotMatch(mainSource, /function setAgentSessionEntry/, "main must not own external Agent session entry writes");
 });
 
-test("Mia memory lives behind a scoped service and adapters avoid native memory files", () => {
+test("Mia memory foreground CRUD is Core-owned and adapters avoid native memory files", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const runtimePathsSource = fs.readFileSync(path.join(root, "src/main/runtime-paths.js"), "utf8");
   const memorySource = fs.readFileSync(path.join(root, "src/main/mia-memory-service.js"), "utf8");
   const runtimeContextSource = fs.readFileSync(path.join(root, "src/main/mia-runtime-context.js"), "utf8");
-  const adapterGraphSource = fs.readFileSync(path.join(root, "src/main/chat-engine-adapters.js"), "utf8");
 
-  assert.match(memorySource, /function createMiaMemoryService/, "Mia memory service should exist");
+  assert.match(memorySource, /function createMiaMemoryService/, "temporary JS memory extraction service should exist until agent extraction moves to Core");
   assert.match(runtimePathsSource, /mia-memory\.json/, "runtime paths should retain the legacy Mia memory migration path");
   assert.match(runtimePathsSource, /mia-memory\.sqlite/, "runtime paths should own the scoped Mia memory database path");
-  assert.match(mainSource, /createMiaMemoryService/, "main should instantiate Mia memory service");
-  assert.match(mainSource, /miaMemoryService/, "main should route Mia memory through the shared service");
+  assert.match(mainSource, /createMiaMemoryService/, "main should instantiate the temporary memory extraction compatibility service");
+  assert.match(mainSource, /IpcChannel\.MemoryList[\s\S]*listCoreMemory\(payload\)/, "foreground memory list should enter Rust Core");
+  assert.match(mainSource, /IpcChannel\.MemoryRemember[\s\S]*rememberCoreMemory\(payload\)/, "foreground memory writes should enter Rust Core");
+  assert.doesNotMatch(
+    mainSource,
+    /IpcChannel\.Memory(?:List|ListAll|Remember|Update|Forget|Delete)[\s\S]{0,180}miaMemoryService\./,
+    "foreground memory CRUD IPC must not call the JS memory service"
+  );
+  assert.doesNotMatch(mainSource, /scheduleCloudMemorySync/, "old JS-store cloud memory sync scheduling must not return");
   assert.match(memorySource, /rememberMemory/, "Mia memory service should expose scoped write requests");
   assert.match(memorySource, /searchMemories/, "Mia memory service should expose scoped search");
   assert.match(runtimeContextSource, /sanitizeMiaMemorySpoof/, "Mia runtime context should expose user-spoofed memory header neutralization");
   assert.equal(fs.existsSync(path.join(root, "src/main/native-memory-context.js")), false, "old prompt-rendered native memory helper must stay deleted");
   assert.equal(fs.existsSync(path.join(root, "src/main/openclaw-chat-adapter.js")), false, "removed OpenClaw adapter must stay deleted");
-  assert.doesNotMatch(adapterGraphSource, /memoryBlock/, "chat adapters must not accept or call a prompt-rendered memoryBlock hook");
-  assert.doesNotMatch(adapterGraphSource, /memoryInjectionMode|nativeMemoryInjectionMode/, "chat adapters must ignore legacy prompt memory injection mode config");
-  assert.doesNotMatch(adapterGraphSource, /native-memory-context/, "chat adapters must not import the deleted native memory prompt helper");
-  assert.doesNotMatch(adapterGraphSource, /\.codex[\s\S]{0,80}memory/, "adapters must not read native Codex memory files");
-  assert.doesNotMatch(adapterGraphSource, /CLAUDE\.md/, "adapters must not read native Claude memory files");
+  assert.equal(fs.existsSync(path.join(root, "src/main/chat-engine-adapters.js")), false, "deleted prompt adapter graph must not regain memory prompt injection hooks");
 });
 
 test("Mia app MCP bridge and tool schema live behind main MCP services", () => {
@@ -603,22 +764,27 @@ test("Mia app MCP bridge and tool schema live behind main MCP services", () => {
   assert.match(serverSource, /function toolDefinitions/, "Mia app MCP server should own tool schemas");
   assert.match(mainSource, /createMiaAppMcpBridge/, "main should instantiate Mia app MCP bridge");
   assert.match(mainSource, /miaAppMcpBridge\.getSpec/, "main should inject Mia app MCP specs into adapters/config");
+  assert.match(mainSource, /function currentMiaCoreMcpStatus/, "main should expose Rust Core startup status for MCP bridge specs");
+  assert.match(mainSource, /createMiaAppMcpBridge\(\{[\s\S]*coreStatus:\s*currentMiaCoreMcpStatus/, "Mia app MCP bridge should point at Rust Core startup state");
+  assert.doesNotMatch(mainSource, /createMiaAppMcpBridge\(\{[\s\S]*coreStatus:\s*\(\) => miaCoreControlServer\?\.status/, "Mia app MCP bridge must not point at the compatibility control server");
   assert.doesNotMatch(mainSource, /function toolDefinitions/, "main must not own MCP tool schemas");
   assert.doesNotMatch(mainSource, /conversation_create_group/, "main must not inline Mia app MCP tool definitions");
 });
 
-test("scheduler MCP bridge context, spec, and Codex home setup live behind a main scheduler-mcp bridge", () => {
+test("scheduler MCP bridge context, spec, and Codex home setup stay behind the scheduler-mcp bridge", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const bridgeSource = fs.readFileSync(path.join(root, "src/main/scheduler-mcp-bridge.js"), "utf8");
   const profileSource = fs.readFileSync(path.join(root, "src/main/agent-runtime-profile-service.js"), "utf8");
 
   assert.match(bridgeSource, /function createSchedulerMcpBridge/, "scheduler MCP bridge should exist");
+  assert.match(mainSource, /createSchedulerMcpBridge\(\{[\s\S]*coreStatus:\s*currentMiaCoreMcpStatus/, "scheduler MCP bridge should point at Rust Core startup state");
+  assert.doesNotMatch(mainSource, /createSchedulerMcpBridge\(\{[\s\S]*coreStatus:\s*\(\) => miaCoreControlServer\?\.status/, "scheduler MCP bridge must not point at the compatibility control server");
   assert.match(profileSource, /function createAgentRuntimeProfileService/, "agent runtime profile service should exist");
   assert.match(bridgeSource, /createAgentRuntimeProfileService/, "scheduler MCP bridge should delegate native Agent profile setup");
   assert.doesNotMatch(profileSource, /CODEX_BLOCKED_STATE/, "Codex should use the user's native home without private state filtering");
   assert.doesNotMatch(bridgeSource, /SESSION_STATE_ENTRIES/, "scheduler MCP bridge must not own native Codex session exclusions");
   assert.match(mainSource, /createSchedulerMcpBridge/, "main should instantiate scheduler MCP bridge");
-  assert.match(mainSource, /ensureCodexHome:\s*\(options\)\s*=>\s*schedulerMcpBridge\.ensureCodexHome\(options\)/, "main should forward Codex home options into the scheduler MCP bridge");
+  assert.doesNotMatch(mainSource, /ensureCodexHome:\s*schedulerMcpBridge\.ensureCodexHome|ensureCodexHome:\s*\(options\)\s*=>\s*schedulerMcpBridge\.ensureCodexHome\(options\)/, "main should not forward Codex home setup into retired JS utility runtimes");
   assert.doesNotMatch(mainSource, /function resolveNodePath/, "main must not own node CLI discovery for scheduler MCP");
   assert.doesNotMatch(mainSource, /function schedulerMcpContextPath/, "main must not own scheduler MCP context path");
   assert.doesNotMatch(mainSource, /function schedulerMcpServerScriptPath/, "main must not own scheduler MCP script path");
@@ -662,6 +828,7 @@ test("engine runtime config files and Hermes config rendering live behind a main
   assert.doesNotMatch(mainSource, /function writeRuntimeConfig/, "main must not own Hermes config rendering");
   assert.doesNotMatch(mainSource, /function effectiveHermesHome/, "main must not own effective Hermes home policy");
   assert.doesNotMatch(mainSource, /function readConfiguredPort/, "main must not own Hermes config port parsing");
+  assert.doesNotMatch(configSource, /apiKeyEnv|api_key_env|apiKey|api_key|baseUrl|base_url|apiMode|api_mode|writeRuntimeConfig|modelSettings/, "engine runtime config service should be a Core adapter, not provider/runtime config owner");
 });
 
 test("engine port selection and health probing live behind a main engine-health service", () => {
@@ -695,7 +862,8 @@ test("Hermes startup and chat recovery stay owned by Mia Core", () => {
     /adoptRunningEngine\(\)/,
     "Core-owned Hermes startup must spawn its own API process instead of adopting orphan gateways"
   );
-  assert.match(startEngineSource, /writeRuntimeConfig\(port\)/, "Core-owned Hermes startup must write config for the port it owns");
+  assert.match(startEngineSource, /prepareRuntimeConfig\(port\)/, "Core-owned Hermes startup must ask Rust Core to prepare Hermes runtime config for the port it owns");
+  assert.doesNotMatch(startEngineSource, /writeRuntimeConfig|resolveHermesModelSettingsFromCore|modelRuntimeEnv/, "Hermes startup must not assemble provider transport in Electron main");
   assert.doesNotMatch(
     mainSource,
     /recoverHermesAfterFailure:\s*recoverHermesChatEngineAfterFailure/,
@@ -705,9 +873,10 @@ test("Hermes startup and chat recovery stay owned by Mia Core", () => {
   assert.match(nativeTurnHelpersSource, /function currentUserPrompt/, "native prompt helpers should expose current-turn-only prompt extraction");
   assert.match(
     mainSource,
-    /ensureHermesReady:\s*ensureHermesChatEngineReady/,
-    "Hermes slash commands should still ensure the Core-owned engine is available"
+    /createHermesSlashCommandService/,
+    "Hermes slash commands should stay behind the dedicated service"
   );
+  assert.doesNotMatch(mainSource, /ensureHermesChatEngineReady|createActiveChatEngineAdapters/, "main must not keep a local bot chat runtime owner for Hermes readiness");
   assert.doesNotMatch(mainSource, /ipcMain\.handle\(IpcChannel\.EngineStart/, "foreground must not expose direct Hermes start IPC");
   assert.doesNotMatch(mainSource, /ipcMain\.handle\(IpcChannel\.EngineStop/, "foreground must not expose direct Hermes stop IPC");
   assert.doesNotMatch(preloadSource, /startEngine:\s*\(\)\s*=>/, "preload must not expose direct Hermes start");
@@ -770,16 +939,14 @@ test("runtime directory initialization lives behind a main runtime-initializer s
   assert.doesNotMatch(mainSource, /runtime\/engine-home\/mia-model\.json/, "main must not own default settings creation bookkeeping");
 });
 
-test("runtime initializer does not eagerly read provider defaults before provider connections initialize", () => {
+test("runtime initializer no longer creates the provider JSON mirror", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const initializerSource = fs.readFileSync(path.join(root, "src/main/runtime-initializer-service.js"), "utf8");
   const initializerBlock = mainSource.match(/const runtimeInitializerService = createRuntimeInitializerService\(\{[\s\S]*?\n\}\);/)?.[0] || "";
 
   assert.ok(initializerBlock, "runtime initializer construction should exist");
-  assert.match(
-    initializerBlock,
-    /defaultProviderStore:\s*\(\)\s*=>\s*defaultProviderStore\(\)/,
-    "runtime initializer must lazily call provider defaults after providerConnections has initialized"
-  );
+  assert.doesNotMatch(initializerSource, /defaultProviderStore|providerConnections|mia-providers\.json/, "runtime initializer must not create old provider mirror defaults");
+  assert.doesNotMatch(initializerBlock, /defaultProviderStore/, "main must not inject old provider mirror defaults into runtime initialization");
 });
 
 test("foreground window stays hidden until the renderer is ready to avoid startup blanking", () => {
@@ -809,11 +976,13 @@ test("foreground window routes target blank browser links through external opene
 
 test("Core control server uses the daemon compatibility Module behind a Mia Core wrapper", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const controlSource = fs.readFileSync(path.join(root, "src/main/daemon/control-server.js"), "utf8");
-  const coreProcessSource = fs.readFileSync(path.join(root, "src/main/mia-core/local-process-control.js"), "utf8");
-  assert.match(controlSource, /function createDaemonControlServer/, "daemon control server Module should exist");
-  assert.match(coreProcessSource, /createMiaCoreControlServer:\s*createDaemonControlServer/, "Mia Core process wrapper should delegate to the daemon control server");
-  assert.match(mainSource, /createMiaCoreControlServer/, "main should instantiate the Mia Core control server wrapper");
+  const controlSource = fs.readFileSync(path.join(root, "src/main/mia-core/control-server.js"), "utf8");
+  assert.equal(fs.existsSync(path.join(root, "src/main/daemon/control-server.js")), false, "old daemon control-server path should stay deleted");
+  assert.match(controlSource, /function createMiaCoreControlServer/, "Mia Core control server Module should exist");
+  assert.equal(fs.existsSync(path.join(root, "src/main/mia-core/local-process-control.js")), false, "old Mia Core process wrapper should stay deleted");
+  assert.match(mainSource, /createMiaCoreControlServer/, "main should instantiate the Mia Core control server directly");
+  assert.doesNotMatch(controlSource, /getMiaContextSnapshot|getMiaCurrentSkills|miaMemoryService|isMemoryEnabled|onMemoryChanged/, "compat control server must not own Mia MCP context, skills, or memory routes");
+  assert.doesNotMatch(mainSource, /getMiaContextSnapshot:|getMiaCurrentSkills:|onMemoryChanged:\s*scheduleCloudMemorySync/, "main must not inject Mia MCP route handlers into the compatibility server");
   assert.doesNotMatch(mainSource, /let controlServer\b/, "main must not own the daemon HTTP server instance");
   assert.doesNotMatch(mainSource, /let controlServerState\b/, "main must not own daemon control mutable state");
   assert.doesNotMatch(mainSource, /function requestAuthToken/, "main must not own daemon auth parsing");
@@ -824,65 +993,134 @@ test("Core control server uses the daemon compatibility Module behind a Mia Core
   assert.doesNotMatch(mainSource, /function stopControlServer/, "main must not own daemon HTTP lifecycle");
 });
 
-test("Core task HTTP client and task event stream use the daemon compatibility Module behind a Mia Core wrapper", () => {
+test("Core task HTTP compatibility is retired from Node while task events use the Core event client", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const tasksClientSource = fs.readFileSync(path.join(root, "src/main/daemon/tasks-client.js"), "utf8");
-  const coreProcessSource = fs.readFileSync(path.join(root, "src/main/mia-core/local-process-control.js"), "utf8");
+  const controlSource = fs.readFileSync(path.join(root, "src/main/mia-core/control-server.js"), "utf8");
+  const compatClientSource = fs.readFileSync(path.join(root, "src/main/mia-core/compat-client.js"), "utf8");
+  const eventClientSource = fs.readFileSync(path.join(root, "src/main/mia-core/event-client.js"), "utf8");
+  const chatSendSource = fs.readFileSync(path.join(root, "src/main/chat-send-delegation.js"), "utf8");
+  const retiredTaskBackendFiles = [
+    "src/main/tasks-store.js",
+    "src/main/tasks-routes.js",
+    "src/main/tasks-events.js",
+    "src/main/scheduler.js",
+    "src/main/scheduler-fire.js",
+    "src/main/task-conversation.js",
+    "tests/tasks-store.test.js",
+    "tests/tasks-routes.test.js",
+    "tests/scheduler.test.js",
+    "tests/scheduler-fire.test.js",
+    "tests/task-conversation.test.js"
+  ];
 
-  assert.match(tasksClientSource, /function createDaemonTasksClient/, "daemon tasks client Module should exist");
-  assert.match(coreProcessSource, /createMiaCoreTasksClient:\s*createDaemonTasksClient/, "Mia Core process wrapper should delegate to the daemon tasks client");
-  assert.match(mainSource, /createMiaCoreTasksClient/, "main should instantiate the Mia Core tasks client wrapper");
+  assert.match(compatClientSource, /function createMiaCoreCompatibilityClient/, "Mia Core compatibility client Module should exist");
+  assert.match(compatClientSource, /Legacy task routes are retired/, "compat client should fail closed for legacy task routes");
+  assert.doesNotMatch(compatClientSource, /coreScheduleFromLegacyTask|legacyTaskFromCoreJob|buildCoreTaskJobRequest|buildCoreTaskJobUpdate/, "compat client must not own legacy task shape conversion");
+  assert.match(mainSource, /createMiaCoreCompatibilityClient/, "main should instantiate the Core compatibility client for non-task compatibility calls");
+  assert.doesNotMatch(mainSource, /createMiaCoreCompatibilityClient:\s*createMiaCoreTasksClient|miaCoreTasksClient/, "main should not name the generic compatibility client as a task client");
+  assert.doesNotMatch(mainSource, /function createAppScheduledTask|miaCoreTasksClient\.call\(["']\/api\/tasks["']/, "main must not keep unused legacy task creation helpers");
+  assert.doesNotMatch(mainSource, /daemonClient:\s*\{[\s\S]{0,120}\/api\/chat\/send/, "foreground chat send should call typed Core conversation routes");
+  assert.doesNotMatch(chatSendSource, /daemonClient|daemonChatPayload|Mia Core daemon client/, "chat send delegator should expose a Core conversation client, not daemon-named transport");
+  assert.doesNotMatch(mainSource, /miaCoreTasksClient\.startEvents/, "task events should share the Rust Core local event websocket client");
+  assert.doesNotMatch(compatClientSource, /startEvents|WebSocketImpl|sendTaskEvent/, "compat client should not own a duplicate task websocket");
+  assert.match(compatClientSource, /Legacy chat send is retired/, "compat client should fail closed for legacy chat send");
+  assert.match(controlSource, /Legacy chat send is retired/, "control server should fail closed for legacy chat send");
+  assert.doesNotMatch(controlSource, /handleChatSend|sendChat = null|createChatEventEmitter|text\/event-stream|emitStream/, "control server should not own legacy chat execution or SSE streaming");
+  assert.match(eventClientSource, /rendererTaskEnvelope/, "Core event client should adapt task events for the renderer task panel");
+  assert.doesNotMatch(controlSource, /tasksClient|forwardCoreTaskRequest|coreTasksClient/, "control server should not forward legacy task HTTP through Node");
+  assert.match(controlSource, /Rust Core \/ws/, "control server should point local task event clients to Core websocket events");
+  for (const relativePath of retiredTaskBackendFiles) {
+    assert.equal(fs.existsSync(path.join(root, relativePath)), false, `${relativePath} should stay deleted`);
+  }
+  assert.doesNotMatch(mainSource, /tasks-store|tasks-routes|tasks-events|scheduler-fire|createScheduler\(|sweepMissedCronTasks|initSchedulerSubsystem|tasksRoutes/, "main must not reintroduce the old Node task backend");
+  assert.doesNotMatch(controlSource, /initSchedulerSubsystem|tasksRoutes\(\)|handleEventsStream|createTasksRoutes/, "control server must not call old Node task routes");
   assert.doesNotMatch(mainSource, /async function callDaemonTasks/, "main must not own daemon task HTTP calls");
   assert.doesNotMatch(mainSource, /function subscribeDaemonTaskEvents/, "main must not own daemon task SSE subscription");
   assert.doesNotMatch(mainSource, /\/api\/tasks\/events/, "main must not own the daemon task event stream route");
 });
 
-test("desktop Hermes bot runtime controls select saved Core provider references", () => {
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const body = appSource.slice(
-    appSource.indexOf("function runtimeControlModelProfileId"),
-    appSource.indexOf("function permissionEntriesForRuntimeControl")
-  );
+test("foreground local event subscription uses Rust Core websocket, not daemon SSE", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const eventClientSource = fs.readFileSync(path.join(root, "src/main/mia-core/event-client.js"), "utf8");
+  const controlSource = fs.readFileSync(path.join(root, "src/main/mia-core/control-server.js"), "utf8");
 
-  assert.match(body, /function runtimeControlModelProvider/);
-  assert.match(body, /config\.providerConnectionId/);
-  assert.match(body, /profileId\.split\(":"\)/);
-  assert.match(body, /function savedRuntimeModelEntryForControl/);
-  assert.match(body, /entries\.find\(\(item\) => \(item\.providerConnectionId \|\| item\.provider\) === provider/);
-  assert.ok(
-    body.indexOf("savedRuntimeModelEntryForControl(entries, config)") <
-      body.indexOf("window.miaModelHelpers.catalogEntryForModel(runtimeModel)"),
-    "saved bot runtime model refs should be matched before falling back to the global runtime model"
-  );
+  assert.equal(fs.existsSync(path.join(root, "src/main/daemon/local-events-client.js")), false, "daemon SSE local event client should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/daemon/local-event-renderer-router.js")), false, "daemon local event renderer router should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "tests/daemon-local-events.test.js")), false, "old daemon local-events client tests should stay deleted");
+  assert.match(eventClientSource, /coreWsUrl\(baseUrl\(\)\)/, "local event client should subscribe to Rust Core /ws");
+  assert.match(eventClientSource, /type\.startsWith\("task\."\)/, "local event client should avoid duplicating Core task events");
+  assert.match(mainSource, /createMiaCoreLocalEventsClient/, "main should import the Core event client directly");
+  assert.doesNotMatch(mainSource, /rendererChannelForLocalEvent|\/api\/local-events/, "main must not subscribe to the daemon local-events SSE path");
+  assert.doesNotMatch(controlSource, /\/api\/local-events|text\/event-stream;\s*charset=utf-8"[\s\S]*localEvent/, "daemon compatibility server must not expose the obsolete local-events SSE path");
 });
 
-test("foreground permission IPC routes through the daemon-owned permission proxy", () => {
+test("cloud settings writes sync to Rust Core without the old daemon write route", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const writerSource = fs.readFileSync(path.join(root, "src/main/cloud/cloud-settings-writer.js"), "utf8");
+  const controlSource = fs.readFileSync(path.join(root, "src/main/mia-core/control-server.js"), "utf8");
+
+  assert.match(writerSource, /syncCore/, "cloud settings writer should sync through Rust Core");
+  assert.match(mainSource, /syncCore:\s*\(settings\)\s*=>\s*syncCloudSettingsToCore\(settings\)/, "main should wire cloud settings writes to Core sync");
+  assert.doesNotMatch(writerSource, /daemonBaseUrl|daemonToken|\/api\/cloud-settings/, "writer must not call the old daemon cloud-settings route");
+  assert.doesNotMatch(controlSource, /\/api\/cloud-settings|writeCloudSettings/, "daemon control server must not own cloud settings writes");
+});
+
+test("composer bot runtime controls ask Rust Core for option selection instead of parsing provider references in UI", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const modelSettingsSource = fs.readFileSync(path.join(root, "src/renderer/settings/model-settings.js"), "utf8");
+  const modelHelpersSource = fs.readFileSync(path.join(root, "src/renderer/settings/model-helpers.js"), "utf8");
+
+  assert.match(appSource, /getBotRuntimeControlOptions/, "renderer should call the Core runtime-control options endpoint");
+  assert.doesNotMatch(appSource, /function runtimeControlModelProvider/, "UI must not derive provider ids from modelProfileId");
+  assert.doesNotMatch(appSource, /function runtimeControlModelName/, "UI must not derive model ids from profile strings");
+  assert.doesNotMatch(appSource, /function savedRuntimeModelEntryForControl/, "UI must not own saved model entry matching");
+  assert.doesNotMatch(appSource, /profileId\.split\(":"\)/, "model profile parsing belongs in Rust Core");
+  assert.doesNotMatch(htmlSource, /modelKeyEnv|modelBaseUrl|modelApiMode|modelProvider|modelName|modelPreset|authMethod/, "model settings form must not keep hidden backend transport fields");
+  assert.doesNotMatch(appSource, /apiKeyEnv:\s*els\.modelKeyEnv\.value|baseUrl:\s*els\.modelBaseUrl\.value|apiMode:\s*els\.modelApiMode\.value/, "renderer must not submit provider runtime fields to Core");
+  assert.doesNotMatch(appSource, /apiKeyEnv|api_key_env|apiMode|api_mode/, "renderer app must not read provider runtime transport fields");
+  assert.doesNotMatch(modelSettingsSource, /apiKeyEnv|api_key_env|apiMode|api_mode|baseUrl|base_url/, "model settings UI must use UI labels, not provider transport fields");
+  assert.doesNotMatch(modelHelpersSource, /apiKeyEnv|api_key_env|apiMode|api_mode|baseUrl|base_url/, "model helpers must not expose provider transport fields to renderer");
+});
+
+test("foreground permission IPC routes through the Core-control permission proxy", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const proxySource = fs.readFileSync(path.join(root, "src/main/agent-permission-proxy.js"), "utf8");
+  const controlSource = fs.readFileSync(path.join(root, "src/main/mia-core/control-server.js"), "utf8");
+  const coreRoutesSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/routes.rs"), "utf8");
+  const coreSystemSource = fs.readFileSync(path.join(root, "crates/mia-core-system/src/lib.rs"), "utf8");
   const respondHandler = mainSource.match(/ipcMain\.handle\(IpcChannel\.ChatPermissionRespond[\s\S]*?\);/)?.[0] || "";
   const listHandler = mainSource.match(/ipcMain\.handle\(IpcChannel\.ChatPermissionList[\s\S]*?\);/)?.[0] || "";
 
+  assert.equal(fs.existsSync(path.join(root, "src/main/agent-permission-coordinator.js")), false, "JS permission coordinator should be deleted after Rust Core owns permission state");
   assert.match(proxySource, /createAgentPermissionProxy/, "permission proxy Module should exist");
   assert.match(mainSource, /createAgentPermissionProxy/, "main should instantiate the permission proxy");
-  assert.match(
-    mainSource,
-    /const\s+agentPermissionCoordinator\s*=\s*IS_DAEMON_PROCESS\s*\?\s*createAgentPermissionCoordinator/,
-    "only the daemon side of main may own the local permission coordinator"
-  );
-  assert.match(respondHandler, /agentPermissionProxy\.respond/, "permission response IPC should route through the daemon-owned proxy");
-  assert.match(listHandler, /agentPermissionProxy\.list/, "permission list IPC should route through the daemon-owned proxy");
+  assert.match(proxySource, /\/api\/agent-permissions\/respond/, "permission responses should use the Core-control permission endpoint");
+  assert.match(proxySource, /\/api\/agent-permissions/, "permission lists should use the Core-control permission endpoint");
+  assert.doesNotMatch(proxySource, /\/api\/chat\/permissions/, "permission proxy must not call retired chat permission routes");
+  assert.doesNotMatch(proxySource, /isDaemonProcess|coordinator/, "permission proxy must not keep a local JS coordinator branch");
+  assert.doesNotMatch(mainSource, /createAgentPermissionCoordinator|agentPermissionCoordinator/, "main must not construct a JS permission coordinator");
+  assert.doesNotMatch(mainSource, /daemonClient:\s*\{[\s\S]{0,120}agentPermissionProxy/, "main must not inject a daemon-named permission client");
+  assert.match(controlSource, /Agent permission routes are owned by Rust Core/, "compatibility server permission routes should fail closed");
+  assert.doesNotMatch(controlSource, /agentPermissionCoordinator|resolvePermission|listPending/, "compatibility server must not own permission state");
+  assert.match(coreRoutesSource, /\/api\/agent-permissions/, "Rust Core router should expose agent permission routes");
+  assert.match(coreRoutesSource, /\/api\/agent-permissions\/respond/, "Rust Core router should expose agent permission response route");
+  assert.match(coreSystemSource, /pub struct AgentPermissionService/, "Rust Core system service should own permission state");
+  assert.match(respondHandler, /agentPermissionProxy\.respond/, "permission response IPC should route through the Core-control proxy");
+  assert.match(listHandler, /agentPermissionProxy\.list/, "permission list IPC should route through the Core-control proxy");
   assert.doesNotMatch(respondHandler, /agentPermissionCoordinator/, "foreground permission response IPC must not resolve local coordinator state");
   assert.doesNotMatch(listHandler, /agentPermissionCoordinator/, "foreground permission list IPC must not read local coordinator state");
 });
 
-test("foreground chat materializes skills per turn instead of full enabled-skill injection", () => {
-  const coreSource = fs.readFileSync(path.join(root, "src/main/bot-execution-core.js"), "utf8");
+test("retired JS bot runtime owners stay deleted after Rust Core cutover", () => {
   const loaderSource = fs.readFileSync(path.join(root, "src/main/skills-loader.js"), "utf8");
   const schedulerDefaults = fs.readFileSync(path.join(root, "src/main/scheduler-skill-defaults.js"), "utf8");
 
-  assert.doesNotMatch(coreSource, /handleReminderChatTurn|app-scheduler-reminder|reminder-intent/, "foreground chat must not use direct reminder parsing");
-  assert.match(coreSource, /resolveSkillMaterialization/, "bot execution core should materialize skill context once per turn");
-  assert.match(coreSource, /skillMaterialization/, "bot execution core should pass materialized skills to adapters");
+  assert.equal(fs.existsSync(path.join(root, "src/main/bot-execution-core.js")), false, "retired JS bot execution core should be deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/social/local-bot-responder.js")), false, "retired JS local bot responder should be deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/social/bot-runtime-dispatcher.js")), false, "retired JS cloud bot dispatcher should be deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/social/bot-invocation.js")), false, "retired JS bot invocation materializer should be deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/chat-engine-adapters.js")), false, "retired JS stateless adapter graph should be deleted");
   assert.equal(fs.existsSync(path.join(root, "src/main/mia-native-context-bridge.js")), false, "legacy native context bridge should be deleted");
   assert.equal(fs.existsSync(path.join(root, "src/main/openclaw-chat-adapter.js")), false, "removed OpenClaw adapter must stay deleted");
   assert.doesNotMatch(loaderSource, /function buildEnabledSkillsContext/, "skills loader must not expose full enabled-skill prompt injection");
@@ -891,33 +1129,38 @@ test("foreground chat materializes skills per turn instead of full enabled-skill
 
 test("OpenClaw bot chat adapter and wiring stay removed", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const coreSource = fs.readFileSync(path.join(root, "src/core/mia-core.js"), "utf8");
 
   assert.doesNotMatch(mainSource, /sendOpenClawChat/, "main must not wire a direct OpenClaw bot chat dependency");
-  assert.doesNotMatch(coreSource, /sendOpenClawChat/, "Mia Core must not wire a direct OpenClaw bot chat dependency");
   assert.doesNotMatch(mainSource, /createOpenClaw/, "main must not instantiate removed OpenClaw adapters");
-  assert.doesNotMatch(coreSource, /createOpenClaw/, "Mia Core must not instantiate removed OpenClaw adapters");
   assert.equal(fs.existsSync(path.join(root, "src/main/openclaw-chat-adapter.js")), false, "OpenClaw adapter file should be deleted");
 });
 
-test("Claude Code and Codex bot chat wiring stays on AgentSession and prompt utilities are stateless-only", () => {
+test("Node stateless runtime utility adapters stay deleted after Core utility-turn cutover", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const coreSource = fs.readFileSync(path.join(root, "src/core/mia-core.js"), "utf8");
-  const adapterGraphSource = fs.readFileSync(path.join(root, "src/main/chat-engine-adapters.js"), "utf8");
-  const claudeSource = fs.readFileSync(path.join(root, "src/main/claude-code-stateless-adapter.js"), "utf8");
-  const codexSource = fs.readFileSync(path.join(root, "src/main/codex-stateless-adapter.js"), "utf8");
-  const claudeBotPromptPattern = new RegExp(`promptWith${"Group"}|includedHistory${"Chars"}`);
-  const codexBotPromptPattern = new RegExp(`promptWith${"Group"}|codex${"Prompt"}|includedHistory${"Chars"}`);
-  const botTransportPattern = new RegExp(`runCodexAppServer${"Turn"}|claudeAgentSdk|query\\(\\{`);
+  const checkSource = fs.readFileSync(path.join(root, "src/check.js"), "utf8");
+  const mainAgentsGuide = fs.readFileSync(path.join(root, "src/main/AGENTS.md"), "utf8");
+  const skillsLoaderSource = fs.readFileSync(path.join(root, "src/main/skills-loader.js"), "utf8");
 
-  assert.match(claudeSource, /function createClaudeCodeStatelessAdapter/, "Claude utility should expose a stateless constructor");
-  assert.match(codexSource, /function createCodexStatelessAdapter/, "Codex utility should expose a stateless constructor");
-  assert.doesNotMatch(claudeSource, /createClaudeCodeChatAdapter|async function sendChat\s*\(/, "Claude utility must not retain a bot chat adapter path");
-  assert.doesNotMatch(codexSource, /createCodexChatAdapter|async function sendChat\s*\(/, "Codex utility must not retain a bot chat adapter path");
-  assert.doesNotMatch(claudeSource, claudeBotPromptPattern, "Claude stateless utility must not carry bot conversation prompt assembly");
-  assert.doesNotMatch(codexSource, codexBotPromptPattern, "Codex stateless utility must not carry bot conversation prompt assembly");
-
+  assertRetiredFilesDeleted(RETIRED_NODE_UTILITY_RUNTIME_FILES, "should be deleted after utility turns moved to Rust Core");
   assert.doesNotMatch(mainSource, /createActiveClaudeCodeChatAdapter|createActiveCodexChatAdapter/, "main must not construct Claude/Codex direct bot chat adapters");
-  assert.doesNotMatch(coreSource, /activeClaudeCodeAdapter|activeCodexAdapter|createClaudeCodeChatAdapter|createCodexChatAdapter/, "Mia Core must not construct Claude/Codex direct bot chat adapters");
-  assert.doesNotMatch(adapterGraphSource, botTransportPattern, "production bot adapter graph must not wire prompt transports");
+  assert.doesNotMatch(mainSource, /createClaudeCodeStatelessAdapter|createCodexStatelessAdapter|runCodexAppServerTurn|createCodexMiaProxy/, "main must not construct Node utility runtime adapters");
+  assert.doesNotMatch(checkSource, /chat-engine-adapters|claude-code-stateless-adapter|codex-stateless-adapter|codex-app-server-runner|codex-mia-proxy/, "project structure inventory must not require retired utility runtime files");
+  assert.doesNotMatch(mainAgentsGuide, /stateless-adapter|codex-stateless-adapter|codex-app-server-runner/, "main guide must not send agents back to deleted utility runtime files");
+  assert.doesNotMatch(skillsLoaderSource, /codex-stateless-adapter/, "skills loader comments must not cite deleted utility runtime files as module examples");
+});
+
+test("foreground utility turns route through Rust Core instead of JS stateless IPC", () => {
+  const channelsSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const coreRoutesSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/routes.rs"), "utf8");
+
+  assert.match(coreRoutesSource, /\/api\/conversations\/utility-turns/, "Rust Core should expose a typed utility-turn route");
+  assert.match(preloadSource, /function buildCoreConversationUtilityTurnRequest/, "preload should build a typed Core utility request");
+  assert.match(preloadSource, /sendChatStateless:\s*\(payload\)\s*=>\s*runCoreConversationUtilityTurn\(payload\)/, "temporary renderer API should be a Core REST adapter");
+  assert.doesNotMatch(channelsSource, /ChatSendStateless/, "stateless chat IPC channel should be deleted");
+  assert.doesNotMatch(preloadSource, /IpcChannel\.ChatSendStateless/, "preload must not invoke the old stateless IPC");
+  assert.doesNotMatch(mainSource, /ChatSendStateless|sendChatStateless|createBotTurnHelpers|normalizeTurnRuntimeConfig|botWithRuntimeConfig|cloudBotSnapshotForTurn/, "Electron main must not own utility turn runtime injection");
+  assert.equal(fs.existsSync(path.join(root, "src/main/bot-turn-helpers.js")), false, "bot runtime injection helper should be deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/runtime-config-normalizer.js")), false, "turn runtime normalizer should be deleted");
 });

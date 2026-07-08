@@ -198,6 +198,24 @@ test("task schedule empty-state lottie asset is bundled as valid TGS", () => {
   assert.ok(Number(animation.op) > 0);
 });
 
+test("task create shows Core schedule validation errors instead of owning future-time validation", () => {
+  const source = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");
+
+  assert.doesNotMatch(source, /执行时间必须在未来/);
+  assert.doesNotMatch(source, /at\.getTime\(\)\s*<=\s*Date\.now\(\)/);
+  assert.match(source, /function taskCreateErrorMessage\(error\)/);
+  assert.match(source, /showError\(taskCreateErrorMessage\(e\)\)/);
+});
+
+test("task create sends declarative schedule intent instead of renderer-owned cron", () => {
+  const source = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");
+
+  assert.match(source, /const scheduleIntent = \{ kind: freq, time, timezone \}/);
+  assert.match(source, /window\.mia\.tasks\.create\(\{ title, botId, conversationId, instructions: prompt, scheduleIntent \}\)/);
+  assert.doesNotMatch(source, /trigger\s*=\s*\{/);
+  assert.doesNotMatch(source, /cron:\s*`\$\{m\}/);
+});
+
 test("task mode and history chips are stable across unchanged renders", () => {
   const { panel, elements } = loadTasksPanel();
   const state = {

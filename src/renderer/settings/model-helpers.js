@@ -30,10 +30,7 @@
       providerLabel: providerLabels[preset.provider] || preset.provider,
       model: preset.model || "",
       label: preset.model || "Local Model",
-      authType: preset.provider === "openai-codex" ? "oauth_external" : "api_key",
-      apiKeyEnv: preset.apiKeyEnv,
-      baseUrl: preset.baseUrl,
-      apiMode: preset.apiMode || "chat_completions"
+      authType: preset.provider === "openai-codex" ? "oauth_external" : "api_key"
     }));
   }
 
@@ -50,10 +47,7 @@
         providerLabel: providerLabels[current.provider] || current.provider,
         model: current.model || "",
         label: current.model || "Custom Model",
-        authType: current.provider === "openai-codex" ? "oauth_external" : "api_key",
-        apiKeyEnv: current.apiKeyEnv || "",
-        baseUrl: current.baseUrl || "",
-        apiMode: current.apiMode || "chat_completions"
+        authType: current.provider === "openai-codex" ? "oauth_external" : "api_key"
       },
       ...base
     ];
@@ -172,6 +166,13 @@
     return `${name} | ${label}`;
   }
 
+  function apiKeyPromptLabel(entry = {}) {
+    const explicit = String(entry.apiKeyLabel || entry.api_key_label || entry.secretLabel || entry.secret_label || "").trim();
+    if (explicit) return explicit;
+    const provider = String(entry.providerLabel || providerLabel(entry.provider) || "").trim();
+    return provider ? `${provider} API Key` : "API Key";
+  }
+
   window.miaModelHelpers = {
     initModelHelpers,
     modelKey,
@@ -189,5 +190,6 @@
     selectedModelEntry,
     presetKeyForModel,
     modelDisplayName,
+    apiKeyPromptLabel,
   };
 })();

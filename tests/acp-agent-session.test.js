@@ -276,7 +276,7 @@ test("start injects configured MCP servers into ACP session/new", async () => {
     name: "mia-app",
     command: "/usr/bin/node",
     args: ["/tmp/mia-app-mcp-server.js"],
-    env: [{ name: "MIA_DAEMON_URL", value: "http://127.0.0.1:27861" }]
+    env: [{ name: "MIA_CORE_URL", value: "http://127.0.0.1:27861" }]
   }];
   const { session, state } = createSession({ mcpServers });
 

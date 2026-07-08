@@ -1,0 +1,41 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const { test } = require("node:test");
+
+const { createMiaCoreHttpClient } = require("../src/main/mia-core/http-client.js");
+
+test("Mia Core HTTP client builds typed loopback requests", async () => {
+  const calls = [];
+  const client = createMiaCoreHttpClient({
+    baseUrl: "http://127.0.0.1:51234",
+    fetch: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
+        json: async () => ({ ok: true, dataDir: "/tmp/mia" })
+      };
+    }
+  });
+
+  assert.deepEqual(await client.health(), { ok: true, dataDir: "/tmp/mia" });
+  assert.equal(calls[0].url, "http://127.0.0.1:51234/health");
+  assert.equal(calls[0].options.method, "GET");
+});
+
+test("Mia Core HTTP client throws parsed response errors", async () => {
+  const client = createMiaCoreHttpClient({
+    baseUrl: "http://127.0.0.1:51234/",
+    fetch: async () => ({
+      ok: false,
+      status: 503,
+      headers: { get: () => "application/json" },
+      json: async () => ({ error: "warming_up" }),
+      text: async () => "warming_up"
+    })
+  });
+
+  await assert.rejects(() => client.health(), /Mia Core HTTP GET \/health failed 503: warming_up/);
+});

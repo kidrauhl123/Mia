@@ -36,12 +36,9 @@ function resolveBash() {
 
 const required = [
   "src/main.js",
-  "src/main/chat-engine-adapters.js",
   "src/main/chat-engine-registry.js",
   "src/main/chat-events.js",
   "src/main/chat-response.js",
-  "src/main/claude-code-stateless-adapter.js",
-  "src/main/codex-stateless-adapter.js",
   "src/main/bot-registry.js",
   "src/main/native-turn-helpers.js",
   "src/main/conversation-title-service.js",
@@ -83,10 +80,11 @@ const required = [
   "scripts/print-cloud-blockers.js",
   "scripts/deploy-cloud-release.sh",
   "scripts/install-cloud-release-local.sh",
-  "scripts/doctor-cloud.js",
-  "scripts/smoke-cloud.js",
-  "scripts/verify-packaged-mia-core.js",
-  "scripts/local-agent-bridge.js",
+	  "scripts/doctor-cloud.js",
+	  "scripts/smoke-cloud.js",
+	  "scripts/prepare-mia-core-rs.js",
+	  "scripts/verify-packaged-mia-core.js",
+	  "scripts/local-agent-bridge.js",
   "docs/cloud-deployment.md",
   "scripts/create-mac-dmg.js",
   "skills/_builtin/pet-generator/SKILL.md",
@@ -170,7 +168,7 @@ for (const file of forbiddenRootDuplicates) {
   }
 }
 
-for (const file of ["electron-builder.mac-arm64.js", "electron-builder.mac-intel.js", "src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-stateless-adapter.js", "src/main/codex-stateless-adapter.js", "src/main/bot-registry.js", "src/main/native-turn-helpers.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/shared/conversation-tags.js", "src/permission-modes.js", "src/preload.js", "src/renderer/bot/bot-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/bot-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/build-win.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/verify-packaged-mia-core.js", "scripts/local-agent-bridge.js", "scripts/notarize-mac-dmg.js"]) {
+for (const file of ["electron-builder.mac-arm64.js", "electron-builder.mac-intel.js", "src/main.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/bot-registry.js", "src/main/native-turn-helpers.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/shared/conversation-tags.js", "src/shared/mia-core-http.js", "src/permission-modes.js", "src/preload.js", "src/renderer/bot/bot-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/bot-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/build-win.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/prepare-mia-core-rs.js", "scripts/verify-packaged-mia-core.js", "scripts/local-agent-bridge.js", "scripts/notarize-mac-dmg.js"]) {
   childProcess.execFileSync(process.execPath, ["--check", path.join(rootDir, file)], {
     stdio: "inherit"
   });
@@ -208,12 +206,10 @@ assert.equal(resolveChatEngineAdapter({ agent_engine: "claude-code" }).transport
 
 const mainSource = fs.readFileSync(path.join(__dirname, "main.js"), "utf8");
 const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
-// defaultModelSettings was moved to src/main/settings-store.js; assert against the extracted module.
+// Model/provider selection is owned by Rust Core settings; Electron settings-store
+// must not keep a default Hermes model fallback.
 const settingsStoreSource = fs.readFileSync(path.join(__dirname, "main", "settings-store.js"), "utf8");
-const defaultModelBody = settingsStoreSource.match(/function defaultModelSettings\(\) \{[\s\S]*?\n {2}\}/)?.[0] || "";
-assert.doesNotMatch(defaultModelBody, /provider: "xai"[\s\S]*model: "grok-4\.1-fast"/);
-assert.doesNotMatch(defaultModelBody, /provider: "openai-codex"[\s\S]*model: "gpt-5\.3-codex"/);
-assert.match(defaultModelBody, /provider: ""[\s\S]*model: ""/);
+assert.doesNotMatch(settingsStoreSource, /function defaultModelSettings|mia-model\.json|apiKeyEnv|apiMode/);
 assert.match(mainSource, /requestSingleInstanceLock/);
 
 const cloudServerSource = fs.readFileSync(path.join(__dirname, "..", "scripts/serve-cloud.js"), "utf8");

@@ -32,7 +32,7 @@ test("runtime paths default to the Electron userData profile", () => {
     app: fakeApp({ userData: "/profile/Mia" }),
     runtimeResources: fakeResources(),
     MIA_GATEWAY_SERVICE_LABEL: "ai.mia.gateway",
-    MIA_DAEMON_SERVICE_LABEL: "ai.mia.daemon",
+    MIA_CORE_SERVICE_LABEL: "ai.mia.daemon",
     env: {}
   });
 
@@ -45,6 +45,12 @@ test("runtime paths default to the Electron userData profile", () => {
   assert.equal(paths.hermesHome, path.join("/Users/alice", ".hermes"));
   assert.equal(paths.config, path.join("/Users/alice", ".hermes", "config.yaml"));
   assert.equal(paths.mcpServers, path.join(expectedRoot, "runtime", "engine-home", "mia-mcp-servers.json"));
+  assert.equal(paths.coreSettings, path.join(expectedRoot, "runtime", "engine-home", "mia-core.json"));
+  assert.equal(paths.daemonSettings, paths.coreSettings);
+  assert.equal(Object.hasOwn(paths, "memorySettings"), false);
+  assert.equal(Object.hasOwn(paths, "providerConnections"), false);
+  assert.equal(paths.coreLaunchAgent, path.join("/Users/alice", "Library", "LaunchAgents", "ai.mia.daemon.plist"));
+  assert.equal(paths.daemonLaunchAgent, paths.coreLaunchAgent);
 });
 
 test("runtime paths use MIA_HOME for shared data even when Electron userData is isolated", () => {
@@ -52,7 +58,7 @@ test("runtime paths use MIA_HOME for shared data even when Electron userData is 
     app: fakeApp({ userData: "/profile/Mia/daemon-profile" }),
     runtimeResources: fakeResources(),
     MIA_GATEWAY_SERVICE_LABEL: "ai.mia.gateway",
-    MIA_DAEMON_SERVICE_LABEL: "ai.mia.daemon",
+    MIA_CORE_SERVICE_LABEL: "ai.mia.daemon",
     env: { MIA_HOME: "/profile/Mia/runtime/engine-home" }
   });
 
@@ -65,5 +71,5 @@ test("runtime paths use MIA_HOME for shared data even when Electron userData is 
   assert.equal(paths.home, expectedHome);
   assert.equal(paths.hermesHome, path.join("/Users/alice", ".hermes"));
   assert.equal(paths.config, path.join("/Users/alice", ".hermes", "config.yaml"));
-  assert.equal(paths.modelSettings, path.join(expectedHome, "mia-model.json"));
+  assert.equal(Object.hasOwn(paths, "modelSettings"), false);
 });

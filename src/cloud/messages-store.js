@@ -139,8 +139,8 @@ function createMessagesStore(db) {
   }
 
   // When viewerId is given, messages that viewer has locally deleted (hidden)
-  // are excluded; without it the full conversation history is returned (used by
-  // bot-invocation context where there is no single viewer).
+  // are excluded; without it the full conversation history is returned for
+  // system-side contexts where there is no single viewer.
   function listMessagesSince(conversationId, sinceSeq, limit = 100, viewerId = null) {
     const cap = Math.min(Math.max(Number(limit) || 100, 1), 500);
     if (viewerId) {

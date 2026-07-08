@@ -27,9 +27,9 @@ function setup(t, overrides = {}) {
   const scriptPath = path.join(dir, "app", "scheduler-mcp-server.js");
   const service = createSchedulerMcpBridge({
     runtimePaths: () => runtime,
-    daemonStatus: () => ({ baseUrl: "http://127.0.0.1:27861" }),
-    daemonSettings: () => ({ host: "127.0.0.1", port: 27861 }),
-    daemonToken: () => "token_1",
+    coreStatus: () => ({ baseUrl: "http://127.0.0.1:27861" }),
+    coreSettings: () => ({ host: "127.0.0.1", port: 27861 }),
+    coreToken: () => "token_1",
     nodePath: () => "/usr/local/bin/node",
     serverScriptPath: () => scriptPath,
     homeDir: () => userHome,
@@ -52,16 +52,16 @@ test("writeContext persists per-turn scheduler context under runtime", (t) => {
   });
 });
 
-test("getSpec returns null until daemon, script, and node are available", (t) => {
+test("getSpec returns null until Core, script, and node are available", (t) => {
   const { service } = setup(t, {
-    daemonStatus: () => ({}),
-    daemonSettings: () => ({})
+    coreStatus: () => ({}),
+    coreSettings: () => ({})
   });
 
   assert.equal(service.getSpec(), null);
 });
 
-test("getSpec returns the stdio MCP config with daemon token and context path", (t) => {
+test("getSpec returns the stdio MCP config with Core token and context path", (t) => {
   const { scriptPath, service } = setup(t);
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
   fs.writeFileSync(scriptPath, "server");
@@ -70,12 +70,12 @@ test("getSpec returns the stdio MCP config with daemon token and context path", 
   assert.deepEqual(service.getSpec(), {
     type: "stdio",
     command: "/usr/local/bin/node",
-    args: [runtimeScriptPath],
-    env: {
-      MIA_DAEMON_URL: "http://127.0.0.1:27861",
-      MIA_DAEMON_TOKEN: "token_1",
-      MIA_SCHEDULER_CONTEXT_FILE: service.contextPath()
-    },
+	    args: [runtimeScriptPath],
+	    env: {
+	      MIA_CORE_URL: "http://127.0.0.1:27861",
+	      MIA_CORE_TOKEN: "token_1",
+	      MIA_SCHEDULER_CONTEXT_FILE: service.contextPath()
+	    },
     alwaysLoad: true
   });
   assert.equal(fs.readFileSync(runtimeScriptPath, "utf8"), "server");
@@ -116,7 +116,7 @@ test("ensureCodexHome uses user Codex home and rewrites only Mia scheduler confi
   assert.match(config, /command = "\/opt\/node \\"quoted\\""/);
   assert.match(config, new RegExp(`args = \\["${escapeRe(tomlStringValue(runtimeScriptPath))}"\\]`));
   assert.equal(fs.readFileSync(runtimeScriptPath, "utf8"), "server");
-  assert.match(config, /MIA_DAEMON_TOKEN = "token_1"/);
+  assert.match(config, /MIA_CORE_TOKEN = "token_1"/);
 });
 
 test("ensureCodexHome can skip scheduler MCP sync for read-only Codex probes", (t) => {
@@ -156,7 +156,7 @@ test("stripMiaSchedulerSection removes stale scheduler env tables even when they
     "model = \"gpt\"",
     "",
     "[mcp_servers.mia-scheduler.env]",
-    "MIA_DAEMON_TOKEN = \"old\"",
+    "MIA_CORE_TOKEN = \"old\"",
     "",
     "[mcp_servers.mia-scheduler]",
     "command = \"old\"",
@@ -169,5 +169,5 @@ test("stripMiaSchedulerSection removes stale scheduler env tables even when they
   assert.match(stripped, /model = "gpt"/);
   assert.match(stripped, /\[mcp_servers\.other\]\ncommand = "keep"/);
   assert.doesNotMatch(stripped, /mcp_servers\.mia-scheduler/);
-  assert.doesNotMatch(stripped, /MIA_DAEMON_TOKEN = "old"/);
+  assert.doesNotMatch(stripped, /MIA_CORE_TOKEN = "old"/);
 });

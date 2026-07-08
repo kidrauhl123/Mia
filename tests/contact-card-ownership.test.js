@@ -160,12 +160,12 @@ test("cloud bot card avatar preserves the bot explicit color", () => {
   assert.equal(window.lastPaintedAvatar.color, "#5e5ce6");
 });
 
-test("owned cloud bot card reads runtime binding before exposing controls", () => {
+test("owned cloud bot card reads runtime binding and asks Core for runtime control options", () => {
   const { card, window } = loadCard();
-  const calls = [];
+  const calls = { bindings: [], options: [] };
   window.miaBotCommands = {
     getBotRuntimeBinding: async (args) => {
-      calls.push(args);
+      calls.bindings.push(args);
       return {
         botId: "mia",
         runtimeKind: "cloud-claude-code",
@@ -173,20 +173,52 @@ test("owned cloud bot card reads runtime binding before exposing controls", () =
       };
     }
   };
+  window.mia = {
+    social: {
+      getBotRuntimeControlOptions: async (input) => {
+        calls.options.push(input);
+        return {
+          ok: true,
+          data: {
+            agentEngine: "claude-code",
+            statusText: "Mia Cloud",
+            modelOptions: [{ id: "gpt-5.3", label: "GPT-5.3", model: "gpt-5.3", provider: "mia" }],
+            selectedModel: "gpt-5.3",
+            selectedModelEntry: { id: "gpt-5.3", label: "GPT-5.3", model: "gpt-5.3", provider: "mia" },
+            effortOptions: [{ value: "high", label: "High" }],
+            selectedEffort: "high",
+            permissionOptions: [{ value: "auto", label: "Auto" }],
+            selectedPermission: "auto"
+          }
+        };
+      }
+    }
+  };
 
   card.attach(ctxWithCloudOwnedFellow());
   card.openCard({ kind: "bot", ref: "mia", conversationId: "botc_bob_mia", anchor: null });
 
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].botKey, "mia");
-  assert.equal(calls[0].runtimeKind, "cloud-claude-code");
+  assert.equal(calls.bindings.length, 1);
+  assert.equal(calls.bindings[0].botKey, "mia");
+  assert.equal(calls.bindings[0].runtimeKind, "cloud-claude-code");
+  assert.equal(calls.options.length, 1);
+  assert.equal(calls.options[0].runtimeKind, "cloud-claude-code");
+  assert.equal(calls.options[0].bot.key, "mia");
+  assert.match(JSON.stringify(calls.options[0]), /modelCatalog/);
+  assert.doesNotMatch(JSON.stringify(calls.options[0]), /modelOptionsByEngine/);
+  assert.doesNotMatch(JSON.stringify(calls.options[0]), /effortOptionsByEngine/);
+  assert.doesNotMatch(JSON.stringify(calls.options[0]), /permissionOptionsByEngine/);
 });
 
 test("bot contact-card runtime edits go through bot command adapter", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "contact-card.js"), "utf8");
+  assert.match(source, /getBotRuntimeControlOptions/);
   assert.match(source, /global\.miaBotCommands\?\.saveBotRuntimeControl\?\.\(\{/);
-  assert.match(source, /global\.mia\?\.savePermissions\?\.\(\{/);
-  assert.match(source, /field === "permissionMode" && isExternal/);
+  assert.doesNotMatch(source, /global\.mia\?\.savePermissions\?\.\(\{/);
+  assert.doesNotMatch(source, /permissionSaveTarget/);
+  assert.doesNotMatch(source, /field === "permissionMode" && isExternal/);
+  assert.doesNotMatch(source, /currentModelEntry/);
+  assert.doesNotMatch(source, /runtime\.permissions\?\.engines/);
   assert.doesNotMatch(source, new RegExp("global\\.mia\\?\\.social\\?\\.save" + "BotRuntime"));
   assert.doesNotMatch(source, /global\.mia\.saveModel\(/);
   assert.doesNotMatch(source, new RegExp("global\\.mia\\.save" + "FellowEngine\\("));

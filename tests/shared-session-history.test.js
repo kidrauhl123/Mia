@@ -24,6 +24,19 @@ test("session-history contract is available in Node and browser contexts", () =>
   assert.equal(typeof browserContract.isUntitledBotConversation, "function");
 });
 
+test("session-history treats Rust Core bot_session rows as bot conversations", () => {
+  const conversation = {
+    id: "conv_123",
+    kind: "bot_session",
+    title: "Codex",
+    botId: "starter_100001_codex"
+  };
+
+  assert.equal(sessionHistory.conversationType(conversation), "bot");
+  assert.equal(sessionHistory.botId(conversation), "starter_100001_codex");
+  assert.equal(sessionHistory.sessionTitle(conversation), "Codex");
+});
+
 test("session-history groups bot conversations by bot id and sorts by latest message", () => {
   const messages = new Map([
     ["botc_s1", { messages: [{ created_at: "2026-01-01T00:00:00.000Z" }] }],

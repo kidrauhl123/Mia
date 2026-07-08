@@ -9,13 +9,9 @@ function createRuntimeInitializerService(deps = {}) {
   const fsImpl = deps.fs || fs;
   const randomBytes = deps.randomBytes || ((size) => crypto.randomBytes(size));
   const ensureEnginePlugins = deps.ensureEnginePlugins || (() => {});
-  const writeRuntimeConfig = deps.writeRuntimeConfig || (() => {});
-  const readConfiguredPort = deps.readConfiguredPort || (() => 8642);
-  const defaultModelSettings = deps.defaultModelSettings || (() => ({}));
-  const defaultProviderStore = deps.defaultProviderStore || (() => ({ providers: {} }));
   const defaultPermissionSettings = deps.defaultPermissionSettings || (() => ({ mode: "ask" }));
   const defaultEffortSettings = deps.defaultEffortSettings || (() => ({ level: "medium" }));
-  const defaultDaemonSettings = deps.defaultDaemonSettings || (() => ({}));
+  const defaultCoreSettings = deps.defaultCoreSettings || deps.defaultDaemonSettings || (() => ({}));
   const defaultUserProfile = deps.defaultUserProfile || (() => ({}));
   const defaultAppearanceSettings = deps.defaultAppearanceSettings || (() => ({}));
   const getRuntimeStatus = deps.getRuntimeStatus || ((created) => ({ created }));
@@ -51,27 +47,6 @@ function createRuntimeInitializerService(deps = {}) {
       created.push("runtime/hermes-engine/README.md");
     }
 
-    if (!fsImpl.existsSync(p.apiKey)) {
-      writeFileIfMissing(p.apiKey, `${randomBytes(32).toString("hex")}\n`, 0o600);
-      created.push("~/.hermes/mia-api-server.key");
-    }
-
-    const configExisted = fsImpl.existsSync(p.config);
-    writeRuntimeConfig(readConfiguredPort());
-    if (!configExisted) {
-      created.push("~/.hermes/config.yaml");
-    }
-
-    if (writeFileIfMissing(p.modelSettings, JSON.stringify({
-      ...defaultModelSettings()
-    }, null, 2) + "\n", 0o600)) {
-      created.push("runtime/engine-home/mia-model.json");
-    }
-
-    if (writeFileIfMissing(p.providerConnections, JSON.stringify(defaultProviderStore(), null, 2) + "\n", 0o600)) {
-      created.push("runtime/engine-home/mia-providers.json");
-    }
-
     if (writeFileIfMissing(p.permissionSettings, JSON.stringify(defaultPermissionSettings(), null, 2) + "\n", 0o600)) {
       created.push("runtime/engine-home/mia-permissions.json");
     }
@@ -80,12 +55,13 @@ function createRuntimeInitializerService(deps = {}) {
       created.push("runtime/engine-home/mia-effort.json");
     }
 
-    if (writeFileIfMissing(p.daemonSettings, JSON.stringify(defaultDaemonSettings(), null, 2) + "\n", 0o600)) {
-      created.push("runtime/engine-home/mia-daemon.json");
+    const coreSettingsPath = p.coreSettings || p.daemonSettings;
+    if (writeFileIfMissing(coreSettingsPath, JSON.stringify(defaultCoreSettings(), null, 2) + "\n", 0o600)) {
+      created.push("runtime/engine-home/mia-core.json");
     }
 
-    if (writeFileIfMissing(p.daemonToken, `${randomBytes(32).toString("hex")}\n`, 0o600)) {
-      created.push("runtime/engine-home/mia-daemon.key");
+    if (writeFileIfMissing(p.coreToken, `${randomBytes(32).toString("hex")}\n`, 0o600)) {
+      created.push("runtime/engine-home/mia-core.key");
     }
 
     if (writeFileIfMissing(p.userProfile, JSON.stringify(defaultUserProfile(), null, 2) + "\n")) {

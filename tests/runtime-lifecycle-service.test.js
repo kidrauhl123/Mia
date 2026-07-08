@@ -56,6 +56,9 @@ test("runtime lifecycle schedules Core startup and system refresh without foregr
     appendDaemonLog: (line) => calls.push(["daemon-log", line]),
     getRuntimeStatus: () => ({ engineInstalled: true }),
     initializeRuntimeCore: () => ({ created: [] }),
+    prepareEngineRuntimeConfigAsync: async () => calls.push(["prepare-runtime-config"]),
+    refreshAgentWorkspaceAsync: async () => calls.push(["refresh-agent-workspace"]),
+    refreshMemorySettingsAsync: async () => calls.push(["refresh-memory-settings"]),
     refreshSystemHermesAsync: async () => calls.push(["refresh-system-hermes"]),
     startDaemonService: async () => calls.push(["start-daemon"]),
     startEngine: async () => calls.push(["start-engine"]),
@@ -64,18 +67,24 @@ test("runtime lifecycle schedules Core startup and system refresh without foregr
 
   assert.equal(service.scheduleBackgroundStartup({ delayMs: 0, engineDelayMs: 0 }), true);
   assert.equal(service.scheduleBackgroundStartup({ delayMs: 0, engineDelayMs: 0 }), false);
-  await waitUntil(() => calls.length >= 2);
+  await waitUntil(() => calls.length >= 4);
 
   assert.deepEqual(calls, [
     ["start-daemon"],
-    ["refresh-system-hermes"]
+    ["refresh-system-hermes"],
+    ["prepare-runtime-config"],
+    ["refresh-agent-workspace"],
+    ["refresh-memory-settings"]
   ]);
   assert.equal(service.isBackgroundStartupScheduled(), true);
   assert.deepEqual(timer.marks.map((entry) => entry.label), [
     "background:scheduled",
     "daemon:start-scheduled",
     "daemon:start-done",
-    "system-hermes:refresh-done"
+    "system-hermes:refresh-done",
+    "engine-runtime-config:prepare-done",
+    "agent-workspace:refresh-done",
+    "memory-settings:refresh-done"
   ]);
 });
 

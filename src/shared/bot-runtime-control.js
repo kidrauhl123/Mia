@@ -74,72 +74,27 @@
     return binding;
   }
 
-  function modelEntryForValue(entries = [], value = "") {
-    const wanted = String(value || "").trim();
-    return (Array.isArray(entries) ? entries : [])
-      .find((entry) => [entry?.id, entry?.value, entry?.model].some((item) => String(item || "").trim() === wanted)) || null;
-  }
-
-  function selectedModelFromEntry(entry, value) {
-    if (entry && Object.prototype.hasOwnProperty.call(entry, "model")) return entry.model;
-    return value;
-  }
-
-  function providerConnectionIdFromEntry(entry = {}) {
-    return String(entry.providerConnectionId || entry.provider_connection_id || entry.provider || "").trim();
-  }
-
-  function modelProfileIdFromEntry(entry = {}, provider = "", model = "") {
-    const explicit = String(entry.modelProfileId || entry.model_profile_id || entry.profileId || entry.profile_id || "").trim();
-    if (explicit) return explicit;
-    return provider && model ? `${provider}:${model}` : "";
-  }
-
   function normalizedField(field = "") {
     if (field === "effort") return "effortLevel";
     if (field === "permission") return "permissionMode";
     return field;
   }
 
-  function patchForRuntimeField(field, value, modelEntries = []) {
-    const normalized = normalizedField(field);
-    if (normalized === "model") {
-      const entry = modelEntryForValue(modelEntries, value);
-      const model = selectedModelFromEntry(entry, value);
-      const providerConnectionId = providerConnectionIdFromEntry(entry);
-      const modelProfileId = modelProfileIdFromEntry(entry, providerConnectionId, model);
-      return {
-        model,
-        ...(providerConnectionId ? { providerConnectionId } : {}),
-        ...(modelProfileId ? { modelProfileId } : {})
+  function runtimeControlModelEntriesIntent(entries = []) {
+    return (Array.isArray(entries) ? entries : []).map((entry = {}) => {
+      const normalized = {
+        id: String(entry.id || "").trim(),
+        value: String(entry.value || "").trim(),
+        label: String(entry.label || "").trim(),
+        model: String(entry.model || "").trim(),
+        provider: String(entry.provider || entry.providerConnectionId || entry.provider_connection_id || "").trim(),
+        providerLabel: String(entry.providerLabel || entry.provider_label || "").trim(),
+        authType: String(entry.authType || entry.auth_type || "").trim(),
+        modelProfileId: String(entry.modelProfileId || entry.model_profile_id || entry.profileId || entry.profile_id || "").trim(),
+        profileId: String(entry.profileId || entry.profile_id || "").trim()
       };
-    }
-    if (normalized === "effortLevel" || normalized === "permissionMode") return { [normalized]: value };
-    return {};
-  }
-
-  async function saveBotRuntimeConfig({
-    api,
-    cache = null,
-    botKey = "",
-    botId = "",
-    runtimeKind = "cloud-claude-code",
-    patch = {},
-    current = undefined
-  } = {}) {
-    const key = botKeyFrom({ botKey, botId });
-    const kind = normalizeRuntimeKind(runtimeKind);
-    if (!key) return { saved: false, binding: null };
-    const existing = current !== undefined
-      ? current
-      : await getBotRuntimeBinding({ api, cache, botKey: key, runtimeKind: kind });
-    const base = existing || { botId: key, runtimeKind: kind, enabled: true, config: {} };
-    const config = { ...(base.config || {}), ...(patch || {}) };
-    const body = { runtimeKind: kind, enabled: true, config };
-    const payload = await writeRuntime(api, key, body);
-    const binding = bindingFromPayload(payload) || { ...base, runtimeKind: kind, enabled: true, config };
-    cache?.set?.(runtimeCacheKey(key, kind), binding);
-    return { saved: true, binding };
+      return Object.fromEntries(Object.entries(normalized).filter(([, value]) => value));
+    }).filter((entry) => entry.id || entry.value || entry.model);
   }
 
   async function saveBotRuntimeControl({
@@ -156,18 +111,32 @@
     const key = botKeyFrom({ bot, botKey, botId });
     const kind = normalizeRuntimeKind(runtimeKind);
     if (!key) return { saved: false, binding: null };
-    const patch = patchForRuntimeField(field, value, modelEntries);
-    if (!Object.keys(patch).length) return { saved: false, binding: null };
-    return saveBotRuntimeConfig({ api, cache, botKey: key, runtimeKind: kind, patch });
+    const normalized = normalizedField(field);
+    if (!["model", "effortLevel", "permissionMode"].includes(normalized)) return { saved: false, binding: null };
+    const controlIntent = {
+      field: normalized,
+      value: String(value || ""),
+      modelEntries: normalized === "model" ? runtimeControlModelEntriesIntent(modelEntries) : []
+    };
+    const payload = await writeRuntime(api, key, {
+      runtimeKind: kind,
+      enabled: true,
+      controlIntent
+    });
+    const binding = bindingFromPayload(payload) || {
+      botId: key,
+      runtimeKind: kind,
+      enabled: true,
+      controlIntent
+    };
+    cache?.set?.(runtimeCacheKey(key, kind), binding);
+    return { saved: true, binding };
   }
 
   return {
     runtimeCacheKey,
     getBotRuntimeBinding,
-    saveBotRuntimeConfig,
     saveBotRuntimeControl,
-    patchForRuntimeField,
-    modelEntryForValue,
     normalizeRuntimeKind
   };
 });

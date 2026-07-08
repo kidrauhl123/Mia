@@ -5,9 +5,8 @@
 // engine's reported enable/disable state, and the CRUD surface
 // (read/delete/openDirectory/install + the slash-command expander).
 //
-// Pattern matches src/main/codex-stateless-adapter.js: CommonJS module
-// exporting createSkillsLoader({...deps}) — main.js wires runtime
-// references (runtimePaths, engineState, apiKey, etc.) at startup.
+// CommonJS module exporting createSkillsLoader({...deps}) — main.js wires runtime
+    // references (runtimePaths, engineState, apiServerKey, etc.) at startup.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -73,9 +72,10 @@ function createSkillsLoader(deps = {}) {
     // reference would go stale and `fetchHermesSkillsCatalog` would either
     // skip the probe forever or hit the wrong baseUrl.
     getEngineState,
-    apiKey,
+    apiServerKey,
     appendEngineLog,
     isChildPath,
+    materializeSkillsWithCore,
   } = deps;
 
   function parseSkillMarkdown(filePath, rootInfo) {
@@ -477,7 +477,7 @@ function createSkillsLoader(deps = {}) {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${state.baseUrl}/api/skills`, {
-        headers: { Authorization: `Bearer ${apiKey()}` },
+        headers: { Authorization: `Bearer ${apiServerKey()}` },
         signal: controller.signal
       });
       if (!response.ok) return null;
@@ -739,8 +739,8 @@ function createSkillsLoader(deps = {}) {
     return out;
   }
 
-  function resolveSkillMaterialization({ bot, activeSkillIds = [], intentSkillIds = [], requestedSkillIds = [], mode = "index" } = {}) {
-    return materializeSkillsForTurn({
+  function buildSkillMaterializationRequest({ bot, activeSkillIds = [], intentSkillIds = [], requestedSkillIds = [], mode = "index" } = {}) {
+    return {
       availableSkills: appendRequestedSkillRecords(
         skillRecordsForBot(bot || {}),
         [...activeSkillIds, ...intentSkillIds, ...requestedSkillIds]
@@ -749,7 +749,20 @@ function createSkillsLoader(deps = {}) {
       intentSkillIds,
       requestedSkillIds,
       mode
-    });
+    };
+  }
+
+  function resolveSkillMaterialization(input = {}) {
+    return materializeSkillsForTurn(buildSkillMaterializationRequest(input));
+  }
+
+  async function resolveSkillMaterializationWithCore(input = {}) {
+    const request = buildSkillMaterializationRequest(input);
+    if (typeof materializeSkillsWithCore === "function") {
+      const response = await materializeSkillsWithCore(request);
+      if (response && typeof response === "object") return response;
+    }
+    return materializeSkillsForTurn(request);
   }
 
   // Composer "使用" chips: the user explicitly picked these skills for THIS
@@ -834,6 +847,7 @@ function createSkillsLoader(deps = {}) {
     listCurrentBotSkills,
     readCurrentBotSkill,
     resolveSkillMaterialization,
+    resolveSkillMaterializationWithCore,
     resolveLocalSkillRecord,
     buildActiveSkillsDirective,
     botCapabilitiesWithPresetDefaults: (bot) => botCapabilitiesWithPresetDefaults(bot, readMiaOfficialBotPresets()),

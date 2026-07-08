@@ -6,6 +6,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const root = path.join(__dirname, "..");
+const LEGACY_NODE_RESOURCE = `mia-${"node"}`;
 
 function packageJson() {
   return JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -29,52 +30,74 @@ test("electron-builder resources exclude Hermes runtime", () => {
   assert.doesNotMatch(JSON.stringify(pkg.build.win || {}), /vendor\/hermes-runtime/);
 });
 
-test("packaged Mia Core node runtime is new enough and requires sqlite fts5", () => {
-  const source = fs.readFileSync(path.join(root, "scripts/stage-core-node.js"), "utf8");
+test("packaged Mia Core is prepared from the Rust release binary", () => {
+  const pkg = packageJson();
+  const source = fs.readFileSync(path.join(root, "scripts/prepare-mia-core-rs.js"), "utf8");
+  const extraResources = pkg.build.extraResources || [];
 
-  assert.match(source, /const NODE_VERSION = process\.env\.MIA_CORE_NODE_VERSION \|\| "v24\.15\.0"/);
-  assert.match(source, /function assertFts5Enabled\(binary\)/);
-  assert.match(source, /function assertTargetFts5Enabled\(source, targetPlatform, targetArch\)/);
-  assert.match(source, /function targetPlatformFromContext\(context\)/);
-  assert.match(source, /node-\$\{NODE_VERSION\}-\$\{nodePlatform\}-\$\{arch\}/);
-  assert.match(source, /platform === "win32" \? "zip" : "tar\.gz"/);
-  assert.match(source, /node\.exe/);
-  assert.match(source, /target .* node cannot run on this .* host/);
-  assert.match(source, /CREATE VIRTUAL TABLE __mia_core_fts5_probe USING fts5\(value\)/);
-  assert.match(source, /await assertTargetFts5Enabled\(source, targetPlatform, targetArch\)/);
+  assert.equal(pkg.build.beforePack, "./scripts/prepare-mia-core-rs.js");
+  assert.ok(extraResources.some((entry) => entry.from === "resources/bundled-mia-core" && entry.to === "bundled-mia-core"));
+  assert.ok(extraResources.some((entry) => entry.from === "skills" && entry.to === "skills"));
+  assert.equal(JSON.stringify(extraResources).includes(LEGACY_NODE_RESOURCE), false);
+  assert.match(source, /cargo/);
+  assert.match(source, /"build", "--release", "-p", "mia-core-app", "--bin", "mia-core"/);
+  assert.match(source, /MIA_CORE_RS_BIN/);
+  assert.match(source, /"resources",\s+"bundled-mia-core"/);
 });
 
-test("desktop package includes AgentSession ACP SDK runtime dependency", () => {
+test("desktop package keeps AgentSession ACP SDK as a production dependency", () => {
   const pkg = packageJson();
 
   assert.ok(pkg.dependencies?.["@agentclientprotocol/sdk"], "AgentSession ACP SDK must be a production dependency");
   assert.ok(pkg.dependencies?.zod, "AgentSession ACP SDK imports zod at runtime, so zod must be a production dependency");
-  assert.ok(
-    pkg.build.asarUnpack.includes("node_modules/@agentclientprotocol/sdk/**"),
-    "AgentSession imports @agentclientprotocol/sdk at runtime, so packaged apps must unpack it"
-  );
-  assert.ok(
-    pkg.build.asarUnpack.includes("node_modules/zod/**"),
-    "AgentSession ACP SDK imports zod at runtime, so packaged apps must unpack it"
-  );
 });
 
-test("desktop package unpacks packaged-Core runtime dependencies that are required at startup", () => {
+test("desktop package no longer unpacks Node Core runtime dependencies for packaged Core startup", () => {
   const pkg = packageJson();
+  const unpacked = pkg.build.asarUnpack || [];
 
   assert.ok(pkg.dependencies?.qrcode, "desktop sync client imports qrcode at runtime, so it must stay a production dependency");
-  assert.ok(
-    pkg.build.asarUnpack.includes("node_modules/qrcode/**"),
-    "Mia Core starts under plain node, so qrcode must be unpacked into app.asar.unpacked"
-  );
-  assert.ok(
-    pkg.build.asarUnpack.includes("node_modules/dijkstrajs/**"),
-    "qrcode/lib/core/segments.js requires dijkstrajs at runtime, so packaged apps must unpack it for Mia Core"
-  );
-  assert.ok(
-    pkg.build.asarUnpack.includes("node_modules/pngjs/**"),
-    "qrcode/lib/renderer/png.js requires pngjs at runtime, so packaged apps must unpack it for Mia Core"
-  );
+  assert.equal(pkg.dependencies?.["@modelcontextprotocol/sdk"], undefined, "Node MCP SDK should be removed after Rust Core owns MCP");
+  for (const pattern of [
+    "node_modules/ws/**",
+    "node_modules/zod/**",
+    "node_modules/adm-zip/**",
+    "node_modules/cron-parser/**",
+    "node_modules/luxon/**",
+    "node_modules/js-yaml/**",
+    "node_modules/qrcode/**",
+    "node_modules/dijkstrajs/**",
+    "node_modules/pngjs/**",
+    "node_modules/argparse/**",
+    "node_modules/@agentclientprotocol/sdk/**",
+    "node_modules/@anthropic-ai/claude-agent-sdk/**",
+    "node_modules/@anthropic-ai/sdk/**",
+    "node_modules/@modelcontextprotocol/sdk/**"
+  ]) {
+    assert.equal(unpacked.includes(pattern), false, `${pattern} must not stay unpacked only for the deleted Node Core`);
+  }
+});
+
+test("desktop package root dependencies exclude retired Node backend owners", () => {
+  const pkg = packageJson();
+  const deps = pkg.dependencies || {};
+  const retiredBackendDeps = [
+    "@modelcontextprotocol/sdk",
+    "better-sqlite3",
+    "sqlite3",
+    "express",
+    "express-rate-limit",
+    "jsonwebtoken",
+    "openai",
+    "keytar",
+    "node-pty",
+    "chokidar",
+    "mime-types"
+  ];
+
+  for (const dep of retiredBackendDeps) {
+    assert.equal(deps[dep], undefined, `${dep} must not be a root dependency after Rust Core owns backend domains`);
+  }
 });
 
 test("desktop auto-update uses Mia generic update source instead of GitHub", () => {
@@ -152,7 +175,8 @@ test("desktop package verification script exists as a standalone rerunnable gate
   assert.match(source, /verifyPackagedMiaCore/);
   assert.match(source, /resolvePackagedAppPath/);
   assert.match(source, /\/health/);
-  assert.match(source, /mia-node/);
+  assert.match(source, /bundled-mia-core/);
+  assert.doesNotMatch(source, new RegExp(LEGACY_NODE_RESOURCE));
 });
 
 test("base DMG artifact name uses the real architecture by default", () => {

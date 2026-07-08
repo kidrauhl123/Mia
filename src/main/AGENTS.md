@@ -6,8 +6,8 @@
 
 - `src/main.js` 只做启动、窗口、模块装配和少量全局生命周期。不要继续把业务逻辑塞进来。
 - `src/main/ipc/` 放 IPC 注册模块。新增 channel 时优先建或扩同领域 IPC 文件。
-- Bot 对话的 Agent 引擎统一走 AgentSession/ACP runtime；不要把 Claude/Codex/Hermes 的 prompt 直连路径重新接回 bot 执行。
-- `src/main/*-stateless-adapter.js` 只服务明确的 stateless/utility 调用。保留 prompt-shaped helper 时必须有具体 callsite 和测试，不能伪装成 bot conversation adapter。
+- Bot 对话和 utility turn 的 Agent 引擎入口统一走 Rust Core conversation/runtime routes；不要把 Claude/Codex/Hermes 的 prompt 直连路径重新接回 Electron main。
+- 已删除的 Node utility runtime 直连文件不要恢复。临时 renderer 方法只能做 Core HTTP adapter。
 - `src/main/*service*.js` 这类模块负责本地系统、runtime、缓存、设置和云同步。保持单一 owner。
 - `src/shared/` 放 main/preload/renderer/cloud/mobile 共用 contract。
 
@@ -18,7 +18,7 @@
 ```bash
 node -c src/main/<changed-file>.js
 node --test tests/main-*.test.js
-node --test tests/codex-stateless-adapter.test.js tests/codex-app-server-runner.test.js
+node --test tests/project-structure-check.test.js tests/mia-core-ui-adapter.test.js
 npm run check
 ```
 

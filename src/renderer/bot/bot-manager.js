@@ -35,14 +35,6 @@
     ["X", "西"], ["Y", "压"], ["Z", "匝"]
   ];
 
-  function botIdentity() {
-    if (typeof window !== "undefined" && window.miaBotIdentity) return window.miaBotIdentity;
-    if (typeof require === "function") {
-      try { return require("../../shared/bot-identity.js"); } catch { /* fallback below */ }
-    }
-    return null;
-  }
-
   function readLocalJson(key, fallback) {
     try {
       const raw = window.localStorage?.getItem(key);
@@ -353,44 +345,12 @@
     if (!botKey || !skillId || !state) return;
     const bot = allOwnedBots().find((item) => item.key === botKey);
     if (!bot) return;
-    const caps = botCapabilities(bot);
-    if (!caps.enabledSkills.includes(skillId)) {
-      await saveBotCapabilities(bot, toggleCapabilityId(caps, skillId, "enabledSkills", "disabledSkills", true));
-    }
+    await saveBotCapabilityIntent(bot, {
+      capabilityType: "skill",
+      capabilityId: skillId,
+      checked: true
+    });
     await openBotChat(botKey);
-  }
-
-  function defaultBotCapabilities() {
-    return botIdentity()?.normalizeBotCapabilities?.({}) || {
-      inheritEngineDefaults: true,
-      enabledPlugins: [],
-      disabledPlugins: [],
-      enabledSkills: [],
-      disabledSkills: [],
-      enabledConnectors: [],
-      legacyCapabilities: []
-    };
-  }
-
-  function normalizeCapabilityIds(input) {
-    return botIdentity()?.normalizeCapabilityIds?.(input)
-      || (Array.isArray(input) ? [...new Set(input.map((item) => String(item || "").trim()).filter(Boolean))] : []);
-  }
-
-  function botCapabilities(bot = {}) {
-    const identity = botIdentity();
-    if (typeof identity?.botCapabilitiesWithPresetDefaults === "function") {
-      return identity.botCapabilitiesWithPresetDefaults(bot, state?.skillLibrary?.botPresets || []);
-    }
-    const normalizer = identity?.normalizeBotCapabilities;
-    if (typeof normalizer === "function") return normalizer(bot.capabilities);
-    const raw = bot.capabilities && typeof bot.capabilities === "object" ? bot.capabilities : {};
-    return { ...defaultBotCapabilities(), ...raw };
-  }
-
-  function capabilityForEngine(item = {}, engine = "") {
-    const itemEngine = String(item.engine || item.provider || "").trim();
-    return !itemEngine || itemEngine === "mia" || itemEngine === engine || (engine === "hermes" && item.source === "hermes");
   }
 
   function engineLabel(engine = "") {
@@ -428,7 +388,21 @@
   }
 
   function botDeviceLabel(bot = {}) {
-    return window.miaBotDirectory.runtimeLabelFor(bot, state?.runtime || {});
+    const projection = runtimeTargetProjection(bot);
+    return firstNonEmpty(
+      projection.runtimeLabel,
+      bot.runtimeLabel,
+      bot.runtime_label,
+      "正在同步运行目标..."
+    );
+  }
+
+  function runtimeTargetProjection(bot = {}) {
+    const options = cachedRuntimeTargetOptions(bot) || {};
+    return {
+      runtimeLabel: String(options.runtimeLabel || options.runtime_label || "").trim(),
+      runsOnOtherDevice: Boolean(options.runsOnOtherDevice || options.runs_on_other_device)
+    };
   }
 
   function contactUid(bot = {}) {
@@ -470,101 +444,118 @@
     );
   }
 
-  function skillLookupKey(value = "") {
-    return String(value || "").trim().toLowerCase();
+  function capabilityOptionsApi() {
+    return window.mia?.social?.getBotCapabilityOptions || window.miaSocial?.getBotCapabilityOptions || null;
   }
 
-  function skillIdLookupKeys(id = "") {
-    const value = String(id || "").trim();
-    const suffix = value.includes(":") ? value.split(":").pop() : "";
-    return [value, suffix]
-      .map(skillLookupKey)
-      .filter((item, index, arr) => item && arr.indexOf(item) === index);
+  function ensureCapabilityOptionsState() {
+    if (!state.botCapabilityOptionsCache) state.botCapabilityOptionsCache = new Map();
+    if (!state.botCapabilityOptionsLoadingKeys) state.botCapabilityOptionsLoadingKeys = new Set();
   }
 
-  function skillItemLookupKeys(item = {}) {
-    const id = String(item.id || "").trim();
-    const name = String(item.name || "").trim();
-    const relPath = String(item.relPath || item.rel_path || "").trim();
-    const relBase = relPath ? relPath.split(/[\\/]/).filter(Boolean).pop() : "";
-    const idBase = id.includes(":") ? id.split(":").pop() : "";
-    const source = String(item.source || item.pluginId || item.plugin_id || "").trim();
-    return [
-      id,
-      idBase,
-      name,
-      relPath,
-      relBase,
-      item.marketId,
-      item.market_id,
-      source && name ? `${source}:${name}` : "",
-      source && relPath ? `${source}:${relPath}` : ""
-    ].map(skillLookupKey).filter((value, index, arr) => value && arr.indexOf(value) === index);
+  function capabilityOptionsKey(bot = {}) {
+    return String(bot.key || bot.id || "").trim();
   }
 
-  function skillMatchesCapabilityId(item = {}, id = "") {
-    const targets = new Set(skillIdLookupKeys(id));
-    return skillItemLookupKeys(item).some((key) => targets.has(key));
+  function capabilityOptionsRequest(bot = {}, intent = null) {
+    return {
+      bot,
+      availableSkills: Array.isArray(state?.skillLibrary?.skills) ? state.skillLibrary.skills : [],
+      botPresets: Array.isArray(state?.skillLibrary?.botPresets) ? state.skillLibrary.botPresets : [],
+      ...(intent ? { intent } : {})
+    };
   }
 
-  function skillForCapabilityId(id = "", skills = []) {
-    const target = String(id || "").trim();
-    if (!target) return null;
-    return skills.find((item) => String(item.id || "").trim() === target)
-      || skills.find((item) => skillMatchesCapabilityId(item, target))
-      || null;
+  function normalizeCoreCapabilityOption(option = {}) {
+    const capabilityId = String(option.capabilityId || option.capability_id || option.id || "").trim();
+    return {
+      id: String(option.id || capabilityId).trim(),
+      capabilityId,
+      label: String(option.label || option.title || option.name || capabilityId || "").trim(),
+      source: String(option.source || "").trim(),
+      checked: Boolean(option.checked),
+      missing: Boolean(option.missing)
+    };
   }
 
-  function availableSkillItemsForBot(bot = {}) {
-    if (!state) return [];
-    const engine = bot.agentEngine || bot.agent_engine || "hermes";
-    return (state.skillLibrary.skills || []).filter((item) => capabilityForEngine(item, engine));
+  function normalizeCoreCapabilityGroup(group = {}) {
+    return {
+      id: String(group.id || "").trim(),
+      label: String(group.label || "").trim(),
+      kind: String(group.kind || "skill").trim() || "skill",
+      options: (Array.isArray(group.options) ? group.options : [])
+        .map(normalizeCoreCapabilityOption)
+        .filter((option) => option.capabilityId)
+    };
   }
 
-  function botCapabilityItems(bot = {}) {
-    const availableSkills = availableSkillItemsForBot(bot);
-    const capabilities = botCapabilities(bot);
-    const disabled = new Set(normalizeCapabilityIds(capabilities.disabledSkills));
-    const enabledIds = normalizeCapabilityIds(capabilities.enabledSkills).filter((id) => !disabled.has(id));
-    const enabledKeys = new Set();
-    const skills = enabledIds.map((id) => {
-      for (const key of skillIdLookupKeys(id)) enabledKeys.add(key);
-      const matched = skillForCapabilityId(id, availableSkills);
-      if (matched) {
-        for (const key of skillItemLookupKeys(matched)) enabledKeys.add(key);
-        return { ...matched, capabilityId: id };
-      }
-      return { id, capabilityId: id, name: String(id || "").replace(/^mia-official:/, ""), missing: true };
-    });
-    const addableSkills = availableSkills.filter((item) => !skillItemLookupKeys(item).some((key) => enabledKeys.has(key)));
-    return { skills, addableSkills, availableSkills };
+  function normalizeCoreCapabilityOptions(response = {}) {
+    const data = response?.data && typeof response.data === "object" && Array.isArray(response.data.groups)
+      ? response.data
+      : response;
+    return {
+      capabilities: data?.capabilities && typeof data.capabilities === "object" ? data.capabilities : {},
+      summary: String(data?.summary || "未设置默认技能"),
+      groups: (Array.isArray(data?.groups) ? data.groups : []).map(normalizeCoreCapabilityGroup)
+    };
   }
 
-  function capabilityChecked(capabilities, id, enabledKey, disabledKey) {
-    return capabilities[enabledKey].includes(id);
-  }
-
-  function capabilityTitle(item = {}, type = "") {
-    if (type === "skill") {
-      const skill = {
-        ...item,
-        name: item.name || String(item.id || "").replace(/^mia-official:/, ""),
-        source: item.source || (String(item.id || "").startsWith("mia-official:") ? "mia-official" : "")
-      };
-      const title = window.miaSkillHelpers?.skillDisplayName?.(skill);
-      if (title) return title;
-      return item.marketNameZh || item.name_zh || item.title || item.name || item.label || item.id;
+  async function loadBotCapabilityOptions(bot = {}) {
+    if (!state) return null;
+    ensureCapabilityOptionsState();
+    const key = capabilityOptionsKey(bot);
+    if (!key || state.botCapabilityOptionsCache.has(key) || state.botCapabilityOptionsLoadingKeys.has(key)) {
+      return state.botCapabilityOptionsCache.get(key) || null;
     }
-    return item.label || item.name || item.id;
+    const api = capabilityOptionsApi();
+    if (typeof api !== "function") {
+      state.botCapabilityOptionsCache.set(key, {
+        capabilities: {},
+        summary: "能力配置不可用",
+        groups: []
+      });
+      return state.botCapabilityOptionsCache.get(key);
+    }
+    state.botCapabilityOptionsLoadingKeys.add(key);
+    try {
+      const response = await api(capabilityOptionsRequest(bot));
+      const options = normalizeCoreCapabilityOptions(response);
+      state.botCapabilityOptionsCache.set(key, options);
+      return options;
+    } catch (error) {
+      state.botCapabilityOptionsCache.set(key, {
+        capabilities: {},
+        summary: error?.message || "能力配置加载失败",
+        groups: []
+      });
+      return state.botCapabilityOptionsCache.get(key);
+    } finally {
+      state.botCapabilityOptionsLoadingKeys.delete(key);
+      if (state.activeContactKey === key) renderContacts();
+    }
   }
 
-  function renderCapabilityCheckbox({ item, checked, type, className = "" }) {
-    const title = capabilityTitle(item, type);
-    const capabilityId = item.capabilityId || item.id;
+  function botCapabilityOptions(bot = {}) {
+    if (!state) return null;
+    ensureCapabilityOptionsState();
+    const key = capabilityOptionsKey(bot);
+    if (!key) return null;
+    const cached = state.botCapabilityOptionsCache.get(key) || null;
+    if (!cached) loadBotCapabilityOptions(bot);
+    return cached;
+  }
+
+  function capabilityGroup(options, id) {
+    return (options?.groups || []).find((group) => group.id === id) || { options: [] };
+  }
+
+  function renderCapabilityCheckbox({ option, type, className = "" }) {
+    const title = option.label || option.capabilityId;
+    const capabilityId = option.capabilityId || option.id;
     const rowClass = ["capability-row", className].filter(Boolean).join(" ");
     return `
       <label class="${window.miaMarkdown.escapeHtml(rowClass)}">
-        <input type="checkbox" data-capability-type="${window.miaMarkdown.escapeHtml(type)}" data-capability-id="${window.miaMarkdown.escapeHtml(capabilityId)}" ${checked ? "checked" : ""}>
+        <input type="checkbox" data-capability-type="${window.miaMarkdown.escapeHtml(type)}" data-capability-id="${window.miaMarkdown.escapeHtml(capabilityId)}" ${option.checked ? "checked" : ""}>
         <span class="capability-copy">
           <strong>${window.miaMarkdown.escapeHtml(title)}</strong>
         </span>
@@ -574,13 +565,15 @@
   }
 
   function renderBotCapabilitiesPanel(bot) {
-    const { skills, addableSkills } = botCapabilityItems(bot);
+    const options = botCapabilityOptions(bot);
+    const skills = capabilityGroup(options, "enabled-skills").options;
+    const addableSkills = capabilityGroup(options, "addable-skills").options;
     const panelOpen = state?.openCapabilityPanelKeys?.has?.(bot?.key);
-    const summary = state?.skillsLoading
+    const summary = !options
+      ? "同步能力选项"
+      : state?.skillsLoading
       ? "正在加载技能"
-      : skills.length
-        ? `${skills.length} 个默认技能`
-        : "未设置默认技能";
+      : options.summary;
     return `
       <details class="contact-capabilities accordion-details" data-capabilities-panel-key="${window.miaMarkdown.escapeHtml(bot?.key || "")}"${panelOpen ? " open" : ""}>
         <summary>
@@ -592,9 +585,8 @@
         </summary>
         <div class="accordion-body">
           <div class="capability-list capability-list-enabled">
-            ${skills.length ? skills.map((item) => renderCapabilityCheckbox({
-              item,
-              checked: true,
+            ${skills.length ? skills.map((option) => renderCapabilityCheckbox({
+              option,
               type: "skill",
               className: "enabled"
             })).join("") : `<div class="capability-empty">这个 Bot 还没有默认启用的技能</div>`}
@@ -603,9 +595,8 @@
             <details class="capability-add-details">
               <summary><span aria-hidden="true">+</span><strong>添加技能</strong></summary>
               <div class="capability-list capability-list-add">
-                ${addableSkills.map((item) => renderCapabilityCheckbox({
-                  item,
-                  checked: false,
+                ${addableSkills.map((option) => renderCapabilityCheckbox({
+                  option,
                   type: "skill",
                   className: "addable"
                 })).join("")}
@@ -836,251 +827,82 @@
     loadContactMemoryEntries(activeBot.key, { force: true });
   }
 
-  function normalizeDevice(input = {}) {
-    const id = String(input.id || input.deviceId || "").trim();
-    if (!id) return null;
-    return {
-      ...input,
-      id,
-      deviceName: firstNonEmpty(input.deviceName, input.device_name, input.name, id),
-      status: String(input.status || "").trim(),
-      isLocal: Boolean(input.isLocal),
-      capabilities: input.capabilities && typeof input.capabilities === "object" ? input.capabilities : {}
-    };
-  }
-
-  function isSameLocalDevice(device, local) {
-    return Boolean(device && local && device.id === local.id);
-  }
-
-  function mergeEngineLists(left = {}, right = {}) {
-    const out = [];
-    for (const source of [left, right]) {
-      const engines = Array.isArray(source.capabilities?.engines) ? source.capabilities.engines : [];
-      for (const engine of engines) {
-        const id = String(engine || "").trim();
-        if (id && !out.includes(id)) out.push(id);
-      }
-    }
-    return out;
-  }
-
-  function mergeDevices(existing, incoming) {
-    if (!existing) return incoming;
-    const engines = mergeEngineLists(existing, incoming);
-    const isLocal = Boolean(existing.isLocal || incoming.isLocal);
-    const status = isLocal
-      ? "local"
-      : ([existing.status, incoming.status].includes("online") ? "online" : (incoming.status || existing.status || ""));
-    return {
-      ...existing,
-      ...incoming,
-      id: existing.id || incoming.id,
-      deviceName: incoming.deviceName || existing.deviceName,
-      status,
-      isLocal,
-      capabilities: {
-        ...(existing.capabilities || {}),
-        ...(incoming.capabilities || {}),
-        ...(engines.length ? { engines } : {})
-      }
-    };
-  }
-
-  function normalizeLocalAgentEngine(value = "hermes") {
-    return window.miaBotDirectory?.normalizeAgentEngine?.(value, "desktop-local")
-      || window.miaEngineContracts?.normalizeAgentEngine?.(value)
-      || String(value || "hermes").trim();
-  }
-
-  function localRuntimeEngineIds(runtime = {}) {
-    const inventory = new Map();
-    for (const agent of Array.isArray(runtime.agentInventory?.agents) ? runtime.agentInventory.agents : []) {
-      const rawId = String(agent?.id || "").trim();
-      if (!rawId) continue;
-      const id = normalizeLocalAgentEngine(rawId);
-      if (id && !inventory.has(id)) inventory.set(id, agent);
-    }
-    const engineStatus = (engine) => {
-      if (engine === "claude-code") return runtime.agentEngines?.claudeCode || runtime.agentEngines?.["claude-code"] || {};
-      return runtime.agentEngines?.[engine] || {};
-    };
-    const capabilities = state?.engineCapabilities?.engines || {};
-    const capabilityAvailable = (engine) => {
-      const cap = capabilities?.[engine];
-      if (!cap || cap.available === false) return false;
-      return cap.available === true
-        || (Array.isArray(cap.models) && cap.models.length > 0)
-        || (Array.isArray(cap.permissionOptions) && cap.permissionOptions.length > 0)
-        || (Array.isArray(cap.permissionProfiles) && cap.permissionProfiles.length > 0)
-        || (Array.isArray(cap.permissionModes) && cap.permissionModes.length > 0)
-        || (Array.isArray(cap.effortLevels) && cap.effortLevels.length > 0);
-    };
-    const scanInProgress = Boolean(runtime.agentInventory?.summary?.scanning);
-    const inventoryUsable = (engine) => {
-      const agent = inventory.get(engine);
-      if (!agent) return false;
-      if (agent.usableInMia === true) return true;
-      return scanInProgress && (agent.health === "checking" || agent.source === "checking");
-    };
-    const legacySources = {
-      hermes: engineStatus("hermes").available || engineStatus("hermes").installed || runtime.engineInstalled || runtime.engineRunning,
-      "claude-code": engineStatus("claude-code").available || engineStatus("claude-code").installed,
-      codex: engineStatus("codex").available || engineStatus("codex").installed
-    };
-    return ["hermes", "claude-code", "codex"]
-      .filter((id) => inventoryUsable(id) || legacySources[id] || capabilityAvailable(id));
-  }
-
-  function localDeviceCandidate() {
-    const runtime = state?.runtime || {};
-    const id = firstNonEmpty(runtime.localDevice?.id, runtime.cloud?.deviceId, "current-device");
-    const engines = localRuntimeEngineIds(runtime);
-    if (!engines.length) engines.push(normalizeLocalAgentEngine(state?.preferredAgentEngine || "hermes"));
-    return normalizeDevice({
-      id,
-      deviceName: firstNonEmpty(runtime.localDevice?.name, runtime.cloud?.deviceName, "当前设备"),
-      status: "local",
-      isLocal: true,
-      capabilities: { engines }
-    });
-  }
-
-  function runtimeDevices() {
-    const byId = new Map();
-    const add = (device) => {
-      const normalized = normalizeDevice(device);
-      if (!normalized) return;
-      byId.set(normalized.id, mergeDevices(byId.get(normalized.id), normalized));
-    };
-    for (const device of state?.runtime?.cloud?.devices || state?.runtime?.cloud?.bridgeDevices || []) add(device);
-    add(localDeviceCandidate());
-    return [...byId.values()];
-  }
-
-  function editableRuntimeDevices() {
-    const local = localDeviceCandidate();
-    return local ? [local] : [];
-  }
-
-  function deviceStatusLabel(device = {}) {
-    if (device.isLocal || device.status === "local") return "本机";
-    if (device.status === "online") return "在线";
-    return "离线";
-  }
-
-  function compactDeviceName(value = "") {
-    return String(value || "")
-      .trim()
-      .replace(/\s*(?:·|-)?\s*Mia\s+(?:Desktop|Bridge)(?=\s*(?:·|-|$))/gi, "")
-      .replace(/\.local(?=\s|$)/gi, "")
-      .replace(/\s*(?:·|-)\s*(?:本机|在线|离线)\s*$/i, "")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  function runtimeDeviceDisplayName(device = {}) {
-    if (device.isLocal || device.status === "local") return "本机";
-    return compactDeviceName(device.deviceName || device.device_name || device.name || "") || String(device.id || "").trim() || "设备";
-  }
-
-  function deviceEngines(device = {}) {
-    const advertised = Array.isArray(device.capabilities?.engines)
-      ? device.capabilities.engines.map((id) => String(id || "").trim()).filter(Boolean)
-      : [];
-    if (advertised.length) return advertised.filter((id) => ["hermes", "claude-code", "codex"].includes(id));
-    const engine = String(device.engine || "").trim();
-    return ["hermes", "claude-code", "codex"].includes(engine) ? [engine] : [];
-  }
-
-  function strictAgentEngine(value = "") {
-    const strict = window.miaCloudRuntime?.normalizeAgentEngineStrict?.(value);
-    if (strict) return strict;
-    const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
-    if (raw === "claude" || raw === "claude-code") return "claude-code";
-    if (raw === "codex" || raw === "openai-codex") return "codex";
-    if (raw === "hermes") return "hermes";
-    return "";
-  }
-
-  function cloudAgentRuntime() {
-    return window.miaCloudRuntime?.cloudAgentRuntimeFromState?.(state) || {
-      runtimeKind: "",
-      agentEngine: "",
-      label: "",
-      available: false
-    };
-  }
-
-  function activeRuntimeTarget(bot = {}) {
-    const kind = window.miaBotDirectory.normalizeRuntimeKind(bot.runtimeKind || bot.runtime_kind, "desktop-local");
-    if (kind === "cloud-claude-code") {
-      return {
-        runtimeKind: "cloud-claude-code",
-        deviceId: "",
-        agentEngine: strictAgentEngine(bot.agentEngine || bot.agent_engine || bot.runtimeConfig?.agentEngine || bot.runtime_config?.agentEngine) || cloudAgentRuntime().agentEngine
-      };
-    }
-    return {
-      runtimeKind: "desktop-local",
-      deviceId: firstNonEmpty(bot.targetDeviceId, bot.target_device_id, bot.deviceId, bot.device_id, bot.runtimeConfig?.deviceId, state?.runtime?.localDevice?.id, state?.runtime?.cloud?.deviceId, "current-device"),
-      agentEngine: window.miaBotDirectory.normalizeAgentEngine(bot.agentEngine || bot.agent_engine || bot.runtimeConfig?.agentEngine || "hermes", "desktop-local")
-    };
-  }
-
   function botRunsOnOtherDevice(bot = {}) {
-    const target = activeRuntimeTarget(bot);
-    if (target.runtimeKind !== "desktop-local") return false;
-    const local = localDeviceCandidate();
-    const targetDeviceId = firstNonEmpty(
-      target.deviceId,
-      bot.targetDeviceId,
-      bot.target_device_id,
-      bot.deviceId,
-      bot.device_id,
-      bot.runtimeConfig?.deviceId
-    );
-    if (!local || !targetDeviceId) return false;
-    const targetDevice = normalizeDevice({
-      id: targetDeviceId,
-      deviceName: firstNonEmpty(
-        bot.targetDeviceName,
-        bot.target_device_name,
-        bot.deviceName,
-        bot.device_name,
-        bot.runtimeConfig?.deviceName
-      )
-    });
-    return Boolean(targetDevice && !isSameLocalDevice(targetDevice, local));
+    return runtimeTargetProjection(bot).runsOnOtherDevice;
   }
 
-  function targetButtonHtml({ bot, runtimeKind, device = null, engine = "hermes" }) {
-    const active = activeRuntimeTarget(bot);
-    const selected = runtimeKind === "cloud-claude-code"
-      ? active.runtimeKind === "cloud-claude-code"
-      : active.runtimeKind === "desktop-local" && device?.id === active.deviceId && active.agentEngine === engine;
-    const displayName = runtimeKind === "cloud-claude-code" ? "Mia Cloud" : runtimeDeviceDisplayName(device);
-    const cloudRuntime = cloudAgentRuntime();
-    const cloudEngine = runtimeKind === "cloud-claude-code" ? cloudRuntime.agentEngine : "";
-    const disabled = runtimeKind === "cloud-claude-code" && !cloudRuntime.available;
-    const attrs = runtimeKind === "cloud-claude-code"
-      ? `data-runtime-kind="cloud-claude-code" data-agent-engine="${window.miaMarkdown.escapeHtml(cloudEngine)}"`
-      : `data-runtime-kind="desktop-local" data-device-id="${window.miaMarkdown.escapeHtml(device?.id || "")}" data-device-name="${window.miaMarkdown.escapeHtml(displayName)}" data-agent-engine="${window.miaMarkdown.escapeHtml(engine)}"`;
-    const title = runtimeKind === "cloud-claude-code" ? `Mia Cloud · ${cloudRuntime.label || "内核未同步"}` : `${displayName} · ${engineLabel(engine)}`;
+  function runtimeTargetOptionsCache() {
+    if (!state.botRuntimeTargetOptions || typeof state.botRuntimeTargetOptions.get !== "function") {
+      state.botRuntimeTargetOptions = new Map();
+    }
+    return state.botRuntimeTargetOptions;
+  }
+
+  function runtimeTargetOptionsLoadingKeys() {
+    if (!state.botRuntimeTargetOptionsLoading || typeof state.botRuntimeTargetOptionsLoading.has !== "function") {
+      state.botRuntimeTargetOptionsLoading = new Set();
+    }
+    return state.botRuntimeTargetOptionsLoading;
+  }
+
+  function runtimeTargetOptionsKey(bot = {}) {
+    return String(bot.key || bot.id || "").trim();
+  }
+
+  function cachedRuntimeTargetOptions(bot = {}) {
+    const key = runtimeTargetOptionsKey(bot);
+    return key ? runtimeTargetOptionsCache().get(key) : null;
+  }
+
+  function loadRuntimeTargetOptions(bot = {}) {
+    const key = runtimeTargetOptionsKey(bot);
+    if (!key || typeof window.mia?.social?.getBotRuntimeTargetOptions !== "function") return;
+    const cache = runtimeTargetOptionsCache();
+    if (cache.has(key)) return;
+    const loading = runtimeTargetOptionsLoadingKeys();
+    if (loading.has(key)) return;
+    loading.add(key);
+    window.mia.social.getBotRuntimeTargetOptions({
+      bot,
+      runtime: state?.runtime || {},
+      engineCapabilities: state?.engineCapabilities || {},
+      preferredAgentEngine: state?.preferredAgentEngine || ""
+    })
+      .then((result) => {
+        const data = result?.data || result || {};
+        cache.set(key, data);
+        renderContacts();
+      })
+      .catch((error) => console.warn("[bot-manager] runtime target options load failed:", error?.message || error))
+      .finally(() => {
+        loading.delete(key);
+      });
+  }
+
+  function targetOptionHtml(option = {}, bot = {}) {
+    const runtimeKind = String(option.runtimeKind || option.runtime_kind || "desktop-local");
+    const agentEngine = String(option.agentEngine || option.agent_engine || "");
+    const deviceId = String(option.deviceId || option.device_id || "");
+    const deviceName = String(option.deviceName || option.device_name || "");
+    const title = String(option.title || "");
     const saving = state?.savingBotRuntimeTargets?.has?.(bot?.key);
+    const disabled = Boolean(saving || option.disabled);
+    const attrs = runtimeKind === "cloud-claude-code"
+      ? `data-runtime-kind="cloud-claude-code" data-agent-engine="${window.miaMarkdown.escapeHtml(agentEngine)}"`
+      : `data-runtime-kind="desktop-local" data-device-id="${window.miaMarkdown.escapeHtml(deviceId)}" data-device-name="${window.miaMarkdown.escapeHtml(deviceName)}" data-agent-engine="${window.miaMarkdown.escapeHtml(agentEngine)}"`;
     return `
-      <button type="button" class="runtime-target-option${selected ? " selected" : ""}${saving ? " saving" : ""}" ${attrs} title="${window.miaMarkdown.escapeHtml(title)}" ${saving || disabled ? "disabled" : ""}>
-        ${engineLogoHtml(runtimeKind === "cloud-claude-code" ? cloudEngine : engine)}
+      <button type="button" class="runtime-target-option${option.selected ? " selected" : ""}${saving ? " saving" : ""}" ${attrs} title="${window.miaMarkdown.escapeHtml(title)}" ${disabled ? "disabled" : ""}>
+        ${engineLogoHtml(option.iconKind || agentEngine)}
         <span>
-          <strong>${window.miaMarkdown.escapeHtml(engineLabel(runtimeKind === "cloud-claude-code" ? cloudEngine : engine))}</strong>
+          <strong>${window.miaMarkdown.escapeHtml(option.engineLabel || option.label || engineLabel(agentEngine))}</strong>
         </span>
       </button>
     `;
   }
 
   function renderBotRuntimeTargetPanel(bot) {
-    const devices = editableRuntimeDevices();
-    const cloudEnabled = Boolean(state?.runtime?.cloud?.enabled);
+    const options = cachedRuntimeTargetOptions(bot);
+    const groups = Array.isArray(options?.groups) ? options.groups : [];
     const panelOpen = state?.openRuntimeTargetPanelKeys?.has?.(bot?.key);
     return `
       <details class="contact-runtime-target accordion-details" data-runtime-panel-key="${window.miaMarkdown.escapeHtml(bot?.key || "")}"${panelOpen ? " open" : ""}>
@@ -1093,32 +915,19 @@
         </summary>
         <div class="accordion-body">
           <div class="runtime-target-list">
-            ${cloudEnabled ? `
+            ${groups.length ? groups.map((group) => `
               <section class="runtime-device-group">
                 <div>
-                  <strong>Mia Cloud</strong>
-                  <small>在线</small>
+                  <strong>${window.miaMarkdown.escapeHtml(group.label || "运行目标")}</strong>
+                  <small>${window.miaMarkdown.escapeHtml(group.statusLabel || group.status_label || "")}</small>
                 </div>
                 <div>
-                  ${targetButtonHtml({ bot, runtimeKind: "cloud-claude-code" })}
-                </div>
-              </section>
-            ` : ""}
-            ${devices.map((device) => {
-              const engines = deviceEngines(device);
-              return `
-              <section class="runtime-device-group">
-                <div>
-                  <strong>${window.miaMarkdown.escapeHtml(runtimeDeviceDisplayName(device))}</strong>
-                  <small>${window.miaMarkdown.escapeHtml(deviceStatusLabel(device))}</small>
-                </div>
-                <div>
-                  ${engines.length
-                    ? engines.map((engine) => targetButtonHtml({ bot, runtimeKind: "desktop-local", device, engine })).join("")
+                  ${Array.isArray(group.options) && group.options.length
+                    ? group.options.map((option) => targetOptionHtml(option, bot)).join("")
                     : '<p class="runtime-target-empty">没有可用 Agent</p>'}
                 </div>
               </section>
-            `; }).join("")}
+            `).join("") : '<p class="runtime-target-empty">正在同步运行目标...</p>'}
           </div>
         </div>
       </details>
@@ -1142,6 +951,7 @@
             devices
           }
         };
+        runtimeTargetOptionsCache().clear();
         renderContacts();
       })
       .catch((error) => console.warn("[bot-manager] bridge devices load failed:", error?.message || error))
@@ -1154,6 +964,7 @@
       loadSkills().catch(() => {});
     }
     const bots = allOwnedBots();
+    bots.forEach((bot) => loadRuntimeTargetOptions(bot));
     const pendingRequests = window.miaSocial?.pendingRequestCount?.() || 0;
     if (!bots.length && !pendingRequests) {
       els.contactList.innerHTML = `<div class="contact-empty">还没有联系人</div>`;
@@ -1300,6 +1111,8 @@
     const canEditBot = bot.canEditIdentity !== false;
     const canDeleteBot = bot.canDelete !== false;
     const avatar = avatarForBot(bot);
+    loadRuntimeTargetOptions(bot);
+    loadBotCapabilityOptions(bot);
     const avatarKey = JSON.stringify({
       image: avatar.image || "",
       crop: avatar.crop || null,
@@ -1384,6 +1197,7 @@
         engineOptions: window.miaEngineOptions
       });
       if (result?.runtime) state.runtime = result.runtime;
+      runtimeTargetOptionsCache().delete(bot.key);
     } catch (error) {
       window.alert(`保存运行设置失败：${error.message || error}`);
     } finally {
@@ -1433,18 +1247,18 @@
     }
   }
 
-  function toggleCapabilityId(capabilities, id, enabledKey, disabledKey, checked) {
-    const next = {
-      ...capabilities,
-      inheritEngineDefaults: false,
-      [enabledKey]: [...capabilities[enabledKey]],
-      [disabledKey]: [...capabilities[disabledKey]]
-    };
-    next[enabledKey] = checked
-      ? [...new Set([...next[enabledKey], id])]
-      : next[enabledKey].filter((item) => item !== id);
-    next[disabledKey] = next[disabledKey].filter((item) => item !== id);
-    return next;
+  async function saveBotCapabilityIntent(bot, intent) {
+    if (!bot?.key || !state) return;
+    const api = capabilityOptionsApi();
+    if (typeof api !== "function") throw new Error("Bot 能力配置接口不可用。");
+    ensureCapabilityOptionsState();
+    const response = await api(capabilityOptionsRequest(bot, intent));
+    const options = normalizeCoreCapabilityOptions(response);
+    if (!options.capabilities || typeof options.capabilities !== "object") {
+      throw new Error("Bot 能力配置结果无效。");
+    }
+    state.botCapabilityOptionsCache.set(capabilityOptionsKey(bot), options);
+    await saveBotCapabilities(bot, options.capabilities);
   }
 
   function wireBotCapabilities(bot) {
@@ -1459,11 +1273,16 @@
       input.addEventListener("change", async () => {
         const id = input.dataset.capabilityId || "";
         const type = input.dataset.capabilityType || "";
-        let capabilities = botCapabilities(bot);
-        if (type === "skill") {
-          capabilities = toggleCapabilityId(capabilities, id, "enabledSkills", "disabledSkills", input.checked);
+        try {
+          await saveBotCapabilityIntent(bot, {
+            capabilityType: type,
+            capabilityId: id,
+            checked: input.checked
+          });
+        } catch (error) {
+          window.alert(`保存能力设置失败：${error.message || error}`);
+          renderContacts();
         }
-        await saveBotCapabilities(bot, capabilities);
       });
     });
   }
@@ -1553,13 +1372,11 @@
     useSkillOnBot,
     contactPetLabel,
     openBotChat,
-    defaultBotCapabilities,
-    normalizeCapabilityIds,
-    botCapabilities,
-    capabilityForEngine,
     engineLabel,
-    botCapabilityItems,
-    capabilityChecked,
+    capabilityOptionsRequest,
+    normalizeCoreCapabilityOptions,
+    loadBotCapabilityOptions,
+    botCapabilityOptions,
     botDeviceLabel,
     botRunsOnOtherDevice,
     botPersonaText,
@@ -1576,7 +1393,7 @@
     saveBotRuntimeTarget,
     wireBotRuntimeTargets,
     saveBotCapabilities,
-    toggleCapabilityId,
+    saveBotCapabilityIntent,
     wireBotCapabilities,
     wireBotPersonaPanel,
     wireContactMemoryPanel,

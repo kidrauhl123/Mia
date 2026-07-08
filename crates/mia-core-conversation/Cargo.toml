@@ -1,0 +1,18 @@
+[package]
+name = "mia-core-conversation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mia-core-api-types.workspace = true
+mia-core-db.workspace = true
+mia-core-runtime.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true

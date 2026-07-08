@@ -6,7 +6,6 @@ const vm = require("node:vm");
 
 global.miaCloudRuntime = require("../src/shared/cloud-runtime.js");
 const commands = require("../src/renderer/bot/bot-commands.js");
-const ids = require("../src/shared/ids.js");
 
 const CLOUD_AGENT_RUNTIME = {
   mode: "claude-code",
@@ -35,13 +34,27 @@ test("saveBot creates a cloud-claude-code bot through identity, runtime, and con
   };
   const api = {
     social: {
-      async saveBotIdentity(key, body) {
-        calls.push(["identity", key, body]);
-        return { ok: true, data: { bot: { id: key, ...body } } };
-      },
+	      async saveBotIdentity(key, body) {
+	        calls.push(["identity", key, body]);
+	        return { ok: true, data: { bot: { id: key || "bot_core_cloud", ...body } } };
+	      },
       async saveBotRuntime(key, body) {
         calls.push(["runtime", key, body]);
-        return { ok: true, data: { binding: { botId: key, ...body } } };
+        return {
+          ok: true,
+          data: {
+            binding: {
+              botId: key,
+              ...body,
+              agentEngine: body.targetIntent?.agentEngine || "",
+              targetDeviceId: body.targetIntent?.deviceId || "",
+              targetDeviceName: body.targetIntent?.deviceName || "",
+              runtimeLabel: body.targetIntent?.deviceName || "",
+              config: { agentEngine: "hermes", deviceId: "legacy-device", deviceName: "Legacy Mac" },
+              runtimeConfig: { agentEngine: "hermes", deviceId: "legacy-device", deviceName: "Legacy Mac" }
+            }
+          }
+        };
       },
       async ensureBotSessionConversation(key, body) {
         calls.push(["conversation", key, body]);
@@ -56,7 +69,6 @@ test("saveBot creates a cloud-claude-code bot through identity, runtime, and con
     social,
     runtimeKind: "cloud-claude-code",
     isCreate: true,
-    cloudModelEntries: () => [{ id: "mia-fast", label: "Mia Fast" }],
     bot: {
       name: "Alice",
       avatarImage: "alice.png",
@@ -65,12 +77,12 @@ test("saveBot creates a cloud-claude-code bot through identity, runtime, and con
     }
   });
 
-  assert.equal(ids.isPublicId(result.key), true);
-  assert.equal(result.conversation.id, `botc_${result.key}`);
-  assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
-  assert.equal(calls[0][1], result.key);
-  assert.equal(calls[1][1], result.key);
-  assert.equal(calls[2][1], result.key);
+	  assert.equal(result.key, "bot_core_cloud");
+	  assert.equal(result.conversation.id, `botc_${result.key}`);
+	  assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
+	  assert.equal(calls[0][1], "");
+	  assert.equal(calls[1][1], result.key);
+	  assert.equal(calls[2][1], result.key);
   assert.deepEqual(calls[0][2].capabilities.enabledSkills, [
     "mia-scheduler",
     "mia-official:document-editor",
@@ -78,8 +90,8 @@ test("saveBot creates a cloud-claude-code bot through identity, runtime, and con
     "mia-official:spreadsheet-organizer",
     "mia-official:xlsx"
   ]);
-  assert.equal(calls[1][2].config.model, "mia-fast");
-  assert.equal(calls[1][2].config.agentEngine, "claude-code");
+  assert.equal(calls[1][2].targetIntent.agentEngine, "claude-code");
+  assert.equal(Object.hasOwn(calls[1][2], "config"), false);
   assert.equal(calls[2][2].runtimeKind, "cloud-claude-code");
   assert.equal(social.moduleState.bots[0].id, result.key);
 });
@@ -115,13 +127,25 @@ test("saveBot strips copied local engine identity when saving cloud-claude-code 
   };
   const api = {
     social: {
-      async saveBotIdentity(key, body) {
-        calls.push(["identity", key, body]);
-        return { ok: true, data: { bot: { id: key, ...body } } };
-      },
+	      async saveBotIdentity(key, body) {
+	        calls.push(["identity", key, body]);
+	        return { ok: true, data: { bot: { id: key || "bot_core_strip", ...body } } };
+	      },
       async saveBotRuntime(key, body) {
         calls.push(["runtime", key, body]);
-        return { ok: true, data: { binding: { botId: key, ...body } } };
+        return {
+          ok: true,
+          data: {
+            binding: {
+              botId: key,
+              ...body,
+              agentEngine: body.targetIntent?.agentEngine || "",
+              targetDeviceId: body.targetIntent?.deviceId || "",
+              targetDeviceName: body.targetIntent?.deviceName || "",
+              runtimeLabel: body.targetIntent?.deviceName || ""
+            }
+          }
+        };
       },
       async ensureBotSessionConversation(key, body) {
         calls.push(["conversation", key, body]);
@@ -190,13 +214,27 @@ test("saveBot creates desktop-runtime bots as cloud identities when cloud is ava
       throw new Error("local save should not be called");
     },
     social: {
-      async saveBotIdentity(key, body) {
-        calls.push(["identity", key, body]);
-        return { ok: true, data: { bot: { id: key, key, ...body } } };
-      },
+	      async saveBotIdentity(key, body) {
+	        calls.push(["identity", key, body]);
+	        return { ok: true, data: { bot: { id: key || "bot_core_desktop", key: key || "bot_core_desktop", ...body } } };
+	      },
       async saveBotRuntime(key, body) {
         calls.push(["runtime", key, body]);
-        return { ok: true, data: { binding: { botId: key, ...body } } };
+        return {
+          ok: true,
+          data: {
+            binding: {
+              botId: key,
+              ...body,
+              agentEngine: body.targetIntent?.agentEngine || "",
+              targetDeviceId: body.targetIntent?.deviceId || "",
+              targetDeviceName: body.targetIntent?.deviceName || "",
+              runtimeLabel: body.targetIntent?.deviceName || "",
+              config: { agentEngine: "hermes", deviceId: "legacy-device", deviceName: "Legacy PC" },
+              runtimeConfig: { agentEngine: "hermes", deviceId: "legacy-device", deviceName: "Legacy PC" }
+            }
+          }
+        };
       },
       async ensureBotSessionConversation(key, body) {
         calls.push(["conversation", key, body]);
@@ -219,8 +257,9 @@ test("saveBot creates desktop-runtime bots as cloud identities when cloud is ava
     }
   });
 
-  assert.equal(ids.isPublicId(result.key), true);
-  assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
+	  assert.equal(result.key, "bot_core_desktop");
+	  assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
+	  assert.equal(calls[0][1], "");
   assert.deepEqual(calls[0][2].capabilities.enabledSkills, [
     "mia-scheduler",
     "mia-official:document-editor",
@@ -229,9 +268,15 @@ test("saveBot creates desktop-runtime bots as cloud identities when cloud is ava
     "mia-official:xlsx"
   ]);
   assert.equal(calls[1][2].runtimeKind, "desktop-local");
-  assert.equal(calls[1][2].config.agentEngine, "codex");
-  assert.equal(calls[1][2].config.deviceId, "mac-1");
+  assert.equal(calls[1][2].targetIntent.agentEngine, "codex");
+  assert.equal(calls[1][2].targetIntent.deviceId, "mac-1");
+  assert.equal(Object.hasOwn(calls[1][2], "config"), false);
   assert.deepEqual(result.bot.sourceKinds, ["cloud"]);
+  assert.equal(result.bot.agentEngine, "codex");
+  assert.equal(result.bot.targetDeviceId, "mac-1");
+  assert.equal(result.bot.targetDeviceName, "Mac");
+  assert.equal(result.bot.runtimeLabel, "Mac");
+  assert.equal(Object.hasOwn(result.bot, "runtimeConfig"), false);
 });
 
 test("saveBot preserves explicit capabilities when creating desktop-runtime bots", async () => {
@@ -251,10 +296,10 @@ test("saveBot preserves explicit capabilities when creating desktop-runtime bots
   };
   const api = {
     social: {
-      async saveBotIdentity(key, body) {
-        calls.push(["identity", key, body]);
-        return { ok: true, data: { bot: { id: key, key, ...body } } };
-      },
+	      async saveBotIdentity(key, body) {
+	        calls.push(["identity", key, body]);
+	        return { ok: true, data: { bot: { id: key || "bot_core_caps", key: key || "bot_core_caps", ...body } } };
+	      },
       async saveBotRuntime(key, body) {
         calls.push(["runtime", key, body]);
         return { ok: true, data: { binding: { botId: key, ...body } } };
@@ -337,17 +382,18 @@ test("saveBot retargets cloud-sourced desktop bots through cloud runtime binding
   assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
   assert.equal(calls[1][2].runtimeKind, "desktop-local");
   assert.equal(calls[1][2].activate, true);
-  assert.deepEqual(calls[1][2].config, {
+  assert.deepEqual(calls[1][2].targetIntent, {
     agentEngine: "codex",
     deviceId: "win-1",
-    deviceName: "Windows PC",
-    model: "gpt-test",
-    effortLevel: "high",
-    modelEntries: []
+    deviceName: "Windows PC"
   });
   assert.equal(result.bot.targetDeviceId, "win-1");
+  assert.equal(result.bot.targetDeviceName, "Windows PC");
+  assert.equal(result.bot.runtimeLabel, "Windows PC");
   assert.equal(result.bot.agentEngine, "codex");
+  assert.equal(Object.hasOwn(result.bot, "runtimeConfig"), false);
   assert.equal(social.moduleState.bots[0].runtimeKind, "desktop-local");
+  assert.equal(social.moduleState.bots[0].targetDeviceId, "win-1");
 });
 
 test("deleteBot removes a cloud-claude-code bot through cloud identity commands", async () => {
@@ -557,7 +603,8 @@ test("saveBotCapabilities updates cloud-sourced desktop identities through cloud
       runtimeKind: "desktop-local",
       sourceKinds: ["cloud"],
       agentEngine: "codex",
-      runtimeConfig: { agentEngine: "codex", deviceId: "mac-1" }
+      targetDeviceId: "mac-1",
+      runtimeLabel: "Office Mac"
     },
     capabilities
   });
@@ -615,10 +662,6 @@ test("saveBotRuntimeControl saves desktop-local hermes controls through bot runt
   const calls = [];
   const api = {
     social: {
-      async getBotRuntime(botId, runtimeKind) {
-        calls.push(["get", botId, runtimeKind]);
-        return { ok: true, data: { binding: { botId, runtimeKind, enabled: true, config: {} } } };
-      },
       async saveBotRuntime(botId, body) {
         calls.push(["save", botId, body]);
         return { ok: true, data: { binding: { botId, ...body } } };
@@ -661,66 +704,49 @@ test("saveBotRuntimeControl saves desktop-local hermes controls through bot runt
   });
 
   assert.deepEqual(calls, [
-    ["get", "alice", "desktop-local"],
     ["save", "alice", {
       runtimeKind: "desktop-local",
       enabled: true,
-      config: {
-        model: "deepseek-chat",
-        providerConnectionId: "deepseek",
-        modelProfileId: "deepseek:deepseek-chat"
+      controlIntent: {
+        field: "model",
+        value: "deepseek-chat",
+        modelEntries: [{
+          id: "deepseek-chat",
+          model: "deepseek-chat",
+          provider: "deepseek",
+          providerLabel: "DeepSeek",
+          authType: "api_key"
+        }]
       }
     }],
-    ["get", "alice", "desktop-local"],
     ["save", "alice", {
       runtimeKind: "desktop-local",
       enabled: true,
-      config: { effortLevel: "high" }
+      controlIntent: {
+        field: "effortLevel",
+        value: "high",
+        modelEntries: []
+      }
     }],
-    ["get", "alice", "desktop-local"],
     ["save", "alice", {
       runtimeKind: "desktop-local",
       enabled: true,
-      config: { permissionMode: "yolo" }
+      controlIntent: {
+        field: "permissionMode",
+        value: "yolo",
+        modelEntries: []
+      }
     }]
   ]);
+  assert.equal(Object.hasOwn(calls[0][2].controlIntent.modelEntries[0], "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(calls[0][2].controlIntent.modelEntries[0], "baseUrl"), false);
+  assert.equal(Object.hasOwn(calls[0][2].controlIntent.modelEntries[0], "apiMode"), false);
 });
 
-test("saveBotRuntimeControl removes legacy model transport fields when switching model", async () => {
+test("saveBotRuntimeControl sends sanitized model control intent to Rust Core", async () => {
   const calls = [];
   const api = {
     social: {
-      async getBotRuntime(botId, runtimeKind) {
-        calls.push(["get", botId, runtimeKind]);
-        return {
-          ok: true,
-          data: {
-            binding: {
-              botId,
-              runtimeKind,
-              enabled: true,
-              config: {
-                agentEngine: "hermes",
-                deviceId: "mac-1",
-                deviceName: "MacBook Pro",
-                provider: "legacy-provider",
-                modelProvider: "legacy-provider",
-                model_provider: "legacy-provider",
-                providerLabel: "Legacy Provider",
-                authType: "api_key",
-                apiKeyEnv: "LEGACY_API_KEY",
-                baseUrl: "https://legacy.example",
-                apiMode: "openai",
-                model: "old-model",
-                model_profile_id: "legacy-provider:old-model",
-                effortLevel: "medium",
-                permissionMode: "ask",
-                harmlessFlag: "keep-me"
-              }
-            }
-          }
-        };
-      },
       async saveBotRuntime(botId, body) {
         calls.push(["save", botId, body]);
         return { ok: true, data: { binding: { botId, ...body } } };
@@ -740,60 +766,42 @@ test("saveBotRuntimeControl removes legacy model transport fields when switching
         model: "deepseek-chat",
         providerLabel: "DeepSeek",
         authType: "api_key",
-        modelProfileId: "deepseek:deepseek-chat"
+        modelProfileId: "deepseek:deepseek-chat",
+        apiKeyEnv: "DEEPSEEK_API_KEY",
+        baseUrl: "https://api.deepseek.com",
+        apiMode: "openai"
       }
     ]
   });
 
   assert.deepEqual(calls, [
-    ["get", "alice", "desktop-local"],
     ["save", "alice", {
       runtimeKind: "desktop-local",
       enabled: true,
-      config: {
-        agentEngine: "hermes",
-        deviceId: "mac-1",
-        deviceName: "MacBook Pro",
-        model: "deepseek-chat",
-        providerConnectionId: "deepseek",
-        modelProfileId: "deepseek:deepseek-chat",
-        effortLevel: "medium",
-        permissionMode: "ask",
-        harmlessFlag: "keep-me"
+      controlIntent: {
+        field: "model",
+        value: "deepseek-chat",
+        modelEntries: [{
+          id: "deepseek-chat",
+          model: "deepseek-chat",
+          provider: "deepseek",
+          providerLabel: "DeepSeek",
+          authType: "api_key",
+          modelProfileId: "deepseek:deepseek-chat"
+        }]
       }
     }]
   ]);
+  const entry = calls[0][2].controlIntent.modelEntries[0];
+  assert.equal(Object.hasOwn(entry, "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(entry, "baseUrl"), false);
+  assert.equal(Object.hasOwn(entry, "apiMode"), false);
 });
 
-test("saveBotRuntimeControl normalizes legacy profileless Mia bindings when saving controls", async () => {
+test("saveBotRuntimeControl sends non-model controls as Rust Core intent", async () => {
   const calls = [];
   const api = {
     social: {
-      async getBotRuntime(botId, runtimeKind) {
-        calls.push(["get", botId, runtimeKind]);
-        return {
-          ok: true,
-          data: {
-            binding: {
-              botId,
-              runtimeKind,
-              enabled: true,
-              config: {
-                agentEngine: "hermes",
-                model: "mia-auto",
-                provider: "mia",
-                providerLabel: "Mia",
-                authType: "mia_account",
-                apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
-                baseUrl: "https://should-not-persist.example/v1",
-                apiMode: "chat_completions",
-                permissionMode: "ask",
-                harmlessFlag: "keep-me"
-              }
-            }
-          }
-        };
-      },
       async saveBotRuntime(botId, body) {
         calls.push(["save", botId, body]);
         return { ok: true, data: { binding: { botId, ...body } } };
@@ -810,18 +818,13 @@ test("saveBotRuntimeControl normalizes legacy profileless Mia bindings when savi
   });
 
   assert.deepEqual(calls, [
-    ["get", "alice", "desktop-local"],
     ["save", "alice", {
       runtimeKind: "desktop-local",
       enabled: true,
-      config: {
-        agentEngine: "hermes",
-        model: "mia-auto",
-        providerConnectionId: "mia",
-        modelProfileId: "mia:mia-auto",
-        permissionMode: "ask",
-        harmlessFlag: "keep-me",
-        effortLevel: "high"
+      controlIntent: {
+        field: "effortLevel",
+        value: "high",
+        modelEntries: []
       }
     }]
   ]);
@@ -831,10 +834,6 @@ test("saveBotRuntimeControl saves desktop-local external engine controls through
   const calls = [];
   const api = {
     social: {
-      async getBotRuntime(botId, runtimeKind) {
-        calls.push(["get", botId, runtimeKind]);
-        return { ok: true, data: { binding: { botId, runtimeKind, enabled: true, config: { agentEngine: "codex" } } } };
-      },
       async saveBotRuntime(botId, body) {
         calls.push(["save", botId, body]);
         return { ok: true, data: { binding: { botId, ...body } } };
@@ -848,33 +847,32 @@ test("saveBotRuntimeControl saves desktop-local external engine controls through
     field: "model",
     value: "gpt-5.3-codex",
     modelEntries: [
-      { id: "default", model: "", label: "Codex 默认" },
-      { id: "gpt-5.3-codex", model: "gpt-5.3-codex", label: "GPT-5.3 Codex" }
+      { id: "default", model: "", label: "Codex 默认", provider: "codex" },
+      { id: "gpt-5.3-codex", model: "gpt-5.3-codex", label: "GPT-5.3 Codex", provider: "codex", modelProfileId: "codex:gpt-5.3-codex" }
     ]
   });
 
   assert.equal(result.saved, true);
   assert.deepEqual(calls, [
-    ["get", "codex", "desktop-local"],
     ["save", "codex", {
       runtimeKind: "desktop-local",
       enabled: true,
-      config: {
-        agentEngine: "codex",
-        model: "gpt-5.3-codex"
+      controlIntent: {
+        field: "model",
+        value: "gpt-5.3-codex",
+        modelEntries: [
+          { id: "default", label: "Codex 默认", provider: "codex" },
+          { id: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", modelProfileId: "codex:gpt-5.3-codex" }
+        ]
       }
     }]
   ]);
 });
 
-test("saveBotRuntimeControl does not save desktop-local external permissionMode into bot runtime binding", async () => {
+test("saveBotRuntimeControl delegates desktop-local external permissionMode policy to Rust Core", async () => {
   const calls = [];
   const api = {
     social: {
-      async getBotRuntime(botId, runtimeKind) {
-        calls.push(["get", botId, runtimeKind]);
-        return { ok: true, data: { binding: { botId, runtimeKind, enabled: true, config: { agentEngine: "codex" } } } };
-      },
       async saveBotRuntime(botId, body) {
         calls.push(["save", botId, body]);
         return { ok: true, data: { binding: { botId, ...body } } };
@@ -889,334 +887,66 @@ test("saveBotRuntimeControl does not save desktop-local external permissionMode 
     value: ":danger-full-access"
   });
 
-  assert.deepEqual(result, { saved: false, runtime: null, binding: null });
-  assert.deepEqual(calls, []);
-});
-
-
-test("saveBotRuntimeConfig merges patch with current cloud runtime binding", async () => {
-  const calls = [];
-  const cache = new Map();
-  const api = {
-    social: {
-      async getBotRuntime(botId, runtimeKind) {
-        calls.push(["get", botId, runtimeKind]);
-        return { ok: true, data: { binding: { botId, runtimeKind, enabled: true, config: { model: "mia-default", effortLevel: "low" } } } };
-      },
-      async saveBotRuntime(botId, body) {
-        calls.push(["save", botId, body]);
-        return { ok: true, data: { binding: { botId, ...body } } };
-      }
-    }
-  };
-
-  const result = await commands.saveBotRuntimeConfig({
-    api,
-    cache,
-    botKey: "alice",
-    runtimeKind: "cloud-claude-code",
-    patch: { effortLevel: "high", permissionMode: "ask" }
-  });
-
-  assert.deepEqual(result.binding.config, {
-    model: "mia-auto",
-    providerConnectionId: "mia",
-    modelProfileId: "mia:mia-auto",
-    effortLevel: "high",
-    permissionMode: "ask"
-  });
+  assert.equal(result.saved, true);
   assert.deepEqual(calls, [
-    ["get", "alice", "cloud-claude-code"],
-    ["save", "alice", {
-      runtimeKind: "cloud-claude-code",
+    ["save", "codex", {
+      runtimeKind: "desktop-local",
       enabled: true,
-      config: {
-        model: "mia-auto",
-        providerConnectionId: "mia",
-        modelProfileId: "mia:mia-auto",
-        effortLevel: "high",
-        permissionMode: "ask"
+      controlIntent: {
+        field: "permissionMode",
+        value: ":danger-full-access",
+        modelEntries: []
       }
     }]
   ]);
-  assert.equal(cache.get("alice:cloud-claude-code"), result.binding);
 });
 
-test("syncDesktopLocalBotRuntimeBinding stores hermes config from current device settings", async () => {
+
+test("bot commands do not expose direct runtime config saves", () => {
+  assert.equal(commands.saveBotRuntimeConfig, undefined);
+});
+
+test("bot commands keep desktop runtime sync intent assembly internal", () => {
+  assert.equal(commands.desktopLocalRuntimeSyncIntent, undefined);
+});
+
+test("syncDesktopLocalBotRuntimeBinding sends only target intent to Rust Core", async () => {
   const calls = [];
   const api = {
-    async getBotRuntime(botId, runtimeKind) {
-      calls.push(["get", botId, runtimeKind]);
-      return { ok: true, data: { binding: null } };
-    },
     async saveBotRuntime(botId, body) {
       calls.push(["runtime", botId, body]);
       return { ok: true, data: { binding: { botId, ...body } } };
-    }
-  };
-  const state = {
-    runtime: {
-      model: { provider: "deepseek", model: "deepseek-chat" },
-      effort: { level: "high" },
-      permissions: { mode: "yolo" }
     }
   };
 
   const result = await commands.syncDesktopLocalBotRuntimeBinding({
     api,
-    state,
-    bot: { key: "alice", name: "Alice" },
-    modelSettings: {
-      connectedModelEntries: () => [
-        { id: "deepseek-chat", model: "deepseek-chat", label: "DeepSeek", provider: "deepseek", providerLabel: "DeepSeek" }
-      ]
-    }
+    state: { runtime: { localDevice: { id: "mac-1", name: "Mac.local" } } },
+    bot: { key: "alice", name: "Alice" }
   });
 
   assert.equal(result.botId, "alice");
   assert.deepEqual(calls, [
-    ["get", "alice", "desktop-local"],
     ["runtime", "alice", {
       runtimeKind: "desktop-local",
       activate: false,
       preserveEnabled: true,
       enabled: true,
-      config: {
+      syncIntent: {
         agentEngine: "hermes",
-        model: "deepseek-chat",
-        providerConnectionId: "deepseek",
-        modelProfileId: "deepseek:deepseek-chat",
-        effortLevel: "high",
-        permissionMode: "yolo",
-        modelEntries: [
-          { value: "deepseek-chat", label: "DeepSeek", model: "deepseek-chat", provider: "deepseek", providerLabel: "DeepSeek" }
-        ]
+        deviceId: "mac-1",
+        deviceName: "Mac"
       }
     }]
   ]);
-  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "apiKeyEnv"), false);
-  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "baseUrl"), false);
-  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "apiMode"), false);
-});
-
-test("syncDesktopLocalBotRuntimeBinding preserves saved Hermes runtime selection over device defaults", async () => {
-  const calls = [];
-  const api = {
-    async getBotRuntime(botId, runtimeKind) {
-      calls.push(["get", botId, runtimeKind]);
-      return {
-        ok: true,
-        data: {
-          binding: {
-            botId,
-            runtimeKind,
-            enabled: true,
-            config: {
-              agentEngine: "hermes",
-              model: "mia-auto",
-              providerConnectionId: "mia",
-              modelProfileId: "mia:mia-auto",
-              effortLevel: "low",
-              permissionMode: "ask",
-              modelEntries: [{
-                value: "mia-auto",
-                label: "Auto",
-                model: "mia-auto",
-                provider: "mia",
-                providerLabel: "Mia",
-                authType: "mia_account",
-                modelProfileId: "mia:mia-auto"
-              }]
-            }
-          }
-        }
-      };
-    },
-    async saveBotRuntime(botId, body) {
-      calls.push(["runtime", botId, body]);
-      return { ok: true, data: { binding: { botId, ...body } } };
-    }
-  };
-
-  await commands.syncDesktopLocalBotRuntimeBinding({
-    api,
-    state: {
-      runtime: {
-        model: { provider: "openai-codex", model: "gpt-5.5" },
-        effort: { level: "high" },
-        permissions: { mode: "yolo" }
-      }
-    },
-    bot: { key: "alice", name: "Alice" },
-    modelSettings: {
-      connectedModelEntries: () => [
-        {
-          id: "mia-auto",
-          model: "mia-auto",
-          label: "Auto",
-          provider: "mia",
-          providerLabel: "Mia",
-          authType: "mia_account",
-          modelProfileId: "mia:mia-auto"
-        },
-        {
-          id: "gpt-5.5",
-          model: "gpt-5.5",
-          label: "GPT-5.5",
-          provider: "openai-codex",
-          providerLabel: "Codex",
-          modelProfileId: "openai-codex:gpt-5.5"
-        }
-      ]
-    }
-  });
-
-  assert.deepEqual(calls, [
-    ["get", "alice", "desktop-local"],
-    ["runtime", "alice", {
-      runtimeKind: "desktop-local",
-      activate: false,
-      preserveEnabled: true,
-      enabled: true,
-      config: {
-        agentEngine: "hermes",
-        model: "mia-auto",
-        providerConnectionId: "mia",
-        modelProfileId: "mia:mia-auto",
-        effortLevel: "low",
-        permissionMode: "ask",
-        modelEntries: [
-          {
-            value: "mia-auto",
-            label: "Auto",
-            model: "mia-auto",
-            provider: "mia",
-            providerLabel: "Mia",
-            authType: "mia_account",
-            modelProfileId: "mia:mia-auto"
-          },
-          {
-            value: "gpt-5.5",
-            label: "GPT-5.5",
-            model: "gpt-5.5",
-            provider: "openai-codex",
-            providerLabel: "Codex",
-            modelProfileId: "openai-codex:gpt-5.5"
-          }
-        ]
-      }
-    }]
-  ]);
-});
-
-test("syncDesktopLocalBotRuntimeBinding includes Mia model ownership metadata", async () => {
-  const calls = [];
-  const api = {
-    async saveBotRuntime(botId, body) {
-      calls.push(["runtime", botId, body]);
-      return { ok: true, data: { binding: { botId, ...body } } };
-    }
-  };
-
-  await commands.syncDesktopLocalBotRuntimeBinding({
-    api,
-    state: {
-      runtime: {
-        model: { provider: "mia", model: "mia-auto" },
-        effort: { level: "medium" },
-        permissions: { mode: "ask" }
-      }
-    },
-    bot: { key: "alice", name: "Alice" },
-    modelSettings: {
-      connectedModelEntries: () => [
-        {
-          id: "mia-auto",
-          model: "mia-auto",
-          label: "Auto",
-          provider: "mia",
-          providerLabel: "Mia",
-          authType: "mia_account",
-          modelProfileId: "mia:mia-auto"
-        }
-      ]
-    }
-  });
-
-  assert.deepEqual(calls[0][2].config, {
-    agentEngine: "hermes",
-    model: "mia-auto",
-    providerConnectionId: "mia",
-    modelProfileId: "mia:mia-auto",
-    effortLevel: "medium",
-    permissionMode: "ask",
-    modelEntries: [{
-      value: "mia-auto",
-      label: "Auto",
-      model: "mia-auto",
-      provider: "mia",
-      providerLabel: "Mia",
-      authType: "mia_account",
-      modelProfileId: "mia:mia-auto"
-    }]
-  });
-  assert.equal(Object.hasOwn(calls[0][2].config, "baseUrl"), false);
-  assert.equal(Object.hasOwn(calls[0][2].config, "apiKeyEnv"), false);
-  assert.equal(Object.hasOwn(calls[0][2].config, "apiMode"), false);
-  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "apiKeyEnv"), false);
-  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "baseUrl"), false);
-  assert.equal(Object.hasOwn(calls[0][2].config.modelEntries[0], "apiMode"), false);
-});
-
-test("syncDesktopLocalBotRuntimeBinding defaults empty Hermes model to only Mia Auto entry", async () => {
-  const calls = [];
-  const api = {
-    async saveBotRuntime(botId, body) {
-      calls.push(["runtime", botId, body]);
-      return { ok: true, data: { binding: { botId, ...body } } };
-    }
-  };
-
-  await commands.syncDesktopLocalBotRuntimeBinding({
-    api,
-    state: {
-      runtime: {
-        model: { provider: "", model: "" },
-        effort: { level: "medium" },
-        permissions: { mode: "ask" }
-      }
-    },
-    bot: { key: "alice", name: "Alice" },
-    modelSettings: {
-      connectedModelEntries: () => [{
-        id: "mia-auto",
-        model: "mia-auto",
-        label: "Auto",
-        provider: "mia",
-        providerLabel: "Mia",
-        authType: "mia_account",
-        modelProfileId: "mia:mia-auto"
-      }]
-    }
-  });
-
-  assert.deepEqual(calls[0][2].config, {
-    agentEngine: "hermes",
-    model: "mia-auto",
-    providerConnectionId: "mia",
-    modelProfileId: "mia:mia-auto",
-    effortLevel: "medium",
-    permissionMode: "ask",
-    modelEntries: [{
-      value: "mia-auto",
-      label: "Auto",
-      model: "mia-auto",
-      provider: "mia",
-      providerLabel: "Mia",
-      authType: "mia_account",
-      modelProfileId: "mia:mia-auto"
-    }]
-  });
+  assert.equal(Object.hasOwn(calls[0][2], "config"), false);
+  assert.equal(Object.hasOwn(calls[0][2].syncIntent, "model"), false);
+  assert.equal(Object.hasOwn(calls[0][2].syncIntent, "effortLevel"), false);
+  assert.equal(Object.hasOwn(calls[0][2].syncIntent, "permissionMode"), false);
+  assert.equal(Object.hasOwn(calls[0][2].syncIntent, "modelEntries"), false);
+  assert.equal(Object.hasOwn(calls[0][2].syncIntent, "baseUrl"), false);
+  assert.equal(Object.hasOwn(calls[0][2].syncIntent, "apiKeyEnv"), false);
+  assert.equal(Object.hasOwn(calls[0][2].syncIntent, "apiMode"), false);
 });
 
 test("syncDesktopLocalBotRuntimeBinding preserves Codex as a desktop target", async () => {
@@ -1231,20 +961,17 @@ test("syncDesktopLocalBotRuntimeBinding preserves Codex as a desktop target", as
   await commands.syncDesktopLocalBotRuntimeBinding({
     api,
     state: { runtime: { localDevice: { id: "mac-1", name: "Mac" } } },
-    bot: { key: "codex", name: "Codex", agentEngine: "codex" },
-    engineOptions: {
-      externalModelEntries: () => [],
-      effortOptions: () => [{ value: "off", label: "Off" }],
-      isExternalAgentEngine: (engine) => engine !== "hermes"
-    }
+    bot: { key: "codex", name: "Codex", agentEngine: "codex" }
   });
 
-  assert.equal(calls[0][2].config.agentEngine, "codex");
-  assert.equal(calls[0][2].config.deviceId, "mac-1");
-  assert.equal(calls[0][2].config.effortLevel, "off");
+  assert.equal(calls[0][2].syncIntent.agentEngine, "codex");
+  assert.equal(calls[0][2].syncIntent.deviceId, "mac-1");
+  assert.equal(Object.hasOwn(calls[0][2].syncIntent, "effortLevel"), false);
+  assert.equal(Object.hasOwn(calls[0][2].syncIntent, "modelEntries"), false);
+  assert.equal(Object.hasOwn(calls[0][2], "config"), false);
 });
 
-test("ensureDesktopLocalBotConversation creates conversation and syncs external engine runtime config", async () => {
+test("ensureDesktopLocalBotConversation creates conversation and syncs external engine runtime intent", async () => {
   const calls = [];
   const api = {
     async ensureBotSessionConversation(sessionId, body) {
@@ -1260,26 +987,11 @@ test("ensureDesktopLocalBotConversation creates conversation and syncs external 
 
   const result = await commands.ensureDesktopLocalBotConversation({
     api,
-    state: {
-      runtime: {
-        permissions: {
-          engines: {
-            codex: ":danger-full-access"
-          }
-        }
-      }
-    },
+    state: { runtime: {} },
     bot: {
       key: "codex",
       name: "Codex",
-      agentEngine: "codex",
-      engineConfig: { model: "gpt-5.3-codex", effortLevel: "xhigh", permissionMode: "readOnly" }
-    },
-    engineOptions: {
-      externalModelEntries: () => [
-        { id: "default", model: "", label: "Codex 默认", provider: "codex" },
-        { id: "gpt-5.3-codex", model: "gpt-5.3-codex", label: "GPT-5.3 Codex", provider: "codex" }
-      ]
+      agentEngine: "codex"
     },
     onConversation: (conversation) => {
       upserted.push(conversation);
@@ -1292,20 +1004,14 @@ test("ensureDesktopLocalBotConversation creates conversation and syncs external 
   assert.equal(calls[1][1], "codex");
   assert.equal(calls[1][2].activate, false);
   assert.equal(calls[1][2].preserveEnabled, true);
-  assert.deepEqual(calls[1][2].config, {
-    agentEngine: "codex",
-    model: "gpt-5.3-codex",
-    providerConnectionId: "codex",
-    modelProfileId: "codex:gpt-5.3-codex",
-    effortLevel: "xhigh",
-    modelEntries: [
-      { value: "default", label: "Codex 默认", model: "", provider: "codex", providerLabel: "" },
-      { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "" }
-    ]
+  assert.deepEqual(calls[1][2].syncIntent, {
+    agentEngine: "codex"
   });
-  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "apiKeyEnv"), false);
-  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "baseUrl"), false);
-  assert.equal(Object.hasOwn(calls[1][2].config.modelEntries[0], "apiMode"), false);
+  assert.equal(Object.hasOwn(calls[1][2], "config"), false);
+  assert.equal(Object.hasOwn(calls[1][2].syncIntent, "model"), false);
+  assert.equal(Object.hasOwn(calls[1][2].syncIntent, "effortLevel"), false);
+  assert.equal(Object.hasOwn(calls[1][2].syncIntent, "permissionMode"), false);
+  assert.equal(Object.hasOwn(calls[1][2].syncIntent, "modelEntries"), false);
   assert.equal(result.conversation.upserted, true);
   assert.equal(upserted[0].id, "botc_codex");
 });
@@ -1314,10 +1020,6 @@ test("saveBotRuntimeControl saves cloud-claude-code controls through cloud runti
   const calls = [];
   const api = {
     social: {
-      async getBotRuntime(botId, runtimeKind) {
-        calls.push(["get", botId, runtimeKind]);
-        return { ok: true, data: { binding: { botId, runtimeKind, enabled: true, config: { model: "mia-default" } } } };
-      },
       async saveBotRuntime(botId, body) {
         calls.push(["save", botId, body]);
         return { ok: true, data: { binding: { botId, ...body } } };
@@ -1334,11 +1036,14 @@ test("saveBotRuntimeControl saves cloud-claude-code controls through cloud runti
   });
 
   assert.deepEqual(calls, [
-    ["get", "mia", "cloud-claude-code"],
     ["save", "mia", {
       runtimeKind: "cloud-claude-code",
       enabled: true,
-      config: { model: "mia-pro" }
+      controlIntent: {
+        field: "model",
+        value: "mia-pro",
+        modelEntries: [{ id: "mia-pro", label: "Mia Pro", model: "mia-pro" }]
+      }
     }]
   ]);
 });

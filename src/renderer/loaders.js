@@ -89,9 +89,6 @@
     }
     state.engineCapabilities = caps;
     refreshOpenBotRuntimeSelector();
-    // `render()` calls syncEffortControl + syncPermissionControl which use
-    // window.miaEngineOptions.effortOptions()/externalPermissionOptions()
-    // — those read state.engineCapabilities.
     render();
   }
 

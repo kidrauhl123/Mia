@@ -234,32 +234,6 @@ function createChatAttachments({
     return [...lines, ...previews].join("\n\n");
   }
 
-  function saveChatAttachment(input = {}) {
-    initializeRuntime();
-    const data = dataUrlToBuffer(input.dataUrl);
-    if (!data) throw new Error("Attachment data is invalid.");
-    if (data.data.length > 25 * 1024 * 1024) throw new Error("附件超过 25MB，暂时不能内嵌保存。");
-    const p = runtimePaths();
-    fs.mkdirSync(p.attachmentsDir, { recursive: true });
-    const name = sanitizeAttachmentName(input.name || `attachment${data.ext || ""}`);
-    const ext = path.extname(name) || data.ext || "";
-    const base = path.basename(name, path.extname(name));
-    const fileName = `${now()}-${randomUUID().slice(0, 8)}-${sanitizeAttachmentName(base, "attachment")}${ext}`;
-    const target = path.join(p.attachmentsDir, fileName);
-    fs.writeFileSync(target, data.data, { mode: 0o600 });
-    const saved = normalizeAttachment({
-      id: randomUUID(),
-      name,
-      path: target,
-      url: input.url,
-      mime: input.mime || data.mime,
-      size: data.data.length,
-      thumbnailDataUrl: input.thumbnailDataUrl || input.thumbnail || input.previewDataUrl
-    });
-    rememberCloudDownload(input, saved);
-    return saved;
-  }
-
   function mimeForFilePath(filePath) {
     const ext = path.extname(String(filePath || "")).toLowerCase();
     const map = {
@@ -326,18 +300,6 @@ function createChatAttachments({
     };
   }
 
-  function safeReadLocalFileAttachment(input = {}) {
-    try {
-      return readLocalFileAttachment(input);
-    } catch (error) {
-      return {
-        error: true,
-        message: String(error?.message || error),
-        path: String(input.path || input.filePath || "")
-      };
-    }
-  }
-
   async function fetchCloudFileAttachment(input = {}) {
     const urlPath = String(input.url || input.path || "").trim();
     if (!/^\/api\/files\/[a-zA-Z0-9_-]+$/.test(urlPath)) throw new Error("Cloud file URL is invalid.");
@@ -369,22 +331,6 @@ function createChatAttachments({
     };
   }
 
-  async function safeFetchFileAttachment(input = {}) {
-    try {
-      const cloudUrl = String(input.url || input.path || "").trim();
-      if (/^\/api\/files\/[a-zA-Z0-9_-]+$/.test(cloudUrl)) {
-        return await fetchCloudFileAttachment(input);
-      }
-      return readLocalFileAttachment(input);
-    } catch (error) {
-      return {
-        error: true,
-        message: String(error?.message || error),
-        path: String(input.path || input.filePath || input.url || "")
-      };
-    }
-  }
-
   return {
     dataUrlToBuffer,
     sanitizeAttachmentName,
@@ -396,12 +342,8 @@ function createChatAttachments({
     attachmentSummaryLine,
     textPreviewForAttachment,
     attachmentContext,
-    saveChatAttachment,
-    mimeForFilePath,
-    readLocalFileAttachment,
-    safeReadLocalFileAttachment,
-    fetchCloudFileAttachment,
-    safeFetchFileAttachment
+    rememberCloudDownload,
+    fetchCloudFileAttachment
   };
 }
 

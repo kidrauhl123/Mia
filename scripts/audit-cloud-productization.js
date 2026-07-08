@@ -229,23 +229,25 @@ function checkPackagedDesktopPermissionGate(rootDir) {
   try {
     const mainSource = extractAsarText(packagedAsar.archivePath, "src/main.js");
     const bridgeClientSource = extractAsarText(packagedAsar.archivePath, "src/main/cloud/cloud-bridge-client.js");
-    const bridgeSource = runCloudBridgeRequestSource(bridgeClientSource || mainSource);
     const hasBridgeEntrypoint = /startCloudBridge/.test(mainSource)
-      && (/createCloudBridgeClient/.test(mainSource) || /async function runCloudBridgeRequest/.test(mainSource));
+      && /createCloudBridgeClient/.test(mainSource)
+      && /route:\s*"\/api\/cloud\/bridge\/start"/.test(mainSource);
     const required = [
       /MIA_ALLOW_MULTIPLE_INSTANCES/.test(mainSource),
-      /cloudWebSocketProtocols/.test(mainSource),
       hasBridgeEntrypoint,
-      /runtimeConfigFromMessage\(message\)/.test(bridgeSource),
-      !/confirmCloudBridgeRun\(/.test(bridgeSource),
-      !/等待本机权限确认/.test(bridgeSource)
+      /startCloudBridgeRequest/.test(bridgeClientSource || mainSource),
+      /stopCloudBridgeRequest/.test(bridgeClientSource || mainSource),
+      !/confirmCloudBridgeRun\(/.test(bridgeClientSource || mainSource),
+      !/等待本机权限确认/.test(bridgeClientSource || mainSource),
+      !/async function runCloudBridgeRequest/.test(mainSource),
+      !/WebSocketImpl|new WebSocket|handleMessage|run_result|device_identity_conflict/.test(bridgeClientSource || "")
     ];
     return {
       ok: required.every(Boolean),
       label: "packaged same-account bridge policy",
       evidence: required.every(Boolean)
-        ? `packaged Mia.app (${packagedAsar.label}) connects Cloud bridge with account-authenticated WebSocket and starts the local Agent without a separate remote-connection approval gate`
-        : `packaged Mia.app (${packagedAsar.label}) is missing current same-account bridge auth/startup policy or still contains a local remote-connection approval gate`
+        ? `packaged Mia.app (${packagedAsar.label}) starts Rust Core Cloud bridge lifecycle without a separate remote-connection approval gate`
+        : `packaged Mia.app (${packagedAsar.label}) is missing current Rust Core bridge lifecycle delegation or still contains a local remote-connection approval gate`
     };
   } catch (error) {
     return {
@@ -523,11 +525,13 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "tests/bot-conversations.test.js", /Bot-conversation messages POST works through the unified/, "bot chat conversation integration test")
     ]),
     item("gate.same-account-bridge-control", "同账号 Web/手机端可直接调用桌面 Agent，设备鉴权不复用 Agent permission", [
-      checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /function botEngineConfigFromRuntime[\s\S]*agentEngine === "hermes" \? \{ permissionMode: runtimeConfig\.permissionMode \|\| "ask" \} : \{\}[\s\S]*async function runCloudBridgeRequest[\s\S]*runtimeConfigFromMessage\(message\)[\s\S]*botEngineConfigFromRuntime\(runtimeConfig, agentEngine\)/, "desktop bridge keeps Hermes permission config local to Hermes runs"),
-      checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest(?![\s\S]*?confirmCloudBridgeRun\()/, "desktop bridge run source does not call local approval gate"),
-      checkSource(rootDir, "src/main/cloud/cloud-events-url.js", /cloudWebSocketProtocols[\s\S]*mia-token\./, "desktop bridge authenticates to Cloud with account token subprotocol (shared cloud-events-url Module)"),
+      checkSource(rootDir, "crates/mia-core-cloud/src/lib.rs", /promote_string_key\(&mut object, "permissionMode"[\s\S]*object\.insert\("permissionMode"/, "Rust Core keeps Hermes permission config as runtime data, not device auth"),
+      checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /startCloudBridgeRequest[\s\S]*stopCloudBridgeRequest(?![\s\S]*?confirmCloudBridgeRun\()/, "desktop bridge JS only asks Rust Core to start/stop lifecycle and does not call local approval gate"),
+      checkSource(rootDir, "crates/mia-core-cloud/src/bridge.rs", /protocols:\s*vec!\[format!\("mia-token\.\{\}"/, "Rust Core bridge authenticates to Cloud with account token subprotocol"),
+      checkSource(rootDir, "crates/mia-core-cloud/src/events.rs", /protocols:\s*vec!\[format!\("mia-token\.\{\}"/, "Rust Core cloud events authenticate with account token subprotocol"),
       checkSource(rootDir, "scripts/serve-cloud.js", /devicesByUser[\s\S]*hub\.devicesByUser\.get\(userId\)/, "cloud bridge devices are scoped by authenticated userId"),
-      checkSource(rootDir, "tests/project-structure-check.test.js", /does not add a separate local approval gate/, "regression test forbids remote-connection approval gate in bridge run"),
+      checkSource(rootDir, "tests/project-structure-check.test.js", /cloud account auth should remain the gate[\s\S]*JS must not add a local approval gate/, "regression test forbids remote-connection approval gate in bridge run"),
+      checkSource(rootDir, "crates/mia-core-cloud/tests/cloud_service.rs", /"type": "run"[\s\S]*assert_eq!\(specs\[0\]\.protocols, vec!\["mia-token\.secret-token"\]\)[\s\S]*"run_result"/, "Rust Core bridge lifecycle test covers subprotocol auth, remote run dispatch, and result envelopes"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /auto-selects the only online device|runs on the explicitly selected online device|requires explicit device selection/, "same-account bridge dispatch tests")
     ]),
     item("cloud.release-package", "可部署 release 包、doctor/smoke/handoff/transfer bundle", [

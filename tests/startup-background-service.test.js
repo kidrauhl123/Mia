@@ -7,6 +7,8 @@ test("startup background service runs daemon, system refresh, and engine when in
   const service = createStartupBackgroundService({
     getRuntimeStatus: () => ({ engineInstalled: true }),
     startDaemonService: async () => { calls.push("daemon"); return { running: true }; },
+    refreshAgentWorkspaceAsync: async () => { calls.push("agent-workspace"); },
+    refreshMemorySettingsAsync: async () => { calls.push("memory-settings"); },
     refreshSystemHermesAsync: async () => { calls.push("system-hermes"); },
     startEngine: async () => { calls.push("engine"); return { engineRunning: true }; },
     setDaemonLastError: (message) => calls.push(`daemon-error:${message}`),
@@ -17,9 +19,11 @@ test("startup background service runs daemon, system refresh, and engine when in
 
   const result = await service.run();
 
-  assert.deepEqual(calls, ["daemon", "system-hermes", "engine"]);
+  assert.deepEqual(calls, ["daemon", "agent-workspace", "memory-settings", "system-hermes", "engine"]);
   assert.equal(result.ok, true);
   assert.equal(result.steps.daemon.ok, true);
+  assert.equal(result.steps.agentWorkspace.ok, true);
+  assert.equal(result.steps.memorySettings.ok, true);
   assert.equal(result.steps.engine.ok, true);
 });
 
@@ -107,5 +111,28 @@ test("startup background service reports best-effort daemon and engine failures"
     "daemon-log:Startup daemon registration failed: daemon failed",
     "engine-error:engine failed",
     "engine-log:Startup engine auto-start failed: engine failed"
+  ]);
+});
+
+test("startup background service treats workspace cache refresh as best effort", async () => {
+  const calls = [];
+  const service = createStartupBackgroundService({
+    getRuntimeStatus: () => ({ engineInstalled: false }),
+    startDaemonService: async () => { calls.push("daemon"); return { running: true }; },
+    refreshAgentWorkspaceAsync: async () => { throw new Error("workspace unavailable"); },
+    refreshSystemHermesAsync: async () => { calls.push("system-hermes"); },
+    appendEngineLog: (line) => calls.push(`engine-log:${line}`)
+  });
+
+  const result = await service.run();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.steps.agentWorkspace.ok, true);
+  assert.match(result.steps.agentWorkspace.warning, /workspace unavailable/);
+  assert.deepEqual(calls, [
+    "daemon",
+    "engine-log:Agent workspace Core refresh failed: workspace unavailable",
+    "system-hermes",
+    "engine-log:No Hermes available from the user's system install; waiting for manual setup."
   ]);
 });

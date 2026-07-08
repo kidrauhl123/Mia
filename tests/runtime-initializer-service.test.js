@@ -20,14 +20,13 @@ function runtimeFor(dir) {
     botManifest: path.join(home, "bots", "manifest.json"),
     botDir: path.join(home, "bots"),
     legacyPersonaDir: path.join(home, "personas", "accounts"),
-    apiKey: path.join(hermesHome, "mia-api-server.key"),
+    apiServerKey: path.join(hermesHome, "mia-api-server.key"),
     config: path.join(hermesHome, "config.yaml"),
-    modelSettings: path.join(home, "mia-model.json"),
-    providerConnections: path.join(home, "mia-providers.json"),
     permissionSettings: path.join(home, "mia-permissions.json"),
     effortSettings: path.join(home, "mia-effort.json"),
-    daemonSettings: path.join(home, "mia-daemon.json"),
-    daemonToken: path.join(home, "mia-daemon.key"),
+    coreSettings: path.join(home, "mia-core.json"),
+    daemonSettings: path.join(home, "mia-core.json"),
+    coreToken: path.join(home, "mia-core.key"),
     userProfile: path.join(home, "mia-user.json"),
     appearanceSettings: path.join(home, "mia-appearance.json"),
     soul: path.join(home, "SOUL.md"),
@@ -45,17 +44,9 @@ function setup(t, overrides = {}) {
     runtimePaths: () => runtime,
     randomBytes: () => Buffer.from("c".repeat(64), "hex"),
     ensureEnginePlugins: () => calls.push(["engine-plugins"]),
-    writeRuntimeConfig: (port) => {
-      calls.push(["write-config", port]);
-      fs.mkdirSync(path.dirname(runtime.config), { recursive: true });
-      fs.writeFileSync(runtime.config, `port: ${port}\n`);
-    },
-    readConfiguredPort: () => 18777,
-    defaultModelSettings: () => ({ provider: "", model: "" }),
-    defaultProviderStore: () => ({ providers: {} }),
     defaultPermissionSettings: () => ({ mode: "ask" }),
     defaultEffortSettings: () => ({ level: "medium" }),
-    defaultDaemonSettings: () => ({ enabled: true }),
+    defaultCoreSettings: () => ({ enabled: true }),
     defaultUserProfile: () => ({ displayName: "Boss" }),
     defaultAppearanceSettings: () => ({ theme: "system" }),
     getRuntimeStatus: (created) => ({ created, ok: true }),
@@ -77,14 +68,12 @@ test("initializeRuntimeCore creates runtime directories and default files", (t) 
   assert.equal(fs.existsSync(runtime.engine), true);
   assert.equal(fs.existsSync(runtime.pluginsDir), true);
   assert.equal(fs.existsSync(runtime.petDir), true);
-  assert.equal(fs.readFileSync(runtime.apiKey, "utf8").trim(), "c".repeat(64));
-  assert.equal(fs.statSync(runtime.apiKey).mode & 0o777, 0o600);
-  assert.equal(fs.readFileSync(runtime.config, "utf8"), "port: 18777\n");
-  assert.deepEqual(readJson(runtime.modelSettings), { provider: "", model: "" });
-  assert.deepEqual(readJson(runtime.providerConnections), { providers: {} });
+  assert.equal(fs.existsSync(runtime.apiServerKey), false);
+  assert.equal(fs.existsSync(runtime.config), false);
+  assert.equal(fs.existsSync(path.join(runtime.home, "mia-providers.json")), false);
   assert.deepEqual(readJson(runtime.permissionSettings), { mode: "ask" });
   assert.deepEqual(readJson(runtime.effortSettings), { level: "medium" });
-  assert.deepEqual(readJson(runtime.daemonSettings), { enabled: true });
+  assert.deepEqual(readJson(runtime.coreSettings), { enabled: true });
   assert.deepEqual(readJson(runtime.userProfile), { displayName: "Boss" });
   assert.deepEqual(readJson(runtime.appearanceSettings), { theme: "system" });
   assert.equal(fs.existsSync(path.join(runtime.home, "mia-sessions.json")), false);
@@ -92,21 +81,20 @@ test("initializeRuntimeCore creates runtime directories and default files", (t) 
   assert.equal(fs.existsSync(path.join(runtime.botDir, "manifest.json")), false);
   assert.equal(fs.readdirSync(runtime.botDir).length, 0);
   assert.deepEqual(calls, [
-    ["engine-plugins"],
-    ["write-config", 18777]
+    ["engine-plugins"]
   ]);
   assert.ok(status.created.includes("runtime/hermes-engine/README.md"));
-  assert.ok(status.created.includes("~/.hermes/mia-api-server.key"));
-  assert.ok(status.created.includes("~/.hermes/config.yaml"));
+  assert.equal(status.created.includes("~/.hermes/mia-api-server.key"), false);
+  assert.equal(status.created.includes("~/.hermes/config.yaml"), false);
+  assert.equal(status.created.includes("runtime/engine-home/mia-model.json"), false);
+  assert.ok(status.created.includes("runtime/engine-home/mia-core.json"));
   assert.equal(status.created.some((entry) => entry.startsWith("runtime/engine-home/bots/")), false);
 });
 
 test("initializeRuntimeCore does not overwrite existing user-owned runtime files", (t) => {
   const { runtime, service } = setup(t);
-  fs.mkdirSync(path.dirname(runtime.apiKey), { recursive: true });
-  fs.writeFileSync(runtime.apiKey, "existing-key\n", { mode: 0o600 });
-  fs.mkdirSync(path.dirname(runtime.modelSettings), { recursive: true });
-  fs.writeFileSync(runtime.modelSettings, JSON.stringify({ provider: "openai" }) + "\n", { mode: 0o600 });
+  fs.mkdirSync(path.dirname(runtime.apiServerKey), { recursive: true });
+  fs.writeFileSync(runtime.apiServerKey, "existing-key\n", { mode: 0o600 });
   fs.mkdirSync(runtime.botDir, { recursive: true });
   fs.writeFileSync(path.join(runtime.botDir, "mei.md"), "current persona");
   fs.mkdirSync(runtime.legacyPersonaDir, { recursive: true });
@@ -114,8 +102,7 @@ test("initializeRuntimeCore does not overwrite existing user-owned runtime files
 
   const status = service.initializeRuntimeCore();
 
-  assert.equal(fs.readFileSync(runtime.apiKey, "utf8"), "existing-key\n");
-  assert.deepEqual(readJson(runtime.modelSettings), { provider: "openai" });
+  assert.equal(fs.readFileSync(runtime.apiServerKey, "utf8"), "existing-key\n");
   assert.equal(fs.readFileSync(path.join(runtime.botDir, "mei.md"), "utf8"), "current persona");
   assert.equal(status.created.includes("~/.hermes/mia-api-server.key"), false);
   assert.equal(status.created.includes("runtime/engine-home/mia-model.json"), false);
