@@ -271,8 +271,8 @@ async fn openai_stream_as_anthropic(upstream: reqwest::Response, model: String) 
                 json!({ "type": "content_block_stop", "index": 0 }),
             )));
         }
-        let mut index = if text_block_started { 1 } else { 0 };
-        for call in tool_calls.values() {
+        let start_index = if text_block_started { 1 } else { 0 };
+        for (index, call) in (start_index..).zip(tool_calls.values()) {
             yield Ok(Bytes::from(sse_frame(
                 "content_block_start",
                 json!({
@@ -305,7 +305,6 @@ async fn openai_stream_as_anthropic(upstream: reqwest::Response, model: String) 
                 "content_block_stop",
                 json!({ "type": "content_block_stop", "index": index }),
             )));
-            index += 1;
         }
         yield Ok(Bytes::from(sse_frame(
             "message_delta",
@@ -571,7 +570,7 @@ fn convert_tools(tools: Option<&Vec<Value>>) -> Option<Value> {
             })
         })
         .collect::<Vec<_>>();
-    (!converted.is_empty()).then(|| Value::Array(converted))
+    (!converted.is_empty()).then_some(Value::Array(converted))
 }
 
 fn convert_tool_choice(choice: Option<&Value>, thinking_enabled: bool) -> Option<Value> {

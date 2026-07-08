@@ -959,7 +959,7 @@ fn flush_pending_tool_calls(messages: &mut Vec<Value>, pending_tool_calls: &mut 
     messages.push(json!({
         "role": "assistant",
         "content": null,
-        "tool_calls": pending_tool_calls.drain(..).collect::<Vec<_>>()
+        "tool_calls": std::mem::take(pending_tool_calls)
     }));
 }
 
@@ -1088,7 +1088,7 @@ fn convert_response_tools(tools: Option<&Vec<Value>>) -> Option<Value> {
     for tool in tools.into_iter().flatten() {
         add_response_tool(&mut converted, tool, "");
     }
-    (!converted.is_empty()).then(|| Value::Array(converted))
+    (!converted.is_empty()).then_some(Value::Array(converted))
 }
 
 fn add_response_tool(out: &mut Vec<Value>, tool: &Value, namespace: &str) {

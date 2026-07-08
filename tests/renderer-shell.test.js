@@ -198,7 +198,7 @@ test("settings exposes manual update checks through the preload bridge", () => {
   assert.match(preloadSource, /ipcRenderer\.on\(IpcChannel\.UpdateEvent, handler\)/);
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.UpdateCheck,\s*\(\)\s*=>\s*autoUpdateService\.checkForUpdates\(\)\)/);
   assert.match(mainSource, /sendUpdateEvent:\s*\(payload\) => broadcastRendererEvent\(IpcChannel\.UpdateEvent, payload\)/);
-  assert.match(mainSource, /prepareForUpdateInstall:\s*async\s*\([^)]*\)\s*=>\s*\{\s*await stopDaemonService\(\);?\s*\}/);
+  assert.match(mainSource, /prepareForUpdateInstall:\s*async\s*\([^)]*\)\s*=>\s*\{\s*await launchdService\.cleanupLegacyNodeCore\(\);?\s*await stopDaemonService\(\);?\s*\}/);
 });
 
 test("runtime refresh re-renders the daemon status card from observed daemon state", () => {

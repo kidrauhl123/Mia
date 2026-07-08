@@ -337,8 +337,7 @@ async fn prepare_claude_code_mia_runtime(
             status.url.trim().trim_end_matches('/')
         )
     });
-    let api_key =
-        first_string(&plan.provider, &["apiKey", "api_key"]).unwrap_or_else(|| cloud_token);
+    let api_key = first_string(&plan.provider, &["apiKey", "api_key"]).unwrap_or(cloud_token);
     let proxy = start_claude_code_mia_proxy(ClaudeCodeMiaProxyConfig {
         base_url,
         api_key,
@@ -396,8 +395,7 @@ async fn prepare_codex_mia_runtime(
             status.url.trim().trim_end_matches('/')
         )
     });
-    let api_key =
-        first_string(&plan.provider, &["apiKey", "api_key"]).unwrap_or_else(|| cloud_token);
+    let api_key = first_string(&plan.provider, &["apiKey", "api_key"]).unwrap_or(cloud_token);
     let proxy = start_codex_mia_proxy(CodexMiaProxyConfig {
         base_url,
         api_key,

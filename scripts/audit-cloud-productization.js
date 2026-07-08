@@ -531,7 +531,9 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "crates/mia-core-cloud/src/events.rs", /protocols:\s*vec!\[format!\("mia-token\.\{\}"/, "Rust Core cloud events authenticate with account token subprotocol"),
       checkSource(rootDir, "scripts/serve-cloud.js", /devicesByUser[\s\S]*hub\.devicesByUser\.get\(userId\)/, "cloud bridge devices are scoped by authenticated userId"),
       checkSource(rootDir, "tests/project-structure-check.test.js", /cloud account auth should remain the gate[\s\S]*JS must not add a local approval gate/, "regression test forbids remote-connection approval gate in bridge run"),
-      checkSource(rootDir, "crates/mia-core-cloud/tests/cloud_service.rs", /"type": "run"[\s\S]*assert_eq!\(specs\[0\]\.protocols, vec!\["mia-token\.secret-token"\]\)[\s\S]*"run_result"/, "Rust Core bridge lifecycle test covers subprotocol auth, remote run dispatch, and result envelopes"),
+      checkSource(rootDir, "crates/mia-core-cloud/tests/cloud_service.rs", /"type": "run"[\s\S]*"conversationId"/, "Rust Core bridge lifecycle test covers remote run dispatch"),
+      checkSource(rootDir, "crates/mia-core-cloud/tests/cloud_service.rs", /assert_eq!\(specs\[0\]\.protocols, vec!\["mia-token\.secret-token"\]\)/, "Rust Core bridge lifecycle test covers subprotocol auth"),
+      checkSource(rootDir, "crates/mia-core-cloud/tests/cloud_service.rs", /run_result[\s\S]*done by core/, "Rust Core bridge lifecycle test covers result envelopes"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /auto-selects the only online device|runs on the explicitly selected online device|requires explicit device selection/, "same-account bridge dispatch tests")
     ]),
     item("cloud.release-package", "可部署 release 包、doctor/smoke/handoff/transfer bundle", [

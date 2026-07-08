@@ -104,13 +104,13 @@ test("MCP preload bridge routes renderer intent to Rust Core REST paths", () => 
   assert.doesNotMatch(preload, /mcp:\s*\{[\s\S]{0,1800}IpcChannel\.McpSave/);
 });
 
-test("bot preload bridge keeps legacy social data primary with Rust Core fallback", () => {
+test("bot preload bridge keeps legacy social data primary where Core has not taken ownership", () => {
   const preload = read("src/preload.js");
 
   assert.match(preload, /listBots:\s*\(\)\s*=>\s*listBotsCompat\(\)/);
   assert.match(preload, /getBotIdentity:\s*\(botId\)\s*=>\s*getBotIdentityCompat\(botId\)/);
   assert.match(preload, /saveBotIdentity:\s*\(botId,\s*body\)\s*=>\s*saveBotIdentityCompat\(botId,\s*body\)/);
-  assert.match(preload, /deleteBot:\s*\(botId\)\s*=>\s*deleteBotCompat\(botId\)/);
+  assert.match(preload, /deleteBot:\s*\(botId\)\s*=>\s*coreOk\(miaCoreDelete\(`\/api\/bots\/\$\{encodeURIComponent\(botId\)\}`\)\)/);
   assert.match(preload, /getBotRuntime:\s*\(botId,\s*runtimeKind\)\s*=>\s*getBotRuntimeCompat\(botId,\s*runtimeKind\)/);
   assert.match(preload, /saveBotRuntime:\s*\(botId,\s*body\)\s*=>\s*saveBotRuntimeCompat\(botId,\s*body\)/);
   assert.match(preload, /async function listBotsCompat\(\)/);
@@ -129,11 +129,12 @@ test("bot preload bridge keeps legacy social data primary with Rust Core fallbac
   assert.match(preload, /controlIntent:\s*input\.controlIntent/);
   const runtimeRequest = extractFunctionSource(preload, "buildCoreBotRuntimeRequest");
   assert.doesNotMatch(runtimeRequest, /input\.config|input\.runtimeConfig|config\.providerConnectionId|config\.modelProfileId|config\.model/);
-  assert.match(preload, /ensureBotSessionConversation:\s*\(sessionId,\s*body\)\s*=>\s*ensureBotSessionConversationCompat\(sessionId,\s*body\)/);
+  assert.match(preload, /ensureBotSessionConversation:\s*\(sessionId,\s*body\)\s*=>\s*ensureCoreBotSessionConversation\(sessionId,\s*body\)/);
+  assert.match(preload, /function ensureCoreBotSessionConversation\(sessionId,\s*body = \{\}\)/);
   assert.match(preload, /IpcChannel\.SocialSaveBotIdentity/);
-  assert.match(preload, /IpcChannel\.SocialDeleteBot/);
-  assert.match(preload, /IpcChannel\.SocialEnsureBotSessionConversation/);
   assert.match(preload, /IpcChannel\.SocialSaveBotRuntime/);
+  assert.doesNotMatch(preload, /IpcChannel\.SocialDeleteBot/);
+  assert.doesNotMatch(preload, /IpcChannel\.SocialEnsureBotSessionConversation/);
 });
 
 test("conversation preload bridge keeps legacy social data primary with Rust Core fallback", () => {

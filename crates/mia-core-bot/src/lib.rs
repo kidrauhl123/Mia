@@ -1366,6 +1366,7 @@ fn merge_object_patch(target: &mut Map<String, Value>, patch: &Value) {
 fn normalize_runtime_kind(value: &str) -> String {
     match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
         "cloud-claude-code" | "mia-cloud" | "miacloud" => "cloud-claude-code".to_string(),
+        "agent" => "agent".to_string(),
         _ => "desktop-local".to_string(),
     }
 }

@@ -442,6 +442,7 @@ fn endpoint_dtos_cover_the_initial_core_contract() {
         run_id: "run_1".into(),
         conversation_id: "cloud_bridge_cloud_conv_1".into(),
         cloud_conversation_id: "cloud_conv_1".into(),
+        message_id: "msg_1".into(),
         turn_id: "turn_1".into(),
         assistant_message_id: Some("msg_2".into()),
         text: "done".into(),

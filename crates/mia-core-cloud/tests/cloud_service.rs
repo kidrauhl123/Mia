@@ -121,6 +121,7 @@ impl CloudBridgeRunHandler for MockBridgeRunner {
             run_id: request.run_id,
             conversation_id: "cloud_bridge_c_1".into(),
             cloud_conversation_id: request.conversation_id,
+            message_id: "msg_1".into(),
             turn_id: "turn_1".into(),
             assistant_message_id: Some("msg_2".into()),
             text: "done by core".into(),

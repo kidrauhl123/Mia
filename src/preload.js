@@ -442,16 +442,6 @@ async function saveBotIdentityCompat(botId, body) {
   return saveCoreBotIdentity(botId, body);
 }
 
-async function deleteBotCompat(botId) {
-  try {
-    const result = await ipcRenderer.invoke(IpcChannel.SocialDeleteBot, botId);
-    if (result?.ok !== false) return result;
-  } catch {
-    // Fall back to Core.
-  }
-  return coreOk(miaCoreDelete(`/api/bots/${encodeURIComponent(botId)}`));
-}
-
 async function getBotRuntimeCompat(botId, runtimeKind) {
   try {
     const result = await ipcRenderer.invoke(IpcChannel.SocialGetBotRuntime, botId, runtimeKind);
@@ -470,16 +460,6 @@ async function saveBotRuntimeCompat(botId, body) {
     // Fall back to Core.
   }
   return saveCoreBotRuntime(botId, body);
-}
-
-async function ensureBotSessionConversationCompat(sessionId, body = {}) {
-  try {
-    const result = await ipcRenderer.invoke(IpcChannel.SocialEnsureBotSessionConversation, sessionId, body);
-    if (result?.ok !== false) return result;
-  } catch {
-    // Fall back to Core.
-  }
-  return ensureCoreBotSessionConversation(sessionId, body);
 }
 
 async function postCoreConversationMessage(conversationId, body = {}) {
@@ -1081,7 +1061,7 @@ contextBridge.exposeInMainWorld("mia", {
     listBots: () => listBotsCompat(),
     getBotIdentity: (botId) => getBotIdentityCompat(botId),
     saveBotIdentity: (botId, body) => saveBotIdentityCompat(botId, body),
-    deleteBot: (botId) => deleteBotCompat(botId),
+    deleteBot: (botId) => coreOk(miaCoreDelete(`/api/bots/${encodeURIComponent(botId)}`)),
     listPlatformModels: () => ipcRenderer.invoke(IpcChannel.SocialListPlatformModels),
     getConversation: (conversationId) => getConversationCompat(conversationId),
     listConversationMessages: (conversationId, sinceSeq, limit) => listConversationMessagesCompat(conversationId, sinceSeq, limit),
@@ -1094,7 +1074,7 @@ contextBridge.exposeInMainWorld("mia", {
     myIdentity: () => ipcRenderer.invoke(IpcChannel.SocialMyIdentity),
     createConversation: (payload) => createConversationCompat(payload),
     ensureBotConversation: (botId, body) => ipcRenderer.invoke(IpcChannel.SocialEnsureBotConversation, botId, body),
-    ensureBotSessionConversation: (sessionId, body) => ensureBotSessionConversationCompat(sessionId, body),
+    ensureBotSessionConversation: (sessionId, body) => ensureCoreBotSessionConversation(sessionId, body),
     getBotRuntime: (botId, runtimeKind) => getBotRuntimeCompat(botId, runtimeKind),
     saveBotRuntime: (botId, body) => saveBotRuntimeCompat(botId, body),
     getBotRuntimeTargetOptions: (input) => getCoreBotRuntimeTargetOptions(input),
