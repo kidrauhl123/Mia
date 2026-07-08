@@ -1852,7 +1852,7 @@ test("sendInActiveConversation appends returned local runtime bot reply without 
   assert.equal(messages[1].body_md, "hello");
 });
 
-test("sendInActiveConversation ensures bot conversations before posting", async () => {
+test("sendInActiveConversation keeps desktop-local bot history on the visible conversation id", async () => {
   const s = loadSocial();
   const calls = [];
   s.moduleState.myUserId = "u_me";
@@ -1891,17 +1891,12 @@ test("sendInActiveConversation ensures bot conversations before posting", async 
 
   await s.sendInActiveConversation("hello bot");
 
-  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), {
-    kind: "ensure",
-    sessionId: "session_probe",
-    body: { botId: "codex", title: "新对话", runtimeKind: "desktop-local" }
-  });
-  assert.equal(calls[1].conversationId, "botc_session_probe");
-  assert.equal(calls[1].body.runtimeKind, "desktop-local");
-  assert.equal(calls[1].body.botId, "codex");
-  assert.equal(calls[1].body.sessionId, "session_probe");
-  assert.equal(calls[1].body.agentEngine, "codex");
+  assert.deepEqual(calls.map((call) => call.kind), ["post"]);
+  assert.equal(calls[0].conversationId, "botc_session_probe");
+  assert.equal(calls[0].body.runtimeKind, "desktop-local");
+  assert.equal(calls[0].body.botId, "codex");
+  assert.equal(calls[0].body.sessionId, "session_probe");
+  assert.equal(calls[0].body.agentEngine, "codex");
   assert.equal(s.moduleState.messageCache.get("botc_session_probe").messages[0].status, undefined);
 });
 
@@ -1952,7 +1947,7 @@ test("sendInActiveConversation tags cloud bot posts with cloud runtime ownership
   assert.equal(calls[1].body.sessionId, "cloud_probe");
 });
 
-test("sendInActiveConversation moves pending bot messages when ensure returns a canonical conversation id", async () => {
+test("sendInActiveConversation does not move desktop-local bot history into Core-created conversations", async () => {
   const s = loadSocial();
   const calls = [];
   s.moduleState.myUserId = "u_me";
@@ -2000,12 +1995,14 @@ test("sendInActiveConversation moves pending bot messages when ensure returns a 
 
   await s.sendInActiveConversation("hello bot");
 
-  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
-  assert.equal(calls[1].conversationId, "botc_session_probe");
-  assert.equal(s.moduleState.activeConversationId, "botc_session_probe");
-  assert.deepEqual(JSON.parse(JSON.stringify(s.moduleState.messageCache.get("botc_legacy_probe").messages)), []);
+  assert.deepEqual(calls.map((call) => call.kind), ["post"]);
+  assert.equal(calls[0].conversationId, "botc_legacy_probe");
+  assert.equal(calls[0].body.runtimeKind, "desktop-local");
+  assert.equal(calls[0].body.botId, "codex");
+  assert.equal(calls[0].body.sessionId, "session_probe");
+  assert.equal(s.moduleState.activeConversationId, "botc_legacy_probe");
   assert.deepEqual(
-    JSON.parse(JSON.stringify(s.moduleState.messageCache.get("botc_session_probe").messages.map((message) => message.id))),
+    JSON.parse(JSON.stringify(s.moduleState.messageCache.get("botc_legacy_probe").messages.map((message) => message.id))),
     ["m_server"]
   );
 });

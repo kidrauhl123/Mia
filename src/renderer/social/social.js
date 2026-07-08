@@ -2819,6 +2819,7 @@
     const id = String(conversationId || "").trim();
     const current = conversation || moduleState.conversations.find((item) => item.id === id) || { id };
     if (conversationTypeFor(current, id) !== "bot") return { conversationId: id, conversation: current };
+    if (runtimeKindForBotConversation(current) === "desktop-local") return { conversationId: id, conversation: current };
     const botId = sessionHistoryShared().botId(current);
     const sessionId = botSessionIdForConversation(current, id);
     const api = window.mia?.social;
