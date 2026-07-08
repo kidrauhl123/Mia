@@ -148,6 +148,34 @@ test("Core conversation runtime events map to existing renderer streaming events
   );
 });
 
+test("Core Codex stdout mapper suppresses status noise and extracts JSONL text", () => {
+  assert.equal(
+    coreConversationRuntimeEnvelope({
+      name: "conversation.runtimeStdout",
+      data: {
+        conversationId: "conv_1",
+        turnId: "turn_1",
+        engine: "codex",
+        text: "Reading prompt from stdin...\n"
+      }
+    }),
+    null
+  );
+
+  assert.deepEqual(
+    coreConversationRuntimeEnvelope({
+      name: "conversation.runtimeStdout",
+      data: {
+        conversationId: "conv_1",
+        turnId: "turn_1",
+        engine: "codex",
+        text: JSON.stringify({ type: "agent_message_delta", delta: "hello" }) + "\n"
+      }
+    }).payload.event,
+    { type: "message.delta", text: "hello" }
+  );
+});
+
 test("Core cloud bridge message events target the renderer cloud conversation", () => {
   const coreEnvelope = {
     name: "conversation.messageCreated",

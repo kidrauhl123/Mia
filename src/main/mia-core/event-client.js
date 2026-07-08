@@ -37,6 +37,190 @@ function coreRuntimeRunId(data = {}) {
   return String(data.runId || data.run_id || data.turnId || data.turn_id || "").trim();
 }
 
+function firstString(source, keys) {
+  for (const key of keys) {
+    const value = source && source[key];
+    if (typeof value === "string") return value;
+  }
+  return "";
+}
+
+function contentText(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(blockText).join("");
+  if (value && typeof value === "object") return blockText(value);
+  return "";
+}
+
+function blockText(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(blockText).join("");
+  if (!value || typeof value !== "object") return "";
+  for (const key of ["text", "content", "delta", "output", "message", "final_response", "thinking"]) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      const text = contentText(value[key]);
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+function assistantMessageText(value) {
+  const messageContent = value?.message?.content;
+  return contentText(messageContent)
+    || contentText(value?.content)
+    || firstString(value, ["text", "delta"]);
+}
+
+function codexJsonLineToRunEvent(value) {
+  const type = String(value?.type || "");
+  if (["agent_message_delta", "message_delta", "response.output_text.delta"].includes(type)) {
+    const text = firstString(value, ["delta", "text", "message", "content", "output_text_delta"]);
+    return text ? { type: "message.delta", text } : null;
+  }
+  if (["agent_message", "message"].includes(type)) {
+    const text = firstString(value, ["message", "text", "content"]);
+    return text.trim() ? { type: "message.complete", text } : null;
+  }
+  if (["task_complete", "turn_complete", "response.completed"].includes(type)) {
+    const text = firstString(value, ["last_agent_message", "final_response", "message", "text", "content"])
+      || firstString(value?.response || {}, ["output_text", "text"]);
+    return text.trim() ? { type: "run.completed", final_response: text } : null;
+  }
+  if (["agent_reasoning", "agent_reasoning_delta", "reasoning_delta"].includes(type)) {
+    const text = firstString(value, ["text", "delta", "reasoning", "summary"]);
+    return text.trim() ? { type: "reasoning_delta", text } : null;
+  }
+  if (["exec_command_begin", "tool_call_begin", "tool_call"].includes(type)) {
+    return {
+      type: "tool.started",
+      id: firstString(value, ["id", "call_id"]) || "tool",
+      name: firstString(value, ["name", "command", "tool"]) || "tool",
+      preview: firstString(value, ["command", "text", "input"])
+    };
+  }
+  if (["exec_command_output_delta", "tool_call_delta"].includes(type)) {
+    const text = firstString(value, ["delta", "text", "output", "preview"]);
+    return text ? { type: "tool.delta", delta: text, preview: text } : null;
+  }
+  if (["exec_command_end", "tool_call_end", "tool_result"].includes(type)) {
+    return { type: "tool.completed" };
+  }
+  if (type === "error") {
+    const message = firstString(value?.error || {}, ["message"])
+      || (typeof value?.error === "string" ? value.error : "")
+      || firstString(value, ["message"])
+      || "Codex failed.";
+    return { type: "error", text: message, message };
+  }
+  const item = value?.item;
+  if (item && typeof item === "object") {
+    const itemType = String(item.type || "");
+    if (itemType === "message") {
+      const text = blockText(item);
+      return text.trim() ? { type: "message.complete", text } : null;
+    }
+    if (itemType.includes("call")) {
+      return {
+        type: "tool.started",
+        id: firstString(item, ["id", "call_id"]) || "tool",
+        name: firstString(item, ["name"]) || "tool",
+        preview: blockText(item)
+      };
+    }
+  }
+  return null;
+}
+
+function claudeJsonLineToRunEvent(value) {
+  const type = String(value?.type || "");
+  if (type === "stream_event") return claudeStreamEventToRunEvent(value.event || {});
+  if (type === "assistant") {
+    const text = assistantMessageText(value);
+    return text.trim() ? { type: "message.complete", text } : null;
+  }
+  if (type === "result") {
+    const text = firstString(value, ["result", "output_text", "content"]);
+    return text.trim() ? { type: "run.completed", final_response: text } : null;
+  }
+  if (type === "error") {
+    const message = firstString(value?.error || {}, ["message"])
+      || (typeof value?.error === "string" ? value.error : "")
+      || firstString(value, ["message"])
+      || "Claude Code failed.";
+    return { type: "error", text: message, message };
+  }
+  return null;
+}
+
+function claudeStreamEventToRunEvent(event) {
+  const type = String(event?.type || "");
+  if (type === "content_block_start") {
+    const block = event?.content_block || {};
+    const blockType = String(block.type || "");
+    if (blockType === "tool_use") {
+      return {
+        type: "tool.started",
+        id: firstString(block, ["id"]),
+        name: firstString(block, ["name"]) || "tool",
+        input: block.input || {},
+        preview: block.input ? JSON.stringify(block.input) : ""
+      };
+    }
+    if (blockType === "thinking") {
+      return { type: "reasoning_delta", id: `thinking_${Number(event.index) || 0}`, text: blockText(block) };
+    }
+  }
+  if (type === "content_block_delta") {
+    const delta = event?.delta || {};
+    const deltaType = String(delta.type || "");
+    if (deltaType === "text_delta") return { type: "message.delta", text: firstString(delta, ["text"]) };
+    if (deltaType === "thinking_delta") {
+      return { type: "reasoning_delta", id: `thinking_${Number(event.index) || 0}`, text: firstString(delta, ["thinking", "text"]) };
+    }
+    if (deltaType === "input_json_delta") {
+      const text = firstString(delta, ["partial_json"]);
+      return { type: "tool.delta", delta: text, preview: text };
+    }
+  }
+  return null;
+}
+
+function runtimeStatusNoiseLine(engine, text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return true;
+  if (engine === "codex") {
+    return trimmed === "Reading prompt from stdin..." || trimmed === "Reading prompt from stdin…";
+  }
+  return false;
+}
+
+function coreRuntimeStdoutEvent(engine, text) {
+  const raw = String(text || "");
+  const trimmed = raw.trim();
+  const normalizedEngine = String(engine || "").trim();
+  if (runtimeStatusNoiseLine(normalizedEngine, raw)) return null;
+  let sawJson = false;
+  const parsedEvents = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let value;
+    try {
+      value = JSON.parse(line);
+      sawJson = true;
+    } catch {
+      continue;
+    }
+    const event = normalizedEngine === "codex"
+      ? codexJsonLineToRunEvent(value)
+      : claudeJsonLineToRunEvent(value);
+    if (event) parsedEvents.push(event);
+  }
+  if (parsedEvents.length) return parsedEvents[0];
+  if (sawJson) return null;
+  return { type: "text_delta", text: raw };
+}
+
 function coreConversationRuntimeEnvelope(envelope = {}) {
   const type = String(envelope?.name || envelope?.type || "").trim();
   const data = envelopePayload(envelope);
@@ -79,15 +263,17 @@ function coreConversationRuntimeEnvelope(envelope = {}) {
   }
   if (type === "conversation.runtimeStdout" || type === "conversation.runtimeStderr") {
     const text = String(data.text || data.delta || data.message || "");
+    const event = type === "conversation.runtimeStdout"
+      ? coreRuntimeStdoutEvent(String(data.engine || ""), text)
+      : { type: "status", text };
+    if (!event) return null;
     return {
       type: "cloud_agent_run_event",
       payload: {
         conversationId,
         runId,
         turnId: String(data.turnId || data.turn_id || runId),
-        event: type === "conversation.runtimeStdout"
-          ? { type: "text_delta", text }
-          : { type: "status", text }
+        event
       },
       coreEnvelope: envelope
     };

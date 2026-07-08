@@ -655,13 +655,17 @@ fn emit_cloud_run_started(
 }
 
 #[derive(Debug, Clone, Default)]
-struct RuntimeDisplayOutput {
-    text: String,
-    trace: Value,
-    content_blocks: Value,
+pub(crate) struct RuntimeDisplayOutput {
+    pub(crate) text: String,
+    pub(crate) trace: Value,
+    pub(crate) content_blocks: Value,
 }
 
-fn normalize_runtime_output(engine: &str, stdout: &str, stderr: &str) -> RuntimeDisplayOutput {
+pub(crate) fn normalize_runtime_output(
+    engine: &str,
+    stdout: &str,
+    stderr: &str,
+) -> RuntimeDisplayOutput {
     if engine != "claude-code" && engine != "codex" {
         let stderr = clean_runtime_stderr_for_display(engine, stderr);
         return RuntimeDisplayOutput {
@@ -685,7 +689,7 @@ fn normalize_runtime_output(engine: &str, stdout: &str, stderr: &str) -> Runtime
         }
     }
     if collector.text.trim().is_empty() {
-        collector.text = strip_jsonl_runtime_noise(stdout).trim().to_string();
+        collector.text = strip_jsonl_runtime_noise(engine, stdout).trim().to_string();
     }
     if collector.text.trim().is_empty() && !stderr.trim().is_empty() {
         collector.text = clean_runtime_stderr_for_display(engine, stderr);
@@ -1225,12 +1229,29 @@ fn clean_runtime_stderr_for_display(engine: &str, stderr: &str) -> String {
     out.join("\n")
 }
 
-fn strip_jsonl_runtime_noise(stdout: &str) -> String {
+fn strip_jsonl_runtime_noise(engine: &str, stdout: &str) -> String {
     stdout
         .lines()
-        .filter(|line| serde_json::from_str::<Value>(line).is_err())
+        .filter(|line| {
+            serde_json::from_str::<Value>(line).is_err()
+                && !is_runtime_status_noise_line(engine, line)
+        })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn is_runtime_status_noise_line(engine: &str, line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    match engine {
+        "codex" => matches!(
+            trimmed,
+            "Reading prompt from stdin..." | "Reading prompt from stdin…"
+        ),
+        _ => false,
+    }
 }
 
 fn bot_id_from_metadata(metadata: &Value) -> Option<String> {
@@ -1276,5 +1297,12 @@ mod tests {
         }));
 
         assert_eq!(collector.text, "hello world");
+    }
+
+    #[test]
+    fn codex_prompt_status_noise_is_not_treated_as_reply_text() {
+        let output = normalize_runtime_output("codex", "Reading prompt from stdin...\n", "");
+
+        assert_eq!(output.text, "");
     }
 }

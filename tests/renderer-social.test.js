@@ -1648,6 +1648,49 @@ test("sendInActiveConversation shows outgoing cloud messages before the network 
   assert.equal(entry.maxSeq, 1);
 });
 
+test("backfill replaces matching local pending user message instead of duplicating it", async () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  const post = deferred();
+  const conversationId = "g_pending_backfill";
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{ id: conversationId, type: "group", name: "Backfill" }];
+  s.moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async () => post.promise,
+    settingsPut: async () => ({ ok: true, data: { version: 2, readMarks: { [conversationId]: 1 } } }),
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
+    listConversationMessages: async () => ({
+      ok: true,
+      data: {
+        messages: [{
+          id: "m_server",
+          seq: 1,
+          sender_kind: "user",
+          sender_ref: "u_me",
+          body_md: "你好"
+        }]
+      }
+    })
+  };
+
+  s.sendInActiveConversation("你好");
+  await flushPromises();
+  assert.deepEqual(Array.from(s.moduleState.messageCache.get(conversationId).messages, (m) => m.body_md), ["你好"]);
+  assert.match(s.moduleState.messageCache.get(conversationId).messages[0].id, /^local_/);
+
+  s.setActiveConversationId(null);
+  s.setActiveConversationId(conversationId);
+  await flushPromises(8);
+
+  const messages = s.moduleState.messageCache.get(conversationId).messages;
+  assert.deepEqual(Array.from(messages, (m) => m.id), ["m_server"]);
+  assert.equal(messages[0].status, undefined);
+  assert.equal(messages[0]._localPending, undefined);
+});
+
 test("server-confirmed outgoing message survives stale backfill until the list window includes it", async () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
@@ -2364,6 +2407,48 @@ test("self websocket echo confirms the active pending bubble without repainting 
   assert.deepEqual(entry.messages.map((m) => m.id), ["m_server_echo"]);
   assert.equal(target.dataset.messageId, "m_server_echo");
   assert.equal(bubble.dataset.messageId, "m_server_echo");
+});
+
+test("self websocket echo preserves sender ref when the server echo omits it", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "g_echo_blank_sender";
+  s.moduleState.conversations = [{ id: "g_echo_blank_sender", type: "group", name: "Echo" }];
+  s.moduleState.messageCache.set("g_echo_blank_sender", {
+    messages: [{
+      id: "local_1",
+      seq: Number.MAX_SAFE_INTEGER,
+      turn_id: "turn_1",
+      sender_kind: "user",
+      sender_ref: "u_me",
+      body_md: "hello once",
+      status: "sending",
+      _localPending: true
+    }],
+    maxSeq: 0
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "g_echo_blank_sender",
+      message: {
+        id: "m_server_echo_blank_sender",
+        seq: 1,
+        turn_id: "turn_1",
+        sender_kind: "user",
+        sender_ref: "",
+        body_md: "hello once"
+      }
+    }
+  });
+
+  const messages = s.moduleState.messageCache.get("g_echo_blank_sender").messages;
+  assert.deepEqual(messages.map((m) => m.id), ["m_server_echo_blank_sender"]);
+  assert.equal(messages[0].sender_ref, "u_me");
+  assert.equal(messages[0]._localPending, undefined);
+  assert.equal(messages[0].status, undefined);
 });
 
 test("sendInActiveConversation reconciles a self websocket echo even when turn_id is absent", async () => {

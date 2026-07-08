@@ -20,6 +20,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sqlx::Error;
 
+use crate::cloud_bridge::normalize_runtime_output;
 use crate::runtime::ConversationRuntimeClaim;
 
 use super::state::ModuleStates;
@@ -221,10 +222,12 @@ fn spawn_runtime_turn(
         runtime_registry.remove(&runtime_plan.turn_id);
         let (body, runtime) = match execution {
             Ok(result) => {
-                let body = if result.stdout.is_empty() {
-                    result.stderr.clone()
+                let output =
+                    normalize_runtime_output(&runtime_plan.engine, &result.stdout, &result.stderr);
+                let body = if output.text.trim().is_empty() && result.exit_code != Some(0) {
+                    result.stderr.trim().to_string()
                 } else {
-                    result.stdout.clone()
+                    output.text.clone()
                 };
                 (
                     body,
@@ -234,6 +237,8 @@ fn spawn_runtime_turn(
                         "cancelled": result.cancelled,
                         "stderr": result.stderr,
                         "runtimeSession": runtime_plan.runtime_session.clone(),
+                        "trace": output.trace,
+                        "contentBlocks": output.content_blocks,
                     }),
                 )
             }
@@ -267,7 +272,7 @@ fn spawn_runtime_turn(
                 &runtime_plan.conversation_id,
                 &runtime_plan.turn_id,
                 &body,
-                runtime,
+                runtime.clone(),
             )
             .await
         {
@@ -288,6 +293,8 @@ fn spawn_runtime_turn(
                         "sender_ref": runtime_plan.bot_id.clone().unwrap_or_else(|| "mia".to_string()),
                         "body_md": completed.body,
                         "turn_id": runtime_plan.turn_id,
+                        "trace": runtime.get("trace").cloned().unwrap_or_else(|| json!({})),
+                        "contentBlocks": runtime.get("contentBlocks").cloned().unwrap_or_else(|| json!([])),
                         "created_at": completed.created_at,
                     },
                 }),

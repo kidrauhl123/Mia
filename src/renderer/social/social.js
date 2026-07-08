@@ -4410,6 +4410,38 @@
     return matches.length === 1 ? matches[0] : -1;
   }
 
+  function _localPendingEchoIndexForServerMessage(entry, sentMsg) {
+    if (!entry || !Array.isArray(entry.messages)) return -1;
+    if (!sentMsg || sentMsg.sender_kind !== conversationKinds().SenderKind.User) return -1;
+    const senderRef = String(sentMsg.sender_ref || sentMsg.senderRef || "").trim();
+    if (senderRef && !_messageLooksFromSelf(sentMsg)) return -1;
+    const turnId = String(sentMsg.turn_id || sentMsg.turnId || "").trim();
+    if (turnId) {
+      return entry.messages.findIndex((message) => (
+        message
+        && message._localPending
+        && message.sender_kind === conversationKinds().SenderKind.User
+        && String(message.turn_id || message.turnId || "").trim() === turnId
+      ));
+    }
+    return _localPendingEchoIndexWithoutTurnId(entry, sentMsg);
+  }
+
+  function _serverConfirmedLocalMessage(localMsg, incoming) {
+    const merged = mergeFetchedMessage(localMsg, incoming);
+    delete merged._localPending;
+    delete merged._localBackfillPending;
+    if (merged.status === "sending") delete merged.status;
+    if (!merged.status) delete merged.error;
+    return merged;
+  }
+
+  function _serverEchoConfirmedLocalMessage(localMsg, incoming) {
+    const merged = _serverConfirmedLocalMessage(localMsg, incoming);
+    merged._localBackfillPending = true;
+    return merged;
+  }
+
   function setMessageElementDataId(el, messageId) {
     if (!el || !messageId) return;
     try { el.setAttribute?.("data-message-id", messageId); } catch (_) {}
@@ -4468,7 +4500,7 @@
     const localMsg = entry.messages[localIdx];
     const localId = localMsg?.id || "";
     const canSilentReconcile = _messageVisualFingerprint(localMsg) === _messageVisualFingerprint(sentMsg);
-    entry.messages[localIdx] = sentMsg;
+    entry.messages[localIdx] = _serverEchoConfirmedLocalMessage(localMsg, sentMsg);
     _resequencePendingMessagesAfterServerSeq(entry, sentMsg.seq);
     sortMessagesByTimelineSeq(entry.messages);
     if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
@@ -5070,7 +5102,19 @@
     for (const msg of incoming) {
       if (!msg || !msg.id) continue;
       const existing = byId.get(msg.id);
-      byId.set(msg.id, mergeFetchedMessage(existing, msg));
+      if (!existing) {
+        const localIdx = _localPendingEchoIndexForServerMessage(entry, msg);
+        if (localIdx >= 0) {
+          const localMsg = entry.messages[localIdx];
+          byId.delete(localMsg.id);
+          byId.set(msg.id, _serverConfirmedLocalMessage(localMsg, msg));
+          changed = true;
+          const seq = Number(msg.seq) || 0;
+          if (seq > entry.maxSeq) entry.maxSeq = seq;
+          continue;
+        }
+      }
+      byId.set(msg.id, existing ? mergeFetchedMessage(existing, msg) : msg);
       changed = true;
       const seq = Number(msg.seq) || 0;
       if (seq > entry.maxSeq) entry.maxSeq = seq;

@@ -185,7 +185,7 @@ impl RuntimeExecutor {
         sink: RuntimeEventSink,
         cancellation: Option<RuntimeCancellation>,
     ) -> anyhow::Result<RuntimeExecutionResult> {
-        let Some(command) = plan.command.clone() else {
+        let Some(mut command) = plan.command.clone() else {
             return Ok(RuntimeExecutionResult {
                 exit_code: Some(0),
                 cancelled: false,
@@ -193,6 +193,7 @@ impl RuntimeExecutor {
                 stderr: String::new(),
             });
         };
+        let stdin_input = prepare_command_input(&plan, &mut command);
 
         sink.emit(
             EVENT_RUNTIME_STARTED,
@@ -222,10 +223,7 @@ impl RuntimeExecutor {
             child.current_dir(&plan.workspace_dir);
         }
         let mut child = child.spawn()?;
-        let stdin_task = tokio::spawn(write_stdin(
-            child.stdin.take(),
-            plan.send_message.content.clone(),
-        ));
+        let stdin_task = tokio::spawn(write_stdin(child.stdin.take(), stdin_input));
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let stdout_task = tokio::spawn(read_stream(
@@ -345,10 +343,81 @@ async fn write_stdin(stdin: Option<ChildStdin>, input: String) {
     let Some(mut stdin) = stdin else {
         return;
     };
-    if input.is_empty() {
+    if !input.is_empty() {
+        let _ = stdin.write_all(input.as_bytes()).await;
+    }
+    let _ = stdin.shutdown().await;
+}
+
+fn prepare_command_input(plan: &RuntimeTurnPlan, command: &mut RuntimeCommand) -> String {
+    let input = plan.send_message.content.clone();
+    if plan.engine == "codex" && !input.is_empty() {
+        command.args.push(input);
+        String::new()
+    } else if plan.engine == "hermes" && !input.is_empty() {
+        prepare_hermes_oneshot_command(plan, command, &input);
+        String::new()
+    } else {
+        input
+    }
+}
+
+fn prepare_hermes_oneshot_command(
+    plan: &RuntimeTurnPlan,
+    command: &mut RuntimeCommand,
+    input: &str,
+) {
+    if let Some(provider) = provider_arg_for_hermes(&plan.provider) {
+        append_option_if_missing(&mut command.args, "--provider", provider);
+    }
+    if let Some(model) = model_arg_for_hermes(&plan.provider) {
+        append_option_if_missing(&mut command.args, "--model", model);
+    }
+    if !command
+        .args
+        .iter()
+        .any(|arg| arg == "--oneshot" || arg == "-z")
+    {
+        command.args.push("--oneshot".into());
+    }
+    command.args.push(input.to_string());
+}
+
+fn append_option_if_missing(args: &mut Vec<String>, name: &str, value: String) {
+    if args
+        .iter()
+        .any(|arg| arg == name || arg.starts_with(&format!("{name}=")))
+    {
         return;
     }
-    let _ = stdin.write_all(input.as_bytes()).await;
+    args.push(name.into());
+    args.push(value);
+}
+
+fn provider_arg_for_hermes(provider: &Value) -> Option<String> {
+    let value = string_field(provider, &["provider", "modelProvider", "model_provider"])?;
+    if matches!(value.as_str(), "mia" | "hermes") {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn model_arg_for_hermes(provider: &Value) -> Option<String> {
+    let value = string_field(provider, &["model"])?;
+    if matches!(value.as_str(), "mia-auto" | "auto") {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn string_field(source: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| source.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 impl RuntimeBuilder {
@@ -540,11 +609,8 @@ fn command_for_engine(engine: &str) -> Option<RuntimeCommand> {
             ],
         }),
         "hermes" => Some(RuntimeCommand {
-            program: "sh".into(),
-            args: vec![
-                "-lc".into(),
-                "prompt=$(cat); exec hermes --oneshot \"$prompt\"".into(),
-            ],
+            program: "hermes".into(),
+            args: vec![],
         }),
         other => Some(RuntimeCommand {
             program: other.to_string(),
@@ -707,13 +773,7 @@ mod tests {
             body: "hello".into(),
         });
         let hermes_command = hermes_plan.command.unwrap();
-        assert_eq!(hermes_command.program, "sh");
-        assert!(
-            hermes_command
-                .args
-                .iter()
-                .any(|arg| arg.contains("--oneshot"))
-        );
+        assert_eq!(hermes_command.program, "hermes");
         assert!(!hermes_command.args.iter().any(|arg| arg == "run"));
     }
 
@@ -807,6 +867,49 @@ mod tests {
 
         assert_eq!(result.exit_code, Some(0));
         assert_eq!(result.stdout, "hello through session manager\n");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn runtime_executor_passes_codex_prompt_as_argument_not_stdin() {
+        let mut plan = test_plan(shell_command(
+            "printf 'arg0:%s\\n' \"$0\"; printf 'stdin:'; cat",
+        ));
+        plan.engine = "codex".into();
+        plan.send_message.content = "hello codex".into();
+
+        let result = RuntimeExecutor
+            .execute_plan(plan, RuntimeEventSink::default(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(result.stdout, "arg0:hello codex\nstdin:");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn runtime_executor_passes_hermes_prompt_model_provider_as_arguments() {
+        let mut plan = test_plan(shell_command(
+            "printf 'args:%s|%s|%s|%s|%s|%s\\n' \"$0\" \"$1\" \"$2\" \"$3\" \"$4\" \"$5\"; printf 'stdin:'; cat",
+        ));
+        plan.engine = "hermes".into();
+        plan.provider = json!({
+            "provider": "deepseek",
+            "model": "deepseek-chat"
+        });
+        plan.send_message.content = "hello hermes".into();
+
+        let result = RuntimeExecutor
+            .execute_plan(plan, RuntimeEventSink::default(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(
+            result.stdout,
+            "args:--provider|deepseek|--model|deepseek-chat|--oneshot|hello hermes\nstdin:"
+        );
     }
 
     #[tokio::test]
