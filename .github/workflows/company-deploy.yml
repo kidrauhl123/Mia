@@ -5,6 +5,15 @@ on:
     branches:
       - prod-deploy
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to publish desktop update assets from
+        required: false
+        type: string
+      jump_hostname:
+        description: Optional JumpServer HostName override for this run
+        required: false
+        type: string
   release:
     types:
       - published
@@ -18,7 +27,7 @@ permissions:
 
 jobs:
   deploy-cloud:
-    if: github.event_name != 'release'
+    if: github.event_name != 'release' && (github.event_name != 'workflow_dispatch' || inputs.release_tag == '')
     runs-on: [self-hosted, macOS, X64, mia-deploy]
     steps:
       - uses: actions/checkout@v4
@@ -30,12 +39,12 @@ jobs:
         run: bash scripts/deploy-cloud-jms.sh
 
   publish-release-assets:
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: [self-hosted, macOS, X64, mia-deploy]
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
@@ -44,9 +53,35 @@ jobs:
         run: |
           rm -rf release
           mkdir -p release
-          gh release download "${{ github.event.release.tag_name }}" --dir release --clobber
+          gh release download "$RELEASE_TAG" --dir release --clobber
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+
+      - name: Configure JumpServer HostName override
+        if: github.event_name == 'workflow_dispatch' && inputs.jump_hostname != ''
+        run: |
+          mkdir -p ~/.ssh
+          tmp_config="$(mktemp)"
+          {
+            echo "Host mia-jms-deploy"
+            echo "  HostName $MIA_JMS_HOSTNAME"
+            echo "  Port 2222"
+            echo "  User zhangguiyu@root@10.8.8.10"
+            echo "  HostKeyAlgorithms +ssh-rsa"
+            echo "  PubkeyAcceptedAlgorithms +ssh-rsa"
+            echo "  StrictHostKeyChecking accept-new"
+            echo "  ControlMaster auto"
+            echo "  ControlPath ~/.ssh/cm-%r@%h-%p"
+            echo "  ControlPersist 1800"
+            if [ -f ~/.ssh/config ]; then
+              cat ~/.ssh/config
+            fi
+          } > "$tmp_config"
+          mv "$tmp_config" ~/.ssh/config
+          chmod 600 ~/.ssh/config
+        env:
+          MIA_JMS_HOSTNAME: ${{ inputs.jump_hostname }}
 
       - name: Deploy desktop update artifacts through company JumpServer
         run: |
