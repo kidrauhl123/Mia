@@ -3910,6 +3910,44 @@ test("handleCloudEvent cloud_agent_run events track transient conversation strea
   assert.equal(run.tools.map((tool) => tool.name).join(","), "shell");
 });
 
+test("native ACP message.delta text streams into the active bot bubble before completion", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_acp", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_acp", event: { type: "message.delta", text: "你" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_acp", event: { type: "message.delta", text: "好" } },
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_mia").text, "你好");
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /streaming/);
+  assert.match(chat.children[0].innerHTML, /你好/);
+});
+
 test("Core websocket runtime envelopes drive the existing conversation streaming UI state", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
