@@ -4,11 +4,14 @@
 //! sanitized process inputs. External Node/Bun tools may appear as subprocesses,
 //! but the plan owner remains Rust.
 
+mod native_acp;
+
 use std::collections::BTreeMap;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub use native_acp::{NativeAcpBackend, NativeAcpSessionManager};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
@@ -29,6 +32,20 @@ pub const EVENT_RUNTIME_FINISHED: &str = "conversation.runtimeFinished";
 pub struct RuntimeCommand {
     pub program: String,
     pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeProtocol {
+    Mock,
+    Process,
+    NativeAcp,
+}
+
+impl Default for RuntimeProtocol {
+    fn default() -> Self {
+        Self::Process
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -80,6 +97,8 @@ pub struct RuntimeTurnPlan {
     pub bot_id: Option<String>,
     pub engine: String,
     pub workspace_dir: String,
+    #[serde(default)]
+    pub protocol: RuntimeProtocol,
     pub command: Option<RuntimeCommand>,
     pub environment: BTreeMap<String, String>,
     pub provider: Value,
@@ -280,19 +299,47 @@ impl RuntimeExecutor {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct RuntimeSessionManager {
     executor: RuntimeExecutor,
+    native_acp: NativeAcpSessionManager,
+}
+
+impl Default for RuntimeSessionManager {
+    fn default() -> Self {
+        Self {
+            executor: RuntimeExecutor,
+            native_acp: NativeAcpSessionManager::unavailable(),
+        }
+    }
 }
 
 impl RuntimeSessionManager {
+    pub fn new(native_acp: NativeAcpSessionManager) -> Self {
+        Self {
+            executor: RuntimeExecutor,
+            native_acp,
+        }
+    }
+
+    pub fn new_without_native_acp_for_tests() -> Self {
+        Self::default()
+    }
+
     pub async fn send_message(
         &self,
         plan: RuntimeTurnPlan,
         sink: RuntimeEventSink,
         cancellation: Option<RuntimeCancellation>,
     ) -> anyhow::Result<RuntimeExecutionResult> {
-        self.executor.execute_plan(plan, sink, cancellation).await
+        match plan.protocol {
+            RuntimeProtocol::NativeAcp => {
+                self.native_acp.send_message(plan, sink, cancellation).await
+            }
+            RuntimeProtocol::Mock | RuntimeProtocol::Process => {
+                self.executor.execute_plan(plan, sink, cancellation).await
+            }
+        }
     }
 }
 
@@ -374,22 +421,14 @@ async fn write_stdin(stdin: Option<ChildStdin>, input: String) {
 
 fn prepare_command_input(plan: &RuntimeTurnPlan, command: &mut RuntimeCommand) -> String {
     let input = plan.send_message.content.clone();
-    if plan.engine == "codex" && !input.is_empty() {
-        prepare_codex_exec_command(plan, command, &input);
-        String::new()
+    if plan.protocol == RuntimeProtocol::NativeAcp {
+        input
     } else if plan.engine == "hermes" && !input.is_empty() {
         prepare_hermes_oneshot_command(plan, command, &input);
         String::new()
     } else {
         input
     }
-}
-
-fn prepare_codex_exec_command(plan: &RuntimeTurnPlan, command: &mut RuntimeCommand, input: &str) {
-    if let Some(model) = model_arg_for_codex(&plan.provider) {
-        append_option_if_missing(&mut command.args, "-m", model);
-    }
-    command.args.push(input.to_string());
 }
 
 fn prepare_hermes_oneshot_command(
@@ -436,15 +475,6 @@ fn model_arg_for_hermes(provider: &Value) -> Option<String> {
     if provider_id == "mia" && matches!(value.as_str(), "auto" | "default") {
         Some("mia-auto".into())
     } else if value == "auto" {
-        None
-    } else {
-        Some(value)
-    }
-}
-
-fn model_arg_for_codex(provider: &Value) -> Option<String> {
-    let value = string_field(provider, &["model"])?;
-    if matches!(value.as_str(), "default" | "auto" | "codex-default") {
         None
     } else {
         Some(value)
@@ -500,11 +530,19 @@ impl RuntimeBuilder {
         } else {
             input.workspace_dir
         };
+        let has_command_override = self.command_overrides.contains_key(&engine);
         let command = self
             .command_overrides
             .get(&engine)
             .cloned()
             .or_else(|| command_for_engine(&engine));
+        let protocol = if command.is_none() {
+            RuntimeProtocol::Mock
+        } else if has_command_override {
+            RuntimeProtocol::Process
+        } else {
+            protocol_for_engine(&engine)
+        };
         let body = input.body;
         let turn_id = format!("turn_{}", Uuid::now_v7().simple());
         let message_id = clean_non_empty(&input.message_id)
@@ -545,6 +583,7 @@ impl RuntimeBuilder {
             bot_id: input.bot_id,
             engine,
             workspace_dir,
+            protocol,
             command,
             environment: clean_cli_environment(std::env::vars()),
             provider: input.provider,
@@ -624,27 +663,26 @@ where
     env
 }
 
+fn protocol_for_engine(engine: &str) -> RuntimeProtocol {
+    match engine {
+        "mock" | "mock-agent" | "mia-mock" => RuntimeProtocol::Mock,
+        "codex" | "claude-code" => RuntimeProtocol::NativeAcp,
+        _ => RuntimeProtocol::Process,
+    }
+}
+
 fn command_for_engine(engine: &str) -> Option<RuntimeCommand> {
     match engine {
         "mock" | "mock-agent" | "mia-mock" => None,
         "codex" => Some(RuntimeCommand {
-            program: "codex".into(),
-            args: vec![
-                "exec".into(),
-                "--json".into(),
-                "--skip-git-repo-check".into(),
-                "--color".into(),
-                "never".into(),
-            ],
+            program: "npx".into(),
+            args: vec!["-y".into(), "@agentclientprotocol/codex-acp@1.1.0".into()],
         }),
         "claude-code" => Some(RuntimeCommand {
-            program: "claude".into(),
+            program: "npx".into(),
             args: vec![
-                "-p".into(),
-                "--output-format".into(),
-                "stream-json".into(),
-                "--verbose".into(),
-                "--include-partial-messages".into(),
+                "-y".into(),
+                "@agentclientprotocol/claude-agent-acp@0.39.0".into(),
             ],
         }),
         "hermes" => Some(RuntimeCommand {
@@ -758,9 +796,9 @@ mod tests {
     }
 
     #[test]
-    fn runtime_builder_maps_known_external_engines_to_commands() {
+    fn runtime_builder_maps_codex_and_claude_to_native_acp_specs() {
         let builder = RuntimeBuilder::new("/tmp/mia-workspace");
-        let plan = builder.build_turn_plan(RuntimeTurnInput {
+        let codex_plan = builder.build_turn_plan(RuntimeTurnInput {
             conversation_id: "conv_1".into(),
             message_id: "msg_1".into(),
             bot_id: None,
@@ -774,12 +812,21 @@ mod tests {
             body: "hello".into(),
         });
 
-        let command = plan.command.unwrap();
-        assert_eq!(command.program, "codex");
-        assert!(command.args.contains(&"exec".to_string()));
-        assert!(command.args.contains(&"--json".to_string()));
-        assert_eq!(plan.workspace_dir, "/tmp/custom");
-        assert_eq!(plan.mock_response, None);
+        assert_eq!(codex_plan.protocol, RuntimeProtocol::NativeAcp);
+        let codex_command = codex_plan.command.as_ref().expect("codex ACP command");
+        assert_eq!(codex_command.program, "npx");
+        assert_eq!(
+            codex_command.args,
+            vec!["-y", "@agentclientprotocol/codex-acp@1.1.0"]
+        );
+        assert!(
+            !codex_command
+                .args
+                .iter()
+                .any(|arg| arg == "exec" || arg == "--json")
+        );
+        assert_eq!(codex_plan.workspace_dir, "/tmp/custom");
+        assert_eq!(codex_plan.mock_response, None);
 
         let claude_plan = builder.build_turn_plan(RuntimeTurnInput {
             conversation_id: "conv_2".into(),
@@ -794,9 +841,19 @@ mod tests {
             selected_skill_ids: vec![],
             body: "hello".into(),
         });
-        let claude_command = claude_plan.command.unwrap();
-        assert_eq!(claude_command.program, "claude");
-        assert!(claude_command.args.contains(&"--verbose".to_string()));
+        assert_eq!(claude_plan.protocol, RuntimeProtocol::NativeAcp);
+        let claude_command = claude_plan.command.as_ref().expect("claude ACP command");
+        assert_eq!(claude_command.program, "npx");
+        assert_eq!(
+            claude_command.args,
+            vec!["-y", "@agentclientprotocol/claude-agent-acp@0.39.0"]
+        );
+        assert!(
+            !claude_command
+                .args
+                .iter()
+                .any(|arg| { arg == "-p" || arg == "--output-format" || arg == "stream-json" })
+        );
 
         let hermes_plan = builder.build_turn_plan(RuntimeTurnInput {
             conversation_id: "conv_3".into(),
@@ -811,9 +868,9 @@ mod tests {
             selected_skill_ids: vec![],
             body: "hello".into(),
         });
+        assert_eq!(hermes_plan.protocol, RuntimeProtocol::Process);
         let hermes_command = hermes_plan.command.unwrap();
         assert_eq!(hermes_command.program, "hermes");
-        assert!(!hermes_command.args.iter().any(|arg| arg == "run"));
     }
 
     #[tokio::test]
@@ -908,9 +965,81 @@ mod tests {
         assert_eq!(result.stdout, "hello through session manager\n");
     }
 
+    #[tokio::test]
+    async fn runtime_session_manager_rejects_native_acp_without_backend_instead_of_executor_fallback()
+     {
+        let mut plan = test_plan(shell_command("printf 'executor fallback used\\n'"));
+        plan.engine = "codex".into();
+        plan.protocol = RuntimeProtocol::NativeAcp;
+        plan.send_message.content = "hello native acp".into();
+
+        let result = RuntimeSessionManager::new_without_native_acp_for_tests()
+            .send_message(plan, RuntimeEventSink::default(), None)
+            .await
+            .unwrap_err();
+
+        assert!(
+            result
+                .to_string()
+                .contains("native ACP runtime is unavailable")
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_session_manager_dispatches_native_acp_to_backend() {
+        struct RecordingBackend;
+
+        #[async_trait::async_trait]
+        impl NativeAcpBackend for RecordingBackend {
+            async fn send_message(
+                &self,
+                plan: RuntimeTurnPlan,
+                sink: RuntimeEventSink,
+                _cancellation: Option<RuntimeCancellation>,
+            ) -> anyhow::Result<RuntimeExecutionResult> {
+                sink.emit(
+                    EVENT_RUNTIME_STDOUT,
+                    json!({
+                        "turnId": plan.turn_id,
+                        "conversationId": plan.conversation_id,
+                        "engine": plan.engine,
+                        "text": "native delta",
+                    }),
+                );
+                Ok(RuntimeExecutionResult {
+                    exit_code: Some(0),
+                    cancelled: false,
+                    stdout: "native final".into(),
+                    stderr: String::new(),
+                })
+            }
+        }
+
+        let mut plan = test_plan(shell_command("printf 'executor fallback used\\n'"));
+        plan.protocol = RuntimeProtocol::NativeAcp;
+        plan.engine = "codex".into();
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = {
+            let events = events.clone();
+            RuntimeEventSink::new(move |event| events.lock().unwrap().push(event))
+        };
+
+        let result = RuntimeSessionManager::new(NativeAcpSessionManager::with_backend_for_tests(
+            std::sync::Arc::new(RecordingBackend),
+        ))
+        .send_message(plan, sink, None)
+        .await
+        .unwrap();
+
+        assert_eq!(result.stdout, "native final");
+        assert!(events.lock().unwrap().iter().any(|event| {
+            event.name == EVENT_RUNTIME_STDOUT && event.data["text"] == "native delta"
+        }));
+    }
+
     #[cfg(unix)]
     #[tokio::test]
-    async fn runtime_executor_passes_codex_prompt_as_argument_not_stdin() {
+    async fn runtime_executor_does_not_pass_codex_prompt_as_argument() {
         let mut plan = test_plan(shell_command(
             "printf 'arg0:%s\\n' \"$0\"; printf 'stdin:'; cat",
         ));
@@ -923,12 +1052,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.exit_code, Some(0));
-        assert_eq!(result.stdout, "arg0:hello codex\nstdin:");
+        assert_eq!(result.stdout, "arg0:sh\nstdin:hello codex");
     }
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn runtime_executor_passes_codex_model_as_argument() {
+    async fn runtime_executor_does_not_add_codex_model_argument() {
         let mut plan = test_plan(shell_command(
             "printf 'args:%s|%s|%s\\n' \"$0\" \"$1\" \"$2\"; printf 'stdin:'; cat",
         ));
@@ -942,7 +1071,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.exit_code, Some(0));
-        assert_eq!(result.stdout, "args:-m|gpt-5-codex|hello codex\nstdin:");
+        assert_eq!(result.stdout, "args:sh||\nstdin:hello codex");
     }
 
     #[cfg(unix)]
@@ -1069,6 +1198,7 @@ mod tests {
             bot_id: Some("bot_test".into()),
             engine: "test-stream".into(),
             workspace_dir: ".".into(),
+            protocol: RuntimeProtocol::Process,
             command: Some(command),
             environment: clean_cli_environment(std::env::vars()),
             provider: json!({}),

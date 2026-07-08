@@ -7,8 +7,8 @@ use mia_core_cloud::{CloudBridgeRunHandler, CloudError, CloudService};
 use mia_core_conversation::{ConversationService, EVENT_CONVERSATION_MESSAGE_CREATED};
 use mia_core_realtime::EventBus;
 use mia_core_runtime::{
-    EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_STDERR, EVENT_RUNTIME_STDOUT, RuntimeCommand,
-    RuntimeEventSink, RuntimeSessionManager, RuntimeTurnPlan,
+    EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_STDERR, EVENT_RUNTIME_STDOUT, RuntimeEventSink,
+    RuntimeSessionManager, RuntimeTurnPlan,
 };
 use serde_json::{Value, json};
 
@@ -367,9 +367,6 @@ async fn prepare_claude_code_mia_runtime(
         plan.environment
             .insert("CLAUDE_CODE_EFFORT_LEVEL".into(), effort.clone());
     }
-    if let Some(command) = &mut plan.command {
-        ensure_claude_print_stream_args(command, runtime_config);
-    }
     Ok(Some(proxy))
 }
 
@@ -406,139 +403,10 @@ async fn prepare_codex_mia_runtime(
     strip_codex_auth_environment(&mut plan.environment);
     plan.environment
         .insert("CODEX_API_KEY".into(), proxy.api_key.clone());
-    if let Some(command) = &mut plan.command {
-        ensure_codex_exec_json_args(command, runtime_config, &model, &proxy.base_url);
-    }
+    plan.environment
+        .insert("OPENAI_BASE_URL".into(), proxy.base_url.clone());
+    plan.environment.insert("CODEX_MODEL".into(), model);
     Ok(Some(proxy))
-}
-
-fn ensure_claude_print_stream_args(command: &mut RuntimeCommand, runtime_config: &Value) {
-    if !has_arg(&command.args, "-p") && !has_arg(&command.args, "--print") {
-        command.args.push("-p".into());
-    }
-    if !has_option(&command.args, "--output-format") {
-        command.args.push("--output-format".into());
-        command.args.push("stream-json".into());
-    }
-    if !has_arg(&command.args, "--verbose") {
-        command.args.push("--verbose".into());
-    }
-    if !has_arg(&command.args, "--include-partial-messages") {
-        command.args.push("--include-partial-messages".into());
-    }
-    if !has_option(&command.args, "--permission-mode")
-        && let Some(permission) =
-            first_string(runtime_config, &["permissionMode", "permission_mode"])
-                .map(|value| normalize_claude_permission(&value))
-                .filter(|value| !value.is_empty())
-    {
-        command.args.push("--permission-mode".into());
-        command.args.push(permission);
-    }
-    if !has_option(&command.args, "--effort")
-        && let Some(effort) = first_string(runtime_config, &["effortLevel", "effort_level"])
-            .map(|value| normalize_claude_effort(&value))
-            .filter(|value| !value.is_empty())
-    {
-        command.args.push("--effort".into());
-        command.args.push(effort);
-    }
-}
-
-fn ensure_codex_exec_json_args(
-    command: &mut RuntimeCommand,
-    runtime_config: &Value,
-    model: &str,
-    base_url: &str,
-) {
-    if command.args.first().map(String::as_str) != Some("exec") {
-        command.args.insert(0, "exec".into());
-    }
-    if !has_arg(&command.args, "--json") {
-        command.args.push("--json".into());
-    }
-    if !has_arg(&command.args, "--skip-git-repo-check") {
-        command.args.push("--skip-git-repo-check".into());
-    }
-    if !has_option(&command.args, "--color") {
-        command.args.push("--color".into());
-        command.args.push("never".into());
-    }
-    if !has_arg(&command.args, "-m") && !has_option(&command.args, "--model") {
-        command.args.push("-m".into());
-        command.args.push(model.to_string());
-    }
-    let permission = first_string(runtime_config, &["permissionMode", "permission_mode"])
-        .map(|value| normalize_codex_permission(&value));
-    let mut overrides = vec![
-        format!("model={}", toml_string(model)),
-        "model_provider=\"custom\"".to_string(),
-        "disable_response_storage=true".to_string(),
-        "model_providers.custom.name=\"Mia\"".to_string(),
-        format!("model_providers.custom.base_url={}", toml_string(base_url)),
-        "model_providers.custom.wire_api=\"responses\"".to_string(),
-        "model_providers.custom.env_key=\"CODEX_API_KEY\"".to_string(),
-        "model_providers.custom.requires_openai_auth=false".to_string(),
-    ];
-    if let Some((sandbox_mode, approval_policy)) = permission {
-        overrides.push(format!("sandbox_mode={}", toml_string(&sandbox_mode)));
-        overrides.push(format!("approval_policy={}", toml_string(&approval_policy)));
-    }
-    if let Some(effort) = first_string(runtime_config, &["effortLevel", "effort_level"])
-        .map(|value| normalize_codex_effort(&value))
-        .filter(|value| !value.is_empty())
-    {
-        overrides.push(format!("model_reasoning_effort={}", toml_string(&effort)));
-    }
-    for override_value in overrides {
-        append_codex_config_override(command, override_value);
-    }
-}
-
-fn append_codex_config_override(command: &mut RuntimeCommand, value: String) {
-    let key = value.split('=').next().unwrap_or("").trim();
-    if key.is_empty() {
-        return;
-    }
-    let has_override = command.args.windows(2).any(|window| {
-        (window[0] == "-c" || window[0] == "--config")
-            && window[1].split('=').next().unwrap_or("").trim() == key
-    });
-    if has_override {
-        return;
-    }
-    command.args.push("-c".into());
-    command.args.push(value);
-}
-
-fn normalize_codex_permission(value: &str) -> (String, String) {
-    match value.trim() {
-        ":read-only" | "readOnly" | "read-only" => ("read-only".into(), "never".into()),
-        ":danger-full-access"
-        | "danger-full-access"
-        | "bypassPermissions"
-        | "yolo"
-        | "off"
-        | "never" => ("danger-full-access".into(), "never".into()),
-        "acceptEdits" => ("workspace-write".into(), "on-request".into()),
-        ":workspace" | "workspace" | "workspace-write" => {
-            ("workspace-write".into(), "never".into())
-        }
-        _ => ("workspace-write".into(), "untrusted".into()),
-    }
-}
-
-fn normalize_codex_effort(value: &str) -> String {
-    match value.trim() {
-        "extra-high" | "extra_high" | "xhigh" => "high".into(),
-        "none" | "low" | "medium" | "high" => value.trim().into(),
-        "" => String::new(),
-        _ => "medium".into(),
-    }
-}
-
-fn toml_string(value: &str) -> String {
-    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 fn strip_claude_auth_environment(environment: &mut std::collections::BTreeMap<String, String>) {
@@ -569,30 +437,6 @@ fn strip_codex_auth_environment(environment: &mut std::collections::BTreeMap<Str
         "MIA_CODEX_MODEL_CATALOG_JSON",
     ] {
         environment.remove(key);
-    }
-}
-
-fn has_arg(args: &[String], name: &str) -> bool {
-    args.iter().any(|arg| arg == name)
-}
-
-fn has_option(args: &[String], name: &str) -> bool {
-    let prefix = format!("{name}=");
-    args.iter()
-        .any(|arg| arg == name || arg.starts_with(&prefix))
-}
-
-fn normalize_claude_permission(value: &str) -> String {
-    match value.trim() {
-        ":danger-full-access" | "danger-full-access" | "yolo" | "off" | "never" => {
-            "bypassPermissions".into()
-        }
-        "default" | "acceptEdits" | "auto" | "bypassPermissions" | "plan" | "dontAsk" => {
-            value.trim().into()
-        }
-        "readOnly" | "deny" => "plan".into(),
-        "ask" | "" => "default".into(),
-        _ => "default".into(),
     }
 }
 

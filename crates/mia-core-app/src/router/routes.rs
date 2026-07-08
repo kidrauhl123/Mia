@@ -2063,6 +2063,21 @@ mod tests {
         }
     }
 
+    #[test]
+    fn cloud_bridge_does_not_rewrite_desktop_local_acp_into_legacy_cli_fallback() {
+        let source =
+            fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cloud_bridge.rs"))
+                .unwrap();
+        assert!(
+            !source.contains("ensure_codex_exec_json_args"),
+            "cloud bridge must not force Codex exec/json fallback for desktop-local bot sends"
+        );
+        assert!(
+            !source.contains("ensure_claude_print_stream_args"),
+            "cloud bridge must not force Claude print stream-json fallback for desktop-local bot sends"
+        );
+    }
+
     #[tokio::test]
     async fn conversation_route_cancels_external_runtime_process() {
         let mut config = AppConfig::default();
