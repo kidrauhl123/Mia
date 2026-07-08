@@ -5481,13 +5481,17 @@ function clearCloudMobileScanTimers() {
 }
 
 function cloudMobileScanErrorCopy(error) {
-  const message = String(error?.message || error || "").trim();
+  let message = String(error?.message || error || "").trim();
   if (/Mia Core 未运行|Mia 暂不可用/i.test(message)) return "需要先启动 Mia Core";
   if (/Error invoking remote method 'cloud:login'/i.test(message)) {
-    const normalized = message.replace(/^Error invoking remote method 'cloud:login':\s*/i, "").trim();
+    let normalized = message.replace(/^Error invoking remote method 'cloud:login':\s*/i, "").trim();
+    normalized = normalized.replace(/^Error:\s*/i, "").trim();
     if (/Mia Core 未运行|Mia 暂不可用/i.test(normalized)) return "需要先启动 Mia Core";
+    if (/fetch failed|failed to fetch/i.test(normalized)) return "连接 Mia Cloud 失败，请检查网络后重试。";
     return normalized || "二维码生成失败";
   }
+  message = message.replace(/^Error:\s*/i, "").trim();
+  if (/fetch failed|failed to fetch/i.test(message)) return "连接 Mia Cloud 失败，请检查网络后重试。";
   return message || "二维码生成失败";
 }
 

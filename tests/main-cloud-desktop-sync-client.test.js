@@ -65,7 +65,9 @@ function setup(overrides = {}) {
         body: options.body ? JSON.parse(options.body) : null,
         signal: options.signal
       });
-      return responses.shift() || jsonResponse({ ok: true, user: { id: "u_1", username: "refreshed" } });
+      const nextResponse = responses.shift();
+      if (nextResponse instanceof Error) throw nextResponse;
+      return nextResponse || jsonResponse({ ok: true, user: { id: "u_1", username: "refreshed" } });
     },
     timeoutSignal: () => "timeout-signal",
     runtimePaths: () => ({ userProfile: "/profile.json" }),
@@ -134,6 +136,58 @@ test("login normalizes the cloud URL, starts WeChat auth, then starts sockets wi
   assert.equal(calls.startedBridge, 1);
   assert.deepEqual(status, { ok: true, includeToken: false, token: undefined });
   assert.equal(getSettings().token, "tok_new");
+});
+
+test("login without an explicit URL resets stale saved cloud URL to the default endpoint", async () => {
+  const { client, calls } = setup({
+    initialSettings: {
+      enabled: false,
+      token: "",
+      url: "http://127.0.0.1:4175/",
+      user: null
+    },
+    responses: [
+      jsonResponse({
+        mode: "wechat_mp_oauth_userinfo",
+        authorizationUrl: "https://cloud.example/api/auth/wechat/mp/qr?state=wx_state",
+        qrCodeUrl: `data:image/png;base64,${Buffer.from("qr-png").toString("base64")}`,
+        state: "wx_state"
+      })
+    ]
+  });
+
+  const started = await client.login({ action: "start" });
+
+  assert.equal(started.kind, "wechat-login-start");
+  assert.deepEqual(calls.writes[0], {
+    url: "https://cloud.example",
+    enabled: false,
+    token: "",
+    user: null,
+    agentRuntime: null
+  });
+  assert.equal(calls.fetch[0].url, "https://cloud.example/api/auth/wechat/start");
+});
+
+test("login reports fetch failures as user-facing Mia Cloud connection errors", async () => {
+  const { client, calls } = setup({
+    initialSettings: {
+      enabled: false,
+      token: "",
+      url: "https://cloud.example/",
+      user: null
+    },
+    responses: [
+      new TypeError("fetch failed")
+    ]
+  });
+
+  await assert.rejects(
+    () => client.login({ action: "start" }),
+    /连接 Mia Cloud 失败，请检查网络后重试。/
+  );
+  assert.equal(calls.logs.length, 1);
+  assert.match(calls.logs[0], /Mia Cloud request network failed: POST https:\/\/cloud\.example\/api\/auth\/wechat\/start: fetch failed/);
 });
 
 test("syncWorkspace refreshes the cloud user and cloud agent runtime without syncing local manifest bots", async () => {

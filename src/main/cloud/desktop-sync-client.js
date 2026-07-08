@@ -41,18 +41,43 @@ function createCloudDesktopSyncClient({
     if (typeof appendLog === "function") appendLog(line);
   }
 
+  function defaultLoginCloudUrl() {
+    return normalizeCloudUrl("");
+  }
+
+  function loginCloudUrl(url = "") {
+    const explicitUrl = String(url || "").trim();
+    return normalizeCloudUrl(explicitUrl || defaultLoginCloudUrl());
+  }
+
+  function cloudNetworkErrorMessage(error) {
+    const name = String(error?.name || "");
+    const message = String(error?.message || error || "");
+    if (/AbortError|TimeoutError/i.test(name) || /abort|timeout/i.test(message)) {
+      return "连接 Mia Cloud 超时，请检查网络后重试。";
+    }
+    return "连接 Mia Cloud 失败，请检查网络后重试。";
+  }
+
   async function cloudApi(pathSegment, { method = "GET", body = null, token = "" } = {}) {
     const current = settings();
     const baseUrl = normalizeCloudUrl(current.url);
     const headers = { "Content-Type": "application/json" };
     const bearer = token || current.token;
     if (bearer) headers.Authorization = `Bearer ${bearer}`;
-    const response = await fetchImpl(`${baseUrl}${pathSegment}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-      signal: timeoutSignal(15000)
-    });
+    const requestUrl = `${baseUrl}${pathSegment}`;
+    let response;
+    try {
+      response = await fetchImpl(requestUrl, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: timeoutSignal(15000)
+      });
+    } catch (error) {
+      log(`Mia Cloud request network failed: ${method} ${requestUrl}: ${error?.message || error}`);
+      throw new Error(cloudNetworkErrorMessage(error));
+    }
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || `Mia Cloud ${response.status}`);
     return data;
@@ -333,10 +358,16 @@ function createCloudDesktopSyncClient({
     const url = String(qrCodeUrl || "").trim();
     if (!url) throw new Error("微信登录二维码缺失。");
     if (url.startsWith("data:image/")) return url;
-    const response = await fetchImpl(url, {
-      method: "GET",
-      signal: timeoutSignal(15000)
-    });
+    let response;
+    try {
+      response = await fetchImpl(url, {
+        method: "GET",
+        signal: timeoutSignal(15000)
+      });
+    } catch (error) {
+      log(`Mia Cloud WeChat QR image fetch failed: ${error?.message || error}`);
+      throw new Error("微信登录二维码加载失败，请检查网络后重试。");
+    }
     if (!response.ok) throw new Error(`微信登录二维码图片加载失败：HTTP ${response.status}`);
     const contentType = String(response.headers?.get?.("content-type") || "image/png").split(";")[0].trim() || "image/png";
     if (!contentType.startsWith("image/")) throw new Error("微信登录二维码图片格式无效。");
@@ -346,7 +377,7 @@ function createCloudDesktopSyncClient({
   }
 
   async function startWechatLogin({ url = "" } = {}) {
-    const nextUrl = normalizeCloudUrl(url || settings().url);
+    const nextUrl = loginCloudUrl(url);
     await writeCloudSettings({ url: nextUrl, enabled: false, token: "", user: null, agentRuntime: null });
     const started = await cloudApi("/api/auth/wechat/start", {
       method: "POST",

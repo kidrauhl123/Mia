@@ -280,6 +280,16 @@
     if (el) el.textContent = text;
   }
 
+  function cloudLoginErrorCopy(error) {
+    let message = String(error?.message || error || "").trim();
+    message = message.replace(/^Error invoking remote method 'cloud:login':\s*/i, "").trim();
+    message = message.replace(/^Error:\s*/i, "").trim();
+    if (/fetch failed|failed to fetch/i.test(message)) {
+      return "连接 Mia Cloud 失败，请检查网络后重试。";
+    }
+    return message || "连接 Mia Cloud 失败，请检查网络后重试。";
+  }
+
   async function submitLogin() {
     const attempt = loginAttempt + 1;
     loginAttempt = attempt;
@@ -297,7 +307,7 @@
     } catch (error) {
       if (attempt !== loginAttempt) return;
       loginFlow = null;
-      setHint(`连接失败：${error?.message || error}`);
+      setHint(`连接失败：${cloudLoginErrorCopy(error)}`);
       render();
     }
   }
@@ -326,7 +336,7 @@
     } catch (error) {
       if (attempt !== loginAttempt) return;
       loginFlow = null;
-      setHint(`连接失败：${error?.message || error}`);
+      setHint(`连接失败：${cloudLoginErrorCopy(error)}`);
       render();
     }
   }
