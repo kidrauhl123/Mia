@@ -11,15 +11,19 @@ function coreRequestRoute(payload = {}) {
   return pathOnly;
 }
 
-function coreRequestRequiresStreamingEvents(payload = {}) {
+function coreRequestShouldWaitForStreamingEvents(payload = {}) {
   if (coreRequestMethod(payload) !== "POST") return false;
   const route = coreRequestRoute(payload);
-  if (route === "/api/cloud/bridge/run") return true;
-  return /^\/api\/conversations\/[^/]+\/messages$/.test(route);
+  return route === "/api/cloud/bridge/run";
+}
+
+function coreRequestRequiresStreamingEvents(payload = {}) {
+  return coreRequestShouldWaitForStreamingEvents(payload);
 }
 
 module.exports = {
   coreRequestMethod,
   coreRequestRequiresStreamingEvents,
+  coreRequestShouldWaitForStreamingEvents,
   coreRequestRoute
 };

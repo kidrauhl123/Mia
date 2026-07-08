@@ -31,15 +31,16 @@ test("preload exposes Rust Core startup state and a single HTTP request adapter"
   assert.match(main, /createMiaCoreHttpClient/);
 });
 
-test("Core HTTP bridge waits for local events before starting streaming turns", () => {
+test("Core HTTP bridge warms local events before bridge streaming turns without blocking Core message posts", () => {
   const main = read("src/main.js");
   const forwardRequestSource = extractFunctionSource(main, "forwardMiaCoreHttpRequest");
 
-  assert.match(main, /coreRequestRequiresStreamingEvents/);
-  assert.match(main, /async function requireDaemonRuntimeEventsAvailable/);
-  assert.match(forwardRequestSource, /coreRequestRequiresStreamingEvents\(\{\s*method,\s*route\s*\}\)/);
-  assert.match(forwardRequestSource, /await requireDaemonRuntimeEventsAvailable\(\)/);
-  assert.match(extractFunctionSource(main, "requireDaemonRuntimeEventsAvailable"), /localEventsRuntime\?\.start\?\.\(\)/);
+  assert.match(main, /coreRequestShouldWaitForStreamingEvents/);
+  assert.match(main, /async function waitForDaemonRuntimeEventsConnection/);
+  assert.match(forwardRequestSource, /coreRequestShouldWaitForStreamingEvents\(\{\s*method,\s*route\s*\}\)/);
+  assert.match(forwardRequestSource, /await waitForDaemonRuntimeEventsConnection\(\)/);
+  assert.match(extractFunctionSource(main, "waitForDaemonRuntimeEventsConnection"), /localEventsRuntime\?\.start\?\.\(\)/);
+  assert.doesNotMatch(forwardRequestSource, /throw daemonUnavailableError/);
 });
 
 test("model-selection preload bridge routes provider/model intent to Rust Core", () => {

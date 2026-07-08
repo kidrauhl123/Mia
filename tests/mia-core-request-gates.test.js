@@ -8,27 +8,31 @@ try {
   requestGates = {};
 }
 
-test("Core requests that start streaming turns require the local event bridge", () => {
-  const { coreRequestRequiresStreamingEvents } = requestGates;
+test("Core requests that start bridge streaming turns warm the local event bridge", () => {
+  const {
+    coreRequestRequiresStreamingEvents,
+    coreRequestShouldWaitForStreamingEvents
+  } = requestGates;
+  const shouldWait = coreRequestShouldWaitForStreamingEvents || coreRequestRequiresStreamingEvents;
 
-  assert.equal(typeof coreRequestRequiresStreamingEvents, "function");
-  assert.equal(coreRequestRequiresStreamingEvents({
+  assert.equal(typeof shouldWait, "function");
+  assert.equal(shouldWait({
     method: "POST",
     route: "/api/cloud/bridge/run"
   }), true);
-  assert.equal(coreRequestRequiresStreamingEvents({
+  assert.equal(shouldWait({
     method: "POST",
     route: "/api/conversations/conv_123/messages"
-  }), true);
-  assert.equal(coreRequestRequiresStreamingEvents({
+  }), false);
+  assert.equal(shouldWait({
     method: "GET",
     route: "/api/conversations/conv_123/messages"
   }), false);
-  assert.equal(coreRequestRequiresStreamingEvents({
+  assert.equal(shouldWait({
     method: "POST",
     route: "/api/conversations/conv_123/turns/run_123/cancel"
   }), false);
-  assert.equal(coreRequestRequiresStreamingEvents({
+  assert.equal(shouldWait({
     method: "POST",
     route: "/api/cloud/events/start"
   }), false);
