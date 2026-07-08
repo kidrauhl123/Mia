@@ -367,6 +367,52 @@ async fn bot_service_owns_runtime_control_options_selection() {
 }
 
 #[tokio::test]
+async fn bot_service_falls_back_to_codex_default_when_saved_model_is_not_available() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let response = service.runtime_control_options(BotRuntimeControlOptionsRequest {
+        runtime_kind: Some("desktop-local".to_string()),
+        bot: json!({ "key": "codex", "agentEngine": "codex" }),
+        runtime: json!({}),
+        binding: json!({
+            "config": {
+                "agentEngine": "codex",
+                "model": "gpt-5.3-codex",
+                "providerConnectionId": "codex",
+                "modelProfileId": "codex:gpt-5.3-codex"
+            }
+        }),
+        model_catalog: json!([]),
+        platform_models: json!([]),
+        engine_capabilities: json!({
+            "engines": {
+                "codex": {
+                    "models": [
+                        { "slug": "gpt-5.5", "displayName": "gpt-5.5" }
+                    ]
+                }
+            }
+        }),
+        codex_models: json!([]),
+    });
+
+    assert_eq!(response.selected_model, "default");
+    assert_eq!(
+        response.selected_model_entry.as_ref().unwrap().label,
+        "Codex 默认"
+    );
+    let model_ids = response
+        .model_options
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect::<Vec<_>>();
+    assert!(model_ids.contains(&"default"));
+    assert!(model_ids.contains(&"gpt-5.5"));
+    assert!(!model_ids.contains(&"gpt-5.3-codex"));
+}
+
+#[tokio::test]
 async fn bot_service_owns_cloud_runtime_control_permission_options() {
     let db = init_database_memory().await.unwrap();
     let service = BotService::new(db.pool().clone());

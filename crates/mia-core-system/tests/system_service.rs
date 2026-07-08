@@ -869,3 +869,44 @@ async fn settings_runtime_options_for_codex_use_core_capability_fallbacks() {
         vec!["medium", "xhigh"]
     );
 }
+
+#[tokio::test]
+async fn settings_runtime_options_fall_back_to_codex_default_for_unknown_saved_model() {
+    let db = init_database_memory().await.unwrap();
+    let service = SystemService::new(
+        "0.1.0".to_string(),
+        SqliteSettingsRepository::new(db.pool().clone()),
+        SqliteProviderRepository::new(db.pool().clone()),
+    );
+
+    let response = service.runtime_control_options(SettingsRuntimeControlOptionsRequest {
+        active_agent_engine: Some("codex".into()),
+        runtime: json!({}),
+        engine_config: json!({
+            "model": "gpt-5.3-codex",
+            "effortLevel": "medium"
+        }),
+        model_catalog: json!([]),
+        platform_models: json!([]),
+        engine_capabilities: json!({
+            "engines": {
+                "codex": {
+                    "models": [
+                        { "slug": "gpt-5.5", "displayName": "gpt-5.5" }
+                    ]
+                }
+            }
+        }),
+        codex_models: json!([]),
+    });
+
+    assert_eq!(response.selected_model, "default");
+    let model_ids = response
+        .model_options
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect::<Vec<_>>();
+    assert!(model_ids.contains(&"default"));
+    assert!(model_ids.contains(&"gpt-5.5"));
+    assert!(!model_ids.contains(&"gpt-5.3-codex"));
+}

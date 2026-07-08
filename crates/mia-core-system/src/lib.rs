@@ -1367,7 +1367,10 @@ fn selected_settings_model(
         return settings_option_select_value(entry);
     }
     if !wanted.is_empty() && is_external_settings_engine(engine) {
-        return wanted;
+        return options
+            .first()
+            .map(settings_option_select_value)
+            .unwrap_or_else(|| "default".into());
     }
     options
         .first()

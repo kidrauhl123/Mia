@@ -87,6 +87,35 @@ function coreProviderSummaries(response = {}, currentModel = {}, auth = {}) {
   return summaries.sort((a, b) => String(a.providerLabel).localeCompare(String(b.providerLabel)));
 }
 
+function codexModelSlugs(response = {}) {
+  const models = Array.isArray(response)
+    ? response
+    : Array.isArray(objectOrEmpty(response).models)
+      ? response.models
+      : [];
+  return models
+    .map((model) => firstString(model, ["slug", "id", "model", "value", "name"]) || String(model || "").trim())
+    .filter(Boolean);
+}
+
+function resolveCodexModelSelection(current = {}, codexModels = {}) {
+  const existing = objectOrEmpty(current);
+  const slugs = codexModelSlugs(codexModels);
+  const currentModel = firstString(existing, ["model"]);
+  const canKeepCurrent = existing.provider === "openai-codex"
+    && currentModel
+    && (currentModel === "default" || slugs.includes(currentModel));
+  const model = canKeepCurrent ? currentModel : "default";
+  return {
+    provider: "openai-codex",
+    providerConnectionId: "openai-codex",
+    providerLabel: "OpenAI Codex",
+    authType: "oauth_external",
+    model,
+    modelProfileId: `openai-codex:${model}`
+  };
+}
+
 function modelHasConnectedProvider(model = {}, providers = []) {
   const current = objectOrEmpty(model);
   if (current.provider === "mia") return true;
@@ -131,5 +160,6 @@ module.exports = {
   compactModelFromClientSettings,
   coreProviderSummaries,
   createRuntimeStatusCoreSnapshot,
-  providerSummaryFromCore
+  providerSummaryFromCore,
+  resolveCodexModelSelection
 };

@@ -4,7 +4,8 @@ const { test } = require("node:test");
 const {
   compactModelFromClientSettings,
   coreProviderSummaries,
-  createRuntimeStatusCoreSnapshot
+  createRuntimeStatusCoreSnapshot,
+  resolveCodexModelSelection
 } = require("../src/main/runtime-status-core-snapshot.js");
 
 test("compact model settings keep UI selection fields only", () => {
@@ -151,4 +152,41 @@ test("runtime status snapshot keeps local status when Rust Core is unavailable",
   const original = { model: { provider: "fallback" }, connectedProviders: [] };
 
   assert.equal(await snapshot.apply(original), original);
+});
+
+test("Codex model selection falls back to default when saved model is not in Core model list", () => {
+  const selection = resolveCodexModelSelection(
+    {
+      provider: "openai-codex",
+      model: "gpt-5.3-codex"
+    },
+    {
+      models: [
+        { slug: "gpt-5.5", displayName: "gpt-5.5" },
+        { slug: "gpt-5.3-codex-spark", displayName: "gpt-5.3-codex-spark" }
+      ]
+    }
+  );
+
+  assert.deepEqual(selection, {
+    provider: "openai-codex",
+    providerConnectionId: "openai-codex",
+    providerLabel: "OpenAI Codex",
+    authType: "oauth_external",
+    model: "default",
+    modelProfileId: "openai-codex:default"
+  });
+});
+
+test("Codex model selection does not preserve stale saved model when Core model list is unavailable", () => {
+  const selection = resolveCodexModelSelection(
+    {
+      provider: "openai-codex",
+      model: "gpt-5.3-codex"
+    },
+    {}
+  );
+
+  assert.equal(selection.model, "default");
+  assert.equal(selection.modelProfileId, "openai-codex:default");
 });

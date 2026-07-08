@@ -75,7 +75,8 @@ const { createMiaCoreResolver } = require("./main/mia-core/process-resolver.js")
 const { windowsTitleBarOverlayForAppearance, applyWindowsTitleBarOverlay } = require("./main/windows-title-bar.js");
 const {
   compactModelFromClientSettings,
-  createRuntimeStatusCoreSnapshot
+  createRuntimeStatusCoreSnapshot,
+  resolveCodexModelSelection
 } = require("./main/runtime-status-core-snapshot.js");
 const { createAuthService } = require("./main/auth-service.js");
 const { createEngineCatalogCoreAdapter } = require("./main/engine-catalog-core-adapter.js");
@@ -1872,6 +1873,7 @@ async function uninstallStandaloneEngine() {
 
 async function applyCodexModelSettings() {
   let current = {};
+  let codexModels = {};
   try {
     current = compactModelFromClientSettings(await forwardMiaCoreHttpRequest({
       method: "GET",
@@ -1880,19 +1882,20 @@ async function applyCodexModelSettings() {
   } catch {
     current = {};
   }
-  const model = current.provider === "openai-codex" && current.model ? current.model : "gpt-5.3-codex";
+  try {
+    codexModels = await forwardMiaCoreHttpRequest({
+      method: "GET",
+      route: "/api/engines/codex/models"
+    });
+  } catch {
+    codexModels = {};
+  }
+  const selection = resolveCodexModelSelection(current, codexModels);
   await forwardMiaCoreHttpRequest({
     method: "POST",
     route: "/api/settings/model-selection",
     body: {
-      selection: {
-        provider: "openai-codex",
-        providerConnectionId: "openai-codex",
-        providerLabel: "OpenAI Codex",
-        authType: "oauth_external",
-        model,
-        modelProfileId: `openai-codex:${model}`
-      }
+      selection
     }
   });
 }

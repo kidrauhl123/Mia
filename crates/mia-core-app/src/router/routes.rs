@@ -382,7 +382,7 @@ mod tests {
         assert!(
             catalog["models"]
                 .as_array()
-                .is_some_and(|rows| rows.iter().any(|row| row["provider"] == "openai-codex"))
+                .is_some_and(|rows| rows.iter().all(|row| row["provider"] != "openai-codex"))
         );
         assert!(
             catalog["models"]

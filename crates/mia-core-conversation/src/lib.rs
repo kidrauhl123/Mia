@@ -1730,13 +1730,28 @@ async fn bot_runtime_binding(
     bot_id: &str,
 ) -> Result<Option<Value>, sqlx::Error> {
     let row = sqlx::query(
-        "SELECT binding_json FROM bot_runtime_bindings WHERE bot_id = ? AND runtime_kind = 'agent'",
+        "SELECT binding_json FROM bot_runtime_bindings WHERE bot_id = ? \
+         ORDER BY CASE runtime_kind WHEN 'desktop-local' THEN 0 WHEN 'agent' THEN 1 ELSE 2 END \
+         LIMIT 1",
     )
     .bind(bot_id)
     .fetch_optional(pool)
     .await?;
-    row.map(|row| parse_json(row.get::<String, _>("binding_json")))
+    row.map(|row| parse_json(row.get::<String, _>("binding_json")).map(runtime_config_from_binding))
         .transpose()
+}
+
+fn runtime_config_from_binding(binding: Value) -> Value {
+    let mut config = binding
+        .get("config")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    merge_json(&mut config, binding);
+    if let Value::Object(object) = &mut config {
+        object.remove("config");
+    }
+    config
 }
 
 async fn provider_for_runtime_config(
@@ -1751,7 +1766,10 @@ async fn provider_for_runtime_config(
         return Ok(mia_managed_provider_reference(config));
     }
     if native_cli_default(config, engine.unwrap_or_default()) {
-        return Ok(json!({}));
+        return Ok(native_cli_provider_reference(
+            config,
+            engine.unwrap_or_default(),
+        ));
     }
     let provider_id = explicit_provider_connection_id(config)
         .or_else(|| provider_from_profile_id(config))
@@ -1882,6 +1900,34 @@ fn native_cli_default(config: &Value, engine: &str) -> bool {
         || provider == engine
         || (engine == "codex" && provider == "openai-codex")
         || (engine == "claude-code" && provider == "anthropic")
+}
+
+fn native_cli_provider_reference(config: &Value, engine: &str) -> Value {
+    let model = first_string(config, &["model"]).unwrap_or_default();
+    let provider = if engine == "codex" {
+        "codex"
+    } else if engine == "claude-code" {
+        "anthropic"
+    } else {
+        engine
+    };
+    let model_profile_id = first_string(config, &["modelProfileId", "model_profile_id"])
+        .unwrap_or_else(|| {
+            if model.is_empty() {
+                provider.to_string()
+            } else {
+                format!("{provider}:{model}")
+            }
+        });
+    json!({
+        "provider": provider,
+        "providerConnectionId": provider,
+        "model": model,
+        "modelProfileId": model_profile_id,
+        "managedByMia": false,
+        "nativeCli": true,
+        "source": "mia-core"
+    })
 }
 
 async fn mcp_servers_for_turn(pool: &SqlitePool) -> Result<Value, sqlx::Error> {

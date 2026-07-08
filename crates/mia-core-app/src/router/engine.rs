@@ -352,17 +352,6 @@ fn codex_effort_options_from_models(models: &[Value]) -> Vec<Value> {
 fn fallback_model_catalog() -> Vec<Value> {
     vec![
         json!({
-            "id": "openai-codex::gpt-5.3-codex",
-            "provider": "openai-codex",
-            "providerLabel": "OpenAI Codex",
-            "model": "gpt-5.3-codex",
-            "label": "gpt-5.3-codex",
-            "authType": "oauth_external",
-            "apiKeyEnv": "",
-            "baseUrl": "",
-            "apiMode": "codex_responses"
-        }),
-        json!({
             "id": "xai::grok-4.1-fast",
             "provider": "xai",
             "providerLabel": "xAI",

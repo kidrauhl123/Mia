@@ -553,6 +553,9 @@ test("auth and provider OAuth lifecycle live behind a main auth service", () => 
 test("engine catalog, capabilities, and slash command discovery live behind Rust Core routes", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const adapterSource = fs.readFileSync(path.join(root, "src/main/engine-catalog-core-adapter.js"), "utf8");
+  const rendererSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const rendererHtml = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const webHtml = fs.readFileSync(path.join(root, "src/web/app/index.html"), "utf8");
   const routesSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/routes.rs"), "utf8");
   const engineSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/engine.rs"), "utf8");
 
@@ -572,6 +575,10 @@ test("engine catalog, capabilities, and slash command discovery live behind Rust
   assert.doesNotMatch(mainSource, /async function loadEngineCapabilities/, "main must not own engine capability discovery");
   assert.doesNotMatch(mainSource, /function fallbackSlashCommands/, "main must not own slash command fallbacks");
   assert.doesNotMatch(mainSource, /async function loadHermesSlashCommandsInner/, "main must not own Hermes slash command discovery scripts");
+  assert.doesNotMatch(engineSource, /gpt-5\.3-codex/, "Rust model catalog fallback must not hard-code stale Codex model slugs");
+  assert.doesNotMatch(rendererSource, /gpt-5\.3-codex|GPT-5\.3 Codex/, "renderer must not hard-code stale Codex model defaults");
+  assert.doesNotMatch(rendererHtml, /gpt-5\.3-codex|GPT-5\.3 Codex/, "static renderer shell must not hard-code stale Codex model defaults");
+  assert.doesNotMatch(webHtml, /gpt-5\.3-codex|GPT-5\.3 Codex/, "web shell must not hard-code stale Codex model defaults");
 });
 
 test("external Agent command execution and session binding live behind Rust Core routes", () => {

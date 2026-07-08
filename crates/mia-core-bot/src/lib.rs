@@ -2556,7 +2556,7 @@ fn selected_runtime_control_model(
             .iter()
             .find(|entry| runtime_control_option_matches_model(entry, "", &model))
             .map(|entry| runtime_control_option_value(entry, &model))
-            .unwrap_or(model);
+            .unwrap_or_else(|| "default".to_string());
     }
     if !model.is_empty() {
         return entries

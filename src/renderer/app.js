@@ -2176,7 +2176,7 @@ function renderSendButton() {
 const providerPresets = {
   "openai-codex": {
     provider: "openai-codex",
-    model: "gpt-5.3-codex"
+    model: "default"
   },
   xai: {
     provider: "xai",

@@ -352,7 +352,7 @@ async fn write_stdin(stdin: Option<ChildStdin>, input: String) {
 fn prepare_command_input(plan: &RuntimeTurnPlan, command: &mut RuntimeCommand) -> String {
     let input = plan.send_message.content.clone();
     if plan.engine == "codex" && !input.is_empty() {
-        command.args.push(input);
+        prepare_codex_exec_command(plan, command, &input);
         String::new()
     } else if plan.engine == "hermes" && !input.is_empty() {
         prepare_hermes_oneshot_command(plan, command, &input);
@@ -360,6 +360,13 @@ fn prepare_command_input(plan: &RuntimeTurnPlan, command: &mut RuntimeCommand) -
     } else {
         input
     }
+}
+
+fn prepare_codex_exec_command(plan: &RuntimeTurnPlan, command: &mut RuntimeCommand, input: &str) {
+    if let Some(model) = model_arg_for_codex(&plan.provider) {
+        append_option_if_missing(&mut command.args, "-m", model);
+    }
+    command.args.push(input.to_string());
 }
 
 fn prepare_hermes_oneshot_command(
@@ -396,16 +403,25 @@ fn append_option_if_missing(args: &mut Vec<String>, name: &str, value: String) {
 
 fn provider_arg_for_hermes(provider: &Value) -> Option<String> {
     let value = string_field(provider, &["provider", "modelProvider", "model_provider"])?;
-    if matches!(value.as_str(), "mia" | "hermes") {
+    if value == "hermes" { None } else { Some(value) }
+}
+
+fn model_arg_for_hermes(provider: &Value) -> Option<String> {
+    let value = string_field(provider, &["model"])?;
+    let provider_id = string_field(provider, &["provider", "modelProvider", "model_provider"])
+        .unwrap_or_default();
+    if provider_id == "mia" && matches!(value.as_str(), "auto" | "default") {
+        Some("mia-auto".into())
+    } else if value == "auto" {
         None
     } else {
         Some(value)
     }
 }
 
-fn model_arg_for_hermes(provider: &Value) -> Option<String> {
+fn model_arg_for_codex(provider: &Value) -> Option<String> {
     let value = string_field(provider, &["model"])?;
-    if matches!(value.as_str(), "mia-auto" | "auto") {
+    if matches!(value.as_str(), "default" | "auto" | "codex-default") {
         None
     } else {
         Some(value)
@@ -889,6 +905,25 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn runtime_executor_passes_codex_model_as_argument() {
+        let mut plan = test_plan(shell_command(
+            "printf 'args:%s|%s|%s\\n' \"$0\" \"$1\" \"$2\"; printf 'stdin:'; cat",
+        ));
+        plan.engine = "codex".into();
+        plan.provider = json!({ "model": "gpt-5-codex" });
+        plan.send_message.content = "hello codex".into();
+
+        let result = RuntimeExecutor
+            .execute_plan(plan, RuntimeEventSink::default(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(result.stdout, "args:-m|gpt-5-codex|hello codex\nstdin:");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn runtime_executor_passes_hermes_prompt_model_provider_as_arguments() {
         let mut plan = test_plan(shell_command(
             "printf 'args:%s|%s|%s|%s|%s|%s\\n' \"$0\" \"$1\" \"$2\" \"$3\" \"$4\" \"$5\"; printf 'stdin:'; cat",
@@ -909,6 +944,31 @@ mod tests {
         assert_eq!(
             result.stdout,
             "args:--provider|deepseek|--model|deepseek-chat|--oneshot|hello hermes\nstdin:"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn runtime_executor_passes_mia_provider_to_hermes_oneshot() {
+        let mut plan = test_plan(shell_command(
+            "printf 'args:%s|%s|%s|%s|%s|%s\\n' \"$0\" \"$1\" \"$2\" \"$3\" \"$4\" \"$5\"; printf 'stdin:'; cat",
+        ));
+        plan.engine = "hermes".into();
+        plan.provider = json!({
+            "provider": "mia",
+            "model": "mia-auto"
+        });
+        plan.send_message.content = "hello hermes".into();
+
+        let result = RuntimeExecutor
+            .execute_plan(plan, RuntimeEventSink::default(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(
+            result.stdout,
+            "args:--provider|mia|--model|mia-auto|--oneshot|hello hermes\nstdin:"
         );
     }
 
