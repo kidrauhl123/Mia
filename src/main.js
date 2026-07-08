@@ -72,6 +72,7 @@ const { createMiaCoreCompatibilityClient } = require("./main/mia-core/compat-cli
 const { createMiaCoreLocalEventsClient } = require("./main/mia-core/event-client.js");
 const { createMiaCoreProcessLauncher } = require("./main/mia-core/process-launcher.js");
 const { createMiaCoreResolver } = require("./main/mia-core/process-resolver.js");
+const { coreRequestRequiresStreamingEvents } = require("./main/mia-core/request-gates.js");
 const { windowsTitleBarOverlayForAppearance, applyWindowsTitleBarOverlay } = require("./main/windows-title-bar.js");
 const {
   compactModelFromClientSettings,
@@ -259,6 +260,9 @@ async function forwardMiaCoreHttpRequest(payload = {}) {
   const method = String(payload.method || "GET").toUpperCase();
   const route = String(payload.route || payload.path || "").trim();
   if (!route.startsWith("/")) throw new Error(`Invalid Mia Core route: ${route || "(empty)"}`);
+  if (coreRequestRequiresStreamingEvents({ method, route })) {
+    await requireDaemonRuntimeEventsAvailable();
+  }
   const client = createMiaCoreHttpClient({ baseUrl: currentMiaCoreBaseUrl(), fetch });
   return client.request(method, route, payload.body);
 }
@@ -1277,8 +1281,8 @@ function daemonLocalEventsConnected() {
   return Boolean(localEventsRuntime?.status?.().connected);
 }
 
-function daemonUnavailableError() {
-  const error = new Error("Mia Core 未运行，Mia 暂不可用。");
+function daemonUnavailableError(message = "Mia Core 未运行，Mia 暂不可用。") {
+  const error = new Error(message);
   error.status = 503;
   return error;
 }
@@ -1287,6 +1291,23 @@ function requireDaemonRuntimeAvailable() {
   if (IS_CORE_PROCESS) return;
   if (daemonLocalEventsConnected()) return;
   throw daemonUnavailableError();
+}
+
+async function requireDaemonRuntimeEventsAvailable(timeoutMs = 2500) {
+  if (IS_CORE_PROCESS) return;
+  if (daemonLocalEventsConnected()) return;
+  try {
+    localEventsRuntime?.start?.();
+  } catch {
+    // The wait below will report the unavailable event bridge.
+  }
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (daemonLocalEventsConnected()) return;
+  }
+  if (daemonLocalEventsConnected()) return;
+  throw daemonUnavailableError("Mia Core 事件流未连接，暂不能开始需要流式输出的对话。");
 }
 
 function daemonReportedEventsStatus() {

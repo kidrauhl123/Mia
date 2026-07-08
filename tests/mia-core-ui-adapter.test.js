@@ -31,6 +31,17 @@ test("preload exposes Rust Core startup state and a single HTTP request adapter"
   assert.match(main, /createMiaCoreHttpClient/);
 });
 
+test("Core HTTP bridge waits for local events before starting streaming turns", () => {
+  const main = read("src/main.js");
+  const forwardRequestSource = extractFunctionSource(main, "forwardMiaCoreHttpRequest");
+
+  assert.match(main, /coreRequestRequiresStreamingEvents/);
+  assert.match(main, /async function requireDaemonRuntimeEventsAvailable/);
+  assert.match(forwardRequestSource, /coreRequestRequiresStreamingEvents\(\{\s*method,\s*route\s*\}\)/);
+  assert.match(forwardRequestSource, /await requireDaemonRuntimeEventsAvailable\(\)/);
+  assert.match(extractFunctionSource(main, "requireDaemonRuntimeEventsAvailable"), /localEventsRuntime\?\.start\?\.\(\)/);
+});
+
 test("model-selection preload bridge routes provider/model intent to Rust Core", () => {
   const channels = read("src/shared/ipc-channels.js");
   const preload = read("src/preload.js");
