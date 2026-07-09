@@ -5,6 +5,8 @@ cd /d "%~dp0"
 title Mia Dev
 
 set "PATH=%APPDATA%\npm;%ProgramFiles%\nodejs;%PATH%"
+if exist "%USERPROFILE%\.cargo\bin\cargo.exe" set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
+if exist "C:\msys64\mingw64\bin\dlltool.exe" set "PATH=C:\msys64\mingw64\bin;%PATH%"
 
 rem Optional light mode for Windows dev launches:
 rem set MIA_LIGHT=1 && open-mia.cmd
