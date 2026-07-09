@@ -582,14 +582,14 @@ function createLocalAgentEngineService(deps = {}) {
     if (probe.ok) {
       return withReadiness(status, readiness(
         "ready",
-        `${definition.label} ACP 启动自检通过`,
+        `${definition.label} ACP 自检通过`,
         probe.detail
       ), { usableInMia: true, health: "ready", installAction: "" });
     }
     const action = agentInstallActionId(definition);
     return withReadiness(status, readiness(
       "blocked",
-      action ? `${definition.label} ACP 启动自检失败，可修复` : `${definition.label} ACP 启动自检失败`,
+      action ? `${definition.label} ACP 自检失败，可修复` : `${definition.label} ACP 自检失败`,
       probe.detail,
       action
     ), {
