@@ -161,6 +161,25 @@ function writeSocialConversationPatch({ messageCache, getCloudUserId, conversati
   }
 }
 
+function cacheLiveConversationMessageEvent({ messageCache, envelope, log = () => {} } = {}) {
+  if (!messageCache || typeof messageCache.upsertMessages !== "function") return false;
+  const type = String(envelope?.type || envelope?.name || envelope?.payload?.type || envelope?.data?.type || "").trim();
+  if (type !== "conversation.message_appended") return false;
+  const payload = envelope?.payload && typeof envelope.payload === "object"
+    ? envelope.payload
+    : (envelope?.data && typeof envelope.data === "object" ? envelope.data : envelope);
+  const conversationId = String(payload?.conversationId || payload?.conversation_id || "").trim();
+  const message = payload?.message;
+  if (!conversationId || !message || typeof message !== "object") return false;
+  try {
+    messageCache.upsertMessages(conversationId, [message]);
+    return true;
+  } catch (error) {
+    log(`[social-ipc] live message cache upsert failed: ${error?.message || error}`);
+    return false;
+  }
+}
+
 function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUserId = null, ensureRuntimeAvailable = null, log = () => {} }) {
   const cloudCall = (fn) => runtimeCall(ensureRuntimeAvailable, fn);
 
@@ -278,4 +297,4 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   ipcMain.handle(IpcChannel.SocialRemoveConversationMember, cloudCall((conversationId, member) => socialApi.removeConversationMember(conversationId, member)));
 }
 
-module.exports = { registerSocialIpc };
+module.exports = { cacheLiveConversationMessageEvent, registerSocialIpc };

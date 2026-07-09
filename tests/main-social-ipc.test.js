@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { registerSocialIpc } = require("../src/main/social/social-ipc.js");
+const { cacheLiveConversationMessageEvent, registerSocialIpc } = require("../src/main/social/social-ipc.js");
 const { IpcChannel } = require("../src/shared/ipc-channels.js");
 
 function fakeIpcMain() {
@@ -180,6 +180,24 @@ test("searching conversation messages writes hit messages through to the local c
     conversationId: "botc_sess_1",
     messages: [searchResult.message]
   }]);
+});
+
+test("live conversation message events write through to the local cache", () => {
+  const upserts = [];
+  const message = { id: "m_live", seq: 4, sender_kind: "bot", body_md: "live reply" };
+
+  const written = cacheLiveConversationMessageEvent({
+    messageCache: {
+      upsertMessages: (conversationId, messages) => upserts.push({ conversationId, messages })
+    },
+    envelope: {
+      type: "conversation.message_appended",
+      payload: { conversationId: "botc_u_1_mia", message }
+    }
+  });
+
+  assert.equal(written, true);
+  assert.deepEqual(upserts, [{ conversationId: "botc_u_1_mia", messages: [message] }]);
 });
 
 test("deleting a conversation message removes it from the local cache after cloud success", async () => {

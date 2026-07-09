@@ -22,6 +22,7 @@
   const OTHER_DEVICE_CONVERSATION_FILTER = "__mia_other_devices__";
   const OTHER_DEVICE_CONVERSATION_LABEL = "其他设备";
   const CLOUD_AGENT_RUN_STALE_MS = 30 * 60 * 1000;
+  const BOT_REPLY_BACKFILL_ATTEMPTS = 4;
 
   function isValidPublicUid(value) {
     const text = String(value || "").trim();
@@ -4675,6 +4676,84 @@
     return true;
   }
 
+  function apiCanBackfillConversationMessages() {
+    return Boolean(window.mia?.social && typeof window.mia.social.listConversationMessages === "function");
+  }
+
+  function startOutgoingBotRunFallback(conversationId, conversation, localMsg) {
+    if (!conversationId || !apiCanBackfillConversationMessages()) return false;
+    if (conversationTypeFor(conversation, conversationId) !== "bot") return false;
+    const runId = String(localMsg?.turn_id || `pending_${Date.now()}`).trim();
+    const run = cloudRunFor(conversationId, runId);
+    run.runId = run.runId || runId;
+    run.turnId = String(localMsg?.turn_id || run.turnId || "");
+    run.botId = botKeyForConversation(conversation, conversationId) || run.botId || "";
+    run.status = "running";
+    markCloudRunActivity(run);
+    scheduleCloudRunRender(conversationId);
+    refreshCloudRunStatusTimer();
+    if (deps && typeof deps.paintHeaderStatus === "function") deps.paintHeaderStatus();
+    if (deps && typeof deps.render === "function") deps.render();
+    return true;
+  }
+
+  function clearConversationRunAfterBackfill(conversationId) {
+    const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
+    if (!run) return false;
+    clearRunPermissions(run);
+    moduleState.cloudAgentRunsByConversation.delete(conversationId);
+    refreshCloudRunStatusTimer();
+    renderAgentPermissionBanner();
+    if (conversationId === moduleState.activeConversationId && deps && typeof deps.paintHeaderStatus === "function") {
+      deps.paintHeaderStatus();
+    }
+    if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
+    if (deps && typeof deps.render === "function") deps.render();
+    return true;
+  }
+
+  function hasBotReplyAfterMessage(conversationId, sentMsg) {
+    const entry = moduleState.messageCache.get(conversationId);
+    if (!entry || !Array.isArray(entry.messages)) return false;
+    const triggerSeq = Number(sentMsg?.seq) || 0;
+    const { SenderKind } = conversationKinds();
+    return entry.messages.some((message) => {
+      if (!message || message.sender_kind !== SenderKind.Bot) return false;
+      const seq = Number(message.seq) || 0;
+      return triggerSeq > 0 ? seq > triggerSeq : String(message.id || "") !== String(sentMsg?.id || "");
+    });
+  }
+
+  async function waitForBackfillAttempt(attempt) {
+    const delayMs = Math.min(1500, 250 * Math.max(0, Number(attempt) || 0));
+    if (delayMs <= 0) {
+      await Promise.resolve();
+      return;
+    }
+    await new Promise((resolve) => {
+      const timer = global.setTimeout;
+      if (typeof timer !== "function" || timer.length === 0) {
+        resolve();
+        return;
+      }
+      timer(resolve, delayMs);
+    });
+  }
+
+  async function backfillBotReplyAfterSend(conversationId, sentMsg) {
+    if (!conversationId || !sentMsg?.id || !apiCanBackfillConversationMessages()) return false;
+    for (let attempt = 0; attempt < BOT_REPLY_BACKFILL_ATTEMPTS; attempt += 1) {
+      await waitForBackfillAttempt(attempt);
+      await _ensureConversationMessages(conversationId);
+      if (hasBotReplyAfterMessage(conversationId, sentMsg)) {
+        clearConversationRunAfterBackfill(conversationId);
+        return true;
+      }
+      if (!moduleState.cloudAgentRunsByConversation.has(conversationId)) return false;
+    }
+    return false;
+  }
+
   // ── group feature stubs — implementations in social-groups.js ───────────
   // social-groups.js is loaded after social.js and attaches itself via
   // window.miaSocialGroups.attach(ctx) where ctx is the shared internal
@@ -5098,6 +5177,7 @@
         if (postConversationId !== conversationId && localMsg) {
           _moveLocalOutgoingConversationMessage(conversationId, postConversationId, localMsg.id);
         }
+        startOutgoingBotRunFallback(postConversationId, conversation, localMsg);
       }
       const botPostContext = botPostContextForConversation(conversation, postConversationId);
       const res = await window.mia.social.postConversationMessage(postConversationId, {
@@ -5110,18 +5190,34 @@
       });
       if (!res.ok) {
         console.warn("[social] postConversationMessage failed:", res.error);
+        if (conversationTypeFor(conversation, postConversationId) === "bot") {
+          clearConversationRunAfterBackfill(postConversationId);
+        }
         if (localMsg) _markLocalOutgoingConversationMessageFailed(postConversationId, localMsg.id, res.error);
         if (res.status === 401 && deps && typeof deps.onCloudAuthExpired === "function") deps.onCloudAuthExpired();
         return;
       }
       const sentMsg = res.data?.message;
-      if (!sentMsg || !sentMsg.id) return; // server didn't return a message somehow — skip optimistic
+      if (!sentMsg || !sentMsg.id) {
+        if (conversationTypeFor(conversation, postConversationId) === "bot") {
+          clearConversationRunAfterBackfill(postConversationId);
+        }
+        return; // server didn't return a message somehow — skip optimistic
+      }
       _reconcileSentConversationMessage(postConversationId, localMsg?.id, sentMsg);
       _appendReturnedConversationBotMessage(
         postConversationId,
         res.data?.botMessage || res.data?.assistantMessage || res.botMessage || null
       );
+      if (conversationTypeFor(conversation, postConversationId) === "bot") {
+        Promise.resolve(backfillBotReplyAfterSend(postConversationId, sentMsg)).catch((error) => {
+          console.warn("[social] bot reply backfill failed:", error?.message || error);
+        });
+      }
     } catch (err) {
+      if (conversationTypeFor(conversation, postConversationId) === "bot") {
+        clearConversationRunAfterBackfill(postConversationId);
+      }
       if (localMsg) _markLocalOutgoingConversationMessageFailed(postConversationId, localMsg.id, err?.message || err);
       console.warn("[social] sendInActiveConversation error:", err);
     }

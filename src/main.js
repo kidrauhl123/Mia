@@ -57,7 +57,7 @@ const { createAutoUpdateService } = require("./main/updater/auto-update-service.
 const { createSkillsLoader } = require("./main/skills-loader.js");
 const { createMiaAppMcpBridge } = require("./main/mia-app-mcp-bridge.js");
 const { createSocialApi } = require("./main/social/social-api.js");
-const { registerSocialIpc } = require("./main/social/social-ipc.js");
+const { cacheLiveConversationMessageEvent, registerSocialIpc } = require("./main/social/social-ipc.js");
 const { openConversationMessageCache } = require("./main/social/conversation-message-cache.js");
 const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js");
 const { finalizeCloudLoginIpcResult } = require("./main/cloud-login-ipc.js");
@@ -2696,6 +2696,11 @@ if (!IS_CORE_PROCESS) {
         startCloudRuntimeSockets();
         return;
       }
+      cacheLiveConversationMessageEvent({
+        messageCache: conversationMessageCache,
+        envelope,
+        log: (line) => appendCloudLog(line)
+      });
       broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
     },
     onStateChange: (connected) => {

@@ -2000,6 +2000,50 @@ test("server-confirmed outgoing message with missing sender ref survives stale b
   assert.equal(s.moduleState.messageCache.get(conversationId).messages[0].sender_ref, "u_me");
 });
 
+test("sendInActiveConversation backfills active bot reply when live websocket events are missed", async () => {
+  const s = loadSocial({ requestAnimationFrame: (fn) => fn() });
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  const conversationId = "botc_ws_missed";
+  const userMessage = { id: "m_user", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "hi" };
+  const botMessage = { id: "m_bot", seq: 2, sender_kind: "bot", sender_ref: "mia", body_md: "hello" };
+  let listCalls = 0;
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{
+    id: conversationId,
+    type: "bot",
+    name: "Mia",
+    decorations: { botId: "mia", sessionId: "ws_missed", runtimeKind: "cloud-claude-code" }
+  }];
+  s.moduleState.messageCache.set(conversationId, { maxSeq: 0, messages: [] });
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async () => ({
+      ok: true,
+      data: {
+        conversation: s.moduleState.conversations[0],
+        members: [{ member_kind: "bot", member_ref: "mia" }]
+      }
+    }),
+    postConversationMessage: async () => ({ ok: true, data: { message: userMessage } }),
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
+    listConversationMessages: async () => {
+      listCalls += 1;
+      return { ok: true, data: { messages: [userMessage, botMessage] } };
+    },
+    settingsPut: async () => ({ ok: true, data: { version: 2, readMarks: { [conversationId]: 2 } } })
+  };
+
+  await s.sendInActiveConversation("hi");
+  await flushPromises(8);
+
+  const messages = s.moduleState.messageCache.get(conversationId).messages;
+  assert.deepEqual(JSON.parse(JSON.stringify(messages.map((message) => message.id))), ["m_user", "m_bot"]);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has(conversationId), false);
+  assert.ok(listCalls >= 1);
+});
+
 test("sendInActiveConversation appends returned local runtime bot reply without waiting for websocket", async () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
