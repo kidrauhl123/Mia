@@ -492,9 +492,23 @@ impl BotService {
             return Ok(true);
         }
 
+        let binding_row = sqlx::query(
+            "SELECT binding_json FROM bot_runtime_bindings WHERE bot_id = ? AND runtime_kind = ?",
+        )
+        .bind(bot_id)
+        .bind(&spec.runtime_kind)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(binding_row) = binding_row else {
+            return Ok(true);
+        };
+        let binding = parse_json(binding_row.get::<String, _>("binding_json"))?;
         let config = object_from_value(
-            self.existing_runtime_config(bot_id, &spec.runtime_kind)
-                .await?,
+            binding
+                .get("config")
+                .filter(|value| value.is_object())
+                .cloned()
+                .unwrap_or_else(|| json!({})),
         );
         let binding_agent = first_map_string(&config, &["agentEngine", "agent_engine", "engine"])
             .map(|value| normalize_agent_engine(&value))

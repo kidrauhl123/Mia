@@ -358,7 +358,7 @@ async fn bot_service_owns_runtime_control_options_selection() {
     assert_eq!(response.runtime_kind, "desktop-local");
     assert_eq!(response.agent_engine, "codex");
     assert_eq!(response.status_text, "Codex");
-    assert_eq!(response.model_options.len(), 1);
+    assert_eq!(response.model_options.len(), 2);
     assert_eq!(response.selected_model, "gpt-5.3-codex");
     assert_eq!(
         response.selected_model_entry.as_ref().unwrap().label,
