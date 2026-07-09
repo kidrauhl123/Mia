@@ -6,7 +6,9 @@ const { test } = require("node:test");
 const {
   createMiaCoreResolver,
   DEFAULT_PATH,
-  packagedRustCorePath
+  devRustCorePath,
+  packagedRustCorePath,
+  repoBundledRustCorePath
 } = require("../src/main/mia-core/process-resolver.js");
 
 const SRC_ROOT = path.join(__dirname, "..", "src");
@@ -136,8 +138,34 @@ function setup(overrides = {}) {
   });
 }
 
-test("dev rust-core target launches cargo run with configured port and Core-owned data dirs", () => {
-  const r = setup().resolve();
+test("dev rust-core target prefers repo bundled binary when present", () => {
+  const bundled = repoBundledRustCorePath("/repo", "darwin", "arm64");
+  const r = setup({
+    existsSync: (candidate) => candidate === bundled
+  }).resolve();
+
+  assert.equal(r.kind, "rust-core");
+  assert.equal(r.command, bundled);
+  assert.deepEqual(r.args.slice(0, 5), ["serve", "--host", "127.0.0.1", "--port", "27861"]);
+  assert.equal(r.workingDirectory, path.dirname(bundled));
+  assert.equal(r.usesGuiAppIdentity, false);
+});
+
+test("dev rust-core target prefers built debug binary before cargo", () => {
+  const debug = devRustCorePath("/repo", "debug", "darwin");
+  const r = setup({
+    existsSync: (candidate) => candidate === debug
+  }).resolve();
+
+  assert.equal(r.kind, "rust-core");
+  assert.equal(r.command, debug);
+  assert.deepEqual(r.args.slice(0, 5), ["serve", "--host", "127.0.0.1", "--port", "27861"]);
+  assert.equal(r.workingDirectory, path.dirname(debug));
+  assert.equal(r.usesGuiAppIdentity, false);
+});
+
+test("dev rust-core target falls back to cargo run with configured port and Core-owned data dirs", () => {
+  const r = setup({ existsSync: () => false }).resolve();
 
   assert.equal(r.kind, "rust-core");
   assert.equal(r.command, "/usr/local/bin/cargo");
@@ -145,6 +173,8 @@ test("dev rust-core target launches cargo run with configured port and Core-owne
     "run",
     "-p",
     "mia-core-app",
+    "--bin",
+    "mia-core",
     "--",
     "serve",
     "--host",
@@ -227,7 +257,7 @@ test("packaged build with a missing bundled rust-core is unresolved and fail-clo
 });
 
 test("core env overlay stamps rust-core target identity without daemon aliases", () => {
-  const env = setup().coreEnvOverlay();
+  const env = setup({ existsSync: () => false }).coreEnvOverlay();
 
   assert.equal(env.MIA_CORE, "1");
   assert.equal(env.MIA_CORE_HOST, "127.0.0.1");
@@ -254,9 +284,9 @@ test("core settings override Core host and port in args and env overlay", () => 
   });
   const r = resolver.resolve();
   const env = resolver.coreEnvOverlay();
+  const serveIndex = r.args.indexOf("serve");
 
-  assert.deepEqual(r.args.slice(3, 8), ["--", "serve", "--host", "localhost", "--port"]);
-  assert.equal(r.args[8], "27991");
+  assert.deepEqual(r.args.slice(serveIndex, serveIndex + 5), ["serve", "--host", "localhost", "--port", "27991"]);
   assert.equal(env.MIA_CORE_HOST, "localhost");
   assert.equal(env.MIA_CORE_PORT, "27991");
 });
@@ -274,7 +304,7 @@ test("core env overlay points packaged Rust Core at extraResource official skill
 });
 
 test("assertLaunchable returns rust-core resolution for launchable targets", () => {
-  const r = setup().assertLaunchable();
+  const r = setup({ existsSync: () => false }).assertLaunchable();
   assert.equal(r.kind, "rust-core");
 });
 
@@ -283,7 +313,7 @@ test("Core resolver exposes the default launch PATH", () => {
 });
 
 test("describe exposes basename and identity flag for diagnostics", () => {
-  const d = setup().describe();
+  const d = setup({ existsSync: () => false }).describe();
   assert.equal(d.kind, "rust-core");
   assert.equal(d.command, "cargo");
   assert.equal(d.usesGuiAppIdentity, false);

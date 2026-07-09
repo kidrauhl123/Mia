@@ -17,6 +17,22 @@ function packagedRustCorePath(resourcesPath, platform = process.platform, arch =
   return path.join(base, "bundled-mia-core", `${platform}-${arch}`, binary);
 }
 
+function rustCoreBinaryName(platform = process.platform) {
+  return platform === "win32" ? "mia-core.exe" : "mia-core";
+}
+
+function repoBundledRustCorePath(repoRootValue, platform = process.platform, arch = process.arch) {
+  const root = String(repoRootValue || "").trim();
+  if (!root) return "";
+  return packagedRustCorePath(path.join(root, "resources"), platform, arch);
+}
+
+function devRustCorePath(repoRootValue, profile = "debug", platform = process.platform) {
+  const root = String(repoRootValue || "").trim();
+  if (!root) return "";
+  return path.join(root, "target", profile, rustCoreBinaryName(platform));
+}
+
 function officialSkillsDir(resourcesPathValue, repoRootValue, defaultAppValue, configured = "") {
   const explicit = String(configured || "").trim();
   if (explicit) return explicit;
@@ -178,9 +194,18 @@ function createMiaCoreResolver(deps = {}) {
 
     if (defaultApp()) {
       const root = path.resolve(String(repoRoot() || defaultRepoRoot()));
+      for (const candidate of [
+        repoBundledRustCorePath(root, platform, arch),
+        devRustCorePath(root, "debug", platform),
+        devRustCorePath(root, "release", platform)
+      ]) {
+        if (candidate && existsSync(candidate)) {
+          return rustCoreTarget(candidate, serveArgs(), path.dirname(candidate), candidate);
+        }
+      }
       return rustCoreTarget(
         String(cargoPath() || "cargo"),
-        ["run", "-p", "mia-core-app", "--", ...serveArgs()],
+        ["run", "-p", "mia-core-app", "--bin", "mia-core", "--", ...serveArgs()],
         root,
         root
       );
@@ -257,6 +282,9 @@ function createMiaCoreResolver(deps = {}) {
 module.exports = {
   createMiaCoreResolver,
   DEFAULT_PATH,
+  devRustCorePath,
   officialSkillsDir,
-  packagedRustCorePath
+  packagedRustCorePath,
+  repoBundledRustCorePath,
+  rustCoreBinaryName
 };

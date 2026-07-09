@@ -67,8 +67,8 @@ test("detached Core launcher starts Rust Core as a real background process", asy
 
   assert.equal(result.pid, 4242);
   assert.equal(calls[0].command, path.join(dir, "cargo"));
-  assert.deepEqual(calls[0].args.slice(0, 6), ["run", "-p", "mia-core-app", "--", "serve", "--host"]);
-  assert.deepEqual(calls[0].args.slice(6, 9), ["127.0.0.1", "--port", "27861"]);
+  assert.deepEqual(calls[0].args.slice(0, 8), ["run", "-p", "mia-core-app", "--bin", "mia-core", "--", "serve", "--host"]);
+  assert.deepEqual(calls[0].args.slice(8, 11), ["127.0.0.1", "--port", "27861"]);
   assert.equal(calls[0].options.detached, true);
   assert.deepEqual(calls[0].options.stdio, ["ignore", "pipe", "pipe"]);
   assert.equal(calls[0].options.windowsHide, process.platform === "win32" ? true : undefined);
@@ -105,8 +105,9 @@ test("default launcher resolver uses configured Core host and port", () => {
   });
   const args = launcher.coreProgramArguments();
   const env = launcher.coreEnvironment();
+  const serveIndex = args.indexOf("serve");
 
-  assert.deepEqual(args.slice(5, 10), ["serve", "--host", "localhost", "--port", "27992"]);
+  assert.deepEqual(args.slice(serveIndex, serveIndex + 5), ["serve", "--host", "localhost", "--port", "27992"]);
   assert.equal(env.MIA_CORE_HOST, "localhost");
   assert.equal(env.MIA_CORE_PORT, "27992");
 });
