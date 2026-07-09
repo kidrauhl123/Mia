@@ -125,6 +125,36 @@ test("discover bot store detail sheet stays compact, form-free, and keeps the ba
   assert.match(css, /\.bot-store-btn\.primary\s*\{[\s\S]*?flex:\s*0 0 auto;/);
 });
 
+test("bot store sheets have explicit and standard dismissal controls", () => {
+  const store = read("src/renderer/bot/bot-store.js");
+  const css = read("src/renderer/styles/bot-store.css");
+  const detailSheetBlock = store.slice(
+    store.indexOf("function openSheet"),
+    store.indexOf("async function addPresetBot")
+  );
+  const enrollSheetBlock = store.slice(
+    store.indexOf("async function addPresetBot"),
+    store.indexOf("function closeSheet")
+  );
+
+  assert.match(store, /function sheetCloseButtonHtml/);
+  assert.match(store, /class="bot-store-sheet-close"/);
+  assert.match(store, /data-act="close"/);
+  assert.match(store, /aria-label="关闭"/);
+  assert.match(store, /function bindSheetCloseButtons/);
+  assert.match(store, /querySelectorAll\('\[data-act="close"\]'\)\.forEach/);
+  assert.match(store, /if \(event\.target === els\.botStoreScrim\) closeSheet\(\)/);
+  assert.match(store, /event\.key === "Escape"/);
+  assert.match(store, /els\.botStoreScrim\?\.classList\.contains\("open"\)/);
+  assert.match(detailSheetBlock, /sheetCloseButtonHtml\(\)/);
+  assert.match(detailSheetBlock, /bindSheetCloseButtons\(sheet\)/);
+  assert.match(enrollSheetBlock, /sheetCloseButtonHtml\(\)/);
+  assert.match(enrollSheetBlock, /bindSheetCloseButtons\(sheet\)/);
+  assert.match(css, /\.bot-store-sheet-close\s*\{/);
+  assert.match(css, /\.bot-store-sheet-close svg\s*\{/);
+  assert.match(css, /\.bot-store-sheet-head\s*\{[\s\S]*?padding-right:\s*42px;/);
+});
+
 test("official assistant templates are natural assistants, not skill wrappers", () => {
   const library = JSON.parse(read("resources/official-library/library.json"));
   const presets = Array.isArray(library.botPresets) ? library.botPresets : [];

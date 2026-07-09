@@ -434,6 +434,39 @@
   transform: translateY(14px) scale(0.98);
   transition: transform 0.24s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
+.bot-store-sheet-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: rgba(20, 24, 39, 0.06);
+  color: var(--muted);
+  cursor: default;
+  transition: background 0.14s ease, color 0.14s ease, transform 0.14s ease;
+}
+.bot-store-sheet-close:hover {
+  background: rgba(20, 24, 39, 0.10);
+  color: var(--text);
+}
+.bot-store-sheet-close:active {
+  transform: scale(0.96);
+}
+.bot-store-sheet-close svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
 .bot-store-sheet.is-enrolling {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
@@ -443,6 +476,17 @@
   max-height: calc(100vh - 56px);
   overflow: hidden;
   padding: 24px;
+}
+.bot-store-sheet.is-enrolling .bot-store-sheet-close {
+  top: 18px;
+  right: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(23, 25, 35, 0.60);
+  box-shadow: 0 8px 24px rgba(16, 20, 39, 0.10);
+}
+.bot-store-sheet.is-enrolling .bot-store-sheet-close:hover {
+  background: #ffffff;
+  color: rgba(23, 25, 35, 0.86);
 }
 .bot-store-scrim.open .bot-store-sheet { transform: none; }
 .bot-store-enroll-console {
@@ -718,7 +762,7 @@
   border-radius: inherit;
   pointer-events: none;
 }
-.bot-store-sheet-head { display: flex; align-items: center; gap: 16px; }
+.bot-store-sheet-head { display: flex; align-items: center; gap: 16px; padding-right: 42px; }
 .bot-store-sheet .bot-store-avatar { width: 64px; height: 64px; border-radius: 19px; font-size: var(--ui-text-max-size, 14px); }
 .bot-store-sheet .bot-store-avatar-emoji { --bot-store-avatar-emoji-scale: 2.85; }
 .bot-store-sheet-head h2 { margin: 0; font-size: var(--ui-text-max-size, 14px); font-weight: var(--ui-text-max-weight, 500); letter-spacing: -0.01em; color: var(--text); }

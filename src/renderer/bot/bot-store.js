@@ -416,6 +416,10 @@
       if (event.target === els.botStoreScrim) closeSheet();
     });
 
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && els.botStoreScrim?.classList.contains("open")) closeSheet();
+    });
+
     window.addEventListener("resize", () => {
       if (state.activeView !== "bot-store") return;
       scrollCategoryButtonIntoView(els.botStoreCap?.querySelector("button.active"), "auto");
@@ -541,6 +545,22 @@
     pageTurnDirection = 0;
   }
 
+  function sheetCloseButtonHtml() {
+    return `
+      <button type="button" class="bot-store-sheet-close" data-act="close" aria-label="关闭" title="关闭">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M18 6 6 18"></path>
+          <path d="M6 6l12 12"></path>
+        </svg>
+      </button>`;
+  }
+
+  function bindSheetCloseButtons(sheet) {
+    sheet.querySelectorAll('[data-act="close"]').forEach((button) => {
+      button.addEventListener("click", closeSheet);
+    });
+  }
+
   function openSheet(f) {
     const sheet = els.botStoreSheet;
     const scrim = els.botStoreScrim;
@@ -550,6 +570,7 @@
     sheet.classList.remove("is-stamped");
     const skills = skillSummary(f);
     sheet.innerHTML = `
+      ${sheetCloseButtonHtml()}
       <div class="bot-store-sheet-head">
         ${avatarHtml(f)}
         <div><h2>${escapeHtml(f.name)}</h2></div>
@@ -567,6 +588,7 @@
         <button type="button" class="bot-store-btn ghost" data-act="back">返回</button>
         <button type="button" class="bot-store-btn primary" data-act="add">添加</button>
       </div>`;
+    bindSheetCloseButtons(sheet);
     sheet.querySelector('[data-act="back"]').addEventListener("click", closeSheet);
     sheet.querySelector('[data-act="add"]').addEventListener("click", () => addPresetBot(f));
     scrim.classList.add("open");
@@ -591,6 +613,7 @@
     sheet.classList.remove("is-stamped");
     sheet.dataset.botKey = plannedKey;
     sheet.innerHTML = `
+      ${sheetCloseButtonHtml()}
       <div class="bot-store-enroll-console" style="--badge-accent:${safeColor(f.c2, "#5dcaa5")};--engine-accent:${safeColor(meta.accent, "#5dcaa5")}">
         <div class="bot-store-enroll-bar">
           <span class="bot-store-enroll-light" aria-hidden="true"></span>
@@ -626,6 +649,7 @@
         <button type="button" class="bot-store-btn ghost" data-act="detail">上一步</button>
         <button type="button" class="bot-store-btn primary" data-act="confirm">确认</button>
       </div>`;
+    bindSheetCloseButtons(sheet);
     sheet.querySelector('[data-act="detail"]').addEventListener("click", () => openSheet(f));
     sheet.querySelector('[data-act="confirm"]').addEventListener("click", () => addBot(f, target, sheet.dataset.botKey || plannedKey));
     scrim.classList.add("open");

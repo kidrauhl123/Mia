@@ -9439,8 +9439,7 @@ select.select-open {
 }
 
 .appearance-theme-toggle:focus-visible {
-  outline: 2px solid rgb(var(--accent-rgb) / 0.45);
-  outline-offset: 3px;
+  outline: 0;
 }
 
 .appearance-theme-toggle-sky {
