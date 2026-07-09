@@ -114,8 +114,11 @@ const { registerUtilIpc } = require("./main/ipc/util-ipc.js");
 const { registerMcpIpc } = require("./main/ipc/mcp-ipc.js");
 const { createLocalFileOpenService } = require("./main/local-file-open-service.js");
 const { createMcpService } = require("./main/mcp/mcp-service.js");
+const { installMainProcessStdioErrorGuard } = require("./main/stdio-error-guard.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — bot chats
 //  now sync via conversations+messages, no need for the workspace-shape mappers.)
+
+installMainProcessStdioErrorGuard();
 
 const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
 // Keep the LaunchAgent label stable so existing installs are overwritten in

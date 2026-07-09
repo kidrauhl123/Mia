@@ -21,6 +21,28 @@ function rustCoreBinaryName(platform = process.platform) {
   return platform === "win32" ? "mia-core.exe" : "mia-core";
 }
 
+function pathEntries(pathValue = "") {
+  return String(pathValue || "")
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function findExecutableOnPath(binaryName, pathValue = DEFAULT_PATH, fsImpl = fs) {
+  const binary = String(binaryName || "").trim();
+  if (!binary) return "";
+  for (const entry of pathEntries(pathValue)) {
+    const candidate = path.join(entry, binary);
+    try {
+      const stat = fsImpl.statSync(candidate);
+      if (stat.isFile()) return candidate;
+    } catch {
+      // Try next PATH entry.
+    }
+  }
+  return "";
+}
+
 function repoBundledRustCorePath(repoRootValue, platform = process.platform, arch = process.arch) {
   const root = String(repoRootValue || "").trim();
   if (!root) return "";
@@ -122,7 +144,8 @@ function createMiaCoreResolver(deps = {}) {
     appVersion = () => "",
     cargoPath = () => env.CARGO || "cargo",
     parentPid = () => process.pid,
-    sourceFingerprint = (root) => defaultSourceFingerprint(root, fs)
+    sourceFingerprint = (root) => defaultSourceFingerprint(root, fs),
+    pathLookup = (binary) => findExecutableOnPath(binary, env.PATH || DEFAULT_PATH, fs)
   } = deps;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
   if (typeof effectiveHermesHome !== "function") throw new Error("effectiveHermesHome dependency is required.");
@@ -197,11 +220,21 @@ function createMiaCoreResolver(deps = {}) {
       for (const candidate of [
         repoBundledRustCorePath(root, platform, arch),
         devRustCorePath(root, "debug", platform),
-        devRustCorePath(root, "release", platform)
+        devRustCorePath(root, "release", platform),
+        pathLookup(rustCoreBinaryName(platform))
       ]) {
         if (candidate && existsSync(candidate)) {
           return rustCoreTarget(candidate, serveArgs(), path.dirname(candidate), candidate);
         }
+      }
+      if (env.MIA_CORE_ALLOW_CARGO_RUN !== "1") {
+        return {
+          kind: "unresolved",
+          command: execPath(),
+          args: [],
+          workingDirectory: root,
+          usesGuiAppIdentity: false
+        };
       }
       return rustCoreTarget(
         String(cargoPath() || "cargo"),
@@ -283,6 +316,7 @@ module.exports = {
   createMiaCoreResolver,
   DEFAULT_PATH,
   devRustCorePath,
+  findExecutableOnPath,
   officialSkillsDir,
   packagedRustCorePath,
   repoBundledRustCorePath,

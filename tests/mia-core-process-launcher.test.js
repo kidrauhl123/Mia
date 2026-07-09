@@ -25,7 +25,7 @@ function setup(overrides = {}) {
     appPath: () => path.join(dir, "Mia App"),
     execPath: () => path.join(dir, "electron.exe"),
     defaultApp: () => true,
-    env: { PATH: "base-path", HERMES_LANGUAGE: "en", CUSTOM_ENV: "kept" },
+    env: { PATH: "base-path", HERMES_LANGUAGE: "en", CUSTOM_ENV: "kept", MIA_CORE_ALLOW_CARGO_RUN: "1" },
     appVersion: () => "0.1.39",
     spawn: (command, args, options) => {
       calls.push({ command, args, options });
@@ -48,16 +48,19 @@ function setup(overrides = {}) {
 
 test("detached Core launcher starts Rust Core as a real background process", async () => {
   const { createMiaCoreResolver } = require("../src/main/mia-core/process-resolver.js");
+  const testDir = path.join(os.tmpdir(), "mia daemon launcher");
+  const debugCore = path.join(testDir, "target", "debug", "mia-core");
   const { calls, dir, launcher, runtime } = setup({
     resolver: createMiaCoreResolver({
-      runtimePaths: () => ({ root: dir, home: path.join(dir, "runtime", "engine-home") }),
-      effectiveHermesHome: () => path.join(dir, ".hermes"),
-      execPath: () => path.join(dir, "electron.exe"),
+      runtimePaths: () => ({ root: testDir, home: path.join(testDir, "runtime", "engine-home") }),
+      effectiveHermesHome: () => path.join(testDir, ".hermes"),
+      execPath: () => path.join(testDir, "electron.exe"),
       defaultApp: () => true,
       platform: "darwin",
       env: { HERMES_LANGUAGE: "en" },
-      repoRoot: () => dir,
-      cargoPath: () => path.join(dir, "cargo"),
+      repoRoot: () => testDir,
+      existsSync: (candidate) => candidate === debugCore,
+      cargoPath: () => path.join(testDir, "cargo"),
       parentPid: () => 1234,
       appVersion: () => "0.1.39"
     })
@@ -66,13 +69,12 @@ test("detached Core launcher starts Rust Core as a real background process", asy
   const result = await launcher.start();
 
   assert.equal(result.pid, 4242);
-  assert.equal(calls[0].command, path.join(dir, "cargo"));
-  assert.deepEqual(calls[0].args.slice(0, 8), ["run", "-p", "mia-core-app", "--bin", "mia-core", "--", "serve", "--host"]);
-  assert.deepEqual(calls[0].args.slice(8, 11), ["127.0.0.1", "--port", "27861"]);
+  assert.equal(calls[0].command, debugCore);
+  assert.deepEqual(calls[0].args.slice(0, 5), ["serve", "--host", "127.0.0.1", "--port", "27861"]);
   assert.equal(calls[0].options.detached, true);
   assert.deepEqual(calls[0].options.stdio, ["ignore", "pipe", "pipe"]);
   assert.equal(calls[0].options.windowsHide, process.platform === "win32" ? true : undefined);
-  assert.equal(calls[0].options.cwd, dir);
+  assert.equal(calls[0].options.cwd, path.dirname(debugCore));
   assert.equal(calls[0].options.env.MIA_CORE, "1");
   assert.equal(calls[0].options.env.MIA_CORE_HOST, "127.0.0.1");
   assert.equal(calls[0].options.env.MIA_CORE_PORT, "27861");

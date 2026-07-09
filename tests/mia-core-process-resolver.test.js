@@ -7,6 +7,7 @@ const {
   createMiaCoreResolver,
   DEFAULT_PATH,
   devRustCorePath,
+  findExecutableOnPath,
   packagedRustCorePath,
   repoBundledRustCorePath
 } = require("../src/main/mia-core/process-resolver.js");
@@ -166,9 +167,22 @@ test("dev rust-core target prefers built debug binary before cargo", () => {
   assert.equal(r.usesGuiAppIdentity, false);
 });
 
-test("dev rust-core target falls back to cargo run with configured port and Core-owned data dirs", () => {
+test("dev rust-core target is unresolved when no binary is prepared", () => {
   const r = setup({ existsSync: () => false }).resolve();
   const repoRoot = path.resolve("/repo");
+
+  assert.equal(r.kind, "unresolved");
+  assert.equal(r.command, "/Applications/Mia.app/Contents/MacOS/Mia");
+  assert.equal(r.workingDirectory, repoRoot);
+  assert.equal(r.usesGuiAppIdentity, false);
+});
+
+test("dev rust-core target only falls back to cargo run when explicitly allowed", () => {
+  const repoRoot = path.resolve("/repo");
+  const r = setup({
+    env: { HERMES_LANGUAGE: "en", MIA_CORE_ALLOW_CARGO_RUN: "1" },
+    existsSync: () => false
+  }).resolve();
 
   assert.equal(r.kind, "rust-core");
   assert.equal(r.command, "/usr/local/bin/cargo");
@@ -197,8 +211,24 @@ test("dev rust-core target falls back to cargo run with configured port and Core
   assert.equal(r.usesGuiAppIdentity, false);
 });
 
+test("dev rust-core target can resolve mia-core from PATH", () => {
+  const bin = "/opt/homebrew/bin/mia-core";
+  const r = setup({
+    existsSync: (candidate) => candidate === bin,
+    pathLookup: () => bin
+  }).resolve();
+
+  assert.equal(r.kind, "rust-core");
+  assert.equal(r.command, bin);
+  assert.equal(r.workingDirectory, path.dirname(bin));
+  assert.deepEqual(r.args.slice(0, 5), ["serve", "--host", "127.0.0.1", "--port", "27861"]);
+});
+
 test("dev rust-core target description includes the owning Electron parent pid", () => {
-  const description = setup().describe();
+  const description = setup({
+    env: { HERMES_LANGUAGE: "en", MIA_CORE_ALLOW_CARGO_RUN: "1" },
+    existsSync: () => false
+  }).describe();
 
   assert.equal(description.kind, "rust-core");
   assert.equal(description.parentPid, 4321);
@@ -260,8 +290,11 @@ test("packaged build with a missing bundled rust-core is unresolved and fail-clo
 });
 
 test("core env overlay stamps rust-core target identity without daemon aliases", () => {
-  const env = setup({ existsSync: () => false }).coreEnvOverlay();
   const repoRoot = path.resolve("/repo");
+  const env = setup({
+    env: { HERMES_LANGUAGE: "en", MIA_CORE_ALLOW_CARGO_RUN: "1" },
+    existsSync: () => false
+  }).coreEnvOverlay();
 
   assert.equal(env.MIA_CORE, "1");
   assert.equal(env.MIA_CORE_HOST, "127.0.0.1");
@@ -284,6 +317,8 @@ test("core env overlay stamps rust-core target identity without daemon aliases",
 
 test("core settings override Core host and port in args and env overlay", () => {
   const resolver = setup({
+    env: { HERMES_LANGUAGE: "en", MIA_CORE_ALLOW_CARGO_RUN: "1" },
+    existsSync: () => false,
     coreSettings: () => ({ host: "localhost", port: 27991 })
   });
   const r = resolver.resolve();
@@ -308,7 +343,10 @@ test("core env overlay points packaged Rust Core at extraResource official skill
 });
 
 test("assertLaunchable returns rust-core resolution for launchable targets", () => {
-  const r = setup({ existsSync: () => false }).assertLaunchable();
+  const r = setup({
+    env: { HERMES_LANGUAGE: "en", MIA_CORE_ALLOW_CARGO_RUN: "1" },
+    existsSync: () => false
+  }).assertLaunchable();
   assert.equal(r.kind, "rust-core");
 });
 
@@ -316,8 +354,22 @@ test("Core resolver exposes the default launch PATH", () => {
   assert.equal(typeof DEFAULT_PATH, "string");
 });
 
+test("PATH lookup finds the first prepared mia-core executable", () => {
+  const found = findExecutableOnPath("mia-core", ["/missing", "/bin"].join(path.delimiter), {
+    statSync: (candidate) => {
+      if (candidate === path.join("/bin", "mia-core")) return { isFile: () => true };
+      throw new Error("missing");
+    }
+  });
+
+  assert.equal(found, path.join("/bin", "mia-core"));
+});
+
 test("describe exposes basename and identity flag for diagnostics", () => {
-  const d = setup({ existsSync: () => false }).describe();
+  const d = setup({
+    env: { HERMES_LANGUAGE: "en", MIA_CORE_ALLOW_CARGO_RUN: "1" },
+    existsSync: () => false
+  }).describe();
   assert.equal(d.kind, "rust-core");
   assert.equal(d.command, "cargo");
   assert.equal(d.usesGuiAppIdentity, false);
