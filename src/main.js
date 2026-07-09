@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain, screen, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { execFile, spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -41,6 +41,13 @@ const {
 } = require("./main/device-identity.js");
 const { createSettingsStore } = require("./main/settings-store.js");
 const { createWindowStateManager } = require("./main/window-state.js");
+const { createTrayLifecycleService } = require("./main/tray-lifecycle-service.js");
+const {
+  WINDOW_CLOSE_ACTIONS,
+  decideWindowClose,
+  dialogResultToWindowCloseChoice,
+  windowClosePromptOptions
+} = require("./main/window-close-policy.js");
 const { installPathPasteShortcut } = require("./main/path-paste-shortcut.js");
 const { createAutoUpdateService } = require("./main/updater/auto-update-service.js");
 const { createSkillsLoader } = require("./main/skills-loader.js");
@@ -478,6 +485,53 @@ settingsStore = createSettingsStore({
   normalizeAvatarCrop: (crop) => normalizeAvatarCrop(crop)
 });
 const windowStateManager = createWindowStateManager({ settingsStore, screen });
+let explicitMiaQuitInProgress = false;
+let fullMiaQuitPromise = null;
+
+function shouldManageTrayLifecycle() {
+  return shouldRunDesktopInstance && !IS_CORE_PROCESS;
+}
+
+function coreRunningForTray() {
+  try {
+    return getDaemonStatus()?.running === true;
+  } catch {
+    return false;
+  }
+}
+
+function markCoreRunningForTray(running) {
+  if (!shouldManageTrayLifecycle()) return;
+  trayLifecycleService.setCoreRunning(running === true);
+}
+
+function syncTrayStateWithDaemonStatus(status = getDaemonStatus()) {
+  if (!shouldManageTrayLifecycle()) return status;
+  trayLifecycleService.setCoreRunning(status?.running === true);
+  return status;
+}
+
+function trayActivityCount() {
+  return 0;
+}
+
+function trayIconPath() {
+  return path.join(__dirname, "..", "build", "icon.png");
+}
+
+const trayLifecycleService = createTrayLifecycleService({
+  app,
+  Tray,
+  Menu,
+  nativeImage,
+  platform: process.platform,
+  iconPath: trayIconPath(),
+  getCoreStatus: getDaemonStatus,
+  getActivityCount: trayActivityCount,
+  openMainWindow: showMainWindowFromTray,
+  quitMia: () => requestFullMiaQuit("tray"),
+  log: appendDaemonLog
+});
 
 const botManifestModule = createBotManifest({
   runtimePaths,
@@ -1048,7 +1102,9 @@ function getDaemonStatus() {
 }
 
 async function getObservedDaemonStatus(timeoutMs = 500) {
-  return miaCoreControlServer.observedStatus(timeoutMs);
+  const status = await miaCoreControlServer.observedStatus(timeoutMs);
+  syncTrayStateWithDaemonStatus(status);
+  return status;
 }
 
 function getRuntimeStatus(created = [], options = {}) {
@@ -1209,7 +1265,9 @@ async function startDaemonService() {
     existingReusable = shouldReuseCore(existing, app.getVersion(), { expectedCoreTarget });
     if (existingReusable) {
       appendDaemonLog(`Reusing Mia Rust Core at ${existing.baseUrl}.`);
-      return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
+      const status = { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
+      markCoreRunningForTray(true);
+      return status;
     }
     if (coreNeedsReplacement(existing, app.getVersion())) {
       appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
@@ -1238,7 +1296,9 @@ async function startDaemonService() {
       // GUI-identity one would be accepted and replaced again next launch.
       if (shouldReuseCore(ping, app.getVersion(), { expectedCoreTarget })) {
         appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
-        return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+        const status = { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+        markCoreRunningForTray(true);
+        return status;
       }
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
@@ -1253,7 +1313,9 @@ async function startDaemonService() {
     const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
     if (shouldReuseCore(ping, app.getVersion(), { expectedCoreTarget })) {
       appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
-      return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+      const status = { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+      markCoreRunningForTray(true);
+      return status;
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
@@ -1265,7 +1327,9 @@ async function stopDaemonService() {
   if (shouldUseLaunchdForCore() && !IS_CORE_PROCESS) {
     await launchdService.stopCore();
   }
-  return miaCoreControlServer.stop();
+  const result = miaCoreControlServer.stop();
+  markCoreRunningForTray(false);
+  return result;
 }
 
 function appendCloudLog(line) {
@@ -2099,6 +2163,9 @@ function createWindow() {
   win.on("leave-full-screen", () => sendWindowEvent(IpcChannel.WindowFullscreen, false));
   win.on("maximize", () => sendWindowEvent(IpcChannel.WindowMaximized, true));
   win.on("unmaximize", () => sendWindowEvent(IpcChannel.WindowMaximized, false));
+  win.on("close", (event) => {
+    handleMainWindowClose(event, win);
+  });
   let windowShown = false;
   const showWhenReady = () => {
     if (windowShown || win.isDestroyed()) return;
@@ -2117,6 +2184,109 @@ function createWindow() {
     : path.join(__dirname, "renderer", "index.html"));
   startupTimer.mark("window:load-file");
   return win;
+}
+
+function showMainWindowFromTray() {
+  if (process.platform === "darwin" && app.dock && typeof app.dock.show === "function") {
+    app.dock.show();
+  }
+  let target = BrowserWindow.getAllWindows().find((win) => win && !win.isDestroyed());
+  if (!target) {
+    target = createWindow();
+  }
+  if (typeof target.isMinimized === "function" && target.isMinimized()) target.restore();
+  if (!target.isVisible()) target.show();
+  if (typeof target.focus === "function") target.focus();
+  return target;
+}
+
+async function requestFullMiaQuit(reason = "app") {
+  if (fullMiaQuitPromise) return fullMiaQuitPromise;
+  explicitMiaQuitInProgress = true;
+  fullMiaQuitPromise = (async () => {
+    try {
+      await stopDaemonService();
+    } catch (error) {
+      appendDaemonLog(`Full Mia quit Core stop failed (${reason}): ${error?.message || error}`);
+    } finally {
+      trayLifecycleService.destroyTray();
+      app.quit();
+    }
+  })();
+  return fullMiaQuitPromise;
+}
+
+function keepMainWindowVisible(win) {
+  if (!win || win.isDestroyed()) return;
+  if (!win.isVisible()) win.show();
+  if (typeof win.focus === "function") win.focus();
+}
+
+function writeMainWindowClosePreference(decision) {
+  if (!decision.preferenceToWrite) return;
+  settingsStore.writeWindowSettings({ windowCloseBehavior: decision.preferenceToWrite });
+}
+
+function applyMainWindowCloseDecision(event, win, decision) {
+  if (decision.action === WINDOW_CLOSE_ACTIONS.ALLOW_CLOSE) return;
+
+  event.preventDefault();
+
+  if (decision.action === WINDOW_CLOSE_ACTIONS.HIDE_TO_TRAY) {
+    trayLifecycleService.refresh();
+    if (!trayLifecycleService.isTrayVisible()) {
+      keepMainWindowVisible(win);
+      return;
+    }
+    writeMainWindowClosePreference(decision);
+    if (win && !win.isDestroyed()) win.hide();
+    if (process.platform === "darwin" && app.dock && typeof app.dock.hide === "function") {
+      app.dock.hide();
+    }
+    return;
+  }
+
+  if (decision.action === WINDOW_CLOSE_ACTIONS.FULL_QUIT) {
+    writeMainWindowClosePreference(decision);
+    requestFullMiaQuit("window-close");
+    return;
+  }
+
+  keepMainWindowVisible(win);
+}
+
+async function promptAndApplyMainWindowClose(event, win) {
+  try {
+    const result = await dialog.showMessageBox(win, windowClosePromptOptions());
+    const dialogChoice = dialogResultToWindowCloseChoice(result);
+    const decision = decideWindowClose({
+      storedBehavior: "ask",
+      coreRunning: coreRunningForTray(),
+      isExplicitQuit: explicitMiaQuitInProgress,
+      dialogChoice
+    });
+    applyMainWindowCloseDecision(event, win, decision);
+  } catch (error) {
+    appendDaemonLog(`Window close prompt failed: ${error?.message || error}`);
+    keepMainWindowVisible(win);
+  }
+}
+
+function handleMainWindowClose(event, win) {
+  if (win?.miaSkipAutomaticBackgroundStartup) return;
+  const decision = decideWindowClose({
+    storedBehavior: settingsStore.windowSettings().windowCloseBehavior,
+    coreRunning: coreRunningForTray(),
+    isExplicitQuit: explicitMiaQuitInProgress
+  });
+
+  if (decision.action === WINDOW_CLOSE_ACTIONS.PROMPT) {
+    event.preventDefault();
+    promptAndApplyMainWindowClose(event, win);
+    return;
+  }
+
+  applyMainWindowCloseDecision(event, win, decision);
 }
 
 function showSignedOutOnboardingWindow(win) {
@@ -2652,6 +2822,12 @@ app.on("before-quit", () => {
   }
 });
 
+app.on("before-quit", (event) => {
+  if (IS_CORE_PROCESS || !shouldRunDesktopInstance || explicitMiaQuitInProgress) return;
+  event.preventDefault();
+  requestFullMiaQuit("before-quit");
+});
+
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
   // Migration branch: the background Core is always a separate Core process,
@@ -2683,11 +2859,13 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   authService.cancelCodexOAuth();
   if (IS_CORE_PROCESS) return;
-  if (process.platform !== "darwin") app.quit();
+  if (trayLifecycleService.isTrayVisible()) return;
+  if (process.platform !== "darwin") requestFullMiaQuit("window-all-closed");
 });
 
 app.on("activate", () => {
   if (IS_CORE_PROCESS) return;
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
   else if (!cloudStatus(false).enabled) showSignedOutOnboardingWindow(BrowserWindow.getAllWindows()[0]);
+  else showMainWindowFromTray();
 });
