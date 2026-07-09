@@ -185,9 +185,9 @@
     return merged;
   }
 
-  function listOwnedBots({ cloudBots = [], runtime = {} } = {}) {
+  function listOwnedBots({ identityBots = [], runtime = {} } = {}) {
     const byKey = new Map();
-    for (const bot of Array.isArray(cloudBots) ? cloudBots : []) {
+    for (const bot of Array.isArray(identityBots) ? identityBots : []) {
       const normalized = normalizeOwnedBot(bot, { sourceKind: "cloud", runtimeKind: "cloud-claude-code", runtime });
       if (normalized) byKey.set(normalized.key, mergeOwnedBot(byKey.get(normalized.key), normalized));
     }

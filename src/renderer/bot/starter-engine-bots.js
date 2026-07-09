@@ -182,7 +182,7 @@
     return [...(cloud ? [cloud] : []), ...starterEngineBotSpecs(runtime)];
   }
 
-  function coreBotRecord(summary = {}) {
+  function starterIdentityRecord(summary = {}) {
     const identity = summary.identity && typeof summary.identity === "object" ? summary.identity : {};
     const capabilities = summary.capabilities && typeof summary.capabilities === "object" ? summary.capabilities : {};
     const key = String(summary.key || summary.id || "").trim();
@@ -215,7 +215,7 @@
     const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
     const byKey = new Map(bots.map((bot) => [String(bot?.key || bot?.id || ""), bot]));
     for (const entry of entries) {
-      const record = coreBotRecord(entry.bot || {});
+      const record = starterIdentityRecord(entry.bot || {});
       if (!record.key) continue;
       byKey.set(record.key, { ...(byKey.get(record.key) || {}), ...record });
     }

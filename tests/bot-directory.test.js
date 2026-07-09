@@ -14,11 +14,11 @@ const CLOUD_AGENT_RUNTIME = {
   available: true
 };
 
-test("bot directory normalizes cloud identities and ignores local-only manifest bots", () => {
+test("bot directory normalizes cloud-owned bot identities and ignores local-only manifest bots", () => {
   const { isCloudIdentityBot, isCloudRuntimeKind, listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
-    cloudBots: [
+    identityBots: [
       { id: "mia", name: "Mia", bio: "云端 Agent", color: "#2563eb" }
     ],
     localBots: [
@@ -46,11 +46,11 @@ test("bot directory normalizes cloud identities and ignores local-only manifest 
   assert.equal(codex, undefined);
 });
 
-test("bot directory keeps cloud identity fields for desktop-runtime bots", () => {
+test("bot directory keeps cloud-owned identity fields for desktop-runtime bots", () => {
   const { isCloudIdentityBot, isCloudRuntimeKind, listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
-    cloudBots: [
+    identityBots: [
       { id: "alice", name: "Alice Cloud", bio: "cloud copy", color: "#2563eb", runtimeKind: "desktop-local", runtimeLabel: "Office Mac" }
     ],
     localBots: [
@@ -76,7 +76,7 @@ test("bot directory preserves cloud active runtime over a local mirror", () => {
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
-    cloudBots: [
+    identityBots: [
       {
         id: "alice",
         name: "Alice Cloud",
@@ -103,7 +103,7 @@ test("bot directory uses Core runtime label instead of deriving local device sta
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
-    cloudBots: [
+    identityBots: [
       {
         id: "nono",
         name: "nono",
@@ -136,7 +136,7 @@ test("bot directory ignores legacy runtimeConfig without Core projection", () =>
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
-    cloudBots: [
+    identityBots: [
       {
         id: "nono",
         name: "nono",
@@ -169,7 +169,7 @@ test("bot directory does not compact or classify device labels locally", () => {
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
-    cloudBots: [
+    identityBots: [
       {
         id: "nono",
         name: "nono",
@@ -211,7 +211,7 @@ test("bot directory ignores stale local avatar mirrors", () => {
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
-    cloudBots: [
+    identityBots: [
       { id: "kongling", name: "空铃 Cloud", avatarImage: "data:image/png;base64,real", avatarCrop: { x: 50, y: 50, zoom: 1 } }
     ],
     localBots: [
@@ -229,7 +229,7 @@ test("bot directory keeps cloud video avatar trim and ignores local mirrors", ()
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
-    cloudBots: [
+    identityBots: [
       {
         id: "jiangmei",
         name: "匠妹 Cloud",

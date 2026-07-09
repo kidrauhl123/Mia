@@ -2077,11 +2077,11 @@ function allOwnedBotsForIdentity() {
   if (window.miaBotManager?.allOwnedBots) {
     return window.miaBotManager.allOwnedBots();
   }
-  const cloudBots = window.miaSocial?.moduleState?.bots || [];
+  const identityBots = window.miaSocial?.moduleState?.bots || [];
   if (window.miaBotDirectory?.listOwnedBots) {
-    return window.miaBotDirectory.listOwnedBots({ cloudBots, runtime });
+    return window.miaBotDirectory.listOwnedBots({ identityBots, runtime });
   }
-  return Array.isArray(cloudBots) ? cloudBots : [];
+  return Array.isArray(identityBots) ? identityBots : [];
 }
 
 function botAvatarIdentityId(botKey, bot = {}, member = null) {

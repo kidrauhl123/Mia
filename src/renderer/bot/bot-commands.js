@@ -226,7 +226,7 @@
     if (saved && saved.ok === false) throw new Error(saved.error || "保存 Bot 身份失败");
     const savedBot = savedBotFromResult(saved, { ...identity, ...(key ? { id: key, key } : {}) });
     key = String(savedBot.key || savedBot.id || key || "").trim();
-    if (!key) throw new Error("Core 未返回 Bot 账号 ID。");
+    if (!key) throw new Error("云端未返回 Bot 账号 ID。");
 
     if (typeof api?.social?.saveBotRuntime !== "function") throw new Error("Bot 运行绑定保存接口不可用。");
     const targetIntent = {
@@ -271,7 +271,7 @@
       || (bindingKind === CLOUD_RUNTIME_KIND ? "Mia Cloud" : bindingDeviceName || "当前设备")
     ).trim();
     const conversation = social?.upsertBotConversation?.(conversationFromResult(ensured)) || conversationFromResult(ensured);
-    const cloudBot = {
+    const identityBot = {
       ...savedBot,
       key,
       id: key,
@@ -287,11 +287,11 @@
     if (social?.moduleState) {
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
       social.moduleState.bots = [
-        cloudBot,
+        identityBot,
         ...bots.filter((item) => String(item?.key || item?.id || "") !== key)
       ];
     }
-    return { saved: true, key, bot: cloudBot, binding, conversation, runtime: state.runtime };
+    return { saved: true, key, bot: identityBot, binding, conversation, runtime: state.runtime };
   }
 
   async function saveCloudClaudeCodeBot({
@@ -313,7 +313,7 @@
     if (!saved?.ok) throw new Error(saved?.error || "保存 Bot 身份失败");
     const savedBot = savedBotFromResult(saved, { ...identity, ...(key ? { id: key, key } : {}) });
     key = String(savedBot.key || savedBot.id || key || "").trim();
-    if (!key) throw new Error("Core 未返回 Bot 账号 ID。");
+    if (!key) throw new Error("云端未返回 Bot 账号 ID。");
     if (isCreate || activateRuntime) {
       const runtime = await api.social.saveBotRuntime(key, {
         runtimeKind: CLOUD_RUNTIME_KIND,
@@ -331,7 +331,7 @@
       runtimeKind: CLOUD_RUNTIME_KIND
     });
     if (!ensured?.ok) throw new Error(ensured?.error || "创建 Bot 会话失败");
-    const cloudBot = {
+    const identityBot = {
       ...savedBot,
       key,
       id: key,
@@ -343,12 +343,12 @@
     if (social?.moduleState) {
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
       social.moduleState.bots = [
-        cloudBot,
+        identityBot,
         ...bots.filter((item) => String(item?.key || item?.id || "") !== key)
       ];
     }
     const conversation = social?.upsertBotConversation?.(conversationFromResult(ensured)) || conversationFromResult(ensured);
-    return { key, bot: cloudBot, conversation, runtime: state.runtime };
+    return { key, bot: identityBot, conversation, runtime: state.runtime };
   }
 
   async function saveBot(options = {}) {
@@ -358,7 +358,7 @@
     return saveBotRuntimeTarget({ ...options, runtimeKind: "desktop-local" });
   }
 
-  async function deleteCloudClaudeCodeBot({
+  async function deleteBotIdentity({
     state = {},
     api = global.mia,
     social = global.miaSocial,
@@ -382,7 +382,7 @@
   async function deleteBot(options = {}) {
     const bot = options.bot || {};
     if (bot.canDelete === false) return { deleted: false, runtime: options.state?.runtime };
-    return deleteCloudClaudeCodeBot(options);
+    return deleteBotIdentity(options);
   }
 
   function identityForCapabilities(bot = {}, capabilities) {
@@ -403,7 +403,7 @@
       : identity;
   }
 
-  async function saveCloudClaudeCodeBotCapabilities({
+  async function saveBotIdentityCapabilities({
     state = {},
     api = global.mia,
     social = global.miaSocial,
@@ -435,7 +435,7 @@
   }
 
   async function saveBotCapabilities(options = {}) {
-    return saveCloudClaudeCodeBotCapabilities(options);
+    return saveBotIdentityCapabilities(options);
   }
 
   function runtimeCacheKey(botKey, runtimeKind = "cloud-claude-code") {
@@ -616,9 +616,9 @@
     saveCloudClaudeCodeBot,
     saveBotRuntimeTarget,
     saveBot,
-    deleteCloudClaudeCodeBot,
+    deleteBotIdentity,
     deleteBot,
-    saveCloudClaudeCodeBotCapabilities,
+    saveBotIdentityCapabilities,
     saveBotCapabilities,
     runtimeCacheKey,
     getBotRuntimeBinding,

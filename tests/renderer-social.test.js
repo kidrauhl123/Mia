@@ -680,6 +680,84 @@ test("bootstrapAfterLogin paints cached SQLite social data before slow cloud con
   await boot;
 });
 
+test("bootstrapAfterLogin does not hide bot conversations when the bot identity list is temporarily unavailable", async () => {
+  const s = loadSocial();
+  s.__mockWindow.miaSessionHistory = sessionHistory;
+  s.initSocialModule({
+    getState: () => ({ runtime: { cloud: { user: { id: "u_1" } } } }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {},
+  });
+  s.__mockWindow.mia.social = {
+    myIdentity: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    listFriends: async () => ({ ok: true, data: { friends: [] } }),
+    listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
+    listBots: async () => ({ ok: false, error: "读取云端 Bot 身份列表失败" }),
+    settingsGet: async () => ({}),
+    listConversations: async () => ({
+      ok: true,
+      data: {
+        conversations: [{
+          id: "botc_u_1_mia",
+          type: "bot",
+          name: "Mia",
+          decorations: { botId: "mia", sessionId: "mia" },
+          updatedAt: "2026-07-09T08:00:00.000Z"
+        }]
+      }
+    }),
+    listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
+  };
+
+  await s.bootstrapAfterLogin();
+
+  assert.equal(s.moduleState.botsLoaded, false);
+  assert.deepEqual(
+    s.renderSidebarRows().map((row) => row.conversation.id),
+    ["botc_u_1_mia"]
+  );
+});
+
+test("bootstrapAfterLogin does not treat an empty bot identity list as an authority to hide cloud bot conversations", async () => {
+  const s = loadSocial();
+  s.__mockWindow.miaSessionHistory = sessionHistory;
+  s.initSocialModule({
+    getState: () => ({ runtime: { cloud: { user: { id: "u_1" } } } }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {},
+  });
+  s.__mockWindow.mia.social = {
+    myIdentity: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    listFriends: async () => ({ ok: true, data: { friends: [] } }),
+    listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
+    listBots: async () => ({ ok: true, data: { bots: [] } }),
+    settingsGet: async () => ({}),
+    listConversations: async () => ({
+      ok: true,
+      data: {
+        conversations: [{
+          id: "botc_u_1_mia",
+          type: "bot",
+          name: "Mia",
+          decorations: { botId: "mia", sessionId: "mia" },
+          updatedAt: "2026-07-09T08:00:00.000Z"
+        }]
+      }
+    }),
+    listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
+  };
+
+  await s.bootstrapAfterLogin();
+
+  assert.equal(s.moduleState.botsLoaded, true);
+  assert.deepEqual(
+    s.renderSidebarRows().map((row) => row.conversation.id),
+    ["botc_u_1_mia"]
+  );
+});
+
 test("bootstrapAfterLogin keeps legacy UUID bot sessions for history but hides them from sidebar", async () => {
   const s = loadSocial();
   const legacy = {

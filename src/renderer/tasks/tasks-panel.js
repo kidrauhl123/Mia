@@ -106,13 +106,13 @@
     const managerBots = __global.miaBotManager?.allOwnedBots?.();
     if (Array.isArray(managerBots)) return managerBots;
     const runtime = state?.runtime || {};
-    const cloudBots = Array.isArray(__global.miaSocial?.moduleState?.bots)
+    const identityBots = Array.isArray(__global.miaSocial?.moduleState?.bots)
       ? __global.miaSocial.moduleState.bots
       : [];
     if (__global.miaBotDirectory?.listOwnedBots) {
-      return __global.miaBotDirectory.listOwnedBots({ cloudBots, runtime });
+      return __global.miaBotDirectory.listOwnedBots({ identityBots, runtime });
     }
-    return cloudBots;
+    return identityBots;
   }
 
   function formatNextTime(ms) {

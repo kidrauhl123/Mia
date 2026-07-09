@@ -30,6 +30,63 @@ async fn initial_migration_creates_backend_owner_tables() {
 }
 
 #[tokio::test]
+async fn runtime_and_conversation_bot_ids_do_not_require_core_bot_identity_rows() {
+    let db = init_database_memory().await.unwrap();
+
+    let runtime_foreign_keys = sqlx::query("PRAGMA foreign_key_list(bot_runtime_bindings)")
+        .fetch_all(db.pool())
+        .await
+        .unwrap();
+    assert!(
+        runtime_foreign_keys
+            .iter()
+            .all(|row| row.get::<String, _>("table") != "bots"),
+        "runtime bindings must accept cloud-owned bot identity ids"
+    );
+
+    let conversation_foreign_keys = sqlx::query("PRAGMA foreign_key_list(conversations)")
+        .fetch_all(db.pool())
+        .await
+        .unwrap();
+    assert!(
+        conversation_foreign_keys
+            .iter()
+            .all(|row| row.get::<String, _>("table") != "bots"),
+        "conversations must accept cloud-owned bot identity ids"
+    );
+
+    let primary_key_columns = sqlx::query("PRAGMA table_info(bot_runtime_bindings)")
+        .fetch_all(db.pool())
+        .await
+        .unwrap()
+        .into_iter()
+        .filter_map(|row| {
+            let position = row.get::<i64, _>("pk");
+            (position > 0).then(|| (position, row.get::<String, _>("name")))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        primary_key_columns,
+        vec![(1, "bot_id".to_string()), (2, "runtime_kind".to_string())]
+    );
+
+    sqlx::query(
+        "INSERT INTO bot_runtime_bindings (bot_id, runtime_kind, binding_json, updated_at)
+         VALUES ('cloud_bot_123', 'desktop-local', '{}', 1)",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO conversations (id, kind, title, bot_id, runtime_json, metadata_json, created_at, updated_at)
+         VALUES ('conv_cloud_bot', 'bot_session', 'Cloud Bot', 'cloud_bot_123', '{}', '{}', 1, 1)",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
 async fn file_backed_database_uses_foreign_keys_busy_timeout_and_wal() {
     let dir = tempfile::tempdir().unwrap();
     let db = init_database(&dir.path().join("mia-core.db"))

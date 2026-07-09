@@ -251,7 +251,6 @@ impl BotService {
         bot_id: &str,
         request: SaveBotRuntimeRequest,
     ) -> Result<BotRuntimeResponse, sqlx::Error> {
-        let _ = self.get_bot(bot_id).await?;
         let config = if request.target_intent.is_some()
             || request.sync_intent.is_some()
             || request.control_intent.is_some()
@@ -279,13 +278,26 @@ impl BotService {
         } else {
             request.config
         };
-        let provider_connection_id = request.provider_connection_id.or_else(|| {
-            config_string(&config, &["providerConnectionId", "provider_connection_id"])
-        });
-        let model_profile_id = request
-            .model_profile_id
-            .or_else(|| config_string(&config, &["modelProfileId", "model_profile_id"]));
-        let model = request.model.or_else(|| config_string(&config, &["model"]));
+        let allow_top_level_model_fields =
+            request.target_intent.is_none() && request.sync_intent.is_none();
+        let provider_connection_id = if allow_top_level_model_fields {
+            request.provider_connection_id
+        } else {
+            None
+        }
+        .or_else(|| config_string(&config, &["providerConnectionId", "provider_connection_id"]));
+        let model_profile_id = if allow_top_level_model_fields {
+            request.model_profile_id
+        } else {
+            None
+        }
+        .or_else(|| config_string(&config, &["modelProfileId", "model_profile_id"]));
+        let model = if allow_top_level_model_fields {
+            request.model
+        } else {
+            None
+        }
+        .or_else(|| config_string(&config, &["model"]));
         let projection = runtime_binding_projection(&request.runtime_kind, &config);
         let binding = json!({
             "runtimeKind": projection.runtime_kind,
@@ -300,7 +312,7 @@ impl BotService {
         });
         sqlx::query(
             "INSERT INTO bot_runtime_bindings (bot_id, runtime_kind, binding_json, updated_at) VALUES (?, ?, ?, ?) \
-             ON CONFLICT(bot_id) DO UPDATE SET runtime_kind = excluded.runtime_kind, binding_json = excluded.binding_json, updated_at = excluded.updated_at",
+             ON CONFLICT(bot_id, runtime_kind) DO UPDATE SET binding_json = excluded.binding_json, updated_at = excluded.updated_at",
         )
         .bind(bot_id)
         .bind(&request.runtime_kind)
@@ -368,7 +380,6 @@ impl BotService {
         bot_id: &str,
         request: EnsureBotSessionConversationRequest,
     ) -> Result<EnsureBotSessionConversationResponse, sqlx::Error> {
-        let _ = self.get_bot(bot_id).await?;
         if let Some(existing) = self
             .find_session_conversation(bot_id, &request.session_id)
             .await?

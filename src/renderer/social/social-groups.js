@@ -26,10 +26,10 @@
     const { moduleState, deps } = ctx;
     const runtimeState = deps && typeof deps.getState === "function" ? deps.getState() : {};
     const runtime = runtimeState.runtime || {};
-    const cloudBots = Array.isArray(moduleState.bots) ? moduleState.bots : [];
+    const identityBots = Array.isArray(moduleState.bots) ? moduleState.bots : [];
     const bots = window.miaBotDirectory
-      ? window.miaBotDirectory.listOwnedBots({ cloudBots, runtime })
-      : cloudBots;
+      ? window.miaBotDirectory.listOwnedBots({ identityBots, runtime })
+      : identityBots;
     const selfIdentity = typeof window !== "undefined" && window.miaSelfIdentity;
     const self = selfIdentity
       ? selfIdentity.resolveSelfIdentity({

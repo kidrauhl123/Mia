@@ -129,11 +129,11 @@ function stripCopiedEngineIdentity(persona = "", bot = {}) {
   return text.trim();
 }
 
-function cloudBotIdentityInstructions(bot = {}) {
+function botIdentityInstructions(bot = {}) {
   const name = String(botDisplayName(bot) || bot?.id || bot?.key || "Bot").trim();
   const id = String(bot?.id || bot?.key || "").trim();
   return [
-    `你是 ${name}，Mia Cloud 里的 Bot。`,
+    `你是 ${name}，Mia 里的 Bot。`,
     id && id !== name ? `你的 Bot ID 是 ${id}。` : "",
     `当用户询问你的名字、身份或“你是谁”时，请回答你是 ${name}。`
   ].filter(Boolean).join("\n");
@@ -144,7 +144,7 @@ function cloudRuntimeInstructions(bot, message = {}) {
   return [
     miaRuntimeSystemPrompt({ scheduledFire: isScheduledFireMessage(message) }),
     persona,
-    cloudBotIdentityInstructions(bot)
+    botIdentityInstructions(bot)
   ].filter(Boolean).join("\n\n");
 }
 

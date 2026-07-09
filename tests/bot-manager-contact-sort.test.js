@@ -65,7 +65,7 @@ function loadBotManager(options = {}) {
     mia: options.mia || {},
     miaSocial: { moduleState: { bots: [] }, pendingRequestCount: () => 0 },
     miaBotDirectory: {
-      listOwnedBots: ({ cloudBots }) => cloudBots,
+      listOwnedBots: ({ identityBots }) => identityBots,
       normalizeAgentEngine: (value) => {
         const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
         return ["hermes", "claude-code", "codex"].includes(id) ? id : "hermes";

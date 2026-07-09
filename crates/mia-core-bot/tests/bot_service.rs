@@ -145,6 +145,59 @@ async fn bot_service_owns_runtime_target_intent_normalization() {
 }
 
 #[tokio::test]
+async fn bot_service_runtime_binding_does_not_require_local_bot_identity() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let runtime = service
+        .save_runtime(
+            "cloud_bot_123",
+            SaveBotRuntimeRequest {
+                runtime_kind: "desktop-local".to_string(),
+                provider_connection_id: Some("mia".to_string()),
+                model_profile_id: Some("mia:mia-auto".to_string()),
+                model: Some("mia-auto".to_string()),
+                target_intent: Some(BotRuntimeTargetIntent {
+                    device_id: Some("mac-1".to_string()),
+                    device_name: Some("Jung Mac.local".to_string()),
+                    agent_engine: Some("hermes".to_string()),
+                }),
+                sync_intent: None,
+                control_intent: None,
+                config: json!({
+                    "model": "mia-auto",
+                    "providerConnectionId": "mia",
+                    "modelProfileId": "mia:mia-auto"
+                }),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(runtime.bot_id, "cloud_bot_123");
+    assert_eq!(runtime.binding["runtimeKind"], "desktop-local");
+    assert_eq!(runtime.binding["agentEngine"], "hermes");
+    assert_eq!(runtime.binding["targetDeviceId"], "mac-1");
+    assert_eq!(runtime.binding["targetDeviceName"], "Jung Mac");
+    assert!(runtime.binding["providerConnectionId"].is_null());
+    assert!(runtime.binding["config"].get("model").is_none());
+
+    let conversation = service
+        .ensure_session_conversation(
+            "cloud_bot_123",
+            EnsureBotSessionConversationRequest {
+                session_id: "cloud_bot_123".to_string(),
+                title: Some("Mia Bot".to_string()),
+                runtime_kind: Some("desktop-local".to_string()),
+                metadata: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(conversation.conversation_id.starts_with("conv_"));
+    assert!(service.get_bot("cloud_bot_123").await.is_err());
+}
+
+#[tokio::test]
 async fn bot_service_owns_runtime_control_intent_normalization() {
     let db = init_database_memory().await.unwrap();
     let service = BotService::new(db.pool().clone());

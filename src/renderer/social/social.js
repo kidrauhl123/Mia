@@ -2669,7 +2669,8 @@
   }
 
   function botDirectoryAvailable() {
-    return moduleState.botsLoaded || (Array.isArray(moduleState.bots) && moduleState.bots.length > 0);
+    // An empty bot list is not authoritative enough to hide cloud conversations.
+    return Array.isArray(moduleState.bots) && moduleState.bots.length > 0;
   }
 
   function botConversationHasKnownIdentity(conversation = {}) {
@@ -3019,10 +3020,10 @@
     const runtime = runtimeState.runtime || {};
     const cloudUser = runtime.cloud?.user || {};
     const localUser = runtime.user || {};
-    const cloudBots = Array.isArray(moduleState.bots) ? moduleState.bots : [];
+    const identityBots = Array.isArray(moduleState.bots) ? moduleState.bots : [];
     const bots = window.miaBotDirectory
-      ? window.miaBotDirectory.listOwnedBots({ cloudBots, runtime })
-      : cloudBots;
+      ? window.miaBotDirectory.listOwnedBots({ identityBots, runtime })
+      : identityBots;
     const self = window.miaSelfIdentity.resolveSelfIdentity({
       cloudUser,
       localUser,
@@ -3111,7 +3112,7 @@
     return String(bot?.key || bot?.id || bot?.botId || bot?.bot_id || "").trim();
   }
 
-  function mergeCloudBotIdentity(existing = null, incoming = {}) {
+  function mergeBotIdentity(existing = null, incoming = {}) {
     const key = botKeyFromRecord(incoming) || botKeyFromRecord(existing);
     const runtimeFields = {};
     for (const field of [
@@ -3140,12 +3141,12 @@
     };
   }
 
-  function upsertCloudBotIdentity(bot) {
+  function upsertBotIdentity(bot) {
     const key = botKeyFromRecord(bot);
     if (!key) return false;
     const existing = moduleState.bots.find((item) => botKeyFromRecord(item) === key) || null;
     moduleState.bots = [
-      mergeCloudBotIdentity(existing, bot),
+      mergeBotIdentity(existing, bot),
       ...moduleState.bots.filter((item) => botKeyFromRecord(item) !== key)
     ];
     return true;
@@ -3165,7 +3166,7 @@
       Promise.resolve(api.getBotIdentity(botId))
         .then((res) => {
           const bot = res?.ok ? res.data?.bot : res?.bot;
-          if (bot && upsertCloudBotIdentity(bot) && deps && typeof deps.render === "function") deps.render();
+          if (bot && upsertBotIdentity(bot) && deps && typeof deps.render === "function") deps.render();
         })
         .catch((err) => console.warn("[social] getBotIdentity failed for", botId, err?.message || err))
         .finally(() => _hydratingBotIdentities.delete(botId));
@@ -3348,7 +3349,7 @@
       const bot = payload?.bot;
       const key = String(bot?.key || bot?.id || "").trim();
       if (!key) return;
-      upsertCloudBotIdentity(bot);
+      upsertBotIdentity(bot);
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }

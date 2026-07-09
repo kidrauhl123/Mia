@@ -118,18 +118,25 @@ test("MCP preload bridge routes renderer intent to Rust Core REST paths", () => 
   assert.doesNotMatch(preload, /mcp:\s*\{[\s\S]{0,1800}IpcChannel\.McpSave/);
 });
 
-test("bot preload bridge keeps legacy social data primary where Core has not taken ownership", () => {
+test("bot preload bridge keeps bot identity cloud-owned while Core owns runtime helpers", () => {
   const preload = read("src/preload.js");
 
   assert.match(preload, /listBots:\s*\(\)\s*=>\s*listBotsCompat\(\)/);
   assert.match(preload, /getBotIdentity:\s*\(botId\)\s*=>\s*getBotIdentityCompat\(botId\)/);
   assert.match(preload, /saveBotIdentity:\s*\(botId,\s*body\)\s*=>\s*saveBotIdentityCompat\(botId,\s*body\)/);
-  assert.match(preload, /deleteBot:\s*\(botId\)\s*=>\s*coreOk\(miaCoreDelete\(`\/api\/bots\/\$\{encodeURIComponent\(botId\)\}`\)\)/);
+  assert.match(preload, /deleteBot:\s*\(botId\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.SocialDeleteBot,\s*botId\)/);
   assert.match(preload, /getBotRuntime:\s*\(botId,\s*runtimeKind\)\s*=>\s*getBotRuntimeCompat\(botId,\s*runtimeKind\)/);
   assert.match(preload, /saveBotRuntime:\s*\(botId,\s*body\)\s*=>\s*saveBotRuntimeCompat\(botId,\s*body\)/);
   assert.match(preload, /async function listBotsCompat\(\)/);
   assert.match(preload, /IpcChannel\.SocialListBots/);
-  assert.match(preload, /return coreOk\(miaCoreGet\("\/api\/bots"\)\)/);
+  const listBotsCompat = extractFunctionSource(preload, "listBotsCompat");
+  const getBotIdentityCompat = extractFunctionSource(preload, "getBotIdentityCompat");
+  const saveBotIdentityCompat = extractFunctionSource(preload, "saveBotIdentityCompat");
+  assert.doesNotMatch(listBotsCompat, /miaCoreGet\("\/api\/bots"\)|listCoreBotsCompat|mergeBotListPayloads/);
+  assert.doesNotMatch(listBotsCompat, /ok: true,\s*data: \{ bots: \[\] \}/);
+  assert.match(listBotsCompat, /return \{ ok: false, error: error\?\.message \|\| "读取云端 Bot 身份列表失败" \};/);
+  assert.doesNotMatch(getBotIdentityCompat, /miaCoreGet|\/api\/bots/);
+  assert.doesNotMatch(saveBotIdentityCompat, /saveCoreBotIdentity|miaCorePost|\/api\/bots/);
   assert.match(preload, /getBotRuntimeTargetOptions:\s*\(input\)\s*=>\s*getCoreBotRuntimeTargetOptions\(input\)/);
   assert.match(preload, /getBotRuntimeControlOptions:\s*\(input\)\s*=>\s*getCoreBotRuntimeControlOptions\(input\)/);
   assert.match(preload, /getBotCapabilityOptions:\s*\(input\)\s*=>\s*getCoreBotCapabilityOptions\(input\)/);
@@ -147,7 +154,7 @@ test("bot preload bridge keeps legacy social data primary where Core has not tak
   assert.match(preload, /function ensureCoreBotSessionConversation\(sessionId,\s*body = \{\}\)/);
   assert.match(preload, /IpcChannel\.SocialSaveBotIdentity/);
   assert.match(preload, /IpcChannel\.SocialSaveBotRuntime/);
-  assert.doesNotMatch(preload, /IpcChannel\.SocialDeleteBot/);
+  assert.doesNotMatch(preload, /saveCoreBotIdentity|buildCoreBotIdentityRequest/);
   assert.doesNotMatch(preload, /IpcChannel\.SocialEnsureBotSessionConversation/);
 });
 

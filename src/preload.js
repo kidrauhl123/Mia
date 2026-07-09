@@ -208,24 +208,6 @@ async function testCoreMcpServer(input) {
   }
 }
 
-function buildCoreBotIdentityRequest(botId, body = {}) {
-  const input = body && typeof body === "object" ? body : {};
-  const displayName = String(
-    input.displayName || input.display_name || input.name || input.label || botId || "Mia Bot"
-  ).trim() || "Mia Bot";
-  const identity = input.identity && typeof input.identity === "object"
-    ? input.identity
-    : { ...input, name: input.name || displayName };
-  delete identity.capabilities;
-  delete identity.capabilityJson;
-  delete identity.displayName;
-  delete identity.display_name;
-  const capabilities = input.capabilities && typeof input.capabilities === "object"
-    ? input.capabilities
-    : {};
-  return { displayName, identity, capabilities };
-}
-
 function buildCoreBotRuntimeRequest(body = {}) {
   const input = body && typeof body === "object" ? body : {};
   return {
@@ -253,14 +235,6 @@ function legacyRuntimeBinding(botId, response = {}) {
       ...(binding.model ? { model: binding.model } : {})
     }
   };
-}
-
-async function saveCoreBotIdentity(botId, body = {}) {
-  const id = String(botId || body?.id || body?.key || "").trim();
-  const request = buildCoreBotIdentityRequest(id, body);
-  return coreOk(id
-    ? miaCorePatch(`/api/bots/${encodeURIComponent(id)}`, request)
-    : miaCorePost("/api/bots", request));
 }
 
 async function getCoreBotRuntime(botId, runtimeKind = "cloud-claude-code") {
@@ -419,31 +393,33 @@ async function listBotsCompat() {
   try {
     const result = await ipcRenderer.invoke(IpcChannel.SocialListBots);
     const bots = result?.data?.bots || result?.bots || [];
-    if (result?.ok !== false && Array.isArray(bots) && bots.length) return result;
-  } catch {
-    // Fall back to Core starter/local bots.
+    if (result?.ok === false) return result;
+    if (result?.ok !== false && Array.isArray(bots)) return result;
+  } catch (error) {
+    // Bot identities are cloud-owned; local Core must not synthesize identity rows.
+    return { ok: false, error: error?.message || "读取云端 Bot 身份列表失败" };
   }
-  return coreOk(miaCoreGet("/api/bots"));
+  return { ok: false, error: "读取云端 Bot 身份列表失败" };
 }
 
 async function getBotIdentityCompat(botId) {
   try {
     const result = await ipcRenderer.invoke(IpcChannel.SocialGetBotIdentity, botId);
     if (result?.ok !== false) return result;
-  } catch {
-    // Fall back to Core.
+  } catch (error) {
+    return { ok: false, error: error?.message || "读取云端 Bot 身份失败" };
   }
-  return coreOk(miaCoreGet(`/api/bots/${encodeURIComponent(botId)}`));
+  return { ok: false, error: "读取云端 Bot 身份失败" };
 }
 
 async function saveBotIdentityCompat(botId, body) {
   try {
     const result = await ipcRenderer.invoke(IpcChannel.SocialSaveBotIdentity, botId, body);
     if (result?.ok !== false) return result;
-  } catch {
-    // Fall back to Core.
+  } catch (error) {
+    return { ok: false, error: error?.message || "保存云端 Bot 身份失败" };
   }
-  return saveCoreBotIdentity(botId, body);
+  return { ok: false, error: "保存云端 Bot 身份失败" };
 }
 
 async function getBotRuntimeCompat(botId, runtimeKind) {
@@ -1070,7 +1046,7 @@ contextBridge.exposeInMainWorld("mia", {
     listBots: () => listBotsCompat(),
     getBotIdentity: (botId) => getBotIdentityCompat(botId),
     saveBotIdentity: (botId, body) => saveBotIdentityCompat(botId, body),
-    deleteBot: (botId) => coreOk(miaCoreDelete(`/api/bots/${encodeURIComponent(botId)}`)),
+    deleteBot: (botId) => ipcRenderer.invoke(IpcChannel.SocialDeleteBot, botId),
     listPlatformModels: () => ipcRenderer.invoke(IpcChannel.SocialListPlatformModels),
     getConversation: (conversationId) => getConversationCompat(conversationId),
     listConversationMessages: (conversationId, sinceSeq, limit) => listConversationMessagesCompat(conversationId, sinceSeq, limit),

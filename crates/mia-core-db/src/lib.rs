@@ -10,7 +10,7 @@ use serde_json::Value;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolOptions;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
-use sqlx::{Row, Sqlite, SqlitePool};
+use sqlx::{Executor, Row, Sqlite, SqlitePool};
 
 const MAX_CONNECTIONS: u32 = 5;
 const BUSY_TIMEOUT_MS: u64 = 5000;
@@ -73,7 +73,113 @@ pub async fn init_database_memory() -> Result<Database, sqlx::Error> {
 
 async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     MIGRATOR.run(pool).await?;
+    repair_cloud_bot_reference_schema(pool).await?;
     Ok(())
+}
+
+async fn repair_cloud_bot_reference_schema(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let runtime_needs_repair = table_has_foreign_key_to(pool, "bot_runtime_bindings", "bots")
+        .await?
+        || !runtime_binding_has_composite_primary_key(pool).await?;
+    let conversations_need_repair = table_has_foreign_key_to(pool, "conversations", "bots").await?;
+    if !runtime_needs_repair && !conversations_need_repair {
+        return Ok(());
+    }
+
+    let mut conn = pool.acquire().await?;
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&mut *conn)
+        .await?;
+
+    if runtime_needs_repair {
+        conn.execute(
+            r#"
+DROP TABLE IF EXISTS bot_runtime_bindings_new;
+CREATE TABLE bot_runtime_bindings_new (
+    bot_id           TEXT NOT NULL,
+    runtime_kind     TEXT NOT NULL,
+    binding_json     TEXT NOT NULL DEFAULT '{}',
+    updated_at       INTEGER NOT NULL,
+    PRIMARY KEY (bot_id, runtime_kind)
+);
+INSERT INTO bot_runtime_bindings_new (bot_id, runtime_kind, binding_json, updated_at)
+    SELECT bot_id, runtime_kind, binding_json, updated_at FROM bot_runtime_bindings;
+DROP TABLE bot_runtime_bindings;
+ALTER TABLE bot_runtime_bindings_new RENAME TO bot_runtime_bindings;
+"#,
+        )
+        .await?;
+    }
+
+    if conversations_need_repair {
+        conn.execute(
+            r#"
+DROP TABLE IF EXISTS conversations_new;
+CREATE TABLE conversations_new (
+    id              TEXT PRIMARY KEY NOT NULL,
+    kind            TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    bot_id          TEXT,
+    runtime_json    TEXT NOT NULL DEFAULT '{}',
+    metadata_json   TEXT NOT NULL DEFAULT '{}',
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+);
+INSERT INTO conversations_new (id, kind, title, bot_id, runtime_json, metadata_json, created_at, updated_at)
+    SELECT id, kind, title, bot_id, runtime_json, metadata_json, created_at, updated_at FROM conversations;
+DROP TABLE conversations;
+ALTER TABLE conversations_new RENAME TO conversations;
+CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_bot_id ON conversations(bot_id);
+"#,
+        )
+        .await?;
+    }
+
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&mut *conn)
+        .await?;
+    let foreign_key_violations = sqlx::query("PRAGMA foreign_key_check")
+        .fetch_all(&mut *conn)
+        .await?;
+    if !foreign_key_violations.is_empty() {
+        return Err(sqlx::Error::Protocol(format!(
+            "database schema repair left {} foreign key violation(s)",
+            foreign_key_violations.len()
+        )));
+    }
+    Ok(())
+}
+
+async fn table_has_foreign_key_to(
+    pool: &SqlitePool,
+    table_name: &str,
+    target_table: &str,
+) -> Result<bool, sqlx::Error> {
+    let rows = sqlx::query(&format!("PRAGMA foreign_key_list({table_name})"))
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .any(|row| row.get::<String, _>("table") == target_table))
+}
+
+async fn runtime_binding_has_composite_primary_key(pool: &SqlitePool) -> Result<bool, sqlx::Error> {
+    let rows = sqlx::query("PRAGMA table_info(bot_runtime_bindings)")
+        .fetch_all(pool)
+        .await?;
+    let mut primary_key_columns = rows
+        .into_iter()
+        .filter_map(|row| {
+            let position = row.get::<i64, _>("pk");
+            if position <= 0 {
+                return None;
+            }
+            Some((position, row.get::<String, _>("name")))
+        })
+        .collect::<Vec<_>>();
+    primary_key_columns.sort_by_key(|(position, _)| *position);
+    Ok(primary_key_columns == vec![(1, "bot_id".to_string()), (2, "runtime_kind".to_string())])
 }
 
 #[async_trait]

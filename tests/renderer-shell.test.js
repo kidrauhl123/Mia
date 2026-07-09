@@ -3099,14 +3099,14 @@ test("contact detail deletes bots through runtime-backed ownership rules", () =>
 
   assert.doesNotMatch(appSource, /if \(!bot \|\| bot\.key === "mia"\) return;/);
   assert.match(appSource, /if \(bot\.canDelete === false\) return;/);
-  assert.match(commandsSource, /async function deleteCloudClaudeCodeBot/);
+  assert.match(commandsSource, /async function deleteBotIdentity/);
   assert.doesNotMatch(commandsSource, /async function deleteDesktopLocalBot/);
   assert.match(botManagerSource, /const canDeleteBot = bot\.canDelete !== false;/);
   assert.doesNotMatch(fs.readFileSync(path.join(root, "src/renderer/bot/bot-directory.js"), "utf8"), /key !== "mia"/);
   assert.match(channelSource, /SocialDeleteBot/);
   assert.doesNotMatch(channelSource, /SocialDeleteFellow/);
-  assert.match(preloadSource, /deleteBot: \(botId\) => coreOk\(miaCoreDelete\(`\/api\/bots\/\$\{encodeURIComponent\(botId\)\}`\)\)/);
-  assert.doesNotMatch(preloadSource, /SocialDeleteBot/);
+  assert.match(preloadSource, /deleteBot: \(botId\) => ipcRenderer\.invoke\(IpcChannel\.SocialDeleteBot,\s*botId\)/);
+  assert.doesNotMatch(preloadSource, /deleteBot: \(botId\) => coreOk\(miaCoreDelete\(`\/api\/bots\/\$\{encodeURIComponent\(botId\)\}`\)\)/);
   assert.doesNotMatch(preloadSource, /deleteFellow: \(fellowId\) => ipcRenderer\.invoke\(IpcChannel\.SocialDeleteFellow, fellowId\)/);
   assert.match(socialApiSource, /async deleteBot\(botId\)/);
   assert.doesNotMatch(socialApiSource, /async deleteFellow\(fellowId\)/);
@@ -3121,7 +3121,7 @@ test("contact capability saves go through bot command adapters", () => {
   assert.match(botManagerSource, /window\.miaBotCommands\.saveBotCapabilities\(\{/);
   assert.doesNotMatch(botManagerSource, /window\.mia\.social\.saveFellowIdentity/);
   assert.doesNotMatch(botManagerSource, /window\.mia\.saveFellow\(\{/);
-  assert.match(commandsSource, /async function saveCloudClaudeCodeBotCapabilities/);
+  assert.match(commandsSource, /async function saveBotIdentityCapabilities/);
   assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBotCapabilities/);
 });
 

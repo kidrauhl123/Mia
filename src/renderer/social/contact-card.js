@@ -113,11 +113,11 @@
 
   function localBot(ref) {
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
-    const cloudBots = Array.isArray(_ctx?.moduleState?.bots) ? _ctx.moduleState.bots : [];
+    const identityBots = Array.isArray(_ctx?.moduleState?.bots) ? _ctx.moduleState.bots : [];
     const bots = _ctx?.adapterCtx?.()?.bots
       || (global.miaBotDirectory
-        ? global.miaBotDirectory.listOwnedBots({ cloudBots: cloudBots, runtime })
-        : cloudBots);
+        ? global.miaBotDirectory.listOwnedBots({ identityBots, runtime })
+        : identityBots);
     const target = String(ref || "");
     return bots.find((f) => String(f.key || "") === target || String(f.id || "") === target) || null;
   }

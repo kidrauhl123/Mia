@@ -136,7 +136,7 @@
       || window.miaSocial?.moduleState?.bots
       || [];
     return window.miaBotDirectory.listOwnedBots({
-      cloudBots: socialBots,
+      identityBots: socialBots,
       runtime: state.runtime || {}
     });
   }
