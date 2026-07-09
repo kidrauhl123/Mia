@@ -695,7 +695,6 @@ function createTrayLifecycleService(deps = {}) {
         label: `Background activity: ${activityCount}`,
         enabled: false
       },
-      { type: "separator" },
       {
         label: "Quit Mia",
         click: () => quitMia()
