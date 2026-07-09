@@ -226,7 +226,7 @@ impl AgentEngineScanner {
                 version,
                 Some(acp_launcher),
                 &error_code,
-                &format!("{} ACP 启动自检失败", definition.label),
+                &format!("{} ACP 自检失败", definition.label),
                 &detail,
                 acp_failure_action(definition),
             ),
@@ -485,7 +485,7 @@ fn ready_status(
 ) -> AgentEngineStatus {
     let readiness = readiness(
         "ready",
-        &format!("{} ACP 启动自检通过", definition.label),
+        &format!("{} ACP 自检通过", definition.label),
         detail,
         "",
         None,

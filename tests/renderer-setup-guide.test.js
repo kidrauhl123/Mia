@@ -195,7 +195,7 @@ test("setup guide renders blocked installed agents with repair actions", () => {
           readiness: {
             status: "blocked",
             checked: true,
-            summary: "Codex 启动自检失败，可重新安装",
+            summary: "Codex ACP 自检失败，可重新安装",
             detail: "Cannot start Codex",
             action: "install-codex"
           }
@@ -210,7 +210,7 @@ test("setup guide renders blocked installed agents with repair actions", () => {
   const guide = loadSetupGuide(state);
   const html = guide.renderSetupGuide();
 
-  assert.match(html, /Codex 启动自检失败，可重新安装/);
+  assert.match(html, /Codex ACP 自检失败，可重新安装/);
   assert.match(html, /data-setup-action="install-codex"/);
   assert.match(html, />修复 Codex</);
   assert.doesNotMatch(html, /setup-engine-badge ok/);

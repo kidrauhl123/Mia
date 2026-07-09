@@ -605,7 +605,7 @@ test("scanAgentsAsync prefers Rust Core agent inventory when available", async (
           readiness: {
             status: "blocked",
             checked: true,
-            summary: "Codex ACP 启动自检失败",
+            summary: "Codex ACP 自检失败",
             detail: "npx -y @agentclientprotocol/codex-acp@1.1.0: boom",
             action: "",
             errorCode: "acp_init_failed"
