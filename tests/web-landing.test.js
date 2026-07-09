@@ -35,7 +35,7 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(html, /src="assets\/vendor\/gsap\.min\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/vendor\/CustomEase\.min\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/vendor\/ScrollTrigger\.min\.js\?v=20260630-squad-stack-24"/);
-  assert.match(html, /src="assets\/programmatic-sky\.js\?v=20260630-squad-stack-24"/);
+  assert.match(html, /src="assets\/ando-sky-local\.js\?v=study-ando-sora"/);
   assert.match(html, /src="assets\/mia\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/mia-scroll\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/mia-logo\.png"/);
@@ -45,7 +45,7 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(html, /class="[^"]*\bmw-composer\b[^"]*"/);
   assert.match(html, /class="[^"]*\bduo\b[^"]*"/);
   assert.match(html, /class="[^"]*\bcombo-row\b[^"]*"/);
-  assert.match(html, /data-programmatic-sky/);
+  assert.match(html, /class="[^"]*\bprogrammatic-sky\b[^"]*"/);
   assert.match(html, /class="[^"]*\bsquad-stack\b[^"]*"/);
   assert.match(html, /class="[^"]*\bgsap-large-button\b[^"]*"/);
   assert.doesNotMatch(html, /\bavatar-(boy|cat|girl)\b/);
