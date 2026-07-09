@@ -228,9 +228,60 @@ test("windowSettings reads and writes normalized bounds", (t) => {
 
   assert.deepEqual(next, {
     bounds: { x: 12, y: 21, width: 1040, height: 700 },
-    maximized: true
+    maximized: true,
+    windowCloseBehavior: "ask"
   });
   assert.deepEqual(readJson(runtime.windowSettings, {}), next);
+});
+
+test("windowSettings defaults close behavior to ask", (t) => {
+  const { store } = setup(t);
+
+  assert.deepEqual(store.windowSettings(), {
+    bounds: null,
+    maximized: false,
+    windowCloseBehavior: "ask"
+  });
+});
+
+test("windowSettings normalizes invalid close behavior to ask", (t) => {
+  const { runtime, store } = setup(t);
+  fs.mkdirSync(path.dirname(runtime.windowSettings), { recursive: true });
+  fs.writeFileSync(runtime.windowSettings, JSON.stringify({
+    bounds: { x: 1, y: 2, width: 1000, height: 700 },
+    maximized: true,
+    windowCloseBehavior: "background-forever"
+  }));
+
+  assert.deepEqual(store.windowSettings(), {
+    bounds: { x: 1, y: 2, width: 1000, height: 700 },
+    maximized: true,
+    windowCloseBehavior: "ask"
+  });
+});
+
+test("writeWindowSettings persists remembered close behavior without disturbing bounds", (t) => {
+  const { runtime, store } = setup(t);
+
+  store.writeWindowSettings({
+    bounds: { x: 12, y: 20, width: 1040, height: 700 },
+    maximized: true
+  });
+  const next = store.writeWindowSettings({ windowCloseBehavior: "close-to-tray" });
+
+  assert.deepEqual(next, {
+    bounds: { x: 12, y: 20, width: 1040, height: 700 },
+    maximized: true,
+    windowCloseBehavior: "close-to-tray"
+  });
+  assert.deepEqual(readJson(runtime.windowSettings, {}), next);
+});
+
+test("writeWindowSettings accepts quit and rejects invalid close behavior", (t) => {
+  const { store } = setup(t);
+
+  assert.equal(store.writeWindowSettings({ windowCloseBehavior: "quit" }).windowCloseBehavior, "quit");
+  assert.equal(store.writeWindowSettings({ windowCloseBehavior: "nope" }).windowCloseBehavior, "ask");
 });
 
 test("userProfile merges saved profile over defaults", (t) => {
