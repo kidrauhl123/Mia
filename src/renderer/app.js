@@ -1379,6 +1379,11 @@ function isActiveRunRunning() {
 }
 window.miaIsActiveRunRunning = isActiveRunRunning;
 
+function activeConversationRunIsTyping() {
+  return Boolean(window.miaSocial?.activeConversationRunIsTyping?.());
+}
+window.miaIsActiveRunTyping = activeConversationRunIsTyping;
+
 function isActiveConversationBusy() {
   const status = activeConversationRunStatus();
   return status === "running" || status === "cancelling";
@@ -2056,7 +2061,11 @@ function conversationRunForSidebarPreview(social, conversation) {
   const run = typeof social?.conversationRun === "function"
     ? social.conversationRun(conversationId)
     : social?.moduleState?.cloudAgentRunsByConversation?.get?.(conversationId);
-  return run?.status === "running" ? run : null;
+  if (!run) return null;
+  if (typeof social?.conversationRunIsTyping === "function") {
+    return social.conversationRunIsTyping(conversationId) ? run : null;
+  }
+  return run?.status === "running" && run?.hasTypingActivity ? run : null;
 }
 
 function typingLabelForConversationRun(social, conversation, run = null) {
@@ -2148,7 +2157,7 @@ function paintHeaderStatus() {
   const social = window.miaSocial;
   const conversationId = social?.getActiveConversationId?.();
   const conversation = conversationId ? social?.getConversationById?.(conversationId) : null;
-  if (isActiveRunRunning()) {
+  if (activeConversationRunIsTyping()) {
     els.activeChatMeta.innerHTML = typingDotsHtml(typingLabelForActiveRun(social, conversation));
     return;
   }

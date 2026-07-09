@@ -237,6 +237,7 @@
       runId: run.runId || "",
       botId: run.botId || "",
       status: run.status || "",
+      hasTypingActivity: Boolean(run.hasTypingActivity),
       text: runDisplayText(run),
       reasoning: run.reasoning || "",
       tools: run.tools || [],
@@ -824,6 +825,10 @@
     return "";
   }
 
+  function eventIndicatesRunActivity(event = {}) {
+    return Boolean(eventType(event));
+  }
+
   function approvalPreview(event = {}) {
     for (const key of ["command", "cmd", "preview", "reason", "detail", "description", "message"]) {
       if (typeof event[key] === "string" && event[key].trim()) return event[key].trim();
@@ -957,6 +962,7 @@
 
   function applyCloudAgentRunEvent(run, event = {}) {
     const name = eventType(event);
+    if (eventIndicatesRunActivity(event)) run.hasTypingActivity = true;
     collectRunContentBlock(run, event);
     applyRunGoalEvent(run, event);
     if (name === "message.delta" || name === "text_delta") {
@@ -1057,6 +1063,10 @@
     return normalizer && typeof normalizer.contentBlocksWithFinalText === "function"
       ? normalizer.contentBlocksWithFinalText(blocks, message?.body_md || message?.bodyMd || "")
       : blocks;
+  }
+
+  function contentBlocksHaveProcess(blocks) {
+    return Array.isArray(blocks) && blocks.some((block) => block && block.type && block.type !== "text");
   }
 
   function tracePayloadFromRun(run) {
@@ -1671,13 +1681,24 @@
   function messageWithFallbackRunTrace(conversationId, message) {
     const { SenderKind } = conversationKinds();
     if (!message || message.sender_kind !== SenderKind.Bot) return message;
-    if (contentBlocksFromMessage(message).length) return message;
     const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
+    const existingBlocks = contentBlocksFromMessage(message);
+    const existingTrace = parseTraceJson(message.trace_json || message.trace);
     const blocks = contentBlocksPayloadFromRun(run, message.body_md || message.bodyMd || "");
-    if (blocks) return { ...message, contentBlocks: blocks };
-    if (parseTraceJson(message.trace_json || message.trace)) return message;
     const trace = tracePayloadFromRun(run);
-    return trace ? { ...message, trace } : message;
+    let merged = message;
+    if (blocks && (
+      !existingBlocks.length
+      || (!contentBlocksHaveProcess(existingBlocks) && contentBlocksHaveProcess(blocks))
+    )) {
+      merged = {
+        ...merged,
+        contentBlocks: blocks,
+        content_blocks_json: JSON.stringify(blocks)
+      };
+    }
+    if (!existingTrace && trace) merged = { ...merged, trace };
+    return merged;
   }
 
   function renderTraceFor({ reasoning, tools, content, expanded, scopeKey }) {
@@ -1726,6 +1747,7 @@
       contentBlocks: [],
       contentBlockCollector: null,
       pendingPermissions: [],
+      hasTypingActivity: false,
       toolsById: new Map(),
       toolsByName: new Map()
     };
@@ -2462,7 +2484,7 @@
       || run.reasoning
       || (Array.isArray(run.tools) && run.tools.length)
       || blocks.length
-      || isConversationRunBusy(run)
+      || (run.hasTypingActivity && isConversationRunBusy(run))
     );
   }
 
@@ -2593,12 +2615,24 @@
     return status === "running" || status === "cancelling";
   }
 
+  function isConversationRunTyping(run) {
+    return String(run?.status || "").trim() === "running" && Boolean(run?.hasTypingActivity);
+  }
+
   function conversationRunIsRunning(conversationId) {
     return conversationRun(conversationId)?.status === "running";
   }
 
   function conversationRunIsBusy(conversationId) {
     return isConversationRunBusy(conversationRun(conversationId));
+  }
+
+  function conversationRunIsTyping(conversationId) {
+    return isConversationRunTyping(conversationRun(conversationId));
+  }
+
+  function activeConversationRunIsTyping() {
+    return isConversationRunTyping(activeConversationRun());
   }
 
   function activeConversationCanSend() {
@@ -3913,6 +3947,7 @@
           `data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}"`
         );
     const contentBlocks = !isUser ? contentBlocksFromMessage(msg) : [];
+    const orderedBlocksHaveProcess = contentBlocksHaveProcess(contentBlocks);
     let renderedFirstTextBlock = false;
     const orderedBlocksHtml = contentBlocks.length
       ? renderOrderedAssistantBlocks({
@@ -3927,7 +3962,9 @@
       })
       : "";
     const bodyHtml = _renderMsgBody(bodyMd);
-    const trace = !isUser && !orderedBlocksHtml ? parseTraceJson(msg.trace_json || msg.trace) : null;
+    const trace = !isUser && (!orderedBlocksHtml || !orderedBlocksHaveProcess)
+      ? parseTraceJson(msg.trace_json || msg.trace)
+      : null;
     const traceHtml = trace
       ? renderTraceFor({
         reasoning: trace.reasoning,
@@ -6264,6 +6301,8 @@
     conversationRun,
     conversationRunIsRunning,
     conversationRunIsBusy,
+    conversationRunIsTyping,
+    activeConversationRunIsTyping,
     activeConversationCanSend,
     getConversationById,
     botConversationForKey,

@@ -1984,8 +1984,8 @@ test("sidebar card specs carry identity status badges when available", () => {
       const state = {};
       const MemberKind = { Bot: "bot" };
       const runByConversation = new Map([
-        ["botc_u_me_mia", { status: "running", botId: "mia" }],
-        ["g_badge", { status: "running", botId: "mia" }]
+        ["botc_u_me_mia", { status: "running", botId: "mia", hasTypingActivity: true }],
+        ["g_badge", { status: "running", botId: "mia", hasTypingActivity: true }]
       ]);
       const window = {
         miaSocial: {
@@ -1994,6 +1994,10 @@ test("sidebar card specs carry identity status badges when available", () => {
           isConversationMuted: () => false,
           getUnreadForConversation: () => 0,
           conversationRun: (conversationId) => runByConversation.get(conversationId) || null,
+          conversationRunIsTyping: (conversationId) => {
+            const run = runByConversation.get(conversationId);
+            return run?.status === "running" && Boolean(run?.hasTypingActivity);
+          },
           getConversationMembers: () => [{ member_kind: "bot", member_ref: "mia", bot_name: "Mia" }],
           setActiveConversationId() {}
         },
@@ -2023,7 +2027,11 @@ test("sidebar card specs carry identity status badges when available", () => {
       function render() {}
       function conversationRunForSidebarPreview(social, conversation) {
         const run = social?.conversationRun?.(conversation?.id);
-        return run?.status === "running" ? run : null;
+        if (!run) return null;
+        if (typeof social?.conversationRunIsTyping === "function") {
+          return social.conversationRunIsTyping(conversation?.id) ? run : null;
+        }
+        return run?.status === "running" && run?.hasTypingActivity ? run : null;
       }
       function typingLabelForConversationRun(social, conversation, run = null) {
         const activeRun = run || conversationRunForSidebarPreview(social, conversation);
@@ -2063,6 +2071,17 @@ test("sidebar card specs carry identity status badges when available", () => {
   assert.deepEqual(groupSpec.statusBadge, badge);
   assert.equal(groupSpec.typing, true);
   assert.equal(groupSpec.typingLabel, "Mia");
+});
+
+test("conversation typing indicators wait for real cloud run activity", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const sidebarPreview = extractFunctionSource(appSource, "conversationRunForSidebarPreview");
+  const headerPaint = extractFunctionSource(appSource, "paintHeaderStatus");
+
+  assert.match(sidebarPreview, /conversationRunIsTyping/);
+  assert.match(sidebarPreview, /hasTypingActivity/);
+  assert.match(headerPaint, /activeConversationRunIsTyping\(\)/);
+  assert.doesNotMatch(headerPaint, /isActiveRunRunning\(\)/);
 });
 
 test("bot private conversation delete uses the bot delete path", async () => {

@@ -4891,7 +4891,7 @@ test("handleCloudEvent does not infer group typing state from conductor-mode use
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("g_typing"), false);
 });
 
-test("cloud agent run start exposes typing state to the conversation header", () => {
+test("cloud agent run start waits for real activity before exposing typing state", () => {
   const scheduled = [];
   let headerPaints = 0;
   let renders = 0;
@@ -4918,8 +4918,11 @@ test("cloud agent run start exposes typing state to the conversation header", ()
 
   assert.equal(s.activeConversationRun().status, "running");
   assert.equal(s.activeConversationRun().botId, "mia");
+  assert.equal(s.conversationRunIsBusy("botc_u_a_mia"), true);
+  assert.equal(s.activeConversationRunIsTyping(), false);
+  assert.equal(s.conversationRunIsTyping("botc_u_a_mia"), false);
   assert.equal(renders, 1);
-  scheduled.forEach((fn) => fn());
+  scheduled.splice(0).forEach((fn) => fn());
   assert.equal(headerPaints, 1);
 
   const chat = {
@@ -4933,6 +4936,18 @@ test("cloud agent run start exposes typing state to the conversation header", ()
   };
   s.renderConversationChat(chat);
 
+  assert.equal(chat.children.length, 0);
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "pwd" } },
+  });
+  assert.equal(s.activeConversationRunIsTyping(), true);
+  assert.equal(s.conversationRunIsTyping("botc_u_a_mia"), true);
+  scheduled.splice(0).forEach((fn) => fn());
+  assert.equal(headerPaints, 2);
+
+  s.renderConversationChat(chat);
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /agent-run-status/);
 });
@@ -5005,7 +5020,7 @@ test("renderConversationChat does not label tool-only agent activity as typing",
   assert.doesNotMatch(chat.children[0].innerHTML, /typing-status/);
 });
 
-test("renderConversationChat shows a status row while an agent run has not streamed text yet", () => {
+test("renderConversationChat does not show a status row before agent run activity", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
@@ -5029,10 +5044,7 @@ test("renderConversationChat shows a status row while an agent run has not strea
   };
   s.renderConversationChat(chat);
 
-  assert.equal(chat.children.length, 1);
-  assert.match(chat.children[0].className, /streaming/);
-  assert.match(chat.children[0].innerHTML, /agent-run-status/);
-  assert.match(chat.children[0].innerHTML, /agent-run-status-loading-dots/);
+  assert.equal(chat.children.length, 0);
 });
 
 test("renderConversationChat renders active cloud run status at the bottom of the stream", () => {
@@ -6030,6 +6042,98 @@ test("handleCloudEvent preserves transient ordered file edits when final bot mes
   assert.equal(cached.contentBlocks[1].type, "text");
   assert.equal(cached.contentBlocks[1].text, "done");
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+});
+
+test("handleCloudEvent upgrades text-only final content blocks from transient ordered tool blocks", () => {
+  const s = loadSocial();
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "text_delta", id: "text_1", text: "我先检查。" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "pwd" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_completed", id: "tool_1", name: "shell" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "text_delta", id: "text_2", text: "完成。" } },
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      message: {
+        id: "m1",
+        seq: 1,
+        sender_kind: "bot",
+        sender_ref: "mia",
+        body_md: "我先检查。\n\n完成。",
+        content_blocks_json: JSON.stringify([{ type: "text", id: "server_text", text: "我先检查。\n\n完成。" }])
+      },
+    },
+  });
+
+  const cached = s.moduleState.messageCache.get("botc_u_a_mia").messages[0];
+  assert.equal(cached.contentBlocks.some((block) => block.type === "tool" && block.name === "shell"), true);
+  assert.equal(cached.contentBlocks.filter((block) => block.type === "text").length, 2);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+});
+
+test("renderConversationChat keeps trace visible beside text-only ordered blocks", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  s.__mockWindow.miaTraceBlocks = {
+    renderAssistantContentBlocks({ blocks, renderTextBlock }) {
+      return blocks.map((block) => block.type === "text" ? renderTextBlock(block) : "").join("");
+    },
+    renderTraceBlocks({ tools }) {
+      return `<div class="trace">${(tools || []).map((tool) => `<span>${tool.name}</span>`).join("")}</div>`;
+    }
+  };
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", {
+    messages: [{
+      id: "m_text_trace",
+      seq: 1,
+      sender_kind: "bot",
+      sender_ref: "mia",
+      body_md: "完成。",
+      created_at: "",
+      trace_json: JSON.stringify({ tools: [{ id: "tool_1", name: "shell", status: "completed" }] }),
+      content_blocks_json: JSON.stringify([{ type: "text", id: "text_1", text: "完成。" }])
+    }],
+    maxSeq: 1
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  assert.match(chat.children[0].innerHTML, /trace/);
+  assert.match(chat.children[0].innerHTML, /shell/);
+  assert.match(chat.children[0].innerHTML, /完成/);
 });
 
 test("social module does not read the legacy localStorage snapshot on load", () => {
