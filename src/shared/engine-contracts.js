@@ -329,9 +329,7 @@
     if (engine === EngineId.Codex) {
       const dynamic = [];
       const seen = new Set();
-      const models = Array.isArray(capability.models) && capability.models.length
-        ? capability.models
-        : (Array.isArray(options.codexModels) ? options.codexModels : []);
+      const models = Array.isArray(capability.models) ? capability.models : [];
       for (const model of models) {
         const supported = Array.isArray(model?.supportedReasoningLevels) ? model.supportedReasoningLevels : [];
         for (const item of supported) {
