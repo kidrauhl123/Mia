@@ -152,6 +152,19 @@ test("dev rust-core target prefers repo bundled binary when present", () => {
   assert.equal(r.usesGuiAppIdentity, false);
 });
 
+test("dev rust-core target prefers built debug binary over stale repo bundled binary", () => {
+  const repoRoot = path.resolve("/repo");
+  const bundled = repoBundledRustCorePath(repoRoot, "darwin", "arm64");
+  const debug = devRustCorePath(repoRoot, "debug", "darwin");
+  const r = setup({
+    existsSync: (candidate) => candidate === bundled || candidate === debug
+  }).resolve();
+
+  assert.equal(r.kind, "rust-core");
+  assert.equal(r.command, debug);
+  assert.equal(r.workingDirectory, path.dirname(debug));
+});
+
 test("dev rust-core target prefers built debug binary after bundled resources", () => {
   const repoRoot = path.resolve("/repo");
   const debug = devRustCorePath(repoRoot, "debug", "darwin");

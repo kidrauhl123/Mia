@@ -217,9 +217,9 @@ function createMiaCoreResolver(deps = {}) {
     if (defaultApp()) {
       const root = path.resolve(String(repoRoot() || defaultRepoRoot()));
       for (const candidate of [
-        repoBundledRustCorePath(root, platform, arch),
         devRustCorePath(root, "debug", platform),
         devRustCorePath(root, "release", platform),
+        repoBundledRustCorePath(root, platform, arch),
         pathLookup(rustCoreBinaryName(platform))
       ]) {
         if (candidate && existsSync(candidate)) {
