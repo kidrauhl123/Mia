@@ -1286,6 +1286,8 @@ function appendDaemonLog(line) {
   }
 }
 
+let daemonStartPromise = null;
+
 function coreStartMode() {
   return String(process.env.MIA_CORE_START_MODE || "").trim().toLowerCase();
 }
@@ -1318,6 +1320,8 @@ async function waitForReusableCore({ settings, expectedRuntimeHome, expectedCore
 }
 
 async function startDaemonService() {
+  if (daemonStartPromise) return daemonStartPromise;
+  daemonStartPromise = (async () => {
   if (!IS_CORE_PROCESS && process.env.MIA_DISABLE_BACKGROUND_STARTUP === "1") {
     return { ...getDaemonStatus(), running: false, disabled: true };
   }
@@ -1384,13 +1388,34 @@ async function startDaemonService() {
     markCoreRunningForTray(true);
     return status;
   }
+  await miaCoreProcessLauncher.stopCurrentProcess();
   throw new Error(`Timed out waiting for Mia daemon process after ${coreStartTimeoutMs(expectedCoreTarget)}ms.`);
+  })();
+  try {
+    return await daemonStartPromise;
+  } finally {
+    daemonStartPromise = null;
+  }
 }
 
 async function stopDaemonService() {
+  if (daemonStartPromise) {
+    try {
+      await daemonStartPromise;
+    } catch {
+      // Stop should still clean up after a failed in-flight start.
+    }
+  }
   await launchdService.cleanupLegacyNodeCore();
   if (shouldUseLaunchdForCore() && !IS_CORE_PROCESS) {
     await launchdService.stopCore();
+  } else if (!IS_CORE_PROCESS) {
+    const settings = settingsStore.coreSettings();
+    const observed = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome: runtimePaths().home });
+    if (observed.ok && observed.pid) {
+      await miaCoreProcessLauncher.stopObservedProcess(observed.pid);
+    }
+    await miaCoreProcessLauncher.stopCurrentProcess();
   }
   const result = miaCoreControlServer.stop();
   markCoreRunningForTray(false);
@@ -1417,7 +1442,7 @@ function daemonUnavailableError(message = "Mia Core 未运行，Mia 暂不可用
 }
 
 async function ensureDaemonRuntimeAvailable() {
-  if (IS_DAEMON_PROCESS) return getDaemonStatus();
+  if (IS_CORE_PROCESS) return getDaemonStatus();
   if (daemonLocalEventsConnected()) return getDaemonStatus();
   try {
     const status = await startDaemonService();

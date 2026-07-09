@@ -32,6 +32,9 @@ function createMiaCoreProcessLauncher(deps = {}) {
     coreSettings,
     appVersion
   });
+  let currentChild = null;
+  let currentPid = 0;
+  let currentExited = true;
 
   function coreProgramArguments() {
     const r = resolver.resolve();
@@ -74,6 +77,10 @@ function createMiaCoreProcessLauncher(deps = {}) {
   }
 
   async function start() {
+    if (currentChild && !currentExited && currentPid > 0) {
+      appendLog(`Mia Core process pid ${currentPid} is already starting.`);
+      return { pid: currentPid, reused: true };
+    }
     const [command, ...args] = coreProgramArguments();
     const captureOutput = shouldCaptureCoreOutput();
     const child = spawn(command, args, {
@@ -89,8 +96,18 @@ function createMiaCoreProcessLauncher(deps = {}) {
     }
     if (typeof child.once === "function") {
       child.once("error", (error) => appendLog(`Mia Core process error: ${error?.message || error}`));
-      child.once("exit", (code, signal) => appendLog(`Mia Core process exited code=${code ?? ""} signal=${signal || ""}`));
+      child.once("exit", (code, signal) => {
+        currentExited = true;
+        if (currentChild === child) {
+          currentChild = null;
+          currentPid = 0;
+        }
+        appendLog(`Mia Core process exited code=${code ?? ""} signal=${signal || ""}`);
+      });
     }
+    currentChild = child;
+    currentPid = child.pid || 0;
+    currentExited = false;
     if (typeof child.unref === "function") child.unref();
     appendLog(`Started Mia Core process pid ${child.pid || "(unknown)"}.`);
     return { pid: child.pid || 0 };
@@ -112,10 +129,22 @@ function createMiaCoreProcessLauncher(deps = {}) {
     }
   }
 
+  async function stopCurrentProcess() {
+    if (!currentChild || currentExited || !currentPid) {
+      return { stopped: false, pid: 0 };
+    }
+    const pid = currentPid;
+    currentChild = null;
+    currentPid = 0;
+    currentExited = true;
+    return stopObservedProcess(pid);
+  }
+
   return {
     coreEnvironment,
     coreProgramArguments,
     coreWorkingDirectory,
+    stopCurrentProcess,
     stopObservedProcess,
     start
   };

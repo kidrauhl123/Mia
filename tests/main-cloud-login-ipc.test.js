@@ -69,6 +69,8 @@ test("wechat complete still returns runtime status for the renderer", () => {
 test("cloud login auto-starts Mia Core instead of failing before WeChat QR generation", () => {
   const mainSource = fs.readFileSync(path.join(root, "src", "main.js"), "utf8");
   assert.match(mainSource, /async function ensureDaemonRuntimeAvailable\(\)[\s\S]*?startDaemonService\(\)[\s\S]*?startCloudRuntimeSockets\(\)/);
+  assert.doesNotMatch(mainSource, /IS_DAEMON_PROCESS/);
+  assert.match(mainSource, /async function ensureDaemonRuntimeAvailable\(\)[\s\S]*?if \(IS_CORE_PROCESS\) return getDaemonStatus\(\);/);
   assert.match(
     mainSource,
     /ipcMain\.handle\(IpcChannel\.CloudLogin,\s*async \(_event, payload\) => \{[\s\S]*?await ensureDaemonRuntimeAvailable\(\);[\s\S]*?loginMiaCloud\(payload \|\| \{\}\)/

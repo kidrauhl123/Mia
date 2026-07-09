@@ -157,6 +157,21 @@ test("process-mode launcher can stop a stale observed Core before starting repla
   ]);
 });
 
+test("process-mode launcher reuses an in-flight Core process and can stop it", async () => {
+  const { calls, launcher } = setup();
+
+  const first = await launcher.start();
+  const second = await launcher.start();
+  const stopped = await launcher.stopCurrentProcess();
+
+  assert.deepEqual(first, { pid: 4242 });
+  assert.deepEqual(second, { pid: 4242, reused: true });
+  assert.deepEqual(stopped, { stopped: true, pid: 4242 });
+  assert.equal(calls.filter((entry) => entry.command).length, 1);
+  assert.ok(calls.some((entry) => entry.log === "Mia Core process pid 4242 is already starting."));
+  assert.ok(calls.some((entry) => entry.killProcess?.[0] === 4242));
+});
+
 test("detached launcher delegates command and env overlay to an injected resolver", async () => {
   const fakeResolver = {
     resolve: () => ({

@@ -32,6 +32,8 @@ test("startDaemonService asserts a launchable rust-core target before launching 
     main.indexOf("async function startDaemonService()"),
     main.indexOf("async function stopDaemonService()")
   );
+  assert.match(startBody, /if \(daemonStartPromise\) return daemonStartPromise;/);
+  assert.match(startBody, /daemonStartPromise = \(async \(\) => \{/);
   assert.ok(
     startBody.indexOf("await launchdService.cleanupLegacyNodeCore();") >= 0,
     "startDaemonService must call legacy Node daemon cleanup"
@@ -50,6 +52,10 @@ test("startDaemonService asserts a launchable rust-core target before launching 
       && startBody.indexOf("miaCoreProcessLauncher.stopObservedProcess(existing.pid);") < startBody.indexOf("miaCoreProcessLauncher.start()"),
     "process-mode start must stop a stale observed Core before starting a replacement"
   );
+  assert.ok(
+    startBody.indexOf("await miaCoreProcessLauncher.stopCurrentProcess();") > startBody.indexOf("const ping = await waitForReusableCore"),
+    "process-mode start must clean up a spawned Core process when it times out"
+  );
   assert.doesNotMatch(
     main,
     /if \(IS_CORE_PROCESS\) \{[\s\S]*?app\.dock/,
@@ -64,6 +70,19 @@ test("update install path removes legacy Node daemon before quitting", () => {
     /prepareForUpdateInstall:\s*async\s*\(\)\s*=>\s*\{[\s\S]{0,260}?await launchdService\.cleanupLegacyNodeCore\(\);[\s\S]{0,260}?await stopDaemonService\(\);/,
     "update install preparation must remove legacy Node daemon before stopping Core"
   );
+});
+
+test("stopDaemonService cleans process-mode Core children as well as launchd jobs", () => {
+  const main = fs.readFileSync(path.join(SRC_ROOT, "main.js"), "utf8");
+  const stopBody = main.slice(
+    main.indexOf("async function stopDaemonService()"),
+    main.indexOf("function appendCloudLog")
+  );
+
+  assert.match(stopBody, /if \(daemonStartPromise\)/);
+  assert.match(stopBody, /await launchdService\.cleanupLegacyNodeCore\(\);/);
+  assert.match(stopBody, /await miaCoreProcessLauncher\.stopObservedProcess\(observed\.pid\);/);
+  assert.match(stopBody, /await miaCoreProcessLauncher\.stopCurrentProcess\(\);/);
 });
 
 test("dev verification can start Core as a process without touching launchd", () => {
