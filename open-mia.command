@@ -102,25 +102,40 @@ CORE_CANDIDATES=(
   "target/release/${CORE_EXE}"
 )
 
-CORE_READY=0
-for core_candidate in "${CORE_CANDIDATES[@]}"; do
-  if [ -x "$core_candidate" ]; then
-    CORE_READY=1
-    break
-  fi
-done
+core_ready() {
+  for core_candidate in "${CORE_CANDIDATES[@]}"; do
+    if [ -x "$core_candidate" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
-if [ "$CORE_READY" != "1" ]; then
+build_mia_core_locally() {
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "cargo not found. Install Rust or publish the prebuilt Mia Core release first."
+    return 127
+  fi
+  echo "Building Mia Core locally for development..."
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL="${CARGO_REGISTRIES_CRATES_IO_PROTOCOL:-sparse}" \
+  CARGO_HTTP_TIMEOUT="${CARGO_HTTP_TIMEOUT:-60}" \
+  cargo build -p mia-core-app --bin mia-core
+}
+
+if ! core_ready; then
   echo "Preparing Mia Core prebuilt binary..."
-  if ! npm run core:prepare; then
+  if ! npm run core:prepare || ! core_ready; then
     echo
-    echo "Mia Core binary is not ready."
-    echo "If the prebuilt Core release has not been published yet, build one locally first."
-    echo "Run one of these, then open Mia again:"
-    echo "  npm run core:prepare"
-    echo "  MIA_CORE_RS_BIN=/path/to/mia-core npm run core:prepare"
-    echo "  cargo build -p mia-core-app --bin mia-core"
-    exit 1
+    echo "Prebuilt Mia Core is unavailable; trying a local development build."
+    if ! build_mia_core_locally || ! core_ready; then
+      echo
+      echo "Mia Core binary is not ready."
+      echo "Run one of these, then open Mia again:"
+      echo "  npm run core:prepare"
+      echo "  MIA_CORE_RS_BIN=/path/to/mia-core npm run core:prepare"
+      echo "  cargo build -p mia-core-app --bin mia-core"
+      exit 1
+    fi
   fi
 fi
 

@@ -49,22 +49,24 @@ for /f "usebackq delims=" %%A in (`node -p "process.arch" 2^>nul`) do set "CORE_
 set "CORE_EXE=mia-core"
 if /i "%CORE_PLATFORM%"=="win32" set "CORE_EXE=mia-core.exe"
 
-set "CORE_READY=0"
-if exist "resources\bundled-mia-core\%CORE_PLATFORM%-%CORE_ARCH%\%CORE_EXE%" set "CORE_READY=1"
-if exist "target\debug\%CORE_EXE%" set "CORE_READY=1"
-if exist "target\release\%CORE_EXE%" set "CORE_READY=1"
+call :detect_core
 
 if not "%CORE_READY%"=="1" (
   echo Preparing Mia Core prebuilt binary...
   call npm run core:prepare
   if errorlevel 1 (
     echo.
-    echo Mia Core binary is not ready.
-    echo If the prebuilt Core release has not been published yet, build one locally first.
-    echo Run one of these, then open Mia again:
-    echo   npm run core:prepare
-    echo   set MIA_CORE_RS_BIN=C:\path\to\mia-core.exe ^&^& npm run core:prepare
-    echo   cargo build -p mia-core-app --bin mia-core
+    echo Prebuilt Mia Core is unavailable; trying a local development build.
+    call :build_mia_core_locally
+    if errorlevel 1 (
+      call :print_core_help
+      pause
+      exit /b 1
+    )
+  )
+  call :detect_core
+  if not "%CORE_READY%"=="1" (
+    call :print_core_help
     pause
     exit /b 1
   )
@@ -95,6 +97,34 @@ if not "%MIA_EXIT_CODE%"=="0" (
 )
 
 exit /b %MIA_EXIT_CODE%
+
+:detect_core
+set "CORE_READY=0"
+if exist "resources\bundled-mia-core\%CORE_PLATFORM%-%CORE_ARCH%\%CORE_EXE%" set "CORE_READY=1"
+if exist "target\debug\%CORE_EXE%" set "CORE_READY=1"
+if exist "target\release\%CORE_EXE%" set "CORE_READY=1"
+exit /b 0
+
+:build_mia_core_locally
+where cargo >nul 2>nul
+if errorlevel 1 (
+  echo cargo not found. Install Rust or publish the prebuilt Mia Core release first.
+  exit /b 127
+)
+if not defined CARGO_REGISTRIES_CRATES_IO_PROTOCOL set "CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse"
+if not defined CARGO_HTTP_TIMEOUT set "CARGO_HTTP_TIMEOUT=60"
+echo Building Mia Core locally for development...
+call cargo build -p mia-core-app --bin mia-core
+exit /b %ERRORLEVEL%
+
+:print_core_help
+echo.
+echo Mia Core binary is not ready.
+echo Run one of these, then open Mia again:
+echo   npm run core:prepare
+echo   set MIA_CORE_RS_BIN=C:\path\to\mia-core.exe ^&^& npm run core:prepare
+echo   cargo build -p mia-core-app --bin mia-core
+exit /b 0
 
 :run_foreground
 if "%MIA_ELECTRON_GPU_SWITCH%"=="--disable-gpu" (
