@@ -22,7 +22,7 @@
   const OTHER_DEVICE_CONVERSATION_FILTER = "__mia_other_devices__";
   const OTHER_DEVICE_CONVERSATION_LABEL = "其他设备";
   const CLOUD_AGENT_RUN_STALE_MS = 30 * 60 * 1000;
-  const BOT_REPLY_BACKFILL_ATTEMPTS = 4;
+  const BOT_REPLY_BACKFILL_ATTEMPTS = 90;
 
   function isValidPublicUid(value) {
     const text = String(value || "").trim();
@@ -803,6 +803,16 @@
 
   function eventType(event = {}) {
     return String(event.type || event.event || "");
+  }
+
+  function cloudEventEnvelopeType(envelope = {}) {
+    return String(envelope?.type || envelope?.name || "").trim();
+  }
+
+  function cloudEventEnvelopePayload(envelope = {}) {
+    if (envelope?.payload && typeof envelope.payload === "object") return envelope.payload;
+    if (envelope?.data && typeof envelope.data === "object") return envelope.data;
+    return envelope && typeof envelope === "object" ? envelope : {};
   }
 
   function eventText(event = {}) {
@@ -3334,8 +3344,10 @@
   // ── handleCloudEvent ──────────────────────────────────────────────────────
 
   function handleCloudEvent(event) {
-    if (!event || !event.type) return;
-    const { type, payload } = event;
+    if (!event) return;
+    const type = cloudEventEnvelopeType(event);
+    if (!type) return;
+    const payload = cloudEventEnvelopePayload(event);
 
     // Every time the WS reconnects (events_ready), re-pull authoritative
     // state from the cloud. Otherwise any social events that were
@@ -4687,6 +4699,7 @@
     const run = cloudRunFor(conversationId, runId);
     run.runId = run.runId || runId;
     run.turnId = String(localMsg?.turn_id || run.turnId || "");
+    run.triggerMessageId = String(localMsg?.id || run.triggerMessageId || "");
     run.botId = botKeyForConversation(conversation, conversationId) || run.botId || "";
     run.status = "running";
     markCloudRunActivity(run);
@@ -4694,6 +4707,18 @@
     refreshCloudRunStatusTimer();
     if (deps && typeof deps.paintHeaderStatus === "function") deps.paintHeaderStatus();
     if (deps && typeof deps.render === "function") deps.render();
+    return true;
+  }
+
+  function rememberOutgoingBotRunTrigger(conversationId, message) {
+    const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
+    if (!run || !message || message.sender_kind !== conversationKinds().SenderKind.User) return false;
+    run.triggerMessageId = String(message.id || run.triggerMessageId || "");
+    const seq = Number(message.seq) || 0;
+    if (seq > 0) run.triggerMessageSeq = seq;
+    const turnId = String(message.turn_id || message.turnId || run.turnId || "").trim();
+    if (turnId) run.turnId = turnId;
+    markCloudRunActivity(run);
     return true;
   }
 
@@ -4710,6 +4735,38 @@
     if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
     if (deps && typeof deps.render === "function") deps.render();
     return true;
+  }
+
+  function messageCompletesActiveBotRun(conversationId, message) {
+    const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
+    if (!run || !message || message.sender_kind !== conversationKinds().SenderKind.Bot) return false;
+    const messageSeq = Number(message.seq) || 0;
+    const triggerSeq = Number(run.triggerMessageSeq) || 0;
+    if (triggerSeq > 0 && messageSeq > triggerSeq) return true;
+    const runTurnId = String(run.turnId || "").trim();
+    const messageTurnId = String(message.turn_id || message.turnId || "").trim();
+    if (runTurnId && messageTurnId && runTurnId === messageTurnId) return true;
+
+    const entry = moduleState.messageCache.get(conversationId);
+    if (!entry || !Array.isArray(entry.messages)) return false;
+    const triggerMessageId = String(run.triggerMessageId || "").trim();
+    const trigger = triggerMessageId
+      ? entry.messages.find((item) => String(item?.id || "") === triggerMessageId)
+      : entry.messages.find((item) => (
+        item
+        && item.sender_kind === conversationKinds().SenderKind.User
+        && runTurnId
+        && String(item.turn_id || item.turnId || "") === runTurnId
+      ));
+    const fallbackSeq = Number(trigger?.seq) || 0;
+    return fallbackSeq > 0 && messageSeq > fallbackSeq;
+  }
+
+  function clearConversationRunIfFinalBotReplyPresent(conversationId) {
+    const entry = moduleState.messageCache.get(conversationId);
+    if (!entry || !Array.isArray(entry.messages)) return false;
+    if (!entry.messages.some((message) => messageCompletesActiveBotRun(conversationId, message))) return false;
+    return clearConversationRunAfterBackfill(conversationId);
   }
 
   function hasBotReplyAfterMessage(conversationId, sentMsg) {
@@ -5205,6 +5262,9 @@
         return; // server didn't return a message somehow — skip optimistic
       }
       _reconcileSentConversationMessage(postConversationId, localMsg?.id, sentMsg);
+      if (conversationTypeFor(conversation, postConversationId) === "bot") {
+        rememberOutgoingBotRunTrigger(postConversationId, sentMsg);
+      }
       _appendReturnedConversationBotMessage(
         postConversationId,
         res.data?.botMessage || res.data?.assistantMessage || res.botMessage || null
@@ -5379,6 +5439,7 @@
           if (cached.length) {
             _mergeMessagesIntoCache(conversationId, cached);
             cachedMaxSeq = cached.reduce((m, x) => Math.max(m, Number(x.seq) || 0), 0);
+            clearConversationRunIfFinalBotReplyPresent(conversationId);
             if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
           }
         } catch (err) {
@@ -5398,6 +5459,7 @@
           const reconciled = _reconcileFetchedMessageWindow(conversationId, sinceSeq, fresh, limit);
           if (fresh.length || reconciled) {
             _mergeMessagesIntoCache(conversationId, fresh);
+            clearConversationRunIfFinalBotReplyPresent(conversationId);
             if (conversationId === moduleState.activeConversationId) {
               _reRenderActiveChat();
               // Messages that arrived while offline are now on-screen — advance the

@@ -32,6 +32,8 @@ function loadSocial(options = {}) {
   });
   const mockWindow = {
     requestAnimationFrame: options.requestAnimationFrame,
+    setTimeout: options.setTimeout,
+    clearTimeout: options.clearTimeout,
     setInterval: options.setInterval,
     clearInterval: options.clearInterval,
     mia: {},
@@ -2042,6 +2044,105 @@ test("sendInActiveConversation backfills active bot reply when live websocket ev
   assert.deepEqual(JSON.parse(JSON.stringify(messages.map((message) => message.id))), ["m_user", "m_bot"]);
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has(conversationId), false);
   assert.ok(listCalls >= 1);
+});
+
+test("sendInActiveConversation keeps polling for a delayed active bot reply", async () => {
+  const s = loadSocial({
+    requestAnimationFrame: (fn) => fn(),
+    setTimeout: (fn) => { fn(); return 0; }
+  });
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  const conversationId = "botc_delayed_active";
+  const userMessage = { id: "m_user_active", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "hi" };
+  const botMessage = { id: "m_bot_active", seq: 2, sender_kind: "bot", sender_ref: "mia", body_md: "hello after polling" };
+  let listCalls = 0;
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{
+    id: conversationId,
+    type: "bot",
+    name: "Mia",
+    decorations: { botId: "mia", sessionId: "delayed_active", runtimeKind: "cloud-claude-code" }
+  }];
+  s.moduleState.messageCache.set(conversationId, { maxSeq: 0, messages: [] });
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async () => ({
+      ok: true,
+      data: {
+        conversation: s.moduleState.conversations[0],
+        members: [{ member_kind: "bot", member_ref: "mia" }]
+      }
+    }),
+    postConversationMessage: async () => ({ ok: true, data: { message: userMessage } }),
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
+    listConversationMessages: async () => {
+      listCalls += 1;
+      return {
+        ok: true,
+        data: { messages: listCalls >= 6 ? [userMessage, botMessage] : [userMessage] }
+      };
+    },
+    settingsPut: async () => ({ ok: true, data: { version: 2, readMarks: { [conversationId]: 2 } } })
+  };
+
+  await s.sendInActiveConversation("hi");
+  await flushPromises(80);
+
+  const messages = s.moduleState.messageCache.get(conversationId).messages;
+  assert.deepEqual(JSON.parse(JSON.stringify(messages.map((message) => message.id))), ["m_user_active", "m_bot_active"]);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has(conversationId), false);
+  assert.ok(listCalls >= 6);
+});
+
+test("opening a bot conversation clears fallback typing when backfill finds the final bot reply", async () => {
+  const s = loadSocial({ requestAnimationFrame: (fn) => fn() });
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  const conversationId = "botc_delayed_backfill";
+  const userMessage = { id: "m_user_delayed", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "hi" };
+  const botMessage = { id: "m_bot_delayed", seq: 2, sender_kind: "bot", sender_ref: "mia", body_md: "hello later" };
+  let includeBotReply = false;
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{
+    id: conversationId,
+    type: "bot",
+    name: "Mia",
+    decorations: { botId: "mia", sessionId: "delayed_backfill", runtimeKind: "cloud-claude-code" }
+  }];
+  s.moduleState.messageCache.set(conversationId, { maxSeq: 0, messages: [] });
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async () => ({
+      ok: true,
+      data: {
+        conversation: s.moduleState.conversations[0],
+        members: [{ member_kind: "bot", member_ref: "mia" }]
+      }
+    }),
+    postConversationMessage: async () => ({ ok: true, data: { message: userMessage } }),
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
+    listConversationMessages: async () => ({
+      ok: true,
+      data: { messages: includeBotReply ? [userMessage, botMessage] : [userMessage] }
+    }),
+    settingsPut: async () => ({ ok: true, data: { version: 2, readMarks: { [conversationId]: 2 } } })
+  };
+
+  await s.sendInActiveConversation("hi");
+  await flushPromises(8);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has(conversationId), true);
+
+  includeBotReply = true;
+  s.setActiveConversationId(null);
+  s.setActiveConversationId(conversationId);
+  await flushPromises(8);
+
+  const messages = s.moduleState.messageCache.get(conversationId).messages;
+  assert.deepEqual(JSON.parse(JSON.stringify(messages.map((message) => message.id))), ["m_user_delayed", "m_bot_delayed"]);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has(conversationId), false);
 });
 
 test("sendInActiveConversation appends returned local runtime bot reply without waiting for websocket", async () => {
@@ -4353,6 +4454,27 @@ test("Core websocket runtime envelopes drive the existing conversation streaming
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
   assert.equal(entry.messages.length, 1);
   assert.equal(entry.messages[0].body_md, "hello from core");
+});
+
+test("handleCloudEvent accepts raw Core websocket cloud agent envelopes", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+
+  s.handleCloudEvent({
+    name: "cloud_agent_run_started",
+    data: { conversationId: "botc_u_a_mia", runId: "car_raw", botId: "mia" }
+  });
+  s.handleCloudEvent({
+    name: "cloud_agent_run_event",
+    data: { conversationId: "botc_u_a_mia", runId: "car_raw", event: { type: "text_delta", text: "raw stream" } }
+  });
+
+  const run = s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_mia");
+  assert.equal(run.runId, "car_raw");
+  assert.equal(run.text, "raw stream");
 });
 
 test("stale cloud agent run clears sidebar typing when terminal events are lost", () => {
