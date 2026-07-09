@@ -174,9 +174,25 @@ test("conversation preload bridge keeps legacy social data primary with Rust Cor
     /if \(isDesktopLocalBotPost\(body\)\) return true;[\s\S]*if \(isCoreConversationId\(conversationId\)\) return false;/,
     "desktop-local bot posts must use the local bridge even when the ensured bot conversation id is Core-owned"
   );
+  assert.doesNotMatch(
+    desktopBotPostSource,
+    /return !isCloudClaudeCodeBotPost\(body\);/,
+    "unknown bot conversations must not default to the desktop-local bridge"
+  );
+  assert.match(
+    desktopBotPostSource,
+    /return runtimeKindFromPostBody\(body\) === "desktop-local";/,
+    "only explicit desktop-local bot posts should use the local bridge"
+  );
   const postConversationSource = extractFunctionSource(preload, "postConversationMessageCompat");
   assert.match(postConversationSource, /if \(isDesktopLocalBotConversationPost\(conversationId,\s*body\)\) \{\s*return postLocalDesktopBotMessage\(conversationId,\s*body\);\s*\}/);
-  assert.match(postConversationSource, /isCloudClaudeCodeBotPost\(body\)/);
+  assert.match(postConversationSource, /if \(!isCoreConversationId\(conversationId\)\) \{/);
+  assert.match(postConversationSource, /if \(result\?\.ok === false\) return result;/);
+  assert.doesNotMatch(
+    postConversationSource,
+    /!isBotConversationId\(conversationId\)\s*\|\|\s*isCloudClaudeCodeBotPost\(body\)/,
+    "non-Core bot conversations should try the social/cloud route instead of being gated on request-body ownership"
+  );
   assert.match(preload, /IpcChannel\.SocialListConversations/);
   assert.match(preload, /IpcChannel\.SocialGetConversation/);
   assert.match(preload, /IpcChannel\.SocialCreateConversation/);

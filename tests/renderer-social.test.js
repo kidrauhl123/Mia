@@ -2030,6 +2030,63 @@ test("sendInActiveConversation tags cloud bot posts with cloud runtime ownership
   assert.equal(calls[1].body.sessionId, "cloud_probe");
 });
 
+test("sendInActiveConversation preserves cloud starter ownership when cached decorations are missing", async () => {
+  const s = loadSocial();
+  const calls = [];
+  s.moduleState.myUserId = "9038338";
+  s.moduleState.bots = [{
+    id: "starter_9038338_mia",
+    key: "starter_9038338_mia",
+    runtimeKind: "cloud-claude-code",
+    agentEngine: "claude-code"
+  }];
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async (sessionId, body) => {
+      calls.push({ kind: "ensure", sessionId, body });
+      return {
+        ok: true,
+        data: {
+          conversation: {
+            id: "botc_starter_9038338_mia",
+            type: "bot",
+            name: "Mia",
+            decorations: {
+              botId: "starter_9038338_mia",
+              sessionId: "starter_9038338_mia",
+              runtimeKind: "cloud-claude-code"
+            }
+          },
+          members: [
+            { member_kind: "user", member_ref: "9038338" },
+            { member_kind: "bot", member_ref: "starter_9038338_mia" }
+          ]
+        }
+      };
+    },
+    postConversationMessage: async (conversationId, body) => {
+      calls.push({ kind: "post", conversationId, body });
+      return {
+        ok: true,
+        data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "9038338", body_md: body.bodyMd } }
+      };
+    }
+  };
+  s.moduleState.activeConversationId = "botc_starter_9038338_mia";
+  s.moduleState.conversations = [{ id: "botc_starter_9038338_mia", type: "bot", name: "Mia" }];
+  s.moduleState.messageCache.set("botc_starter_9038338_mia", { messages: [], maxSeq: 0 });
+
+  await s.sendInActiveConversation("hello cloud starter");
+
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
+  assert.equal(calls[0].sessionId, "starter_9038338_mia");
+  assert.equal(calls[0].body.botId, "starter_9038338_mia");
+  assert.equal(calls[0].body.runtimeKind, "cloud-claude-code");
+  assert.equal(calls[1].conversationId, "botc_starter_9038338_mia");
+  assert.equal(calls[1].body.runtimeKind, "cloud-claude-code");
+  assert.equal(calls[1].body.botId, "starter_9038338_mia");
+  assert.equal(calls[1].body.sessionId, "starter_9038338_mia");
+});
+
 test("sendInActiveConversation does not move desktop-local bot history into Core-created conversations", async () => {
   const s = loadSocial();
   const calls = [];

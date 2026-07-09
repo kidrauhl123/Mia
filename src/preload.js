@@ -172,7 +172,7 @@ function isDesktopLocalBotConversationPost(conversationId, body = {}) {
   if (isDesktopLocalBotPost(body)) return true;
   if (isCoreConversationId(conversationId)) return false;
   if (!isBotConversationId(conversationId)) return false;
-  return !isCloudClaudeCodeBotPost(body);
+  return runtimeKindFromPostBody(body) === "desktop-local";
 }
 
 async function mcpCoreOk(request) {
@@ -608,12 +608,17 @@ async function postConversationMessageCompat(conversationId, body = {}) {
   if (isDesktopLocalBotConversationPost(conversationId, body)) {
     return postLocalDesktopBotMessage(conversationId, body);
   }
-  if (!isCoreConversationId(conversationId) && (!isBotConversationId(conversationId) || isCloudClaudeCodeBotPost(body))) {
+  if (!isCoreConversationId(conversationId)) {
     try {
       const result = await ipcRenderer.invoke(IpcChannel.SocialPostConversationMessage, conversationId, body);
-      if (result?.ok !== false) return result;
-    } catch {
+      if (result?.ok === false) return result;
+      return result;
+    } catch (error) {
       // Fall back to Core only if the old social route is unavailable.
+      const message = String(error?.message || error || "");
+      if (!/No handler registered|No handler.*registered/i.test(message)) {
+        return { ok: false, error: message || "发送失败", status: error?.status || 500 };
+      }
     }
   }
   return postCoreConversationMessage(conversationId, body);

@@ -2645,9 +2645,20 @@
     return String(value || "").trim().toLowerCase() === OTHER_DEVICE_CONVERSATION_FILTER;
   }
 
+  function cloudStarterBotKeyFromSessionId(sessionId = "") {
+    const key = String(sessionId || "").trim();
+    return /^starter_[^_]+_mia$/.test(key) ? key : "";
+  }
+
+  function botKeyForConversation(conversation = {}, conversationId = "") {
+    const decorated = sessionHistoryShared().botId(conversation);
+    if (decorated) return decorated;
+    return cloudStarterBotKeyFromSessionId(botSessionIdForConversation(conversation, conversationId || conversation?.id || ""));
+  }
+
   function botRecordForConversation(conversation = {}) {
     if (sessionHistoryShared().conversationType(conversation, conversation?.id || "") !== "bot") return null;
-    const botId = sessionHistoryShared().botId(conversation);
+    const botId = botKeyForConversation(conversation, conversation?.id || "");
     if (!botId) return null;
     return moduleState.bots.find((item) => botKeyFromRecord(item) === botId) || null;
   }
@@ -2664,7 +2675,7 @@
   function botConversationHasKnownIdentity(conversation = {}) {
     if (conversationTypeFor(conversation, conversation?.id || "") !== "bot") return true;
     if (!botDirectoryAvailable()) return true;
-    const botId = sessionHistoryShared().botId(conversation);
+    const botId = botKeyForConversation(conversation, conversation?.id || "");
     if (!botId) return true;
     return (Array.isArray(moduleState.bots) ? moduleState.bots : [])
       .some((bot) => botKeyFromRecord(bot) === botId);
@@ -2767,10 +2778,15 @@
     if (botRuntimeKind) return botRuntimeKind;
     const history = sessionHistoryShared();
     if (typeof history.runtimeKind === "function") {
-      return history.runtimeKind(conversation, "desktop-local");
+      const runtimeKind = history.runtimeKind(conversation, "");
+      if (runtimeKind) return runtimeKind;
     }
     const decorations = conversation?.decorations || {};
-    return firstText(decorations.runtimeKind, decorations.runtime_kind, "desktop-local");
+    const decoratedRuntimeKind = firstText(decorations.runtimeKind, decorations.runtime_kind);
+    if (decoratedRuntimeKind) return decoratedRuntimeKind;
+    const sessionId = botSessionIdForConversation(conversation, conversation?.id || "");
+    if (cloudStarterBotKeyFromSessionId(sessionId)) return "cloud-claude-code";
+    return "desktop-local";
   }
 
   function agentEngineForBotConversation(conversation = {}) {
@@ -2797,8 +2813,8 @@
 
   function botPostContextForConversation(conversation = {}, conversationId = "") {
     if (conversationTypeFor(conversation, conversationId) !== "bot") return null;
-    const botId = sessionHistoryShared().botId(conversation);
     const sessionId = botSessionIdForConversation(conversation, conversationId);
+    const botId = botKeyForConversation(conversation, conversationId);
     const runtimeKind = runtimeKindForBotConversation(conversation);
     if (!runtimeKind) return null;
     const context = { runtimeKind };
@@ -2826,7 +2842,7 @@
     const current = conversation || moduleState.conversations.find((item) => item.id === id) || { id };
     if (conversationTypeFor(current, id) !== "bot") return { conversationId: id, conversation: current };
     if (runtimeKindForBotConversation(current) === "desktop-local") return { conversationId: id, conversation: current };
-    const botId = sessionHistoryShared().botId(current);
+    const botId = botKeyForConversation(current, id);
     const sessionId = botSessionIdForConversation(current, id);
     const api = window.mia?.social;
     if (!botId || !sessionId || typeof api?.ensureBotSessionConversation !== "function") {
