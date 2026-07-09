@@ -7,6 +7,19 @@ function coreWsUrl(baseUrl) {
   return `${normalized.replace(/^http:/, "ws:").replace(/^https:/, "wss:")}/ws`;
 }
 
+function websocketMessageData(event) {
+  if (event && typeof event === "object" && "data" in event) return event.data;
+  return event;
+}
+
+function websocketMessageText(raw) {
+  if (typeof raw === "string") return raw;
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer(raw)) return raw.toString("utf8");
+  if (raw instanceof ArrayBuffer) return Buffer.from(raw).toString("utf8");
+  if (ArrayBuffer.isView(raw)) return Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength).toString("utf8");
+  return String(raw == null ? "" : raw);
+}
+
 function rendererTaskEnvelope(envelope = {}) {
   const name = String(envelope.name || envelope.type || "");
   const data = envelope.data && typeof envelope.data === "object" ? envelope.data : {};
@@ -387,10 +400,10 @@ function createMiaCoreLocalEventsClient({
   }
 
   function handleMessage(event) {
-    const raw = Object.prototype.hasOwnProperty.call(event || {}, "data") ? event.data : event;
+    const raw = websocketMessageData(event);
     let envelope;
     try {
-      envelope = JSON.parse(String(raw || ""));
+      envelope = JSON.parse(websocketMessageText(raw));
     } catch {
       return;
     }

@@ -6309,7 +6309,7 @@ test("opening a conversation with a WARM local cache fetches a bounded recent ov
   assert.equal(s.moduleState.messageCache.get("dm:u_a:u_b").messages.length, 80, "cached history merged for instant paint");
 });
 
-test("opening a conversation removes cached messages missing from the cloud overlap", async () => {
+test("opening a conversation keeps cached messages missing from a partial cloud overlap", async () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaAvatar = { avatarThumbBackgroundStyle: () => "" };
@@ -6330,7 +6330,7 @@ test("opening a conversation removes cached messages missing from the cloud over
   });
 
   const cached = s.moduleState.messageCache.get("dm:u_a:u_b");
-  assert.equal(cached.messages.map((message) => message.id).join(","), "m1,m3");
+  assert.equal(cached.messages.map((message) => message.id).join(","), "m1,m2,m3");
 });
 
 test("applyCloudSettings clears auto-counted unread when peer device's readMark catches up", () => {

@@ -92,16 +92,6 @@ function openConversationMessageCache(dbPath) {
     ORDER BY seq DESC
     LIMIT ?
   `);
-  const cachedAfterStmt = db.prepare(`
-    SELECT id, seq FROM messages
-    WHERE conversation_id = ? AND seq > ?
-    ORDER BY seq ASC
-  `);
-  const cachedBetweenStmt = db.prepare(`
-    SELECT id, seq FROM messages
-    WHERE conversation_id = ? AND seq > ? AND seq <= ?
-    ORDER BY seq ASC
-  `);
   const maxSeqStmt = db.prepare(`
     SELECT MAX(seq) AS maxSeq FROM messages WHERE conversation_id = ?
   `);
@@ -219,29 +209,13 @@ function openConversationMessageCache(dbPath) {
     return Number(result.changes) || 0;
   }
 
-  // Reconcile a server-fetched window with the disk cache. The cloud list API
-  // filters per-user hidden messages, so a cached id missing from a complete
-  // fetched window is stale and must be removed or cold start will resurrect it.
-  function reconcileFetchedMessages(conversationId, sinceSeq, messages = [], limit = DEFAULT_RECENT_LIMIT) {
+  // Reconcile a server-fetched window with the disk cache. A list response is a
+  // partial sync window, not a tombstone source: cached chat messages must only
+  // be removed by explicit delete events or user actions.
+  function reconcileFetchedMessages(conversationId, _sinceSeq, _messages = [], _limit = DEFAULT_RECENT_LIMIT) {
     const convId = String(conversationId || "");
     if (!convId) return 0;
-    const incoming = Array.isArray(messages) ? messages.filter((msg) => msg?.id) : [];
-    const visibleIds = new Set(incoming.map((msg) => String(msg.id)));
-    const seqs = incoming.map((msg) => Number(msg.seq)).filter(Number.isFinite);
-    const cap = Math.max(1, Number(limit) || DEFAULT_RECENT_LIMIT);
-    const lowerSeq = Number(sinceSeq) || 0;
-    const completeWindow = incoming.length < cap;
-    const upperSeq = completeWindow ? Infinity : Math.max(...seqs, lowerSeq);
-    const rows = upperSeq === Infinity
-      ? cachedAfterStmt.all(convId, lowerSeq)
-      : cachedBetweenStmt.all(convId, lowerSeq, upperSeq);
-    let removed = 0;
-    for (const row of rows) {
-      const id = String(row.id || "");
-      if (!id || visibleIds.has(id)) continue;
-      removed += deleteMessage(convId, id);
-    }
-    return removed;
+    return 0;
   }
 
   // Keep only the newest `keep` messages for a conversation, dropping older rows.

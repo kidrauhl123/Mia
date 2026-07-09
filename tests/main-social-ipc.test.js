@@ -129,7 +129,7 @@ test("listing conversation messages writes through to the local cache; cached re
   assert.deepEqual(cached, { ok: true, data: { messages: [{ id: "m1", seq: 1 }] } });
 });
 
-test("listing conversation messages reconciles stale local cache rows in the fetched window", async () => {
+test("listing conversation messages passes the fetched window to the local cache", async () => {
   const ipcMain = fakeIpcMain();
   const calls = [];
   const messages = [{ id: "m1", seq: 1 }];

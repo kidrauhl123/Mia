@@ -156,14 +156,14 @@ test("deleteMessage removes one cached row and survives reopen", () => {
   }
 });
 
-test("reconcileFetchedMessages removes cached rows missing from a complete server window", () => {
+test("reconcileFetchedMessages keeps cached rows missing from a fetched server window", () => {
   const { dir, dbPath } = tempCache();
   const cache = openConversationMessageCache(dbPath);
   try {
     cache.upsertMessages("c1", [msg(1), msg(2), msg(3)]);
     const removed = cache.reconcileFetchedMessages("c1", 0, [msg(1), msg(3)], 100);
-    assert.equal(removed, 1);
-    assert.deepEqual(cache.getRecentMessages("c1", 50).map((m) => m.id), ["m1", "m3"]);
+    assert.equal(removed, 0);
+    assert.deepEqual(cache.getRecentMessages("c1", 50).map((m) => m.id), ["m1", "m2", "m3"]);
   } finally {
     cache.close();
     fs.rmSync(dir, { recursive: true, force: true });

@@ -299,6 +299,52 @@ test("Mia Core local events client subscribes to Rust Core /ws and reports conne
   assert.deepEqual(states, [true, false]);
 });
 
+test("Mia Core local events client reads ws MessageEvent data from the prototype", () => {
+  FakeSocket.instances = [];
+  const envelopes = [];
+  const client = createMiaCoreLocalEventsClient({
+    baseUrl: () => "http://127.0.0.1:27862",
+    enabled: () => true,
+    WebSocketImpl: FakeSocket,
+    onEnvelope: (envelope) => envelopes.push(envelope),
+    setTimeoutFn: () => 0,
+    clearTimeoutFn: () => {}
+  });
+
+  client.start();
+  FakeSocket.instances[0].emit("open");
+  const messageEvent = Object.create({
+    data: JSON.stringify({
+      name: "cloud_agent_run_event",
+      data: {
+        conversationId: "botc_1",
+        runId: "car_1",
+        event: { type: "text_delta", text: "stream" }
+      }
+    })
+  });
+  FakeSocket.instances[0].emit("message", messageEvent);
+
+  assert.deepEqual(envelopes, [{
+    type: "cloud_agent_run_event",
+    payload: {
+      conversationId: "botc_1",
+      runId: "car_1",
+      event: { type: "text_delta", text: "stream" }
+    },
+    coreEnvelope: {
+      name: "cloud_agent_run_event",
+      data: {
+        conversationId: "botc_1",
+        runId: "car_1",
+        event: { type: "text_delta", text: "stream" }
+      }
+    }
+  }]);
+
+  client.stop();
+});
+
 test("Mia Core local events client stays idle when Core is disabled or unresolved", () => {
   FakeSocket.instances = [];
   const timers = [];

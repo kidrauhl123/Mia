@@ -5366,30 +5366,19 @@
     return entry;
   }
 
-  function _reconcileFetchedMessageWindow(conversationId, sinceSeq, incoming, limit = 100) {
+  function _reconcileFetchedMessageWindow(conversationId, _sinceSeq, incoming, _limit = 100) {
     const entry = moduleState.messageCache.get(conversationId);
     if (!entry || !Array.isArray(entry.messages)) return false;
     const fresh = Array.isArray(incoming) ? incoming.filter((msg) => msg?.id) : [];
     const visibleIds = new Set(fresh.map((msg) => String(msg.id)));
-    const seqs = fresh.map((msg) => Number(msg.seq)).filter(Number.isFinite);
-    const cap = Math.max(1, Number(limit) || 100);
-    const lowerSeq = Number(sinceSeq) || 0;
-    const completeWindow = fresh.length < cap;
-    const upperSeq = completeWindow ? Infinity : Math.max(...seqs, lowerSeq);
-    const before = entry.messages.length;
+    let changed = false;
     for (const msg of entry.messages) {
       if (msg?._localBackfillPending && visibleIds.has(String(msg.id || ""))) {
         delete msg._localBackfillPending;
+        changed = true;
       }
     }
-    entry.messages = entry.messages.filter((msg) => {
-      if (isTransientLocalConversationMessage(msg)) return true;
-      const seq = Number(msg?.seq);
-      if (!Number.isFinite(seq) || seq <= lowerSeq) return true;
-      if (upperSeq !== Infinity && seq > upperSeq) return true;
-      return visibleIds.has(String(msg.id || ""));
-    });
-    return entry.messages.length !== before;
+    return changed;
   }
 
   function isTransientLocalConversationMessage(msg) {
