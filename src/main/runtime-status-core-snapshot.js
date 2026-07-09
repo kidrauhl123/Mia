@@ -171,24 +171,45 @@ function createRuntimeStatusCoreSnapshot({
     return current;
   }
 
+  async function readCloudStatus(status = {}) {
+    if (!Object.prototype.hasOwnProperty.call(objectOrEmpty(status), "cloud")) return null;
+    try {
+      const response = await coreRequest({ method: "GET", route: "/api/cloud/status" });
+      return response && typeof response === "object" && !Array.isArray(response) ? response : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function apply(status = {}, options = {}) {
+    const cloudStatusPromise = readCloudStatus(status);
     let snapshot;
     try {
       snapshot = await readCoreSnapshot({ force: Boolean(options.force) });
     } catch {
-      return status;
+      snapshot = null;
     }
+    const cloudStatus = await cloudStatusPromise;
 
-    const model = compactModelFromClientSettings(snapshot.settingsResponse);
-    const connectedProviders = coreProviderSummaries(snapshot.providersResponse, model, authStatus());
-    return {
-      ...status,
-      model: {
+    if (!snapshot && !cloudStatus) return status;
+
+    const next = { ...status };
+    if (snapshot) {
+      const model = compactModelFromClientSettings(snapshot.settingsResponse);
+      const connectedProviders = coreProviderSummaries(snapshot.providersResponse, model, authStatus());
+      next.model = {
         ...model,
         hasApiKey: modelHasConnectedProvider(model, connectedProviders)
-      },
-      connectedProviders
-    };
+      };
+      next.connectedProviders = connectedProviders;
+    }
+    if (cloudStatus) {
+      next.cloud = {
+        ...objectOrEmpty(status.cloud),
+        ...cloudStatus
+      };
+    }
+    return next;
   }
 
   function invalidate() {

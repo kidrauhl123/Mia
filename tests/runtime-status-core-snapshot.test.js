@@ -143,6 +143,50 @@ test("runtime status snapshot overlays model and providers from Rust Core", asyn
   ]);
 });
 
+test("runtime status snapshot overlays cloud status from Rust Core", async () => {
+  const calls = [];
+  const snapshot = createRuntimeStatusCoreSnapshot({
+    authStatus: () => ({ codexLoggedIn: false }),
+    coreRequest: async (request) => {
+      calls.push(request);
+      if (request.route === "/api/settings/client") return { settings: {} };
+      if (request.route === "/api/providers") return { providers: [] };
+      if (request.route === "/api/cloud/status") {
+        return {
+          enabled: true,
+          connected: true,
+          connecting: false,
+          deviceId: "device_core",
+          lastError: "",
+          logs: ["Mia Cloud Bridge connected."],
+          events: { connected: true }
+        };
+      }
+      throw new Error(`unexpected route ${request.route}`);
+    }
+  });
+
+  const result = await snapshot.apply({
+    cloud: {
+      enabled: true,
+      connected: false,
+      connecting: false,
+      lastError: "stale foreground cache"
+    }
+  });
+
+  assert.ok(calls.some((request) => request.route === "/api/cloud/status"));
+  assert.deepEqual(result.cloud, {
+    enabled: true,
+    connected: true,
+    connecting: false,
+    deviceId: "device_core",
+    lastError: "",
+    logs: ["Mia Cloud Bridge connected."],
+    events: { connected: true }
+  });
+});
+
 test("runtime status snapshot keeps local status when Rust Core is unavailable", async () => {
   const snapshot = createRuntimeStatusCoreSnapshot({
     coreRequest: async () => {
