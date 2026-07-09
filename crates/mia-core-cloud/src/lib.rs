@@ -157,6 +157,14 @@ impl CloudService {
     ) -> Result<CloudConnectResponse, CloudError> {
         let mut current = self.read_cloud_settings().await?;
         let previous = current.clone();
+        let previous_token = string_field(&current, "token").unwrap_or_default();
+        let previous_url = normalize_cloud_url(current.get("url").and_then(Value::as_str));
+        let previous_enabled = bool_field(&current, "enabled") && !previous_token.trim().is_empty();
+        let previous_last_event_seq = current
+            .get("lastEventSeq")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .max(0);
         let token = request
             .token
             .as_deref()
@@ -175,6 +183,14 @@ impl CloudService {
                 .as_deref()
                 .or_else(|| current.get("url").and_then(Value::as_str)),
         );
+        let same_resume_session =
+            previous_enabled && previous_token == token && previous_url == url;
+        let next_last_event_seq = match request.last_event_seq.map(|seq| seq.max(0)) {
+            Some(requested) if same_resume_session => previous_last_event_seq.max(requested),
+            Some(requested) => requested,
+            None if same_resume_session => previous_last_event_seq,
+            None => 0,
+        };
         set_object_field(&mut current, "enabled", Value::Bool(true));
         set_object_field(&mut current, "url", Value::String(url));
         set_object_field(&mut current, "token", Value::String(token));
@@ -184,13 +200,11 @@ impl CloudService {
             "agentRuntime",
             request.agent_runtime.unwrap_or(Value::Null),
         );
-        if let Some(last_event_seq) = request.last_event_seq {
-            set_object_field(
-                &mut current,
-                "lastEventSeq",
-                Value::Number(last_event_seq.into()),
-            );
-        }
+        set_object_field(
+            &mut current,
+            "lastEventSeq",
+            Value::Number(next_last_event_seq.into()),
+        );
         if let Some(last_memory_sync_at) = request.last_memory_sync_at {
             set_object_field(
                 &mut current,

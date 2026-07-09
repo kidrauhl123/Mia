@@ -263,6 +263,49 @@ async fn cloud_service_connect_is_idempotent_for_unchanged_settings() {
 }
 
 #[tokio::test]
+async fn cloud_service_connect_does_not_regress_cursor_for_same_session() {
+    let database = init_database_memory().await.unwrap();
+    let service = CloudService::with_now(database.pool().clone(), || 1000);
+    let base_request = CloudConnectRequest {
+        url: Some("https://mia.example/".into()),
+        token: Some("secret-token".into()),
+        account_hint: None,
+        user: Some(json!({ "id": "u1", "displayName": "Jung" })),
+        account: None,
+        agent_runtime: Some(json!({ "engine": "codex" })),
+        last_event_seq: Some(42),
+        last_memory_sync_at: Some("2026-07-07T00:00:00Z".into()),
+    };
+
+    service.connect(base_request.clone()).await.unwrap();
+    service
+        .connect(CloudConnectRequest {
+            last_event_seq: Some(0),
+            ..base_request.clone()
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        service.status(false).await.unwrap().events["lastEventSeq"],
+        42
+    );
+
+    service
+        .connect(CloudConnectRequest {
+            last_event_seq: Some(43),
+            ..base_request
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        service.status(false).await.unwrap().events["lastEventSeq"],
+        43
+    );
+}
+
+#[tokio::test]
 async fn cloud_service_disconnect_clears_credentials_and_runtime() {
     let database = init_database_memory().await.unwrap();
     let service = CloudService::with_now(database.pool().clone(), || 1000);
@@ -926,6 +969,76 @@ async fn cloud_events_manager_deduplicates_replayed_desktop_bot_invocations() {
 
     assert_eq!(runner.runs.lock().unwrap().len(), 1);
     assert_eq!(http_transport.calls().len(), 1);
+    manager.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn cloud_events_manager_does_not_run_replayed_desktop_bot_invocations() {
+    let database = init_database_memory().await.unwrap();
+    let http_transport = MockMemoryTransport::with_responses(vec![json!({
+        "message": { "id": "m_reply", "body_md": "done by core" }
+    })]);
+    let service = CloudService::with_memory_transport(
+        database.pool().clone(),
+        || 123456,
+        http_transport.clone(),
+    );
+    service
+        .connect(CloudConnectRequest {
+            url: Some("https://mia.example/".into()),
+            token: Some("secret-token".into()),
+            account_hint: None,
+            user: Some(json!({ "id": "u1" })),
+            account: None,
+            agent_runtime: None,
+            last_event_seq: Some(7),
+            last_memory_sync_at: None,
+        })
+        .await
+        .unwrap();
+    let socket_transport = Arc::new(MockBridgeTransport {
+        events: Arc::new(Mutex::new(vec![
+            CloudBridgeSocketEvent::Open,
+            CloudBridgeSocketEvent::Text(
+                json!({ "type": "events_ready", "sinceSeq": 0, "serverSeq": 8 }).to_string(),
+            ),
+            CloudBridgeSocketEvent::Text(
+                json!({
+                    "type": "conversation.bot_invocation_requested",
+                    "seq": 8,
+                    "replay": true,
+                    "conversationId": "botc_1",
+                    "botId": "bot_codex",
+                    "runtimeKind": "desktop-local",
+                    "runtimeConfig": { "agentEngine": "codex" },
+                    "triggeringMessage": { "id": "m_user", "body_md": "hi" },
+                    "members": [{
+                        "member_kind": "bot",
+                        "member_ref": "bot_codex",
+                        "identity": { "displayName": "Codex" }
+                    }]
+                })
+                .to_string(),
+            ),
+        ])),
+        ..Default::default()
+    });
+    let runner = Arc::new(MockBridgeRunner::default());
+    let manager = CloudEventsManager::with_transport_and_desktop_runner(
+        service,
+        socket_transport,
+        Arc::new(|_, _| {}),
+        Some(runner.clone()),
+        Duration::from_millis(10),
+        Duration::from_secs(60),
+        Duration::from_secs(60),
+    );
+
+    manager.start().await.unwrap();
+    sleep(Duration::from_millis(100)).await;
+
+    assert_eq!(runner.runs.lock().unwrap().len(), 0);
+    assert_eq!(http_transport.calls().len(), 0);
     manager.stop().await.unwrap();
 }
 

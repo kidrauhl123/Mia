@@ -393,6 +393,13 @@ impl CloudEventsManager {
                 });
             }
             "conversation.bot_invocation_requested" => {
+                if message
+                    .get("replay")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    return;
+                }
                 let manager = self.clone();
                 let message = message.clone();
                 tokio::spawn(async move {

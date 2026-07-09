@@ -3475,7 +3475,10 @@
       if ((!previousRun && isBusy) || wasBusy !== isBusy || previousStatus !== run.status) {
         if (deps && typeof deps.render === "function") deps.render();
       }
-      if (hermesEventType !== "message.delta" && hermesEventType !== "text_delta") {
+      const isTextDelta = hermesEventType === "message.delta" || hermesEventType === "text_delta";
+      const hasStreamingArticle = conversationId === moduleState.activeConversationId
+        && findActiveStreamingArticle(document.getElementById("chat"));
+      if (!isTextDelta || !hasStreamingArticle) {
         scheduleCloudRunRender(conversationId);
       }
       refreshCloudRunStatusTimer();
