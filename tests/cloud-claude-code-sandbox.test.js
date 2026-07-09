@@ -175,7 +175,11 @@ test("cloud Claude Code client runs SDK query without Hermes gateway and streams
   assert.equal(capture.params.options.allowDangerouslySkipPermissions, true);
   assert.equal(capture.params.options.sandbox.enabled, true);
   assert.match(capture.params.prompt, /Conversation history/);
-  assert.match(capture.params.prompt, /\/data\/attachments\/a\.txt maps to \/tmp\/mia-worker\/attachments\/a\.txt/);
+  assert.doesNotMatch(capture.params.prompt, /Mia cloud sandbox filesystem mapping/);
+  assert.doesNotMatch(capture.params.prompt, /\/data\/attachments\/a\.txt maps to \/tmp\/mia-worker\/attachments\/a\.txt/);
+  assert.match(capture.params.options.systemPrompt.append, /system instructions/);
+  assert.match(capture.params.options.systemPrompt.append, /Mia cloud sandbox filesystem mapping/);
+  assert.match(capture.params.options.systemPrompt.append, /\/data\/attachments\/a\.txt maps to \/tmp\/mia-worker\/attachments\/a\.txt/);
 });
 
 test("cloud Claude Code client dedupes progressive assistant snapshots in fallback mode", async () => {

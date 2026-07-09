@@ -70,8 +70,14 @@ function attachmentRuntimeHint(worker = {}, attachments = []) {
 function buildPrompt(args = {}) {
   return [
     formatSeedMessages(args.seedMessages),
-    attachmentRuntimeHint(args.worker, args.attachments),
     String(args.input || "").trim()
+  ].filter(Boolean).join("\n\n");
+}
+
+function buildSystemPromptAppend(args = {}) {
+  return [
+    String(args.instructions || "").trim(),
+    attachmentRuntimeHint(args.worker, args.attachments)
   ].filter(Boolean).join("\n\n");
 }
 
@@ -206,6 +212,7 @@ function createCloudClaudeCodeClient(deps = {}) {
     activeRuns.set(runId, { abortController, worker });
     if (typeof args.onRunCreated === "function") args.onRunCreated(runId);
     const prompt = buildPrompt({ ...args, worker });
+    const systemPromptAppend = buildSystemPromptAppend({ ...args, worker });
     const model = normalizeCloudClaudeCodeModel(args.model, { defaultModel: worker.model });
     const permissionMode = normalizeClaudePermissionMode(args.permissionMode || worker.permissionMode);
     const options = {
@@ -220,7 +227,7 @@ function createCloudClaudeCodeClient(deps = {}) {
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: String(args.instructions || "").trim()
+        append: systemPromptAppend
       },
       sandbox: worker.sandboxSettings || { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true }
     };
