@@ -758,6 +758,52 @@ test("bootstrapAfterLogin does not treat an empty bot identity list as an author
   );
 });
 
+test("renderSidebarRows excludes Rust Core mirror conversations from the social sidebar", () => {
+  const s = loadSocial();
+  s.__mockWindow.miaSessionHistory = sessionHistory;
+  s.moduleState.conversations = [
+    {
+      id: "conv_019f4623dcd97b20bf3526a7202ad9fa",
+      type: "dm",
+      name: "好友",
+      updatedAt: "2026-07-09T09:16:00.000Z"
+    },
+    {
+      id: "cloud_bridge_botc_starter_9038338_mia",
+      type: "bot",
+      name: "Mia",
+      updatedAt: "2026-07-09T09:17:00.000Z",
+      decorations: {
+        botId: "starter_9038338_mia",
+        sessionId: "cloud_bridge_botc_starter_9038338_mia",
+        runtimeKind: "desktop-local"
+      }
+    },
+    {
+      id: "dm:u_me:u_bob",
+      type: "dm",
+      name: "Bob",
+      updatedAt: "2026-07-09T09:15:00.000Z"
+    },
+    {
+      id: "botc_starter_9038338_mia",
+      type: "bot",
+      name: "Mia",
+      updatedAt: "2026-07-09T09:14:00.000Z",
+      decorations: {
+        botId: "starter_9038338_mia",
+        sessionId: "starter_9038338_mia",
+        runtimeKind: "cloud-claude-code"
+      }
+    }
+  ];
+
+  assert.deepEqual(
+    s.renderSidebarRows().map((row) => row.conversation.id),
+    ["dm:u_me:u_bob", "botc_starter_9038338_mia"]
+  );
+});
+
 test("bootstrapAfterLogin keeps legacy UUID bot sessions for history but hides them from sidebar", async () => {
   const s = loadSocial();
   const legacy = {

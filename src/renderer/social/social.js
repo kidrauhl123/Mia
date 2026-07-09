@@ -2686,6 +2686,11 @@
       .some((bot) => botKeyFromRecord(bot) === botId);
   }
 
+  function isCoreMirrorConversation(conversation = {}) {
+    const id = String(conversation?.id || "").trim();
+    return id.startsWith("conv_") || id.startsWith("cloud_bridge_");
+  }
+
   function visibleSocialConversations(conversations, options = {}) {
     if (!Array.isArray(conversations)) return [];
     const keepLegacyIds = new Set([
@@ -2696,6 +2701,8 @@
     const otherDeviceOnly = isOtherDeviceConversationFilter(filterName);
     const filteredTag = otherDeviceOnly ? "" : filterName;
     return conversations.filter((conversation) =>
+      !isCoreMirrorConversation(conversation)
+    ).filter((conversation) =>
       !isLegacyBotSessionConversation(conversation)
       || keepLegacyIds.has(String(conversation?.id || ""))
     ).filter((conversation) =>

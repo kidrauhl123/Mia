@@ -158,7 +158,7 @@ test("bot preload bridge keeps bot identity cloud-owned while Core owns runtime 
   assert.doesNotMatch(preload, /IpcChannel\.SocialEnsureBotSessionConversation/);
 });
 
-test("conversation preload bridge keeps legacy social data primary with Rust Core fallback", () => {
+test("conversation preload bridge keeps the social conversation list cloud-owned", () => {
   const preload = read("src/preload.js");
   const channels = read("src/shared/ipc-channels.js");
   const main = read("src/main.js");
@@ -209,7 +209,12 @@ test("conversation preload bridge keeps legacy social data primary with Rust Cor
   assert.match(preload, /IpcChannel\.SocialGetConversation/);
   assert.match(preload, /IpcChannel\.SocialCreateConversation/);
   assert.match(preload, /IpcChannel\.SocialPostConversationMessage/);
-  assert.match(preload, /return coreConversationOk\(miaCoreGet\("\/api\/conversations"\)\)/);
+  const listConversationsSource = extractFunctionSource(preload, "listConversationsCompat");
+  assert.doesNotMatch(
+    listConversationsSource,
+    /miaCoreGet\("\/api\/conversations"\)|coreConversationOk\(miaCoreGet/,
+    "the social sidebar list must not import Rust Core conv_* or cloud_bridge_* rows"
+  );
   assert.match(preload, /input\.bodyMd \|\| input\.body_md \|\| input\.body \|\| input\.text \|\| input\.message/);
   assert.match(preload, /function normalizeCoreConversation/);
   const coreConversationIdSource = extractFunctionSource(preload, "isCoreConversationId");

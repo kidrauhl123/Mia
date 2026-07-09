@@ -386,11 +386,12 @@ async function listConversationsCompat() {
   try {
     const result = await ipcRenderer.invoke(IpcChannel.SocialListConversations);
     const conversations = result?.data?.conversations || result?.conversations || [];
-    if (result?.ok !== false && Array.isArray(conversations) && conversations.length) return result;
-  } catch {
-    // Fall back to Core when Cloud/social is unavailable.
+    if (result?.ok === false) return result;
+    if (result && typeof result === "object" && Array.isArray(conversations)) return result;
+  } catch (error) {
+    return { ok: false, error: error?.message || "读取云端会话列表失败" };
   }
-  return coreConversationOk(miaCoreGet("/api/conversations"));
+  return { ok: false, error: "读取云端会话列表失败" };
 }
 
 async function listBotsCompat() {
