@@ -5,6 +5,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const {
+  assertNotHtmlDownload,
   bundledRustCorePath,
   miaCoreAssetName,
   miaCoreDownloadUrl,
@@ -85,6 +86,20 @@ test("prepareMiaCoreRs downloads a prebuilt Mia Core release when no override is
     assert.equal(manifest.sourceType, "download");
     assert.equal(manifest.version, "v9.8.7");
     assert.equal(manifest.source.url, "https://cdn.example/mia-core/v9.8.7/mia-core-v9.8.7-x86_64-apple-darwin.tar.gz");
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("prepareMiaCoreRs rejects website HTML fallback downloads before archive extraction", () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-html-"));
+  try {
+    const downloadPath = path.join(rootDir, "mia-core.tar.gz");
+    fs.writeFileSync(downloadPath, "<!doctype html><html><body>Mia</body></html>");
+    assert.throws(
+      () => assertNotHtmlDownload(downloadPath, "https://mia.gifgif.cn/downloads/mia-core/v0.1.0/missing.tar.gz"),
+      /returned an HTML page instead of an archive/
+    );
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }

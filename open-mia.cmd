@@ -42,6 +42,34 @@ if not exist "node_modules\electron" (
   )
 )
 
+set "CORE_PLATFORM=win32"
+for /f "usebackq delims=" %%P in (`node -p "process.platform" 2^>nul`) do set "CORE_PLATFORM=%%P"
+set "CORE_ARCH=x64"
+for /f "usebackq delims=" %%A in (`node -p "process.arch" 2^>nul`) do set "CORE_ARCH=%%A"
+set "CORE_EXE=mia-core"
+if /i "%CORE_PLATFORM%"=="win32" set "CORE_EXE=mia-core.exe"
+
+set "CORE_READY=0"
+if exist "resources\bundled-mia-core\%CORE_PLATFORM%-%CORE_ARCH%\%CORE_EXE%" set "CORE_READY=1"
+if exist "target\debug\%CORE_EXE%" set "CORE_READY=1"
+if exist "target\release\%CORE_EXE%" set "CORE_READY=1"
+
+if not "%CORE_READY%"=="1" (
+  echo Preparing Mia Core prebuilt binary...
+  call npm run core:prepare
+  if errorlevel 1 (
+    echo.
+    echo Mia Core binary is not ready.
+    echo If the prebuilt Core release has not been published yet, build one locally first.
+    echo Run one of these, then open Mia again:
+    echo   npm run core:prepare
+    echo   set MIA_CORE_RS_BIN=C:\path\to\mia-core.exe ^&^& npm run core:prepare
+    echo   cargo build -p mia-core-app --bin mia-core
+    pause
+    exit /b 1
+  )
+)
+
 echo Starting Mia in development mode...
 echo Project: %CD%
 if "%MIA_DISABLE_BACKGROUND_STARTUP%"=="1" (

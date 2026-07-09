@@ -67,6 +67,8 @@ const required = [
   "src/web/assets/mia-scroll.js",
   "src/web/assets/mia-logo.png",
   "src/web/manifest.webmanifest",
+  "open-mia.command",
+  "open-mia.cmd",
   "scripts/clean-release.js",
   "scripts/build-win.js",
   "electron-builder.mac-intel.js",
@@ -184,6 +186,13 @@ childProcess.execFileSync(bash, ["-n", path.join(rootDir, "scripts/deploy-cloud-
 childProcess.execFileSync(bash, ["-n", path.join(rootDir, "scripts/install-cloud-release-local.sh")], {
   stdio: "inherit"
 });
+childProcess.execFileSync(bash, ["-n", path.join(rootDir, "open-mia.command")], {
+  stdio: "inherit"
+});
+const openMiaCmd = fs.readFileSync(path.join(rootDir, "open-mia.cmd"), "utf8");
+assert.match(openMiaCmd, /npm run core:prepare/);
+assert.match(openMiaCmd, /resources\\bundled-mia-core\\%CORE_PLATFORM%-%CORE_ARCH%\\%CORE_EXE%/);
+assert.match(openMiaCmd, /mia-core\.exe/);
 
 const { normalizePermissionMode, permissionModeLabel } = require("./permission-modes");
 const {

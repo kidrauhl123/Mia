@@ -89,4 +89,39 @@ if [ ! -d "node_modules/electron" ]; then
   npm install
 fi
 
+CORE_PLATFORM="$(node -p "process.platform" 2>/dev/null || echo darwin)"
+CORE_ARCH="$(node -p "process.arch" 2>/dev/null || echo arm64)"
+CORE_EXE="mia-core"
+if [ "$CORE_PLATFORM" = "win32" ]; then
+  CORE_EXE="mia-core.exe"
+fi
+
+CORE_CANDIDATES=(
+  "resources/bundled-mia-core/${CORE_PLATFORM}-${CORE_ARCH}/${CORE_EXE}"
+  "target/debug/${CORE_EXE}"
+  "target/release/${CORE_EXE}"
+)
+
+CORE_READY=0
+for core_candidate in "${CORE_CANDIDATES[@]}"; do
+  if [ -x "$core_candidate" ]; then
+    CORE_READY=1
+    break
+  fi
+done
+
+if [ "$CORE_READY" != "1" ]; then
+  echo "Preparing Mia Core prebuilt binary..."
+  if ! npm run core:prepare; then
+    echo
+    echo "Mia Core binary is not ready."
+    echo "If the prebuilt Core release has not been published yet, build one locally first."
+    echo "Run one of these, then open Mia again:"
+    echo "  npm run core:prepare"
+    echo "  MIA_CORE_RS_BIN=/path/to/mia-core npm run core:prepare"
+    echo "  cargo build -p mia-core-app --bin mia-core"
+    exit 1
+  fi
+fi
+
 npm run open

@@ -160,6 +160,21 @@ function downloadFile(url, outputPath, { platform = process.platform, execFileSy
   }
 }
 
+function assertNotHtmlDownload(filePath, url) {
+  const fd = fs.openSync(filePath, "r");
+  let prefix = "";
+  try {
+    const buffer = Buffer.alloc(256);
+    const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    prefix = buffer.subarray(0, bytesRead).toString("utf8").trimStart().toLowerCase();
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (prefix.startsWith("<!doctype html") || prefix.startsWith("<html")) {
+    throw new Error(`Mia Core release download returned an HTML page instead of an archive: ${url}`);
+  }
+}
+
 function extractArchive(archivePath, outputDir, { platform = process.platform, execFileSync = childProcess.execFileSync } = {}) {
   ensureDirectory(outputDir);
   if (normalizePlatform(platform) === "win32" || archivePath.endsWith(".zip")) {
@@ -293,6 +308,7 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
       const archivePath = path.join(tempDir, miaCoreAssetName(platform, arch, tag));
       try {
         downloadFile(url, archivePath, { platform, execFileSync });
+        assertNotHtmlDownload(archivePath, url);
         result = stageArchive({
           rootDir,
           platform,
@@ -316,6 +332,7 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
 module.exports = prepareMiaCoreRs;
 Object.assign(module.exports, {
   bundledRustCorePath,
+  assertNotHtmlDownload,
   downloadFile,
   extractArchive,
   findBinaryInDir,
