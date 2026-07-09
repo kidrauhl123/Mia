@@ -1322,74 +1322,82 @@ async function waitForReusableCore({ settings, expectedRuntimeHome, expectedCore
 async function startDaemonService() {
   if (daemonStartPromise) return daemonStartPromise;
   daemonStartPromise = (async () => {
-  if (!IS_CORE_PROCESS && process.env.MIA_DISABLE_BACKGROUND_STARTUP === "1") {
-    return { ...getDaemonStatus(), running: false, disabled: true };
-  }
-  initializeRuntime();
-  const settings = settingsStore.coreSettings();
-  if (IS_CORE_PROCESS) return miaCoreControlServer.start(settings);
-  await launchdService.cleanupLegacyNodeCore();
-  const expectedRuntimeHome = runtimePaths().home;
-  const expectedCoreTarget = shouldUseLaunchdForCore()
-    ? miaCoreLaunchdResolver.describe()
-    : miaCoreResolver.describe();
-  const existing = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
-  let existingReusable = false;
-  if (existing.ok && existing.mode === "daemon") {
-    // A KeepAlive launchd daemon survives app updates, so the freshly-updated
-    // window can find an old-version daemon still owning cloud events + bot
-    // execution. Reuse it only when versions match AND it is NOT running under
-    // the GUI app identity. Otherwise fall through to launchdService.startCore()
-    // below, which rewrites the plist and bootout+bootstraps Mia Rust Core.
-    existingReusable = shouldReuseCore(existing, app.getVersion(), { expectedCoreTarget });
-    if (existingReusable) {
-      appendDaemonLog(`Reusing Mia Rust Core at ${existing.baseUrl}.`);
-      const status = { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
-      markCoreRunningForTray(true);
-      return status;
+    try {
+      if (!IS_CORE_PROCESS && process.env.MIA_DISABLE_BACKGROUND_STARTUP === "1") {
+        return { ...getDaemonStatus(), running: false, disabled: true };
+      }
+      initializeRuntime();
+      const settings = settingsStore.coreSettings();
+      if (IS_CORE_PROCESS) return miaCoreControlServer.start(settings);
+      await launchdService.cleanupLegacyNodeCore();
+      const expectedRuntimeHome = runtimePaths().home;
+      const expectedCoreTarget = shouldUseLaunchdForCore()
+        ? miaCoreLaunchdResolver.describe()
+        : miaCoreResolver.describe();
+      const existing = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
+      let existingReusable = false;
+      if (existing.ok && existing.mode === "daemon") {
+        // A KeepAlive launchd daemon survives app updates, so the freshly-updated
+        // window can find an old-version daemon still owning cloud events + bot
+        // execution. Reuse it only when versions match AND it is NOT running under
+        // the GUI app identity. Otherwise fall through to launchdService.startCore()
+        // below, which rewrites the plist and bootout+bootstraps Mia Rust Core.
+        existingReusable = shouldReuseCore(existing, app.getVersion(), { expectedCoreTarget });
+        if (existingReusable) {
+          appendDaemonLog(`Reusing Mia Rust Core at ${existing.baseUrl}.`);
+          const status = { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
+          markCoreRunningForTray(true);
+          return status;
+        }
+        if (coreNeedsReplacement(existing, app.getVersion())) {
+          appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
+        } else if (existing.daemonTarget?.usesGuiAppIdentity === true || !existing.daemonTarget) {
+          appendDaemonLog(`Core target ${existing.daemonTarget?.kind || "(unknown)"} uses GUI app identity or is unreported; migrating to rust-core.`);
+        } else {
+          appendDaemonLog(`Daemon target ${existing.daemonTarget?.workingDirectory || existing.daemonTarget?.command || "(unknown)"} != expected ${expectedCoreTarget.workingDirectory || expectedCoreTarget.command || "(unknown)"}; replacing.`);
+        }
+      } else if (existing.ok) {
+        appendDaemonLog(`Ignoring ${existing.mode || "unknown"} process on daemon port; a real daemon process is required.`);
+      }
+      // Fail closed: rust-core is the sole background Core target. On a degenerate
+      // packaged build that cannot resolve the bundled Rust Core the resolver returns
+      // `unresolved` and this throws, rather than launching the GUI app as Core.
+      miaCoreResolver.assertLaunchable();
+      if (!existingReusable && existing.ok && existing.mode === "daemon" && !shouldUseLaunchdForCore()) {
+        await miaCoreProcessLauncher.stopObservedProcess(existing.pid);
+      }
+      if (shouldUseLaunchdForCore()) {
+        await launchdService.startCore();
+        const ping = await waitForReusableCore({ settings, expectedRuntimeHome, expectedCoreTarget });
+        if (ping) {
+          appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
+          const status = { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+          markCoreRunningForTray(true);
+          return status;
+        }
+        throw new Error(`Timed out waiting for Mia daemon LaunchAgent after ${coreStartTimeoutMs(expectedCoreTarget)}ms.`);
+      }
+      if (process.platform === "darwin") {
+        appendDaemonLog("MIA_CORE_START_MODE=process: starting Mia Rust Core as a child process for development verification.");
+      }
+      miaCoreControlServer.stop();
+      await miaCoreProcessLauncher.start();
+      const ping = await waitForReusableCore({ settings, expectedRuntimeHome, expectedCoreTarget });
+      if (ping) {
+        appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
+        const status = { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+        markCoreRunningForTray(true);
+        return status;
+      }
+      await miaCoreProcessLauncher.stopCurrentProcess();
+      throw new Error(`Timed out waiting for Mia daemon process after ${coreStartTimeoutMs(expectedCoreTarget)}ms.`);
+    } catch (error) {
+      const message = String(error?.message || error || "Unknown Mia Core startup error.");
+      miaCoreControlServer?.setLastError?.(message);
+      appendDaemonLog(`Mia Core start failed: ${message}`);
+      markCoreRunningForTray(false);
+      throw error;
     }
-    if (coreNeedsReplacement(existing, app.getVersion())) {
-      appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
-    } else if (existing.daemonTarget?.usesGuiAppIdentity === true || !existing.daemonTarget) {
-      appendDaemonLog(`Core target ${existing.daemonTarget?.kind || "(unknown)"} uses GUI app identity or is unreported; migrating to rust-core.`);
-    } else {
-      appendDaemonLog(`Daemon target ${existing.daemonTarget?.workingDirectory || existing.daemonTarget?.command || "(unknown)"} != expected ${expectedCoreTarget.workingDirectory || expectedCoreTarget.command || "(unknown)"}; replacing.`);
-    }
-  } else if (existing.ok) {
-    appendDaemonLog(`Ignoring ${existing.mode || "unknown"} process on daemon port; a real daemon process is required.`);
-  }
-  // Fail closed: rust-core is the sole background Core target. On a degenerate
-  // packaged build that cannot resolve the bundled Rust Core the resolver returns
-  // `unresolved` and this throws, rather than launching the GUI app as Core.
-  miaCoreResolver.assertLaunchable();
-  if (!existingReusable && existing.ok && existing.mode === "daemon" && !shouldUseLaunchdForCore()) {
-    await miaCoreProcessLauncher.stopObservedProcess(existing.pid);
-  }
-  if (shouldUseLaunchdForCore()) {
-    await launchdService.startCore();
-    const ping = await waitForReusableCore({ settings, expectedRuntimeHome, expectedCoreTarget });
-    if (ping) {
-      appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
-      const status = { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
-      markCoreRunningForTray(true);
-      return status;
-    }
-    throw new Error(`Timed out waiting for Mia daemon LaunchAgent after ${coreStartTimeoutMs(expectedCoreTarget)}ms.`);
-  }
-  if (process.platform === "darwin") {
-    appendDaemonLog("MIA_CORE_START_MODE=process: starting Mia Rust Core as a child process for development verification.");
-  }
-  miaCoreControlServer.stop();
-  await miaCoreProcessLauncher.start();
-  const ping = await waitForReusableCore({ settings, expectedRuntimeHome, expectedCoreTarget });
-  if (ping) {
-    appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
-    const status = { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
-    markCoreRunningForTray(true);
-    return status;
-  }
-  await miaCoreProcessLauncher.stopCurrentProcess();
-  throw new Error(`Timed out waiting for Mia daemon process after ${coreStartTimeoutMs(expectedCoreTarget)}ms.`);
   })();
   try {
     return await daemonStartPromise;

@@ -145,6 +145,37 @@ test("process-mode launcher captures Core stdout stderr and exit diagnostics", a
   assert.ok(calls.some((entry) => entry.log === "Mia Core process exited code=1 signal=SIGTERM"));
 });
 
+test("Core launcher rejects immediately when the Rust Core command is missing", async () => {
+  const { calls, launcher } = setup({
+    resolver: {
+      resolve: () => ({
+        kind: "rust-core",
+        command: "cargo",
+        args: ["run"],
+        workingDirectory: os.tmpdir(),
+        usesGuiAppIdentity: false
+      }),
+      coreEnvOverlay: () => ({ MIA_CORE: "1" })
+    },
+    spawn: (command, args, options) => {
+      calls.push({ command, args, options });
+      const child = new EventEmitter();
+      child.pid = 0;
+      process.nextTick(() => {
+        child.emit("error", Object.assign(new Error("spawn cargo ENOENT"), { code: "ENOENT" }));
+      });
+      return child;
+    }
+  });
+
+  await assert.rejects(
+    () => launcher.start(),
+    /Rust\/Cargo is required for Mia Core in development mode/
+  );
+  assert.ok(calls.some((entry) => entry.log === "Mia Core process error: spawn cargo ENOENT"));
+  assert.equal(calls.some((entry) => entry.unref), false);
+});
+
 test("process-mode launcher can stop a stale observed Core before starting replacement", async () => {
   const { calls, launcher } = setup();
 

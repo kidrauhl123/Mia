@@ -238,6 +238,15 @@ test("bot composer shows Mia Core startup progress through the right-side status
   assert.match(css, /\.model-switch-status\.core-starting\.is-nudging\s*\{/);
 });
 
+test("daemon status card surfaces Mia Core startup errors", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const renderDaemonStatus = extractFunctionSource(appSource, "renderDaemonStatus");
+
+  assert.match(renderDaemonStatus, /status\?\.lastError/);
+  assert.match(renderDaemonStatus, /errorHint/);
+  assert.match(renderDaemonStatus, /请重启 Mia Core\$\{errorHint\}/);
+});
+
 test("only bot conversations block sends while Mia Core startup is in progress", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");

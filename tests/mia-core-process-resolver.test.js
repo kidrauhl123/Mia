@@ -139,7 +139,8 @@ function setup(overrides = {}) {
 }
 
 test("dev rust-core target prefers repo bundled binary when present", () => {
-  const bundled = repoBundledRustCorePath("/repo", "darwin", "arm64");
+  const repoRoot = path.resolve("/repo");
+  const bundled = repoBundledRustCorePath(repoRoot, "darwin", "arm64");
   const r = setup({
     existsSync: (candidate) => candidate === bundled
   }).resolve();
@@ -152,7 +153,8 @@ test("dev rust-core target prefers repo bundled binary when present", () => {
 });
 
 test("dev rust-core target prefers built debug binary before cargo", () => {
-  const debug = devRustCorePath("/repo", "debug", "darwin");
+  const repoRoot = path.resolve("/repo");
+  const debug = devRustCorePath(repoRoot, "debug", "darwin");
   const r = setup({
     existsSync: (candidate) => candidate === debug
   }).resolve();
@@ -166,6 +168,7 @@ test("dev rust-core target prefers built debug binary before cargo", () => {
 
 test("dev rust-core target falls back to cargo run with configured port and Core-owned data dirs", () => {
   const r = setup({ existsSync: () => false }).resolve();
+  const repoRoot = path.resolve("/repo");
 
   assert.equal(r.kind, "rust-core");
   assert.equal(r.command, "/usr/local/bin/cargo");
@@ -190,7 +193,7 @@ test("dev rust-core target falls back to cargo run with configured port and Core
     "--language",
     "en"
   ]);
-  assert.equal(r.workingDirectory, "/repo");
+  assert.equal(r.workingDirectory, repoRoot);
   assert.equal(r.usesGuiAppIdentity, false);
 });
 
@@ -258,18 +261,19 @@ test("packaged build with a missing bundled rust-core is unresolved and fail-clo
 
 test("core env overlay stamps rust-core target identity without daemon aliases", () => {
   const env = setup({ existsSync: () => false }).coreEnvOverlay();
+  const repoRoot = path.resolve("/repo");
 
   assert.equal(env.MIA_CORE, "1");
   assert.equal(env.MIA_CORE_HOST, "127.0.0.1");
   assert.equal(env.MIA_CORE_PORT, "27861");
   assert.equal(env.MIA_CORE_HOME, path.join(path.sep, "tmp", "mia-root", "runtime", "core-home"));
   assert.equal(env.MIA_CORE_APP_VERSION, "0.1.39");
-  assert.equal(env.MIA_OFFICIAL_SKILLS_DIR, path.join("/repo", "skills", "_builtin"));
+  assert.equal(env.MIA_OFFICIAL_SKILLS_DIR, path.join(repoRoot, "skills", "_builtin"));
   assert.equal(env.MIA_HERMES_ENGINE_DIR, path.join(path.sep, "tmp", "mia-root", "runtime", "hermes-engine"));
   assert.equal(env.MIA_PLUGINS_DIR, path.join(path.sep, "tmp", "mia-root", "runtime", "mia-plugins"));
   assert.equal(env.MIA_CORE_TARGET_KIND, "rust-core");
   assert.equal(env.MIA_CORE_TARGET_COMMAND, "cargo");
-  assert.equal(env.MIA_CORE_WORKING_DIRECTORY, "/repo");
+  assert.equal(env.MIA_CORE_WORKING_DIRECTORY, repoRoot);
   assert.equal(env.MIA_CORE_USES_GUI_IDENTITY, "0");
   assert.equal(env.HERMES_LANGUAGE, "en");
   assert.equal(env.PYTHONUNBUFFERED, "1");

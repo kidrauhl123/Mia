@@ -6370,9 +6370,11 @@ function renderDaemonStatus(status = {}) {
     const host = status?.host || status?.settings?.host || "";
     const port = status?.port || status?.settings?.port || "";
     const where = host && port ? ` · ${host}:${port}` : "";
+    const lastError = String(status?.lastError || "").trim();
+    const errorHint = !running && lastError ? ` · ${lastError}` : "";
     setText(els.daemonHint, running
       ? `运行中${where}  Mia Core 是本机运行核心`
-      : `未运行${where}  Mia 暂不可用，请重启 Mia Core`);
+      : `未运行${where}  Mia 暂不可用，请重启 Mia Core${errorHint}`);
   }
   if (els.daemonRestart) {
     els.daemonRestart.disabled = false;

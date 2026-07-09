@@ -1,7 +1,50 @@
 "use strict";
 
 const { spawn: defaultSpawn } = require("node:child_process");
+const path = require("node:path");
 const { createMiaCoreResolver } = require("./process-resolver.js");
+
+function coreStartErrorMessage(command, error) {
+  const program = String(command || "").trim() || "(unknown)";
+  const detail = String(error?.message || error || "unknown error");
+  const message = `Failed to start Mia Core process "${program}": ${detail}`;
+  const base = path.basename(program).toLowerCase();
+  if (error?.code === "ENOENT" && (base === "cargo" || base === "cargo.exe")) {
+    return `${message}. Rust/Cargo is required for Mia Core in development mode; install Rust or set MIA_CORE_BIN to a built mia-core executable.`;
+  }
+  return message;
+}
+
+function waitForInitialSpawn(child, command, timeoutMs = 75) {
+  if (!child || typeof child.once !== "function") return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer = null;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (typeof child.removeListener === "function") {
+        child.removeListener("spawn", onSpawn);
+        child.removeListener("error", onError);
+      }
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const onSpawn = () => finish();
+    const onError = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(coreStartErrorMessage(command, error)));
+    };
+    child.once("spawn", onSpawn);
+    child.once("error", onError);
+    timer = setTimeout(finish, timeoutMs);
+  });
+}
 
 function createMiaCoreProcessLauncher(deps = {}) {
   const {
@@ -95,7 +138,14 @@ function createMiaCoreProcessLauncher(deps = {}) {
       attachOutputLog(child.stderr, "stderr");
     }
     if (typeof child.once === "function") {
-      child.once("error", (error) => appendLog(`Mia Core process error: ${error?.message || error}`));
+      child.once("error", (error) => {
+        currentExited = true;
+        if (currentChild === child) {
+          currentChild = null;
+          currentPid = 0;
+        }
+        appendLog(`Mia Core process error: ${error?.message || error}`);
+      });
       child.once("exit", (code, signal) => {
         currentExited = true;
         if (currentChild === child) {
@@ -108,6 +158,7 @@ function createMiaCoreProcessLauncher(deps = {}) {
     currentChild = child;
     currentPid = child.pid || 0;
     currentExited = false;
+    await waitForInitialSpawn(child, command);
     if (typeof child.unref === "function") child.unref();
     appendLog(`Started Mia Core process pid ${child.pid || "(unknown)"}.`);
     return { pid: child.pid || 0 };
@@ -151,5 +202,6 @@ function createMiaCoreProcessLauncher(deps = {}) {
 }
 
 module.exports = {
-  createMiaCoreProcessLauncher
+  createMiaCoreProcessLauncher,
+  coreStartErrorMessage
 };

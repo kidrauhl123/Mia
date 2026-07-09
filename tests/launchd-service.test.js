@@ -118,8 +118,7 @@ test("daemon launch agent carries the Core environment and labels", (t) => {
 });
 
 test("daemon launch agent expands GUI app PATH with common CLI directories", (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-launchd-home-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const home = "/Users/mia";
   const { service } = setup(t, {
     env: {
       HOME: home,
@@ -146,8 +145,9 @@ test("launchd default resolver uses configured Core host and port", (t) => {
   const args = service.coreProgramArguments();
   const env = service.coreEnvironment();
   const plist = service.coreLaunchAgentPlist();
+  const serveIndex = args.indexOf("serve");
 
-  assert.deepEqual(args.slice(5, 10), ["serve", "--host", "localhost", "--port", "27993"]);
+  assert.deepEqual(args.slice(serveIndex, serveIndex + 5), ["serve", "--host", "localhost", "--port", "27993"]);
   assert.equal(args.includes("--parent-pid"), false);
   assert.equal(env.MIA_CORE_HOST, "localhost");
   assert.equal(env.MIA_CORE_PORT, "27993");
@@ -272,6 +272,39 @@ test("cleanupLegacyNodeCore unloads legacy Node daemon launchd job and kills sta
     ["ps", "-axo", "pid=,command="],
     ["kill", "-TERM", "123"]
   ]);
+});
+
+test("cleanupLegacyNodeCore kills stale Windows node-core processes", async (t) => {
+  const { calls, service } = setup(t, {
+    platform: "win32",
+    execFile: (command, args, _options, callback) => {
+      calls.push([command, ...args]);
+      if (command === "powershell.exe") {
+        callback(null, JSON.stringify([
+          {
+            ProcessId: 321,
+            CommandLine: '"C:\\Program Files\\nodejs\\node.exe" E:\\documents\\GitHub\\Mia\\src\\core\\mia-core.js --daemon'
+          },
+          {
+            ProcessId: 654,
+            CommandLine: 'E:\\documents\\GitHub\\Mia\\target\\debug\\mia-core.exe serve --host 127.0.0.1 --port 27861'
+          }
+        ]), "");
+        return;
+      }
+      callback(null, "", "");
+    }
+  });
+
+  const result = await service.cleanupLegacyNodeCore();
+
+  assert.deepEqual(result, { removedLaunchAgent: false, killedPids: [321], skippedLaunchAgent: true });
+  assert.equal(calls[0][0], "powershell.exe");
+  assert.match(calls[0].join(" "), /Win32_Process/);
+  assert.deepEqual(calls.slice(1).filter((call) => call[0] !== "log"), [
+    ["taskkill.exe", "/PID", "321", "/T", "/F"]
+  ]);
+  assert.ok(calls.some((call) => call[0] === "log" && /Stopped legacy Node Core/.test(call[1])));
 });
 
 test("launchd start fails clearly on non-macOS platforms", async (t) => {

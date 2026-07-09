@@ -175,9 +175,9 @@ function createLaunchdService(deps = {}) {
   function legacyNodeCoreCommand(command) {
     const value = String(command || "").trim();
     if (!value) return false;
-    const executable = value.split(/\s+/)[0] || "";
-    return path.basename(executable) === "node"
-      && value.includes("src/core/mia-core.js")
+    const normalized = value.replace(/\\/g, "/");
+    return /(?:^|[/\s"'])node(?:\.exe)?(?=$|[\s"'])/i.test(normalized)
+      && normalized.includes("src/core/mia-core.js")
       && /(?:^|\s)--daemon(?:\s|$)/.test(value);
   }
 
@@ -192,13 +192,60 @@ function createLaunchdService(deps = {}) {
       .filter((entry) => entry && Number.isInteger(entry.pid) && entry.pid > 0);
   }
 
-  async function killLegacyNodeCoreProcesses() {
+  function parseWindowsProcessList(stdout) {
+    const text = String(stdout || "").trim();
+    if (!text) return [];
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return [];
+    }
+    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    return rows
+      .map((row) => ({
+        pid: Number(row?.ProcessId),
+        command: String(row?.CommandLine || "")
+      }))
+      .filter((entry) => Number.isInteger(entry.pid) && entry.pid > 0 && entry.command);
+  }
+
+  async function listLegacyNodeCoreProcesses() {
+    if (platform === "win32") {
+      const script = [
+        "$ErrorActionPreference = 'SilentlyContinue';",
+        "Get-CimInstance Win32_Process |",
+        "Where-Object { $_.CommandLine -and $_.CommandLine -match 'src[\\\\/]core[\\\\/]mia-core\\.js' -and $_.CommandLine -match '(^|\\s)--daemon(\\s|$)' } |",
+        "Select-Object ProcessId, CommandLine |",
+        "ConvertTo-Json -Compress"
+      ].join(" ");
+      const result = await runExecFile("powershell.exe", [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script
+      ], { ignoreFailure: true });
+      return parseWindowsProcessList(result.stdout);
+    }
     const result = await runExecFile("ps", ["-axo", "pid=,command="], { ignoreFailure: true });
+    return parseProcessList(result.stdout);
+  }
+
+  async function terminateLegacyProcess(pid) {
+    if (platform === "win32") {
+      await runExecFile("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { ignoreFailure: true });
+      return;
+    }
+    await runExecFile("kill", ["-TERM", String(pid)], { ignoreFailure: true });
+  }
+
+  async function killLegacyNodeCoreProcesses() {
     const killedPids = [];
-    for (const entry of parseProcessList(result.stdout)) {
+    for (const entry of await listLegacyNodeCoreProcesses()) {
       if (entry.pid === process.pid) continue;
       if (!legacyNodeCoreCommand(entry.command)) continue;
-      await runExecFile("kill", ["-TERM", String(entry.pid)], { ignoreFailure: true });
+      await terminateLegacyProcess(entry.pid);
       killedPids.push(entry.pid);
     }
     return killedPids;
@@ -206,7 +253,13 @@ function createLaunchdService(deps = {}) {
 
   async function cleanupLegacyNodeCore() {
     const summary = { removedLaunchAgent: false, killedPids: [] };
-    if (platform !== "darwin") return { ...summary, skipped: true };
+    if (platform !== "darwin") {
+      summary.killedPids = await killLegacyNodeCoreProcesses();
+      if (summary.killedPids.length) {
+        appendLog(`Stopped legacy Node Core process(es): ${summary.killedPids.join(", ")}.`);
+      }
+      return { ...summary, skippedLaunchAgent: true };
+    }
     const p = runtimePaths();
     const plistPath = p.coreLaunchAgent || p.daemonLaunchAgent;
     const domain = launchdDomain();
@@ -246,7 +299,7 @@ function createLaunchdService(deps = {}) {
   }
 
   function coreEnvironment() {
-    return { ...resolver.coreEnvOverlay(), PATH: corePathEnv(env) };
+    return { ...resolver.coreEnvOverlay(), PATH: corePathEnv(env, { delimiter: platform === "win32" ? ";" : ":" }) };
   }
 
   // launchd chdir()s into WorkingDirectory before exec; the resolver always
