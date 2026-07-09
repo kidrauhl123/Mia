@@ -6,6 +6,10 @@ const { test } = require("node:test");
 
 const { createLaunchdService } = require("../src/main/launchd-service.js");
 
+const LEGACY_DAEMON_ENV = `MIA_${"DAEMON"}`;
+const LEGACY_DAEMON_TARGET_KIND_ENV = `${LEGACY_DAEMON_ENV}_TARGET_KIND`;
+const LEGACY_DAEMON_USES_GUI_IDENTITY_ENV = `${LEGACY_DAEMON_ENV}_USES_GUI_IDENTITY`;
+
 function escapeRe(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -23,13 +27,14 @@ function setup(t, overrides = {}) {
   };
   const service = createLaunchdService({
     gatewayServiceLabel: "ai.mia.hermes.gateway",
-    daemonServiceLabel: "ai.mia.daemon",
+    coreServiceLabel: "ai.mia.daemon",
     runtimePaths: () => runtime,
     appPath: () => path.join(dir, "Mia <Dev>.app"),
     execPath: () => "/Applications/Mia.app/Contents/MacOS/Mia",
     defaultApp: () => false,
     enginePython: () => path.join(dir, "venv", "bin", "python3"),
     effectiveHermesHome: () => path.join(dir, "hermes & home"),
+    appVersion: () => "0.1.39",
     buildPythonPath: () => `${path.join(dir, "plugins")}:${path.join(dir, "site")}`,
     env: {
       HERMES_LANGUAGE: "zh",
@@ -71,10 +76,10 @@ test("Hermes gateway launchd service can only be cleaned up, not started", async
   ]);
 });
 
-test("startDaemon re-enables a disabled LaunchAgent before bootstrapping", async (t) => {
+test("startCore re-enables a disabled LaunchAgent before bootstrapping", async (t) => {
   const { calls, runtime, service } = setup(t);
 
-  await service.startDaemon();
+  await service.startCore();
 
   assert.ok(fs.existsSync(runtime.daemonLaunchAgent));
   assert.deepEqual(calls, [
@@ -86,19 +91,26 @@ test("startDaemon re-enables a disabled LaunchAgent before bootstrapping", async
   ]);
 });
 
-test("daemon launch agent carries the daemon environment and labels", (t) => {
-  // Real (uninjected) resolver in dev: a real `node` is on PATH so node-core
-  // resolves; this asserts the daemon env/label contract regardless of target.
+test("daemon launch agent carries the Core environment and labels", (t) => {
   const { runtime, service } = setup(t, { defaultApp: () => true });
 
-  const daemonEnv = service.daemonEnvironment();
-  const plist = service.daemonLaunchAgentPlist();
+  const daemonEnv = service.coreEnvironment();
+  const plist = service.coreLaunchAgentPlist();
 
+  assert.equal(daemonEnv.MIA_CORE, "1");
+  assert.equal(daemonEnv.MIA_CORE_HOST, "127.0.0.1");
+  assert.equal(daemonEnv.MIA_CORE_PORT, "27861");
+  assert.equal(daemonEnv.MIA_CORE_HOME, runtime.home);
+  assert.equal(daemonEnv.MIA_CORE_APP_VERSION, "0.1.39");
+  assert.equal(daemonEnv.MIA_CORE_TARGET_KIND, "rust-core");
   assert.equal(daemonEnv.MIA_HOME, runtime.home);
-  assert.equal(daemonEnv.MIA_USER_DATA_DIR, path.join(path.dirname(path.dirname(runtime.home)), "daemon-profile"));
+  assert.equal(daemonEnv[LEGACY_DAEMON_ENV], undefined);
+  assert.equal(daemonEnv.MIA_USER_DATA_DIR, undefined);
   assert.match(plist, /<string>ai\.mia\.daemon<\/string>/);
-  assert.match(plist, /<key>MIA_DAEMON<\/key>\n      <string>1<\/string>/);
-  assert.match(plist, /<key>MIA_USER_DATA_DIR<\/key>/);
+  assert.match(plist, /<key>MIA_CORE<\/key>\n      <string>1<\/string>/);
+  assert.match(plist, /<key>MIA_CORE_APP_VERSION<\/key>\n      <string>0\.1\.39<\/string>/);
+  assert.doesNotMatch(plist, new RegExp(`<key>${LEGACY_DAEMON_ENV}</key>`));
+  assert.doesNotMatch(plist, /<key>MIA_USER_DATA_DIR<\/key>/);
   assert.match(plist, /<key>PATH<\/key>/);
   assert.ok(daemonEnv.PATH.split(":").includes("/usr/local/bin"));
   assert.ok(daemonEnv.PATH.split(":").includes("/opt/homebrew/bin"));
@@ -116,7 +128,7 @@ test("daemon launch agent expands GUI app PATH with common CLI directories", (t)
     }
   });
 
-  const pathEntries = service.daemonEnvironment().PATH.split(":");
+  const pathEntries = service.coreEnvironment().PATH.split(":");
 
   assert.equal(pathEntries[0], path.join(home, ".local", "bin"));
   assert.ok(pathEntries.includes("/opt/homebrew/bin"));
@@ -125,39 +137,53 @@ test("daemon launch agent expands GUI app PATH with common CLI directories", (t)
   assert.equal(pathEntries.filter((entry) => entry === "/usr/bin").length, 1);
 });
 
-test("packaged resolver makes the launchd plist point ProgramArguments at mia-node, never Mia --daemon", (t) => {
-  // End-to-end with the REAL resolver wired exactly like packaged main.js:
-  // process.defaultApp false → no injected node/coreEntry → derive bundled
-  // mia-node + unpacked Core entry from resourcesPath. The launchd plist must
-  // launch <resources>/mia-node, NOT `Mia.app/Contents/MacOS/Mia --daemon`.
-  const { createMiaCoreResolver } = require("../src/main/daemon/executable-resolver.js");
+test("launchd default resolver uses configured Core host and port", (t) => {
+  const { service } = setup(t, {
+    defaultApp: () => true,
+    coreSettings: () => ({ host: "localhost", port: 27993 })
+  });
+
+  const args = service.coreProgramArguments();
+  const env = service.coreEnvironment();
+  const plist = service.coreLaunchAgentPlist();
+
+  assert.deepEqual(args.slice(5, 10), ["serve", "--host", "localhost", "--port", "27993"]);
+  assert.equal(env.MIA_CORE_HOST, "localhost");
+  assert.equal(env.MIA_CORE_PORT, "27993");
+  assert.match(plist, /<string>localhost<\/string>/);
+  assert.match(plist, /<string>27993<\/string>/);
+});
+
+test("packaged resolver makes the launchd plist point ProgramArguments at bundled Rust Core", (t) => {
+  const {
+    createMiaCoreResolver,
+    packagedRustCorePath
+  } = require("../src/main/mia-core/process-resolver.js");
   const res = "/Applications/Mia.app/Contents/Resources";
+  const bundled = packagedRustCorePath(res, "darwin", "arm64");
   const packagedResolver = createMiaCoreResolver({
     runtimePaths: () => ({ root: "/r", home: "/r/runtime/engine-home" }),
     effectiveHermesHome: () => "/r/.hermes",
     execPath: () => "/Applications/Mia.app/Contents/MacOS/Mia",
     defaultApp: () => false,
     platform: "darwin",
+    arch: "arm64",
     env: {},
-    nodePath: () => "",
-    coreEntry: () => "",
     resourcesPath: () => res,
-    // The derived packaged paths don't exist on the test machine; this test
-    // asserts the derivation/plist shape, so trust existence.
-    existsSync: () => true
+    existsSync: (candidate) => candidate === bundled
   });
   const { service } = setup(t, { resolver: packagedResolver, defaultApp: () => false });
 
-  const args = service.daemonProgramArguments();
-  assert.equal(args[0], path.join(res, "mia-node"));
-  assert.equal(args[1], path.join(res, "app.asar.unpacked", "src", "core", "mia-core.js"));
-  assert.equal(args[2], "--daemon");
+  const args = service.coreProgramArguments();
+  assert.equal(args[0], bundled);
+  assert.deepEqual(args.slice(1, 6), ["serve", "--host", "127.0.0.1", "--port", "27861"]);
 
-  const plist = service.daemonLaunchAgentPlist();
-  assert.match(plist, new RegExp(`<string>${escapeRe(path.join(res, "mia-node"))}</string>`));
+  const plist = service.coreLaunchAgentPlist();
+  assert.match(plist, new RegExp(`<string>${escapeRe(bundled)}</string>`));
   assert.doesNotMatch(plist, /Mia\.app\/Contents\/MacOS\/Mia<\/string>/);
-  assert.match(plist, /<key>MIA_DAEMON_TARGET_KIND<\/key>\n      <string>node-core<\/string>/);
-  assert.match(plist, /<key>MIA_DAEMON_USES_GUI_IDENTITY<\/key>\n      <string>0<\/string>/);
+  assert.match(plist, /<key>MIA_CORE_TARGET_KIND<\/key>\n      <string>rust-core<\/string>/);
+  assert.doesNotMatch(plist, new RegExp(`<key>${LEGACY_DAEMON_TARGET_KIND_ENV}</key>`));
+  assert.doesNotMatch(plist, new RegExp(`<key>${LEGACY_DAEMON_USES_GUI_IDENTITY_ENV}</key>`));
 });
 
 test("daemon launch agent WorkingDirectory is a real directory, never the asar archive", (t) => {
@@ -170,44 +196,89 @@ test("daemon launch agent WorkingDirectory is a real directory, never the asar a
     defaultApp: () => false
   });
 
-  const plist = service.daemonLaunchAgentPlist();
+  const plist = service.coreLaunchAgentPlist();
   const workdir = plist.match(/<key>WorkingDirectory<\/key>\s*<string>([^<]*)<\/string>/)[1];
 
   assert.doesNotMatch(workdir, /\.asar/);
   assert.equal(workdir, "/Applications/Mia.app/Contents/MacOS");
 });
 
-test("node-core resolver makes the daemon plist launch node + Core entry, never the GUI app", (t) => {
+test("rust-core resolver makes the daemon plist launch Core binary, never the GUI app", (t) => {
   const fakeResolver = {
     resolve: () => ({
-      kind: "node-core",
-      command: "/usr/local/bin/node",
-      args: ["/repo/src/core/mia-core.js", "--daemon"],
-      workingDirectory: "/repo/src/core",
+      kind: "rust-core",
+      command: "/repo/target/debug/mia-core",
+      args: ["serve", "--host", "127.0.0.1", "--port", "27861"],
+      workingDirectory: "/repo",
       usesGuiAppIdentity: false
     }),
-    daemonEnvOverlay: () => ({ MIA_DAEMON: "1", MIA_HOME: "/home", MIA_DAEMON_TARGET_KIND: "node-core" })
+    coreEnvOverlay: () => ({ MIA_CORE: "1", MIA_HOME: "/home", MIA_CORE_TARGET_KIND: "rust-core" })
   };
   const { service } = setup(t, { resolver: fakeResolver });
 
-  assert.deepEqual(service.daemonProgramArguments(), [
-    "/usr/local/bin/node",
-    "/repo/src/core/mia-core.js",
-    "--daemon"
+  assert.deepEqual(service.coreProgramArguments(), [
+    "/repo/target/debug/mia-core",
+    "serve",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "27861"
   ]);
-  const plist = service.daemonLaunchAgentPlist();
-  assert.match(plist, /<string>\/usr\/local\/bin\/node<\/string>/);
-  assert.match(plist, /<string>\/repo\/src\/core\/mia-core\.js<\/string>/);
+  const plist = service.coreLaunchAgentPlist();
+  assert.match(plist, /<string>\/repo\/target\/debug\/mia-core<\/string>/);
   assert.doesNotMatch(plist, /Mia\.app\/Contents\/MacOS\/Mia/);
-  assert.match(plist, /<key>MIA_DAEMON_TARGET_KIND<\/key>\n      <string>node-core<\/string>/);
+  assert.match(plist, /<key>MIA_CORE_TARGET_KIND<\/key>\n      <string>rust-core<\/string>/);
+  assert.doesNotMatch(plist, new RegExp(`<key>${LEGACY_DAEMON_TARGET_KIND_ENV}</key>`));
+});
+
+test("cleanupLegacyNodeCore unloads legacy Node daemon launchd job and kills stale node-core processes", async (t) => {
+  const { calls, runtime, service } = setup(t, {
+    execFile: (command, args, _options, callback) => {
+      calls.push([command, ...args]);
+      if (command === "ps") {
+        callback(null, [
+          " 123 /opt/homebrew/bin/node /Users/jung/GitHub/Mia/src/core/mia-core.js --daemon",
+          " 456 /repo/target/debug/mia-core serve --host 127.0.0.1 --port 27861",
+          " 789 /Applications/Mia.app/Contents/MacOS/Mia"
+        ].join("\n"), "");
+        return;
+      }
+      callback(null, "", "");
+    }
+  });
+  fs.mkdirSync(path.dirname(runtime.daemonLaunchAgent), { recursive: true });
+  fs.writeFileSync(runtime.daemonLaunchAgent, [
+    "<plist><dict>",
+    "<key>Label</key><string>ai.mia.daemon</string>",
+    `<key>${LEGACY_DAEMON_ENV}</key><string>1</string>`,
+    "<key>ProgramArguments</key><array>",
+    "<string>/opt/homebrew/bin/node</string>",
+    "<string>/Users/jung/GitHub/Mia/src/core/mia-core.js</string>",
+    "<string>--daemon</string>",
+    "</array>",
+    "</dict></plist>"
+  ].join("\n"));
+
+  const result = await service.cleanupLegacyNodeCore();
+
+  assert.equal(result.removedLaunchAgent, true);
+  assert.deepEqual(result.killedPids, [123]);
+  assert.equal(fs.existsSync(runtime.daemonLaunchAgent), false);
+  assert.deepEqual(calls.filter((call) => call[0] !== "log"), [
+    ["launchctl", "bootout", "gui/501", runtime.daemonLaunchAgent],
+    ["launchctl", "bootout", "gui/501/ai.mia.daemon"],
+    ["launchctl", "remove", "ai.mia.daemon"],
+    ["ps", "-axo", "pid=,command="],
+    ["kill", "-TERM", "123"]
+  ]);
 });
 
 test("launchd start fails clearly on non-macOS platforms", async (t) => {
   const { service } = setup(t, { platform: "linux" });
 
-  await assert.rejects(() => service.startDaemon(), /macOS launchd/);
+  await assert.rejects(() => service.startCore(), /macOS launchd/);
   await service.stopGateway();
-  await service.stopDaemon();
+  await service.stopCore();
 });
 
 test("daemon launch agent delegates command, workdir and env to an injected resolver", (t) => {
@@ -217,18 +288,19 @@ test("daemon launch agent delegates command, workdir and env to an injected reso
       args: ["--daemon"],
       workingDirectory: "/Applications/Mia.app/Contents/Resources/Mia Core.app/Contents/MacOS"
     }),
-    daemonEnvOverlay: () => ({ MIA_DAEMON: "1", MIA_HOME: "/home", HERMES_LANGUAGE: "en" })
+    coreEnvOverlay: () => ({ MIA_CORE: "1", MIA_HOME: "/home", HERMES_LANGUAGE: "en" })
   };
   const { service } = setup(t, { resolver: fakeResolver });
 
-  assert.deepEqual(service.daemonProgramArguments(), [
+  assert.deepEqual(service.coreProgramArguments(), [
     "/Applications/Mia.app/Contents/Resources/Mia Core.app/Contents/MacOS/Mia Core",
     "--daemon"
   ]);
-  const plist = service.daemonLaunchAgentPlist();
+  const plist = service.coreLaunchAgentPlist();
   assert.match(plist, /Mia Core\.app\/Contents\/MacOS\/Mia Core/);
-  const daemonEnv = service.daemonEnvironment();
-  assert.equal(daemonEnv.MIA_DAEMON, "1");
+  const daemonEnv = service.coreEnvironment();
+  assert.equal(daemonEnv.MIA_CORE, "1");
+  assert.equal(daemonEnv[LEGACY_DAEMON_ENV], undefined);
   assert.ok(daemonEnv.PATH.split(":").includes("/usr/local/bin")); // from setup env, preserved
   assert.ok(daemonEnv.PATH.split(":").includes("/opt/homebrew/bin"));
 });

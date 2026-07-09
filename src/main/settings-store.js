@@ -3,7 +3,7 @@
 // model / profile / appearance / permission / effort / daemon /
 // cloud — including defaults, normalization, read, and write.
 //
-// CloudWorkspace JSON cache lives here too. daemonToken stays in main.js
+// CloudWorkspace JSON cache lives here too. Core loopback token stays in main.js
 // because it's an auth primitive that wires into HTTP/IPC authorization, not a
 // user setting.
 
@@ -82,31 +82,13 @@ function createSettingsStore(deps = {}) {
   const {
     runtimePaths,
     readJson,
-    writeRuntimeConfig,
-    readConfiguredPort,
-    // `getEngineState` accessor: writeEffortSettings and Hermes permission
-    // writes call writeRuntimeConfig(engineState.port || readConfiguredPort()),
-    // and main.js reassigns engineState on every Hermes restart — capturing
-    // the object would go stale.
-    getEngineState,
-    MIA_DAEMON_DEFAULT_PORT,
+    MIA_CORE_DEFAULT_PORT,
     MIA_CLOUD_DEFAULT_URL,
     normalizeAvatarCrop = (crop) => crop || defaultUserProfile().avatarCrop,
     env = process.env,
     fsImpl = fs,
     sleepSync = defaultSleepSync,
   } = deps;
-
-  function defaultModelSettings() {
-    return {
-      provider: "",
-      model: "",
-      apiKeyEnv: "",
-      apiKey: "",
-      baseUrl: "",
-      apiMode: ""
-    };
-  }
 
   function defaultUserProfile() {
     return {
@@ -257,22 +239,6 @@ function createSettingsStore(deps = {}) {
     return next;
   }
 
-  // Persisted override for the agent working directory. Empty path means "use
-  // the Mia-owned default workspace" (see main agentWorkspaceDir).
-  function agentWorkspace() {
-    const p = runtimePaths();
-    const saved = readJson(p.workspaceSettings, {});
-    return { path: String(saved?.path || "").trim() };
-  }
-
-  function writeAgentWorkspace(workspacePath) {
-    const p = runtimePaths();
-    const next = { path: String(workspacePath || "").trim() };
-    fs.mkdirSync(path.dirname(p.workspaceSettings), { recursive: true });
-    fs.writeFileSync(p.workspaceSettings, JSON.stringify(next, null, 2) + "\n");
-    return next;
-  }
-
   function defaultPermissionSettings() {
     return {
       mode: "ask",
@@ -291,49 +257,23 @@ function createSettingsStore(deps = {}) {
     return engines;
   }
 
-  function defaultDaemonSettings() {
-    const port = Number.isInteger(MIA_DAEMON_DEFAULT_PORT) && MIA_DAEMON_DEFAULT_PORT > 0
-      ? MIA_DAEMON_DEFAULT_PORT
+  function defaultCoreSettings() {
+    const port = Number.isInteger(MIA_CORE_DEFAULT_PORT) && MIA_CORE_DEFAULT_PORT > 0
+      ? MIA_CORE_DEFAULT_PORT
       : 27861;
     return {
       enabled: true,
-      host: env.MIA_DAEMON_HOST || "127.0.0.1",
+      host: env.MIA_CORE_HOST || "127.0.0.1",
       port
     };
   }
+
+  const defaultDaemonSettings = defaultCoreSettings;
 
   function defaultEffortSettings() {
     return {
       level: "medium"
     };
-  }
-
-  function defaultMemorySettings() {
-    return {
-      enabled: true
-    };
-  }
-
-  function memorySettings() {
-    const saved = readJson(runtimePaths().memorySettings, {});
-    return {
-      ...defaultMemorySettings(),
-      ...saved,
-      enabled: saved.enabled !== false
-    };
-  }
-
-  function writeMemorySettings(settings = {}) {
-    const p = runtimePaths();
-    const current = memorySettings();
-    const next = {
-      enabled: Object.prototype.hasOwnProperty.call(settings, "enabled")
-        ? settings.enabled !== false
-        : current.enabled !== false
-    };
-    fs.mkdirSync(path.dirname(p.memorySettings), { recursive: true });
-    fs.writeFileSync(p.memorySettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-    return next;
   }
 
   function normalizeEffortLevel(value, engine = "hermes") {
@@ -375,7 +315,6 @@ function createSettingsStore(deps = {}) {
     };
     fs.mkdirSync(path.dirname(p.effortSettings), { recursive: true });
     fs.writeFileSync(p.effortSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-    writeRuntimeConfig(getEngineState()?.port || readConfiguredPort());
     return next;
   }
 
@@ -419,7 +358,6 @@ function createSettingsStore(deps = {}) {
     };
     fs.mkdirSync(path.dirname(p.permissionSettings), { recursive: true });
     fs.writeFileSync(p.permissionSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-    if (storeTarget === "root-mode") writeRuntimeConfig(getEngineState()?.port || readConfiguredPort());
     return next;
   }
 
@@ -433,41 +371,50 @@ function createSettingsStore(deps = {}) {
     );
   }
 
-  function normalizeDaemonHost(value) {
+  function normalizeCoreHost(value) {
     const host = String(value || "").trim();
     if (host === "0.0.0.0" || host === "::" || host === "127.0.0.1" || host === "localhost") return host;
     return "127.0.0.1";
   }
 
-  function normalizeDaemonPort(value) {
+  function normalizeCorePort(value) {
     const port = Number(value);
     if (Number.isInteger(port) && port > 0 && port < 65536) return port;
-    return defaultDaemonSettings().port;
+    return defaultCoreSettings().port;
   }
 
-  function daemonSettings() {
-    const saved = readJson(runtimePaths().daemonSettings, {});
+  const normalizeDaemonHost = normalizeCoreHost;
+  const normalizeDaemonPort = normalizeCorePort;
+
+  function coreSettings() {
+    const p = runtimePaths();
+    const settingsPath = p.coreSettings || p.daemonSettings;
+    const saved = readJson(settingsPath, {});
     return {
-      ...defaultDaemonSettings(),
+      ...defaultCoreSettings(),
       ...saved,
       enabled: true,
-      host: normalizeDaemonHost(saved.host || defaultDaemonSettings().host),
-      port: normalizeDaemonPort(saved.port || defaultDaemonSettings().port)
+      host: normalizeCoreHost(saved.host || defaultCoreSettings().host),
+      port: normalizeCorePort(saved.port || defaultCoreSettings().port)
     };
   }
 
-  function writeDaemonSettings(settings = {}) {
+  function writeCoreSettings(settings = {}) {
     const p = runtimePaths();
-    const current = daemonSettings();
+    const settingsPath = p.coreSettings || p.daemonSettings;
+    const current = coreSettings();
     const next = {
       enabled: true,
-      host: normalizeDaemonHost(settings.host || current.host),
-      port: normalizeDaemonPort(settings.port || current.port)
+      host: normalizeCoreHost(settings.host || current.host),
+      port: normalizeCorePort(settings.port || current.port)
     };
-    fs.mkdirSync(path.dirname(p.daemonSettings), { recursive: true });
-    fs.writeFileSync(p.daemonSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
     return next;
   }
+
+  const daemonSettings = coreSettings;
+  const writeDaemonSettings = writeCoreSettings;
 
   function defaultCloudSettings() {
     return {
@@ -565,7 +512,6 @@ function createSettingsStore(deps = {}) {
   // (readCloudWorkspace / writeCloudWorkspace removed in Phase 4 cutover.)
 
   return {
-    defaultModelSettings,
     defaultUserProfile,
     defaultAppearanceSettings,
     defaultWindowSettings,
@@ -575,25 +521,25 @@ function createSettingsStore(deps = {}) {
     writeUserProfile,
     appearanceSettings,
     writeAppearanceSettings,
-    agentWorkspace,
-    writeAgentWorkspace,
     defaultPermissionSettings,
+    defaultCoreSettings,
     defaultDaemonSettings,
     defaultEffortSettings,
-    defaultMemorySettings,
     normalizeEffortLevel,
     normalizeStoredEffortLevel,
     effortSettings,
     effortStatus,
     writeEffortSettings,
-    memorySettings,
-    writeMemorySettings,
     permissionSettings,
     permissionStatus,
     writePermissionSettings,
     enginePermissionMode,
+    normalizeCoreHost,
+    normalizeCorePort,
     normalizeDaemonHost,
     normalizeDaemonPort,
+    coreSettings,
+    writeCoreSettings,
     daemonSettings,
     writeDaemonSettings,
     defaultCloudSettings,

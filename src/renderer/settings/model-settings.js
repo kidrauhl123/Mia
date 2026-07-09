@@ -1,22 +1,15 @@
-// Model / permission / effort settings UI module (Task B2b)
-// Extracted from app.js. Render layer that turns engine-options data and
-// model-helpers catalog into populated <select> elements + label / preview
-// strings for the chat composer and the Settings - Model tab.
-//
-// Data layer dependencies (already-extracted modules):
-//   - window.miaEngineOptions: activeAgentEngine, engineConfigForPersona,
-//     effortOptions, effortLabelForLevel, externalModelEntries, externalPermissionOptions
-//   - window.miaModelHelpers: modelKey, catalogEntryForModel, providerEntries,
-//     modelsForProvider, modelIconSrc
-//
-// Defensive `if (!state || !els)` guards keep early calls safe.
+// Model / permission / effort settings UI module.
+// The renderer supplies UI snapshots to Rust Core and renders the returned
+// option catalog. Core owns engine/model/permission/effort selection policy.
 (function () {
   "use strict";
 
   let state, els;
-  let escapeHtml, setText, updateModelFieldVisibility;
-  let providerPresets = {};
+  let escapeHtml, setText, updateModelFieldVisibility, render;
   let providerLabels = {};
+  let runtimeOptionsCacheKey = "";
+  let runtimeOptionsCache = null;
+  const runtimeOptionsInFlight = new Set();
 
   function initModelSettings(deps) {
     state = deps.state;
@@ -24,60 +17,122 @@
     escapeHtml = deps.escapeHtml;
     setText = deps.setText;
     updateModelFieldVisibility = deps.updateModelFieldVisibility;
-    if (deps.providerPresets) providerPresets = deps.providerPresets;
+    render = deps.render;
     if (deps.providerLabels) providerLabels = deps.providerLabels;
   }
 
-  function isExternalEngine(engine) {
-    return Boolean(window.miaEngineOptions?.isExternalAgentEngine?.(engine));
+  function runtimeControlOptionsRequest(runtime = state?.runtime) {
+    return {
+      activeAgentEngine: window.miaEngineOptions?.activeAgentEngine?.() || "hermes",
+      runtime: runtime || {},
+      engineConfig: window.miaEngineOptions?.engineConfigForPersona?.() || {},
+      modelCatalog: window.miaModelHelpers?.catalogEntries?.() || [],
+      platformModels: Array.isArray(state?.platformModels) ? state.platformModels : [],
+      engineCapabilities: state?.engineCapabilities || {},
+      codexModels: state?.codexModels || []
+    };
   }
 
-  function setEffortSelectOptions(engine, currentLevel) {
-    if (!els || !els.effortSelect) return;
-    const previous = els.effortSelect.value;
-    const options = window.miaEngineOptions.effortOptions(engine);
-    const ids = new Set(options.map((option) => option.value));
-    const nextValue = ids.has(currentLevel) ? currentLevel : ids.has(previous) ? previous : "medium";
-    els.effortSelect.innerHTML = "";
-    for (const item of options) {
-      const option = document.createElement("option");
-      option.value = item.value;
-      option.textContent = item.label;
-      els.effortSelect.appendChild(option);
+  function runtimeControlOptionsKey(request) {
+    try {
+      return JSON.stringify(request);
+    } catch (_error) {
+      return `${request.activeAgentEngine || "hermes"}:${Date.now()}`;
     }
-    els.effortSelect.value = ids.has(nextValue) ? nextValue : options[0]?.value || "";
+  }
+
+  function runtimeControlOptionsPayload(result) {
+    return result?.data && typeof result.data === "object" ? result.data : result;
+  }
+
+  function requestRuntimeControlOptions(runtime = state?.runtime) {
+    const api = window.mia?.getSettingsRuntimeControlOptions;
+    if (typeof api !== "function") return;
+    const request = runtimeControlOptionsRequest(runtime);
+    const key = runtimeControlOptionsKey(request);
+    if (runtimeOptionsCacheKey === key && runtimeOptionsCache) return;
+    if (runtimeOptionsInFlight.has(key)) return;
+    runtimeOptionsInFlight.add(key);
+    api(request)
+      .then((result) => {
+        if (result && result.ok === false) throw new Error(result.error || result.message || "Settings runtime options failed");
+        const options = runtimeControlOptionsPayload(result);
+        if (options && typeof options === "object") {
+          runtimeOptionsCacheKey = key;
+          runtimeOptionsCache = options;
+        }
+        if (typeof render === "function") render();
+      })
+      .catch((error) => {
+        console.warn("[renderer] settings runtime options failed:", error?.message || error);
+      })
+      .finally(() => {
+        runtimeOptionsInFlight.delete(key);
+      });
+  }
+
+  function runtimeControlOptions(runtime = state?.runtime) {
+    const request = runtimeControlOptionsRequest(runtime);
+    const key = runtimeControlOptionsKey(request);
+    if (runtimeOptionsCacheKey === key && runtimeOptionsCache) return runtimeOptionsCache;
+    requestRuntimeControlOptions(runtime);
+    return null;
+  }
+
+  function optionValue(entry = {}) {
+    return String(entry.id || entry.value || entry.modelProfileId || entry.model || entry.provider || "").trim();
+  }
+
+  function optionLabel(entries = [], value = "", fallback = "") {
+    const raw = String(value || "").trim();
+    const entry = entries.find((item) => optionValue(item) === raw || item.value === raw || item.model === raw);
+    return entry?.label || fallback || raw;
+  }
+
+  function setRuntimeSelectOptions(select, entries, currentValue, emptyLabel) {
+    if (!select) return "";
+    const previous = select.value || currentValue;
+    select.innerHTML = "";
+    if (!entries.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = emptyLabel;
+      select.appendChild(option);
+      select.value = "";
+      return "";
+    }
+    for (const entry of entries) {
+      const option = document.createElement("option");
+      option.value = optionValue(entry);
+      option.textContent = entry.label || entry.model || entry.value || entry.id || "Default";
+      option.title = entry.title || "";
+      select.appendChild(option);
+    }
+    const values = new Set(entries.map(optionValue));
+    if (values.has(previous)) select.value = previous;
+    else if (values.has(currentValue)) select.value = currentValue;
+    else select.value = optionValue(entries[0]);
+    return select.selectedOptions?.[0]?.textContent || optionLabel(entries, select.value);
+  }
+
+  function setEffortSelectOptions(_engine, currentLevel) {
+    if (!els || !els.effortSelect) return;
+    const options = runtimeControlOptions()?.effortOptions || [];
+    setRuntimeSelectOptions(els.effortSelect, options, currentLevel, "Medium");
   }
 
   function syncEffortControl(runtime = state?.runtime) {
     if (!state || !els || !els.effortSelect || !els.effortLabel) return;
-    const engine = window.miaEngineOptions.activeAgentEngine();
-    const external = isExternalEngine(engine);
-    const level = external
-      ? (window.miaEngineOptions.engineConfigForPersona().effortLevel || window.miaEngineOptions.effortOptions(engine)[0]?.value || "medium")
-      : (runtime?.effort?.level || "medium");
-    if (document.activeElement !== els.effortSelect) setEffortSelectOptions(engine, level);
+    const options = runtimeControlOptions(runtime);
+    const entries = Array.isArray(options?.effortOptions) ? options.effortOptions : [];
+    const selected = options?.selectedEffort || "medium";
     if (document.activeElement !== els.effortSelect) {
-      const optionValues = [...els.effortSelect.options].map((option) => option.value);
-      const fallback = optionValues.includes("medium") ? "medium" : optionValues[0] || "";
-      els.effortSelect.value = optionValues.includes(level) ? level : fallback;
+      setRuntimeSelectOptions(els.effortSelect, entries, selected, "Medium");
     }
-    setText(els.effortLabel, window.miaEngineOptions.effortLabelForLevel(els.effortSelect.value));
-    els.effortSelect.title = `推理强度：${window.miaEngineOptions.effortLabelForLevel(els.effortSelect.value)}`;
-  }
-
-  function fillModelFieldsFromPreset(key) {
-    if (!els) return;
-    const preset = providerPresets[key];
-    if (!preset) return;
-    els.modelProvider.value = preset.provider;
-    els.modelName.value = preset.model;
-    els.modelKeyEnv.value = preset.apiKeyEnv;
-    els.modelBaseUrl.value = preset.baseUrl;
-    els.modelApiMode.value = preset.apiMode;
-    els.authMethod.value = key === "openai-codex" ? "openai-codex" : "api-key";
-    els.modelPreset.value = key;
-    if (key === "openai-codex") els.modelApiKey.value = "";
-    if (typeof updateModelFieldVisibility === "function") updateModelFieldVisibility();
+    const label = optionLabel(entries, els.effortSelect.value || selected, "Medium");
+    setText(els.effortLabel, label);
+    els.effortSelect.title = `推理强度：${label}`;
+    els.effortSelect.disabled = !options || !entries.length;
   }
 
   function setSelectOptions(select, entries, currentId) {
@@ -109,16 +164,17 @@
       optgroup.label = group.label;
       for (const entry of group.entries) {
         const option = document.createElement("option");
-        option.value = entry.id;
+        option.value = optionValue(entry);
         option.textContent = entry.label || entry.model || "Local Model";
+        option.title = entry.title || "";
         optgroup.appendChild(option);
       }
       select.appendChild(optgroup);
     }
-    const ids = new Set(entries.map((entry) => entry.id));
+    const ids = new Set(entries.map(optionValue));
     if (ids.has(previous)) select.value = previous;
     else if (ids.has(currentId)) select.value = currentId;
-    else if (entries[0]) select.value = entries[0].id;
+    else if (entries[0]) select.value = optionValue(entries[0]);
     syncQuickModelLabel();
   }
 
@@ -138,13 +194,12 @@
     const selected = els.permissionMode?.selectedOptions?.[0];
     if (selected?.textContent) return selected.textContent;
     if (mode === "smart") return "Smart";
-    if (mode === "ask" || mode === "manual") return "Ask";
-    if (mode === "yolo" || mode === "off") return "YOLO";
+    if (mode === "ask" || mode === "manual" || mode === "default") return "Ask";
+    if (mode === "yolo" || mode === "off" || mode === "bypassPermissions") return "YOLO";
     if (mode === "deny" || mode === "dontAsk") return "Deny";
-    if (mode === "acceptEdits") return window.miaEngineOptions.activeAgentEngine() === "claude-code" ? "Accept Edits" : "Edits";
-    if (mode === "plan") return window.miaEngineOptions.activeAgentEngine() === "claude-code" ? "Plan Mode" : "Plan";
+    if (mode === "acceptEdits") return "Accept Edits";
+    if (mode === "plan") return "Plan Mode";
     if (mode === "auto") return "Auto Mode";
-    if (mode === "bypassPermissions") return window.miaEngineOptions.activeAgentEngine() === "claude-code" ? "Bypass Permissions" : "YOLO";
     if (mode === "readOnly") return "Read";
     if (mode === ":workspace") return "Workspace";
     if (mode === ":read-only") return "Read Only";
@@ -152,40 +207,25 @@
     return "Ask";
   }
 
-  function setPermissionSelectOptions(engine, currentMode) {
+  function setPermissionSelectOptions(_engine, currentMode) {
     if (!els || !els.permissionMode) return;
-    const previous = els.permissionMode.value;
-    const options = window.miaEngineOptions.externalPermissionOptions(engine);
-    const matches = (option, value) => {
-      const raw = String(value || "");
-      return String(option?.value || "") === raw
-        || (Array.isArray(option?.aliases) && option.aliases.map((item) => String(item)).includes(raw));
-    };
-    const currentOption = options.find((option) => matches(option, currentMode));
-    const previousOption = options.find((option) => matches(option, previous));
-    const nextValue = currentOption?.value || previousOption?.value || options[0]?.value || "";
-    els.permissionMode.innerHTML = "";
-    for (const item of options) {
-      const option = document.createElement("option");
-      option.value = item.value;
-      option.textContent = item.label;
-      option.title = item.title || "";
-      els.permissionMode.appendChild(option);
-    }
-    els.permissionMode.value = nextValue;
+    const options = runtimeControlOptions()?.permissionOptions || [];
+    setRuntimeSelectOptions(els.permissionMode, options, currentMode, "Ask");
   }
 
   function syncPermissionControl(runtime = state?.runtime) {
     if (!state || !els || !els.permissionMode || !els.permissionLabel) return;
-    const engine = window.miaEngineOptions.activeAgentEngine();
-    const external = isExternalEngine(engine);
-    const mode = external ? (runtime?.permissions?.engines?.[engine] || "default") : (runtime?.permissions?.mode || "manual");
-    setPermissionSelectOptions(engine, mode);
+    const options = runtimeControlOptions(runtime);
+    const entries = Array.isArray(options?.permissionOptions) ? options.permissionOptions : [];
+    const mode = options?.selectedPermission || "ask";
     if (document.activeElement !== els.permissionMode) {
-      els.permissionMode.value = [...els.permissionMode.options].some((option) => option.value === mode) ? mode : els.permissionMode.options[0]?.value || "";
+      setRuntimeSelectOptions(els.permissionMode, entries, mode, "Ask");
     }
-    setText(els.permissionLabel, permissionLabelForMode(els.permissionMode.value));
-    els.permissionMode.title = `权限模式：${permissionLabelForMode(els.permissionMode.value)}`;
+    const label = optionLabel(entries, els.permissionMode.value || mode, permissionLabelForMode(els.permissionMode.value || mode));
+    setText(els.permissionLabel, label);
+    els.permissionMode.title = `权限模式：${label}`;
+    els.permissionMode.disabled = !options || !entries.length;
+    const engine = options?.agentEngine || "hermes";
     const switcher = els.permissionMode.closest(".permission-switcher");
     switcher?.classList.toggle("yolo", els.permissionMode.value === "yolo" || els.permissionMode.value === "off" || els.permissionMode.value === ":danger-full-access" || (engine !== "claude-code" && els.permissionMode.value === "bypassPermissions"));
     switcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode.value === "bypassPermissions");
@@ -218,51 +258,17 @@
   }
 
   function connectedModelEntries(runtime = state?.runtime) {
-    const connectedProviders = (runtime?.connectedProviders || []).map((entry) => entry.provider);
-    const entries = connectedProviders.flatMap((provider) => window.miaModelHelpers.modelsForProvider(provider));
-    if (runtime?.cloud?.enabled) {
-      const platformModels = Array.isArray(state?.platformModels) ? state.platformModels : [];
-      const miaEntries = typeof window.miaEngineContracts?.miaModelEntries === "function"
-        ? window.miaEngineContracts.miaModelEntries({ platformModels })
-        : [{ id: "mia-auto", provider: "mia", providerLabel: "Mia", model: "mia-auto", label: "Auto", authType: "mia_account" }];
-      for (const entry of miaEntries) {
-        if (!entries.some((item) => item.id === entry.id && item.provider === entry.provider)) entries.push(entry);
-      }
-    }
-    const current = window.miaModelHelpers.catalogEntryForModel(runtime?.model || {});
-    if (current && providerIsConnected(current.provider, runtime) && !entries.some((entry) => entry.id === current.id)) return [current, ...entries];
-    return entries;
+    return runtimeControlOptions(runtime)?.modelOptions || [];
   }
 
   function renderModelSelectors(runtime = state?.runtime) {
     if (!state || !els) return;
-    const engine = window.miaEngineOptions.activeAgentEngine();
-    if (isExternalEngine(engine)) {
-      const config = window.miaEngineOptions.engineConfigForPersona();
-      const entries = window.miaEngineOptions.externalModelEntries(engine);
-      setSelectOptions(els.quickModelSelect, entries, config.model || "default");
-      if (els.quickModelSelect) els.quickModelSelect.disabled = !entries.length;
-      setProviderOptions(els.modelSelect, window.miaModelHelpers.providerEntries().filter((entry) => !providerIsConnected(entry.provider, runtime)), "");
-      return;
-    }
-    const providers = window.miaModelHelpers.providerEntries().filter((entry) => !providerIsConnected(entry.provider, runtime));
-    const currentId = window.miaModelHelpers.catalogEntryForModel(runtime?.model || {})?.id || window.miaModelHelpers.modelKey(runtime?.model || {});
-    setProviderOptions(els.modelSelect, providers, "");
-    const connectedEntries = connectedModelEntries(runtime);
-    setSelectOptions(els.quickModelSelect, connectedEntries, currentId);
-    if (els.quickModelSelect) {
-      els.quickModelSelect.disabled = !connectedEntries.length;
-    }
-  }
-
-  function applyModelEntryToFields(entry) {
-    if (!els || !entry) return;
-    els.modelProvider.value = entry.provider || "";
-    els.modelName.value = entry.model || "";
-    els.modelKeyEnv.value = entry.apiKeyEnv || "";
-    els.modelBaseUrl.value = entry.baseUrl || "";
-    els.modelApiMode.value = entry.apiMode || "";
-    els.authMethod.value = String(entry.authType || "").startsWith("oauth") ? entry.provider : "api-key";
+    const options = runtimeControlOptions(runtime);
+    const modelEntries = Array.isArray(options?.modelOptions) ? options.modelOptions : [];
+    const providerEntries = Array.isArray(options?.addProviderOptions) ? options.addProviderOptions : [];
+    setProviderOptions(els.modelSelect, providerEntries, "");
+    setSelectOptions(els.quickModelSelect, modelEntries, options?.selectedModel || "");
+    if (els.quickModelSelect) els.quickModelSelect.disabled = !options || !modelEntries.length;
   }
 
   function modelAuthCopy(entry, runtime = state?.runtime) {
@@ -286,7 +292,7 @@
     }
     return runtime?.model?.provider === entry.provider && runtime?.model?.hasApiKey
       ? { state: "已保存 API key", hint: "留空保存会继续使用已保存的 key；具体模型在聊天框下方切换。" }
-      : { state: "需要 API key", hint: `填写 ${entry.apiKeyEnv || "API Key"} 后保存，Mia 会写入私有 runtime 并重启 Hermes。` };
+      : { state: "需要 API key", hint: `填写 ${window.miaModelHelpers.apiKeyPromptLabel(entry)} 后保存，Mia Core 会接管配置并重启 Hermes。` };
   }
 
   function renderConnectedProviders(runtime = state?.runtime) {
@@ -295,9 +301,7 @@
     const section = els.connectedProviderList.closest(".connected-providers");
     section?.classList.toggle("hidden", !providers.length);
     els.connectedProviderList.innerHTML = "";
-    if (!providers.length) {
-      return;
-    }
+    if (!providers.length) return;
     for (const provider of providers) {
       const row = document.createElement("div");
       row.className = "connected-provider";
@@ -314,9 +318,11 @@
 
   window.miaModelSettings = {
     initModelSettings,
+    runtimeControlOptionsRequest,
+    runtimeControlOptions,
+    requestRuntimeControlOptions,
     setEffortSelectOptions,
     syncEffortControl,
-    fillModelFieldsFromPreset,
     setSelectOptions,
     syncQuickModelLabel,
     permissionLabelForMode,
@@ -326,7 +332,6 @@
     providerIsConnected,
     connectedModelEntries,
     renderModelSelectors,
-    applyModelEntryToFields,
     modelAuthCopy,
     renderConnectedProviders,
   };

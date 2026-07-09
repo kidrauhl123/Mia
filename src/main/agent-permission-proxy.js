@@ -6,30 +6,22 @@ function sessionQuery(filter = {}) {
 }
 
 function createAgentPermissionProxy({
-  isDaemonProcess = false,
-  coordinator,
-  daemonClient
+  coreControlClient
 }) {
-  function requireDaemonClient() {
-    if (daemonClient && typeof daemonClient.call === "function") return daemonClient;
+  function requireCoreControlClient() {
+    if (coreControlClient && typeof coreControlClient.call === "function") return coreControlClient;
     throw new Error("Mia Core 未运行，权限审批无法完成。");
   }
 
   async function respond(payload = {}) {
-    if (isDaemonProcess) {
-      return coordinator.resolvePermission(payload || {});
-    }
-    return requireDaemonClient().call("/api/chat/permissions/respond", {
+    return requireCoreControlClient().call("/api/agent-permissions/respond", {
       method: "POST",
       body: JSON.stringify(payload || {})
     });
   }
 
   async function list(filter = {}) {
-    if (isDaemonProcess) {
-      return coordinator.listPending(filter || {});
-    }
-    const result = await requireDaemonClient().call(`/api/chat/permissions${sessionQuery(filter)}`);
+    const result = await requireCoreControlClient().call(`/api/agent-permissions${sessionQuery(filter)}`);
     return Array.isArray(result?.requests) ? result.requests : [];
   }
 

@@ -39,11 +39,12 @@
     "managed:verify": "node scripts/verify-managed-agent-runtime.js",
     "desktop:permission-smoke": "node scripts/smoke-desktop-permission.js",
     "desktop:package:verify": "node scripts/verify-packaged-mia-core.js",
+    "core:smoke": "node scripts/smoke-rust-core.js",
     "bridge": "node scripts/local-agent-bridge.js",
     "check": "node src/check.js",
     "clean:release": "node scripts/clean-release.js",
     "tidy:release": "node scripts/clean-release.js --tidy",
-    "pack": "npm run clean:release && electron-builder --dir",
+    "pack": "npm run clean:release && electron-builder --dir -c.mac.identity=null",
     "dist": "npm run dist:mac",
     "dist:mac": "npm run clean:release && electron-builder --config electron-builder.mac-arm64.js --mac dir zip --arm64 --publish never && node scripts/verify-packaged-mia-core.js --arch arm64 && MIA_MAC_DMG_LABEL=Apple-Silicon node scripts/create-mac-dmg.js && npm run tidy:release",
     "dist:mac:intel": "npm run clean:release && electron-builder --config electron-builder.mac-intel.js --mac dir zip --x64 --publish never && node scripts/verify-packaged-mia-core.js --arch x64 && MIA_MAC_DMG_LABEL=Intel node scripts/create-mac-dmg.js && npm run tidy:release",
@@ -68,7 +69,6 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.1.0",
     "@anthropic-ai/claude-agent-sdk": "^0.2.139",
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "adm-zip": "^0.5.17",
     "cron-parser": "^4.9.0",
     "electron-updater": "^6.8.3",
@@ -81,7 +81,7 @@
   "build": {
     "appId": "ai.mia.app",
     "productName": "Mia",
-    "beforePack": "./scripts/stage-core-node.js",
+    "beforePack": "./scripts/prepare-mia-core-rs.js",
     "directories": {
       "output": "release"
     },
@@ -90,21 +90,7 @@
       "src/**",
       "packages/shared/**",
       "package.json",
-      "resources/official-library/**",
-      "node_modules/ws/**",
-      "node_modules/zod/**",
-      "node_modules/adm-zip/**",
-      "node_modules/cron-parser/**",
-      "node_modules/luxon/**",
-      "node_modules/js-yaml/**",
-      "node_modules/qrcode/**",
-      "node_modules/dijkstrajs/**",
-      "node_modules/pngjs/**",
-      "node_modules/argparse/**",
-      "node_modules/@agentclientprotocol/sdk/**",
-      "node_modules/@anthropic-ai/claude-agent-sdk/**",
-      "node_modules/@anthropic-ai/sdk/**",
-      "node_modules/@modelcontextprotocol/sdk/**"
+      "resources/official-library/**"
     ],
     "compression": "maximum",
     "publish": {
@@ -122,15 +108,10 @@
     ],
     "extraResources": [
       {
-        "from": "resources/mia-node/node",
-        "to": "mia-node"
-      },
-      {
-        "from": "node_modules/luxon",
-        "to": "app.asar.unpacked/node_modules/luxon",
+        "from": "resources/bundled-mia-core",
+        "to": "bundled-mia-core",
         "filter": [
-          "**/*",
-          "!**/*.map"
+          "**/*"
         ]
       },
       {

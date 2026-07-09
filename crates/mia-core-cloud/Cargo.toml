@@ -1,0 +1,22 @@
+[package]
+name = "mia-core-cloud"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+futures-util.workspace = true
+mia-core-api-types.workspace = true
+mia-core-memory.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+
+[dev-dependencies]
+mia-core-db.workspace = true
+tokio.workspace = true

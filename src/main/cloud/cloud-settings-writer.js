@@ -1,46 +1,25 @@
 "use strict";
 
-// ADR 2026-06-12 P3: mia-cloud.json has a single writer. The daemon owns the
-// file while it is enabled; the window must hand its credential writes (login,
-// logout, profile refresh) to the daemon over the control API instead of
-// touching the file itself. There is no foreground fallback: if the daemon is
-// unavailable, runtime state is unavailable too.
+// Migration branch: Rust Core owns cloud session state. Electron main keeps a
+// local UI mirror only so existing renderer reads can stay stable while cloud
+// ownership moves out of Node.
 function createCloudSettingsWriter({
-  isDaemonProcess = false,
-  isDaemonEnabled = () => false,
   writeLocal,
-  daemonBaseUrl,
-  daemonToken,
-  fetchImpl = fetch,
-  timeoutMs = 1500,
+  syncCore,
   log = () => {}
 }) {
   if (typeof writeLocal !== "function") throw new Error("writeLocal dependency is required.");
+  if (typeof syncCore !== "function") throw new Error("syncCore dependency is required.");
 
   async function write(patch = {}) {
-    if (isDaemonProcess) return writeLocal(patch);
-    if (!isDaemonEnabled()) throw new Error("Mia daemon is required for cloud settings writes.");
-    let response;
+    const next = await writeLocal(patch);
     try {
-      response = await fetchImpl(`${daemonBaseUrl()}/api/cloud-settings`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${daemonToken()}`
-        },
-        body: JSON.stringify({ patch }),
-        signal: AbortSignal.timeout(timeoutMs)
-      });
+      await syncCore(next);
     } catch (error) {
-      log(`[cloud-settings] daemon unavailable: ${error?.message || error}`);
-      throw new Error(`Mia daemon unavailable for cloud settings writes: ${error?.message || error}`);
+      log(`[cloud-settings] Rust Core sync failed: ${error?.message || error}`);
+      throw new Error(`Mia Rust Core unavailable for cloud settings sync: ${error?.message || error}`);
     }
-    if (response.status === 404 || response.status === 501) {
-      throw new Error(`daemon cloud-settings write route unavailable: HTTP ${response.status}`);
-    }
-    if (!response.ok) throw new Error(`daemon cloud-settings write failed: HTTP ${response.status}`);
-    const data = await response.json();
-    return data?.settings ?? data;
+    return next;
   }
 
   return { write };

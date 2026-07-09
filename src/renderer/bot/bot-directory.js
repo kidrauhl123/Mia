@@ -19,16 +19,6 @@
     return "";
   }
 
-  function compactDeviceName(value = "") {
-    return String(value || "")
-      .trim()
-      .replace(/\s*(?:·|-)?\s*Mia\s+(?:Desktop|Bridge)(?=\s*(?:·|-|$))/gi, "")
-      .replace(/\.local(?=\s|$)/gi, "")
-      .replace(/\s*(?:·|-)\s*(?:本机|在线|离线)\s*$/i, "")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
   function botKey(input = {}) {
     return String(input.key || input.id || input.botKey || input.bot_id || "").trim();
   }
@@ -95,86 +85,16 @@
     return isDefaultSourceBio(raw) ? "" : raw;
   }
 
-  function runtimeDeviceById(runtime = {}, deviceId = "") {
-    const wanted = String(deviceId || "").trim();
-    if (!wanted) return null;
-    const devices = [
-      ...(Array.isArray(runtime.cloud?.devices) ? runtime.cloud.devices : []),
-      ...(Array.isArray(runtime.cloud?.bridgeDevices) ? runtime.cloud.bridgeDevices : [])
-    ];
-    return devices.find((device) => (
-      String(device?.id || "") === wanted
-        || String(device?.deviceId || "") === wanted
-    )) || null;
-  }
-
-  function isCurrentRuntimeDevice(runtime = {}, deviceId = "") {
-    const wanted = String(deviceId || "").trim();
-    if (!wanted) return false;
-    return [
-      runtime.localDevice?.id,
-      runtime.cloud?.deviceId
-    ].some((id) => String(id || "").trim() === wanted);
-  }
-
-  function deviceStatusText(device = {}) {
-    const status = String(device.status || "").trim();
-    if (status === "online") return "在线";
-    if (status === "offline") return "离线";
-    if (status === "local") return "本机";
-    return status || "";
-  }
-
-  function runtimeLabelFor(bot = {}, runtime = {}) {
-    const runtimeConfig = bot.runtimeConfig || bot.runtime_config || bot.config || {};
+  function runtimeLabelFor(bot = {}) {
+    const explicit = firstNonEmpty(bot.runtimeLabel, bot.runtime_label);
+    if (explicit) return explicit;
     const runtimeKind = normalizeRuntimeKind(
-      bot.runtimeKind || bot.runtime_kind || bot.runtime?.kind || runtimeConfig.runtimeKind || runtimeConfig.runtime_kind,
+      bot.runtimeKind || bot.runtime_kind || bot.runtime?.kind,
       bot.sourceKind === "cloud" ? "cloud-claude-code" : "desktop-local"
     );
     if (runtimeKind === "cloud-claude-code") return "Mia Cloud";
-    const targetDeviceId = firstNonEmpty(
-      bot.targetDeviceId,
-      bot.target_device_id,
-      bot.deviceId,
-      bot.device_id,
-      runtimeConfig.deviceId,
-      runtimeConfig.device_id
-    );
-    if (!targetDeviceId) return "运行设备未配置";
-    if (isCurrentRuntimeDevice(runtime, targetDeviceId)) return "本机运行";
-    const matchedDevice = runtimeDeviceById(runtime, targetDeviceId);
-    if (matchedDevice) {
-      const name = compactDeviceName(firstNonEmpty(
-        matchedDevice.deviceName,
-        matchedDevice.device_name,
-        matchedDevice.name,
-        bot.targetDeviceName,
-        bot.target_device_name,
-        bot.deviceName,
-        bot.device_name,
-        runtimeConfig.deviceName,
-        runtimeConfig.device_name,
-        targetDeviceId
-      )) || "远程设备";
-      const status = deviceStatusText(matchedDevice);
-      return status ? `${name} · ${status}` : name;
-    }
     if (bot.runtimeStatus === "stale_device" || bot.runtime_status === "stale_device") return "运行设备已失效";
-    return compactDeviceName(firstNonEmpty(
-      bot.runtimeLabel,
-      bot.runtime_label,
-      bot.deviceName,
-      bot.device_name,
-      runtimeConfig.deviceName,
-      runtimeConfig.device_name,
-      bot.sourceDeviceName,
-      bot.source_device_name,
-      bot.hostname,
-      runtime.localDevice?.name,
-      runtime.cloud?.deviceName,
-      runtime.relay?.deviceName,
-      "当前设备"
-    )) || "当前设备";
+    return "运行设备未配置";
   }
 
   function normalizeOwnedBot(input = {}, options = {}) {
@@ -183,14 +103,13 @@
     if (!key) return null;
     const sourceKind = options.sourceKind || input.sourceKind || input.source_kind || "desktop";
     const fallbackRuntimeKind = sourceKind === "cloud" ? "cloud-claude-code" : "desktop-local";
-    const runtimeConfig = input.runtimeConfig || input.runtime_config || input.config || {};
     const runtimeKind = normalizeRuntimeKind(
-      input.runtimeKind || input.runtime_kind || input.runtime?.kind || runtimeConfig.runtimeKind || runtimeConfig.runtime_kind || options.runtimeKind,
+      input.runtimeKind || input.runtime_kind || input.runtime?.kind || options.runtimeKind,
       fallbackRuntimeKind
     );
     const runtime = options.runtime || {};
     const agentEngine = normalizeAgentEngine(
-      input.agentEngine || input.agent_engine || input.engine || runtimeConfig.agentEngine || runtimeConfig.agent_engine,
+      input.agentEngine || input.agent_engine || input.engine,
       runtimeKind,
       runtime
     );
@@ -204,8 +123,14 @@
       runtime.cloud?.user?.id, runtime.cloud?.user?.userId, runtime.cloud?.user?.user_id
     );
     const normalizedSourceKinds = [...new Set([...sourceKinds(input), sourceKind].filter(Boolean))];
+    const {
+      runtimeConfig: _runtimeConfig,
+      runtime_config: _runtime_config,
+      config: _config,
+      ...displayInput
+    } = input;
     return {
-      ...input,
+      ...displayInput,
       key,
       id: input.id || key,
       ownerUserId: ownerUserId || input.ownerUserId || undefined,
@@ -217,12 +142,11 @@
       personaText: input.personaText || input.persona_text || "",
       agentEngine,
       runtimeKind,
-      runtimeConfig,
-      targetDeviceId: firstNonEmpty(input.targetDeviceId, input.target_device_id, runtimeConfig.deviceId, runtimeConfig.device_id),
-      targetDeviceName: firstNonEmpty(input.targetDeviceName, input.target_device_name, runtimeConfig.deviceName, runtimeConfig.device_name),
-      deviceId: firstNonEmpty(input.deviceId, input.device_id, runtimeConfig.deviceId, runtimeConfig.device_id),
-      deviceName: firstNonEmpty(input.deviceName, input.device_name, runtimeConfig.deviceName, runtimeConfig.device_name),
-      runtimeLabel: runtimeLabelFor({ ...input, key, runtimeKind }, runtime),
+      targetDeviceId: firstNonEmpty(input.targetDeviceId, input.target_device_id),
+      targetDeviceName: firstNonEmpty(input.targetDeviceName, input.target_device_name),
+      deviceId: firstNonEmpty(input.deviceId, input.device_id),
+      deviceName: firstNonEmpty(input.deviceName, input.device_name),
+      runtimeLabel: runtimeLabelFor({ ...input, key, runtimeKind }),
       sourceKinds: normalizedSourceKinds,
       canEditIdentity: input.canEditIdentity !== false,
       canConfigureCapabilities: input.canConfigureCapabilities !== false,
@@ -250,7 +174,6 @@
       merged.avatarCrop = existing.avatarCrop || null;
       merged.runtimeKind = existing.runtimeKind || merged.runtimeKind;
       merged.runtimeLabel = existing.runtimeLabel || merged.runtimeLabel;
-      merged.runtimeConfig = existing.runtimeConfig || existing.runtime_config || merged.runtimeConfig;
       merged.targetDeviceId = existing.targetDeviceId || existing.target_device_id || merged.targetDeviceId;
       merged.deviceId = existing.deviceId || existing.device_id || merged.deviceId;
       merged.deviceName = existing.deviceName || existing.device_name || merged.deviceName;

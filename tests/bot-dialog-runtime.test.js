@@ -80,7 +80,101 @@ function input(value = "") {
   return { value, textContent: "", open: false };
 }
 
-function createBotDialogContext({ activeBinding, runtime = null, engineCapabilities = null, listBridgeDevices = null } = {}) {
+function normalizeAgentEngine(value = "") {
+  const id = String(value || "hermes").trim();
+  if (id === "claude" || id === "claude-code") return "claude-code";
+  if (id === "codex" || id === "openai-codex") return "codex";
+  return "hermes";
+}
+
+function engineLabel(engine = "") {
+  return {
+    hermes: "Hermes",
+    "claude-code": "Claude Code",
+    codex: "Codex"
+  }[engine] || engine;
+}
+
+function localEngineIds(runtime = {}, engineCapabilities = {}) {
+  const ids = [];
+  const add = (value) => {
+    const id = normalizeAgentEngine(value);
+    if (id && !ids.includes(id)) ids.push(id);
+  };
+  for (const agent of Array.isArray(runtime.agentInventory?.agents) ? runtime.agentInventory.agents : []) {
+    const id = normalizeAgentEngine(agent.id || agent.engine);
+    if (agent.usableInMia || runtime.agentInventory?.summary?.scanning) add(id);
+  }
+  const engines = runtime.agentEngines || {};
+  for (const [key, value] of Object.entries(engines)) {
+    const id = key === "claudeCode" ? "claude-code" : key;
+    if (value?.available || value?.installed || value?.running) add(id);
+  }
+  const caps = engineCapabilities.engines || {};
+  for (const [key, value] of Object.entries(caps)) {
+    if (value?.available || value === true) add(key);
+  }
+  if (runtime.engineInstalled || runtime.engineRunning) add("hermes");
+  if (!ids.length) add(runtime.preferredAgentEngine || "hermes");
+  return ids;
+}
+
+function coreRuntimeTargetOptionsForTest({ runtime = {}, engineCapabilities = {}, preferredAgentEngine = "" } = {}) {
+  const groups = [];
+  const cloud = runtime.cloud || {};
+  if (cloud.enabled) {
+    const cloudRuntimeState = cloudRuntime.cloudAgentRuntimeFromCloud(cloud);
+    groups.push({
+      label: "Mia Cloud",
+      statusLabel: cloudRuntimeState.available ? "在线" : "未同步",
+      runtimeKind: "cloud-claude-code",
+      options: [{
+        runtimeKind: "cloud-claude-code",
+        deviceId: "",
+        deviceName: "Mia Cloud",
+        agentEngine: cloudRuntimeState.agentEngine,
+        label: cloudRuntimeState.label || engineLabel(cloudRuntimeState.agentEngine),
+        engineLabel: engineLabel(cloudRuntimeState.agentEngine),
+        disabled: !cloudRuntimeState.available,
+        selected: false
+      }]
+    });
+  }
+  const local = runtime.localDevice || {};
+  const deviceId = String(local.id || "current-device");
+  const deviceName = String(local.name || local.deviceName || "本机");
+  groups.push({
+    label: deviceName,
+    statusLabel: "本机",
+    runtimeKind: "desktop-local",
+    options: localEngineIds({ ...runtime, preferredAgentEngine }, engineCapabilities).map((engine) => ({
+      runtimeKind: "desktop-local",
+      deviceId,
+      deviceName,
+      agentEngine: engine,
+      label: engineLabel(engine),
+      engineLabel: engineLabel(engine),
+      selected: false,
+      disabled: false
+    }))
+  });
+  return { groups, activeTarget: groups.flatMap((group) => group.options)[0] };
+}
+
+async function flushDialogAsyncWork(rounds = 3) {
+  for (let i = 0; i < rounds; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.resolve();
+  }
+}
+
+function createBotDialogContext({
+  activeBinding,
+  runtime = null,
+  engineCapabilities = null,
+  listBridgeDevices = null,
+  runtimeTargetOptions = null
+} = {}) {
   const select = new FakeSelect();
   const calls = [];
   const events = [];
@@ -180,6 +274,14 @@ function createBotDialogContext({ activeBinding, runtime = null, engineCapabilit
       miaCloudRuntime: cloudRuntime,
       mia: {
         social: {
+          getBotRuntimeTargetOptions: async (input) => {
+            events.push("getBotRuntimeTargetOptions");
+            return runtimeTargetOptions || coreRuntimeTargetOptionsForTest({
+              runtime: input?.runtime || state.runtime,
+              engineCapabilities: input?.engineCapabilities || state.engineCapabilities || {},
+              preferredAgentEngine: input?.preferredAgentEngine || state.runtime?.preferredAgentEngine || ""
+            });
+          },
           listBridgeDevices: listBridgeDevices
             ? (...args) => {
                 events.push("listBridgeDevices");
@@ -213,7 +315,7 @@ function decodedRuntimeOptions(select) {
   }));
 }
 
-test("creating a bot exposes only Mia Cloud and local engines", () => {
+test("creating a bot renders Core-provided Mia Cloud and local engine options", async () => {
   const { context, select } = createBotDialogContext({
     runtime: {
       cloud: {
@@ -237,6 +339,7 @@ test("creating a bot exposes only Mia Cloud and local engines", () => {
   });
 
   context.window.miaBotDialog.openBotDialog();
+  await flushDialogAsyncWork();
 
   const options = decodedRuntimeOptions(select);
   assert.ok(options.some((option) => option.runtimeKind === "cloud-claude-code"), "Mia Cloud should be available");
@@ -250,7 +353,7 @@ test("creating a bot exposes only Mia Cloud and local engines", () => {
   assert.equal(options.some((option) => option.deviceId === "mac-remote"), false);
 });
 
-test("creating a bot keeps local runtime options before device ids load", () => {
+test("creating a bot renders Core local runtime options before device ids load", async () => {
   const { context, select } = createBotDialogContext({
     runtime: {
       cloud: { enabled: false, devices: [] },
@@ -260,6 +363,7 @@ test("creating a bot keeps local runtime options before device ids load", () => 
   });
 
   context.window.miaBotDialog.openBotDialog();
+  await flushDialogAsyncWork();
 
   assert.deepEqual(decodedRuntimeOptions(select), [{
     label: "Hermes",
@@ -271,7 +375,7 @@ test("creating a bot keeps local runtime options before device ids load", () => 
   }]);
 });
 
-test("creating a bot uses normalized local agent inventory for engine choices", () => {
+test("creating a bot renders Core-normalized local agent inventory engine choices", async () => {
   const { context, select } = createBotDialogContext({
     runtime: {
       cloud: { enabled: false, devices: [] },
@@ -291,6 +395,7 @@ test("creating a bot uses normalized local agent inventory for engine choices", 
   });
 
   context.window.miaBotDialog.openBotDialog();
+  await flushDialogAsyncWork();
 
   assert.deepEqual(
     decodedRuntimeOptions(select)
@@ -300,7 +405,7 @@ test("creating a bot uses normalized local agent inventory for engine choices", 
   );
 });
 
-test("creating a bot keeps local engine choices while agent scan is still running", () => {
+test("creating a bot renders Core local engine choices while agent scan is still running", async () => {
   const { context, select } = createBotDialogContext({
     runtime: {
       cloud: { enabled: false, devices: [] },
@@ -319,6 +424,7 @@ test("creating a bot keeps local engine choices while agent scan is still runnin
   });
 
   context.window.miaBotDialog.openBotDialog();
+  await flushDialogAsyncWork();
 
   assert.deepEqual(
     decodedRuntimeOptions(select)
@@ -336,8 +442,10 @@ test("creating a bot paints the dialog before refreshing bridge devices", async 
   context.window.miaBotDialog.openBotDialog();
 
   assert.deepEqual(events, ["renderView"]);
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(events[1], "listBridgeDevices");
+  await flushDialogAsyncWork();
+  assert.equal(events[0], "renderView");
+  assert.ok(events.includes("getBotRuntimeTargetOptions"));
+  assert.ok(events.includes("listBridgeDevices"));
 });
 
 test("opening create after editing a bot clears the previous bot fields", () => {
@@ -398,7 +506,7 @@ test("closing an edited bot dialog clears hidden form fields", () => {
   assert.equal(els.botPersonaDetails.open, false);
 });
 
-test("creating a bot supplements local engines from loaded engine capabilities", () => {
+test("creating a bot renders Core options supplemented from loaded engine capabilities", async () => {
   const { context, select } = createBotDialogContext({
     runtime: {
       cloud: { enabled: true, agentRuntime: CLOUD_AGENT_RUNTIME, devices: [] },
@@ -417,6 +525,7 @@ test("creating a bot supplements local engines from loaded engine capabilities",
   });
 
   context.window.miaBotDialog.openBotDialog();
+  await flushDialogAsyncWork();
 
   assert.deepEqual(
     decodedRuntimeOptions(select)
@@ -433,10 +542,13 @@ test("editing a bot hydrates the runtime target from the active binding", async 
       botId: "bot_writer",
       runtimeKind: "desktop-local",
       enabled: true,
+      agentEngine: "claude-code",
+      targetDeviceId: "mac-1",
+      targetDeviceName: "Office Mac",
       config: {
-        agentEngine: "claude-code",
-        deviceId: "mac-1",
-        deviceName: "Office Mac"
+        agentEngine: "hermes",
+        deviceId: "legacy-device",
+        deviceName: "Legacy Mac"
       }
     }
   });
@@ -450,7 +562,7 @@ test("editing a bot hydrates the runtime target from the active binding", async 
   }, "persona");
   assert.equal(context.window.miaBotDialog.readSelectedRuntimeTarget().runtimeKind, "cloud-claude-code");
 
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await flushDialogAsyncWork();
 
   assert.equal(calls[0].botKey, "bot_writer");
   assert.equal(calls[0].runtimeKind, "active");
@@ -458,7 +570,7 @@ test("editing a bot hydrates the runtime target from the active binding", async 
   assert.deepEqual(selected, {
     runtimeKind: "desktop-local",
     targetDeviceId: "mac-1",
-    targetDeviceName: "本机",
+    targetDeviceName: "Office Mac",
     agentEngine: "claude-code"
   });
 });
@@ -487,10 +599,13 @@ test("editing a bot keeps a stale device id instead of resolving bridge aliases"
       botId: "bot_writer",
       runtimeKind: "desktop-local",
       enabled: true,
+      agentEngine: "claude-code",
+      targetDeviceId: "stale-device-id",
+      targetDeviceName: "Old Mac",
       config: {
-        agentEngine: "claude-code",
-        deviceId: "stale-device-id",
-        deviceName: "Old Mac"
+        agentEngine: "hermes",
+        deviceId: "mac-1",
+        deviceName: "Office Mac"
       }
     }
   });

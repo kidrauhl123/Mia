@@ -311,7 +311,7 @@ function createAuthService({
       );
       const tokens = await exchangeCodexTokens(codeResponse);
       saveCodexTokens(tokens);
-      applyCodexModelSettings();
+      await applyCodexModelSettings();
       authState.codexStarting = false;
       authState.codexLoggedIn = true;
       authState.codexUserCode = "";
@@ -383,15 +383,17 @@ function createAuthService({
     authState.codexStarting = false;
     authProcess = null;
     if (code === 0) {
-      saveProviderConnection({
-        provider: completedProvider,
-        providerLabel,
-        authType: input.authType || "oauth_external",
-        apiKeyEnv: "",
-        apiKey: "",
-        baseUrl: input.baseUrl || "",
-        apiMode: input.apiMode || ""
-      });
+      try {
+        await saveProviderConnection({
+          provider: completedProvider,
+          providerLabel,
+          authType: input.authType || "oauth_external"
+        });
+      } catch (error) {
+        authState.codexLastError = `${providerLabel} OAuth completed but Core provider save failed: ${error.message}`;
+        appendLog(authState.codexLastError);
+        return;
+      }
       appendLog(`${providerLabel} OAuth login completed.`);
       authState.oauthProvider = "";
       authState.oauthProviderLabel = "";

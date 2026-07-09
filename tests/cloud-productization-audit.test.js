@@ -82,16 +82,18 @@ test("packaged desktop audit can read the final mac zip without requiring unpack
     fs.writeFileSync(path.join(tempDir, "package.json"), JSON.stringify({ productName: "Mia", version: "9.9.9" }));
     fs.writeFileSync(path.join(sourceDir, "src/main.js"), [
       "const MIA_ALLOW_MULTIPLE_INSTANCES = true;",
-      "const cloudWebSocketProtocols = [];",
-      "function startCloudBridge() { return createCloudBridgeClient(); }",
+      "const cloudBridgeRuntime = createCloudBridgeClient({",
+      "  startCloudBridgeRequest: (payload = {}) => forwardMiaCoreHttpRequest({ route: \"/api/cloud/bridge/start\", body: payload }),",
+      "  stopCloudBridgeRequest: () => forwardMiaCoreHttpRequest({ route: \"/api/cloud/bridge/stop\" })",
+      "});",
+      "function startCloudBridge() { return cloudBridgeRuntime.start(); }",
       "function createCloudBridgeClient() { return {}; }",
     ].join("\n"));
     fs.writeFileSync(path.join(sourceDir, "src/main/cloud/cloud-bridge-client.js"), [
-      "function runtimeConfigFromMessage(message) { return message.runtimeConfig || {}; }",
-      "async function runCloudBridgeRequest(ws, message = {}) {",
-      "  const runtimeConfig = runtimeConfigFromMessage(message);",
-      "  const agentEngine = runtimeConfig.agentEngine || \"hermes\";",
-      "  return { ...(agentEngine === \"hermes\" ? { permissionMode: runtimeConfig.permissionMode || \"ask\" } : {}) };",
+      "function createCloudBridgeClient({ startCloudBridgeRequest, stopCloudBridgeRequest }) {",
+      "  function start() { return startCloudBridgeRequest({}); }",
+      "  function stop() { return stopCloudBridgeRequest({}); }",
+      "  return { start, stop };",
       "}",
     ].join("\n"));
     await asar.createPackage(sourceDir, asarPath);

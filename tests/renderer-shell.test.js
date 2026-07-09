@@ -23,7 +23,22 @@ fs.readFileSync = function readFileSyncWithNormalizedText(file, options, ...args
 function extractFunctionSource(source, functionName) {
   const start = source.indexOf(`function ${functionName}`);
   assert.notEqual(start, -1, `${functionName} should exist`);
-  const bodyStart = source.indexOf("{", start);
+  const paramsStart = source.indexOf("(", start);
+  let paramsDepth = 0;
+  let paramsEnd = -1;
+  for (let index = paramsStart; index < source.length; index += 1) {
+    const ch = source[index];
+    if (ch === "(") paramsDepth += 1;
+    if (ch === ")") {
+      paramsDepth -= 1;
+      if (paramsDepth === 0) {
+        paramsEnd = index;
+        break;
+      }
+    }
+  }
+  assert.notEqual(paramsEnd, -1, `${functionName} params should close`);
+  const bodyStart = source.indexOf("{", paramsEnd);
   let depth = 0;
   for (let index = bodyStart; index < source.length; index += 1) {
     const ch = source[index];
@@ -82,10 +97,11 @@ test("cloud conversation composer keeps accepting sends even while the active ru
   assert.doesNotMatch(submitBody, /if \(isActiveConversationBusy\(\)\) \{[\s\S]*?return;[\s\S]*?\}/);
 });
 
-test("active conversation stop passes the conversation id through preload to main", () => {
+test("active conversation stop passes Core turn context through preload", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const ipcChannelsSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
   const clickStart = appSource.indexOf('els.sendChat.addEventListener("click"');
   const clickEnd = appSource.indexOf('els.chat.addEventListener("click"', clickStart);
   const clickBody = appSource.slice(clickStart, clickEnd);
@@ -96,25 +112,27 @@ test("active conversation stop passes the conversation id through preload to mai
   assert.match(clickBody, /window\.mia\.stopChat\?\.\(\{\s*conversationId:\s*window\.miaSocial\?\.getActiveConversationId\?\.\(\)/);
   assert.match(clickBody, /runId:\s*activeRun\?\.runId \|\| ""/);
   assert.match(clickBody, /turnId:\s*activeRun\?\.turnId \|\| ""/);
-  assert.match(preloadSource, /stopChat:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.ChatStop,\s*payload\)/);
-  assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.ChatStop,\s*\(_event,\s*payload\)\s*=>\s*stopChat\(payload\s*\|\|\s*\{\}\)\)/);
-  // stopChat's implementation now lives in the shared bot-execution-core Module
-  // (extracted from main.js so Mia Core drives the same stop path — no fork).
-  const botExecSource = fs.readFileSync(path.join(root, "src/main/bot-execution-core.js"), "utf8");
-  assert.match(botExecSource, /localBotResponder\?\.stopActiveConversationRun\?\.\(payload\)/);
+  assert.match(preloadSource, /function cancelCoreConversationTurn\(payload = \{\}\)/);
+  assert.match(preloadSource, /\/api\/conversations\/\$\{encodeURIComponent\(conversationId\)\}\/turns\/\$\{encodeURIComponent\(turnId\)\}\/cancel/);
+  assert.match(preloadSource, /Core turn id is required to cancel an active conversation/);
+  assert.doesNotMatch(preloadSource, /return ipcRenderer\.invoke\(IpcChannel\.ChatStop,\s*payload\)/);
+  assert.doesNotMatch(mainSource, /IpcChannel\.ChatStop/);
+  assert.doesNotMatch(ipcChannelsSource, /ChatStop/);
 });
 
-test("foreground active conversation stop delegates to the Mia Core owner", () => {
-  // The stop path moved into bot-execution-core.js; main.js delegates to it.
-  const botExecSource = fs.readFileSync(path.join(root, "src/main/bot-execution-core.js"), "utf8");
-  const stopStart = botExecSource.indexOf("async function stopChat");
-  const stopEnd = botExecSource.indexOf("return {", stopStart);
-  const stopBody = botExecSource.slice(stopStart, stopEnd);
+test("foreground active conversation stop posts Core turn cancellation and rejects missing turn context", () => {
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const stopStart = preloadSource.indexOf("function cancelCoreConversationTurn");
+  const stopEnd = preloadSource.indexOf("function legacyTriggerFromCoreSchedule", stopStart);
+  const stopBody = preloadSource.slice(stopStart, stopEnd);
 
-  assert.ok(stopStart >= 0, "stopChat should be async because Mia Core forwarding is async");
-  assert.match(stopBody, /!isDaemon\(\)/);
-  assert.match(stopBody, /daemonTasksClient\?\.call\?\.\("\/api\/chat\/stop"/);
-  assert.match(stopBody, /body:\s*JSON\.stringify\(payload\s*\|\|\s*\{\}\)/);
+  assert.ok(stopStart >= 0, "preload should own the UI adapter stop intent");
+  assert.match(stopBody, /const conversationId = String/);
+  assert.match(stopBody, /const turnId = String/);
+  assert.match(stopBody, /if \(conversationId && turnId\)/);
+  assert.match(stopBody, /miaCorePost\(/);
+  assert.match(stopBody, /ok:\s*false/);
+  assert.doesNotMatch(stopBody, /IpcChannel\.ChatStop/);
 });
 
 test("composer pending attachments are thumbnail-first and open the image editor", () => {
@@ -180,7 +198,7 @@ test("settings exposes manual update checks through the preload bridge", () => {
   assert.match(preloadSource, /ipcRenderer\.on\(IpcChannel\.UpdateEvent, handler\)/);
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.UpdateCheck,\s*\(\)\s*=>\s*autoUpdateService\.checkForUpdates\(\)\)/);
   assert.match(mainSource, /sendUpdateEvent:\s*\(payload\) => broadcastRendererEvent\(IpcChannel\.UpdateEvent, payload\)/);
-  assert.match(mainSource, /prepareForUpdateInstall:\s*async\s*\([^)]*\)\s*=>\s*\{\s*await stopDaemonService\(\);?\s*\}/);
+  assert.match(mainSource, /prepareForUpdateInstall:\s*async\s*\([^)]*\)\s*=>\s*\{\s*await launchdService\.cleanupLegacyNodeCore\(\);?\s*await stopDaemonService\(\);?\s*\}/);
 });
 
 test("runtime refresh re-renders the daemon status card from observed daemon state", () => {
@@ -1309,9 +1327,13 @@ test("conversation tag filters render as persistent chat folder tabs", () => {
 test("other-device bot conversations are hidden by default and exposed as a last folder tab only when non-empty", () => {
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
   const tagFiltersSource = extractFunctionSource(socialSource, "conversationTagFilters");
+  const botRecordSource = extractFunctionSource(socialSource, "botRecordForConversation");
 
   assert.match(socialSource, /const OTHER_DEVICE_CONVERSATION_FILTER = "__mia_other_devices__"/);
   assert.match(socialSource, /const OTHER_DEVICE_CONVERSATION_LABEL = "其他设备"/);
+  assert.match(socialSource, /function botRecordForConversation\(conversation = \{\}\)/);
+  assert.doesNotMatch(socialSource, /function botRecordForConversationRuntime/);
+  assert.doesNotMatch(botRecordSource, /runtimeConfig|targetDeviceId|target_device_id|agentEngine|agent_engine/);
   assert.match(socialSource, /function conversationRunsOnOtherDevice\(conversation = \{\}\)/);
   assert.match(socialSource, /global\.miaBotManager\?\.botRunsOnOtherDevice\?\.\(bot\)/);
   assert.match(socialSource, /function visibleSocialConversations\(conversations,\s*options = \{\}\)[\s\S]*?const otherDeviceOnly = isOtherDeviceConversationFilter\(filterName\);/);
@@ -1580,7 +1602,9 @@ test("desktop cloud bot conversations expose the restored chat history menu", ()
   assert.match(socialSource, /sessionHistoryShared\(\)\.sidebarConversations\(visibleSocialConversations\(moduleState\.conversations,\s*\{/);
   assert.match(channelSource, /SocialEnsureBotSessionConversation/);
   assert.doesNotMatch(channelSource, /SocialEnsureFellowSessionConversation/);
-  assert.match(preloadSource, /ensureBotSessionConversation: \(sessionId, body\) => ipcRenderer\.invoke\(IpcChannel\.SocialEnsureBotSessionConversation, sessionId, body\)/);
+  assert.match(preloadSource, /async function ensureCoreBotSessionConversation\(sessionId, body = \{\}\)/);
+  assert.match(preloadSource, /ensureBotSessionConversation: \(sessionId, body\) => ensureCoreBotSessionConversation\(sessionId, body\)/);
+  assert.doesNotMatch(preloadSource, /SocialEnsureBotSessionConversation/);
   assert.doesNotMatch(preloadSource, /ensureFellowSessionConversation/);
   assert.match(socialApiSource, /async ensureBotSessionConversation\(sessionId, body = \{\}\)/);
   assert.doesNotMatch(socialApiSource, /ensureFellowSessionConversation/);
@@ -2400,15 +2424,19 @@ test("desktop bot controls save through bot runtime control adapter", () => {
   assert.doesNotMatch(appSource, new RegExp("window\\.mia\\.social\\.save" + "BotRuntime\\(context\\." + "fellow" + "Key"));
   assert.doesNotMatch(appSource, /async function saveActiveCloudBotRuntimeConfig/);
   assert.match(commandsSource, /async function saveBotRuntimeControl/);
+  assert.doesNotMatch(commandsSource, /async function saveBotRuntimeConfig/);
+  assert.doesNotMatch(commandsSource, /saveBotRuntimeConfig,/);
   assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBotRuntimeControl/);
-  assert.match(commandsSource, /saveBotRuntimeConfig\(\{ api, cache, botKey: key, runtimeKind: kind, patch \}\)/);
+  assert.match(commandsSource, /const controlIntent = \{[\s\S]*field:\s*normalizedField[\s\S]*modelEntries:\s*normalizedField === "model"/);
+  assert.doesNotMatch(commandsSource, /saveBotRuntimeConfig\(\{ api, cache, botKey: key, runtimeKind: kind, patch \}\)/);
   assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"model"/);
   assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"effortLevel"/);
   assert.match(quickControlSource, /saveActivePermissionRuntimeControl\(/);
   assert.doesNotMatch(quickControlSource, /window\.mia\.saveFellowEngine\(/);
   assert.doesNotMatch(quickControlSource, /window\.mia\.saveModel\(/);
   assert.doesNotMatch(quickControlSource, /window\.mia\.saveEffort\(/);
-  assert.match(appSource, /window\.mia\.savePermissions\(/);
+  assert.doesNotMatch(quickControlSource, /window\.mia\.savePermissions\(/);
+  assert.doesNotMatch(appSource, /window\.mia\.savePermissions\(/);
   assert.match(appSource, /const conversationPersona = personas\.find[\s\S]*if \(conversationPersona\) return conversationPersona;\s*return null;/);
 });
 
@@ -2455,59 +2483,40 @@ test("desktop Hermes conversation model picker uses platform model catalog", () 
 
   assert.match(appSource, /platformModelCatalog/);
   assert.match(appSource, /loadPlatformModelCatalog/);
-  assert.match(appSource, /platformHermesModelEntries\(\)/);
+  assert.match(appSource, /platformModels:\s*Array\.isArray\(state\.platformModels\)/);
+  assert.doesNotMatch(appSource, /platformHermesModelEntries/);
   assert.doesNotMatch(appSource, /return \[\{ id: "hermes-agent", label: "Hermes Agent" \}\];/);
   assert.match(preloadSource, /listPlatformModels/);
   assert.match(socialApiSource, /\/api\/me\/model-catalog/);
 });
 
-test("desktop cloud Claude permission picker exposes only sandbox mode", () => {
+test("desktop cloud Claude permission picker is not owned by renderer", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const body = extractFunctionSource(appSource, "platformHermesPermissionEntries");
 
-  assert.match(body, /value:\s*"bypassPermissions"/);
-  assert.match(body, /label:\s*"Sandbox"/);
-  assert.doesNotMatch(body, /value:\s*"ask"/);
-  assert.doesNotMatch(body, /value:\s*"readOnly"/);
+  assert.match(appSource, /getBotRuntimeControlOptions/);
+  assert.doesNotMatch(appSource, /platformHermesPermissionEntries/);
+  assert.doesNotMatch(appSource, /Mia Cloud runs Claude Code with tool permissions allowed inside the server sandbox/);
 });
 
-test("desktop bot runtime model selection resolves providerless saved bindings from modelProfileId", () => {
+test("desktop bot runtime model selection delegates saved binding resolution to Rust Core", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const start = appSource.indexOf("function runtimeControlModelProfileId");
-  const end = appSource.indexOf("function permissionEntriesForRuntimeControl", start);
-  const source = appSource.slice(start, end).trim();
-  const sandbox = {
-    state: {
-      runtime: {
-        model: {
-          provider: "openai-codex",
-          model: "gpt-5.5"
-        }
-      }
-    },
-    agentEngineForRuntimeControl: () => "hermes",
-    isExternalAgentEngineForRuntimeControl: () => false,
-    window: {
-      miaModelHelpers: {
-        catalogEntryForModel: () => ({ id: "openai-codex::gpt-5.5" })
-      }
-    }
-  };
-  vm.runInNewContext(`${source}; this.modelValueForRuntimeControl = modelValueForRuntimeControl;`, sandbox);
+  const requestBody = extractFunctionSource(appSource, "runtimeControlOptionsRequest");
+  const stateBody = extractFunctionSource(appSource, "runtimeControlStateSnapshot");
+  const syncBody = extractFunctionSource(appSource, "syncConversationBotRuntimeControls");
 
-  const selected = sandbox.modelValueForRuntimeControl(
-    { runtimeKind: "desktop-local" },
-    [
-      { id: "openai-codex::gpt-5.4", value: "openai-codex::gpt-5.4", provider: "openai-codex", model: "gpt-5.4", label: "gpt-5.4" },
-      { id: "mia-auto", value: "mia-auto", provider: "mia", model: "mia-auto", label: "Auto", modelProfileId: "mia:mia-auto" }
-    ],
-    {
-      model: "gpt-5.4",
-      modelProfileId: "openai-codex:gpt-5.4"
-    }
-  );
-
-  assert.equal(selected, "openai-codex::gpt-5.4");
+  assert.match(appSource, /getBotRuntimeControlOptions/);
+  assert.match(requestBody, /runtimeControlStateSnapshot/);
+  assert.match(stateBody, /modelCatalog/);
+  assert.match(stateBody, /platformModels/);
+  assert.match(stateBody, /engineCapabilities/);
+  assert.match(stateBody, /codexModels/);
+  assert.doesNotMatch(appSource, /modelOptionsByEngine/);
+  assert.doesNotMatch(appSource, /effortOptionsByEngine/);
+  assert.doesNotMatch(appSource, /permissionOptionsByEngine/);
+  assert.match(syncBody, /options\?\.selectedModel/);
+  assert.match(syncBody, /options\?\.selectedModelEntry/);
+  assert.doesNotMatch(appSource, /function runtimeControlModelProfileId/);
+  assert.doesNotMatch(appSource, /function modelValueForRuntimeControl/);
 });
 
 test("desktop avatar picker supports video avatars with one trim row", () => {
@@ -2688,6 +2697,10 @@ test("contacts use cloud-stored owned bot identities", () => {
 
   assert.match(html, /bot\/bot-directory\.js/);
   assert.match(botDirectorySource, /function listOwnedBots/);
+  assert.doesNotMatch(botDirectorySource, /function runtimeDeviceById/);
+  assert.doesNotMatch(botDirectorySource, /function isCurrentRuntimeDevice/);
+  assert.doesNotMatch(botDirectorySource, /function deviceStatusText/);
+  assert.doesNotMatch(botDirectorySource, /function compactDeviceName/);
   assert.match(socialSource, /window\.miaBotDirectory[\s\S]*listOwnedBots/);
   assert.match(botManagerSource, /function allOwnedBots\(\)/);
   assert.match(botManagerSource, /window\.miaBotDirectory\.listOwnedBots/);
@@ -2703,13 +2716,40 @@ test("contacts use cloud-stored owned bot identities", () => {
   assert.match(appSource, /const contactKeys = new Set/);
 });
 
+test("bot runtime display uses Core projection instead of raw backend config", () => {
+  const botCommandsSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-commands.js"), "utf8");
+  const botDirectorySource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-directory.js"), "utf8");
+  const botDialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
+  const saveBotRuntimeTargetSource = extractFunctionSource(botCommandsSource, "saveBotRuntimeTarget");
+  const normalizeOwnedBotSource = extractFunctionSource(botDirectorySource, "normalizeOwnedBot");
+  const runtimeTargetFromBindingSource = extractFunctionSource(botDialogSource, "runtimeTargetFromBinding");
+  const mergeRuntimeBindingSource = extractFunctionSource(botDialogSource, "mergeRuntimeBindingIntoBotSnapshot");
+
+  assert.match(normalizeOwnedBotSource, /runtimeConfig:\s*_runtimeConfig/);
+  assert.match(normalizeOwnedBotSource, /runtime_config:\s*_runtime_config/);
+  assert.match(normalizeOwnedBotSource, /config:\s*_config/);
+  assert.doesNotMatch(normalizeOwnedBotSource, /\b(?:runtimeConfig|runtime_config|config)\s*(?:\?\.|\.)/);
+  assert.match(runtimeTargetFromBindingSource, /binding\.targetDeviceId/);
+  assert.match(runtimeTargetFromBindingSource, /binding\.targetDeviceName/);
+  assert.match(runtimeTargetFromBindingSource, /binding\.agentEngine/);
+  assert.doesNotMatch(runtimeTargetFromBindingSource, /runtimeConfig|runtime_config|\bbinding\.config\b/);
+  assert.match(saveBotRuntimeTargetSource, /binding\.targetDeviceId/);
+  assert.match(saveBotRuntimeTargetSource, /binding\.runtimeLabel/);
+  assert.doesNotMatch(saveBotRuntimeTargetSource, /runtimeConfig|runtime_config|\bbinding\.config\b/);
+  assert.doesNotMatch(mergeRuntimeBindingSource, /runtimeConfig|runtime_config|\bconfig\s*:/);
+});
+
 test("contacts group desktop-local bots from other devices behind a collapsed section", () => {
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
 
   assert.match(botManagerSource, /const OTHER_DEVICE_GROUP_KEY = "other-devices"/);
   assert.match(botManagerSource, /const CONTACT_GROUP_COLLAPSED_KEY = "mia\.contactGroupCollapsed\.v1"/);
   assert.match(botManagerSource, /function botRunsOnOtherDevice\(bot = \{\}\)/);
-  assert.match(botManagerSource, /target\.runtimeKind !== "desktop-local"/);
+  assert.match(botManagerSource, /function runtimeTargetProjection\(bot = \{\}\)/);
+  assert.match(botManagerSource, /runtimeTargetProjection\(bot\)\.runsOnOtherDevice/);
+  assert.doesNotMatch(botManagerSource, /localDeviceId/);
+  assert.doesNotMatch(botManagerSource, /targetDeviceId[\s\S]{0,260}!==[\s\S]{0,260}localDevice/);
+  assert.doesNotMatch(botManagerSource, /function activeRuntimeTarget/);
   assert.match(botManagerSource, /function contactDisplayGroupKey\(bot = \{\}\)[\s\S]*OTHER_DEVICE_GROUP_KEY/);
   assert.match(botManagerSource, /function contactGroupsForSidebar\(bots = \[\]\)/);
   assert.match(botManagerSource, /function contactGroupCollapsedSet\(\)[\s\S]*\[OTHER_DEVICE_GROUP_KEY\]/);
@@ -2767,17 +2807,19 @@ test("contact detail shows engine logo and bot device label", () => {
   assert.match(mainSource, /localDeviceName,/);
   assert.match(mainSource, /localDevice:\s*\{\s*name:\s*localDeviceName\(\)/);
   assert.match(botManagerSource, /function botDeviceLabel\(bot = \{\}\)/);
+  assert.match(botManagerSource, /runtimeLabel/);
   assert.match(botManagerSource, /function engineLogoHtml\(engine = ""\)/);
   assert.match(botManagerSource, /function renderBotRuntimeTargetPanel\(bot\)/);
   assert.match(botManagerSource, /window\.miaBotCommands\.saveBotRuntimeTarget\(\{/);
+  assert.match(botManagerSource, /getBotRuntimeTargetOptions/);
   assert.match(botManagerSource, /<details class="contact-runtime-target accordion-details"/);
   assert.match(botManagerSource, /data-runtime-panel-key/);
   assert.match(botManagerSource, /openRuntimeTargetPanelKeys/);
   assert.match(botManagerSource, /<div class="accordion-body">/);
-  assert.match(botManagerSource, /status:\s*"local"/);
-  assert.match(botManagerSource, /function mergeDevices\(existing, incoming/);
-  assert.match(botManagerSource, /function isSameLocalDevice\(device, local\)/);
-  assert.match(botManagerSource, /device\?\.id === active\.deviceId/);
+  assert.doesNotMatch(botManagerSource, /function localRuntimeEngineIds/);
+  assert.doesNotMatch(botManagerSource, /function mergeDevices\(existing, incoming/);
+  assert.doesNotMatch(botManagerSource, /function isSameLocalDevice\(device, local\)/);
+  assert.doesNotMatch(botManagerSource, /agentInventory\?\.agents/);
   assert.doesNotMatch(botManagerSource, /device\?\.aliases/);
   assert.match(botManagerSource, /engine-row-logo contact-engine-logo/);
   assert.match(botManagerSource, /botDeviceLabel\(bot\)/);
@@ -2922,7 +2964,8 @@ test("contact detail deletes bots through runtime-backed ownership rules", () =>
   assert.doesNotMatch(fs.readFileSync(path.join(root, "src/renderer/bot/bot-directory.js"), "utf8"), /key !== "mia"/);
   assert.match(channelSource, /SocialDeleteBot/);
   assert.doesNotMatch(channelSource, /SocialDeleteFellow/);
-  assert.match(preloadSource, /deleteBot: \(botId\) => ipcRenderer\.invoke\(IpcChannel\.SocialDeleteBot, botId\)/);
+  assert.match(preloadSource, /deleteBot: \(botId\) => coreOk\(miaCoreDelete\(`\/api\/bots\/\$\{encodeURIComponent\(botId\)\}`\)\)/);
+  assert.doesNotMatch(preloadSource, /SocialDeleteBot/);
   assert.doesNotMatch(preloadSource, /deleteFellow: \(fellowId\) => ipcRenderer\.invoke\(IpcChannel\.SocialDeleteFellow, fellowId\)/);
   assert.match(socialApiSource, /async deleteBot\(botId\)/);
   assert.doesNotMatch(socialApiSource, /async deleteFellow\(fellowId\)/);
@@ -2941,11 +2984,15 @@ test("contact capability saves go through bot command adapters", () => {
   assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBotCapabilities/);
 });
 
-test("contact capability checkboxes use official preset default capabilities", () => {
+test("contact capability checkboxes use Rust Core capability options", () => {
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
 
-  assert.match(botManagerSource, /botCapabilitiesWithPresetDefaults/);
-  assert.match(botManagerSource, /state\?\.skillLibrary\?\.botPresets/);
+  assert.match(botManagerSource, /getBotCapabilityOptions/);
+  assert.match(botManagerSource, /capabilityOptionsRequest/);
+  assert.doesNotMatch(botManagerSource, /function capabilityForEngine/);
+  assert.doesNotMatch(botManagerSource, /function botCapabilityItems/);
+  assert.doesNotMatch(botManagerSource, /function toggleCapabilityId/);
+  assert.doesNotMatch(botManagerSource, /botCapabilitiesWithPresetDefaults/);
 });
 
 test("bot-only contact detail renders capabilities, persona, and memory as compact accordions", () => {
@@ -3022,7 +3069,6 @@ test("settings exposes account-level memory governance", () => {
   const memorySource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-memory.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const coreSource = fs.readFileSync(path.join(root, "src/core/mia-core.js"), "utf8");
 
   assert.match(htmlSource, /data-settings-tab="memory"/);
   assert.match(htmlSource, /data-settings-panel="memory"/);
@@ -3061,9 +3107,6 @@ test("settings exposes account-level memory governance", () => {
   assert.match(mainSource, /function syncNativeMemoryFilesForAgent\(input = \{\}\)/);
   assert.doesNotMatch(mainSource, /miaMemoryBlock|memoryBlock:\s*/);
   assert.doesNotMatch(mainSource, /syncNativeMemoryFiles:\s*miaMemoryService\.syncNativeMemoryFiles/);
-  assert.match(coreSource, /function syncNativeMemoryFilesForAgent\(input = \{\}\)/);
-  assert.doesNotMatch(coreSource, /miaMemoryBlock|memoryBlock:\s*/);
-  assert.doesNotMatch(coreSource, /syncNativeMemoryFiles:\s*miaMemoryService\.syncNativeMemoryFiles/);
 });
 
 test("renderer handles memory events as lightweight UI refreshes, not chat messages", () => {
@@ -3089,7 +3132,10 @@ test("social keeps desktop-local bot runtime binding explicit", () => {
   assert.doesNotMatch(socialSource, /runtime\.bots\)\s*\? runtime\.bots/);
   assert.doesNotMatch(socialSource, new RegExp("api\\.save" + "BotRuntime\\(" + "fellow" + "Key"));
   assert.doesNotMatch(socialSource, /api\.ensureFellowConversation\(fellow\.key,/);
-  assert.match(commandsSource, /function desktopLocalRuntimeConfig/);
+  assert.match(commandsSource, /function desktopLocalRuntimeSyncIntent/);
+  assert.doesNotMatch(commandsSource, /desktopLocalRuntimeSyncIntent,/);
+  assert.doesNotMatch(commandsSource, /function desktopLocalRuntimeConfig/);
+  assert.match(commandsSource, /syncIntent:\s*desktopLocalRuntimeSyncIntent\(\{/);
   assert.match(commandsSource, /async function ensureDesktopLocalBotConversation/);
 });
 
@@ -3110,9 +3156,13 @@ test("bot creation dialog combines runtime location and agent engine into one gr
   assert.match(appSource, /targetDeviceId/);
   assert.match(dialogSource, /function renderBotRuntimeTargetSelect/);
   assert.match(dialogSource, /function readSelectedRuntimeTarget/);
+  assert.match(dialogSource, /getBotRuntimeTargetOptions/);
+  assert.match(dialogSource, /runtimeTargetOptionsRequest/);
+  assert.match(dialogSource, /normalizeCoreRuntimeGroup/);
   assert.match(dialogSource, /document\.createElement\("optgroup"\)/);
   assert.match(dialogSource, /refreshBridgeDevicesForDialog/);
-  assert.match(dialogSource, /state\?\.runtime\?\.cloud\?\.enabled/);
+  assert.doesNotMatch(dialogSource, /function editableBridgeDeviceOptions/);
+  assert.doesNotMatch(dialogSource, /function runtimeDeviceGroupLabel/);
   assert.doesNotMatch(dialogSource, /openclaw/);
 });
 

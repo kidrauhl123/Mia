@@ -8,52 +8,81 @@ function setup(overrides = {}) {
     effortWrites: [],
     permissionWrites: [],
     modelSelections: [],
+    cancellations: [],
     remoteChats: [],
-    stops: [],
-    stream: []
+    stream: [],
+    attachments: [],
+    files: [],
+    commands: []
   };
   const router = createRemoteControlRouter({
     isDaemonProcess: false,
-    getRuntimeStatus: () => ({ runtime: true }),
-    loadHermesModelCatalog: async () => ["hermes-model"],
-    loadCodexModels: () => ["codex-model"],
-    loadEngineCapabilities: async () => ({ hermes: true }),
-    loadHermesSlashCommands: async () => [{ name: "/help" }],
-    loadExternalAgentCommands: async (input) => ({ commands: [], input }),
-    saveChatAttachment: (body) => ({ attachment: body }),
-    readLocalFileAttachment: (body) => ({ file: body }),
-    executeExternalAgentCommand: (body) => ({ command: body }),
-    saveModelSelection: async (body) => {
-      calls.modelSelections.push(body);
+    getRuntimeStatus: () => {
+      calls.status = true;
       return { runtime: true };
     },
+    loadHermesModelCatalog: async () => {
+      calls.catalog = true;
+      return ["hermes-model"];
+    },
+    loadCodexModels: () => {
+      calls.codexModels = true;
+      return ["codex-model"];
+    },
+    loadEngineCapabilities: async () => {
+      calls.capabilities = true;
+      return { hermes: true };
+    },
+    loadHermesSlashCommands: async () => {
+      calls.slash = true;
+      return [{ name: "/help" }];
+    },
+    loadExternalAgentCommands: async (input) => {
+      calls.agentList = input;
+      return { commands: [], input };
+    },
+    saveChatAttachment: (body) => calls.attachments.push(body),
+    readLocalFileAttachment: (body) => calls.files.push(body),
+    executeExternalAgentCommand: (body) => calls.commands.push(body),
+    saveModelSelection: async (body) => calls.modelSelections.push(body),
     writeEffortSettings: (body) => calls.effortWrites.push(body),
     writePermissionSettings: (body) => calls.permissionWrites.push(body),
-    stopChat: async (body) => {
-      calls.stops.push(body);
-      return { stopped: true, body };
-    },
-    runRemoteChatRequest: async (body, eventSink = null) => {
-      calls.remoteChats.push({ body, eventSink });
-      if (eventSink) eventSink.send("chat", { delta: "hello" });
-      return { bot: { key: "codex" }, session: { id: "s_1" }, response: { text: "done" } };
+    cancelConversationTurn: async (input) => {
+      calls.cancellations.push(input);
+      return { ok: true, cancelled: true, conversationId: input.conversationId, turnId: input.turnId };
     },
     ...overrides
   });
   return { calls, router };
 }
 
-test("routes health and read endpoints through one remote control router", async () => {
-  const { router } = setup();
+test("retired remote status, catalog, attachment, and command routes are not exposed", async () => {
+  const { calls, router } = setup();
 
-  assert.deepEqual(await router.route({ method: "GET", path: "/health" }), {
-    handled: true,
-    data: { status: "ok", service: "mia-daemon", mode: "desktop" }
-  });
-  assert.deepEqual(await router.route({ method: "GET", path: "/api/commands/agent-list?engine=codex" }), {
-    handled: true,
-    data: { commands: [], input: { engine: "codex" } }
-  });
+  for (const route of [
+    { method: "GET", path: "/health" },
+    { method: "GET", path: "/api/runtime/status" },
+    { method: "GET", path: "/api/model/catalog" },
+    { method: "GET", path: "/api/codex/models" },
+    { method: "GET", path: "/api/engine/capabilities" },
+    { method: "GET", path: "/api/commands/slash" },
+    { method: "GET", path: "/api/commands/agent-list?engine=codex" },
+    { method: "POST", path: "/api/chat/attachment", body: { dataUrl: "data:text/plain;base64,aGk=" } },
+    { method: "POST", path: "/api/file/fetch", body: { path: "/tmp/file.txt" } },
+    { method: "POST", path: "/api/commands/agent-execute", body: { command: "/resume" } }
+  ]) {
+    assert.deepEqual(await router.route(route), { handled: false }, route.path);
+  }
+
+  assert.equal(calls.status, undefined);
+  assert.equal(calls.catalog, undefined);
+  assert.equal(calls.codexModels, undefined);
+  assert.equal(calls.capabilities, undefined);
+  assert.equal(calls.slash, undefined);
+  assert.equal(calls.agentList, undefined);
+  assert.deepEqual(calls.attachments, []);
+  assert.deepEqual(calls.files, []);
+  assert.deepEqual(calls.commands, []);
 });
 
 test("retired local bot identity routes are not exposed through remote control", async () => {
@@ -63,27 +92,31 @@ test("retired local bot identity routes are not exposed through remote control",
   assert.deepEqual(await router.route({ method: "POST", path: "/api/bot/engine", body: { key: "codex" } }), { handled: false });
 });
 
-test("routes model, effort, and permission mutations without duplicating adapters", async () => {
+test("retired model, effort, and permission mutation routes are not exposed through remote control", async () => {
   const { calls, router } = setup();
 
   assert.deepEqual(await router.route({
     method: "POST",
     path: "/api/model/save",
     body: { provider: "anthropic", model: "claude", baseUrl: "https://api.example" }
-  }), { handled: true, data: { runtime: true } });
-  await router.route({ method: "POST", path: "/api/effort/save", body: { effort: "high" } });
-  await router.route({ method: "POST", path: "/api/permissions/save", body: { mode: "ask" } });
+  }), { handled: false });
+  assert.deepEqual(await router.route({
+    method: "POST",
+    path: "/api/effort/save",
+    body: { effort: "high" }
+  }), { handled: false });
+  assert.deepEqual(await router.route({
+    method: "POST",
+    path: "/api/permissions/save",
+    body: { mode: "ask" }
+  }), { handled: false });
 
-  assert.deepEqual(calls.modelSelections, [{
-    provider: "anthropic",
-    model: "claude",
-    baseUrl: "https://api.example"
-  }]);
-  assert.deepEqual(calls.effortWrites, [{ effort: "high" }]);
-  assert.deepEqual(calls.permissionWrites, [{ mode: "ask" }]);
+  assert.deepEqual(calls.modelSelections, []);
+  assert.deepEqual(calls.effortWrites, []);
+  assert.deepEqual(calls.permissionWrites, []);
 });
 
-test("routes chat stop with the conversation payload intact", async () => {
+test("retired chat stop compatibility route is not exposed through remote control", async () => {
   const { calls, router } = setup();
 
   const result = await router.route({
@@ -92,14 +125,49 @@ test("routes chat stop with the conversation payload intact", async () => {
     body: { conversationId: "g_1", runId: "local_1" }
   });
 
-  assert.deepEqual(calls.stops, [{ conversationId: "g_1", runId: "local_1" }]);
+  assert.deepEqual(calls.remoteChats, []);
+  assert.deepEqual(result, { handled: false });
+});
+
+test("retired chat send compatibility route is not exposed through remote control", async () => {
+  const { calls, router } = setup();
+
+  const result = await router.route({
+    method: "POST",
+    path: "/api/chat/send",
+    body: { sessionId: "conversation:1", body: "hello" }
+  });
+
+  assert.deepEqual(calls.remoteChats, []);
+  assert.deepEqual(result, { handled: false });
+});
+
+test("routes typed Core turn cancellation without the retired chat stop adapter", async () => {
+  const { calls, router } = setup();
+
+  const result = await router.route({
+    method: "POST",
+    path: "/api/conversations/conv%2F1/turns/turn%2F1/cancel",
+    body: { ignored: true }
+  });
+
+  assert.deepEqual(calls.cancellations, [{
+    conversationId: "conv/1",
+    turnId: "turn/1",
+    body: { ignored: true }
+  }]);
   assert.deepEqual(result, {
     handled: true,
-    data: { stopped: true, body: { conversationId: "g_1", runId: "local_1" } }
+    data: {
+      ok: true,
+      cancelled: true,
+      conversationId: "conv/1",
+      turnId: "turn/1"
+    }
   });
 });
 
-test("routes chat stream by emitting chat and result events before done", async () => {
+test("retired chat stream compatibility route is not exposed through remote control", async () => {
   const { calls, router } = setup();
 
   const result = await router.route({
@@ -109,12 +177,9 @@ test("routes chat stream by emitting chat and result events before done", async 
     emitStream: (event, data) => calls.stream.push({ event, data })
   });
 
-  assert.equal(calls.remoteChats.length, 1);
-  assert.deepEqual(calls.stream, [
-    { event: "chat", data: { delta: "hello" } },
-    { event: "result", data: { bot: { key: "codex" }, session: { id: "s_1" }, response: { text: "done" } } }
-  ]);
-  assert.deepEqual(result, { handled: true, data: { done: true } });
+  assert.deepEqual(calls.remoteChats, []);
+  assert.deepEqual(calls.stream, []);
+  assert.deepEqual(result, { handled: false });
 });
 
 test("returns handled=false for unknown routes instead of choosing an adapter response", async () => {

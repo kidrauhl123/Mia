@@ -14,6 +14,8 @@ function errorMessage(error) {
 function createStartupBackgroundService({
   getRuntimeStatus,
   startDaemonService,
+  refreshAgentWorkspaceAsync,
+  refreshMemorySettingsAsync,
   refreshSystemHermesAsync,
   startEngine,
   shouldStartEngine = () => true,
@@ -52,6 +54,30 @@ function createStartupBackgroundService({
     }
   }
 
+  async function refreshAgentWorkspace() {
+    if (typeof refreshAgentWorkspaceAsync !== "function") return createStepResult(true, { skipped: true });
+    try {
+      await refreshAgentWorkspaceAsync();
+      return createStepResult(true);
+    } catch (error) {
+      const message = errorMessage(error);
+      appendEngineLog(`Agent workspace Core refresh failed: ${message}`);
+      return createStepResult(true, { warning: message });
+    }
+  }
+
+  async function refreshMemorySettings() {
+    if (typeof refreshMemorySettingsAsync !== "function") return createStepResult(true, { skipped: true });
+    try {
+      await refreshMemorySettingsAsync();
+      return createStepResult(true);
+    } catch (error) {
+      const message = errorMessage(error);
+      appendEngineLog(`Memory settings Core refresh failed: ${message}`);
+      return createStepResult(true, { warning: message });
+    }
+  }
+
   async function runEngine() {
     const runtime = getRuntimeStatus();
     if (!shouldStartEngine()) {
@@ -77,6 +103,8 @@ function createStartupBackgroundService({
   async function run() {
     const steps = {
       daemon: await runDaemon(),
+      agentWorkspace: await refreshAgentWorkspace(),
+      memorySettings: await refreshMemorySettings(),
       systemHermes: await refreshSystemHermes(),
       engine: await runEngine()
     };

@@ -18,6 +18,8 @@ let profileLastSaveSignature = "";
 let avatarTrimDrag = null;
 const botRuntimeControlCache = new Map();
 const botRuntimeControlInFlight = new Set();
+const botRuntimeControlOptionsCache = new Map();
+const botRuntimeControlOptionsInFlight = new Set();
 const platformModelCatalog = { loaded: false, loading: false, entries: [] };
 let socialBootstrapInFlight = null;
 let starterEngineBotsInFlight = null;
@@ -297,14 +299,7 @@ const els = {
   appearanceShowUserAvatar: document.getElementById("appearanceShowUserAvatar"),
   appearanceShowAssistantAvatar: document.getElementById("appearanceShowAssistantAvatar"),
   appearanceSaveStatus: document.getElementById("appearanceSaveStatus"),
-  authMethod: document.getElementById("authMethod"),
-  modelPreset: document.getElementById("modelPreset"),
-  modelProvider: document.getElementById("modelProvider"),
-  modelName: document.getElementById("modelName"),
-  modelKeyEnv: document.getElementById("modelKeyEnv"),
   modelApiKey: document.getElementById("modelApiKey"),
-  modelBaseUrl: document.getElementById("modelBaseUrl"),
-  modelApiMode: document.getElementById("modelApiMode"),
   codexInlineAuth: document.getElementById("codexInlineAuth"),
   codexCheck: document.getElementById("codexCheck"),
   newPersona: document.getElementById("newPersona"),
@@ -2181,52 +2176,31 @@ function renderSendButton() {
 const providerPresets = {
   "openai-codex": {
     provider: "openai-codex",
-    model: "gpt-5.3-codex",
-    apiKeyEnv: "",
-    baseUrl: "",
-    apiMode: "codex_responses"
+    model: "default"
   },
   xai: {
     provider: "xai",
-    model: "grok-4.1-fast",
-    apiKeyEnv: "XAI_API_KEY",
-    baseUrl: "",
-    apiMode: ""
+    model: "grok-4.1-fast"
   },
   anthropic: {
     provider: "anthropic",
-    model: "claude-sonnet-4.6",
-    apiKeyEnv: "ANTHROPIC_API_KEY",
-    baseUrl: "",
-    apiMode: "anthropic_messages"
+    model: "claude-sonnet-4.6"
   },
   openrouter: {
     provider: "openrouter",
-    model: "anthropic/claude-sonnet-4.6",
-    apiKeyEnv: "OPENROUTER_API_KEY",
-    baseUrl: "",
-    apiMode: ""
+    model: "anthropic/claude-sonnet-4.6"
   },
   deepseek: {
     provider: "deepseek",
-    model: "deepseek-chat",
-    apiKeyEnv: "DEEPSEEK_API_KEY",
-    baseUrl: "",
-    apiMode: ""
+    model: "deepseek-chat"
   },
   gemini: {
     provider: "gemini",
-    model: "gemini-2.5-pro",
-    apiKeyEnv: "GEMINI_API_KEY",
-    baseUrl: "",
-    apiMode: ""
+    model: "gemini-2.5-pro"
   },
   lmstudio: {
     provider: "lmstudio",
-    model: "",
-    apiKeyEnv: "LM_API_KEY",
-    baseUrl: "http://127.0.0.1:1234/v1",
-    apiMode: "chat_completions"
+    model: ""
   }
 };
 
@@ -3272,11 +3246,6 @@ async function runFirstRunBackgroundServices() {
   }
 }
 
-function selectedAuthMethod(runtime) {
-  if ((runtime?.model?.provider || "") === "openai-codex") return "openai-codex";
-  return els.authMethod.value || "api-key";
-}
-
 function updateModelFieldVisibility(runtime = state.runtime) {
   const providerEntry = window.miaModelHelpers.selectedProviderEntry();
   const entry = window.miaModelHelpers.selectedModelEntry();
@@ -3289,13 +3258,12 @@ function updateModelFieldVisibility(runtime = state.runtime) {
   els.modelApiKeyField?.classList.toggle("hidden", !needsApiKey);
   els.codexInlineAuth.classList.toggle("hidden", !needsOauth);
   els.modelConnectButton?.classList.toggle("hidden", !(needsApiKey || canConnectWithoutKey));
-	  if (entry) {
-	    window.miaModelSettings.applyModelEntryToFields(entry);
-	    const copy = window.miaModelSettings.modelAuthCopy(entry, runtime);
+		  if (entry) {
+		    const copy = window.miaModelSettings.modelAuthCopy(entry, runtime);
 	  const showAuthState = !needsApiKey && !needsOauth;
 	  setText(els.modelAuthState, isConnected ? "已连接" : copy.state);
 	  els.modelAuthState?.classList.toggle("hidden", !showAuthState);
-	    els.modelApiKey.placeholder = entry.apiKeyEnv || "API Key";
+	    els.modelApiKey.placeholder = window.miaModelHelpers.apiKeyPromptLabel(entry);
 	    if (els.modelConnectButton) {
 	      els.modelConnectButton.textContent = "连接";
 	      els.modelConnectButton.title = `连接 ${providerEntry?.providerLabel || entry.providerLabel || entry.provider}`;
@@ -3303,6 +3271,20 @@ function updateModelFieldVisibility(runtime = state.runtime) {
   } else {
     els.modelAuthState?.classList.add("hidden");
   }
+}
+
+function modelSelectionIntent(entry, apiKey = null) {
+  const provider = String(entry?.provider || "").trim();
+  const model = String(entry?.model || "").trim();
+  return {
+    provider,
+    providerConnectionId: entry?.providerConnectionId || provider,
+    model,
+    modelProfileId: entry?.modelProfileId || (provider && model ? `${provider}:${model}` : provider),
+    providerLabel: entry?.providerLabel,
+    authType: entry?.authType,
+    ...(apiKey != null ? { apiKey } : {})
+  };
 }
 
 
@@ -3454,11 +3436,9 @@ function render() {
   els.codexCancel.disabled = !auth.codexStarting;
   els.codexCancel.classList.toggle("hidden", !auth.codexStarting);
   if (!editingModel) updateModelFieldVisibility(runtime);
+  const settingsRuntimeOptions = window.miaModelSettings.runtimeControlOptions(runtime);
   if (els.quickModelSelect && document.activeElement !== els.quickModelSelect) {
-    const engine = window.miaEngineOptions.activeAgentEngine();
-    const currentModelId = window.miaEngineOptions.isExternalAgentEngine(engine)
-      ? (window.miaEngineOptions.engineConfigForPersona().model || "default")
-      : window.miaModelHelpers.presetKeyForModel(runtime.model);
+    const currentModelId = settingsRuntimeOptions?.selectedModel || "";
     if ([...els.quickModelSelect.options].some((option) => option.value === currentModelId)) {
       els.quickModelSelect.value = currentModelId;
     }
@@ -3466,25 +3446,22 @@ function render() {
   }
   window.miaModelSettings.syncEffortControl(runtime);
   const connectedEntries = window.miaModelSettings.connectedModelEntries(runtime);
-  const engine = window.miaEngineOptions.activeAgentEngine();
-  setModelSwitchStatusText(window.miaEngineOptions.isExternalAgentEngine(engine)
-    ? window.miaEngineOptions.localEngineStatusText(runtime, engine)
-    : connectedEntries.length ? (runtime.engineRunning ? "已连接" : runtime.engineInstalled ? "未启动" : "未安装") : "先连接提供商");
+  setModelSwitchStatusText(settingsRuntimeOptions?.statusText || "运行配置读取中...");
   if (els.quickModelSelect) {
-    els.quickModelSelect.title = window.miaEngineOptions.isExternalAgentEngine(engine)
-      ? `当前模型：${els.quickModelSelect.selectedOptions?.[0]?.textContent || "默认"}`
-      : connectedEntries.length
-        ? `当前模型：${window.miaModelHelpers.modelDisplayName(runtime.model)}`
-        : "未配置模型";
+    els.quickModelSelect.title = connectedEntries.length
+      ? `当前模型：${els.quickModelSelect.selectedOptions?.[0]?.textContent || settingsRuntimeOptions?.selectedModel || "默认"}`
+      : "未配置模型";
   }
-  const activeIcon = window.miaEngineOptions.isExternalAgentEngine(engine)
+  const selectedRuntimeEntry = settingsRuntimeOptions?.selectedModelEntry
+    || connectedEntries.find((entry) => String(entry.id || entry.value || entry.model || "") === String(els.quickModelSelect?.value || settingsRuntimeOptions?.selectedModel || ""))
+    || connectedEntries[0]
+    || {};
+  const activeIcon = connectedEntries.length
     ? window.miaModelHelpers.modelIconSrc({
-      provider: window.miaEngineOptions.engineIconProvider(engine),
-      model: window.miaEngineOptions.engineIconModel(engine)
+      provider: selectedRuntimeEntry.provider || runtime.model?.provider,
+      model: selectedRuntimeEntry.model || selectedRuntimeEntry.id || runtime.model?.model
     })
-    : connectedEntries.length
-      ? window.miaModelHelpers.modelIconSrc(runtime.model || {})
-      : "";
+    : "";
   applyComposerModelAvatar(document.querySelector(".model-avatar"), activeIcon);
   window.miaModelSettings.syncPermissionControl(runtime);
   syncConversationBotRuntimeControls();
@@ -4768,37 +4745,6 @@ async function loadPlatformModelCatalog() {
   return platformModelCatalog.entries;
 }
 
-function platformHermesModelEntries() {
-  return platformModelCatalog.entries.length
-    ? platformModelCatalog.entries.map((entry) => ({
-      ...entry,
-      provider: "mia",
-      providerLabel: "Mia",
-      model: entry.id,
-      authType: "mia_account",
-      modelProfileId: `mia:${entry.id}`
-    }))
-    : [{
-      id: "mia-auto",
-      label: "Auto",
-      provider: "mia",
-      providerLabel: "Mia",
-      model: "mia-auto",
-      authType: "mia_account",
-      modelProfileId: "mia:mia-auto"
-    }];
-}
-
-function platformHermesPermissionEntries() {
-  return [
-    {
-      value: "bypassPermissions",
-      label: "Sandbox",
-      title: "Mia Cloud runs Claude Code with tool permissions allowed inside the server sandbox."
-    }
-  ];
-}
-
 function setComposerSelectOptions(select, entries, selectedValue) {
   if (!select) return "";
   const normalized = (Array.isArray(entries) ? entries : [])
@@ -4968,145 +4914,76 @@ async function ensureBotRuntimeBinding(botKey, runtimeKind = "cloud-claude-code"
   });
 }
 
-function normalizeAgentEngineForRuntime(value) {
-  const normalizer = window.miaEngineContracts?.normalizeAgentEngine;
-  if (typeof normalizer === "function") return normalizer(value);
-  const raw = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
-  if (raw === "claude" || raw === "claude-code") return "claude-code";
-  if (raw === "codex" || raw === "openai-codex") return "codex";
-  return "hermes";
+function runtimeControlOptionsCacheKey(context = activeBotRuntimeControlContext()) {
+  return context?.botKey ? botRuntimeCacheKey(context.botKey, context.runtimeKind || "cloud-claude-code") : "";
 }
 
-function strictAgentEngineForRuntime(value = "") {
-  const strict = window.miaCloudRuntime?.normalizeAgentEngineStrict?.(value);
-  if (strict) return strict;
-  const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
-  if (raw === "claude" || raw === "claude-code") return "claude-code";
-  if (raw === "codex" || raw === "openai-codex") return "codex";
-  if (raw === "hermes") return "hermes";
-  return "";
+function runtimeControlArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
-function cloudAgentEngineForRuntimeControl(context = activeBotRuntimeControlContext()) {
-  const binding = context?.botKey
-    ? botRuntimeControlCache.get(botRuntimeCacheKey(context.botKey, context.runtimeKind || "cloud-claude-code"))
-    : null;
-  const bindingConfig = binding?.config || {};
-  const botConfig = context?.bot?.runtimeConfig || context?.bot?.runtime_config || {};
-  return strictAgentEngineForRuntime(
-    bindingConfig.agentEngine
-      || bindingConfig.agent_engine
-      || context?.bot?.agentEngine
-      || context?.bot?.agent_engine
-      || botConfig.agentEngine
-      || botConfig.agent_engine
-  ) || window.miaCloudRuntime?.cloudAgentRuntimeFromState?.(state)?.agentEngine || "";
+function runtimeControlOptionsForContext(context = activeBotRuntimeControlContext()) {
+  const key = runtimeControlOptionsCacheKey(context);
+  return key ? botRuntimeControlOptionsCache.get(key) || null : null;
 }
 
-function agentEngineForRuntimeControl(context = activeBotRuntimeControlContext()) {
-  if (context?.runtimeKind === "cloud-claude-code") return cloudAgentEngineForRuntimeControl(context);
-  return normalizeAgentEngineForRuntime(
-    context?.bot?.agentEngine
-      || context?.bot?.agent_engine
-      || window.miaEngineOptions.activeAgentEngine()
-  );
-}
-
-function isExternalAgentEngineForRuntimeControl(engine) {
-  return Boolean(window.miaEngineOptions?.isExternalAgentEngine?.(engine));
-}
-
-function enginePermissionModeForRuntimeControl(engine, runtime = state.runtime) {
-  if (!isExternalAgentEngineForRuntimeControl(engine)) return runtime?.permissions?.mode || "ask";
-  return runtime?.permissions?.engines?.[engine] || "default";
-}
-
-function modelEntriesForRuntimeControl(context = activeBotRuntimeControlContext()) {
-  const engine = agentEngineForRuntimeControl(context);
-  if (context?.runtimeKind === "cloud-claude-code") return platformHermesModelEntries();
-  if (isExternalAgentEngineForRuntimeControl(engine)) {
-    return window.miaEngineOptions.externalModelEntries(engine);
-  }
-  return window.miaModelSettings.connectedModelEntries(state.runtime);
-}
-
-function runtimeConfigForControl(context = activeBotRuntimeControlContext()) {
-  if (!context) return {};
-  const binding = botRuntimeControlCache.get(botRuntimeCacheKey(context.botKey, context.runtimeKind));
-  const botConfig = context.bot?.engineConfig || context.bot?.engine_config || {};
-  if (context.runtimeKind === "cloud-claude-code") return { ...botConfig, ...(binding?.config || {}) };
-  const engine = agentEngineForRuntimeControl(context);
-  const mergedConfig = { ...botConfig, ...(binding?.config || {}) };
-  if (isExternalAgentEngineForRuntimeControl(engine)) {
-    return {
-      ...mergedConfig,
-      permissionMode: enginePermissionModeForRuntimeControl(engine)
-    };
-  }
-  if (binding?.config) return mergedConfig;
-  const runtimeModel = state.runtime?.model || {};
+function runtimeControlStateSnapshot() {
   return {
-    provider: runtimeModel.provider || "",
-    model: runtimeModel.model || "",
-    effortLevel: state.runtime?.effort?.level || "medium",
-    permissionMode: state.runtime?.permissions?.mode || "ask"
+    modelCatalog: window.miaModelHelpers?.catalogEntries?.() || [],
+    platformModels: Array.isArray(state.platformModels) ? state.platformModels : [],
+    engineCapabilities: state.engineCapabilities || {},
+    codexModels: state.codexModels || []
   };
 }
 
-function runtimeControlModelProfileId(config = {}) {
-  return String(config.modelProfileId || config.model_profile_id || config.profileId || config.profile_id || "").trim();
+function runtimeControlOptionsRequest(context = activeBotRuntimeControlContext()) {
+  const key = runtimeControlOptionsCacheKey(context);
+  const binding = key ? botRuntimeControlCache.get(key) : null;
+  return {
+    runtimeKind: context?.runtimeKind || "cloud-claude-code",
+    bot: context?.bot || {},
+    runtime: state.runtime || {},
+    binding: binding || {},
+    ...runtimeControlStateSnapshot()
+  };
 }
 
-function runtimeControlModelProvider(config = {}) {
-  const explicit = String(config.providerConnectionId || config.provider_connection_id || config.provider || "").trim();
-  if (explicit) return explicit;
-  const profileId = runtimeControlModelProfileId(config);
-  const [provider = ""] = profileId.split(":");
-  return provider.trim();
+function runtimeControlOptionsPayload(result) {
+  return result?.data && typeof result.data === "object" ? result.data : result;
 }
 
-function runtimeControlModelName(config = {}) {
-  const model = String(config.model || "").trim();
-  if (model) return model;
-  const profileId = runtimeControlModelProfileId(config);
-  const separator = profileId.indexOf(":");
-  return separator >= 0 ? profileId.slice(separator + 1).trim() : "";
+function invalidateRuntimeControlOptions(context = activeBotRuntimeControlContext()) {
+  const key = runtimeControlOptionsCacheKey(context);
+  if (key) botRuntimeControlOptionsCache.delete(key);
 }
 
-function savedRuntimeModelEntryForControl(entries = [], config = {}) {
-  const provider = runtimeControlModelProvider(config);
-  const model = runtimeControlModelName(config);
-  if (provider === "mia" && model) {
-    return entries.find((item) => (item.providerConnectionId || item.provider) === "mia" && (item.model === model || item.id === model || item.value === model)) || null;
+function requestRuntimeControlOptions(context = activeBotRuntimeControlContext()) {
+  const key = runtimeControlOptionsCacheKey(context);
+  if (!key || botRuntimeControlOptionsInFlight.has(key)) return;
+  const api = window.mia?.social?.getBotRuntimeControlOptions;
+  if (typeof api !== "function") {
+    setRuntimeControlDisabled(true);
+    setModelSwitchStatusText("运行配置接口不可用");
+    return;
   }
-  if (!provider || !model) return null;
-  return entries.find((item) => (item.providerConnectionId || item.provider) === provider && (item.model === model || item.id === model || item.value === model)) || null;
-}
-
-function modelValueForRuntimeControl(context, entries = [], config = {}) {
-  const engine = agentEngineForRuntimeControl(context);
-  const model = runtimeControlModelName(config);
-  const savedEntry = savedRuntimeModelEntryForControl(entries, config);
-  if (savedEntry) return savedEntry.id || savedEntry.value || model;
-  if (context?.runtimeKind === "cloud-claude-code") return model || entries[0]?.id || entries[0]?.value || "mia-auto";
-  if (isExternalAgentEngineForRuntimeControl(engine)) {
-    if (!model) return "default";
-    const entry = entries.find((item) => item.model === model || item.id === model || item.value === model);
-    return entry?.id || entry?.value || model;
-  }
-  const runtimeModel = state.runtime?.model || {};
-  return savedEntry?.id
-    || savedEntry?.value
-    || window.miaModelHelpers.catalogEntryForModel(runtimeModel)?.id
-    || entries[0]?.id
-    || entries[0]?.value
-    || "";
-}
-
-function permissionEntriesForRuntimeControl(context = activeBotRuntimeControlContext()) {
-  const engine = agentEngineForRuntimeControl(context);
-  if (context?.runtimeKind === "cloud-claude-code") return platformHermesPermissionEntries();
-  return window.miaEngineOptions.externalPermissionOptions(engine);
+  botRuntimeControlOptionsInFlight.add(key);
+  const request = runtimeControlOptionsRequest(context);
+  api(request)
+    .then((result) => {
+      if (result && result.ok === false) throw new Error(result.error || result.message || "Runtime control options failed");
+      const options = runtimeControlOptionsPayload(result);
+      if (options && typeof options === "object") botRuntimeControlOptionsCache.set(key, options);
+      const latest = activeConversationBotContext();
+      if (latest?.conversationId === context?.conversationId) render();
+    })
+    .catch((error) => {
+      setRuntimeControlDisabled(true);
+      setModelSwitchStatusText("运行配置读取失败");
+      console.warn("[renderer] bot runtime control options failed:", error?.message || error);
+    })
+    .finally(() => {
+      botRuntimeControlOptionsInFlight.delete(key);
+    });
 }
 
 function setComposerModelAvatar(entry = {}, engine = "hermes") {
@@ -5128,46 +5005,50 @@ function syncConversationBotRuntimeControls() {
     return false;
   }
   const controlContext = activeBotRuntimeControlContext();
-  const config = runtimeConfigForControl(controlContext);
-  const engine = agentEngineForRuntimeControl(controlContext);
-  const modelEntries = modelEntriesForRuntimeControl(controlContext);
-  const selectedModelValue = modelValueForRuntimeControl(controlContext, modelEntries, config);
+  const options = runtimeControlOptionsForContext(controlContext);
+  if (!options) {
+    setRuntimeControlDisabled(true);
+    setModelSwitchStatusText("运行配置读取中...");
+    requestRuntimeControlOptions(controlContext);
+  }
+  const engine = String(options?.agentEngine || "hermes").trim() || "hermes";
+  const modelEntries = runtimeControlArray(options?.modelOptions);
+  const selectedModelValue = options?.selectedModel || modelEntries[0]?.id || modelEntries[0]?.value || "";
   const modelLabel = setComposerSelectOptions(els.quickModelSelect, modelEntries, selectedModelValue);
   setText(els.quickModelLabel, modelLabel || "Default");
   const selectedModelEntry = modelEntries.find((entry) => String(entry.id || entry.value || "") === String(els.quickModelSelect?.value || selectedModelValue))
-    || savedRuntimeModelEntryForControl(modelEntries, config)
-    || modelEntries.find((entry) => String(entry.model || "") === String(config.model || ""))
+    || options?.selectedModelEntry
     || modelEntries[0]
     || {};
   setComposerModelAvatar(selectedModelEntry, engine);
-  const effortEntries = window.miaEngineOptions.effortOptions(engine);
-  const defaultEffort = effortEntries.find((entry) => entry.value === "medium")?.value || effortEntries[0]?.value || "medium";
+  const effortEntries = runtimeControlArray(options?.effortOptions);
   const effortLabel = setComposerSelectOptions(
     els.effortSelect,
     effortEntries,
-    config.effortLevel || defaultEffort
+    options?.selectedEffort || "medium"
   );
   setText(els.effortLabel, effortLabel || "Medium");
-  const permissionEntries = permissionEntriesForRuntimeControl(controlContext);
+  const permissionEntries = runtimeControlArray(options?.permissionOptions);
   const permissionLabel = setComposerSelectOptions(
     els.permissionMode,
     permissionEntries,
-    config.permissionMode || (context.runtimeKind === "cloud-claude-code" ? "bypassPermissions" : (permissionEntries[0]?.value || "default"))
+    options?.selectedPermission || (context.runtimeKind === "cloud-claude-code" ? "bypassPermissions" : (permissionEntries[0]?.value || "default"))
   );
   setText(els.permissionLabel, permissionLabel || "Ask");
   const permissionSwitcher = els.permissionMode?.closest(".permission-switcher");
   permissionSwitcher?.classList.toggle("yolo", els.permissionMode?.value === "yolo" || els.permissionMode?.value === ":danger-full-access" || (engine !== "claude-code" && els.permissionMode?.value === "bypassPermissions"));
   permissionSwitcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode?.value === "bypassPermissions");
-  if (els.quickModelSelect) els.quickModelSelect.disabled = false;
-  if (els.effortSelect) els.effortSelect.disabled = false;
-  if (els.permissionMode) els.permissionMode.disabled = false;
-  setModelSwitchStatusText(context.runtimeKind === "cloud-claude-code"
-    ? (engine ? "Mia Cloud" : "Mia Cloud · 内核未同步")
-    : window.miaEngineContracts?.engineLabel?.(engine) || engine);
+  if (els.quickModelSelect) els.quickModelSelect.disabled = !options;
+  if (els.effortSelect) els.effortSelect.disabled = !options;
+  if (els.permissionMode) els.permissionMode.disabled = !options;
+  setModelSwitchStatusText(options?.statusText || "运行配置读取中...");
   if (!platformModelCatalog.loaded && !platformModelCatalog.loading) {
     loadPlatformModelCatalog().then(() => {
       const latest = activeConversationBotContext();
-      if (latest?.conversationId === context.conversationId) render();
+      if (latest?.conversationId === context.conversationId) {
+        invalidateRuntimeControlOptions(controlContext);
+        render();
+      }
     });
   }
   const runtimeCacheKey = botRuntimeCacheKey(context.botKey, context.runtimeKind);
@@ -5177,7 +5058,10 @@ function syncConversationBotRuntimeControls() {
     ensureBotRuntimeBinding(context.botKey, context.runtimeKind)
       .then(() => {
         const latest = activeConversationBotContext();
-        if (latest?.conversationId === context.conversationId) render();
+        if (latest?.conversationId === context.conversationId) {
+          invalidateRuntimeControlOptions(controlContext);
+          render();
+        }
       })
       .catch((error) => {
         setModelSwitchStatusText("运行配置读取失败");
@@ -5214,6 +5098,7 @@ async function saveActiveBotRuntimeControl(field, value, pendingText, successTex
     });
     if (!result?.saved) return false;
     if (result.runtime) state.runtime = result.runtime;
+    invalidateRuntimeControlOptions(context);
     setModelSwitchStatusText(successText);
     render();
   } catch (error) {
@@ -5227,35 +5112,13 @@ async function saveActiveBotRuntimeControl(field, value, pendingText, successTex
 }
 
 async function saveActivePermissionRuntimeControl(mode) {
-  const context = activeBotRuntimeControlContext();
-  if (!context) return false;
-  const engine = agentEngineForRuntimeControl(context);
-  if (context.runtimeKind === "cloud-claude-code" || !isExternalAgentEngineForRuntimeControl(engine)) {
-    return saveActiveBotRuntimeControl(
-      "permissionMode",
-      mode || "ask",
-      "保存权限...",
-      "权限已更新",
-      "Permission mode failed"
-    );
-  }
-  setModelSwitchStatusText("保存权限...");
-  setRuntimeControlDisabled(true);
-  try {
-    state.runtime = await window.mia.savePermissions({
-      engine,
-      mode: mode || "default"
-    });
-    setModelSwitchStatusText("权限已更新");
-    render();
-  } catch (error) {
-    setModelSwitchStatusText("保存失败");
-    appendTransientChat("assistant", `Permission mode failed: ${error.message || error}`);
-    syncConversationBotRuntimeControls();
-  } finally {
-    setRuntimeControlDisabled(false);
-  }
-  return true;
+  return saveActiveBotRuntimeControl(
+    "permissionMode",
+    mode || "ask",
+    "保存权限...",
+    "权限已更新",
+    "Permission mode failed"
+  );
 }
 
 function activeConversationBotKey() {
@@ -5723,12 +5586,7 @@ async function initializeRuntime(options = {}) {
   }
   if (window.miaEngineOptions && window.miaEngineOptions.initEngineOptions) {
     window.miaEngineOptions.initEngineOptions({
-      state,
-      els,
       activePersona,
-      APPROVAL_LABELS,
-      APPROVAL_TITLES,
-      EFFORT_LABELS,
     });
   }
   if (window.miaSetupGuide && window.miaSetupGuide.initSetupGuide) {
@@ -5741,6 +5599,7 @@ async function initializeRuntime(options = {}) {
       escapeHtml: window.miaMarkdown.escapeHtml,
       setText,
       updateModelFieldVisibility,
+      render,
       providerPresets,
       providerLabels,
     });
@@ -6588,23 +6447,12 @@ els.codexLogin.addEventListener("click", async () => {
   try {
     const entry = window.miaModelHelpers.selectedModelEntry();
     if (entry) {
-      window.miaModelSettings.applyModelEntryToFields(entry);
-      if (entry.provider === "openai-codex") state.runtime = await window.mia.saveModel({
-        provider: entry.provider,
-        model: entry.model,
-        apiKeyEnv: entry.apiKeyEnv,
-        baseUrl: entry.baseUrl,
-        apiMode: entry.apiMode,
-        providerLabel: entry.providerLabel,
-        authType: entry.authType
-      });
+      if (entry.provider === "openai-codex") state.runtime = await window.mia.saveModel(modelSelectionIntent(entry));
     }
     state.runtime = await window.mia.startProviderOAuth({
       provider: entry?.provider || "openai-codex",
       providerLabel: entry?.providerLabel || window.miaModelHelpers.providerLabel(entry?.provider || "openai-codex"),
-      authType: entry?.authType || "oauth_external",
-      baseUrl: entry?.baseUrl || "",
-      apiMode: entry?.apiMode || ""
+      authType: entry?.authType || "oauth_external"
     });
     render();
   } catch (error) {
@@ -6631,28 +6479,10 @@ els.codexInlineAuth?.addEventListener("click", async (event) => {
   if (await copyTextToClipboard(code.textContent)) flashCopiedCode(code);
 });
 
-els.modelPreset.addEventListener("change", () => {
-  window.miaModelSettings.fillModelFieldsFromPreset(els.modelPreset.value);
-});
-
-els.authMethod.addEventListener("change", () => {
-  if (els.authMethod.value === "openai-codex") {
-    const preset = providerPresets["openai-codex"];
-    els.modelProvider.value = preset.provider;
-    els.modelName.value = preset.model;
-    els.modelKeyEnv.value = "";
-    els.modelApiKey.value = "";
-    els.modelBaseUrl.value = "";
-    els.modelApiMode.value = preset.apiMode;
-    els.modelPreset.value = "";
-  }
-  updateModelFieldVisibility();
-});
-
 els.quickModelSelect?.addEventListener("change", async () => {
   window.miaModelSettings.syncQuickModelLabel();
   const context = activeBotRuntimeControlContext();
-  const modelEntries = modelEntriesForRuntimeControl(context);
+  const modelEntries = runtimeControlArray(runtimeControlOptionsForContext(context)?.modelOptions);
   await saveActiveBotRuntimeControl(
     "model",
     els.quickModelSelect.value || modelEntries[0]?.id || modelEntries[0]?.value || modelEntries[0]?.model || "",
@@ -6682,8 +6512,6 @@ els.permissionMode?.addEventListener("change", async () => {
 });
 
 els.modelSelect?.addEventListener("change", () => {
-  const entry = window.miaModelHelpers.selectedModelEntry();
-  window.miaModelSettings.applyModelEntryToFields(entry);
   updateModelFieldVisibility();
 });
 
@@ -7265,7 +7093,7 @@ els.botForm?.addEventListener("submit", async (event) => {
   const targetDeviceId = selectedRuntime.targetDeviceId || state.runtime?.localDevice?.id || "";
   const targetDeviceName = selectedRuntime.targetDeviceName || state.runtime?.localDevice?.name || "";
   const agentEngine = selectedRuntime.agentEngine || "hermes";
-  const existingTargetDeviceId = existingBot?.targetDeviceId || existingBot?.target_device_id || existingBot?.deviceId || existingBot?.device_id || existingBot?.runtimeConfig?.deviceId || "";
+  const existingTargetDeviceId = existingBot?.targetDeviceId || existingBot?.target_device_id || existingBot?.deviceId || existingBot?.device_id || "";
   const runtimeChanged = state.botDialogMode !== "edit"
     || runtimeKind !== (existingBot?.runtimeKind || existingBot?.runtime_kind || "desktop-local")
     || (runtimeKind === "desktop-local" && String(targetDeviceId || "") !== String(existingTargetDeviceId || ""))
@@ -7293,7 +7121,6 @@ els.botForm?.addEventListener("submit", async (event) => {
     activateRuntime: runtimeChanged,
     api: window.mia,
     social: window.miaSocial,
-    cloudModelEntries: platformHermesModelEntries,
   });
   if (saved.runtime) state.runtime = saved.runtime;
   const savedKey = saved.key || "";
@@ -7322,20 +7149,10 @@ els.modelForm.addEventListener("submit", async (event) => {
   if (!entry || window.miaModelSettings.providerIsConnected(entry.provider)) return;
   const needsApiKey = entry.provider !== "openai-codex" && entry.provider !== "lmstudio" && !String(entry.authType || "").startsWith("oauth");
   if (needsApiKey && !els.modelApiKey.value.trim()) {
-    setText(els.modelAuthState, `需要填写 ${entry.apiKeyEnv || "API Key"}`);
+    setText(els.modelAuthState, `需要填写 ${window.miaModelHelpers.apiKeyPromptLabel(entry)}`);
     return;
   }
-  if (entry) window.miaModelSettings.applyModelEntryToFields(entry);
-  state.runtime = await window.mia.saveModel({
-    provider: els.modelProvider.value,
-    model: els.modelName.value,
-    apiKeyEnv: els.modelKeyEnv.value,
-    apiKey: els.modelApiKey.value,
-    baseUrl: els.modelBaseUrl.value,
-    apiMode: els.modelApiMode.value,
-    providerLabel: entry.providerLabel,
-    authType: entry.authType
-  });
+  state.runtime = await window.mia.saveModel(modelSelectionIntent(entry, els.modelApiKey.value));
   els.modelApiKey.value = "";
   if (els.modelSelect) els.modelSelect.value = "";
   render();

@@ -19,6 +19,15 @@ test("desktop preload can load local shared contracts", () => {
   assert.match(channelSource, /MemoryListAll:\s*"memory:list-all"/);
   assert.match(channelSource, /MemoryDelete:\s*"memory:delete"/);
   assert.match(channelSource, /MemorySettingsSave:\s*"memory:settings-save"/);
+  assert.doesNotMatch(channelSource, /EffortSave/);
+  assert.doesNotMatch(preloadSource, /saveEffort/);
+  assert.doesNotMatch(mainSource, /IpcChannel\.EffortSave/);
+  assert.doesNotMatch(channelSource, /PermissionsSave/);
+  assert.doesNotMatch(preloadSource, /savePermissions/);
+  assert.doesNotMatch(mainSource, /IpcChannel\.PermissionsSave/);
+  assert.doesNotMatch(channelSource, /ModelSave/);
+  assert.doesNotMatch(preloadSource, /IpcChannel\.ModelSave/);
+  assert.doesNotMatch(mainSource, /IpcChannel\.ModelSave/);
   assert.match(preloadSource, /memory:\s*\{/);
   assert.match(preloadSource, /list: \(payload\) => ipcRenderer\.invoke\(IpcChannel\.MemoryList, payload\)/);
   assert.match(preloadSource, /listAll: \(payload\) => ipcRenderer\.invoke\(IpcChannel\.MemoryListAll, payload\)/);

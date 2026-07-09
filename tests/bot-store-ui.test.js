@@ -10,20 +10,23 @@ test("discover bot store uses a badge confirmation step without an enrollment fo
   const src = read("src/renderer/bot/bot-store.js");
 
   assert.match(src, /data-act="add"/);
-  assert.match(src, /function addPresetBot/);
+  assert.match(src, /async function addPresetBot/);
   assert.match(src, /enabledSkills/);
-  assert.match(src, /function runtimeTargetGroups/);
-  assert.match(src, /function cloudAgentRuntime/);
-  assert.match(src, /window\.miaCloudRuntime\?\.cloudAgentRuntimeFromState\?\.\(state\)/);
-  assert.match(src, /agentEngine:\s*cloudRuntime\.agentEngine/);
-  assert.match(src, /disabled:\s*!cloudRuntime\.available/);
+  assert.match(src, /function runtimeTargetOptionsRequest/);
+  assert.match(src, /getBotRuntimeTargetOptions/);
+  assert.match(src, /await api\(runtimeTargetOptionsRequest\(f\)\)/);
+  assert.match(src, /title:\s*option\.title \|\| ""/);
+  assert.match(src, /const coreTitle = String\(target\.title \|\| ""\)\.trim\(\)/);
+  assert.doesNotMatch(src, /function runtimeTargetGroups/);
+  assert.doesNotMatch(src, /function localRuntimeEngineIds/);
+  assert.doesNotMatch(src, /function runtimeDeviceGroupLabel/);
   assert.doesNotMatch(src, /runtimeKind:\s*"cloud-claude-code"[\s\S]{0,160}agentEngine:\s*"hermes"/);
   assert.doesNotMatch(src, /runtimeKind:\s*"cloud-claude-code"[\s\S]{0,160}agentEngine:\s*"claude-code"/);
   assert.match(src, /function generateEnrollmentPrincipalId/);
   assert.match(src, /window\.miaIds\?\.generatePrincipalId/);
   assert.match(src, /function defaultConversationTagName/);
   assert.match(src, /setConversationTagNames\(\s*conversationId,\s*\[defaultConversationTagName\(f\)\]\s*\)/);
-  assert.match(src, /const target = normalizeRuntimeTarget\(defaultEnrollmentTarget\(f\)\)/);
+  assert.match(src, /target = normalizeRuntimeTarget\(await defaultEnrollmentTarget\(f\)\)/);
   assert.match(src, /bot-store-badge-card/);
   assert.match(src, /MIA · AI 助手凭证/);
   assert.match(src, /data-act="confirm"/);
@@ -51,15 +54,42 @@ test("discover bot store uses a badge confirmation step without an enrollment fo
   assert.doesNotMatch(src, /MIA-\$\{/);
 });
 
-test("bot runtime target UI keeps a local engine fallback while device probes are cold", () => {
+test("bot runtime target UI uses Core options for dialog, contacts, and store enrollment", () => {
   const store = read("src/renderer/bot/bot-store.js");
   const dialog = read("src/renderer/bot/bot-dialog.js");
   const manager = read("src/renderer/bot/bot-manager.js");
 
-  for (const src of [store, dialog, manager]) {
-    assert.match(src, /runtime\.engineInstalled \|\| runtime\.engineRunning/);
-    assert.match(src, /if \(!engines\.length\) engines\.push/);
-  }
+  assert.match(store, /getBotRuntimeTargetOptions/);
+  assert.match(store, /runtimeTargetOptionsRequest/);
+  const storeTargetOptionsRequest = store.slice(
+    store.indexOf("function runtimeTargetOptionsRequest"),
+    store.indexOf("function runtimeTargetFromCoreOption")
+  );
+  assert.match(storeTargetOptionsRequest, /targetIntent/);
+  assert.doesNotMatch(storeTargetOptionsRequest, /runtimeConfig/);
+  assert.doesNotMatch(store, /runtime\.engineInstalled \|\| runtime\.engineRunning/);
+  assert.doesNotMatch(store, /if \(!engines\.length\) engines\.push/);
+  assert.match(dialog, /getBotRuntimeTargetOptions/);
+  assert.match(dialog, /dialogRuntimeTargetOptionsCache/);
+  const dialogTargetOptionsRequest = dialog.slice(
+    dialog.indexOf("function runtimeTargetBotSnapshot"),
+    dialog.indexOf("function runtimeTargetOptionsKey")
+  );
+  assert.match(dialogTargetOptionsRequest, /targetIntent/);
+  assert.doesNotMatch(dialogTargetOptionsRequest, /runtimeConfig/);
+  assert.doesNotMatch(dialog, /function editableBridgeDeviceOptions/);
+  assert.doesNotMatch(dialog, /function runtimeDeviceGroupLabel/);
+  assert.doesNotMatch(dialog, /function runtimeDeviceDisplayName/);
+  assert.doesNotMatch(dialog, /function normalizedDevice/);
+  assert.doesNotMatch(dialog, /function mergeDeviceEngines/);
+  assert.doesNotMatch(dialog, /function mergeDevices/);
+  assert.doesNotMatch(dialog, /function localDeviceOption/);
+  assert.doesNotMatch(dialog, /function bridgeDeviceOptions/);
+  assert.doesNotMatch(dialog, /function deviceEngineIds/);
+  assert.doesNotMatch(dialog, /function detectedAgentEngineOptions/);
+  assert.doesNotMatch(dialog, /agentInventory\?\.agents|agentInventorySummary|runtime\.agentEngines|runtime\.engineInstalled|runtime\.engineRunning/);
+  assert.match(manager, /getBotRuntimeTargetOptions/);
+  assert.doesNotMatch(manager, /function localRuntimeEngineIds/);
 });
 
 test("discover bot store is framed as assistants, not coworkers", () => {

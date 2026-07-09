@@ -264,7 +264,7 @@ test("sendUserInput carries MCP session config in the descriptor without leaking
     name: "mia-app",
     command: "/usr/bin/node",
     args: ["/tmp/mia-app.js"],
-    env: [{ name: "MIA_DAEMON_URL", value: "http://127.0.0.1:27861" }]
+    env: [{ name: "MIA_CORE_URL", value: "http://127.0.0.1:27861" }]
   }];
   const manager = createAgentSessionManager(managerOptions(async (descriptor) => {
     builds.push(descriptor);

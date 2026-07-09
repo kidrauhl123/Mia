@@ -2,8 +2,8 @@
 //
 // Two interactions on a group-message avatar:
 //   - Left click → open this card. AI cards show current 模型 / effort /
-//     权限 (pulled from the local bot registry; opens the full
-//     bot-dialog for editing). Human cards show username + 私聊 button.
+//     权限 from Core runtime-control options and open the full bot-dialog
+//     for editing. Human cards show username + 私聊 button.
 //   - Right click → small action menu (e.g. @提到, 私聊).
 //
 // The card is a floating popover anchored to the clicked avatar; clicking
@@ -20,6 +20,8 @@
   let _onOutside = null;
   let _onEsc = null;
   const botRuntimeBindingCache = new Map();
+  const botRuntimeControlOptionsCache = new Map();
+  const botRuntimeControlOptionsInFlight = new Set();
 
   function attach(internalCtx) { _ctx = internalCtx; }
 
@@ -158,40 +160,148 @@
     return botRuntimeBindingCache.get(runtimeCacheKey(botKey, runtimeKind)) || null;
   }
 
-  function ensureOption(select, value, label) {
-    if (!select || value == null) return;
-    const wanted = String(value);
-    const existing = Array.from(select.options || []).find((option) => String(option.value) === wanted);
-    if (!existing && typeof document?.createElement === "function") {
-      const option = document.createElement("option");
-      option.value = wanted;
-      option.textContent = label || wanted;
-      select.appendChild(option);
-    }
-    select.value = wanted;
+  function controlOptionsForBot(botKey, runtimeKind) {
+    return botRuntimeControlOptionsCache.get(runtimeCacheKey(botKey, runtimeKind)) || null;
   }
 
-  function applyRuntimeBindingToCard(card, binding) {
-    const config = binding?.config || {};
-    if (!card?.querySelector) return;
-    if (config.model) {
-      const select = card.querySelector('[data-bot-field="model"]');
-      ensureOption(select, config.model, config.model);
-      const label = card.querySelector(".model-current-label");
-      if (label) label.textContent = select?.selectedOptions?.[0]?.textContent || config.model;
+  function runtimeControlArray(value) {
+    return Array.isArray(value) ? value : [];
+  }
+
+  function runtimeControlStateSnapshot(appState = {}) {
+    return {
+      modelCatalog: global.miaModelHelpers?.catalogEntries?.() || [],
+      platformModels: Array.isArray(appState.platformModels) ? appState.platformModels : [],
+      engineCapabilities: appState.engineCapabilities || {},
+      codexModels: appState.codexModels || []
+    };
+  }
+
+  function runtimeControlOptionsRequest(bot, runtimeKind) {
+    const appState = _ctx?.deps?.getState?.() || {};
+    const runtime = appState.runtime || {};
+    const botKey = String(bot?.key || bot?.id || "").trim();
+    return {
+      runtimeKind,
+      bot,
+      runtime,
+      binding: bindingForBot(botKey, runtimeKind) || {},
+      ...runtimeControlStateSnapshot(appState)
+    };
+  }
+
+  function runtimeControlPayload(result) {
+    return result?.data && typeof result.data === "object" ? result.data : result;
+  }
+
+  function runtimeOptionValue(entry = {}) {
+    return String(entry.id || entry.value || entry.model || "").trim();
+  }
+
+  function options(entries, selectedValue, fallbackLabel = "加载中") {
+    const normalized = runtimeControlArray(entries);
+    if (!normalized.length) return `<option value="">${escapeHtml(fallbackLabel)}</option>`;
+    return normalized.map((entry) => {
+      const value = runtimeOptionValue(entry);
+      const aliases = Array.isArray(entry.aliases) ? entry.aliases.map(String) : [];
+      const selected = value === selectedValue || aliases.includes(selectedValue) ? " selected" : "";
+      return `<option value="${escapeHtml(value)}"${selected}>${escapeHtml(entry.label || value)}</option>`;
+    }).join("");
+  }
+
+  function modelLogoSrcForOption(entry = {}, engine = "hermes", runtime = {}) {
+    const helper = global.miaModelHelpers;
+    if (!helper?.modelIconSrc) return "";
+    if (entry && (entry.provider || entry.model || entry.id || entry.value)) {
+      return helper.modelIconSrc({
+        provider: entry.provider || entry.providerConnectionId || entry.provider_connection_id || (engine === "codex" ? "openai-codex" : engine === "claude-code" ? "anthropic" : engine),
+        model: entry.model || entry.id || entry.value || ""
+      }) || "";
     }
-    if (config.effortLevel) {
-      const select = card.querySelector('[data-bot-field="effortLevel"]');
-      ensureOption(select, config.effortLevel, config.effortLevel);
-      const label = card.querySelector(".effort-label");
-      if (label) label.textContent = select?.selectedOptions?.[0]?.textContent || config.effortLevel;
-    }
-    if (config.permissionMode) {
-      const select = card.querySelector('[data-bot-field="permissionMode"]');
-      ensureOption(select, config.permissionMode, config.permissionMode);
-      const label = card.querySelector(".permission-label");
-      if (label) label.textContent = select?.selectedOptions?.[0]?.textContent || config.permissionMode;
-    }
+    return helper.modelIconSrc(runtime.model || {}) || "";
+  }
+
+  function runtimeControlsHtml(optionsPayload, runtimeKind, runtime = {}) {
+    const ready = Boolean(optionsPayload);
+    const engine = String(optionsPayload?.agentEngine || "hermes").trim() || "hermes";
+    const modelEntries = runtimeControlArray(optionsPayload?.modelOptions);
+    const effortEntries = runtimeControlArray(optionsPayload?.effortOptions);
+    const permissionEntries = runtimeControlArray(optionsPayload?.permissionOptions);
+    const selectedModel = String(optionsPayload?.selectedModel || modelEntries[0]?.id || modelEntries[0]?.value || "").trim();
+    const selectedModelEntry = optionsPayload?.selectedModelEntry
+      || modelEntries.find((entry) => runtimeOptionValue(entry) === selectedModel)
+      || modelEntries[0]
+      || {};
+    const modelLabel = selectedModelEntry?.label || (ready ? "Default" : "加载中");
+    const selectedEffort = String(optionsPayload?.selectedEffort || "medium").trim();
+    const effortLabel = effortEntries.find((entry) => runtimeOptionValue(entry) === selectedEffort)?.label || (ready ? "Medium" : "加载中");
+    const selectedPermission = String(optionsPayload?.selectedPermission || (runtimeKind === "cloud-claude-code" ? "bypassPermissions" : "default")).trim();
+    const permissionLabel = permissionEntries.find((entry) => runtimeOptionValue(entry) === selectedPermission)?.label || (ready ? "Ask" : "加载中");
+    const modelLogoSrc = modelLogoSrcForOption(selectedModelEntry, engine, runtime);
+    const modelLogoStyle = modelLogoSrc
+      ? `background-image:url('${escapeHtml(modelLogoSrc)}');background-color:transparent;`
+      : "";
+    const disabled = ready ? "" : " disabled";
+    return `
+        <div class="contact-card-row">
+          <dt>模型</dt>
+          <dd>
+            <label class="model-switcher" title="切换模型">
+              <span class="model-avatar" style="${modelLogoStyle}" aria-hidden="true">${modelLogoSrc ? "" : "◇"}</span>
+              <span class="model-current-label">${escapeHtml(modelLabel)}</span>
+              <select data-bot-field="model" aria-label="切换模型"${disabled}>${options(modelEntries, selectedModel)}</select>
+            </label>
+          </dd>
+        </div>
+        <div class="contact-card-row">
+          <dt>推理强度</dt>
+          <dd>
+            <label class="effort-switcher" title="切换推理强度">
+              <span class="effort-label">${escapeHtml(effortLabel)}</span>
+              <select data-bot-field="effortLevel" aria-label="切换推理强度"${disabled}>${options(effortEntries, selectedEffort)}</select>
+            </label>
+          </dd>
+        </div>
+        <div class="contact-card-row">
+          <dt>权限</dt>
+          <dd>
+            <label class="permission-switcher" title="权限模式">
+              <span class="permission-label">${escapeHtml(permissionLabel)}</span>
+              <select data-bot-field="permissionMode" aria-label="权限模式"${disabled}>${options(permissionEntries, selectedPermission)}</select>
+            </label>
+          </dd>
+        </div>
+    `;
+  }
+
+  function applyRuntimeControlOptionsToCard(card, payload) {
+    const controls = card?.querySelector?.(".contact-card-controls");
+    if (!controls || !payload) return;
+    const runtime = _ctx?.deps?.getState?.()?.runtime || {};
+    controls.innerHTML = runtimeControlsHtml(payload, payload.runtimeKind || "desktop-local", runtime);
+  }
+
+  function loadRuntimeControlOptions(card, bot, runtimeKind, options = {}) {
+    const botKey = String(bot?.key || bot?.id || "").trim();
+    const cacheKey = runtimeCacheKey(botKey, runtimeKind);
+    const api = global.mia?.social?.getBotRuntimeControlOptions;
+    if (!botKey || typeof api !== "function") return;
+    if (botRuntimeControlOptionsInFlight.has(cacheKey) && !options.force) return;
+    botRuntimeControlOptionsInFlight.add(cacheKey);
+    api(runtimeControlOptionsRequest(bot, runtimeKind))
+      .then((result) => {
+        if (result && result.ok === false) throw new Error(result.error || result.message || "Runtime control options failed");
+        const payload = runtimeControlPayload(result);
+        if (!payload || typeof payload !== "object") return;
+        botRuntimeControlOptionsCache.set(cacheKey, { ...payload, runtimeKind });
+        if (_popover === card) applyRuntimeControlOptionsToCard(card, { ...payload, runtimeKind });
+      })
+      .catch((error) => {
+        console.warn?.("[contact-card] bot runtime control options failed:", error?.message || error);
+      })
+      .finally(() => {
+        botRuntimeControlOptionsInFlight.delete(cacheKey);
+      });
   }
 
   function hydrateBotRuntimeBinding(card, bot, runtimeKind) {
@@ -206,14 +316,15 @@
     }).then((binding) => {
       if (!binding) return;
       botRuntimeBindingCache.set(runtimeCacheKey(botKey, runtimeKind), binding);
-      if (_popover === card) applyRuntimeBindingToCard(card, binding);
+      botRuntimeControlOptionsCache.delete(runtimeCacheKey(botKey, runtimeKind));
+      if (_popover === card) loadRuntimeControlOptions(card, bot, runtimeKind, { force: true });
     }).catch((error) => {
       console.warn?.("[contact-card] bot runtime binding load failed:", error?.message || error);
     });
   }
 
-  // Bot card with live engineConfig selectors (model / effort / permission)
-  // that mirror the topbar composer-bottom controls in private chat.
+  // Bot card with live Core-backed selectors (model / effort / permission)
+  // that mirror the topbar composer controls in private chat.
   function renderBotCard(args) {
     const { ref, conversationId } = args;
     const member = findBotConversationMember(conversationId, ref);
@@ -272,101 +383,14 @@
       return card;
     }
 
-    const engineOptions = global.miaEngineOptions;
-    const modelHelpers = global.miaModelHelpers;
-    const modelSettings = global.miaModelSettings;
     const appState = _ctx?.deps?.getState?.() || {};
     const runtime = appState.runtime || {};
     const runtimeKind = local.runtimeKind || "desktop-local";
-    const engine = local.agentEngine || local.agent_engine || "hermes";
-    const isExternal = Boolean(engineOptions?.isExternalAgentEngine?.(engine));
     const isCloudRuntime = runtimeKind === "cloud-claude-code";
     const botKey = String(local.key || local.id || ref || "").trim();
-    const runtimeBinding = isCloudRuntime ? bindingForBot(botKey, runtimeKind) : null;
-    const config = isCloudRuntime
-      ? { ...(local.engineConfig || local.engine_config || {}), ...(runtimeBinding?.config || {}) }
-      : (local.engineConfig || local.engine_config || {});
-
-    // Reuse the same entry sources the topbar composer-bottom uses so the
-    // dropdown contents (and labels / logos) match private chat exactly.
-    const modelEntries = isCloudRuntime
-      ? (global.miaEngineContracts?.miaModelEntries?.({ platformModels: appState.platformModels || [] })
-        || [{ id: "mia-auto", model: "mia-auto", label: "Auto", provider: "mia" }])
-      : isExternal
-      ? (engineOptions?.externalModelEntries?.(engine) || [])
-      : (modelSettings?.connectedModelEntries?.(runtime) || []);
-    const effortEntries = engineOptions?.effortOptions?.(engine) || [];
-    const permissionEntries = isCloudRuntime
-      ? [
-        { value: "ask", label: "Ask" },
-        { value: "auto", label: "Auto" },
-        { value: "readOnly", label: "Read" }
-      ]
-      : (engineOptions?.externalPermissionOptions?.(engine) || []);
-
-    // Current selections.
-    const currentModelEntry = (() => {
-      if (isCloudRuntime) {
-        const cur = config.model || "mia-auto";
-        return modelEntries.find((m) => m.model === cur || m.id === cur) || modelEntries[0] || null;
-      }
-      if (isExternal) {
-        const cur = config.model || "";
-        if (!cur) return modelEntries.find((m) => m.id === "default") || modelEntries[0] || null;
-        return modelEntries.find((m) => m.model === cur || m.id === cur) || null;
-      }
-      const currentId = modelHelpers?.catalogEntryForModel?.(runtime?.model || {})?.id
-        || modelHelpers?.modelKey?.(runtime?.model || {})
-        || "";
-      return modelEntries.find((m) => m.id === currentId) || modelEntries[0] || null;
-    })();
-    const currentModelLabel = currentModelEntry?.label || (isExternal ? "默认" : (modelHelpers?.modelDisplayName?.(runtime?.model || {}) || "未配置"));
-    const modelLogoSrc = (() => {
-      if (isExternal) {
-        return modelHelpers?.modelIconSrc?.({
-          provider: engineOptions?.engineIconProvider?.(engine) || engine,
-          model: currentModelEntry?.model || engineOptions?.engineIconModel?.(engine) || ""
-        }) || "";
-      }
-      return modelHelpers?.modelIconSrc?.(runtime?.model || {}) || "";
-    })();
-
-    const currentEffort = config.effortLevel
-      || effortEntries.find((e) => e.value === "medium")?.value
-      || effortEntries[0]?.value
-      || "";
-    const currentEffortLabel = effortEntries.find((e) => e.value === currentEffort)?.label || "Medium";
-
-    const currentPermission = isCloudRuntime
-      ? (config.permissionMode
-        || permissionEntries.find((p) => p.value === "ask")?.value
-        || permissionEntries[0]?.value
-        || "")
-      : isExternal
-        ? (runtime.permissions?.engines?.[engine]
-          || permissionEntries.find((p) => p.value === "default" || (Array.isArray(p.aliases) && p.aliases.includes("default")))?.value
-          || permissionEntries[0]?.value
-          || "")
-        : (runtime.permissions?.mode
-          || config.permissionMode
-          || permissionEntries.find((p) => p.value === "ask")?.value
-          || permissionEntries[0]?.value
-          || "");
-    const currentPermissionEntry = permissionEntries.find((p) => p.value === currentPermission || (Array.isArray(p.aliases) && p.aliases.includes(currentPermission)));
-    const currentPermissionLabel = currentPermissionEntry?.label || "Ask";
-
-    function options(entries, valueKey, labelKey, selectedValue) {
-      return entries.map((e) => {
-        const value = e[valueKey];
-        const aliases = Array.isArray(e.aliases) ? e.aliases : [];
-        const sel = value === selectedValue || aliases.includes(selectedValue) ? " selected" : "";
-        return `<option value="${escapeHtml(value)}"${sel}>${escapeHtml(e[labelKey])}</option>`;
-      }).join("");
-    }
-
-    const modelLogoStyle = modelLogoSrc
-      ? `background-image:url('${escapeHtml(modelLogoSrc)}');background-color:transparent;`
-      : "";
+    const controlOptions = controlOptionsForBot(botKey, runtimeKind);
+    const controlsHtml = runtimeControlsHtml(controlOptions, runtimeKind, runtime);
+    const runtimeLabel = local.runtimeLabel || controlOptions?.statusText || (isCloudRuntime ? "Mia Cloud" : (controlOptions?.agentEngine || local.agentEngine || local.agent_engine || "hermes"));
 
     card.innerHTML = `
         <div class="contact-card-head">
@@ -377,45 +401,10 @@
             fallbackName: name,
             statusBadge: statusBadgeFrom(local)
           })}</strong>
-          <span class="contact-card-kind">${escapeHtml(local.runtimeLabel || (isCloudRuntime ? "Mia Cloud" : engine))}</span>
+          <span class="contact-card-kind">${escapeHtml(runtimeLabel)}</span>
         </div>
       </div>
-      <dl class="contact-card-controls">
-        <div class="contact-card-row">
-          <dt>模型</dt>
-          <dd>
-            <label class="model-switcher" title="切换模型">
-              <span class="model-avatar" style="${modelLogoStyle}" aria-hidden="true">${modelLogoSrc ? "" : "◇"}</span>
-              <span class="model-current-label">${escapeHtml(currentModelLabel)}</span>
-              ${modelEntries.length
-                ? `<select data-bot-field="model" aria-label="切换模型">${options(modelEntries, "id", "label", currentModelEntry?.id)}</select>`
-                : ""}
-            </label>
-          </dd>
-        </div>
-        <div class="contact-card-row">
-          <dt>推理强度</dt>
-          <dd>
-            <label class="effort-switcher" title="切换推理强度">
-              <span class="effort-label">${escapeHtml(currentEffortLabel)}</span>
-              ${effortEntries.length
-                ? `<select data-bot-field="effortLevel" aria-label="切换推理强度">${options(effortEntries, "value", "label", currentEffort)}</select>`
-                : ""}
-            </label>
-          </dd>
-        </div>
-        <div class="contact-card-row">
-          <dt>权限</dt>
-          <dd>
-            <label class="permission-switcher" title="权限模式">
-              <span class="permission-label">${escapeHtml(currentPermissionLabel)}</span>
-              ${permissionEntries.length
-                ? `<select data-bot-field="permissionMode" aria-label="权限模式">${options(permissionEntries, "value", "label", currentPermission)}</select>`
-                : ""}
-            </label>
-          </dd>
-        </div>
-      </dl>
+      <dl class="contact-card-controls">${controlsHtml}</dl>
       <div class="contact-card-actions">
         ${isMine ? `<button type="button" data-card-action="edit-bot" class="button-soft">编辑人设</button>` : ""}
         <button type="button" data-card-action="close" class="button-primary">关闭</button>
@@ -425,22 +414,18 @@
     initNameBadgeLotties(card);
 
     async function persistField(field, value) {
+      const latestOptions = controlOptionsForBot(botKey, runtimeKind) || {};
       try {
-        if (field === "permissionMode" && isExternal) {
-          await global.mia?.savePermissions?.({
-            engine,
-            mode: value || "default"
-          });
-          return;
-        }
         await global.miaBotCommands?.saveBotRuntimeControl?.({
           api: global.mia,
           bot: local,
           runtimeKind,
           field,
           value,
-          modelEntries
+          modelEntries: runtimeControlArray(latestOptions.modelOptions)
         });
+        botRuntimeControlOptionsCache.delete(runtimeCacheKey(botKey, runtimeKind));
+        loadRuntimeControlOptions(card, local, runtimeKind, { force: true });
       } catch (err) {
         alert("保存失败：" + (err?.message || err));
       }
@@ -454,6 +439,7 @@
       if (labelSpan) labelSpan.textContent = newLabel;
       persistField(sel.dataset.botField, sel.value);
     });
+    loadRuntimeControlOptions(card, local, runtimeKind);
     if (isCloudRuntime) hydrateBotRuntimeBinding(card, local, runtimeKind);
     card.addEventListener("click", (event) => {
       const btn = event.target.closest("[data-card-action]");

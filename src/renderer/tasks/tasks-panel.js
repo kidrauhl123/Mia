@@ -882,29 +882,20 @@
 
     const time = document.getElementById("ntTime")?.value || "";
     if (!time) return showError("请选择执行时间。");
-    const [hh, mm] = time.split(":");
-    const h = Number(hh); const m = Number(mm);
-
-    let trigger;
-    if (freq === "oneshot") {
-      const date = document.getElementById("ntDate")?.value || "";
-      if (!date) return showError("请选择执行日期。");
-      const at = new Date(`${date}T${time}`);
-      if (Number.isNaN(at.getTime())) return showError("执行时间无效。");
-      if (at.getTime() <= Date.now()) return showError("执行时间必须在未来。");
-      trigger = { type: "oneshot", at: at.toISOString() };
-    } else if (freq === "daily") {
-      trigger = { type: "cron", cron: `${m} ${h} * * *` };
-    } else if (freq === "weekly") {
-      const w = document.getElementById("ntWeekday")?.value || "0";
-      trigger = { type: "cron", cron: `${m} ${h} * * ${w}` };
-    } else {
-      const d = document.getElementById("ntDay")?.value || "1";
-      trigger = { type: "cron", cron: `${m} ${h} ${d} * *` };
-    }
 
     let timezone = "UTC";
     try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { /* keep UTC */ }
+
+    const scheduleIntent = { kind: freq, time, timezone };
+    if (freq === "oneshot") {
+      const date = document.getElementById("ntDate")?.value || "";
+      if (!date) return showError("请选择执行日期。");
+      scheduleIntent.date = date;
+    } else if (freq === "weekly") {
+      scheduleIntent.weekday = Number(document.getElementById("ntWeekday")?.value || "0");
+    } else if (freq === "monthly") {
+      scheduleIntent.dayOfMonth = Number(document.getElementById("ntDay")?.value || "1");
+    }
 
     let conversationId;
     try {
@@ -915,15 +906,26 @@
     if (!conversationId) return showError("该 Agent 还没有可用云端对话，请先完成登录后重试。");
 
     try {
-      const created = await window.mia.tasks.create({ title, botId, conversationId, prompt, trigger, timezone });
+      const created = await window.mia.tasks.create({ title, botId, conversationId, instructions: prompt, scheduleIntent });
       closeTaskCreate();
       state.selectedTaskId = created?.id || "";
       state.selectedRunId = "";
       await loadTasksFromDaemon();
       renderTaskView();
     } catch (e) {
-      showError("创建失败：" + (e?.message || e));
+      showError(taskCreateErrorMessage(e));
     }
+  }
+
+  function taskCreateErrorMessage(error) {
+    const message = String(error?.message || error || "创建失败");
+    if (/oneshot schedule must be in the future|must be in the future|future/i.test(message)) {
+      return "Core 拒绝了执行时间：必须选择未来时间。";
+    }
+    if (/invalid schedule|invalid cron|invalid timezone/i.test(message)) {
+      return "Core 拒绝了执行时间：" + message;
+    }
+    return "创建失败：" + message;
   }
 
   async function resolveConversationForBot(botKey) {

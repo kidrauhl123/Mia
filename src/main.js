@@ -13,38 +13,12 @@ const { MemberKind } = require("./shared/conversation-kinds");
 const { botConversationId } = require("./shared/bot-identity");
 const statusBadgeAssets = require("../packages/shared/status-badge-assets");
 const {
-  adapterForEngine,
-  normalizeAgentEngine,
-  resolveChatEngineAdapter
+  normalizeAgentEngine
 } = require("./main/chat-engine-registry.js");
-const {
-  enginePermissionStoreTarget,
-  shouldApplyNativePermissionConfig
-} = require("./shared/agent-engine-policy.js");
-const {
-  createChatEngineAdapters,
-  createStatelessChatEngineAdapters,
-  sendWithChatEngineAdapter,
-  sendWithStatelessChatEngineAdapter
-} = require("./main/chat-engine-adapters.js");
-const { createChatEventEmitter } = require("./main/chat-events.js");
-const { createChatSendDelegator, createChatStopDelegator } = require("./main/chat-send-delegation.js");
-const { createBotExecutionCore } = require("./main/bot-execution-core.js");
-const { createBotTurnHelpers } = require("./main/bot-turn-helpers.js");
-const { chatCompletionResponse, responseMessageContent } = require("./main/chat-response.js");
-const { createAgentCommandProvider } = require("./main/agent-command-provider.js");
-const { createSkillRuntimeOwner } = require("./main/mia-core/skill-runtime-owner.js");
-const { requireBot } = require("./main/bot-registry.js");
-const {
-  createClaudeCodeStatelessAdapter
-} = require("./main/claude-code-stateless-adapter.js");
-const {
-  createCodexStatelessAdapter,
-  mapCodexPermissionMode
-} = require("./main/codex-stateless-adapter.js");
-const { syncCodexConfigForPermission } = require("./main/codex-config-sync.js");
+const { createChatSendDelegator } = require("./main/chat-send-delegation.js");
+const { createChatAttachmentCoreAdapter } = require("./main/chat-attachment-core-adapter.js");
+const { createAgentSessionSkillRuntimeAdapter } = require("./main/agent-session-skill-runtime.js");
 const { createNativeTurnHelpers } = require("./main/native-turn-helpers.js");
-const { normalizeTurnRuntimeConfig } = require("./main/runtime-config-normalizer.js");
 const { createMiaMemoryProvider } = require("./main/mia-memory-provider.js");
 const { createMiaMemoryService } = require("./main/mia-memory-service.js");
 const { createRuntimeInitializerService } = require("./main/runtime-initializer-service.js");
@@ -70,27 +44,12 @@ const { createWindowStateManager } = require("./main/window-state.js");
 const { installPathPasteShortcut } = require("./main/path-paste-shortcut.js");
 const { createAutoUpdateService } = require("./main/updater/auto-update-service.js");
 const { createSkillsLoader } = require("./main/skills-loader.js");
-const { createTasksStore } = require("./main/tasks-store.js");
-const { createScheduler, sweepMissedCronTasks } = require("./main/scheduler.js");
-const { createFireRunner } = require("./main/scheduler-fire.js");
-const { createTasksEventBus } = require("./main/tasks-events.js");
-const { createTasksRoutes } = require("./main/tasks-routes.js");
 const { createMiaAppMcpBridge } = require("./main/mia-app-mcp-bridge.js");
 const { createSocialApi } = require("./main/social/social-api.js");
 const { registerSocialIpc } = require("./main/social/social-ipc.js");
 const { openConversationMessageCache } = require("./main/social/conversation-message-cache.js");
-const {
-  createLocalBotResponder,
-  shouldHandleLocalCloudConversationAi
-} = require("./main/social/local-bot-responder.js");
-const { createMainBotRuntimeDispatcher } = require("./main/social/bot-runtime-dispatcher.js");
 const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js");
 const { finalizeCloudLoginIpcResult } = require("./main/cloud-login-ipc.js");
-const {
-  cloudWebSocketUrl: buildCloudWebSocketUrl,
-  cloudWebSocketProtocols: buildCloudWebSocketProtocols,
-  cloudEventsUrl: buildCloudEventsUrl
-} = require("./main/cloud/cloud-events-url.js");
 const { createCloudBridgeClient } = require("./main/cloud/cloud-bridge-client.js");
 const { createCloudDesktopSyncClient } = require("./main/cloud/desktop-sync-client.js");
 const { createCloudSettingsWriter } = require("./main/cloud/cloud-settings-writer.js");
@@ -102,23 +61,27 @@ const {
 const { loadLocalSkillMarketPayload, packageLocalCatalogSkill } = require("./main/skills/skill-market-local.js");
 const { isSafeEntryName, MAX_UNCOMPRESSED_BYTES } = require("./shared/skill-safety.js");
 const { createRemoteControlRouter } = require("./main/remote/remote-control-router.js");
-const { createModelSettingsService } = require("./main/model-settings-service.js");
 const { createConversationTitleService } = require("./main/conversation-title-service.js");
 const {
   createMiaCoreControlServer,
-  createMiaCoreTasksClient,
-  createMiaCoreLocalEventsClient,
-  createMiaCoreProcessLauncher,
   coreNeedsReplacement,
   shouldReuseCore
-} = require("./main/mia-core/local-process-control.js");
-const { rendererChannelForLocalEvent } = require("./main/daemon/local-event-renderer-router.js");
-const { createMiaCoreResolver } = require("./main/daemon/executable-resolver.js");
+} = require("./main/mia-core/control-server.js");
+const { createMiaCoreHttpClient } = require("./main/mia-core/http-client.js");
+const { createMiaCoreCompatibilityClient } = require("./main/mia-core/compat-client.js");
+const { createMiaCoreLocalEventsClient } = require("./main/mia-core/event-client.js");
+const { createMiaCoreProcessLauncher } = require("./main/mia-core/process-launcher.js");
+const { createMiaCoreResolver } = require("./main/mia-core/process-resolver.js");
+const { coreRequestShouldWaitForStreamingEvents } = require("./main/mia-core/request-gates.js");
 const { windowsTitleBarOverlayForAppearance, applyWindowsTitleBarOverlay } = require("./main/windows-title-bar.js");
-const { createProviderConnections } = require("./main/provider-connections.js");
+const {
+  compactModelFromClientSettings,
+  createRuntimeStatusCoreSnapshot,
+  resolveCodexModelSelection
+} = require("./main/runtime-status-core-snapshot.js");
 const { createAuthService } = require("./main/auth-service.js");
-const { createEngineCatalogService } = require("./main/engine-catalog-service.js");
-const { createExternalAgentCommandService } = require("./main/external-agent-command-service.js");
+const { createEngineCatalogCoreAdapter } = require("./main/engine-catalog-core-adapter.js");
+const { createExternalAgentCommandCoreAdapter } = require("./main/external-agent-command-core-adapter.js");
 const { createBotPetService } = require("./main/bot-pet-service.js");
 const { createHermesSlashCommandService } = require("./main/hermes-slash-command-service.js");
 const { createLaunchdService } = require("./main/launchd-service.js");
@@ -128,25 +91,9 @@ const {
   createAgentSessionManagerPersistence,
   createAgentSessionStore
 } = require("./main/agent-session-store.js");
-const { createAgentSessionManager } = require("./main/agent-session/index.js");
-const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
 const { createAgentPermissionProxy } = require("./main/agent-permission-proxy.js");
-const {
-  createMiaCoreModelRuntimeResolver,
-  isMiaManagedRuntime
-} = require("./main/mia-core/model-runtime-resolver.js");
-const { createClaudeCodeMiaProxy } = require("./main/claude-code-mia-proxy.js");
-const { createCodexMiaProxy } = require("./main/codex-mia-proxy.js");
 const { createAgentSessionRuntimePreparer } = require("./main/agent-session-runtime-preparer.js");
-const { createMiaCoreRuntimeService } = require("./main/mia-core/runtime-service.js");
-const {
-  closeCodexAppServerRuntimes,
-  createCodexAppServerConnection,
-  runCodexAppServerTurn
-} = require("./main/codex-app-server-runner.js");
 const { createSchedulerMcpBridge } = require("./main/scheduler-mcp-bridge.js");
-const { schedulerSkillIdsForTurn } = require("./main/scheduler-skill-defaults.js");
-const { deliverTaskReplyToConversation } = require("./main/task-reply-delivery.js");
 const { createSystemHermesService } = require("./main/system-hermes-service.js");
 const { createEngineRuntimeConfigService } = require("./main/engine-runtime-config-service.js");
 const { createEngineHealthService } = require("./main/engine-health-service.js");
@@ -154,29 +101,24 @@ const { createEngineInstallService } = require("./main/engine-install-service.js
 const { registerWindowIpc } = require("./main/ipc/window-ipc.js");
 const { registerUtilIpc } = require("./main/ipc/util-ipc.js");
 const { registerMcpIpc } = require("./main/ipc/mcp-ipc.js");
-const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
 const { createLocalFileOpenService } = require("./main/local-file-open-service.js");
-const { createMcpBridgeServer } = require("./main/mcp/mcp-bridge-server.js");
-const { runNativeMcpCliSync } = require("./main/mcp/mcp-engine-sync.js");
-const { createMcpSdkClientManager } = require("./main/mcp/mcp-sdk-client.js");
 const { createMcpService } = require("./main/mcp/mcp-service.js");
-const { createManagedConnectorSupervisor } = require("./core/mcp/managed-connector-supervisor.js");
-const { createCoreMcpOAuthService } = require("./core/mcp/oauth-service.js");
-const { createCoreMcpOAuthTokenStore } = require("./core/mcp/oauth-token-store.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — bot chats
 //  now sync via conversations+messages, no need for the workspace-shape mappers.)
 
 const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
-const MIA_DAEMON_SERVICE_LABEL = "ai.mia.daemon";
-const MIA_DAEMON_DEFAULT_PORT = Number(process.env.MIA_DAEMON_PORT || 27861);
+// Keep the LaunchAgent label stable so existing installs are overwritten in
+// place while the implementation behind it moves to Rust Core.
+const MIA_CORE_SERVICE_LABEL = "ai.mia.daemon";
+const MIA_CORE_DEFAULT_PORT = Number(process.env.MIA_CORE_PORT || 27861);
 const MIA_CLOUD_DEFAULT_URL = process.env.MIA_CLOUD_URL || "https://mia.gifgif.cn";
-const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.MIA_DAEMON === "1";
+const IS_CORE_PROCESS = false;
 const ALLOW_MULTIPLE_INSTANCES = process.env.MIA_ALLOW_MULTIPLE_INSTANCES === "1";
 
 app.setName("Mia");
-// Migration slice 5c: the daemon is the standalone node Core, not Electron, so
-// the old `if (IS_DAEMON_PROCESS)` daemon-profile userData / MIA_HOME special
-// casing was deleted here — Electron always runs as the window. A general
+// Migration branch: the background Core is not the Electron GUI process; the
+// old daemon-profile userData / MIA_HOME special casing was deleted here.
+// Electron always runs as the window. A general
 // MIA_USER_DATA_DIR override is still honoured (test isolation / multi-instance).
 const isolatedUserDataDir = String(process.env.MIA_USER_DATA_DIR || "").trim();
 if (isolatedUserDataDir) {
@@ -239,7 +181,7 @@ function loadStatusBadgeAsset(assetId) {
 }
 
 let shouldRunDesktopInstance = true;
-if (!IS_DAEMON_PROCESS && !ALLOW_MULTIPLE_INSTANCES) {
+if (!IS_CORE_PROCESS && !ALLOW_MULTIPLE_INSTANCES) {
   const singleInstanceLock = app.requestSingleInstanceLock();
   if (!singleInstanceLock) {
     shouldRunDesktopInstance = false;
@@ -271,7 +213,7 @@ let engineState = {
 const runtimePathsModule = createRuntimePaths({
   app,
   MIA_GATEWAY_SERVICE_LABEL,
-  MIA_DAEMON_SERVICE_LABEL,
+  MIA_CORE_SERVICE_LABEL,
   env: process.env,
 });
 const {
@@ -281,6 +223,136 @@ const {
 } = runtimePathsModule;
 
 let settingsStore = null;
+let agentWorkspaceCoreSnapshot = null;
+let memorySettingsCoreSnapshot = null;
+let miaCoreStartupState = {
+  port: 0,
+  failed: false,
+  version: null,
+  error: null
+};
+
+function currentMiaCoreStartupState() {
+  return {
+    port: Number(miaCoreStartupState.port || 0),
+    failed: Boolean(miaCoreStartupState.failed),
+    version: miaCoreStartupState.version || null,
+    error: miaCoreStartupState.error || null,
+    userId: currentMiaUserId()
+  };
+}
+
+function currentMiaCoreBaseUrl() {
+  const port = Number(miaCoreStartupState.port || 0);
+  if (port > 0) return `http://127.0.0.1:${port}`;
+  const coreSettings = settingsStore?.coreSettings?.() || {};
+  const host = coreSettings.host || "127.0.0.1";
+  const fallbackPort = Number(coreSettings.port || MIA_CORE_DEFAULT_PORT);
+  return `http://${host}:${fallbackPort}`;
+}
+
+function currentMiaCoreMcpStatus() {
+  const port = Number(miaCoreStartupState.port || 0);
+  return port > 0 ? { baseUrl: currentMiaCoreBaseUrl() } : {};
+}
+
+async function forwardMiaCoreHttpRequest(payload = {}) {
+  const method = String(payload.method || "GET").toUpperCase();
+  const route = String(payload.route || payload.path || "").trim();
+  if (!route.startsWith("/")) throw new Error(`Invalid Mia Core route: ${route || "(empty)"}`);
+  if (coreRequestShouldWaitForStreamingEvents({ method, route })) {
+    await waitForDaemonRuntimeEventsConnection();
+  }
+  const client = createMiaCoreHttpClient({ baseUrl: currentMiaCoreBaseUrl(), fetch });
+  return client.request(method, route, payload.body);
+}
+
+async function cancelCoreConversationTurn({ conversationId, turnId } = {}) {
+  const conversation = String(conversationId || "").trim();
+  const turn = String(turnId || "").trim();
+  if (!conversation || !turn) {
+    return { ok: false, error: "conversationId and turnId are required for Core cancellation." };
+  }
+  return forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: `/api/conversations/${encodeURIComponent(conversation)}/turns/${encodeURIComponent(turn)}/cancel`,
+    body: {}
+  });
+}
+
+async function syncCloudSettingsToCore(settings = null) {
+  const cloud = settings || settingsStore?.cloudSettings?.() || {};
+  let response;
+  if (cloud?.enabled && cloud?.token) {
+    response = await forwardMiaCoreHttpRequest({
+      method: "POST",
+      route: "/api/cloud/connect",
+      body: {
+        url: cloud.url,
+        token: cloud.token,
+        user: cloud.user || null,
+        account: cloud.user || null,
+        agentRuntime: cloud.agentRuntime || null,
+        lastEventSeq: Number(cloud.lastEventSeq) || 0,
+        lastMemorySyncAt: String(cloud.lastMemorySyncAt || "")
+      }
+    });
+    startCloudRuntimeSockets();
+    return response;
+  }
+  response = await forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/cloud/disconnect",
+    body: {}
+  });
+  startCloudRuntimeSockets();
+  return response;
+}
+
+async function coreCloudStatus(includeToken = false) {
+  try {
+    return await forwardMiaCoreHttpRequest({
+      method: "GET",
+      route: `/api/cloud/status${includeToken ? "?includeToken=true" : ""}`
+    });
+  } catch (error) {
+    appendCloudLog(`Mia Rust Core cloud status fallback: ${error?.message || error}`);
+    return cloudStatus(includeToken);
+  }
+}
+
+async function coreCloudSettingsGet() {
+  try {
+    return await cloudSettingsGet();
+  } catch (cloudError) {
+    appendCloudLog(`Mia Cloud settings get fallback to Core: ${cloudError?.message || cloudError}`);
+  }
+  try {
+    const response = await forwardMiaCoreHttpRequest({
+      method: "GET",
+      route: "/api/cloud/settings"
+    });
+    return response?.settings || response;
+  } catch (error) {
+    appendCloudLog(`Mia Rust Core cloud settings get failed: ${error?.message || error}`);
+    return { pins: [], readMarks: {}, appearance: {}, tags: { items: [], assignments: {} } };
+  }
+}
+
+async function coreCloudSettingsPut(settings = {}) {
+  try {
+    return await cloudSettingsPut(settings || {});
+  } catch (cloudError) {
+    appendCloudLog(`Mia Cloud settings put fallback to Core: ${cloudError?.message || cloudError}`);
+  }
+  const response = await forwardMiaCoreHttpRequest({
+    method: "PUT",
+    route: "/api/cloud/settings",
+    body: { settings: settings || {} }
+  });
+  return response?.settings || response;
+}
+
 function currentMiaUserId() {
   try {
     const cloudUser = settingsStore?.cloudSettings?.()?.user || null;
@@ -321,36 +393,23 @@ const engineInstallService = createEngineInstallService({
 });
 const engineRuntimeConfigService = createEngineRuntimeConfigService({
   runtimePaths,
-  readJson,
-  randomBytes: (size) => crypto.randomBytes(size),
-  defaultModelSettings: () => settingsStore?.defaultModelSettings() || {
-    provider: "",
-    model: "",
-    apiKeyEnv: "",
-    apiKey: "",
-    baseUrl: "",
-    apiMode: ""
-  },
   permissionSettings: () => settingsStore?.permissionSettings() || { mode: "ask" },
   effortSettings: () => settingsStore?.effortSettings() || { level: "medium" },
-  engineSource: engineInstallService.engineSource,
-  // Lazy: schedulerMcpBridge is created later in this module; the thunk is
-  // only invoked at writeRuntimeConfig time (runtime), by which point it
-  // exists. Lets the Hermes config.yaml carry the mia-scheduler MCP.
+  prepareRuntimeConfigRequest: forwardMiaCoreHttpRequest,
+  // Lazy: schedulerMcpBridge is created later in this module; these thunks are
+  // only invoked when Core prepares Hermes runtime config.
   getMiaAppMcpSpec: () => miaAppMcpBridge.getSpec(),
   getSchedulerMcpSpec: () => schedulerMcpBridge.getSpec(),
-  getUserMcpSpecs: () => userMcpService.getEngineSpecs("hermes", { hermesSupportsUrl: true }),
-  resolveModelRuntime: (settings, context) => resolveModelRuntime(settings, context)
+  getUserMcpSpecs: () => userMcpService.getEngineSpecs("hermes", { hermesSupportsUrl: true })
 });
 const {
-  apiKey,
+  apiServerKey,
   effectiveHermesHome,
-  modelSettings,
+  prepareRuntimeConfig,
   readConfiguredPort,
-  writeRuntimeConfig
 } = engineRuntimeConfigService;
 const engineHealthService = createEngineHealthService({
-  apiKey,
+  apiServerKey,
   fetchImpl: fetch,
   getEngineProcess: () => engineProcess,
   getEngineState: () => engineState,
@@ -367,30 +426,15 @@ const miaCoreResolver = createMiaCoreResolver({
   platform: process.platform,
   env: process.env,
   resourcesPath: () => process.resourcesPath || "",
-  // Launch the standalone node Core as the daemon (slice 5c: this is now the SOLE
-  // daemon target — the legacy-gui/electron-dev GUI-identity daemons are deleted).
-  // process.execPath is the Electron GUI executable (NOT node), so we resolve an
-  // absolute node via the shared shell-path lookup. When none is found on a
-  // packaged build the resolver returns `unresolved` and assertLaunchable() fails
-  // closed rather than launching the GUI app as the daemon.
-  // DEV: process.defaultApp is true → use the system `node` (shell-path lookup)
-  // + the on-disk Core entry (unchanged behaviour). PACKAGED: process.defaultApp
-  // is false → the resolver derives the bundled node (<resources>/mia-node) and
-  // the unpacked Core entry (app.asar.unpacked/src/core/mia-core.js) from
-  // resourcesPath, because a plain node binary cannot require out of app.asar.
-  nodePath: () => {
-    if (!process.defaultApp) return "";
-    try {
-      return String(localAgentEngineService?.shellCommandPath?.("node") || "").trim();
-    } catch {
-      return "";
-    }
-  },
-  coreEntry: () => (process.defaultApp ? path.resolve(__dirname, "core", "mia-core.js") : "")
+  repoRoot: () => path.resolve(__dirname, ".."),
+  coreSettings: () => settingsStore.coreSettings(),
+  appVersion: () => app.getVersion(),
+  cargoPath: () => process.env.MIA_CARGO_BIN || "cargo",
+  parentPid: () => process.pid
 });
 const launchdService = createLaunchdService({
   gatewayServiceLabel: MIA_GATEWAY_SERVICE_LABEL,
-  daemonServiceLabel: MIA_DAEMON_SERVICE_LABEL,
+  coreServiceLabel: MIA_CORE_SERVICE_LABEL,
   runtimePaths,
   resolver: miaCoreResolver,
   appPath: () => app.getAppPath(),
@@ -429,10 +473,7 @@ localAgentEngineService = createLocalAgentEngineService({
 settingsStore = createSettingsStore({
   runtimePaths,
   readJson,
-  writeRuntimeConfig,
-  readConfiguredPort,
-  getEngineState: () => engineState,
-  MIA_DAEMON_DEFAULT_PORT,
+  MIA_CORE_DEFAULT_PORT,
   MIA_CLOUD_DEFAULT_URL,
   normalizeAvatarCrop: (crop) => normalizeAvatarCrop(crop)
 });
@@ -449,78 +490,15 @@ const {
   normalizeBotEngineConfig,
   normalizeAvatarCrop,
   loadBotManifest,
-  readBotPersona,
 } = botManifestModule;
 
 function miaMemoryEnabled() {
-  try {
-    return settingsStore.memorySettings().enabled !== false;
-  } catch {
-    return true;
-  }
+  return memorySettingsSnapshot().enabled !== false;
 }
 
 function syncNativeMemoryFilesForAgent(input = {}) {
   if (miaMemoryEnabled()) return miaMemoryService.syncNativeMemoryFiles(input);
   return miaMemoryService.syncNativeMemoryFiles({ ...input, entries: [] });
-}
-
-function miaContextSnapshot({ botId = "", sessionId = "", originMessageId = "" } = {}) {
-  const key = String(botId || "mia").trim() || "mia";
-  const localSessionId = String(sessionId || "default").trim() || "default";
-  let bot = null;
-  try {
-    bot = (loadBotManifest().bots || []).find((item) => String(item?.key || item?.id || "") === key) || null;
-  } catch {
-    bot = null;
-  }
-  const name = bot?.name || key;
-  const bio = bot?.bio || "";
-  return {
-    userId: miaMemoryService.currentUserId(),
-    botId: key,
-    sessionId: localSessionId,
-    originMessageId: String(originMessageId || ""),
-    generatedAt: Date.now(),
-    persona: readBotPersona(key, name, bio),
-    memory: "",
-    memoryTools: {
-      enabled: miaMemoryEnabled(),
-      search: "memory_search",
-      remember: "memory_remember",
-      update: "memory_update",
-      forget: "memory_forget"
-    },
-    skillTools: {
-      listCurrent: "skill_list_current",
-      readCurrent: "skill_read_current"
-    }
-  };
-}
-
-function botForMiaContext(botId = "") {
-  const key = String(botId || "mia").trim() || "mia";
-  try {
-    const bot = (loadBotManifest().bots || []).find((item) => String(item?.key || item?.id || "") === key) || null;
-    return bot || { key, id: key, name: key, capabilities: { enabledSkills: [] } };
-  } catch {
-    return { key, id: key, name: key, capabilities: { enabledSkills: [] } };
-  }
-}
-
-function miaCurrentSkills({ botId = "", skillId = "" } = {}) {
-  const bot = botForMiaContext(botId);
-  const key = String(bot?.key || bot?.id || botId || "mia").trim() || "mia";
-  if (skillId) {
-    return {
-      botId: key,
-      skill: skillsLoader.readCurrentBotSkill(bot, skillId)
-    };
-  }
-  return {
-    botId: key,
-    skills: skillsLoader.listCurrentBotSkills(bot)
-  };
 }
 
 function rendererMemoryBase(input = {}) {
@@ -602,6 +580,127 @@ function rendererMemoryIdInput(input = {}) {
   };
 }
 
+function coreMemoryContext(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  const context = { userId: currentMiaUserId() };
+  const botId = String(source.botId || source.botKey || "").trim();
+  const sessionId = String(source.sessionId || "").trim();
+  if (botId) context.botId = botId;
+  if (sessionId) context.sessionId = sessionId;
+  return context;
+}
+
+function coreMemorySearchBody(input = {}) {
+  const source = rendererMemoryListInput(input);
+  return {
+    context: coreMemoryContext(source),
+    query: source.query,
+    scopes: source.scopes,
+    limit: source.limit
+  };
+}
+
+function coreMemoryManagementListBody(input = {}) {
+  const source = rendererMemoryManagementInput(input);
+  return {
+    context: coreMemoryContext(source),
+    query: source.query,
+    scopes: source.scopes,
+    limit: source.limit
+  };
+}
+
+function coreMemoryRememberBody(input = {}) {
+  const source = rendererRememberMemoryInput(input);
+  return {
+    context: coreMemoryContext(source),
+    text: source.text,
+    scope: source.scope,
+    confidence: source.confidence,
+    metadata: source.metadata
+  };
+}
+
+function coreMemoryUpdateBody(input = {}) {
+  const source = rendererUpdateMemoryInput(input);
+  return {
+    context: coreMemoryContext(source),
+    memoryId: source.memoryId,
+    oldText: source.oldText,
+    text: source.text,
+    confidence: source.confidence,
+    metadata: source.metadata
+  };
+}
+
+function coreMemoryForgetBody(input = {}) {
+  const source = rendererForgetMemoryInput(input);
+  return {
+    context: coreMemoryContext(source),
+    memoryId: source.memoryId,
+    oldText: source.oldText,
+    scope: source.scope
+  };
+}
+
+function coreMemoryDeleteBody(input = {}) {
+  const source = rendererMemoryIdInput(input);
+  return {
+    context: { userId: currentMiaUserId() },
+    memoryId: source.memoryId
+  };
+}
+
+async function listCoreMemory(input = {}) {
+  const response = await forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/mia/memory/list",
+    body: coreMemorySearchBody(input)
+  });
+  return Array.isArray(response?.memories) ? response.memories : [];
+}
+
+async function listAllCoreMemory(input = {}) {
+  const response = await forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/mia/memory/list",
+    body: coreMemoryManagementListBody(input)
+  });
+  return Array.isArray(response?.memories) ? response.memories : [];
+}
+
+async function rememberCoreMemory(input = {}) {
+  return forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/mia/memory/remember",
+    body: coreMemoryRememberBody(input)
+  });
+}
+
+async function updateCoreMemory(input = {}) {
+  return forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/mia/memory/update",
+    body: coreMemoryUpdateBody(input)
+  });
+}
+
+async function forgetCoreMemory(input = {}) {
+  return forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/mia/memory/forget",
+    body: coreMemoryForgetBody(input)
+  });
+}
+
+async function deleteCoreMemory(input = {}) {
+  return forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/mia/memory/delete",
+    body: coreMemoryDeleteBody(input)
+  });
+}
+
 function publishRendererMemoryEvent(reason = "memory", result = {}, scope = {}) {
   const envelope = memoryChangedEnvelope(reason, result, { eventSource: "ui", ...scope });
   broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
@@ -613,10 +712,8 @@ const agentSessionStore = createAgentSessionStore({
   normalizeBotAgentEngine: normalizeBotAgentEngine
 });
 const agentSessionPersistence = createAgentSessionManagerPersistence(agentSessionStore);
-const agentPermissionCoordinator = IS_DAEMON_PROCESS ? createAgentPermissionCoordinator({
-  runtimePaths,
-  readJson
-}) : null;
+void agentSessionPersistence;
+const agentSessionManager = null;
 
 const chatAttachments = createChatAttachments({
   initializeRuntime,
@@ -632,11 +729,15 @@ const {
   dataUrlToBuffer,
   sanitizeAttachmentName,
   normalizeAttachments,
-  attachmentContext,
-  saveChatAttachment,
-  readLocalFileAttachment,
-  safeFetchFileAttachment
+  attachmentContext
 } = chatAttachments;
+const chatAttachmentCoreAdapter = createChatAttachmentCoreAdapter({
+  coreRequest: forwardMiaCoreHttpRequest,
+  cloudAttachments: chatAttachments
+});
+const engineCatalogCoreAdapter = createEngineCatalogCoreAdapter({
+  coreRequest: forwardMiaCoreHttpRequest
+});
 
 const botPetService = createBotPetService({
   app,
@@ -672,13 +773,9 @@ const runtimeInitializerService = createRuntimeInitializerService({
   runtimePaths,
   randomBytes: (size) => crypto.randomBytes(size),
   ensureEnginePlugins: () => enginePluginsService.ensureInstalled(),
-  writeRuntimeConfig,
-  readConfiguredPort,
-  defaultModelSettings: () => settingsStore.defaultModelSettings(),
-  defaultProviderStore: () => defaultProviderStore(),
   defaultPermissionSettings: () => settingsStore.defaultPermissionSettings(),
   defaultEffortSettings: () => settingsStore.defaultEffortSettings(),
-  defaultDaemonSettings: () => settingsStore.defaultDaemonSettings(),
+  defaultCoreSettings: () => settingsStore.defaultCoreSettings(),
   defaultUserProfile: () => settingsStore.defaultUserProfile(),
   defaultAppearanceSettings: () => settingsStore.defaultAppearanceSettings(),
   appendEngineLog,
@@ -691,18 +788,22 @@ const skillsLoader = createSkillsLoader({
   officialLibraryManifestPath: botPetService.officialLibraryManifestPath,
   resolveOfficialLibraryRoot: botPetService.resolveOfficialLibraryRoot,
   getEngineState: () => engineState,
-  apiKey,
+  apiServerKey,
   appendEngineLog,
   isChildPath,
+  materializeSkillsWithCore: async (request) => {
+    const client = createMiaCoreHttpClient({ baseUrl: currentMiaCoreBaseUrl(), fetch });
+    return client.post("/api/conversations/skill-materialization", request);
+  },
 });
 // Local agents default to a Mia-owned workspace, never `/` (Finder-launched app)
 // or the user's home — so launching/using them never trips macOS privacy prompts
 // for Desktop/Documents/Downloads/Photos. Real user folders are opted into
 // explicitly (folder picker), not by accident.
 function agentWorkspaceDir() {
-  // A user-picked workspace (Settings) wins when it still exists; otherwise the
-  // Mia-owned default. Either way it's an explicit, non-protected location.
-  const custom = String(settingsStore?.agentWorkspace?.()?.path || "").trim();
+  // Core owns the persisted user-picked workspace. Main keeps only a runtime
+  // cache so synchronous agent launch paths can pick the resolved directory.
+  const custom = String(agentWorkspaceCoreSnapshot?.custom || "").trim();
   const dir = custom && fs.existsSync(custom) ? custom : runtimePaths().workspace;
   try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best effort */ }
   return dir;
@@ -714,62 +815,56 @@ function resolveAgentSessionPermissionMode({ engineId = "", requestedEngine = ""
 }
 
 function agentWorkspaceSnapshot() {
+  if (agentWorkspaceCoreSnapshot && typeof agentWorkspaceCoreSnapshot === "object") {
+    return {
+      path: String(agentWorkspaceCoreSnapshot.path || agentWorkspaceDir()),
+      custom: String(agentWorkspaceCoreSnapshot.custom || ""),
+      default: String(agentWorkspaceCoreSnapshot.default || runtimePaths().workspace)
+    };
+  }
   return {
     path: agentWorkspaceDir(),
-    custom: String(settingsStore.agentWorkspace().path || ""),
+    custom: "",
     default: runtimePaths().workspace
   };
 }
 
-const agentCommandProvider = createAgentCommandProvider({
-  appendEngineLog,
-  claudeAgentSdk,
-  cwd: agentWorkspaceDir,
-  homeDir: () => app.getPath("home"),
-  normalizeBotAgentEngine: normalizeBotAgentEngine,
-  shellCommandPath: localAgentEngineService.shellCommandPath,
-});
-const externalAgentCommandService = createExternalAgentCommandService({
-  agentCommandProvider,
-  cwd: agentWorkspaceDir,
-  homeDir: () => app.getPath("home"),
-  normalizeBotAgentEngine,
-  normalizeBotEngineConfig,
-  normalizeEffortLevel: settingsStore.normalizeEffortLevel,
-  localAgentEngines: localAgentEngineService.localAgentEngines,
-  getAgentSessionId: agentSessionStore.getId,
-  enginePermissionMode: settingsStore.enginePermissionMode,
-  setAgentSessionId: agentSessionStore.setId,
-  setAgentSessionEntry: agentSessionStore.setEntry,
-  loadAgentSessionMap: agentSessionStore.loadMap,
-  sourceDeviceId: () => cloudBridgeRuntime?.status()?.deviceId || ""
+function rememberAgentWorkspaceSnapshot(snapshot = {}) {
+  const next = {
+    path: String(snapshot.path || runtimePaths().workspace),
+    custom: String(snapshot.custom || ""),
+    default: String(snapshot.default || runtimePaths().workspace)
+  };
+  agentWorkspaceCoreSnapshot = next;
+  return agentWorkspaceSnapshot();
+}
+
+function memorySettingsSnapshot() {
+  return {
+    enabled: memorySettingsCoreSnapshot?.enabled !== false
+  };
+}
+
+function rememberMemorySettingsSnapshot(snapshot = {}) {
+  memorySettingsCoreSnapshot = {
+    enabled: snapshot?.enabled !== false
+  };
+  return memorySettingsSnapshot();
+}
+
+const externalAgentCommandCoreAdapter = createExternalAgentCommandCoreAdapter({
+  coreRequest: forwardMiaCoreHttpRequest,
+  projectPath: agentWorkspaceDir,
+  sourceDeviceId: () => cloudBridgeRuntime?.status()?.deviceId || localDeviceId()
 });
 let authService = null;
-const providerConnections = createProviderConnections({
-  runtimePaths,
-  readJson,
-  modelSettings,
-  codexAuthStatus: () => authService?.status() || { codexLoggedIn: false }
+const runtimeStatusCoreSnapshot = createRuntimeStatusCoreSnapshot({
+  coreRequest: forwardMiaCoreHttpRequest,
+  authStatus: () => authService?.status() || { codexLoggedIn: false }
 });
-const defaultProviderStore = providerConnections.defaultStore;
-const normalizeProviderConnection = providerConnections.normalize;
-const providerConnectionStore = providerConnections.store;
-const saveProviderConnection = providerConnections.save;
-const providerConnection = providerConnections.get;
-const connectedProviderSummaries = providerConnections.connectedSummaries;
 const openExternalUrl = createExternalUrlOpener({
   shellOpenExternal: (url) => shell.openExternal(url),
   spawnProcess: spawn
-});
-const miaCoreModelRuntimeResolver = createMiaCoreModelRuntimeResolver({
-  cloudStatus,
-  normalizeCloudUrl: settingsStore.normalizeCloudUrl,
-  providerConnection: (provider) => providerConnections.get(provider),
-  modelSettings
-});
-const miaCoreRuntime = createMiaCoreRuntimeService({
-  normalizeAgentEngine,
-  enginePermissionStoreTarget
 });
 authService = createAuthService({
   runtimePaths,
@@ -787,27 +882,9 @@ authService = createAuthService({
   saveProviderConnection,
   restartEngineIfRunning
 });
-const engineCatalogService = createEngineCatalogService({
-  isEngineInstalled: engineInstallService.isInstalled,
-  initializeRuntime,
-  runtimePaths,
-  userHome: () => app.getPath("home"),
-  effectiveHermesHome,
-  buildPythonPath,
-  runPythonScript,
-  appendEngineLog,
-  timeEngineStepAsync,
-  shellCommandPath: (command) => localAgentEngineService.shellCommandPath(command),
-  processEnvStrings,
-  ensureCodexHome: (options) => schedulerMcpBridge.ensureCodexHome(options),
-  createCodexAppServerConnection,
-  claudeAgentSdk,
-  cwd: () => process.cwd()
-});
-let claudeAgentSdkModule = null;
 let remoteControlRouter = null;
 let miaCoreControlServer = null;
-let miaCoreTasksClient = null;
+let miaCoreCompatibilityClient = null;
 let agentPermissionProxy = null;
 let cloudEventSocketRuntime = null;
 let cloudBridgeRuntime = null;
@@ -820,18 +897,18 @@ let cloudDesktopSyncRuntime = null;
 const pendingCloudLogs = [];
 const schedulerMcpBridge = createSchedulerMcpBridge({
   runtimePaths,
-  daemonStatus: () => miaCoreControlServer?.status() || {},
-  daemonSettings: () => settingsStore.daemonSettings(),
-  daemonToken,
+  coreStatus: currentMiaCoreMcpStatus,
+  coreSettings: () => ({}),
+  coreToken,
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
   serverScriptPath: () => path.join(__dirname, "main", "scheduler-mcp-server.js"),
   homeDir: () => os.homedir()
 });
 const miaAppMcpBridge = createMiaAppMcpBridge({
   runtimePaths,
-  daemonStatus: () => miaCoreControlServer?.status() || {},
-  daemonSettings: () => settingsStore.daemonSettings(),
-  daemonToken,
+  coreStatus: currentMiaCoreMcpStatus,
+  coreSettings: () => ({}),
+  coreToken,
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
   ddgsPythonPath: () => systemHermesService.pythonPath() || engineInstallService.enginePython(),
   serverScriptPath: () => path.join(__dirname, "main", "mia-app-mcp-server.js")
@@ -885,13 +962,13 @@ function execFileAsPromise(file, args, _meta = {}) {
   });
 }
 
-function daemonToken() {
+function coreToken() {
   const p = runtimePaths();
-  if (!fs.existsSync(p.daemonToken)) {
-    fs.mkdirSync(path.dirname(p.daemonToken), { recursive: true });
-    fs.writeFileSync(p.daemonToken, `${crypto.randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
+  if (!fs.existsSync(p.coreToken)) {
+    fs.mkdirSync(path.dirname(p.coreToken), { recursive: true });
+    fs.writeFileSync(p.coreToken, `${crypto.randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
   }
-  return fs.readFileSync(p.daemonToken, "utf8").trim();
+  return fs.readFileSync(p.coreToken, "utf8").trim();
 }
 
 // Cloud conversations are authoritative; local storage is limited to caches
@@ -905,82 +982,14 @@ function broadcastRendererEvent(channel, payload) {
   }
 }
 
-async function claudeAgentSdk() {
-  if (!claudeAgentSdkModule) claudeAgentSdkModule = await import("@anthropic-ai/claude-agent-sdk");
-  return claudeAgentSdkModule;
-}
-
 function processEnvStrings() {
   return Object.fromEntries(Object.entries(localAgentEngineService.processEnvWithCliPath()).filter(([, value]) => typeof value === "string"));
 }
 
-const userMcpOAuthTokenStore = createCoreMcpOAuthTokenStore({ runtimePaths, fs });
-const userMcpOAuthService = createCoreMcpOAuthService({
-  tokenStore: userMcpOAuthTokenStore,
-  fetch,
-  openExternal: openExternalUrl
-});
-const userMcpManager = createMcpSdkClientManager({
-  processEnvStrings,
-  appendLog: appendEngineLog,
-  oauthService: userMcpOAuthService,
-  authorizeToolCall: async ({ args, options = {} }) => {
-    if (!agentPermissionCoordinator || typeof agentPermissionCoordinator.requestPermission !== "function") {
-      return {
-        allowed: false,
-        reason: "Mia Core owns tool permission approval; foreground cannot authorize local tool calls."
-      };
-    }
-    const toolLabel = String(options.toolLabel || "").trim() || "mcp.tool";
-    let preview = "";
-    try {
-      preview = args ? JSON.stringify(args, null, 2).slice(0, 4000) : "";
-    } catch {
-      preview = "";
-    }
-    const decision = await agentPermissionCoordinator.requestPermission({
-      engine: String(options.engine || "mcp"),
-      botId: String(options.botId || ""),
-      sessionId: String(options.sessionId || ""),
-      signal: options.signal,
-      emit: options.emit,
-      toolName: toolLabel,
-      title: String(options.title || `MCP 请求使用 ${toolLabel}`),
-      description: String(options.description || ""),
-      preview,
-      input: args && typeof args === "object" ? args : {}
-    });
-    return {
-      allowed: String(decision?.decision || "").startsWith("allow"),
-      reason: decision?.message || "MCP 工具调用已被拒绝。"
-    };
-  }
-});
-const userMcpBridge = createMcpBridgeServer({
-  manager: userMcpManager,
-  secret: crypto.randomUUID(),
-  appendLog: appendEngineLog
-});
 const userMcpService = createMcpService({
-  runtimePaths,
-  manager: userMcpManager,
-  bridge: userMcpBridge,
-  nativeSync: (payload) => runNativeMcpCliSync({
-    ...payload,
-    cliPaths: { codex: "codex", claude: "claude" },
-    runCommand: execFileAsPromise,
-    appendLog: appendEngineLog
-  }),
-  nodePath: () => localAgentEngineService.shellCommandPath("node"),
-  stdioProxyScriptPath: () => path.join(__dirname, "main", "mcp", "mcp-stdio-proxy-server.js"),
-  oauthTokenStore: userMcpOAuthTokenStore,
-  oauthService: userMcpOAuthService,
-  managedSupervisor: createManagedConnectorSupervisor({
-    runtimePaths,
-    fs,
-    fetch,
-    testTools: (record) => userMcpManager.testServer(record)
-  })
+  coreRequest: forwardMiaCoreHttpRequest,
+  appendLog: appendEngineLog,
+  openExternal: openExternalUrl
 });
 const startupMcpInitializer = createStartupMcpInitializer({
   initializeMcp: () => userMcpService.initialize(),
@@ -1002,7 +1011,10 @@ function runtimeLifecycle() {
       appendDaemonLog,
       getRuntimeStatus,
       initializeRuntimeCore: runtimeInitializerService.initializeRuntimeCore,
-      isDaemonProcess: IS_DAEMON_PROCESS,
+      isDaemonProcess: IS_CORE_PROCESS,
+      prepareEngineRuntimeConfigAsync: () => prepareRuntimeConfig(readConfiguredPort()),
+      refreshAgentWorkspaceAsync: readAgentWorkspaceFromCore,
+      refreshMemorySettingsAsync: readMemorySettingsFromCore,
       refreshSystemHermesAsync: systemHermesService.refresh,
       setDaemonLastError: (message) => miaCoreControlServer?.setLastError(message),
       startDaemonService,
@@ -1020,11 +1032,13 @@ const startupBackgroundService = createStartupBackgroundService({
   appendDaemonLog,
   appendEngineLog,
   getRuntimeStatus,
-  isDaemonEnabled: () => settingsStore.daemonSettings().enabled,
+  isDaemonEnabled: () => settingsStore.coreSettings().enabled,
+  refreshAgentWorkspaceAsync: readAgentWorkspaceFromCore,
+  refreshMemorySettingsAsync: readMemorySettingsFromCore,
   refreshSystemHermesAsync: systemHermesService.refresh,
   setDaemonLastError: (message) => miaCoreControlServer?.setLastError(message),
   setEngineLastError: (message) => { engineState.lastError = message; },
-  shouldStartEngine: () => IS_DAEMON_PROCESS,
+  shouldStartEngine: () => IS_CORE_PROCESS,
   startDaemonService,
   startEngine
 });
@@ -1039,9 +1053,18 @@ async function getObservedDaemonStatus(timeoutMs = 500) {
 
 function getRuntimeStatus(created = [], options = {}) {
   const p = runtimePaths();
-  const codexAuth = authService.status();
-  const settings = settingsWithoutSecret();
-  const connectedProviders = connectedProviderSummaries(codexAuth);
+  const codexAuth = authService?.status?.() || { codexLoggedIn: false };
+  const settings = {};
+  const connectedProviders = codexAuth.codexLoggedIn
+    ? [{
+      provider: "openai-codex",
+      providerConnectionId: "openai-codex",
+      providerLabel: "OpenAI Codex",
+      authType: "oauth_external",
+      hasApiKey: true,
+      models: []
+    }]
+    : [];
   // Skip the synchronous local-agent scan while signed out: the login screen
   // never needs the agent inventory, and the scan's shell probes for missing
   // agents (hermes) would block the main process and beachball the
@@ -1087,17 +1110,18 @@ function getRuntimeStatus(created = [], options = {}) {
     auth: codexAuth,
     user: settingsStore.userProfile(),
     appearance: settingsStore.appearanceSettings(),
-    memory: settingsStore.memorySettings(),
+    memory: memorySettingsSnapshot(),
     agentInventory,
     agentEngines,
     permissions: settingsStore.permissionStatus(),
     effort: settingsStore.effortStatus(),
     model: {
-      provider: settings.provider,
-      model: settings.model,
-      apiKeyEnv: settings.apiKeyEnv,
-      baseUrl: settings.baseUrl,
-      apiMode: settings.apiMode,
+      provider: settings.provider || "",
+      providerConnectionId: settings.providerConnectionId || settings.provider || "",
+      providerLabel: settings.providerLabel || settings.provider || "",
+      authType: settings.authType || (settings.provider === "openai-codex" ? "oauth_external" : "api_key"),
+      model: settings.model || "",
+      modelProfileId: settings.modelProfileId || (settings.provider && settings.model ? `${settings.provider}:${settings.model}` : settings.provider || ""),
       hasApiKey: connectedProviders.some((entry) => entry.provider === settings.provider && entry.hasApiKey)
     },
     connectedProviders,
@@ -1107,15 +1131,29 @@ function getRuntimeStatus(created = [], options = {}) {
   };
 }
 
-function settingsWithoutSecret() {
-  const settings = modelSettings();
-  return {
-    provider: settings.provider || "",
-    model: settings.model || "",
-    apiKeyEnv: settings.apiKeyEnv || "OPENAI_API_KEY",
-    baseUrl: settings.baseUrl || "",
-    apiMode: settings.apiMode || ""
-  };
+async function runtimeStatusWithCoreModelProviders(status = getRuntimeStatus()) {
+  return runtimeStatusCoreSnapshot.apply(status);
+}
+
+async function saveProviderConnection(connection = {}) {
+  const provider = String(connection.provider || connection.kind || "").trim();
+  if (!provider) return { ok: false };
+  const providerLabel = String(connection.providerLabel || connection.provider_label || connection.label || provider).trim() || provider;
+  const authType = String(connection.authType || connection.auth_type || "oauth_external").trim() || "oauth_external";
+  return forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/settings/model-selection",
+    body: {
+      selection: {
+        provider,
+        providerConnectionId: String(connection.providerConnectionId || connection.provider_connection_id || provider).trim() || provider,
+        providerLabel,
+        authType,
+        model: String(connection.model || "").trim(),
+        modelProfileId: String(connection.modelProfileId || connection.model_profile_id || provider).trim() || provider
+      }
+    }
+  });
 }
 
 function isChildPath(parentPath, targetPath) {
@@ -1135,404 +1173,86 @@ function appendEngineLog(line) {
   if (engineState.logs.length > 200) engineState.logs = engineState.logs.slice(-200);
 }
 
-function runPythonScript(args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(engineInstallService.enginePython(), args, {
-      cwd: options.cwd,
-      env: options.env,
-      stdio: ["ignore", "pipe", "pipe"],
-      ...(process.platform === "win32" ? { windowsHide: true } : {})
-    });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const timer = options.timeout
-      ? setTimeout(() => {
-        if (settled) return;
-        child.kill("SIGTERM");
-        settled = true;
-        resolve({ status: 124, stdout, stderr: stderr || `Timed out after ${options.timeout}ms` });
-      }, options.timeout)
-      : null;
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", (error) => {
-      if (timer) clearTimeout(timer);
-      if (settled) return;
-      settled = true;
-      reject(error);
-    });
-    child.on("exit", (code, signal) => {
-      if (timer) clearTimeout(timer);
-      if (settled) return;
-      settled = true;
-      resolve({ status: code ?? (signal ? 128 : 0), signal, stdout, stderr });
-    });
-  });
-}
-
-function timeEngineStep(label, fn) {
-  const start = Date.now();
-  try {
-    const result = fn();
-    appendEngineLog(`${label}: ${Date.now() - start}ms`);
-    return result;
-  } catch (error) {
-    appendEngineLog(`${label}: failed after ${Date.now() - start}ms (${error.message})`);
-    throw error;
-  }
-}
-
-async function timeEngineStepAsync(label, fn) {
-  const start = Date.now();
-  try {
-    const result = await fn();
-    appendEngineLog(`${label}: ${Date.now() - start}ms`);
-    return result;
-  } catch (error) {
-    appendEngineLog(`${label}: failed after ${Date.now() - start}ms (${error.message})`);
-    throw error;
-  }
-}
-
 function appendDaemonLog(line) {
   miaCoreControlServer.appendLog(line);
-}
-
-function normalizeRemoteUserMessage(input) {
-  const message = input && typeof input === "object" ? input : { content: input };
-  return {
-    role: "user",
-    content: String(message.content || message.text || "").trim(),
-    attachments: normalizeAttachments(message.attachments),
-    createdAt: message.createdAt || new Date().toISOString()
-  };
-}
-
-function resolveRemoteChatBot({ botKey, botSnapshot = null, runtimeConfig = null }) {
-  initializeRuntime();
-  const snapshotBot = miaCoreRuntime.cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
-  if (snapshotBot) return { bot: snapshotBot };
-  const manifest = loadBotManifest();
-  const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
-  const key = String(botKey || manifest.default_bot || bots[0]?.key || "").trim();
-  const bot = bots.find((item) => item.key === key) || bots[0] || null;
-  return { bot };
-}
-
-function collectChatTraceEnvelope(trace, envelope = {}) {
-  if (!trace || !envelope || typeof envelope !== "object") return;
-  const { kind, data } = envelope;
-  switch (kind) {
-    case "reasoning_delta":
-      trace.reasoning += String(data?.text || "");
-      if (trace.reasoning && !trace.reasoning.endsWith("\n")) trace.reasoning += "\n";
-      break;
-    case "tool_call_started": {
-      const tool = {
-        id: String(data?.id || `tool_${trace.tools.length}`),
-        name: String(data?.name || "工具"),
-        preview: String(data?.preview || ""),
-        status: "running",
-        duration: null,
-        error: false
-      };
-      trace.tools.push(tool);
-      trace.toolsById.set(tool.id, tool);
-      const queue = trace.toolsByName.get(tool.name) || [];
-      queue.push(tool);
-      trace.toolsByName.set(tool.name, queue);
-      break;
-    }
-    case "tool_call_delta": {
-      const id = String(data?.id || "");
-      const name = String(data?.name || "");
-      let tool = id ? trace.toolsById.get(id) : null;
-      if (!tool && name) {
-        const queue = trace.toolsByName.get(name);
-        tool = queue && queue.find((item) => item.status === "running");
-      }
-      if (tool) tool.preview = String(data?.preview || tool.preview || "");
-      break;
-    }
-    case "tool_call_completed": {
-      const id = String(data?.id || "");
-      const name = String(data?.name || "");
-      let tool = id ? trace.toolsById.get(id) : null;
-      if (!tool && name) {
-        const queue = trace.toolsByName.get(name);
-        tool = queue && queue.find((item) => item.status === "running");
-      }
-      if (tool) {
-        tool.status = data?.error ? "error" : "completed";
-        tool.duration = typeof data?.duration === "number" ? data.duration : null;
-        tool.error = Boolean(data?.error);
-        if (data?.preview) tool.preview = String(data.preview);
-      }
-      break;
-    }
-    default:
-      break;
+  if (coreStartMode() === "process") {
+    console.info(`[Mia:core] ${line}`);
   }
 }
 
-async function runRemoteChatRequest(body, eventSink = null) {
-  const explicitMessages = Array.isArray(body?.messages) ? body.messages : [];
-  const lastExplicitUser = [...explicitMessages].reverse().find((message) => message?.role === "user");
-  const userMessage = normalizeRemoteUserMessage(lastExplicitUser || { content: body?.text, attachments: body?.attachments });
-  if (!userMessage.content && !userMessage.attachments.length) {
-    throw new Error("text or a user message is required.");
-  }
-
-  const runtimeConfig = body?.runtimeConfig || body?.runtime_config || null;
-  const { bot } = resolveRemoteChatBot({
-    botKey: body?.botKey || body?.botId,
-    botSnapshot: body?.botSnapshot || body?.bot || null,
-    runtimeConfig
-  });
-  if (!bot) throw new Error("Bot not found.");
-  const conversationId = String(body?.conversationId || body?.sessionId || "").trim();
-  const agentSessionId = String(body?.agentSessionId || conversationId || `remote:${crypto.randomUUID()}`);
-  const now = new Date().toISOString();
-  const runMessages = explicitMessages.length
-    ? explicitMessages
-    : [userMessage].map((message) => ({
-      role: message.role,
-      content: message.content,
-      attachments: normalizeAttachments(message.attachments)
-    }));
-  const trace = {
-    reasoning: "",
-    tools: [],
-    toolsById: new Map(),
-    toolsByName: new Map()
-  };
-  const tracedEventSink = eventSink ? {
-    isDestroyed: () => Boolean(eventSink.isDestroyed?.()),
-    send: (channel, envelope) => {
-      collectChatTraceEnvelope(trace, envelope);
-      eventSink.send(channel, envelope);
-    }
-  } : null;
-
-  const response = await sendChat({
-    botKey: bot.key,
-    botSnapshot: bot,
-    sessionId: agentSessionId,
-    messages: runMessages,
-    webContents: tracedEventSink,
-    background: Boolean(body?.background),
-    // A fired scheduled task carries meta.taskId. Switch the agent into
-    // execution mode for this turn so the replayed task prompt is run, not
-    // re-interpreted as a fresh "create a task" request.
-    scheduledFire: Boolean(body?.meta?.taskId),
-    persistAgentSession: true,
-    runtimeConfig
-  });
-  const responseMessage = response?.choices?.[0]?.message || {};
-  const assistantText = responseMessageContent(response);
-  const assistantAttachments = normalizeAttachments(responseMessage.attachments);
-  const userMessageId = "msg-" + crypto.randomBytes(6).toString("hex");
-  const assistantMessageId = "msg-" + crypto.randomBytes(6).toString("hex");
-  const savedUser = {
-    id: userMessageId,
-    role: "user",
-    content: String(body?.displayText || "").trim() || userMessage.content || "请查看附件。",
-    createdAt: userMessage.createdAt || now
-  };
-  if (userMessage.attachments.length) savedUser.attachments = userMessage.attachments;
-  if (body?.meta) savedUser.meta = { ...body.meta, fired: true };
-  const savedAssistant = {
-    id: assistantMessageId,
-    role: "assistant",
-    content: assistantText,
-    createdAt: new Date().toISOString()
-  };
-  if (assistantAttachments.length) savedAssistant.attachments = assistantAttachments;
-  if (body?.meta) savedAssistant.meta = body.meta;
-  const reasoning = String(trace.reasoning || "").trim();
-  if (reasoning) savedAssistant.reasoning = reasoning;
-  if (trace.tools.length) {
-    savedAssistant.tools = trace.tools.map((tool) => ({
-      id: String(tool.id || ""),
-      name: String(tool.name || ""),
-      preview: String(tool.preview || ""),
-      status: tool.status || "completed",
-      duration: typeof tool.duration === "number" ? tool.duration : null,
-      error: Boolean(tool.error)
-    }));
-  }
-  const assistantTracePayload = {
-    ...(savedAssistant.reasoning ? { reasoning: savedAssistant.reasoning } : {}),
-    ...(Array.isArray(savedAssistant.tools) && savedAssistant.tools.length ? { tools: savedAssistant.tools } : {})
-  };
-  const responseConversation = {
-    id: agentSessionId,
-    conversationId,
-    botId: bot.key,
-    messages: body?.suppressUserMessage ? [savedAssistant] : [savedUser, savedAssistant],
-    updatedAt: savedAssistant.createdAt
-  };
-  // When signed into Mia Cloud, the conversation the user sees is a per-bot
-  // cloud conversation. A scheduled task runs locally, so post its reply as the bot
-  // through the existing conversation message delivery path so it shows up and notifies in
-  // the message list (and syncs to web / other devices). Only for background
-  // (task) runs; foreground and web chats already reach the conversation themselves.
-  let deliveredAssistantMessageId = assistantMessageId;
-  if (body?.background && assistantText.trim()) {
-    const cloud = settingsStore.cloudSettings();
-    const fallbackConversationId = cloud?.user?.id ? botConversationId(`${cloud.user.id}_${bot.key}`) : "";
-    const delivery = await deliverTaskReplyToConversation({
-      socialApi,
-      settingsStore,
-      bot,
-      conversationId,
-      fallbackConversationId,
-      assistantText,
-      assistantTracePayload,
-      taskRunId: body?.meta?.taskRunId || agentSessionId,
-      fallbackMessageId: assistantMessageId
-    });
-    deliveredAssistantMessageId = delivery.messageId || assistantMessageId;
-    savedAssistant.id = deliveredAssistantMessageId;
-  }
-  return { bot, session: responseConversation, response, userMessageId, assistantMessageId: deliveredAssistantMessageId };
+function coreStartMode() {
+  return String(process.env.MIA_CORE_START_MODE || "").trim().toLowerCase();
 }
 
-let tasksStore = null;
-let tasksEvents = null;
-let scheduler = null;
-let tasksRoutes = null;
-
-function initSchedulerSubsystem() {
-  if (tasksStore) return; // idempotent
-  const p = runtimePaths();
-  tasksStore = createTasksStore(p.tasks);
-  tasksEvents = createTasksEventBus();
-  const fireRunner = createFireRunner({
-    store: tasksStore,
-    runRemoteChatRequest,
-    deliverTaskMessage: async ({ task, runId, conversationId, text }) => {
-      const { bot } = resolveRemoteChatBot({ botKey: task.botId });
-      if (!bot) throw new Error("Bot not found.");
-      const cloud = settingsStore.cloudSettings();
-      const fallbackConversationId = cloud?.user?.id ? botConversationId(`${cloud.user.id}_${bot.key}`) : "";
-      return deliverTaskReplyToConversation({
-        socialApi,
-        settingsStore,
-        bot,
-        conversationId,
-        fallbackConversationId,
-        assistantText: text,
-        assistantTracePayload: {},
-        taskRunId: runId,
-        fallbackMessageId: `task_${task.id}_${runId}`
-      });
-    },
-    emit: (type, payload) => tasksEvents.emit(type, payload)
-  });
-  scheduler = createScheduler({
-    store: tasksStore,
-    onFire: (task) => fireRunner.fire(task)
-  });
-  tasksRoutes = createTasksRoutes({
-    store: tasksStore,
-    events: tasksEvents,
-    runNow: async (id) => {
-      const task = tasksStore.get(id);
-      if (!task) throw new Error("task not found");
-      const run = await fireRunner.fire(task);
-      return { runId: run.id };
-    },
-    onChange: () => scheduler.rescan()
-  });
-  if (IS_DAEMON_PROCESS) {
-    sweepExpiredOneshotTasks(tasksStore);
-    sweepMissedCronTasks(tasksStore, Date.now(), (type, payload) => tasksEvents.emit(type, payload));
-    scheduler.start();
-    appendDaemonLog("Scheduler started");
-  }
-}
-
-// Per spec §9: oneshot tasks whose 'at' has passed while daemon was down
-// transition to status="failed" with a recorded run noting "daemon offline".
-function sweepExpiredOneshotTasks(store) {
-  const now = Date.now();
-  for (const task of store.list()) {
-    if (task.status !== "active") continue;
-    if (task.trigger.type !== "oneshot") continue;
-    const at = new Date(task.trigger.at).getTime();
-    if (Number.isNaN(at) || at > now) continue;
-    store.recordRun(task.id, {
-      firedAt: at,
-      finishedAt: now,
-      status: "failed",
-      error: "missed: daemon offline at scheduled time"
-    });
-    store.update(task.id, { status: "failed" });
-  }
+function shouldUseLaunchdForCore() {
+  return process.platform === "darwin" && !process.defaultApp && coreStartMode() !== "process";
 }
 
 async function startDaemonService() {
-  if (!IS_DAEMON_PROCESS && process.env.MIA_DISABLE_BACKGROUND_STARTUP === "1") {
+  if (!IS_CORE_PROCESS && process.env.MIA_DISABLE_BACKGROUND_STARTUP === "1") {
     return { ...getDaemonStatus(), running: false, disabled: true };
   }
   initializeRuntime();
-  const settings = settingsStore.daemonSettings();
-  if (IS_DAEMON_PROCESS) return miaCoreControlServer.start(settings);
+  const settings = settingsStore.coreSettings();
+  if (IS_CORE_PROCESS) return miaCoreControlServer.start(settings);
+  await launchdService.cleanupLegacyNodeCore();
   const expectedRuntimeHome = runtimePaths().home;
-  const expectedDaemonTarget = miaCoreResolver.describe();
+  const expectedCoreTarget = miaCoreResolver.describe();
   const existing = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
+  let existingReusable = false;
   if (existing.ok && existing.mode === "daemon") {
     // A KeepAlive launchd daemon survives app updates, so the freshly-updated
     // window can find an old-version daemon still owning cloud events + bot
     // execution. Reuse it only when versions match AND it is NOT running under
-    // the GUI app identity (an old `Electron --daemon` is migrated to node-core,
-    // not kept). Otherwise fall through to launchdService.startDaemon() below,
-    // which rewrites the plist and bootout+bootstraps a daemon running this
-    // app's code as the node Core.
-    if (shouldReuseCore(existing, app.getVersion(), { expectedDaemonTarget })) {
+    // the GUI app identity. Otherwise fall through to launchdService.startCore()
+    // below, which rewrites the plist and bootout+bootstraps Mia Rust Core.
+    existingReusable = shouldReuseCore(existing, app.getVersion(), { expectedCoreTarget });
+    if (existingReusable) {
+      appendDaemonLog(`Reusing Mia Rust Core at ${existing.baseUrl}.`);
       return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
     }
     if (coreNeedsReplacement(existing, app.getVersion())) {
       appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
     } else if (existing.daemonTarget?.usesGuiAppIdentity === true || !existing.daemonTarget) {
-      appendDaemonLog(`Daemon target ${existing.daemonTarget?.kind || "(unknown)"} uses GUI app identity or is unreported; migrating to node-core.`);
+      appendDaemonLog(`Core target ${existing.daemonTarget?.kind || "(unknown)"} uses GUI app identity or is unreported; migrating to rust-core.`);
     } else {
-      appendDaemonLog(`Daemon target ${existing.daemonTarget?.workingDirectory || existing.daemonTarget?.command || "(unknown)"} != expected ${expectedDaemonTarget.workingDirectory || expectedDaemonTarget.command || "(unknown)"}; replacing.`);
+      appendDaemonLog(`Daemon target ${existing.daemonTarget?.workingDirectory || existing.daemonTarget?.command || "(unknown)"} != expected ${expectedCoreTarget.workingDirectory || expectedCoreTarget.command || "(unknown)"}; replacing.`);
     }
   } else if (existing.ok) {
     appendDaemonLog(`Ignoring ${existing.mode || "unknown"} process on daemon port; a real daemon process is required.`);
   }
-  // Fail closed: node-core is the sole daemon target. On a degenerate packaged
-  // build that cannot resolve the bundled node Core the resolver returns
-  // `unresolved` and this throws, rather than launching the GUI app as the daemon
-  // (the deleted legacy-gui path). node-core / bundled-cli (non-darwin) pass.
+  // Fail closed: rust-core is the sole background Core target. On a degenerate
+  // packaged build that cannot resolve the bundled Rust Core the resolver returns
+  // `unresolved` and this throws, rather than launching the GUI app as Core.
   miaCoreResolver.assertLaunchable();
-  if (process.platform === "darwin") {
-    await launchdService.startDaemon();
+  if (!existingReusable && existing.ok && existing.mode === "daemon" && !shouldUseLaunchdForCore()) {
+    await miaCoreProcessLauncher.stopObservedProcess(existing.pid);
+  }
+  if (shouldUseLaunchdForCore()) {
+    await launchdService.startCore();
     for (let i = 0; i < 20; i += 1) {
       const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
-      // Only accept once the *replacement* node-core daemon answers: during
+      // Only accept once the *replacement* rust-core process answers: during
       // bootout/kickstart the old daemon can still briefly hold the port, so
       // require shouldReuseCore (version match + non-GUI target) or the stale
       // GUI-identity one would be accepted and replaced again next launch.
-      if (shouldReuseCore(ping, app.getVersion(), { expectedDaemonTarget })) {
+      if (shouldReuseCore(ping, app.getVersion(), { expectedCoreTarget })) {
+        appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
         return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
       }
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
     throw new Error("Timed out waiting for Mia daemon LaunchAgent.");
   }
+  if (process.platform === "darwin") {
+    appendDaemonLog("MIA_CORE_START_MODE=process: starting Mia Rust Core as a child process for development verification.");
+  }
   miaCoreControlServer.stop();
   await miaCoreProcessLauncher.start();
   for (let i = 0; i < 20; i += 1) {
     const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
-    if (shouldReuseCore(ping, app.getVersion(), { expectedDaemonTarget })) {
+    if (shouldReuseCore(ping, app.getVersion(), { expectedCoreTarget })) {
+      appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
       return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1541,8 +1261,9 @@ async function startDaemonService() {
 }
 
 async function stopDaemonService() {
-  if (process.platform === "darwin" && !IS_DAEMON_PROCESS) {
-    await launchdService.stopDaemon();
+  await launchdService.cleanupLegacyNodeCore();
+  if (shouldUseLaunchdForCore() && !IS_CORE_PROCESS) {
+    await launchdService.stopCore();
   }
   return miaCoreControlServer.stop();
 }
@@ -1560,16 +1281,32 @@ function daemonLocalEventsConnected() {
   return Boolean(localEventsRuntime?.status?.().connected);
 }
 
-function daemonUnavailableError() {
-  const error = new Error("Mia Core 未运行，Mia 暂不可用。");
+function daemonUnavailableError(message = "Mia Core 未运行，Mia 暂不可用。") {
+  const error = new Error(message);
   error.status = 503;
   return error;
 }
 
 function requireDaemonRuntimeAvailable() {
-  if (IS_DAEMON_PROCESS) return;
+  if (IS_CORE_PROCESS) return;
   if (daemonLocalEventsConnected()) return;
   throw daemonUnavailableError();
+}
+
+async function waitForDaemonRuntimeEventsConnection(timeoutMs = 2500) {
+  if (IS_CORE_PROCESS) return true;
+  if (daemonLocalEventsConnected()) return true;
+  try {
+    localEventsRuntime?.start?.();
+  } catch {
+    // The request can still return a final response if the event bridge stays down.
+  }
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (daemonLocalEventsConnected()) return true;
+  }
+  return daemonLocalEventsConnected();
 }
 
 function daemonReportedEventsStatus() {
@@ -1580,17 +1317,9 @@ function daemonReportedBridgeStatus() {
   return daemonCloudRuntimeStatus?.bridge || null;
 }
 
-function daemonOwnsCloudEvents() {
-  if (IS_DAEMON_PROCESS) return Boolean(settingsStore?.daemonSettings?.().enabled);
-  if (!settingsStore?.daemonSettings?.().enabled) return false;
-  if (!daemonLocalEventsConnected()) return false;
-  const upstream = daemonReportedEventsStatus();
-  return upstream?.connected !== false;
-}
-
 function daemonOwnsCloudBridge() {
-  if (IS_DAEMON_PROCESS) return Boolean(settingsStore?.daemonSettings?.().enabled);
-  if (!settingsStore?.daemonSettings?.().enabled) return false;
+  if (IS_CORE_PROCESS) return Boolean(settingsStore?.coreSettings?.().enabled);
+  if (!settingsStore?.coreSettings?.().enabled) return false;
   if (!daemonLocalEventsConnected()) return false;
   const bridge = daemonReportedBridgeStatus();
   return bridge?.connected === true;
@@ -1608,7 +1337,7 @@ function cloudEventsStatus() {
   // ADR P2: the daemon hosts /api/events. The window's event health is its
   // local-channel subscription combined with the upstream state the daemon last
   // reported — a live local channel with a dead cloud socket is not "OK".
-  if (!IS_DAEMON_PROCESS) {
+  if (!IS_CORE_PROCESS) {
     const localConnected = daemonLocalEventsConnected();
     const upstream = daemonReportedEventsStatus();
     const upstreamDown = upstream?.connected === false;
@@ -1624,7 +1353,7 @@ function cloudEventsStatus() {
 }
 
 function cloudStatus(includeToken = false) {
-  if (!IS_DAEMON_PROCESS) {
+  if (!IS_CORE_PROCESS) {
     const settings = settingsStore.cloudSettings();
     const localConnected = daemonLocalEventsConnected();
     const bridge = daemonReportedBridgeStatus();
@@ -1687,22 +1416,6 @@ function cloudSettingsGet() {
 
 function cloudSettingsPut(settings = {}) {
   return cloudDesktopSync().putUserSettings(settings);
-}
-
-let cloudMemorySyncTimer = null;
-function scheduleCloudMemorySync(reason = "memory") {
-  if (cloudMemorySyncTimer) clearTimeout(cloudMemorySyncTimer);
-  cloudMemorySyncTimer = setTimeout(() => {
-    cloudMemorySyncTimer = null;
-    try {
-      cloudDesktopSync().syncMemories().catch((error) => {
-        appendCloudLog(`Cloud memory sync failed (${reason}): ${error?.message || error}`);
-      });
-    } catch (error) {
-      appendCloudLog(`Cloud memory sync unavailable (${reason}): ${error?.message || error}`);
-    }
-  }, 1000);
-  if (cloudMemorySyncTimer && typeof cloudMemorySyncTimer.unref === "function") cloudMemorySyncTimer.unref();
 }
 
 async function fetchCloudModelBalance() {
@@ -2008,18 +1721,6 @@ async function installDesktopMarketSkill(skillId) {
   return { skill: mergedSkill, library };
 }
 
-function cloudWebSocketUrl(pathname, settings = settingsStore.cloudSettings()) {
-  return buildCloudWebSocketUrl(pathname, settings);
-}
-
-function cloudWebSocketProtocols(settings = settingsStore.cloudSettings()) {
-  return buildCloudWebSocketProtocols(settings);
-}
-
-function cloudEventsUrl(settings = settingsStore.cloudSettings()) {
-  return buildCloudEventsUrl(settings);
-}
-
 function bridgeEngineIdsFromView(engines = {}) {
   const ids = [];
   if (engines.hermes?.available || engines.hermes?.installed) ids.push("hermes");
@@ -2031,7 +1732,7 @@ function bridgeEngineIdsFromView(engines = {}) {
 function localBridgeEngineIds() {
   let engines = localAgentEngineService?.cachedLocalAgentEngines?.() || {};
   let ids = bridgeEngineIdsFromView(engines);
-  if (IS_DAEMON_PROCESS && !ids.length && typeof localAgentEngineService?.localAgentEngines === "function") {
+  if (IS_CORE_PROCESS && !ids.length && typeof localAgentEngineService?.localAgentEngines === "function") {
     try {
       engines = localAgentEngineService.localAgentEngines();
       ids = bridgeEngineIdsFromView(engines);
@@ -2044,29 +1745,29 @@ function localBridgeEngineIds() {
   return ids;
 }
 
-function cloudBridgeUrl(settings = settingsStore.cloudSettings()) {
-  const url = cloudWebSocketUrl("/api/bridge", settings);
+function cloudBridgeStartPayload() {
   const bridgeEngineIds = localBridgeEngineIds();
   const deviceIdentity = localDeviceIdentity();
-  url.searchParams.set("deviceId", localDeviceId());
-  url.searchParams.set("deviceName", localDeviceName());
-  url.searchParams.set("engine", bridgeEngineIds[0] || "mia-desktop");
-  url.searchParams.set("capabilities", JSON.stringify({
-    chat: true,
-    attachments: true,
-    generatedImages: true,
-    cancellation: true,
-    streaming: true,
-    engines: bridgeEngineIds,
-    app: "Mia Desktop",
-    appVersion: app.getVersion(),
-    hostname: os.hostname(),
-    platform: os.platform(),
-    arch: os.arch(),
-    deviceFingerprint: localDeviceFingerprint(),
-    deviceCreatedAt: deviceIdentity.createdAt || ""
-  }));
-  return url.toString();
+  return {
+    deviceId: localDeviceId(),
+    deviceName: localDeviceName(),
+    engine: bridgeEngineIds[0] || "mia-desktop",
+    capabilities: {
+      chat: true,
+      attachments: true,
+      generatedImages: true,
+      cancellation: true,
+      streaming: true,
+      engines: bridgeEngineIds,
+      app: "Mia Desktop",
+      appVersion: app.getVersion(),
+      hostname: os.hostname(),
+      platform: os.platform(),
+      arch: os.arch(),
+      deviceFingerprint: localDeviceFingerprint(),
+      deviceCreatedAt: deviceIdentity.createdAt || ""
+    }
+  };
 }
 
 function startCloudEvents() {
@@ -2108,34 +1809,21 @@ async function startEngine() {
   const port = await engineHealthService.choosePort();
   if (!port) throw new Error("No available local port for Mia Hermes API.");
 
-  writeRuntimeConfig(port);
-  const settings = modelSettings();
+  const runtimeConfig = await prepareRuntimeConfig(port);
   const dotenv = systemHermesService.loadDotenv();
-  const modelRuntimeEnv = typeof engineRuntimeConfigService.modelRuntimeEnv === "function"
-    ? engineRuntimeConfigService.modelRuntimeEnv()
-    : {};
+  const hermesApiServerKey = String(runtimeConfig?.apiServerKey || apiServerKey() || "").trim();
   const env = {
     ...process.env,
     ...dotenv,
-    ...modelRuntimeEnv,
     HERMES_HOME: effectiveHermesHome(),
     MIA_HOME: p.home,
     HERMES_ACCEPT_HOOKS: "1",
     API_SERVER_ENABLED: "true",
     API_SERVER_HOST: "127.0.0.1",
     API_SERVER_PORT: String(port),
-    API_SERVER_KEY: apiKey(),
+    API_SERVER_KEY: hermesApiServerKey,
     PYTHONPATH: buildPythonPath()
   };
-  if (settings.apiKey && settings.apiKeyEnv) {
-    env[settings.apiKeyEnv] = settings.apiKey;
-  }
-  for (const connection of Object.values(providerConnectionStore().providers)) {
-    if (connection.apiKey && connection.apiKeyEnv) {
-      env[connection.apiKeyEnv] = connection.apiKey;
-    }
-  }
-
   engineState = {
     ...engineState,
     running: false,
@@ -2203,72 +1891,53 @@ async function uninstallStandaloneEngine() {
   return getRuntimeStatus();
 }
 
-function writeModelSettings(next) {
-  const p = runtimePaths();
-  fs.writeFileSync(p.modelSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-  writeRuntimeConfig(engineState.port || 8642);
-}
-
-function applyCodexModelSettings() {
-  const current = modelSettings();
-  saveProviderConnection({
-    provider: "openai-codex",
-    providerLabel: "OpenAI Codex",
-    authType: "oauth_external",
-    apiKeyEnv: "",
-    apiKey: "",
-    baseUrl: "",
-    apiMode: "codex_responses"
+async function applyCodexModelSettings() {
+  let current = {};
+  let codexModels = {};
+  try {
+    current = compactModelFromClientSettings(await forwardMiaCoreHttpRequest({
+      method: "GET",
+      route: "/api/settings/client"
+    }));
+  } catch {
+    current = {};
+  }
+  try {
+    codexModels = await forwardMiaCoreHttpRequest({
+      method: "GET",
+      route: "/api/engines/codex/models"
+    });
+  } catch {
+    codexModels = {};
+  }
+  const selection = resolveCodexModelSelection(current, codexModels);
+  await forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/settings/model-selection",
+    body: {
+      selection
+    }
   });
-  writeModelSettings({
-    provider: "openai-codex",
-    model: current.provider === "openai-codex" && current.model ? current.model : "gpt-5.3-codex",
-    apiKeyEnv: "",
-    apiKey: "",
-    baseUrl: "",
-    apiMode: "codex_responses"
+}
+
+function runConversationUtilityTurn(payload = {}) {
+  return forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/conversations/utility-turns",
+    body: payload && typeof payload === "object" ? payload : {}
   });
 }
 
-function resolveMiaManagedModelSettings(settings = {}) {
-  return miaCoreModelRuntimeResolver.resolveMiaManagedModelSettings(settings);
-}
-
-function resolveModelRuntime(config = {}, context = {}) {
-  return miaCoreModelRuntimeResolver.resolveModelRuntime(config, context);
-}
-
-function resolveManagedModelRuntime(config = {}, context = {}) {
-  const runtime = resolveModelRuntime(config, context);
-  return isMiaManagedRuntime(runtime) ? runtime : null;
-}
-const claudeCodeMiaProxy = createClaudeCodeMiaProxy({
-  appendLog: (line) => appendCloudLog(line)
-});
-const codexMiaProxy = createCodexMiaProxy({
-  appendLog: (line) => appendCloudLog(line)
-});
-const skillRuntimeOwner = createSkillRuntimeOwner({
+const skillRuntimeAdapter = createAgentSessionSkillRuntimeAdapter({
   listSkillRecordsForBot: (bot) => skillsLoader.skillRecordsForBot(bot),
   resolveSkillRecord: (skillId) => skillsLoader.resolveLocalSkillRecord(skillId),
-  buildActiveSkillsDirective: (activeSkillIds) => skillsLoader.buildActiveSkillsDirective(activeSkillIds),
-  materializePromptFallback: ({ bot, activeSkillIds, intentSkillIds, requestedSkillIds, mode = "index" }) =>
-    skillsLoader.resolveSkillMaterialization({
-      bot,
-      activeSkillIds,
-      intentSkillIds,
-      requestedSkillIds,
-      mode
-    })
+  resolveSkillRuntimeWithCore: async (request) => {
+    const client = createMiaCoreHttpClient({ baseUrl: currentMiaCoreBaseUrl(), fetch });
+    return client.post("/api/conversations/agent-session-skill-runtime", request);
+  }
 });
 const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
-  skillRuntimeOwner,
-  resolveModelRuntime,
-  resolveManagedModelRuntime,
-  claudeCodeMiaProxy,
-  codexMiaProxy,
-  hermesHomePath: () => runtimePaths().hermesHome,
-  miaHomePath: () => runtimePaths().home,
+  skillRuntimeAdapter,
   getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
   getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
   getUserMcpServers: (engineId, options) => userMcpService.getEngineSpecs(engineId, options),
@@ -2285,169 +1954,59 @@ async function restartEngineIfRunning() {
   return startEngine();
 }
 
-function createActiveStatelessChatEngineAdapters() {
-  const claudeAdapter = createActiveClaudeCodeStatelessAdapter();
-  const codexAdapter = createActiveCodexStatelessAdapter();
-  return createStatelessChatEngineAdapters({
-    sendClaudeCodeStateless: claudeAdapter.sendStateless,
-    sendCodexStateless: codexAdapter.sendStateless
-  });
-}
-
-async function sendChatStateless({ botKey, botSnapshot = null, runtimeConfig = null, systemPrompt, userPrompt, signal }) {
-  const snapshotBot = miaCoreRuntime.cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
-  let bot = snapshotBot;
-  if (!bot) {
-    const manifest = loadBotManifest();
-    ({ bot } = requireBot(manifest, botKey, "还没有可用的 bot，请先在引导里创建一个再发起对话。"));
+async function readAgentWorkspaceFromCore() {
+  try {
+    const snapshot = await forwardMiaCoreHttpRequest({
+      method: "GET",
+      route: "/api/agent-workspace"
+    });
+    return rememberAgentWorkspaceSnapshot(snapshot);
+  } catch (error) {
+    appendEngineLog(`Mia Rust Core agent workspace read fallback: ${error?.message || error}`);
+    return agentWorkspaceSnapshot();
   }
-  const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
-  const chatEngine = resolveChatEngineAdapter(bot);
-  return sendWithStatelessChatEngineAdapter(createActiveStatelessChatEngineAdapters(), {
-    chatEngine,
-    bot: miaCoreRuntime.botWithRuntimeConfig(bot, normalizeTurnRuntimeConfig(runtimeConfig), { agentEngine: runtimeAgentEngine }),
-    systemPrompt,
-    userPrompt,
-    runtimeConfig: normalizeTurnRuntimeConfig(runtimeConfig),
-    signal
-  });
-}
-
-async function ensureHermesChatEngineReady() {
-  const wasMarkedRunning = Boolean(engineState.running && engineState.baseUrl);
-  const stillHealthy = await engineHealthService.refreshRunningEngineHealth();
-  if (wasMarkedRunning && !stillHealthy && engineProcess) {
-    try { engineProcess.kill("SIGTERM"); } catch { /* stale process may already be gone */ }
-    engineProcess = null;
-    appendEngineLog("Hermes API became unreachable; restarting through Mia Core.");
-  }
-  if (!engineState.running || !engineState.baseUrl) {
-    await startEngine();
-  }
-}
-
-function createActiveClaudeCodeStatelessAdapter() {
-  return createClaudeCodeStatelessAdapter({
-    appendEngineLog,
-    cwd: agentWorkspaceDir,
-    claudeAgentSdk,
-    processEnvStrings,
-    shellCommandPath: localAgentEngineService.shellCommandPath
-  });
-}
-
-function createActiveCodexStatelessAdapter() {
-  return createCodexStatelessAdapter({
-    cwd: agentWorkspaceDir,
-    appendEngineLog,
-    ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
-    normalizeEffortLevel: settingsStore.normalizeEffortLevel,
-    processEnvStrings,
-    runCodexAppServerTurn,
-    agentRuntimeEnv: localAgentEngineService.agentRuntimeEnv,
-    codexMiaProxy,
-    resolveManagedModelRuntime,
-    resolveAgentRuntime: localAgentEngineService.resolveAgentRuntime,
-    shellCommandPath: localAgentEngineService.shellCommandPath
-  });
-}
-
-function createActiveChatEngineAdapters() {
-  return createChatEngineAdapters({
-    chatCompletionResponse,
-    ensureHermesReady: ensureHermesChatEngineReady,
-    runExternalSlashCommand: (input) => externalAgentCommandService.runSlashCommand(input),
-    runHermesSlashCommand: hermesSlashCommandService.run
-  });
-}
-
-async function createAppScheduledTask(input) {
-  const result = await miaCoreTasksClient.call("/api/tasks", {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
-  return result.task;
-}
-
-function readAgentWorkspaceFromCore() {
-  requireDaemonRuntimeAvailable();
-  return miaCoreTasksClient.call("/api/agent-workspace", { method: "GET" });
 }
 
 async function writeAgentWorkspaceToCore(workspacePath) {
-  requireDaemonRuntimeAvailable();
-  const result = await miaCoreTasksClient.call("/api/agent-workspace", {
+  const snapshot = await forwardMiaCoreHttpRequest({
     method: "POST",
-    body: JSON.stringify({ path: workspacePath })
+    route: "/api/agent-workspace",
+    body: { path: workspacePath }
   });
+  rememberAgentWorkspaceSnapshot(snapshot);
   localAgentEngineService?.resetCache?.();
-  return result;
+  return agentWorkspaceSnapshot();
 }
 
-// `cloudBotSnapshotForTurn` and `botWithRuntimeConfig` now live in
-// src/main/bot-turn-helpers.js so the standalone Mia Core node process builds
-// the same turn-normalization pipeline — no fork. Behaviour is byte-identical;
-// the only deps are the two shared engine-policy functions already imported.
-const { botWithRuntimeConfig, cloudBotSnapshotForTurn } = createBotTurnHelpers({
-  normalizeAgentEngine,
-  enginePermissionStoreTarget
-});
-const agentSessionManager = IS_DAEMON_PROCESS ? createAgentSessionManager({
-  ...agentSessionPersistence,
-  requestPermission: (request) => agentPermissionCoordinator.requestPermission(request)
-}) : null;
+async function readMemorySettingsFromCore() {
+  try {
+    const snapshot = await forwardMiaCoreHttpRequest({
+      method: "GET",
+      route: "/api/memory/settings"
+    });
+    return rememberMemorySettingsSnapshot(snapshot);
+  } catch (error) {
+    appendEngineLog(`Mia Rust Core memory settings read fallback: ${error?.message || error}`);
+    return memorySettingsSnapshot();
+  }
+}
 
-// Single shared bot-execution core: `sendChat`/`stopChat` (and the single-flight
-// abort state) live in src/main/bot-execution-core.js so the standalone Mia Core
-// node process drives the exact same implementation — no fork. Late-bound deps
-// (localBotResponder, miaCoreTasksClient, settingsStore) are injected as accessors
-// because they are constructed after this point / reassigned at runtime.
-const botExecutionCore = IS_DAEMON_PROCESS ? createBotExecutionCore({
-  createChatEventEmitter,
-  cloudBotSnapshotForTurn,
-  loadBotManifest,
-  requireBot,
-  normalizeTurnRuntimeConfig,
-  botWithRuntimeConfig,
-  normalizeAgentEngine,
-  resolveChatEngineAdapter,
-  botPetService,
-  responseMessageContent,
-  schedulerSkillIdsForTurn,
-  skillsLoader,
-  nativeTurnHelpers,
-  sendWithChatEngineAdapter,
-  createActiveChatEngineAdapters,
-  agentSessionManager,
-  agentSessionWorkspacePath: agentWorkspaceDir,
-  localBotResponder: () => localBotResponder,
-  isDaemonProcess: IS_DAEMON_PROCESS,
-  daemonTasksClient: () => miaCoreTasksClient,
-  settingsStore: () => settingsStore,
-  appendCloudLog,
-  miaMemoryService,
-  isMemoryEnabled: miaMemoryEnabled,
-  onMemoryExtracted: (result, scope) => publishRendererMemoryEvent("remember", result, scope),
-  prepareAgentSessionRuntime,
-  resolveAgentSessionPermissionMode
-}) : null;
+async function writeMemorySettingsToCore(settings = {}) {
+  const snapshot = await forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/memory/settings",
+    body: { enabled: settings.enabled !== false }
+  });
+  rememberMemorySettingsSnapshot(snapshot);
+  return getRuntimeStatus();
+}
 
 const sendChat = createChatSendDelegator({
-  isDaemonProcess: IS_DAEMON_PROCESS,
+  isDaemonProcess: IS_CORE_PROCESS,
   requireDaemonRuntimeAvailable,
-  daemonClient: {
-    call: (...args) => miaCoreTasksClient.call(...args)
-  },
-  fallbackSendChat: (payload) => botExecutionCore.sendChat(payload)
-});
-
-const stopChat = createChatStopDelegator({
-  isDaemonProcess: IS_DAEMON_PROCESS,
-  requireDaemonRuntimeAvailable,
-  daemonClient: {
-    call: (...args) => miaCoreTasksClient.call(...args)
-  },
-  fallbackStopChat: (payload) => botExecutionCore.stopChat(payload)
+  coreClient: {
+    call: (...args) => miaCoreCompatibilityClient.call(...args)
+  }
 });
 
 function shouldOpenAgentSetupWindow() {
@@ -2465,7 +2024,8 @@ function createWindow() {
   // Signed-out users (first run OR returning) get a dedicated lightweight
   // onboarding window: a separate HTML that loads none of the main app, so it
   // opens instantly (no startup beachball) and is a clean native window.
-  const onboarding = !Boolean(cloudStatus(false) && cloudStatus(false).enabled);
+  const forceMainWindow = process.env.MIA_FORCE_MAIN_WINDOW === "1";
+  const onboarding = !forceMainWindow && !Boolean(cloudStatus(false) && cloudStatus(false).enabled);
   if (onboarding) {
     const workArea = screen.getPrimaryDisplay().workArea;
     initialWindow.bounds = {
@@ -2610,146 +2170,42 @@ function promoteOnboardingWindowToMain(win) {
   win.loadFile(path.join(__dirname, "renderer", "index.html"), { query: { onboarding: "complete" } });
 }
 
-const modelSettingsService = createModelSettingsService({
-  modelSettings,
-  providerConnection,
-  saveProviderConnection,
-  writeModelSettings,
-  restartEngineIfRunning,
-  getRuntimeStatus
-});
-
 const conversationTitleService = createConversationTitleService({
   randomUUID: () => crypto.randomUUID(),
-  sendChatStateless
+  runUtilityTurn: runConversationUtilityTurn
 });
 
-function applyNativePermissionConfig(settings = {}) {
-  const engine = normalizeAgentEngine(settings.engine || settings.agentEngine || settings.agent_engine || "");
-  if (!shouldApplyNativePermissionConfig(engine)) return;
-  try {
-    syncCodexConfigForPermission(
-      mapCodexPermissionMode(settingsStore.enginePermissionMode("codex")),
-      { appendLog: appendEngineLog }
-    );
-  } catch (error) {
-    appendEngineLog(`Codex permission config sync failed: ${error?.message || error}`);
-  }
-}
-
-function writePermissionSettingsAndApply(settings = {}) {
-  const next = settingsStore.writePermissionSettings(settings);
-  applyNativePermissionConfig(settings);
-  return next;
-}
-
 remoteControlRouter = createRemoteControlRouter({
-  isDaemonProcess: IS_DAEMON_PROCESS,
-  getRuntimeStatus,
-  loadHermesModelCatalog: () => engineCatalogService.loadHermesModelCatalog(),
-  loadCodexModels: () => engineCatalogService.loadCodexModels(),
-  loadEngineCapabilities: () => engineCatalogService.loadEngineCapabilities(),
-  loadHermesSlashCommands: () => engineCatalogService.loadHermesSlashCommands(),
-  loadExternalAgentCommands: (body) => externalAgentCommandService.loadCommands(body),
-  saveChatAttachment,
-  readLocalFileAttachment,
-  executeExternalAgentCommand: (body) => externalAgentCommandService.executeCommand(body),
-  saveModelSelection: (settings) => modelSettingsService.saveModelSelection(settings),
-  writeEffortSettings: (body) => settingsStore.writeEffortSettings(body),
-  writePermissionSettings: writePermissionSettingsAndApply,
-  stopChat,
-  runRemoteChatRequest
+  cancelConversationTurn: cancelCoreConversationTurn
 });
 
 miaCoreControlServer = createMiaCoreControlServer({
-  isDaemonProcess: IS_DAEMON_PROCESS,
-  serviceLabel: MIA_DAEMON_SERVICE_LABEL,
-  daemonToken,
+  isCoreProcess: IS_CORE_PROCESS,
+  serviceLabel: MIA_CORE_SERVICE_LABEL,
+  coreToken,
   appVersion: () => app.getVersion(),
-  describeDaemonTarget: () => {
-    // When this process IS the launched daemon, prefer the target identity the
-    // launcher stamped into env (MIA_DAEMON_TARGET_KIND) so /health reports the
-    // SAME target the resolver chose, without re-resolving process.resourcesPath.
-    const kind = String(process.env.MIA_DAEMON_TARGET_KIND || "").trim();
-    if (IS_DAEMON_PROCESS && kind) {
-      return {
-        kind,
-        command: path.basename(process.execPath),
-        usesGuiAppIdentity: String(process.env.MIA_DAEMON_USES_GUI_IDENTITY || "") === "1",
-        workingDirectory: process.cwd(),
-        ...(process.env.MIA_DAEMON_SOURCE_FINGERPRINT ? {
-          sourceFingerprint: String(process.env.MIA_DAEMON_SOURCE_FINGERPRINT || "")
-        } : {})
-      };
-    }
-    return miaCoreResolver.describe();
-  },
+  describeCoreTarget: () => miaCoreResolver.describe(),
   initializeRuntime,
   choosePort: engineHealthService.choosePort,
-  getDaemonSettings: () => settingsStore.daemonSettings(),
-  writeDaemonSettings: (settings) => settingsStore.writeDaemonSettings(settings),
-  // ADR P3: the daemon applies the window's delegated credential writes and
-  // reacts immediately when auth changes (new token → connect, logout → drop).
-  writeCloudSettings: (patch) => {
-    const next = settingsStore.writeCloudSettings(patch);
-    if (patch && (patch.token !== undefined || patch.enabled !== undefined)) {
-      try {
-        if (next.enabled && next.token) {
-          startCloudRuntimeSockets();
-        } else {
-          stopCloudEvents();
-          stopCloudBridge();
-        }
-      } catch { /* sockets re-evaluate on their own retry tick */ }
-    }
-    return next;
-  },
-  normalizeDaemonHost: (host) => settingsStore.normalizeDaemonHost(host),
-  normalizeDaemonPort: (port) => settingsStore.normalizeDaemonPort(port),
+  getCoreSettings: () => settingsStore.coreSettings(),
+  writeCoreSettings: (settings) => settingsStore.writeCoreSettings(settings),
+  normalizeCoreHost: (host) => settingsStore.normalizeCoreHost(host),
+  normalizeCorePort: (port) => settingsStore.normalizeCorePort(port),
   runtimePaths,
   remoteRouter: () => remoteControlRouter,
-  agentPermissionCoordinator,
-  miaMemoryService,
-  isMemoryEnabled: miaMemoryEnabled,
-  onMemoryChanged: scheduleCloudMemorySync,
-  initSchedulerSubsystem,
-  tasksRoutes: () => tasksRoutes,
-  getMiaContextSnapshot: miaContextSnapshot,
-  getMiaCurrentSkills: miaCurrentSkills,
-  getAgentWorkspace: agentWorkspaceSnapshot,
-  writeAgentWorkspace: (workspacePath) => {
-    settingsStore.writeAgentWorkspace(workspacePath);
-    localAgentEngineService?.resetCache?.();
-    return agentWorkspaceSnapshot();
-  },
-  getCloudSettings: () => settingsStore.cloudSettings(),
-  normalizeCloudUrl: settingsStore.normalizeCloudUrl,
   fetchImpl: fetch,
   timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs)
 });
 
-miaCoreTasksClient = createMiaCoreTasksClient({
-  isDaemonProcess: IS_DAEMON_PROCESS,
-  getDaemonSettings: () => settingsStore.daemonSettings(),
-  getDaemonStatus,
-  daemonToken,
-  fetchImpl: fetch,
-  sendTaskEvent: (payload) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      try {
-        window.webContents.send(IpcChannel.TasksEvent, payload);
-      } catch {
-        // Window closed during task-event broadcast.
-      }
-    }
-  }
+miaCoreCompatibilityClient = createMiaCoreCompatibilityClient({
+  getCoreSettings: () => settingsStore.coreSettings(),
+  getCoreStatus: getDaemonStatus,
+  fetchImpl: fetch
 });
 
 agentPermissionProxy = createAgentPermissionProxy({
-  isDaemonProcess: IS_DAEMON_PROCESS,
-  coordinator: agentPermissionCoordinator,
-  daemonClient: {
-    call: (...args) => miaCoreTasksClient.call(...args)
+  coreControlClient: {
+    call: (...args) => miaCoreCompatibilityClient.call(...args)
   }
 });
 
@@ -2761,15 +2217,20 @@ registerUtilIpc({
 });
 registerMcpIpc({ ipcMain, mcpService: userMcpService });
 
+ipcMain.on(IpcChannel.MiaCoreStartupState, (event) => {
+  event.returnValue = currentMiaCoreStartupState();
+});
+ipcMain.handle(IpcChannel.MiaCoreHttpRequest, (_event, payload) => forwardMiaCoreHttpRequest(payload || {}));
+
 ipcMain.handle(IpcChannel.RuntimeInitialize, async () => {
   const status = initializeRuntime();
   status.daemon = await getObservedDaemonStatus(350);
-  return status;
+  return runtimeStatusWithCoreModelProviders(status);
 });
 ipcMain.handle(IpcChannel.RuntimeStatus, async () => {
   const status = getRuntimeStatus();
   status.daemon = await getObservedDaemonStatus(350);
-  return status;
+  return runtimeStatusWithCoreModelProviders(status);
 });
 ipcMain.handle(IpcChannel.StartupBackgroundServices, () => startupBackgroundService.run());
 ipcMain.handle(IpcChannel.DaemonStatus, async () => {
@@ -2790,7 +2251,7 @@ ipcMain.handle(IpcChannel.DaemonStop, async () => {
   return result;
 });
 ipcMain.handle(IpcChannel.DaemonSettingsSave, (_event, settings) => {
-  settingsStore.writeDaemonSettings(settings);
+  settingsStore.writeCoreSettings(settings);
   startCloudRuntimeSockets();
   return getDaemonStatus();
 });
@@ -2798,15 +2259,18 @@ ipcMain.handle(IpcChannel.UtilOpenExternal, async (_event, url) => {
   return openExternalUrl(url);
 });
 ipcMain.handle(IpcChannel.StatusBadgeAssetLoad, (_event, assetId) => loadStatusBadgeAsset(assetId));
-ipcMain.handle(IpcChannel.CloudStatus, () => cloudStatus(false));
+ipcMain.handle(IpcChannel.CloudStatus, () => coreCloudStatus(false));
 ipcMain.handle(IpcChannel.CloudModelBalance, () => fetchCloudModelBalance());
 ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {
   requireDaemonRuntimeAvailable();
   const result = await loginMiaCloud(payload || {});
+  syncCloudSettingsToCore().catch((error) => {
+    appendCloudLog(`Mia Rust Core cloud login sync failed: ${error?.message || error}`);
+  });
   return finalizeCloudLoginIpcResult({
     payload: payload || {},
     result,
-    runtimeStatus: getRuntimeStatus()
+    runtimeStatus: await runtimeStatusWithCoreModelProviders(getRuntimeStatus())
   });
 });
 // Phase 3: cross-device settings (pin / read marks / appearance). Renderer
@@ -2814,19 +2278,11 @@ ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {
 // broadcast comes back via the WS event handler and is re-broadcast to
 // the renderer.
 ipcMain.handle(IpcChannel.CloudSettingsGet, async () => {
-  try {
-    requireDaemonRuntimeAvailable();
-    return await cloudSettingsGet();
-  } catch (error) {
-    if (error?.status === 503) throw error;
-    appendCloudLog(`Cloud settings get failed: ${error?.message || error}`);
-    return { pins: [], readMarks: {}, appearance: {} };
-  }
+  return coreCloudSettingsGet();
 });
 ipcMain.handle(IpcChannel.CloudSettingsPut, async (_event, settings) => {
   try {
-    requireDaemonRuntimeAvailable();
-    return await cloudSettingsPut(settings || {});
+    return await coreCloudSettingsPut(settings || {});
   } catch (error) {
     appendCloudLog(`Cloud settings put failed: ${error?.message || error}`);
     throw error;
@@ -2835,7 +2291,10 @@ ipcMain.handle(IpcChannel.CloudSettingsPut, async (_event, settings) => {
 ipcMain.handle(IpcChannel.CloudLogout, async (event) => {
   requireDaemonRuntimeAvailable();
   await logoutMiaCloud();
-  const runtime = getRuntimeStatus();
+  syncCloudSettingsToCore({ enabled: false, token: "", user: null, agentRuntime: null }).catch((error) => {
+    appendCloudLog(`Mia Rust Core cloud logout sync failed: ${error?.message || error}`);
+  });
+  const runtime = await runtimeStatusWithCoreModelProviders(getRuntimeStatus());
   const win = BrowserWindow.fromWebContents(event.sender);
   setTimeout(() => showSignedOutOnboardingWindow(win), 0);
   return runtime;
@@ -2845,17 +2304,24 @@ const socialApi = createSocialApi({
   normalizeUrl: settingsStore.normalizeCloudUrl
 });
 const skillMarketCache = openSkillMarketCache(path.join(runtimePaths().home, "skill-market-cache.db"));
-// ADR P3: daemon-process credential writes are the only local file writes.
-// Foreground credential writes route through the daemon and fail if it is down.
 const cloudSettingsWriter = createCloudSettingsWriter({
-  isDaemonProcess: IS_DAEMON_PROCESS,
-  isDaemonEnabled: () => settingsStore.daemonSettings().enabled,
-  writeLocal: (patch) => settingsStore.writeCloudSettings(patch),
-  daemonBaseUrl: () => {
-    const daemonSettings = settingsStore.daemonSettings();
-    return `http://${daemonSettings.host}:${daemonSettings.port}`;
+  writeLocal: (patch) => {
+    const next = settingsStore.writeCloudSettings(patch);
+    if (patch && (patch.token !== undefined || patch.enabled !== undefined)) {
+      try {
+        if (next.enabled && next.token) {
+          startCloudRuntimeSockets();
+        } else {
+          stopCloudEvents();
+          stopCloudBridge();
+        }
+      } catch {
+        // Sockets re-evaluate on their own retry tick.
+      }
+    }
+    return next;
   },
-  daemonToken,
+  syncCore: (settings) => syncCloudSettingsToCore(settings),
   log: (line) => appendCloudLog(line)
 });
 cloudDesktopSyncRuntime = createCloudDesktopSyncClient({
@@ -2874,81 +2340,30 @@ cloudDesktopSyncRuntime = createCloudDesktopSyncClient({
   startCloudBridge,
   stopCloudEvents,
   stopCloudBridge,
-  memoryService: miaMemoryService,
+  syncCloudMemory: (options = {}) => forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/cloud/memory/sync",
+    body: options || {}
+  }),
   skillMarketCache
 });
 cloudBridgeRuntime = createCloudBridgeClient({
-  WebSocketImpl: WebSocket,
   getSettings: () => settingsStore.cloudSettings(),
-  isDaemonProcess: IS_DAEMON_PROCESS,
-  isDaemonEnabled: () => daemonOwnsCloudBridge(),
-  cloudBridgeUrl,
-  cloudWebSocketProtocols,
-  runBridgeBotTurn: ({
-    botKey,
-    botId,
-    botSnapshot,
-    sessionId,
-    messages,
-    signal,
-    emit,
-    utility = false,
-    runtimeConfig
-  } = {}) => sendChat({
-    botKey,
-    botId,
-    botSnapshot,
-    sessionId,
-    messages,
-    signal,
-    emit,
-    utility,
-    runtimeConfig
+  isDaemonProcess: true,
+  isDaemonEnabled: () => Boolean(settingsStore?.coreSettings?.().enabled),
+  cloudBridgeStartPayload,
+  startCloudBridgeRequest: (payload = {}) => forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/cloud/bridge/start",
+    body: payload || {}
   }),
-  resetLocalDeviceIdentity,
-  resolveBotCapabilities: ({ botKey, botName }) => {
-    const bot = { key: botKey, id: botKey, name: botName };
-    return skillsLoader.botCapabilitiesWithPresetDefaults(bot);
-  },
-  randomUUID: () => crypto.randomUUID()
+  stopCloudBridgeRequest: () => forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/cloud/bridge/stop",
+    body: {}
+  })
 });
 for (const line of pendingCloudLogs.splice(0)) cloudBridgeRuntime.appendLog(line);
-const localBotResponder = IS_DAEMON_PROCESS ? createLocalBotResponder({
-  sendChat,
-  postConversationMessageAsBot: (conversationId, body) => socialApi.postConversationMessageAsBot(conversationId, body),
-  listConversationMessages: (conversationId, sinceSeq, limit) => socialApi.listConversationMessages(conversationId, sinceSeq, limit),
-  fetchFileAttachment: safeFetchFileAttachment,
-  emitCloudEvent: (message) => {
-    const envelope = {
-      type: message.type,
-      payload: message
-    };
-    broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
-    // The daemon has no windows: push run streams (typing, token deltas,
-    // tool traces) to the window over the local channel (ADR P0).
-    if (IS_DAEMON_PROCESS) miaCoreControlServer?.publishLocalEvent?.(envelope);
-  },
-  log: (line) => appendCloudLog(line),
-  artifactWorkspaceDir: agentWorkspaceDir,
-  agentSessionManager,
-  agentSessionWorkspacePath: agentWorkspaceDir,
-  prepareAgentSessionRuntime,
-  resolveAgentSessionPermissionMode
-}) : null;
-async function shouldHandleCloudConversationAi() {
-  const daemonSettings = settingsStore.daemonSettings();
-  return shouldHandleLocalCloudConversationAi({
-    isDaemon: IS_DAEMON_PROCESS,
-    daemonEnabled: daemonSettings.enabled
-  });
-}
-const mainBotRuntimeDispatcher = createMainBotRuntimeDispatcher({
-  shouldHandle: shouldHandleCloudConversationAi,
-  currentDeviceId: () => localDeviceId(),
-  listBots: () => [],
-  localBotResponder,
-  log: (line) => appendCloudLog(line)
-});
 // Desktop-local message cache (TG-style local-first render + delta sync). If
 // node:sqlite is unavailable for any reason, degrade to no cache — the IPC layer
 // treats a null cache as "always fetch from cloud" (previous behavior).
@@ -2961,40 +2376,33 @@ const conversationMessageCache = (() => {
   }
 })();
 cloudEventSocketRuntime = createCloudEventsClient({
-  WebSocketImpl: WebSocket,
   getSettings: () => settingsStore.cloudSettings(),
-  writeCloudSettings: (patch) => settingsStore.writeCloudSettings(patch),
-  cloudStatus: () => cloudStatus(false),
-  cloudEventsUrl,
-  cloudWebSocketProtocols,
-  // ADR P2: in the daemon every renderer-bound cloud event is also pushed to
-  // the local channel, because the daemon is the only /api/events host and
-  // the window renders from the forwarded feed.
-  broadcastRendererEvent: (channel, envelope) => {
-    broadcastRendererEvent(channel, envelope);
-    if (IS_DAEMON_PROCESS) miaCoreControlServer?.publishLocalEvent?.(envelope);
-  },
-  cloudEventChannel: IpcChannel.CloudEvent,
   appendCloudLog,
-  botRuntimeDispatcher: mainBotRuntimeDispatcher,
-  memorySync: () => cloudDesktopSync().syncMemories(),
-  messageCache: conversationMessageCache,
-  persistCursor: () => IS_DAEMON_PROCESS,
-  isDaemonProcess: IS_DAEMON_PROCESS,
-  isDaemonEnabled: () => daemonOwnsCloudEvents()
+  startCloudEventsRequest: () => forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/cloud/events/start",
+    body: {}
+  }),
+  stopCloudEventsRequest: () => forwardMiaCoreHttpRequest({
+    method: "POST",
+    route: "/api/cloud/events/stop",
+    body: {}
+  })
 });
-// ADR P0/P2: the window listens to the daemon's local event stream and replays
-// the envelopes to its renderers — bot run streams (typing / token deltas /
-// tool traces) and, with the daemon enabled, the entire cloud event feed.
-if (!IS_DAEMON_PROCESS) {
+// The window listens to Rust Core's websocket and replays Core-owned local
+// envelopes to its renderers. The legacy event name is kept for UI state.
+if (!IS_CORE_PROCESS) {
   localEventsRuntime = createMiaCoreLocalEventsClient({
-    baseUrl: () => {
-      const daemonSettings = settingsStore.daemonSettings();
-      return `http://${daemonSettings.host}:${daemonSettings.port}`;
-    },
-    daemonToken,
-    enabled: () => settingsStore.daemonSettings().enabled,
+    baseUrl: () => getDaemonStatus().baseUrl,
+    WebSocketImpl: WebSocket,
+    enabled: () => settingsStore.coreSettings().enabled,
+    includeTaskEvents: true,
     onEnvelope: (envelope) => {
+      const coreEventType = String(envelope?.coreEnvelope?.name || envelope?.coreEnvelope?.type || "").trim();
+      if (coreEventType.startsWith("task.")) {
+        broadcastRendererEvent(IpcChannel.TasksEvent, envelope);
+        return;
+      }
       if (envelope?.type === "daemon.cloud_events_status") {
         daemonCloudEventsStatus = envelope.payload || null;
         startCloudRuntimeSockets();
@@ -3006,8 +2414,7 @@ if (!IS_DAEMON_PROCESS) {
         startCloudRuntimeSockets();
         return;
       }
-      const channel = rendererChannelForLocalEvent(envelope, IpcChannel);
-      broadcastRendererEvent(channel, channel === IpcChannel.ChatEvent ? envelope.payload : envelope);
+      broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
     },
     onStateChange: (connected) => {
       const envelope = {
@@ -3067,18 +2474,18 @@ ipcMain.handle(IpcChannel.EngineInstall, async (event, engineId) => {
     throw error;
   }
 });
-ipcMain.handle(IpcChannel.OnboardingComplete, (event) => {
+ipcMain.handle(IpcChannel.OnboardingComplete, async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!cloudStatus(false).enabled) {
     showSignedOutOnboardingWindow(win);
-    return getRuntimeStatus();
+    return runtimeStatusWithCoreModelProviders(getRuntimeStatus());
   }
   promoteOnboardingWindowToMain(win);
-  return getRuntimeStatus();
+  return runtimeStatusWithCoreModelProviders(getRuntimeStatus());
 });
-ipcMain.handle(IpcChannel.WindowSignedOutOnboarding, (event) => {
+ipcMain.handle(IpcChannel.WindowSignedOutOnboarding, async (event) => {
   showSignedOutOnboardingWindow(BrowserWindow.fromWebContents(event.sender));
-  return getRuntimeStatus();
+  return runtimeStatusWithCoreModelProviders(getRuntimeStatus());
 });
 ipcMain.handle(IpcChannel.EngineScan, async (event) => {
   // User-initiated async detection (onboarding prepare step). Streams each agent
@@ -3129,59 +2536,50 @@ ipcMain.handle(IpcChannel.EngineRepair, async (event) => {
     throw error;
   }
 });
-ipcMain.handle(IpcChannel.EngineUninstallStandalone, () => uninstallStandaloneEngine());
-ipcMain.handle(IpcChannel.AuthCodexStart, () => authService.startCodexOAuth());
-ipcMain.handle(IpcChannel.AuthCodexCancel, () => authService.cancelCodexOAuth());
-ipcMain.handle(IpcChannel.AuthProviderStart, (_event, provider) => authService.startProviderOAuth(provider));
-ipcMain.handle(IpcChannel.AuthProviderCancel, () => authService.cancelProviderOAuth());
+ipcMain.handle(IpcChannel.EngineUninstallStandalone, async () => runtimeStatusWithCoreModelProviders(await uninstallStandaloneEngine()));
+ipcMain.handle(IpcChannel.AuthCodexStart, async () => runtimeStatusWithCoreModelProviders(await authService.startCodexOAuth()));
+ipcMain.handle(IpcChannel.AuthCodexCancel, async () => runtimeStatusWithCoreModelProviders(authService.cancelCodexOAuth()));
+ipcMain.handle(IpcChannel.AuthProviderStart, async (_event, provider) => runtimeStatusWithCoreModelProviders(await authService.startProviderOAuth(provider)));
+ipcMain.handle(IpcChannel.AuthProviderCancel, async () => runtimeStatusWithCoreModelProviders(authService.cancelProviderOAuth()));
 ipcMain.handle(IpcChannel.ChatSend, (event, payload) => sendChat({ ...payload, webContents: event.sender }));
-ipcMain.handle(IpcChannel.ChatSendStateless, (_event, payload) => sendChatStateless(payload));
-ipcMain.handle(IpcChannel.ChatStop, (_event, payload) => stopChat(payload || {}));
 ipcMain.handle(IpcChannel.ChatPermissionRespond, (_event, payload) => agentPermissionProxy.respond(payload || {}));
 ipcMain.handle(IpcChannel.ChatPermissionList, (_event, payload) => agentPermissionProxy.list(payload || {}));
-ipcMain.handle(IpcChannel.ChatAttachmentSave, (_event, payload) => saveChatAttachment(payload));
-ipcMain.handle(IpcChannel.ChatFileFetch, (_event, payload) => safeFetchFileAttachment(payload));
-ipcMain.handle(IpcChannel.CommandsSlash, () => engineCatalogService.loadHermesSlashCommands());
-ipcMain.handle(IpcChannel.CommandsAgentList, async (_event, payload) => externalAgentCommandService.loadCommands(payload));
-ipcMain.handle(IpcChannel.CommandsAgentExecute, (_event, payload) => externalAgentCommandService.executeCommand(payload));
-ipcMain.handle(IpcChannel.MemoryList, (_event, payload) => miaMemoryService.listMemories(rendererMemoryListInput(payload)));
-ipcMain.handle(IpcChannel.MemoryListAll, (_event, payload) => miaMemoryService.listAllMemories(rendererMemoryManagementInput(payload)));
-ipcMain.handle(IpcChannel.MemoryRemember, (_event, payload) => {
-  const input = rendererRememberMemoryInput(payload);
-  const result = miaMemoryService.rememberMemory(input);
-  scheduleCloudMemorySync("remember");
+ipcMain.handle(IpcChannel.ChatAttachmentSave, (_event, payload) => chatAttachmentCoreAdapter.saveAttachment(payload));
+ipcMain.handle(IpcChannel.ChatFileFetch, (_event, payload) => chatAttachmentCoreAdapter.fetchFileAttachment(payload));
+ipcMain.handle(IpcChannel.CommandsSlash, () => engineCatalogCoreAdapter.loadHermesSlashCommands());
+ipcMain.handle(IpcChannel.CommandsAgentList, async (_event, payload) => externalAgentCommandCoreAdapter.loadCommands(payload));
+ipcMain.handle(IpcChannel.CommandsAgentExecute, (_event, payload) => externalAgentCommandCoreAdapter.executeCommand(payload));
+ipcMain.handle(IpcChannel.MemoryList, (_event, payload) => listCoreMemory(payload));
+ipcMain.handle(IpcChannel.MemoryListAll, (_event, payload) => listAllCoreMemory(payload));
+ipcMain.handle(IpcChannel.MemoryRemember, async (_event, payload) => {
+  const input = coreMemoryRememberBody(payload);
+  const result = await rememberCoreMemory(payload);
   publishRendererMemoryEvent("remember", result, input);
   return result;
 });
-ipcMain.handle(IpcChannel.MemoryUpdate, (_event, payload) => {
-  const input = rendererUpdateMemoryInput(payload);
-  const result = miaMemoryService.updateMemory(input);
-  scheduleCloudMemorySync("update");
+ipcMain.handle(IpcChannel.MemoryUpdate, async (_event, payload) => {
+  const input = coreMemoryUpdateBody(payload);
+  const result = await updateCoreMemory(payload);
   publishRendererMemoryEvent("update", result, input);
   return result;
 });
-ipcMain.handle(IpcChannel.MemoryForget, (_event, payload) => {
-  const input = rendererForgetMemoryInput(payload);
-  const result = miaMemoryService.forgetMemory(input);
-  scheduleCloudMemorySync("forget");
+ipcMain.handle(IpcChannel.MemoryForget, async (_event, payload) => {
+  const input = coreMemoryForgetBody(payload);
+  const result = await forgetCoreMemory(payload);
   publishRendererMemoryEvent("forget", result, input);
   return result;
 });
-ipcMain.handle(IpcChannel.MemoryDelete, (_event, payload) => {
-  const input = rendererMemoryIdInput(payload);
-  const result = miaMemoryService.deleteMemory(input);
-  scheduleCloudMemorySync("delete");
+ipcMain.handle(IpcChannel.MemoryDelete, async (_event, payload) => {
+  const input = coreMemoryDeleteBody(payload);
+  const result = await deleteCoreMemory(payload);
   publishRendererMemoryEvent("delete", result, input);
   return result;
 });
-ipcMain.handle(IpcChannel.MemorySettingsSave, (_event, settings) => {
-  settingsStore.writeMemorySettings(settings || {});
-  return getRuntimeStatus();
-});
+ipcMain.handle(IpcChannel.MemorySettingsSave, (_event, settings) => writeMemorySettingsToCore(settings || {}));
 ipcMain.handle(IpcChannel.ConversationTitleGenerate, (_event, payload) => conversationTitleService.generateTitle(payload));
-ipcMain.handle(IpcChannel.ModelCatalog, () => engineCatalogService.loadHermesModelCatalog());
-ipcMain.handle(IpcChannel.CodexListModels, () => engineCatalogService.loadCodexModels());
-ipcMain.handle(IpcChannel.EngineCapabilities, () => engineCatalogService.loadEngineCapabilities());
+ipcMain.handle(IpcChannel.ModelCatalog, () => engineCatalogCoreAdapter.loadHermesModelCatalog());
+ipcMain.handle(IpcChannel.CodexListModels, () => engineCatalogCoreAdapter.loadCodexModels());
+ipcMain.handle(IpcChannel.EngineCapabilities, () => engineCatalogCoreAdapter.loadEngineCapabilities());
 ipcMain.handle(IpcChannel.SkillsList, () => skillsLoader.loadLocalSkills());
 ipcMain.handle(IpcChannel.PluginsInstall, (_event, extensionId) => skillsLoader.installMarketplacePlugin(extensionId));
 ipcMain.handle(IpcChannel.SkillsRead, (_event, skillId) => skillsLoader.readLocalSkill(skillId));
@@ -3202,27 +2600,17 @@ ipcMain.handle(IpcChannel.SkillsPublish, async (_event, payload) => {
 });
 ipcMain.handle(IpcChannel.SkillsReport, (_event, payload) =>
   cloudDesktopSync().reportSkill(payload?.skillId, payload?.reason || ""));
-ipcMain.handle(IpcChannel.PermissionsSave, async (_event, settings) => {
-  writePermissionSettingsAndApply(settings);
-  return getRuntimeStatus();
-});
-ipcMain.handle(IpcChannel.EffortSave, async (_event, settings) => {
-  settingsStore.writeEffortSettings(settings);
-  return getRuntimeStatus();
-});
-ipcMain.handle(IpcChannel.ModelSave, (_event, settings) => modelSettingsService.saveModelSelection(resolveMiaManagedModelSettings(settings)));
-
 ipcMain.handle(IpcChannel.AppearanceSave, async (_event, settings) => {
   await cloudDesktopSync().saveAppearanceSettings(settings || {});
   for (const win of BrowserWindow.getAllWindows()) {
     applyWindowsTitleBarOverlay(win, settingsStore.appearanceSettings());
   }
-  return getRuntimeStatus();
+  return runtimeStatusWithCoreModelProviders(getRuntimeStatus());
 });
 
 ipcMain.handle(IpcChannel.ProfileSave, async (_event, profile) => {
   await cloudDesktopSync().saveUserProfile(profile || {});
-  return getRuntimeStatus();
+  return runtimeStatusWithCoreModelProviders(getRuntimeStatus());
 });
 
 function loadConductorPrompts() {
@@ -3241,8 +2629,6 @@ ipcMain.handle(IpcChannel.PetGenerate, (_event, payload) => botPetService.startG
 ipcMain.handle(IpcChannel.PetPlace, (_event, key) => botPetService.place(key));
 ipcMain.handle(IpcChannel.PetRecall, (_event, key) => botPetService.recall(key));
 
-registerTasksIpc({ ipcMain, callDaemonTasks: (...args) => miaCoreTasksClient.call(...args) });
-
 const autoUpdateService = createAutoUpdateService({
   // Lazy: constructs the electron-updater singleton only when the foreground
   // window calls start(), so it's never materialized in the daemon process.
@@ -3252,6 +2638,7 @@ const autoUpdateService = createAutoUpdateService({
   getMainWindows: () => BrowserWindow.getAllWindows(),
   sendUpdateEvent: (payload) => broadcastRendererEvent(IpcChannel.UpdateEvent, payload),
   prepareForUpdateInstall: async () => {
+    await launchdService.cleanupLegacyNodeCore();
     await stopDaemonService();
   },
   quitApp: () => app.quit(),
@@ -3260,33 +2647,32 @@ const autoUpdateService = createAutoUpdateService({
 ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates());
 
 app.on("before-quit", () => {
-  closeCodexAppServerRuntimes();
   if (agentSessionManager && typeof agentSessionManager.closeAllSessions === "function") {
     agentSessionManager.closeAllSessions().catch((error) => appendEngineLog(`AgentSession cleanup failed: ${error?.message || error}`));
   }
-  claudeCodeMiaProxy.stop().catch((error) => appendCloudLog(`Claude Code Mia proxy cleanup failed: ${error?.message || error}`));
-  codexMiaProxy.stop().catch((error) => appendCloudLog(`Codex Mia proxy cleanup failed: ${error?.message || error}`));
 });
 
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
-  // Migration slice 5c: the daemon is ALWAYS the standalone node Core
-  // (src/core/mia-core.js), never the Electron GUI app. The obsolete
-  // `if (IS_DAEMON_PROCESS)` Electron daemon-boot branch (dock.hide + control
-  // server + cloud sockets + retry interval) was deleted here — node Core owns
+  // Migration branch: the background Core is always a separate Core process,
+  // never the Electron GUI app. The obsolete
+  // `if (IS_CORE_PROCESS)` Electron daemon-boot branch (dock.hide + control
+  // server + cloud sockets + retry interval) was deleted here — Core owns
   // that boot in createMiaCore.startWithCloud(). Electron only ever runs as the
-  // window; IS_DAEMON_PROCESS is false-by-construction in this process now, and
-  // its remaining `!IS_DAEMON_PROCESS` arms are the window-side path. The window
+  // window; IS_CORE_PROCESS is false-by-construction in this process now, and
+  // its remaining `!IS_CORE_PROCESS` arms are the window-side path. The window
   // still constructs miaCoreControlServer and pings/forwards to the node-Core
-  // daemon over 127.0.0.1; startDaemonService launches node Core.
+  // daemon over 127.0.0.1; startDaemonService launches Mia Rust Core.
   if (!shouldRunDesktopInstance) return;
   startupMcpInitializer.start();
   const win = createWindow();
   startupTimer.mark("window:created");
   autoUpdateService.start();
-  miaCoreTasksClient.startEvents();
   startCloudRuntimeSockets(); // foreground clients self-gate; daemon owns runtime sockets
-  cloudDesktopSync().syncWorkspace().catch((error) => appendCloudLog(`云同步刷新失败：${error?.message || error}`));
+  syncCloudSettingsToCore().catch((error) => appendCloudLog(`Mia Rust Core cloud bootstrap sync failed: ${error?.message || error}`));
+  cloudDesktopSync().syncWorkspace()
+    .then(() => syncCloudSettingsToCore().catch((error) => appendCloudLog(`Mia Rust Core cloud refresh sync failed: ${error?.message || error}`)))
+    .catch((error) => appendCloudLog(`云同步刷新失败：${error?.message || error}`));
   if (!win.miaSkipAutomaticBackgroundStartup && process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
     win.webContents.once("did-finish-load", () => {
       setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
@@ -3296,12 +2682,12 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   authService.cancelCodexOAuth();
-  if (IS_DAEMON_PROCESS) return;
+  if (IS_CORE_PROCESS) return;
   if (process.platform !== "darwin") app.quit();
 });
 
 app.on("activate", () => {
-  if (IS_DAEMON_PROCESS) return;
+  if (IS_CORE_PROCESS) return;
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
   else if (!cloudStatus(false).enabled) showSignedOutOnboardingWindow(BrowserWindow.getAllWindows()[0]);
 });

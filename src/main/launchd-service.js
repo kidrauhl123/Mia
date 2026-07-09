@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFile: defaultExecFile } = require("node:child_process");
-const { createMiaCoreResolver, DEFAULT_PATH } = require("./daemon/executable-resolver.js");
+const { createMiaCoreResolver, DEFAULT_PATH } = require("./mia-core/process-resolver.js");
 
 function xmlEscape(value) {
   return String(value)
@@ -70,7 +70,7 @@ function uniquePathEntries(entries = []) {
   return result;
 }
 
-function daemonPathEnv(env = {}, options = {}) {
+function corePathEnv(env = {}, options = {}) {
   const delimiter = options.delimiter || path.delimiter;
   const home = String(env.HOME || options.home || os.homedir() || "").trim();
   const userEntries = home
@@ -90,13 +90,14 @@ function daemonPathEnv(env = {}, options = {}) {
 function createLaunchdService(deps = {}) {
   const {
     gatewayServiceLabel,
-    daemonServiceLabel,
+    coreServiceLabel,
     runtimePaths,
     enginePython,
     effectiveHermesHome
   } = deps;
+  const serviceLabel = coreServiceLabel;
   if (!gatewayServiceLabel) throw new Error("gatewayServiceLabel dependency is required.");
-  if (!daemonServiceLabel) throw new Error("daemonServiceLabel dependency is required.");
+  if (!serviceLabel) throw new Error("coreServiceLabel dependency is required.");
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
   if (typeof enginePython !== "function") throw new Error("enginePython dependency is required.");
   if (typeof effectiveHermesHome !== "function") throw new Error("effectiveHermesHome dependency is required.");
@@ -106,6 +107,8 @@ function createLaunchdService(deps = {}) {
   const defaultApp = typeof deps.defaultApp === "function" ? deps.defaultApp : () => Boolean(process.defaultApp);
   const platform = deps.platform || process.platform;
   const env = deps.env || process.env;
+  const coreSettings = typeof deps.coreSettings === "function" ? deps.coreSettings : () => ({});
+  const appVersion = typeof deps.appVersion === "function" ? deps.appVersion : () => "";
   const getuid = typeof deps.getuid === "function" ? deps.getuid : () => (typeof process.getuid === "function" ? process.getuid() : null);
   const execFile = deps.execFile || defaultExecFile;
   const appendLog = typeof deps.appendLog === "function" ? deps.appendLog : () => {};
@@ -117,7 +120,9 @@ function createLaunchdService(deps = {}) {
     execPath,
     defaultApp,
     platform,
-    env
+    env,
+    coreSettings,
+    appVersion
   });
 
   function launchdDomain() {
@@ -143,6 +148,85 @@ function createLaunchdService(deps = {}) {
     });
   }
 
+  function runExecFile(command, args, { ignoreFailure = false } = {}) {
+    return new Promise((resolve, reject) => {
+      execFile(command, args, { encoding: "utf8" }, (error, stdout, stderr) => {
+        const output = [stdout, stderr].filter(Boolean).join("\n").trim();
+        if (output && command !== "ps") appendLog(`${command} ${args.join(" ")}: ${output}`);
+        if (error && !ignoreFailure) {
+          reject(new Error(`${command} ${args.join(" ")} failed: ${error.message}`));
+          return;
+        }
+        resolve({ stdout, stderr, error: error || null });
+      });
+    });
+  }
+
+  function legacyNodeCoreLaunchAgent(plistPath) {
+    try {
+      const source = fs.readFileSync(plistPath, "utf8");
+      return /MIA_DAEMON|MIA_DAEMON_TARGET_KIND|node-core|src\/core\/mia-core\.js/.test(source);
+    } catch {
+      return false;
+    }
+  }
+
+  function legacyNodeCoreCommand(command) {
+    const value = String(command || "").trim();
+    if (!value) return false;
+    const executable = value.split(/\s+/)[0] || "";
+    return path.basename(executable) === "node"
+      && value.includes("src/core/mia-core.js")
+      && /(?:^|\s)--daemon(?:\s|$)/.test(value);
+  }
+
+  function parseProcessList(stdout) {
+    return String(stdout || "")
+      .split(/\r?\n/)
+      .map((line) => {
+        const match = String(line || "").match(/^\s*(\d+)\s+(.+)$/);
+        if (!match) return null;
+        return { pid: Number(match[1]), command: match[2] };
+      })
+      .filter((entry) => entry && Number.isInteger(entry.pid) && entry.pid > 0);
+  }
+
+  async function killLegacyNodeCoreProcesses() {
+    const result = await runExecFile("ps", ["-axo", "pid=,command="], { ignoreFailure: true });
+    const killedPids = [];
+    for (const entry of parseProcessList(result.stdout)) {
+      if (entry.pid === process.pid) continue;
+      if (!legacyNodeCoreCommand(entry.command)) continue;
+      await runExecFile("kill", ["-TERM", String(entry.pid)], { ignoreFailure: true });
+      killedPids.push(entry.pid);
+    }
+    return killedPids;
+  }
+
+  async function cleanupLegacyNodeCore() {
+    const summary = { removedLaunchAgent: false, killedPids: [] };
+    if (platform !== "darwin") return { ...summary, skipped: true };
+    const p = runtimePaths();
+    const plistPath = p.coreLaunchAgent || p.daemonLaunchAgent;
+    const domain = launchdDomain();
+    if (domain && legacyNodeCoreLaunchAgent(plistPath)) {
+      appendLog(`Removing legacy Node Core LaunchAgent at ${plistPath}.`);
+      await stopJob({ plistPath, label: serviceLabel });
+      await runLaunchctl(["remove", serviceLabel], { ignoreFailure: true });
+      try {
+        fs.rmSync(plistPath, { force: true });
+        summary.removedLaunchAgent = true;
+      } catch (error) {
+        appendLog(`Failed to remove legacy Node Core LaunchAgent ${plistPath}: ${error?.message || error}`);
+      }
+    }
+    summary.killedPids = await killLegacyNodeCoreProcesses();
+    if (summary.killedPids.length) {
+      appendLog(`Stopped legacy Node Core process(es): ${summary.killedPids.join(", ")}.`);
+    }
+    return summary;
+  }
+
   function gatewayProgramArguments() {
     return [
       enginePython(),
@@ -155,40 +239,41 @@ function createLaunchdService(deps = {}) {
     ];
   }
 
-  function daemonProgramArguments() {
+  function coreProgramArguments() {
     const r = resolver.resolve();
     return [r.command, ...r.args];
   }
 
-  function daemonEnvironment() {
-    return { ...resolver.daemonEnvOverlay(), PATH: daemonPathEnv(env) };
+  function coreEnvironment() {
+    return { ...resolver.coreEnvOverlay(), PATH: corePathEnv(env) };
   }
 
   // launchd chdir()s into WorkingDirectory before exec; the resolver always
   // returns a real directory (never the asar archive) in both dev and packaged
   // builds, so anchoring there avoids EX_CONFIG (exit 78).
-  function daemonWorkingDirectory() {
+  function coreWorkingDirectory() {
     return resolver.resolve().workingDirectory;
   }
 
-  function daemonLaunchAgentPlist() {
+  function coreLaunchAgentPlist() {
     const p = runtimePaths();
     return renderLaunchAgentPlist({
-      label: daemonServiceLabel,
-      programArguments: daemonProgramArguments(),
-      workingDirectory: daemonWorkingDirectory(),
-      environment: daemonEnvironment(),
+      label: serviceLabel,
+      programArguments: coreProgramArguments(),
+      workingDirectory: coreWorkingDirectory(),
+      environment: coreEnvironment(),
       stdoutPath: path.join(p.logsDir, "daemon.log"),
       stderrPath: path.join(p.logsDir, "daemon.error.log")
     });
   }
 
-  function writeDaemonLaunchAgentPlist() {
+  function writeCoreLaunchAgentPlist() {
     const p = runtimePaths();
-    fs.mkdirSync(path.dirname(p.daemonLaunchAgent), { recursive: true });
+    const plistPath = p.coreLaunchAgent || p.daemonLaunchAgent;
+    fs.mkdirSync(path.dirname(plistPath), { recursive: true });
     fs.mkdirSync(p.logsDir, { recursive: true });
-    fs.writeFileSync(p.daemonLaunchAgent, daemonLaunchAgentPlist(), { mode: 0o600 });
-    return p.daemonLaunchAgent;
+    fs.writeFileSync(plistPath, coreLaunchAgentPlist(), { mode: 0o600 });
+    return plistPath;
   }
 
   async function stopJob({ plistPath, label }) {
@@ -215,37 +300,40 @@ function createLaunchdService(deps = {}) {
     return stopJob({ plistPath: runtimePaths().launchAgent, label: gatewayServiceLabel });
   }
 
-  function stopDaemon() {
-    return stopJob({ plistPath: runtimePaths().daemonLaunchAgent, label: daemonServiceLabel });
+  function stopCore() {
+    const p = runtimePaths();
+    return stopJob({ plistPath: p.coreLaunchAgent || p.daemonLaunchAgent, label: serviceLabel });
   }
 
-  function startDaemon() {
+  function startCore() {
+    const p = runtimePaths();
     return startJob({
-      plistPath: runtimePaths().daemonLaunchAgent,
-      label: daemonServiceLabel,
-      writePlist: writeDaemonLaunchAgentPlist,
-      errorMessage: "Mia daemon LaunchAgent is currently implemented for macOS launchd."
+      plistPath: p.coreLaunchAgent || p.daemonLaunchAgent,
+      label: serviceLabel,
+      writePlist: writeCoreLaunchAgentPlist,
+      errorMessage: "Mia Core LaunchAgent is currently implemented for macOS launchd."
     });
   }
 
   return {
     appPath,
-    daemonEnvironment,
-    daemonLaunchAgentPlist,
-    daemonProgramArguments,
+    coreEnvironment,
+    coreLaunchAgentPlist,
+    coreProgramArguments,
+    cleanupLegacyNodeCore,
     gatewayProgramArguments,
     launchdDomain,
     runLaunchctl,
-    startDaemon,
-    stopDaemon,
+    startCore,
+    stopCore,
     stopGateway,
-    writeDaemonLaunchAgentPlist
+    writeCoreLaunchAgentPlist
   };
 }
 
 module.exports = {
   createLaunchdService,
-  daemonPathEnv,
+  corePathEnv,
   renderLaunchAgentPlist,
   xmlEscape
 };

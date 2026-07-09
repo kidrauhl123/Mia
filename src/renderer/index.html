@@ -408,10 +408,10 @@
               <div class="composer-controls">
                 <label class="model-switcher" title="切换当前模型">
                   <span class="model-avatar" aria-hidden="true">◇</span>
-                  <span id="quickModelLabel" class="model-current-label">GPT-5.3 Codex</span>
+                  <span id="quickModelLabel" class="model-current-label">Codex 默认</span>
                   <select id="quickModelSelect" aria-label="切换当前模型">
                     <option value="custom">Custom</option>
-                    <option value="openai-codex">GPT-5.3 Codex</option>
+                    <option value="openai-codex">Codex 默认</option>
                     <option value="xai">Grok 4.1 Fast</option>
                     <option value="anthropic">Claude Sonnet 4.6</option>
                     <option value="openrouter">Claude Sonnet 4.6</option>
@@ -801,13 +801,6 @@
                     <button id="modelConnectButton" class="primary inline-connect-button hidden" type="submit">连接</button>
                   </span>
                 </label>
-                <input id="authMethod" type="hidden" value="api-key">
-                <input id="modelPreset" type="hidden" value="">
-                <input id="modelProvider" type="hidden">
-                <input id="modelName" type="hidden">
-                <input id="modelKeyEnv" type="hidden">
-                <input id="modelBaseUrl" type="hidden">
-                <input id="modelApiMode" type="hidden">
                 <section id="codexInlineAuth" class="inline-auth hidden">
                   <div class="inline-actions">
                     <button id="codexLogin" class="primary" type="button">用 OpenAI 登录</button>

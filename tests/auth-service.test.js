@@ -199,11 +199,7 @@ test("startProviderOAuth spawns hermes auth and saves provider on success", asyn
   assert.deepEqual(calls.providerSaves, [{
     provider: "anthropic",
     providerLabel: "Anthropic",
-    authType: "oauth_external",
-    apiKeyEnv: "",
-    apiKey: "",
-    baseUrl: "https://api.anthropic.com",
-    apiMode: "messages"
+    authType: "oauth_external"
   }]);
   assert.equal(calls.restarted, 1);
   assert.equal(service.status().oauthProvider, "");

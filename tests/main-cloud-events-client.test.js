@@ -3,59 +3,15 @@ const assert = require("node:assert/strict");
 
 const { createCloudEventsClient } = require("../src/main/cloud/cloud-events-client.js");
 
-function fakeWebSocketClass() {
-  const sockets = [];
-  class FakeWebSocket {
-    static CONNECTING = 0;
-    static OPEN = 1;
-    static CLOSED = 3;
-
-    constructor(url, protocols) {
-      this.url = url;
-      this.protocols = protocols;
-      this.readyState = FakeWebSocket.CONNECTING;
-      this.handlers = {};
-      this.closed = null;
-      sockets.push(this);
-    }
-
-    on(name, handler) {
-      this.handlers[name] = handler;
-    }
-
-    emit(name, arg) {
-      if (this.handlers[name]) this.handlers[name](arg);
-    }
-
-    close(code, reason) {
-      this.readyState = FakeWebSocket.CLOSED;
-      this.closed = { code, reason };
-    }
-
-    ping() {
-      this.pings = (this.pings || 0) + 1;
-    }
-
-    terminate() {
-      this.terminated = true;
-      this.readyState = FakeWebSocket.CLOSED;
-      this.emit("close");
-    }
-  }
-  return { FakeWebSocket, sockets };
+function flushAsync() {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 function setup(overrides = {}) {
-  const { FakeWebSocket, sockets } = fakeWebSocketClass();
   const calls = {
-    broadcasts: [],
-    conductor: [],
-    botConversation: [],
-    logs: [],
-    responder: [],
-    runtimeDispatcher: [],
-    settingsWrites: [],
-    timers: []
+    starts: [],
+    stops: [],
+    logs: []
   };
   let settings = {
     enabled: true,
@@ -64,460 +20,138 @@ function setup(overrides = {}) {
     lastEventSeq: 3
   };
   const client = createCloudEventsClient({
-    WebSocketImpl: FakeWebSocket,
     getSettings: () => settings,
-    writeCloudSettings: (patch) => {
-      calls.settingsWrites.push(patch);
-      settings = { ...settings, ...patch };
-    },
-    cloudStatus: () => ({ enabled: settings.enabled }),
-    cloudEventsUrl: (s) => `wss://cloud.example/api/events?since_seq=${Number(s.lastEventSeq) || 0}`,
-    cloudWebSocketProtocols: (s) => [`mia-token.${s.token}`],
-    broadcastRendererEvent: (channel, envelope) => calls.broadcasts.push({ channel, envelope }),
-    cloudEventChannel: "cloud:event",
     appendCloudLog: (line) => calls.logs.push(line),
-    shouldHandleCloudConversationAi: () => true,
-    isDaemonProcess: true,
-    botRuntimeDispatcher: {
-      handleCloudEvent: async (message) => calls.runtimeDispatcher.push(message)
+    startCloudEventsRequest: async (payload) => {
+      calls.starts.push(payload);
+      return {
+        status: {
+          enabled: true,
+          events: {
+            enabled: true,
+            connecting: false,
+            connected: true,
+            lastError: "",
+            lastEventSeq: 8
+          }
+        }
+      };
     },
-    setTimeoutFn: (fn, delayMs) => {
-      const timer = { fn, delayMs };
-      calls.timers.push(timer);
-      return timer;
-    },
-    clearTimeoutFn: (timer) => {
-      timer.cleared = true;
+    stopCloudEventsRequest: async () => {
+      calls.stops.push({});
+      return {
+        status: {
+          enabled: true,
+          events: {
+            enabled: true,
+            connecting: false,
+            connected: false,
+            lastError: "",
+            lastEventSeq: 8
+          }
+        }
+      };
     },
     ...overrides
   });
-  return { client, calls, sockets, FakeWebSocket, setSettings: (patch) => { settings = { ...settings, ...patch }; } };
+  return {
+    client,
+    calls,
+    setSettings: (patch) => {
+      settings = { ...settings, ...patch };
+    }
+  };
 }
 
-test("start opens one /api/events websocket with resume cursor", () => {
-  const { client, sockets, FakeWebSocket } = setup();
-
-  client.start();
-  client.start();
-
-  assert.equal(sockets.length, 1);
-  assert.equal(sockets[0].url, "wss://cloud.example/api/events?since_seq=3");
-  assert.deepEqual(sockets[0].protocols, ["mia-token.tok_1"]);
-
-  sockets[0].readyState = FakeWebSocket.CLOSED;
-  client.start();
-  assert.equal(sockets.length, 2);
-});
-
-test("events_ready does not advance resume cursor until replayed events are applied", () => {
+test("start delegates Cloud Events lifecycle to Rust Core", async () => {
   const { client, calls } = setup();
 
-  client.handleMessage(JSON.stringify({
-    type: "events_ready",
-    sinceSeq: 20,
-    serverSeq: 42
-  }));
-  client.handleMessage(JSON.stringify({
-    type: "conversation.message_appended",
-    seq: 41,
-    conversationId: "g_1",
-    message: { id: "m_41", seq: 1, sender_kind: "user", body_md: "missed one" }
-  }));
-  client.handleMessage(JSON.stringify({
-    type: "conversation.bot_invocation_requested",
-    seq: 42,
-    conversationId: "g_1",
-    botId: "codex",
-    triggeringMessage: { id: "m_41", body_md: "@codex 看看" }
-  }));
+  const immediate = client.start();
+  assert.equal(immediate.connecting, true);
+  assert.equal(immediate.connected, false);
+  await flushAsync();
 
-  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 41 }, { lastEventSeq: 42 }]);
-  assert.equal(calls.broadcasts.length, 3);
-  assert.equal(calls.broadcasts[0].channel, "cloud:event");
-  assert.deepEqual(calls.broadcasts[0].envelope, {
-    type: "events_ready",
-    cloud: { enabled: true }
-  });
-});
-
-test("events_ready resetTo rewinds an invalid resume cursor", () => {
-  const { client, calls } = setup();
-
-  client.handleMessage(JSON.stringify({
-    type: "events_ready",
-    resetTo: 7,
-    serverSeq: 100
-  }));
-
-  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 7 }]);
-  assert.deepEqual(calls.broadcasts[0].envelope, {
-    type: "events_ready",
-    cloud: { enabled: true }
-  });
-});
-
-test("status exposes the cloud events socket health separately from the bridge", () => {
-  const { client, sockets, FakeWebSocket } = setup();
-
-  assert.deepEqual(client.status(), {
-    enabled: true,
-    connecting: false,
-    connected: false,
-    lastError: "",
-    lastEventSeq: 3
-  });
-
-  client.start();
-  assert.equal(client.status().connecting, true);
-
-  sockets[0].readyState = FakeWebSocket.OPEN;
-  sockets[0].emit("message", JSON.stringify({
-    type: "events_ready",
-    sinceSeq: 3,
-    serverSeq: 8
-  }));
-
+  assert.deepEqual(calls.starts, [{}]);
   assert.deepEqual(client.status(), {
     enabled: true,
     connecting: false,
     connected: true,
     lastError: "",
+    lastEventSeq: 8
+  });
+});
+
+test("start does not open duplicate Core lifecycle requests while pending", async () => {
+  let release;
+  const { client, calls } = setup({
+    startCloudEventsRequest: async (payload) => {
+      calls.starts.push(payload);
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      return { status: { events: { connected: true, connecting: false, lastEventSeq: 4 } } };
+    }
+  });
+
+  client.start();
+  client.start();
+  await Promise.resolve();
+
+  assert.equal(calls.starts.length, 1);
+  release();
+  await flushAsync();
+  assert.equal(client.status().connected, true);
+});
+
+test("stop delegates Cloud Events lifecycle to Rust Core and clears cached state", async () => {
+  const { client, calls } = setup();
+
+  client.start();
+  await flushAsync();
+  assert.equal(client.status().connected, true);
+
+  const stopped = client.stop();
+  assert.equal(stopped.connected, false);
+  await flushAsync();
+
+  assert.equal(calls.stops.length, 1);
+  assert.deepEqual(client.status(), {
+    enabled: true,
+    connecting: false,
+    connected: false,
+    lastError: "",
+    lastEventSeq: 8
+  });
+});
+
+test("disabled settings do not send lifecycle requests", () => {
+  const { client, calls, setSettings } = setup();
+  setSettings({ enabled: false });
+
+  assert.deepEqual(client.start(), {
+    enabled: false,
+    connecting: false,
+    connected: false,
+    lastError: "",
     lastEventSeq: 3
   });
+  assert.equal(calls.starts.length, 0);
+});
 
-  sockets[0].emit("close");
+test("Core lifecycle errors update local status without a socket fallback", async () => {
+  const { client, calls } = setup({
+    startCloudEventsRequest: async (payload) => {
+      calls.starts.push(payload);
+      throw new Error("Core events start failed");
+    }
+  });
+
+  client.start();
+  await flushAsync();
+
+  assert.equal(calls.starts.length, 1);
   assert.equal(client.status().connected, false);
-});
-
-test("start replaces a stale cloud events socket that never became ready", () => {
-  let now = 1000;
-  const { client, sockets, FakeWebSocket } = setup({
-    nowFn: () => now,
-    readyTimeoutMs: 5000
-  });
-
-  client.start();
-  sockets[0].readyState = FakeWebSocket.OPEN;
-
-  now += 6000;
-  client.start();
-
-  assert.equal(sockets.length, 2);
-  assert.deepEqual(sockets[0].closed, { code: 1000, reason: "cloud events ready timeout" });
-  assert.equal(client.status().connecting, true);
-});
-
-test("bot invocation events are dispatched to main; raw message events are not", async () => {
-  const { client, calls } = setup();
-
-  client.handleMessage(JSON.stringify({
-    type: "conversation.bot_invocation_requested",
-    seq: 4,
-    conversationId: "g_1",
-    botId: "codex",
-    triggeringMessage: { id: "m_1", body_md: "@codex 看看" }
-  }));
-  client.handleMessage(JSON.stringify({
-    type: "conversation.message_appended",
-    seq: 5,
-    conversationId: "g_1",
-    message: { id: "m_2", seq: 2, sender_kind: "user", body_md: "大家看看" }
-  }));
-  await Promise.resolve();
-
-  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 4 }, { lastEventSeq: 5 }]);
-  assert.deepEqual(calls.runtimeDispatcher.map((message) => message.type), [
-    "conversation.bot_invocation_requested"
-  ]);
-  assert.equal(calls.runtimeDispatcher[0].botId, "codex");
-  assert.deepEqual(calls.responder, []);
-  assert.equal(calls.broadcasts.map((item) => item.envelope.type).join(","), "conversation.bot_invocation_requested,conversation.message_appended");
-});
-
-test("memory cloud events trigger memory sync and are forwarded to renderers", async () => {
-  const memoryEvents = [];
-  const { client, calls } = setup({
-    memorySync: async (message) => memoryEvents.push(message)
-  });
-
-  client.handleMessage(JSON.stringify({
-    type: "memory.updated",
-    seq: 8,
-    memory: { id: "mem_1" }
-  }));
-  await Promise.resolve();
-
-  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 8 }]);
-  assert.equal(memoryEvents.length, 1);
-  assert.equal(memoryEvents[0].memory.id, "mem_1");
-  assert.deepEqual(calls.broadcasts[0], {
-    channel: "cloud:event",
-    envelope: {
-      type: "memory.updated",
-      payload: {
-        type: "memory.updated",
-        seq: 8,
-        memory: { id: "mem_1" }
-      }
-    }
-  });
-});
-
-test("conversation.message_appended events are written through to the local message cache", async () => {
-  const cached = [];
-  const { client, calls } = setup({
-    messageCache: {
-      upsertMessages: (conversationId, messages) => cached.push({ conversationId, messages })
-    }
-  });
-
-  client.handleMessage(JSON.stringify({
-    type: "conversation.message_appended",
-    seq: 5,
-    conversationId: "bot:u_1:mia",
-    message: {
-      id: "m_2",
-      seq: 2,
-      sender_kind: "bot",
-      sender_ref: "mia",
-      body_md: "done",
-      trace_json: JSON.stringify({ reasoning: "检查文件" })
-    }
-  }));
-  await Promise.resolve();
-
-  assert.deepEqual(cached, [{
-    conversationId: "bot:u_1:mia",
-    messages: [{
-      id: "m_2",
-      seq: 2,
-      sender_kind: "bot",
-      sender_ref: "mia",
-      body_md: "done",
-      trace_json: JSON.stringify({ reasoning: "检查文件" })
-    }]
-  }]);
-  assert.equal(calls.broadcasts[0].envelope.type, "conversation.message_appended");
-});
-
-test("conversation.message_deleted events remove the row from the local message cache", async () => {
-  const deleted = [];
-  const { client, calls } = setup({
-    messageCache: {
-      deleteMessage: (conversationId, messageId) => deleted.push({ conversationId, messageId })
-    }
-  });
-
-  client.handleMessage(JSON.stringify({
-    type: "conversation.message_deleted",
-    seq: 6,
-    conversationId: "bot:u_1:mia",
-    messageId: "m_2"
-  }));
-  await Promise.resolve();
-
-  assert.deepEqual(deleted, [{ conversationId: "bot:u_1:mia", messageId: "m_2" }]);
-  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 6 }]);
-  assert.equal(calls.broadcasts[0].envelope.type, "conversation.message_deleted");
-});
-
-test("bot runtime updates are forwarded to the renderer", () => {
-  const { client, calls } = setup();
-
-  client.handleMessage(JSON.stringify({
-    type: "bot.runtime_updated",
-    seq: 9,
-    binding: {
-      botId: "mia",
-      runtimeKind: "cloud-claude-code",
-      config: { model: "hermes-agent" }
-    }
-  }));
-
-  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 9 }]);
-  assert.equal(calls.broadcasts.length, 1);
-  assert.deepEqual(calls.broadcasts[0].envelope, {
-    type: "bot.runtime_updated",
-    payload: {
-      type: "bot.runtime_updated",
-      seq: 9,
-      binding: {
-        botId: "mia",
-        runtimeKind: "cloud-claude-code",
-        config: { model: "hermes-agent" }
-      }
-    }
-  });
-});
-
-test("task events are forwarded to the renderer", () => {
-  const { client, calls } = setup();
-
-  client.handleMessage(JSON.stringify({
-    type: "task.finished",
-    seq: 10,
-    taskId: "t-1",
-    runId: "r-1"
-  }));
-
-  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 10 }]);
-  assert.deepEqual(calls.broadcasts[0].envelope, {
-    type: "task.finished",
-    payload: {
-      type: "task.finished",
-      seq: 10,
-      taskId: "t-1",
-      runId: "r-1"
-    }
-  });
-});
-
-test("socket close clears only the active socket and schedules one reconnect", () => {
-  const { client, calls, sockets } = setup();
-
-  client.start();
-  const first = sockets[0];
-  client.stop();
-  assert.deepEqual(first.closed, { code: 1000, reason: "cloud disabled" });
-
-  client.start();
-  const second = sockets[1];
-  first.emit("close");
-  assert.equal(calls.timers.length, 0);
-
-  second.emit("close");
-  second.emit("close");
-  assert.equal(calls.timers.length, 1);
-  assert.equal(calls.timers[0].delayMs, 3000);
-});
-
-test("heartbeat pings a connected socket and a pong keeps it alive", () => {
-  let tick = null;
-  const { client, sockets, FakeWebSocket } = setup({
-    setIntervalFn: (fn) => { tick = fn; return { fn }; },
-    clearIntervalFn: () => {},
-    heartbeatIntervalMs: 1000
-  });
-
-  client.start();
-  const ws = sockets[0];
-  ws.readyState = FakeWebSocket.OPEN;
-  ws.emit("message", JSON.stringify({ type: "events_ready", sinceSeq: 3, serverSeq: 3 }));
-
-  tick();                 // ping #1
-  ws.emit("pong");        // server answered → still alive
-  tick();                 // ping #2
-
-  assert.equal(ws.pings, 2);
-  assert.notEqual(ws.terminated, true);
-  assert.equal(ws.closed, null);
-});
-
-test("heartbeat recycles a silently dropped socket and reconnects", () => {
-  let tick = null;
-  const { client, calls, sockets, FakeWebSocket } = setup({
-    setIntervalFn: (fn) => { tick = fn; return { fn }; },
-    clearIntervalFn: () => {},
-    heartbeatIntervalMs: 1000
-  });
-
-  client.start();
-  const ws = sockets[0];
-  ws.readyState = FakeWebSocket.OPEN;
-  ws.emit("message", JSON.stringify({ type: "events_ready", sinceSeq: 3, serverSeq: 3 }));
-
-  tick();                 // ping sent, awaiting pong
-  assert.equal(ws.pings, 1);
-  assert.equal(ws.terminated, undefined);
-
-  tick();                 // no pong / no traffic since → dead → terminate + reconnect
-  assert.equal(ws.terminated, true);
-  assert.equal(calls.timers.length, 1);
-  assert.equal(calls.timers[0].delayMs, 3000);
-});
-
-test("heartbeat recycles a socket stuck before events_ready", () => {
-  let tick = null;
-  let now = 1000;
-  const { client, sockets } = setup({
-    setIntervalFn: (fn) => { tick = fn; return { fn }; },
-    clearIntervalFn: () => {},
-    heartbeatIntervalMs: 1000,
-    nowFn: () => now,
-    readyTimeoutMs: 15000
-  });
-
-  client.start();
-  const ws = sockets[0];
-  // never emits events_ready; advance past the handshake timeout
-  now += 20000;
-  tick();
-
-  assert.equal(ws.terminated, true);
-});
-
-test("persistCursor=false stops a non-owner from advancing lastEventSeq", () => {
-  const { client, calls, sockets, FakeWebSocket } = setup({ persistCursor: () => false });
-
-  client.start();
-  sockets[0].readyState = FakeWebSocket.OPEN;
-  sockets[0].emit("message", JSON.stringify({ type: "events_ready", sinceSeq: 3, serverSeq: 9, resetTo: 7 }));
-  sockets[0].emit("message", JSON.stringify({ type: "user_settings.updated", seq: 9 }));
-
-  assert.deepEqual(calls.settingsWrites, []);
-});
-
-test("persistCursor owner still advances lastEventSeq on events", () => {
-  const { client, calls, sockets, FakeWebSocket } = setup({ persistCursor: () => true });
-
-  client.start();
-  sockets[0].readyState = FakeWebSocket.OPEN;
-  sockets[0].emit("message", JSON.stringify({ type: "user_settings.updated", seq: 9 }));
-
-  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 9 }]);
-});
-
-test("cursor persistence failures do not crash the cloud events client", () => {
-  const { client, calls, sockets, FakeWebSocket } = setup({
-    writeCloudSettings: () => {
-      const error = new Error("EPERM: operation not permitted, rename");
-      error.code = "EPERM";
-      throw error;
-    }
-  });
-
-  client.start();
-  sockets[0].readyState = FakeWebSocket.OPEN;
-
-  assert.doesNotThrow(() => {
-    sockets[0].emit("message", JSON.stringify({ type: "user_settings.updated", seq: 9 }));
-  });
-  assert.equal(client.status().lastError, "EPERM: operation not permitted, rename");
-  assert.match(calls.logs.at(-1), /cursor persistence failed: EPERM/);
-  assert.equal(calls.broadcasts[0].envelope.type, "user_settings.updated");
-});
-
-test("window never hosts the /api/events socket", () => {
-  const { client, sockets, FakeWebSocket } = setup({
-    isDaemonProcess: false,
-    isDaemonEnabled: () => false
-  });
-
-  client.start();
-  assert.equal(sockets.length, 0);
-});
-
-test("daemon process hosts the events socket while enabled, releases when gated off", () => {
-  let daemonEnabled = true;
-  const { client, sockets, FakeWebSocket } = setup({
-    isDaemonProcess: true,
-    isDaemonEnabled: () => daemonEnabled
-  });
-  client.start();
-  assert.equal(sockets.length, 1);
-
-  sockets[0].readyState = FakeWebSocket.OPEN;
-  daemonEnabled = false;
-  client.start();
-  assert.equal(sockets[0].closed?.code, 1000);
+  assert.equal(client.status().connecting, false);
+  assert.equal(client.status().lastError, "Core events start failed");
+  assert.match(calls.logs.join("\n"), /Core events start failed/);
 });

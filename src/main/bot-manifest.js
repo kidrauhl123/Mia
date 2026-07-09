@@ -52,9 +52,6 @@ function createBotManifest(deps = {}) {
     const providerLabel = String(value.providerLabel || value.provider_label || "").trim();
     const authType = String(value.authType || value.auth_type || "").trim();
     const modelProfileId = String(value.modelProfileId || value.model_profile_id || value.profileId || value.profile_id || "").trim();
-    const apiKeyEnv = String(value.apiKeyEnv || value.api_key_env || "").trim();
-    const baseUrl = String(value.baseUrl || value.base_url || "").trim();
-    const apiMode = String(value.apiMode || value.api_mode || "").trim();
     const permissionMode = String(value.permissionMode || value.permission_mode || "").trim();
     const effortLevel = String(value.effortLevel || value.effort_level || value.reasoningEffort || value.reasoning_effort || "").trim();
     if (model) next.model = model;
@@ -62,9 +59,6 @@ function createBotManifest(deps = {}) {
     if (providerLabel) next.providerLabel = providerLabel;
     if (authType) next.authType = authType;
     if (modelProfileId) next.modelProfileId = modelProfileId;
-    if (apiKeyEnv) next.apiKeyEnv = apiKeyEnv;
-    if (baseUrl) next.baseUrl = baseUrl;
-    if (apiMode) next.apiMode = apiMode;
     if (permissionMode) next.permissionMode = permissionMode;
     if (effortLevel) next.effortLevel = settingsStore.normalizeStoredEffortLevel(effortLevel);
     return next;
@@ -81,10 +75,7 @@ function createBotManifest(deps = {}) {
       ["provider", ["provider", "modelProvider", "model_provider"]],
       ["providerLabel", ["providerLabel", "provider_label"]],
       ["authType", ["authType", "auth_type"]],
-      ["modelProfileId", ["modelProfileId", "model_profile_id", "profileId", "profile_id"]],
-      ["apiKeyEnv", ["apiKeyEnv", "api_key_env"]],
-      ["baseUrl", ["baseUrl", "base_url"]],
-      ["apiMode", ["apiMode", "api_mode"]]
+      ["modelProfileId", ["modelProfileId", "model_profile_id", "profileId", "profile_id"]]
     ]) {
       if (!aliases.some((key) => Object.prototype.hasOwnProperty.call(update || {}, key))) continue;
       const raw = aliases.map((key) => update?.[key]).find((candidate) => candidate !== undefined);

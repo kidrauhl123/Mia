@@ -17,9 +17,9 @@ function fallbackConversationTitle(messages = []) {
 
 function createConversationTitleService({
   randomUUID = () => crypto.randomUUID(),
-  sendChatStateless
+  runUtilityTurn
 } = {}) {
-  if (typeof sendChatStateless !== "function") throw new Error("sendChatStateless dependency is required.");
+  if (typeof runUtilityTurn !== "function") throw new Error("runUtilityTurn dependency is required.");
 
   async function generateTitle({ botId, personaKey, conversationId, sessionId, messages } = {}) {
     const clipped = (Array.isArray(messages) ? messages : [])
@@ -29,8 +29,10 @@ function createConversationTitleService({
     const transcript = clipped.map((message) => `${message.role}: ${message.content}`).join("\n").slice(0, 1600);
     const titleRunId = conversationId || sessionId || randomUUID();
     try {
-      const response = await sendChatStateless({
-        botKey: botId || personaKey,
+      const response = await runUtilityTurn({
+        botId: botId || personaKey,
+        conversationId: titleRunId,
+        purpose: "conversation-title",
         systemPrompt: "",
         userPrompt: [
           "请给下面这段对话生成一个简短标题。",

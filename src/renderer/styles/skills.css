@@ -637,7 +637,7 @@
   padding: 0;
   background: transparent;
   color: var(--accent, #7c3aed);
-  cursor: pointer;
+  cursor: default;
 }
 
 .skill-market-modal .smm-add.smm-add-installed:hover {

@@ -1,4 +1,5 @@
 node_modules/
+target/
 .claude/
 dist/
 out/
@@ -11,8 +12,8 @@ test-results/
 .DS_Store
 npm-debug.log*
 
-# Staged Core daemon node binary (built by scripts/stage-core-node.js)
-resources/mia-node/
+# Staged Rust Core binary (built by scripts/prepare-mia-core-rs.js)
+resources/bundled-mia-core/
 
 # RN app build artifacts
 apps/mobile-rn/node_modules/

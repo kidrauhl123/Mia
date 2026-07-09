@@ -1,8 +1,10 @@
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
+const http = require("node:http");
 const { PassThrough } = require("node:stream");
 const { test } = require("node:test");
 const {
+  callTool,
   isDuckDuckGoChallengePage,
   normalizeDdgsResults,
   parseDuckDuckGoHtml,
@@ -12,6 +14,19 @@ const {
   runDdgsSearch,
   toolDefinitions
 } = require("../src/main/mia-app-mcp-server.js");
+
+async function listen(server) {
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  return `http://127.0.0.1:${address.port}`;
+}
+
+function restoreEnv(previous) {
+  for (const [key, value] of Object.entries(previous)) {
+    if (value == null) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
 
 test("mia-app MCP exposes scheduler, skills, and social tools", () => {
   const names = toolDefinitions().map((tool) => tool.name).sort();
@@ -67,6 +82,95 @@ test("memory write tools expose bounded retrieval priority", () => {
     assert.equal(priority?.type, "number");
     assert.match(priority?.description || "", /-100 to 100/);
   }
+});
+
+test("schedule tools route to Rust Core task job endpoints", async (t) => {
+	  const previous = {
+	    MIA_CORE_URL: process.env.MIA_CORE_URL,
+	    MIA_CORE_TOKEN: process.env.MIA_CORE_TOKEN
+	  };
+  const calls = [];
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const bodyText = Buffer.concat(chunks).toString("utf8");
+      const body = bodyText ? JSON.parse(bodyText) : null;
+      calls.push({ method: req.method, url: req.url, auth: req.headers.authorization, body });
+      res.setHeader("Content-Type", "application/json");
+      if (req.method === "GET" && req.url === "/api/tasks/jobs") {
+        res.end(JSON.stringify({
+          jobs: [{
+            id: "task_core_listed",
+            kind: "agent",
+            schedule: { type: "cron", cron: "0 9 * * *", timezone: "Asia/Shanghai" },
+            target: { botId: "mia", conversationId: "conv_1", sessionId: "conv_1", title: "Listed" },
+            instructions: "List",
+            status: "active",
+            nextRunAt: 1710000000000
+          }]
+        }));
+        return;
+      }
+      const status = body?.status || "active";
+      res.end(JSON.stringify({
+        job: {
+          id: "task_core_1",
+          kind: body?.kind || "agent",
+          schedule: body?.schedule || { type: "cron", cron: "0 9 * * *", timezone: "Asia/Shanghai" },
+          target: body?.target || { botId: "mia", conversationId: "conv_1", sessionId: "conv_1", title: "Daily" },
+          instructions: body?.instructions || "",
+          status,
+          nextRunAt: 1710000000000
+        }
+      }));
+    });
+  });
+  t.after(() => {
+    server.close();
+    restoreEnv(previous);
+  });
+  process.env.MIA_CORE_URL = await listen(server);
+  process.env.MIA_CORE_TOKEN = "core-token";
+
+  const created = await callTool("schedule_create", {
+    title: "Daily",
+    botId: "mia",
+    sessionId: "conv_1",
+    trigger: { type: "cron", cron: "0 9 * * *" },
+    timezone: "Asia/Shanghai",
+    prompt: "Summarize"
+  });
+  const listed = await callTool("schedule_list", {});
+  const paused = await callTool("schedule_pause", { id: "task_core_1" });
+
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[0].url, "/api/tasks/jobs");
+  assert.equal(calls[0].auth, "Bearer core-token");
+  assert.deepEqual(calls[0].body, {
+    kind: "agent",
+    schedule: { type: "cron", cron: "0 9 * * *", timezone: "Asia/Shanghai" },
+    target: {
+      botId: "mia",
+      conversationId: "conv_1",
+      sessionId: "conv_1",
+      title: "Daily",
+      timezone: "Asia/Shanghai",
+      fireMode: "agent",
+      deliveryText: "",
+      originMessageId: ""
+    },
+    instructions: "Summarize"
+  });
+  assert.equal(created.taskId, "task_core_1");
+  assert.equal(created.task.nextFireAt, 1710000000000);
+  assert.equal(calls[1].method, "GET");
+  assert.equal(calls[1].url, "/api/tasks/jobs");
+  assert.equal(listed.tasks[0].id, "task_core_listed");
+  assert.equal(calls[2].method, "PATCH");
+  assert.equal(calls[2].url, "/api/tasks/jobs/task_core_1");
+  assert.deepEqual(calls[2].body, { status: "paused" });
+  assert.equal(paused.task.status, "paused");
 });
 
 test("memory MCP schema does not ask agents to classify memory kinds", () => {

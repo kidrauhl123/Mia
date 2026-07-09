@@ -66,7 +66,7 @@ test("bot directory keeps cloud identity fields for desktop-runtime bots", () =>
   assert.equal(bots[0].name, "Alice Cloud");
   assert.equal(bots[0].bio, "cloud copy");
   assert.equal(bots[0].runtimeKind, "desktop-local");
-  assert.equal(bots[0].runtimeLabel, "运行设备未配置");
+  assert.equal(bots[0].runtimeLabel, "Office Mac");
   assert.deepEqual(bots[0].sourceKinds, ["cloud"]);
   assert.equal(isCloudIdentityBot(bots[0]), true);
   assert.equal(isCloudRuntimeKind(bots[0].runtimeKind), false);
@@ -99,7 +99,7 @@ test("bot directory preserves cloud active runtime over a local mirror", () => {
   assert.equal(bots[0].agentEngine, "claude-code");
 });
 
-test("bot directory reads desktop active runtime from runtimeConfig", () => {
+test("bot directory uses Core runtime label instead of deriving local device status", () => {
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
@@ -108,7 +108,11 @@ test("bot directory reads desktop active runtime from runtimeConfig", () => {
         id: "nono",
         name: "nono",
         runtimeKind: "desktop-local",
-        runtimeConfig: { agentEngine: "claude-code", deviceId: "mac-1", deviceName: "Office Mac" }
+        runtimeLabel: "Core: Office Mac",
+        agentEngine: "claude-code",
+        targetDeviceId: "mac-1",
+        targetDeviceName: "Office Mac",
+        runtimeConfig: { agentEngine: "codex", deviceId: "legacy-device", deviceName: "Legacy Mac" }
       }
     ],
     localBots: [
@@ -123,10 +127,12 @@ test("bot directory reads desktop active runtime from runtimeConfig", () => {
   assert.equal(bots[0].runtimeKind, "desktop-local");
   assert.equal(bots[0].agentEngine, "claude-code");
   assert.equal(bots[0].targetDeviceId, "mac-1");
-  assert.equal(bots[0].runtimeLabel, "本机运行");
+  assert.equal(bots[0].targetDeviceName, "Office Mac");
+  assert.equal(bots[0].runtimeLabel, "Core: Office Mac");
+  assert.equal(bots[0].runtimeConfig, undefined);
 });
 
-test("bot directory does not resolve stale runtime devices through aliases", () => {
+test("bot directory ignores legacy runtimeConfig without Core projection", () => {
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
@@ -152,10 +158,14 @@ test("bot directory does not resolve stale runtime devices through aliases", () 
   });
 
   assert.equal(bots.length, 1);
-  assert.equal(bots[0].runtimeLabel, "Old Mac");
+  assert.equal(bots[0].runtimeLabel, "运行设备未配置");
+  assert.equal(bots[0].agentEngine, "hermes");
+  assert.equal(bots[0].targetDeviceId, "");
+  assert.equal(bots[0].targetDeviceName, "");
+  assert.equal(bots[0].runtimeConfig, undefined);
 });
 
-test("bot directory compacts verbose Mia Desktop device labels", () => {
+test("bot directory does not compact or classify device labels locally", () => {
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
@@ -176,8 +186,10 @@ test("bot directory compacts verbose Mia Desktop device labels", () => {
     }
   });
 
-  assert.equal(bots[0].runtimeLabel, "本机运行");
+  assert.equal(bots[0].runtimeLabel, "运行设备未配置");
   assert.doesNotMatch(bots[0].runtimeLabel, /Mia Desktop|\.local/);
+  assert.equal(bots[0].agentEngine, "hermes");
+  assert.equal(bots[0].targetDeviceId, "");
 });
 
 test("bot directory ignores local-only desktop manifest bots", () => {

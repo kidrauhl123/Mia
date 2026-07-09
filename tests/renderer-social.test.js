@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const sessionHistory = require("../src/shared/session-history");
+const { coreLocalEventEnvelope } = require("../src/main/mia-core/event-client.js");
 
 function loadSocial(options = {}) {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "social.js"), "utf8");
@@ -202,6 +203,16 @@ test("bootstrapAfterLogin does not import local runtime bots as cloud identities
   assert.equal(s.moduleState.conversations[0].id, "botc_u_1_alice");
 });
 
+test("adapterCtx uses Mia Core user id fallback for local Core conversations", () => {
+  const s = loadSocial();
+  s.__mockWindow.__miaCoreUserId = "local";
+  s.initSocialModule({ getState: () => ({ runtime: { user: {} } }), render: () => {}, els: {}, appendTransientChat: () => {} });
+
+  const ctx = s._internalCtx.adapterCtx();
+
+  assert.equal(ctx.self.id, "local");
+});
+
 test("bootstrapAfterLogin asks untitled loaded conversations to generate titles", async () => {
   const s = loadSocial();
   const titleCandidates = [];
@@ -393,6 +404,75 @@ test("focusConversationMessage consumes the first focus on the forced chat rende
   assert.equal(result.found, true);
   assert.ok(renderCalls >= 1);
   assert.equal(chat.scrollTop, 340);
+});
+
+test("setActiveConversationId keeps pending local outgoing messages when delta backfill misses them", async () => {
+  const s = loadSocial();
+  const conversationId = "botc_u_a_codex";
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.cloudSettings = {
+    version: 1,
+    pins: [],
+    readMarks: {},
+    appearance: {},
+    tags: { items: [], assignments: {} },
+    starterEngineBots: {},
+    mutedConversations: [],
+    unreadOverrides: {}
+  };
+  s.moduleState.conversations = [{ id: conversationId, type: "bot", name: "Codex" }];
+  s.moduleState.messageCache.set(conversationId, {
+    messages: [
+      {
+        id: "m_persisted_1",
+        seq: 1,
+        sender_kind: "bot",
+        sender_ref: "codex",
+        body_md: "previous",
+        created_at: "2026-07-08T06:00:00.000Z"
+      },
+      {
+        id: "local_pending_1",
+        seq: 1000000000000,
+        sender_kind: "user",
+        sender_ref: "u_me",
+        body_md: "hi",
+        turn_id: "turn_local_1",
+        status: "sending",
+        created_at: "2026-07-08T06:01:00.000Z",
+        _localPending: true
+      }
+    ],
+    maxSeq: 1
+  });
+  s.__mockWindow.mia.social = {
+    settingsPut: async () => ({ ok: true, data: { version: 2, readMarks: { [conversationId]: 1 } } }),
+    listConversationMessages: async () => ({
+      ok: true,
+      data: {
+        messages: [{
+          id: "m_persisted_1",
+          seq: 1,
+          sender_kind: "bot",
+          sender_ref: "codex",
+          body_md: "previous",
+          created_at: "2026-07-08T06:00:00.000Z"
+        }]
+      }
+    })
+  };
+
+  s.setActiveConversationId(conversationId);
+  await flushPromises(6);
+
+  const messages = s.moduleState.messageCache.get(conversationId).messages;
+  assert.ok(messages.some((message) => message.id === "local_pending_1"), "pending outgoing message must survive stale backfill");
+  assert.deepEqual(Array.from(messages, (message) => message.id), ["m_persisted_1", "local_pending_1"]);
 });
 
 test("focusConversationMessage waits for measurable layout before consuming offscreen focus", async () => {
@@ -772,16 +852,9 @@ test("renderSidebarRows hides bot conversations whose bot identity is gone", () 
   assert.deepEqual(rows.map((row) => row.conversation.id), ["botc_sheet"]);
 });
 
-test("ensureBotConversation syncs external bot runtime config for web controls", async () => {
+test("ensureBotConversation syncs external bot runtime intent for web controls", async () => {
   const s = loadSocial();
   const calls = [];
-  s.__mockWindow.miaEngineContracts = require("../src/shared/engine-contracts.js");
-  s.__mockWindow.miaEngineOptions = {
-    externalModelEntries: () => [
-      { id: "default", model: "", label: "Codex 默认", provider: "codex" },
-      { id: "gpt-5.3-codex", model: "gpt-5.3-codex", label: "GPT-5.3 Codex", provider: "codex" }
-    ]
-  };
   s.initSocialModule({
     getState: () => ({
       runtime: {
@@ -815,17 +888,13 @@ test("ensureBotConversation syncs external bot runtime config for web controls",
   });
 
   assert.equal(calls[1].kind, "runtime");
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body.config)), {
-    agentEngine: "codex",
-    model: "gpt-5.3-codex",
-    providerConnectionId: "codex",
-    modelProfileId: "codex:gpt-5.3-codex",
-    effortLevel: "xhigh",
-    modelEntries: [
-      { value: "default", label: "Codex 默认", model: "", provider: "codex", providerLabel: "" },
-      { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "" }
-    ]
+  assert.equal(Object.hasOwn(calls[1].body, "config"), false);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body.syncIntent)), {
+    agentEngine: "codex"
   });
+  assert.equal(Object.hasOwn(calls[1].body.syncIntent, "model"), false);
+  assert.equal(Object.hasOwn(calls[1].body.syncIntent, "effortLevel"), false);
+  assert.equal(Object.hasOwn(calls[1].body.syncIntent, "modelEntries"), false);
 });
 
 test("ensureBotConversation upserts the ensured conversation into the sidebar cache", async () => {
@@ -1418,9 +1487,9 @@ test("handleCloudEvent bot.upserted preserves active runtime binding fields", ()
     key: "nono",
     name: "nono",
     runtimeKind: "desktop-local",
-    runtimeConfig: { agentEngine: "claude-code", deviceId: "mac-1", deviceName: "Office Mac" },
     agentEngine: "claude-code",
     targetDeviceId: "mac-1",
+    targetDeviceName: "Office Mac",
     deviceId: "mac-1",
     deviceName: "Office Mac",
     runtimeLabel: "Office Mac",
@@ -1579,7 +1648,272 @@ test("sendInActiveConversation shows outgoing cloud messages before the network 
   assert.equal(entry.maxSeq, 1);
 });
 
-test("sendInActiveConversation ensures bot conversations before posting", async () => {
+test("backfill replaces matching local pending user message instead of duplicating it", async () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  const post = deferred();
+  const conversationId = "g_pending_backfill";
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{ id: conversationId, type: "group", name: "Backfill" }];
+  s.moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async () => post.promise,
+    settingsPut: async () => ({ ok: true, data: { version: 2, readMarks: { [conversationId]: 1 } } }),
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
+    listConversationMessages: async () => ({
+      ok: true,
+      data: {
+        messages: [{
+          id: "m_server",
+          seq: 1,
+          sender_kind: "user",
+          sender_ref: "u_me",
+          body_md: "你好"
+        }]
+      }
+    })
+  };
+
+  s.sendInActiveConversation("你好");
+  await flushPromises();
+  assert.deepEqual(Array.from(s.moduleState.messageCache.get(conversationId).messages, (m) => m.body_md), ["你好"]);
+  assert.match(s.moduleState.messageCache.get(conversationId).messages[0].id, /^local_/);
+
+  s.setActiveConversationId(null);
+  s.setActiveConversationId(conversationId);
+  await flushPromises(8);
+
+  const messages = s.moduleState.messageCache.get(conversationId).messages;
+  assert.deepEqual(Array.from(messages, (m) => m.id), ["m_server"]);
+  assert.equal(messages[0].status, undefined);
+  assert.equal(messages[0]._localPending, undefined);
+});
+
+test("server-confirmed outgoing message survives stale backfill until the list window includes it", async () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  const conversationId = "g_backfill_lag";
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{ id: conversationId, type: "group", name: "Lag" }];
+  s.moduleState.messageCache.set(conversationId, {
+    maxSeq: 1,
+    messages: [{ id: "m_old", seq: 1, sender_kind: "bot", sender_ref: "codex", body_md: "old" }]
+  });
+  s._internalCtx.conversationMembersCache.set(conversationId, [
+    { member_kind: "bot", member_ref: "codex", bot_name: "Codex" }
+  ]);
+  let includeSentInBackfill = false;
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async () => ({
+      ok: true,
+      data: { message: { id: "m_sent", seq: 2, sender_kind: "user", sender_ref: "u_me", body_md: "hi" } }
+    }),
+    settingsPut: async () => ({ ok: true, data: { version: 2, readMarks: { [conversationId]: 2 } } }),
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
+    listConversationMessages: async () => ({
+      ok: true,
+      data: {
+        messages: includeSentInBackfill
+          ? [
+              { id: "m_old", seq: 1, sender_kind: "bot", sender_ref: "codex", body_md: "old" },
+              { id: "m_sent", seq: 2, sender_kind: "user", sender_ref: "u_me", body_md: "hi" }
+            ]
+          : [{ id: "m_old", seq: 1, sender_kind: "bot", sender_ref: "codex", body_md: "old" }]
+      }
+    })
+  };
+
+  await s.sendInActiveConversation("hi");
+  assert.deepEqual(Array.from(s.moduleState.messageCache.get(conversationId).messages, (message) => message.id), ["m_old", "m_sent"]);
+
+  s.setActiveConversationId(null);
+  s.setActiveConversationId(conversationId);
+  await flushPromises(6);
+
+  assert.deepEqual(Array.from(s.moduleState.messageCache.get(conversationId).messages, (message) => message.id), ["m_old", "m_sent"]);
+
+  includeSentInBackfill = true;
+  s.setActiveConversationId(null);
+  s.setActiveConversationId(conversationId);
+  await flushPromises(6);
+
+  const sent = s.moduleState.messageCache.get(conversationId).messages.find((message) => message.id === "m_sent");
+  assert.ok(sent);
+  assert.equal(sent._localBackfillPending, undefined);
+});
+
+test("server-confirmed outgoing message with missing sender ref survives stale backfill", async () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  const conversationId = "botc_missing_sender_ref";
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{
+    id: conversationId,
+    type: "bot",
+    name: "Codex",
+    decorations: { botId: "codex", sessionId: "missing_sender_ref", runtimeKind: "desktop-local" }
+  }];
+  s.moduleState.messageCache.set(conversationId, { maxSeq: 1, messages: [] });
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async () => ({
+      ok: true,
+      data: {
+        conversation: {
+          id: conversationId,
+          type: "bot",
+          name: "Codex",
+          decorations: { botId: "codex", sessionId: "missing_sender_ref", runtimeKind: "desktop-local" }
+        },
+        members: [{ member_kind: "bot", member_ref: "codex" }]
+      }
+    }),
+    postConversationMessage: async () => ({
+      ok: true,
+      data: { message: { id: "m_sent_blank_ref", seq: 2, sender_kind: "user", sender_ref: "", body_md: "hi" } }
+    }),
+    settingsPut: async () => ({ ok: true, data: { version: 2, readMarks: { [conversationId]: 3 } } }),
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
+    listConversationMessages: async () => ({
+      ok: true,
+      data: {
+        messages: [{ id: "m_bot_reply", seq: 3, sender_kind: "bot", sender_ref: "codex", body_md: "hello" }]
+      }
+    })
+  };
+
+  await s.sendInActiveConversation("hi");
+  assert.deepEqual(Array.from(s.moduleState.messageCache.get(conversationId).messages, (message) => message.id), ["m_sent_blank_ref"]);
+  assert.equal(s.moduleState.messageCache.get(conversationId).messages[0].sender_ref, "u_me");
+
+  s.setActiveConversationId(null);
+  s.setActiveConversationId(conversationId);
+  await flushPromises(6);
+
+  assert.deepEqual(Array.from(s.moduleState.messageCache.get(conversationId).messages, (message) => message.id), ["m_sent_blank_ref", "m_bot_reply"]);
+  assert.equal(s.moduleState.messageCache.get(conversationId).messages[0].sender_ref, "u_me");
+});
+
+test("sendInActiveConversation appends returned local runtime bot reply without waiting for websocket", async () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  const conversationId = "botc_local_runtime_reply";
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{
+    id: conversationId,
+    type: "bot",
+    name: "Codex",
+    decorations: { botId: "codex", sessionId: "local_runtime_reply", runtimeKind: "desktop-local" }
+  }];
+  s.moduleState.messageCache.set(conversationId, { maxSeq: 0, messages: [] });
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async () => ({
+      ok: true,
+      data: {
+        conversation: {
+          id: conversationId,
+          type: "bot",
+          name: "Codex",
+          decorations: { botId: "codex", sessionId: "local_runtime_reply", runtimeKind: "desktop-local" }
+        },
+        members: [{ member_kind: "bot", member_ref: "codex" }]
+      }
+    }),
+    postConversationMessage: async () => ({
+      ok: true,
+      data: {
+        message: { id: "m_user", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "?" },
+        botMessage: {
+          id: "m_bot",
+          seq: 2,
+          sender_kind: "bot",
+          sender_ref: "codex",
+          body_md: "hello",
+          turn_id: "turn_1",
+          _cloudBridgeRunId: "run_1",
+          _localCoreConversationId: "cloud_bridge_botc_local_runtime_reply"
+        }
+      }
+    })
+  };
+
+  await s.sendInActiveConversation("?");
+
+  const messages = s.moduleState.messageCache.get(conversationId).messages;
+  assert.deepEqual(Array.from(messages, (message) => message.id), ["m_user", "m_bot"]);
+  assert.equal(messages[1].body_md, "hello");
+});
+
+test("sendInActiveConversation does not duplicate a bridge bot reply when websocket final arrives before POST returns", async () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  const post = deferred();
+  const conversationId = "botc_bridge_final_first";
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{
+    id: conversationId,
+    type: "bot",
+    name: "Codex",
+    decorations: { botId: "codex", sessionId: "bridge_final_first", runtimeKind: "desktop-local" }
+  }];
+  s.moduleState.messageCache.set(conversationId, { maxSeq: 0, messages: [] });
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async () => post.promise
+  };
+
+  const sendPromise = s.sendInActiveConversation("你好");
+  await flushPromises();
+  const entry = s.moduleState.messageCache.get(conversationId);
+  const localTurnId = String(entry.messages[0]?.turn_id || "turn_bridge_final_first");
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId,
+      message: {
+        id: "core_bot_reply",
+        seq: 2,
+        sender_kind: "bot",
+        sender_ref: "codex",
+        body_md: "你好，我在。",
+        turn_id: localTurnId
+      },
+    },
+  });
+
+  post.resolve({
+    ok: true,
+    data: {
+      message: { id: "core_user", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "你好", turn_id: localTurnId },
+      botMessage: {
+        id: "local_reply_run_1",
+        seq: 2,
+        sender_kind: "bot",
+        sender_ref: "codex",
+        body_md: "你好，我在。",
+        turn_id: localTurnId,
+        _cloudBridgeRunId: "run_1",
+        _localCoreConversationId: "cloud_bridge_botc_bridge_final_first"
+      }
+    }
+  });
+  await sendPromise;
+
+  const messages = s.moduleState.messageCache.get(conversationId).messages;
+  assert.deepEqual(Array.from(messages, (message) => message.id), ["core_user", "core_bot_reply"]);
+  assert.equal(messages.filter((message) => message.sender_kind === "bot").length, 1);
+});
+
+test("sendInActiveConversation keeps desktop-local bot history on the visible conversation id", async () => {
   const s = loadSocial();
   const calls = [];
   s.moduleState.myUserId = "u_me";
@@ -1618,17 +1952,63 @@ test("sendInActiveConversation ensures bot conversations before posting", async 
 
   await s.sendInActiveConversation("hello bot");
 
-  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), {
-    kind: "ensure",
-    sessionId: "session_probe",
-    body: { botId: "codex", title: "新对话", runtimeKind: "desktop-local" }
-  });
-  assert.equal(calls[1].conversationId, "botc_session_probe");
+  assert.deepEqual(calls.map((call) => call.kind), ["post"]);
+  assert.equal(calls[0].conversationId, "botc_session_probe");
+  assert.equal(calls[0].body.runtimeKind, "desktop-local");
+  assert.equal(calls[0].body.botId, "codex");
+  assert.equal(calls[0].body.sessionId, "session_probe");
+  assert.equal(calls[0].body.agentEngine, "codex");
   assert.equal(s.moduleState.messageCache.get("botc_session_probe").messages[0].status, undefined);
 });
 
-test("sendInActiveConversation moves pending bot messages when ensure returns a canonical conversation id", async () => {
+test("sendInActiveConversation tags cloud bot posts with cloud runtime ownership", async () => {
+  const s = loadSocial();
+  const calls = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async (sessionId, body) => {
+      calls.push({ kind: "ensure", sessionId, body });
+      return {
+        ok: true,
+        data: {
+          conversation: {
+            id: "botc_cloud_probe",
+            type: "bot",
+            name: "Mia",
+            decorations: { botId: "mia", sessionId: "cloud_probe", runtimeKind: "cloud-claude-code" }
+          },
+          members: [{ member_kind: "bot", member_ref: "mia" }]
+        }
+      };
+    },
+    postConversationMessage: async (conversationId, body) => {
+      calls.push({ kind: "post", conversationId, body });
+      return {
+        ok: true,
+        data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: body.bodyMd } }
+      };
+    }
+  };
+  s.moduleState.activeConversationId = "botc_cloud_probe";
+  s.moduleState.conversations = [{
+    id: "botc_cloud_probe",
+    type: "bot",
+    name: "Mia",
+    decorations: { botId: "mia", sessionId: "cloud_probe", runtimeKind: "cloud-claude-code" }
+  }];
+  s.moduleState.messageCache.set("botc_cloud_probe", { messages: [], maxSeq: 0 });
+
+  await s.sendInActiveConversation("hello cloud bot");
+
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
+  assert.equal(calls[0].body.runtimeKind, "cloud-claude-code");
+  assert.equal(calls[1].conversationId, "botc_cloud_probe");
+  assert.equal(calls[1].body.runtimeKind, "cloud-claude-code");
+  assert.equal(calls[1].body.botId, "mia");
+  assert.equal(calls[1].body.sessionId, "cloud_probe");
+});
+
+test("sendInActiveConversation does not move desktop-local bot history into Core-created conversations", async () => {
   const s = loadSocial();
   const calls = [];
   s.moduleState.myUserId = "u_me";
@@ -1676,12 +2056,14 @@ test("sendInActiveConversation moves pending bot messages when ensure returns a 
 
   await s.sendInActiveConversation("hello bot");
 
-  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
-  assert.equal(calls[1].conversationId, "botc_session_probe");
-  assert.equal(s.moduleState.activeConversationId, "botc_session_probe");
-  assert.deepEqual(JSON.parse(JSON.stringify(s.moduleState.messageCache.get("botc_legacy_probe").messages)), []);
+  assert.deepEqual(calls.map((call) => call.kind), ["post"]);
+  assert.equal(calls[0].conversationId, "botc_legacy_probe");
+  assert.equal(calls[0].body.runtimeKind, "desktop-local");
+  assert.equal(calls[0].body.botId, "codex");
+  assert.equal(calls[0].body.sessionId, "session_probe");
+  assert.equal(s.moduleState.activeConversationId, "botc_legacy_probe");
   assert.deepEqual(
-    JSON.parse(JSON.stringify(s.moduleState.messageCache.get("botc_session_probe").messages.map((message) => message.id))),
+    JSON.parse(JSON.stringify(s.moduleState.messageCache.get("botc_legacy_probe").messages.map((message) => message.id))),
     ["m_server"]
   );
 });
@@ -2083,6 +2465,48 @@ test("self websocket echo confirms the active pending bubble without repainting 
   assert.deepEqual(entry.messages.map((m) => m.id), ["m_server_echo"]);
   assert.equal(target.dataset.messageId, "m_server_echo");
   assert.equal(bubble.dataset.messageId, "m_server_echo");
+});
+
+test("self websocket echo preserves sender ref when the server echo omits it", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "g_echo_blank_sender";
+  s.moduleState.conversations = [{ id: "g_echo_blank_sender", type: "group", name: "Echo" }];
+  s.moduleState.messageCache.set("g_echo_blank_sender", {
+    messages: [{
+      id: "local_1",
+      seq: Number.MAX_SAFE_INTEGER,
+      turn_id: "turn_1",
+      sender_kind: "user",
+      sender_ref: "u_me",
+      body_md: "hello once",
+      status: "sending",
+      _localPending: true
+    }],
+    maxSeq: 0
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "g_echo_blank_sender",
+      message: {
+        id: "m_server_echo_blank_sender",
+        seq: 1,
+        turn_id: "turn_1",
+        sender_kind: "user",
+        sender_ref: "",
+        body_md: "hello once"
+      }
+    }
+  });
+
+  const messages = s.moduleState.messageCache.get("g_echo_blank_sender").messages;
+  assert.deepEqual(messages.map((m) => m.id), ["m_server_echo_blank_sender"]);
+  assert.equal(messages[0].sender_ref, "u_me");
+  assert.equal(messages[0]._localPending, undefined);
+  assert.equal(messages[0].status, undefined);
 });
 
 test("sendInActiveConversation reconciles a self websocket echo even when turn_id is absent", async () => {
@@ -3486,6 +3910,95 @@ test("handleCloudEvent cloud_agent_run events track transient conversation strea
   assert.equal(run.tools.map((tool) => tool.name).join(","), "shell");
 });
 
+test("native ACP message.delta text streams into the active bot bubble before completion", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_acp", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_acp", event: { type: "message.delta", text: "你" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_acp", event: { type: "message.delta", text: "好" } },
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_mia").text, "你好");
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /streaming/);
+  assert.match(chat.children[0].innerHTML, /你好/);
+});
+
+test("Core websocket runtime envelopes drive the existing conversation streaming UI state", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+
+  s.handleCloudEvent(coreLocalEventEnvelope({
+    name: "conversation.runtimeStarted",
+    data: { conversationId: "botc_u_a_mia", turnId: "turn_1", engine: "mock-agent", botId: "mia" }
+  }));
+  s.handleCloudEvent(coreLocalEventEnvelope({
+    name: "conversation.runtimeStdout",
+    data: { conversationId: "botc_u_a_mia", turnId: "turn_1", text: "hello from core" }
+  }));
+
+  const run = s.activeConversationRun();
+  assert.equal(run.status, "running");
+  assert.equal(run.turnId, "turn_1");
+  assert.equal(run.text, "hello from core");
+
+  s.handleCloudEvent(coreLocalEventEnvelope({
+    name: "conversation.runtimeFinished",
+    data: { conversationId: "botc_u_a_mia", turnId: "turn_1", ok: true, cancelled: false }
+  }));
+  assert.equal(s.activeConversationRun().status, "complete");
+
+  s.handleCloudEvent(coreLocalEventEnvelope({
+    name: "conversation.messageCreated",
+    data: {
+      conversationId: "botc_u_a_mia",
+      messageId: "msg_1",
+      turnId: "turn_1",
+      role: "assistant",
+      message: {
+        id: "msg_1",
+        seq: 1,
+        sender_kind: "bot",
+        sender_ref: "mia",
+        body_md: "hello from core",
+        turn_id: "turn_1"
+      }
+    }
+  }));
+
+  const entry = s.moduleState.messageCache.get("botc_u_a_mia");
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+  assert.equal(entry.messages.length, 1);
+  assert.equal(entry.messages[0].body_md, "hello from core");
+});
+
 test("stale cloud agent run clears sidebar typing when terminal events are lost", () => {
   let intervalCallback = null;
   let clearedTimer = false;
@@ -3942,7 +4455,8 @@ test("cloud agent run start exposes typing state to the conversation header", ()
   };
   s.renderConversationChat(chat);
 
-  assert.equal(chat.children.length, 0);
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /agent-run-status/);
 });
 
 test("cloud agent run cancelling keeps the conversation busy until the terminal event", () => {
@@ -4011,6 +4525,36 @@ test("renderConversationChat does not label tool-only agent activity as typing",
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /TOOL/);
   assert.doesNotMatch(chat.children[0].innerHTML, /typing-status/);
+});
+
+test("renderConversationChat shows a status row while an agent run has not streamed text yet", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /streaming/);
+  assert.match(chat.children[0].innerHTML, /agent-run-status/);
+  assert.match(chat.children[0].innerHTML, /agent-run-status-loading-dots/);
 });
 
 test("renderConversationChat renders active cloud run status at the bottom of the stream", () => {
@@ -4636,6 +5180,48 @@ test("handleCloudEvent bot reply clears transient cloud agent stream", () => {
     },
   });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+});
+
+test("handleCloudEvent reconciles a cloud bridge local bot mirror with the persisted bot reply", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      message: {
+        id: "local_msg_1",
+        seq: 2,
+        sender_kind: "bot",
+        sender_ref: "mia",
+        body_md: "done",
+        _cloudBridgeRunId: "car_1",
+        _localCoreConversationId: "cloud_bridge_botc_u_a_mia"
+      },
+    },
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      message: {
+        id: "server_msg_1",
+        seq: 2,
+        sender_kind: "bot",
+        sender_ref: "mia",
+        body_md: "done"
+      },
+    },
+  });
+
+  const messages = s.moduleState.messageCache.get("botc_u_a_mia").messages;
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, "server_msg_1");
+  assert.equal(messages[0].body_md, "done");
 });
 
 test("handleCloudEvent bot reply repaints the active header after clearing typing state", () => {

@@ -29,9 +29,9 @@ function createSchedulerMcpBridge(deps = {}) {
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
 
   const fsImpl = deps.fs || fs;
-  const daemonStatus = typeof deps.daemonStatus === "function" ? deps.daemonStatus : () => ({});
-  const daemonSettings = typeof deps.daemonSettings === "function" ? deps.daemonSettings : () => ({});
-  const daemonToken = typeof deps.daemonToken === "function" ? deps.daemonToken : () => "";
+  const coreStatus = typeof deps.coreStatus === "function" ? deps.coreStatus : () => ({});
+  const coreSettings = typeof deps.coreSettings === "function" ? deps.coreSettings : () => ({});
+  const coreToken = typeof deps.coreToken === "function" ? deps.coreToken : () => "";
   const nodePath = typeof deps.nodePath === "function" ? deps.nodePath : () => "";
   const serverScriptPath = typeof deps.serverScriptPath === "function"
     ? deps.serverScriptPath
@@ -89,10 +89,10 @@ function createSchedulerMcpBridge(deps = {}) {
     fsImpl.writeFileSync(filePath, JSON.stringify({ botId, sessionId, originMessageId }, null, 2), "utf8");
   }
 
-  function daemonBaseUrl() {
-    const status = daemonStatus();
+  function coreBaseUrl() {
+    const status = coreStatus();
     if (status?.baseUrl) return status.baseUrl;
-    const settings = daemonSettings();
+    const settings = coreSettings();
     if (settings?.host && settings?.port) {
       return `http://${settings.host}:${settings.port}`;
     }
@@ -100,7 +100,7 @@ function createSchedulerMcpBridge(deps = {}) {
   }
 
   function getSpec() {
-    const baseUrl = daemonBaseUrl();
+    const baseUrl = coreBaseUrl();
     if (!baseUrl) return null;
     const scriptPath = materializeServerScript();
     if (!scriptPath) return null;
@@ -111,8 +111,8 @@ function createSchedulerMcpBridge(deps = {}) {
       command,
       args: [scriptPath],
       env: {
-        MIA_DAEMON_URL: baseUrl,
-        MIA_DAEMON_TOKEN: daemonToken(),
+        MIA_CORE_URL: baseUrl,
+        MIA_CORE_TOKEN: coreToken(),
         MIA_SCHEDULER_CONTEXT_FILE: contextPath()
       },
       alwaysLoad: true
@@ -127,8 +127,8 @@ function createSchedulerMcpBridge(deps = {}) {
       `args = [${toTomlStr(scriptPath)}]`,
       "",
       "[mcp_servers.mia-scheduler.env]",
-      `MIA_DAEMON_URL = ${toTomlStr(baseUrl)}`,
-      `MIA_DAEMON_TOKEN = ${toTomlStr(daemonToken())}`,
+      `MIA_CORE_URL = ${toTomlStr(baseUrl)}`,
+      `MIA_CORE_TOKEN = ${toTomlStr(coreToken())}`,
       `MIA_SCHEDULER_CONTEXT_FILE = ${toTomlStr(contextPath())}`,
       ""
     ].join("\n");
@@ -143,7 +143,7 @@ function createSchedulerMcpBridge(deps = {}) {
     const codexHome = profile.home;
     if (options.syncSchedulerMcp === false) return codexHome;
 
-    const baseUrl = daemonBaseUrl();
+    const baseUrl = coreBaseUrl();
     if (!baseUrl) return codexHome;
     const scriptPath = materializeServerScript();
     if (!scriptPath) return codexHome;
@@ -165,7 +165,7 @@ function createSchedulerMcpBridge(deps = {}) {
 
   return {
     contextPath,
-    daemonBaseUrl,
+    coreBaseUrl,
     ensureCodexHome,
     getSpec,
     resetNodePathCache,

@@ -22,20 +22,16 @@ function setup(t, overrides = {}) {
     appearanceSettings: path.join(home, "mia-appearance.json"),
     userProfile: path.join(home, "mia-user.json"),
     effortSettings: path.join(home, "mia-effort.json"),
-    memorySettings: path.join(home, "mia-memory-settings.json"),
     permissionSettings: path.join(home, "mia-permissions.json"),
-    daemonSettings: path.join(home, "mia-daemon.json"),
+    coreSettings: path.join(home, "mia-core.json"),
+    daemonSettings: path.join(home, "mia-core.json"),
     cloudSettings: path.join(home, "mia-cloud.json"),
     windowSettings: path.join(home, "mia-window.json")
   };
-  const writes = [];
   const store = createSettingsStore({
     runtimePaths: () => runtime,
     readJson,
-    writeRuntimeConfig: (port) => writes.push(["runtime-config", port]),
-    readConfiguredPort: () => 19001,
-    getEngineState: () => ({ port: 0 }),
-    MIA_DAEMON_DEFAULT_PORT: 27861,
+    MIA_CORE_DEFAULT_PORT: 27861,
     MIA_CLOUD_DEFAULT_URL: "https://cloud.example.test",
     normalizeAvatarCrop: (crop) => ({
       x: Number(crop?.x) || 50,
@@ -44,7 +40,7 @@ function setup(t, overrides = {}) {
     }),
     ...overrides
   });
-  return { runtime, store, writes };
+  return { runtime, store };
 }
 
 test("appearanceSettings merges saved appearance over defaults", (t) => {
@@ -190,7 +186,7 @@ test("normalizeEffortLevel keeps supported engine effort levels", (t) => {
 });
 
 test("permissionSettings preserves engine-level external permission modes", (t) => {
-  const { runtime, store, writes } = setup(t);
+  const { runtime, store } = setup(t);
 
   const next = store.writePermissionSettings({
     engine: "codex",
@@ -206,11 +202,10 @@ test("permissionSettings preserves engine-level external permission modes", (t) 
       codex: ":danger-full-access"
     }
   });
-  assert.deepEqual(writes, []);
 });
 
 test("writePermissionSettings keeps global Hermes permission separate from external engines", (t) => {
-  const { store, writes } = setup(t);
+  const { store } = setup(t);
 
   store.writePermissionSettings({ engine: "codex", mode: ":workspace" });
   const next = store.writePermissionSettings({ mode: "yolo" });
@@ -219,7 +214,6 @@ test("writePermissionSettings keeps global Hermes permission separate from exter
   assert.equal(next.engines.codex, ":workspace");
   assert.equal(store.enginePermissionMode("hermes"), "yolo");
   assert.equal(store.enginePermissionMode("codex"), ":workspace");
-  assert.deepEqual(writes, [["runtime-config", 19001]]);
 });
 
 test("windowSettings reads and writes normalized bounds", (t) => {
@@ -312,17 +306,34 @@ test("writeUserProfile preserves status badge choices", (t) => {
   assert.deepEqual(readJson(runtime.userProfile, {}).statusBadge, badge);
 });
 
-test("daemon settings are always enabled and ignore stale disable writes", (t) => {
+test("Core settings are always enabled and old daemon settings APIs are aliases", (t) => {
   const { runtime, store } = setup(t);
-  fs.mkdirSync(path.dirname(runtime.daemonSettings), { recursive: true });
-  fs.writeFileSync(runtime.daemonSettings, JSON.stringify({ enabled: false, host: "localhost", port: 27862 }));
+  fs.mkdirSync(path.dirname(runtime.coreSettings), { recursive: true });
+  fs.writeFileSync(runtime.coreSettings, JSON.stringify({ enabled: false, host: "localhost", port: 27862 }));
 
-  assert.equal(store.daemonSettings().enabled, true);
+  assert.equal(store.coreSettings().enabled, true);
+  assert.deepEqual(store.daemonSettings(), store.coreSettings());
 
-  const next = store.writeDaemonSettings({ enabled: false, host: "localhost", port: 27863 });
+  const next = store.writeCoreSettings({ enabled: false, host: "localhost", port: 27863 });
+  const legacyNext = store.writeDaemonSettings({ enabled: false, host: "localhost", port: 27864 });
 
   assert.deepEqual(next, { enabled: true, host: "localhost", port: 27863 });
-  assert.equal(readJson(runtime.daemonSettings, {}).enabled, true);
+  assert.deepEqual(legacyNext, { enabled: true, host: "localhost", port: 27864 });
+  assert.equal(readJson(runtime.coreSettings, {}).enabled, true);
+  assert.equal(readJson(runtime.coreSettings, {}).port, 27864);
+});
+
+test("Core settings default host and port use Core configuration names", (t) => {
+  const { store } = setup(t, {
+    MIA_CORE_DEFAULT_PORT: 27901,
+    env: { MIA_CORE_HOST: "localhost" }
+  });
+
+  assert.deepEqual(store.defaultCoreSettings(), {
+    enabled: true,
+    host: "localhost",
+    port: 27901
+  });
 });
 
 test("cursor-only writeCloudSettings cannot wipe credentials after a failed read", (t) => {
@@ -391,22 +402,6 @@ test("writeCloudSettings preserves cloud agent runtime until logout", (t) => {
 
   const loggedOut = store.writeCloudSettings({ enabled: false, token: "", user: null });
   assert.equal(loggedOut.agentRuntime, null);
-});
-
-test("memorySettings defaults on and persists explicit off", (t) => {
-  const { runtime, store } = setup(t);
-
-  assert.deepEqual(store.memorySettings(), { enabled: true });
-
-  const off = store.writeMemorySettings({ enabled: false });
-  assert.deepEqual(off, { enabled: false });
-  assert.deepEqual(readJson(runtime.memorySettings, {}), { enabled: false });
-
-  const unchanged = store.writeMemorySettings({});
-  assert.deepEqual(unchanged, { enabled: false });
-
-  const on = store.writeMemorySettings({ enabled: true });
-  assert.deepEqual(on, { enabled: true });
 });
 
 test("writeCloudSettings replaces the file atomically without tmp leftovers", (t) => {

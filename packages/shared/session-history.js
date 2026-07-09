@@ -19,7 +19,8 @@
   function conversationType(conversation, conversationId = "") {
     const id = String(conversationId || conversation?.id || "");
     return conversation?.type
-      || (id.startsWith("dm:") ? "dm"
+      || (conversation?.kind === "bot_session" || conversation?.botId || conversation?.bot_id ? "bot"
+        : id.startsWith("dm:") ? "dm"
         : id.startsWith("botc_") ? "bot"
         : (id.startsWith("g_") || id.startsWith("g-")) ? "group"
         : "");
@@ -86,7 +87,7 @@
     if (!conversation) return options.defaultTitle || "新对话";
     const type = conversationType(conversation, conversation.id || "");
     if (type === "bot") {
-      if (conversation.name) return conversation.name;
+      if (conversation.name || conversation.title) return conversation.name || conversation.title;
       const id = botId(conversation);
       const bot = findBot(id, options.bots);
       return botName(bot) || id || options.defaultTitle || "新对话";
@@ -163,7 +164,7 @@
   function botDisplayTitle(conversation, bots = [], fallback = "对话") {
     const id = botId(conversation);
     const bot = findBot(id, bots);
-    return botName(bot) || conversation?.decorations?.botName || conversation?.name || id || fallback;
+    return botName(bot) || conversation?.decorations?.botName || conversation?.name || conversation?.title || id || fallback;
   }
 
   function conversationListTitle(conversation, bots = [], fallback = "对话") {

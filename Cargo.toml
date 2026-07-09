@@ -1,0 +1,66 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/mia-core-common",
+    "crates/mia-core-api-types",
+    "crates/mia-core-db",
+    "crates/mia-core-realtime",
+    "crates/mia-core-runtime",
+    "crates/mia-core-system",
+    "crates/mia-core-memory",
+    "crates/mia-core-conversation",
+    "crates/mia-core-bot",
+    "crates/mia-core-tasks",
+    "crates/mia-core-mcp",
+    "crates/mia-core-cloud",
+    "crates/mia-core-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+mia-core-common = { path = "crates/mia-core-common" }
+mia-core-api-types = { path = "crates/mia-core-api-types" }
+mia-core-db = { path = "crates/mia-core-db" }
+mia-core-realtime = { path = "crates/mia-core-realtime" }
+mia-core-runtime = { path = "crates/mia-core-runtime" }
+mia-core-system = { path = "crates/mia-core-system" }
+mia-core-memory = { path = "crates/mia-core-memory" }
+mia-core-conversation = { path = "crates/mia-core-conversation" }
+mia-core-bot = { path = "crates/mia-core-bot" }
+mia-core-tasks = { path = "crates/mia-core-tasks" }
+mia-core-mcp = { path = "crates/mia-core-mcp" }
+mia-core-cloud = { path = "crates/mia-core-cloud" }
+mia-core-app = { path = "crates/mia-core-app" }
+
+anyhow = "1"
+async-stream = "0.3"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["ws"] }
+base64 = "0.22"
+chrono = "0.4"
+chrono-tz = "0.10"
+clap = { version = "4", features = ["derive"] }
+cron = "0.15"
+dashmap = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "stream"] }
+oauth2 = "5.0.0-rc.1"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1", features = ["v7", "serde"] }
+time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate"] }
+tempfile = "3"

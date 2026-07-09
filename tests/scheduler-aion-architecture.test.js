@@ -20,12 +20,11 @@ test("scheduler follows AION-style structured tool path without app-side reminde
   }
 
   const mainSource = read("src/main.js");
-  const localResponderSource = read("src/main/social/local-bot-responder.js");
   const cloudDispatcherSource = read("src/cloud-agent/dispatcher.js");
+  assert.equal(fs.existsSync(path.join(root, "src/main/social/local-bot-responder.js")), false, "retired local bot responder should not return as a scheduler side channel");
 
   for (const [label, source] of [
     ["main", mainSource],
-    ["local responder", localResponderSource],
     ["cloud dispatcher", cloudDispatcherSource]
   ]) {
     assert.doesNotMatch(source, /app-scheduler-reminder|reminder-intent|scheduler-skill-detector|handleReminderChatTurn|createScheduledReminderFromTurn|parseRelativeReminderIntent|isSchedulerIntent/, `${label} must not use direct reminder parsing`);

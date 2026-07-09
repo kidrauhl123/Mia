@@ -1,0 +1,20 @@
+[package]
+name = "mia-core-system"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mia-core-api-types.workspace = true
+mia-core-db.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

@@ -313,7 +313,7 @@ test("package exposes repeatable desktop permission smoke without enabling it in
   assert.match(source, /cancelId/);
   const main = readScript("src/main.js");
   assert.match(main, /MIA_ALLOW_MULTIPLE_INSTANCES/);
-  assert.match(main, /!IS_DAEMON_PROCESS && !ALLOW_MULTIPLE_INSTANCES/);
+  assert.match(main, /!IS_CORE_PROCESS && !ALLOW_MULTIPLE_INSTANCES/);
 });
 
 test("desktop update publisher injects versioned release notes into mac feed", () => {

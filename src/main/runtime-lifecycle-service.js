@@ -5,6 +5,9 @@ function createRuntimeLifecycleService({
   getRuntimeStatus,
   initializeRuntimeCore,
   isDaemonProcess = false,
+  prepareEngineRuntimeConfigAsync,
+  refreshAgentWorkspaceAsync,
+  refreshMemorySettingsAsync,
   refreshSystemHermesAsync,
   setDaemonLastError,
   startDaemonService,
@@ -41,6 +44,36 @@ function createRuntimeLifecycleService({
       Promise.resolve()
         .then(() => startDaemonService?.())
         .then(() => mark("daemon:start-done"))
+        .then(() => {
+          if (typeof prepareEngineRuntimeConfigAsync !== "function") return null;
+          return Promise.resolve()
+            .then(() => prepareEngineRuntimeConfigAsync())
+            .then(() => mark("engine-runtime-config:prepare-done"))
+            .catch((error) => {
+              appendDaemonLog?.(`Hermes runtime Core config refresh failed: ${error?.message || error}`);
+              mark("engine-runtime-config:prepare-error", { message: String(error?.message || error) });
+            });
+        })
+        .then(() => {
+          if (typeof refreshAgentWorkspaceAsync !== "function") return null;
+          return Promise.resolve()
+            .then(() => refreshAgentWorkspaceAsync())
+            .then(() => mark("agent-workspace:refresh-done"))
+            .catch((error) => {
+              appendDaemonLog?.(`Agent workspace Core refresh failed: ${error?.message || error}`);
+              mark("agent-workspace:refresh-error", { message: String(error?.message || error) });
+            });
+        })
+        .then(() => {
+          if (typeof refreshMemorySettingsAsync !== "function") return null;
+          return Promise.resolve()
+            .then(() => refreshMemorySettingsAsync())
+            .then(() => mark("memory-settings:refresh-done"))
+            .catch((error) => {
+              appendDaemonLog?.(`Memory settings Core refresh failed: ${error?.message || error}`);
+              mark("memory-settings:refresh-error", { message: String(error?.message || error) });
+            });
+        })
         .catch((error) => {
           const message = String(error?.message || error);
           setDaemonLastError?.(message);

@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const ROOT = path.join(__dirname, "..");
+const LEGACY_CORE_ENTRY = path.join("src", "core", "mia-core.js");
 
 function read(rel) {
   return fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -18,35 +19,32 @@ test("main gates cloud conversation bot invocation execution behind the Core pro
     /const\s+botExecutionCore\s*=\s*createBotExecutionCore\(/,
     "foreground main must not unconditionally instantiate the bot execution Module"
   );
-  assert.match(
+  assert.doesNotMatch(
     main,
-    /const\s+botExecutionCore\s*=\s*IS_DAEMON_PROCESS\s*\?\s*createBotExecutionCore\(/,
-    "bot execution may only be constructed by the Core/daemon process"
+    /createBotExecutionCore|const\s+botExecutionCore\b/,
+    "Electron main must not construct the retired JS bot execution Module"
   );
   assert.doesNotMatch(
     main,
     /const\s+localBotResponder\s*=\s*createLocalBotResponder\(/,
     "foreground main must not unconditionally instantiate the local bot responder Module"
   );
-  assert.match(
+  assert.doesNotMatch(
     main,
-    /const\s+localBotResponder\s*=\s*IS_DAEMON_PROCESS\s*\?\s*createLocalBotResponder\(/,
-    "local bot responder may only be constructed by the Core/daemon process"
+    /createLocalBotResponder|const\s+localBotResponder\b/,
+    "Electron main must not construct the retired JS local bot responder Module"
   );
   assert.match(main, /createCloudEventsClient/, "main may construct the cloud events adapter, but it must not host sockets in foreground");
   assert.doesNotMatch(main, /createMainGroupConductor/, "main must not instantiate a desktop group conductor");
   assert.doesNotMatch(main, /createMainBotConversationResponder/, "main must not instantiate a desktop DM auto-responder");
-  assert.match(main, /createMainBotRuntimeDispatcher/, "main must instantiate the unified bot runtime dispatcher adapter");
-  assert.match(main, /shouldHandleLocalCloudConversationAi/, "main must gate AI execution with cloud idempotency aware process ownership");
-  assert.match(
+  assert.doesNotMatch(main, /createMainBotRuntimeDispatcher/, "main must not route Core-owned cloud event frames through the JS dispatcher");
+  assert.doesNotMatch(main, /shouldHandleLocalCloudConversationAi/, "main must not keep cloud event execution ownership in Electron");
+  assert.doesNotMatch(
     cloudEventsClient,
     /message\.type === CloudEvent\.ConversationBotInvocationRequested[\s\S]*botRuntimeDispatcher\?\.handleCloudEvent\?\.\(message\)/,
-    "explicit bot invocation events must enter the unified bot runtime dispatcher"
+    "explicit bot invocation events must no longer enter the JS dispatcher from Cloud Events"
   );
-  const dispatcher = read("src/main/social/bot-runtime-dispatcher.js");
-  assert.match(dispatcher, /localBotResponder\.respond/, "dispatcher must own explicit desktop-local invocation execution");
-  assert.doesNotMatch(dispatcher, /mainGroupConductor/, "dispatcher must not run group conductor fan-out from message events");
-  assert.doesNotMatch(dispatcher, /mainBotConversationResponder/, "dispatcher must not re-derive invocation from raw message events");
+  assert.match(cloudEventsClient, /startCloudEventsRequest/, "cloud events client should only request Core lifecycle start");
   assert.doesNotMatch(
     cloudEventsClient,
     /"conversation\.(bot_invocation_requested|message_appended)"/,
@@ -55,45 +53,24 @@ test("main gates cloud conversation bot invocation execution behind the Core pro
   assert.doesNotMatch(main, /function handleCloudEventsMessage/, "main must not own cloud event routing implementation");
   assert.doesNotMatch(main, /let cloudEventsClient/, "main must not own cloud events websocket state");
   assert.doesNotMatch(main, /cloudEventsReconnectTimer/, "main must not own cloud events reconnect timer state");
+  assert.equal(fs.existsSync(path.join(ROOT, "src/main/social/bot-runtime-dispatcher.js")), false, "retired JS cloud bot dispatcher should be deleted");
+  assert.equal(fs.existsSync(path.join(ROOT, "src/main/social/local-bot-responder.js")), false, "retired JS local bot responder should be deleted");
+  assert.equal(fs.existsSync(path.join(ROOT, "src/main/bot-execution-core.js")), false, "retired JS bot execution core should be deleted");
 });
 
 test("cloud events execution and cursor have a single owner (ADR 2026-06-12)", () => {
   const main = read("src/main.js");
-  const core = read("src/core/mia-core.js");
-  const responder = read("src/main/social/local-bot-responder.js");
-  // Migration slice 5c: the daemon is the standalone node Core, so the cloud
-  // socket boot now lives in Core's startWithCloud(), not an Electron
-  // `if (IS_DAEMON_PROCESS)` whenReady branch (deleted). Core keeps BOTH the
-  // events and bridge sockets alive when cloud is enabled with a token.
-  assert.match(
-    core,
-    /async function startWithCloud\(\) \{[\s\S]*cloudEvents\(\)\.start\(\);[\s\S]*cloudBridge\(\)\.start\(\);[\s\S]*\}/,
-    "node Core (the daemon) must keep both the cloud events and bridge sockets alive"
-  );
-  // The Electron process is never the daemon now: it must NOT re-host the cloud
-  // sockets behind an IS_DAEMON_PROCESS whenReady branch (the deleted GUI daemon).
+
+  assert.equal(fs.existsSync(path.join(ROOT, LEGACY_CORE_ENTRY)), false, "old Node Core entry should be deleted");
   assert.doesNotMatch(
     main,
-    /if \(IS_DAEMON_PROCESS\) \{[\s\S]*startCloudRuntimeSockets\(\);[\s\S]*setInterval/,
-    "Electron must not boot the cloud sockets as a daemon — node Core owns that boot"
+    /if \(IS_CORE_PROCESS\) \{[\s\S]*startCloudRuntimeSockets\(\);[\s\S]*setInterval/,
+    "Electron must not inline cloud socket boot behind a daemon branch"
   );
-  assert.match(
-    responder,
-    /return Boolean\(isDaemon && daemonEnabled\);/,
-    "execution must have a single owner: daemon executes, window never covers a dead daemon (ADR 2026-06-12)"
-  );
-  // Single-writer cursor: node Core (the daemon) persists; the Electron window
-  // is never the daemon so its persistCursor is false-by-construction.
-  assert.match(
-    core,
-    /persistCursor: \(\) => true/,
-    "node Core (the daemon) must be the single writer of the lastEventSeq cursor"
-  );
-  assert.match(
-    main,
-    /persistCursor: \(\) => IS_DAEMON_PROCESS/,
-    "the Electron window must never persist the cursor (IS_DAEMON_PROCESS is false-by-construction)"
-  );
+  assert.match(main, /\/api\/cloud\/status/, "cloud status should be read through the Rust Core HTTP API");
+  assert.equal(fs.existsSync(path.join(ROOT, "src/main/social/local-bot-responder.js")), false, "execution must have a single owner in Rust Core, not a dead JS responder");
+  const cloudEventsBlock = main.match(/cloudEventSocketRuntime = createCloudEventsClient\(\{[\s\S]*?\n\}\);/)?.[0] || "";
+  assert.doesNotMatch(cloudEventsBlock, /persistCursor|writeCloudSettings/, "Electron must not write the cloud events cursor");
 });
 
 test("desktop only manages a daemon running from the same runtime home", () => {
@@ -126,19 +103,16 @@ test("foreground shutdown cleanup does not dereference daemon-only AgentSession 
 
 test("daemon startup does not run foreground MCP initialization before serving control API", () => {
   const main = read("src/main.js");
-  const core = read("src/core/mia-core.js");
-  // Migration slice 5c: the foreground MCP warmup is a WINDOW-only concern. The
-  // node Core daemon never imports/runs startupMcpInitializer, so its cold start
-  // serves the control server without that warmup blocking it.
+  assert.equal(fs.existsSync(path.join(ROOT, LEGACY_CORE_ENTRY)), false, "old Node Core entry should stay deleted");
   assert.match(
     main,
     /startupMcpInitializer\.start\(\);\s*\n\s*const win = createWindow\(\);/,
     "the foreground MCP warmup must run only on the window startup path"
   );
   assert.doesNotMatch(
-    core,
-    /startupMcpInitializer/,
-    "the node Core daemon must not run the foreground MCP warmup before serving the control API"
+    main,
+    /require\(["']\.\/core\/mia-core\.js["']\)|src\/core\/mia-core/,
+    "Electron main must not import the deleted Node Core entry"
   );
 });
 
@@ -152,7 +126,7 @@ test("daemon bridge capability URL warms local Agent inventory when cache is col
   assert.doesNotMatch(main, /engines\.openClaw/, "bridge capabilities must not advertise removed OpenClaw support");
   assert.match(
     main,
-    /IS_DAEMON_PROCESS && !ids\.length && typeof localAgentEngineService\?\.localAgentEngines === "function"[\s\S]*localAgentEngineService\.localAgentEngines\(\)/,
+    /IS_CORE_PROCESS && !ids\.length && typeof localAgentEngineService\?\.localAgentEngines === "function"[\s\S]*localAgentEngineService\.localAgentEngines\(\)/,
     "daemon bridge startup must synchronously warm cold Agent inventory before first cloud registration"
   );
 });

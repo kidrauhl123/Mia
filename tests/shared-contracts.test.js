@@ -150,28 +150,18 @@ test("session history contract is shared by desktop and web clients", () => {
   assert.equal(botIdentity.botConversationId("u_mia"), "botc_u_mia");
 });
 
-test("bot runtime control contract saves model, effort, and permission patches", async () => {
+test("bot runtime control contract sends model, effort, and permission intents", async () => {
   const contract = require("../src/shared/bot-runtime-control");
   const calls = [];
   const cache = new Map();
   const api = async (url, options = {}) => {
     calls.push({ url, options });
-    if (!options.method) {
-      return {
-        binding: {
-          botId: "mia",
-          runtimeKind: "cloud-claude-code",
-          enabled: true,
-          config: { model: "old-model", effortLevel: "low" }
-        }
-      };
-    }
     return {
       binding: {
         botId: "mia",
         runtimeKind: options.body.runtimeKind,
         enabled: options.body.enabled,
-        config: options.body.config
+        controlIntent: options.body.controlIntent
       }
     };
   };
@@ -209,34 +199,31 @@ test("bot runtime control contract saves model, effort, and permission patches",
   });
 
   const putCalls = calls.filter((call) => call.options.method === "PUT");
-  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-claude-code");
+  assert.equal(calls.length, 3);
   assert.equal(putCalls.length, 3);
-  assert.deepEqual(putCalls[0].options.body.config, {
-    model: "gpt-5.3",
-    providerConnectionId: "mia",
-    modelProfileId: "mia:gpt-5.3",
-    effortLevel: "low"
+  assert.deepEqual(putCalls[0].options.body.controlIntent, {
+    field: "model",
+    value: "mia-auto",
+    modelEntries: [{
+      value: "mia-auto",
+      label: "GPT",
+      model: "gpt-5.3",
+      provider: "mia",
+      modelProfileId: "mia:gpt-5.3"
+    }]
   });
-  assert.deepEqual(putCalls[1].options.body.config, {
-    model: "gpt-5.3",
-    providerConnectionId: "mia",
-    modelProfileId: "mia:gpt-5.3",
-    effortLevel: "high"
+  assert.deepEqual(putCalls[1].options.body.controlIntent, {
+    field: "effortLevel",
+    value: "high",
+    modelEntries: []
   });
-  assert.deepEqual(putCalls[2].options.body.config, {
-    model: "gpt-5.3",
-    providerConnectionId: "mia",
-    modelProfileId: "mia:gpt-5.3",
-    effortLevel: "high",
-    permissionMode: "auto"
+  assert.deepEqual(putCalls[2].options.body.controlIntent, {
+    field: "permissionMode",
+    value: "auto",
+    modelEntries: []
   });
-  assert.deepEqual(cache.get("mia:cloud-claude-code")?.config, {
-    model: "gpt-5.3",
-    providerConnectionId: "mia",
-    modelProfileId: "mia:gpt-5.3",
-    effortLevel: "high",
-    permissionMode: "auto"
-  });
+  assert.equal(Object.hasOwn(putCalls[0].options.body, "config"), false);
+  assert.deepEqual(cache.get("mia:cloud-claude-code")?.controlIntent, putCalls[2].options.body.controlIntent);
 });
 
 test("bot runtime control accepts botId for runtime reads", async () => {
@@ -263,25 +250,9 @@ test("bot runtime control accepts botId for runtime reads", async () => {
   assert.equal(binding.botId, "mia");
 });
 
-test("bot runtime control accepts botId for direct config saves", async () => {
+test("bot runtime control does not expose direct config saves", () => {
   const contract = require("../src/shared/bot-runtime-control");
-  const calls = [];
-  const result = await contract.saveBotRuntimeConfig({
-    api: async (url, options = {}) => {
-      calls.push({ url, options });
-      if (!options.method) return { binding: { botId: "mia", runtimeKind: "cloud-claude-code", enabled: true, config: {} } };
-      return { binding: { botId: "mia", runtimeKind: options.body.runtimeKind, enabled: true, config: options.body.config } };
-    },
-    botId: "mia",
-    runtimeKind: "cloud-claude-code",
-    patch: { model: "mia-auto" }
-  });
-
-  assert.equal(result.saved, true);
-  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-claude-code");
-  assert.equal(calls[1].url, "/api/me/bots/mia/runtime");
-  assert.equal(calls[1].options.method, "PUT");
-  assert.deepEqual(calls[1].options.body.config, { model: "mia-auto" });
+  assert.equal(contract.saveBotRuntimeConfig, undefined);
 });
 
 test("main chat engine registry reuses the shared engine contract", () => {

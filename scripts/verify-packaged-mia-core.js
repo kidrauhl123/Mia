@@ -1,7 +1,6 @@
 "use strict";
 
 const childProcess = require("node:child_process");
-const crypto = require("node:crypto");
 const fs = require("node:fs");
 const net = require("node:net");
 const os = require("node:os");
@@ -11,17 +10,36 @@ const root = path.join(__dirname, "..");
 const DEFAULT_TIMEOUT_MS = Number(process.env.MIA_PACKAGED_CORE_VERIFY_TIMEOUT_MS || 10000);
 
 function normalizeArch(arch = "") {
-  if (arch === "amd64") return "x64";
-  return arch;
+  const value = String(arch || "").trim().toLowerCase();
+  if (value === "amd64") return "x64";
+  if (value === "aarch64") return "arm64";
+  return value;
+}
+
+function normalizePlatform(platform = "") {
+  const value = String(platform || "").trim().toLowerCase();
+  if (["mac", "macos", "darwin"].includes(value)) return "darwin";
+  if (["win", "win32", "windows"].includes(value)) return "win32";
+  if (value === "linux") return "linux";
+  return "";
+}
+
+function defaultTargetArch() {
+  return normalizeArch(os.arch()) || "x64";
+}
+
+function rustCoreBinaryName(platform = process.platform) {
+  return normalizePlatform(platform) === "win32" ? "mia-core.exe" : "mia-core";
 }
 
 function canRunTargetArch({ arch = "", hostArch = os.arch(), platform = process.platform } = {}) {
   const targetArch = normalizeArch(arch);
   const currentArch = normalizeArch(hostArch);
   if (!targetArch || targetArch === currentArch) return true;
-  if (platform !== "darwin") return true;
+  if (normalizePlatform(platform) !== "darwin") return true;
   return false;
 }
+
 function freePort(host = "127.0.0.1") {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -62,7 +80,7 @@ function macAppCandidates(rootDir, arch = "") {
 
 function resolvePackagedAppPath({ rootDir = root, appPath = "", arch = "" } = {}) {
   if (appPath) return path.resolve(appPath);
-  for (const candidate of macAppCandidates(rootDir, arch)) {
+  for (const candidate of macAppCandidates(rootDir, normalizeArch(arch))) {
     if (fs.existsSync(candidate)) return candidate;
   }
   const releaseDir = path.join(rootDir, "release");
@@ -80,15 +98,21 @@ function resourcesForApp(appPath) {
   return path.join(appPath, "Contents", "Resources");
 }
 
-function collectRequiredPaths(appPath) {
+function collectRequiredPaths(appPath, { platform = process.platform, arch = "" } = {}) {
+  const targetPlatform = normalizePlatform(platform) || platform;
+  const targetArch = normalizeArch(arch) || defaultTargetArch();
   const resourcesPath = resourcesForApp(appPath);
-  const unpackedRoot = path.join(resourcesPath, "app.asar.unpacked");
+  const packageJsonPath = path.join(resourcesPath, "app.asar.unpacked", "package.json");
+  const corePath = path.join(
+    resourcesPath,
+    "bundled-mia-core",
+    `${targetPlatform}-${targetArch}`,
+    rustCoreBinaryName(targetPlatform)
+  );
   return {
     resourcesPath,
-    unpackedRoot,
-    nodePath: path.join(resourcesPath, process.platform === "win32" ? "mia-node.exe" : "mia-node"),
-    coreEntry: path.join(unpackedRoot, "src", "core", "mia-core.js"),
-    packageJsonPath: path.join(unpackedRoot, "package.json")
+    packageJsonPath,
+    corePath
   };
 }
 
@@ -114,7 +138,7 @@ async function waitForHealth(baseUrl, { timeoutMs = DEFAULT_TIMEOUT_MS, fetchImp
     if (child && child.exitCode !== null) {
       return {
         ok: false,
-        error: `packaged Mia Core exited before /health responded (code ${child.exitCode})`
+        error: `packaged Mia Rust Core exited before /health responded (code ${child.exitCode})`
       };
     }
     try {
@@ -135,64 +159,6 @@ async function waitForHealth(baseUrl, { timeoutMs = DEFAULT_TIMEOUT_MS, fetchImp
   };
 }
 
-function writeVerifyDaemonToken(home) {
-  const token = crypto.randomBytes(32).toString("hex");
-  fs.mkdirSync(home, { recursive: true });
-  fs.writeFileSync(path.join(home, "mia-daemon.key"), `${token}\n`, { mode: 0o600 });
-  return token;
-}
-
-async function probeJson(baseUrl, route, { method = "GET", token = "", body = null, fetchImpl = fetch } = {}) {
-  const response = await fetchImpl(`${baseUrl}${route}`, {
-    method,
-    headers: {
-      Authorization: token ? `Bearer ${token}` : "",
-      "Content-Type": "application/json"
-    },
-    ...(body === null ? {} : { body: JSON.stringify(body) })
-  });
-  const text = await response.text().catch(() => "");
-  let json = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = null;
-  }
-  return { route, status: response.status, ok: response.ok, text, json };
-}
-
-async function probeRequiredCoreRoutes(baseUrl, { token = "", fetchImpl = fetch } = {}) {
-  const workspace = await probeJson(baseUrl, "/api/agent-workspace", { token, fetchImpl });
-  if (!workspace.ok || !workspace.json || typeof workspace.json.path !== "string") {
-    return {
-      ok: false,
-      route: workspace.route,
-      error: `${workspace.route} did not return a workspace snapshot (HTTP ${workspace.status})`
-    };
-  }
-
-  const chatSend = await probeJson(baseUrl, "/api/chat/send", {
-    method: "POST",
-    token,
-    fetchImpl,
-    body: {}
-  });
-  if (chatSend.status === 404 || chatSend.status === 501) {
-    return {
-      ok: false,
-      route: chatSend.route,
-      error: `${chatSend.route} missing or unavailable in packaged Core (HTTP ${chatSend.status})`
-    };
-  }
-
-  return {
-    ok: true,
-    routes: {
-      agentWorkspace: workspace,
-      chatSend
-    }
-  };
-}
 async function verifyPackagedMiaCore({
   rootDir = root,
   appPath = "",
@@ -202,7 +168,9 @@ async function verifyPackagedMiaCore({
   hostArch = os.arch(),
   platform = process.platform
 } = {}) {
-  const resolvedAppPath = resolvePackagedAppPath({ rootDir, appPath, arch });
+  const targetPlatform = normalizePlatform(platform) || platform;
+  const targetArch = normalizeArch(arch) || defaultTargetArch();
+  const resolvedAppPath = resolvePackagedAppPath({ rootDir, appPath, arch: targetArch });
   if (!resolvedAppPath) {
     return {
       ok: false,
@@ -210,39 +178,57 @@ async function verifyPackagedMiaCore({
     };
   }
 
-  const { resourcesPath, unpackedRoot, nodePath, coreEntry, packageJsonPath } = collectRequiredPaths(resolvedAppPath);
-  const missing = [resourcesPath, unpackedRoot, nodePath, coreEntry, packageJsonPath].filter((candidate) => !fs.existsSync(candidate));
+  const paths = collectRequiredPaths(resolvedAppPath, { platform: targetPlatform, arch: targetArch });
+  const required = [paths.resourcesPath, paths.corePath, paths.packageJsonPath];
+  const missing = required.filter((candidate) => !fs.existsSync(candidate));
   if (missing.length) {
+    const missingCore = missing.includes(paths.corePath);
     return {
       ok: false,
       appPath: resolvedAppPath,
-      error: `Packaged Mia Core is incomplete: missing ${missing.join(", ")}`
+      corePath: paths.corePath,
+      error: missingCore
+        ? `Packaged Mia Core is incomplete: missing bundled Rust Core binary at ${paths.corePath}`
+        : `Packaged Mia Core is incomplete: missing ${missing.join(", ")}`
     };
   }
 
-  if (!canRunTargetArch({ arch, hostArch, platform })) {
+  if (!canRunTargetArch({ arch: targetArch, hostArch, platform: targetPlatform })) {
     return {
       ok: true,
       appPath: resolvedAppPath,
+      corePath: paths.corePath,
       skippedRuntimeProbe: true,
-      reason: `skipped runtime probe because target arch ${arch} cannot run on ${hostArch} ${platform}`
+      reason: `skipped runtime probe because target arch ${targetArch} cannot run on ${hostArch} ${targetPlatform}`
     };
   }
 
-  const verifyHome = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-"));
-  const verifyToken = writeVerifyDaemonToken(verifyHome);
+  const verifyHome = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-rust-core-"));
+  const workspaceDir = path.join(verifyHome, "workspace");
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   let stdout = "";
   let stderr = "";
 
-  const child = childProcess.spawn(nodePath, [coreEntry, "--daemon"], {
-    cwd: path.dirname(nodePath),
+  const child = childProcess.spawn(paths.corePath, [
+    "serve",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    String(port),
+    "--data-dir",
+    verifyHome,
+    "--workspace-dir",
+    workspaceDir,
+    "--language",
+    "zh"
+  ], {
+    cwd: path.dirname(paths.corePath),
     env: {
       ...process.env,
-      MIA_HOME: verifyHome,
-      MIA_DAEMON_HOST: "127.0.0.1",
-      MIA_DAEMON_PORT: String(port)
+      MIA_CORE: "1",
+      MIA_CORE_HOME: verifyHome,
+      MIA_CORE_WORKSPACE_DIR: workspaceDir
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -256,34 +242,22 @@ async function verifyPackagedMiaCore({
       return {
         ok: false,
         appPath: resolvedAppPath,
+        corePath: paths.corePath,
         baseUrl,
         stdout: stdout.trim(),
         stderr: stderr.trim(),
         error: health.error
       };
     }
-    const routes = await probeRequiredCoreRoutes(baseUrl, { token: verifyToken, fetchImpl });
-    if (!routes.ok) {
-      await stopChild(child);
-      return {
-        ok: false,
-        appPath: resolvedAppPath,
-        baseUrl,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        health: health.body,
-        error: routes.error
-      };
-    }
     await stopChild(child);
     return {
       ok: true,
       appPath: resolvedAppPath,
+      corePath: paths.corePath,
       baseUrl,
       stdout: stdout.trim(),
       stderr: stderr.trim(),
-      health: health.body,
-      routeProbes: routes.routes
+      health: health.body
     };
   } finally {
     fs.rmSync(verifyHome, { recursive: true, force: true });
@@ -320,8 +294,11 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 module.exports = {
-  resolvePackagedAppPath,
   canRunTargetArch,
+  collectRequiredPaths,
+  normalizeArch,
+  normalizePlatform,
+  resolvePackagedAppPath,
   verifyPackagedMiaCore
 };
 

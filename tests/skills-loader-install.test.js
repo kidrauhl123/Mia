@@ -6,17 +6,18 @@ const path = require("node:path");
 const AdmZip = require("adm-zip");
 const { createSkillsLoader } = require("../src/main/skills-loader.js");
 
-function makeLoader(home) {
+function makeLoader(home, overrides = {}) {
   return createSkillsLoader({
     runtimePaths: () => ({ home }),
     readJson: () => null, // no official library → only the private source is active
     officialLibraryManifestPath: () => path.join(home, "does-not-exist.json"),
     resolveOfficialLibraryRoot: () => "",
     getEngineState: () => ({ running: false }),
-    apiKey: () => "",
+    apiServerKey: () => "",
     appendEngineLog: () => {},
     isChildPath: (parent, child) =>
-      path.resolve(String(child)).startsWith(path.resolve(String(parent)) + path.sep)
+      path.resolve(String(child)).startsWith(path.resolve(String(parent)) + path.sep),
+    ...overrides
   });
 }
 
@@ -34,7 +35,7 @@ function makeBundledLoader(home) {
     officialLibraryManifestPath: () => path.join(root, "resources", "official-library", "library.json"),
     resolveOfficialLibraryRoot: (value = "") => path.join(root, String(value || "")),
     getEngineState: () => ({ running: false }),
-    apiKey: () => "",
+    apiServerKey: () => "",
     appendEngineLog: () => {},
     isChildPath: (parent, child) =>
       path.resolve(String(child)).startsWith(path.resolve(String(parent)) + path.sep)
@@ -111,6 +112,50 @@ test("installMarketplaceSkill extracts a multi-file zip into <home>/skills and i
     const detail = loader.readLocalSkill(found.id);
     assert.equal(detail.marketId, "demo-skill");
     assert.equal(detail.marketNameZh, "演示技能");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("resolveSkillMaterializationWithCore sends the turn skill request to Rust Core", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
+  try {
+    const skillDir = path.join(home, "skills", "xlsx");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: xlsx\ndescription: Excel deliverables.\n---\n# XLSX\nUse formulas.\n"
+    );
+    const requests = [];
+    const loader = makeLoader(home, {
+      materializeSkillsWithCore: async (request) => {
+        requests.push(request);
+        return {
+          indexBlock: "CORE INDEX",
+          loadedBlock: "CORE LOADED",
+          loadedSkillIds: ["xlsx"]
+        };
+      }
+    });
+
+    const result = await loader.resolveSkillMaterializationWithCore({
+      bot: { capabilities: { enabledSkills: ["xlsx"] } },
+      activeSkillIds: [],
+      intentSkillIds: ["xlsx"],
+      requestedSkillIds: [],
+      mode: "index"
+    });
+
+    assert.deepEqual(result, {
+      indexBlock: "CORE INDEX",
+      loadedBlock: "CORE LOADED",
+      loadedSkillIds: ["xlsx"]
+    });
+    assert.equal(requests.length, 1);
+    assert.deepEqual(requests[0].intentSkillIds, ["xlsx"]);
+    assert.equal(requests[0].availableSkills[0].id, "xlsx");
+    assert.equal(requests[0].availableSkills[0].name, "xlsx");
+    assert.match(requests[0].availableSkills[0].body, /Use formulas/);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

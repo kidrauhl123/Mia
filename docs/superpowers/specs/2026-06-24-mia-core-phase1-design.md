@@ -1,5 +1,11 @@
 # Mia Core Phase 1: 独立 daemon 可执行身份设计
 
+> Superseded on branch `从node技术迁移到rust` by
+> `docs/adr/2026-07-07-aion-style-rust-core-backend.md` and
+> `docs/superpowers/plans/2026-07-07-aion-rust-core-backend-migration.md`.
+> Do not implement this Node daemon / `MIA_DAEMON` design on this branch;
+> Rust `mia-core` owns backend process and runtime state.
+
 Status: problem statement valid; helper-wrapper solution abandoned (NO-SHIP).
 Direction changed to a real standalone Mia Core process — see
 docs/superpowers/plans/2026-06-24-mia-core-migration.md,
