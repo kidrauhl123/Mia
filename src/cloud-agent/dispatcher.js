@@ -555,7 +555,7 @@ function createCloudAgentDispatcher(deps = {}) {
     return message || "模型调用失败。";
   }
 
-  function appendRunErrorReply({ ownerId, bot, conversationId, error }) {
+  function appendRunErrorReply({ ownerId, bot, conversationId, triggerMessageId = "", error }) {
     const reply = messagesStore.appendMessage({
       conversationId,
       senderKind: BOT_SENDER_KIND,
@@ -564,17 +564,20 @@ function createCloudAgentDispatcher(deps = {}) {
       bodyMd: `模型调用失败：${userFacingRunError(error)}`,
       attachments: null,
       trace: null,
+      triggerMessageId,
       status: "complete"
     });
-    for (const member of socialStore.listConversationMembers(conversationId)) {
-      if (member.member_kind === MemberKind.User) {
-        broadcastPersistedEvent(member.member_ref, { type: "conversation.message_appended", conversationId, message: reply });
+    if (!reply._alreadyExisted) {
+      for (const member of socialStore.listConversationMembers(conversationId)) {
+        if (member.member_kind === MemberKind.User) {
+          broadcastPersistedEvent(member.member_ref, { type: "conversation.message_appended", conversationId, message: reply });
+        }
       }
     }
     return reply;
   }
 
-  function appendRuntimeConfigErrorReply({ ownerId, bot, conversationId, message, errorType = "desktop_runtime_unavailable" }) {
+  function appendRuntimeConfigErrorReply({ ownerId, bot, conversationId, triggerMessageId = "", message, errorType = "desktop_runtime_unavailable" }) {
     const reply = messagesStore.appendMessage({
       conversationId,
       senderKind: BOT_SENDER_KIND,
@@ -583,12 +586,15 @@ function createCloudAgentDispatcher(deps = {}) {
       bodyMd: message,
       attachments: null,
       trace: null,
+      triggerMessageId,
       status: "complete",
       errorJson: { type: errorType, message }
     });
-    for (const member of socialStore.listConversationMembers(conversationId)) {
-      if (member.member_kind === MemberKind.User) {
-        broadcastPersistedEvent(member.member_ref, { type: "conversation.message_appended", conversationId, message: reply });
+    if (!reply._alreadyExisted) {
+      for (const member of socialStore.listConversationMembers(conversationId)) {
+        if (member.member_kind === MemberKind.User) {
+          broadcastPersistedEvent(member.member_ref, { type: "conversation.message_appended", conversationId, message: reply });
+        }
       }
     }
     return reply;
@@ -692,6 +698,7 @@ function createCloudAgentDispatcher(deps = {}) {
           ownerId,
           bot,
           conversationId,
+          triggerMessageId: message.id,
           message: "云端 Agent gateway 未启动，请检查 worker 配置。",
           errorType: "cloud_agent_gateway_unavailable"
         });
@@ -860,12 +867,15 @@ function createCloudAgentDispatcher(deps = {}) {
         attachments: replyAttachments.length ? replyAttachments : null,
         trace: replyTrace,
         contentBlocks: finalReplyContent === replyContent ? replyContentBlocks : null,
+        triggerMessageId: message.id,
         status: "complete"
       });
       cloudAgentRunsStore.markComplete(run.id);
-      for (const member of socialStore.listConversationMembers(conversationId)) {
-        if (member.member_kind === MemberKind.User) {
-          broadcastPersistedEvent(member.member_ref, { type: "conversation.message_appended", conversationId, message: reply });
+      if (!reply._alreadyExisted) {
+        for (const member of socialStore.listConversationMembers(conversationId)) {
+          if (member.member_kind === MemberKind.User) {
+            broadcastPersistedEvent(member.member_ref, { type: "conversation.message_appended", conversationId, message: reply });
+          }
         }
       }
       return reply;
@@ -876,7 +886,7 @@ function createCloudAgentDispatcher(deps = {}) {
         return null;
       }
       cloudAgentRunsStore.markError(run.id, error);
-      return appendRunErrorReply({ ownerId, bot, conversationId, error });
+      return appendRunErrorReply({ ownerId, bot, conversationId, triggerMessageId: message.id, error });
     }
   }
 
@@ -1027,6 +1037,7 @@ function createCloudAgentDispatcher(deps = {}) {
         ownerId,
         bot,
         conversationId,
+        triggerMessageId: message.id,
         message: desktopRuntime.message
       });
     }

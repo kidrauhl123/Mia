@@ -62,6 +62,17 @@ test("getAcpEngineSpec returns a single engine spec by id", () => {
   assert.deepEqual(spec?.args, ["-y", "@agentclientprotocol/claude-agent-acp@0.39.0"]);
 });
 
+test("Hermes ACP spec can use the resolved system Hermes executable", () => {
+  const hermesPath = process.platform === "win32"
+    ? "C:\\Users\\alice\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\hermes.exe"
+    : "/Users/alice/.local/bin/hermes";
+  const spec = getAcpEngineSpec("hermes", { hermesCommandPath: hermesPath });
+
+  assert.equal(spec?.engineId, "hermes");
+  assert.equal(spec?.command, hermesPath);
+  assert.deepEqual(spec?.args, ["acp"]);
+});
+
 test("spawnAcpEngineProcess launches engine specs with Windows child options", () => {
   const spawnCalls = [];
   spawnAcpEngineProcess((file, args, options) => {

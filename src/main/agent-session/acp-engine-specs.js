@@ -18,6 +18,7 @@ function spawnAcpEngineProcess(spawn, engineSpec = {}, options = {}, runtimeOpti
 }
 
 function buildAcpEngineSpecs(options = {}) {
+  const hermesCommand = String(options.hermesCommandPath || options.hermesCommand || "").trim() || "hermes";
   return Object.freeze([
     Object.freeze({
       engineId: "claude",
@@ -38,7 +39,7 @@ function buildAcpEngineSpecs(options = {}) {
     Object.freeze({
       engineId: "hermes",
       transport: "acp",
-      command: "hermes",
+      command: hermesCommand,
       args: ["acp"],
       supportsSteerInput: false,
       supportsQueuedInput: true

@@ -3623,6 +3623,7 @@ async function handleRequest(req, res, context) {
         auth.user.id,
         Array.isArray(body.attachments) ? body.attachments : []
       );
+      const triggerMessageId = String(body.triggerMessageId || body.trigger_message_id || "").trim();
       const message = context.messagesStore.appendMessage({
         conversationId,
         senderKind: "bot",
@@ -3634,18 +3635,21 @@ async function handleRequest(req, res, context) {
         trace: body.trace || null,
         contentBlocks: body.contentBlocks || body.content_blocks || null,
         turnId: body.turnId || null,
+        triggerMessageId,
         status: "complete",
         errorJson: body.errorJson || null,
       });
-      const userMemberIds = [];
-      for (const m of context.socialStore.listConversationMembers(conversationId)) {
-        if (m.member_kind === "user") {
-          userMemberIds.push(m.member_ref);
-          broadcastPersistedEvent(context, m.member_ref, { type: "conversation.message_appended", conversationId, message });
+      if (!message._alreadyExisted) {
+        const userMemberIds = [];
+        for (const m of context.socialStore.listConversationMembers(conversationId)) {
+          if (m.member_kind === "user") {
+            userMemberIds.push(m.member_ref);
+            broadcastPersistedEvent(context, m.member_ref, { type: "conversation.message_appended", conversationId, message });
+          }
         }
+        pushChatMessageToOfflineMembers(context, conversationId, message, userMemberIds, auth.user.id);
       }
-      pushChatMessageToOfflineMembers(context, conversationId, message, userMemberIds, auth.user.id);
-      const payload = { message };
+      const payload = { message, ...(message._alreadyExisted ? { deduplicated: true } : {}) };
       rememberOp(context, auth.user.id, body, 201, payload);
       return writeJson(res, 201, payload);
     }
@@ -4262,9 +4266,12 @@ async function handleRequest(req, res, context) {
             senderOwnerId: auth.user.id,
             bodyMd: text,
             attachments,
+            triggerMessageId: String(body.triggerMessageId || body.trigger_message_id || "").trim(),
             status: "complete"
           });
-          broadcastPersistedEvent(context, auth.user.id, { type: "conversation.message_appended", conversationId: conversationId, message });
+          if (!message._alreadyExisted) {
+            broadcastPersistedEvent(context, auth.user.id, { type: "conversation.message_appended", conversationId: conversationId, message });
+          }
         }
         return writeJson(res, 200, { run: completed, message });
       } catch (error) {

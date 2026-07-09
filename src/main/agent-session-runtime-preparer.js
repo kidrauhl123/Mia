@@ -3,6 +3,7 @@
 const crypto = require("node:crypto");
 
 const { normalizeAcpMcpServer, normalizeAcpMcpServers } = require("./agent-session/acp-mcp-servers.js");
+const { getAcpEngineSpec } = require("./agent-session/acp-engine-specs.js");
 const { buildMiaContextResource, mcpContextPrompt } = require("./mia-context-resource.js");
 const { createAgentSessionSkillRuntimeAdapter } = require("./agent-session-skill-runtime.js");
 
@@ -12,6 +13,11 @@ function hashRuntimePart(value) {
 
 function userMcpEngineId(engineId = "") {
   return engineId === "claude" ? "claude-code" : engineId;
+}
+
+function valueFromOption(source) {
+  const resolved = typeof source === "function" ? source() : source;
+  return String(resolved || "").trim();
 }
 
 function mergeRuntimeParts(base = {}, extra = {}) {
@@ -36,6 +42,7 @@ function createAgentSessionRuntimePreparer(options = {}) {
   const getMcpFingerprint = typeof options.getMcpFingerprint === "function" ? options.getMcpFingerprint : () => "";
   const writeMiaAppMcpContext = typeof options.writeMiaAppMcpContext === "function" ? options.writeMiaAppMcpContext : () => {};
   const writeSchedulerMcpContext = typeof options.writeSchedulerMcpContext === "function" ? options.writeSchedulerMcpContext : () => {};
+  const hermesCommandPath = options.hermesCommandPath || (() => "");
   const skillRuntimeAdapter = options.skillRuntimeAdapter || createAgentSessionSkillRuntimeAdapter({
     listSkillRecordsForBot: typeof options.listSkillRecordsForBot === "function"
       ? options.listSkillRecordsForBot
@@ -96,6 +103,15 @@ function createAgentSessionRuntimePreparer(options = {}) {
     };
   }
 
+  function prepareEngineSpecRuntime(engineId = "") {
+    if (engineId !== "hermes") return {};
+    const commandPath = valueFromOption(hermesCommandPath);
+    if (!commandPath) return {};
+    return {
+      engineSpec: getAcpEngineSpec("hermes", { hermesCommandPath: commandPath })
+    };
+  }
+
   async function prepareSkillRuntime(input = {}, engineId = "", runtimeConfig = {}) {
     if (!skillRuntimeAdapter || typeof skillRuntimeAdapter.prepareAgentSessionSkillRuntime !== "function") {
       return {};
@@ -114,7 +130,8 @@ function createAgentSessionRuntimePreparer(options = {}) {
       : {};
     const mcpRuntime = prepareMcpRuntime(input, engineId);
     const skillRuntime = await prepareSkillRuntime(input, engineId, runtimeConfig);
-    return mergeRuntimeParts(mcpRuntime, skillRuntime);
+    const engineSpecRuntime = prepareEngineSpecRuntime(engineId);
+    return mergeRuntimeParts(mergeRuntimeParts(mcpRuntime, skillRuntime), engineSpecRuntime);
   }
 
   return { prepare };

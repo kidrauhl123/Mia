@@ -33,6 +33,7 @@ async function resolveSkillRuntimeWithCore() {
 test("AgentSession runtime preparer does not assemble provider transport config in JS", async () => {
   const preparer = createAgentSessionRuntimePreparer({
     resolveSkillRuntimeWithCore,
+    hermesCommandPath: () => "C:\\Users\\mia\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\hermes.exe",
     resolveManagedModelRuntime: () => {
       throw new Error("provider runtime resolution must stay in Rust Core");
     }
@@ -56,6 +57,8 @@ test("AgentSession runtime preparer does not assemble provider transport config 
   assert.match(runtime.skillFingerprint, /^[a-f0-9]{16}$/);
   assert.equal(runtime.runtimeKey, undefined);
   assert.equal(runtime.env, undefined);
+  assert.equal(runtime.engineSpec.command, "C:\\Users\\mia\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\hermes.exe");
+  assert.deepEqual(runtime.engineSpec.args, ["acp"]);
 });
 
 test("prepares ACP MCP servers and scoped context prelude for AgentSession", async () => {

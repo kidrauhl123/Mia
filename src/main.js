@@ -2052,6 +2052,7 @@ const skillRuntimeAdapter = createAgentSessionSkillRuntimeAdapter({
 });
 const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
   skillRuntimeAdapter,
+  hermesCommandPath: () => systemHermesService.commandPath(),
   getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
   getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
   getUserMcpServers: (engineId, options) => userMcpService.getEngineSpecs(engineId, options),

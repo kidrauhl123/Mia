@@ -202,6 +202,48 @@ test("sendUserInput carries runtime env in the session descriptor without leakin
   ]);
 });
 
+test("sendUserInput carries engineSpec overrides in the session descriptor without leaking them to the prompt payload", async () => {
+  const builds = [];
+  const session = createFakeSession();
+  const manager = createAgentSessionManager(managerOptions(
+    async (descriptor) => {
+      builds.push(descriptor);
+      return session;
+    },
+    [{
+      engineId: "hermes",
+      transport: "acp",
+      command: "hermes",
+      args: ["acp"],
+      supportsSteerInput: false,
+      supportsQueuedInput: true
+    }]
+  ));
+
+  await manager.sendUserInput({
+    conversationId: "conversation-1",
+    engineId: "hermes",
+    workspacePath: "/repo",
+    engineSpec: {
+      engineId: "hermes",
+      command: "C:\\Users\\alice\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\hermes.exe"
+    },
+    turnId: "turn-1",
+    text: "hello"
+  });
+
+  assert.equal(builds.length, 1);
+  assert.deepEqual(builds[0].engineSpec, {
+    engineId: "hermes",
+    transport: "acp",
+    command: "C:\\Users\\alice\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\hermes.exe",
+    args: ["acp"],
+    supportsSteerInput: false,
+    supportsQueuedInput: true
+  });
+  assert.deepEqual(session.sendCalls, [{ turnId: "turn-1", text: "hello" }]);
+});
+
 test("sendUserInput restores and persists native ACP session ids outside the prompt payload", async () => {
   const builds = [];
   const saves = [];
