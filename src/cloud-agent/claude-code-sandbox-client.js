@@ -21,8 +21,30 @@ function firstTextValue(value) {
   return "";
 }
 
+function assistantContentBlocks(message = {}) {
+  const direct = Array.isArray(message?.content) ? message.content : null;
+  const nested = Array.isArray(message?.message?.content) ? message.message.content : null;
+  return direct || nested || [];
+}
+
+function assistantTextBlockText(block = {}) {
+  if (!block || typeof block !== "object") return "";
+  if (block.type && block.type !== "text") return "";
+  return firstTextValue(block.text || block.content);
+}
+
+function assistantContentBlocksText(blocks = []) {
+  return (Array.isArray(blocks) ? blocks : [])
+    .map(assistantTextBlockText)
+    .map((text) => String(text || "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function claudeMessageText(message) {
   if (!message || typeof message !== "object") return "";
+  const blocksText = assistantContentBlocksText(assistantContentBlocks(message));
+  if (blocksText) return blocksText;
   const direct = firstTextValue(message.text || message.content || message.delta);
   if (direct) return direct;
   const nested = message.message || message.data || {};
@@ -115,6 +137,11 @@ function createSdkEventBridge(onEvent, randomUUID) {
   let fallbackTextId = "";
   let fallbackAssistantText = "";
   let fallbackAssistantSnapshot = "";
+  const fallbackBlockText = new Map();
+  const fallbackStartedToolIds = new Set();
+  const fallbackCompletedToolIds = new Set();
+  let fallbackAssistantBlockScope = 0;
+  let fallbackAssistantBlockSnapshot = "";
 
   function emit(type, payload = {}) {
     if (typeof onEvent === "function") onEvent({ type, ...payload });
@@ -152,8 +179,76 @@ function createSdkEventBridge(onEvent, randomUUID) {
     }
   }
 
+  function fallbackContentBlockScope(blocks = []) {
+    const snapshot = assistantContentBlocksText(blocks);
+    if (fallbackAssistantBlockSnapshot && snapshot) {
+      const merged = mergeAssistantText(fallbackAssistantBlockSnapshot, snapshot);
+      if (merged.kind === "append") fallbackAssistantBlockScope += 1;
+    }
+    if (snapshot) fallbackAssistantBlockSnapshot = snapshot;
+    return fallbackAssistantBlockScope;
+  }
+
+  function fallbackBlockId(prefix, block = {}, index = 0, scope = fallbackAssistantBlockScope) {
+    return String(block.id || `${prefix}_${scope}_${index}`).trim();
+  }
+
+  function emitFallbackTextBlock(block = {}, index = 0, scope = fallbackAssistantBlockScope) {
+    const text = assistantTextBlockText(block);
+    if (!text) return false;
+    const id = fallbackBlockId("text", block, index, scope);
+    const previous = fallbackBlockText.get(id) || "";
+    const merged = mergeAssistantText(previous, text);
+    if (merged.kind === "noop" || !merged.delta) return true;
+    fallbackBlockText.set(id, merged.text);
+    emit("text_delta", eventTextDelta(id, merged.delta));
+    return true;
+  }
+
+  function emitFallbackThinkingBlock(block = {}, index = 0, scope = fallbackAssistantBlockScope) {
+    const text = firstTextValue(block.thinking || block.text || block.content);
+    if (!text) return false;
+    const id = fallbackBlockId("thinking", block, index, scope);
+    const previous = fallbackBlockText.get(id) || "";
+    const merged = mergeAssistantText(previous, text);
+    if (merged.kind === "noop" || !merged.delta) return true;
+    fallbackBlockText.set(id, merged.text);
+    emit("reasoning_delta", { id, text: merged.delta });
+    return true;
+  }
+
+  function emitFallbackToolUseBlock(block = {}, index = 0, scope = fallbackAssistantBlockScope) {
+    const id = fallbackBlockId("tool", block, index, scope);
+    if (fallbackStartedToolIds.has(id)) return true;
+    fallbackStartedToolIds.add(id);
+    const name = String(block.name || "tool");
+    const preview = block.input ? JSON.stringify(block.input, null, 2).slice(0, 4000) : "";
+    emit("tool_call_started", { id, name, preview });
+    return true;
+  }
+
+  function emitAssistantContentBlocks(message = {}) {
+    if (sawStreamEvent) return false;
+    const blocks = assistantContentBlocks(message);
+    if (!blocks.length) return false;
+    const scope = fallbackContentBlockScope(blocks);
+    let emitted = false;
+    blocks.forEach((block, index) => {
+      if (!block || typeof block !== "object") return;
+      if (block.type === "text" || (!block.type && assistantTextBlockText(block))) {
+        emitted = emitFallbackTextBlock(block, index, scope) || emitted;
+      } else if (block.type === "thinking") {
+        emitted = emitFallbackThinkingBlock(block, index, scope) || emitted;
+      } else if (block.type === "tool_use") {
+        emitted = emitFallbackToolUseBlock(block, index, scope) || emitted;
+      }
+    });
+    return emitted;
+  }
+
   function handleAssistant(message = {}) {
     activeTextId = null;
+    if (emitAssistantContentBlocks(message)) return;
     const text = claudeMessageText(message);
     if (text && !sawStreamEvent) {
       if (!sameTrimmedText(fallbackAssistantSnapshot, text)) {
@@ -174,21 +269,15 @@ function createSdkEventBridge(onEvent, randomUUID) {
         fallbackAssistantSnapshot = text;
       }
     }
-    const contentBlocks = Array.isArray(message?.message?.content) ? message.message.content : [];
-    for (const block of contentBlocks) {
-      if (block?.type !== "tool_use") continue;
-      const toolId = String(block.id || `tool_${randomUUID()}`);
-      const toolName = String(block.name || "tool");
-      const preview = block.input ? JSON.stringify(block.input).slice(0, 4000) : "";
-      emit("tool_call_started", { id: toolId, name: toolName, preview });
-    }
   }
 
   function handleToolResults(message = {}) {
-    const contentBlocks = Array.isArray(message?.message?.content) ? message.message.content : [];
+    const contentBlocks = assistantContentBlocks(message);
     for (const block of contentBlocks) {
       if (block?.type !== "tool_result") continue;
       const toolId = String(block.tool_use_id || "");
+      if (toolId && fallbackCompletedToolIds.has(toolId)) continue;
+      if (toolId) fallbackCompletedToolIds.add(toolId);
       const preview = firstTextValue(block.content).slice(0, 4000);
       emit("tool_call_completed", {
         id: toolId,

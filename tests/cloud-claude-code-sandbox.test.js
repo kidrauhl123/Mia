@@ -249,6 +249,72 @@ test("cloud Claude Code client dedupes progressive assistant snapshots in fallba
   ]);
 });
 
+test("cloud Claude Code client preserves ordered assistant content blocks without stream events", async () => {
+  const events = [];
+  const client = createCloudClaudeCodeClient({
+    claudeAgentSdk: fakeSdk([
+      {
+        type: "assistant",
+        message: {
+          content: [
+            { type: "text", text: "我先看目录。" },
+            { type: "thinking", thinking: "判断是否需要工具。" },
+            { type: "tool_use", id: "tool_1", name: "Bash", input: { command: "pwd" } },
+            { type: "text", text: "工具调用发出。" }
+          ]
+        }
+      },
+      {
+        type: "user",
+        message: {
+          content: [
+            { type: "tool_result", tool_use_id: "tool_1", content: "/tmp/mia" }
+          ]
+        }
+      },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            { type: "text", text: "结论是已确认。" }
+          ]
+        }
+      }
+    ], {}),
+    randomUUID: () => "uuid-1"
+  });
+
+  const result = await client.runChat({
+    worker: {
+      hasApiKey: true,
+      model: "claude-sonnet-test",
+      permissionMode: "bypassPermissions",
+      env: { ANTHROPIC_API_KEY: "sk-test" },
+      paths: { workspace: "/tmp/mia-worker/workspace" },
+      sandboxSettings: { enabled: true, failIfUnavailable: true }
+    },
+    input: "hello",
+    onEvent(event) {
+      events.push(event);
+    }
+  });
+
+  assert.equal(result.content, "我先看目录。\n\n工具调用发出。\n\n结论是已确认。");
+  assert.deepEqual(events.map((event) => event.type), [
+    "text_delta",
+    "reasoning_delta",
+    "tool_call_started",
+    "text_delta",
+    "tool_call_completed",
+    "text_delta"
+  ]);
+  assert.deepEqual(
+    events.filter((event) => event.type === "text_delta").map((event) => event.text),
+    ["我先看目录。", "工具调用发出。", "结论是已确认。"]
+  );
+  assert.equal(events.find((event) => event.type === "tool_call_started")?.name, "Bash");
+});
+
 test("cloud Claude Code client captures SDK session ids and resumes natively without prompt history", async () => {
   const capture = {};
   const seenSessionIds = [];
