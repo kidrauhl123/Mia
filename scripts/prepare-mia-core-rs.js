@@ -4,8 +4,10 @@ const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { resolveMiaCoreVersion } = require("./resolve-mia-core-version.js");
 
 const ROOT = path.resolve(__dirname, "..");
+const DEFAULT_RELEASE_BASE_URL = "https://mia.gifgif.cn/downloads/mia-core";
 
 function normalizeArch(arch = "") {
   const value = String(arch || "").trim().toLowerCase();
@@ -52,6 +54,62 @@ function rustCoreBinaryName(platform = process.platform) {
   return normalizePlatform(platform) === "win32" ? "mia-core.exe" : "mia-core";
 }
 
+function rustTargetTriple(platform = process.platform, arch = process.arch) {
+  const normalizedPlatform = normalizePlatform(platform) || platform;
+  const normalizedArch = normalizeArch(arch);
+  const archPrefix = { x64: "x86_64", arm64: "aarch64" }[normalizedArch];
+  if (!archPrefix) {
+    throw new Error(`Unsupported Mia Core target arch: ${arch}`);
+  }
+  const platformSuffix = {
+    darwin: "apple-darwin",
+    linux: "unknown-linux-gnu",
+    win32: "pc-windows-msvc"
+  }[normalizedPlatform];
+  if (!platformSuffix) {
+    throw new Error(`Unsupported Mia Core target platform: ${platform}`);
+  }
+  return `${archPrefix}-${platformSuffix}`;
+}
+
+function normalizeVersionTag(version = "") {
+  const value = String(version || "").trim();
+  if (!value) return "latest";
+  if (value === "latest") return value;
+  return value.startsWith("v") ? value : `v${value}`;
+}
+
+function releaseBaseUrl(rootDir, env = process.env) {
+  const explicit = String(env.MIA_CORE_RELEASE_BASE_URL || "").trim();
+  if (explicit) return explicit.replace(/\/+$/, "");
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
+    const pinned = String(pkg.miaCoreReleaseBaseUrl || "").trim();
+    if (pinned) return pinned.replace(/\/+$/, "");
+  } catch {
+    // Use the public Mia download origin below.
+  }
+  return DEFAULT_RELEASE_BASE_URL;
+}
+
+function miaCoreAssetName(platform, arch, tag) {
+  const target = rustTargetTriple(platform, arch);
+  const ext = normalizePlatform(platform) === "win32" ? ".zip" : ".tar.gz";
+  return `mia-core-${normalizeVersionTag(tag)}-${target}${ext}`;
+}
+
+function miaCoreDownloadUrl({ rootDir, platform, arch, tag, env = process.env }) {
+  const assetName = miaCoreAssetName(platform, arch, tag);
+  const template = String(env.MIA_CORE_RELEASE_URL_TEMPLATE || "").trim();
+  if (template) {
+    return template
+      .replace(/\{tag\}/g, normalizeVersionTag(tag))
+      .replace(/\{asset\}/g, assetName)
+      .replace(/\{target\}/g, rustTargetTriple(platform, arch));
+  }
+  return `${releaseBaseUrl(rootDir, env)}/${normalizeVersionTag(tag)}/${assetName}`;
+}
+
 function bundledRustCorePath(rootDir, platform, arch) {
   return path.join(
     rootDir,
@@ -60,10 +118,6 @@ function bundledRustCorePath(rootDir, platform, arch) {
     `${targetPlatformFromContext({ electronPlatformName: platform }, {})}-${normalizeArch(arch)}`,
     rustCoreBinaryName(platform)
   );
-}
-
-function releaseRustCorePath(rootDir, platform = process.platform) {
-  return path.join(rootDir, "target", "release", rustCoreBinaryName(platform));
 }
 
 function assertReadableFile(filePath, label) {
@@ -79,6 +133,123 @@ function assertReadableFile(filePath, label) {
   return stat;
 }
 
+function ensureDirectory(dirPath) {
+  fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function removeDirectorySafe(dirPath) {
+  fs.rmSync(dirPath, { recursive: true, force: true });
+}
+
+function ensureExecutableMode(filePath, platform = process.platform) {
+  if (normalizePlatform(platform) === "win32") return;
+  fs.chmodSync(filePath, 0o755);
+}
+
+function downloadFile(url, outputPath, { platform = process.platform, execFileSync = childProcess.execFileSync } = {}) {
+  ensureDirectory(path.dirname(outputPath));
+  if (normalizePlatform(platform) === "win32") {
+    const ps = `$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri '${url.replace(/'/g, "''")}' -OutFile '${outputPath.replace(/'/g, "''")}'`;
+    execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], { timeout: 120000 });
+    return;
+  }
+  try {
+    execFileSync("curl", ["-L", "--fail", "--silent", "--show-error", "-o", outputPath, url], { timeout: 120000 });
+  } catch {
+    execFileSync("wget", ["-q", "-O", outputPath, url], { timeout: 120000 });
+  }
+}
+
+function extractArchive(archivePath, outputDir, { platform = process.platform, execFileSync = childProcess.execFileSync } = {}) {
+  ensureDirectory(outputDir);
+  if (normalizePlatform(platform) === "win32" || archivePath.endsWith(".zip")) {
+    if (normalizePlatform(platform) === "win32") {
+      const ps = `Expand-Archive -LiteralPath '${archivePath.replace(/'/g, "''")}' -DestinationPath '${outputDir.replace(/'/g, "''")}' -Force`;
+      execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps]);
+    } else {
+      execFileSync("unzip", ["-o", archivePath, "-d", outputDir]);
+    }
+    return;
+  }
+  execFileSync("tar", ["-xzf", archivePath, "-C", outputDir]);
+}
+
+function findBinaryInDir(dir, binaryName) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isFile() && entry.name === binaryName) return fullPath;
+    if (entry.isDirectory()) {
+      const found = findBinaryInDir(fullPath, binaryName);
+      if (found) return found;
+    }
+  }
+  return "";
+}
+
+function writeJson(filePath, value) {
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function resolveLatestTag({ rootDir, env = process.env, execFileSync = childProcess.execFileSync } = {}) {
+  const explicit = String(env.MIA_CORE_LATEST_MANIFEST_URL || "").trim();
+  const url = explicit || `${releaseBaseUrl(rootDir, env)}/latest.json`;
+  const output = execFileSync("curl", ["-fsSL", url], { encoding: "utf8", timeout: 30000 });
+  const manifest = JSON.parse(output);
+  const tag = String(manifest.tag_name || manifest.tag || manifest.version || "").trim();
+  if (!tag) {
+    throw new Error(`Mia Core latest manifest has no tag: ${url}`);
+  }
+  return normalizeVersionTag(tag);
+}
+
+function stageBinary({ rootDir, platform, arch, tag, sourcePath, sourceType, sourceDetail = {} }) {
+  const binaryName = rustCoreBinaryName(platform);
+  const dest = bundledRustCorePath(rootDir, platform, arch);
+  const targetDir = path.dirname(dest);
+  const stat = assertReadableFile(sourcePath, "Mia Rust Core binary");
+  removeDirectorySafe(targetDir);
+  ensureDirectory(targetDir);
+  fs.copyFileSync(sourcePath, dest);
+  ensureExecutableMode(dest, platform);
+  const bytes = fs.statSync(dest).size || stat.size;
+  writeJson(path.join(targetDir, "manifest.json"), {
+    platform,
+    arch,
+    target: rustTargetTriple(platform, arch),
+    version: normalizeVersionTag(tag),
+    generatedAt: new Date().toISOString(),
+    sourceType,
+    source: sourceDetail,
+    files: [binaryName]
+  });
+  return { platform, arch, source: sourcePath, dest, bytes, sourceType, tag: normalizeVersionTag(tag) };
+}
+
+function stageArchive({ rootDir, platform, arch, tag, archivePath, sourceType, sourceDetail, execFileSync }) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-prepare-"));
+  const extractDir = path.join(tempDir, "extracted");
+  try {
+    extractArchive(archivePath, extractDir, { platform, execFileSync });
+    const binaryName = rustCoreBinaryName(platform);
+    const binaryPath = findBinaryInDir(extractDir, binaryName);
+    if (!binaryPath) {
+      throw new Error(`Binary ${binaryName} not found in Mia Core archive: ${archivePath}`);
+    }
+    return stageBinary({
+      rootDir,
+      platform,
+      arch,
+      tag,
+      sourcePath: binaryPath,
+      sourceType,
+      sourceDetail
+    });
+  } finally {
+    removeDirectorySafe(tempDir);
+  }
+}
+
 async function prepareMiaCoreRs(context = {}, options = {}) {
   const rootDir = path.resolve(options.rootDir || ROOT);
   const env = options.env || process.env;
@@ -86,35 +257,77 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
   const platform = targetPlatformFromContext(context, env);
   const arch = targetArchFromContext(context, env);
   const explicitSource = String(env.MIA_CORE_RS_BIN || "").trim();
-  let source = explicitSource ? path.resolve(explicitSource) : "";
+  let tag = normalizeVersionTag(resolveMiaCoreVersion(rootDir, env));
 
-  if (!source) {
-    execFileSync("cargo", ["build", "--release", "-p", "mia-core-app", "--bin", "mia-core"], {
-      cwd: rootDir,
-      env: { ...process.env, ...env },
-      stdio: "inherit"
-    });
-    source = releaseRustCorePath(rootDir, platform);
+  if (tag === "latest") {
+    tag = resolveLatestTag({ rootDir, env, execFileSync });
   }
 
-  const stat = assertReadableFile(source, "Mia Rust Core binary");
-  const dest = bundledRustCorePath(rootDir, platform, arch);
-  fs.rmSync(path.dirname(dest), { recursive: true, force: true });
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.copyFileSync(source, dest);
-  fs.chmodSync(dest, 0o755);
-  const bytes = fs.statSync(dest).size;
-  console.log(`[prepare-mia-core-rs] staged Rust Core (${bytes} bytes) for ${platform}-${arch} from ${source} -> ${dest}`);
-  return { platform, arch, source, dest, bytes: bytes || stat.size };
+  let result;
+  if (explicitSource) {
+    result = stageBinary({
+      rootDir,
+      platform,
+      arch,
+      tag,
+      sourcePath: path.resolve(explicitSource),
+      sourceType: "local-binary",
+      sourceDetail: { path: path.resolve(explicitSource) }
+    });
+  } else {
+    const explicitArchive = String(env.MIA_CORE_RELEASE_ARCHIVE || "").trim();
+    if (explicitArchive) {
+      result = stageArchive({
+        rootDir,
+        platform,
+        arch,
+        tag,
+        archivePath: path.resolve(explicitArchive),
+        sourceType: "local-archive",
+        sourceDetail: { path: path.resolve(explicitArchive) },
+        execFileSync
+      });
+    } else {
+      const url = miaCoreDownloadUrl({ rootDir, platform, arch, tag, env });
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-download-"));
+      const archivePath = path.join(tempDir, miaCoreAssetName(platform, arch, tag));
+      try {
+        downloadFile(url, archivePath, { platform, execFileSync });
+        result = stageArchive({
+          rootDir,
+          platform,
+          arch,
+          tag,
+          archivePath,
+          sourceType: "download",
+          sourceDetail: { url },
+          execFileSync
+        });
+      } finally {
+        removeDirectorySafe(tempDir);
+      }
+    }
+  }
+
+  console.log(`[prepare-mia-core-rs] staged Rust Core (${result.bytes} bytes) for ${platform}-${arch} from ${result.source} -> ${result.dest}`);
+  return result;
 }
 
 module.exports = prepareMiaCoreRs;
 Object.assign(module.exports, {
   bundledRustCorePath,
+  downloadFile,
+  extractArchive,
+  findBinaryInDir,
+  miaCoreAssetName,
+  miaCoreDownloadUrl,
   normalizeArch,
   normalizePlatform,
+  normalizeVersionTag,
   prepareMiaCoreRs,
-  releaseRustCorePath,
+  releaseBaseUrl,
+  resolveLatestTag,
+  rustTargetTriple,
   rustCoreBinaryName,
   targetArchFromContext,
   targetPlatformFromContext

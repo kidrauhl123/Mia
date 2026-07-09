@@ -142,7 +142,6 @@ function createMiaCoreResolver(deps = {}) {
     repoRoot = defaultRepoRoot,
     coreSettings = () => ({}),
     appVersion = () => "",
-    cargoPath = () => env.CARGO || "cargo",
     parentPid = () => process.pid,
     sourceFingerprint = (root) => defaultSourceFingerprint(root, fs),
     pathLookup = (binary) => findExecutableOnPath(binary, env.PATH || DEFAULT_PATH, fs)
@@ -227,21 +226,13 @@ function createMiaCoreResolver(deps = {}) {
           return rustCoreTarget(candidate, serveArgs(), path.dirname(candidate), candidate);
         }
       }
-      if (env.MIA_CORE_ALLOW_CARGO_RUN !== "1") {
-        return {
-          kind: "unresolved",
-          command: execPath(),
-          args: [],
-          workingDirectory: root,
-          usesGuiAppIdentity: false
-        };
-      }
-      return rustCoreTarget(
-        String(cargoPath() || "cargo"),
-        ["run", "-p", "mia-core-app", "--bin", "mia-core", "--", ...serveArgs()],
-        root,
-        root
-      );
+      return {
+        kind: "unresolved",
+        command: execPath(),
+        args: [],
+        workingDirectory: root,
+        usesGuiAppIdentity: false
+      };
     }
 
     const command = execPath();

@@ -25,7 +25,7 @@ function setup(overrides = {}) {
     appPath: () => path.join(dir, "Mia App"),
     execPath: () => path.join(dir, "electron.exe"),
     defaultApp: () => true,
-    env: { PATH: "base-path", HERMES_LANGUAGE: "en", CUSTOM_ENV: "kept", MIA_CORE_ALLOW_CARGO_RUN: "1" },
+    env: { PATH: "base-path", HERMES_LANGUAGE: "en", CUSTOM_ENV: "kept" },
     appVersion: () => "0.1.39",
     spawn: (command, args, options) => {
       calls.push({ command, args, options });
@@ -60,7 +60,6 @@ test("detached Core launcher starts Rust Core as a real background process", asy
       env: { HERMES_LANGUAGE: "en" },
       repoRoot: () => testDir,
       existsSync: (candidate) => candidate === debugCore,
-      cargoPath: () => path.join(testDir, "cargo"),
       parentPid: () => 1234,
       appVersion: () => "0.1.39"
     })
@@ -102,7 +101,9 @@ test("Core launcher never appends a deleted Electron daemon argument", () => {
 });
 
 test("default launcher resolver uses configured Core host and port", () => {
+  const coreBin = path.join(os.tmpdir(), "mia-core");
   const { launcher } = setup({
+    env: { MIA_CORE_BIN: coreBin, HERMES_LANGUAGE: "en" },
     coreSettings: () => ({ host: "localhost", port: 27992 })
   });
   const args = launcher.coreProgramArguments();
@@ -152,8 +153,8 @@ test("Core launcher rejects immediately when the Rust Core command is missing", 
     resolver: {
       resolve: () => ({
         kind: "rust-core",
-        command: "cargo",
-        args: ["run"],
+        command: "mia-core",
+        args: ["serve"],
         workingDirectory: os.tmpdir(),
         usesGuiAppIdentity: false
       }),
@@ -164,7 +165,7 @@ test("Core launcher rejects immediately when the Rust Core command is missing", 
       const child = new EventEmitter();
       child.pid = 0;
       process.nextTick(() => {
-        child.emit("error", Object.assign(new Error("spawn cargo ENOENT"), { code: "ENOENT" }));
+        child.emit("error", Object.assign(new Error("spawn mia-core ENOENT"), { code: "ENOENT" }));
       });
       return child;
     }
@@ -172,9 +173,9 @@ test("Core launcher rejects immediately when the Rust Core command is missing", 
 
   await assert.rejects(
     () => launcher.start(),
-    /Rust\/Cargo is required for Mia Core in development mode/
+    /Mia Core is packaged as a prebuilt executable/
   );
-  assert.ok(calls.some((entry) => entry.log === "Mia Core process error: spawn cargo ENOENT"));
+  assert.ok(calls.some((entry) => entry.log === "Mia Core process error: spawn mia-core ENOENT"));
   assert.equal(calls.some((entry) => entry.unref), false);
 });
 

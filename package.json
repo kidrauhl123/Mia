@@ -41,6 +41,9 @@
     "desktop:permission-smoke": "node scripts/smoke-desktop-permission.js",
     "desktop:package:verify": "node scripts/verify-packaged-mia-core.js",
     "core:smoke": "node scripts/smoke-rust-core.js",
+    "core:release": "node scripts/build-mia-core-release.js",
+    "core:prepare": "node scripts/prepare-mia-core-rs.js",
+    "core:publish": "node scripts/publish-mia-core-release.js",
     "bridge": "node scripts/local-agent-bridge.js",
     "check": "node src/check.js",
     "clean:release": "node scripts/clean-release.js",
@@ -63,6 +66,8 @@
     "pythonVersion": "3.11.13",
     "pbsRelease": "20251007"
   },
+  "miaCoreVersion": "v0.1.0",
+  "miaCoreReleaseBaseUrl": "https://mia.gifgif.cn/downloads/mia-core",
   "devDependencies": {
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12"

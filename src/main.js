@@ -470,7 +470,6 @@ const miaCoreResolver = createMiaCoreResolver({
   repoRoot: () => path.resolve(__dirname, ".."),
   coreSettings: () => settingsStore.coreSettings(),
   appVersion: () => app.getVersion(),
-  cargoPath: () => process.env.MIA_CARGO_BIN || "cargo",
   parentPid: () => process.pid
 });
 const miaCoreLaunchdResolver = createMiaCoreResolver({
@@ -485,7 +484,6 @@ const miaCoreLaunchdResolver = createMiaCoreResolver({
   repoRoot: () => path.resolve(__dirname, ".."),
   coreSettings: () => settingsStore.coreSettings(),
   appVersion: () => app.getVersion(),
-  cargoPath: () => process.env.MIA_CARGO_BIN || "cargo",
   parentPid: () => 0
 });
 const launchdService = createLaunchdService({
@@ -1302,8 +1300,7 @@ function shouldUseLaunchdForCore() {
 function coreStartTimeoutMs(expectedCoreTarget = {}) {
   const configured = Number(process.env.MIA_CORE_START_TIMEOUT_MS || "");
   if (Number.isInteger(configured) && configured > 0) return configured;
-  const command = path.basename(String(expectedCoreTarget.command || ""));
-  if (process.defaultApp || command === "cargo") return MIA_CORE_DEV_START_TIMEOUT_MS;
+  if (process.defaultApp) return MIA_CORE_DEV_START_TIMEOUT_MS;
   return MIA_CORE_DEFAULT_START_TIMEOUT_MS;
 }
 

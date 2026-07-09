@@ -30,7 +30,7 @@ test("electron-builder resources exclude Hermes runtime", () => {
   assert.doesNotMatch(JSON.stringify(pkg.build.win || {}), /vendor\/hermes-runtime/);
 });
 
-test("packaged Mia Core is prepared from the Rust release binary", () => {
+test("packaged Mia Core is prepared from a prebuilt Rust Core release", () => {
   const pkg = packageJson();
   const source = fs.readFileSync(path.join(root, "scripts/prepare-mia-core-rs.js"), "utf8");
   const extraResources = pkg.build.extraResources || [];
@@ -39,8 +39,9 @@ test("packaged Mia Core is prepared from the Rust release binary", () => {
   assert.ok(extraResources.some((entry) => entry.from === "resources/bundled-mia-core" && entry.to === "bundled-mia-core"));
   assert.ok(extraResources.some((entry) => entry.from === "skills" && entry.to === "skills"));
   assert.equal(JSON.stringify(extraResources).includes(LEGACY_NODE_RESOURCE), false);
-  assert.match(source, /cargo/);
-  assert.match(source, /"build", "--release", "-p", "mia-core-app", "--bin", "mia-core"/);
+  assert.doesNotMatch(source, /"build", "--release", "-p", "mia-core-app", "--bin", "mia-core"/);
+  assert.match(source, /MIA_CORE_RELEASE_BASE_URL/);
+  assert.match(source, /miaCoreDownloadUrl/);
   assert.match(source, /MIA_CORE_RS_BIN/);
   assert.match(source, /"resources",\s+"bundled-mia-core"/);
 });

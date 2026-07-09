@@ -9,8 +9,8 @@ function coreStartErrorMessage(command, error) {
   const detail = String(error?.message || error || "unknown error");
   const message = `Failed to start Mia Core process "${program}": ${detail}`;
   const base = path.basename(program).toLowerCase();
-  if (error?.code === "ENOENT" && (base === "cargo" || base === "cargo.exe")) {
-    return `${message}. Rust/Cargo is required for Mia Core in development mode; install Rust or set MIA_CORE_BIN to a built mia-core executable.`;
+  if (error?.code === "ENOENT" && (base === "mia-core" || base === "mia-core.exe")) {
+    return `${message}. Mia Core is packaged as a prebuilt executable; run npm run core:prepare or set MIA_CORE_BIN to a prepared mia-core executable.`;
   }
   return message;
 }
@@ -98,7 +98,7 @@ function createMiaCoreProcessLauncher(deps = {}) {
     return env.MIA_CORE_CAPTURE_STDIO === "1"
       || env.MIA_CORE_START_MODE === "process"
       || defaultApp()
-      || String(target.command || "").endsWith("cargo");
+      || path.basename(String(target.command || "")).startsWith("mia-core");
   }
 
   function attachOutputLog(stream, label) {

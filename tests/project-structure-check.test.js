@@ -645,7 +645,7 @@ test("legacy Node Core entry is deleted after Rust Core cutover", () => {
   assert.equal(fs.existsSync(path.join(root, LEGACY_CORE_ENTRY)), false, "old Node Core entry must stay deleted");
   assert.equal(fs.existsSync(path.join(root, "src/main/daemon/executable-resolver.js")), false, "old daemon resolver path must stay deleted");
   assert.equal(fs.existsSync(path.join(root, "src/main/daemon/process-launcher.js")), false, "old daemon process launcher path must stay deleted");
-  assert.match(resolverSource, /mia-core-app|bundled-mia-core|MIA_CORE_BIN/, "Core resolver should target the Rust Core binary or cargo app");
+  assert.match(resolverSource, /bundled-mia-core|MIA_CORE_BIN/, "Core resolver should target the Rust Core binary");
   assert.doesNotMatch(`${resolverSource}\n${launcherSource}`, /daemonEnvOverlay|createDaemonProcessLauncher|daemonEnvironment|daemonProgramArguments|daemonWorkingDirectory/, "Core resolver and launcher must not expose old daemon aliases");
   assert.doesNotMatch(mainSource, /src\/core\/mia-core|require\(["']\.\/core\/mia-core\.js["']\)|createMiaCore\(/, "Electron main must not import or instantiate the old Node Core");
 });
