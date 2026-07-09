@@ -211,6 +211,16 @@ test("runtime refresh re-renders the daemon status card from observed daemon sta
   );
 });
 
+test("runtime refresh invalidates bot runtime control options when local engine readiness changes", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const refreshRuntime = extractFunctionSource(appSource, "performRefreshRuntime");
+
+  assert.match(appSource, /function runtimeControlInventorySignature\(runtime = state\.runtime\)/);
+  assert.match(refreshRuntime, /const previousRuntimeControlInventory = runtimeControlInventorySignature\(state\.runtime\);/);
+  assert.match(refreshRuntime, /const nextRuntimeControlInventory = runtimeControlInventorySignature\(runtime\);/);
+  assert.match(refreshRuntime, /if \(nextRuntimeControlInventory !== previousRuntimeControlInventory\) \{\s*botRuntimeControlOptionsCache\.clear\(\);\s*\}/);
+});
+
 test("bot composer shows Mia Core startup progress through the right-side status slot", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const appStateSource = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
@@ -240,9 +250,11 @@ test("only bot conversations block sends while Mia Core startup is in progress",
 
   assert.match(appSource, /function isCoreStartupSendBlocked\(\)\s*\{\s*return Boolean\(state\.coreStartup\?\.active && activeConversationBotContext\(\)\);\s*\}/);
   assert.match(appSource, /function nudgeCoreStartupStatus\(\)\s*\{/);
-  assert.match(appSource, /els\.sendChat\.classList\.toggle\("core-blocked",\s*blockedByCoreStartup\)/);
+  assert.match(appSource, /els\.sendChat\.classList\.toggle\("core-blocked",\s*blockedByCoreStartup \|\| blockedByRuntime\)/);
   assert.match(clickBody, /if \(isCoreStartupSendBlocked\(\)\) \{[\s\S]*?nudgeCoreStartupStatus\(\);[\s\S]*?return;\s*\}/);
+  assert.match(clickBody, /const runtimeBlock = activeBotRuntimeSendBlock\(\);[\s\S]*?if \(runtimeBlock\) \{[\s\S]*?nudgeBotRuntimeSendBlock\(runtimeBlock\);[\s\S]*?\}/);
   assert.match(submitBody, /if \(isCoreStartupSendBlocked\(\)\) \{[\s\S]*?nudgeCoreStartupStatus\(\);[\s\S]*?return;\s*\}/);
+  assert.match(submitBody, /const runtimeBlock = activeBotRuntimeSendBlock\(\);[\s\S]*?if \(runtimeBlock\) \{[\s\S]*?nudgeBotRuntimeSendBlock\(runtimeBlock\);[\s\S]*?return;\s*\}/);
   assert.match(css, /\.send-button\.core-blocked\s*\{/);
   assert.match(css, /@keyframes\s+composerCoreStartupNudge\s*\{/);
 });
@@ -1572,6 +1584,35 @@ test("engine detection renderer surfaces install progress and failures in settin
   sandbox.renderEngineDetection(runtime);
 
   assert.match(sandbox.els.engineRowHermes.textContent, /still cannot detect Hermes/);
+
+  sandbox.state.agentSetupInstallErrors = {};
+  sandbox.state.hermesInstallError = "";
+  sandbox.renderEngineDetection({
+    agentInventory: {
+      agents: [
+        {
+          id: "hermes",
+          label: "Hermes",
+          installed: true,
+          usableInMia: false,
+          installable: true,
+          installAction: "repair-hermes",
+          health: "blocked",
+          source: "system",
+          readiness: {
+            status: "blocked",
+            summary: "Hermes ACP 自检失败",
+            detail: "model must be non-empty",
+            action: "repair-hermes"
+          }
+        }
+      ]
+    },
+    agentEngines: {}
+  });
+
+  assert.equal(sandbox.els.engineRowHermes.textContent, "Hermes ACP 自检失败");
+  assert.equal(sandbox.els.engineRowHermesActions.innerHTML, "");
 });
 
 test("signed-out desktop shell is a login gate without default Boss identity", () => {
@@ -2498,17 +2539,46 @@ test("composer model control shows neutral text when Core returns no model optio
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
   const syncControls = extractFunctionSource(appSource, "syncConversationBotRuntimeControls");
+  const setComposerSelectOptions = extractFunctionSource(appSource, "setComposerSelectOptions");
+  const openComposerSelectMenu = extractFunctionSource(appSource, "openComposerSelectMenu");
   const contactControls = extractFunctionSource(contactCardSource, "runtimeControlsHtml");
 
   assert.match(syncControls, /setText\(els\.quickModelLabel,\s*modelLabel \|\| "模型"\)/);
   assert.match(syncControls, /els\.quickModelSelect\.disabled = !options \|\| !modelEntries\.length/);
   assert.match(syncControls, /const hasSelectedModelEntry = Boolean\(selectedModelEntry\?\.id \|\| selectedModelEntry\?\.value \|\| selectedModelEntry\?\.model \|\| selectedModelEntry\?\.provider\)/);
   assert.match(syncControls, /setComposerModelAvatar\(selectedModelEntry,\s*engine,\s*\{\s*hidden:\s*!hasSelectedModelEntry\s*\}\)/);
+  assert.match(setComposerSelectOptions, /placeholder:\s*true/);
+  assert.match(setComposerSelectOptions, /option\.dataset\.placeholder = "true"/);
+  assert.match(openComposerSelectMenu, /composerSelectOptions\(select\)\.filter\(\(entry\) => entry\.type !== "option" \|\| !entry\.placeholder\)/);
+  assert.match(appSource, /function activeBotRuntimeSendBlock\(\)/);
+  assert.match(appSource, /options\.sendBlocked/);
+  assert.match(appSource, /nudgeBotRuntimeSendBlock\(runtimeBlock\)/);
+  assert.match(appSource, /els\.sendChat\.disabled = cancelling \|\| \(!generating && \(!canSend \|\| blockedByCoreStartup \|\| blockedByRuntime\)\)/);
   assert.doesNotMatch(syncControls, /modelLabel \|\| "Default"/);
   assert.match(contactControls, /const hasModelEntries = modelEntries\.length > 0;/);
   assert.match(contactControls, /const hasSelectedModelEntry = Boolean\(selectedModelEntry\?\.id \|\| selectedModelEntry\?\.value \|\| selectedModelEntry\?\.model \|\| selectedModelEntry\?\.provider\)/);
   assert.match(contactControls, /class="model-switcher\$\{hasSelectedModelEntry \? "" : " model-switcher--no-avatar"\}"/);
   assert.match(contactControls, /class="model-avatar\$\{hasSelectedModelEntry \? "" : " hidden"\}"/);
+});
+
+test("bot runtime send block waits for explicit Core block instead of missing control options", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const source = extractFunctionSource(appSource, "activeBotRuntimeSendBlock");
+  const context = vm.createContext({
+    activeConversationBotContext: () => ({ conversationId: "botc_1" }),
+    activeBotRuntimeControlContext: () => ({ botKey: "mia", runtimeKind: "desktop-local" }),
+    runtimeControlOptionsForContext: () => null
+  });
+
+  vm.runInContext(`${source}; this.activeBotRuntimeSendBlock = activeBotRuntimeSendBlock;`, context);
+
+  assert.equal(context.activeBotRuntimeSendBlock(), null);
+
+  context.runtimeControlOptionsForContext = () => ({
+    sendBlocked: true,
+    sendBlockReason: "Codex ACP 自检失败"
+  });
+  assert.deepEqual(plain(context.activeBotRuntimeSendBlock()), { reason: "Codex ACP 自检失败" });
 });
 
 test("desktop-local bot runtime controls read cloud runtime bindings", () => {

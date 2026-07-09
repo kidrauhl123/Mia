@@ -856,6 +856,8 @@ pub struct BotRuntimeControlOptionsResponse {
     pub runtime_kind: String,
     pub agent_engine: String,
     pub status_text: String,
+    pub send_blocked: bool,
+    pub send_block_reason: String,
     pub model_options: Vec<BotRuntimeControlOption>,
     pub selected_model: String,
     pub selected_model_entry: Option<BotRuntimeControlOption>,

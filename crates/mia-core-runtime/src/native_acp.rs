@@ -468,10 +468,25 @@ async fn probe_native_acp_command_inner(
             .new_session(workspace_dir)
             .await
             .map_err(|error| (NativeAcpProbeErrorKind::NewSession, error.to_string()))?;
-        protocol
+        let accumulated_text = Arc::new(StdMutex::new(String::new()));
+        protocol.set_active_turn(Some(ActiveTurnContext {
+            turn_id: "probe".into(),
+            conversation_id: "probe".into(),
+            engine: "probe".into(),
+            sink: RuntimeEventSink::default(),
+            accumulated_text: accumulated_text.clone(),
+        }));
+        let prompt_result = protocol
             .prompt(session.session_id, "Reply with OK.".into())
-            .await
-            .map_err(|error| (NativeAcpProbeErrorKind::Prompt, error.to_string()))?;
+            .await;
+        protocol.set_active_turn(None);
+        let prompt_response =
+            prompt_result.map_err(|error| (NativeAcpProbeErrorKind::Prompt, error.to_string()))?;
+        validate_probe_prompt_output(
+            &accumulated_text.lock().unwrap(),
+            prompt_response.stop_reason,
+        )
+        .map_err(|message| (NativeAcpProbeErrorKind::Prompt, message))?;
         Ok(())
     }
     .await;
@@ -969,6 +984,15 @@ fn empty_native_acp_output_error(
     }
 }
 
+fn validate_probe_prompt_output(output: &str, stop_reason: StopReason) -> Result<(), String> {
+    if output.trim().is_empty() {
+        return Err(format!(
+            "ACP prompt self-check completed with stopReason={stop_reason:?} but produced no assistant output"
+        ));
+    }
+    Ok(())
+}
+
 fn summarize_acp_stderr(stderr_tail: &str) -> String {
     let lines: Vec<&str> = stderr_tail
         .lines()
@@ -1095,6 +1119,16 @@ mod tests {
         assert!(message.contains("Hermes native ACP completed"));
         assert!(message.contains("produced no assistant output"));
         assert!(message.contains("EndTurn"));
+    }
+
+    #[test]
+    fn native_acp_probe_requires_assistant_output() {
+        let message = validate_probe_prompt_output("", StopReason::EndTurn).unwrap_err();
+
+        assert!(message.contains("ACP prompt self-check completed"));
+        assert!(message.contains("produced no assistant output"));
+        assert!(message.contains("EndTurn"));
+        assert!(validate_probe_prompt_output("OK", StopReason::EndTurn).is_ok());
     }
 
     #[test]

@@ -763,6 +763,32 @@ test("scanAgentsAsync marks installed agents blocked when CLI handshake fails", 
   assert.equal(service.cachedLocalAgentEngines().codex.installAction, "");
 });
 
+test("scanAgentsAsync does not offer Hermes repair when ACP handshake fails", async (t) => {
+  const { service } = makeService(t, {
+    execFile: (file, args, _options, cb) => {
+      if (file === "zsh" && args[1] === "command -v hermes") return cb(null, "/bin/hermes\n", "");
+      if (file === "/bin/hermes" && args[0] === "--version") return cb(null, "Hermes Agent v0.16.0\n", "");
+      if (file === "/bin/hermes" && args[0] === "acp") {
+        return cb(new Error("spawn failed"), "", "Codex Responses request 'model' must be a non-empty string.");
+      }
+      return cb(new Error("not found"), "", "");
+    }
+  });
+
+  const inventory = await service.scanAgentsAsync();
+  const hermes = inventory.agents.find((agent) => agent.id === "hermes");
+
+  assert.equal(hermes.installed, true);
+  assert.equal(hermes.usableInMia, false);
+  assert.equal(hermes.health, "blocked");
+  assert.equal(hermes.installAction, "");
+  assert.equal(hermes.readiness.action, "");
+  assert.equal(hermes.readiness.status, "blocked");
+  assert.equal(hermes.readiness.summary, "Hermes ACP 自检失败");
+  assert.match(hermes.readiness.detail, /non-empty string/);
+  assert.notEqual(inventory.summary.recommendedAction, "repair-hermes");
+});
+
 test("cachedAgentInventory returns the scanning placeholder before any scan", (t) => {
   const { service } = makeService(t);
   const cached = service.cachedAgentInventory();

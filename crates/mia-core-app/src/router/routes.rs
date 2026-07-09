@@ -1339,7 +1339,7 @@ mod tests {
                     .uri("/api/bots/runtime-control-options")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        r#"{"runtimeKind":"desktop-local","bot":{"key":"codex","agentEngine":"codex"},"runtime":{"permissions":{"engines":{"codex":":danger-full-access"}}},"binding":{"config":{"agentEngine":"codex","model":"gpt-5.3-codex","providerConnectionId":"codex","modelProfileId":"codex:gpt-5.3-codex","effortLevel":"xhigh"}},"engineCapabilities":{"engines":{"codex":{"models":[{"slug":"gpt-5.3-codex","displayName":"GPT-5.3 Codex","supportedReasoningLevels":[{"effort":"medium","label":"Medium"},{"effort":"xhigh","label":"X High"}]}],"permissionProfiles":[{"id":":danger-full-access","description":"Full Access"}]}}}}"#,
+                        r#"{"runtimeKind":"desktop-local","bot":{"key":"codex","agentEngine":"codex"},"runtime":{"agentInventory":{"agents":[{"id":"codex","usableInMia":true,"health":"ready"}]},"permissions":{"engines":{"codex":":danger-full-access"}}},"binding":{"config":{"agentEngine":"codex","model":"gpt-5.3-codex","providerConnectionId":"codex","modelProfileId":"codex:gpt-5.3-codex","effortLevel":"xhigh"}},"engineCapabilities":{"engines":{"codex":{"models":[{"slug":"gpt-5.3-codex","displayName":"GPT-5.3 Codex","supportedReasoningLevels":[{"effort":"medium","label":"Medium"},{"effort":"xhigh","label":"X High"}]}],"permissionProfiles":[{"id":":danger-full-access","description":"Full Access"}]}}}}"#,
                     ))
                     .unwrap(),
             )

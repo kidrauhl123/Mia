@@ -97,8 +97,16 @@ async fn bot_service_owns_runtime_target_intent_normalization() {
     assert_eq!(desktop.binding["targetDeviceId"], "device_mac");
     assert_eq!(desktop.binding["targetDeviceName"], "Office Mac");
     assert_eq!(desktop.binding["runtimeLabel"], "Office Mac");
-    assert_eq!(desktop.binding["providerConnectionId"], "codex");
-    assert_eq!(desktop.binding["modelProfileId"], "codex:gpt-5.3");
+    assert!(desktop.binding["providerConnectionId"].is_null());
+    assert!(desktop.binding["modelProfileId"].is_null());
+    assert!(desktop.binding["model"].is_null());
+    assert!(desktop.binding["config"].get("model").is_none());
+    assert!(
+        desktop.binding["config"]
+            .get("providerConnectionId")
+            .is_none()
+    );
+    assert!(desktop.binding["config"].get("modelProfileId").is_none());
 
     let cloud = service
         .save_runtime(
@@ -314,6 +322,11 @@ async fn bot_service_owns_runtime_control_options_selection() {
         runtime_kind: Some("desktop-local".to_string()),
         bot: json!({ "key": "codex", "agentEngine": "codex" }),
         runtime: json!({
+            "agentInventory": {
+                "agents": [
+                    { "id": "codex", "usableInMia": true, "health": "ready" }
+                ]
+            },
             "permissions": {
                 "mode": "ask",
                 "engines": { "codex": ":danger-full-access" }
@@ -358,6 +371,8 @@ async fn bot_service_owns_runtime_control_options_selection() {
     assert_eq!(response.runtime_kind, "desktop-local");
     assert_eq!(response.agent_engine, "codex");
     assert_eq!(response.status_text, "Codex");
+    assert!(!response.send_blocked);
+    assert_eq!(response.send_block_reason, "");
     assert_eq!(response.model_options.len(), 2);
     assert_eq!(response.selected_model, "gpt-5.3-codex");
     assert_eq!(
@@ -376,7 +391,13 @@ async fn bot_service_leaves_external_model_empty_when_saved_model_is_not_availab
     let response = service.runtime_control_options(BotRuntimeControlOptionsRequest {
         runtime_kind: Some("desktop-local".to_string()),
         bot: json!({ "key": "codex", "agentEngine": "codex" }),
-        runtime: json!({}),
+        runtime: json!({
+            "agentInventory": {
+                "agents": [
+                    { "id": "codex", "usableInMia": true, "health": "ready" }
+                ]
+            }
+        }),
         binding: json!({
             "config": {
                 "agentEngine": "codex",
@@ -408,6 +429,36 @@ async fn bot_service_leaves_external_model_empty_when_saved_model_is_not_availab
         .collect::<Vec<_>>();
     assert_eq!(model_ids, vec!["gpt-5.5", "mia-auto"]);
     assert!(!model_ids.contains(&"gpt-5.3-codex"));
+}
+
+#[tokio::test]
+async fn bot_service_blocks_desktop_runtime_controls_until_inventory_is_ready() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let response = service.runtime_control_options(BotRuntimeControlOptionsRequest {
+        runtime_kind: Some("desktop-local".to_string()),
+        bot: json!({ "key": "hermes", "agentEngine": "hermes" }),
+        runtime: json!({}),
+        binding: json!({
+            "config": {
+                "agentEngine": "hermes",
+                "model": "mia-auto",
+                "providerConnectionId": "mia",
+                "modelProfileId": "mia:mia-auto"
+            }
+        }),
+        model_catalog: json!([]),
+        platform_models: json!([{ "id": "mia-auto", "label": "Auto" }]),
+        engine_capabilities: json!({}),
+        codex_models: json!([]),
+    });
+
+    assert!(response.model_options.is_empty());
+    assert_eq!(response.selected_model, "");
+    assert!(response.selected_model_entry.is_none());
+    assert!(response.send_blocked);
+    assert_eq!(response.send_block_reason, "Hermes ACP 自检未完成");
 }
 
 #[tokio::test]
@@ -448,6 +499,8 @@ async fn bot_service_leaves_model_empty_when_codex_inventory_is_blocked() {
     assert!(response.model_options.is_empty());
     assert_eq!(response.selected_model, "");
     assert!(response.selected_model_entry.is_none());
+    assert!(response.send_blocked);
+    assert_eq!(response.send_block_reason, "Codex ACP 自检失败");
 }
 
 #[tokio::test]
@@ -486,6 +539,8 @@ async fn bot_service_leaves_model_empty_when_hermes_inventory_is_blocked() {
     assert!(response.model_options.is_empty());
     assert_eq!(response.selected_model, "");
     assert!(response.selected_model_entry.is_none());
+    assert!(response.send_blocked);
+    assert_eq!(response.send_block_reason, "Hermes ACP 自检失败");
 }
 
 #[tokio::test]
@@ -510,6 +565,35 @@ async fn bot_service_owns_cloud_runtime_control_permission_options() {
     assert_eq!(response.permission_options[0].value, "bypassPermissions");
     assert_eq!(response.permission_options[0].label, "Sandbox");
     assert_eq!(response.selected_permission, "bypassPermissions");
+}
+
+#[tokio::test]
+async fn bot_service_cloud_runtime_control_ignores_local_agent_inventory_blocks() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let response = service.runtime_control_options(BotRuntimeControlOptionsRequest {
+        runtime_kind: Some("cloud-claude-code".to_string()),
+        bot: json!({ "key": "mia", "agentEngine": "claude-code" }),
+        runtime: json!({
+            "agentInventory": {
+                "agents": [
+                    { "id": "claude-code", "usableInMia": false, "health": "blocked" }
+                ]
+            }
+        }),
+        binding: json!({}),
+        model_catalog: json!([]),
+        platform_models: json!([]),
+        engine_capabilities: json!({}),
+        codex_models: json!([]),
+    });
+
+    assert_eq!(response.runtime_kind, "cloud-claude-code");
+    assert_eq!(response.agent_engine, "claude-code");
+    assert!(!response.send_blocked);
+    assert_eq!(response.send_block_reason, "");
+    assert_eq!(response.status_text, "Mia Cloud");
 }
 
 #[tokio::test]
@@ -642,28 +726,37 @@ async fn bot_service_owns_runtime_sync_intent_normalization() {
         )
         .await
         .unwrap();
-    assert_eq!(preserved.binding["config"]["model"], "mia-auto");
-    assert_eq!(preserved.binding["config"]["providerConnectionId"], "mia");
+    assert_eq!(preserved.binding["config"]["model"], "deepseek-chat");
+    assert_eq!(
+        preserved.binding["config"]["providerConnectionId"],
+        "deepseek"
+    );
     assert_eq!(
         preserved.binding["config"]["modelProfileId"],
-        "mia:mia-auto"
+        "deepseek:deepseek-chat"
     );
     assert_eq!(preserved.binding["config"]["effortLevel"], "low");
     assert_eq!(preserved.binding["config"]["permissionMode"], "ask");
     assert_eq!(
-        preserved.binding["config"]["modelEntries"][1],
+        preserved.binding["config"]["modelEntries"][0],
         json!({
-            "id": "mia-auto",
-            "model": "mia-auto",
-            "provider": "mia",
-            "providerLabel": "Mia",
-            "authType": "mia_account",
-            "modelProfileId": "mia:mia-auto"
+            "id": "deepseek-chat",
+            "label": "DeepSeek",
+            "model": "deepseek-chat",
+            "provider": "deepseek",
+            "providerLabel": "DeepSeek",
+            "authType": "api_key"
         })
+    );
+    assert_eq!(
+        preserved.binding["config"]["modelEntries"]
+            .as_array()
+            .map(Vec::len),
+        Some(1)
     );
     for key in ["apiKeyEnv", "baseUrl", "apiMode"] {
         assert!(
-            preserved.binding["config"]["modelEntries"][1]
+            preserved.binding["config"]["modelEntries"][0]
                 .get(key)
                 .is_none(),
             "{key} should be stripped from synced model entries"

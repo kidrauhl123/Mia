@@ -2168,18 +2168,20 @@ function renderSendButton() {
   const cancelling = status === "cancelling";
   const busy = generating || cancelling;
   const blockedByCoreStartup = !busy && canSend && isCoreStartupSendBlocked();
+  const runtimeBlock = !busy && canSend ? activeBotRuntimeSendBlock() : null;
+  const blockedByRuntime = Boolean(runtimeBlock);
   els.sendChat.classList.toggle("stop", busy);
   els.sendChat.classList.toggle("stopping", cancelling);
-  els.sendChat.classList.toggle("core-blocked", blockedByCoreStartup);
+  els.sendChat.classList.toggle("core-blocked", blockedByCoreStartup || blockedByRuntime);
   const title = cancelling
     ? "正在停止"
     : (generating
       ? "停止生成"
-      : (blockedByCoreStartup ? coreStartupStatusText() : "发送"));
+      : (blockedByCoreStartup ? coreStartupStatusText() : (blockedByRuntime ? runtimeBlock.reason : "发送")));
   els.sendChat.title = title;
   els.sendChat.setAttribute("aria-label", title);
-  els.sendChat.setAttribute("aria-disabled", blockedByCoreStartup ? "true" : "false");
-  els.sendChat.disabled = cancelling || (!generating && !canSend);
+  els.sendChat.setAttribute("aria-disabled", (blockedByCoreStartup || blockedByRuntime) ? "true" : "false");
+  els.sendChat.disabled = cancelling || (!generating && (!canSend || blockedByCoreStartup || blockedByRuntime));
 }
 
 
@@ -3987,6 +3989,9 @@ function renderHermesInstallState(runtime = state.runtime) {
   const hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes");
   if (state.hermesInstallError) return state.hermesInstallError;
   if (!hermes) return "";
+  if (hermes.health === "blocked" || hermes.readiness?.status === "blocked") {
+    return String(hermes.readiness?.summary || hermes.readiness?.detail || "Hermes ACP 自检失败。").trim();
+  }
   if (hermes.health === "broken") return "官方 Hermes 状态异常，可修复。";
   if (hermes.source === "system" && !hermes.usableInMia) return "检测到 Hermes，但当前安装方式暂不能用于 Mia。";
   return "";
@@ -3994,11 +3999,14 @@ function renderHermesInstallState(runtime = state.runtime) {
 
 function hermesSetupAction(runtime = state.runtime) {
   const hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes");
-  if (hermes?.installAction === "repair-hermes" || hermes?.health === "broken") {
+  if (hermes?.health === "broken") {
     return { action: "repair-hermes", label: "修复官方 Hermes" };
   }
   if (state.hermesInstallError) {
     return { action: "retry-install-hermes", label: "重试安装官方 Hermes" };
+  }
+  if (hermes?.usableInMia || hermes?.installed || hermes?.health === "blocked" || hermes?.readiness?.status === "blocked") {
+    return null;
   }
   return { action: "install-hermes", label: "安装官方 Hermes" };
 }
@@ -4015,13 +4023,18 @@ function agentInstallLabel(agent) {
 
 function agentInstallAction(agent) {
   if (!agent) return null;
-  if (agent.id === "hermes" && (agent.health === "broken" || agent.installAction === "repair-hermes")) {
+  if (agent.id === "hermes" && agent.health === "broken") {
     return { action: "repair-hermes", label: agentInstallLabel(agent), engineId: "hermes" };
   }
   if (agent.usableInMia) return null;
+  if (agent.health === "blocked" || agent.readiness?.status === "blocked") return null;
+  if (agent.id === "hermes" && agent.installAction === "repair-hermes") {
+    return { action: "repair-hermes", label: agentInstallLabel(agent), engineId: "hermes" };
+  }
   if (agent.installed && agent.installAction) {
     return { action: agent.installAction, label: agentInstallLabel(agent), engineId: agent.id };
   }
+  if (agent.installed) return null;
   if (agent.id === "hermes" && (agent.installable || agent.installAction)) {
     const action = agent.health === "broken" || agent.installAction === "repair-hermes"
       ? "repair-hermes"
@@ -4578,7 +4591,7 @@ function renderNoAgentGuide() {
       <p>要开始本机聊天，请安装官方 Hermes 或配置已有 Agent。</p>
       ${hermesState ? `<p>${window.miaMarkdown.escapeHtml(hermesState)}</p>` : ""}
       <div class="setup-actions">
-        <button type="button" class="primary" data-setup-action="${hermesAction.action}">${window.miaMarkdown.escapeHtml(hermesAction.label)}</button>
+        ${hermesAction ? `<button type="button" class="primary" data-setup-action="${hermesAction.action}">${window.miaMarkdown.escapeHtml(hermesAction.label)}</button>` : ""}
         <button type="button" class="secondary" data-setup-action="open-agent-settings">查看本机引擎</button>
       </div>
     </div>
@@ -4720,6 +4733,28 @@ function activeBotRuntimeControlContext() {
   };
 }
 
+function activeBotRuntimeSendBlock() {
+  if (!activeConversationBotContext()) return null;
+  const controlContext = activeBotRuntimeControlContext();
+  const options = runtimeControlOptionsForContext(controlContext);
+  if (!options) return null;
+  if (options.sendBlocked) {
+    return { reason: options.sendBlockReason || options.statusText || "Agent 自检失败" };
+  }
+  return null;
+}
+
+function nudgeBotRuntimeSendBlock(block = activeBotRuntimeSendBlock()) {
+  if (!block) return false;
+  setModelSwitchStatusText(block.reason || "Agent 自检失败");
+  const controlContext = activeBotRuntimeControlContext();
+  if (!runtimeControlOptionsForContext(controlContext)) {
+    requestRuntimeControlOptions(controlContext);
+  }
+  renderSendButton();
+  return true;
+}
+
 function botRuntimeCacheKey(botKey, runtimeKind = "cloud-claude-code") {
   return window.miaBotCommands.runtimeCacheKey(botKey, runtimeKind);
 }
@@ -4764,22 +4799,25 @@ function setComposerSelectOptions(select, entries, selectedValue, options = {}) 
   if (!select) return "";
   const allowEmpty = Boolean(options.allowEmpty);
   const emptyLabel = String(options.emptyLabel || "");
+  const emptyOption = allowEmpty ? [{ value: "", label: emptyLabel || "选择", title: "", aliases: [], placeholder: true }] : [];
   const normalized = (Array.isArray(entries) ? entries : [])
     .filter((entry) => entry && (entry.id !== undefined || entry.value !== undefined))
     .map((entry) => ({
       value: String(entry.id ?? entry.value),
       label: String(entry.label || entry.id || entry.value),
       title: String(entry.title || ""),
-      aliases: Array.isArray(entry.aliases) ? entry.aliases.map((item) => String(item)) : []
+      aliases: Array.isArray(entry.aliases) ? entry.aliases.map((item) => String(item)) : [],
+      placeholder: false
     }));
   select.innerHTML = [
-    ...(allowEmpty ? [{ value: "", label: emptyLabel || "选择", title: "", aliases: [] }] : []),
+    ...emptyOption,
     ...normalized
   ].map((entry) => {
     const option = document.createElement("option");
     option.value = entry.value;
     option.textContent = entry.label;
     if (entry.title) option.title = entry.title;
+    if (entry.placeholder) option.dataset.placeholder = "true";
     return option.outerHTML;
   }).join("");
   const value = String(selectedValue || "");
@@ -4807,7 +4845,8 @@ function composerSelectOptions(select) {
       value: option.value,
       label: String(option.label || option.textContent || option.value || "").trim(),
       selected: option.selected,
-      disabled: Boolean(option.disabled || groupDisabled)
+      disabled: Boolean(option.disabled || groupDisabled),
+      placeholder: option.dataset.placeholder === "true"
     });
   };
   Array.from(select?.children || []).forEach((child) => {
@@ -4885,7 +4924,7 @@ function openComposerSelectMenu(select) {
   }
   closeComposerSelectMenu();
   const menu = ensureComposerSelectMenu();
-  const entries = composerSelectOptions(select);
+  const entries = composerSelectOptions(select).filter((entry) => entry.type !== "option" || !entry.placeholder);
   const options = entries.filter((option) => option.type === "option" && !option.disabled);
   if (!options.length) return;
   const selectedValue = String(select.value || options.find((option) => option.selected)?.value || options[0]?.value || "");
@@ -4955,6 +4994,17 @@ function runtimeControlStateSnapshot() {
     engineCapabilities: state.engineCapabilities || {},
     codexModels: state.codexModels || []
   };
+}
+
+function runtimeControlInventorySignature(runtime = state.runtime) {
+  const agents = Array.isArray(runtime?.agentInventory?.agents) ? runtime.agentInventory.agents : [];
+  if (!agents.length) return "";
+  return JSON.stringify(agents.map((agent) => ({
+    id: String(agent?.id || ""),
+    usableInMia: Boolean(agent?.usableInMia ?? agent?.usable_in_mia),
+    health: String(agent?.health || ""),
+    readinessStatus: String(agent?.readiness?.status || "")
+  })).sort((left, right) => left.id.localeCompare(right.id)));
 }
 
 function runtimeControlOptionsRequest(context = activeBotRuntimeControlContext()) {
@@ -5322,6 +5372,7 @@ let runtimeRefreshScheduler = null;
 async function performRefreshRuntime() {
   const previousDaemon = state.runtime?.daemon || {};
   const previousCloud = state.runtime?.cloud || {};
+  const previousRuntimeControlInventory = runtimeControlInventorySignature(state.runtime);
   const runtime = await window.mia.runtimeStatus();
   if (runtime?.daemon && Array.isArray(previousDaemon.links) && previousDaemon.links.length && !Array.isArray(runtime.daemon.links)) {
     runtime.daemon = {
@@ -5342,6 +5393,10 @@ async function performRefreshRuntime() {
     };
   }
   state.runtime = runtime;
+  const nextRuntimeControlInventory = runtimeControlInventorySignature(runtime);
+  if (nextRuntimeControlInventory !== previousRuntimeControlInventory) {
+    botRuntimeControlOptionsCache.clear();
+  }
   if (state.coreStartup?.active && runtime?.daemon?.running) {
     completeCoreStartupProgress(true);
   }
@@ -7620,14 +7675,22 @@ window.addEventListener("blur", () => {
 });
 
 els.sendChat.addEventListener("click", async (event) => {
-  if (isCoreStartupSendBlocked()) {
-    event.preventDefault();
-    event.stopPropagation();
-    nudgeCoreStartupStatus();
+  const activeRun = window.miaSocial?.activeConversationRun?.();
+  if (activeRun?.status !== "running") {
+    if (isCoreStartupSendBlocked()) {
+      event.preventDefault();
+      event.stopPropagation();
+      nudgeCoreStartupStatus();
+      return;
+    }
+    const runtimeBlock = activeBotRuntimeSendBlock();
+    if (runtimeBlock) {
+      event.preventDefault();
+      event.stopPropagation();
+      nudgeBotRuntimeSendBlock(runtimeBlock);
+    }
     return;
   }
-  const activeRun = window.miaSocial?.activeConversationRun?.();
-  if (activeRun?.status !== "running") return;
   event.preventDefault();
   event.stopPropagation();
   await window.mia.stopChat?.({
@@ -7804,6 +7867,11 @@ els.chatForm.addEventListener("submit", async (event) => {
   if (window.miaMessageHelpers.isComposerComposing()) return;
   if (isCoreStartupSendBlocked()) {
     nudgeCoreStartupStatus();
+    return;
+  }
+  const runtimeBlock = activeBotRuntimeSendBlock();
+  if (runtimeBlock) {
+    nudgeBotRuntimeSendBlock(runtimeBlock);
     return;
   }
   // Branch: a cloud conversation (dm / group / bot) is active → send via social.

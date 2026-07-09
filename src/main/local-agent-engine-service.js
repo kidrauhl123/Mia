@@ -521,7 +521,6 @@ function createLocalAgentEngineService(deps = {}) {
   }
 
   function agentInstallActionId(definition) {
-    if (definition.id === "hermes") return "repair-hermes";
     return "";
   }
 
@@ -589,7 +588,7 @@ function createLocalAgentEngineService(deps = {}) {
     const action = agentInstallActionId(definition);
     return withReadiness(status, readiness(
       "blocked",
-      action ? `${definition.label} ACP 自检失败，可修复` : `${definition.label} ACP 自检失败`,
+      `${definition.label} ACP 自检失败`,
       probe.detail,
       action
     ), {
@@ -671,8 +670,7 @@ function createLocalAgentEngineService(deps = {}) {
   function buildInventory(agents, at) {
     const installedCount = agents.filter((agent) => agent.installed).length;
     const usableCount = agents.filter((agent) => agent.usableInMia).length;
-    const hasBrokenHermes = agents.some((agent) => agent.id === "hermes" && agent.health === "broken");
-    const repairable = agents.find((agent) => agent.installed && !agent.usableInMia && agent.installAction);
+    const actionable = agents.find((agent) => !agent.usableInMia && agent.installAction);
     return {
       generatedAt: at,
       agents,
@@ -681,7 +679,7 @@ function createLocalAgentEngineService(deps = {}) {
         usableCount,
         missingCount: agents.length - installedCount,
         hasUsableAgent: usableCount > 0,
-        recommendedAction: usableCount > 0 ? "continue" : hasBrokenHermes ? "repair-hermes" : repairable?.installAction || "install-hermes"
+        recommendedAction: usableCount > 0 ? "continue" : actionable?.installAction || "scan"
       }
     };
   }

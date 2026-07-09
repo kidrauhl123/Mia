@@ -1002,20 +1002,23 @@ fn set_object_field(value: &mut Value, key: &str, field_value: Value) {
 fn runtime_config_from_target_intent(
     runtime_kind: &str,
     existing: Value,
-    patch: &Value,
+    _patch: &Value,
     intent: &BotRuntimeTargetIntent,
 ) -> Value {
-    let mut config = object_from_value(existing);
-    merge_object_patch(&mut config, patch);
+    let mut config = object_from_value(sanitize_runtime_config(existing));
     let kind = normalize_runtime_kind(runtime_kind);
+    let previous_engine = first_map_string(&config, &["agentEngine", "agent_engine", "engine"])
+        .map(|engine| normalize_agent_engine(&engine))
+        .unwrap_or_default();
     let engine = clean_optional(&intent.agent_engine)
         .or_else(|| map_string(&config, "agentEngine"))
         .or_else(|| map_string(&config, "agent_engine"))
         .unwrap_or_else(|| default_agent_engine(&kind).to_string());
-    config.insert(
-        "agentEngine".to_string(),
-        json!(normalize_agent_engine(&engine)),
-    );
+    let engine = normalize_agent_engine(&engine);
+    if previous_engine != engine || runtime_model_selection_is_mia_managed(&config) {
+        remove_runtime_model_fields(&mut config);
+    }
+    config.insert("agentEngine".to_string(), json!(engine));
     config.remove("agent_engine");
     if kind == "cloud-claude-code" {
         if !has_non_empty(&config, "model") {
@@ -1040,7 +1043,7 @@ fn runtime_config_from_target_intent(
     }
     config.remove("device_id");
     config.remove("device_name");
-    Value::Object(config)
+    sanitize_runtime_config(Value::Object(config))
 }
 
 fn runtime_config_from_control_intent(
@@ -1086,7 +1089,12 @@ fn runtime_config_from_sync_intent(
         );
     }
 
-    let model_entries = sync_model_entries(&intent.model_entries, existing.get("modelEntries"));
+    let existing_model_entries = if runtime_model_selection_is_mia_managed(&existing) {
+        None
+    } else {
+        existing.get("modelEntries")
+    };
+    let model_entries = sync_model_entries(&intent.model_entries, existing_model_entries);
     let is_external = engine != "hermes";
     if is_external {
         apply_sync_model_control(
@@ -1102,7 +1110,7 @@ fn runtime_config_from_sync_intent(
         let has_saved_selection = has_non_empty(&existing, "model")
             || has_non_empty(&existing, "providerConnectionId")
             || has_non_empty(&existing, "modelProfileId");
-        if has_saved_selection {
+        if has_saved_selection && !runtime_model_selection_is_mia_managed(&existing) {
             apply_existing_model_selection(&mut config, &existing);
         } else {
             apply_sync_model_control(
@@ -1194,6 +1202,9 @@ fn apply_sync_model_control(
         return;
     }
     let model = canonical_mia_model_id(&value);
+    if model.is_empty() {
+        return;
+    }
     config.insert("model".to_string(), json!(model));
 }
 
@@ -1220,6 +1231,68 @@ fn apply_existing_model_selection(config: &mut Map<String, Value>, existing: &Ma
             "modelProfileId".to_string(),
             json!(canonical_mia_profile_id(&profile_id, &model)),
         );
+    }
+}
+
+fn runtime_model_selection_is_mia_managed(config: &Map<String, Value>) -> bool {
+    let model = first_map_string(config, &["model"])
+        .map(|value| canonical_mia_model_id(&value))
+        .unwrap_or_default();
+    let profile_id = first_map_string(
+        config,
+        &[
+            "modelProfileId",
+            "model_profile_id",
+            "profileId",
+            "profile_id",
+        ],
+    )
+    .map(|value| canonical_mia_profile_id(&value, &model))
+    .unwrap_or_default();
+    let provider = first_map_string(
+        config,
+        &[
+            "providerConnectionId",
+            "provider_connection_id",
+            "provider",
+            "modelProvider",
+            "model_provider",
+        ],
+    )
+    .unwrap_or_default();
+    let auth_type = first_map_string(config, &["authType", "auth_type"]).unwrap_or_default();
+    provider == "mia"
+        || auth_type == "mia_account"
+        || profile_id.starts_with("mia:")
+        || model == "mia-auto"
+        || model == "mia-default"
+}
+
+fn remove_runtime_model_fields(config: &mut Map<String, Value>) {
+    for key in [
+        "model",
+        "providerConnectionId",
+        "provider_connection_id",
+        "modelProfileId",
+        "model_profile_id",
+        "profileId",
+        "profile_id",
+        "modelEntries",
+        "provider",
+        "modelProvider",
+        "model_provider",
+        "providerLabel",
+        "provider_label",
+        "authType",
+        "auth_type",
+        "apiKeyEnv",
+        "api_key_env",
+        "baseUrl",
+        "base_url",
+        "apiMode",
+        "api_mode",
+    ] {
+        config.remove(key);
     }
 }
 
@@ -1621,7 +1694,7 @@ fn runtime_control_options_from_request(
     let runtime_kind = normalize_runtime_kind(&raw_runtime_kind);
     let agent_engine =
         runtime_control_agent_engine(&runtime_kind, &bot, &runtime, &binding_config, &bot_config);
-    let config = runtime_control_config(
+    let mut config = runtime_control_config(
         &runtime_kind,
         &agent_engine,
         &runtime,
@@ -1630,8 +1703,12 @@ fn runtime_control_options_from_request(
     );
     let model_catalog = runtime_control_model_catalog(&model_catalog);
     let platform_models = runtime_control_platform_model_entries(&platform_models);
-    let engine_blocked =
-        runtime_inventory_engine_state(&runtime_value, &agent_engine).is_some_and(|usable| !usable);
+    if runtime_kind != "cloud-claude-code" && runtime_model_selection_is_mia_managed(&config) {
+        remove_runtime_model_fields(&mut config);
+    }
+    let send_block_reason =
+        runtime_control_send_block_reason(&runtime_kind, &agent_engine, &runtime_value);
+    let engine_blocked = !send_block_reason.is_empty();
     let model_options = if engine_blocked {
         Vec::new()
     } else {
@@ -1679,6 +1756,8 @@ fn runtime_control_options_from_request(
         } else {
             engine_label(&agent_engine)
         },
+        send_blocked: !send_block_reason.is_empty(),
+        send_block_reason,
         model_options,
         selected_model,
         selected_model_entry,
@@ -2684,6 +2763,28 @@ fn runtime_inventory_engine_state(runtime: &Value, engine: &str) -> Option<bool>
         }
     }
     None
+}
+
+fn runtime_agent_inventory_present(runtime: &Value) -> bool {
+    runtime
+        .get("agentInventory")
+        .and_then(Value::as_object)
+        .and_then(|inventory| inventory.get("agents"))
+        .and_then(Value::as_array)
+        .is_some()
+}
+
+fn runtime_control_send_block_reason(runtime_kind: &str, engine: &str, runtime: &Value) -> String {
+    if runtime_kind != "desktop-local" {
+        return String::new();
+    }
+    let label = engine_label(engine);
+    match runtime_inventory_engine_state(runtime, engine) {
+        Some(true) => String::new(),
+        Some(false) => format!("{label} ACP 自检失败"),
+        None if runtime_agent_inventory_present(runtime) => format!("{label} ACP 自检失败"),
+        None => format!("{label} ACP 自检未完成"),
+    }
 }
 
 fn selected_runtime_control_model_entry(

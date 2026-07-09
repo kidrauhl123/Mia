@@ -111,7 +111,7 @@
       return state?.agentSetupInstallMessage || "Installing...";
     }
     if (agent.health === "checking" || agent.source === "checking") return "正在检查";
-    if (agent.health === "blocked") return readinessSummary(agent) || "自检失败，可修复";
+    if (agent.health === "blocked") return readinessSummary(agent) || "自检失败";
     if (agent.readiness?.status === "repairable") return readinessSummary(agent) || "状态异常，可修复";
     if (agent.usableInMia) {
       const parts = [agent.path || "已接入 Mia", versionLabel(agent)].filter(Boolean);
@@ -131,6 +131,7 @@
   // one is missing (not gated on whether some other engine is usable). Hermes
   // additionally has repair / retry states.
   function agentAction(agent) {
+    if (agent.health === "blocked" || agent.readiness?.status === "blocked") return null;
     if (agent.id === "hermes") {
       if (agent.health === "broken" || agent.installAction === "repair-hermes") {
         return { action: "repair-hermes", label: "修复官方 Hermes" };

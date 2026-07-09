@@ -658,6 +658,8 @@ fn runtime_control_options_serialize_as_camel_case_contract() {
         runtime_kind: "desktop-local".into(),
         agent_engine: "codex".into(),
         status_text: "Codex".into(),
+        send_blocked: false,
+        send_block_reason: "".into(),
         model_options: vec![BotRuntimeControlOption {
             id: "gpt-5.3-codex".into(),
             model: "gpt-5.3-codex".into(),
@@ -688,6 +690,7 @@ fn runtime_control_options_serialize_as_camel_case_contract() {
     };
     let serialized_response = serde_json::to_value(response).unwrap();
     assert_eq!(serialized_response["agentEngine"], "codex");
+    assert_eq!(serialized_response["sendBlocked"], false);
     assert!(serialized_response.get("permissionSaveTarget").is_none());
     assert_eq!(
         serialized_response["selectedModelEntry"]["id"],

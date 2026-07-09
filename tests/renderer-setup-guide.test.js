@@ -177,7 +177,7 @@ test("setup guide allows installed Claude Code and Codex as ready engines", () =
   assert.doesNotMatch(html, /data-setup-action="install-openclaw"/);
 });
 
-test("setup guide renders blocked installed agents with repair actions", () => {
+test("setup guide renders blocked installed agents without repair actions", () => {
   const state = {
     runtime: {
       agentInventory: inventory([
@@ -195,7 +195,7 @@ test("setup guide renders blocked installed agents with repair actions", () => {
           readiness: {
             status: "blocked",
             checked: true,
-            summary: "Codex ACP 自检失败，可重新安装",
+            summary: "Codex ACP 自检失败",
             detail: "Cannot start Codex",
             action: "install-codex"
           }
@@ -210,9 +210,9 @@ test("setup guide renders blocked installed agents with repair actions", () => {
   const guide = loadSetupGuide(state);
   const html = guide.renderSetupGuide();
 
-  assert.match(html, /Codex ACP 自检失败，可重新安装/);
-  assert.match(html, /data-setup-action="install-codex"/);
-  assert.match(html, />修复 Codex</);
+  assert.match(html, /Codex ACP 自检失败/);
+  assert.doesNotMatch(html, /data-setup-action="install-codex"/);
+  assert.doesNotMatch(html, />修复 Codex</);
   assert.doesNotMatch(html, /setup-engine-badge ok/);
 });
 

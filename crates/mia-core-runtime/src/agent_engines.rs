@@ -185,7 +185,7 @@ impl AgentEngineScanner {
                     definition.acp_display()
                 ),
                 "",
-                acp_failure_action(definition),
+                String::new(),
             );
         };
 
@@ -228,7 +228,7 @@ impl AgentEngineScanner {
                 &error_code,
                 &format!("{} ACP 自检失败", definition.label),
                 &detail,
-                acp_failure_action(definition),
+                String::new(),
             ),
         }
     }
@@ -617,14 +617,6 @@ fn readiness(
     }
 }
 
-fn acp_failure_action(definition: AgentEngineDefinition) -> String {
-    if definition.id == "hermes" {
-        "repair-hermes".into()
-    } else {
-        String::new()
-    }
-}
-
 fn acp_probe_environment(
     definition: AgentEngineDefinition,
     options: &AgentEngineScanOptions,
@@ -968,6 +960,34 @@ mod tests {
         assert_eq!(
             codex.readiness.error_code.as_deref(),
             Some("acp_init_failed")
+        );
+    }
+
+    #[tokio::test]
+    async fn hermes_primary_cli_installed_but_acp_probe_failed_does_not_offer_repair() {
+        let scanner = AgentEngineScanner::fake_for_tests(
+            [("hermes", "/usr/local/bin/hermes")],
+            [(
+                "hermes",
+                AcpProbeOutcome::failed("acp_prompt_failed", "model must be non-empty"),
+            )],
+        );
+
+        let inventory = scanner.scan(AgentEngineScanOptions::for_tests()).await;
+        let hermes = inventory
+            .agents
+            .iter()
+            .find(|agent| agent.id == "hermes")
+            .expect("hermes status");
+
+        assert!(hermes.installed);
+        assert!(!hermes.usable_in_mia);
+        assert_eq!(hermes.health, "blocked");
+        assert_eq!(hermes.install_action, "");
+        assert_eq!(hermes.readiness.action, "");
+        assert_eq!(
+            hermes.readiness.error_code.as_deref(),
+            Some("acp_prompt_failed")
         );
     }
 
