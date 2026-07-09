@@ -170,6 +170,7 @@ test("conversation preload bridge keeps legacy social data primary with Rust Cor
   assert.match(preload, /async function getConversationCompat\(conversationId\)/);
   assert.match(preload, /function isDesktopLocalBotPost\(body = \{\}\)/);
   assert.match(preload, /function isCloudClaudeCodeBotPost\(body = \{\}\)/);
+  assert.match(preload, /function isCloudStarterBotConversationId\(conversationId\)/);
   assert.match(preload, /function isDesktopLocalBotConversationPost\(conversationId,\s*body = \{\}\)/);
   assert.match(preload, /function localCoreConversationIdForBotConversation\(conversationId\)/);
   assert.match(preload, /async function listLocalDesktopBotMessages\(conversationId,\s*sinceSeq,\s*limit\)/);
@@ -193,7 +194,11 @@ test("conversation preload bridge keeps legacy social data primary with Rust Cor
   );
   const postConversationSource = extractFunctionSource(preload, "postConversationMessageCompat");
   assert.match(postConversationSource, /if \(isDesktopLocalBotConversationPost\(conversationId,\s*body\)\) \{\s*return postLocalDesktopBotMessage\(conversationId,\s*body\);\s*\}/);
-  assert.match(postConversationSource, /if \(!isCoreConversationId\(conversationId\)\) \{/);
+  assert.match(
+    postConversationSource,
+    /const shouldUseSocialConversationPost = isCloudClaudeCodeBotPost\(body\)\s*\|\|\s*isCloudStarterBotConversationId\(conversationId\)\s*\|\|\s*!isCoreConversationId\(conversationId\);/
+  );
+  assert.match(postConversationSource, /if \(shouldUseSocialConversationPost\) \{/);
   assert.match(postConversationSource, /if \(result\?\.ok === false\) return result;/);
   assert.doesNotMatch(
     postConversationSource,
@@ -214,6 +219,11 @@ test("conversation preload bridge keeps legacy social data primary with Rust Cor
   assert.doesNotMatch(coreConversationIdSource, /id\.startsWith\("botc_"\)/);
   assert.match(preload, /listConversationMessages:\s*\(conversationId,\s*sinceSeq,\s*limit\)\s*=>\s*listConversationMessagesCompat\(conversationId,\s*sinceSeq,\s*limit\)/);
   const listMessagesSource = extractFunctionSource(preload, "listConversationMessagesCompat");
+  assert.match(
+    listMessagesSource,
+    /if \(isCloudStarterBotConversationId\(conversationId\)\) \{\s*return ipcRenderer\.invoke\(IpcChannel\.SocialListConversationMessages,\s*conversationId,\s*sinceSeq,\s*limit\);\s*\}/,
+    "cloud starter Mia history must be read from the social/cloud route before Core fallback"
+  );
   assert.match(listMessagesSource, /if \(isBotConversationId\(conversationId\)\) \{\s*return listLocalDesktopBotMessages\(conversationId,\s*sinceSeq,\s*limit\);\s*\}/);
   assert.match(preload, /deleteConversation:\s*\(conversationId\)\s*=>\s*deleteConversationCompat\(conversationId\)/);
   assert.match(preload, /sendChatStateless:\s*\(payload\)\s*=>\s*runCoreConversationUtilityTurn\(payload\)/);

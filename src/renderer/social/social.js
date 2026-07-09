@@ -2650,6 +2650,10 @@
     return /^starter_[^_]+_mia$/.test(key) ? key : "";
   }
 
+  function isCanonicalBotConversationId(conversationId = "") {
+    return String(conversationId || "").trim().startsWith("botc_");
+  }
+
   function botKeyForConversation(conversation = {}, conversationId = "") {
     const decorated = sessionHistoryShared().botId(conversation);
     if (decorated) return decorated;
@@ -2732,7 +2736,7 @@
         && decorated === key;
     });
     const preferredId = String(moduleState.lastBotConversationByKey?.[key] || "").trim();
-    const preferred = preferredId
+    const preferred = preferredId && isCanonicalBotConversationId(preferredId)
       ? matches.find((conversation) => conversation.id === preferredId)
       : null;
     if (preferred) return preferred;
@@ -5397,9 +5401,10 @@
   function rememberBotConversation(conversationId) {
     const id = String(conversationId || "").trim();
     if (!id) return;
+    if (!isCanonicalBotConversationId(id)) return;
     const conversation = moduleState.conversations.find((row) => row.id === id) || { id };
     if (sessionHistoryShared().conversationType(conversation, id) !== "bot") return;
-    const key = sessionHistoryShared().botId(conversation);
+    const key = botKeyForConversation(conversation, id);
     if (!key) return;
     moduleState.lastBotConversationByKey = {
       ...(moduleState.lastBotConversationByKey || {}),

@@ -144,6 +144,10 @@ function isBotConversationId(conversationId) {
   return String(conversationId || "").trim().startsWith("botc_");
 }
 
+function isCloudStarterBotConversationId(conversationId) {
+  return /^botc_starter_[^_]+_mia$/.test(String(conversationId || "").trim());
+}
+
 function localCoreConversationIdForBotConversation(conversationId) {
   const id = String(conversationId || "").trim();
   if (!id) return "";
@@ -584,7 +588,10 @@ async function postConversationMessageCompat(conversationId, body = {}) {
   if (isDesktopLocalBotConversationPost(conversationId, body)) {
     return postLocalDesktopBotMessage(conversationId, body);
   }
-  if (!isCoreConversationId(conversationId)) {
+  const shouldUseSocialConversationPost = isCloudClaudeCodeBotPost(body)
+    || isCloudStarterBotConversationId(conversationId)
+    || !isCoreConversationId(conversationId);
+  if (shouldUseSocialConversationPost) {
     try {
       const result = await ipcRenderer.invoke(IpcChannel.SocialPostConversationMessage, conversationId, body);
       if (result?.ok === false) return result;
@@ -690,6 +697,9 @@ async function listLocalDesktopBotMessages(conversationId, sinceSeq, limit) {
 }
 
 async function listConversationMessagesCompat(conversationId, sinceSeq, limit) {
+  if (isCloudStarterBotConversationId(conversationId)) {
+    return ipcRenderer.invoke(IpcChannel.SocialListConversationMessages, conversationId, sinceSeq, limit);
+  }
   if (isCoreConversationId(conversationId)) {
     try {
       return await listCoreConversationMessages(conversationId, sinceSeq, limit);

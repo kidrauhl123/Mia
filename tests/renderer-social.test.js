@@ -1065,6 +1065,59 @@ test("selecting a bot session stores it as the sidebar representative for that b
   assert.equal(JSON.parse(store["mia.lastBotConversationByKey"]).nhnh, "botc_u_1_last-selected");
 });
 
+test("Core mirror bot conversations do not replace the cloud bot sidebar representative", () => {
+  const store = {};
+  const s = loadSocial();
+  s.__mockWindow.miaSessionHistory = sessionHistory;
+  s.__mockWindow.localStorage = {
+    getItem: (key) => store[key] || "",
+    setItem: (key, value) => { store[key] = String(value); }
+  };
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.lastBotConversationByKey = {
+    starter_9038338_mia: "conv_core_mirror"
+  };
+  s.moduleState.conversations = [
+    {
+      id: "botc_starter_9038338_mia",
+      type: "bot",
+      name: "Mia",
+      decorations: {
+        botId: "starter_9038338_mia",
+        sessionId: "starter_9038338_mia",
+        runtimeKind: "cloud-claude-code"
+      },
+      updatedAt: "2026-07-09T08:00:00.000Z"
+    },
+    {
+      id: "conv_core_mirror",
+      type: "bot",
+      name: "Mia Rust Core mock response: hi",
+      decorations: {
+        botId: "starter_9038338_mia",
+        sessionId: "starter_9038338_mia",
+        runtimeKind: "cloud-claude-code"
+      },
+      updatedAt: "2026-07-09T09:00:00.000Z"
+    }
+  ];
+
+  assert.equal(s.botConversationForKey("starter_9038338_mia").id, "botc_starter_9038338_mia");
+
+  s.setActiveConversationId("conv_core_mirror");
+
+  assert.equal(s.botConversationForKey("starter_9038338_mia").id, "botc_starter_9038338_mia");
+  assert.notEqual(
+    JSON.parse(store["mia.lastBotConversationByKey"] || "{}").starter_9038338_mia,
+    "conv_core_mirror"
+  );
+});
+
 test("ensureBotConversation warns when bot conversation ensure returns ok false", async () => {
   const s = loadSocial();
   const calls = [];
