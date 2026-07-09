@@ -67,6 +67,12 @@ try {
 } catch {
   cloudRuntimeShared = require("./src/shared/cloud-runtime.js");
 }
+let conversationTags = null;
+try {
+  conversationTags = require("../src/shared/conversation-tags.js");
+} catch {
+  conversationTags = require("./src/shared/conversation-tags.js");
+}
 let avatarMedia = null;
 try {
   avatarMedia = require("../src/shared/avatar-media.js");
@@ -759,6 +765,16 @@ function avatarAssetPublicUrl(context = {}, filename = "") {
   return origin ? `${origin}${pathPart}` : pathPart;
 }
 
+const STALE_STARTER_AVATAR_IMAGE_ALIASES = Object.freeze({
+  "./assets/engine-icons/hermesagent-starter.svg": "./assets/engine-icons/hermesagent.svg",
+  "./assets/engine-icons/claudecode-starter.svg": "./assets/engine-icons/claudecode.svg"
+});
+
+function normalizeStoredAvatarImage(value = "") {
+  const image = String(value || "").trim();
+  return STALE_STARTER_AVATAR_IMAGE_ALIASES[image] || image;
+}
+
 const statusBadgeAssetDefinitions = statusBadgeAssets.statusBadgeAssetDefinitions();
 
 function safeStatusBadgeAssetId(value = "") {
@@ -919,7 +935,7 @@ function optimizeAvatarAsset(originalPath, mimeType = "", hash = "", crop = null
 }
 
 function materializeAvatarImage(context = {}, avatarImage = "", crop = null) {
-  const value = String(avatarImage || "").trim();
+  const value = normalizeStoredAvatarImage(avatarImage);
   const match = value.match(/^data:([^;,]+);base64,(.*)$/s);
   if (!match) return value;
   const body = match[2] || "";
@@ -3000,9 +3016,112 @@ function serveAuthorizedFile(req, res, context, auth, pathname) {
   return true;
 }
 
+function stableStarterUserKey(userId) {
+  const clean = String(userId || "local")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48);
+  return clean || "local";
+}
+
+function cloudStarterBotId(userId) {
+  return `starter_${stableStarterUserKey(userId)}_mia`;
+}
+
+function cloudStarterStatusBadge() {
+  return statusBadgeAssets?.statusBadgeForValue?.("rainbow-fire")
+    || { kind: "lottie", assetId: "rainbow-fire", loop: "always" };
+}
+
 function ensureCloudAgentBootstrap(context, userId) {
   if (!context?.botsStore || !context?.runtimeBindingsStore || !context?.socialStore || !userId) return null;
-  return null;
+  const runtime = cloudAgentRuntimeForContext(context);
+  if (!runtime.available || !runtime.agentEngine) return null;
+
+  const ownerId = String(userId);
+  const botId = cloudStarterBotId(ownerId);
+  const conversationId = botConversationId(botId);
+  const cloudLabel = runtime.label || "Claude Code";
+  const personaText = `你是 Mia。用云端 ${cloudLabel} sandbox 简洁、可靠地帮助用户处理日常问题、创作、信息整理和自动化请求。`;
+  const bio = `云端 ${cloudLabel}，随时可用，不依赖本机 Agent。`;
+  const description = `Mia 云端助手，默认使用云端 ${cloudLabel} sandbox。`;
+
+  const existingBot = context.botsStore.getBot(botId);
+  const shouldUpsertBot = !existingBot
+    || existingBot.ownerUserId !== ownerId
+    || !existingBot.avatarImage
+    || !existingBot.statusBadge;
+  if (shouldUpsertBot) {
+    context.botsStore.upsertBot(ownerId, {
+      id: botId,
+      displayName: "Mia",
+      color: "#16a34a",
+      avatarImage: "./assets/mia-logo.png",
+      avatarCrop: null,
+      statusBadge: cloudStarterStatusBadge(),
+      bio,
+      description,
+      personaText,
+      capabilities: { inheritEngineDefaults: true }
+    });
+  }
+
+  context.runtimeBindingsStore.upsertBinding({
+    userId: ownerId,
+    botId,
+    runtimeKind: "cloud-claude-code",
+    enabled: true,
+    active: "if-empty",
+    preserveEnabled: true,
+    config: {
+      agentEngine: runtime.agentEngine,
+      model: platformModelId(context)
+    }
+  });
+
+  let conversation = context.socialStore.getConversation(conversationId);
+  const decorations = { botId, sessionId: botId, runtimeKind: "cloud-claude-code" };
+  if (!conversation) {
+    conversation = context.socialStore.createConversation({
+      id: conversationId,
+      type: "bot",
+      name: "Mia",
+      decorations
+    });
+    context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: ownerId });
+    context.socialStore.addConversationMember({ conversationId, memberKind: "bot", memberRef: botId, ownerId });
+  }
+
+  if (context.userSettingsStore && conversationTags?.assignTagNames) {
+    const current = context.userSettingsStore.getSettings(ownerId);
+    const starterMarker = current.starterEngineBots && typeof current.starterEngineBots === "object"
+      ? current.starterEngineBots
+      : {};
+    const engineIds = new Set(Array.isArray(starterMarker.engineIds) ? starterMarker.engineIds : []);
+    const hasCloudMarker = engineIds.has("cloud-claude-code");
+    const nextTags = conversationTags.assignTagNames(current.tags, conversationId, ["云端"]);
+    const tagsChanged = JSON.stringify(nextTags) !== JSON.stringify(current.tags || conversationTags.defaultConversationTags());
+    if (!hasCloudMarker || tagsChanged || !starterMarker.seededAt) {
+      engineIds.add("cloud-claude-code");
+      context.userSettingsStore.putSettings(ownerId, {
+        pins: current.pins,
+        readMarks: current.readMarks,
+        mutedConversations: current.mutedConversations,
+        unreadOverrides: current.unreadOverrides,
+        appearance: current.appearance,
+        tags: nextTags,
+        starterEngineBots: {
+          seededAt: starterMarker.seededAt || new Date().toISOString(),
+          engineIds: [...engineIds]
+        },
+        expectedVersion: current.version
+      });
+    }
+  }
+
+  return { botId, conversationId };
 }
 
 async function handleRequest(req, res, context) {
@@ -3120,6 +3239,7 @@ async function handleRequest(req, res, context) {
     const auth = cloudStore.authenticateToken(tokenFromRequest(req));
     if (req.method === "GET" && serveAuthorizedFile(req, res, context, auth, url.pathname)) return;
     if (!auth) return writeError(res, 401, "请先登录。");
+    ensureCloudAgentBootstrap(context, auth.user.id);
 
     if (req.method === "POST" && url.pathname === "/api/auth/mobile-scan/start") {
       return writeJson(res, 200, context.mobileScanLogin.startGrant({

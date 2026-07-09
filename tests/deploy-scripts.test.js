@@ -205,6 +205,26 @@ test("ssh deploy dry run prints local release handoff", () => {
   assert.match(source, /npm run cloud:release:handoff[\s\S]*?exit 0/);
 });
 
+test("cloud production reset script requires confirmation and backs up before deleting user data", () => {
+  const source = readScript("scripts/reset-cloud-production-data.sh");
+  assert.match(source, /CONFIRM_TOKEN="DELETE_ALL_MIA_DATA"/);
+  assert.match(source, /MODEL_GATEWAY_EXPORT="\$BACKUP_DIR\/mia-cloud-reset-model-gateway-\$RESET_ID\.json"/);
+  assert.match(source, /if \[ "\$RESET_CONFIRM" != "\$CONFIRM_TOKEN" \]; then[\s\S]*?print_dry_run[\s\S]*?exit 0/);
+  assert.equal(source.includes('backup_path "data" "\\$DATA_DIR" "\\$DATA_BACKUP"'), true);
+  assert.equal(source.includes('backup_path "agent root" "\\$AGENT_ROOT" "\\$AGENT_BACKUP"'), true);
+  assert.match(source, /export_model_gateway_settings\(\) \{[\s\S]*?SELECT id, mode, model_id, provider, upstream_model, api_base, api_key,[\s\S]*?FROM model_gateway_settings/);
+  assert.match(source, /restore_model_gateway_settings\(\) \{[\s\S]*?CREATE TABLE IF NOT EXISTS model_gateway_settings[\s\S]*?INSERT INTO model_gateway_settings/);
+  assert.match(source, /node -e 'require\("node:sqlite"\)'/);
+  assert.match(source, /backup_path "agent root" "\\\$AGENT_ROOT" "\\\$AGENT_BACKUP"[\s\S]*?export_model_gateway_settings[\s\S]*?run_as_root rm -f "\\\$DATA_DIR\/cloud\.sqlite"/);
+  assert.match(source, /run_as_root mkdir -p "\\\$DATA_DIR\/uploads" "\\\$AGENT_ROOT"[\s\S]*?restore_model_gateway_settings[\s\S]*?run_as_root chown -R/);
+  assert.equal(source.includes('run_as_root systemctl stop "\\$SERVICE" || true'), true);
+  assert.equal(source.includes('run_as_root rm -f "\\$DATA_DIR/cloud.sqlite" "\\$DATA_DIR/cloud.sqlite-shm" "\\$DATA_DIR/cloud.sqlite-wal"'), true);
+  assert.equal(source.includes('run_as_root rm -rf "\\$DATA_DIR/uploads" "\\$DATA_DIR/avatar-assets" "\\$DATA_DIR/tmp" "\\$AGENT_ROOT"'), true);
+  assert.equal(source.includes('run_as_root mkdir -p "\\$DATA_DIR/uploads" "\\$AGENT_ROOT"'), true);
+  assert.equal(source.includes('run_as_root chown -R "\\$SERVICE_USER:\\$SERVICE_USER" "\\$DATA_DIR" "\\$AGENT_ROOT"'), true);
+  assert.match(source, /run_as_root systemctl start "\\\$SERVICE"[\s\S]*?run_as_root systemctl is-active --quiet "\\\$SERVICE"/);
+});
+
 test("release builder includes operator README with safe install verification", () => {
   const source = readScript("scripts/build-cloud-release.js");
   assert.match(source, /function writeReleaseReadme\(\)/);

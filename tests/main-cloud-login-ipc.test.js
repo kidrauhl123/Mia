@@ -1,7 +1,11 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const { finalizeCloudLoginIpcResult } = require("../src/main/cloud-login-ipc.js");
+
+const root = path.resolve(__dirname, "..");
 
 test("mobile scan start returns the raw QR payload instead of runtime status", () => {
   const qrPayload = {
@@ -60,4 +64,17 @@ test("wechat complete still returns runtime status for the renderer", () => {
   });
 
   assert.deepEqual(result, { cloud: { enabled: true } });
+});
+
+test("cloud login auto-starts Mia Core instead of failing before WeChat QR generation", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src", "main.js"), "utf8");
+  assert.match(mainSource, /async function ensureDaemonRuntimeAvailable\(\)[\s\S]*?startDaemonService\(\)[\s\S]*?startCloudRuntimeSockets\(\)/);
+  assert.match(
+    mainSource,
+    /ipcMain\.handle\(IpcChannel\.CloudLogin,\s*async \(_event, payload\) => \{[\s\S]*?await ensureDaemonRuntimeAvailable\(\);[\s\S]*?loginMiaCloud\(payload \|\| \{\}\)/
+  );
+  assert.doesNotMatch(
+    mainSource,
+    /ipcMain\.handle\(IpcChannel\.CloudLogin,\s*async \(_event, payload\) => \{\s*requireDaemonRuntimeAvailable\(\);/
+  );
 });

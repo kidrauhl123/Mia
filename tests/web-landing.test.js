@@ -36,7 +36,7 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(html, /src="assets\/vendor\/CustomEase\.min\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/vendor\/ScrollTrigger\.min\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/ando-sky-local\.js\?v=study-ando-sora"/);
-  assert.match(html, /src="assets\/mia\.js\?v=20260709-download-0143"/);
+  assert.match(html, /src="assets\/mia\.js\?v=20260709-download-0144"/);
   assert.match(html, /src="assets\/mia-scroll\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/mia-logo\.png"/);
   assert.match(html, /class="[^"]*\bmiawin\b[^"]*"/);

@@ -1102,7 +1102,7 @@ async fn bot_service_owns_starter_bot_materialization_and_marker() {
         .unwrap();
     assert_eq!(
         hermes.identity["avatarImage"],
-        "./assets/engine-icons/hermesagent-starter.svg"
+        "./assets/engine-icons/hermesagent.svg"
     );
     assert_eq!(hermes.identity["statusBadge"]["assetId"], "blue-fire");
 

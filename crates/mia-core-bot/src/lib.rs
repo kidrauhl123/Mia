@@ -491,6 +491,17 @@ impl BotService {
         if identity_runtime != spec.runtime_kind {
             return Ok(true);
         }
+        let identity_avatar = identity
+            .get("avatarImage")
+            .or_else(|| identity.get("avatar_image"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        if identity_avatar.is_empty()
+            || stale_starter_avatar_image(identity_avatar, spec.avatar_image.as_str())
+        {
+            return Ok(true);
+        }
 
         let binding_row = sqlx::query(
             "SELECT binding_json FROM bot_runtime_bindings WHERE bot_id = ? AND runtime_kind = ?",
@@ -749,9 +760,22 @@ fn starter_avatar_image(engine: &str) -> &'static str {
     match engine {
         "cloud-claude-code" => "./assets/mia-logo.png",
         "codex" => "./assets/engine-icons/codex-color.svg",
-        "claude-code" => "./assets/engine-icons/claudecode-starter.svg",
-        _ => "./assets/engine-icons/hermesagent-starter.svg",
+        "claude-code" => "./assets/engine-icons/claudecode.svg",
+        _ => "./assets/engine-icons/hermesagent.svg",
     }
+}
+
+fn stale_starter_avatar_image(current: &str, expected: &str) -> bool {
+    matches!(
+        (current.trim(), expected.trim()),
+        (
+            "./assets/engine-icons/hermesagent-starter.svg",
+            "./assets/engine-icons/hermesagent.svg"
+        ) | (
+            "./assets/engine-icons/claudecode-starter.svg",
+            "./assets/engine-icons/claudecode.svg"
+        )
+    )
 }
 
 fn cloud_agent_runtime_label(runtime: &Map<String, Value>) -> Option<String> {

@@ -50,9 +50,9 @@ test("starterBotSpecs keeps display assets for Core-returned starter identities"
     specs.map((spec) => [spec.engineId, spec.statusBadge?.assetId, spec.avatarImage || ""]),
     [
       ["cloud-claude-code", "rainbow-fire", "./assets/mia-logo.png"],
-      ["hermes", "blue-fire", "./assets/engine-icons/hermesagent-starter.svg"],
+      ["hermes", "blue-fire", "./assets/engine-icons/hermesagent.svg"],
       ["codex", "cyan-fire", "./assets/engine-icons/codex-color.svg"],
-      ["claude-code", "red-orange-fire", "./assets/engine-icons/claudecode-starter.svg"]
+      ["claude-code", "red-orange-fire", "./assets/engine-icons/claudecode.svg"]
     ]
   );
 });
@@ -134,6 +134,46 @@ test("ensureStarterEngineBots delegates starter materialization to Rust Core onl
   assert.equal(social.moduleState.cloudSettings, result.settings);
   assert.deepEqual(social.moduleState.bots.map((bot) => [bot.key, bot.name, bot.agentEngine]), [
     ["starter_u_123_mia", "Mia", "claude-code"]
+  ]);
+});
+
+test("ensureStarterEngineBots normalizes stale starter avatar images from Core", async () => {
+  const state = { runtime: { cloud: cloudSettings() } };
+  const social = {
+    moduleState: {
+      myUserId: "u_123",
+      bots: []
+    }
+  };
+  const api = {
+    social: {
+      async ensureStarterEngineBots() {
+        return {
+          ok: true,
+          data: {
+            updated: [{
+              engineId: "hermes",
+              key: "starter_u_123_hermes",
+              bot: {
+                id: "starter_u_123_hermes",
+                displayName: "Hermes",
+                identity: {
+                  name: "Hermes",
+                  avatarImage: "./assets/engine-icons/hermesagent-starter.svg",
+                  agentEngine: "hermes"
+                }
+              }
+            }]
+          }
+        };
+      }
+    }
+  };
+
+  await starter.ensureStarterEngineBots({ state, api, social });
+
+  assert.deepEqual(social.moduleState.bots.map((bot) => [bot.key, bot.avatarImage]), [
+    ["starter_u_123_hermes", "./assets/engine-icons/hermesagent.svg"]
   ]);
 });
 

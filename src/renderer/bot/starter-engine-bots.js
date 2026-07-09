@@ -10,9 +10,13 @@
   });
   const STARTER_AVATAR_IMAGES = Object.freeze({
     "cloud-claude-code": "./assets/mia-logo.png",
-    hermes: "./assets/engine-icons/hermesagent-starter.svg",
+    hermes: "./assets/engine-icons/hermesagent.svg",
     codex: "./assets/engine-icons/codex-color.svg",
-    "claude-code": "./assets/engine-icons/claudecode-starter.svg"
+    "claude-code": "./assets/engine-icons/claudecode.svg"
+  });
+  const STALE_STARTER_AVATAR_IMAGES = Object.freeze({
+    "./assets/engine-icons/hermesagent-starter.svg": "./assets/engine-icons/hermesagent.svg",
+    "./assets/engine-icons/claudecode-starter.svg": "./assets/engine-icons/claudecode.svg"
   });
   const STARTER_ENGINE_META = Object.freeze({
     hermes: {
@@ -61,6 +65,11 @@
 
   function starterAvatarImage(engineId) {
     return STARTER_AVATAR_IMAGES[normalizeEngineId(engineId)] || "";
+  }
+
+  function normalizeStarterAvatarImage(value = "") {
+    const image = String(value || "").trim();
+    return STALE_STARTER_AVATAR_IMAGES[image] || image;
   }
 
   function legacyAgentFromRuntime(runtime = {}, engineId) {
@@ -178,8 +187,10 @@
     const capabilities = summary.capabilities && typeof summary.capabilities === "object" ? summary.capabilities : {};
     const key = String(summary.key || summary.id || "").trim();
     const name = String(identity.name || summary.displayName || summary.display_name || key).trim();
+    const avatarImage = normalizeStarterAvatarImage(identity.avatarImage || identity.avatar_image || "");
     return {
       ...identity,
+      ...(avatarImage ? { avatarImage } : {}),
       key,
       id: key,
       displayName: summary.displayName || summary.display_name || name,
