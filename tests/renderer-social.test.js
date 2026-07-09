@@ -2264,6 +2264,62 @@ test("sendInActiveConversation preserves cloud starter ownership when cached dec
   assert.equal(calls[1].body.sessionId, "starter_9038338_mia");
 });
 
+test("sendInActiveConversation keeps cloud bot sends on botc ids when ensure returns a Core mirror", async () => {
+  const s = loadSocial();
+  const calls = [];
+  s.moduleState.myUserId = "9038338";
+  s.moduleState.bots = [{
+    id: "starter_9038338_mia",
+    key: "starter_9038338_mia",
+    runtimeKind: "cloud-claude-code",
+    agentEngine: "claude-code"
+  }];
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async (sessionId, body) => {
+      calls.push({ kind: "ensure", sessionId, body });
+      return {
+        ok: true,
+        data: {
+          conversation: {
+            id: "conv_019f4623dcd97b20bf3526a7202ad9fa",
+            type: "bot",
+            name: "Mia Rust Core mock response: hi",
+            decorations: {
+              botId: "starter_9038338_mia",
+              sessionId: "starter_9038338_mia",
+              runtimeKind: "cloud-claude-code"
+            }
+          }
+        }
+      };
+    },
+    postConversationMessage: async (conversationId, body) => {
+      calls.push({ kind: "post", conversationId, body });
+      return {
+        ok: true,
+        data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "9038338", body_md: body.bodyMd } }
+      };
+    }
+  };
+  s.moduleState.activeConversationId = "botc_starter_9038338_mia";
+  s.moduleState.conversations = [{ id: "botc_starter_9038338_mia", type: "bot", name: "Mia" }];
+  s.moduleState.messageCache.set("botc_starter_9038338_mia", { messages: [], maxSeq: 0 });
+
+  await s.sendInActiveConversation("hello cloud starter");
+
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
+  assert.equal(calls[1].conversationId, "botc_starter_9038338_mia");
+  assert.equal(s.moduleState.activeConversationId, "botc_starter_9038338_mia");
+  assert.equal(
+    s.moduleState.conversations.some((conversation) => conversation.id === "conv_019f4623dcd97b20bf3526a7202ad9fa"),
+    false
+  );
+  assert.deepEqual(
+    s.moduleState.messageCache.get("botc_starter_9038338_mia").messages.map((message) => message.id),
+    ["m_server"]
+  );
+});
+
 test("sendInActiveConversation does not move desktop-local bot history into Core-created conversations", async () => {
   const s = loadSocial();
   const calls = [];

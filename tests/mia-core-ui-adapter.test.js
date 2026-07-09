@@ -150,12 +150,16 @@ test("bot preload bridge keeps bot identity cloud-owned while Core owns runtime 
   assert.match(preload, /controlIntent:\s*input\.controlIntent/);
   const runtimeRequest = extractFunctionSource(preload, "buildCoreBotRuntimeRequest");
   assert.doesNotMatch(runtimeRequest, /input\.config|input\.runtimeConfig|config\.providerConnectionId|config\.modelProfileId|config\.model/);
-  assert.match(preload, /ensureBotSessionConversation:\s*\(sessionId,\s*body\)\s*=>\s*ensureCoreBotSessionConversation\(sessionId,\s*body\)/);
+  assert.match(preload, /ensureBotSessionConversation:\s*\(sessionId,\s*body\)\s*=>\s*ensureBotSessionConversationCompat\(sessionId,\s*body\)/);
+  assert.match(preload, /async function ensureBotSessionConversationCompat\(sessionId,\s*body = \{\}\)/);
   assert.match(preload, /function ensureCoreBotSessionConversation\(sessionId,\s*body = \{\}\)/);
+  const ensureBotSessionSource = extractFunctionSource(preload, "ensureBotSessionConversationCompat");
+  assert.match(ensureBotSessionSource, /IpcChannel\.SocialEnsureBotSessionConversation/);
+  assert.match(ensureBotSessionSource, /runtimeKindFromPostBody\(body\) === "cloud-claude-code"/);
+  assert.match(ensureBotSessionSource, /return ensureCoreBotSessionConversation\(sessionId,\s*body\)/);
   assert.match(preload, /IpcChannel\.SocialSaveBotIdentity/);
   assert.match(preload, /IpcChannel\.SocialSaveBotRuntime/);
   assert.doesNotMatch(preload, /saveCoreBotIdentity|buildCoreBotIdentityRequest/);
-  assert.doesNotMatch(preload, /IpcChannel\.SocialEnsureBotSessionConversation/);
 });
 
 test("conversation preload bridge keeps the social conversation list cloud-owned", () => {

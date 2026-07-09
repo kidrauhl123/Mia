@@ -2853,7 +2853,8 @@
     const id = String(conversationId || "").trim();
     const current = conversation || moduleState.conversations.find((item) => item.id === id) || { id };
     if (conversationTypeFor(current, id) !== "bot") return { conversationId: id, conversation: current };
-    if (runtimeKindForBotConversation(current) === "desktop-local") return { conversationId: id, conversation: current };
+    const runtimeKind = runtimeKindForBotConversation(current);
+    if (runtimeKind === "desktop-local") return { conversationId: id, conversation: current };
     const botId = botKeyForConversation(current, id);
     const sessionId = botSessionIdForConversation(current, id);
     const api = window.mia?.social;
@@ -2870,6 +2871,9 @@
     }
     const ensured = ensuredConversationFromResult(result);
     if (!ensured?.id) return { conversationId: id, conversation: current };
+    if (runtimeKind !== "desktop-local" && isCoreMirrorConversation(ensured)) {
+      return { conversationId: id, conversation: current };
+    }
     const saved = upsertConversation(ensured);
     const members = ensuredMembersFromResult(result);
     if (members) _conversationMembersCache.set(ensured.id, members);

@@ -338,6 +338,19 @@ async function ensureCoreBotSessionConversation(sessionId, body = {}) {
   return { ok: true, data: { ...(response || {}), conversation }, ...(response || {}), conversation };
 }
 
+async function ensureBotSessionConversationCompat(sessionId, body = {}) {
+  if (runtimeKindFromPostBody(body) === "cloud-claude-code") {
+    try {
+      const result = await ipcRenderer.invoke(IpcChannel.SocialEnsureBotSessionConversation, sessionId, body);
+      if (result?.ok === false) return result;
+      return result;
+    } catch (error) {
+      return { ok: false, error: error?.message || "创建云端 Bot 会话失败" };
+    }
+  }
+  return ensureCoreBotSessionConversation(sessionId, body);
+}
+
 function buildCoreConversationRequest(payload = {}) {
   const input = payload && typeof payload === "object" ? payload : {};
   const memberBots = Array.isArray(input.memberBots) ? input.memberBots : [];
@@ -1070,7 +1083,7 @@ contextBridge.exposeInMainWorld("mia", {
     myIdentity: () => ipcRenderer.invoke(IpcChannel.SocialMyIdentity),
     createConversation: (payload) => createConversationCompat(payload),
     ensureBotConversation: (botId, body) => ipcRenderer.invoke(IpcChannel.SocialEnsureBotConversation, botId, body),
-    ensureBotSessionConversation: (sessionId, body) => ensureCoreBotSessionConversation(sessionId, body),
+    ensureBotSessionConversation: (sessionId, body) => ensureBotSessionConversationCompat(sessionId, body),
     getBotRuntime: (botId, runtimeKind) => getBotRuntimeCompat(botId, runtimeKind),
     saveBotRuntime: (botId, body) => saveBotRuntimeCompat(botId, body),
     getBotRuntimeTargetOptions: (input) => getCoreBotRuntimeTargetOptions(input),

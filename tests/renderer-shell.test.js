@@ -1672,8 +1672,9 @@ test("desktop cloud bot conversations expose the restored chat history menu", ()
   assert.match(channelSource, /SocialEnsureBotSessionConversation/);
   assert.doesNotMatch(channelSource, /SocialEnsureFellowSessionConversation/);
   assert.match(preloadSource, /async function ensureCoreBotSessionConversation\(sessionId, body = \{\}\)/);
-  assert.match(preloadSource, /ensureBotSessionConversation: \(sessionId, body\) => ensureCoreBotSessionConversation\(sessionId, body\)/);
-  assert.doesNotMatch(preloadSource, /SocialEnsureBotSessionConversation/);
+  assert.match(preloadSource, /async function ensureBotSessionConversationCompat\(sessionId, body = \{\}\)/);
+  assert.match(preloadSource, /ensureBotSessionConversation: \(sessionId, body\) => ensureBotSessionConversationCompat\(sessionId, body\)/);
+  assert.match(preloadSource, /IpcChannel\.SocialEnsureBotSessionConversation/);
   assert.doesNotMatch(preloadSource, /ensureFellowSessionConversation/);
   assert.match(socialApiSource, /async ensureBotSessionConversation\(sessionId, body = \{\}\)/);
   assert.doesNotMatch(socialApiSource, /ensureFellowSessionConversation/);
