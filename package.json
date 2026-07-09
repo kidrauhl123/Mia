@@ -1,6 +1,6 @@
 {
   "name": "mia",
-  "version": "0.1.43",
+  "version": "0.1.44",
   "private": true,
   "workspaces": [
     "apps/mobile-rn",
@@ -28,6 +28,7 @@
     "cloud:deploy:dry-run": "MIA_DEPLOY_DRY_RUN=1 bash scripts/deploy-cloud-release.sh",
     "cloud:prod:verify": "node scripts/verify-cloud-production.js",
     "cloud:prod:verify:e2e": "MIA_SMOKE_REQUIRE_BRIDGE=1 node scripts/verify-cloud-production.js",
+    "cloud:prod:reset-data": "bash scripts/reset-cloud-production-data.sh",
     "cloud:audit": "node scripts/audit-cloud-productization.js --live",
     "cloud:install:local": "bash scripts/install-cloud-release-local.sh",
     "cloud:install:verify": "MIA_INSTALL_VERIFY_ONLY=1 bash scripts/install-cloud-release-local.sh dist/mia-cloud-release.tgz",

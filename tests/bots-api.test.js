@@ -181,6 +181,27 @@ test("PATCH /api/me/profile accepts snake_case status badge and GET /api/me retu
   } finally { await stopServer(ctx); }
 });
 
+test("PUT /api/me/bots normalizes old nested starter avatar SVG aliases", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "starter-avatar");
+    const put = await api(ctx.port, "PUT", "/api/me/bots/starter_u_1_hermes", {
+      token: A.token,
+      body: {
+        displayName: "Hermes",
+        avatarImage: "./assets/engine-icons/hermesagent-starter.svg",
+        clientOpId: "op_starter_avatar_alias"
+      }
+    });
+    assert.equal(put.status, 200);
+    assert.equal(put.body.bot.avatarImage, "./assets/engine-icons/hermesagent.svg");
+
+    const detail = await api(ctx.port, "GET", "/api/me/bots/starter_u_1_hermes", { token: A.token });
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.bot.avatarImage, "./assets/engine-icons/hermesagent.svg");
+  } finally { await stopServer(ctx); }
+});
+
 test("web bootstrap can request compact user and bot identities without avatar blobs", async () => {
   const ctx = await startServer();
   try {

@@ -73,9 +73,9 @@ test("starterBotSpecs assigns default avatar logos to starter bots", () => {
     specs.map((spec) => [spec.engineId, spec.avatarImage || ""]),
     [
       ["cloud-claude-code", "./assets/mia-logo.png"],
-      ["hermes", "./assets/engine-icons/hermesagent-starter.svg"],
+      ["hermes", "./assets/engine-icons/hermesagent.svg"],
       ["codex", "./assets/engine-icons/codex-color.svg"],
-      ["claude-code", "./assets/engine-icons/claudecode-starter.svg"]
+      ["claude-code", "./assets/engine-icons/claudecode.svg"]
     ]
   );
 });
@@ -142,7 +142,7 @@ test("ensureStarterEngineBots creates missing engine bots once and stores the ac
   assert.equal(saveBots[1][1], "desktop-local");
   assert.equal(saveBots[1][2].name, "Hermes");
   assert.equal(saveBots[1][2].key, "starter_u_123_hermes");
-  assert.equal(saveBots[1][2].avatarImage, "./assets/engine-icons/hermesagent-starter.svg");
+  assert.equal(saveBots[1][2].avatarImage, "./assets/engine-icons/hermesagent.svg");
   assert.equal(saveBots[1][2].avatarCrop, null);
   assert.deepEqual(saveBots[1][2].statusBadge, { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰", loop: "always" });
   const settingsPut = calls.find((call) => call[0] === "settingsPut");
@@ -446,7 +446,7 @@ test("ensureStarterEngineBots backfills missing badges on existing starter bots 
   const update = calls.find((call) => call[0] === "saveBotIdentity");
   assert.equal(update[1], "starter_u_1_hermes");
   assert.equal(update[2].name, "Hermes");
-  assert.equal(update[2].avatarImage, "./assets/engine-icons/hermesagent-starter.svg");
+  assert.equal(update[2].avatarImage, "./assets/engine-icons/hermesagent.svg");
   assert.equal(update[2].avatarCrop, null);
   assert.equal(update[2].bio, "existing bio");
   assert.equal(update[2].personaText, "existing persona");
@@ -543,10 +543,60 @@ test("ensureStarterEngineBots backfills missing avatar logos on existing starter
   assert.equal(calls.filter((call) => call[0] === "saveBotIdentity").length, 1);
   const update = calls.find((call) => call[0] === "saveBotIdentity");
   assert.equal(update[1], "starter_u_1_hermes");
-  assert.equal(update[2].avatarImage, "./assets/engine-icons/hermesagent-starter.svg");
+  assert.equal(update[2].avatarImage, "./assets/engine-icons/hermesagent.svg");
   assert.equal(update[2].avatarCrop, null);
-  assert.deepEqual(social.moduleState.bots.find((bot) => bot.key === "starter_u_1_hermes").avatarImage, "./assets/engine-icons/hermesagent-starter.svg");
+  assert.deepEqual(social.moduleState.bots.find((bot) => bot.key === "starter_u_1_hermes").avatarImage, "./assets/engine-icons/hermesagent.svg");
   assert.equal(social.moduleState.bots.find((bot) => bot.key === "starter_u_1_codex").avatarImage, "data:image/png;base64,custom");
+});
+
+test("ensureStarterEngineBots replaces old nested starter avatar svgs", async () => {
+  const calls = [];
+  const state = {
+    runtime: {
+      cloud: cloudSettings(),
+      agentInventory: { agents: [{ id: "hermes", label: "Hermes", usableInMia: true }] }
+    }
+  };
+  const social = {
+    moduleState: {
+      myUserId: "u_1",
+      bots: [{
+        id: "starter_u_1_hermes",
+        key: "starter_u_1_hermes",
+        name: "Hermes",
+        agentEngine: "hermes",
+        avatarImage: "./assets/engine-icons/hermesagent-starter.svg",
+        statusBadge: { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰", loop: "always" }
+      }]
+    }
+  };
+  const api = {
+    social: {
+      async settingsGet() {
+        return { settings: { version: 3, starterEngineBots: { seededAt: "2026-06-25T00:00:00.000Z", engineIds: ["hermes"] } } };
+      },
+      async saveBotIdentity(key, body) {
+        calls.push(["saveBotIdentity", key, body]);
+        return { ok: true, bot: { id: key, key, name: body.name, avatarImage: body.avatarImage, avatarCrop: body.avatarCrop, statusBadge: body.statusBadge } };
+      }
+    }
+  };
+
+  const result = await starter.ensureStarterEngineBots({
+    state,
+    api,
+    social,
+    commands: {
+      async saveBot() {
+        throw new Error("should not recreate starter bots");
+      }
+    }
+  });
+
+  assert.deepEqual(result.updated.map((entry) => [entry.engineId, entry.key]), [["hermes", "starter_u_1_hermes"]]);
+  const update = calls.find((call) => call[0] === "saveBotIdentity");
+  assert.equal(update[2].avatarImage, "./assets/engine-icons/hermesagent.svg");
+  assert.equal(social.moduleState.bots[0].avatarImage, "./assets/engine-icons/hermesagent.svg");
 });
 
 test("ensureStarterEngineBots backfills avatar for existing Mia starter bots", async () => {

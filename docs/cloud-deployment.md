@@ -434,3 +434,14 @@ systemctl stop mia-cloud
 tar -C /var/lib -czf /root/mia-cloud-backup-$(date +%Y%m%d-%H%M%S).tgz mia-cloud
 systemctl start mia-cloud
 ```
+
+## Pre-Launch Full Data Reset
+
+For pre-launch test environments where all existing accounts should be discarded, use the guarded reset script instead of deleting files by hand:
+
+```bash
+npm run cloud:prod:reset-data
+MIA_RESET_CONFIRM=DELETE_ALL_MIA_DATA npm run cloud:prod:reset-data
+```
+
+The first command is a dry run. The second command stops `mia-cloud`, writes tar backups for `/var/lib/mia-cloud` and `/var/lib/mia-cloud-agent-users`, exports and restores platform model gateway settings, deletes `cloud.sqlite`, SQLite sidecars, uploads, avatar assets, temporary cloud files, and per-user cloud agent workdirs, recreates the required directories, fixes ownership, and restarts the service. Website downloads, the desktop update feed, and platform model gateway settings are not touched.

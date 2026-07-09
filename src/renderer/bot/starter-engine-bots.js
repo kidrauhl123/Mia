@@ -11,9 +11,13 @@
   });
   const STARTER_AVATAR_IMAGES = Object.freeze({
     "cloud-claude-code": "./assets/mia-logo.png",
-    hermes: "./assets/engine-icons/hermesagent-starter.svg",
+    hermes: "./assets/engine-icons/hermesagent.svg",
     codex: "./assets/engine-icons/codex-color.svg",
-    "claude-code": "./assets/engine-icons/claudecode-starter.svg"
+    "claude-code": "./assets/engine-icons/claudecode.svg"
+  });
+  const STALE_STARTER_AVATAR_IMAGES = Object.freeze({
+    "./assets/engine-icons/hermesagent-starter.svg": "./assets/engine-icons/hermesagent.svg",
+    "./assets/engine-icons/claudecode-starter.svg": "./assets/engine-icons/claudecode.svg"
   });
   const CLOUD_MIA_STARTER = Object.freeze({
     engineId: "cloud-claude-code",
@@ -295,6 +299,12 @@
     );
   }
 
+  function staleStarterAvatarImage(currentImage = "", expectedImage = "") {
+    const current = String(currentImage || "").trim();
+    const expected = String(expectedImage || "").trim();
+    return Boolean(current && expected && STALE_STARTER_AVATAR_IMAGES[current] === expected);
+  }
+
   function botAvatarCrop(bot = {}) {
     return Object.prototype.hasOwnProperty.call(bot, "avatarCrop")
       ? bot.avatarCrop
@@ -328,7 +338,10 @@
       const bot = matchingBotForSpec(spec, existingBots);
       if (!bot) continue;
       const missingStatusBadge = Boolean(spec?.statusBadge) && !botStatusBadge(bot);
-      const missingAvatar = Boolean(spec?.avatarImage) && !botAvatarImage(bot);
+      const currentAvatarImage = botAvatarImage(bot);
+      const missingAvatar = Boolean(spec?.avatarImage) && (
+        !currentAvatarImage || staleStarterAvatarImage(currentAvatarImage, spec.avatarImage)
+      );
       if (!missingStatusBadge && !missingAvatar) continue;
       const key = botKey(bot);
       if (!key) continue;

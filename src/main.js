@@ -57,6 +57,10 @@ const { setMacNativeControlsVisible } = require("./main/mac-window-controls.js")
 const { createChatAttachments } = require("./main/chat-attachments.js");
 const { createBotManifest } = require("./main/bot-manifest.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
+const {
+  applyPrelaunchLocalDataReset,
+  MIA_LOCAL_DATA_RESET_EPOCH
+} = require("./main/local-data-reset.js");
 const { createExternalUrlOpener } = require("./main/external-url-opener.js");
 const {
   localDeviceIdentity: loadLocalDeviceIdentity,
@@ -279,6 +283,17 @@ const {
   buildPythonPath,
   engineMarkerPath,
 } = runtimePathsModule;
+const localDataResetResult = applyPrelaunchLocalDataReset({
+  app,
+  runtimePaths,
+  epoch: MIA_LOCAL_DATA_RESET_EPOCH
+});
+if (localDataResetResult.applied) {
+  console.log(`[MiaReset] Applied local data reset ${localDataResetResult.epoch}; removed ${localDataResetResult.removed.length} paths.`);
+  if (localDataResetResult.errors.length) {
+    console.warn(`[MiaReset] Local data reset completed with ${localDataResetResult.errors.length} cleanup errors.`);
+  }
+}
 
 let settingsStore = null;
 function currentMiaUserId() {
@@ -1566,6 +1581,19 @@ function daemonUnavailableError() {
   return error;
 }
 
+async function ensureDaemonRuntimeAvailable() {
+  if (IS_DAEMON_PROCESS) return getDaemonStatus();
+  if (daemonLocalEventsConnected()) return getDaemonStatus();
+  try {
+    const status = await startDaemonService();
+    startCloudRuntimeSockets();
+    return status;
+  } catch (error) {
+    appendDaemonLog(`Mia Core auto-start before cloud login failed: ${error?.message || error}`);
+    throw daemonUnavailableError();
+  }
+}
+
 function requireDaemonRuntimeAvailable() {
   if (IS_DAEMON_PROCESS) return;
   if (daemonLocalEventsConnected()) return;
@@ -2802,7 +2830,7 @@ ipcMain.handle(IpcChannel.StatusBadgeAssetLoad, (_event, assetId) => loadStatusB
 ipcMain.handle(IpcChannel.CloudStatus, () => cloudStatus(false));
 ipcMain.handle(IpcChannel.CloudModelBalance, () => fetchCloudModelBalance());
 ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {
-  requireDaemonRuntimeAvailable();
+  await ensureDaemonRuntimeAvailable();
   const result = await loginMiaCloud(payload || {});
   return finalizeCloudLoginIpcResult({
     payload: payload || {},

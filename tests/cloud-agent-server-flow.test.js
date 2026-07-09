@@ -139,6 +139,63 @@ async function upsertDesktopLocalBot(baseUrl, authHeaders, botId, displayName = 
   });
 }
 
+test("authenticated cloud bootstrap seeds the default Mia starter bot immediately", async () => {
+  const dataDir = tempDir("mia-cloud-agent-starter-bootstrap-");
+  const server = createMiaCloudServer({
+    dataDir,
+    cloudAgentMode: "claude-code",
+    platformModelId: "mia-default",
+    cloudAgentWorkerManager: {
+      async ensureWorker(userId) {
+        return {
+          userId,
+          baseUrl: "http://worker",
+          apiKey: "k",
+          gatewayWsUrl: "ws://worker/api/ws",
+          paths: { attachments: path.join(dataDir, "agent-users", userId, "attachments") }
+        };
+      }
+    },
+    cloudAgentClient: {}
+  });
+  const baseUrl = await listen(server);
+  try {
+    const account = createAccount(server, "alice");
+    const authHeaders = { authorization: `Bearer ${account.token}` };
+    const expectedBotId = `starter_${account.user.id}_mia`;
+    const expectedConversationId = `botc_${expectedBotId}`;
+
+    const bots = await jsonFetch(baseUrl, "/api/me/bots", { headers: authHeaders });
+    const mia = bots.bots.find((bot) => bot.id === expectedBotId);
+    assert.equal(mia.displayName || mia.name, "Mia");
+    assert.equal(mia.avatarImage, "./assets/mia-logo.png");
+    assert.deepEqual(mia.statusBadge, { kind: "lottie", assetId: "rainbow-fire", label: "七彩火焰", loop: "always" });
+
+    const conversations = await jsonFetch(baseUrl, "/api/conversations?include=members", { headers: authHeaders });
+    const conversation = conversations.conversations.find((item) => item.id === expectedConversationId);
+    assert.equal(conversation.name, "Mia");
+    assert.equal(conversation.decorations.botId, expectedBotId);
+    assert.equal(conversation.members.some((member) => member.member_kind === "bot" && member.member_ref === expectedBotId), true);
+
+    const binding = await jsonFetch(baseUrl, `/api/me/bots/${encodeURIComponent(expectedBotId)}/runtime?kind=active`, { headers: authHeaders });
+    assert.equal(binding.binding.runtimeKind, "cloud-claude-code");
+    assert.equal(binding.binding.config.agentEngine, "claude-code");
+    assert.equal(binding.binding.config.model, "mia-default");
+
+    const settings = await jsonFetch(baseUrl, "/api/me/settings", { headers: authHeaders });
+    assert.deepEqual(settings.settings.starterEngineBots.engineIds, ["cloud-claude-code"]);
+    const cloudTag = settings.settings.tags.items.find((tag) => tag.name === "云端");
+    assert.ok(cloudTag);
+    assert.deepEqual(settings.settings.tags.assignments[expectedConversationId], [cloudTag.id]);
+
+    const second = await jsonFetch(baseUrl, "/api/conversations", { headers: authHeaders });
+    assert.equal(second.conversations.filter((item) => item.id === expectedConversationId).length, 1);
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("bot DM falls back to targeted desktop invocation when cloud dispatcher is not configured", async () => {
   const dataDir = tempDir("mia-cloud-agent-desktop-fallback-");
   const server = createMiaCloudServer({ dataDir });
