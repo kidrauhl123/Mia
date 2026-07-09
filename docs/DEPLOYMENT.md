@@ -171,10 +171,24 @@ npm run desktop:package:verify -- --app /path/to/Mia.app
 
 > **旧包迁移限制**：已经安装的 GitHub-provider 旧包只会去 GitHub release 检查更新。第一次迁移要发一个桥接版本：同一个新版本同时发布到 GitHub release 和 `mia.gifgif.cn/updates/`。旧包从 GitHub 升到桥接版本后，桥接版本内置的 generic provider 会让之后更新完全走 `mia.gifgif.cn/updates/`。
 
-#### release → VPS 自动部署链路（`.github/workflows/company-deploy.yml`）
+#### 本地构建机 → VPS 直推更新源
 
-- `release: published` 触发自托管 runner（`mia-deploy`）跑 `publish-release-assets`：`gh release download` 拉资产 → `MIA_UPDATE_DEPLOY=1 publish-mac-update.js` 经公司 JumpServer 推到 VPS 更新源。**不需要手动 SSH 到服务器**。
-- **弯路提示（慢的回拉）：** runner 在国内，从 GitHub 下载 ~240MB 资产极慢（一次跑过 ~1 小时），mac 包又只能在 macOS + 签名证书的机器上构建，所以二进制会「本地构建 → 传 GitHub → 国内 runner 再从 GitHub 拉回」绕一圈。要根治就别让二进制过 GitHub：让构建机直接 rsync 到 VPS，或让 runner 自己构建后直推。runner 装到 VPS（上海，Linux）解决不了这条——它仍要从 GitHub 拉、且无法构建签名 mac 包。
+不要通过 GitHub runner/worker 回拉 release 资产再部署。VPS 和公司网络在国内，依赖 GitHub 下载会慢且不稳定；macOS 包也必须在有签名证书的 macOS 构建机上生成。正确流程是：构建机本地打包、暂存 feed，然后直接经公司 JumpServer rsync 到 VPS 的 `/var/www/mia-updates/`。
+
+同时发布 Apple Silicon 和 Intel 时，按这个顺序执行，避免第二次打包清理掉第一套架构资产：
+
+```bash
+npm run dist:mac
+node scripts/publish-mac-update.js
+npm run dist:mac:intel
+MIA_UPDATE_DEPLOY=1 MIA_UPDATE_REMOTE=mia-jms-deploy node scripts/publish-mac-update.js
+```
+
+最后一步会把 `dist/mia-updates/` 中合并后的 `latest-mac.yml`、两套 zip/blockmap 和 DMG 同步到 `https://mia.gifgif.cn/updates/`。发布后必须确认线上 feed 已更新：
+
+```bash
+curl -fsSL https://mia.gifgif.cn/updates/latest-mac.yml | sed -n '1,40p'
+```
 
 ## Cloud/Web 发布
 
