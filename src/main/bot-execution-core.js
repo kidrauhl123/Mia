@@ -414,6 +414,9 @@ function createBotExecutionCore({
         if (runtime?.env && typeof runtime.env === "object" && !Array.isArray(runtime.env)) {
           descriptor.env = { ...runtime.env };
         }
+        if (runtime?.engineSpec && typeof runtime.engineSpec === "object" && !Array.isArray(runtime.engineSpec)) {
+          descriptor.engineSpec = { ...runtime.engineSpec };
+        }
         if (runtime?.mcpFingerprint) descriptor.mcpFingerprint = String(runtime.mcpFingerprint || "").trim();
         if (runtime?.skillFingerprint) descriptor.skillFingerprint = String(runtime.skillFingerprint || "").trim();
         if (Array.isArray(runtime?.mcpServers)) descriptor.mcpServers = runtime.mcpServers.slice();

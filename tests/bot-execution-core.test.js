@@ -857,6 +857,14 @@ test("sendChat passes Hermes Mia managed runtime to AgentSession", async () => {
       });
       return {
         runtimeKey: "mia:mia-auto",
+        engineSpec: {
+          engineId: "hermes",
+          transport: "acp",
+          command: "/opt/mia/hermes",
+          args: ["acp"],
+          supportsSteerInput: false,
+          supportsQueuedInput: true
+        },
         env: {
           HERMES_HOME: "/tmp/mia-hermes-session",
           MIA_HOME: "/tmp/mia-home",
@@ -887,6 +895,14 @@ test("sendChat passes Hermes Mia managed runtime to AgentSession", async () => {
     workspacePath: "/repo/workspace",
     permissionMode: "yolo",
     runtimeKey: "mia:mia-auto",
+    engineSpec: {
+      engineId: "hermes",
+      transport: "acp",
+      command: "/opt/mia/hermes",
+      args: ["acp"],
+      supportsSteerInput: false,
+      supportsQueuedInput: true
+    },
     env: {
       HERMES_HOME: "/tmp/mia-hermes-session",
       MIA_HOME: "/tmp/mia-home",

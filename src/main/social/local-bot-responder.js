@@ -871,6 +871,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         botId: entry.botId,
         bodyMd: text,
         turnId: entry.turnId,
+        triggerMessageId: entry.triggerMessageId,
         clientOpId: clientOpIdForDedupKey(entry.dedupKey),
         ...(trace ? { trace } : {}),
         ...(contentBlocks.length ? { contentBlocks } : {})
@@ -900,6 +901,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
       botId: entry.botId,
       dedupKey: entry.dedupKey,
       turnId: entry.turnId,
+      triggerMessageId: entry.triggerMessageId,
       stage,
       error
     });
@@ -1076,13 +1078,15 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
     });
   }
 
-  async function postFailureMessage({ conversationId, botId, dedupKey, turnId, stage, error }) {
+  async function postFailureMessage({ conversationId, botId, dedupKey, turnId, triggerMessageId = "", stage, error }) {
     const message = String(error?.message || error || "unknown error");
+    const resolvedTriggerMessageId = triggerMessageId || triggerMessageIdForDedupKey(dedupKey);
     try {
       const result = await postConversationMessageAsBot(conversationId, {
         botId,
         bodyMd: userFacingFailureMessage(message),
         turnId,
+        triggerMessageId: resolvedTriggerMessageId,
         errorJson: { stage, message },
         clientOpId: errorClientOpIdForDedupKey(dedupKey)
       });
@@ -1172,6 +1176,9 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         if (runtime?.env && typeof runtime.env === "object" && !Array.isArray(runtime.env)) {
           managedInput.env = { ...runtime.env };
         }
+        if (runtime?.engineSpec && typeof runtime.engineSpec === "object" && !Array.isArray(runtime.engineSpec)) {
+          managedInput.engineSpec = { ...runtime.engineSpec };
+        }
         if (runtime?.mcpFingerprint) managedInput.mcpFingerprint = String(runtime.mcpFingerprint || "").trim();
         if (runtime?.skillFingerprint) managedInput.skillFingerprint = String(runtime.skillFingerprint || "").trim();
         if (Array.isArray(runtime?.mcpServers)) managedInput.mcpServers = runtime.mcpServers.slice();
@@ -1217,6 +1224,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
             botId,
             dedupKey,
             turnId,
+            triggerMessageId: resolvedTriggerMessageId,
             stage: "runtime",
             error
           });
@@ -1344,6 +1352,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         botId,
         dedupKey,
         turnId,
+        triggerMessageId: resolvedTriggerMessageId,
         stage: "engine",
         error
       });
@@ -1366,6 +1375,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         botId,
         dedupKey,
         turnId,
+        triggerMessageId: resolvedTriggerMessageId,
         stage: "empty",
         error: new Error("本地模型这次没有产生任何文本回复（可能是工具权限被拒，或本轮只调用了工具）")
       });
@@ -1381,6 +1391,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
         botId,
         bodyMd: text,
         turnId,
+        triggerMessageId: resolvedTriggerMessageId,
         clientOpId: clientOpIdForDedupKey(dedupKey),
         ...(generatedAttachments.length ? { attachments: generatedAttachments } : {}),
         ...(tracePayload ? { trace: tracePayload } : {}),

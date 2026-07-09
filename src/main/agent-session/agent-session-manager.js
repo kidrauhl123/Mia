@@ -23,6 +23,14 @@ function indexEngineSpecs(engineSpecs) {
   return indexed;
 }
 
+function mergeEngineSpec(baseSpec, overrideSpec) {
+  if (!overrideSpec || typeof overrideSpec !== "object" || Array.isArray(overrideSpec)) return baseSpec || null;
+  return {
+    ...(baseSpec || {}),
+    ...overrideSpec
+  };
+}
+
 function getEventTurnId(payload = {}) {
   if (!payload || typeof payload !== "object") return null;
   const turnId = typeof payload.turnId === "string" ? payload.turnId.trim() : "";
@@ -66,7 +74,10 @@ class AgentSessionManager extends EventEmitter {
       return this.buildLocks.get(sessionKey);
     }
 
-    const engineSpec = this.engineSpecsById.get(String(descriptor.engineId || "").trim()) || null;
+    const engineSpec = mergeEngineSpec(
+      this.engineSpecsById.get(String(descriptor.engineId || "").trim()) || null,
+      descriptor.engineSpec
+    );
     const buildPromise = (async () => {
       const buildDescriptor = { ...descriptor };
       if (!buildDescriptor.nativeSessionId && this.loadNativeSessionId) {
@@ -93,7 +104,7 @@ class AgentSessionManager extends EventEmitter {
     const descriptor = this.getDescriptor(input);
     const sessionKey = this.createSessionKey(descriptor);
     const session = await this.getOrCreateSession(descriptor);
-    const engineSpec = this.engineSpecsById.get(descriptor.engineId) || null;
+    const engineSpec = mergeEngineSpec(this.engineSpecsById.get(descriptor.engineId) || null, descriptor.engineSpec);
     const payload = this.getPayload(input);
 
     if (this.runningByKey.has(sessionKey)) {
@@ -196,6 +207,9 @@ class AgentSessionManager extends EventEmitter {
     if (input.env && typeof input.env === "object" && !Array.isArray(input.env)) {
       descriptor.env = { ...input.env };
     }
+    if (input.engineSpec && typeof input.engineSpec === "object" && !Array.isArray(input.engineSpec)) {
+      descriptor.engineSpec = { ...input.engineSpec };
+    }
     if (Array.isArray(input.mcpServers)) {
       descriptor.mcpServers = input.mcpServers.slice();
     }
@@ -229,6 +243,7 @@ class AgentSessionManager extends EventEmitter {
         || key === "permissionMode"
         || key === "permission_mode"
         || key === "env"
+        || key === "engineSpec"
         || key === "mcpServers"
         || key === "refreshMcpContext"
         || key === "initialPromptPrefix"

@@ -928,6 +928,7 @@ function migrate(db) {
       conversation_id         TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       seq             INTEGER NOT NULL,
       turn_id         TEXT,
+      trigger_message_id TEXT,
       sender_kind     TEXT NOT NULL,
       sender_ref      TEXT NOT NULL,
       sender_owner_id TEXT,
@@ -1482,6 +1483,19 @@ function migrate(db) {
     DROP TABLE IF EXISTS cloud_hermes_sessions;
   `);
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (24, ?)")
+    .run(nowIso());
+  // v25: durable bot-turn claim. A single user trigger may race through
+  // multiple local runtimes, but only one bot-authored conversation message is
+  // allowed to persist for the same conversation + bot + trigger message.
+  if (!hasColumn(db, "messages", "trigger_message_id")) {
+    db.exec("ALTER TABLE messages ADD COLUMN trigger_message_id TEXT");
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_bot_trigger_unique
+      ON messages(conversation_id, sender_ref, trigger_message_id)
+      WHERE sender_kind = 'bot' AND trigger_message_id IS NOT NULL AND trigger_message_id <> '';
+  `);
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (25, ?)")
     .run(nowIso());
 }
 

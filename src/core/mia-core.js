@@ -396,6 +396,7 @@ function createCoreBotExecution({
 } = {}) {
   const baseUrl = typeof hermesBaseUrl === "function" ? hermesBaseUrl : () => String(hermesBaseUrl || "");
   const apiKeyFn = typeof apiKey === "function" ? apiKey : () => String(apiKey || "");
+  const systemHermesService = createSystemHermesService({ runtimePaths, env });
   const agentPermissionCoordinator = createAgentPermissionCoordinator({ runtimePaths, readJson });
   const agentSessionManager = injectedAgentSessionManager || createAgentSessionManager({
     ...createAgentSessionManagerPersistence(createAgentSessionStore({
@@ -759,6 +760,7 @@ function createCoreBotExecution({
       resolveManagedModelRuntime,
       claudeCodeMiaProxy,
       codexMiaProxy,
+      hermesCommandPath: () => systemHermesService.commandPath(),
       hermesHomePath: () => runtimePaths().hermesHome,
       miaHomePath: () => runtimePaths().home,
       getMiaAppMcpSpec: miaAppMcpBridge.getSpec,

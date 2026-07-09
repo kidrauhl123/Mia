@@ -94,6 +94,7 @@ test("respond runs the local engine and posts the reply as the bot", async () =>
       botId: "codex",
       bodyMd: "hi from codex",
       turnId: "t_1",
+      triggerMessageId: "m_1",
       clientOpId: "op_bot_reply_m_1_codex"
     }
   }]);
@@ -1183,6 +1184,7 @@ test("managed AgentSession deltas are streamed and posted as the bot reply", asy
     botId: "codex",
     bodyMd: "hello world",
     turnId: "t_managed",
+    triggerMessageId: "m_managed",
     clientOpId: "op_bot_reply_m_managed_claude",
     contentBlocks: [{ type: "text", id: "t_managed", text: "hello world" }]
   });

@@ -12,6 +12,27 @@ function randomId(prefix) {
   return prefix + "_" + crypto.randomBytes(8).toString("hex");
 }
 
+function normalizeTriggerMessageId(value) {
+  return String(value || "").trim();
+}
+
+function markAlreadyExisted(row) {
+  if (row && typeof row === "object") {
+    Object.defineProperty(row, "_alreadyExisted", {
+      value: true,
+      enumerable: false,
+      configurable: true
+    });
+  }
+  return row;
+}
+
+function isSqliteConstraintError(error) {
+  const code = String(error?.code || error?.name || "");
+  const message = String(error?.message || "");
+  return code.includes("SQLITE_CONSTRAINT") || /UNIQUE constraint failed|constraint failed/i.test(message);
+}
+
 function normalizeTrace(input) {
   if (!input || typeof input !== "object") return null;
   const reasoning = String(input.reasoning || "").trim();
@@ -46,11 +67,17 @@ function createMessagesStore(db) {
   );
   const insertMessage = db.prepare(`
     INSERT INTO messages (
-      id, conversation_id, seq, turn_id, sender_kind, sender_ref, sender_owner_id,
+      id, conversation_id, seq, turn_id, trigger_message_id, sender_kind, sender_ref, sender_owner_id,
       body_md, attachments_json, mentions_json, skills_json, trace_json, content_blocks_json, status, error_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const selectMessage = db.prepare("SELECT * FROM messages WHERE id = ?");
+  const selectBotTriggerReply = db.prepare(`
+    SELECT * FROM messages
+    WHERE conversation_id = ? AND sender_kind = 'bot' AND sender_ref = ? AND trigger_message_id = ?
+    ORDER BY seq ASC
+    LIMIT 1
+  `);
   const selectSince = db.prepare(`
     SELECT * FROM messages WHERE conversation_id = ? AND seq > ?
     ORDER BY seq ASC LIMIT ?
@@ -95,9 +122,15 @@ function createMessagesStore(db) {
       trace = null,
       contentBlocks = null,
       turnId = null,
+      triggerMessageId = null,
       status = "complete",
       errorJson = null,
     } = args;
+    const normalizedConversationId = String(conversationId);
+    const normalizedSenderKind = String(senderKind);
+    const normalizedSenderRef = String(senderRef);
+    const normalizedTriggerMessageId = normalizeTriggerMessageId(triggerMessageId || args.trigger_message_id);
+    const botTriggerClaim = normalizedSenderKind === "bot" && normalizedTriggerMessageId;
     const id = randomId("m");
     const createdAt = nowIso();
     const tracePayload = normalizeTrace(trace);
@@ -105,16 +138,24 @@ function createMessagesStore(db) {
     const contentBlocksPayload = normalizedContentBlocks.length
       ? contentBlocksWithFinalText(normalizedContentBlocks, bodyMd)
       : [];
-    db.exec("BEGIN");
+    db.exec("BEGIN IMMEDIATE");
     try {
-      const seq = selectMaxSeq.get(String(conversationId)).max_seq + 1;
+      if (botTriggerClaim) {
+        const existing = selectBotTriggerReply.get(normalizedConversationId, normalizedSenderRef, normalizedTriggerMessageId);
+        if (existing) {
+          db.exec("COMMIT");
+          return markAlreadyExisted(existing);
+        }
+      }
+      const seq = selectMaxSeq.get(normalizedConversationId).max_seq + 1;
       insertMessage.run(
         id,
-        String(conversationId),
+        normalizedConversationId,
         seq,
         turnId,
-        String(senderKind),
-        String(senderRef),
+        normalizedTriggerMessageId || null,
+        normalizedSenderKind,
+        normalizedSenderRef,
         senderOwnerId ? String(senderOwnerId) : null,
         String(bodyMd),
         attachments ? JSON.stringify(attachments) : null,
@@ -129,6 +170,10 @@ function createMessagesStore(db) {
       db.exec("COMMIT");
     } catch (err) {
       try { db.exec("ROLLBACK"); } catch { /* may already be rolled back */ }
+      if (botTriggerClaim && isSqliteConstraintError(err)) {
+        const existing = selectBotTriggerReply.get(normalizedConversationId, normalizedSenderRef, normalizedTriggerMessageId);
+        if (existing) return markAlreadyExisted(existing);
+      }
       throw err;
     }
     return selectMessage.get(id);

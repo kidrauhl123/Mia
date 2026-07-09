@@ -246,6 +246,7 @@ test("prepares Hermes Mia managed runtime in a session-scoped Hermes home", asyn
   const hermesHome = path.join(dir, "native-hermes");
   const miaHome = path.join(dir, "mia-home");
   const profilesRoot = path.join(dir, "profiles");
+  const hermesCommand = path.join(dir, "bin", process.platform === "win32" ? "hermes.exe" : "hermes");
   fs.mkdirSync(hermesHome, { recursive: true });
   fs.writeFileSync(path.join(hermesHome, "config.yaml"), yaml.dump({
     model: {
@@ -297,6 +298,7 @@ test("prepares Hermes Mia managed runtime in a session-scoped Hermes home", asyn
         managedByMia: true
       };
     },
+    hermesCommandPath: () => hermesCommand,
     hermesHomePath: hermesHome,
     miaHomePath: miaHome,
     hermesSessionProfilesRoot: profilesRoot
@@ -315,6 +317,8 @@ test("prepares Hermes Mia managed runtime in a session-scoped Hermes home", asyn
   });
 
   assert.equal(runtime.runtimeKey, "mia:mia-auto");
+  assert.equal(runtime.engineSpec.command, hermesCommand);
+  assert.deepEqual(runtime.engineSpec.args, ["acp"]);
   assert.equal(runtime.env.MIA_HOME, miaHome);
   assert.equal(runtime.env.MIA_CLOUD_MODEL_TOKEN, "cloud-token");
   assert.ok(runtime.env.HERMES_HOME.startsWith(profilesRoot));

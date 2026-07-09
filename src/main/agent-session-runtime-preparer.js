@@ -7,6 +7,7 @@ const path = require("node:path");
 const yaml = require("js-yaml");
 
 const { normalizeAcpMcpServer, normalizeAcpMcpServers } = require("./agent-session/acp-mcp-servers.js");
+const { getAcpEngineSpec } = require("./agent-session/acp-engine-specs.js");
 const { buildMiaContextResource, mcpContextPrompt } = require("./mia-context-resource.js");
 const { createSkillRuntimeOwner } = require("./mia-core/skill-runtime-owner.js");
 const { createCodexMiaProxy } = require("./codex-mia-proxy.js");
@@ -146,6 +147,7 @@ function createAgentSessionRuntimePreparer(options = {}) {
   const codexLauncherPath = String(options.codexLauncherPath || "").trim()
     || path.join(os.tmpdir(), DEFAULT_CODEX_MIA_LAUNCHER);
   const codexRealPath = String(options.codexRealPath || process.env.CODEX_PATH || "codex").trim() || "codex";
+  const hermesCommandPath = options.hermesCommandPath || (() => "");
   const hermesHomePath = options.hermesHomePath || (() => process.env.HERMES_HOME || path.join(os.homedir(), ".hermes"));
   const miaHomePath = options.miaHomePath || (() => process.env.MIA_HOME || "");
   const hermesSessionProfilesRoot = options.hermesSessionProfilesRoot || path.join(os.tmpdir(), "mia-hermes-session-profiles");
@@ -172,6 +174,14 @@ function createAgentSessionRuntimePreparer(options = {}) {
       return resolveModelRuntime(runtimeConfig, { engine: "hermes" });
     }
     return resolveManagedModelRuntime(runtimeConfig, { engine: "hermes" });
+  }
+
+  function hermesEngineSpecRuntime() {
+    const commandPath = valueFromOption(hermesCommandPath);
+    if (!commandPath) return {};
+    return {
+      engineSpec: getAcpEngineSpec("hermes", { hermesCommandPath: commandPath })
+    };
   }
 
   function hermesProfileDirFor(runtime = {}, runtimeConfig = {}) {
@@ -343,10 +353,14 @@ function createAgentSessionRuntimePreparer(options = {}) {
     if (engineId === "hermes") {
       const agentEngine = firstString(runtimeConfig, ["agentEngine", "agent_engine"]) || "hermes";
       const baseRuntime = mergeRuntimeParts(mcpRuntime, skillRuntime);
-      if (agentEngine !== "hermes") return baseRuntime;
+      const engineSpecRuntime = hermesEngineSpecRuntime();
+      if (agentEngine !== "hermes") return mergeRuntimeParts(baseRuntime, engineSpecRuntime);
       const runtime = resolvedHermesRuntime(runtimeConfig);
-      if (!runtime) return baseRuntime;
-      return mergeRuntimeParts(baseRuntime, ensureHermesSessionProfile(runtime, runtimeConfig, skillRuntime));
+      if (!runtime) return mergeRuntimeParts(baseRuntime, engineSpecRuntime);
+      return mergeRuntimeParts(
+        mergeRuntimeParts(baseRuntime, ensureHermesSessionProfile(runtime, runtimeConfig, skillRuntime)),
+        engineSpecRuntime
+      );
     }
 
     if (engineId === "codex") {

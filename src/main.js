@@ -2267,6 +2267,7 @@ const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
   resolveManagedModelRuntime,
   claudeCodeMiaProxy,
   codexMiaProxy,
+  hermesCommandPath: () => systemHermesService.commandPath(),
   hermesHomePath: () => runtimePaths().hermesHome,
   miaHomePath: () => runtimePaths().home,
   getMiaAppMcpSpec: miaAppMcpBridge.getSpec,

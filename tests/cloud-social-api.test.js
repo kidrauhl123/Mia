@@ -1028,6 +1028,48 @@ test("POST /messages/as-bot allows owner to post on behalf of own bot", async ()
   } finally { await stopServer(ctx); }
 });
 
+test("POST /messages/as-bot deduplicates bot replies by triggerMessageId across clientOpIds", async () => {
+  const ctx = await startServer();
+  try {
+    const { alice, bob } = await setupGroupScenario(ctx.port);
+    const grp = await api(ctx.port, "POST", "/api/conversations", {
+      token: alice.token,
+      body: { name: "G", memberBots: [{ botId: "bot_codex" }], memberFriendUserIds: [bob.user.id] }
+    });
+    const conversationId = grp.body.conversation.id;
+    const first = await api(ctx.port, "POST", "/api/conversations/" + conversationId + "/messages/as-bot", {
+      token: alice.token,
+      body: {
+        botId: "bot_codex",
+        bodyMd: "first reply",
+        triggerMessageId: "m_user_1",
+        clientOpId: "op_bot_reply_m_user_1_bot_codex"
+      }
+    });
+    const second = await api(ctx.port, "POST", "/api/conversations/" + conversationId + "/messages/as-bot", {
+      token: alice.token,
+      body: {
+        botId: "bot_codex",
+        bodyMd: "late failure",
+        triggerMessageId: "m_user_1",
+        errorJson: { stage: "engine", message: "failed after success" },
+        clientOpId: "op_bot_reply_error_m_user_1_bot_codex"
+      }
+    });
+
+    assert.equal(first.status, 201);
+    assert.equal(second.status, 201);
+    assert.equal(second.body.message.id, first.body.message.id);
+    assert.equal(second.body.deduplicated, true);
+    assert.equal(second.body.message.body_md, "first reply");
+    assert.equal(second.body.message.trigger_message_id, "m_user_1");
+
+    const listed = await api(ctx.port, "GET", "/api/conversations/" + conversationId + "/messages", { token: alice.token });
+    const botReplies = (listed.body.messages || []).filter((m) => m.sender_kind === "bot" && m.sender_ref === "bot_codex");
+    assert.equal(botReplies.length, 1);
+  } finally { await stopServer(ctx); }
+});
+
 test("POST /messages/as-bot rejects non-owner", async () => {
   const ctx = await startServer();
   try {

@@ -100,6 +100,39 @@ test("appendMessage persists attachments + mentions + turn_id", () => {
   } finally { teardown(ctx); }
 });
 
+test("appendMessage returns the existing bot reply for the same trigger", () => {
+  const ctx = setup();
+  try {
+    const first = ctx.messages.appendMessage({
+      conversationId: "r-msg",
+      senderKind: "bot",
+      senderRef: "bot_codex",
+      senderOwnerId: ctx.alice.id,
+      bodyMd: "first reply",
+      triggerMessageId: "m_user_1",
+      turnId: "t-1"
+    });
+    const duplicate = ctx.messages.appendMessage({
+      conversationId: "r-msg",
+      senderKind: "bot",
+      senderRef: "bot_codex",
+      senderOwnerId: ctx.alice.id,
+      bodyMd: "late failure",
+      triggerMessageId: "m_user_1",
+      turnId: "t-1",
+      errorJson: { stage: "engine", message: "failed after success" }
+    });
+
+    assert.equal(first.trigger_message_id, "m_user_1");
+    assert.equal(duplicate.id, first.id);
+    assert.equal(duplicate.body_md, "first reply");
+    assert.equal(duplicate._alreadyExisted, true);
+    const rows = ctx.messages.listMessagesSince("r-msg", 0)
+      .filter((message) => message.sender_kind === "bot" && message.sender_ref === "bot_codex");
+    assert.equal(rows.length, 1);
+  } finally { teardown(ctx); }
+});
+
 test("deleteMessage removes the row and returns it; missing id returns null", () => {
   const ctx = setup();
   try {
