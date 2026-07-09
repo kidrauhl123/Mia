@@ -189,6 +189,20 @@ test("fetchAndCacheConversationMembers rerenders after sidebar member cache fill
   assert.deepEqual(renderCalls, ["render"]);
 });
 
+test("fetchAndCacheConversationMembers cools down failed lookups", async () => {
+  const { groups, mockWindow } = loadSocialGroups();
+  let calls = 0;
+  mockWindow.mia.social.getConversation = async () => {
+    calls += 1;
+    throw new Error("Mia Core HTTP GET /api/conversations/g_missing failed 404: Not Found");
+  };
+
+  await groups.fetchAndCacheConversationMembers("g_missing");
+  await groups.fetchAndCacheConversationMembers("g_missing");
+
+  assert.equal(calls, 1);
+});
+
 test("openCreateGroupDialog shows friend display names instead of WeChat hash usernames", () => {
   const { groups, documentMock } = loadSocialGroups({
     moduleState: {

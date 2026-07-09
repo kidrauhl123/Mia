@@ -110,27 +110,16 @@
       || {};
   }
 
-  function defaultExternalModelEntry(engine) {
-    if (engine === EngineId.ClaudeCode) {
-      return { id: "default", provider: EngineId.ClaudeCode, providerLabel: "Claude Code", model: "", label: "Claude Code 默认" };
-    }
-    if (engine === EngineId.Codex) {
-      return { id: "default", provider: EngineId.Codex, providerLabel: "Codex CLI", model: "", label: "Codex 默认" };
-    }
-    return null;
-  }
-
   function normalizeExternalModelEntry(engine, entry = {}, index = 0) {
     if (!entry || typeof entry !== "object") return null;
     const id = String(entry.id || entry.key || entry.value || entry.model || entry.name || "").trim();
     const model = String(entry.model || entry.key || entry.id || entry.value || entry.name || "").trim();
     if (!id && !model) return null;
-    const fallback = defaultExternalModelEntry(engine) || {};
     const label = String(entry.label || entry.displayName || entry.display_name || entry.name || model || id).trim();
     return {
       id: id || model || `${engine}-${index}`,
-      provider: String(entry.provider || fallback.provider || engine).trim(),
-      providerLabel: String(entry.providerLabel || entry.provider_label || fallback.providerLabel || engineLabel(engine)).trim(),
+      provider: String(entry.provider || engine).trim(),
+      providerLabel: String(entry.providerLabel || entry.provider_label || engineLabel(engine)).trim(),
       model,
       label: label || model || id,
       authType: entry.authType || entry.auth_type || "",
@@ -205,12 +194,10 @@
     const engine = normalizeAgentEngine(value);
     const miaEntries = miaModelEntries(options);
     const capability = capabilitiesForEngine(engine, options);
-    const defaultEntry = defaultExternalModelEntry(engine);
     if (engine === EngineId.ClaudeCode) {
       const dynamic = Array.isArray(capability.models) ? capability.models : [];
       return [
         ...dedupeModelEntries([
-          defaultEntry,
           ...dynamic.map((entry, index) => normalizeExternalModelEntry(engine, entry, index)).filter(Boolean)
         ]),
         ...miaEntries
@@ -218,10 +205,8 @@
     }
     if (engine !== EngineId.Codex) return [];
 
-    const entries = [defaultEntry];
-    const dynamic = Array.isArray(capability.models) && capability.models.length
-      ? capability.models
-      : (Array.isArray(options.codexModels) ? options.codexModels : []);
+    const entries = [];
+    const dynamic = Array.isArray(capability.models) ? capability.models : [];
     if (dynamic.length) {
       for (const model of dynamic) {
         if (!model?.slug) continue;

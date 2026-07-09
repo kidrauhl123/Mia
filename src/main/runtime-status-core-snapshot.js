@@ -122,23 +122,65 @@ function modelHasConnectedProvider(model = {}, providers = []) {
   return providers.some((provider) => provider.hasApiKey && providerMatchesModel(provider, current));
 }
 
-function createRuntimeStatusCoreSnapshot({ coreRequest, authStatus = () => ({}) } = {}) {
-  if (typeof coreRequest !== "function") throw new Error("coreRequest dependency is required.");
+const DEFAULT_CACHE_TTL_MS = 30 * 1000;
 
-  async function apply(status = {}) {
-    let settingsResponse;
-    let providersResponse;
+function createRuntimeStatusCoreSnapshot({
+  coreRequest,
+  authStatus = () => ({}),
+  ttlMs = DEFAULT_CACHE_TTL_MS,
+  now = Date.now
+} = {}) {
+  if (typeof coreRequest !== "function") throw new Error("coreRequest dependency is required.");
+  const cacheTtlMs = Number.isFinite(Number(ttlMs)) ? Math.max(0, Number(ttlMs)) : DEFAULT_CACHE_TTL_MS;
+  const nowMs = typeof now === "function" ? now : Date.now;
+
+  let cache = null;
+  let pending = null;
+  let generation = 0;
+
+  function freshCache() {
+    if (!cache || cacheTtlMs <= 0) return null;
+    return nowMs() < cache.expiresAt ? cache.value : null;
+  }
+
+  async function readCoreSnapshot({ force = false } = {}) {
+    if (!force) {
+      const fresh = freshCache();
+      if (fresh) return fresh;
+      if (pending) return pending;
+    }
+
+    const requestGeneration = generation;
+    const current = Promise.all([
+      coreRequest({ method: "GET", route: "/api/settings/client" }),
+      coreRequest({ method: "GET", route: "/api/providers" })
+    ]).then(([settingsResponse, providersResponse]) => {
+      const value = { settingsResponse, providersResponse };
+      if (generation === requestGeneration && cacheTtlMs > 0) {
+        cache = {
+          value,
+          expiresAt: nowMs() + cacheTtlMs
+        };
+      }
+      return value;
+    }).finally(() => {
+      if (pending === current) pending = null;
+    });
+
+    pending = current;
+    return current;
+  }
+
+  async function apply(status = {}, options = {}) {
+    let snapshot;
     try {
-      [settingsResponse, providersResponse] = await Promise.all([
-        coreRequest({ method: "GET", route: "/api/settings/client" }),
-        coreRequest({ method: "GET", route: "/api/providers" })
-      ]);
+      snapshot = await readCoreSnapshot({ force: Boolean(options.force) });
     } catch {
       return status;
     }
 
-    const model = compactModelFromClientSettings(settingsResponse);
-    const connectedProviders = coreProviderSummaries(providersResponse, model, authStatus());
+    const model = compactModelFromClientSettings(snapshot.settingsResponse);
+    const connectedProviders = coreProviderSummaries(snapshot.providersResponse, model, authStatus());
     return {
       ...status,
       model: {
@@ -149,10 +191,17 @@ function createRuntimeStatusCoreSnapshot({ coreRequest, authStatus = () => ({}) 
     };
   }
 
+  function invalidate() {
+    generation += 1;
+    cache = null;
+    pending = null;
+  }
+
   return {
     apply,
     compactModelFromClientSettings,
-    coreProviderSummaries
+    coreProviderSummaries,
+    invalidate
   };
 }
 
@@ -160,6 +209,7 @@ module.exports = {
   compactModelFromClientSettings,
   coreProviderSummaries,
   createRuntimeStatusCoreSnapshot,
+  DEFAULT_CACHE_TTL_MS,
   providerSummaryFromCore,
   resolveCodexModelSelection
 };

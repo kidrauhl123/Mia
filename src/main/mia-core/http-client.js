@@ -18,7 +18,7 @@ function createMiaCoreHttpClient(deps = {}) {
 
   async function request(method, pathname, body) {
     const path = String(pathname || "/");
-    const headers = { accept: "application/json" };
+    const headers = { accept: "application/json", connection: "close" };
     const options = { method, headers };
     if (body !== undefined) {
       headers["content-type"] = "application/json";

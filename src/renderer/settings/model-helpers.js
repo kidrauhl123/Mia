@@ -23,13 +23,20 @@
     return `${String(model.provider || "").trim()}::${String(model.model || "").trim()}`;
   }
 
+  function modelLabel(provider = "", model = "", fallback = "") {
+    const providerId = String(provider || "").trim();
+    const modelId = String(model || "").trim();
+    if (providerId === "openai-codex" && modelId === "default") return "Codex 默认";
+    return String(fallback || modelId || "Local Model").trim();
+  }
+
   function fallbackCatalogFromPresets() {
     return Object.values(providerPresets).map((preset) => ({
       id: `${preset.provider}::${preset.model || ""}`,
       provider: preset.provider,
       providerLabel: providerLabels[preset.provider] || preset.provider,
       model: preset.model || "",
-      label: preset.model || "Local Model",
+      label: modelLabel(preset.provider, preset.model),
       authType: preset.provider === "openai-codex" ? "oauth_external" : "api_key"
     }));
   }
@@ -46,7 +53,7 @@
         provider: current.provider,
         providerLabel: providerLabels[current.provider] || current.provider,
         model: current.model || "",
-        label: current.model || "Custom Model",
+        label: modelLabel(current.provider, current.model, "Custom Model"),
         authType: current.provider === "openai-codex" ? "oauth_external" : "api_key"
       },
       ...base
@@ -161,7 +168,7 @@
   function modelDisplayName(model = {}) {
     const provider = String(model.provider || "").trim();
     const entry = catalogEntryForModel(model);
-    const name = entry?.label || String(model.model || "").trim() || (provider === "lmstudio" ? "Local Model" : "未选择模型");
+    const name = entry?.label || modelLabel(provider, model.model, provider === "lmstudio" ? "Local Model" : "未选择模型");
     const label = providerLabel(provider) || "Custom";
     return `${name} | ${label}`;
   }
@@ -176,6 +183,7 @@
   window.miaModelHelpers = {
     initModelHelpers,
     modelKey,
+    modelLabel,
     fallbackCatalogFromPresets,
     catalogEntries,
     catalogEntryForModel,

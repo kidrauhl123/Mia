@@ -118,6 +118,9 @@ const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
 // place while the implementation behind it moves to Rust Core.
 const MIA_CORE_SERVICE_LABEL = "ai.mia.daemon";
 const MIA_CORE_DEFAULT_PORT = Number(process.env.MIA_CORE_PORT || 27861);
+const MIA_CORE_START_POLL_MS = 300;
+const MIA_CORE_DEFAULT_START_TIMEOUT_MS = 30_000;
+const MIA_CORE_DEV_START_TIMEOUT_MS = 120_000;
 const MIA_CLOUD_DEFAULT_URL = process.env.MIA_CLOUD_URL || "https://mia.gifgif.cn";
 const IS_CORE_PROCESS = false;
 const ALLOW_MULTIPLE_INSTANCES = process.env.MIA_ALLOW_MULTIPLE_INSTANCES === "1";
@@ -263,6 +266,15 @@ function currentMiaCoreMcpStatus() {
   return port > 0 ? { baseUrl: currentMiaCoreBaseUrl() } : {};
 }
 
+function shouldInvalidateRuntimeStatusCoreSnapshot(method, route) {
+  const upper = String(method || "GET").toUpperCase();
+  if (upper === "GET" || upper === "HEAD" || upper === "OPTIONS") return false;
+  const path = String(route || "").split("?")[0];
+  return path === "/api/settings/model-selection"
+    || path === "/api/settings/client"
+    || path.startsWith("/api/providers");
+}
+
 async function forwardMiaCoreHttpRequest(payload = {}) {
   const method = String(payload.method || "GET").toUpperCase();
   const route = String(payload.route || payload.path || "").trim();
@@ -271,7 +283,11 @@ async function forwardMiaCoreHttpRequest(payload = {}) {
     await waitForDaemonRuntimeEventsConnection();
   }
   const client = createMiaCoreHttpClient({ baseUrl: currentMiaCoreBaseUrl(), fetch });
-  return client.request(method, route, payload.body);
+  const result = await client.request(method, route, payload.body);
+  if (shouldInvalidateRuntimeStatusCoreSnapshot(method, route)) {
+    runtimeStatusCoreSnapshot?.invalidate?.();
+  }
+  return result;
 }
 
 async function cancelCoreConversationTurn({ conversationId, turnId } = {}) {
@@ -439,11 +455,26 @@ const miaCoreResolver = createMiaCoreResolver({
   cargoPath: () => process.env.MIA_CARGO_BIN || "cargo",
   parentPid: () => process.pid
 });
+const miaCoreLaunchdResolver = createMiaCoreResolver({
+  runtimePaths,
+  effectiveHermesHome,
+  appPath: () => app.getAppPath(),
+  execPath: () => process.execPath,
+  defaultApp: () => Boolean(process.defaultApp),
+  platform: process.platform,
+  env: process.env,
+  resourcesPath: () => process.resourcesPath || "",
+  repoRoot: () => path.resolve(__dirname, ".."),
+  coreSettings: () => settingsStore.coreSettings(),
+  appVersion: () => app.getVersion(),
+  cargoPath: () => process.env.MIA_CARGO_BIN || "cargo",
+  parentPid: () => 0
+});
 const launchdService = createLaunchdService({
   gatewayServiceLabel: MIA_GATEWAY_SERVICE_LABEL,
   coreServiceLabel: MIA_CORE_SERVICE_LABEL,
   runtimePaths,
-  resolver: miaCoreResolver,
+  resolver: miaCoreLaunchdResolver,
   appPath: () => app.getAppPath(),
   execPath: () => process.execPath,
   defaultApp: () => Boolean(process.defaultApp),
@@ -474,7 +505,11 @@ localAgentEngineService = createLocalAgentEngineService({
   spawnSync,
   isHermesInstalled: () => engineInstallService.isInstalled(),
   isHermesApiRuntimeReady: () => engineInstallService.isApiRuntimeReady(),
-  hermesSource: () => engineInstallService.engineSource()
+  hermesSource: () => engineInstallService.engineSource(),
+  coreAgentInventory: () => forwardMiaCoreHttpRequest({
+    method: "GET",
+    route: "/api/engines/agents"
+  })
 });
 
 settingsStore = createSettingsStore({
@@ -1244,6 +1279,29 @@ function shouldUseLaunchdForCore() {
   return process.platform === "darwin" && !process.defaultApp && coreStartMode() !== "process";
 }
 
+function coreStartTimeoutMs(expectedCoreTarget = {}) {
+  const configured = Number(process.env.MIA_CORE_START_TIMEOUT_MS || "");
+  if (Number.isInteger(configured) && configured > 0) return configured;
+  const command = path.basename(String(expectedCoreTarget.command || ""));
+  if (process.defaultApp || command === "cargo") return MIA_CORE_DEV_START_TIMEOUT_MS;
+  return MIA_CORE_DEFAULT_START_TIMEOUT_MS;
+}
+
+async function waitForReusableCore({ settings, expectedRuntimeHome, expectedCoreTarget }) {
+  const timeoutMs = coreStartTimeoutMs(expectedCoreTarget);
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
+    // Only accept once the *replacement* rust-core process answers: during
+    // bootout/kickstart the old daemon can still briefly hold the port, so
+    // require shouldReuseCore (version match + non-GUI target) or the stale
+    // GUI-identity one would be accepted and replaced again next launch.
+    if (shouldReuseCore(ping, app.getVersion(), { expectedCoreTarget })) return ping;
+    await new Promise((resolve) => setTimeout(resolve, MIA_CORE_START_POLL_MS));
+  } while (Date.now() < deadline);
+  return null;
+}
+
 async function startDaemonService() {
   if (!IS_CORE_PROCESS && process.env.MIA_DISABLE_BACKGROUND_STARTUP === "1") {
     return { ...getDaemonStatus(), running: false, disabled: true };
@@ -1253,7 +1311,9 @@ async function startDaemonService() {
   if (IS_CORE_PROCESS) return miaCoreControlServer.start(settings);
   await launchdService.cleanupLegacyNodeCore();
   const expectedRuntimeHome = runtimePaths().home;
-  const expectedCoreTarget = miaCoreResolver.describe();
+  const expectedCoreTarget = shouldUseLaunchdForCore()
+    ? miaCoreLaunchdResolver.describe()
+    : miaCoreResolver.describe();
   const existing = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
   let existingReusable = false;
   if (existing.ok && existing.mode === "daemon") {
@@ -1288,38 +1348,28 @@ async function startDaemonService() {
   }
   if (shouldUseLaunchdForCore()) {
     await launchdService.startCore();
-    for (let i = 0; i < 20; i += 1) {
-      const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
-      // Only accept once the *replacement* rust-core process answers: during
-      // bootout/kickstart the old daemon can still briefly hold the port, so
-      // require shouldReuseCore (version match + non-GUI target) or the stale
-      // GUI-identity one would be accepted and replaced again next launch.
-      if (shouldReuseCore(ping, app.getVersion(), { expectedCoreTarget })) {
-        appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
-        const status = { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
-        markCoreRunningForTray(true);
-        return status;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 300));
+    const ping = await waitForReusableCore({ settings, expectedRuntimeHome, expectedCoreTarget });
+    if (ping) {
+      appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
+      const status = { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+      markCoreRunningForTray(true);
+      return status;
     }
-    throw new Error("Timed out waiting for Mia daemon LaunchAgent.");
+    throw new Error(`Timed out waiting for Mia daemon LaunchAgent after ${coreStartTimeoutMs(expectedCoreTarget)}ms.`);
   }
   if (process.platform === "darwin") {
     appendDaemonLog("MIA_CORE_START_MODE=process: starting Mia Rust Core as a child process for development verification.");
   }
   miaCoreControlServer.stop();
   await miaCoreProcessLauncher.start();
-  for (let i = 0; i < 20; i += 1) {
-    const ping = await miaCoreControlServer.ping(settings, 500, { expectedRuntimeHome });
-    if (shouldReuseCore(ping, app.getVersion(), { expectedCoreTarget })) {
-      appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
-      const status = { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
-      markCoreRunningForTray(true);
-      return status;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 300));
+  const ping = await waitForReusableCore({ settings, expectedRuntimeHome, expectedCoreTarget });
+  if (ping) {
+    appendDaemonLog(`Mia Rust Core reachable at ${ping.baseUrl}.`);
+    const status = { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+    markCoreRunningForTray(true);
+    return status;
   }
-  throw new Error("Timed out waiting for Mia daemon process.");
+  throw new Error(`Timed out waiting for Mia daemon process after ${coreStartTimeoutMs(expectedCoreTarget)}ms.`);
 }
 
 async function stopDaemonService() {
@@ -2354,7 +2404,7 @@ miaCoreControlServer = createMiaCoreControlServer({
   serviceLabel: MIA_CORE_SERVICE_LABEL,
   coreToken,
   appVersion: () => app.getVersion(),
-  describeCoreTarget: () => miaCoreResolver.describe(),
+  describeCoreTarget: () => (shouldUseLaunchdForCore() ? miaCoreLaunchdResolver.describe() : miaCoreResolver.describe()),
   initializeRuntime,
   choosePort: engineHealthService.choosePort,
   getCoreSettings: () => settingsStore.coreSettings(),
@@ -2849,7 +2899,7 @@ app.whenReady().then(async () => {
   cloudDesktopSync().syncWorkspace()
     .then(() => syncCloudSettingsToCore().catch((error) => appendCloudLog(`Mia Rust Core cloud refresh sync failed: ${error?.message || error}`)))
     .catch((error) => appendCloudLog(`云同步刷新失败：${error?.message || error}`));
-  if (!win.miaSkipAutomaticBackgroundStartup && process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
+  if (process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
     win.webContents.once("did-finish-load", () => {
       setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
     });

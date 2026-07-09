@@ -71,6 +71,36 @@ test("status is owned by the daemon control server runtime", () => {
   assert.deepEqual(status.logs, ["[REDACTED] visible"]);
 });
 
+test("observedStatus recovers running state and clears stale startup errors", async (t) => {
+  let fetches = 0;
+  const { dir, server } = setup(t, {
+    fetchImpl: async () => {
+      fetches += 1;
+      return {
+        ok: true,
+        json: async () => ({
+          runtimeHome: path.join(dir, "home"),
+          pid: 4321,
+          version: "0.1.0",
+          mode: "daemon",
+          daemonTarget: { kind: "rust-core" }
+        })
+      };
+    }
+  });
+
+  server.setLastError("Timed out waiting for Mia daemon process.");
+
+  const status = await server.observedStatus(25);
+
+  assert.equal(fetches, 1);
+  assert.equal(status.running, true);
+  assert.equal(status.baseUrl, "http://127.0.0.1:27861");
+  assert.equal(status.lastError, "");
+  assert.equal(server.status().running, true);
+  assert.equal(server.status().lastError, "");
+});
+
 test("start serves health, protects remote routes, and delegates authorized remote routes", async (t) => {
   const port = await freePort();
   const { calls, dir, server } = setup(t);

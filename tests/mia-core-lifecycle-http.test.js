@@ -23,6 +23,7 @@ test("Mia Core HTTP client builds typed loopback requests", async () => {
   assert.deepEqual(await client.health(), { ok: true, dataDir: "/tmp/mia" });
   assert.equal(calls[0].url, "http://127.0.0.1:51234/health");
   assert.equal(calls[0].options.method, "GET");
+  assert.equal(calls[0].options.headers.connection, "close");
 });
 
 test("Mia Core HTTP client throws parsed response errors", async () => {

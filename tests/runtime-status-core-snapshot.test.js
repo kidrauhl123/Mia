@@ -154,6 +154,101 @@ test("runtime status snapshot keeps local status when Rust Core is unavailable",
   assert.equal(await snapshot.apply(original), original);
 });
 
+test("runtime status snapshot reuses Core reads within the cache ttl", async () => {
+  const calls = [];
+  let signedIn = false;
+  let now = 1000;
+  const snapshot = createRuntimeStatusCoreSnapshot({
+    ttlMs: 30_000,
+    now: () => now,
+    authStatus: () => ({ codexLoggedIn: signedIn }),
+    coreRequest: async (request) => {
+      calls.push(request);
+      if (request.route === "/api/settings/client") {
+        return {
+          settings: {
+            provider: "anthropic",
+            providerConnectionId: "anthropic-main",
+            providerLabel: "Anthropic",
+            authType: "api_key",
+            model: "claude-sonnet-4.6"
+          }
+        };
+      }
+      if (request.route === "/api/providers") {
+        return {
+          providers: [
+            {
+              id: "anthropic-main",
+              kind: "anthropic",
+              displayName: "Anthropic",
+              enabled: true,
+              models: ["claude-sonnet-4.6"]
+            }
+          ]
+        };
+      }
+      throw new Error(`unexpected route ${request.route}`);
+    }
+  });
+
+  const first = await snapshot.apply({ connectedProviders: [] });
+  signedIn = true;
+  now += 2000;
+  const second = await snapshot.apply({ connectedProviders: [] });
+
+  assert.equal(calls.length, 2);
+  assert.equal(first.connectedProviders.some((provider) => provider.provider === "openai-codex"), false);
+  assert.equal(second.connectedProviders.some((provider) => provider.provider === "openai-codex"), true);
+});
+
+test("runtime status snapshot refreshes after invalidate", async () => {
+  const calls = [];
+  let currentModel = "claude-sonnet-4.6";
+  const snapshot = createRuntimeStatusCoreSnapshot({
+    ttlMs: 30_000,
+    coreRequest: async (request) => {
+      calls.push(request);
+      if (request.route === "/api/settings/client") {
+        return {
+          settings: {
+            provider: "anthropic",
+            providerConnectionId: "anthropic-main",
+            providerLabel: "Anthropic",
+            authType: "api_key",
+            model: currentModel
+          }
+        };
+      }
+      if (request.route === "/api/providers") {
+        return {
+          providers: [
+            {
+              id: "anthropic-main",
+              kind: "anthropic",
+              displayName: "Anthropic",
+              enabled: true,
+              models: [currentModel]
+            }
+          ]
+        };
+      }
+      throw new Error(`unexpected route ${request.route}`);
+    }
+  });
+
+  const first = await snapshot.apply({});
+  currentModel = "claude-opus-4.1";
+  const stale = await snapshot.apply({});
+  snapshot.invalidate();
+  const refreshed = await snapshot.apply({});
+
+  assert.equal(first.model.model, "claude-sonnet-4.6");
+  assert.equal(stale.model.model, "claude-sonnet-4.6");
+  assert.equal(refreshed.model.model, "claude-opus-4.1");
+  assert.equal(calls.length, 4);
+});
+
 test("Codex model selection falls back to default when saved model is not in Core model list", () => {
   const selection = resolveCodexModelSelection(
     {

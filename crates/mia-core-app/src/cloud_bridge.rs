@@ -464,26 +464,34 @@ fn normalize_claude_effort(value: &str) -> String {
 
 fn is_mia_managed(plan: &RuntimeTurnPlan, runtime_config: &Value) -> bool {
     for source in [&plan.provider, runtime_config] {
-        if first_string(source, &["providerConnectionId", "provider_connection_id"]).as_deref()
-            == Some("mia")
-            || first_string(source, &["provider", "modelProvider", "model_provider"]).as_deref()
-                == Some("mia")
-            || first_string(source, &["authType", "auth_type"]).as_deref() == Some("mia_account")
-            || first_string(
-                source,
-                &[
-                    "modelProfileId",
-                    "model_profile_id",
-                    "profileId",
-                    "profile_id",
-                ],
-            )
-            .is_some_and(|value| value.starts_with("mia:"))
-        {
+        if source_is_mia_managed(source) {
             return true;
         }
     }
     false
+}
+
+fn source_is_mia_managed(source: &Value) -> bool {
+    first_string(source, &["providerConnectionId", "provider_connection_id"]).as_deref()
+        == Some("mia")
+        || first_string(source, &["provider", "modelProvider", "model_provider"]).as_deref()
+            == Some("mia")
+        || first_string(source, &["authType", "auth_type"]).as_deref() == Some("mia_account")
+        || first_string(
+            source,
+            &[
+                "modelProfileId",
+                "model_profile_id",
+                "profileId",
+                "profile_id",
+            ],
+        )
+        .is_some_and(|value| value.starts_with("mia:"))
+        || first_string(source, &["model"]).is_some_and(|value| is_builtin_mia_model(&value))
+}
+
+fn is_builtin_mia_model(model: &str) -> bool {
+    matches!(model.trim(), "mia-auto" | "mia-default")
 }
 
 fn emit_cloud_run_started(
@@ -1148,6 +1156,13 @@ fn first_string(source: &Value, keys: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mia_managed_detection_accepts_builtin_mia_model_reference() {
+        assert!(source_is_mia_managed(&json!({ "model": "mia-auto" })));
+        assert!(source_is_mia_managed(&json!({ "model": "mia-default" })));
+        assert!(!source_is_mia_managed(&json!({ "model": "gpt-5.3" })));
+    }
 
     #[test]
     fn cloud_run_collector_does_not_duplicate_assistant_snapshot() {

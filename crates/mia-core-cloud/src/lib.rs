@@ -156,6 +156,7 @@ impl CloudService {
         request: CloudConnectRequest,
     ) -> Result<CloudConnectResponse, CloudError> {
         let mut current = self.read_cloud_settings().await?;
+        let previous = current.clone();
         let token = request
             .token
             .as_deref()
@@ -197,8 +198,10 @@ impl CloudService {
                 Value::String(last_memory_sync_at),
             );
         }
-        self.write_state(CLOUD_SETTINGS_KEY, current.clone())
-            .await?;
+        if current != previous {
+            self.write_state(CLOUD_SETTINGS_KEY, current.clone())
+                .await?;
+        }
         Ok(CloudConnectResponse {
             status: status_from_settings(current, false),
         })

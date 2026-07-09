@@ -122,7 +122,8 @@ function createLaunchdService(deps = {}) {
     platform,
     env,
     coreSettings,
-    appVersion
+    appVersion,
+    parentPid: () => 0
   });
 
   function launchdDomain() {

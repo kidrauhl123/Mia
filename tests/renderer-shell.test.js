@@ -206,8 +206,8 @@ test("runtime refresh re-renders the daemon status card from observed daemon sta
 
   assert.match(
     appSource,
-    /async function refreshRuntime\(\)[\s\S]*renderDaemonStatus\(runtime\.daemon\s*\|\|\s*\{\}\)/,
-    "refreshRuntime should push observed daemon status into the settings card so auto-start updates the UI"
+    /async function performRefreshRuntime\(\)[\s\S]*renderDaemonStatus\(runtime\.daemon\s*\|\|\s*\{\}\)/,
+    "performRefreshRuntime should push observed daemon status into the settings card so auto-start updates the UI"
   );
 });
 
@@ -1158,7 +1158,26 @@ test("lottie icons support autoplaying loop animations for scanning state", () =
 
   assert.match(lottieSource, /triggerMode === "loop"/);
   assert.match(lottieSource, /loop:\s*entry\.triggerMode === "loop"/);
-  assert.match(lottieSource, /autoplay:\s*entry\.triggerMode === "loop"/);
+  assert.match(lottieSource, /autoplay:\s*false/);
+  assert.match(lottieSource, /syncLoopPlayback\(container,\s*entry\)/);
+});
+
+test("status badge lotties render as visible canvas loops instead of blank ambient rests", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const nameWithBadgeSource = fs.readFileSync(path.join(root, "src/renderer/name-with-badge.js"), "utf8");
+
+  assert.match(html, /assets\/lottie\/lottie\.min\.js/);
+  assert.doesNotMatch(html, /assets\/lottie\/lottie_light\.min\.js/);
+  assert.match(appSource, /span\.dataset\.lottieTrigger = "loop"/);
+  assert.match(appSource, /span\.dataset\.lottieRenderer = "canvas"/);
+  assert.doesNotMatch(appSource, /span\.dataset\.lottieTrigger = "ambient"/);
+  assert.match(nameWithBadgeSource, /data-lottie-trigger",\s*"loop"/);
+  assert.match(nameWithBadgeSource, /data-lottie-renderer",\s*"canvas"/);
+  assert.doesNotMatch(nameWithBadgeSource, /data-lottie-trigger",\s*"ambient"/);
+  assert.match(nameWithBadgeSource, /data-lottie-trigger="loop"/);
+  assert.match(nameWithBadgeSource, /data-lottie-renderer="canvas"/);
+  assert.doesNotMatch(nameWithBadgeSource, /data-lottie-trigger="ambient"/);
 });
 
 test("conversation tag editor is inline on the sidebar card and uses the label asset", () => {
@@ -1375,7 +1394,7 @@ test("desktop lottie badges can load local TGS assets in the renderer with a pre
 
 test("refreshRuntime bootstraps social when cloud status arrives after startup", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const refreshRuntime = extractFunctionSource(appSource, "refreshRuntime");
+  const refreshRuntime = extractFunctionSource(appSource, "performRefreshRuntime");
   const maybeBootstrap = extractFunctionSource(appSource, "maybeBootstrapSocialAfterRuntime");
 
   assert.match(refreshRuntime, /maybeBootstrapSocialAfterRuntime\(runtime\)/);
@@ -2237,6 +2256,22 @@ test("agent setup completion does not force first bot creation", () => {
   assert.doesNotMatch(appSource, /advanceOnboarding\("create-fellow"\)/);
 });
 
+test("signed-out onboarding still schedules Core startup for cloud login", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const readyBody = mainSource.slice(
+    mainSource.indexOf("app.whenReady().then(async () => {"),
+    mainSource.indexOf("app.on(\"window-all-closed\"")
+  );
+
+  assert.match(mainSource, /win\.miaSkipAutomaticBackgroundStartup = onboarding/);
+  assert.match(readyBody, /runtimeLifecycle\(\)\.scheduleBackgroundStartup\(\)/);
+  assert.doesNotMatch(
+    readyBody,
+    /!win\.miaSkipAutomaticBackgroundStartup[\s\S]{0,160}runtimeLifecycle\(\)\.scheduleBackgroundStartup\(\)/,
+    "the lightweight onboarding window still needs Core so cloud login IPC does not spin on 503"
+  );
+});
+
 test("first-run onboarding cannot enter Mia while an engine install is running", () => {
   const standaloneSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-window.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
@@ -2457,6 +2492,21 @@ test("active cloud bot conversations use session-history runtime resolution", ()
   assert.match(activeContext, /const defaultRuntimeKind = runtimeKindForBotConversation\(conversation\);/);
   assert.match(activeContext, /const botRuntimeKind = sessionHistory\.runtimeKind\(bot,\s*""\);/);
   assert.doesNotMatch(activeContext, /const botRuntimeKind = String\(bot\?\.runtimeKind/);
+});
+
+test("composer model control shows neutral text when Core returns no model options", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
+  const syncControls = extractFunctionSource(appSource, "syncConversationBotRuntimeControls");
+  const contactControls = extractFunctionSource(contactCardSource, "runtimeControlsHtml");
+
+  assert.match(syncControls, /setText\(els\.quickModelLabel,\s*modelLabel \|\| "模型"\)/);
+  assert.match(syncControls, /els\.quickModelSelect\.disabled = !options \|\| !modelEntries\.length/);
+  assert.match(syncControls, /setComposerModelAvatar\(selectedModelEntry,\s*engine,\s*\{\s*hidden:\s*!modelEntries\.length\s*\}\)/);
+  assert.doesNotMatch(syncControls, /modelLabel \|\| "Default"/);
+  assert.match(contactControls, /const hasModelEntries = modelEntries\.length > 0;/);
+  assert.match(contactControls, /class="model-switcher\$\{hasModelEntries \? "" : " model-switcher--no-avatar"\}"/);
+  assert.match(contactControls, /class="model-avatar\$\{hasModelEntries \? "" : " hidden"\}"/);
 });
 
 test("desktop-local bot runtime controls read cloud runtime bindings", () => {
@@ -2894,6 +2944,7 @@ test("desktop name surfaces render status badges beside names", () => {
   const groupInfoSource = fs.readFileSync(path.join(root, "src/renderer/social/group-info-dialog.js"), "utf8");
   const socialGroupsSource = fs.readFileSync(path.join(root, "src/renderer/social/social-groups.js"), "utf8");
   const remoteSettingsSource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-remote.js"), "utf8");
+  const appStyles = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const badgeStyles = fs.readFileSync(path.join(root, "src/renderer/styles/name-with-badge.css"), "utf8");
 
   assert.match(appSource, /setNameWithBadge\(nameEl/);
@@ -2911,6 +2962,15 @@ test("desktop name surfaces render status badges beside names", () => {
   assert.match(badgeStyles, /padding-left:\s*var\(--name-badge-shift-x\)/);
   assert.match(badgeStyles, /\.name-with-badge-badge\s*\{[^}]*overflow:\s*visible;/);
   assert.match(badgeStyles, /\.name-with-badge-badge\s*\{[^}]*transform:\s*translateY\(var\(--name-badge-shift-y\)\)/);
+  assert.match(appStyles, /\.identity-name-line\s*\{[^}]*gap:\s*0/);
+  assert.match(appStyles, /\.identity-badge-trigger\s*\{[^}]*justify-content:\s*flex-start/);
+  assert.match(appStyles, /\.identity-badge-trigger\.empty\s*\{[^}]*justify-content:\s*center/);
+  assert.match(appStyles, /\.identity-badge-panel\s*\{[^}]*left:\s*50%/);
+  assert.match(appStyles, /\.identity-badge-panel\s*\{[^}]*right:\s*auto/);
+  assert.match(appStyles, /\.identity-badge-panel\s*\{[^}]*transform:\s*translateX\(-50%\)/);
+  assert.match(appStyles, /\.identity-badge-trigger \.name-with-badge-badge\s*\{[^}]*--name-badge-size:\s*max\(20px,\s*1\.12em\)/);
+  assert.match(appStyles, /\.identity-badge-trigger \.name-with-badge-badge\s*\{[^}]*--name-badge-shift-x:\s*2px/);
+  assert.match(appStyles, /\.identity-badge-trigger \.name-with-badge-badge\s*\{[^}]*--name-badge-shift-y:\s*-1px/);
   assert.match(badgeStyles, /#activeChatName \.name-with-badge/);
   assert.match(badgeStyles, /\.contact-card-name \.name-with-badge/);
   assert.match(badgeStyles, /\.group-info-member-name \.name-with-badge/);

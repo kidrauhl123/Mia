@@ -48,7 +48,11 @@ function createMiaCoreProcessLauncher(deps = {}) {
   }
 
   function shouldCaptureCoreOutput() {
-    return env.MIA_CORE_CAPTURE_STDIO === "1" || env.MIA_CORE_START_MODE === "process";
+    const target = resolver.resolve();
+    return env.MIA_CORE_CAPTURE_STDIO === "1"
+      || env.MIA_CORE_START_MODE === "process"
+      || defaultApp()
+      || String(target.command || "").endsWith("cargo");
   }
 
   function attachOutputLog(stream, label) {

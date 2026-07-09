@@ -552,6 +552,119 @@ test("scanAgentsAsync probes agents asynchronously, reports progress, and warms 
   assert.equal(service.cachedLocalAgentEngines().claudeCode.available, true);
 });
 
+test("scanAgentsAsync prefers Rust Core agent inventory when available", async (t) => {
+  const progress = [];
+  const execCalls = [];
+  const { service } = makeService(t, {
+    coreAgentInventory: async () => ({
+      generatedAt: 123,
+      agents: [
+        {
+          id: "hermes",
+          label: "Hermes",
+          commands: ["hermes"],
+          command: "hermes",
+          installed: false,
+          usableInMia: false,
+          installable: true,
+          installAction: "install-hermes",
+          path: "",
+          version: "",
+          source: "missing",
+          health: "missing",
+          readiness: { status: "missing", checked: true, summary: "Hermes CLI 未检测到", detail: "hermes", action: "install-hermes" }
+        },
+        {
+          id: "claude-code",
+          label: "Claude Code",
+          commands: ["claude"],
+          command: "claude",
+          installed: false,
+          usableInMia: false,
+          installable: true,
+          installAction: "install-claude-code",
+          path: "",
+          version: "",
+          source: "missing",
+          health: "missing",
+          readiness: { status: "missing", checked: true, summary: "Claude Code CLI 未检测到", detail: "claude", action: "install-claude-code" }
+        },
+        {
+          id: "codex",
+          label: "Codex",
+          commands: ["codex"],
+          command: "codex",
+          installed: true,
+          usableInMia: false,
+          installable: true,
+          installAction: "",
+          path: "/usr/local/bin/codex",
+          version: "codex 1.0.0",
+          source: "system",
+          health: "blocked",
+          readiness: {
+            status: "blocked",
+            checked: true,
+            summary: "Codex ACP 启动自检失败",
+            detail: "npx -y @agentclientprotocol/codex-acp@1.1.0: boom",
+            action: "",
+            errorCode: "acp_init_failed"
+          }
+        }
+      ],
+      summary: {
+        installedCount: 1,
+        usableCount: 0,
+        missingCount: 2,
+        hasUsableAgent: false,
+        recommendedAction: "install-hermes"
+      }
+    }),
+    execFile: (...args) => {
+      execCalls.push(args);
+      args[3](new Error("should not run fallback probe"), "", "");
+    }
+  });
+
+  const inventory = await service.scanAgentsAsync((agent) => progress.push(agent.id));
+  const codex = inventory.agents.find((agent) => agent.id === "codex");
+
+  assert.deepEqual(progress, ["hermes", "claude-code", "codex"]);
+  assert.equal(execCalls.length, 0);
+  assert.equal(codex.installed, true);
+  assert.equal(codex.health, "blocked");
+  assert.equal(codex.installAction, "");
+  assert.equal(codex.readiness.errorCode, "acp_init_failed");
+  assert.equal(service.cachedLocalAgentEngines().codex.installAction, "");
+});
+
+test("warm runtime scans do not rerun expensive ACP doctor probes on the UI polling cadence", async (t) => {
+  let currentTime = 1000;
+  const execCalls = [];
+  const { service } = makeService(t, {
+    now: () => currentTime,
+    execFile: (file, args, _options, cb) => {
+      execCalls.push([file, ...args]);
+      if (file === "zsh" && args[1] === "command -v npx") return cb(null, "/bin/npx\n", "");
+      if (file === "/bin/npx" && args[0] === "--version") return cb(null, "10.9.0\n", "");
+      if (file === "/bin/npx" && args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")) return cb(null, "claude acp help\n", "");
+      if (file === "/bin/npx" && args.includes("@agentclientprotocol/codex-acp@1.1.0")) return cb(null, "codex acp help\n", "");
+      return cb(new Error("not found"), "", "");
+    }
+  });
+
+  const first = await service.scanAgentsAsync();
+  const firstDoctorCalls = execCalls.filter((call) => call[0] === "/bin/npx" && call.some((part) => /@agentclientprotocol\//.test(String(part)))).length;
+
+  currentTime += 16000;
+  const second = await service.scanAgentsAsync();
+  const secondDoctorCalls = execCalls.filter((call) => call[0] === "/bin/npx" && call.some((part) => /@agentclientprotocol\//.test(String(part)))).length;
+
+  assert.equal(firstDoctorCalls, 2);
+  assert.equal(second, first);
+  assert.equal(secondDoctorCalls, firstDoctorCalls);
+});
+
 test("scanAgentsAsync hides Windows async CLI probes", async (t) => {
   const execCalls = [];
   const hermes = "C:\\Hermes\\hermes.exe";
@@ -577,6 +690,50 @@ test("scanAgentsAsync hides Windows async CLI probes", async (t) => {
   assert.equal(execCalls.every((call) => call.options.windowsHide === true), true);
 });
 
+test("scanAgentsAsync closes CLI probe stdin so ACP wrappers can exit on EOF", async (t) => {
+  let codexProbeClosed = false;
+  const child = () => ({ stdin: { end() {} } });
+  const { service } = makeService(t, {
+    execFile: (file, args, _options, cb) => {
+      if (file === "zsh" && args[1] === "command -v npx") return cb(null, "/bin/npx\n", "") || child();
+      if (file === "/bin/npx" && args[0] === "--version") return cb(null, "10.9.0\n", "") || child();
+      if (file === "/bin/npx" && args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")) {
+        return cb(null, "Claude ACP help\n", "") || child();
+      }
+      if (file === "/bin/npx" && args.includes("@agentclientprotocol/codex-acp@1.1.0")) {
+        let settled = false;
+        const proc = {
+          stdin: {
+            end() {
+              if (settled) return;
+              codexProbeClosed = true;
+              settled = true;
+              cb(null, "Codex ACP help\n", "");
+            }
+          },
+          kill() {}
+        };
+        setImmediate(() => {
+          if (settled) return;
+          settled = true;
+          cb(new Error("stdin left open"), "", "stdin still open");
+        });
+        return proc;
+      }
+      setImmediate(() => cb(new Error("not found"), "", ""));
+      return child();
+    }
+  });
+
+  const inventory = await service.scanAgentsAsync();
+  const codex = inventory.agents.find((agent) => agent.id === "codex");
+
+  assert.equal(codexProbeClosed, true);
+  assert.equal(codex.usableInMia, true);
+  assert.equal(codex.health, "ready");
+  assert.equal(codex.readiness.status, "ready");
+});
+
 test("scanAgentsAsync marks installed agents blocked when CLI handshake fails", async (t) => {
   const { service } = makeService(t, {
     execFile: (file, args, _options, cb) => {
@@ -598,12 +755,12 @@ test("scanAgentsAsync marks installed agents blocked when CLI handshake fails", 
   assert.equal(codex.installed, true);
   assert.equal(codex.usableInMia, false);
   assert.equal(codex.health, "blocked");
-  assert.equal(codex.installAction, "install-codex");
+  assert.equal(codex.installAction, "");
   assert.equal(codex.readiness.status, "blocked");
   assert.match(codex.readiness.detail, /@agentclientprotocol\/codex-acp/);
   assert.equal(inventory.summary.recommendedAction, "continue");
   assert.equal(service.cachedLocalAgentEngines().codex.available, false);
-  assert.equal(service.cachedLocalAgentEngines().codex.installAction, "install-codex");
+  assert.equal(service.cachedLocalAgentEngines().codex.installAction, "");
 });
 
 test("cachedAgentInventory returns the scanning placeholder before any scan", (t) => {

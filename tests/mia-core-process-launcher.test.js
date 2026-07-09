@@ -70,7 +70,7 @@ test("detached Core launcher starts Rust Core as a real background process", asy
   assert.deepEqual(calls[0].args.slice(0, 6), ["run", "-p", "mia-core-app", "--", "serve", "--host"]);
   assert.deepEqual(calls[0].args.slice(6, 9), ["127.0.0.1", "--port", "27861"]);
   assert.equal(calls[0].options.detached, true);
-  assert.equal(calls[0].options.stdio, "ignore");
+  assert.deepEqual(calls[0].options.stdio, ["ignore", "pipe", "pipe"]);
   assert.equal(calls[0].options.windowsHide, process.platform === "win32" ? true : undefined);
   assert.equal(calls[0].options.cwd, dir);
   assert.equal(calls[0].options.env.MIA_CORE, "1");

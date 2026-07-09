@@ -20,6 +20,7 @@ const SYSTEM_CLI_PATH_SEGMENTS = [
   "/usr/sbin",
   "/sbin"
 ];
+const DEFAULT_AGENT_SCAN_CACHE_MS = 5 * 60 * 1000;
 
 const AGENT_DEFINITIONS = Object.freeze([
   {
@@ -178,7 +179,10 @@ function createLocalAgentEngineService(deps = {}) {
   const hermesSource = typeof deps.hermesSource === "function"
     ? deps.hermesSource
     : () => "";
-  const cacheMs = Number.isFinite(Number(deps.cacheMs)) ? Number(deps.cacheMs) : 15000;
+  const coreAgentInventory = typeof deps.coreAgentInventory === "function"
+    ? deps.coreAgentInventory
+    : null;
+  const cacheMs = Number.isFinite(Number(deps.cacheMs)) ? Number(deps.cacheMs) : DEFAULT_AGENT_SCAN_CACHE_MS;
   const doctorTimeoutMs = Number.isFinite(Number(deps.doctorTimeoutMs)) ? Number(deps.doctorTimeoutMs) : 3000;
   let agentInventoryCache = { at: 0, value: null };
   let agentEngineCache = { at: 0, value: null };
@@ -194,9 +198,10 @@ function createLocalAgentEngineService(deps = {}) {
   function execFileAsync(file, args, options) {
     return new Promise((resolve) => {
       try {
-        execFileExecutable(execFile, file, args, childProcessOptions(options), (error, stdout, stderr) => {
+        const child = execFileExecutable(execFile, file, args, childProcessOptions(options), (error, stdout, stderr) => {
           resolve({ error, stdout: String(stdout || ""), stderr: String(stderr || ""), code: error?.code ?? 0 });
         }, { platform });
+        try { child?.stdin?.end?.(); } catch { /* ignore */ }
       } catch (error) {
         resolve({ error, stdout: "", stderr: "", code: error?.code ?? 0 });
       }
@@ -517,7 +522,7 @@ function createLocalAgentEngineService(deps = {}) {
 
   function agentInstallActionId(definition) {
     if (definition.id === "hermes") return "repair-hermes";
-    return definition.installable ? `install-${definition.id}` : "";
+    return "";
   }
 
   function withReadiness(status, nextReadiness, patch = {}) {
@@ -584,7 +589,7 @@ function createLocalAgentEngineService(deps = {}) {
     const action = agentInstallActionId(definition);
     return withReadiness(status, readiness(
       "blocked",
-      `${definition.label} ACP 启动自检失败，可重新安装`,
+      action ? `${definition.label} ACP 启动自检失败，可修复` : `${definition.label} ACP 启动自检失败`,
       probe.detail,
       action
     ), {
@@ -681,6 +686,107 @@ function createLocalAgentEngineService(deps = {}) {
     };
   }
 
+  function normalizeCoreReadiness(value, definition, status) {
+    const object = value && typeof value === "object" ? value : null;
+    if (!object) return baseReadiness(definition, status);
+    const errorCode = String(object.errorCode || object.error_code || "").trim();
+    return {
+      status: String(object.status || status.health || ""),
+      checked: object.checked !== false,
+      summary: String(object.summary || ""),
+      detail: String(object.detail || ""),
+      action: String(object.action || ""),
+      ...(errorCode ? { errorCode } : {})
+    };
+  }
+
+  function normalizeCoreAgentStatus(agent) {
+    if (!agent || typeof agent !== "object") return null;
+    const id = String(agent.id || "").trim();
+    const definition = AGENT_DEFINITIONS.find((item) => item.id === id);
+    if (!definition) return null;
+    const installed = Boolean(agent.installed);
+    const usableInMia = agent.usableInMia !== undefined ? Boolean(agent.usableInMia) : Boolean(agent.usable_in_mia);
+    const installAction = String(agent.installAction || agent.install_action || "");
+    const health = String(agent.health || (usableInMia ? "ready" : installed ? "blocked" : "missing"));
+    const status = {
+      id,
+      label: String(agent.label || definition.label),
+      commands: Array.isArray(agent.commands) && agent.commands.length ? agent.commands.map(String) : definition.commands.slice(),
+      command: String(agent.command || definition.commands[0] || ""),
+      installed,
+      usableInMia,
+      installable: agent.installable !== undefined ? Boolean(agent.installable) : Boolean(definition.installable),
+      installAction,
+      detectionOnly: Boolean(agent.detectionOnly || agent.detection_only),
+      path: String(agent.path || ""),
+      version: String(agent.version || ""),
+      source: String(agent.source || (installed ? "system" : "missing")),
+      health,
+      system: agent.system && typeof agent.system === "object" ? agent.system : {
+        available: installed,
+        path: String(agent.path || ""),
+        version: String(agent.version || "")
+      },
+      runtime: agent.runtime && typeof agent.runtime === "object" ? agent.runtime : {
+        source: installed ? "system" : "missing",
+        managed: false,
+        supported: usableInMia,
+        path: String(agent.path || ""),
+        version: "",
+        protocol: "acp"
+      }
+    };
+    return {
+      ...status,
+      readiness: normalizeCoreReadiness(agent.readiness, definition, status)
+    };
+  }
+
+  function normalizeCoreAgentInventory(value) {
+    const agents = Array.isArray(value?.agents)
+      ? value.agents.map(normalizeCoreAgentStatus).filter(Boolean)
+      : [];
+    if (!agents.length) return null;
+    const generatedAt = Number(value.generatedAt || value.generated_at || now()) || now();
+    const inventory = buildInventory(agents, generatedAt);
+    if (value.summary && typeof value.summary === "object") {
+      inventory.summary = {
+        ...inventory.summary,
+        ...value.summary,
+        installedCount: Number(value.summary.installedCount ?? value.summary.installed_count ?? inventory.summary.installedCount),
+        usableCount: Number(value.summary.usableCount ?? value.summary.usable_count ?? inventory.summary.usableCount),
+        missingCount: Number(value.summary.missingCount ?? value.summary.missing_count ?? inventory.summary.missingCount),
+        hasUsableAgent: value.summary.hasUsableAgent !== undefined
+          ? Boolean(value.summary.hasUsableAgent)
+          : value.summary.has_usable_agent !== undefined
+            ? Boolean(value.summary.has_usable_agent)
+            : inventory.summary.hasUsableAgent,
+        recommendedAction: String(value.summary.recommendedAction || value.summary.recommended_action || inventory.summary.recommendedAction)
+      };
+    }
+    return inventory;
+  }
+
+  async function scanAgentsFromCore(onProgress) {
+    if (!coreAgentInventory) return null;
+    let inventory = null;
+    try {
+      inventory = normalizeCoreAgentInventory(await coreAgentInventory());
+    } catch {
+      return null;
+    }
+    if (!inventory) return null;
+    agentInventoryCache = { at: now(), value: inventory };
+    agentEngineCache = { at: 0, value: null };
+    if (typeof onProgress === "function") {
+      for (const agent of inventory.agents) {
+        try { onProgress(agent); } catch { /* ignore */ }
+      }
+    }
+    return inventory;
+  }
+
   function agentInventory() {
     const at = now();
     if (agentInventoryCache.value && at - agentInventoryCache.at < cacheMs) return agentInventoryCache.value;
@@ -700,17 +806,21 @@ function createLocalAgentEngineService(deps = {}) {
     if (typeof onProgress !== "function" && agentInventoryCache.value && (now() - agentInventoryCache.at < cacheMs)) {
       return Promise.resolve(agentInventoryCache.value);
     }
-    const run = () => Promise.all(AGENT_DEFINITIONS.map(async (definition) => {
-      const runtimeProbe = await firstRuntimeProbeAsync(definition);
-      const status = await doctorAgentStatus(definition, buildAgentStatus(definition, runtimeProbe));
-      try { if (typeof onProgress === "function") onProgress(status); } catch { /* ignore */ }
-      return status;
-    })).then((agents) => {
-      const value = buildInventory(agents, now());
-      agentInventoryCache = { at: now(), value };
-      agentEngineCache = { at: 0, value: null };
-      return value;
-    });
+    const run = async () => {
+      const coreInventory = await scanAgentsFromCore(onProgress);
+      if (coreInventory) return coreInventory;
+      return Promise.all(AGENT_DEFINITIONS.map(async (definition) => {
+        const runtimeProbe = await firstRuntimeProbeAsync(definition);
+        const status = await doctorAgentStatus(definition, buildAgentStatus(definition, runtimeProbe));
+        try { if (typeof onProgress === "function") onProgress(status); } catch { /* ignore */ }
+        return status;
+      })).then((agents) => {
+        const value = buildInventory(agents, now());
+        agentInventoryCache = { at: now(), value };
+        agentEngineCache = { at: 0, value: null };
+        return value;
+      });
+    };
     if (typeof onProgress === "function") return run();
     if (!warmScanPromise) warmScanPromise = run().finally(() => { warmScanPromise = null; });
     return warmScanPromise;

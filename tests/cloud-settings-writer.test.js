@@ -51,6 +51,72 @@ test("cursor-only writes still sync the full local mirror to Rust Core", async (
   assert.equal(calls.core[0].token, "");
 });
 
+test("unchanged cloud settings writes do not resync Rust Core", async () => {
+  const calls = { local: [], core: [] };
+  let current = {
+    url: "https://mia.example",
+    enabled: true,
+    token: "tok_alive",
+    user: { id: "u1" },
+    agentRuntime: { engine: "codex" },
+    lastEventSeq: 5,
+    lastMemorySyncAt: "2026-07-01T00:00:00.000Z"
+  };
+  const writer = createCloudSettingsWriter({
+    writeLocal: (patch) => {
+      calls.local.push(patch);
+      current = { ...current, ...patch };
+      return current;
+    },
+    syncCore: async (settings) => {
+      calls.core.push(settings);
+      return { status: { enabled: settings.enabled } };
+    }
+  });
+
+  await writer.write({ agentRuntime: { engine: "codex" } });
+  await writer.write({ agentRuntime: { engine: "codex" } });
+
+  assert.equal(calls.local.length, 2);
+  assert.equal(calls.core.length, 1);
+});
+
+test("concurrent identical cloud settings writes share one Rust Core sync", async () => {
+  const calls = { local: [], core: [] };
+  let releaseSync;
+  let current = {
+    url: "https://mia.example",
+    enabled: true,
+    token: "tok_alive",
+    user: { id: "u1" },
+    agentRuntime: { engine: "codex" },
+    lastEventSeq: 5,
+    lastMemorySyncAt: ""
+  };
+  const writer = createCloudSettingsWriter({
+    writeLocal: (patch) => {
+      calls.local.push(patch);
+      current = { ...current, ...patch };
+      return current;
+    },
+    syncCore: async (settings) => {
+      calls.core.push(settings);
+      await new Promise((resolve) => { releaseSync = resolve; });
+      return { status: { enabled: settings.enabled } };
+    }
+  });
+
+  const first = writer.write({ user: { id: "u1" } });
+  const second = writer.write({ user: { id: "u1" } });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(calls.local.length, 2);
+  assert.equal(calls.core.length, 1);
+  releaseSync();
+  await Promise.all([first, second]);
+});
+
 test("Rust Core sync failures surface to the caller", async () => {
   const { writer, calls } = setup({
     syncCore: async () => { throw new Error("ECONNREFUSED"); }

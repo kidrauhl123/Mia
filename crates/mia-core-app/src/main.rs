@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use axum::serve;
 use clap::{Parser, Subcommand};
@@ -86,8 +87,76 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     emit_listening_event(addr, &config)?;
     let _task_scheduler = TaskScheduler::new(services.clone()).start();
     let router = create_router(&services);
-    serve(listener, router).await?;
+    serve(listener, router)
+        .with_graceful_shutdown(shutdown_signal(config.parent_pid))
+        .await?;
     Ok(())
+}
+
+async fn shutdown_signal(parent_pid: Option<u32>) {
+    let ctrl_c = async {
+        if let Err(error) = tokio::signal::ctrl_c().await {
+            tracing::warn!(%error, "failed to listen for shutdown signal");
+        }
+    };
+
+    match parent_pid.filter(|pid| *pid > 0) {
+        Some(pid) => {
+            tokio::select! {
+                _ = ctrl_c => {},
+                _ = wait_for_parent_exit(pid) => {},
+            }
+        }
+        None => ctrl_c.await,
+    }
+}
+
+async fn wait_for_parent_exit(parent_pid: u32) {
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        interval.tick().await;
+        if !parent_process_is_alive(parent_pid) {
+            tracing::info!(parent_pid, "parent process exited; shutting down Mia Core");
+            return;
+        }
+    }
+}
+
+fn parent_process_is_alive(parent_pid: u32) -> bool {
+    if parent_pid == 0 {
+        return false;
+    }
+    platform_parent_process_is_alive(parent_pid)
+}
+
+#[cfg(unix)]
+fn platform_parent_process_is_alive(parent_pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .arg("-0")
+        .arg(parent_pid.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn platform_parent_process_is_alive(parent_pid: u32) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {parent_pid}"), "/NH"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map(|output| {
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout).contains(&parent_pid.to_string())
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn platform_parent_process_is_alive(_parent_pid: u32) -> bool {
+    true
 }
 
 fn emit_listening_event(addr: SocketAddr, config: &AppConfig) -> anyhow::Result<()> {
@@ -103,4 +172,22 @@ fn emit_listening_event(addr: SocketAddr, config: &AppConfig) -> anyhow::Result<
     );
     io::stdout().flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parent_process_check_detects_current_and_missing_processes() {
+        assert!(parent_process_is_alive(std::process::id()));
+        assert!(!parent_process_is_alive(u32::MAX));
+    }
+
+    #[tokio::test]
+    async fn shutdown_signal_returns_when_parent_pid_is_missing() {
+        tokio::time::timeout(Duration::from_secs(2), shutdown_signal(Some(u32::MAX)))
+            .await
+            .expect("missing parent pid should trigger shutdown promptly");
+    }
 }

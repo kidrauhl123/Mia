@@ -45,14 +45,26 @@
     );
   }
 
-  function conversationSortTime(conversation, messageCache) {
+  function authoritativeConversationActivityAt(conversation) {
+    return String(
+      conversation?.last_activity_at
+      || conversation?.lastActivityAt
+      || conversation?.last_message_created_at
+      || conversation?.lastMessageCreatedAt
+      || ""
+    ).trim();
+  }
+
+  function cachedConversationActivityAt(conversation, messageCache) {
     const cache = messageCache?.get?.(conversation?.id);
     const last = cache?.messages?.[cache.messages.length - 1];
+    return String(last?.created_at || last?.createdAt || "").trim();
+  }
+
+  function conversationSortTime(conversation, messageCache) {
     return new Date(
-      last?.created_at
-      || last?.createdAt
-      || conversation?.last_activity_at
-      || conversation?.lastActivityAt
+      authoritativeConversationActivityAt(conversation)
+      || cachedConversationActivityAt(conversation, messageCache)
       || conversation?.updated_at
       || conversation?.updatedAt
       || conversation?.created_at
@@ -61,15 +73,21 @@
     ).getTime() || 0;
   }
 
+  function hasAuthoritativeConversationActivity(conversation) {
+    return Boolean(authoritativeConversationActivityAt(conversation));
+  }
+
   function hasCachedMessages(conversation, messageCache) {
     const cache = messageCache?.get?.(conversation?.id);
     return Array.isArray(cache?.messages) && cache.messages.length > 0;
   }
 
   function compareConversationActivity(a, b, messageCache) {
-    const aHasMessages = hasCachedMessages(a, messageCache);
-    const bHasMessages = hasCachedMessages(b, messageCache);
-    if (aHasMessages !== bHasMessages) return bHasMessages ? 1 : -1;
+    if (!hasAuthoritativeConversationActivity(a) && !hasAuthoritativeConversationActivity(b)) {
+      const aHasMessages = hasCachedMessages(a, messageCache);
+      const bHasMessages = hasCachedMessages(b, messageCache);
+      if (aHasMessages !== bHasMessages) return bHasMessages ? 1 : -1;
+    }
     return conversationSortTime(b, messageCache) - conversationSortTime(a, messageCache);
   }
 

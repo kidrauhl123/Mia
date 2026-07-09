@@ -142,7 +142,7 @@
     if (!entries.length) {
       const option = document.createElement("option");
       option.value = "";
-      option.textContent = "先连接模型提供商";
+      option.textContent = "模型";
       select.appendChild(option);
       select.value = "";
       syncQuickModelLabel();
@@ -182,11 +182,11 @@
     if (!els || !els.quickModelLabel || !els.quickModelSelect) return;
     const hasOptions = els.quickModelSelect.options && els.quickModelSelect.options.length > 0;
     if (!hasOptions || els.quickModelSelect.disabled) {
-      setText(els.quickModelLabel, "未配置模型");
+      setText(els.quickModelLabel, "模型");
       return;
     }
     const selected = els.quickModelSelect.selectedOptions?.[0];
-    setText(els.quickModelLabel, selected?.textContent || "未配置模型");
+    setText(els.quickModelLabel, selected?.textContent || "模型");
   }
 
   function permissionLabelForMode(mode = "") {

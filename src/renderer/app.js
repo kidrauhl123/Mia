@@ -549,8 +549,17 @@ function isMiaModelIcon(icon = "") {
   return /(?:^|\/)mia-logo\.png(?:[?#].*)?$/.test(String(icon || ""));
 }
 
-function applyComposerModelAvatar(modelAvatar, icon = "") {
+function applyComposerModelAvatar(modelAvatar, icon = "", options = {}) {
   if (!modelAvatar) return;
+  const hidden = Boolean(options.hidden);
+  modelAvatar.classList.toggle("hidden", hidden);
+  modelAvatar.closest(".model-switcher")?.classList.toggle("model-switcher--no-avatar", hidden);
+  if (hidden) {
+    modelAvatar.textContent = "";
+    modelAvatar.style.backgroundImage = "";
+    modelAvatar.classList.remove("model-avatar--transparent");
+    return;
+  }
   modelAvatar.textContent = icon ? "" : "◇";
   modelAvatar.style.backgroundImage = icon ? `url("${icon}")` : "";
   modelAvatar.classList.toggle("model-avatar--transparent", isMiaModelIcon(icon));
@@ -806,6 +815,7 @@ function renderStatusBadgeGlyph(target, badge) {
     span.dataset.assetId = assetId;
     span.dataset.lottie = assetId;
     span.dataset.lottieTrigger = "loop";
+    span.dataset.lottieRenderer = "canvas";
     const format = window.miaNameWithBadge?.statusBadgeAssetFormat?.(assetId);
     if (format === "tgs") {
       span.dataset.lottieFormat = "tgs";
@@ -4986,12 +4996,16 @@ function requestRuntimeControlOptions(context = activeBotRuntimeControlContext()
     });
 }
 
-function setComposerModelAvatar(entry = {}, engine = "hermes") {
+function setComposerModelAvatar(entry = {}, engine = "hermes", options = {}) {
+  const modelAvatar = document.querySelector(".model-avatar");
+  if (options.hidden) {
+    applyComposerModelAvatar(modelAvatar, "", { hidden: true });
+    return;
+  }
   const icon = window.miaModelHelpers.modelIconSrc({
     provider: entry.provider || (engine === "codex" ? "openai-codex" : engine === "claude-code" ? "anthropic" : engine),
     model: entry.model || entry.id || entry.value || ""
   });
-  const modelAvatar = document.querySelector(".model-avatar");
   applyComposerModelAvatar(modelAvatar, icon);
 }
 
@@ -5015,12 +5029,12 @@ function syncConversationBotRuntimeControls() {
   const modelEntries = runtimeControlArray(options?.modelOptions);
   const selectedModelValue = options?.selectedModel || modelEntries[0]?.id || modelEntries[0]?.value || "";
   const modelLabel = setComposerSelectOptions(els.quickModelSelect, modelEntries, selectedModelValue);
-  setText(els.quickModelLabel, modelLabel || "Default");
+  setText(els.quickModelLabel, modelLabel || "模型");
   const selectedModelEntry = modelEntries.find((entry) => String(entry.id || entry.value || "") === String(els.quickModelSelect?.value || selectedModelValue))
     || options?.selectedModelEntry
     || modelEntries[0]
     || {};
-  setComposerModelAvatar(selectedModelEntry, engine);
+  setComposerModelAvatar(selectedModelEntry, engine, { hidden: !modelEntries.length });
   const effortEntries = runtimeControlArray(options?.effortOptions);
   const effortLabel = setComposerSelectOptions(
     els.effortSelect,
@@ -5038,7 +5052,7 @@ function syncConversationBotRuntimeControls() {
   const permissionSwitcher = els.permissionMode?.closest(".permission-switcher");
   permissionSwitcher?.classList.toggle("yolo", els.permissionMode?.value === "yolo" || els.permissionMode?.value === ":danger-full-access" || (engine !== "claude-code" && els.permissionMode?.value === "bypassPermissions"));
   permissionSwitcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode?.value === "bypassPermissions");
-  if (els.quickModelSelect) els.quickModelSelect.disabled = !options;
+  if (els.quickModelSelect) els.quickModelSelect.disabled = !options || !modelEntries.length;
   if (els.effortSelect) els.effortSelect.disabled = !options;
   if (els.permissionMode) els.permissionMode.disabled = !options;
   setModelSwitchStatusText(options?.statusText || "运行配置读取中...");
@@ -5289,7 +5303,9 @@ async function openBotConversation(botKey) {
 
 window.miaOpenBotConversation = openBotConversation;
 
-async function refreshRuntime() {
+let runtimeRefreshScheduler = null;
+
+async function performRefreshRuntime() {
   const previousDaemon = state.runtime?.daemon || {};
   const previousCloud = state.runtime?.cloud || {};
   const runtime = await window.mia.runtimeStatus();
@@ -5330,6 +5346,11 @@ async function refreshRuntime() {
   }
   maybeBootstrapSocialAfterRuntime(runtime);
   render();
+}
+
+function refreshRuntime() {
+  if (runtimeRefreshScheduler) return runtimeRefreshScheduler.runNow();
+  return performRefreshRuntime();
 }
 
 function clearCloudMobileScanTimers() {
@@ -7988,7 +8009,18 @@ function startAfterFirstPaint() {
 }
 startAfterFirstPaint();
 renderSendButton();
-setInterval(refreshRuntime, 2000);
+if (window.miaRuntimeRefreshScheduler?.createRuntimeRefreshScheduler) {
+  runtimeRefreshScheduler = window.miaRuntimeRefreshScheduler.createRuntimeRefreshScheduler({
+    intervalMs: 2000,
+    refresh: performRefreshRuntime,
+    setInterval: (fn, ms) => window.setInterval(fn, ms),
+    clearInterval: (id) => window.clearInterval(id),
+    onError: (error) => console.error("Failed to refresh runtime", error)
+  });
+  runtimeRefreshScheduler.start();
+} else {
+  setInterval(refreshRuntime, 2000);
+}
 
 (function wireTrafficLights() {
   const controls = document.getElementById("windowControls");

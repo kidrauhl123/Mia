@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,7 +8,8 @@ use std::time::Duration;
 use agent_client_protocol::schema::{
     CancelNotification, ContentBlock, Implementation, InitializeRequest, NewSessionRequest,
     PromptRequest, ProtocolVersion, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, SessionId, SessionNotification, SessionUpdate, TextContent,
+    RequestPermissionResponse, SessionId, SessionNotification, SessionUpdate, StopReason,
+    TextContent,
 };
 use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectionTo, JsonRpcRequest, on_receive_notification,
@@ -17,18 +19,58 @@ use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use serde_json::{Value, json};
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{Mutex, oneshot};
+use tokio::task::JoinHandle;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::{
-    EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STARTED, RuntimeCancellation, RuntimeEventSink,
-    RuntimeExecutionResult, RuntimeProcessEvent, RuntimeTurnPlan,
+    EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STARTED, RuntimeCancellation, RuntimeCommand,
+    RuntimeEventSink, RuntimeExecutionResult, RuntimeProcessEvent, RuntimeTurnPlan,
 };
 
 const ACP_INIT_TIMEOUT: Duration = Duration::from_secs(30);
 const ACP_CLIENT_NAME: &str = "Mia";
 const ACP_CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const ACP_STDERR_TAIL_LIMIT: usize = 16 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeAcpProbeErrorKind {
+    Spawn,
+    Initialize,
+    NewSession,
+    Prompt,
+    Timeout,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeAcpProbeError {
+    pub kind: NativeAcpProbeErrorKind,
+    pub message: String,
+    pub stderr: String,
+}
+
+pub async fn probe_native_acp_command(
+    command: RuntimeCommand,
+    environment: BTreeMap<String, String>,
+    workspace_dir: PathBuf,
+    timeout: Duration,
+) -> std::result::Result<(), NativeAcpProbeError> {
+    match tokio::time::timeout(
+        timeout,
+        probe_native_acp_command_inner(command, environment, workspace_dir),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(NativeAcpProbeError {
+            kind: NativeAcpProbeErrorKind::Timeout,
+            message: "ACP probe timed out".into(),
+            stderr: String::new(),
+        }),
+    }
+}
 
 pub(crate) fn runtime_events_from_session_notification(
     turn_id: &str,
@@ -351,10 +393,125 @@ fn absolute_workspace_dir(workspace_dir: &str) -> Result<PathBuf> {
     }
 }
 
+async fn probe_native_acp_command_inner(
+    command: RuntimeCommand,
+    environment: BTreeMap<String, String>,
+    workspace_dir: PathBuf,
+) -> std::result::Result<(), NativeAcpProbeError> {
+    let workspace_dir =
+        absolute_workspace_dir(&workspace_dir.to_string_lossy()).map_err(|error| {
+            NativeAcpProbeError {
+                kind: NativeAcpProbeErrorKind::Spawn,
+                message: error.to_string(),
+                stderr: String::new(),
+            }
+        })?;
+    tokio::fs::create_dir_all(&workspace_dir)
+        .await
+        .map_err(|error| NativeAcpProbeError {
+            kind: NativeAcpProbeErrorKind::Spawn,
+            message: format!(
+                "create ACP probe workspace {}: {error}",
+                workspace_dir.display()
+            ),
+            stderr: String::new(),
+        })?;
+
+    let mut child_command = Command::new(&command.program);
+    child_command
+        .args(&command.args)
+        .env_clear()
+        .envs(environment.iter())
+        .current_dir(&workspace_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    let mut child = child_command.spawn().map_err(|error| NativeAcpProbeError {
+        kind: NativeAcpProbeErrorKind::Spawn,
+        message: format!(
+            "spawn ACP agent command `{}` with args {:?}: {error}",
+            command.program, command.args
+        ),
+        stderr: String::new(),
+    })?;
+    let stderr_task = tokio::spawn(read_limited_stream(child.stderr.take(), 16 * 1024));
+    let stdin = match child.stdin.take() {
+        Some(stdin) => stdin,
+        None => {
+            let stderr = finish_probe_child(child, stderr_task).await;
+            return Err(NativeAcpProbeError {
+                kind: NativeAcpProbeErrorKind::Spawn,
+                message: "ACP agent stdin was not piped".into(),
+                stderr,
+            });
+        }
+    };
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            let stderr = finish_probe_child(child, stderr_task).await;
+            return Err(NativeAcpProbeError {
+                kind: NativeAcpProbeErrorKind::Spawn,
+                message: "ACP agent stdout was not piped".into(),
+                stderr,
+            });
+        }
+    };
+
+    let result: std::result::Result<(), (NativeAcpProbeErrorKind, String)> = async {
+        let protocol = AcpProtocol::connect(stdin, stdout)
+            .await
+            .map_err(|error| (NativeAcpProbeErrorKind::Initialize, error.to_string()))?;
+        let session = protocol
+            .new_session(workspace_dir)
+            .await
+            .map_err(|error| (NativeAcpProbeErrorKind::NewSession, error.to_string()))?;
+        protocol
+            .prompt(session.session_id, "Reply with OK.".into())
+            .await
+            .map_err(|error| (NativeAcpProbeErrorKind::Prompt, error.to_string()))?;
+        Ok(())
+    }
+    .await;
+    let stderr = finish_probe_child(child, stderr_task).await;
+    result.map_err(|(kind, message)| NativeAcpProbeError {
+        kind,
+        message,
+        stderr,
+    })
+}
+
+async fn finish_probe_child(mut child: Child, stderr_task: JoinHandle<String>) -> String {
+    let _ = child.start_kill();
+    let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
+    tokio::time::timeout(Duration::from_millis(500), stderr_task)
+        .await
+        .ok()
+        .and_then(|result| result.ok())
+        .unwrap_or_default()
+}
+
+async fn read_limited_stream<R>(stream: Option<R>, limit: u64) -> String
+where
+    R: AsyncRead + Unpin,
+{
+    let Some(stream) = stream else {
+        return String::new();
+    };
+    let mut stream = stream.take(limit);
+    let mut bytes = Vec::new();
+    let _ = stream.read_to_end(&mut bytes).await;
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
 #[derive(Debug)]
 struct NativeAcpTask {
     protocol: AcpProtocol,
     _child: Child,
+    stderr_tail: Arc<StdMutex<String>>,
+    _stderr_task: JoinHandle<()>,
     session_id: Option<SessionId>,
     workspace_dir: PathBuf,
 }
@@ -378,7 +535,7 @@ impl NativeAcpTask {
             .current_dir(&workspace_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
 
         let mut child = child_command.spawn().with_context(|| {
@@ -395,11 +552,15 @@ impl NativeAcpTask {
             .stdout
             .take()
             .ok_or_else(|| anyhow!("ACP agent stdout was not piped"))?;
+        let stderr_tail = Arc::new(StdMutex::new(String::new()));
+        let stderr_task = tokio::spawn(read_stderr_tail(child.stderr.take(), stderr_tail.clone()));
         let protocol = AcpProtocol::connect(stdin, stdout).await?;
 
         Ok(Self {
             protocol,
             _child: child,
+            stderr_tail,
+            _stderr_task: stderr_task,
             session_id: None,
             workspace_dir,
         })
@@ -430,15 +591,15 @@ impl NativeAcpTask {
         let mut cancelled = false;
         let prompt_result = if let Some(cancellation) = cancellation {
             tokio::select! {
-                result = &mut prompt => result,
+                result = &mut prompt => Some(result),
                 _ = cancellation.cancelled() => {
                     cancelled = true;
                     self.protocol.cancel(session_id.clone());
-                    Ok(())
+                    None
                 }
             }
         } else {
-            prompt.await
+            Some(prompt.await)
         };
 
         self.protocol.set_active_turn(None);
@@ -466,7 +627,36 @@ impl NativeAcpTask {
             return Ok(result);
         }
 
-        if let Err(error) = prompt_result {
+        let prompt_response = match prompt_result.expect("cancelled prompt returned earlier") {
+            Ok(response) => response,
+            Err(error) => {
+                sink.emit(
+                    EVENT_RUNTIME_FINISHED,
+                    json!({
+                        "turnId": plan.turn_id,
+                        "conversationId": plan.conversation_id,
+                        "engine": plan.engine,
+                        "exitCode": null,
+                        "cancelled": false,
+                        "ok": false,
+                        "sessionId": session_key,
+                        "error": error.to_string(),
+                    }),
+                );
+                return Err(error);
+            }
+        };
+        tracing::debug!(
+            stop_reason = ?prompt_response.stop_reason,
+            "ACP session/prompt completed"
+        );
+
+        if stdout.trim().is_empty() {
+            let error = empty_native_acp_output_error(
+                &plan.engine,
+                prompt_response.stop_reason,
+                &stderr_tail_snapshot(&self.stderr_tail),
+            );
             sink.emit(
                 EVENT_RUNTIME_FINISHED,
                 json!({
@@ -477,10 +667,10 @@ impl NativeAcpTask {
                     "cancelled": false,
                     "ok": false,
                     "sessionId": session_key,
-                    "error": error.to_string(),
+                    "error": error,
                 }),
             );
-            return Err(error);
+            return Err(anyhow!(error));
         }
 
         let result = RuntimeExecutionResult {
@@ -587,14 +777,16 @@ impl AcpProtocol {
         self.send_request(NewSessionRequest::new(cwd)).await
     }
 
-    async fn prompt(&self, session_id: SessionId, content: String) -> Result<()> {
+    async fn prompt(
+        &self,
+        session_id: SessionId,
+        content: String,
+    ) -> Result<agent_client_protocol::schema::PromptResponse> {
         let request = PromptRequest::new(
             session_id,
             vec![ContentBlock::Text(TextContent::new(content))],
         );
-        let _response: agent_client_protocol::schema::PromptResponse =
-            self.send_request(request).await?;
-        Ok(())
+        self.send_request(request).await
     }
 
     fn cancel(&self, session_id: SessionId) {
@@ -702,6 +894,7 @@ async fn run_sdk_background(
 }
 
 fn handle_session_notification(notification: SessionNotification, active_turn: &SharedActiveTurn) {
+    tracing::debug!(?notification, "ACP session/update received");
     let Some(active) = active_turn.lock().unwrap().clone() else {
         return;
     };
@@ -719,6 +912,108 @@ fn handle_session_notification(notification: SessionNotification, active_turn: &
         }
         active.sink.emit(event.name, event.data);
     }
+}
+
+async fn read_stderr_tail<R>(stream: Option<R>, tail: Arc<StdMutex<String>>)
+where
+    R: AsyncRead + Unpin,
+{
+    let Some(mut stream) = stream else {
+        return;
+    };
+    let mut buffer = [0_u8; 1024];
+    loop {
+        match stream.read(&mut buffer).await {
+            Ok(0) => break,
+            Ok(bytes) => append_stderr_tail(&tail, &String::from_utf8_lossy(&buffer[..bytes])),
+            Err(_) => break,
+        }
+    }
+}
+
+fn append_stderr_tail(tail: &Arc<StdMutex<String>>, chunk: &str) {
+    let mut tail = tail.lock().unwrap();
+    tail.push_str(chunk);
+    if tail.len() > ACP_STDERR_TAIL_LIMIT {
+        let excess = tail.len() - ACP_STDERR_TAIL_LIMIT;
+        let split = tail
+            .char_indices()
+            .find_map(|(idx, _)| (idx >= excess).then_some(idx))
+            .unwrap_or(excess);
+        tail.drain(..split);
+    }
+}
+
+fn stderr_tail_snapshot(tail: &Arc<StdMutex<String>>) -> String {
+    tail.lock().unwrap().trim().to_string()
+}
+
+fn empty_native_acp_output_error(
+    engine: &str,
+    stop_reason: StopReason,
+    stderr_tail: &str,
+) -> String {
+    let engine_label = match engine {
+        "hermes" => "Hermes",
+        "codex" => "Codex",
+        "claude-code" => "Claude Code",
+        other => other,
+    };
+    let detail = summarize_acp_stderr(stderr_tail);
+    if detail.is_empty() {
+        format!(
+            "{engine_label} native ACP completed with stopReason={stop_reason:?} but produced no assistant output."
+        )
+    } else {
+        format!("{engine_label} native ACP produced no assistant output. stderr: {detail}")
+    }
+}
+
+fn summarize_acp_stderr(stderr_tail: &str) -> String {
+    let lines: Vec<&str> = stderr_tail
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+
+    let keywords = [
+        "ERROR",
+        "Error",
+        "error",
+        "HTTP ",
+        "Non-retryable",
+        "AuthenticationError",
+        "ValueError",
+        "❌",
+        "⚠️",
+        "请先登录",
+    ];
+    let relevant: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|line| keywords.iter().any(|keyword| line.contains(keyword)))
+        .collect();
+    let source = if relevant.is_empty() {
+        &lines
+    } else {
+        &relevant
+    };
+    let start = source.len().saturating_sub(8);
+    truncate_from_start(&source[start..].join("\n"), 2000)
+}
+
+fn truncate_from_start(value: &str, limit: usize) -> String {
+    if value.len() <= limit {
+        return value.to_string();
+    }
+    let start = value
+        .char_indices()
+        .find_map(|(idx, _)| (idx + limit >= value.len()).then_some(idx))
+        .unwrap_or(value.len().saturating_sub(limit));
+    format!("...{}", &value[start..])
 }
 
 struct UnavailableNativeAcpBackend;
@@ -791,5 +1086,43 @@ mod tests {
         let manager = NativeAcpSessionManager::real();
 
         assert!(format!("{manager:?}").contains("NativeAcpSessionManager"));
+    }
+
+    #[test]
+    fn native_acp_empty_output_is_visible_failure() {
+        let message = empty_native_acp_output_error("hermes", StopReason::EndTurn, "");
+
+        assert!(message.contains("Hermes native ACP completed"));
+        assert!(message.contains("produced no assistant output"));
+        assert!(message.contains("EndTurn"));
+    }
+
+    #[test]
+    fn native_acp_empty_output_includes_stderr_tail() {
+        let message =
+            empty_native_acp_output_error("codex", StopReason::EndTurn, "provider auth failed");
+
+        assert!(message.contains("Codex native ACP produced no assistant output"));
+        assert!(message.contains("provider auth failed"));
+    }
+
+    #[test]
+    fn native_acp_empty_output_summarizes_noisy_stderr() {
+        let stderr = [
+            "2026-07-09 [INFO] startup",
+            "2026-07-09 [INFO] many tools registered",
+            "2026-07-09 [WARNING] transient auxiliary warning",
+            "⚠️  API call failed (attempt 1/3): ValueError",
+            "   📝 Error: Codex Responses request 'model' must be a non-empty string.",
+            "❌ Non-retryable client error (HTTP None). Aborting.",
+            "2026-07-09 [ERROR] Non-retryable client error: Codex Responses request 'model' must be a non-empty string.",
+        ]
+        .join("\n");
+
+        let message = empty_native_acp_output_error("hermes", StopReason::EndTurn, &stderr);
+
+        assert!(message.contains("ValueError"));
+        assert!(message.contains("model' must be a non-empty string"));
+        assert!(!message.contains("many tools registered"));
     }
 }

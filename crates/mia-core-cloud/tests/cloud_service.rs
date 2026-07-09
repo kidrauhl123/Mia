@@ -224,6 +224,45 @@ async fn cloud_service_connects_and_redacts_token_by_default() {
 }
 
 #[tokio::test]
+async fn cloud_service_connect_is_idempotent_for_unchanged_settings() {
+    let database = init_database_memory().await.unwrap();
+    let now = Arc::new(Mutex::new(1000_i64));
+    let service = CloudService::with_now(database.pool().clone(), {
+        let now = now.clone();
+        move || *now.lock().unwrap()
+    });
+    let request = CloudConnectRequest {
+        url: Some("https://mia.example/".into()),
+        token: Some("secret-token".into()),
+        account_hint: None,
+        user: Some(json!({ "id": "u1", "displayName": "Jung" })),
+        account: None,
+        agent_runtime: Some(json!({ "engine": "codex" })),
+        last_event_seq: Some(42),
+        last_memory_sync_at: Some("2026-07-07T00:00:00Z".into()),
+    };
+
+    service.connect(request.clone()).await.unwrap();
+    let first_updated_at: i64 =
+        sqlx::query("SELECT updated_at FROM cloud_state WHERE key = 'settings'")
+            .fetch_one(database.pool())
+            .await
+            .unwrap()
+            .get("updated_at");
+    *now.lock().unwrap() = 2000;
+    service.connect(request).await.unwrap();
+    let second_updated_at: i64 =
+        sqlx::query("SELECT updated_at FROM cloud_state WHERE key = 'settings'")
+            .fetch_one(database.pool())
+            .await
+            .unwrap()
+            .get("updated_at");
+
+    assert_eq!(first_updated_at, 1000);
+    assert_eq!(second_updated_at, first_updated_at);
+}
+
+#[tokio::test]
 async fn cloud_service_disconnect_clears_credentials_and_runtime() {
     let database = init_database_memory().await.unwrap();
     let service = CloudService::with_now(database.pool().clone(), || 1000);

@@ -148,6 +148,7 @@ test("launchd default resolver uses configured Core host and port", (t) => {
   const plist = service.coreLaunchAgentPlist();
 
   assert.deepEqual(args.slice(5, 10), ["serve", "--host", "localhost", "--port", "27993"]);
+  assert.equal(args.includes("--parent-pid"), false);
   assert.equal(env.MIA_CORE_HOST, "localhost");
   assert.equal(env.MIA_CORE_PORT, "27993");
   assert.match(plist, /<string>localhost<\/string>/);

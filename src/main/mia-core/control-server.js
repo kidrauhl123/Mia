@@ -107,9 +107,27 @@ function createMiaCoreControlServer({
     const current = status();
     if (state.running) return current;
     const probe = await ping(getCoreSettings(), timeoutMs, { expectedRuntimeHome: runtimePaths().home });
+    if (probe.ok) {
+      let host = current.host;
+      let port = current.port;
+      try {
+        const url = new URL(probe.baseUrl);
+        host = url.hostname || host;
+        port = Number(url.port) || port;
+      } catch {
+        // Keep the configured host/port if the observed URL is malformed.
+      }
+      state.running = true;
+      state.starting = false;
+      state.host = host;
+      state.port = port;
+      state.baseUrl = probe.baseUrl || current.baseUrl;
+      state.lastError = "";
+      return status();
+    }
     return {
       ...current,
-      running: probe.ok,
+      running: false,
       baseUrl: probe.baseUrl || current.baseUrl
     };
   }

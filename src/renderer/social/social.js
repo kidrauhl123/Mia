@@ -3590,6 +3590,15 @@
     return messages.length ? messages[messages.length - 1] : null;
   }
 
+  function conversationActivityAt(conversation) {
+    return firstText(
+      conversation?.last_activity_at,
+      conversation?.lastActivityAt,
+      conversation?.last_message_created_at,
+      conversation?.lastMessageCreatedAt
+    );
+  }
+
   function renderSidebarRows() {
     const sidebarConversations = sessionHistoryShared().sidebarConversations(visibleSocialConversations(moduleState.conversations, {
       activeConversationId: moduleState.activeConversationId,
@@ -3602,14 +3611,19 @@
     return sidebarConversations.map((conversation) => {
       const cacheEntry = moduleState.messageCache.get(conversation.id);
       const lastMsg = lastSidebarMessage(cacheEntry);
-      const lastMessagePreview = lastMsg ? String(lastMsg.body_md || "") : "";
+      const lastMessagePreview = lastMsg
+        ? String(lastMsg.body_md || "")
+        : firstText(conversation.last_message_text, conversation.lastMessageText);
 
-      // Sidebar activity follows the last message the chat can actually render.
-      // Metadata-only conversation.updated events (title/runtime/member refresh)
-      // should not reorder a row or change its displayed time.
-      const updatedAt = lastMsg
-        ? (new Date(lastMsg.created_at || lastMsg.createdAt || 0).getTime() || 0)
-        : (new Date(conversation.updatedAt || conversation.updated_at || 0).getTime() || 0);
+      // Cloud/Core last_activity_at is the stable sidebar authority. Local cache
+      // hydration while switching conversations must not move rows; cached
+      // message time is only a fallback for legacy rows without activity data.
+      const updatedAt = new Date(
+        conversationActivityAt(conversation)
+        || (lastMsg ? firstText(lastMsg.created_at, lastMsg.createdAt) : "")
+        || firstText(conversation.updatedAt, conversation.updated_at)
+        || 0
+      ).getTime() || 0;
       const pinned = isConversationPinned(conversation.id);
       const pinnedAt = pinned ? (_ensureCloudSettings().updatedAt || conversation.updatedAt || updatedAt || "") : "";
       const tags = conversationTagsFor(conversation.id);

@@ -128,6 +128,7 @@
       if (lottieName) {
         el.setAttribute("data-lottie", lottieName);
         el.setAttribute("data-lottie-trigger", "loop");
+        el.setAttribute("data-lottie-renderer", "canvas");
         const format = statusBadgeAssetFormat(lottieName);
         if (format === "tgs") {
           el.setAttribute("data-lottie-format", "tgs");
@@ -234,7 +235,7 @@
     const lottiePath = lottieName ? statusBadgeAssetUrl(lottieName) : "";
     const lottieFormat = lottieName ? statusBadgeAssetFormat(lottieName) : "";
     const lottieAttr = lottieName
-      ? ` data-lottie="${escapeHtml(lottieName)}" data-lottie-trigger="loop"${lottieFormat === "tgs" ? " data-lottie-format=\"tgs\" data-lottie-local=\"status-badge\"" : ""}${lottiePath ? ` data-lottie-path="${escapeHtml(lottiePath)}"` : ""} aria-hidden="true"`
+      ? ` data-lottie="${escapeHtml(lottieName)}" data-lottie-trigger="loop" data-lottie-renderer="canvas"${lottieFormat === "tgs" ? " data-lottie-format=\"tgs\" data-lottie-local=\"status-badge\"" : ""}${lottiePath ? ` data-lottie-path="${escapeHtml(lottiePath)}"` : ""} aria-hidden="true"`
       : " aria-hidden=\"true\"";
     const collectibleAttr = badge.kind === "gift" && badge.collectibleId
       ? ` data-collectible-id="${escapeHtml(badge.collectibleId)}"`

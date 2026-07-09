@@ -7104,6 +7104,10 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   background: var(--hover-background);
 }
 
+.model-switcher.model-switcher--no-avatar {
+  grid-template-columns: minmax(0, max-content);
+}
+
 .model-switcher.select-open,
 .effort-switcher.select-open,
 .permission-switcher.select-open,
@@ -7627,7 +7631,7 @@ select.select-open {
 .identity-name-line {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   min-width: 0;
   font-size: var(--ui-text-max-size, 14px);
 }
@@ -7726,7 +7730,7 @@ select.select-open {
 .identity-badge-trigger {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   width: 26px;
   height: 26px;
   margin-top: 0;
@@ -7738,6 +7742,7 @@ select.select-open {
 }
 
 .identity-badge-trigger.empty {
+  justify-content: center;
   border: 0;
   color: var(--faint);
   font-size: inherit;
@@ -7745,8 +7750,9 @@ select.select-open {
 }
 
 .identity-badge-trigger .name-with-badge-badge {
-  --name-badge-shift-x: 0px;
-  --name-badge-shift-y: 0px;
+  --name-badge-size: max(20px, 1.12em);
+  --name-badge-shift-x: 2px;
+  --name-badge-shift-y: -1px;
 }
 
 .identity-badge-empty-icon {
@@ -7794,7 +7800,8 @@ select.select-open {
 .identity-badge-panel {
   position: absolute;
   top: 34px;
-  right: 0;
+  left: 50%;
+  right: auto;
   z-index: 10;
   min-width: 204px;
   padding: 8px;
@@ -7802,6 +7809,7 @@ select.select-open {
   border-radius: 10px;
   background: var(--surface);
   box-shadow: var(--shadow);
+  transform: translateX(-50%);
 }
 
 .identity-badge-choices {

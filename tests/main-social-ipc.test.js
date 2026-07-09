@@ -233,6 +233,100 @@ test("social list IPC writes bootstrap data through to the local cache", async (
   assert.deepEqual(cached, { ok: true, data: { userId: "u_me", conversations: [{ id: "c_cached" }] } });
 });
 
+test("listing bots preserves cached status badges when older cloud lists omit them", async () => {
+  const ipcMain = fakeIpcMain();
+  const badge = { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰" };
+  const patches = [];
+  const fakeCache = {
+    getSocialBootstrap: (userId) => userId === "u_me" ? {
+      userId,
+      bots: [{ id: "mia", key: "mia", name: "Mia", statusBadge: badge }]
+    } : null,
+    updateSocialBootstrap: (userId, patch) => patches.push({ userId, patch })
+  };
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      listBots: async () => ({ bots: [{ id: "mia", key: "mia", name: "Mia" }] })
+    },
+    messageCache: fakeCache,
+    getCloudUserId: () => "u_me"
+  });
+
+  const result = await ipcMain.handlers.get(IpcChannel.SocialListBots)(null);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data.bots[0].statusBadge, badge);
+  assert.deepEqual(patches, [{
+    userId: "u_me",
+    patch: { bots: [{ id: "mia", key: "mia", name: "Mia", statusBadge: badge }] }
+  }]);
+});
+
+test("listing bots respects explicit null status badges over cached badges", async () => {
+  const ipcMain = fakeIpcMain();
+  const badge = { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰" };
+  const patches = [];
+  const fakeCache = {
+    getSocialBootstrap: (userId) => userId === "u_me" ? {
+      userId,
+      bots: [{ id: "mia", key: "mia", name: "Mia", statusBadge: badge }]
+    } : null,
+    updateSocialBootstrap: (userId, patch) => patches.push({ userId, patch })
+  };
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      listBots: async () => ({ bots: [{ id: "mia", key: "mia", name: "Mia", statusBadge: null }] })
+    },
+    messageCache: fakeCache,
+    getCloudUserId: () => "u_me"
+  });
+
+  const result = await ipcMain.handlers.get(IpcChannel.SocialListBots)(null);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.bots[0].statusBadge, null);
+  assert.deepEqual(patches, [{
+    userId: "u_me",
+    patch: { bots: [{ id: "mia", key: "mia", name: "Mia", statusBadge: null }] }
+  }]);
+});
+
+test("saving a bot identity writes submitted status badge through to the local bootstrap cache", async () => {
+  const ipcMain = fakeIpcMain();
+  const badge = { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰" };
+  const patches = [];
+  const fakeCache = {
+    getSocialBootstrap: (userId) => userId === "u_me" ? {
+      userId,
+      bots: [{ id: "mia", key: "mia", name: "Mia" }]
+    } : null,
+    updateSocialBootstrap: (userId, patch) => patches.push({ userId, patch })
+  };
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      saveBotIdentity: async () => ({ bot: { id: "mia", key: "mia", name: "Mia" } })
+    },
+    messageCache: fakeCache,
+    getCloudUserId: () => "u_me"
+  });
+
+  const result = await ipcMain.handlers.get(IpcChannel.SocialSaveBotIdentity)(
+    null,
+    "mia",
+    { name: "Mia", statusBadge: badge }
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data.bot.statusBadge, badge);
+  assert.deepEqual(patches, [{
+    userId: "u_me",
+    patch: { bots: [{ id: "mia", key: "mia", name: "Mia", statusBadge: badge }] }
+  }]);
+});
+
 test("updating a conversation writes the returned title through to the social bootstrap cache", async () => {
   const ipcMain = fakeIpcMain();
   const patches = [];

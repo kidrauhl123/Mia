@@ -136,7 +136,7 @@ impl BotService {
         } else {
             all_specs.clone()
         };
-        if specs.is_empty() {
+        if all_specs.is_empty() {
             return Ok(StarterBotEnsureResponse {
                 skipped: true,
                 created: Vec::new(),
@@ -174,46 +174,43 @@ impl BotService {
         .unwrap_or_else(|| "当前设备".to_string());
 
         let mut created = Vec::new();
+        let mut updated = Vec::new();
         let mut cloud_tag_assignments = Vec::new();
-        for spec in &specs {
+        let create_engine_ids: HashSet<String> =
+            specs.iter().map(|spec| spec.engine_id.clone()).collect();
+        for spec in &all_specs {
             let key = starter_bot_key(&user_id, spec.key_suffix());
             if self.bot_exists(&key).await? {
+                if !self.starter_bot_needs_repair(&key, spec).await? {
+                    continue;
+                }
+                let bot = self.upsert_starter_bot(&key, spec, now_ms()).await?;
+                self.save_runtime(
+                    &key,
+                    starter_runtime_request(spec, &device_id, &device_name),
+                )
+                .await?;
+                let conversation_id = self.ensure_starter_conversation(&key, spec).await?;
+                if !spec.tag_names.is_empty() {
+                    cloud_tag_assignments.push((conversation_id.clone(), spec.tag_names.clone()));
+                }
+                updated.push(StarterBotMutation {
+                    engine_id: spec.engine_id.clone(),
+                    key,
+                    bot,
+                    conversation_id,
+                });
+                continue;
+            }
+            if !create_engine_ids.contains(&spec.engine_id) {
                 continue;
             }
             let bot = self.upsert_starter_bot(&key, spec, now_ms()).await?;
-            let runtime_kind = spec.runtime_kind.clone();
-            let runtime_request = if runtime_kind == "cloud-claude-code" {
-                SaveBotRuntimeRequest {
-                    runtime_kind: runtime_kind.clone(),
-                    provider_connection_id: None,
-                    model_profile_id: None,
-                    model: None,
-                    target_intent: Some(BotRuntimeTargetIntent {
-                        device_id: None,
-                        device_name: None,
-                        agent_engine: Some(spec.agent_engine.clone()),
-                    }),
-                    sync_intent: None,
-                    control_intent: None,
-                    config: json!({}),
-                }
-            } else {
-                SaveBotRuntimeRequest {
-                    runtime_kind: runtime_kind.clone(),
-                    provider_connection_id: None,
-                    model_profile_id: None,
-                    model: None,
-                    target_intent: Some(BotRuntimeTargetIntent {
-                        device_id: Some(device_id.clone()),
-                        device_name: Some(device_name.clone()),
-                        agent_engine: Some(spec.agent_engine.clone()),
-                    }),
-                    sync_intent: None,
-                    control_intent: None,
-                    config: json!({}),
-                }
-            };
-            self.save_runtime(&key, runtime_request).await?;
+            self.save_runtime(
+                &key,
+                starter_runtime_request(spec, &device_id, &device_name),
+            )
+            .await?;
             let conversation_id = self.ensure_starter_conversation(&key, spec).await?;
             if !spec.tag_names.is_empty() {
                 cloud_tag_assignments.push((conversation_id.clone(), spec.tag_names.clone()));
@@ -226,11 +223,11 @@ impl BotService {
             });
         }
 
-        if created.is_empty() {
+        if created.is_empty() && updated.is_empty() {
             return Ok(StarterBotEnsureResponse {
                 skipped: true,
                 created,
-                updated: Vec::new(),
+                updated,
                 settings,
             });
         }
@@ -244,7 +241,7 @@ impl BotService {
         Ok(StarterBotEnsureResponse {
             skipped: false,
             created,
-            updated: Vec::new(),
+            updated,
             settings,
         })
     }
@@ -463,6 +460,54 @@ impl BotService {
         Ok(count > 0)
     }
 
+    async fn starter_bot_needs_repair(
+        &self,
+        bot_id: &str,
+        spec: &StarterBotSpec,
+    ) -> Result<bool, sqlx::Error> {
+        let row = sqlx::query("SELECT identity_json FROM bots WHERE id = ?")
+            .bind(bot_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some(row) = row else {
+            return Ok(false);
+        };
+        let identity = parse_json(row.get::<String, _>("identity_json"))?;
+        let identity_agent = identity
+            .get("agentEngine")
+            .or_else(|| identity.get("agent_engine"))
+            .and_then(Value::as_str)
+            .map(normalize_agent_engine)
+            .unwrap_or_default();
+        if identity_agent != spec.agent_engine {
+            return Ok(true);
+        }
+        let identity_runtime = identity
+            .get("runtimeKind")
+            .or_else(|| identity.get("runtime_kind"))
+            .and_then(Value::as_str)
+            .map(normalize_runtime_kind)
+            .unwrap_or_default();
+        if identity_runtime != spec.runtime_kind {
+            return Ok(true);
+        }
+
+        let config = object_from_value(
+            self.existing_runtime_config(bot_id, &spec.runtime_kind)
+                .await?,
+        );
+        let binding_agent = first_map_string(&config, &["agentEngine", "agent_engine", "engine"])
+            .map(|value| normalize_agent_engine(&value))
+            .unwrap_or_else(|| default_agent_engine(&spec.runtime_kind).to_string());
+        if binding_agent != spec.agent_engine {
+            return Ok(true);
+        }
+        if spec.runtime_kind == "cloud-claude-code" && !runtime_config_is_mia_managed(&config) {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     async fn upsert_starter_bot(
         &self,
         bot_id: &str,
@@ -558,6 +603,33 @@ impl StarterBotSpec {
         } else {
             &self.engine_id
         }
+    }
+}
+
+fn starter_runtime_request(
+    spec: &StarterBotSpec,
+    device_id: &str,
+    device_name: &str,
+) -> SaveBotRuntimeRequest {
+    let runtime_kind = spec.runtime_kind.clone();
+    let (target_device_id, target_device_name) = if runtime_kind == "cloud-claude-code" {
+        (None, None)
+    } else {
+        (Some(device_id.to_string()), Some(device_name.to_string()))
+    };
+    SaveBotRuntimeRequest {
+        runtime_kind,
+        provider_connection_id: None,
+        model_profile_id: None,
+        model: None,
+        target_intent: Some(BotRuntimeTargetIntent {
+            device_id: target_device_id,
+            device_name: target_device_name,
+            agent_engine: Some(spec.agent_engine.clone()),
+        }),
+        sync_intent: None,
+        control_intent: None,
+        config: json!({}),
     }
 }
 
@@ -917,7 +989,7 @@ fn runtime_config_from_target_intent(
         if !has_non_empty(&config, "permissionMode") {
             config.insert("permissionMode".to_string(), json!("bypassPermissions"));
         }
-        return Value::Object(config);
+        return sanitize_runtime_config(Value::Object(config));
     }
     if let Some(device_id) = clean_optional(&intent.device_id) {
         config.insert("deviceId".to_string(), json!(device_id));
@@ -1173,6 +1245,17 @@ fn sanitize_runtime_config(config: Value) -> Value {
         object.remove(key);
     }
     Value::Object(object)
+}
+
+fn runtime_config_is_mia_managed(config: &Map<String, Value>) -> bool {
+    let sanitized = object_from_value(sanitize_runtime_config(Value::Object(config.clone())));
+    map_string(&sanitized, "providerConnectionId").as_deref() == Some("mia")
+        && map_string(&sanitized, "modelProfileId")
+            .as_deref()
+            .is_some_and(|value| value.starts_with("mia:"))
+        && map_string(&sanitized, "model")
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
 }
 
 fn sync_model_entries(
@@ -1509,15 +1592,21 @@ fn runtime_control_options_from_request(
     );
     let model_catalog = runtime_control_model_catalog(&model_catalog);
     let platform_models = runtime_control_platform_model_entries(&platform_models);
-    let model_options = runtime_control_model_options(
-        &runtime_kind,
-        &agent_engine,
-        &runtime_value,
-        &model_catalog,
-        &platform_models,
-        &engine_capabilities,
-        &codex_models,
-    );
+    let engine_blocked =
+        runtime_inventory_engine_state(&runtime_value, &agent_engine).is_some_and(|usable| !usable);
+    let model_options = if engine_blocked {
+        Vec::new()
+    } else {
+        runtime_control_model_options(
+            &runtime_kind,
+            &agent_engine,
+            &runtime_value,
+            &model_catalog,
+            &platform_models,
+            &engine_capabilities,
+            &codex_models,
+        )
+    };
     let effort_options =
         runtime_control_effort_options(&agent_engine, &engine_capabilities, &codex_models);
     let permission_options =
@@ -1803,14 +1892,11 @@ fn runtime_control_model_options(
 fn runtime_control_external_model_options(
     engine: &str,
     engine_capabilities: &Value,
-    codex_models: &Value,
+    _codex_models: &Value,
     platform_models: &[BotRuntimeControlOption],
 ) -> Vec<BotRuntimeControlOption> {
     let capability = runtime_control_engine_capability(engine_capabilities, engine);
     let mut entries = Vec::new();
-    if let Some(default) = default_external_model_option(engine) {
-        entries.push(default);
-    }
     if engine == "claude-code" {
         entries.extend(
             value_array_or_nested(&capability, &["models"])
@@ -1819,9 +1905,7 @@ fn runtime_control_external_model_options(
                 .filter_map(|(index, item)| normalize_external_model_option(engine, item, index)),
         );
     } else if engine == "codex" {
-        let dynamic = value_array_or_nested(&capability, &["models"]);
-        let fallback = value_array_or_nested(codex_models, &["models"]);
-        for item in dynamic.iter().chain(fallback.iter()) {
+        for item in value_array_or_nested(&capability, &["models"]) {
             if let Some(slug) = first_value_string(item, &["slug", "id", "model", "value", "name"])
             {
                 entries.push(BotRuntimeControlOption {
@@ -1846,38 +1930,6 @@ fn runtime_control_external_model_options(
     }
     entries.extend(platform_models.iter().cloned());
     dedupe_runtime_control_options(entries)
-}
-
-fn default_external_model_option(engine: &str) -> Option<BotRuntimeControlOption> {
-    match engine {
-        "claude-code" => Some(BotRuntimeControlOption {
-            id: "default".into(),
-            value: "default".into(),
-            label: "Claude Code 默认".into(),
-            title: String::new(),
-            aliases: vec![],
-            model: String::new(),
-            provider: "claude-code".into(),
-            provider_connection_id: "claude-code".into(),
-            provider_label: "Claude Code".into(),
-            auth_type: String::new(),
-            model_profile_id: String::new(),
-        }),
-        "codex" => Some(BotRuntimeControlOption {
-            id: "default".into(),
-            value: "default".into(),
-            label: "Codex 默认".into(),
-            title: String::new(),
-            aliases: vec![],
-            model: String::new(),
-            provider: "codex".into(),
-            provider_connection_id: "codex".into(),
-            provider_label: "Codex CLI".into(),
-            auth_type: String::new(),
-            model_profile_id: String::new(),
-        }),
-        _ => None,
-    }
 }
 
 fn normalize_external_model_option(
@@ -1935,7 +1987,7 @@ fn normalize_external_model_option(
 fn runtime_control_effort_options(
     engine: &str,
     engine_capabilities: &Value,
-    codex_models: &Value,
+    _codex_models: &Value,
 ) -> Vec<BotRuntimeControlOption> {
     let capability = runtime_control_engine_capability(engine_capabilities, engine);
     let dynamic = value_array_or_nested(&capability, &["effortOptions", "effort_options"]);
@@ -1953,14 +2005,7 @@ fn runtime_control_effort_options(
             .collect();
     }
     if engine == "codex" {
-        let models = {
-            let capability_models = value_array_or_nested(&capability, &["models"]);
-            if capability_models.is_empty() {
-                value_array_or_nested(codex_models, &["models"])
-            } else {
-                capability_models
-            }
-        };
+        let models = value_array_or_nested(&capability, &["models"]);
         let mut seen = HashSet::new();
         let mut options = Vec::new();
         for model in models {
@@ -2535,6 +2580,9 @@ fn selected_runtime_control_model(
     entries: &[BotRuntimeControlOption],
     config: &Map<String, Value>,
 ) -> String {
+    if entries.is_empty() {
+        return String::new();
+    }
     let model = runtime_control_model_name(config);
     if let Some(entry) = saved_runtime_control_model_entry(entries, config) {
         return runtime_control_option_value(entry, &model);
@@ -2551,13 +2599,13 @@ fn selected_runtime_control_model(
     }
     if is_external_runtime_engine(agent_engine) {
         if model.is_empty() {
-            return "default".to_string();
+            return String::new();
         }
         return entries
             .iter()
             .find(|entry| runtime_control_option_matches_model(entry, "", &model))
             .map(|entry| runtime_control_option_value(entry, &model))
-            .unwrap_or_else(|| "default".to_string());
+            .unwrap_or_default();
     }
     if !model.is_empty() {
         return entries
@@ -2570,6 +2618,34 @@ fn selected_runtime_control_model(
         .first()
         .map(|entry| runtime_control_option_value(entry, ""))
         .unwrap_or_default()
+}
+
+fn runtime_inventory_engine_state(runtime: &Value, engine: &str) -> Option<bool> {
+    let agents = runtime
+        .get("agentInventory")
+        .and_then(Value::as_object)
+        .and_then(|inventory| inventory.get("agents"))
+        .and_then(Value::as_array)?;
+    for agent in agents {
+        let Some(agent) = agent.as_object() else {
+            continue;
+        };
+        let Some(agent_id) =
+            first_map_string(agent, &["id"]).and_then(|value| supported_agent_engine(&value))
+        else {
+            continue;
+        };
+        if agent_id == engine {
+            return Some(
+                agent
+                    .get("usableInMia")
+                    .or_else(|| agent.get("usable_in_mia"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            );
+        }
+    }
+    None
 }
 
 fn selected_runtime_control_model_entry(
@@ -2587,7 +2663,6 @@ fn selected_runtime_control_model_entry(
                 .iter()
                 .find(|entry| runtime_control_option_matches_model(entry, "", &model))
         })
-        .or_else(|| entries.first())
         .cloned()
 }
 

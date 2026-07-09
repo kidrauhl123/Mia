@@ -232,24 +232,26 @@
       || modelEntries.find((entry) => runtimeOptionValue(entry) === selectedModel)
       || modelEntries[0]
       || {};
-    const modelLabel = selectedModelEntry?.label || (ready ? "Default" : "加载中");
+    const modelLabel = selectedModelEntry?.label || (ready ? "模型" : "加载中");
     const selectedEffort = String(optionsPayload?.selectedEffort || "medium").trim();
     const effortLabel = effortEntries.find((entry) => runtimeOptionValue(entry) === selectedEffort)?.label || (ready ? "Medium" : "加载中");
     const selectedPermission = String(optionsPayload?.selectedPermission || (runtimeKind === "cloud-claude-code" ? "bypassPermissions" : "default")).trim();
     const permissionLabel = permissionEntries.find((entry) => runtimeOptionValue(entry) === selectedPermission)?.label || (ready ? "Ask" : "加载中");
-    const modelLogoSrc = modelLogoSrcForOption(selectedModelEntry, engine, runtime);
+    const hasModelEntries = modelEntries.length > 0;
+    const modelLogoSrc = hasModelEntries ? modelLogoSrcForOption(selectedModelEntry, engine, runtime) : "";
     const modelLogoStyle = modelLogoSrc
       ? `background-image:url('${escapeHtml(modelLogoSrc)}');background-color:transparent;`
       : "";
+    const modelDisabled = ready && hasModelEntries ? "" : " disabled";
     const disabled = ready ? "" : " disabled";
     return `
         <div class="contact-card-row">
           <dt>模型</dt>
           <dd>
-            <label class="model-switcher" title="切换模型">
-              <span class="model-avatar" style="${modelLogoStyle}" aria-hidden="true">${modelLogoSrc ? "" : "◇"}</span>
+            <label class="model-switcher${hasModelEntries ? "" : " model-switcher--no-avatar"}" title="切换模型">
+              <span class="model-avatar${hasModelEntries ? "" : " hidden"}" style="${modelLogoStyle}" aria-hidden="true">${modelLogoSrc ? "" : "◇"}</span>
               <span class="model-current-label">${escapeHtml(modelLabel)}</span>
-              <select data-bot-field="model" aria-label="切换模型"${disabled}>${options(modelEntries, selectedModel)}</select>
+              <select data-bot-field="model" aria-label="切换模型"${modelDisabled}>${options(modelEntries, selectedModel, "模型")}</select>
             </label>
           </dd>
         </div>

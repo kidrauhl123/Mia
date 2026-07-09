@@ -901,6 +901,10 @@ async fn settings_runtime_options_fall_back_to_codex_default_for_unknown_saved_m
     });
 
     assert_eq!(response.selected_model, "default");
+    assert_eq!(
+        response.selected_model_entry.as_ref().unwrap().label,
+        "Codex 默认"
+    );
     let model_ids = response
         .model_options
         .iter()
@@ -909,4 +913,86 @@ async fn settings_runtime_options_fall_back_to_codex_default_for_unknown_saved_m
     assert!(model_ids.contains(&"default"));
     assert!(model_ids.contains(&"gpt-5.5"));
     assert!(!model_ids.contains(&"gpt-5.3-codex"));
+}
+
+#[tokio::test]
+async fn settings_runtime_options_leave_model_empty_when_codex_inventory_is_blocked() {
+    let db = init_database_memory().await.unwrap();
+    let service = SystemService::new(
+        "0.1.0".to_string(),
+        SqliteSettingsRepository::new(db.pool().clone()),
+        SqliteProviderRepository::new(db.pool().clone()),
+    );
+
+    let response = service.runtime_control_options(SettingsRuntimeControlOptionsRequest {
+        active_agent_engine: Some("codex".into()),
+        runtime: json!({
+            "agentInventory": {
+                "agents": [
+                    { "id": "codex", "usableInMia": false, "health": "blocked" }
+                ]
+            }
+        }),
+        engine_config: json!({
+            "model": "gpt-5.5",
+            "effortLevel": "medium"
+        }),
+        model_catalog: json!([]),
+        platform_models: json!([{ "id": "mia-auto", "label": "Auto" }]),
+        engine_capabilities: json!({
+            "engines": {
+                "codex": {
+                    "models": [
+                        { "slug": "gpt-5.5", "displayName": "gpt-5.5" }
+                    ]
+                }
+            }
+        }),
+        codex_models: json!([]),
+    });
+
+    assert!(response.model_options.is_empty());
+    assert_eq!(response.selected_model, "");
+    assert!(response.selected_model_entry.is_none());
+}
+
+#[tokio::test]
+async fn settings_runtime_options_leave_model_empty_when_hermes_inventory_is_blocked() {
+    let db = init_database_memory().await.unwrap();
+    let service = SystemService::new(
+        "0.1.0".to_string(),
+        SqliteSettingsRepository::new(db.pool().clone()),
+        SqliteProviderRepository::new(db.pool().clone()),
+    );
+
+    let response = service.runtime_control_options(SettingsRuntimeControlOptionsRequest {
+        active_agent_engine: Some("hermes".into()),
+        runtime: json!({
+            "agentInventory": {
+                "agents": [
+                    { "id": "hermes", "usableInMia": false, "health": "blocked" }
+                ]
+            },
+            "cloud": { "enabled": true },
+            "connectedProviders": [
+                { "provider": "openai", "hasApiKey": true }
+            ]
+        }),
+        engine_config: json!({}),
+        model_catalog: json!([
+            {
+                "id": "openai::gpt-5.5",
+                "provider": "openai",
+                "model": "gpt-5.5",
+                "label": "GPT-5.5"
+            }
+        ]),
+        platform_models: json!([{ "id": "mia-auto", "label": "Auto" }]),
+        engine_capabilities: json!({}),
+        codex_models: json!([]),
+    });
+
+    assert!(response.model_options.is_empty());
+    assert_eq!(response.selected_model, "");
+    assert!(response.selected_model_entry.is_none());
 }

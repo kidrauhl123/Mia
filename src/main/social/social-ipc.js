@@ -32,11 +32,106 @@ function resultObject(result, key) {
   return nested && typeof nested === "object" && !Array.isArray(nested) ? nested : null;
 }
 
+function replaceResultArray(result, key, value) {
+  if (result?.data && Array.isArray(result.data[key])) return { ...result, data: { ...result.data, [key]: value } };
+  if (result && Array.isArray(result[key])) return { ...result, [key]: value };
+  return result;
+}
+
+function replaceResultObject(result, key, value) {
+  if (result?.data && result.data[key] && typeof result.data[key] === "object" && !Array.isArray(result.data[key])) {
+    return { ...result, data: { ...result.data, [key]: value } };
+  }
+  if (result && result[key] && typeof result[key] === "object" && !Array.isArray(result[key])) return { ...result, [key]: value };
+  return result;
+}
+
 function currentCacheUserId(getCloudUserId) {
   try {
     return String((typeof getCloudUserId === "function" && getCloudUserId()) || "").trim();
   } catch {
     return "";
+  }
+}
+
+function hasOwn(source, key) {
+  return source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, key);
+}
+
+function parseJsonObject(value, fallback = null) {
+  try {
+    const parsed = JSON.parse(String(value || ""));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function botIdentityKey(bot = {}) {
+  return String(bot?.key || bot?.id || bot?.botId || bot?.bot_id || "").trim();
+}
+
+function hasStatusBadgeField(bot = {}) {
+  return hasOwn(bot, "statusBadge") || hasOwn(bot, "status_badge") || hasOwn(bot, "status_badge_json");
+}
+
+function statusBadgeValue(bot = {}) {
+  if (hasOwn(bot, "statusBadge")) return bot.statusBadge || null;
+  if (hasOwn(bot, "status_badge")) return bot.status_badge || null;
+  if (hasOwn(bot, "status_badge_json")) return parseJsonObject(bot.status_badge_json, null);
+  return undefined;
+}
+
+function botWithCanonicalStatusBadge(bot = {}, fallback = null) {
+  if (!bot || typeof bot !== "object") return bot;
+  if (hasStatusBadgeField(bot)) return { ...bot, statusBadge: statusBadgeValue(bot) };
+  if (hasStatusBadgeField(fallback)) return { ...bot, statusBadge: statusBadgeValue(fallback) };
+  return bot;
+}
+
+function cachedSocialBootstrap({ messageCache, getCloudUserId, requestedUserId }) {
+  if (!messageCache || typeof messageCache.getSocialBootstrap !== "function") return null;
+  const currentUserId = currentCacheUserId(getCloudUserId);
+  const requested = String(requestedUserId || "").trim();
+  if (currentUserId && requested && currentUserId !== requested) return null;
+  const userId = currentUserId || requested;
+  if (!userId) return null;
+  return messageCache.getSocialBootstrap(userId);
+}
+
+function mergeBotsWithCachedStatusBadges({ messageCache, getCloudUserId, bots, log }) {
+  const list = Array.isArray(bots) ? bots : [];
+  const userId = currentCacheUserId(getCloudUserId);
+  if (!userId || !messageCache || typeof messageCache.getSocialBootstrap !== "function") {
+    return list.map((bot) => botWithCanonicalStatusBadge(bot));
+  }
+  try {
+    const current = messageCache.getSocialBootstrap(userId);
+    const cachedBots = Array.isArray(current?.bots) ? current.bots : [];
+    const cachedByKey = new Map(cachedBots.map((bot) => [botIdentityKey(bot), bot]).filter(([key]) => key));
+    return list.map((bot) => botWithCanonicalStatusBadge(bot, cachedByKey.get(botIdentityKey(bot))));
+  } catch (error) {
+    log(`[social-ipc] social bootstrap bot merge failed: ${error?.message || error}`);
+    return list.map((bot) => botWithCanonicalStatusBadge(bot));
+  }
+}
+
+function writeCachedBotIdentity({ messageCache, getCloudUserId, bot, log }) {
+  const userId = currentCacheUserId(getCloudUserId);
+  const key = botIdentityKey(bot);
+  if (!userId || !key || !messageCache || typeof messageCache.updateSocialBootstrap !== "function") return;
+  try {
+    const current = typeof messageCache.getSocialBootstrap === "function" ? messageCache.getSocialBootstrap(userId) : null;
+    const bots = Array.isArray(current?.bots) ? current.bots : [];
+    const existing = bots.find((item) => botIdentityKey(item) === key) || null;
+    const merged = botWithCanonicalStatusBadge(bot, existing);
+    const next = [
+      merged,
+      ...bots.filter((item) => botIdentityKey(item) !== key)
+    ];
+    messageCache.updateSocialBootstrap(userId, { bots: next });
+  } catch (error) {
+    log(`[social-ipc] social bootstrap bot cache update failed: ${error?.message || error}`);
   }
 }
 
@@ -66,16 +161,6 @@ function writeSocialConversationPatch({ messageCache, getCloudUserId, conversati
   }
 }
 
-function cachedSocialBootstrap({ messageCache, getCloudUserId, requestedUserId }) {
-  if (!messageCache || typeof messageCache.getSocialBootstrap !== "function") return null;
-  const currentUserId = currentCacheUserId(getCloudUserId);
-  const requested = String(requestedUserId || "").trim();
-  if (currentUserId && requested && currentUserId !== requested) return null;
-  const userId = currentUserId || requested;
-  if (!userId) return null;
-  return messageCache.getSocialBootstrap(userId);
-}
-
 function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUserId = null, ensureRuntimeAvailable = null, log = () => {} }) {
   const cloudCall = (fn) => runtimeCall(ensureRuntimeAvailable, fn);
 
@@ -96,11 +181,19 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   }));
   ipcMain.handle(IpcChannel.SocialListBots, cloudCall(async () => {
     const result = await socialApi.listBots();
-    writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch: { bots: resultArray(result, "bots") }, log });
-    return result;
+    const bots = mergeBotsWithCachedStatusBadges({ messageCache, getCloudUserId, bots: resultArray(result, "bots"), log });
+    writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch: { bots }, log });
+    return replaceResultArray(result, "bots", bots);
+  }));
+  ipcMain.handle(IpcChannel.SocialSaveBotIdentity, cloudCall(async (botId, body = {}) => {
+    const result = await socialApi.saveBotIdentity(botId, body);
+    const fallback = { ...(body || {}), id: botId, key: botId };
+    const saved = resultObject(result, "bot") || fallback;
+    const bot = botWithCanonicalStatusBadge(saved, fallback);
+    writeCachedBotIdentity({ messageCache, getCloudUserId, bot, log });
+    return replaceResultObject(result, "bot", bot);
   }));
   ipcMain.handle(IpcChannel.SocialGetBotIdentity, cloudCall((botId) => socialApi.getBotIdentity(botId)));
-  ipcMain.handle(IpcChannel.SocialSaveBotIdentity, cloudCall((botId, body) => socialApi.saveBotIdentity(botId, body)));
   ipcMain.handle(IpcChannel.SocialDeleteBot, cloudCall((botId) => socialApi.deleteBot(botId)));
   ipcMain.handle(IpcChannel.SocialListPlatformModels, cloudCall(() => socialApi.listPlatformModels()));
   ipcMain.handle(IpcChannel.SocialGetConversation, cloudCall(async (conversationId) => {

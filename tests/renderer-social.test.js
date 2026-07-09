@@ -1344,6 +1344,28 @@ test("renderSidebarRows uses the last rendered message time instead of metadata-
   assert.equal(rows[0].updatedAt, new Date("2026-05-21T20:01:00.000Z").getTime());
 });
 
+test("renderSidebarRows keeps cloud activity time stable after cached messages load", () => {
+  const s = loadSocial();
+  s.moduleState.myUserId = "u_alice";
+  s.moduleState.friends = [{ id: "u_bob", username: "bob", account: "bob" }];
+  s.moduleState.conversations = [{
+    id: "dm:u_alice:u_bob",
+    type: "dm",
+    name: null,
+    last_activity_at: "2026-05-21T20:10:00.000Z",
+    updatedAt: "2026-05-21T20:23:00.000Z"
+  }];
+  s.moduleState.messageCache.set("dm:u_alice:u_bob", {
+    messages: [{ id: "m1", seq: 1, body_md: "older local cache", created_at: "2026-05-21T20:01:00.000Z" }],
+    maxSeq: 1,
+  });
+
+  const rows = s.renderSidebarRows();
+
+  assert.equal(rows[0].conversation.lastMessagePreview, "older local cache");
+  assert.equal(rows[0].updatedAt, new Date("2026-05-21T20:10:00.000Z").getTime());
+});
+
 test("manual unread survives settings responses that omit local override bags", async () => {
   const s = loadSocial();
   const writes = [];

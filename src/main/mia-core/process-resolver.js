@@ -241,6 +241,7 @@ function createMiaCoreResolver(deps = {}) {
       command: path.basename(r.command),
       usesGuiAppIdentity: r.usesGuiAppIdentity,
       workingDirectory: r.workingDirectory,
+      ...(Number.isInteger(Number(r.parentPid)) && Number(r.parentPid) > 0 ? { parentPid: Number(r.parentPid) } : {}),
       ...(r.sourceFingerprint ? { sourceFingerprint: r.sourceFingerprint } : {})
     };
   }

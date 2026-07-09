@@ -43,7 +43,7 @@ test("desktop status labels opt into slot text through the shared text helper", 
   assert.match(app, /setText\(metaEl,\s*tiles\.length \? `群聊 · \$\{tiles\.length\} 人` : "群聊"\)/);
   assert.doesNotMatch(app, /metaEl\.textContent = "私聊"/);
   assert.match(app, /flashAnimatedText\(button,\s*"已复制"/);
-  assert.match(modelSettings, /setText\(els\.quickModelLabel,\s*selected\?\.textContent \|\| "未配置模型"/);
+  assert.match(modelSettings, /setText\(els\.quickModelLabel,\s*selected\?\.textContent \|\| "模型"/);
 });
 
 test("web status labels and copy buttons use slot text helpers", () => {

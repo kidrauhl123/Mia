@@ -741,13 +741,18 @@ fn apply_hermes_mia_metadata(config: &mut Value, _home_path: &str, bot_manifest_
 fn settings_runtime_control_options(
     request: SettingsRuntimeControlOptionsRequest,
 ) -> SettingsRuntimeControlOptionsResponse {
-    let runtime = object_or_empty(request.runtime);
+    let runtime_value = request.runtime;
+    let runtime = object_or_empty(runtime_value.clone());
     let engine_config = object_or_empty(request.engine_config);
     let agent_engine = normalize_settings_agent_engine(request.active_agent_engine.as_deref());
     let external_engine = is_external_settings_engine(&agent_engine);
     let model_catalog = settings_model_catalog(&request.model_catalog);
     let platform_models = settings_platform_model_entries(&request.platform_models);
-    let model_options = if external_engine {
+    let engine_blocked = settings_runtime_inventory_engine_state(&runtime_value, &agent_engine)
+        .is_some_and(|usable| !usable);
+    let model_options = if engine_blocked {
+        Vec::new()
+    } else if external_engine {
         settings_external_model_options(
             &agent_engine,
             &request.engine_capabilities,
@@ -928,14 +933,11 @@ fn settings_hermes_model_options(
 fn settings_external_model_options(
     engine: &str,
     engine_capabilities: &Value,
-    codex_models: &Value,
+    _codex_models: &Value,
     platform_models: &[BotRuntimeControlOption],
 ) -> Vec<BotRuntimeControlOption> {
     let capability = settings_engine_capability(engine_capabilities, engine);
     let mut entries = Vec::new();
-    if let Some(default) = default_external_model_option(engine) {
-        entries.push(default);
-    }
     if engine == "claude-code" {
         entries.extend(
             value_array_or_nested(&capability, &["models"])
@@ -944,9 +946,7 @@ fn settings_external_model_options(
                 .filter_map(|(index, item)| normalize_external_model_option(engine, item, index)),
         );
     } else if engine == "codex" {
-        let dynamic = value_array_or_nested(&capability, &["models"]);
-        let fallback = value_array_or_nested(codex_models, &["models"]);
-        for item in dynamic.iter().chain(fallback.iter()) {
+        for item in value_array_or_nested(&capability, &["models"]) {
             if let Some(slug) = first_string(item, &["slug", "id", "model", "value", "name"]) {
                 entries.push(BotRuntimeControlOption {
                     id: slug.clone(),
@@ -967,38 +967,6 @@ fn settings_external_model_options(
     }
     entries.extend(platform_models.iter().cloned());
     dedupe_settings_options(entries)
-}
-
-fn default_external_model_option(engine: &str) -> Option<BotRuntimeControlOption> {
-    match engine {
-        "claude-code" => Some(BotRuntimeControlOption {
-            id: "default".into(),
-            value: "default".into(),
-            label: "Claude Code 默认".into(),
-            title: String::new(),
-            aliases: vec![],
-            model: String::new(),
-            provider: "claude-code".into(),
-            provider_connection_id: "claude-code".into(),
-            provider_label: "Claude Code".into(),
-            auth_type: String::new(),
-            model_profile_id: String::new(),
-        }),
-        "codex" => Some(BotRuntimeControlOption {
-            id: "default".into(),
-            value: "default".into(),
-            label: "Codex 默认".into(),
-            title: String::new(),
-            aliases: vec![],
-            model: String::new(),
-            provider: "codex".into(),
-            provider_connection_id: "codex".into(),
-            provider_label: "Codex CLI".into(),
-            auth_type: String::new(),
-            model_profile_id: String::new(),
-        }),
-        _ => None,
-    }
 }
 
 fn normalize_external_model_option(
@@ -1055,7 +1023,7 @@ fn normalize_external_model_option(
 fn settings_effort_options(
     engine: &str,
     engine_capabilities: &Value,
-    codex_models: &Value,
+    _codex_models: &Value,
 ) -> Vec<BotRuntimeControlOption> {
     let capability = settings_engine_capability(engine_capabilities, engine);
     let dynamic = value_array_or_nested(&capability, &["effortOptions", "effort_options"]);
@@ -1070,14 +1038,7 @@ fn settings_effort_options(
         return levels.iter().filter_map(settings_effort_level).collect();
     }
     if engine == "codex" {
-        let models = {
-            let capability_models = value_array_or_nested(&capability, &["models"]);
-            if capability_models.is_empty() {
-                value_array_or_nested(codex_models, &["models"])
-            } else {
-                capability_models
-            }
-        };
+        let models = value_array_or_nested(&capability, &["models"]);
         let mut seen = HashSet::new();
         let mut options = Vec::new();
         for model in models {
@@ -1337,6 +1298,9 @@ fn selected_settings_model(
     engine_config: &Value,
     options: &[BotRuntimeControlOption],
 ) -> String {
+    if options.is_empty() {
+        return String::new();
+    }
     let wanted = if is_external_settings_engine(engine) {
         first_string(engine_config, &["model", "id", "value"]).unwrap_or_default()
     } else {
@@ -1366,22 +1330,38 @@ fn selected_settings_model(
     {
         return settings_option_select_value(entry);
     }
-    if !wanted.is_empty() && is_external_settings_engine(engine) {
-        return options
-            .first()
-            .map(settings_option_select_value)
-            .unwrap_or_else(|| "default".into());
+    if is_external_settings_engine(engine) {
+        return String::new();
     }
     options
         .first()
         .map(settings_option_select_value)
-        .unwrap_or_else(|| {
-            if is_external_settings_engine(engine) {
-                "default".into()
-            } else {
-                String::new()
-            }
-        })
+        .unwrap_or_default()
+}
+
+fn settings_runtime_inventory_engine_state(runtime: &Value, engine: &str) -> Option<bool> {
+    let agents = runtime
+        .get("agentInventory")
+        .and_then(Value::as_object)
+        .and_then(|inventory| inventory.get("agents"))
+        .and_then(Value::as_array)?;
+    for agent in agents {
+        let Some(id) =
+            first_string(agent, &["id"]).map(|value| normalize_settings_agent_engine(Some(&value)))
+        else {
+            continue;
+        };
+        if id == engine {
+            return Some(
+                agent
+                    .get("usableInMia")
+                    .or_else(|| agent.get("usable_in_mia"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            );
+        }
+    }
+    None
 }
 
 fn selected_settings_model_entry(

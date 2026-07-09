@@ -4,6 +4,7 @@
 //! sanitized process inputs. External Node/Bun tools may appear as subprocesses,
 //! but the plan owner remains Rust.
 
+mod agent_engines;
 mod native_acp;
 
 use std::collections::BTreeMap;
@@ -11,6 +12,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub use agent_engines::{AgentEngineInventory, AgentEngineScanOptions, AgentEngineScanner};
 pub use native_acp::{NativeAcpBackend, NativeAcpSessionManager};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -423,74 +425,13 @@ async fn write_stdin(stdin: Option<ChildStdin>, input: String) {
     let _ = stdin.shutdown().await;
 }
 
-fn prepare_command_input(plan: &RuntimeTurnPlan, command: &mut RuntimeCommand) -> String {
+fn prepare_command_input(plan: &RuntimeTurnPlan, _command: &mut RuntimeCommand) -> String {
     let input = plan.send_message.content.clone();
     if plan.protocol == RuntimeProtocol::NativeAcp {
         input
-    } else if plan.engine == "hermes" && !input.is_empty() {
-        prepare_hermes_oneshot_command(plan, command, &input);
-        String::new()
     } else {
         input
     }
-}
-
-fn prepare_hermes_oneshot_command(
-    plan: &RuntimeTurnPlan,
-    command: &mut RuntimeCommand,
-    input: &str,
-) {
-    if let Some(provider) = provider_arg_for_hermes(&plan.provider) {
-        append_option_if_missing(&mut command.args, "--provider", provider);
-    }
-    if let Some(model) = model_arg_for_hermes(&plan.provider) {
-        append_option_if_missing(&mut command.args, "--model", model);
-    }
-    if !command
-        .args
-        .iter()
-        .any(|arg| arg == "--oneshot" || arg == "-z")
-    {
-        command.args.push("--oneshot".into());
-    }
-    command.args.push(input.to_string());
-}
-
-fn append_option_if_missing(args: &mut Vec<String>, name: &str, value: String) {
-    if args
-        .iter()
-        .any(|arg| arg == name || arg.starts_with(&format!("{name}=")))
-    {
-        return;
-    }
-    args.push(name.into());
-    args.push(value);
-}
-
-fn provider_arg_for_hermes(provider: &Value) -> Option<String> {
-    let value = string_field(provider, &["provider", "modelProvider", "model_provider"])?;
-    if value == "hermes" { None } else { Some(value) }
-}
-
-fn model_arg_for_hermes(provider: &Value) -> Option<String> {
-    let value = string_field(provider, &["model"])?;
-    let provider_id = string_field(provider, &["provider", "modelProvider", "model_provider"])
-        .unwrap_or_default();
-    if provider_id == "mia" && matches!(value.as_str(), "auto" | "default") {
-        Some("mia-auto".into())
-    } else if value == "auto" {
-        None
-    } else {
-        Some(value)
-    }
-}
-
-fn string_field(source: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| source.get(*key).and_then(Value::as_str))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
 }
 
 impl RuntimeBuilder {
@@ -581,6 +522,7 @@ impl RuntimeBuilder {
                 format!("Mia Rust Core mock response: {body}")
             }
         });
+        let environment = runtime_environment_for_engine(&engine, std::env::vars());
         RuntimeTurnPlan {
             turn_id,
             conversation_id: input.conversation_id,
@@ -589,7 +531,7 @@ impl RuntimeBuilder {
             workspace_dir,
             protocol,
             command,
-            environment: clean_cli_environment(std::env::vars()),
+            environment,
             provider: input.provider,
             mcp_servers: input.mcp_servers,
             selected_skill_ids: input.selected_skill_ids,
@@ -667,10 +609,26 @@ where
     env
 }
 
+fn runtime_environment_for_engine<I, K, V>(engine: &str, vars: I) -> BTreeMap<String, String>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+{
+    let mut env = clean_cli_environment(vars);
+    if engine == "codex"
+        && !env.contains_key("CODEX_PATH")
+        && let Some(path) = agent_engines::resolve_agent_command_path("codex", &env)
+    {
+        env.insert("CODEX_PATH".into(), path);
+    }
+    env
+}
+
 fn protocol_for_engine(engine: &str) -> RuntimeProtocol {
     match engine {
         "mock" | "mock-agent" | "mia-mock" => RuntimeProtocol::Mock,
-        "codex" | "claude-code" => RuntimeProtocol::NativeAcp,
+        "codex" | "claude-code" | "hermes" => RuntimeProtocol::NativeAcp,
         _ => RuntimeProtocol::Process,
     }
 }
@@ -691,7 +649,7 @@ fn command_for_engine(engine: &str) -> Option<RuntimeCommand> {
         }),
         "hermes" => Some(RuntimeCommand {
             program: "hermes".into(),
-            args: vec![],
+            args: vec!["acp".into()],
         }),
         other => Some(RuntimeCommand {
             program: other.to_string(),
@@ -800,6 +758,40 @@ mod tests {
     }
 
     #[test]
+    fn runtime_builder_injects_resolved_codex_path_for_codex_acp() {
+        let temp = std::env::temp_dir().join(format!(
+            "mia-core-runtime-codex-path-{}",
+            Uuid::now_v7().simple()
+        ));
+        let bin = temp.join(".local/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let codex_path = bin.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        std::fs::write(&codex_path, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(&codex_path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&codex_path, permissions).unwrap();
+        }
+
+        let env = runtime_environment_for_engine(
+            "codex",
+            [
+                ("HOME".to_string(), temp.to_string_lossy().to_string()),
+                ("PATH".to_string(), String::new()),
+            ],
+        );
+
+        assert_eq!(
+            env.get("CODEX_PATH").map(String::as_str),
+            Some(codex_path.to_string_lossy().as_ref())
+        );
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
     fn runtime_builder_maps_codex_and_claude_to_native_acp_specs() {
         let builder = RuntimeBuilder::new("/tmp/mia-workspace");
         let codex_plan = builder.build_turn_plan(RuntimeTurnInput {
@@ -872,9 +864,16 @@ mod tests {
             selected_skill_ids: vec![],
             body: "hello".into(),
         });
-        assert_eq!(hermes_plan.protocol, RuntimeProtocol::Process);
-        let hermes_command = hermes_plan.command.unwrap();
+        assert_eq!(hermes_plan.protocol, RuntimeProtocol::NativeAcp);
+        let hermes_command = hermes_plan.command.expect("hermes ACP command");
         assert_eq!(hermes_command.program, "hermes");
+        assert_eq!(hermes_command.args, vec!["acp"]);
+        assert!(
+            !hermes_command
+                .args
+                .iter()
+                .any(|arg| { arg == "-z" || arg == "--oneshot" })
+        );
     }
 
     #[tokio::test]
@@ -1118,56 +1117,6 @@ mod tests {
                 && event.data["text"]
                     == "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"hi\"}}\n"
         }));
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn runtime_executor_passes_hermes_prompt_model_provider_as_arguments() {
-        let mut plan = test_plan(shell_command(
-            "printf 'args:%s|%s|%s|%s|%s|%s\\n' \"$0\" \"$1\" \"$2\" \"$3\" \"$4\" \"$5\"; printf 'stdin:'; cat",
-        ));
-        plan.engine = "hermes".into();
-        plan.provider = json!({
-            "provider": "deepseek",
-            "model": "deepseek-chat"
-        });
-        plan.send_message.content = "hello hermes".into();
-
-        let result = RuntimeExecutor
-            .execute_plan(plan, RuntimeEventSink::default(), None)
-            .await
-            .unwrap();
-
-        assert_eq!(result.exit_code, Some(0));
-        assert_eq!(
-            result.stdout,
-            "args:--provider|deepseek|--model|deepseek-chat|--oneshot|hello hermes\nstdin:"
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn runtime_executor_passes_mia_provider_to_hermes_oneshot() {
-        let mut plan = test_plan(shell_command(
-            "printf 'args:%s|%s|%s|%s|%s|%s\\n' \"$0\" \"$1\" \"$2\" \"$3\" \"$4\" \"$5\"; printf 'stdin:'; cat",
-        ));
-        plan.engine = "hermes".into();
-        plan.provider = json!({
-            "provider": "mia",
-            "model": "mia-auto"
-        });
-        plan.send_message.content = "hello hermes".into();
-
-        let result = RuntimeExecutor
-            .execute_plan(plan, RuntimeEventSink::default(), None)
-            .await
-            .unwrap();
-
-        assert_eq!(result.exit_code, Some(0));
-        assert_eq!(
-            result.stdout,
-            "args:--provider|mia|--model|mia-auto|--oneshot|hello hermes\nstdin:"
-        );
     }
 
     #[tokio::test]

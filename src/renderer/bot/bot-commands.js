@@ -150,7 +150,17 @@
   }
 
   function savedBotFromResult(result, fallback) {
-    return result?.data?.bot || result?.bot || fallback;
+    const saved = result?.data?.bot || result?.bot || null;
+    if (!saved || !fallback || typeof fallback !== "object") return saved || fallback;
+    const fallbackHasBadge = Object.prototype.hasOwnProperty.call(fallback, "statusBadge")
+      || Object.prototype.hasOwnProperty.call(fallback, "status_badge");
+    const savedHasBadge = Object.prototype.hasOwnProperty.call(saved, "statusBadge")
+      || Object.prototype.hasOwnProperty.call(saved, "status_badge");
+    if (!fallbackHasBadge || savedHasBadge) return saved;
+    const fallbackBadge = Object.prototype.hasOwnProperty.call(fallback, "statusBadge")
+      ? fallback.statusBadge
+      : fallback.status_badge;
+    return { ...saved, statusBadge: fallbackBadge };
   }
 
   function cloudIdentityForBot(bot = {}) {

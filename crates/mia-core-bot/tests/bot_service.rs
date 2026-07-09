@@ -413,6 +413,84 @@ async fn bot_service_falls_back_to_codex_default_when_saved_model_is_not_availab
 }
 
 #[tokio::test]
+async fn bot_service_leaves_model_empty_when_codex_inventory_is_blocked() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let response = service.runtime_control_options(BotRuntimeControlOptionsRequest {
+        runtime_kind: Some("desktop-local".to_string()),
+        bot: json!({ "key": "codex", "agentEngine": "codex" }),
+        runtime: json!({
+            "agentInventory": {
+                "agents": [
+                    { "id": "codex", "usableInMia": false, "health": "blocked" }
+                ]
+            }
+        }),
+        binding: json!({
+            "config": {
+                "agentEngine": "codex",
+                "model": "gpt-5.5"
+            }
+        }),
+        model_catalog: json!([]),
+        platform_models: json!([{ "id": "mia-auto", "label": "Auto" }]),
+        engine_capabilities: json!({
+            "engines": {
+                "codex": {
+                    "models": [
+                        { "slug": "gpt-5.5", "displayName": "gpt-5.5" }
+                    ]
+                }
+            }
+        }),
+        codex_models: json!([]),
+    });
+
+    assert!(response.model_options.is_empty());
+    assert_eq!(response.selected_model, "");
+    assert!(response.selected_model_entry.is_none());
+}
+
+#[tokio::test]
+async fn bot_service_leaves_model_empty_when_hermes_inventory_is_blocked() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let response = service.runtime_control_options(BotRuntimeControlOptionsRequest {
+        runtime_kind: Some("desktop-local".to_string()),
+        bot: json!({ "key": "hermes", "agentEngine": "hermes" }),
+        runtime: json!({
+            "agentInventory": {
+                "agents": [
+                    { "id": "hermes", "usableInMia": false, "health": "blocked" }
+                ]
+            },
+            "cloud": { "enabled": true },
+            "connectedProviders": [
+                { "provider": "openai", "hasApiKey": true }
+            ]
+        }),
+        binding: json!({}),
+        model_catalog: json!([
+            {
+                "id": "openai::gpt-5.5",
+                "provider": "openai",
+                "model": "gpt-5.5",
+                "label": "GPT-5.5"
+            }
+        ]),
+        platform_models: json!([{ "id": "mia-auto", "label": "Auto" }]),
+        engine_capabilities: json!({}),
+        codex_models: json!([]),
+    });
+
+    assert!(response.model_options.is_empty());
+    assert_eq!(response.selected_model, "");
+    assert!(response.selected_model_entry.is_none());
+}
+
+#[tokio::test]
 async fn bot_service_owns_cloud_runtime_control_permission_options() {
     let db = init_database_memory().await.unwrap();
     let service = BotService::new(db.pool().clone());

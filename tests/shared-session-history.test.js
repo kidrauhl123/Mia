@@ -68,6 +68,43 @@ test("session-history prefers message-bearing bot sessions over newer metadata-o
   assert.deepEqual(sidebar.map((conversation) => conversation.id), ["botc_with-message"]);
 });
 
+test("session-history keeps cloud activity timestamps authoritative over stale local cache", () => {
+  const messages = new Map([
+    ["botc_cached-old", { messages: [{ created_at: "2026-01-01T08:00:00.000Z" }] }]
+  ]);
+  const conversations = [
+    {
+      id: "botc_cached-old",
+      type: "bot",
+      decorations: { botId: "bot_mia" },
+      last_activity_at: "2026-01-01T10:00:00.000Z",
+      updated_at: "2026-01-01T12:00:00.000Z"
+    },
+    {
+      id: "botc_uncached-newer",
+      type: "bot",
+      decorations: { botId: "bot_mia" },
+      last_activity_at: "2026-01-01T11:00:00.000Z",
+      updated_at: "2026-01-01T11:30:00.000Z"
+    }
+  ];
+
+  assert.equal(
+    sessionHistory.conversationSortTime(conversations[0], messages),
+    Date.parse("2026-01-01T10:00:00.000Z")
+  );
+  assert.deepEqual(
+    sessionHistory.sessionConversationsForConversation(conversations[0], conversations, { messageCache: messages })
+      .map((conversation) => conversation.id),
+    ["botc_uncached-newer", "botc_cached-old"]
+  );
+  assert.deepEqual(
+    sessionHistory.sidebarConversations(conversations, { messageCache: messages })
+      .map((conversation) => conversation.id),
+    ["botc_uncached-newer"]
+  );
+});
+
 test("session-history derives title and new-session payload consistently", () => {
   const conversation = {
     id: "botc_s1",

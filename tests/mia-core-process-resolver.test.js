@@ -79,6 +79,19 @@ test("dev verification can start Core as a process without touching launchd", ()
   assert.match(main, /Mia Rust Core reachable at \$\{ping\.baseUrl\}/);
 });
 
+test("startDaemonService uses a timeout budget that can cover cargo cold builds", () => {
+  const main = fs.readFileSync(path.join(SRC_ROOT, "main.js"), "utf8");
+  const startBody = main.slice(
+    main.indexOf("async function startDaemonService()"),
+    main.indexOf("async function stopDaemonService()")
+  );
+
+  assert.match(main, /function coreStartTimeoutMs\(/);
+  assert.match(main, /MIA_CORE_START_TIMEOUT_MS/);
+  assert.match(startBody, /await waitForReusableCore\(/);
+  assert.doesNotMatch(startBody, /for \(let i = 0; i < 20; i \+= 1\)/);
+});
+
 function setup(overrides = {}) {
   const root = path.join(path.sep, "tmp", "mia-root");
   const runtime = {
@@ -130,6 +143,13 @@ test("dev rust-core target launches cargo run with configured port and Core-owne
   ]);
   assert.equal(r.workingDirectory, "/repo");
   assert.equal(r.usesGuiAppIdentity, false);
+});
+
+test("dev rust-core target description includes the owning Electron parent pid", () => {
+  const description = setup().describe();
+
+  assert.equal(description.kind, "rust-core");
+  assert.equal(description.parentPid, 4321);
 });
 
 test("MIA_CORE_BIN overrides dev cargo and packaged resource resolution", () => {

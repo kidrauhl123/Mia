@@ -49,7 +49,8 @@
   opacity: 1;
 }
 
-.name-with-badge-badge-lottie svg {
+.name-with-badge-badge-lottie svg,
+.name-with-badge-badge-lottie canvas {
   display: block;
   width: 100%;
   height: 100%;

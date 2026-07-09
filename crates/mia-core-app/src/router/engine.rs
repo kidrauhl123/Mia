@@ -8,6 +8,7 @@ use mia_core_api_types::{
     CodexModelListResponse, EngineCapabilitiesResponse, EngineModelCatalogResponse,
     SlashCommandItem, SlashCommandListResponse,
 };
+use mia_core_runtime::{AgentEngineInventory, AgentEngineScanOptions, AgentEngineScanner};
 use serde_json::{Value, json};
 use tokio::process::Command;
 use tokio::time::timeout;
@@ -81,6 +82,15 @@ pub async fn hermes_slash_commands(
     Json(SlashCommandListResponse {
         commands: load_hermes_slash_commands(&states).await,
     })
+}
+
+pub async fn agent_engines(State(states): State<ModuleStates>) -> Json<AgentEngineInventory> {
+    let scanner = AgentEngineScanner::real();
+    Json(
+        scanner
+            .scan(AgentEngineScanOptions::current(states.workspace_dir))
+            .await,
+    )
 }
 
 #[derive(Debug, Clone)]

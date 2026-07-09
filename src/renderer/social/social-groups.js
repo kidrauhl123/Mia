@@ -8,6 +8,9 @@
 
   let ctx = null; // set by attach()
   const pendingMemberFetches = new Set();
+  const failedMemberFetches = new Map();
+  const MEMBER_FETCH_TRANSIENT_COOLDOWN_MS = 15_000;
+  const MEMBER_FETCH_NOT_FOUND_COOLDOWN_MS = 120_000;
 
   function attach(internalCtx) {
     ctx = internalCtx;
@@ -186,6 +189,26 @@
     try { global.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
   }
 
+  function memberFetchFailureCooldownMs(errorOrResponse) {
+    const status = Number(errorOrResponse?.status || errorOrResponse?.statusCode || 0);
+    const message = String(errorOrResponse?.message || errorOrResponse?.error || errorOrResponse || "");
+    return status === 404 || /\b404\b|not found/i.test(message)
+      ? MEMBER_FETCH_NOT_FOUND_COOLDOWN_MS
+      : MEMBER_FETCH_TRANSIENT_COOLDOWN_MS;
+  }
+
+  function rememberMemberFetchFailure(conversationId, errorOrResponse) {
+    failedMemberFetches.set(conversationId, Date.now() + memberFetchFailureCooldownMs(errorOrResponse));
+  }
+
+  function isMemberFetchCoolingDown(conversationId) {
+    const retryAt = failedMemberFetches.get(conversationId) || 0;
+    if (!retryAt) return false;
+    if (retryAt > Date.now()) return true;
+    failedMemberFetches.delete(conversationId);
+    return false;
+  }
+
   // Group bubble mirrors bot chat's renderMessageHtml shape EXACTLY
   // (same .avatar div, .message-stack, .bubble with data-message-index +
   // data-message-source, message-time after bubble). This is what the
@@ -313,15 +336,20 @@
     if (!conversationId || !ctx) return;
     if (ctx.conversationMembersCache?.has(conversationId)) return;
     if (pendingMemberFetches.has(conversationId)) return;
+    if (isMemberFetchCoolingDown(conversationId)) return;
     if (!global.mia || !global.mia.social || typeof global.mia.social.getConversation !== "function") return;
     pendingMemberFetches.add(conversationId);
     try {
       const res = await global.mia.social.getConversation(conversationId);
       if (res.ok && res.data && Array.isArray(res.data.members)) {
+        failedMemberFetches.delete(conversationId);
         ctx.conversationMembersCache.set(conversationId, res.data.members);
         if (ctx.deps && typeof ctx.deps.render === "function") ctx.deps.render();
+      } else if (!res?.ok) {
+        rememberMemberFetchFailure(conversationId, res);
       }
     } catch (err) {
+      rememberMemberFetchFailure(conversationId, err);
       console.warn("[social-groups] fetchAndCacheConversationMembers failed:", conversationId, err?.message || err);
     } finally {
       pendingMemberFetches.delete(conversationId);

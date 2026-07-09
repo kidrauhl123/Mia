@@ -17,17 +17,35 @@
 //      "hover": boomerang on the closest button's mouseenter. For context-menu
 //        items, which are rebuilt (innerHTML) on every open — call init(menuEl)
 //        after rendering; init() first sweeps orphaned (detached) instances.
+//      "ambient": visible decorative icons play occasional one-shot pulses on a
+//        timer. Status/profile badges use "loop" plus the canvas renderer so
+//        they stay visible and autonomous without SVG DOM/path mutation.
 //      "loop": autoplay and loop until the element is removed. Used for startup
 //        loading states that must animate without user input.
 (function () {
   const BASE_PATH = "./assets/lottie/";
+  const DEFAULT_AMBIENT_INTERVAL_MS = 14000;
+  const DEFAULT_AMBIENT_INITIAL_DELAY_MS = 1800;
+  const AMBIENT_STAGGER_MS = 850;
 
   const reg = new Map(); // container element -> { anim, open }
   const animationDataCache = new Map();
   const animationDataPromises = new Map();
+  let ambientMountCount = 0;
   const reducedMotion = window.matchMedia
     ? window.matchMedia("(prefers-reduced-motion: reduce)")
     : { matches: false };
+  const loopObserver = typeof IntersectionObserver === "function"
+    ? new IntersectionObserver((entries) => {
+        entries.forEach((observerEntry) => {
+          const entry = reg.get(observerEntry.target);
+          if (!entry) return;
+          entry.intersecting = observerEntry.isIntersecting;
+          syncLoopPlayback(observerEntry.target, entry);
+          syncAmbientPlayback(observerEntry.target, entry);
+        });
+      })
+    : null;
 
   const lastFrame = (anim) => Math.max(0, Math.floor(anim.totalFrames) - 1);
 
@@ -141,27 +159,162 @@
     return container.getClientRects().length > 0;
   }
 
+  function hasVisibleStyle(container) {
+    if (typeof window.getComputedStyle !== "function") return true;
+    const style = window.getComputedStyle(container);
+    return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+  }
+
+  function isVisible(container) {
+    return hasLayoutBox(container) && hasVisibleStyle(container);
+  }
+
   function shouldDeferMount(container) {
     if (isInsideClosedDetailsBody(container)) return true;
     const format = String(container.dataset.lottieFormat || "").toLowerCase();
-    return format === "tgs" && !hasLayoutBox(container);
+    const triggerMode = container.dataset.lottieTrigger || "boomerang";
+    return (format === "tgs" || triggerMode === "loop" || triggerMode === "ambient") && !isVisible(container);
+  }
+
+  function shouldPlayLoop(container, entry) {
+    if (entry.triggerMode !== "loop") return false;
+    if (reducedMotion.matches) return false;
+    if (typeof document !== "undefined" && document.hidden) return false;
+    if (!isVisible(container)) return false;
+    if (entry.intersecting === false) return false;
+    return true;
+  }
+
+  function syncLoopPlayback(container, entry) {
+    if (!entry || entry.triggerMode !== "loop" || !entry.anim) return;
+    if (shouldPlayLoop(container, entry)) {
+      if (!entry.loopPlaying) {
+        entry.anim.play?.();
+        entry.loopPlaying = true;
+      }
+      return;
+    }
+    entry.anim.pause?.();
+    entry.loopPlaying = false;
+    if (reducedMotion.matches) entry.anim.goToAndStop?.(entry.restFrame, true);
+  }
+
+  function ambientIntervalMs(container) {
+    const value = Number(container?.dataset?.lottieAmbientInterval || "");
+    return Number.isFinite(value) && value > 0 ? value : DEFAULT_AMBIENT_INTERVAL_MS;
+  }
+
+  function clearAmbientTimer(entry) {
+    if (!entry?.ambientTimer) return;
+    window.clearTimeout?.(entry.ambientTimer);
+    entry.ambientTimer = 0;
+  }
+
+  function shouldPlayAmbient(container, entry) {
+    if (entry.triggerMode !== "ambient") return false;
+    if (reducedMotion.matches) return false;
+    if (typeof document !== "undefined" && document.hidden) return false;
+    if (!isVisible(container)) return false;
+    if (entry.intersecting === false) return false;
+    return true;
+  }
+
+  function playAmbientOnce(container, entry, { force = false } = {}) {
+    if (!entry || !entry.anim) return;
+    if (!force && !shouldPlayAmbient(container, entry)) return;
+    if (entry.ambientPlaying && !force) return;
+    clearAmbientTimer(entry);
+    entry.ambientPlaying = true;
+    entry.anim.setDirection?.(1);
+    if (entry.segment) {
+      entry.anim.playSegments?.(entry.segment, true);
+      return;
+    }
+    const end = lastFrame(entry.anim);
+    if (typeof entry.anim.playSegments === "function") {
+      entry.anim.playSegments([entry.restFrame, end], true);
+    } else {
+      entry.anim.goToAndPlay?.(entry.restFrame, true);
+    }
+  }
+
+  function scheduleAmbient(container, entry, delayMs) {
+    if (!entry || entry.triggerMode !== "ambient") return;
+    clearAmbientTimer(entry);
+    if (!shouldPlayAmbient(container, entry) || entry.ambientPlaying) return;
+    entry.ambientTimer = window.setTimeout(() => {
+      entry.ambientTimer = 0;
+      playAmbientOnce(container, entry);
+    }, delayMs);
+  }
+
+  function syncAmbientPlayback(container, entry) {
+    if (!entry || entry.triggerMode !== "ambient" || !entry.anim) return;
+    if (shouldPlayAmbient(container, entry)) {
+      if (!entry.ambientTimer && !entry.ambientPlaying) {
+        const initialDelay = DEFAULT_AMBIENT_INITIAL_DELAY_MS + (entry.ambientIndex % 8) * AMBIENT_STAGGER_MS;
+        scheduleAmbient(container, entry, entry.ambientStarted ? ambientIntervalMs(container) : initialDelay);
+        entry.ambientStarted = true;
+      }
+      return;
+    }
+    clearAmbientTimer(entry);
+    entry.ambientPlaying = false;
+    entry.anim.pause?.();
+    if (reducedMotion.matches) entry.anim.goToAndStop?.(entry.restFrame, true);
+  }
+
+  function onAmbientComplete(container, entry) {
+    if (!entry?.anim) return;
+    entry.ambientPlaying = false;
+    entry.anim.goToAndStop?.(entry.restFrame, true);
+    scheduleAmbient(container, entry, ambientIntervalMs(container));
+  }
+
+  function syncAllLoopPlayback() {
+    for (const [container, entry] of reg) {
+      syncLoopPlayback(container, entry);
+      syncAmbientPlayback(container, entry);
+    }
+  }
+
+  function rendererFor(container, entry) {
+    const requested = String(container?.dataset?.lottieRenderer || "").toLowerCase();
+    if (requested === "canvas" || requested === "svg" || requested === "html") return requested;
+    return entry.triggerMode === "ambient" ? "canvas" : "svg";
+  }
+
+  function rendererSettingsFor(renderer) {
+    if (renderer !== "canvas") return undefined;
+    return {
+      clearCanvas: true,
+      preserveAspectRatio: "xMidYMid meet"
+    };
   }
 
   function installAnimation(container, entry, animationConfig) {
+    const renderer = rendererFor(container, entry);
     const anim = window.lottie.loadAnimation({
       container,
-      renderer: "svg",
+      renderer,
       loop: entry.triggerMode === "loop",
-      autoplay: entry.triggerMode === "loop",
+      autoplay: false,
+      rendererSettings: rendererSettingsFor(renderer),
       ...animationConfig,
     });
     entry.anim = anim;
+    if (entry.triggerMode === "loop" || entry.triggerMode === "ambient") loopObserver?.observe?.(container);
 
     anim.addEventListener("DOMLoaded", () => {
       // Drop the static fallback <svg> shipped in the markup; lottie appended its own.
       const fallback = container.querySelector("svg:first-child");
       if (fallback && container.children.length > 1) fallback.remove();
-      if (entry.triggerMode !== "loop") {
+      if (entry.triggerMode === "loop") {
+        syncLoopPlayback(container, entry);
+      } else if (entry.triggerMode === "ambient") {
+        anim.goToAndStop(entry.restFrame, true);
+        syncAmbientPlayback(container, entry);
+      } else {
         anim.goToAndStop(entry.restFrame, true); // idle / closed state
       }
     });
@@ -171,6 +324,8 @@
       const button = container.closest("button");
       const event = entry.triggerMode === "hover" ? "mouseenter" : "click";
       if (button) button.addEventListener(event, () => trigger(entry));
+    } else if (entry.triggerMode === "ambient") {
+      anim.addEventListener("complete", () => onAmbientComplete(container, entry));
     }
     // "toggle": owner calls setOpen(); no auto listeners.
   }
@@ -187,7 +342,20 @@
     const seg = container.dataset.lottiePlay
       ? container.dataset.lottiePlay.split(",").map(Number)
       : null;
-    const entry = { anim: null, open: false, restFrame, segment: seg, triggerMode };
+    const entry = {
+      anim: null,
+      open: false,
+      restFrame,
+      segment: seg,
+      triggerMode,
+      intersecting: null,
+      loopPlaying: false,
+      ambientTimer: 0,
+      ambientPlaying: false,
+      ambientStarted: false,
+      ambientIndex: ambientMountCount
+    };
+    ambientMountCount += triggerMode === "ambient" ? 1 : 0;
     reg.set(container, entry);
     const format = String(container.dataset.lottieFormat || "").toLowerCase();
     if (format === "tgs") {
@@ -214,6 +382,8 @@
   function sweepOrphans() {
     for (const [container, entry] of reg) {
       if (!container.isConnected) {
+        loopObserver?.unobserve?.(container);
+        clearAmbientTimer(entry);
         entry.anim?.destroy?.();
         reg.delete(container);
       }
@@ -238,6 +408,8 @@
   function destroy(root) {
     for (const [container, entry] of reg) {
       if (!root || container === root || (root.contains && root.contains(container))) {
+        loopObserver?.unobserve?.(container);
+        clearAmbientTimer(entry);
         entry.anim?.destroy?.();
         reg.delete(container);
       }
@@ -249,6 +421,7 @@
       const details = event.target;
       if (details?.tagName === "DETAILS" && details.open) initSoon(details);
     }, true);
+    document.addEventListener("visibilitychange", syncAllLoopPlayback);
   }
 
   window.miaLottieIcons = { init, setOpen, destroy };

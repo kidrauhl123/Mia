@@ -22,7 +22,7 @@ use super::conversation::{
     plan_agent_session_skills, run_conversation_utility_turn, send_conversation_message,
 };
 use super::engine::{
-    codex_models, engine_capabilities, engine_model_catalog, hermes_slash_commands,
+    agent_engines, codex_models, engine_capabilities, engine_model_catalog, hermes_slash_commands,
 };
 use super::health::health_check;
 use super::mcp::{
@@ -100,6 +100,7 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
         .route("/api/engines/model-catalog", get(engine_model_catalog))
         .route("/api/engines/codex/models", get(codex_models))
         .route("/api/engines/capabilities", get(engine_capabilities))
+        .route("/api/engines/agents", get(agent_engines))
         .route("/api/engines/slash-commands", get(hermes_slash_commands))
         .route("/api/agents/commands/list", post(list_agent_commands))
         .route("/api/agents/commands/execute", post(execute_agent_command))

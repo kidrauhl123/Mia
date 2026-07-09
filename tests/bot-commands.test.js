@@ -326,6 +326,67 @@ test("saveBot preserves explicit capabilities when creating desktop-runtime bots
   assert.deepEqual(calls[0][2].capabilities.enabledSkills, ["mia-official:paper-research"]);
 });
 
+test("saveBot preserves submitted status badge when older cloud responses omit it", async () => {
+  const calls = [];
+  const badge = { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰" };
+  const state = {
+    runtime: {
+      cloud: { enabled: true },
+      localDevice: { id: "mac-1", name: "Mac" }
+    }
+  };
+  const social = {
+    moduleState: { bots: [] },
+    upsertBotConversation(conversation) {
+      return conversation;
+    }
+  };
+  const api = {
+    social: {
+      async saveBotIdentity(key, body) {
+        calls.push(["identity", key, body]);
+        return {
+          ok: true,
+          data: {
+            bot: {
+              id: key || "bot_legacy_cloud",
+              key: key || "bot_legacy_cloud",
+              name: body.name
+            }
+          }
+        };
+      },
+      async saveBotRuntime(key, body) {
+        calls.push(["runtime", key, body]);
+        return { ok: true, data: { binding: { botId: key, ...body } } };
+      },
+      async ensureBotSessionConversation(key, body) {
+        calls.push(["conversation", key, body]);
+        return { ok: true, data: { conversation: { id: `botc_${key}`, type: "bot" } } };
+      }
+    }
+  };
+
+  const result = await commands.saveBot({
+    state,
+    api,
+    social,
+    runtimeKind: "desktop-local",
+    isCreate: true,
+    bot: {
+      name: "Mia",
+      statusBadge: badge,
+      agentEngine: "hermes",
+      targetDeviceId: "mac-1",
+      targetDeviceName: "Mac"
+    }
+  });
+
+  assert.deepEqual(calls[0][2].statusBadge, badge);
+  assert.deepEqual(result.bot.statusBadge, badge);
+  assert.deepEqual(social.moduleState.bots[0].statusBadge, badge);
+});
+
 test("saveBot retargets cloud-sourced desktop bots through cloud runtime binding only", async () => {
   const calls = [];
   const state = {
