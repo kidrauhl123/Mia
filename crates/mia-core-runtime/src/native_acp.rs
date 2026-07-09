@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::{
-    CancelNotification, ContentBlock, Implementation, InitializeRequest, NewSessionRequest,
-    PromptRequest, ProtocolVersion, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, SessionId, SessionNotification, SessionUpdate, StopReason,
-    TextContent,
+    AgentCapabilities, CancelNotification, ContentBlock, EnvVariable, Implementation,
+    InitializeRequest, McpServer, NewSessionRequest, PromptRequest, ProtocolVersion,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    ResumeSessionRequest, SessionId, SessionNotification, SessionUpdate, StopReason, TextContent,
 };
 use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectionTo, JsonRpcRequest, on_receive_notification,
@@ -393,6 +393,70 @@ fn absolute_workspace_dir(workspace_dir: &str) -> Result<PathBuf> {
     }
 }
 
+fn resumable_session_id(plan: &RuntimeTurnPlan) -> Option<SessionId> {
+    plan.runtime_session
+        .resume_session_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| SessionId::new(value.to_string()))
+}
+
+fn capabilities_support_session_resume(capabilities: &AgentCapabilities) -> bool {
+    capabilities.session_capabilities.resume.is_some()
+}
+
+fn is_stale_session_error(error: &anyhow::Error) -> bool {
+    let text = error.to_string().to_lowercase();
+    text.contains("session") && (text.contains("not found") || text.contains("not_found"))
+}
+
+fn mcp_servers_from_plan(plan: &RuntimeTurnPlan) -> Vec<McpServer> {
+    let Some(servers) = plan
+        .mcp_servers
+        .get("mcpServers")
+        .or_else(|| plan.mcp_servers.get("mcp_servers"))
+        .and_then(Value::as_object)
+    else {
+        return Vec::new();
+    };
+    servers
+        .iter()
+        .filter_map(|(name, server)| normalize_mcp_server(name, server))
+        .collect()
+}
+
+fn normalize_mcp_server(name: &str, server: &Value) -> Option<McpServer> {
+    let mut value = server.clone();
+    let object = value.as_object_mut()?;
+    object
+        .entry("name".to_string())
+        .or_insert_with(|| Value::String(name.to_string()));
+    if let Some(env) = object.get("env").cloned() {
+        object.insert("env".to_string(), normalize_mcp_env(env));
+    }
+    serde_json::from_value(value).ok()
+}
+
+fn normalize_mcp_env(value: Value) -> Value {
+    match value {
+        Value::Object(env) => Value::Array(
+            env.into_iter()
+                .filter_map(|(name, value)| {
+                    let value = match value {
+                        Value::String(text) => text,
+                        Value::Null => return None,
+                        other => other.to_string(),
+                    };
+                    Some(json!(EnvVariable::new(name, value)))
+                })
+                .collect(),
+        ),
+        Value::Array(_) => value,
+        _ => Value::Array(Vec::new()),
+    }
+}
+
 async fn probe_native_acp_command_inner(
     command: RuntimeCommand,
     environment: BTreeMap<String, String>,
@@ -465,7 +529,7 @@ async fn probe_native_acp_command_inner(
             .await
             .map_err(|error| (NativeAcpProbeErrorKind::Initialize, error.to_string()))?;
         let session = protocol
-            .new_session(workspace_dir)
+            .new_session(workspace_dir, Vec::new())
             .await
             .map_err(|error| (NativeAcpProbeErrorKind::NewSession, error.to_string()))?;
         let accumulated_text = Arc::new(StdMutex::new(String::new()));
@@ -587,7 +651,7 @@ impl NativeAcpTask {
         sink: RuntimeEventSink,
         cancellation: Option<RuntimeCancellation>,
     ) -> Result<RuntimeExecutionResult> {
-        let session_id = self.ensure_session().await?;
+        let session_id = self.ensure_session(&plan).await?;
         let session_key = session_id.to_string();
         let accumulated_text = Arc::new(StdMutex::new(String::new()));
         self.protocol.set_active_turn(Some(ActiveTurnContext {
@@ -709,13 +773,32 @@ impl NativeAcpTask {
         Ok(result)
     }
 
-    async fn ensure_session(&mut self) -> Result<SessionId> {
+    async fn ensure_session(&mut self, plan: &RuntimeTurnPlan) -> Result<SessionId> {
         if let Some(session_id) = &self.session_id {
             return Ok(session_id.clone());
         }
+        let mcp_servers = mcp_servers_from_plan(plan);
+        if let Some(session_id) = resumable_session_id(plan)
+            && self.protocol.supports_session_resume()
+        {
+            match self
+                .protocol
+                .resume_session(session_id.clone(), self.workspace_dir.clone(), mcp_servers.clone())
+                .await
+            {
+                Ok(_) => {
+                    self.session_id = Some(session_id.clone());
+                    return Ok(session_id);
+                }
+                Err(error) if is_stale_session_error(&error) => {
+                    tracing::debug!(?error, "ACP resume session failed; opening a new session");
+                }
+                Err(error) => return Err(error),
+            }
+        }
         let response = self
             .protocol
-            .new_session(self.workspace_dir.clone())
+            .new_session(self.workspace_dir.clone(), mcp_servers)
             .await?;
         let session_id = response.session_id;
         self.session_id = Some(session_id.clone());
@@ -729,6 +812,7 @@ struct AcpProtocol {
     shutdown_tx: Option<oneshot::Sender<()>>,
     alive: Arc<AtomicBool>,
     active_turn: SharedActiveTurn,
+    agent_capabilities: AgentCapabilities,
 }
 
 type SharedActiveTurn = Arc<StdMutex<Option<ActiveTurnContext>>>;
@@ -746,7 +830,7 @@ impl AcpProtocol {
     async fn connect(stdin: ChildStdin, stdout: ChildStdout) -> Result<Self> {
         let alive = Arc::new(AtomicBool::new(true));
         let active_turn = Arc::new(StdMutex::new(None));
-        let (init_tx, init_rx) = oneshot::channel::<Result<(), String>>();
+        let (init_tx, init_rx) = oneshot::channel::<Result<AgentCapabilities, String>>();
         let (ready_tx, ready_rx) = oneshot::channel::<ConnectionTo<Agent>>();
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
@@ -760,7 +844,7 @@ impl AcpProtocol {
             alive.clone(),
         ));
 
-        tokio::time::timeout(ACP_INIT_TIMEOUT, init_rx)
+        let agent_capabilities = tokio::time::timeout(ACP_INIT_TIMEOUT, init_rx)
             .await
             .context("ACP initialize timed out")?
             .context("ACP initialize channel closed")?
@@ -774,6 +858,7 @@ impl AcpProtocol {
             shutdown_tx: Some(shutdown_tx),
             alive,
             active_turn,
+            agent_capabilities,
         })
     }
 
@@ -785,11 +870,27 @@ impl AcpProtocol {
         self.alive.load(Ordering::Acquire)
     }
 
+    fn supports_session_resume(&self) -> bool {
+        capabilities_support_session_resume(&self.agent_capabilities)
+    }
+
     async fn new_session(
         &self,
         cwd: PathBuf,
+        mcp_servers: Vec<McpServer>,
     ) -> Result<agent_client_protocol::schema::NewSessionResponse> {
-        self.send_request(NewSessionRequest::new(cwd)).await
+        self.send_request(NewSessionRequest::new(cwd).mcp_servers(mcp_servers))
+            .await
+    }
+
+    async fn resume_session(
+        &self,
+        session_id: SessionId,
+        cwd: PathBuf,
+        mcp_servers: Vec<McpServer>,
+    ) -> Result<agent_client_protocol::schema::ResumeSessionResponse> {
+        self.send_request(ResumeSessionRequest::new(session_id, cwd).mcp_servers(mcp_servers))
+            .await
     }
 
     async fn prompt(
@@ -840,7 +941,7 @@ async fn run_sdk_background(
     stdin: ChildStdin,
     stdout: ChildStdout,
     active_turn: SharedActiveTurn,
-    init_tx: oneshot::Sender<Result<(), String>>,
+    init_tx: oneshot::Sender<Result<AgentCapabilities, String>>,
     ready_tx: oneshot::Sender<ConnectionTo<Agent>>,
     shutdown_rx: oneshot::Receiver<()>,
     alive: Arc<AtomicBool>,
@@ -876,9 +977,9 @@ async fn run_sdk_background(
             let initialize = InitializeRequest::new(ProtocolVersion::LATEST)
                 .client_info(Implementation::new(ACP_CLIENT_NAME, ACP_CLIENT_VERSION));
             match connection.send_request(initialize).block_task().await {
-                Ok(_response) => {
+                Ok(response) => {
                     if let Some(tx) = init_tx.take() {
-                        let _ = tx.send(Ok(()));
+                        let _ = tx.send(Ok(response.agent_capabilities));
                     }
                 }
                 Err(error) => {
@@ -1079,8 +1180,44 @@ impl NativeAcpBackend for UnavailableNativeAcpBackend {
 mod tests {
     use super::*;
     use agent_client_protocol::schema::{
-        ContentBlock, ContentChunk, SessionNotification, SessionUpdate, TextContent,
+        ContentBlock, ContentChunk, SessionCapabilities, SessionNotification,
+        SessionResumeCapabilities, SessionUpdate, TextContent,
     };
+    use crate::{RuntimeProtocol, RuntimeSendMessage, RuntimeSessionState};
+
+    fn native_acp_test_plan() -> RuntimeTurnPlan {
+        RuntimeTurnPlan {
+            turn_id: "turn_test".into(),
+            conversation_id: "conv_test".into(),
+            bot_id: Some("bot_test".into()),
+            engine: "codex".into(),
+            workspace_dir: ".".into(),
+            protocol: RuntimeProtocol::NativeAcp,
+            command: Some(RuntimeCommand {
+                program: "npx".into(),
+                args: vec![],
+            }),
+            environment: BTreeMap::new(),
+            provider: json!({}),
+            mcp_servers: json!({}),
+            selected_skill_ids: vec![],
+            runtime_session: RuntimeSessionState {
+                conversation_id: "conv_test".into(),
+                engine: "codex".into(),
+                session_key: "codex:conv_test".into(),
+                resume_session_key: None,
+                resumed: false,
+            },
+            send_message: RuntimeSendMessage {
+                content: "hello".into(),
+                msg_id: "msg_test".into(),
+                turn_id: Some("turn_test".into()),
+                files: vec![],
+                inject_skills: vec![],
+            },
+            mock_response: None,
+        }
+    }
 
     #[test]
     fn native_acp_translates_agent_message_chunk_to_runtime_stdout_delta() {
@@ -1103,6 +1240,68 @@ mod tests {
         assert_eq!(events[0].data["event"]["type"], "message.delta");
         assert_eq!(events[0].data["event"]["text"], "你");
         assert_eq!(events[0].data["event"]["sessionId"], "acp-session-1");
+    }
+
+    #[test]
+    fn native_acp_detects_resume_capability_from_initialize_response() {
+        let capabilities = AgentCapabilities::new().session_capabilities(
+            SessionCapabilities::new().resume(SessionResumeCapabilities::new()),
+        );
+
+        assert!(capabilities_support_session_resume(&capabilities));
+        assert!(!capabilities_support_session_resume(&AgentCapabilities::new()));
+    }
+
+    #[test]
+    fn native_acp_uses_only_persisted_resume_session_key_for_resume() {
+        let mut plan = native_acp_test_plan();
+        assert_eq!(resumable_session_id(&plan), None);
+
+        plan.runtime_session.resume_session_key = Some(" acp-session-1 ".into());
+
+        assert_eq!(
+            resumable_session_id(&plan).map(|session_id| session_id.to_string()),
+            Some("acp-session-1".into())
+        );
+    }
+
+    #[test]
+    fn native_acp_normalizes_core_mcp_server_map_for_acp_requests() {
+        let mut plan = native_acp_test_plan();
+        plan.mcp_servers = json!({
+            "mcpServers": {
+                "playwright": {
+                    "command": "npx",
+                    "args": ["-y", "@playwright/mcp"],
+                    "env": {
+                        "TOKEN": "secret",
+                        "EMPTY": null
+                    }
+                }
+            }
+        });
+
+        let servers = mcp_servers_from_plan(&plan);
+
+        assert_eq!(servers.len(), 1);
+        match &servers[0] {
+            McpServer::Stdio(server) => {
+                assert_eq!(server.name, "playwright");
+                assert_eq!(server.command.to_string_lossy(), "npx");
+                assert_eq!(server.args, vec!["-y", "@playwright/mcp"]);
+                assert_eq!(server.env.len(), 1);
+                assert_eq!(server.env[0].name, "TOKEN");
+                assert_eq!(server.env[0].value, "secret");
+            }
+            other => panic!("expected stdio MCP server, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn native_acp_stale_session_detection_is_narrow() {
+        assert!(is_stale_session_error(&anyhow!("session not found")));
+        assert!(is_stale_session_error(&anyhow!("SESSION_NOT_FOUND")));
+        assert!(!is_stale_session_error(&anyhow!("permission denied")));
     }
 
     #[test]

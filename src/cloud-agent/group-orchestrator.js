@@ -6,16 +6,10 @@ const { normalizeCloudClaudeCodeModel } = require("./cloud-claude-code-model.js"
 const BOT_MEMBER_KIND = "bot";
 
 const DEFAULT_BOT_DISPATCH_PROMPT = [
-  "你正在协调一个多 Bot 群聊。你的任务：根据最近的群上下文，决定接下来该让哪个或哪几个 Bot 发言。",
+  "你正在协调一个多 Bot 群聊。你的任务：只根据当前用户消息，决定接下来该让哪个或哪几个 Bot 发言。",
   "",
   "群成员（不含用户自己）：",
   "{{members}}",
-  "",
-  "群摘要：",
-  "{{summary}}",
-  "",
-  "最近 6 条消息：",
-  "{{recent}}",
   "",
   "用户刚发了：",
   "{{userMessage}}",
@@ -34,23 +28,12 @@ const ORCHESTRATOR_BOT = Object.freeze({
   personaText: ""
 });
 
-function normalizeMessages(result) {
-  if (Array.isArray(result)) return result;
-  if (Array.isArray(result?.messages)) return result.messages;
-  return [];
-}
-
 function enrichUserMembers(members, getUserPublic) {
   return (Array.isArray(members) ? members : []).map((member) => {
     if (member?.member_kind !== MemberKind.User || member.user) return member;
     const user = getUserPublic(member.member_ref);
     return user ? { ...member, user } : member;
   });
-}
-
-function recentMessagesForDispatch(messagesStore, conversationId, message) {
-  const sinceSeq = Math.max(0, Number(message?.seq || 0) - 6);
-  return normalizeMessages(messagesStore.listMessagesSince(conversationId, sinceSeq, 6));
 }
 
 function botForMember(member, bots) {
@@ -71,15 +54,6 @@ function memberDescriptors(botMembers, bots) {
       name: botDisplayName(bot) || member.bot_name || member.member_ref
     };
   });
-}
-
-function botNamesById(botMembers, bots) {
-  const names = {};
-  for (const member of botMembers) {
-    const bot = botForMember(member, bots);
-    names[member.member_ref] = botDisplayName(bot) || member.bot_name || member.member_ref;
-  }
-  return names;
 }
 
 function uniqueBotsForMembers(botsStore, botMembers) {
@@ -141,21 +115,9 @@ function formatDispatchMembers(members) {
   return members.map((member) => `- ${member.name} (id=${member.id})`).join("\n");
 }
 
-function formatDispatchMessages(messages, botNamesById = {}) {
-  return (Array.isArray(messages) ? messages : []).map((message) => {
-    if (message.sender_kind === MemberKind.User) {
-      return `${message.sender_username || message.sender_ref || "用户"}: ${message.body_md || ""}`;
-    }
-    const name = botNamesById[message.sender_ref] || message.sender_ref || "Bot";
-    return `${name}: ${message.body_md || ""}`;
-  }).join("\n");
-}
-
 function buildBotDispatchPrompt(template, ctx) {
   return fillTemplate(template || DEFAULT_BOT_DISPATCH_PROMPT, {
     members: formatDispatchMembers(ctx.members || []),
-    summary: ctx.summary || "（暂无摘要）",
-    recent: formatDispatchMessages(ctx.recentMessages, ctx.botNamesById || {}),
     userMessage: ctx.userMessage || ""
   });
 }
@@ -232,7 +194,7 @@ function createGroupOrchestrator({
 }) {
   const conductorClient = agentClient;
 
-  async function runConductor({ userId, conversationId, conversation, message, botMembers, bots, recentMessages }) {
+  async function runConductor({ userId, conversationId, conversation, message, botMembers, bots }) {
     const prompts = await loadPrompts().catch((error) => {
       log(`[group-orchestrator] load conductor prompts failed: ${error?.message || error}`);
       return null;
@@ -240,9 +202,6 @@ function createGroupOrchestrator({
     const template = prompts?.dispatch || DEFAULT_BOT_DISPATCH_PROMPT;
     const dispatchPrompt = buildBotDispatchPrompt(template, {
       members: memberDescriptors(botMembers, bots),
-      summary: conversation.contextCard?.summary || conversation.decorations?.pinnedGoal || null,
-      recentMessages,
-      botNamesById: botNamesById(botMembers, bots),
       userMessage: message.body_md || ""
     });
     try {
@@ -275,8 +234,7 @@ function createGroupOrchestrator({
     const members = enrichUserMembers(socialStore.listConversationMembers(conversationId), getUserPublic);
     const botMembers = members.filter((member) => member.member_kind === BOT_MEMBER_KIND);
     const bots = uniqueBotsForMembers(botsStore, botMembers);
-    const recentMessages = recentMessagesForDispatch(messagesStore, conversationId, message);
-    const context = { members, bots, recentMessages };
+    const context = { members, bots, recentMessages: [] };
 
     if (!botMembers.length) return { chosen: [], ...context };
 
@@ -299,8 +257,7 @@ function createGroupOrchestrator({
       conversation,
       message,
       botMembers,
-      bots,
-      recentMessages
+      bots
     });
     const chosenByLlm = pickMembers(botMembers, spoken);
     if (chosenByLlm.length) return { chosen: chosenByLlm, ...context };

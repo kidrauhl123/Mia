@@ -165,6 +165,12 @@ try {
 } catch {
   ({ createCloudClaudeCodeClient } = require("./src/cloud-agent/claude-code-sandbox-client.js"));
 }
+let createAgentSessionStore = null;
+try {
+  ({ createAgentSessionStore } = require("../src/main/agent-session-store.js"));
+} catch {
+  ({ createAgentSessionStore } = require("./src/main/agent-session-store.js"));
+}
 let createModelBillingStore = null;
 try {
   ({ createModelBillingStore } = require("../src/cloud/model-billing-store.js"));
@@ -2769,7 +2775,6 @@ function broadcastBotInvocations(context, conversationId, message, body, invoked
   const requested = new Set(mentionedBotIds(body));
   if (!requested.size) return;
   const members = context.socialStore.listConversationMembers(conversationId);
-  const recentMessages = context.messagesStore.listMessagesSince(conversationId, 0, 20);
   for (const member of members) {
     if (member.member_kind !== "bot" || !member.owner_id || !requested.has(member.member_ref)) continue;
     const bot = context.botsStore.getBot(member.member_ref);
@@ -2796,7 +2801,7 @@ function broadcastBotInvocations(context, conversationId, message, body, invoked
       targetDeviceId,
       invokedBy,
       triggeringMessage: message,
-      recentMessages,
+      recentMessages: [],
       members
     });
   }
@@ -2836,7 +2841,7 @@ function broadcastBotDmDesktopInvocationFallback(context, conversationId, messag
     targetDeviceId,
     invokedBy,
     triggeringMessage: message,
-    recentMessages: context.messagesStore.listMessagesSince(conversationId, 0, 20),
+    recentMessages: [],
     members
   });
   return true;
@@ -4606,6 +4611,7 @@ function createMiaCloudServer(options = {}) {
     memoryStore: null,
     runtimeBindingsStore: null,
     cloudAgentRunsStore: null,
+    agentSessionStore: null,
     cloudAgentWorkerManager: null,
     cloudAgentClient: null,
     cloudAgentDispatcher: null,
@@ -4644,6 +4650,12 @@ function createMiaCloudServer(options = {}) {
       : null);
   context.runtimeBindingsStore = createRuntimeBindingsStore(context.cloudStore.getDb());
   context.cloudAgentRunsStore = createCloudAgentRunsStore(context.cloudStore.getDb());
+  context.agentSessionStore = createAgentSessionStore
+    ? createAgentSessionStore({
+      runtimePaths: () => ({ agentSessions: path.join(context.cloudStore.dataDir, "agent-sessions.json") }),
+      normalizeBotAgentEngine: (engine) => String(engine || "").trim()
+    })
+    : null;
   context.modelBillingStore = createModelBillingStore ? createModelBillingStore(context.cloudStore.getDb()) : null;
   context.modelGatewayStore = modelGatewayStoreModule?.createModelGatewayStore
     ? modelGatewayStoreModule.createModelGatewayStore(context.cloudStore.getDb())
@@ -4694,6 +4706,25 @@ function createMiaCloudServer(options = {}) {
       broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload),
       broadcastTransientEvent: (userId, payload) => broadcastTransientEvent(context.eventHub, userId, payload),
       getUserPublic: (userId) => context.cloudStore.getUserPublic(userId),
+      loadNativeSessionId: (descriptor = {}) => context.agentSessionStore?.getId(
+        descriptor.engineId,
+        descriptor.botId,
+        descriptor.conversationId,
+        descriptor.workspacePath
+      ) || "",
+      saveNativeSessionId: (descriptor = {}, nativeSessionId = "") => context.agentSessionStore?.setId(
+        descriptor.engineId,
+        descriptor.botId,
+        descriptor.conversationId,
+        nativeSessionId,
+        descriptor.workspacePath
+      ),
+      deleteNativeSessionId: (descriptor = {}) => context.agentSessionStore?.deleteEntry(
+        descriptor.engineId,
+        descriptor.botId,
+        descriptor.conversationId,
+        descriptor.workspacePath
+      ),
       listBridgeDevices: (userId, options = {}) => bridgeDevices(context.bridgeHub, userId, {
         includeOffline: options.includeOffline,
         cloudStore: context.cloudStore

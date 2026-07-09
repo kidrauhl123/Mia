@@ -348,6 +348,104 @@ async fn conversation_service_uses_desktop_local_runtime_binding_for_bot_turns()
 }
 
 #[tokio::test]
+async fn conversation_service_formal_turn_payload_contains_current_user_message_only() {
+    let db = init_database_memory().await.unwrap();
+    sqlx::query(
+        "INSERT INTO bots (id, display_name, avatar_json, capability_json, identity_json, created_at, updated_at)
+         VALUES ('bot_codex', 'Codex', '{}', '{}', '{}', 1, 1)",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO bot_runtime_bindings (bot_id, runtime_kind, binding_json, updated_at)
+         VALUES ('bot_codex', 'desktop-local', ?, 1)",
+    )
+    .bind(
+        json!({
+            "runtimeKind": "desktop-local",
+            "agentEngine": "codex",
+            "config": {
+                "agentEngine": "codex",
+                "model": "gpt-5-codex"
+            }
+        })
+        .to_string(),
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    let service = ConversationService::new(db.pool().clone());
+    let created = service
+        .create_conversation(CreateConversationRequest {
+            kind: "direct".to_string(),
+            title: "Codex".to_string(),
+            bot_id: Some("bot_codex".to_string()),
+            metadata: json!({}),
+        })
+        .await
+        .unwrap();
+    let first = service
+        .start_user_turn(
+            &created.conversation.id,
+            SendConversationMessageRequest {
+                body: "previous user question".to_string(),
+                attachments: json!([]),
+                selected_skill_ids: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    service
+        .complete_runtime_turn(
+            &created.conversation.id,
+            &first.response.turn_id,
+            "previous assistant answer",
+            json!({
+                "runtimeSession": {
+                    "conversationId": created.conversation.id,
+                    "engine": "codex",
+                    "sessionKey": "native-session-1",
+                    "resumeSessionKey": "native-session-1",
+                    "resumed": false
+                }
+            }),
+        )
+        .await
+        .unwrap();
+
+    let second = service
+        .start_user_turn(
+            &created.conversation.id,
+            SendConversationMessageRequest {
+                body: "current user question".to_string(),
+                attachments: json!([]),
+                selected_skill_ids: vec![],
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(second.runtime_plan.protocol, mia_core_runtime::RuntimeProtocol::NativeAcp);
+    assert_eq!(second.runtime_plan.send_message.content, "current user question");
+    assert_eq!(
+        second.runtime_plan.runtime_session.resume_session_key.as_deref(),
+        Some("native-session-1")
+    );
+    assert!(!second
+        .runtime_plan
+        .send_message
+        .content
+        .contains("previous user question"));
+    assert!(!second
+        .runtime_plan
+        .send_message
+        .content
+        .contains("previous assistant answer"));
+}
+
+#[tokio::test]
 async fn conversation_service_plans_utility_turn_with_core_owned_runtime_resolution() {
     let db = init_database_memory().await.unwrap();
     sqlx::query(

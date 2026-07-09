@@ -2,18 +2,8 @@
 
 const { MemberKind, SenderKind } = require("./conversation-kinds.js");
 
-const HISTORY_MESSAGE_LIMIT = 80;
-const HISTORY_MESSAGE_CHAR_LIMIT = 4000;
-const HISTORY_TOTAL_CHAR_LIMIT = 24000;
-
 function cleanText(value = "") {
   return String(value || "").trim();
-}
-
-function truncateText(text, limit = HISTORY_MESSAGE_CHAR_LIMIT) {
-  const value = cleanText(text);
-  if (value.length <= limit) return value;
-  return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
 function senderTag(message) {
@@ -31,27 +21,6 @@ function conversationTypeFromPayload(payload = {}) {
   if (id.startsWith("dm:")) return "dm";
   if (id.startsWith("botc_") || id.startsWith("bot:")) return "bot";
   return "";
-}
-
-function isGeneratedFailure(content = "") {
-  const text = cleanText(content);
-  return /^我这次没能生成回复：/.test(text)
-    || /^模型调用失败：/.test(text)
-    || /^[^\s]+ 当前离线，打开该设备上的 Mia 后再试。$/.test(text);
-}
-
-function historyRoleFor(message, botId) {
-  const senderKind = cleanText(message?.sender_kind || message?.senderKind);
-  const senderRef = cleanText(message?.sender_ref || message?.senderRef);
-  if (senderKind === SenderKind.System || senderKind === "system") return "omit";
-  if ((senderKind === SenderKind.Bot || senderKind === "bot") && senderRef === cleanText(botId)) return "assistant";
-  return "user";
-}
-
-function messagePromptContent(message, groupConversation) {
-  const body = truncateText(message?.body_md || message?.bodyMd || message?.content || "");
-  if (!body) return "";
-  return groupConversation ? `[${senderTag(message)}] ${body}` : body;
 }
 
 function safeJsonArray(input) {
@@ -96,39 +65,6 @@ function botSnapshotFor(payload = {}, bots = []) {
   };
 }
 
-function buildTranscript({ recentMessages = [], triggeringMessage = {}, groupConversation = false, botId = "" } = {}) {
-  const triggerId = cleanText(triggeringMessage.id);
-  const rows = (Array.isArray(recentMessages) ? recentMessages : [])
-    .filter((message) => {
-      if (!message) return false;
-      if (triggerId && cleanText(message.id) === triggerId) return false;
-      if (isGeneratedFailure(message.body_md || message.bodyMd || message.content)) return false;
-      return true;
-    })
-    .map((message) => ({
-      role: historyRoleFor(message, botId),
-      content: messagePromptContent(message, groupConversation),
-      messageId: cleanText(message.id),
-      speaker: {
-        kind: cleanText(message.sender_kind || message.senderKind),
-        ref: cleanText(message.sender_ref || message.senderRef)
-      }
-    }))
-    .filter((message) => message.role !== "omit" && message.content)
-    .slice(-HISTORY_MESSAGE_LIMIT);
-
-  const selected = [];
-  let total = 0;
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const message = rows[index];
-    const nextTotal = total + message.content.length;
-    if (selected.length && nextTotal > HISTORY_TOTAL_CHAR_LIMIT) break;
-    selected.push(message);
-    total = nextTotal;
-  }
-  return selected.reverse();
-}
-
 function buildBotTurnContext(payload = {}, options = {}) {
   const conversationId = cleanText(payload.conversationId);
   const botId = cleanText(payload.botId);
@@ -148,12 +84,7 @@ function buildBotTurnContext(payload = {}, options = {}) {
       dedupKey: `${triggerId}:${botId}`,
       turnId: triggeringMessage.turn_id || triggeringMessage.turnId || null
     },
-    transcript: buildTranscript({
-      recentMessages: payload.recentMessages,
-      triggeringMessage,
-      groupConversation,
-      botId
-    }),
+    transcript: [],
     currentUser: {
       content: triggerPrompt(triggeringMessage),
       attachments: messageAttachments(triggeringMessage),
@@ -172,6 +103,5 @@ function buildBotTurnContext(payload = {}, options = {}) {
 module.exports = {
   buildBotTurnContext,
   conversationTypeFromPayload,
-  historyRoleFor,
   senderTag
 };

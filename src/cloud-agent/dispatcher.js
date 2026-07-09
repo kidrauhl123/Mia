@@ -24,7 +24,6 @@ const { normalizeCloudClaudeCodeModel } = require("./cloud-claude-code-model.js"
 
 const BOT_MEMBER_KIND = "bot";
 const BOT_SENDER_KIND = "bot";
-const DESKTOP_INVOCATION_HISTORY_LIMIT = 200;
 const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "Hermes"];
 const MAX_SKILL_LOAD_ROUNDS = 3;
 const CLOUD_CLAUDE_CODE_RUNTIME_KIND = "cloud-claude-code";
@@ -302,12 +301,6 @@ function isCloudRuntimeKind(value = "") {
   return runtimeKind === CLOUD_CLAUDE_CODE_RUNTIME_KIND;
 }
 
-function messageRole(row) {
-  if (row.sender_kind === BOT_SENDER_KIND) return "assistant";
-  if (row.sender_kind === "system") return "system";
-  return "user";
-}
-
 function runtimeRunPrefixForClient(agentClient = {}) {
   const explicit = String(agentClient.runtimeRunPrefix || "").trim().replace(/:$/, "");
   if (explicit) return explicit;
@@ -357,6 +350,9 @@ function createCloudAgentDispatcher(deps = {}) {
   const skillsCatalog = Array.isArray(deps.skillsCatalog) ? deps.skillsCatalog : [];
   const listBridgeDevices = typeof deps.listBridgeDevices === "function" ? deps.listBridgeDevices : null;
   const log = typeof deps.log === "function" ? deps.log : () => {};
+  const loadNativeSessionId = typeof deps.loadNativeSessionId === "function" ? deps.loadNativeSessionId : () => "";
+  const saveNativeSessionId = typeof deps.saveNativeSessionId === "function" ? deps.saveNativeSessionId : () => {};
+  const deleteNativeSessionId = typeof deps.deleteNativeSessionId === "function" ? deps.deleteNativeSessionId : () => {};
   const pending = new Set();
   const groupOrchestrator = createGroupOrchestrator({
     socialStore,
@@ -368,31 +364,6 @@ function createCloudAgentDispatcher(deps = {}) {
     getUserPublic,
     log
   });
-
-  function recentMessagesForDesktopInvocation(conversationId) {
-    return messagesStore.listMessagesSince(conversationId, 0, DESKTOP_INVOCATION_HISTORY_LIMIT);
-  }
-
-  function conversationSeedMessages(conversationId, message = {}) {
-    const triggerSeq = Number(message?.seq || 0);
-    const triggerId = String(message?.id || "").trim();
-    return messagesStore.listMessagesSince(conversationId, 0, DESKTOP_INVOCATION_HISTORY_LIMIT)
-      .filter((row) => {
-        const rowSeq = Number(row?.seq || 0);
-        if (triggerSeq > 0) return rowSeq > 0 && rowSeq < triggerSeq;
-        if (triggerId) return String(row?.id || "").trim() !== triggerId;
-        return true;
-      })
-      .map((row) => {
-        const content = String(row?.body_md || "").trim();
-        if (!content) return null;
-        return {
-          role: messageRole(row),
-          content
-        };
-      })
-      .filter(Boolean);
-  }
 
   function newerUserMessageExists(conversationId, message = {}) {
     const triggerSeq = Number(message?.seq || 0);
@@ -410,6 +381,15 @@ function createCloudAgentDispatcher(deps = {}) {
       botId: run.botId,
       event: { type }
     });
+  }
+
+  function nativeSessionDescriptor({ runtimeKind = CLOUD_CLAUDE_CODE_RUNTIME_KIND, botId = "", conversationId = "", worker = {} } = {}) {
+    return {
+      engineId: runtimeKind || CLOUD_CLAUDE_CODE_RUNTIME_KIND,
+      botId,
+      conversationId,
+      workspacePath: String(worker?.paths?.workspace || "").trim()
+    };
   }
 
   async function cancelActiveRunsForTarget({ ownerId, botId, conversationId }) {
@@ -605,7 +585,7 @@ function createCloudAgentDispatcher(deps = {}) {
     return getUserPublic(senderRef) || (senderRef ? { id: senderRef } : null);
   }
 
-  function broadcastDesktopInvocation({ ownerId, botId, runtimeConfig, conversationId, conversationType, message, members, recentMessages }) {
+  function broadcastDesktopInvocation({ ownerId, botId, runtimeConfig, conversationId, conversationType, message, members }) {
     broadcastPersistedEvent(ownerId, {
       type: CloudEvent.ConversationBotInvocationRequested,
       conversationId,
@@ -616,7 +596,7 @@ function createCloudAgentDispatcher(deps = {}) {
       targetDeviceId: runtimeDeviceId(runtimeConfig || {}),
       invokedBy: invocationSender(message, ownerId),
       triggeringMessage: message,
-      recentMessages,
+      recentMessages: [],
       members
     });
   }
@@ -729,6 +709,8 @@ function createCloudAgentDispatcher(deps = {}) {
         bots: rosterBots,
         bot
       });
+      const nativeDescriptor = nativeSessionDescriptor({ runtimeKind, botId, conversationId, worker });
+      const nativeSessionId = await loadNativeSessionId(nativeDescriptor);
       let requestedSkillIds = [];
       let skillMaterialization = cloudSkillMaterialization({ bot, message, skillsCatalog, requestedSkillIds });
       let result = null;
@@ -754,8 +736,8 @@ function createCloudAgentDispatcher(deps = {}) {
           bot,
           conversationId,
           transient: true,
-          seedMessages: conversationSeedMessages(conversationId, message),
           instructions: cloudRuntimeInstructions(bot, message),
+          nativeSessionId,
           model: normalizeCloudRuntimeModel(runtimeConfig.model, { runtimeKind, worker, agentClient }),
           workerModel: worker.workerModel || worker.platformModel || worker.model || "mia-auto",
           modelProvider: worker.modelProvider || "mia",
@@ -780,6 +762,20 @@ function createCloudAgentDispatcher(deps = {}) {
               botId,
               triggerMessageId: message.id
             });
+          },
+          onSessionId(sessionId) {
+            const id = String(sessionId || "").trim();
+            if (!id) return;
+            saveNativeSessionId(nativeDescriptor, id);
+            const runtimeRunId = formatRuntimeRunId(id, agentClient);
+            const currentRun = cloudAgentRunsStore.getRun(run.id);
+            if (runIsCancelled(currentRun) || runIsCancelling(currentRun)) return;
+            cloudAgentRunsStore.markRunning(run.id, runtimeRunId);
+          },
+          onSessionReset(info = {}) {
+            const staleSessionId = String(info.staleSessionId || "").trim();
+            if (!staleSessionId) return;
+            deleteNativeSessionId(nativeDescriptor);
           },
           onEvent(event) {
             roundRunEvents.push(event);
@@ -818,8 +814,9 @@ function createCloudAgentDispatcher(deps = {}) {
         break;
       }
       const currentRun = cloudAgentRunsStore.getRun(run.id);
-      if (result.runId && !String(currentRun?.hermesRunId || "").trim()) {
-        cloudAgentRunsStore.markRunning(run.id, formatRuntimeRunId(result.runId, agentClient));
+      const resultRuntimeId = result.sessionId || result.nativeSessionId || result.runId;
+      if (resultRuntimeId && !String(currentRun?.hermesRunId || "").trim()) {
+        cloudAgentRunsStore.markRunning(run.id, formatRuntimeRunId(resultRuntimeId, agentClient));
       }
       const runAfterAgent = cloudAgentRunsStore.getRun(run.id);
       if (runIsCancelled(runAfterAgent) || runIsCancelling(runAfterAgent) || runResultIsInterrupted(result)) {
@@ -999,7 +996,7 @@ function createCloudAgentDispatcher(deps = {}) {
     };
   }
 
-  async function dispatchBot({ ownerId, botId, conversationId, conversationType = "", message, members, bots, recentMessages, runtimeBinding }) {
+  async function dispatchBot({ ownerId, botId, conversationId, conversationType = "", message, members, bots, runtimeBinding }) {
     const bot = botsStore.getBot(botId);
     if (!bot || String(bot.ownerUserId || "") !== String(ownerId || "")) {
       log(`[cloud-agent] refusing bot dispatch for unowned bot ${botId}`);
@@ -1048,8 +1045,7 @@ function createCloudAgentDispatcher(deps = {}) {
       conversationId,
       conversationType,
       message,
-      members,
-      recentMessages
+      members
     });
     return null;
   }
@@ -1078,7 +1074,6 @@ function createCloudAgentDispatcher(deps = {}) {
       const chosen = decision?.chosen || [];
       if (!chosen.length) return null;
       const replies = [];
-      const invocationRecentMessages = recentMessagesForDesktopInvocation(conversationId);
       for (const member of chosen) {
         const reply = await dispatchBot({
           ownerId: member.owner_id,
@@ -1088,7 +1083,6 @@ function createCloudAgentDispatcher(deps = {}) {
           message,
           members: decision.members || [],
           bots: decision.bots || [],
-          recentMessages: invocationRecentMessages.length ? invocationRecentMessages : (decision.recentMessages || []),
           runtimeBinding: requestedBotId && member.member_ref === requestedBotId ? runtimeBinding : null
         });
         if (reply) replies.push(reply);
@@ -1110,7 +1104,6 @@ function createCloudAgentDispatcher(deps = {}) {
       conversationType: conversation.type,
       message,
       members: socialStore.listConversationMembers(conversationId),
-      recentMessages: recentMessagesForDesktopInvocation(conversationId),
       runtimeBinding
     });
   }

@@ -42,6 +42,30 @@ function fakeSdk(messages, capture) {
   });
 }
 
+function fakeSdkSequence(steps, capture) {
+  let index = 0;
+  return async () => ({
+    query(params) {
+      capture.paramsList = capture.paramsList || [];
+      capture.paramsList.push(params);
+      const step = steps[index++] || [];
+      if (step instanceof Error) throw step;
+      const messages = Array.isArray(step) ? step : (step.messages || []);
+      return {
+        async *[Symbol.asyncIterator]() {
+          for (const message of messages) yield message;
+        },
+        async interrupt() {
+          capture.interrupted = true;
+        },
+        close() {
+          capture.closed = true;
+        }
+      };
+    }
+  });
+}
+
 test("cloud Claude Code model normalizes Mia and Hermes aliases to a Claude model name", () => {
   assert.equal(normalizeCloudClaudeCodeModel(""), DEFAULT_CLOUD_CLAUDE_CODE_MODEL);
   assert.equal(normalizeCloudClaudeCodeModel("mia-auto", { defaultModel: "claude-sonnet-x" }), "claude-sonnet-x");
@@ -174,7 +198,9 @@ test("cloud Claude Code client runs SDK query without Hermes gateway and streams
   assert.equal(capture.params.options.permissionMode, "bypassPermissions");
   assert.equal(capture.params.options.allowDangerouslySkipPermissions, true);
   assert.equal(capture.params.options.sandbox.enabled, true);
-  assert.match(capture.params.prompt, /Conversation history/);
+  assert.doesNotMatch(capture.params.prompt, /Conversation history/);
+  assert.doesNotMatch(capture.params.prompt, /earlier/);
+  assert.equal(capture.params.prompt, "hello");
   assert.doesNotMatch(capture.params.prompt, /Mia cloud sandbox filesystem mapping/);
   assert.doesNotMatch(capture.params.prompt, /\/data\/attachments\/a\.txt maps to \/tmp\/mia-worker\/attachments\/a\.txt/);
   assert.match(capture.params.options.systemPrompt.append, /system instructions/);
@@ -221,6 +247,111 @@ test("cloud Claude Code client dedupes progressive assistant snapshots in fallba
     "我先试试。",
     "\n\n还是不行。"
   ]);
+});
+
+test("cloud Claude Code client captures SDK session ids and resumes natively without prompt history", async () => {
+  const capture = {};
+  const seenSessionIds = [];
+  const client = createCloudClaudeCodeClient({
+    claudeAgentSdk: fakeSdkSequence([
+      [
+        {
+          type: "assistant",
+          session_id: "sdk-session-1",
+          message: { content: [{ type: "text", text: "first" }] }
+        }
+      ],
+      [
+        {
+          type: "assistant",
+          session_id: "sdk-session-1",
+          message: { content: [{ type: "text", text: "second" }] }
+        }
+      ]
+    ], capture),
+    randomUUID: () => "uuid-1"
+  });
+  const worker = {
+    hasApiKey: true,
+    model: "claude-sonnet-test",
+    permissionMode: "bypassPermissions",
+    env: { ANTHROPIC_API_KEY: "sk-test" },
+    paths: {
+      root: "/tmp/mia-worker",
+      workspace: "/tmp/mia-worker/workspace"
+    },
+    sandboxSettings: { enabled: true, failIfUnavailable: true }
+  };
+
+  const first = await client.runChat({
+    worker,
+    input: "first message",
+    onSessionId(sessionId) {
+      seenSessionIds.push(sessionId);
+    }
+  });
+  const second = await client.runChat({
+    worker,
+    nativeSessionId: first.sessionId,
+    seedMessages: [{ role: "user", content: "forbidden history" }],
+    input: "second message",
+    onSessionId(sessionId) {
+      seenSessionIds.push(sessionId);
+    }
+  });
+
+  assert.equal(first.sessionId, "sdk-session-1");
+  assert.equal(first.nativeSessionId, "sdk-session-1");
+  assert.equal(second.sessionId, "sdk-session-1");
+  assert.deepEqual(seenSessionIds, ["sdk-session-1", "sdk-session-1"]);
+  assert.equal(capture.paramsList[0].options.resume, undefined);
+  assert.equal(capture.paramsList[0].prompt, "first message");
+  assert.equal(capture.paramsList[1].options.resume, "sdk-session-1");
+  assert.equal(capture.paramsList[1].prompt, "second message");
+  assert.doesNotMatch(capture.paramsList[1].prompt, /forbidden history/);
+});
+
+test("cloud Claude Code client retries a stale native session without replaying history", async () => {
+  const capture = {};
+  const resets = [];
+  const client = createCloudClaudeCodeClient({
+    claudeAgentSdk: fakeSdkSequence([
+      Object.assign(new Error("Session not found"), { code: "ENOSESSION" }),
+      [
+        {
+          type: "assistant",
+          session_id: "sdk-session-new",
+          message: { content: [{ type: "text", text: "fresh" }] }
+        }
+      ]
+    ], capture),
+    randomUUID: () => "uuid-1"
+  });
+
+  const result = await client.runChat({
+    worker: {
+      hasApiKey: true,
+      model: "claude-sonnet-test",
+      permissionMode: "bypassPermissions",
+      env: { ANTHROPIC_API_KEY: "sk-test" },
+      paths: { workspace: "/tmp/mia-worker/workspace" },
+      sandboxSettings: { enabled: true, failIfUnavailable: true }
+    },
+    nativeSessionId: "stale-session",
+    seedMessages: [{ role: "assistant", content: "old answer" }],
+    input: "current only",
+    onSessionReset(info) {
+      resets.push(info.staleSessionId);
+    }
+  });
+
+  assert.equal(result.sessionId, "sdk-session-new");
+  assert.deepEqual(resets, ["stale-session"]);
+  assert.equal(capture.paramsList.length, 2);
+  assert.equal(capture.paramsList[0].options.resume, "stale-session");
+  assert.equal(capture.paramsList[1].options.resume, undefined);
+  assert.equal(capture.paramsList[1].prompt, "current only");
+  assert.doesNotMatch(capture.paramsList[1].prompt, /old answer/);
 });
 
 test("cloud Claude Code client fails fast when DeepSeek credentials are absent", async () => {

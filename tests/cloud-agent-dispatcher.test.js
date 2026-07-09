@@ -155,9 +155,7 @@ test("cloud-claude-code DM runs the bot and appends a reply", async () => {
     assert.equal(hermesCalls[0].workerModel, "mia-auto");
     assert.equal(hermesCalls[0].modelProvider, "mia");
     assert.equal(hermesCalls[0].transient, true);
-    assert.deepEqual(hermesCalls[0].seedMessages, [
-      { role: "assistant", content: "earlier reply" }
-    ]);
+    assert.equal(Object.prototype.hasOwnProperty.call(hermesCalls[0], "seedMessages"), false);
     assert.match(hermesCalls[0].input, /用户消息：\nhello/);
     assert.match(hermesCalls[0].input, /正在和用户私聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群聊/);
@@ -165,6 +163,77 @@ test("cloud-claude-code DM runs the bot and appends a reply", async () => {
     assert.match(hermesCalls[0].instructions, /Mia Runtime Context/);
     assert.doesNotMatch(hermesCalls[0].instructions, /schedule_create|cronjob/);
     assert.match(hermesCalls[0].instructions, /You are Alice Bot\./);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud-claude-code DM resumes and persists native SDK sessions without history prompts", async () => {
+  const ctx = setup();
+  const hermesCalls = [];
+  const loads = [];
+  const saves = [];
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      loadNativeSessionId(descriptor) {
+        loads.push(descriptor);
+        return "sdk-prev";
+      },
+      saveNativeSessionId(descriptor, nativeSessionId) {
+        saves.push({ descriptor, nativeSessionId });
+      },
+      hermesImClient: {
+        requiresGateway: false,
+        runtimeRunPrefix: "cc",
+        async runChat(args) {
+          hermesCalls.push(args);
+          args.onRunCreated?.("temporary-run-id");
+          args.onSessionId?.("sdk-next");
+          return { runId: "temporary-run-id", sessionId: "sdk-next", content: "native reply", events: [] };
+        }
+      }
+    });
+    ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "bot",
+      senderRef: BOT_ID,
+      senderOwnerId: ctx.user.id,
+      bodyMd: "forbidden old reply"
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "current question"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(reply.body_md, "native reply");
+    assert.equal(hermesCalls.length, 1);
+    assert.equal(hermesCalls[0].nativeSessionId, "sdk-prev");
+    assert.equal(Object.prototype.hasOwnProperty.call(hermesCalls[0], "seedMessages"), false);
+    assert.match(hermesCalls[0].input, /current question/);
+    assert.doesNotMatch(hermesCalls[0].input, /forbidden old reply/);
+    assert.equal(loads.length, 1);
+    assert.deepEqual(loads[0], {
+      engineId: "cloud-claude-code",
+      botId: BOT_ID,
+      conversationId: ctx.conversation.id,
+      workspacePath: ""
+    });
+    assert.deepEqual(saves, [{
+      descriptor: loads[0],
+      nativeSessionId: "sdk-next"
+    }]);
+    const storedRunId = ctx.cloudStore.getDb()
+      .prepare("SELECT hermes_run_id FROM cloud_agent_runs ORDER BY created_at DESC LIMIT 1")
+      .get()?.hermes_run_id;
+    assert.equal(storedRunId, "cc:sdk-next");
   } finally {
     ctx.cleanup();
   }
@@ -1189,14 +1258,7 @@ test("desktop-local DM broadcasts a bot invocation and does not run inline", asy
     assert.equal(broadcasts[0].event.runtimeConfig.model, "claude-sonnet-4-6");
     assert.equal(broadcasts[0].event.targetDeviceId, "device_mac");
     assert.equal(broadcasts[0].event.triggeringMessage.id, message.id);
-    assert.deepEqual(
-      broadcasts[0].event.recentMessages.map((item) => item.id),
-      [previousUser.id, previousBot.id, message.id]
-    );
-    assert.deepEqual(
-      broadcasts[0].event.recentMessages.map((item) => item.body_md),
-      ["前情：我们在讨论第七日演武", "我建议先选 1", "hello"]
-    );
+    assert.deepEqual(broadcasts[0].event.recentMessages, []);
   } finally {
     ctx.cleanup();
   }

@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const { buildBotTurnContext } = require("../src/shared/bot-turn-context.js");
 const { materializeLegacyBotPrompt } = require("../src/shared/bot-prompt-materializer.js");
 
-test("context omits historical system rows from model messages", () => {
+test("context never materializes historical rows as model messages", () => {
   const context = buildBotTurnContext({
     conversationId: "g_1",
     conversationType: "group",
@@ -17,12 +17,10 @@ test("context omits historical system rows from model messages", () => {
   }, { bots: [{ id: "codex", name: "Codex" }] });
 
   const prompt = materializeLegacyBotPrompt(context);
-  assert.deepEqual(prompt.historyMessages, [
-    { role: "user", content: "[user:u_1] 前情" }
-  ]);
+  assert.deepEqual(prompt.historyMessages, []);
 });
 
-test("context does not map other bots to current assistant role", () => {
+test("context does not map bot history into assistant or user role messages", () => {
   const context = buildBotTurnContext({
     conversationId: "g_1",
     conversationType: "group",
@@ -36,10 +34,7 @@ test("context does not map other bots to current assistant role", () => {
   }, { bots: [{ id: "codex", name: "Codex" }] });
 
   const prompt = materializeLegacyBotPrompt(context);
-  assert.deepEqual(prompt.historyMessages, [
-    { role: "user", content: "[bot:alice-bot] 我是别的 bot" },
-    { role: "assistant", content: "[bot:codex] 我是当前 bot" }
-  ]);
+  assert.deepEqual(prompt.historyMessages, []);
 });
 
 test("context keeps runtime config and trace data out of prompt text", () => {

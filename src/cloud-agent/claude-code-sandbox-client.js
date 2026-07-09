@@ -42,16 +42,34 @@ function randomRunId() {
   return `cc_${crypto.randomBytes(8).toString("hex")}`;
 }
 
-function formatSeedMessages(messages = []) {
-  const rows = [];
-  for (const message of Array.isArray(messages) ? messages : []) {
-    const role = String(message?.role || "").trim() || "user";
-    const content = String(message?.content || "").trim();
-    if (!content) continue;
-    rows.push(`${role === "assistant" ? "Assistant" : role === "system" ? "System" : "User"}:\n${content}`);
-  }
-  if (!rows.length) return "";
-  return ["Conversation history:", ...rows].join("\n\n");
+function cleanSessionId(value = "") {
+  return String(value || "").trim();
+}
+
+function resumeSessionId(args = {}) {
+  return cleanSessionId(args.nativeSessionId || args.resumeSessionId || args.sdkSessionId);
+}
+
+function sdkSessionIdFromMessage(message = {}) {
+  if (!message || typeof message !== "object") return "";
+  return cleanSessionId(
+    message.session_id
+      || message.sessionId
+      || message.session?.id
+      || message.message?.session_id
+      || message.message?.sessionId
+      || message.data?.session_id
+      || message.data?.sessionId
+  );
+}
+
+function isStaleSessionError(error) {
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || error || "").toLowerCase();
+  return code === "enosession"
+    || /session[\s_-]+not[\s_-]+found/.test(message)
+    || /not[\s_-]+found.*session/.test(message)
+    || /no[\s_-]+session/.test(message);
 }
 
 function attachmentRuntimeHint(worker = {}, attachments = []) {
@@ -69,7 +87,6 @@ function attachmentRuntimeHint(worker = {}, attachments = []) {
 
 function buildPrompt(args = {}) {
   return [
-    formatSeedMessages(args.seedMessages),
     String(args.input || "").trim()
   ].filter(Boolean).join("\n\n");
 }
@@ -232,21 +249,44 @@ function createCloudClaudeCodeClient(deps = {}) {
       sandbox: worker.sandboxSettings || { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true }
     };
     if (permissionMode === "bypassPermissions") options.allowDangerouslySkipPermissions = true;
+    const resume = resumeSessionId(args);
+    if (resume) options.resume = resume;
 
     let assistantText = "";
     let lastAssistantSnapshot = "";
+    let sdkSessionId = "";
     const events = [];
+    const activeRunKeys = new Set([runId]);
     const eventBridge = createSdkEventBridge((event) => {
       events.push(event);
       args.onEvent?.(event);
     }, randomUUID);
+    const reportedSessionIds = new Set();
 
-    try {
-      const { query } = await claudeAgentSdk();
-      const stream = query({ prompt, options });
-      activeRuns.set(runId, { abortController, worker, stream });
+    function trackActiveRun(key, stream = null) {
+      const id = cleanSessionId(key);
+      if (!id) return;
+      activeRunKeys.add(id);
+      activeRuns.set(id, { abortController, worker, stream });
+    }
+
+    function noteSdkSessionId(message, stream = null) {
+      const id = sdkSessionIdFromMessage(message);
+      if (!id) return;
+      sdkSessionId = id;
+      trackActiveRun(id, stream);
+      if (!reportedSessionIds.has(id)) {
+        reportedSessionIds.add(id);
+        args.onSessionId?.(id);
+      }
+    }
+
+    async function executeQuery(query, attemptOptions) {
+      const stream = query({ prompt, options: attemptOptions });
+      trackActiveRun(runId, stream);
       for await (const message of stream) {
         if (abortController.signal.aborted) break;
+        noteSdkSessionId(message, stream);
         if (message?.type === "assistant") {
           const text = claudeMessageText(message);
           if (text && !sameTrimmedText(lastAssistantSnapshot, text)) {
@@ -258,20 +298,38 @@ function createCloudClaudeCodeClient(deps = {}) {
         }
         eventBridge.handle(message);
       }
+    }
+
+    try {
+      const { query } = await claudeAgentSdk();
+      try {
+        await executeQuery(query, options);
+      } catch (error) {
+        if (!options.resume || !isStaleSessionError(error) || assistantText || events.length) throw error;
+        args.onSessionReset?.({ staleSessionId: options.resume, error });
+        const freshOptions = { ...options };
+        delete freshOptions.resume;
+        delete freshOptions.continue;
+        await executeQuery(query, freshOptions);
+      }
       if (abortController.signal.aborted) {
         return {
           runId,
+          sessionId: sdkSessionId,
+          nativeSessionId: sdkSessionId,
           content: assistantText.trim(),
           events: [...events, { type: "message.complete", status: "interrupted" }]
         };
       }
       return {
         runId,
+        sessionId: sdkSessionId,
+        nativeSessionId: sdkSessionId,
         content: assistantText.trim(),
         events: [...events, { type: "message.complete", status: "complete" }]
       };
     } finally {
-      activeRuns.delete(runId);
+      for (const key of activeRunKeys) activeRuns.delete(key);
     }
   }
 

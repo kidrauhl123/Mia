@@ -47,10 +47,7 @@ function materializeLegacyBotPrompt(context, options = {}) {
     triggerMessageId: context.invocation.triggerMessageId,
     triggerSeq: context.invocation.triggerSeq,
     systemPrompt,
-    historyMessages: context.transcript.map((message) => ({
-      role: message.role,
-      content: message.content
-    })),
+    historyMessages: [],
     userPrompt: context.currentUser.content,
     userAttachments: context.currentUser.attachments,
     runtimeConfig: context.runtime.runtimeConfig,
