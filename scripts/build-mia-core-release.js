@@ -33,6 +33,22 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+function readJsonIfExists(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function mergeReleaseAssets(existingManifest, nextAsset) {
+  const existingAssets = Array.isArray(existingManifest?.assets) ? existingManifest.assets : [];
+  return [
+    ...existingAssets.filter((asset) => asset?.name !== nextAsset.name),
+    nextAsset
+  ].sort((left, right) => String(left.name).localeCompare(String(right.name)));
+}
+
 function buildMiaCoreRelease(options = {}) {
   const rootDir = path.resolve(options.rootDir || root);
   const env = options.env || process.env;
@@ -76,21 +92,26 @@ function buildMiaCoreRelease(options = {}) {
   const sha256 = sha256File(assetPath);
   const bytes = fs.statSync(assetPath).size;
   fs.writeFileSync(path.join(outDir, `${assetName}.sha256`), `${sha256}  ${assetName}\n`, "utf8");
-  fs.writeFileSync(path.join(outDir, "mia-core-checksums.txt"), `${sha256}  ${assetName}\n`, "utf8");
+  const asset = {
+    name: assetName,
+    platform: normalizePlatform(platform),
+    arch: normalizeArch(arch),
+    target,
+    bytes,
+    sha256
+  };
+  const existingManifest = readJsonIfExists(path.join(outDir, "manifest.json"));
+  const assets = mergeReleaseAssets(existingManifest, asset);
+  fs.writeFileSync(
+    path.join(outDir, "mia-core-checksums.txt"),
+    `${assets.map((entry) => `${entry.sha256}  ${entry.name}`).join("\n")}\n`,
+    "utf8"
+  );
   const manifest = {
     tag_name: tag,
     version: tag,
     generatedAt: new Date().toISOString(),
-    assets: [
-      {
-        name: assetName,
-        platform: normalizePlatform(platform),
-        arch: normalizeArch(arch),
-        target,
-        bytes,
-        sha256
-      }
-    ]
+    assets
   };
   writeJson(path.join(outDir, "manifest.json"), manifest);
   writeJson(path.join(path.dirname(outDir), "latest.json"), manifest);
