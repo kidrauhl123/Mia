@@ -850,7 +850,7 @@ async fn settings_runtime_options_for_codex_use_core_capability_fallbacks() {
             .iter()
             .map(|entry| entry.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["default", "gpt-5.3-codex", "mia-auto"]
+        vec!["gpt-5.3-codex", "mia-auto"]
     );
     assert_eq!(
         response
@@ -871,7 +871,7 @@ async fn settings_runtime_options_for_codex_use_core_capability_fallbacks() {
 }
 
 #[tokio::test]
-async fn settings_runtime_options_fall_back_to_codex_default_for_unknown_saved_model() {
+async fn settings_runtime_options_leave_external_model_empty_for_unknown_saved_model() {
     let db = init_database_memory().await.unwrap();
     let service = SystemService::new(
         "0.1.0".to_string(),
@@ -900,18 +900,14 @@ async fn settings_runtime_options_fall_back_to_codex_default_for_unknown_saved_m
         codex_models: json!([]),
     });
 
-    assert_eq!(response.selected_model, "default");
-    assert_eq!(
-        response.selected_model_entry.as_ref().unwrap().label,
-        "Codex 默认"
-    );
+    assert_eq!(response.selected_model, "");
+    assert!(response.selected_model_entry.is_none());
     let model_ids = response
         .model_options
         .iter()
         .map(|entry| entry.id.as_str())
         .collect::<Vec<_>>();
-    assert!(model_ids.contains(&"default"));
-    assert!(model_ids.contains(&"gpt-5.5"));
+    assert_eq!(model_ids, vec!["gpt-5.5", "mia-auto"]);
     assert!(!model_ids.contains(&"gpt-5.3-codex"));
 }
 

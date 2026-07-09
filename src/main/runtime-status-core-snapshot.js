@@ -104,15 +104,15 @@ function resolveCodexModelSelection(current = {}, codexModels = {}) {
   const currentModel = firstString(existing, ["model"]);
   const canKeepCurrent = existing.provider === "openai-codex"
     && currentModel
-    && (currentModel === "default" || slugs.includes(currentModel));
-  const model = canKeepCurrent ? currentModel : "default";
+    && slugs.includes(currentModel);
+  const model = canKeepCurrent ? currentModel : "";
   return {
     provider: "openai-codex",
     providerConnectionId: "openai-codex",
     providerLabel: "OpenAI Codex",
     authType: "oauth_external",
     model,
-    modelProfileId: `openai-codex:${model}`
+    modelProfileId: model ? `openai-codex:${model}` : ""
   };
 }
 

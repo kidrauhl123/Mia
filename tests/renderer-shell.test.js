@@ -2502,11 +2502,13 @@ test("composer model control shows neutral text when Core returns no model optio
 
   assert.match(syncControls, /setText\(els\.quickModelLabel,\s*modelLabel \|\| "模型"\)/);
   assert.match(syncControls, /els\.quickModelSelect\.disabled = !options \|\| !modelEntries\.length/);
-  assert.match(syncControls, /setComposerModelAvatar\(selectedModelEntry,\s*engine,\s*\{\s*hidden:\s*!modelEntries\.length\s*\}\)/);
+  assert.match(syncControls, /const hasSelectedModelEntry = Boolean\(selectedModelEntry\?\.id \|\| selectedModelEntry\?\.value \|\| selectedModelEntry\?\.model \|\| selectedModelEntry\?\.provider\)/);
+  assert.match(syncControls, /setComposerModelAvatar\(selectedModelEntry,\s*engine,\s*\{\s*hidden:\s*!hasSelectedModelEntry\s*\}\)/);
   assert.doesNotMatch(syncControls, /modelLabel \|\| "Default"/);
   assert.match(contactControls, /const hasModelEntries = modelEntries\.length > 0;/);
-  assert.match(contactControls, /class="model-switcher\$\{hasModelEntries \? "" : " model-switcher--no-avatar"\}"/);
-  assert.match(contactControls, /class="model-avatar\$\{hasModelEntries \? "" : " hidden"\}"/);
+  assert.match(contactControls, /const hasSelectedModelEntry = Boolean\(selectedModelEntry\?\.id \|\| selectedModelEntry\?\.value \|\| selectedModelEntry\?\.model \|\| selectedModelEntry\?\.provider\)/);
+  assert.match(contactControls, /class="model-switcher\$\{hasSelectedModelEntry \? "" : " model-switcher--no-avatar"\}"/);
+  assert.match(contactControls, /class="model-avatar\$\{hasSelectedModelEntry \? "" : " hidden"\}"/);
 });
 
 test("desktop-local bot runtime controls read cloud runtime bindings", () => {

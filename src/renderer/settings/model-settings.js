@@ -148,6 +148,10 @@
       syncQuickModelLabel();
       return;
     }
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = "模型";
+    select.appendChild(emptyOption);
     const groups = new Map();
     for (const entry of entries) {
       const provider = entry.provider || "custom";
@@ -174,7 +178,7 @@
     const ids = new Set(entries.map(optionValue));
     if (ids.has(previous)) select.value = previous;
     else if (ids.has(currentId)) select.value = currentId;
-    else if (entries[0]) select.value = optionValue(entries[0]);
+    else select.value = "";
     syncQuickModelLabel();
   }
 
@@ -182,6 +186,10 @@
     if (!els || !els.quickModelLabel || !els.quickModelSelect) return;
     const hasOptions = els.quickModelSelect.options && els.quickModelSelect.options.length > 0;
     if (!hasOptions || els.quickModelSelect.disabled) {
+      setText(els.quickModelLabel, "模型");
+      return;
+    }
+    if (!els.quickModelSelect.value) {
       setText(els.quickModelLabel, "模型");
       return;
     }

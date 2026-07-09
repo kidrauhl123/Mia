@@ -57,7 +57,7 @@ test("engine contract owns external model and mode options for browser clients",
   assert.equal(contract.isExternalEngine("openclaw"), false);
   assert.equal(contract.isExternalEngine("hermes"), false);
   assert.equal(contract.adapterForEngine("openclaw").id, "hermes");
-  assert.deepEqual(contract.externalModelEntries("claude-code").map((entry) => entry.id), ["default", "mia-auto"]);
+  assert.deepEqual(contract.externalModelEntries("claude-code").map((entry) => entry.id), ["mia-auto"]);
   assert.equal(contract.externalModelEntries("claude-code").find((entry) => entry.provider === "mia").authType, "mia_account");
   assert.deepEqual(
     contract.externalModelEntries("claude-code", {
@@ -70,7 +70,6 @@ test("engine contract owns external model and mode options for browser clients",
       }
     }).map((entry) => ({ id: entry.id, model: entry.model, label: entry.label, provider: entry.provider })),
     [
-      { id: "default", model: "", label: "Claude Code 默认", provider: "claude-code" },
       { id: "sonnet", model: "sonnet", label: "Sonnet alias", provider: "claude-code" },
       { id: "mia-auto", model: "mia-auto", label: "Auto", provider: "mia" }
     ]
@@ -80,16 +79,21 @@ test("engine contract owns external model and mode options for browser clients",
   assert.deepEqual(contract.externalModelEntries("openclaw"), []);
   assert.deepEqual(
     contract.externalModelEntries("codex", {
-      codexModels: [{
-        slug: "gpt-test",
-        displayName: "GPT Test",
-        description: "Test model",
-        defaultReasoningLevel: "medium",
-        supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "medium" }]
-      }]
+      engineCapabilities: {
+        engines: {
+          codex: {
+            models: [{
+              slug: "gpt-test",
+              displayName: "GPT Test",
+              description: "Test model",
+              defaultReasoningLevel: "medium",
+              supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "medium" }]
+            }]
+          }
+        }
+      }
     }),
     [
-      { id: "default", provider: "codex", providerLabel: "Codex CLI", model: "", label: "Codex 默认" },
       {
         id: "gpt-test",
         provider: "codex",
@@ -103,7 +107,7 @@ test("engine contract owns external model and mode options for browser clients",
       { id: "mia-auto", provider: "mia", providerLabel: "Mia", model: "mia-auto", label: "Auto", authType: "mia_account", modelProfileId: "mia:mia-auto", upstreamModel: "" }
     ]
   );
-  assert.deepEqual(contract.externalModelEntries("codex").map((entry) => entry.id), ["default", "mia-auto"]);
+  assert.deepEqual(contract.externalModelEntries("codex").map((entry) => entry.id), ["mia-auto"]);
   assert.deepEqual(
     contract.externalPermissionOptions("claude-code", {
       engineCapabilities: { engines: { "claude-code": { permissionModes: ["default", "plan"] } } }
@@ -126,7 +130,13 @@ test("engine contract owns external model and mode options for browser clients",
   );
   assert.deepEqual(contract.externalPermissionOptions("openclaw"), []);
   assert.deepEqual(contract.effortOptions("codex", {
-    codexModels: [{ supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "high" }] }]
+    engineCapabilities: {
+      engines: {
+        codex: {
+          models: [{ supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "high" }] }]
+        }
+      }
+    }
   }), [
     { value: "low", label: "Low", title: "Fast" },
     { value: "high", label: "High", title: "" }

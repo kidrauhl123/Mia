@@ -908,7 +908,6 @@ test("saveBotRuntimeControl saves desktop-local external engine controls through
     field: "model",
     value: "gpt-5.3-codex",
     modelEntries: [
-      { id: "default", model: "", label: "Codex 默认", provider: "codex" },
       { id: "gpt-5.3-codex", model: "gpt-5.3-codex", label: "GPT-5.3 Codex", provider: "codex", modelProfileId: "codex:gpt-5.3-codex" }
     ]
   });
@@ -922,7 +921,6 @@ test("saveBotRuntimeControl saves desktop-local external engine controls through
         field: "model",
         value: "gpt-5.3-codex",
         modelEntries: [
-          { id: "default", label: "Codex 默认", provider: "codex" },
           { id: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", modelProfileId: "codex:gpt-5.3-codex" }
         ]
       }

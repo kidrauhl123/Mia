@@ -63,8 +63,7 @@ function externalModelEntries(value) {
     });
   }
   const engine = normalizeAgentEngine(value);
-  if (engine === "claude-code") return [{ id: "default", provider: "claude-code", providerLabel: "Claude Code", model: "", label: "Claude Code 默认" }];
-  if (engine === "codex") return [{ id: "default", provider: "codex", providerLabel: "Codex CLI", model: "", label: "Codex 默认" }];
+  if (engine === "claude-code" || engine === "codex") return [];
   return [];
 }
 
@@ -1057,8 +1056,9 @@ function isMiaModelIcon(icon = "") {
   return /(?:^|\/)mia-logo\.png(?:[?#].*)?$/.test(String(icon || ""));
 }
 
-function applyComposerModelAvatar(modelAvatar, icon = "") {
+function applyComposerModelAvatar(modelAvatar, icon = "", options = {}) {
   if (!modelAvatar) return;
+  modelAvatar.classList.toggle("hidden", Boolean(options.hidden));
   modelAvatar.textContent = icon ? "" : "◇";
   modelAvatar.style.backgroundImage = icon ? `url("${icon}")` : "";
   modelAvatar.classList.toggle("model-avatar--transparent", isMiaModelIcon(icon));
@@ -1103,6 +1103,11 @@ function modelIconSrc(model = {}) {
 
 function setModelAvatar(engine, entry = {}, config = {}) {
   if (!els.quickModelAvatar) return;
+  const hasEntry = Boolean(entry?.id || entry?.value || entry?.model || entry?.provider);
+  if (!hasEntry) {
+    applyComposerModelAvatar(els.quickModelAvatar, "", { hidden: true });
+    return;
+  }
   const rawIcon = engine === "claude-code"
     ? modelIconSrc({ provider: "anthropic", model: entry.model || config.model || "claude" })
     : engine === "codex"
@@ -2259,8 +2264,9 @@ function savedRuntimeModelEntry(entries = [], config = {}) {
   )) || null;
 }
 
-function setSelectOptions(select, entries, selectedValue, fallbackLabel) {
+function setSelectOptions(select, entries, selectedValue, fallbackLabel, options = {}) {
   if (!select) return "";
+  const allowEmpty = Boolean(options.allowEmpty);
   const normalized = (Array.isArray(entries) ? entries : [])
     .filter((entry) => entry && entry.value !== undefined)
     .map((entry) => ({
@@ -2268,15 +2274,16 @@ function setSelectOptions(select, entries, selectedValue, fallbackLabel) {
       label: String(entry.label || entry.value),
       title: String(entry.title || "")
     }));
-  const value = String(selectedValue || normalized[0]?.value || "");
-  const options = normalized.length ? normalized : [{ value, label: fallbackLabel || value || "Default", title: "" }];
-  if (value && !options.some((entry) => entry.value === value)) {
-    options.unshift({ value, label: fallbackLabel || value, title: "" });
+  const value = String(selectedValue || "");
+  const rows = normalized.length ? [...normalized] : [{ value, label: fallbackLabel || value || "Default", title: "" }];
+  if (allowEmpty) rows.unshift({ value: "", label: fallbackLabel || "模型", title: "" });
+  if (value && !rows.some((entry) => entry.value === value)) {
+    rows.unshift({ value, label: fallbackLabel || value, title: "" });
   }
-  select.innerHTML = options.map((entry) => (
+  select.innerHTML = rows.map((entry) => (
     `<option value="${escapeHtml(entry.value)}"${entry.title ? ` title="${escapeHtml(entry.title)}"` : ""}>${escapeHtml(entry.label)}</option>`
   )).join("");
-  select.value = value || options[0]?.value || "";
+  select.value = value || (allowEmpty ? "" : rows[0]?.value || "");
   return select.selectedOptions?.[0]?.textContent || fallbackLabel || "";
 }
 
@@ -2301,14 +2308,17 @@ function renderComposerControls(conversation = null) {
   const savedModel = savedRuntimeModelEntry(cloudModelEntries, config);
   const modelValue = savedModel?.value
     || runtimeConfigModelName(config)
-    || (isDesktopExternal ? "default" : cloudModelEntries[0]?.value || "mia-auto");
-  const modelLabel = setSelectOptions(els.quickModelSelect, cloudModelEntries, modelValue, config.model || "Default");
-  const selectedModelEntry = cloudModelEntries.find((entry) => String(entry.value) === String(els.quickModelSelect?.value || modelValue))
-    || savedModel
-    || cloudModelEntries.find((entry) => String(entry.model) === String(config.model || ""))
-    || {};
+    || (isDesktopExternal ? "" : cloudModelEntries[0]?.value || "mia-auto");
+  const modelLabel = setSelectOptions(els.quickModelSelect, cloudModelEntries, modelValue, "模型", { allowEmpty: true });
+  const selectedModelValue = String(els.quickModelSelect?.value || modelValue || "").trim();
+  const selectedModelEntry = selectedModelValue
+    ? (cloudModelEntries.find((entry) => String(entry.value) === selectedModelValue)
+      || savedModel
+      || cloudModelEntries.find((entry) => String(entry.model) === String(config.model || ""))
+      || {})
+    : {};
   setModelAvatar(engine, selectedModelEntry, config);
-  setText(els.quickModelLabel, modelLabel || "Default");
+  setText(els.quickModelLabel, selectedModelValue ? (modelLabel || "模型") : "模型");
 
   const effortEntries = effortOptions(engine);
   const defaultEffort = effortEntries.find((entry) => entry.value === "medium")?.value || effortEntries[0]?.value || "medium";

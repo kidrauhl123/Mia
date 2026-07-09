@@ -2186,7 +2186,7 @@ function renderSendButton() {
 const providerPresets = {
   "openai-codex": {
     provider: "openai-codex",
-    model: "default"
+    model: ""
   },
   xai: {
     provider: "xai",
@@ -3458,15 +3458,20 @@ function render() {
   const connectedEntries = window.miaModelSettings.connectedModelEntries(runtime);
   setModelSwitchStatusText(settingsRuntimeOptions?.statusText || "运行配置读取中...");
   if (els.quickModelSelect) {
+    const currentModelLabel = els.quickModelSelect.value
+      ? (els.quickModelSelect.selectedOptions?.[0]?.textContent || settingsRuntimeOptions?.selectedModel || "")
+      : "";
     els.quickModelSelect.title = connectedEntries.length
-      ? `当前模型：${els.quickModelSelect.selectedOptions?.[0]?.textContent || settingsRuntimeOptions?.selectedModel || "默认"}`
+      ? `当前模型：${currentModelLabel || "模型"}`
       : "未配置模型";
   }
-  const selectedRuntimeEntry = settingsRuntimeOptions?.selectedModelEntry
-    || connectedEntries.find((entry) => String(entry.id || entry.value || entry.model || "") === String(els.quickModelSelect?.value || settingsRuntimeOptions?.selectedModel || ""))
-    || connectedEntries[0]
-    || {};
-  const activeIcon = connectedEntries.length
+  const selectedRuntimeValue = String(els.quickModelSelect?.value || settingsRuntimeOptions?.selectedModel || "").trim();
+  const selectedRuntimeEntry = selectedRuntimeValue
+    ? (settingsRuntimeOptions?.selectedModelEntry
+      || connectedEntries.find((entry) => String(entry.id || entry.value || entry.model || "") === selectedRuntimeValue)
+      || {})
+    : {};
+  const activeIcon = selectedRuntimeEntry?.id || selectedRuntimeEntry?.value || selectedRuntimeEntry?.model || selectedRuntimeEntry?.provider
     ? window.miaModelHelpers.modelIconSrc({
       provider: selectedRuntimeEntry.provider || runtime.model?.provider,
       model: selectedRuntimeEntry.model || selectedRuntimeEntry.id || runtime.model?.model
@@ -4755,8 +4760,10 @@ async function loadPlatformModelCatalog() {
   return platformModelCatalog.entries;
 }
 
-function setComposerSelectOptions(select, entries, selectedValue) {
+function setComposerSelectOptions(select, entries, selectedValue, options = {}) {
   if (!select) return "";
+  const allowEmpty = Boolean(options.allowEmpty);
+  const emptyLabel = String(options.emptyLabel || "");
   const normalized = (Array.isArray(entries) ? entries : [])
     .filter((entry) => entry && (entry.id !== undefined || entry.value !== undefined))
     .map((entry) => ({
@@ -4765,16 +4772,20 @@ function setComposerSelectOptions(select, entries, selectedValue) {
       title: String(entry.title || ""),
       aliases: Array.isArray(entry.aliases) ? entry.aliases.map((item) => String(item)) : []
     }));
-  select.innerHTML = normalized.map((entry) => {
+  select.innerHTML = [
+    ...(allowEmpty ? [{ value: "", label: emptyLabel || "选择", title: "", aliases: [] }] : []),
+    ...normalized
+  ].map((entry) => {
     const option = document.createElement("option");
     option.value = entry.value;
     option.textContent = entry.label;
     if (entry.title) option.title = entry.title;
     return option.outerHTML;
   }).join("");
-  const value = String(selectedValue || normalized[0]?.value || "");
+  const value = String(selectedValue || "");
   const selected = normalized.find((entry) => entry.value === value || entry.aliases.includes(value));
-  select.value = selected?.value || normalized[0]?.value || "";
+  if (selected) select.value = selected.value;
+  else select.value = allowEmpty ? "" : (normalized[0]?.value || "");
   return select.selectedOptions?.[0]?.textContent || "";
 }
 
@@ -5027,14 +5038,17 @@ function syncConversationBotRuntimeControls() {
   }
   const engine = String(options?.agentEngine || "hermes").trim() || "hermes";
   const modelEntries = runtimeControlArray(options?.modelOptions);
-  const selectedModelValue = options?.selectedModel || modelEntries[0]?.id || modelEntries[0]?.value || "";
-  const modelLabel = setComposerSelectOptions(els.quickModelSelect, modelEntries, selectedModelValue);
+  const selectedModelValue = String(options?.selectedModel || "").trim();
+  const modelLabel = setComposerSelectOptions(els.quickModelSelect, modelEntries, selectedModelValue, { allowEmpty: true, emptyLabel: "模型" });
   setText(els.quickModelLabel, modelLabel || "模型");
-  const selectedModelEntry = modelEntries.find((entry) => String(entry.id || entry.value || "") === String(els.quickModelSelect?.value || selectedModelValue))
-    || options?.selectedModelEntry
-    || modelEntries[0]
-    || {};
-  setComposerModelAvatar(selectedModelEntry, engine, { hidden: !modelEntries.length });
+  const selectedModelSelectValue = String(els.quickModelSelect?.value || selectedModelValue || "").trim();
+  const selectedModelEntry = selectedModelSelectValue
+    ? (modelEntries.find((entry) => String(entry.id || entry.value || "") === selectedModelSelectValue)
+      || options?.selectedModelEntry
+      || {})
+    : {};
+  const hasSelectedModelEntry = Boolean(selectedModelEntry?.id || selectedModelEntry?.value || selectedModelEntry?.model || selectedModelEntry?.provider);
+  setComposerModelAvatar(selectedModelEntry, engine, { hidden: !hasSelectedModelEntry });
   const effortEntries = runtimeControlArray(options?.effortOptions);
   const effortLabel = setComposerSelectOptions(
     els.effortSelect,
@@ -6506,7 +6520,7 @@ els.quickModelSelect?.addEventListener("change", async () => {
   const modelEntries = runtimeControlArray(runtimeControlOptionsForContext(context)?.modelOptions);
   await saveActiveBotRuntimeControl(
     "model",
-    els.quickModelSelect.value || modelEntries[0]?.id || modelEntries[0]?.value || modelEntries[0]?.model || "",
+    els.quickModelSelect.value || "",
     "保存模型...",
     "模型已更新",
     "Model switch failed",

@@ -198,10 +198,12 @@
     return String(entry.id || entry.value || entry.model || "").trim();
   }
 
-  function options(entries, selectedValue, fallbackLabel = "加载中") {
+  function options(entries, selectedValue, fallbackLabel = "加载中", allowEmpty = false) {
     const normalized = runtimeControlArray(entries);
     if (!normalized.length) return `<option value="">${escapeHtml(fallbackLabel)}</option>`;
-    return normalized.map((entry) => {
+    const rows = allowEmpty ? [{ id: "", value: "", label: fallbackLabel }] : [];
+    rows.push(...normalized);
+    return rows.map((entry) => {
       const value = runtimeOptionValue(entry);
       const aliases = Array.isArray(entry.aliases) ? entry.aliases.map(String) : [];
       const selected = value === selectedValue || aliases.includes(selectedValue) ? " selected" : "";
@@ -227,18 +229,20 @@
     const modelEntries = runtimeControlArray(optionsPayload?.modelOptions);
     const effortEntries = runtimeControlArray(optionsPayload?.effortOptions);
     const permissionEntries = runtimeControlArray(optionsPayload?.permissionOptions);
-    const selectedModel = String(optionsPayload?.selectedModel || modelEntries[0]?.id || modelEntries[0]?.value || "").trim();
-    const selectedModelEntry = optionsPayload?.selectedModelEntry
-      || modelEntries.find((entry) => runtimeOptionValue(entry) === selectedModel)
-      || modelEntries[0]
-      || {};
+    const selectedModel = String(optionsPayload?.selectedModel || "").trim();
+    const selectedModelEntry = selectedModel
+      ? (optionsPayload?.selectedModelEntry
+        || modelEntries.find((entry) => runtimeOptionValue(entry) === selectedModel)
+        || {})
+      : {};
     const modelLabel = selectedModelEntry?.label || (ready ? "模型" : "加载中");
     const selectedEffort = String(optionsPayload?.selectedEffort || "medium").trim();
     const effortLabel = effortEntries.find((entry) => runtimeOptionValue(entry) === selectedEffort)?.label || (ready ? "Medium" : "加载中");
     const selectedPermission = String(optionsPayload?.selectedPermission || (runtimeKind === "cloud-claude-code" ? "bypassPermissions" : "default")).trim();
     const permissionLabel = permissionEntries.find((entry) => runtimeOptionValue(entry) === selectedPermission)?.label || (ready ? "Ask" : "加载中");
     const hasModelEntries = modelEntries.length > 0;
-    const modelLogoSrc = hasModelEntries ? modelLogoSrcForOption(selectedModelEntry, engine, runtime) : "";
+    const hasSelectedModelEntry = Boolean(selectedModelEntry?.id || selectedModelEntry?.value || selectedModelEntry?.model || selectedModelEntry?.provider);
+    const modelLogoSrc = hasSelectedModelEntry ? modelLogoSrcForOption(selectedModelEntry, engine, runtime) : "";
     const modelLogoStyle = modelLogoSrc
       ? `background-image:url('${escapeHtml(modelLogoSrc)}');background-color:transparent;`
       : "";
@@ -248,10 +252,10 @@
         <div class="contact-card-row">
           <dt>模型</dt>
           <dd>
-            <label class="model-switcher${hasModelEntries ? "" : " model-switcher--no-avatar"}" title="切换模型">
-              <span class="model-avatar${hasModelEntries ? "" : " hidden"}" style="${modelLogoStyle}" aria-hidden="true">${modelLogoSrc ? "" : "◇"}</span>
+            <label class="model-switcher${hasSelectedModelEntry ? "" : " model-switcher--no-avatar"}" title="切换模型">
+              <span class="model-avatar${hasSelectedModelEntry ? "" : " hidden"}" style="${modelLogoStyle}" aria-hidden="true">${modelLogoSrc ? "" : "◇"}</span>
               <span class="model-current-label">${escapeHtml(modelLabel)}</span>
-              <select data-bot-field="model" aria-label="切换模型"${modelDisabled}>${options(modelEntries, selectedModel, "模型")}</select>
+              <select data-bot-field="model" aria-label="切换模型"${modelDisabled}>${options(modelEntries, selectedModel, "模型", true)}</select>
             </label>
           </dd>
         </div>

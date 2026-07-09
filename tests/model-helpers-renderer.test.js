@@ -18,7 +18,7 @@ function loadModelHelpers() {
   return context.window.miaModelHelpers;
 }
 
-test("Codex default model fallback is displayed as Codex 默认", () => {
+test("Codex default model fallback is not relabeled as a saved model choice", () => {
   const helpers = loadModelHelpers();
   helpers.initModelHelpers({
     state: {
@@ -39,9 +39,9 @@ test("Codex default model fallback is displayed as Codex 默认", () => {
     (entry) => entry.provider === "openai-codex",
   );
 
-  assert.equal(codex.label, "Codex 默认");
+  assert.equal(codex.label, "default");
   assert.equal(
     helpers.modelDisplayName({ provider: "openai-codex", model: "default" }),
-    "Codex 默认 | OpenAI Codex",
+    "default | OpenAI Codex",
   );
 });

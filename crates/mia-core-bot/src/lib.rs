@@ -1906,17 +1906,17 @@ fn runtime_control_external_model_options(
         );
     } else if engine == "codex" {
         for item in value_array_or_nested(&capability, &["models"]) {
-            if let Some(slug) = first_value_string(item, &["slug", "id", "model", "value", "name"])
+            if let Some(slug) = first_value_string(&item, &["slug", "id", "model", "value", "name"])
             {
                 entries.push(BotRuntimeControlOption {
                     id: slug.clone(),
                     value: slug.clone(),
                     label: first_value_string(
-                        item,
+                        &item,
                         &["displayName", "display_name", "label", "name"],
                     )
                     .unwrap_or_else(|| slug.clone()),
-                    title: first_value_string(item, &["description"]).unwrap_or_default(),
+                    title: first_value_string(&item, &["description"]).unwrap_or_default(),
                     aliases: vec![],
                     model: slug,
                     provider: "codex".into(),

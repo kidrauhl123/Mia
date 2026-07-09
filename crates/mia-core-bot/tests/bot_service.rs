@@ -122,6 +122,8 @@ async fn bot_service_owns_runtime_target_intent_normalization() {
         .unwrap();
     assert_eq!(cloud.binding["config"]["agentEngine"], "claude-code");
     assert_eq!(cloud.binding["config"]["model"], "mia-auto");
+    assert_eq!(cloud.binding["config"]["providerConnectionId"], "mia");
+    assert_eq!(cloud.binding["config"]["modelProfileId"], "mia:mia-auto");
     assert_eq!(cloud.binding["config"]["effortLevel"], "medium");
     assert_eq!(
         cloud.binding["config"]["permissionMode"],
@@ -356,7 +358,7 @@ async fn bot_service_owns_runtime_control_options_selection() {
     assert_eq!(response.runtime_kind, "desktop-local");
     assert_eq!(response.agent_engine, "codex");
     assert_eq!(response.status_text, "Codex");
-    assert_eq!(response.model_options.len(), 3);
+    assert_eq!(response.model_options.len(), 1);
     assert_eq!(response.selected_model, "gpt-5.3-codex");
     assert_eq!(
         response.selected_model_entry.as_ref().unwrap().label,
@@ -367,7 +369,7 @@ async fn bot_service_owns_runtime_control_options_selection() {
 }
 
 #[tokio::test]
-async fn bot_service_falls_back_to_codex_default_when_saved_model_is_not_available() {
+async fn bot_service_leaves_external_model_empty_when_saved_model_is_not_available() {
     let db = init_database_memory().await.unwrap();
     let service = BotService::new(db.pool().clone());
 
@@ -397,18 +399,14 @@ async fn bot_service_falls_back_to_codex_default_when_saved_model_is_not_availab
         codex_models: json!([]),
     });
 
-    assert_eq!(response.selected_model, "default");
-    assert_eq!(
-        response.selected_model_entry.as_ref().unwrap().label,
-        "Codex 默认"
-    );
+    assert_eq!(response.selected_model, "");
+    assert!(response.selected_model_entry.is_none());
     let model_ids = response
         .model_options
         .iter()
         .map(|entry| entry.id.as_str())
         .collect::<Vec<_>>();
-    assert!(model_ids.contains(&"default"));
-    assert!(model_ids.contains(&"gpt-5.5"));
+    assert_eq!(model_ids, vec!["gpt-5.5", "mia-auto"]);
     assert!(!model_ids.contains(&"gpt-5.3-codex"));
 }
 
@@ -688,30 +686,17 @@ async fn bot_service_owns_runtime_sync_intent_normalization() {
                     model: Some("gpt-5.3-codex".to_string()),
                     effort_level: Some("xhigh".to_string()),
                     permission_mode: Some("readOnly".to_string()),
-                    model_entries: vec![
-                        BotRuntimeModelEntryIntent {
-                            id: Some("default".to_string()),
-                            value: None,
-                            label: Some("Codex 默认".to_string()),
-                            model: Some("".to_string()),
-                            provider: Some("codex".to_string()),
-                            provider_label: None,
-                            auth_type: None,
-                            model_profile_id: None,
-                            profile_id: None,
-                        },
-                        BotRuntimeModelEntryIntent {
-                            id: Some("gpt-5.3-codex".to_string()),
-                            value: None,
-                            label: Some("GPT-5.3 Codex".to_string()),
-                            model: Some("gpt-5.3-codex".to_string()),
-                            provider: Some("codex".to_string()),
-                            provider_label: None,
-                            auth_type: None,
-                            model_profile_id: Some("codex:gpt-5.3-codex".to_string()),
-                            profile_id: None,
-                        },
-                    ],
+                    model_entries: vec![BotRuntimeModelEntryIntent {
+                        id: Some("gpt-5.3-codex".to_string()),
+                        value: None,
+                        label: Some("GPT-5.3 Codex".to_string()),
+                        model: Some("gpt-5.3-codex".to_string()),
+                        provider: Some("codex".to_string()),
+                        provider_label: None,
+                        auth_type: None,
+                        model_profile_id: Some("codex:gpt-5.3-codex".to_string()),
+                        profile_id: None,
+                    }],
                 }),
                 control_intent: None,
                 config: json!({}),
@@ -730,7 +715,7 @@ async fn bot_service_owns_runtime_sync_intent_normalization() {
     assert!(external.binding["config"].get("permissionMode").is_none());
     assert_eq!(
         external.binding["config"]["modelEntries"][0],
-        json!({"id":"default","label":"Codex 默认","model":"","provider":"codex"})
+        json!({"id":"gpt-5.3-codex","label":"GPT-5.3 Codex","model":"gpt-5.3-codex","provider":"codex","modelProfileId":"codex:gpt-5.3-codex"})
     );
 }
 
@@ -1155,6 +1140,90 @@ async fn bot_service_owns_starter_bot_materialization_and_marker() {
     assert!(again.skipped);
     assert!(again.created.is_empty());
     assert_eq!(service.list_bots().await.unwrap().bots.len(), 2);
+}
+
+#[tokio::test]
+async fn bot_service_repairs_existing_starter_identity_and_runtime_binding() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+    let request_runtime = json!({
+        "cloud": {
+            "enabled": true,
+            "agentRuntime": {
+                "runtimeKind": "cloud-claude-code",
+                "agentEngine": "claude-code",
+                "label": "Claude Code",
+                "available": true
+            }
+        },
+        "localDevice": { "id": "mac-1", "name": "Jung Mac.local Mia Desktop" },
+        "agentInventory": {
+            "agents": [
+                { "id": "claude-code", "label": "Claude Code", "usableInMia": true }
+            ]
+        }
+    });
+
+    service
+        .ensure_starter_bots(StarterBotEnsureRequest {
+            runtime: request_runtime.clone(),
+            user_id: Some("u_123".to_string()),
+            now: Some("2026-06-26T08:00:00.000Z".to_string()),
+        })
+        .await
+        .unwrap();
+
+    sqlx::query("UPDATE bots SET identity_json = '{}' WHERE id = ?")
+        .bind("starter_u_123_claude_code")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE bot_runtime_bindings SET binding_json = ? WHERE bot_id = ? AND runtime_kind = ?",
+    )
+    .bind(
+        json!({
+            "runtimeKind": "desktop-local",
+            "agentEngine": "hermes",
+            "config": { "agentEngine": "hermes", "deviceId": "mac-1", "deviceName": "Jung Mac" }
+        })
+        .to_string(),
+    )
+    .bind("starter_u_123_claude_code")
+    .bind("desktop-local")
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    let repaired = service
+        .ensure_starter_bots(StarterBotEnsureRequest {
+            runtime: request_runtime,
+            user_id: Some("u_123".to_string()),
+            now: Some("2026-06-27T08:00:00.000Z".to_string()),
+        })
+        .await
+        .unwrap();
+
+    assert!(!repaired.skipped);
+    assert!(repaired.created.is_empty());
+    assert_eq!(repaired.updated.len(), 1);
+    assert_eq!(repaired.updated[0].engine_id, "claude-code");
+
+    let bot = service
+        .get_bot("starter_u_123_claude_code")
+        .await
+        .unwrap()
+        .bot;
+    assert_eq!(bot.identity["agentEngine"], "claude-code");
+    assert_eq!(bot.identity["runtimeKind"], "desktop-local");
+
+    let runtime = service
+        .get_runtime("starter_u_123_claude_code", "desktop-local")
+        .await
+        .unwrap();
+    assert_eq!(runtime.binding["agentEngine"], "claude-code");
+    assert_eq!(runtime.binding["config"]["agentEngine"], "claude-code");
+    assert_eq!(runtime.binding["targetDeviceId"], "mac-1");
 }
 
 #[tokio::test]

@@ -24,9 +24,7 @@
   }
 
   function modelLabel(provider = "", model = "", fallback = "") {
-    const providerId = String(provider || "").trim();
     const modelId = String(model || "").trim();
-    if (providerId === "openai-codex" && modelId === "default") return "Codex 默认";
     return String(fallback || modelId || "Local Model").trim();
   }
 

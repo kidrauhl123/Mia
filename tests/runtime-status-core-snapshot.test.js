@@ -249,7 +249,7 @@ test("runtime status snapshot refreshes after invalidate", async () => {
   assert.equal(calls.length, 4);
 });
 
-test("Codex model selection falls back to default when saved model is not in Core model list", () => {
+test("Codex model selection falls back to neutral empty model when saved model is not in Core model list", () => {
   const selection = resolveCodexModelSelection(
     {
       provider: "openai-codex",
@@ -268,8 +268,8 @@ test("Codex model selection falls back to default when saved model is not in Cor
     providerConnectionId: "openai-codex",
     providerLabel: "OpenAI Codex",
     authType: "oauth_external",
-    model: "default",
-    modelProfileId: "openai-codex:default"
+    model: "",
+    modelProfileId: ""
   });
 });
 
@@ -282,6 +282,6 @@ test("Codex model selection does not preserve stale saved model when Core model 
     {}
   );
 
-  assert.equal(selection.model, "default");
-  assert.equal(selection.modelProfileId, "openai-codex:default");
+  assert.equal(selection.model, "");
+  assert.equal(selection.modelProfileId, "");
 });
