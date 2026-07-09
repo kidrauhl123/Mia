@@ -18,6 +18,7 @@ const {
 } = require("../shared/agent-engine-policy");
 
 const APPEARANCE_FONT_PRESETS = ["system", "serif"];
+const WINDOW_CLOSE_BEHAVIORS = new Set(["ask", "close-to-tray", "quit"]);
 const ATOMIC_REPLACE_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
 
 function defaultSleepSync(delayMs) {
@@ -78,6 +79,11 @@ function normalizeAppearanceSelectionStyle() {
   return "solid";
 }
 
+function normalizeWindowCloseBehavior(value) {
+  const behavior = String(value || "").trim();
+  return WINDOW_CLOSE_BEHAVIORS.has(behavior) ? behavior : "ask";
+}
+
 function createSettingsStore(deps = {}) {
   const {
     runtimePaths,
@@ -122,7 +128,8 @@ function createSettingsStore(deps = {}) {
   function defaultWindowSettings() {
     return {
       bounds: null,
-      maximized: false
+      maximized: false,
+      windowCloseBehavior: "ask"
     };
   }
 
@@ -149,7 +156,8 @@ function createSettingsStore(deps = {}) {
     const saved = readJson(p.windowSettings, {});
     return {
       bounds: normalizeWindowBounds(saved.bounds),
-      maximized: Boolean(saved.maximized)
+      maximized: Boolean(saved.maximized),
+      windowCloseBehavior: normalizeWindowCloseBehavior(saved.windowCloseBehavior)
     };
   }
 
@@ -162,7 +170,10 @@ function createSettingsStore(deps = {}) {
         : current.bounds,
       maximized: Object.prototype.hasOwnProperty.call(settings, "maximized")
         ? Boolean(settings.maximized)
-        : current.maximized
+        : current.maximized,
+      windowCloseBehavior: Object.prototype.hasOwnProperty.call(settings, "windowCloseBehavior")
+        ? normalizeWindowCloseBehavior(settings.windowCloseBehavior)
+        : current.windowCloseBehavior
     };
     fs.mkdirSync(path.dirname(p.windowSettings), { recursive: true });
     fs.writeFileSync(p.windowSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
@@ -515,6 +526,7 @@ function createSettingsStore(deps = {}) {
     defaultUserProfile,
     defaultAppearanceSettings,
     defaultWindowSettings,
+    normalizeWindowCloseBehavior,
     windowSettings,
     writeWindowSettings,
     userProfile,
