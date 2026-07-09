@@ -73,9 +73,31 @@ function settingsSwitch(checked = true) {
   };
 }
 
+function themeSwitch() {
+  return {
+    classNames: new Set(),
+    attributes: {},
+    textContent: "",
+    classList: {
+      toggle(name, enabled) {
+        if (enabled) this.owner.classNames.add(name);
+        else this.owner.classNames.delete(name);
+      }
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    },
+    getAttribute(name) {
+      return this.attributes[name] || "";
+    }
+  };
+}
+
 function appearanceControls(overrides = {}) {
   return {
     appearanceTheme: { value: "light" },
+    appearanceThemeToggle: null,
+    appearanceThemeToggleText: null,
     appearanceFontPreset: { value: "system" },
     appearanceAccentColor: { value: "#318ad3" },
     appearanceAccentPreview: { style: {} },
@@ -522,6 +544,44 @@ test("desktop notification switch is initially on", () => {
   assert.match(htmlSource, /id="appearanceShowDesktopNotifications"[^>]*aria-checked="true"/);
   assert.match(appSource, /appearanceShowDesktopNotifications:\s*document\.getElementById\("appearanceShowDesktopNotifications"\)/);
   assert.match(appSource, /appearanceShowDesktopNotifications\?\.addEventListener\("click"/);
+});
+
+test("desktop theme setting uses a switch button instead of a visible select", () => {
+  assert.match(htmlSource, /id="appearanceThemeToggle"[^>]*class="appearance-theme-toggle"[^>]*role="switch"/);
+  assert.match(htmlSource, /class="[^"]*appearance-theme-toggle-sun/);
+  assert.match(htmlSource, /class="[^"]*appearance-theme-toggle-moon/);
+  assert.match(htmlSource, /id="appearanceTheme"[^>]*class="visually-hidden"[^>]*aria-hidden="true"[^>]*tabindex="-1"/);
+  assert.match(appSource, /appearanceThemeToggle:\s*document\.getElementById\("appearanceThemeToggle"\)/);
+  assert.match(appSource, /appearanceThemeToggleText:\s*document\.getElementById\("appearanceThemeToggleText"\)/);
+  assert.match(appSource, /appearanceThemeToggle\?\.addEventListener\("click"/);
+  assert.match(cssSource, /\.appearance-theme-toggle\s*\{/);
+  assert.match(cssSource, /\.appearance-theme-toggle\.is-dark\s+\./);
+});
+
+test("theme switch mirrors the saved light and dark appearance state", () => {
+  const toggle = themeSwitch();
+  toggle.classList.owner = toggle;
+  const label = { textContent: "" };
+  const controls = appearanceControls({
+    appearanceTheme: { value: "light" },
+    appearanceThemeToggle: toggle,
+    appearanceThemeToggleText: label
+  });
+  const { api } = loadAppearanceModule({ els: controls });
+
+  api.syncAppearanceControls({ theme: "dark" });
+
+  assert.equal(controls.appearanceTheme.value, "dark");
+  assert.equal(toggle.getAttribute("aria-checked"), "true");
+  assert.equal(toggle.classNames.has("is-dark"), true);
+  assert.equal(label.textContent, "深色");
+
+  api.syncAppearanceControls({ theme: "light" });
+
+  assert.equal(controls.appearanceTheme.value, "light");
+  assert.equal(toggle.getAttribute("aria-checked"), "false");
+  assert.equal(toggle.classNames.has("is-dark"), false);
+  assert.equal(label.textContent, "浅色");
 });
 
 test("desktop appearance settings do not expose removed font presets", () => {

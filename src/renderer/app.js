@@ -279,6 +279,8 @@ const els = {
   modelApiKeyLabel: document.getElementById("modelApiKeyLabel"),
   appearanceForm: document.getElementById("appearanceForm"),
   appearanceTheme: document.getElementById("appearanceTheme"),
+  appearanceThemeToggle: document.getElementById("appearanceThemeToggle"),
+  appearanceThemeToggleText: document.getElementById("appearanceThemeToggleText"),
   appearanceFontPreset: document.getElementById("appearanceFontPreset"),
   appearanceFontChoices: document.getElementById("appearanceFontChoices"),
   navLayoutChoices: document.querySelectorAll("[data-nav-layout-choice]"),
@@ -3036,7 +3038,10 @@ function openImagePreview(src, title = "", options = {}) {
   }
 
   overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) closeImagePreview();
+    if (!event.target.closest(".image-editor-dialog")) {
+      closeImagePreview();
+      return;
+    }
     const action = event.target.closest("[data-image-editor-action]")?.dataset.imageEditorAction;
     if (!action) return;
     event.preventDefault();
@@ -7054,6 +7059,11 @@ els.appearanceTheme.addEventListener("change", () => {
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
+els.appearanceThemeToggle?.addEventListener("click", () => {
+  els.appearanceTheme.value = els.appearanceTheme.value === "dark" ? "light" : "dark";
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
+});
+
 els.appearanceFontPreset.addEventListener("change", () => {
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
@@ -7471,7 +7481,8 @@ els.chatForm?.addEventListener("drop", (event) => {
 });
 els.chatInput?.addEventListener("paste", (event) => {
   if (event.clipboardData?.files?.length) {
-    window.miaComposer.addComposerFiles(event.clipboardData.files);
+    event.preventDefault();
+    window.miaComposer.addComposerFiles(event.clipboardData.files, { pathRefs: true });
     return;
   }
   window.miaComposer.handleComposerPlainTextPaste(event);
@@ -7881,7 +7892,8 @@ els.chatForm.addEventListener("submit", async (event) => {
     const conversationId = window.miaSocial.getActiveConversationId();
     const composerText = els.chatInput.value;
     const pendingAttachments = [...state.pendingAttachments].slice(0, 20);
-    let conversationText = window.miaComposer.expandPathPasteRefsForSend(composerText);
+    const attachmentsForSend = window.miaComposer.attachmentsForSend(pendingAttachments);
+    let conversationText = window.miaComposer.expandComposerPathRefsForSend(composerText, pendingAttachments);
     if (!conversationText.trim() && !pendingAttachments.length) return;
     // Cloud conversations have no reply_to column, so a quote-reply is embedded as a
     // markdown blockquote at the head of the message — visible to every member.
@@ -7915,7 +7927,7 @@ els.chatForm.addEventListener("submit", async (event) => {
     }
     await window.miaSocial.sendInActiveConversation(conversationText, {
       ...(messageSkills ? { skills: messageSkills } : {}),
-      attachments: pendingAttachments
+      attachments: attachmentsForSend
     });
     return;
   }

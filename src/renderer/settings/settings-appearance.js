@@ -277,8 +277,24 @@
     scheduleAppearanceSave(0);
   }
 
+  function syncThemeControl(theme) {
+    const controls = els || {};
+    const nextTheme = theme === "dark" ? "dark" : "light";
+    if (controls.appearanceTheme) controls.appearanceTheme.value = nextTheme;
+    const toggle = controls.appearanceThemeToggle;
+    if (!toggle) return;
+    const isDark = nextTheme === "dark";
+    toggle.classList.toggle("is-dark", isDark);
+    toggle.setAttribute("aria-checked", isDark ? "true" : "false");
+    toggle.setAttribute("aria-label", isDark ? "切换浅色模式" : "切换深色模式");
+    if (controls.appearanceThemeToggleText) {
+      controls.appearanceThemeToggleText.textContent = isDark ? "深色" : "浅色";
+    }
+  }
+
   function syncAppearanceControls(appearance = currentAppearanceDraft()) {
     const controls = els || {};
+    syncThemeControl(appearance.theme);
     const presets = configuredFontPresets();
     const fontPreset = presets[appearance.fontPreset] ? appearance.fontPreset : "system";
     if (controls.appearanceFontPreset) controls.appearanceFontPreset.value = fontPreset;

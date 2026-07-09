@@ -78,8 +78,9 @@ test("cloud conversation composer sends pending attachments and clears the tray"
 
   assert.doesNotMatch(appSource, /pathPasteAttachmentsForSend/);
   assert.match(appSource, /const pendingAttachments = \[\.\.\.state\.pendingAttachments\]\.slice\(0, 20\);/);
+  assert.match(appSource, /const attachmentsForSend = window\.miaComposer\.attachmentsForSend\(pendingAttachments\);/);
   assert.match(appSource, /if \(!conversationText\.trim\(\) && !pendingAttachments\.length\) return;/);
-  assert.match(appSource, /sendInActiveConversation\(conversationText,\s*\{[\s\S]*attachments: pendingAttachments/);
+  assert.match(appSource, /sendInActiveConversation\(conversationText,\s*\{[\s\S]*attachments: attachmentsForSend/);
   assert.match(appSource, /state\.pendingAttachments = \[\];/);
   assert.match(appSource, /window\.miaComposer\.renderComposerAttachments\(\);/);
 });
@@ -157,6 +158,7 @@ test("image preview is an svg-icon editing window with crop draw and save action
   assert.match(appSource, /data-image-editor-action="draw"/);
   assert.match(appSource, /data-image-editor-action="save"/);
   assert.match(appSource, /<canvas class="image-editor-canvas"/);
+  assert.match(appSource, /event\.target\.closest\("\.image-editor-dialog"\)/);
   assert.match(appSource, /<svg viewBox="0 0 24 24"/);
   assert.doesNotMatch(appSource, />\s*(剪裁|涂鸦|保存)\s*</);
 });

@@ -991,24 +991,72 @@
     return insertPathPasteText(text);
   }
 
-  function expandPathPasteRefsForSend(text) {
-    if (!state || !Array.isArray(state.pathPasteRefs) || !state.pathPasteRefs.length) return text;
+  function expandPathRefsForSend(text, refs = []) {
     const body = String(text || "").trimEnd();
-    const refs = state.pathPasteRefs
-      .filter((ref) => ref?.token && ref?.path && pathPasteTokenInText(ref.token, body))
+    const visibleRefs = (Array.isArray(refs) ? refs : [])
+      .filter((ref) => ref?.token && ref?.path)
       .slice(0, 20);
-    if (!refs.length) return body;
-    const missingTokens = refs
+    if (!visibleRefs.length) return body;
+    const missingTokens = visibleRefs
       .filter((ref) => !pathPasteTokenInText(ref.token, body))
       .map((ref) => ref.token);
     const visible = [body, missingTokens.join(" ")].filter(Boolean).join(body ? " " : "");
     const hidden = [
       "[[MIA_PATH_REFS_BEGIN]]",
       "The user-visible tokens above refer to these local file paths:",
-      ...refs.map((ref) => `${ref.token}: ${ref.path}`),
+      ...visibleRefs.map((ref) => `${ref.token}: ${ref.path}`),
       "[[MIA_PATH_REFS_END]]"
     ].join("\n");
     return `${visible}\n\n${hidden}`;
+  }
+
+  function expandPathPasteRefsForSend(text) {
+    if (!state || !Array.isArray(state.pathPasteRefs) || !state.pathPasteRefs.length) return text;
+    const body = String(text || "").trimEnd();
+    const refs = state.pathPasteRefs
+      .filter((ref) => ref?.token && ref?.path && pathPasteTokenInText(ref.token, body));
+    return expandPathRefsForSend(body, refs);
+  }
+
+  function attachmentPathRefPath(attachment = {}) {
+    return normalizePathPasteText(attachment.path || attachment.filePath || attachment.file_path || "");
+  }
+
+  function attachmentShouldSendAsPathRef(attachment = {}) {
+    return Boolean(attachment?.pathRefOnSend && attachmentPathRefPath(attachment));
+  }
+
+  function attachmentPathRefsForSend(attachments = []) {
+    return (Array.isArray(attachments) ? attachments : [])
+      .filter(attachmentShouldSendAsPathRef)
+      .map((attachment) => {
+        if (!attachment.pathRefToken) attachment.pathRefToken = nextPathPasteToken("image");
+        return {
+          token: attachment.pathRefToken,
+          path: attachmentPathRefPath(attachment),
+          kind: "image"
+        };
+      });
+  }
+
+  function expandComposerPathRefsForSend(text, attachments = []) {
+    const body = String(text || "").trimEnd();
+    const typedRefs = state && Array.isArray(state.pathPasteRefs)
+      ? state.pathPasteRefs.filter((ref) => ref?.token && ref?.path && pathPasteTokenInText(ref.token, body))
+      : [];
+    return expandPathRefsForSend(body, [...typedRefs, ...attachmentPathRefsForSend(attachments)]);
+  }
+
+  function attachmentsForSend(attachments = []) {
+    return (Array.isArray(attachments) ? attachments : [])
+      .filter((attachment) => !attachmentShouldSendAsPathRef(attachment))
+      .map((attachment) => {
+        if (!attachment || typeof attachment !== "object") return attachment;
+        const next = { ...attachment };
+        delete next.pathRefOnSend;
+        delete next.pathRefToken;
+        return next;
+      });
   }
 
   function clearPathPasteRefs() {
@@ -1070,10 +1118,11 @@
     return true;
   }
 
-  async function addComposerFiles(fileList) {
+  async function addComposerFiles(fileList, options = {}) {
     if (!state || !els) return;
     const files = Array.from(fileList || []).filter(Boolean);
     if (!files.length) return;
+    const pathRefs = Boolean(options.pathRefs);
     const existing = new Set(state.pendingAttachments.map((item) => item.path || `${item.name}:${item.size}`));
     const next = [];
     for (const file of files.slice(0, 20)) {
@@ -1100,15 +1149,18 @@
       const key = filePath || `${file.name}:${file.size}`;
       if (existing.has(key)) continue;
       existing.add(key);
+      const kind = saved?.kind || window.miaFormat.attachmentKind(file);
+      const pathRefOnSend = pathRefs && kind === "image" && Boolean(filePath);
       next.push({
         id: saved?.id || cryptoRandomId(),
         name: saved?.name || file.name || (filePath ? filePath.split(/[\\/]/).pop() : "附件"),
         path: filePath || "",
         mime: saved?.mime || file.type || "",
         size: saved?.size || file.size || 0,
-        kind: saved?.kind || window.miaFormat.attachmentKind(file),
+        kind,
         thumbnailDataUrl: saved?.thumbnailDataUrl || thumbnailDataUrl || "",
-        dataUrl: dataUrl || ""
+        dataUrl: dataUrl || "",
+        ...(pathRefOnSend ? { pathRefOnSend: true, pathRefToken: nextPathPasteToken("image") } : {})
       });
     }
     if (!next.length) return;
@@ -1416,6 +1468,8 @@
     handlePathPasteRefBackspace,
     handleComposerEditorKeydown,
     expandPathPasteRefsForSend,
+    expandComposerPathRefsForSend,
+    attachmentsForSend,
     clearPathPasteRefs,
     reconcilePathPasteRefsFromInput,
     handleComposerPlainTextPaste,

@@ -50,7 +50,7 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function loadComposer({ clipboardText = "", nativeClipboardText = null, includeNavigatorClipboard = true } = {}) {
+function loadComposer({ clipboardText = "", nativeClipboardText = null, includeNavigatorClipboard = true, fileDataUrl = "data:image/png;base64,cG5n" } = {}) {
   const source = fs.readFileSync(path.join(root, "src/renderer/chat/composer.js"), "utf8");
   const window = {
     miaConversationKinds: { MemberKind: { Bot: "bot", User: "user" } },
@@ -68,11 +68,60 @@ function loadComposer({ clipboardText = "", nativeClipboardText = null, includeN
     platform: "MacIntel"
   };
   if (includeNavigatorClipboard) navigator.clipboard = { readText: async () => clipboardText };
+  const URLForContext = URL;
+  URLForContext.createObjectURL = () => "blob:mia-test";
+  URLForContext.revokeObjectURL = () => {};
+  class MockFileReader {
+    constructor() {
+      this.result = "";
+      this.listeners = {};
+    }
+    addEventListener(type, callback) {
+      this.listeners[type] = callback;
+    }
+    readAsDataURL(file) {
+      this.result = file?.dataUrl || fileDataUrl;
+      this.listeners.load?.();
+    }
+  }
+  class MockImage {
+    constructor() {
+      this.naturalWidth = 320;
+      this.naturalHeight = 180;
+      this.onload = null;
+      this.onerror = null;
+    }
+    set src(_value) {
+      this.onload?.();
+    }
+  }
+  const document = {
+    createElement(tagName) {
+      if (tagName === "canvas") {
+        return {
+          width: 0,
+          height: 0,
+          getContext: () => ({ drawImage() {} }),
+          toDataURL: () => "data:image/jpeg;base64,dGh1bWI="
+        };
+      }
+      return { tagName: String(tagName || "").toUpperCase(), childNodes: [], appendChild() {} };
+    },
+    createDocumentFragment() {
+      return { nodeType: 11, childNodes: [], appendChild(node) { this.childNodes.push(node); this.lastChild = node; } };
+    },
+    createTextNode(text) {
+      return { nodeType: 3, nodeValue: String(text || "") };
+    }
+  };
   const context = vm.createContext({
     window,
     globalThis: window,
     navigator,
-    URL,
+    URL: URLForContext,
+    FileReader: MockFileReader,
+    Image: MockImage,
+    document,
     console,
     require,
     setTimeout,
@@ -233,6 +282,46 @@ test("composer path paste prefers the desktop clipboard bridge", async () => {
   assert.equal(input.value, "/Users/jung/Desktop/native path.png");
 });
 
+test("default pasted image attachments keep thumbnail UI while sending as path references", async () => {
+  const { composer, window } = loadComposer();
+  window.mia = {
+    saveAttachment: async (input) => ({
+      id: "saved_clipboard_image",
+      name: input.name,
+      path: "/tmp/mia-clipboard/clipboard.png",
+      mime: input.mime || "image/png",
+      size: 3,
+      kind: "image",
+      thumbnailDataUrl: input.thumbnailDataUrl,
+      dataUrl: input.dataUrl
+    })
+  };
+  const input = mockInput("");
+  const counters = initComposer(composer, input);
+
+  await composer.addComposerFiles([{
+    name: "clipboard.png",
+    type: "image/png",
+    size: 3,
+    dataUrl: "data:image/png;base64,cG5n"
+  }], { pathRefs: true });
+
+  assert.equal(counters.state.pendingAttachments.length, 1);
+  const attachment = counters.state.pendingAttachments[0];
+  assert.equal(attachment.name, "clipboard.png");
+  assert.equal(attachment.path, "/tmp/mia-clipboard/clipboard.png");
+  assert.equal(attachment.kind, "image");
+  assert.equal(attachment.pathRefOnSend, true);
+  assert.equal(attachment.pathRefToken, "IMG1");
+  assert.match(attachment.thumbnailDataUrl, /^data:image\//);
+  assert.match(attachment.dataUrl, /^data:image\/png/);
+
+  const expanded = composer.expandComposerPathRefsForSend("看这个", counters.state.pendingAttachments);
+  assert.match(expanded, /^看这个 IMG1\n\n\[\[MIA_PATH_REFS_BEGIN\]\]/);
+  assert.match(expanded, /IMG1: \/tmp\/mia-clipboard\/clipboard\.png/);
+  assert.equal(composer.attachmentsForSend(counters.state.pendingAttachments).length, 0);
+});
+
 test("composer keeps unsent drafts isolated per conversation", () => {
   const { composer } = loadComposer();
   const input = mockInput("draft for alpha");
@@ -296,8 +385,20 @@ test("chat input accepts main-process path paste events only while focused", () 
   assert.match(appSource, /document\.activeElement !== els\.chatInput/);
   assert.match(appSource, /window\.miaComposer\.insertPathPastePayload\(payload\)/);
   assert.match(appSource, /const composerText = els\.chatInput\.value/);
-  assert.match(appSource, /window\.miaComposer\.expandPathPasteRefsForSend\(composerText\)/);
+  assert.match(appSource, /window\.miaComposer\.expandComposerPathRefsForSend\(composerText,\s*pendingAttachments\)/);
   assert.match(appSource, /window\.miaComposer\.clearPathPasteRefs\(\)/);
+});
+
+test("default file paste prevents browser inline image insertion and adds path-ref attachments", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const pasteStart = appSource.indexOf('els.chatInput?.addEventListener("paste"');
+  const pasteEnd = appSource.indexOf("});", pasteStart);
+  const pasteHandler = appSource.slice(pasteStart, pasteEnd);
+
+  assert.ok(pasteStart >= 0, "chat input paste handler should exist");
+  assert.match(pasteHandler, /if \(event\.clipboardData\?\.files\?\.length\) \{/);
+  assert.match(pasteHandler, /event\.preventDefault\(\)/);
+  assert.match(pasteHandler, /window\.miaComposer\.addComposerFiles\(event\.clipboardData\.files,\s*\{\s*pathRefs:\s*true/);
 });
 
 test("preload exposes electron clipboard text for desktop path paste", () => {
