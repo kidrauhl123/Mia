@@ -21,13 +21,13 @@ function normalizeWindowCloseBehavior(value) {
 function windowClosePromptOptions() {
   return {
     type: "question",
-    title: "Keep Mia running in the background?",
-    message: "Keep Mia running in the background?",
-    detail: "After closing the window, Mia will stay in the menu bar/system tray and Mia Core will keep running for background tasks and local services. You can reopen Mia from the menu bar/system tray, or choose \"Quit Mia\" there to fully stop it.",
-    buttons: ["Close to Tray", "Quit Mia"],
+    title: "是否保留 Mia Core 后台运行？",
+    message: "是否保留 Mia Core 后台运行？",
+    detail: "空闲时资源占用很低。",
+    buttons: ["留在后台", "退出 Mia"],
     defaultId: 0,
     cancelId: 0,
-    checkboxLabel: "Remember my choice",
+    checkboxLabel: "记住我的选择",
     checkboxChecked: false,
     noLink: true
   };
