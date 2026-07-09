@@ -133,7 +133,11 @@ function selectedSkillIdsFromCoreBody(input = {}) {
 
 function isCoreConversationId(conversationId) {
   const id = String(conversationId || "").trim();
-  return id.startsWith("conv_") || id.startsWith("botc_starter_") || id.startsWith("cloud_bridge_");
+  const coreUserId = String(miaCoreStartupState.userId || "").trim();
+  const coreStarterPrefix = coreUserId ? `botc_starter_${coreUserId}_` : "";
+  return id.startsWith("conv_")
+    || id.startsWith("cloud_bridge_")
+    || Boolean(coreStarterPrefix && id.startsWith(coreStarterPrefix));
 }
 
 function isBotConversationId(conversationId) {

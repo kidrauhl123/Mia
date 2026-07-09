@@ -8,7 +8,9 @@ const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 function extractFunctionSource(source, name) {
   const start = source.indexOf(`function ${name}`);
   assert.notEqual(start, -1, `${name} should exist`);
-  const next = source.indexOf("\nfunction ", start + 1);
+  const syncNext = source.indexOf("\nfunction ", start + 1);
+  const asyncNext = source.indexOf("\nasync function ", start + 1);
+  const next = [syncNext, asyncNext].filter((idx) => idx !== -1).sort((a, b) => a - b)[0] ?? -1;
   return source.slice(start, next === -1 ? source.length : next);
 }
 
@@ -184,6 +186,8 @@ test("conversation preload bridge keeps legacy social data primary with Rust Cor
   assert.match(preload, /function normalizeCoreConversation/);
   const coreConversationIdSource = extractFunctionSource(preload, "isCoreConversationId");
   assert.match(coreConversationIdSource, /botc_starter_/);
+  assert.match(coreConversationIdSource, /miaCoreStartupState\.userId/);
+  assert.doesNotMatch(coreConversationIdSource, /id\.startsWith\("botc_starter_"\)/);
   assert.doesNotMatch(coreConversationIdSource, /id\.startsWith\("botc_"\)/);
   assert.match(preload, /listConversationMessages:\s*\(conversationId,\s*sinceSeq,\s*limit\)\s*=>\s*listConversationMessagesCompat\(conversationId,\s*sinceSeq,\s*limit\)/);
   const listMessagesSource = extractFunctionSource(preload, "listConversationMessagesCompat");
