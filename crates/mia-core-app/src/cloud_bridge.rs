@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use async_trait::async_trait;
 use mia_core_api_types::{
@@ -164,6 +164,8 @@ pub async fn execute_cloud_bridge_run(
                 .unwrap_or_else(|| "mia".to_string())
         });
         let runtime_event_engine = runtime_plan.engine.clone();
+        let trace_collector = Arc::new(StdMutex::new(CloudRunCollector::default()));
+        let trace_collector_for_sink = trace_collector.clone();
         let sink = RuntimeEventSink::new(move |event| {
             let name = event.name.clone();
             let data = event.data.clone();
@@ -180,6 +182,10 @@ pub async fn execute_cloud_bridge_run(
                         )
                     });
                 for run_event in run_events {
+                    trace_collector_for_sink
+                        .lock()
+                        .unwrap()
+                        .apply_run_event(&run_event);
                     event_realtime.emit(
                         "cloud_agent_run_event",
                         json!({
@@ -221,7 +227,13 @@ pub async fn execute_cloud_bridge_run(
                 return Err(error);
             }
         };
-        let output = normalize_runtime_output(&runtime_plan.engine, &result.stdout, &result.stderr);
+        let structured_output = trace_collector.lock().unwrap().display_output();
+        let output = runtime_output_with_collected_events(
+            &runtime_plan.engine,
+            &result.stdout,
+            &result.stderr,
+            structured_output,
+        );
         response_trace = output.trace.clone();
         response_content_blocks = output.content_blocks.clone();
         let body = if output.text.trim().is_empty() && result.exit_code != Some(0) {
@@ -855,6 +867,33 @@ pub(crate) fn normalize_runtime_output(
     }
 }
 
+fn runtime_output_with_collected_events(
+    engine: &str,
+    stdout: &str,
+    stderr: &str,
+    structured: RuntimeDisplayOutput,
+) -> RuntimeDisplayOutput {
+    let mut output = normalize_runtime_output(engine, stdout, stderr);
+    if !structured.text.trim().is_empty() {
+        output.text = structured.text;
+    }
+    if structured
+        .trace
+        .as_object()
+        .is_some_and(|trace| !trace.is_empty())
+    {
+        output.trace = structured.trace;
+    }
+    if structured
+        .content_blocks
+        .as_array()
+        .is_some_and(|blocks| !blocks.is_empty())
+    {
+        output.content_blocks = structured.content_blocks;
+    }
+    output
+}
+
 fn cloud_run_events_from_stdout(engine: &str, text: &str) -> Vec<Value> {
     text.lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
@@ -1143,37 +1182,34 @@ impl CloudRunCollector {
             "tool.delta" | "tool_call_delta" => {
                 let preview = event_text(event);
                 if !preview.is_empty() {
-                    if let Some(tool) = self.tools.last_mut()
-                        && let Some(object) = tool.as_object_mut()
-                    {
-                        object.insert("preview".into(), json!(preview.clone()));
-                    }
-                    if let Some(block) = self
-                        .content_blocks
-                        .iter_mut()
-                        .rev()
-                        .find(|block| block.get("type").and_then(Value::as_str) == Some("tool"))
-                        && let Some(object) = block.as_object_mut()
-                    {
-                        object.insert("preview".into(), json!(preview));
-                    }
+                    update_tool_record(
+                        matching_tool_record(&mut self.tools, event, None),
+                        event,
+                        Some(&preview),
+                        None,
+                    );
+                    update_tool_record(
+                        matching_tool_record(&mut self.content_blocks, event, Some("tool")),
+                        event,
+                        Some(&preview),
+                        None,
+                    );
                 }
             }
             "tool.completed" | "tool_call_completed" => {
-                if let Some(tool) = self.tools.last_mut()
-                    && let Some(object) = tool.as_object_mut()
-                {
-                    object.insert("status".into(), json!("completed"));
-                }
-                if let Some(block) = self
-                    .content_blocks
-                    .iter_mut()
-                    .rev()
-                    .find(|block| block.get("type").and_then(Value::as_str) == Some("tool"))
-                    && let Some(object) = block.as_object_mut()
-                {
-                    object.insert("status".into(), json!("completed"));
-                }
+                let preview = event_text(event);
+                update_tool_record(
+                    matching_tool_record(&mut self.tools, event, None),
+                    event,
+                    (!preview.is_empty()).then_some(preview.as_str()),
+                    Some("completed"),
+                );
+                update_tool_record(
+                    matching_tool_record(&mut self.content_blocks, event, Some("tool")),
+                    event,
+                    (!preview.is_empty()).then_some(preview.as_str()),
+                    Some("completed"),
+                );
             }
             _ => {}
         }
@@ -1256,6 +1292,63 @@ impl CloudRunCollector {
         } else {
             json!([])
         }
+    }
+
+    fn display_output(&self) -> RuntimeDisplayOutput {
+        RuntimeDisplayOutput {
+            text: self.text.trim().to_string(),
+            trace: self.trace(),
+            content_blocks: self.content_blocks(),
+        }
+    }
+}
+
+fn matching_tool_record<'a>(
+    records: &'a mut [Value],
+    event: &Value,
+    record_type: Option<&str>,
+) -> Option<&'a mut Value> {
+    let event_id = string_field(event, &["id"]).unwrap_or_default();
+    let matches_type = |record: &&mut Value| {
+        record_type
+            .is_none_or(|expected| record.get("type").and_then(Value::as_str) == Some(expected))
+    };
+    if !event_id.is_empty() {
+        let matching_index = records.iter().rposition(|record| {
+            record_type
+                .is_none_or(|expected| record.get("type").and_then(Value::as_str) == Some(expected))
+                && record.get("id").and_then(Value::as_str) == Some(event_id.as_str())
+        });
+        if let Some(index) = matching_index {
+            return records.get_mut(index);
+        }
+    }
+    records.iter_mut().rev().find(matches_type)
+}
+
+fn update_tool_record(
+    record: Option<&mut Value>,
+    event: &Value,
+    preview: Option<&str>,
+    default_status: Option<&str>,
+) {
+    let Some(object) = record.and_then(Value::as_object_mut) else {
+        return;
+    };
+    if let Some(status) =
+        string_field(event, &["status"]).or_else(|| default_status.map(str::to_string))
+    {
+        object.insert("status".into(), json!(status));
+    }
+    object.insert(
+        "error".into(),
+        json!(event.get("error").and_then(Value::as_bool).unwrap_or(false)),
+    );
+    if let Some(duration) = event.get("duration").and_then(Value::as_f64) {
+        object.insert("duration".into(), json!(duration));
+    }
+    if let Some(preview) = preview {
+        object.insert("preview".into(), json!(preview));
     }
 }
 
@@ -1537,6 +1630,93 @@ mod tests {
         }));
 
         assert_eq!(collector.text, "hello world");
+    }
+
+    #[test]
+    fn native_acp_structured_events_build_persistable_trace_and_ordered_blocks() {
+        let mut collector = CloudRunCollector::default();
+        collector.apply_run_event(&json!({
+            "type": "reasoning_delta",
+            "text": "检查内存"
+        }));
+        collector.apply_run_event(&json!({
+            "type": "tool.started",
+            "id": "tool_1",
+            "name": "读取内存",
+            "preview": "vm_stat"
+        }));
+        collector.apply_run_event(&json!({
+            "type": "tool.completed",
+            "id": "tool_1",
+            "status": "completed",
+            "preview": "Pages free: 4050"
+        }));
+        collector.apply_run_event(&json!({
+            "type": "message.delta",
+            "text": "内存正常。"
+        }));
+
+        let output = collector.display_output();
+
+        assert_eq!(output.text, "内存正常。");
+        assert_eq!(output.trace["reasoning"], "检查内存");
+        assert_eq!(output.trace["tools"][0]["name"], "读取内存");
+        assert_eq!(output.trace["tools"][0]["status"], "completed");
+        assert_eq!(output.trace["tools"][0]["preview"], "Pages free: 4050");
+        assert_eq!(output.content_blocks[0]["type"], "thinking");
+        assert_eq!(output.content_blocks[1]["type"], "tool");
+        assert_eq!(output.content_blocks[2]["type"], "text");
+    }
+
+    #[test]
+    fn native_acp_runtime_output_prefers_collected_trace_over_plain_stdout() {
+        let mut collector = CloudRunCollector::default();
+        collector.apply_run_event(&json!({
+            "type": "tool.started",
+            "id": "tool_1",
+            "name": "读取内存",
+            "preview": "vm_stat"
+        }));
+        collector.apply_run_event(&json!({
+            "type": "tool.completed",
+            "id": "tool_1",
+            "status": "completed"
+        }));
+        collector.apply_run_event(&json!({
+            "type": "message.delta",
+            "text": "内存正常。"
+        }));
+
+        let output = runtime_output_with_collected_events(
+            "hermes",
+            "内存正常。",
+            "",
+            collector.display_output(),
+        );
+
+        assert_eq!(output.text, "内存正常。");
+        assert_eq!(output.trace["tools"][0]["name"], "读取内存");
+        assert_eq!(output.content_blocks[0]["type"], "tool");
+        assert_eq!(output.content_blocks[1]["type"], "text");
+    }
+
+    #[test]
+    fn tool_delta_without_status_keeps_the_tool_running() {
+        let mut collector = CloudRunCollector::default();
+        collector.apply_run_event(&json!({
+            "type": "tool.started",
+            "id": "tool_1",
+            "name": "读取内存",
+            "preview": "vm_stat"
+        }));
+        collector.apply_run_event(&json!({
+            "type": "tool.delta",
+            "id": "tool_1",
+            "preview": "Pages free"
+        }));
+
+        assert_eq!(collector.trace()["tools"][0]["status"], "running");
+        assert_eq!(collector.trace()["tools"][0]["preview"], "Pages free");
     }
 
     #[test]
