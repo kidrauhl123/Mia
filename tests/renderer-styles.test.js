@@ -313,6 +313,24 @@ test("sidebar and chat headers use the same surface without a header divider", (
   );
 });
 
+test("message sidebar resize handle sits on the visible middle pane edge", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const baseHandleRule = cssRuleBody(baseCss, ".sidebar-resize-handle", baseCss.indexOf("\n.sidebar-resize-handle {"));
+
+  assert.match(
+    baseCss,
+    /\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?grid-column:\s*2;[\s\S]*?grid-row:\s*1;/,
+    "desktop middle panes should be pinned to the sidebar grid column before the resize handle is overlaid"
+  );
+  assert.match(
+    baseCss,
+    /\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-layout="index-workspace"\] \.sidebar-resize-handle\s*\{[\s\S]*?grid-column:\s*2;[\s\S]*?grid-row:\s*1;[\s\S]*?justify-self:\s*end;[\s\S]*?margin-right:\s*4px;/,
+    "desktop message sidebar handle should center on the visible sidebar edge, not the workspace-side grid boundary"
+  );
+  assert.doesNotMatch(baseHandleRule, /grid-column:\s*4;/);
+  assert.match(baseHandleRule, /width:\s*8px;/);
+});
+
 test("conversation search uses a theme-aware field without focus highlight", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const conversationSearchRule = cssRuleBody(baseCss, ".conversation-sidebar .search-box");

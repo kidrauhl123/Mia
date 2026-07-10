@@ -546,15 +546,19 @@ test("desktop notification switch is initially on", () => {
   assert.match(appSource, /appearanceShowDesktopNotifications\?\.addEventListener\("click"/);
 });
 
-test("desktop theme setting uses a switch button instead of a visible select", () => {
-  assert.match(htmlSource, /id="appearanceThemeToggle"[^>]*class="appearance-theme-toggle"[^>]*role="switch"/);
+test("desktop theme setting uses a single icon button instead of a capsule switch", () => {
+  assert.match(htmlSource, /id="appearanceThemeToggle"[^>]*class="appearance-theme-toggle"[^>]*aria-pressed="false"/);
+  assert.doesNotMatch(htmlSource, /id="appearanceThemeToggle"[^>]*role="switch"/);
   assert.match(htmlSource, /class="[^"]*appearance-theme-toggle-sun/);
   assert.match(htmlSource, /class="[^"]*appearance-theme-toggle-moon/);
+  assert.doesNotMatch(htmlSource, /appearance-theme-toggle-thumb/);
   assert.match(htmlSource, /id="appearanceTheme"[^>]*class="visually-hidden"[^>]*aria-hidden="true"[^>]*tabindex="-1"/);
   assert.match(appSource, /appearanceThemeToggle:\s*document\.getElementById\("appearanceThemeToggle"\)/);
   assert.match(appSource, /appearanceThemeToggleText:\s*document\.getElementById\("appearanceThemeToggleText"\)/);
   assert.match(appSource, /appearanceThemeToggle\?\.addEventListener\("click"/);
-  assert.match(cssSource, /\.appearance-theme-toggle\s*\{/);
+  assert.match(cssSource, /\.appearance-theme-toggle\s*\{[\s\S]*?width:\s*40px;[\s\S]*?height:\s*40px;/);
+  assert.match(cssSource, /\.appearance-theme-toggle-sky\s*\{[\s\S]*?display:\s*grid;[\s\S]*?place-items:\s*center;/);
+  assert.match(cssSource, /\.appearance-theme-toggle-icon\s*\{[\s\S]*?grid-column:\s*1;[\s\S]*?grid-row:\s*1;/);
   assert.match(cssSource, /\.appearance-theme-toggle\.is-dark\s+\./);
 });
 
@@ -572,14 +576,14 @@ test("theme switch mirrors the saved light and dark appearance state", () => {
   api.syncAppearanceControls({ theme: "dark" });
 
   assert.equal(controls.appearanceTheme.value, "dark");
-  assert.equal(toggle.getAttribute("aria-checked"), "true");
+  assert.equal(toggle.getAttribute("aria-pressed"), "true");
   assert.equal(toggle.classNames.has("is-dark"), true);
   assert.equal(label.textContent, "深色");
 
   api.syncAppearanceControls({ theme: "light" });
 
   assert.equal(controls.appearanceTheme.value, "light");
-  assert.equal(toggle.getAttribute("aria-checked"), "false");
+  assert.equal(toggle.getAttribute("aria-pressed"), "false");
   assert.equal(toggle.classNames.has("is-dark"), false);
   assert.equal(label.textContent, "浅色");
 });

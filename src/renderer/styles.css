@@ -1322,6 +1322,18 @@ body.platform-win32 [class~="sidebar-tools"] {
   opacity: 0;
 }
 
+.app-shell:not([data-nav-layout="sidebar-bottom"])[data-layout="index-workspace"] .sidebar {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.app-shell:not([data-nav-layout="sidebar-bottom"])[data-layout="index-workspace"] .sidebar-resize-handle {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  margin-right: 4px;
+}
+
 .sidebar-resize-handle {
   position: relative;
   z-index: 4;
@@ -9426,16 +9438,29 @@ select.select-open {
 .appearance-theme-toggle {
   position: relative;
   justify-self: end;
-  width: 88px;
+  display: grid;
+  place-items: center;
+  width: 40px;
   height: 40px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
-  color: #e38a23;
-  background: transparent;
-  cursor: pointer;
+  border-radius: 26px;
+  color: hsl(0 0% 5%);
+  background: #f2f2f2;
+  cursor: default;
   overflow: hidden;
-  box-shadow: 0 12px 26px rgb(17 24 39 / 0.10);
+  box-shadow: 0 10px 24px rgb(17 24 39 / 0.10);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  transition: background 150ms cubic-bezier(0.4, 0, 0.2, 1), color 150ms cubic-bezier(0.4, 0, 0.2, 1), transform 150ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.appearance-theme-toggle:hover {
+  transform: scale(1.02);
+}
+
+.appearance-theme-toggle:active {
+  transform: scale(0.95);
 }
 
 .appearance-theme-toggle:focus-visible {

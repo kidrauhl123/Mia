@@ -285,7 +285,7 @@
     if (!toggle) return;
     const isDark = nextTheme === "dark";
     toggle.classList.toggle("is-dark", isDark);
-    toggle.setAttribute("aria-checked", isDark ? "true" : "false");
+    toggle.setAttribute("aria-pressed", isDark ? "true" : "false");
     toggle.setAttribute("aria-label", isDark ? "切换浅色模式" : "切换深色模式");
     if (controls.appearanceThemeToggleText) {
       controls.appearanceThemeToggleText.textContent = isDark ? "深色" : "浅色";
