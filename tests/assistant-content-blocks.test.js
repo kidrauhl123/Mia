@@ -6,6 +6,7 @@ const {
   contentBlocksWithFinalText,
   createStreamingTextSmoother,
   createAssistantContentBlockCollector,
+  displayTextFromContentBlocks,
   normalizeContentBlocks
 } = require("../src/shared/assistant-content-blocks.js");
 
@@ -114,6 +115,25 @@ test("collector records text blocks from Hermes message.delta events", () => {
 
   assert.deepEqual(collector.payload(), [
     { type: "text", id: "msg_1", text: "来自 Hermes 的文本" }
+  ]);
+});
+
+test("collector preserves agent-provided recap blocks without generating them", () => {
+  const collector = createAssistantContentBlockCollector();
+
+  collector.collect("text_delta", { id: "msg_1", text: "先给答案。" });
+  collector.collect("recap", {
+    id: "recap_1",
+    text: "You asked how to share phone VPN; use a same-WiFi HTTP proxy."
+  });
+
+  assert.deepEqual(collector.payload(), [
+    { type: "text", id: "msg_1", text: "先给答案。" },
+    {
+      type: "recap",
+      id: "recap_1",
+      text: "You asked how to share phone VPN; use a same-WiFi HTTP proxy."
+    }
   ]);
 });
 
@@ -386,10 +406,27 @@ test("display text is distributed across ordered text blocks without hiding tool
     { type: "text", id: "text_1", text: "我先整理。" },
     { type: "tool", id: "tool_1", name: "shell", preview: "ls", status: "completed", duration: null, error: false },
     { type: "text", id: "text_2", text: "然后给你结论。" }
-  ], "我先整理。然后"), [
+  ], "我先整理。ls然后"), [
     { type: "text", id: "text_1", text: "我先整理。" },
     { type: "tool", id: "tool_1", name: "shell", preview: "ls", status: "completed", duration: null, error: false },
     { type: "text", id: "text_2", text: "然后" }
+  ]);
+});
+
+test("display text is distributed across trace block internals", () => {
+  const blocks = [
+    { type: "text", id: "text_1", text: "先看。" },
+    { type: "thinking", id: "thinking_1", text: "分析原因", status: "running", duration: null },
+    { type: "tool", id: "tool_1", name: "shell", preview: "npm test", status: "running", duration: null, error: false },
+    { type: "file_edit", id: "edit_1", path: "src/app.js", action: "update", diff: "-old\n+new", status: "completed", error: false }
+  ];
+
+  assert.equal(displayTextFromContentBlocks(blocks), "先看。分析原因npm test-old\n+new");
+  assert.deepEqual(contentBlocksWithDisplayText(blocks, "先看。分析原因npm"), [
+    { type: "text", id: "text_1", text: "先看。" },
+    { type: "thinking", id: "thinking_1", text: "分析原因", status: "running", duration: null },
+    { type: "tool", id: "tool_1", name: "shell", preview: "npm", status: "running", duration: null, error: false },
+    { type: "file_edit", id: "edit_1", path: "src/app.js", action: "update", title: "Edited src/app.js", diff: "", additions: 0, deletions: 0, status: "completed", error: false }
   ]);
 });
 

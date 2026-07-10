@@ -829,6 +829,35 @@
     return Boolean(eventType(event));
   }
 
+  function eventUpdatesDisplayedRunText(name) {
+    return [
+      "message.delta",
+      "text_delta",
+      "reasoning.available",
+      "reasoning_delta",
+      "reasoning.delta",
+      "thinking_delta",
+      "thinking.delta",
+      "recap",
+      "recap.delta",
+      "recap_delta",
+      "summary",
+      "summary.delta",
+      "summary_delta",
+      "turn.recap",
+      "turn_recap",
+      "tool.started",
+      "tool_call_started",
+      "tool.delta",
+      "tool_call_delta",
+      "tool.completed",
+      "tool_call_completed",
+      "file_edit",
+      "file.edit",
+      "file_edit.completed"
+    ].includes(String(name || ""));
+  }
+
   function approvalPreview(event = {}) {
     for (const key of ["command", "cmd", "preview", "reason", "detail", "description", "message"]) {
       if (typeof event[key] === "string" && event[key].trim()) return event[key].trim();
@@ -929,26 +958,28 @@
       flushRunDisplayText(run);
       return;
     }
+    const target = runDisplayTextTarget(run);
     const smoother = streamingTextSmoother();
     if (smoother && typeof smoother.enqueue === "function") {
-      smoother.enqueue(run, run.text || "");
+      smoother.enqueue(run, target);
     } else {
-      run.displayText = String(run.text || "");
+      run.displayText = target;
     }
   }
 
   function flushRunDisplayText(run) {
     if (!run) return;
+    const target = runDisplayTextTarget(run);
     const smoother = streamingTextSmoother();
-    if (smoother && typeof smoother.enqueue === "function") smoother.enqueue(run, run.text || "");
+    if (smoother && typeof smoother.enqueue === "function") smoother.enqueue(run, target);
     if (smoother && typeof smoother.flush === "function") smoother.flush(run);
-    run.displayText = String(run.text || "");
+    run.displayText = target;
   }
 
   function runDisplayText(run) {
     if (!run) return "";
     if (typeof run.displayText === "string") return run.displayText;
-    return String(run.text || "");
+    return runDisplayTextTarget(run);
   }
 
   function displayedContentBlocksPayloadFromRun(run, finalText = "") {
@@ -965,21 +996,24 @@
     if (eventIndicatesRunActivity(event)) run.hasTypingActivity = true;
     collectRunContentBlock(run, event);
     applyRunGoalEvent(run, event);
+    let shouldSyncDisplay = eventUpdatesDisplayedRunText(name);
     if (name === "message.delta" || name === "text_delta") {
       run.text += eventText(event);
-      syncRunDisplayText(run);
     } else if (name === "message.complete" || name === "message.completed") {
       run.text = eventText(event) || run.text;
       flushRunDisplayText(run);
+      shouldSyncDisplay = false;
     } else if (name === "run.completed" || name === "complete") {
       run.text = eventText(event) || run.text;
       run.status = "complete";
       clearRunPermissions(run);
       flushRunDisplayText(run);
+      shouldSyncDisplay = false;
     } else if (name === "run.failed" || name === "error") {
       run.status = "error";
       clearRunPermissions(run);
       flushRunDisplayText(run);
+      shouldSyncDisplay = false;
     } else if (name === "status") {
       const text = eventText(event);
       if (text && !isGenericLocalEngineStartupStatus(text)) run.statusText = text;
@@ -990,6 +1024,7 @@
       run.status = "cancelled";
       clearRunPermissions(run);
       flushRunDisplayText(run);
+      shouldSyncDisplay = false;
     } else if (name === "reasoning.available" || name === "reasoning_delta") {
       appendRunReasoning(run, event);
     } else if (name === "tool.started" || name === "tool_call_started") {
@@ -1014,6 +1049,7 @@
     } else if (name === "approval.responded") {
       removeCloudRunApprovalPermission(run);
     }
+    if (shouldSyncDisplay) syncRunDisplayText(run);
   }
 
   function parseTraceJson(value) {
@@ -1098,7 +1134,12 @@
     if (!run || !event || typeof event !== "object") return;
     const api = global.miaAssistantContentBlocks;
     if (!api || typeof api.createAssistantContentBlockCollector !== "function") return;
-    if (!run.contentBlockCollector) run.contentBlockCollector = api.createAssistantContentBlockCollector();
+    if (!run.contentBlockCollector) {
+      run.contentBlockCollector = api.createAssistantContentBlockCollector();
+      if (run.text) {
+        run.contentBlockCollector.collect({ type: "text_delta", id: "text_seed_0", text: run.text });
+      }
+    }
     run.contentBlockCollector.collect(event);
     run.contentBlocks = run.contentBlockCollector.payload();
   }
@@ -1111,6 +1152,16 @@
       return api.contentBlocksWithFinalText(blocks, finalText);
     }
     return blocks;
+  }
+
+  function runDisplayTextTarget(run) {
+    if (!run) return "";
+    const blocks = contentBlocksPayloadFromRun(run);
+    const api = global.miaAssistantContentBlocks;
+    if (blocks?.length && api && typeof api.displayTextFromContentBlocks === "function") {
+      return api.displayTextFromContentBlocks(blocks);
+    }
+    return String(run.text || "");
   }
 
   function safeMessageSeq(value) {

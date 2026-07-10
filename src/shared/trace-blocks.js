@@ -254,6 +254,24 @@
     `</div>`;
   }
 
+  function renderRecapBlock(block, { expanded, scopeKey, rowIndex }) {
+    const text = String(block.text || "");
+    if (!text.trim()) return "";
+    const stateForKey = traceOpenState(scopeKey, expanded);
+    const previewInline = text.replace(/\s+/g, " ").slice(0, 120);
+    return `<div class="trace">` +
+      `<details class="trace-row recap${traceAnimClass(scopeKey)}" data-accordion="true"${traceRowAttrs(scopeKey, rowIndex, stateForKey)}>` +
+        `<summary>` +
+          `<span class="trace-chevron">▸</span>` +
+          `<span class="trace-glyph">◆</span>` +
+          `<span class="trace-cmd">Recap</span>` +
+          (!stateForKey.open && previewInline ? `<span class="trace-arg">${window.miaMarkdown.escapeHtml(previewInline)}</span>` : "") +
+        `</summary>` +
+        traceAccordionBody(`<pre class="trace-body">${renderTraceText(text)}</pre>`) +
+      `</details>` +
+    `</div>`;
+  }
+
   function fileEditTitleText(block) {
     const rawTitle = String(block.title || `${block.action || "edit"} ${block.path || ""}`).trim();
     const title = rawTitle.replace(/\s*\(\+\d+\s+-\d+\)\s*$/, "").trim();
@@ -429,6 +447,12 @@
           content: "",
           expanded,
           scopeKey: scopeKey ? `${scopeKey}::block::${idx}` : ""
+        }));
+      } else if (block.type === "recap") {
+        rows.push(renderRecapBlock(block, {
+          expanded,
+          scopeKey: scopeKey ? `${scopeKey}::block::${idx}::recap::${block.id || idx}` : "",
+          rowIndex: idx
         }));
       } else if (block.type === "file_edit") {
         rows.push(renderFileEditBlock(block, {

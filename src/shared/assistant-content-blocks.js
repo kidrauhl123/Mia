@@ -38,7 +38,7 @@
   }
 
   function eventText(event = {}) {
-    for (const key of ["reasoning", "delta", "content_delta", "text_delta", "text", "content", "final_response"]) {
+    for (const key of ["reasoning", "recap", "summary", "delta", "content_delta", "text_delta", "text", "content", "final_response"]) {
       if (typeof event[key] === "string") return event[key];
     }
     const data = event.data && typeof event.data === "object" ? event.data : null;
@@ -121,6 +121,14 @@
           continue;
         }
         out.push(normalized);
+      } else if (type === "recap" || type === "summary") {
+        const text = safeString(block.text || block.recap || block.summary || block.content);
+        if (!text.trim()) continue;
+        out.push({
+          type: "recap",
+          id: safeString(block.id || `recap_${out.length}`).trim() || `recap_${out.length}`,
+          text: text.slice(0, MAX_PREVIEW_LENGTH)
+        });
       } else if (type === "tool") {
         const name = safeString(block.name).trim();
         if (!name) continue;
@@ -283,20 +291,52 @@
     ]);
   }
 
+  function displayTextFromBlock(block) {
+    if (!block || typeof block !== "object") return "";
+    if (block.type === "text" || block.type === "thinking" || block.type === "recap") return safeString(block.text);
+    if (block.type === "tool") return safeString(block.preview);
+    if (block.type === "file_edit") return safeString(block.diff);
+    return "";
+  }
+
+  function displayTextFromContentBlocks(input) {
+    return normalizeContentBlocks(input).map(displayTextFromBlock).join("");
+  }
+
   function contentBlocksWithDisplayText(input, displayText) {
     const blocks = normalizeContentBlocks(input);
     if (arguments.length < 2) return blocks;
-    let remaining = safeString(displayText);
+    let remaining = safeString(displayText).length;
     const out = [];
+
+    function takeText(value) {
+      const text = safeString(value);
+      if (!text || remaining <= 0) return "";
+      const visible = text.slice(0, Math.min(text.length, remaining));
+      remaining -= visible.length;
+      return visible;
+    }
+
     for (const block of blocks) {
-      if (block.type !== "text") {
+      if (block.type === "text") {
+        const text = takeText(block.text);
+        if (text.trim()) out.push({ ...block, text });
+      } else if (block.type === "thinking") {
+        const text = takeText(block.text);
+        const next = { ...block };
+        if (text.trim()) next.text = text;
+        else delete next.text;
+        out.push(next);
+      } else if (block.type === "recap") {
+        const text = takeText(block.text);
+        if (text.trim()) out.push({ ...block, text });
+      } else if (block.type === "tool") {
+        out.push({ ...block, preview: takeText(block.preview) });
+      } else if (block.type === "file_edit") {
+        out.push({ ...block, diff: takeText(block.diff) });
+      } else {
         out.push(block);
-        continue;
       }
-      if (!remaining) continue;
-      const text = remaining.slice(0, block.text.length);
-      remaining = remaining.slice(text.length);
-      if (text.trim()) out.push({ ...block, text });
     }
     return out;
   }
@@ -443,6 +483,22 @@
       if (explicitId) thinkingBlocksByEventId.set(explicitId, blocks[blocks.length - 1]);
     }
 
+    function appendRecap(event = {}) {
+      const text = eventText(event);
+      if (!text.trim()) return;
+      const explicitId = safeString(event.id || event.msg_id || event.message_id || event.item_id || "").trim();
+      const last = blocks[blocks.length - 1];
+      if (last && last.type === "recap" && (!explicitId || last.id === explicitId)) {
+        last.text = `${last.text || ""}${text}`.slice(0, MAX_PREVIEW_LENGTH);
+        return;
+      }
+      blocks.push({
+        type: "recap",
+        id: explicitId || nextId("recap"),
+        text: text.slice(0, MAX_PREVIEW_LENGTH)
+      });
+    }
+
     function appendTool(event = {}) {
       const name = safeString(event.tool || event.name || event.data?.tool || "工具").trim() || "工具";
       const tool = {
@@ -525,6 +581,8 @@
         appendThinking(event);
       } else if (name === "reasoning.done" || name === "reasoning.completed" || name === "thinking.done" || name === "thinking.completed") {
         updateRecentThinking(event);
+      } else if (name === "recap" || name === "recap.delta" || name === "recap_delta" || name === "summary" || name === "summary.delta" || name === "summary_delta" || name === "turn.recap" || name === "turn_recap") {
+        appendRecap(event);
       } else if (name === "tool.started" || name === "tool.start" || name === "tool_call_started") {
         appendTool(event);
       } else if (name === "tool.delta" || name === "tool.progress" || name === "tool_call_delta") {
@@ -553,6 +611,7 @@
     contentBlocksWithFinalText,
     createAssistantContentBlockCollector,
     createStreamingTextSmoother,
+    displayTextFromContentBlocks,
     mergeAssistantText,
     normalizeContentBlocks,
     normalizeStatus

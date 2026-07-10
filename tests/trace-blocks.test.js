@@ -166,6 +166,30 @@ test("renderAssistantContentBlocks keeps thinking, text, tool, text render order
   assert.match(html, /data-trace-key="msg:m1::block::2::tool::tool_1"/);
 });
 
+test("renderAssistantContentBlocks displays agent-provided recap blocks", () => {
+  const { traceBlocks } = loadTraceBlocks();
+  const html = traceBlocks.renderAssistantContentBlocks({
+    blocks: [
+      { type: "text", id: "text_1", text: "先给答案。" },
+      {
+        type: "recap",
+        id: "recap_1",
+        text: "You asked how to share phone VPN; use a same-WiFi HTTP proxy."
+      }
+    ],
+    scopeKey: "msg:m_recap",
+    renderTextBlock(block) {
+      return `<div class="bubble assistant-text-block">${escapeHtml(block.text)}</div>`;
+    }
+  });
+
+  assert.ok(html.indexOf("先给答案。") < html.indexOf("Recap"));
+  assert.match(html, /class="trace-row recap/);
+  assert.match(html, /<span class="trace-cmd">Recap<\/span>/);
+  assert.match(html, /You asked how to share phone VPN/);
+  assert.match(html, /data-trace-key="msg:m_recap::block::1::recap::recap_1"/);
+});
+
 test("renderAssistantContentBlocks hides thinking that duplicates the final message", () => {
   const { traceBlocks } = loadTraceBlocks();
   const finalText = "今天（6月19日周五）邱县下雨。现在是傍晚到夜间的情况。";

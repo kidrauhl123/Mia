@@ -4589,6 +4589,85 @@ test("cloud run streaming keeps canonical text while smoothing displayed text", 
   assert.equal(run.displayText, "abcdef");
 });
 
+test("cloud run streaming smooths trace block text", () => {
+  const frames = [];
+  const s = loadSocial({
+    requestAnimationFrame: (fn) => {
+      frames.push(fn);
+      return frames.length;
+    }
+  });
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", decorations: { botId: "mia" } }];
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_trace_smooth", botId: "mia" },
+  });
+  frames.length = 0;
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      runId: "car_trace_smooth",
+      event: { type: "thinking_delta", id: "thinking_1", text: "abcdef" }
+    },
+  });
+
+  const run = s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_mia");
+  assert.equal(run.text, "");
+  assert.equal(run.displayText, "");
+
+  frames.shift()(16);
+  assert.equal(run.displayText, "abc");
+  assert.equal(
+    s.__mockWindow.miaAssistantContentBlocks.contentBlocksWithDisplayText(run.contentBlocks, run.displayText)[0].text,
+    "abc"
+  );
+});
+
+test("cloud run streaming smooths agent recap block text", () => {
+  const frames = [];
+  const s = loadSocial({
+    requestAnimationFrame: (fn) => {
+      frames.push(fn);
+      return frames.length;
+    }
+  });
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", decorations: { botId: "mia" } }];
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_recap_smooth", botId: "mia" },
+  });
+  frames.length = 0;
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      runId: "car_recap_smooth",
+      event: { type: "recap", id: "recap_1", text: "abcdef" }
+    },
+  });
+
+  const run = s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_mia");
+  assert.equal(run.text, "");
+  assert.equal(run.displayText, "");
+
+  frames.shift()(16);
+  assert.equal(run.displayText, "abc");
+  assert.deepEqual(run.contentBlocks, [{ type: "recap", id: "recap_1", text: "abcdef" }]);
+  assert.equal(
+    s.__mockWindow.miaAssistantContentBlocks.contentBlocksWithDisplayText(run.contentBlocks, run.displayText)[0].text,
+    "abc"
+  );
+});
+
 test("handleCloudEvent tracks pending agent permission requests on the active run", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });

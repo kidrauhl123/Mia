@@ -1520,6 +1520,35 @@ function hermesEventType(event = {}) {
   return String(event.type || event.event || "");
 }
 
+function eventUpdatesDisplayedRunText(name) {
+  return [
+    "message.delta",
+    "text_delta",
+    "reasoning.available",
+    "reasoning_delta",
+    "reasoning.delta",
+    "thinking_delta",
+    "thinking.delta",
+    "recap",
+    "recap.delta",
+    "recap_delta",
+    "summary",
+    "summary.delta",
+    "summary_delta",
+    "turn.recap",
+    "turn_recap",
+    "tool.started",
+    "tool_call_started",
+    "tool.delta",
+    "tool_call_delta",
+    "tool.completed",
+    "tool_call_completed",
+    "file_edit",
+    "file.edit",
+    "file_edit.completed"
+  ].includes(String(name || ""));
+}
+
 function hermesEventText(event = {}) {
   for (const key of ["delta", "content_delta", "text_delta", "text", "content"]) {
     if (typeof event[key] === "string") return event[key];
@@ -1579,26 +1608,28 @@ function syncRunDisplayText(run) {
     flushRunDisplayText(run);
     return;
   }
+  const target = runDisplayTextTarget(run);
   const smoother = streamingTextSmoother();
   if (smoother && typeof smoother.enqueue === "function") {
-    smoother.enqueue(run, run.text || "");
+    smoother.enqueue(run, target);
   } else {
-    run.displayText = String(run.text || "");
+    run.displayText = target;
   }
 }
 
 function flushRunDisplayText(run) {
   if (!run) return;
+  const target = runDisplayTextTarget(run);
   const smoother = streamingTextSmoother();
-  if (smoother && typeof smoother.enqueue === "function") smoother.enqueue(run, run.text || "");
+  if (smoother && typeof smoother.enqueue === "function") smoother.enqueue(run, target);
   if (smoother && typeof smoother.flush === "function") smoother.flush(run);
-  run.displayText = String(run.text || "");
+  run.displayText = target;
 }
 
 function runDisplayText(run) {
   if (!run) return "";
   if (typeof run.displayText === "string") return run.displayText;
-  return String(run.text || "");
+  return runDisplayTextTarget(run);
 }
 
 // Pull a human-readable line out of a Hermes approval.request event. The payload
@@ -1718,7 +1749,12 @@ function contentBlocksFromMessage(msg) {
 function collectRunContentBlock(run, event = {}) {
   if (!run || !event || typeof event !== "object") return;
   if (!assistantContentBlocks || typeof assistantContentBlocks.createAssistantContentBlockCollector !== "function") return;
-  if (!run.contentBlockCollector) run.contentBlockCollector = assistantContentBlocks.createAssistantContentBlockCollector();
+  if (!run.contentBlockCollector) {
+    run.contentBlockCollector = assistantContentBlocks.createAssistantContentBlockCollector();
+    if (run.text) {
+      run.contentBlockCollector.collect({ type: "text_delta", id: "text_seed_0", text: run.text });
+    }
+  }
   run.contentBlockCollector.collect(event);
   run.contentBlocks = run.contentBlockCollector.payload();
 }
@@ -1730,6 +1766,15 @@ function contentBlocksPayloadFromRun(run, finalText = "") {
     return assistantContentBlocks.contentBlocksWithFinalText(blocks, finalText);
   }
   return blocks;
+}
+
+function runDisplayTextTarget(run) {
+  if (!run) return "";
+  const blocks = contentBlocksPayloadFromRun(run);
+  if (blocks?.length && assistantContentBlocks && typeof assistantContentBlocks.displayTextFromContentBlocks === "function") {
+    return assistantContentBlocks.displayTextFromContentBlocks(blocks);
+  }
+  return String(run.text || "");
 }
 
 function displayedContentBlocksPayloadFromRun(run, finalText = "") {
@@ -1808,21 +1853,24 @@ function handleCloudEvent(envelope) {
     run.botId = envelope.botId || run.botId || "";
     const name = hermesEventType(event);
     collectRunContentBlock(run, event);
+    let shouldSyncDisplay = eventUpdatesDisplayedRunText(name);
     if (name === "message.delta" || name === "text_delta") {
       run.text += hermesEventText(event);
-      syncRunDisplayText(run);
     } else if (name === "message.complete" || name === "message.completed") {
       run.text = hermesEventText(event) || run.text;
       flushRunDisplayText(run);
+      shouldSyncDisplay = false;
     } else if (name === "run.completed") {
       run.text = hermesEventText(event) || run.text;
       run.status = "complete";
       run.permission = null;
       flushRunDisplayText(run);
+      shouldSyncDisplay = false;
     } else if (name === "run.failed") {
       run.status = "error";
       run.permission = null;
       flushRunDisplayText(run);
+      shouldSyncDisplay = false;
     } else if (name === "run.cancelling") {
       run.status = "cancelling";
       run.permission = null;
@@ -1832,6 +1880,7 @@ function handleCloudEvent(envelope) {
       run.status = "cancelled";
       run.permission = null;
       flushRunDisplayText(run);
+      shouldSyncDisplay = false;
     } else if (name === "approval.request") {
       // Interactive tool approval: the run paused waiting for the owner. Show a
       // banner; the decision is POSTed back so the cloud can resume the run.
@@ -1861,6 +1910,7 @@ function handleCloudEvent(envelope) {
         if (event.preview) tool.preview = String(event.preview);
       }
     }
+    if (shouldSyncDisplay) syncRunDisplayText(run);
     if (conversationId === state.activeConversationId) renderActiveChat();
   } else if (type === "device_updated") {
     if (Array.isArray(envelope.devices)) state.bridgeDevices = envelope.devices;

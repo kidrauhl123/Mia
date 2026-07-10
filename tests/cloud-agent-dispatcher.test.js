@@ -635,6 +635,48 @@ test("cloud-claude-code persists ordered content blocks from streamed events", a
   }
 });
 
+test("cloud-claude-code persists agent-provided recap blocks from streamed events", async () => {
+  const ctx = setup();
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      hermesImClient: {
+        async runChat(args) {
+          args.onEvent({ type: "text_delta", id: "text_1", text: "先给答案。" });
+          args.onEvent({
+            type: "recap",
+            id: "recap_1",
+            text: "You asked how to share phone VPN; use a same-WiFi HTTP proxy."
+          });
+          return { runId: "hr_recap", content: "先给答案。", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.deepEqual(JSON.parse(reply.content_blocks_json), [
+      { type: "text", id: "text_1", text: "先给答案。" },
+      {
+        type: "recap",
+        id: "recap_1",
+        text: "You asked how to share phone VPN; use a same-WiFi HTTP proxy."
+      }
+    ]);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("cloud-claude-code preserves streamed process text when final text is returned separately", async () => {
   const ctx = setup();
   try {
