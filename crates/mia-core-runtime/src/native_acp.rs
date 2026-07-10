@@ -15,7 +15,7 @@ use agent_client_protocol::schema::{
     SessionConfigOptionCategory, SessionConfigSelectOption, SessionConfigSelectOptions, SessionId,
     SessionModeState, SessionModelState, SessionNotification, SessionUpdate,
     SetSessionConfigOptionRequest, SetSessionModeRequest, SetSessionModelRequest, StopReason,
-    TextContent,
+    TextContent, ToolCallStatus,
 };
 use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectionTo, JsonRpcRequest, on_receive_notification,
@@ -116,7 +116,7 @@ pub(crate) fn runtime_events_from_session_notification(
                     engine,
                     text,
                     json!({
-                        "type": "thinking.delta",
+                        "type": "reasoning_delta",
                         "text": text,
                         "sessionId": session_id,
                     }),
@@ -124,28 +124,62 @@ pub(crate) fn runtime_events_from_session_notification(
             })
             .into_iter()
             .collect(),
-        SessionUpdate::ToolCall(tool_call) => vec![runtime_stdout_event(
-            turn_id,
-            conversation_id,
-            engine,
-            "",
-            json!({
-                "type": "tool_call.started",
-                "sessionId": session_id,
-                "toolCall": tool_call,
-            }),
-        )],
-        SessionUpdate::ToolCallUpdate(tool_call_update) => vec![runtime_stdout_event(
-            turn_id,
-            conversation_id,
-            engine,
-            "",
-            json!({
-                "type": "tool_call.updated",
-                "sessionId": session_id,
-                "toolCall": tool_call_update,
-            }),
-        )],
+        SessionUpdate::ToolCall(tool_call) => {
+            let status = canonical_tool_status(tool_call.status);
+            let preview = tool_preview(
+                tool_call.raw_input.as_ref(),
+                tool_call.raw_output.as_ref(),
+                Some(&tool_call.content),
+            );
+            vec![runtime_stdout_event(
+                turn_id,
+                conversation_id,
+                engine,
+                "",
+                json!({
+                    "type": "tool.started",
+                    "id": tool_call.tool_call_id,
+                    "name": tool_call.title,
+                    "preview": preview,
+                    "status": status,
+                    "error": matches!(tool_call.status, ToolCallStatus::Failed),
+                    "sessionId": session_id,
+                    "toolCall": tool_call,
+                }),
+            )]
+        }
+        SessionUpdate::ToolCallUpdate(tool_call_update) => {
+            let status = tool_call_update
+                .fields
+                .status
+                .map(canonical_tool_status)
+                .unwrap_or("in_progress");
+            let event_type = match tool_call_update.fields.status {
+                Some(ToolCallStatus::Completed | ToolCallStatus::Failed) => "tool.completed",
+                _ => "tool.delta",
+            };
+            let preview = tool_preview(
+                tool_call_update.fields.raw_input.as_ref(),
+                tool_call_update.fields.raw_output.as_ref(),
+                tool_call_update.fields.content.as_ref(),
+            );
+            vec![runtime_stdout_event(
+                turn_id,
+                conversation_id,
+                engine,
+                "",
+                json!({
+                    "type": event_type,
+                    "id": tool_call_update.tool_call_id,
+                    "name": tool_call_update.fields.title,
+                    "preview": preview,
+                    "status": status,
+                    "error": matches!(tool_call_update.fields.status, Some(ToolCallStatus::Failed)),
+                    "sessionId": session_id,
+                    "toolCall": tool_call_update,
+                }),
+            )]
+        }
         SessionUpdate::Plan(plan) => vec![runtime_stdout_event(
             turn_id,
             conversation_id,
@@ -214,6 +248,41 @@ pub(crate) fn runtime_events_from_session_notification(
         )],
         _ => Vec::new(),
     }
+}
+
+fn canonical_tool_status(status: ToolCallStatus) -> &'static str {
+    match status {
+        ToolCallStatus::Pending => "pending",
+        ToolCallStatus::InProgress => "in_progress",
+        ToolCallStatus::Completed => "completed",
+        ToolCallStatus::Failed => "failed",
+        _ => "pending",
+    }
+}
+
+fn tool_preview<T: serde::Serialize>(
+    raw_input: Option<&Value>,
+    raw_output: Option<&Value>,
+    content: Option<&T>,
+) -> String {
+    raw_output
+        .filter(|value| !value.is_null())
+        .or_else(|| raw_input.filter(|value| !value.is_null()))
+        .map(json_preview)
+        .or_else(|| {
+            content
+                .and_then(|value| serde_json::to_value(value).ok())
+                .filter(|value| value.as_array().is_some_and(|items| !items.is_empty()))
+                .map(|value| json_preview(&value))
+        })
+        .unwrap_or_default()
+}
+
+fn json_preview(value: &Value) -> String {
+    value
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string())
 }
 
 fn text_from_content_block(block: &ContentBlock) -> Option<&str> {
@@ -2154,7 +2223,7 @@ mod tests {
         NewSessionResponse, PermissionOption, PermissionOptionKind, SessionCapabilities,
         SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption, SessionMode,
         SessionModeState, SessionModelState, SessionNotification, SessionResumeCapabilities,
-        SessionUpdate, TextContent, ToolCallUpdate, ToolCallUpdateFields,
+        SessionUpdate, TextContent, ToolCall, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
     };
 
     fn native_acp_test_plan() -> RuntimeTurnPlan {
@@ -2212,6 +2281,77 @@ mod tests {
         assert_eq!(events[0].data["event"]["type"], "message.delta");
         assert_eq!(events[0].data["event"]["text"], "你");
         assert_eq!(events[0].data["event"]["sessionId"], "acp-session-1");
+    }
+
+    #[test]
+    fn native_acp_translates_thought_chunk_to_reasoning_delta() {
+        let notification = SessionNotification::new(
+            "acp-session-1",
+            SessionUpdate::AgentThoughtChunk(ContentChunk::new(ContentBlock::Text(
+                TextContent::new("检查内存"),
+            ))),
+        );
+
+        let events =
+            runtime_events_from_session_notification("turn_1", "conv_1", "codex", &notification);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].data["event"]["type"], "reasoning_delta");
+        assert_eq!(events[0].data["event"]["text"], "检查内存");
+        assert_eq!(events[0].data["event"]["sessionId"], "acp-session-1");
+    }
+
+    #[test]
+    fn native_acp_translates_tool_lifecycle_to_canonical_trace_events() {
+        let started = SessionNotification::new(
+            "acp-session-1",
+            SessionUpdate::ToolCall(
+                ToolCall::new("tool_1", "读取内存")
+                    .status(ToolCallStatus::InProgress)
+                    .raw_input(json!({ "command": "vm_stat" })),
+            ),
+        );
+        let updated = SessionNotification::new(
+            "acp-session-1",
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                "tool_1",
+                ToolCallUpdateFields::new()
+                    .status(ToolCallStatus::InProgress)
+                    .raw_output(json!({ "stdout": "Pages free: 4050" })),
+            )),
+        );
+        let completed = SessionNotification::new(
+            "acp-session-1",
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                "tool_1",
+                ToolCallUpdateFields::new()
+                    .status(ToolCallStatus::Completed)
+                    .raw_output(json!({ "stdout": "Pages free: 4050" })),
+            )),
+        );
+
+        let start_events =
+            runtime_events_from_session_notification("turn_1", "conv_1", "codex", &started);
+        let update_events =
+            runtime_events_from_session_notification("turn_1", "conv_1", "codex", &updated);
+        let completed_events =
+            runtime_events_from_session_notification("turn_1", "conv_1", "codex", &completed);
+
+        assert_eq!(start_events[0].data["event"]["type"], "tool.started");
+        assert_eq!(start_events[0].data["event"]["id"], "tool_1");
+        assert_eq!(start_events[0].data["event"]["name"], "读取内存");
+        assert!(
+            start_events[0].data["event"]["preview"]
+                .as_str()
+                .unwrap()
+                .contains("vm_stat")
+        );
+        assert_eq!(update_events[0].data["event"]["type"], "tool.delta");
+        assert_eq!(update_events[0].data["event"]["id"], "tool_1");
+        assert_eq!(completed_events[0].data["event"]["type"], "tool.completed");
+        assert_eq!(completed_events[0].data["event"]["id"], "tool_1");
+        assert_eq!(completed_events[0].data["event"]["status"], "completed");
+        assert_eq!(completed_events[0].data["event"]["error"], false);
     }
 
     #[tokio::test]
