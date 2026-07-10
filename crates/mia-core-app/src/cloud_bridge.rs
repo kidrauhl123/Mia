@@ -1153,9 +1153,6 @@ impl CloudRunCollector {
                 let text = event_text(event);
                 if !text.is_empty() {
                     self.reasoning.push_str(&text);
-                    if !self.reasoning.ends_with('\n') {
-                        self.reasoning.push('\n');
-                    }
                     self.append_thinking_block(event, &text);
                 }
             }
@@ -1717,6 +1714,22 @@ mod tests {
 
         assert_eq!(collector.trace()["tools"][0]["status"], "running");
         assert_eq!(collector.trace()["tools"][0]["preview"], "Pages free");
+    }
+
+    #[test]
+    fn reasoning_deltas_preserve_agent_spacing_without_inserting_newlines() {
+        let mut collector = CloudRunCollector::default();
+        collector.apply_run_event(&json!({
+            "type": "reasoning_delta",
+            "text": "The"
+        }));
+        collector.apply_run_event(&json!({
+            "type": "reasoning_delta",
+            "text": " user"
+        }));
+
+        assert_eq!(collector.trace()["reasoning"], "The user");
+        assert_eq!(collector.content_blocks()[0]["text"], "The user");
     }
 
     #[test]

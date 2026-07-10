@@ -5722,11 +5722,11 @@ test("renderConversationChat renders normalized cloud run trace blocks", () => {
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "ls" } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool.started", id: "tool_1", name: "shell", preview: "ls" } },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_completed", id: "tool_1", name: "shell", duration: 1.25 } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool.completed", id: "tool_1", name: "shell", duration: 1.25 } },
   });
 
   const chat = {
