@@ -153,6 +153,34 @@ test("listing conversation messages passes the fetched window to the local cache
   ]);
 });
 
+test("caching a merged local Core history writes user and bot messages to the visible conversation cache", async () => {
+  const ipcMain = fakeIpcMain();
+  const upserts = [];
+  const messages = [
+    { id: "core_user_1", seq: 1, sender_kind: "user", body_md: "你好" },
+    { id: "core_bot_1", seq: 2, sender_kind: "bot", body_md: "你好呀" }
+  ];
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {},
+    messageCache: {
+      upsertMessages: (conversationId, fetched) => {
+        upserts.push({ conversationId, messages: fetched });
+        return fetched.length;
+      }
+    }
+  });
+
+  const cached = await ipcMain.handlers.get(IpcChannel.SocialCacheConversationMessages)(
+    null,
+    "botc_u_1_local",
+    messages
+  );
+
+  assert.deepEqual(cached, { ok: true, data: { written: 2 } });
+  assert.deepEqual(upserts, [{ conversationId: "botc_u_1_local", messages }]);
+});
+
 test("searching conversation messages writes hit messages through to the local cache", async () => {
   const ipcMain = fakeIpcMain();
   const upserts = [];

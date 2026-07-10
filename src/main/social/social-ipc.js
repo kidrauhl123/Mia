@@ -334,6 +334,10 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
     if (!messageCache) return { messages: [] };
     return { messages: messageCache.getRecentMessages(conversationId, limit) };
   }));
+  ipcMain.handle(IpcChannel.SocialCacheConversationMessages, safeCall((conversationId, messages) => {
+    if (!messageCache || typeof messageCache.upsertMessages !== "function") return { written: 0 };
+    return { written: messageCache.upsertMessages(conversationId, Array.isArray(messages) ? messages : []) };
+  }));
   ipcMain.handle(IpcChannel.SocialGetCachedBootstrap, safeCall((userId) => (
     cachedSocialBootstrap({ messageCache, getCloudUserId, requestedUserId: userId })
   )));

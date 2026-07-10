@@ -741,6 +741,9 @@ function rewriteLocalBotMessageConversation(message = {}, conversationId = "", l
       return {};
     }
   })();
+  const runtime = content.runtime && typeof content.runtime === "object" && !Array.isArray(content.runtime)
+    ? content.runtime
+    : {};
   content.localConversationId = localConversationId;
   content.local_conversation_id = localConversationId;
   return {
@@ -749,6 +752,15 @@ function rewriteLocalBotMessageConversation(message = {}, conversationId = "", l
     conversationId,
     local_conversation_id: localConversationId,
     _localCoreConversationId: localConversationId,
+    ...(runtime.trace && !normalized.trace && !normalized.trace_json
+      ? { trace: runtime.trace }
+      : {}),
+    ...(Array.isArray(runtime.contentBlocks) && !normalized.contentBlocks && !normalized.content_blocks_json
+      ? {
+          contentBlocks: runtime.contentBlocks,
+          content_blocks_json: JSON.stringify(runtime.contentBlocks)
+        }
+      : {}),
     content_json: JSON.stringify(content)
   };
 }
@@ -799,6 +811,13 @@ async function listLocalDesktopBotMessages(conversationId, sinceSeq, limit) {
   const localMessages = (localPayload?.data?.messages || localPayload?.messages || [])
     .map((message) => rewriteLocalBotMessageConversation(message, conversationId, localConversationId));
   const messages = mergeConversationMessageLists(socialMessages, localMessages);
+  if (messages.length) {
+    try {
+      await ipcRenderer.invoke(IpcChannel.SocialCacheConversationMessages, conversationId, messages);
+    } catch {
+      // The merged history remains usable in memory even if the render cache is unavailable.
+    }
+  }
   return {
     ok: true,
     data: {

@@ -250,6 +250,8 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
   assert.doesNotMatch(coreConversationIdSource, /id\.startsWith\("botc_"\)/);
   assert.match(preload, /listConversationMessages:\s*\(conversationId,\s*sinceSeq,\s*limit\)\s*=>\s*listConversationMessagesCompat\(conversationId,\s*sinceSeq,\s*limit\)/);
   const listMessagesSource = extractFunctionSource(preload, "listConversationMessagesCompat");
+  const listLocalDesktopBotMessagesSource = extractFunctionSource(preload, "listLocalDesktopBotMessages");
+  const rewriteLocalBotMessageSource = extractFunctionSource(preload, "rewriteLocalBotMessageConversation");
   assert.match(listMessagesSource, /if \(String\(conversationId \|\| ""\)\.startsWith\("cloud_bridge_"\)\) await refreshObservedCoreStarterUserId\(\);/);
   assert.match(
     listMessagesSource,
@@ -257,6 +259,15 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
     "cloud starter Mia history must be read from the social/cloud route before Core fallback"
   );
   assert.match(listMessagesSource, /if \(isBotConversationId\(conversationId\)\) \{\s*return listLocalDesktopBotMessages\(conversationId,\s*sinceSeq,\s*limit\);\s*\}/);
+  assert.match(
+    listLocalDesktopBotMessagesSource,
+    /ipcRenderer\.invoke\(IpcChannel\.SocialCacheConversationMessages,\s*conversationId,\s*messages\)/,
+    "merged Core history must warm the visible bot conversation cache, including user messages"
+  );
+  assert.match(rewriteLocalBotMessageSource, /const runtime = content\.runtime/);
+  assert.match(rewriteLocalBotMessageSource, /trace:\s*runtime\.trace/);
+  assert.match(rewriteLocalBotMessageSource, /contentBlocks:\s*runtime\.contentBlocks/);
+  assert.match(rewriteLocalBotMessageSource, /content_blocks_json:\s*JSON\.stringify\(runtime\.contentBlocks\)/);
   assert.match(preload, /deleteConversation:\s*\(conversationId\)\s*=>\s*deleteConversationCompat\(conversationId\)/);
   assert.match(preload, /sendChatStateless:\s*\(payload\)\s*=>\s*runCoreConversationUtilityTurn\(payload\)/);
   assert.match(preload, /miaCorePost\("\/api\/conversations\/utility-turns",\s*buildCoreConversationUtilityTurnRequest\(payload\)\)/);
