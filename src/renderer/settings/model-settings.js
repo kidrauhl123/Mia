@@ -89,16 +89,29 @@
     return entry?.label || fallback || raw;
   }
 
-  function setRuntimeSelectOptions(select, entries, currentValue, emptyLabel) {
+  function controlForSelect(select) {
+    return select?.closest?.(".model-switcher, .effort-switcher, .permission-switcher") || null;
+  }
+
+  function setControlVisible(select, visible) {
+    const control = controlForSelect(select);
+    control?.classList.toggle("hidden", !visible);
+    control?.setAttribute("aria-hidden", visible ? "false" : "true");
+  }
+
+  function clearSelect(select) {
+    if (!select) return;
+    select.innerHTML = "";
+    select.value = "";
+    select.disabled = true;
+  }
+
+  function setRuntimeSelectOptions(select, entries, currentValue) {
     if (!select) return "";
     const previous = select.value || currentValue;
     select.innerHTML = "";
     if (!entries.length) {
-      const option = document.createElement("option");
-      option.value = "";
-      option.textContent = emptyLabel;
-      select.appendChild(option);
-      select.value = "";
+      clearSelect(select);
       return "";
     }
     for (const entry of entries) {
@@ -118,18 +131,25 @@
   function setEffortSelectOptions(_engine, currentLevel) {
     if (!els || !els.effortSelect) return;
     const options = runtimeControlOptions()?.effortOptions || [];
-    setRuntimeSelectOptions(els.effortSelect, options, currentLevel, "Medium");
+    setRuntimeSelectOptions(els.effortSelect, options, currentLevel);
   }
 
   function syncEffortControl(runtime = state?.runtime) {
     if (!state || !els || !els.effortSelect || !els.effortLabel) return;
     const options = runtimeControlOptions(runtime);
     const entries = Array.isArray(options?.effortOptions) ? options.effortOptions : [];
-    const selected = options?.selectedEffort || "medium";
-    if (document.activeElement !== els.effortSelect) {
-      setRuntimeSelectOptions(els.effortSelect, entries, selected, "Medium");
+    const selected = options?.selectedEffort || "";
+    setControlVisible(els.effortSelect, Boolean(entries.length));
+    if (!entries.length) {
+      clearSelect(els.effortSelect);
+      setText(els.effortLabel, "");
+      els.effortSelect.title = "";
+      return;
     }
-    const label = optionLabel(entries, els.effortSelect.value || selected, "Medium");
+    if (document.activeElement !== els.effortSelect) {
+      setRuntimeSelectOptions(els.effortSelect, entries, selected);
+    }
+    const label = optionLabel(entries, els.effortSelect.value || selected);
     setText(els.effortLabel, label);
     els.effortSelect.title = `推理强度：${label}`;
     els.effortSelect.disabled = !options || !entries.length;
@@ -140,18 +160,10 @@
     const previous = select.value || currentId;
     select.innerHTML = "";
     if (!entries.length) {
-      const option = document.createElement("option");
-      option.value = "";
-      option.textContent = "模型";
-      select.appendChild(option);
-      select.value = "";
+      clearSelect(select);
       syncQuickModelLabel();
       return;
     }
-    const emptyOption = document.createElement("option");
-    emptyOption.value = "";
-    emptyOption.textContent = "模型";
-    select.appendChild(emptyOption);
     const groups = new Map();
     for (const entry of entries) {
       const provider = entry.provider || "custom";
@@ -178,27 +190,28 @@
     const ids = new Set(entries.map(optionValue));
     if (ids.has(previous)) select.value = previous;
     else if (ids.has(currentId)) select.value = currentId;
-    else select.value = "";
+    else select.value = optionValue(entries[0]);
     syncQuickModelLabel();
   }
 
   function syncQuickModelLabel() {
     if (!els || !els.quickModelLabel || !els.quickModelSelect) return;
     const hasOptions = els.quickModelSelect.options && els.quickModelSelect.options.length > 0;
+    setControlVisible(els.quickModelSelect, Boolean(hasOptions));
     if (!hasOptions || els.quickModelSelect.disabled) {
-      setText(els.quickModelLabel, "模型");
+      setText(els.quickModelLabel, "");
       return;
     }
     if (!els.quickModelSelect.value) {
-      setText(els.quickModelLabel, "模型");
+      setText(els.quickModelLabel, "");
       return;
     }
     const selected = els.quickModelSelect.selectedOptions?.[0];
-    setText(els.quickModelLabel, selected?.textContent || "模型");
+    setText(els.quickModelLabel, selected?.textContent || "");
   }
 
   function permissionLabelForMode(mode = "") {
-    if (!els) return "Ask";
+    if (!els) return String(mode || "");
     const selected = els.permissionMode?.selectedOptions?.[0];
     if (selected?.textContent) return selected.textContent;
     if (mode === "smart") return "Smart";
@@ -212,22 +225,29 @@
     if (mode === ":workspace") return "Workspace";
     if (mode === ":read-only") return "Read Only";
     if (mode === ":danger-full-access") return "Full Access";
-    return "Ask";
+    return String(mode || "");
   }
 
   function setPermissionSelectOptions(_engine, currentMode) {
     if (!els || !els.permissionMode) return;
     const options = runtimeControlOptions()?.permissionOptions || [];
-    setRuntimeSelectOptions(els.permissionMode, options, currentMode, "Ask");
+    setRuntimeSelectOptions(els.permissionMode, options, currentMode);
   }
 
   function syncPermissionControl(runtime = state?.runtime) {
     if (!state || !els || !els.permissionMode || !els.permissionLabel) return;
     const options = runtimeControlOptions(runtime);
     const entries = Array.isArray(options?.permissionOptions) ? options.permissionOptions : [];
-    const mode = options?.selectedPermission || "ask";
+    const mode = options?.selectedPermission || "";
+    setControlVisible(els.permissionMode, Boolean(entries.length));
+    if (!entries.length) {
+      clearSelect(els.permissionMode);
+      setText(els.permissionLabel, "");
+      els.permissionMode.title = "";
+      return;
+    }
     if (document.activeElement !== els.permissionMode) {
-      setRuntimeSelectOptions(els.permissionMode, entries, mode, "Ask");
+      setRuntimeSelectOptions(els.permissionMode, entries, mode);
     }
     const label = optionLabel(entries, els.permissionMode.value || mode, permissionLabelForMode(els.permissionMode.value || mode));
     setText(els.permissionLabel, label);
@@ -276,7 +296,9 @@
     const providerEntries = Array.isArray(options?.addProviderOptions) ? options.addProviderOptions : [];
     setProviderOptions(els.modelSelect, providerEntries, "");
     setSelectOptions(els.quickModelSelect, modelEntries, options?.selectedModel || "");
+    setControlVisible(els.quickModelSelect, Boolean(modelEntries.length));
     if (els.quickModelSelect) els.quickModelSelect.disabled = !options || !modelEntries.length;
+    syncQuickModelLabel();
   }
 
   function modelAuthCopy(entry, runtime = state?.runtime) {

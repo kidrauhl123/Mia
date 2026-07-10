@@ -79,6 +79,31 @@ test("managed runtime rejects manifest entrypoints outside the runtime directory
   assert.match(service.diagnose("codex").diagnostics[0].reason, /inside its runtime directory/);
 });
 
+test("managed runtime default roots include the user-local Mia managed resources", (t) => {
+  const home = tempDir(t);
+  const root = path.join(home, ".mia", "managed-resources");
+  const runtimeDir = path.join(root, "acp", "claude-agent-acp", "0.39.0", "darwin-arm64");
+  const entrypoint = path.join(runtimeDir, "node_modules", "@agentclientprotocol", "claude-agent-acp", "dist", "index.js");
+  fs.mkdirSync(path.dirname(entrypoint), { recursive: true });
+  fs.writeFileSync(entrypoint, "#!/usr/bin/env node\n");
+  writeJson(path.join(runtimeDir, "manifest.json"), {
+    entrypoint: "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js",
+    protocol: "claude-code-cli",
+    version: "0.39.0"
+  });
+
+  const service = createManagedAgentRuntimeService({
+    env: { HOME: home },
+    platform: "darwin",
+    arch: "arm64"
+  });
+  const runtime = service.resolve("claude-code", { protocols: ["claude-code-cli"] });
+
+  assert.ok(service.resourceRoots().includes(root));
+  assert.equal(runtime.path, entrypoint);
+  assert.equal(runtime.toolId, "claude-agent-acp");
+});
+
 test("runtimeKey uses platform-arch names compatible with bundled resources", () => {
   assert.equal(runtimeKey("win32", "x64"), "win32-x64");
   assert.equal(runtimeKey("darwin", "arm64"), "darwin-arm64");

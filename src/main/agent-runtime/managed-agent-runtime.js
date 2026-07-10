@@ -7,7 +7,7 @@ const {
 
 const ENGINE_TOOL_IDS = Object.freeze({
   hermes: ["hermes", "hermes-agent"],
-  "claude-code": ["claude-code", "claude-acp", "claude"],
+  "claude-code": ["claude-agent-acp", "claude-code", "claude-acp", "claude"],
   codex: ["codex-acp", "codex"]
 });
 
@@ -33,8 +33,13 @@ function defaultResourceRoots(options = {}) {
   const platform = options.platform || process.platform;
   const arch = options.arch || process.arch;
   const roots = [
+    ...pathSegments(env.MIA_LOCAL_MANAGED_AGENT_RESOURCES, platform === "win32" ? ";" : path.delimiter),
     ...pathSegments(env.MIA_MANAGED_AGENT_RESOURCES, platform === "win32" ? ";" : path.delimiter)
   ];
+  const coreHome = String(env.MIA_CORE_HOME || env.MIA_HOME || "").trim();
+  if (coreHome) roots.push(path.join(coreHome, "managed-resources"));
+  const userHome = String(env.HOME || env.USERPROFILE || "").trim();
+  if (userHome) roots.push(path.join(userHome, ".mia", "managed-resources"));
   const resourcesPath = String(options.resourcesPath || process.resourcesPath || "").trim();
   if (resourcesPath) {
     roots.push(path.join(resourcesPath, "managed-resources"));

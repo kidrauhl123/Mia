@@ -17,7 +17,7 @@ function specByEngineId(specs, engineId) {
   return null;
 }
 
-test("buildAcpEngineSpecs ports the built-in AION ACP launch specs", () => {
+test("buildAcpEngineSpecs does not invent Claude/Codex ACP launchers without managed runtimes", () => {
   const specs = buildAcpEngineSpecs();
 
   assert.ok(specs, "expected ACP engine specs");
@@ -26,23 +26,8 @@ test("buildAcpEngineSpecs ports the built-in AION ACP launch specs", () => {
   const codex = specByEngineId(specs, "codex");
   const hermes = specByEngineId(specs, "hermes");
 
-  assert.deepEqual(claude, {
-    engineId: "claude",
-    transport: "acp",
-    command: "npx",
-    args: ["-y", "@agentclientprotocol/claude-agent-acp@0.39.0"],
-    supportsSteerInput: false,
-    supportsQueuedInput: true
-  });
-
-  assert.deepEqual(codex, {
-    engineId: "codex",
-    transport: "acp",
-    command: "npx",
-    args: ["-y", "@agentclientprotocol/codex-acp@1.1.0"],
-    supportsSteerInput: false,
-    supportsQueuedInput: true
-  });
+  assert.equal(claude, null);
+  assert.equal(codex, null);
 
   assert.deepEqual(hermes, {
     engineId: "hermes",
@@ -55,11 +40,69 @@ test("buildAcpEngineSpecs ports the built-in AION ACP launch specs", () => {
   assert.equal(specByEngineId(specs, "openclaw"), null);
 });
 
-test("getAcpEngineSpec returns a single engine spec by id", () => {
+test("buildAcpEngineSpecs uses real managed runtimes for Claude and Codex", () => {
+  const calls = [];
+  const specs = buildAcpEngineSpecs({
+    managedAgentRuntime: {
+      resolve(engine, options) {
+        calls.push({ engine, options });
+        if (engine === "claude-code") {
+          return {
+            source: "managed",
+            path: "/managed/claude-acp",
+            command: "/managed/claude-acp",
+            args: ["--stdio"],
+            version: "claude-acp 0.39.0",
+            protocol: "claude-code-cli"
+          };
+        }
+        if (engine === "codex") {
+          return {
+            source: "managed",
+            path: "/managed/codex-acp",
+            command: "/managed/codex-acp",
+            args: ["--stdio"],
+            version: "codex-acp 1.1.0",
+            protocol: "codex-app-server"
+          };
+        }
+        return null;
+      }
+    }
+  });
+
+  assert.deepEqual(specByEngineId(specs, "claude"), {
+    engineId: "claude",
+    transport: "acp",
+    command: "/managed/claude-acp",
+    args: ["--stdio"],
+    source: "managed",
+    managed: true,
+    runtimePath: "/managed/claude-acp",
+    runtimeVersion: "claude-acp 0.39.0",
+    runtimeProtocol: "claude-code-cli",
+    supportsSteerInput: false,
+    supportsQueuedInput: true
+  });
+  assert.deepEqual(specByEngineId(specs, "codex"), {
+    engineId: "codex",
+    transport: "acp",
+    command: "/managed/codex-acp",
+    args: ["--stdio"],
+    source: "managed",
+    managed: true,
+    runtimePath: "/managed/codex-acp",
+    runtimeVersion: "codex-acp 1.1.0",
+    runtimeProtocol: "codex-app-server",
+    supportsSteerInput: false,
+    supportsQueuedInput: true
+  });
+  assert.deepEqual(calls.map((call) => call.engine), ["claude-code", "codex"]);
+});
+
+test("getAcpEngineSpec returns null for Claude without a managed runtime", () => {
   const spec = getAcpEngineSpec("claude");
-  assert.equal(spec?.engineId, "claude");
-  assert.equal(spec?.command, "npx");
-  assert.deepEqual(spec?.args, ["-y", "@agentclientprotocol/claude-agent-acp@0.39.0"]);
+  assert.equal(spec, null);
 });
 
 test("Hermes ACP spec can use the resolved system Hermes executable", () => {
@@ -80,8 +123,8 @@ test("spawnAcpEngineProcess launches engine specs with Windows child options", (
     return {};
   }, {
     engineId: "codex",
-    command: "npx",
-    args: ["-y", "@agentclientprotocol/codex-acp@1.1.0"]
+    command: "/managed/codex-acp",
+    args: ["--stdio"]
   }, {
     stdio: ["pipe", "pipe", "inherit"]
   }, {
@@ -89,8 +132,8 @@ test("spawnAcpEngineProcess launches engine specs with Windows child options", (
   });
 
   assert.deepEqual(spawnCalls[0], {
-    file: "npx",
-    args: ["-y", "@agentclientprotocol/codex-acp@1.1.0"],
+    file: "/managed/codex-acp",
+    args: ["--stdio"],
     options: {
       stdio: ["pipe", "pipe", "inherit"],
       windowsHide: true

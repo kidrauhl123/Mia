@@ -853,7 +853,8 @@ test("src/web/app.js lets web controls update desktop-local bot runtime bindings
   assert.match(source, /saveBotRuntimeControl\(\{/);
   assert.match(source, /function isDesktopExternalRuntime\(engine, runtimeKind\)/);
   assert.match(source, /kind === "permission" && isDesktopExternalRuntime\(engine, runtimeKind\)/);
-  assert.match(source, /if \(!isExternalAgentEngine\(engine\)\) config\.permissionMode = "ask";/);
+  assert.match(source, /if \(!isExternalAgentEngine\(engine\) && permissionEntries\[0\]\?\.value\) config\.permissionMode = permissionEntries\[0\]\.value;/);
+  assert.doesNotMatch(source, /config\.permissionMode = "ask";/);
   assert.doesNotMatch(source, /permissionMode: engine === "hermes" \? "ask" : "default"/);
   assert.doesNotMatch(source, /body:\s*\{ runtimeKind, enabled: true, config \}/);
 });

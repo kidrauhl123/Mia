@@ -7096,6 +7096,12 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   user-select: none;
 }
 
+.model-switcher.hidden + .composer-dot,
+.effort-switcher.hidden + .composer-dot,
+.permission-switcher.hidden + .composer-dot {
+  display: none !important;
+}
+
 .model-switcher {
   position: relative;
   display: inline-grid;
@@ -9468,79 +9474,47 @@ select.select-open {
 }
 
 .appearance-theme-toggle-sky {
-  position: absolute;
+  position: relative;
   inset: 0;
-  display: block;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
   border-radius: inherit;
-  background:
-    radial-gradient(circle at 23% 46%, rgb(255 245 205 / 0.96) 0 15%, transparent 16%),
-    linear-gradient(135deg, #f8c96d 0%, #f5e6bd 46%, #b8dcff 100%);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.54), inset 0 -10px 22px rgb(52 105 170 / 0.14);
-  overflow: hidden;
-  transition: background 180ms ease, box-shadow 180ms ease;
 }
 
 .appearance-theme-toggle-icon {
-  position: absolute;
-  top: 11px;
-  z-index: 2;
-  transition: opacity 160ms ease, transform 180ms ease, color 180ms ease;
+  grid-column: 1;
+  grid-row: 1;
+  width: 19px;
+  height: 19px;
+  transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1), opacity 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .appearance-theme-toggle-sun {
-  left: 15px;
-  color: #d68018;
   opacity: 1;
   transform: rotate(0deg) scale(1);
 }
 
 .appearance-theme-toggle-moon {
-  right: 15px;
-  color: #dbe7ff;
-  opacity: 0.58;
-  transform: rotate(-18deg) scale(0.82);
-}
-
-.appearance-theme-toggle-thumb {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  z-index: 1;
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  background: rgb(255 255 255 / 0.80);
-  box-shadow: 0 5px 14px rgb(19 37 71 / 0.20);
-  transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
+  opacity: 0;
+  transform: rotate(90deg) scale(0);
 }
 
 .appearance-theme-toggle.is-dark {
-  color: #dbe7ff;
-}
-
-.appearance-theme-toggle.is-dark .appearance-theme-toggle-sky {
-  background:
-    radial-gradient(circle at 70% 35%, rgb(226 234 255 / 0.22) 0 7%, transparent 8%),
-    radial-gradient(circle at 34% 62%, rgb(112 137 196 / 0.20) 0 4%, transparent 5%),
-    linear-gradient(135deg, #111827 0%, #20293b 48%, #465879 100%);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.10), inset 0 -12px 22px rgb(0 0 0 / 0.22);
+  color: hsl(0 0% 98%);
+  background: hsl(201 16% 65% / 0.15);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.18);
 }
 
 .appearance-theme-toggle.is-dark .appearance-theme-toggle-sun {
-  opacity: 0.36;
-  transform: rotate(38deg) scale(0.78);
+  opacity: 0;
+  transform: rotate(-90deg) scale(0);
 }
 
 .appearance-theme-toggle.is-dark .appearance-theme-toggle-moon {
-  color: #f4f7ff;
   opacity: 1;
   transform: rotate(0deg) scale(1);
-}
-
-.appearance-theme-toggle.is-dark .appearance-theme-toggle-thumb {
-  background: rgb(255 255 255 / 0.14);
-  box-shadow: 0 5px 14px rgb(0 0 0 / 0.28);
-  transform: translateX(48px);
 }
 
 .nav-layout-settings-row {

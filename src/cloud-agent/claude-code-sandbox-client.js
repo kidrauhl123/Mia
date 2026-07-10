@@ -120,6 +120,64 @@ function buildSystemPromptAppend(args = {}) {
   ].filter(Boolean).join("\n\n");
 }
 
+function objectFromMcpSource(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value;
+}
+
+function mcpServersFromRuntimeConfig(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const nested = value.mcpServers || value.mcp_servers;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) return nested;
+  return {};
+}
+
+function normalizeMcpServerSpec(spec = {}) {
+  if (!spec || typeof spec !== "object" || Array.isArray(spec)) return null;
+  const command = String(spec.command || "").trim();
+  const url = String(spec.url || "").trim();
+  if (command) {
+    const trusted = spec.trusted === true || spec.miaTrusted === true || String(spec.source || "") === "mia-cloud";
+    if (!trusted) return null;
+    return {
+      ...(spec.type ? { type: String(spec.type) } : { type: "stdio" }),
+      command,
+      ...(Array.isArray(spec.args) ? { args: spec.args.map((arg) => String(arg || "")) } : {}),
+      ...(spec.env && typeof spec.env === "object" && !Array.isArray(spec.env) ? { env: { ...spec.env } } : {})
+    };
+  }
+  if (!url) return null;
+  return {
+    ...(spec.type ? { type: String(spec.type) } : {}),
+    url,
+    ...(spec.headers && typeof spec.headers === "object" && !Array.isArray(spec.headers) ? { headers: { ...spec.headers } } : {}),
+    ...(spec.bearer_token_env_var ? { bearer_token_env_var: String(spec.bearer_token_env_var) } : {}),
+    ...(spec.bearerTokenEnvVar ? { bearer_token_env_var: String(spec.bearerTokenEnvVar) } : {})
+  };
+}
+
+function isDesktopOnlyReservedMcp(name = "", spec = {}) {
+  const id = String(name || "").trim();
+  if (id !== "mia-app" && id !== "mia-scheduler") return false;
+  const env = spec && typeof spec.env === "object" && !Array.isArray(spec.env) ? spec.env : {};
+  return Boolean(env.MIA_CORE_URL || env.MIA_CORE_TOKEN || env.MIA_SCHEDULER_CONTEXT_FILE);
+}
+
+function normalizeCloudMcpServers(...sources) {
+  const servers = {};
+  for (const source of sources) {
+    const object = objectFromMcpSource(source);
+    for (const [name, rawSpec] of Object.entries(object)) {
+      const serverName = String(name || "").trim();
+      if (!serverName) continue;
+      const spec = normalizeMcpServerSpec(rawSpec);
+      if (!spec || isDesktopOnlyReservedMcp(serverName, spec)) continue;
+      servers[serverName] = spec;
+    }
+  }
+  return Object.keys(servers).length ? servers : null;
+}
+
 function eventTextDelta(id, text) {
   return { type: "text_delta", id, text };
 }
@@ -321,6 +379,13 @@ function createCloudClaudeCodeClient(deps = {}) {
     const systemPromptAppend = buildSystemPromptAppend({ ...args, worker });
     const model = normalizeCloudClaudeCodeModel(args.model, { defaultModel: worker.model });
     const permissionMode = normalizeClaudePermissionMode(args.permissionMode || worker.permissionMode);
+    const mcpServers = normalizeCloudMcpServers(
+      worker.mcpServers,
+      worker.mcp_servers,
+      mcpServersFromRuntimeConfig(args.runtimeConfig),
+      args.mcpServers,
+      args.mcp_servers
+    );
     const options = {
       cwd: worker.paths?.workspace || process.cwd(),
       env: worker.env || {},
@@ -338,6 +403,10 @@ function createCloudClaudeCodeClient(deps = {}) {
       sandbox: worker.sandboxSettings || { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true }
     };
     if (permissionMode === "bypassPermissions") options.allowDangerouslySkipPermissions = true;
+    if (mcpServers) {
+      options.mcpServers = mcpServers;
+      options.strictMcpConfig = true;
+    }
     const resume = resumeSessionId(args);
     if (resume) options.resume = resume;
 
@@ -457,5 +526,6 @@ module.exports = {
   buildPrompt,
   claudeMessageText,
   createCloudClaudeCodeClient,
+  normalizeCloudMcpServers,
   normalizeClaudePermissionMode
 };

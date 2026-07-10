@@ -195,6 +195,55 @@
     return [...new Set(raw.map((item) => String(item || "").trim()).filter(Boolean))];
   }
 
+  function idsApi() {
+    if (global?.miaIds) return global.miaIds;
+    if (typeof require === "function") {
+      try { return require("../../shared/ids.js"); } catch { /* fallback below */ }
+    }
+    return null;
+  }
+
+  function existingBotIds({ state = {}, social = global.miaSocial } = {}) {
+    const rows = [
+      ...(Array.isArray(social?.moduleState?.bots) ? social.moduleState.bots : []),
+      ...(Array.isArray(state?.runtime?.bots) ? state.runtime.bots : []),
+      ...(Array.isArray(state?.bots) ? state.bots : [])
+    ];
+    return new Set(rows
+      .flatMap((bot) => [bot?.key, bot?.id, bot?.accountId, bot?.account_id])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean));
+  }
+
+  function generateCreateBotKey(options = {}) {
+    const generate = idsApi()?.generatePrincipalId;
+    if (typeof generate !== "function") throw new Error("无法生成 Bot 账号 ID。");
+    const used = existingBotIds(options);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const id = String(generate() || "").trim();
+      if (id && !used.has(id)) return id;
+    }
+    throw new Error("无法生成未占用的 Bot 账号 ID。");
+  }
+
+  function botKeyForSave({ state = {}, social = global.miaSocial, bot = {}, isCreate = false } = {}) {
+    const key = String(bot.key || bot.id || "").trim();
+    if (key || !isCreate) return key;
+    return generateCreateBotKey({ state, social });
+  }
+
+  async function ensureSavedBotConversation({ api = global.mia, key = "", identity = {}, runtimeKind = "desktop-local" } = {}) {
+    const body = {
+      botId: key,
+      title: identity.name || key,
+      runtimeKind
+    };
+    if (runtimeKind !== CLOUD_RUNTIME_KIND && typeof api?.social?.ensureBotConversation === "function") {
+      return api.social.ensureBotConversation(key, body);
+    }
+    return api?.social?.ensureBotSessionConversation?.(key, body);
+  }
+
   function canUseCloudIdentity({ state = {}, api = global.mia } = {}) {
     return Boolean(state.runtime?.cloud?.enabled && typeof api?.social?.saveBotIdentity === "function");
   }
@@ -211,7 +260,7 @@
     agentEngine = bot?.agentEngine || bot?.agent_engine || "hermes"
   } = {}) {
     bot = botWithManualCreateDefaults(bot, isCreate);
-    const explicitKey = String(bot.key || bot.id || "").trim();
+    const explicitKey = botKeyForSave({ state, social, bot, isCreate });
     let key = explicitKey;
     const kind = normalizeRuntimeKind(runtimeKind);
     if (!key && !isCreate) return { saved: false, binding: null, conversation: null };
@@ -241,11 +290,7 @@
       targetIntent
     });
     if (runtime && runtime.ok === false) throw new Error(runtime.error || "保存 Bot 运行设置失败");
-    const ensured = await api.social.ensureBotSessionConversation?.(key, {
-      botId: key,
-      title: identity.name || key,
-      runtimeKind: kind
-    });
+    const ensured = await ensureSavedBotConversation({ api, key, identity, runtimeKind: kind });
     if (ensured && ensured.ok === false) throw new Error(ensured.error || "更新 Bot 会话失败");
 
     const binding = runtime?.data?.binding || runtime?.binding || {
@@ -306,7 +351,7 @@
       throw new Error("请先登录 Mia Cloud。");
     }
     bot = botWithManualCreateDefaults(bot, isCreate);
-    let key = String(bot.key || bot.id || "").trim();
+    let key = botKeyForSave({ state, social, bot, isCreate });
     const cloudRuntime = requireCloudAgentRuntime(state);
     const identity = cloudHermesIdentityForBot({ ...bot, ...(key ? { key } : {}) });
     const saved = await api.social.saveBotIdentity(key, identity);
@@ -517,6 +562,15 @@
     const botKey = String(bot?.key || bot?.id || "").trim();
     const social = socialApi(api);
     if (!botKey || typeof social?.saveBotRuntime !== "function") return null;
+    const runtimeStatus = String(bot?.runtimeStatus || bot?.runtime_status || "").trim();
+    const explicitEngine = String(
+      bot?.agentEngine
+      || bot?.agent_engine
+      || bot?.runtimeConfig?.agentEngine
+      || bot?.runtime_config?.agent_engine
+      || ""
+    ).trim();
+    if (runtimeStatus === "invalid_config" && !explicitEngine) return null;
     const body = {
       runtimeKind: "desktop-local",
       activate: activateRuntime,
@@ -538,20 +592,26 @@
     onConversation = null
   } = {}) {
     const botKey = String(bot?.key || bot?.id || "").trim();
-    if (!botKey || typeof api?.ensureBotSessionConversation !== "function") return { key: botKey, conversation: null, binding: null };
-    const result = await api.ensureBotSessionConversation(botKey, {
+    const social = socialApi(api);
+    if (!botKey || (typeof social?.ensureBotConversation !== "function" && typeof social?.ensureBotSessionConversation !== "function")) {
+      return { key: botKey, conversation: null, binding: null };
+    }
+    const body = {
       botId: botKey,
       title: bot.name || bot.displayName || botKey,
       runtimeKind: "desktop-local"
-    });
+    };
+    const result = typeof social.ensureBotConversation === "function"
+      ? await social.ensureBotConversation(botKey, body)
+      : await social.ensureBotSessionConversation(botKey, body);
+    if (result && result.ok === false) throw new Error(result.error || result.message || result.data?.error || "创建桌面运行会话失败");
     const binding = await syncDesktopLocalBotRuntimeBinding({
-      api,
+      api: social,
       state,
       bot: { ...bot, key: botKey },
       engineContracts,
       activateRuntime
     });
-    if (result && result.ok === false) throw new Error(result.error || result.message || result.data?.error || "创建桌面运行会话失败");
     const conversation = conversationFromResult(result);
     const savedConversation = conversation && typeof onConversation === "function" ? onConversation(conversation) : conversation;
     return { key: botKey, conversation: savedConversation || null, binding };

@@ -425,6 +425,24 @@ async fn hermes_runtime_config_is_prepared_inside_core_with_provider_runtime() {
         parsed["mia"]["bots_manifest"],
         bot_manifest.to_string_lossy().to_string()
     );
+    let settings = service.client_settings().await.unwrap().settings;
+    assert_eq!(
+        settings["reservedMcpSpecs"]["miaApp"]["command"],
+        "/usr/local/bin/node"
+    );
+    assert_eq!(
+        settings["reservedMcpSpecs"]["miaApp"]["env"]["MIA_CORE_URL"],
+        "http://127.0.0.1:27861"
+    );
+    assert!(
+        settings["reservedMcpSpecs"]["miaApp"]
+            .get("alwaysLoad")
+            .is_none()
+    );
+    assert_eq!(
+        settings["reservedMcpSpecs"]["scheduler"]["args"][0],
+        "/opt/mia/scheduler-mcp-server.js"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -871,6 +889,48 @@ async fn settings_runtime_options_for_codex_use_core_capability_fallbacks() {
 }
 
 #[tokio::test]
+async fn settings_runtime_options_do_not_synthesize_external_effort_or_permissions() {
+    let db = init_database_memory().await.unwrap();
+    let service = SystemService::new(
+        "0.1.0".to_string(),
+        SqliteSettingsRepository::new(db.pool().clone()),
+        SqliteProviderRepository::new(db.pool().clone()),
+    );
+
+    let response = service.runtime_control_options(SettingsRuntimeControlOptionsRequest {
+        active_agent_engine: Some("codex".into()),
+        runtime: json!({
+            "permissions": {
+                "engines": { "codex": ":danger-full-access" }
+            }
+        }),
+        engine_config: json!({
+            "model": "gpt-5.5",
+            "effortLevel": "medium"
+        }),
+        model_catalog: json!([]),
+        platform_models: json!([]),
+        engine_capabilities: json!({
+            "engines": {
+                "codex": {
+                    "models": [
+                        { "slug": "gpt-5.5", "displayName": "gpt-5.5" }
+                    ]
+                }
+            }
+        }),
+        codex_models: json!([]),
+    });
+
+    assert_eq!(response.selected_model, "gpt-5.5");
+    assert_eq!(response.model_options.len(), 1);
+    assert!(response.effort_options.is_empty());
+    assert_eq!(response.selected_effort, "");
+    assert!(response.permission_options.is_empty());
+    assert_eq!(response.selected_permission, "");
+}
+
+#[tokio::test]
 async fn settings_runtime_options_leave_external_model_empty_for_unknown_saved_model() {
     let db = init_database_memory().await.unwrap();
     let service = SystemService::new(
@@ -907,7 +967,7 @@ async fn settings_runtime_options_leave_external_model_empty_for_unknown_saved_m
         .iter()
         .map(|entry| entry.id.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(model_ids, vec!["gpt-5.5", "mia-auto"]);
+    assert_eq!(model_ids, vec!["gpt-5.5"]);
     assert!(!model_ids.contains(&"gpt-5.3-codex"));
 }
 

@@ -390,6 +390,54 @@ test("GET and PUT /api/me/bots/:id/runtime roundtrip cloud AI controls", async (
   } finally { await stopServer(ctx); }
 });
 
+test("PUT /api/me/bots/:id/runtime preserves desktop binding fields for runtime intent updates", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "runtime_intent");
+    await api(ctx.port, "PUT", "/api/me/bots/bot_runtime_intent", {
+      token: A.token,
+      body: { displayName: "Runtime Intent", clientOpId: "op_runtime_intent_bot" }
+    });
+
+    const initial = await api(ctx.port, "PUT", "/api/me/bots/bot_runtime_intent/runtime", {
+      token: A.token,
+      body: {
+        runtimeKind: "desktop-local",
+        enabled: true,
+        config: {
+          agentEngine: "codex",
+          deviceId: "device-1",
+          deviceName: "Test Mac",
+          model: "gpt-5.4",
+          effortLevel: "high"
+        },
+        clientOpId: "op_runtime_intent_initial"
+      }
+    });
+    assert.equal(initial.status, 200);
+
+    const updated = await api(ctx.port, "PUT", "/api/me/bots/bot_runtime_intent/runtime", {
+      token: A.token,
+      body: {
+        runtimeKind: "desktop-local",
+        enabled: true,
+        controlIntent: {
+          field: "effortLevel",
+          value: "medium",
+          modelEntries: []
+        },
+        clientOpId: "op_runtime_intent_effort"
+      }
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.binding.config.agentEngine, "codex");
+    assert.equal(updated.body.binding.config.deviceId, "device-1");
+    assert.equal(updated.body.binding.config.deviceName, "Test Mac");
+    assert.equal(updated.body.binding.config.model, "gpt-5.4");
+    assert.equal(updated.body.binding.config.effortLevel, "medium");
+  } finally { await stopServer(ctx); }
+});
+
 test("PUT /api/me/bot-conversations/:sessionId creates a bot conversation", async () => {
   const ctx = await startServer();
   try {

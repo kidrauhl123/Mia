@@ -2,11 +2,12 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use mia_core_api_types::{
-    AgentSessionSkillRuntimeRequest, AgentSessionSkillRuntimeResponse, ConversationListResponse,
-    ConversationMessageListResponse, ConversationResponse, CreateConversationRequest,
-    DeleteConversationResponse, RunConversationUtilityTurnRequest,
+    AcpRuntimeControlSnapshot, AgentSessionSkillRuntimeRequest, AgentSessionSkillRuntimeResponse,
+    ConversationListResponse, ConversationMessageListResponse, ConversationResponse,
+    CreateConversationRequest, DeleteConversationResponse, RunConversationUtilityTurnRequest,
     RunConversationUtilityTurnResponse, SendConversationMessageRequest,
-    SendConversationMessageResponse, SkillMaterializationRequest, SkillMaterializationResponse,
+    SendConversationMessageResponse, SetAcpRuntimeControlRequest, SkillMaterializationRequest,
+    SkillMaterializationResponse,
 };
 use mia_core_conversation::{
     EVENT_CONVERSATION_CREATED, EVENT_CONVERSATION_MESSAGE_CREATED, materialize_turn_skills,
@@ -61,6 +62,55 @@ pub async fn get_conversation(
         .await
         .map(Json)
         .map_err(map_sqlx_status)
+}
+
+pub async fn prepare_conversation_runtime_controls(
+    State(states): State<ModuleStates>,
+    Path(conversation_id): Path<String>,
+) -> Result<Json<AcpRuntimeControlSnapshot>, StatusCode> {
+    let plan = states
+        .conversation
+        .plan_runtime_session(&conversation_id)
+        .await
+        .map_err(map_sqlx_status)?;
+    states
+        .runtime_sessions
+        .prepare_session(plan)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(
+                conversation_id,
+                error = %error,
+                "prepare native ACP runtime controls failed"
+            );
+            StatusCode::BAD_GATEWAY
+        })
+}
+
+pub async fn set_conversation_runtime_control(
+    State(states): State<ModuleStates>,
+    Path(conversation_id): Path<String>,
+    Json(request): Json<SetAcpRuntimeControlRequest>,
+) -> Result<Json<AcpRuntimeControlSnapshot>, StatusCode> {
+    let plan = states
+        .conversation
+        .plan_runtime_session(&conversation_id)
+        .await
+        .map_err(map_sqlx_status)?;
+    states
+        .runtime_sessions
+        .set_control(plan, request.control_id, request.value)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(
+                conversation_id,
+                error = %error,
+                "set native ACP runtime control failed"
+            );
+            StatusCode::BAD_REQUEST
+        })
 }
 
 #[derive(Debug, Clone, Deserialize)]

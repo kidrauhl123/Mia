@@ -2,8 +2,9 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use mia_core_api_types::{
-    CloudBridgeCancelRequest, CloudBridgeCancelResponse, CloudBridgeLifecycleResponse,
-    CloudBridgeRunRequest, CloudBridgeRunResponse, CloudBridgeStartRequest, CloudConnectRequest,
+    AcpRuntimeControlSnapshot, CloudBridgeCancelRequest, CloudBridgeCancelResponse,
+    CloudBridgeLifecycleResponse, CloudBridgeRunRequest, CloudBridgeRunResponse,
+    CloudBridgeRuntimeControlRequest, CloudBridgeStartRequest, CloudConnectRequest,
     CloudConnectResponse, CloudEventsLifecycleResponse, CloudEventsStartRequest,
     CloudMemorySyncRequest, CloudMemorySyncResponse, CloudSettingsResponse, CloudStatusResponse,
     PutCloudSettingsRequest,
@@ -103,11 +104,97 @@ pub async fn run_cloud_bridge(
         &states.realtime,
         &states.runtime,
         &states.runtime_sessions,
+        &states.mia_runtime_proxies,
         request,
     )
     .await
     .map(Json)
     .map_err(map_cloud_status)
+}
+
+pub async fn prepare_cloud_bridge_runtime_controls(
+    State(states): State<ModuleStates>,
+    Json(request): Json<CloudBridgeRunRequest>,
+) -> Result<Json<AcpRuntimeControlSnapshot>, StatusCode> {
+    let (mut plan, runtime_config) = cloud_bridge_runtime_control_plan(&states, request).await?;
+    states
+        .mia_runtime_proxies
+        .prepare_plan(&states.cloud, &runtime_config, &mut plan)
+        .await
+        .map_err(map_cloud_status)?;
+    states
+        .runtime_sessions
+        .prepare_session(plan)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::warn!(error = %error, "prepare cloud bridge ACP controls failed");
+            StatusCode::BAD_GATEWAY
+        })
+}
+
+pub async fn set_cloud_bridge_runtime_control(
+    State(states): State<ModuleStates>,
+    Json(request): Json<CloudBridgeRuntimeControlRequest>,
+) -> Result<Json<AcpRuntimeControlSnapshot>, StatusCode> {
+    let control_id = request.control_id.trim().to_string();
+    let value = request.value.trim().to_string();
+    let mut run = request.run;
+    if control_id == "reasoning_effort" {
+        run.effort_level = Some(value.clone());
+    }
+    let (mut plan, runtime_config) = cloud_bridge_runtime_control_plan(&states, run).await?;
+    states
+        .mia_runtime_proxies
+        .prepare_plan(&states.cloud, &runtime_config, &mut plan)
+        .await
+        .map_err(map_cloud_status)?;
+    let restarts_platform_codex = control_id == "reasoning_effort"
+        && plan.engine == "codex"
+        && plan
+            .environment
+            .get("MIA_PLATFORM_PROVIDER")
+            .is_some_and(|provider| provider == "mia");
+    let result = if restarts_platform_codex {
+        states.runtime_sessions.prepare_session(plan).await
+    } else {
+        states
+            .runtime_sessions
+            .set_control(plan, control_id, value)
+            .await
+    };
+    result.map(Json).map_err(|error| {
+        tracing::warn!(error = %error, "set cloud bridge ACP control failed");
+        StatusCode::BAD_REQUEST
+    })
+}
+
+async fn cloud_bridge_runtime_control_plan(
+    states: &ModuleStates,
+    request: CloudBridgeRunRequest,
+) -> Result<(mia_core_runtime::RuntimeTurnPlan, serde_json::Value), StatusCode> {
+    let prepared = states
+        .cloud
+        .prepare_bridge_run(request)
+        .map_err(map_cloud_status)?;
+    let conversation = states
+        .conversation
+        .ensure_external_conversation(
+            &prepared.local_conversation_id,
+            "cloud-bridge",
+            &prepared.title,
+            None,
+            prepared.metadata,
+        )
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .conversation;
+    let plan = states
+        .conversation
+        .plan_runtime_session(&conversation.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok((plan, prepared.runtime))
 }
 
 pub async fn cancel_cloud_bridge_run(
@@ -176,6 +263,7 @@ async fn combined_cloud_status(
 }
 
 fn map_cloud_status(error: CloudError) -> StatusCode {
+    tracing::error!(error = %error, "cloud request failed");
     match error {
         CloudError::InvalidInput(_) => StatusCode::BAD_REQUEST,
         CloudError::Transport(_) => StatusCode::BAD_GATEWAY,

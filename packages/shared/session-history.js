@@ -26,8 +26,19 @@
         : "");
   }
 
-  function botId(conversation) {
-    return String(conversation?.decorations?.botId || conversation?.botId || conversation?.bot_id || "");
+  function starterBotIdFromConversationId(conversationId = "") {
+    const match = /^botc_(starter_[^_]+_.+)$/.exec(String(conversationId || "").trim());
+    return match ? match[1] : "";
+  }
+
+  function botId(conversation, conversationId = "") {
+    return String(
+      conversation?.decorations?.botId
+      || conversation?.botId
+      || conversation?.bot_id
+      || starterBotIdFromConversationId(conversationId || conversation?.id || "")
+      || ""
+    );
   }
 
   function runtimeKind(conversation, fallback = "desktop-local") {

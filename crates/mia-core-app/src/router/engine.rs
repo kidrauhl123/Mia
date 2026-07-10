@@ -15,9 +15,6 @@ use tokio::time::timeout;
 
 use super::state::ModuleStates;
 
-const DEFAULT_APPROVAL_MODES: [&str; 3] = ["ask", "yolo", "deny"];
-const DEFAULT_EFFORT_LEVELS: [&str; 3] = ["low", "medium", "high"];
-
 pub async fn engine_model_catalog(
     State(states): State<ModuleStates>,
 ) -> Json<EngineModelCatalogResponse> {
@@ -102,14 +99,8 @@ struct HermesCapabilities {
 impl Default for HermesCapabilities {
     fn default() -> Self {
         Self {
-            approval_modes: DEFAULT_APPROVAL_MODES
-                .iter()
-                .map(|item| (*item).to_owned())
-                .collect(),
-            effort_levels: DEFAULT_EFFORT_LEVELS
-                .iter()
-                .map(|item| (*item).to_owned())
-                .collect(),
+            approval_modes: Vec::new(),
+            effort_levels: Vec::new(),
         }
     }
 }
@@ -187,7 +178,7 @@ async fn load_hermes_engine_capabilities(states: &ModuleStates) -> HermesCapabil
 
     let script = r#"
 import json
-result = {"approvalModes": ["ask", "yolo", "deny"], "effortLevels": ["low", "medium", "high"]}
+result = {"approvalModes": [], "effortLevels": []}
 try:
     from hermes_cli.web_server import SETTINGS_SCHEMA
     if "approvals.mode" in SETTINGS_SCHEMA and "options" in SETTINGS_SCHEMA["approvals.mode"]:

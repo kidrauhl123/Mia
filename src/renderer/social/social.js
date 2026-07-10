@@ -59,6 +59,21 @@
     }
   }
 
+  function clearLastActiveConversationId(expectedId = "") {
+    try {
+      const storage = rendererLocalStorage();
+      if (!storage) return;
+      if (expectedId && (storage.getItem(LAST_CONVERSATION_KEY) || "") !== expectedId) return;
+      if (typeof storage.removeItem === "function") {
+        storage.removeItem(LAST_CONVERSATION_KEY);
+      } else if (typeof storage.setItem === "function") {
+        storage.setItem(LAST_CONVERSATION_KEY, "");
+      }
+    } catch {
+      // localStorage may be unavailable in restricted renderer contexts.
+    }
+  }
+
   function readLastBotConversationByKey() {
     try {
       const raw = rendererLocalStorage()?.getItem(LAST_BOT_CONVERSATION_KEY) || "";
@@ -2741,6 +2756,11 @@
     return String(value || "").trim().toLowerCase() === OTHER_DEVICE_CONVERSATION_FILTER;
   }
 
+  function starterBotKeyFromSessionId(sessionId = "") {
+    const key = String(sessionId || "").trim();
+    return /^starter_[^_]+_.+$/.test(key) ? key : "";
+  }
+
   function cloudStarterBotKeyFromSessionId(sessionId = "") {
     const key = String(sessionId || "").trim();
     return /^starter_[^_]+_mia$/.test(key) ? key : "";
@@ -2753,7 +2773,7 @@
   function botKeyForConversation(conversation = {}, conversationId = "") {
     const decorated = sessionHistoryShared().botId(conversation);
     if (decorated) return decorated;
-    return cloudStarterBotKeyFromSessionId(botSessionIdForConversation(conversation, conversationId || conversation?.id || ""));
+    return starterBotKeyFromSessionId(botSessionIdForConversation(conversation, conversationId || conversation?.id || ""));
   }
 
   function botRecordForConversation(conversation = {}) {
@@ -2798,6 +2818,8 @@
     const filteredTag = otherDeviceOnly ? "" : filterName;
     return conversations.filter((conversation) =>
       !isCoreMirrorConversation(conversation)
+    ).filter((conversation) =>
+      starterConversationBelongsToCurrentUser(conversation)
     ).filter((conversation) =>
       !isLegacyBotSessionConversation(conversation)
       || keepLegacyIds.has(String(conversation?.id || ""))
@@ -2846,6 +2868,61 @@
     const stable = matches.find((conversation) => String(conversation?.decorations?.sessionId || "") === key);
     if (stable) return stable;
     return matches.find((conversation) => !isLegacyBotSessionConversation(conversation)) || matches[0] || null;
+  }
+
+  function starterConversationParts(conversationId) {
+    const match = /^botc_starter_([^_]+)_(.+)$/.exec(String(conversationId || "").trim());
+    if (!match) return null;
+    return { userId: match[1], suffix: match[2] };
+  }
+
+  function currentConversationOwnerUserId() {
+    return String(moduleState.myUserId || currentCloudUserId() || "").trim();
+  }
+
+  function starterConversationBelongsToCurrentUser(conversation = {}) {
+    const id = String(conversation?.id || conversation || "").trim();
+    const parts = starterConversationParts(id);
+    if (!parts) return true;
+    const userId = currentConversationOwnerUserId();
+    return !userId || parts.userId === userId;
+  }
+
+  function conversationById(conversationId) {
+    const id = String(conversationId || "").trim();
+    if (!id) return null;
+    return moduleState.conversations.find((conversation) => conversation.id === id) || null;
+  }
+
+  function starterConversationReplacementId(conversationId) {
+    const parts = starterConversationParts(conversationId);
+    const userId = currentConversationOwnerUserId();
+    if (!parts || !userId || parts.userId === userId) return "";
+    const candidateId = `botc_starter_${userId}_${parts.suffix}`;
+    const candidate = conversationById(candidateId);
+    return candidate && starterConversationBelongsToCurrentUser(candidate) ? candidateId : "";
+  }
+
+  function availableConversationIdFor(conversationId) {
+    const id = String(conversationId || "").trim();
+    if (!id) return "";
+    const existing = conversationById(id);
+    if (existing && starterConversationBelongsToCurrentUser(existing)) return id;
+    return starterConversationReplacementId(id);
+  }
+
+  function reconcileActiveConversationAgainstAvailableConversations() {
+    const activeId = String(moduleState.activeConversationId || "").trim();
+    if (!activeId) return false;
+    const availableId = availableConversationIdFor(activeId);
+    if (availableId === activeId) return false;
+    setActiveConversationId(null);
+    if (availableId) {
+      setActiveConversationId(availableId);
+    } else {
+      clearLastActiveConversationId(activeId);
+    }
+    return true;
   }
 
   function currentState() {
@@ -2932,6 +3009,24 @@
       const agentEngine = agentEngineForBotConversation(conversation);
       if (agentEngine) context.agentEngine = agentEngine;
       if (conversation?.name || conversation?.title) context.botName = conversation.name || conversation.title;
+    }
+    return context;
+  }
+
+  function botRuntimeControlPostOverrides(options = {}) {
+    const input = options?.botRuntimeControl && typeof options.botRuntimeControl === "object"
+      ? options.botRuntimeControl
+      : {};
+    const context = {};
+    for (const [target, sources] of [
+      ["providerConnectionId", ["providerConnectionId", "provider_connection_id", "provider"]],
+      ["modelProfileId", ["modelProfileId", "model_profile_id", "profileId", "profile_id"]],
+      ["model", ["model"]],
+      ["effortLevel", ["effortLevel", "effort_level"]],
+      ["permissionMode", ["permissionMode", "permission_mode"]]
+    ]) {
+      const value = firstText(...sources.map((source) => input[source]));
+      if (value) context[target] = value;
     }
     return context;
   }
@@ -3235,7 +3330,7 @@
       "deviceName",
       "runtimeLabel"
     ]) {
-      if (existing && existing[field] !== undefined && incoming[field] === undefined) {
+      if (existing && existing[field] !== undefined) {
         runtimeFields[field] = existing[field];
       }
     }
@@ -3258,6 +3353,38 @@
     const existing = moduleState.bots.find((item) => botKeyFromRecord(item) === key) || null;
     moduleState.bots = [
       mergeBotIdentity(existing, bot),
+      ...moduleState.bots.filter((item) => botKeyFromRecord(item) !== key)
+    ];
+    return true;
+  }
+
+  function applyBotRuntimeBinding(binding = {}) {
+    const key = String(binding.botId || binding.bot_id || "").trim();
+    if (!key || binding.enabled === false) return false;
+    const existing = moduleState.bots.find((item) => botKeyFromRecord(item) === key) || null;
+    if (!existing) return false;
+    const config = binding.config && typeof binding.config === "object" ? binding.config : {};
+    const runtimeKind = String(binding.runtimeKind || binding.runtime_kind || existing.runtimeKind || "desktop-local").trim();
+    const agentEngine = String(config.agentEngine || config.agent_engine || "").trim();
+    const deviceId = runtimeKind === "cloud-claude-code"
+      ? ""
+      : String(config.deviceId || config.device_id || config.targetDeviceId || "").trim();
+    const deviceName = runtimeKind === "cloud-claude-code"
+      ? "Mia Cloud"
+      : String(config.deviceName || config.device_name || "").trim();
+    const updated = {
+      ...existing,
+      runtimeKind,
+      runtimeConfig: config,
+      agentEngine,
+      targetDeviceId: deviceId,
+      targetDeviceName: deviceName,
+      deviceId,
+      deviceName,
+      runtimeLabel: runtimeKind === "cloud-claude-code" ? "Mia Cloud" : (deviceName || "当前设备")
+    };
+    moduleState.bots = [
+      updated,
       ...moduleState.bots.filter((item) => botKeyFromRecord(item) !== key)
     ];
     return true;
@@ -3314,6 +3441,7 @@
         // Account switch since the cached social bootstrap was written → drop the
         // stale render cache so we don't briefly show another user's conversations.
         if (moduleState.myUserId && freshUserId && moduleState.myUserId !== freshUserId) {
+          setActiveConversationId(null);
           moduleState.conversations = [];
           moduleState.messageCache.clear();
           _conversationMembersCache.clear();
@@ -3333,6 +3461,7 @@
       const conversationsRes = await api.listConversations();
       if (conversationsRes.ok) {
         moduleState.conversations = conversationsRes.data?.conversations || [];
+        reconcileActiveConversationAgainstAvailableConversations();
         bootstrapCompleted = true;
       }
       hydrateVisibleBotIdentities(api, visibleSocialConversations(moduleState.conversations).slice(0, INITIAL_CONVERSATIONS_CAP));
@@ -3464,6 +3593,11 @@
       if (!key) return;
       upsertBotIdentity(bot);
       if (deps && typeof deps.render === "function") deps.render();
+      return;
+    }
+
+    if (type === "bot.runtime_updated") {
+      if (applyBotRuntimeBinding(payload?.binding) && deps && typeof deps.render === "function") deps.render();
       return;
     }
 
@@ -5286,9 +5420,18 @@
   // ── Cloud-conversation send: DM, bot conversations, and groups share one path. ─────────
 
   async function sendInActiveConversation(text, options = {}) {
+    const hadActiveConversation = Boolean(moduleState.activeConversationId);
+    reconcileActiveConversationAgainstAvailableConversations();
     const conversationId = moduleState.activeConversationId;
-    if (!conversationId) return;
-    let conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
+    if (!conversationId) {
+      return hadActiveConversation ? { ok: false, error: "当前会话不可用" } : undefined;
+    }
+    let conversation = conversationById(conversationId);
+    if (!conversation) {
+      clearLastActiveConversationId(conversationId);
+      setActiveConversationId(null);
+      return { ok: false, error: "当前会话不可用" };
+    }
     const conversationType = conversationTypeFor(conversation, conversationId);
     const members = _conversationMembersCache.get(conversationId) || [];
     // Composer skill chips selected for this message (the user's 「使用」).
@@ -5325,13 +5468,15 @@
         startOutgoingBotRunFallback(postConversationId, conversation, localMsg);
       }
       const botPostContext = botPostContextForConversation(conversation, postConversationId);
+      const botRuntimeOverrides = botPostContext ? botRuntimeControlPostOverrides(options) : {};
       const res = await window.mia.social.postConversationMessage(postConversationId, {
         bodyMd: prepared.bodyMd,
         turnId: prepared.clientTraceId,
         ...(prepared.attachments.length ? { attachments: prepared.attachments } : {}),
         ...(mentions.length ? { mentions } : {}),
         ...(skills ? { skills } : {}),
-        ...(botPostContext || {})
+        ...(botPostContext || {}),
+        ...botRuntimeOverrides
       });
       if (!res.ok) {
         console.warn("[social] postConversationMessage failed:", res.error);
@@ -5668,8 +5813,12 @@
     if (moduleState.activeConversationId) return;
     const savedId = readLastActiveConversationId();
     if (!savedId) return;
-    if (!moduleState.conversations.some((conversation) => conversation.id === savedId)) return;
-    setActiveConversationId(savedId);
+    const availableId = availableConversationIdFor(savedId);
+    if (!availableId) {
+      clearLastActiveConversationId(savedId);
+      return;
+    }
+    setActiveConversationId(availableId);
   }
 
   async function markConversationRead(conversationId, _retried = false) {

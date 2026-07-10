@@ -2,19 +2,22 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 use std::collections::HashMap;
 use std::env;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use tokio::process::Command;
 
 use crate::RuntimeCommand;
 use crate::native_acp::{NativeAcpProbeErrorKind, probe_native_acp_command};
 
-const DEFAULT_AGENT_PROBE_TIMEOUT: Duration = Duration::from_secs(35);
+const DEFAULT_AGENT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
+const MANAGED_ACP_PREPARE_TIMEOUT: Duration = Duration::from_secs(120);
+static MANAGED_ACP_PREPARE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -97,6 +100,12 @@ pub struct AgentEngineScanOptions {
     pub probe_timeout: Duration,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentManagedRuntimePlan {
+    pub command: RuntimeCommand,
+    pub environment: BTreeMap<String, String>,
+}
+
 impl AgentEngineScanOptions {
     pub fn current(workspace_dir: impl Into<PathBuf>) -> Self {
         let env = env::vars().collect::<BTreeMap<_, _>>();
@@ -171,22 +180,49 @@ impl AgentEngineScanner {
         };
         let version = self.resolver.version(&primary.path, options).await;
 
-        let acp_launcher = self.resolver.resolve(definition.acp_command, options).await;
-        let Some(acp_launcher) = acp_launcher else {
+        let mut managed = resolve_managed_acp_runtime(definition, options);
+        if managed.runtime.is_none() && definition.require_managed_acp {
+            let previous_diagnostics = managed.diagnostics;
+            let mut diagnostics = prepare_managed_acp_runtime(definition, options)
+                .await
+                .diagnostics;
+            diagnostics.extend(previous_diagnostics);
+            managed = resolve_managed_acp_runtime(definition, options)
+                .with_previous_diagnostics(diagnostics);
+        }
+        let acp_launcher = if let Some(runtime) = managed.runtime {
+            runtime
+        } else if definition.require_managed_acp {
+            let detail = managed_missing_detail(definition, &managed.diagnostics);
             return blocked_status(
                 definition,
                 primary,
                 version,
                 None,
-                "acp_command_missing",
-                &format!(
-                    "{} ACP launcher 未检测到: {}",
-                    definition.label,
-                    definition.acp_display()
-                ),
-                "",
+                "managed_acp_missing",
+                &format!("{} ACP 运行组件未准备好", definition.label),
+                &detail,
                 String::new(),
             );
+        } else {
+            let acp_launcher = self.resolver.resolve(definition.acp_command, options).await;
+            let Some(acp_launcher) = acp_launcher else {
+                return blocked_status(
+                    definition,
+                    primary,
+                    version,
+                    None,
+                    "acp_command_missing",
+                    &format!(
+                        "{} ACP launcher 未检测到: {}",
+                        definition.label,
+                        definition.acp_display()
+                    ),
+                    "",
+                    String::new(),
+                );
+            };
+            ResolvedAcpRuntime::system(acp_launcher, definition.acp_args)
         };
 
         let outcome = self
@@ -195,14 +231,10 @@ impl AgentEngineScanner {
                 engine_id: definition.acp_engine_id.to_string(),
                 command: RuntimeCommand {
                     program: acp_launcher.path.clone(),
-                    args: definition
-                        .acp_args
-                        .iter()
-                        .map(|item| (*item).into())
-                        .collect(),
+                    args: acp_launcher.args.clone(),
                 },
-                display: definition.acp_display_with(&acp_launcher.path),
-                env: acp_probe_environment(definition, options, &primary),
+                display: acp_launcher.display(),
+                env: acp_probe_environment(definition, options, &primary, &acp_launcher),
                 workspace_dir: options.workspace_dir.clone(),
                 timeout: options.probe_timeout,
             })
@@ -220,15 +252,14 @@ impl AgentEngineScanner {
             ),
             AcpProbeOutcome::Failed {
                 error_code, detail, ..
-            } => blocked_status(
+            } => degraded_status(
                 definition,
                 primary,
                 version,
-                Some(acp_launcher),
+                acp_launcher,
                 &error_code,
-                &format!("{} ACP 自检失败", definition.label),
+                &format!("{} ACP 可用性待确认", definition.label),
                 &detail,
-                String::new(),
             ),
         }
     }
@@ -265,6 +296,13 @@ struct AgentEngineDefinition {
     commands: &'static [&'static str],
     acp_command: &'static str,
     acp_args: &'static [&'static str],
+    acp_tool_ids: &'static [&'static str],
+    acp_protocols: &'static [&'static str],
+    require_managed_acp: bool,
+    managed_tool_id: Option<&'static str>,
+    managed_package: Option<&'static str>,
+    managed_package_version: Option<&'static str>,
+    managed_protocol: Option<&'static str>,
     installable: bool,
     detection_only: bool,
 }
@@ -294,6 +332,13 @@ fn agent_definitions() -> Vec<AgentEngineDefinition> {
             commands: &["hermes"],
             acp_command: "hermes",
             acp_args: &["acp"],
+            acp_tool_ids: &["hermes", "hermes-agent"],
+            acp_protocols: &["acp", "cli", "hermes-agent"],
+            require_managed_acp: false,
+            managed_tool_id: None,
+            managed_package: None,
+            managed_package_version: None,
+            managed_protocol: None,
             installable: true,
             detection_only: false,
         },
@@ -303,8 +348,15 @@ fn agent_definitions() -> Vec<AgentEngineDefinition> {
             label: "Claude Code",
             primary_command: "claude",
             commands: &["claude"],
-            acp_command: "npx",
-            acp_args: &["-y", "@agentclientprotocol/claude-agent-acp@0.39.0"],
+            acp_command: "",
+            acp_args: &[],
+            acp_tool_ids: &["claude-agent-acp", "claude-code", "claude-acp", "claude"],
+            acp_protocols: &["acp", "cli", "claude-code-cli"],
+            require_managed_acp: true,
+            managed_tool_id: Some("claude-agent-acp"),
+            managed_package: Some("@agentclientprotocol/claude-agent-acp"),
+            managed_package_version: Some("0.39.0"),
+            managed_protocol: Some("claude-code-cli"),
             installable: true,
             detection_only: false,
         },
@@ -314,8 +366,15 @@ fn agent_definitions() -> Vec<AgentEngineDefinition> {
             label: "Codex",
             primary_command: "codex",
             commands: &["codex"],
-            acp_command: "npx",
-            acp_args: &["-y", "@agentclientprotocol/codex-acp@1.1.0"],
+            acp_command: "",
+            acp_args: &[],
+            acp_tool_ids: &["codex-acp", "codex"],
+            acp_protocols: &["acp", "cli", "codex-cli", "codex-app-server"],
+            require_managed_acp: true,
+            managed_tool_id: Some("codex-acp"),
+            managed_package: Some("@agentclientprotocol/codex-acp"),
+            managed_package_version: Some("1.1.2"),
+            managed_protocol: Some("codex-app-server"),
             installable: true,
             detection_only: false,
         },
@@ -326,6 +385,44 @@ fn agent_definitions() -> Vec<AgentEngineDefinition> {
 struct ResolvedCommand {
     command: String,
     path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedAcpRuntime {
+    command: String,
+    path: String,
+    args: Vec<String>,
+    source: String,
+    managed: bool,
+    version: String,
+    protocol: String,
+    env: BTreeMap<String, String>,
+    path_entries: Vec<String>,
+}
+
+impl ResolvedAcpRuntime {
+    fn system(command: ResolvedCommand, args: &[&str]) -> Self {
+        Self {
+            command: command.command,
+            path: command.path,
+            args: args.iter().map(|item| (*item).into()).collect(),
+            source: "system".into(),
+            managed: false,
+            version: String::new(),
+            protocol: "acp".into(),
+            env: BTreeMap::new(),
+            path_entries: Vec::new(),
+        }
+    }
+
+    fn display(&self) -> String {
+        [self.path.as_str()]
+            .into_iter()
+            .chain(self.args.iter().map(String::as_str))
+            .filter(|item| !item.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 #[async_trait]
@@ -480,7 +577,7 @@ fn ready_status(
     definition: AgentEngineDefinition,
     primary: ResolvedCommand,
     version: String,
-    acp: ResolvedCommand,
+    acp: ResolvedAcpRuntime,
     detail: &str,
 ) -> AgentEngineStatus {
     let readiness = readiness(
@@ -508,7 +605,7 @@ fn blocked_status(
     definition: AgentEngineDefinition,
     primary: ResolvedCommand,
     version: String,
-    acp: Option<ResolvedCommand>,
+    acp: Option<ResolvedAcpRuntime>,
     error_code: &str,
     summary: &str,
     detail: &str,
@@ -535,11 +632,35 @@ fn blocked_status(
     )
 }
 
+fn degraded_status(
+    definition: AgentEngineDefinition,
+    primary: ResolvedCommand,
+    version: String,
+    acp: ResolvedAcpRuntime,
+    error_code: &str,
+    summary: &str,
+    detail: &str,
+) -> AgentEngineStatus {
+    let readiness = readiness("warning", summary, detail, "", Some(error_code));
+    status_from_parts(
+        definition,
+        Some(primary),
+        version,
+        Some(acp),
+        true,
+        true,
+        "system",
+        "ready",
+        String::new(),
+        readiness,
+    )
+}
+
 fn status_from_parts(
     definition: AgentEngineDefinition,
     primary: Option<ResolvedCommand>,
     version: String,
-    acp: Option<ResolvedCommand>,
+    acp: Option<ResolvedAcpRuntime>,
     installed: bool,
     usable_in_mia: bool,
     source: &str,
@@ -559,6 +680,34 @@ fn status_from_parts(
         .as_ref()
         .map(|item| item.path.clone())
         .unwrap_or_default();
+    let runtime_source = acp
+        .as_ref()
+        .map(|item| item.source.clone())
+        .unwrap_or_else(|| "missing".into());
+    let runtime_managed = acp.as_ref().map(|item| item.managed).unwrap_or(false);
+    let runtime_version = acp
+        .as_ref()
+        .map(|item| item.version.clone())
+        .unwrap_or_default();
+    let runtime_protocol = acp
+        .as_ref()
+        .map(|item| item.protocol.clone())
+        .filter(|item| !item.trim().is_empty())
+        .unwrap_or_else(|| "acp".into());
+    let runtime_command = acp
+        .as_ref()
+        .map(|item| item.command.clone())
+        .unwrap_or_else(|| definition.acp_command.into());
+    let runtime_args = acp
+        .as_ref()
+        .map(|item| item.args.clone())
+        .unwrap_or_else(|| {
+            definition
+                .acp_args
+                .iter()
+                .map(|item| (*item).into())
+                .collect()
+        });
     AgentEngineStatus {
         id: definition.id.into(),
         label: definition.label.into(),
@@ -584,18 +733,14 @@ fn status_from_parts(
             version,
         },
         runtime: AgentEngineRuntimeStatus {
-            source: if acp.is_some() { "system" } else { "missing" }.into(),
-            managed: false,
+            source: runtime_source,
+            managed: runtime_managed,
             supported: acp.is_some(),
             path: acp_path,
-            version: String::new(),
-            protocol: "acp".into(),
-            command: definition.acp_command.into(),
-            args: definition
-                .acp_args
-                .iter()
-                .map(|item| (*item).into())
-                .collect(),
+            version: runtime_version,
+            protocol: runtime_protocol,
+            command: runtime_command,
+            args: runtime_args,
         },
     }
 }
@@ -621,12 +766,870 @@ fn acp_probe_environment(
     definition: AgentEngineDefinition,
     options: &AgentEngineScanOptions,
     primary: &ResolvedCommand,
+    runtime: &ResolvedAcpRuntime,
 ) -> BTreeMap<String, String> {
     let mut env = options.env.clone();
+    env.extend(runtime.env.clone());
+    prepend_path_entries(&mut env, runtime_path_entries(runtime));
     if definition.id == "codex" && !env.contains_key("CODEX_PATH") {
         env.insert("CODEX_PATH".into(), primary.path.clone());
     }
     env
+}
+
+#[derive(Debug, Default)]
+struct ManagedAcpSearchResult {
+    runtime: Option<ResolvedAcpRuntime>,
+    diagnostics: Vec<String>,
+}
+
+impl ManagedAcpSearchResult {
+    fn with_previous_diagnostics(mut self, previous: Vec<String>) -> Self {
+        let mut diagnostics = previous;
+        diagnostics.extend(self.diagnostics);
+        self.diagnostics = diagnostics;
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ManagedManifestLocation {
+    group: String,
+    tool_id: String,
+    version: String,
+    manifest_path: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+struct ManagedRuntimeManifest {
+    entrypoint: Option<String>,
+    command: Option<String>,
+    args: Option<Vec<Value>>,
+    env: Option<BTreeMap<String, Value>>,
+    protocol: Option<String>,
+    version: Option<String>,
+    #[serde(default)]
+    path_entries: Vec<Value>,
+    #[serde(default, rename = "pathEntries")]
+    path_entries_camel: Vec<Value>,
+}
+
+#[derive(Debug, Default)]
+struct ManagedAcpPrepareResult {
+    diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct InstalledManagedPackageJson {
+    name: String,
+    #[serde(default)]
+    bin: Value,
+}
+
+fn resolve_managed_acp_runtime(
+    definition: AgentEngineDefinition,
+    options: &AgentEngineScanOptions,
+) -> ManagedAcpSearchResult {
+    if definition.acp_tool_ids.is_empty() {
+        return ManagedAcpSearchResult::default();
+    }
+
+    let runtime_key = managed_runtime_key(options);
+    let roots = managed_resource_roots(options, &runtime_key);
+    let mut diagnostics = Vec::new();
+    if roots.is_empty() {
+        diagnostics.push("未找到托管 ACP 资源目录。".into());
+    }
+
+    for root in &roots {
+        for tool_id in definition.acp_tool_ids {
+            for location in managed_manifest_locations(root, definition.id, tool_id, &runtime_key) {
+                if definition
+                    .managed_package_version
+                    .is_some_and(|version| location.version != version)
+                {
+                    continue;
+                }
+                match runtime_from_managed_manifest(&location) {
+                    Ok(Some(runtime))
+                        if protocol_allowed(&runtime.protocol, definition.acp_protocols) =>
+                    {
+                        return ManagedAcpSearchResult {
+                            runtime: Some(runtime),
+                            diagnostics,
+                        };
+                    }
+                    Ok(Some(runtime)) => diagnostics.push(format!(
+                        "{} ({}) 协议 {} 不在当前引擎允许列表内。",
+                        location.manifest_path.display(),
+                        location.tool_id,
+                        runtime.protocol
+                    )),
+                    Ok(None) => {}
+                    Err(message) => diagnostics.push(message),
+                }
+            }
+        }
+    }
+
+    if diagnostics.is_empty() {
+        diagnostics.push(format!(
+            "未在 {} 下找到 {} 的托管 ACP manifest。",
+            roots
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+            definition.label
+        ));
+    }
+    ManagedAcpSearchResult {
+        runtime: None,
+        diagnostics,
+    }
+}
+
+async fn prepare_managed_acp_runtime(
+    definition: AgentEngineDefinition,
+    options: &AgentEngineScanOptions,
+) -> ManagedAcpPrepareResult {
+    if managed_prepare_disabled(options) {
+        return ManagedAcpPrepareResult {
+            diagnostics: vec!["托管 ACP 自动准备已关闭。".into()],
+        };
+    }
+    let Some(tool_id) = definition.managed_tool_id else {
+        return ManagedAcpPrepareResult::default();
+    };
+    let Some(package_name) = definition.managed_package else {
+        return ManagedAcpPrepareResult::default();
+    };
+    let Some(package_version) = definition.managed_package_version else {
+        return ManagedAcpPrepareResult::default();
+    };
+    let Some(protocol) = definition.managed_protocol else {
+        return ManagedAcpPrepareResult::default();
+    };
+
+    let Some(resource_root) = local_managed_resource_root(options) else {
+        return ManagedAcpPrepareResult {
+            diagnostics: vec!["未找到可写托管 ACP 资源目录。".into()],
+        };
+    };
+    let runtime_key = managed_runtime_key(options);
+    let target_dir = resource_root
+        .join("acp")
+        .join(tool_id)
+        .join(package_version)
+        .join(&runtime_key);
+
+    let lock = MANAGED_ACP_PREPARE_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
+    let _guard = lock.lock().await;
+
+    let location = ManagedManifestLocation {
+        group: "acp".into(),
+        tool_id: tool_id.into(),
+        version: package_version.into(),
+        manifest_path: target_dir.join("manifest.json"),
+    };
+    if matches!(runtime_from_managed_manifest(&location), Ok(Some(_))) {
+        return ManagedAcpPrepareResult::default();
+    }
+
+    let Some(npm_path) = managed_npm_path(options) else {
+        return ManagedAcpPrepareResult {
+            diagnostics: vec![format!(
+                "准备 {} 托管 ACP 失败: npm 未检测到。",
+                definition.label
+            )],
+        };
+    };
+
+    match prepare_managed_npm_package(
+        definition,
+        options,
+        &npm_path,
+        &resource_root,
+        &target_dir,
+        package_name,
+        package_version,
+        protocol,
+    )
+    .await
+    {
+        Ok(()) => ManagedAcpPrepareResult::default(),
+        Err(message) => ManagedAcpPrepareResult {
+            diagnostics: vec![format!(
+                "准备 {} 托管 ACP 失败: {}",
+                definition.label, message
+            )],
+        },
+    }
+}
+
+async fn prepare_managed_npm_package(
+    definition: AgentEngineDefinition,
+    options: &AgentEngineScanOptions,
+    npm_path: &str,
+    resource_root: &Path,
+    target_dir: &Path,
+    package_name: &str,
+    package_version: &str,
+    protocol: &str,
+) -> Result<(), String> {
+    let staging_dir = resource_root.join(".staging").join(format!(
+        "{}-{}-{}-{}",
+        definition.id,
+        package_version,
+        std::process::id(),
+        current_time_ms()
+    ));
+    let project_dir = staging_dir.join("project");
+    let npm_cache_dir = staging_dir.join("npm-cache");
+    std::fs::create_dir_all(&project_dir)
+        .map_err(|error| format!("创建 staging project 失败: {error}"))?;
+    std::fs::create_dir_all(&npm_cache_dir)
+        .map_err(|error| format!("创建 npm cache 失败: {error}"))?;
+
+    let result = async {
+        write_managed_dev_package_json(&project_dir)?;
+        let package_spec = format!("{package_name}@{package_version}");
+        let optional_dependency_arg = if package_name == "@agentclientprotocol/codex-acp" {
+            "--omit=optional"
+        } else {
+            "--include=optional"
+        };
+        let lockfile_args = vec![
+            "install",
+            "--package-lock-only",
+            "--ignore-scripts",
+            optional_dependency_arg,
+            "--fund=false",
+            "--audit=false",
+            "--save-exact",
+            "--os",
+            platform_npm_os(),
+            "--cpu",
+            platform_npm_cpu(),
+            package_spec.as_str(),
+        ];
+        run_managed_npm(
+            npm_path,
+            options,
+            &project_dir,
+            &npm_cache_dir,
+            &lockfile_args,
+            "生成托管 ACP lockfile",
+        )
+        .await?;
+        let install_args = vec![
+            "ci",
+            "--omit=dev",
+            "--ignore-scripts",
+            optional_dependency_arg,
+            "--fund=false",
+            "--audit=false",
+            "--os",
+            platform_npm_os(),
+            "--cpu",
+            platform_npm_cpu(),
+        ];
+        run_managed_npm(
+            npm_path,
+            options,
+            &project_dir,
+            &npm_cache_dir,
+            &install_args,
+            "安装托管 ACP 组件",
+        )
+        .await?;
+
+        let entrypoint = managed_package_entrypoint(&project_dir, package_name)?;
+        let entrypoint_path = project_dir.join(&entrypoint);
+        if executable_path(&entrypoint_path).is_none() && !entrypoint_path.is_file() {
+            return Err(format!(
+                "托管 ACP entrypoint 不存在: {}",
+                entrypoint_path.display()
+            ));
+        }
+
+        let manifest = json!({
+            "entrypoint": path_to_string(&entrypoint),
+            "version": package_version,
+            "protocol": protocol,
+            "args": [],
+            "pathEntries": ["node_modules/.bin"],
+            "package": package_name
+        });
+        std::fs::write(
+            project_dir.join("manifest.json"),
+            serde_json::to_vec_pretty(&manifest)
+                .map_err(|error| format!("序列化 manifest 失败: {error}"))?,
+        )
+        .map_err(|error| format!("写入 manifest 失败: {error}"))?;
+
+        let manifest_location = ManagedManifestLocation {
+            group: "acp".into(),
+            tool_id: definition
+                .managed_tool_id
+                .unwrap_or(definition.id)
+                .to_string(),
+            version: package_version.into(),
+            manifest_path: project_dir.join("manifest.json"),
+        };
+        runtime_from_managed_manifest(&manifest_location)
+            .map_err(|message| format!("校验 prepared manifest 失败: {message}"))?
+            .ok_or_else(|| "prepared manifest 未生成 runtime".to_string())?;
+
+        if let Some(parent) = target_dir.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("创建托管 ACP 目录失败: {error}"))?;
+        }
+        if target_dir.exists() {
+            std::fs::remove_dir_all(target_dir)
+                .map_err(|error| format!("清理旧托管 ACP 目录失败: {error}"))?;
+        }
+        std::fs::rename(&project_dir, target_dir)
+            .map_err(|error| format!("激活托管 ACP 目录失败: {error}"))?;
+
+        let target_location = ManagedManifestLocation {
+            group: "acp".into(),
+            tool_id: definition
+                .managed_tool_id
+                .unwrap_or(definition.id)
+                .to_string(),
+            version: package_version.into(),
+            manifest_path: target_dir.join("manifest.json"),
+        };
+        runtime_from_managed_manifest(&target_location)
+            .map_err(|message| format!("校验托管 ACP 目录失败: {message}"))?
+            .ok_or_else(|| "托管 ACP manifest 未生成 runtime".to_string())?;
+        Ok(())
+    }
+    .await;
+
+    if let Err(error) = std::fs::remove_dir_all(&staging_dir)
+        && error.kind() != std::io::ErrorKind::NotFound
+        && result.is_ok()
+    {
+        return Err(format!("清理 staging 目录失败: {error}"));
+    }
+
+    result
+}
+
+fn managed_prepare_disabled(options: &AgentEngineScanOptions) -> bool {
+    options
+        .env
+        .get("MIA_MANAGED_AGENT_PREPARE")
+        .map(|value| value == "0")
+        .unwrap_or(false)
+}
+
+fn local_managed_resource_root(options: &AgentEngineScanOptions) -> Option<PathBuf> {
+    for key in ["MIA_LOCAL_MANAGED_AGENT_RESOURCES"] {
+        if let Some(value) = options.env.get(key).filter(|item| !item.trim().is_empty()) {
+            return Some(PathBuf::from(value));
+        }
+    }
+    for key in ["MIA_CORE_HOME", "MIA_HOME"] {
+        if let Some(value) = options.env.get(key).filter(|item| !item.trim().is_empty()) {
+            return Some(Path::new(value).join("managed-resources"));
+        }
+    }
+    options
+        .home_dir
+        .as_ref()
+        .map(|home| home.join(".mia").join("managed-resources"))
+}
+
+fn managed_npm_path(options: &AgentEngineScanOptions) -> Option<String> {
+    options
+        .env
+        .get("MIA_MANAGED_AGENT_NPM")
+        .filter(|value| !value.trim().is_empty())
+        .and_then(|value| executable_path(value))
+        .or_else(|| resolve_command_path("npm", options))
+}
+
+fn write_managed_dev_package_json(project_dir: &Path) -> Result<(), String> {
+    let package_json = json!({
+        "name": "mia-managed-acp-runtime",
+        "private": true
+    });
+    std::fs::write(
+        project_dir.join("package.json"),
+        serde_json::to_vec_pretty(&package_json)
+            .map_err(|error| format!("序列化 package.json 失败: {error}"))?,
+    )
+    .map_err(|error| format!("写入 package.json 失败: {error}"))
+}
+
+async fn run_managed_npm(
+    npm_path: &str,
+    options: &AgentEngineScanOptions,
+    project_dir: &Path,
+    npm_cache_dir: &Path,
+    args: &[&str],
+    label: &str,
+) -> Result<(), String> {
+    let mut command = Command::new(npm_path);
+    command
+        .args(args)
+        .current_dir(project_dir)
+        .env_clear()
+        .envs(options.env.iter())
+        .env("npm_config_cache", npm_cache_dir)
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(MANAGED_ACP_PREPARE_TIMEOUT, command.output())
+        .await
+        .map_err(|_| format!("{label} 超时（{}s）", MANAGED_ACP_PREPARE_TIMEOUT.as_secs()))?
+        .map_err(|error| format!("{label} 启动失败: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let detail = if stderr.is_empty() {
+        stdout
+    } else if stdout.is_empty() {
+        stderr
+    } else {
+        format!("{stderr}; stdout: {stdout}")
+    };
+    Err(compact_one_line(format!(
+        "{label} 失败，退出码 {:?}: {detail}",
+        output.status.code()
+    )))
+}
+
+fn managed_package_entrypoint(project_dir: &Path, package_name: &str) -> Result<PathBuf, String> {
+    let package_json_path = package_json_path(project_dir, package_name);
+    let contents = std::fs::read_to_string(&package_json_path)
+        .map_err(|error| format!("读取 {} 失败: {error}", package_json_path.display()))?;
+    let package_json = serde_json::from_str::<InstalledManagedPackageJson>(&contents)
+        .map_err(|error| format!("解析 {} 失败: {error}", package_json_path.display()))?;
+    let bin_entry = resolve_package_bin_entry(&package_json.name, &package_json.bin)?;
+    let mut entrypoint = PathBuf::from("node_modules");
+    for segment in package_path_segments(package_name) {
+        entrypoint.push(segment);
+    }
+    entrypoint.push(bin_entry);
+    Ok(entrypoint)
+}
+
+fn package_json_path(project_dir: &Path, package_name: &str) -> PathBuf {
+    let mut path = project_dir.join("node_modules");
+    for segment in package_path_segments(package_name) {
+        path.push(segment);
+    }
+    path.join("package.json")
+}
+
+fn package_path_segments(package_name: &str) -> Vec<&str> {
+    package_name
+        .split('/')
+        .filter(|item| !item.is_empty())
+        .collect()
+}
+
+fn resolve_package_bin_entry(package_name: &str, bin: &Value) -> Result<PathBuf, String> {
+    match bin {
+        Value::String(value) if !value.trim().is_empty() => Ok(PathBuf::from(value.trim())),
+        Value::Object(map) => {
+            let unscoped = package_name.rsplit('/').next().unwrap_or(package_name);
+            for key in [unscoped, package_name] {
+                if let Some(Value::String(value)) = map.get(key)
+                    && !value.trim().is_empty()
+                {
+                    return Ok(PathBuf::from(value.trim()));
+                }
+            }
+            let mut entries = map
+                .values()
+                .filter_map(|value| match value {
+                    Value::String(text) if !text.trim().is_empty() => {
+                        Some(PathBuf::from(text.trim()))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            entries.sort();
+            entries
+                .into_iter()
+                .next()
+                .ok_or_else(|| format!("{package_name} package.json bin 为空"))
+        }
+        _ => Err(format!("{package_name} package.json 缺少 bin")),
+    }
+}
+
+fn platform_npm_os() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(target_os = "windows") {
+        "win32"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        env::consts::OS
+    }
+}
+
+fn platform_npm_cpu() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else {
+        env::consts::ARCH
+    }
+}
+
+fn managed_missing_detail(definition: AgentEngineDefinition, diagnostics: &[String]) -> String {
+    let mut parts = vec![format!(
+        "{} 需要托管 ACP 运行组件；未使用系统包管理器或写死包名兜底。",
+        definition.label
+    )];
+    parts.extend(diagnostics.iter().take(3).cloned());
+    compact_one_line(parts.join(" "))
+}
+
+fn managed_manifest_locations(
+    root: &Path,
+    engine: &str,
+    tool_id: &str,
+    runtime_key: &str,
+) -> Vec<ManagedManifestLocation> {
+    let mut locations = Vec::new();
+    let engine_root = root.join("agents").join(engine);
+    for version in version_dirs(&engine_root) {
+        locations.push(ManagedManifestLocation {
+            group: "agents".into(),
+            tool_id: engine.into(),
+            manifest_path: engine_root
+                .join(&version)
+                .join(runtime_key)
+                .join("manifest.json"),
+            version,
+        });
+    }
+
+    for group in ["acp", "cli"] {
+        let tool_root = root.join(group).join(tool_id);
+        for version in version_dirs(&tool_root) {
+            locations.push(ManagedManifestLocation {
+                group: group.into(),
+                tool_id: tool_id.into(),
+                manifest_path: tool_root
+                    .join(&version)
+                    .join(runtime_key)
+                    .join("manifest.json"),
+                version,
+            });
+        }
+    }
+
+    let flat_root = root.join(tool_id);
+    for version in version_dirs(&flat_root) {
+        locations.push(ManagedManifestLocation {
+            group: String::new(),
+            tool_id: tool_id.into(),
+            manifest_path: flat_root
+                .join(&version)
+                .join(runtime_key)
+                .join("manifest.json"),
+            version,
+        });
+    }
+
+    locations
+}
+
+fn runtime_from_managed_manifest(
+    location: &ManagedManifestLocation,
+) -> Result<Option<ResolvedAcpRuntime>, String> {
+    if !location.manifest_path.is_file() {
+        return Ok(None);
+    }
+
+    let content = std::fs::read_to_string(&location.manifest_path)
+        .map_err(|error| format!("{} 读取失败: {}", location.manifest_path.display(), error))?;
+    let manifest = serde_json::from_str::<ManagedRuntimeManifest>(&content)
+        .map_err(|error| format!("{} JSON 无效: {}", location.manifest_path.display(), error))?;
+    let base_dir = location
+        .manifest_path
+        .parent()
+        .ok_or_else(|| format!("{} 缺少运行目录。", location.manifest_path.display()))?;
+    let entrypoint = manifest
+        .entrypoint
+        .or(manifest.command)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if entrypoint.is_empty() {
+        return Err(format!(
+            "{} 缺少 entrypoint。",
+            location.manifest_path.display()
+        ));
+    }
+    let entrypoint_path = resolve_manifest_child_path(base_dir, &entrypoint).map_err(|reason| {
+        format!(
+            "{} entrypoint 无效: {}",
+            location.manifest_path.display(),
+            reason
+        )
+    })?;
+    if executable_path(&entrypoint_path).is_none() {
+        return Err(format!(
+            "{} entrypoint 不存在或不可执行: {}",
+            location.manifest_path.display(),
+            entrypoint_path.display()
+        ));
+    }
+
+    let mut path_entry_values = manifest.path_entries;
+    path_entry_values.extend(manifest.path_entries_camel);
+    Ok(Some(ResolvedAcpRuntime {
+        command: path_to_string(&entrypoint_path),
+        path: path_to_string(&entrypoint_path),
+        args: json_values_to_strings(&manifest.args.unwrap_or_default()),
+        source: "managed".into(),
+        managed: true,
+        version: manifest
+            .version
+            .unwrap_or_else(|| location.version.clone())
+            .trim()
+            .to_string(),
+        protocol: manifest
+            .protocol
+            .unwrap_or_else(|| {
+                if location.group.is_empty() {
+                    "cli".into()
+                } else {
+                    location.group.clone()
+                }
+            })
+            .trim()
+            .to_string(),
+        env: json_object_to_string_map(manifest.env.unwrap_or_default()),
+        path_entries: normalize_manifest_path_entries(base_dir, &path_entry_values),
+    }))
+}
+
+fn resolve_manifest_child_path(base_dir: &Path, value: &str) -> Result<PathBuf, String> {
+    let raw = Path::new(value);
+    if raw
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err("路径不能包含 ..".into());
+    }
+    let path = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        base_dir.join(raw)
+    };
+    if !path.starts_with(base_dir) {
+        return Err("路径必须位于 manifest 运行目录内".into());
+    }
+    Ok(path)
+}
+
+fn normalize_manifest_path_entries(base_dir: &Path, values: &[Value]) -> Vec<String> {
+    values
+        .iter()
+        .map(json_value_to_string)
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .map(|item| {
+            let path = Path::new(&item);
+            if path.is_absolute() {
+                item
+            } else {
+                path_to_string(base_dir.join(path))
+            }
+        })
+        .collect()
+}
+
+fn json_values_to_strings(values: &[Value]) -> Vec<String> {
+    values
+        .iter()
+        .map(json_value_to_string)
+        .filter(|item| !item.is_empty())
+        .collect()
+}
+
+fn json_object_to_string_map(values: BTreeMap<String, Value>) -> BTreeMap<String, String> {
+    values
+        .into_iter()
+        .map(|(key, value)| (key, json_value_to_string(&value)))
+        .collect()
+}
+
+fn json_value_to_string(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::String(text) => text.clone(),
+        Value::Bool(flag) => flag.to_string(),
+        Value::Number(number) => number.to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn protocol_allowed(protocol: &str, allowed: &[&str]) -> bool {
+    if allowed.is_empty() {
+        return true;
+    }
+    let protocol = protocol.trim().to_ascii_lowercase();
+    allowed
+        .iter()
+        .any(|item| item.trim().eq_ignore_ascii_case(&protocol))
+}
+
+fn version_dirs(root: &Path) -> Vec<String> {
+    let mut values = std::fs::read_dir(root)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .filter_map(|entry| {
+            entry
+                .file_type()
+                .ok()
+                .filter(|file_type| file_type.is_dir())
+                .map(|_| entry.file_name().to_string_lossy().to_string())
+        })
+        .collect::<Vec<_>>();
+    values.sort();
+    values.reverse();
+    values
+}
+
+fn managed_resource_roots(options: &AgentEngineScanOptions, runtime_key: &str) -> Vec<PathBuf> {
+    let mut roots = Vec::<String>::new();
+    for key in [
+        "MIA_LOCAL_MANAGED_AGENT_RESOURCES",
+        "MIA_MANAGED_AGENT_RESOURCES",
+        "MIA_BUNDLED_MANAGED_RESOURCES",
+    ] {
+        if let Some(value) = options.env.get(key) {
+            roots.extend(env::split_paths(value).map(path_to_string));
+        }
+    }
+    let explicit_only = options
+        .env
+        .get("MIA_MANAGED_AGENT_RESOURCES_ONLY")
+        .map(|value| value == "1")
+        .unwrap_or(false);
+    if explicit_only {
+        return dedupe_non_empty(roots)
+            .into_iter()
+            .map(PathBuf::from)
+            .collect();
+    }
+    for key in ["MIA_CORE_HOME", "MIA_HOME"] {
+        if let Some(value) = options.env.get(key).filter(|item| !item.trim().is_empty()) {
+            roots.push(path_to_string(Path::new(value).join("managed-resources")));
+        }
+    }
+    if let Some(home) = &options.home_dir {
+        roots.push(path_to_string(home.join(".mia").join("managed-resources")));
+    }
+    for key in [
+        "MIA_RESOURCES_PATH",
+        "MIA_APP_RESOURCES_PATH",
+        "MIA_CORE_RESOURCES_PATH",
+    ] {
+        if let Some(value) = options.env.get(key).filter(|item| !item.trim().is_empty()) {
+            roots.push(path_to_string(Path::new(value).join("managed-resources")));
+            roots.push(path_to_string(
+                Path::new(value)
+                    .join("bundled-aioncore")
+                    .join(runtime_key)
+                    .join("managed-resources"),
+            ));
+        }
+    }
+    if let Ok(current_exe) = env::current_exe() {
+        for ancestor in current_exe.ancestors().take(6) {
+            roots.push(path_to_string(ancestor.join("managed-resources")));
+            roots.push(path_to_string(
+                ancestor.join("resources").join("managed-resources"),
+            ));
+            roots.push(path_to_string(
+                ancestor
+                    .join("bundled-aioncore")
+                    .join(runtime_key)
+                    .join("managed-resources"),
+            ));
+        }
+    }
+    dedupe_non_empty(roots)
+        .into_iter()
+        .map(PathBuf::from)
+        .collect()
+}
+
+fn managed_runtime_key(options: &AgentEngineScanOptions) -> String {
+    for key in ["MIA_MANAGED_AGENT_RUNTIME_KEY", "MIA_RUNTIME_KEY"] {
+        if let Some(value) = options.env.get(key).filter(|item| !item.trim().is_empty()) {
+            return value.trim().into();
+        }
+    }
+    format!("{}-{}", runtime_platform(), runtime_arch())
+}
+
+fn runtime_platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(target_os = "windows") {
+        "win32"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        env::consts::OS
+    }
+}
+
+fn runtime_arch() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else {
+        env::consts::ARCH
+    }
+}
+
+fn runtime_path_entries(runtime: &ResolvedAcpRuntime) -> Vec<String> {
+    let mut entries = runtime.path_entries.clone();
+    if let Some(parent) = Path::new(&runtime.path).parent() {
+        entries.insert(0, path_to_string(parent));
+    }
+    dedupe_non_empty(entries)
+}
+
+fn prepend_path_entries(env: &mut BTreeMap<String, String>, entries: Vec<String>) {
+    if entries.is_empty() {
+        return;
+    }
+    let path_key = if env.contains_key("Path") && !env.contains_key("PATH") {
+        "Path"
+    } else {
+        "PATH"
+    };
+    let delimiter = if cfg!(windows) { ";" } else { ":" };
+    let current = env.get(path_key).cloned().unwrap_or_default();
+    let mut next = entries;
+    next.extend(
+        current
+            .split(delimiter)
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(str::to_string),
+    );
+    env.insert(path_key.into(), dedupe_non_empty(next).join(delimiter));
 }
 
 fn build_inventory(agents: Vec<AgentEngineStatus>, generated_at: u64) -> AgentEngineInventory {
@@ -697,6 +1700,52 @@ pub(crate) fn resolve_agent_command_path(
         probe_timeout: DEFAULT_AGENT_PROBE_TIMEOUT,
     };
     resolve_command_path(command, &options)
+}
+
+pub(crate) fn resolve_managed_agent_runtime_plan(
+    engine: &str,
+    env: &BTreeMap<String, String>,
+) -> Option<AgentManagedRuntimePlan> {
+    let engine_id = normalize_agent_engine_id(engine);
+    let definition = agent_definitions()
+        .into_iter()
+        .find(|definition| definition.id == engine_id)?;
+    if !definition.require_managed_acp {
+        return None;
+    }
+    let primary = resolve_agent_command_path(definition.primary_command, env)?;
+    let mut base_env = env.clone();
+    if definition.id == "codex" && !base_env.contains_key("CODEX_PATH") {
+        base_env.insert("CODEX_PATH".into(), primary);
+    }
+    let options = AgentEngineScanOptions {
+        env: base_env.clone(),
+        home_dir: current_home_dir(&base_env),
+        workspace_dir: PathBuf::new(),
+        generated_at: 0,
+        probe_timeout: DEFAULT_AGENT_PROBE_TIMEOUT,
+    };
+    let runtime = resolve_managed_acp_runtime(definition, &options).runtime?;
+    let mut environment = base_env;
+    environment.extend(runtime.env.clone());
+    prepend_path_entries(&mut environment, runtime_path_entries(&runtime));
+    Some(AgentManagedRuntimePlan {
+        command: RuntimeCommand {
+            program: runtime.path,
+            args: runtime.args,
+        },
+        environment,
+    })
+}
+
+fn normalize_agent_engine_id(value: &str) -> String {
+    let id = value.trim().to_ascii_lowercase().replace('_', "-");
+    match id.as_str() {
+        "claude" | "claude-code-agent" => "claude-code".into(),
+        "openai-codex" | "codex-cli" => "codex".into(),
+        "hermes-cli" => "hermes".into(),
+        _ => id,
+    }
 }
 
 fn resolve_command_path(command: &str, options: &AgentEngineScanOptions) -> Option<String> {
@@ -935,17 +1984,79 @@ mod tests {
         }
     }
 
+    fn managed_fixture_root(name: &str) -> PathBuf {
+        let root = env::temp_dir().join(format!(
+            "mia-agent-engine-{name}-{}-{}",
+            std::process::id(),
+            current_time_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn managed_test_options(root: &Path) -> AgentEngineScanOptions {
+        let mut options = AgentEngineScanOptions::for_tests();
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_RESOURCES".into(), path_to_string(root));
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_RESOURCES_ONLY".into(), "1".into());
+        options.env.insert(
+            "MIA_MANAGED_AGENT_RUNTIME_KEY".into(),
+            "test-runtime".into(),
+        );
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_PREPARE".into(), "0".into());
+        options
+    }
+
+    fn write_codex_managed_acp(root: &Path) -> PathBuf {
+        write_codex_managed_acp_version(root, "1.1.2")
+    }
+
+    fn write_codex_managed_acp_version(root: &Path, version: &str) -> PathBuf {
+        let runtime_dir = root
+            .join("acp")
+            .join("codex-acp")
+            .join(version)
+            .join("test-runtime");
+        std::fs::create_dir_all(runtime_dir.join("bin")).unwrap();
+        let entrypoint = runtime_dir.join("codex-acp");
+        std::fs::write(&entrypoint, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(&entrypoint, permissions).unwrap();
+        }
+        let manifest = serde_json::json!({
+            "entrypoint": "codex-acp",
+            "version": version,
+            "protocol": "codex-app-server",
+            "args": ["--stdio"],
+            "env": { "MIA_MANAGED_FIXTURE": "1" },
+            "pathEntries": ["bin"]
+        });
+        std::fs::write(
+            runtime_dir.join("manifest.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        entrypoint
+    }
+
     #[tokio::test]
-    async fn codex_primary_cli_installed_but_acp_probe_failed_does_not_offer_reinstall() {
+    async fn codex_primary_cli_installed_but_acp_probe_failed_stays_selectable() {
+        let root = managed_fixture_root("codex-warning");
+        let entrypoint = write_codex_managed_acp(&root);
         let scanner = AgentEngineScanner::fake_for_tests(
-            [
-                ("codex", "/usr/local/bin/codex"),
-                ("npx", "/usr/local/bin/npx"),
-            ],
+            [("codex", "/usr/local/bin/codex")],
             [("codex", AcpProbeOutcome::failed("acp_init_failed", "boom"))],
         );
 
-        let inventory = scanner.scan(AgentEngineScanOptions::for_tests()).await;
+        let inventory = scanner.scan(managed_test_options(&root)).await;
         let codex = inventory
             .agents
             .iter()
@@ -953,18 +2064,28 @@ mod tests {
             .expect("codex status");
 
         assert!(codex.installed);
-        assert!(!codex.usable_in_mia);
-        assert_eq!(codex.health, "blocked");
+        assert!(codex.usable_in_mia);
+        assert_eq!(codex.health, "ready");
         assert_eq!(codex.install_action, "");
-        assert_eq!(codex.readiness.status, "blocked");
+        assert!(codex.runtime.managed);
+        assert_eq!(codex.runtime.command, path_to_string(entrypoint));
+        assert_eq!(codex.readiness.status, "warning");
+        assert_eq!(codex.readiness.summary, "Codex ACP 可用性待确认");
         assert_eq!(
             codex.readiness.error_code.as_deref(),
             Some("acp_init_failed")
         );
     }
 
+    #[test]
+    fn current_scan_options_keep_inventory_probe_interactive() {
+        let options = AgentEngineScanOptions::current("/tmp/mia-agent-probe");
+
+        assert!(options.probe_timeout <= Duration::from_secs(3));
+    }
+
     #[tokio::test]
-    async fn hermes_primary_cli_installed_but_acp_probe_failed_does_not_offer_repair() {
+    async fn hermes_primary_cli_installed_but_acp_probe_failed_stays_selectable() {
         let scanner = AgentEngineScanner::fake_for_tests(
             [("hermes", "/usr/local/bin/hermes")],
             [(
@@ -981,9 +2102,11 @@ mod tests {
             .expect("hermes status");
 
         assert!(hermes.installed);
-        assert!(!hermes.usable_in_mia);
-        assert_eq!(hermes.health, "blocked");
+        assert!(hermes.usable_in_mia);
+        assert_eq!(hermes.health, "ready");
         assert_eq!(hermes.install_action, "");
+        assert_eq!(hermes.readiness.status, "warning");
+        assert_eq!(hermes.readiness.summary, "Hermes ACP 可用性待确认");
         assert_eq!(hermes.readiness.action, "");
         assert_eq!(
             hermes.readiness.error_code.as_deref(),
@@ -992,23 +2115,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_acp_probe_uses_resolved_system_codex_cli() {
+    async fn codex_acp_probe_uses_managed_acp_runtime_and_resolved_system_codex_cli() {
+        let root = managed_fixture_root("codex-probe");
+        let entrypoint = write_codex_managed_acp(&root);
         let requests = Arc::new(Mutex::new(Vec::new()));
         let scanner = AgentEngineScanner {
             resolver: Arc::new(FakeAgentCommandResolver {
-                commands: [
-                    ("codex".to_string(), "/opt/homebrew/bin/codex".to_string()),
-                    ("npx".to_string(), "/opt/homebrew/bin/npx".to_string()),
-                ]
-                .into_iter()
-                .collect(),
+                commands: [("codex".to_string(), "/opt/homebrew/bin/codex".to_string())]
+                    .into_iter()
+                    .collect(),
             }),
             prober: Arc::new(RecordingAcpCommandProber {
                 requests: requests.clone(),
             }),
         };
 
-        scanner.scan(AgentEngineScanOptions::for_tests()).await;
+        scanner.scan(managed_test_options(&root)).await;
         let requests = requests.lock().unwrap();
         let request = requests
             .iter()
@@ -1018,6 +2140,19 @@ mod tests {
         assert_eq!(
             request.env.get("CODEX_PATH").map(String::as_str),
             Some("/opt/homebrew/bin/codex")
+        );
+        assert_eq!(request.command.program, path_to_string(&entrypoint));
+        assert_eq!(request.command.args, vec!["--stdio".to_string()]);
+        assert_eq!(
+            request.env.get("MIA_MANAGED_FIXTURE").map(String::as_str),
+            Some("1")
+        );
+        assert!(
+            request
+                .env
+                .get("PATH")
+                .unwrap_or(&String::new())
+                .contains("test-runtime/bin")
         );
     }
 
@@ -1043,15 +2178,11 @@ mod tests {
 
     #[tokio::test]
     async fn ready_codex_requires_primary_cli_and_acp_session_probe() {
-        let scanner = AgentEngineScanner::fake_for_tests(
-            [
-                ("codex", "/usr/local/bin/codex"),
-                ("npx", "/usr/local/bin/npx"),
-            ],
-            [],
-        );
+        let root = managed_fixture_root("codex-ready");
+        let entrypoint = write_codex_managed_acp(&root);
+        let scanner = AgentEngineScanner::fake_for_tests([("codex", "/usr/local/bin/codex")], []);
 
-        let inventory = scanner.scan(AgentEngineScanOptions::for_tests()).await;
+        let inventory = scanner.scan(managed_test_options(&root)).await;
         let codex = inventory
             .agents
             .iter()
@@ -1062,7 +2193,124 @@ mod tests {
         assert!(codex.usable_in_mia);
         assert_eq!(codex.health, "ready");
         assert_eq!(codex.install_action, "");
-        assert_eq!(codex.runtime.protocol, "acp");
-        assert_eq!(codex.runtime.command, "npx");
+        assert!(codex.runtime.managed);
+        assert_eq!(codex.runtime.source, "managed");
+        assert_eq!(codex.runtime.protocol, "codex-app-server");
+        assert_eq!(codex.runtime.command, path_to_string(entrypoint));
+        assert_eq!(codex.runtime.args, vec!["--stdio".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn codex_with_primary_cli_but_no_managed_acp_is_blocked_without_npx_fallback() {
+        let root = managed_fixture_root("codex-missing-managed");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let scanner = AgentEngineScanner {
+            resolver: Arc::new(FakeAgentCommandResolver {
+                commands: [
+                    ("codex".to_string(), "/usr/local/bin/codex".to_string()),
+                    ("npx".to_string(), "/usr/local/bin/npx".to_string()),
+                ]
+                .into_iter()
+                .collect(),
+            }),
+            prober: Arc::new(RecordingAcpCommandProber {
+                requests: requests.clone(),
+            }),
+        };
+
+        let inventory = scanner.scan(managed_test_options(&root)).await;
+        let codex = inventory
+            .agents
+            .iter()
+            .find(|agent| agent.id == "codex")
+            .expect("codex status");
+
+        assert!(codex.installed);
+        assert!(!codex.usable_in_mia);
+        assert_eq!(codex.health, "blocked");
+        assert_eq!(codex.install_action, "");
+        assert_eq!(codex.runtime.source, "missing");
+        assert_eq!(codex.runtime.command, "");
+        assert_eq!(codex.runtime.args, Vec::<String>::new());
+        assert_eq!(
+            codex.readiness.error_code.as_deref(),
+            Some("managed_acp_missing")
+        );
+        assert!(codex.readiness.detail.contains("未使用系统包管理器"));
+        assert!(
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|request| request.engine_id != "codex")
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_missing_managed_acp_is_prepared_from_pinned_package() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = managed_fixture_root("codex-prepare-managed");
+        write_codex_managed_acp_version(&root, "0.16.0");
+        let bin_dir = root.join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let npm = bin_dir.join("npm");
+        std::fs::write(
+            &npm,
+            r#"#!/bin/sh
+set -eu
+mkdir -p node_modules/@agentclientprotocol/codex-acp/dist
+cat > node_modules/@agentclientprotocol/codex-acp/package.json <<'JSON'
+{"name":"@agentclientprotocol/codex-acp","bin":{"codex-acp":"dist/index.js"}}
+JSON
+cat > node_modules/@agentclientprotocol/codex-acp/dist/index.js <<'JS'
+#!/usr/bin/env node
+process.exit(0)
+JS
+chmod +x node_modules/@agentclientprotocol/codex-acp/dist/index.js
+exit 0
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&npm, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut options = AgentEngineScanOptions::for_tests();
+        options.env.insert(
+            "MIA_LOCAL_MANAGED_AGENT_RESOURCES".into(),
+            path_to_string(&root),
+        );
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_RESOURCES_ONLY".into(), "1".into());
+        options.env.insert(
+            "MIA_MANAGED_AGENT_RUNTIME_KEY".into(),
+            "test-runtime".into(),
+        );
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_NPM".into(), path_to_string(&npm));
+        let scanner = AgentEngineScanner::fake_for_tests([("codex", "/usr/local/bin/codex")], []);
+
+        let inventory = scanner.scan(options).await;
+        let codex = inventory
+            .agents
+            .iter()
+            .find(|agent| agent.id == "codex")
+            .expect("codex status");
+
+        assert!(codex.installed);
+        assert!(codex.usable_in_mia);
+        assert_eq!(codex.health, "ready");
+        assert!(codex.runtime.managed);
+        assert_eq!(codex.runtime.version, "1.1.2");
+        assert_eq!(codex.runtime.protocol, "codex-app-server");
+        assert!(
+            codex
+                .runtime
+                .command
+                .contains("node_modules/@agentclientprotocol/codex-acp/dist/index.js")
+        );
+        assert!(!codex.runtime.command.contains("npx"));
     }
 }

@@ -17,7 +17,7 @@ use mia_core_api_types::{
     ProviderTestResponse, ResolveModelRuntimeResponse, SaveAgentWorkspaceRequest,
     SaveMemorySettingsRequest, SaveModelSelectionRequest, SaveModelSelectionResponse,
     SettingsRuntimeControlOptionsRequest, SettingsRuntimeControlOptionsResponse,
-    SystemStatusResponse,
+    SystemStatusResponse, normalize_runtime_mcp_spec,
 };
 use mia_core_db::{
     CreateProviderParams, IProviderRepository, ISettingsRepository, ProviderRecord,
@@ -29,6 +29,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
 const CLIENT_SETTINGS_KEY: &str = "client";
+const RESERVED_MCP_SPECS_SETTINGS_KEY: &str = "reservedMcpSpecs";
 
 #[derive(Debug, thiserror::Error)]
 pub enum SystemError {
@@ -366,11 +367,32 @@ impl SystemService {
         apply_hermes_mia_metadata(&mut config, &home_path, &bot_manifest_path);
 
         atomic_write_yaml(&PathBuf::from(&config_path), &config)?;
+        self.persist_reserved_mcp_specs(&request.mia_app_mcp_spec, &request.scheduler_mcp_spec)
+            .await?;
         Ok(PrepareHermesRuntimeConfigResponse {
             ok: true,
             config_path,
             api_server_key,
         })
+    }
+
+    async fn persist_reserved_mcp_specs(
+        &self,
+        mia_app_spec: &Value,
+        scheduler_spec: &Value,
+    ) -> Result<(), sqlx::Error> {
+        let mut current = self.client_settings().await?.settings;
+        let root = object_mut(&mut current);
+        root.insert(
+            RESERVED_MCP_SPECS_SETTINGS_KEY.into(),
+            json!({
+                "miaApp": normalize_runtime_mcp_spec(mia_app_spec),
+                "scheduler": normalize_runtime_mcp_spec(scheduler_spec),
+            }),
+        );
+        self.settings
+            .set_json(CLIENT_SETTINGS_KEY, current, now_ms())
+            .await
     }
 
     async fn resolve_hermes_runtime_settings(
@@ -670,14 +692,14 @@ fn apply_hermes_mcp_config(
         if matches!(name.as_str(), "mia-app" | "mia-scheduler") {
             continue;
         }
-        if let Some(spec) = runtime_mcp_spec(spec) {
+        if let Some(spec) = normalize_runtime_mcp_spec(spec) {
             merged.insert(name.clone(), spec);
         }
     }
-    if let Some(spec) = runtime_mcp_spec(mia_app_spec) {
+    if let Some(spec) = normalize_runtime_mcp_spec(mia_app_spec) {
         merged.insert("mia-app".into(), spec);
     }
-    if let Some(spec) = runtime_mcp_spec(scheduler_spec) {
+    if let Some(spec) = normalize_runtime_mcp_spec(scheduler_spec) {
         merged.insert("mia-scheduler".into(), spec);
     }
     if merged.is_empty() {
@@ -688,38 +710,6 @@ fn apply_hermes_mcp_config(
     for (name, spec) in merged {
         mcp_servers.insert(name, spec);
     }
-}
-
-fn runtime_mcp_spec(spec: &Value) -> Option<Value> {
-    if !spec.is_object() {
-        return None;
-    }
-    let command = first_string(spec, &["command"]).unwrap_or_default();
-    let url = first_string(spec, &["url"]).unwrap_or_default();
-    if !command.is_empty() {
-        return Some(json!({
-            "command": command,
-            "args": spec.get("args").and_then(Value::as_array).cloned().unwrap_or_default(),
-            "env": spec.get("env").and_then(Value::as_object).cloned().map(Value::Object).unwrap_or_else(|| json!({}))
-        }));
-    }
-    if url.is_empty() {
-        return None;
-    }
-    let mut normalized = Map::new();
-    normalized.insert("url".into(), Value::String(url));
-    normalized.insert(
-        "headers".into(),
-        spec.get("headers")
-            .and_then(Value::as_object)
-            .cloned()
-            .map(Value::Object)
-            .unwrap_or_else(|| json!({})),
-    );
-    if let Some(bearer) = first_string(spec, &["bearer_token_env_var", "bearerTokenEnvVar"]) {
-        normalized.insert("bearer_token_env_var".into(), Value::String(bearer));
-    }
-    Some(Value::Object(normalized))
 }
 
 fn apply_hermes_mia_metadata(config: &mut Value, _home_path: &str, bot_manifest_path: &str) {
@@ -766,15 +756,23 @@ fn settings_runtime_control_options(
         selected_settings_model(&agent_engine, &runtime, &engine_config, &model_options);
     let selected_model_entry =
         selected_settings_model_entry(&model_options, &runtime, &engine_config, &selected_model);
-    let effort_options = settings_effort_options(
-        &agent_engine,
-        &request.engine_capabilities,
-        &request.codex_models,
-    );
+    let runtime_controls_available = !model_options.is_empty();
+    let effort_options = if runtime_controls_available {
+        settings_effort_options(
+            &agent_engine,
+            &request.engine_capabilities,
+            &request.codex_models,
+        )
+    } else {
+        Vec::new()
+    };
     let selected_effort =
         selected_settings_effort(&agent_engine, &runtime, &engine_config, &effort_options);
-    let permission_options =
-        settings_permission_options(&agent_engine, &request.engine_capabilities);
+    let permission_options = if runtime_controls_available {
+        settings_permission_options(&agent_engine, &request.engine_capabilities)
+    } else {
+        Vec::new()
+    };
     let selected_permission =
         selected_settings_permission(&agent_engine, &runtime, &permission_options);
     SettingsRuntimeControlOptionsResponse {
@@ -847,7 +845,7 @@ fn settings_model_catalog(value: &Value) -> Vec<BotRuntimeControlOption> {
 }
 
 fn settings_platform_model_entries(value: &Value) -> Vec<BotRuntimeControlOption> {
-    let entries = value_array_or_nested(value, &["models", "platformModels", "platform_models"])
+    value_array_or_nested(value, &["models", "platformModels", "platform_models"])
         .iter()
         .filter_map(|item| {
             let id = first_string(
@@ -869,24 +867,7 @@ fn settings_platform_model_entries(value: &Value) -> Vec<BotRuntimeControlOption
                 model_profile_id: format!("mia:{id}"),
             })
         })
-        .collect::<Vec<_>>();
-    if entries.is_empty() {
-        vec![BotRuntimeControlOption {
-            id: "mia-auto".into(),
-            value: "mia-auto".into(),
-            label: "Auto".into(),
-            title: String::new(),
-            aliases: vec![],
-            model: "mia-auto".into(),
-            provider: "mia".into(),
-            provider_connection_id: "mia".into(),
-            provider_label: "Mia".into(),
-            auth_type: "mia_account".into(),
-            model_profile_id: "mia:mia-auto".into(),
-        }]
-    } else {
-        entries
-    }
+        .collect::<Vec<_>>()
 }
 
 fn platform_model_display_label(entry: &Value, fallback_id: &str) -> String {
@@ -1069,18 +1050,13 @@ fn settings_effort_options(
             return options;
         }
     }
-    let fallback = if is_external_settings_engine(engine) {
-        vec!["medium".to_string()]
+    let levels = if is_external_settings_engine(engine) {
+        Vec::new()
     } else {
         value_array_or_nested(engine_capabilities, &["effortLevels", "effort_levels"])
             .iter()
             .filter_map(|item| item.as_str().map(str::to_string))
             .collect::<Vec<_>>()
-    };
-    let levels = if fallback.is_empty() {
-        vec!["low".to_string(), "medium".to_string(), "high".to_string()]
-    } else {
-        fallback
     };
     levels
         .into_iter()
@@ -1174,61 +1150,14 @@ fn settings_permission_options(
                 value_array_or_nested(&capability, &["permissionProfiles", "permission_profiles"]);
             return codex_permission_options_from_profiles(&profiles);
         }
-        if engine == "claude-code" {
-            return vec![
-                settings_permission_option(
-                    "default",
-                    "Ask Permissions",
-                    "Claude Code asks Mia before tool use.",
-                ),
-                settings_permission_option(
-                    "acceptEdits",
-                    "Accept Edits",
-                    "Claude Code can apply edit tools without asking first.",
-                ),
-                settings_permission_option(
-                    "auto",
-                    "Auto",
-                    "Claude Code uses its native automatic permission mode.",
-                ),
-                settings_permission_option(
-                    "plan",
-                    "Plan Mode",
-                    "Claude Code plans without applying changes.",
-                ),
-                settings_permission_option(
-                    "dontAsk",
-                    "Don't Ask",
-                    "Claude Code uses its native don't-ask mode.",
-                ),
-                BotRuntimeControlOption {
-                    aliases: vec![
-                        ":danger-full-access".into(),
-                        "danger-full-access".into(),
-                        "yolo".into(),
-                        "off".into(),
-                        "never".into(),
-                    ],
-                    ..settings_permission_option(
-                        "bypassPermissions",
-                        "Bypass Permissions",
-                        "Claude Code may use tools without Mia asking first.",
-                    )
-                },
-            ];
-        }
-        return vec![settings_permission_option("default", "Ask", "")];
+        return Vec::new();
     }
 
     let modes = value_array_or_nested(engine_capabilities, &["approvalModes", "approval_modes"]);
-    let values = if modes.is_empty() {
-        vec!["ask".to_string(), "yolo".to_string(), "deny".to_string()]
-    } else {
-        modes
-            .iter()
-            .filter_map(|item| item.as_str().map(str::to_string))
-            .collect()
-    };
+    let values = modes
+        .iter()
+        .filter_map(|item| item.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
     values
         .iter()
         .map(|value| settings_permission_option(value, approval_label(value), ""))
@@ -1237,11 +1166,7 @@ fn settings_permission_options(
 
 fn codex_permission_options_from_profiles(profiles: &[Value]) -> Vec<BotRuntimeControlOption> {
     if profiles.is_empty() {
-        return vec![settings_permission_option(
-            "default",
-            "Ask",
-            "Codex 默认权限。",
-        )];
+        return Vec::new();
     }
     let mut rows = profiles
         .iter()
@@ -1440,6 +1365,9 @@ fn selected_settings_option_value(
     wanted: &str,
     fallback: &str,
 ) -> String {
+    if options.is_empty() {
+        return String::new();
+    }
     options
         .iter()
         .find(|option| option_matches_value(option, wanted))

@@ -23,11 +23,8 @@ function mockEl() {
     addEventListener() {},
     appendChild(c) { this.children.push(c); return c; },
     querySelector(selector) {
-      if (selector === ".contact-card-avatar") {
-        if (!this._queries[selector]) this._queries[selector] = mockEl();
-        return this._queries[selector];
-      }
-      return null;
+      if (!this._queries[selector]) this._queries[selector] = mockEl();
+      return this._queries[selector];
     },
     remove() {},
     contains() { return false; },
@@ -147,8 +144,40 @@ test("cloud bot I own renders editable controls instead of a separate cloud-only
   card.openCard({ kind: "bot", ref: "mia", conversationId: "botc_bob_mia", anchor: null });
   const html = lastCardHtml(body);
   assert.match(html, /Mia Cloud/);
-  assert.match(html, /data-bot-field="model"/);
+  assert.match(html, /class="contact-card-controls"/);
+  assert.doesNotMatch(html, /data-bot-field="model"/);
+  assert.doesNotMatch(html, /使用 CLI 模型|CLI 默认/);
   assert.match(html, /data-card-action="edit-bot"/);
+});
+
+test("owned bot card hides runtime controls when Core returns no observed values", async () => {
+  const { card, body, window } = loadCard();
+  window.mia = {
+    social: {
+      getBotRuntimeControlOptions: async () => ({
+        ok: true,
+        data: {
+          agentEngine: "codex",
+          statusText: "Codex",
+          modelOptions: [],
+          effortOptions: [],
+          permissionOptions: []
+        }
+      })
+    }
+  };
+
+  card.attach(ctxWith("bob", "bob"));
+  card.openCard({ kind: "bot", ref: "codex", conversationId: "g_1", anchor: null });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const cardEl = body.children.at(-1);
+  const controlsHtml = cardEl._queries[".contact-card-controls"]?.innerHTML || cardEl.innerHTML;
+  assert.doesNotMatch(controlsHtml, /data-bot-field="model"/);
+  assert.doesNotMatch(controlsHtml, /data-bot-field="effortLevel"/);
+  assert.doesNotMatch(controlsHtml, /data-bot-field="permissionMode"/);
+  assert.doesNotMatch(controlsHtml, /使用 CLI 模型|CLI 默认/);
 });
 
 test("cloud bot card avatar preserves the bot explicit color", () => {
@@ -160,8 +189,8 @@ test("cloud bot card avatar preserves the bot explicit color", () => {
   assert.equal(window.lastPaintedAvatar.color, "#5e5ce6");
 });
 
-test("owned cloud bot card reads runtime binding and asks Core for runtime control options", () => {
-  const { card, window } = loadCard();
+test("owned cloud bot card reads runtime binding and asks Core for runtime control options", async () => {
+  const { card, body, window } = loadCard();
   const calls = { bindings: [], options: [] };
   window.miaBotCommands = {
     getBotRuntimeBinding: async (args) => {
@@ -197,17 +226,25 @@ test("owned cloud bot card reads runtime binding and asks Core for runtime contr
 
   card.attach(ctxWithCloudOwnedFellow());
   card.openCard({ kind: "bot", ref: "mia", conversationId: "botc_bob_mia", anchor: null });
+  await Promise.resolve();
+  await Promise.resolve();
 
   assert.equal(calls.bindings.length, 1);
   assert.equal(calls.bindings[0].botKey, "mia");
   assert.equal(calls.bindings[0].runtimeKind, "cloud-claude-code");
-  assert.equal(calls.options.length, 1);
-  assert.equal(calls.options[0].runtimeKind, "cloud-claude-code");
-  assert.equal(calls.options[0].bot.key, "mia");
-  assert.match(JSON.stringify(calls.options[0]), /modelCatalog/);
-  assert.doesNotMatch(JSON.stringify(calls.options[0]), /modelOptionsByEngine/);
-  assert.doesNotMatch(JSON.stringify(calls.options[0]), /effortOptionsByEngine/);
-  assert.doesNotMatch(JSON.stringify(calls.options[0]), /permissionOptionsByEngine/);
+  assert.equal(calls.options.length >= 1, true);
+  const latestOptionsRequest = calls.options.at(-1);
+  assert.equal(latestOptionsRequest.runtimeKind, "cloud-claude-code");
+  assert.equal(latestOptionsRequest.bot.key, "mia");
+  assert.match(JSON.stringify(latestOptionsRequest), /modelCatalog/);
+  assert.doesNotMatch(JSON.stringify(latestOptionsRequest), /modelOptionsByEngine/);
+  assert.doesNotMatch(JSON.stringify(latestOptionsRequest), /effortOptionsByEngine/);
+  assert.doesNotMatch(JSON.stringify(latestOptionsRequest), /permissionOptionsByEngine/);
+  const controlsHtml = body.children.at(-1)._queries[".contact-card-controls"].innerHTML;
+  assert.match(controlsHtml, /data-bot-field="model"/);
+  assert.match(controlsHtml, /GPT-5\.3/);
+  assert.match(controlsHtml, /High/);
+  assert.match(controlsHtml, /Auto/);
 });
 
 test("bot contact-card runtime edits go through bot command adapter", () => {

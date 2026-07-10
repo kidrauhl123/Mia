@@ -237,6 +237,8 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /"api\/src\/cloud-agent\/cloud-claude-code-model\.js"/);
   assert.match(source, /"api\/src\/cloud-agent\/claude-code-sandbox-manager\.js"/);
   assert.match(source, /"api\/src\/cloud-agent\/claude-code-sandbox-client\.js"/);
+  assert.match(source, /"api\/src\/cloud-agent\/runtime-assembly\.js"/);
+  assert.match(source, /"api\/src\/cloud-agent\/mia-cloud-mcp-server\.js"/);
   assert.match(source, /"api\/src\/cloud-agent\/dispatcher\.js"/);
   assert.doesNotMatch(source, /"api\/src\/cloud-agent\/cloud-hermes-model\.js"/);
   assert.doesNotMatch(source, /"api\/src\/cloud-agent\/cloud-hermes-sessions-store\.js"/);

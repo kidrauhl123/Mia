@@ -74,19 +74,14 @@ function effortOptions(value) {
       effortLabels: { off: "Off", none: "None", minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", adaptive: "Adaptive", max: "Max" }
     });
   }
-  const engine = normalizeAgentEngine(value);
-  if (isExternalAgentEngine(engine)) return [{ value: "medium", label: "Medium" }];
-  return ["low", "medium", "high"].map((level) => ({ value: level, label: level[0].toUpperCase() + level.slice(1) }));
+  return [];
 }
 
 function externalPermissionOptions(value) {
   if (engineContracts.externalPermissionOptions) {
     return engineContracts.externalPermissionOptions(value, { engineCapabilities: state?.engineCapabilities });
   }
-  const engine = normalizeAgentEngine(value);
-  if (engine === "claude-code") return [{ value: "default", label: "Ask Permissions" }];
-  if (engine === "codex") return [{ value: "default", label: "Ask" }];
-  return [{ value: "ask", label: "Ask" }];
+  return [];
 }
 
 const els = {
@@ -2264,11 +2259,10 @@ function selectEntriesForPermission(engine, runtimeKind) {
     return externalPermissionOptions(engine);
   }
   if (runtimeKind === "desktop-local") {
-    return [
-      { value: "ask", label: "Ask" },
-      { value: "yolo", label: "YOLO" },
-      { value: "deny", label: "Deny" }
-    ];
+    const modes = Array.isArray(state.engineCapabilities?.approvalModes)
+      ? state.engineCapabilities.approvalModes
+      : [];
+    return modes.map((value) => ({ value, label: value }));
   }
   if (runtimeKind === "cloud-claude-code") {
     return [
@@ -2276,11 +2270,10 @@ function selectEntriesForPermission(engine, runtimeKind) {
     ];
   }
   if (engine === "hermes") {
-    return [
-      { value: "ask", label: "Ask" },
-      { value: "auto", label: "Auto" },
-      { value: "readOnly", label: "Read" }
-    ];
+    const modes = Array.isArray(state.engineCapabilities?.approvalModes)
+      ? state.engineCapabilities.approvalModes
+      : [];
+    return modes.map((value) => ({ value, label: value }));
   }
   return externalPermissionOptions(engine);
 }
@@ -2325,7 +2318,12 @@ function setSelectOptions(select, entries, selectedValue, fallbackLabel, options
       title: String(entry.title || "")
     }));
   const value = String(selectedValue || "");
-  const rows = normalized.length ? [...normalized] : [{ value, label: fallbackLabel || value || "Default", title: "" }];
+  if (!normalized.length && !value) {
+    select.innerHTML = "";
+    select.value = "";
+    return "";
+  }
+  const rows = normalized.length ? [...normalized] : [{ value, label: value, title: "" }];
   if (allowEmpty) rows.unshift({ value: "", label: fallbackLabel || "模型", title: "" });
   if (value && !rows.some((entry) => entry.value === value)) {
     rows.unshift({ value, label: fallbackLabel || value, title: "" });
@@ -2371,21 +2369,22 @@ function renderComposerControls(conversation = null) {
   setText(els.quickModelLabel, selectedModelValue ? (modelLabel || "模型") : "模型");
 
   const effortEntries = effortOptions(engine);
-  const defaultEffort = effortEntries.find((entry) => entry.value === "medium")?.value || effortEntries[0]?.value || "medium";
-  const effort = config.effortLevel || defaultEffort;
-  const effortLabel = setSelectOptions(els.effortSelect, effortEntries, effort, "Medium");
-  setText(els.effortLabel, effortLabel || "Medium");
+  const defaultEffort = effortEntries.find((entry) => entry.value === "medium")?.value || effortEntries[0]?.value || "";
+  const effort = effortEntries.length ? (config.effortLevel || defaultEffort) : "";
+  const effortLabel = setSelectOptions(els.effortSelect, effortEntries, effort, "");
+  setText(els.effortLabel, effortLabel || "");
 
-  const permission = isDesktopExternal ? "default" : (config.permissionMode || "ask");
-  const permissionLabel = setSelectOptions(els.permissionMode, selectEntriesForPermission(engine, runtimeKind), permission, "Ask");
-  setText(els.permissionLabel, permissionLabel || "Ask");
+  const permissionEntries = selectEntriesForPermission(engine, runtimeKind);
+  const permission = permissionEntries.length ? (config.permissionMode || permissionEntries[0]?.value || "") : "";
+  const permissionLabel = setSelectOptions(els.permissionMode, permissionEntries, permission, "");
+  setText(els.permissionLabel, permissionLabel || "");
   const permissionWrap = els.permissionMode?.closest?.(".permission-switcher");
   permissionWrap?.classList.toggle("yolo", permission === "bypassPermissions");
   permissionWrap?.classList.toggle("claude-bypass", engine === "claude-code" && permission === "bypassPermissions");
 
   if (els.quickModelSelect) els.quickModelSelect.disabled = !editable;
-  if (els.effortSelect) els.effortSelect.disabled = !editable;
-  if (els.permissionMode) els.permissionMode.disabled = !editable || isDesktopExternal;
+  if (els.effortSelect) els.effortSelect.disabled = !editable || !effortEntries.length;
+  if (els.permissionMode) els.permissionMode.disabled = !editable || isDesktopExternal || !permissionEntries.length;
   setModelSwitchStatus(engineLabel(engine), editable);
 
   if (editable && !state.botRuntimeCache.has(runtimeCacheKey(botKey, runtimeKind))) {
@@ -3789,15 +3788,16 @@ function webRuntimeConfigForTarget(target = {}) {
   }
   const engine = normalizeAgentEngine(target.agentEngine || "hermes");
   const effortEntries = effortOptions(engine);
-  const defaultEffort = effortEntries.find((entry) => entry.value === "medium")?.value || effortEntries[0]?.value || "medium";
+  const defaultEffort = effortEntries.find((entry) => entry.value === "medium")?.value || effortEntries[0]?.value || "";
   const config = {
     agentEngine: engine,
     deviceId: String(target.deviceId || "").trim(),
     deviceName: webCompactDeviceName(target.deviceName || ""),
-    model: "",
-    effortLevel: defaultEffort
+    model: ""
   };
-  if (!isExternalAgentEngine(engine)) config.permissionMode = "ask";
+  if (defaultEffort) config.effortLevel = defaultEffort;
+  const permissionEntries = selectEntriesForPermission(engine, target.runtimeKind || "desktop-local");
+  if (!isExternalAgentEngine(engine) && permissionEntries[0]?.value) config.permissionMode = permissionEntries[0].value;
   return config;
 }
 

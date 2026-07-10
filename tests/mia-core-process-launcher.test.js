@@ -80,6 +80,10 @@ test("detached Core launcher starts Rust Core as a real background process", asy
   assert.equal(calls[0].options.env.MIA_CORE_HOME, runtime.home);
   assert.equal(calls[0].options.env.MIA_CORE_APP_VERSION, "0.1.39");
   assert.equal(calls[0].options.env.MIA_HOME, runtime.home);
+  assert.equal(calls[0].options.env.MIA_MANAGED_AGENT_RESOURCES, [
+    path.join(runtime.home, "managed-resources"),
+    path.join(testDir, "resources", "managed-resources")
+  ].join(path.delimiter));
   assert.equal(calls[0].options.env.HERMES_HOME, path.join(dir, ".hermes"));
   assert.equal(calls[0].options.env.HERMES_LANGUAGE, "en");
   assert.equal(calls[0].options.env.CUSTOM_ENV, "kept");

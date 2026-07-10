@@ -347,6 +347,42 @@ impl RuntimeSessionManager {
             }
         }
     }
+
+    pub async fn prepare_session(
+        &self,
+        plan: RuntimeTurnPlan,
+    ) -> anyhow::Result<mia_core_api_types::AcpRuntimeControlSnapshot> {
+        if plan.protocol != RuntimeProtocol::NativeAcp {
+            anyhow::bail!("runtime controls require a native ACP session");
+        }
+        self.native_acp.prepare_session(plan).await
+    }
+
+    pub async fn set_control(
+        &self,
+        plan: RuntimeTurnPlan,
+        control_id: String,
+        value: String,
+    ) -> anyhow::Result<mia_core_api_types::AcpRuntimeControlSnapshot> {
+        if plan.protocol != RuntimeProtocol::NativeAcp {
+            anyhow::bail!("runtime controls require a native ACP session");
+        }
+        self.native_acp.set_control(plan, control_id, value).await
+    }
+
+    pub fn list_pending_permissions(
+        &self,
+        session_id: Option<&str>,
+    ) -> mia_core_api_types::AgentPermissionListResponse {
+        self.native_acp.list_pending_permissions(session_id)
+    }
+
+    pub fn respond_permission(
+        &self,
+        request: mia_core_api_types::AgentPermissionRespondRequest,
+    ) -> mia_core_api_types::AgentPermissionRespondResponse {
+        self.native_acp.respond_permission(request)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -354,6 +390,7 @@ pub struct RuntimeBuilder {
     default_engine: String,
     workspace_dir: String,
     command_overrides: BTreeMap<String, RuntimeCommand>,
+    environment: Option<BTreeMap<String, String>>,
 }
 
 async fn read_stream<R>(
@@ -440,6 +477,7 @@ impl RuntimeBuilder {
             default_engine: "mock-agent".into(),
             workspace_dir: workspace_dir.into(),
             command_overrides: BTreeMap::new(),
+            environment: None,
         }
     }
 
@@ -462,6 +500,20 @@ impl RuntimeBuilder {
         self
     }
 
+    pub fn with_environment<I, K, V>(mut self, vars: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.environment = Some(
+            vars.into_iter()
+                .map(|(key, value)| (key.into(), value.into()))
+                .collect(),
+        );
+        self
+    }
+
     pub fn build_turn_plan(&self, input: RuntimeTurnInput) -> RuntimeTurnPlan {
         let engine = input
             .engine
@@ -476,14 +528,25 @@ impl RuntimeBuilder {
             input.workspace_dir
         };
         let has_command_override = self.command_overrides.contains_key(&engine);
+        let mut environment = runtime_environment_for_engine(
+            &engine,
+            self.environment
+                .clone()
+                .unwrap_or_else(|| std::env::vars().collect()),
+        );
+        let managed_runtime = (!has_command_override)
+            .then(|| agent_engines::resolve_managed_agent_runtime_plan(&engine, &environment))
+            .flatten();
+        if let Some(runtime) = &managed_runtime {
+            environment = runtime.environment.clone();
+        }
         let command = self
             .command_overrides
             .get(&engine)
             .cloned()
+            .or_else(|| managed_runtime.map(|runtime| runtime.command))
             .or_else(|| command_for_engine(&engine));
-        let protocol = if command.is_none() {
-            RuntimeProtocol::Mock
-        } else if has_command_override {
+        let protocol = if has_command_override {
             RuntimeProtocol::Process
         } else {
             protocol_for_engine(&engine)
@@ -514,7 +577,7 @@ impl RuntimeBuilder {
                 input.selected_skill_ids.iter().map(String::as_str),
             ),
         };
-        let mock_response = command.is_none().then(|| {
+        let mock_response = (protocol == RuntimeProtocol::Mock && command.is_none()).then(|| {
             let body = body.trim();
             if body.is_empty() {
                 "Mia Rust Core received an empty turn.".to_string()
@@ -522,7 +585,6 @@ impl RuntimeBuilder {
                 format!("Mia Rust Core mock response: {body}")
             }
         });
-        let environment = runtime_environment_for_engine(&engine, std::env::vars());
         RuntimeTurnPlan {
             turn_id,
             conversation_id: input.conversation_id,
@@ -636,17 +698,7 @@ fn protocol_for_engine(engine: &str) -> RuntimeProtocol {
 fn command_for_engine(engine: &str) -> Option<RuntimeCommand> {
     match engine {
         "mock" | "mock-agent" | "mia-mock" => None,
-        "codex" => Some(RuntimeCommand {
-            program: "npx".into(),
-            args: vec!["-y".into(), "@agentclientprotocol/codex-acp@1.1.0".into()],
-        }),
-        "claude-code" => Some(RuntimeCommand {
-            program: "npx".into(),
-            args: vec![
-                "-y".into(),
-                "@agentclientprotocol/claude-agent-acp@0.39.0".into(),
-            ],
-        }),
+        "codex" | "claude-code" => None,
         "hermes" => Some(RuntimeCommand {
             program: "hermes".into(),
             args: vec!["acp".into()],
@@ -663,6 +715,82 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    fn test_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "mia-core-runtime-{name}-{}",
+            Uuid::now_v7().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_executable(path: &std::path::Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(path, permissions).unwrap();
+        }
+    }
+
+    fn write_managed_acp(
+        root: &std::path::Path,
+        tool_id: &str,
+        entrypoint_name: &str,
+        version: &str,
+        protocol: &str,
+    ) -> std::path::PathBuf {
+        let runtime_dir = root
+            .join("acp")
+            .join(tool_id)
+            .join(version)
+            .join("test-runtime");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        let entrypoint = runtime_dir.join(entrypoint_name);
+        write_executable(&entrypoint);
+        let manifest = json!({
+            "entrypoint": entrypoint_name,
+            "version": version,
+            "protocol": protocol,
+            "args": ["--stdio"]
+        });
+        std::fs::write(
+            runtime_dir.join("manifest.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        entrypoint
+    }
+
+    fn managed_runtime_env(
+        resource_root: &std::path::Path,
+        bin: &std::path::Path,
+    ) -> BTreeMap<String, String> {
+        let codex_path = bin.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        [
+            (
+                "MIA_MANAGED_AGENT_RESOURCES".to_string(),
+                resource_root.to_string_lossy().to_string(),
+            ),
+            ("MIA_MANAGED_AGENT_RESOURCES_ONLY".to_string(), "1".into()),
+            (
+                "MIA_MANAGED_AGENT_RUNTIME_KEY".to_string(),
+                "test-runtime".into(),
+            ),
+            ("PATH".to_string(), bin.to_string_lossy().to_string()),
+            (
+                "CODEX_PATH".to_string(),
+                codex_path.to_string_lossy().to_string(),
+            ),
+            ("NO_COLOR".to_string(), "polluted".into()),
+        ]
+        .into_iter()
+        .collect()
+    }
 
     #[test]
     fn runtime_builder_produces_mock_turn_plan_inside_core() {
@@ -793,7 +921,33 @@ mod tests {
 
     #[test]
     fn runtime_builder_maps_codex_and_claude_to_native_acp_specs() {
-        let builder = RuntimeBuilder::new("/tmp/mia-workspace");
+        let root = test_dir("managed-acp-plan");
+        let bin = root.join("bin");
+        let resources = root.join("managed-resources");
+        let codex_cli = bin.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let claude_cli = bin.join(if cfg!(windows) {
+            "claude.exe"
+        } else {
+            "claude"
+        });
+        write_executable(&codex_cli);
+        write_executable(&claude_cli);
+        let codex_acp = write_managed_acp(
+            &resources,
+            "codex-acp",
+            "codex-acp",
+            "1.1.2",
+            "codex-app-server",
+        );
+        let claude_acp = write_managed_acp(
+            &resources,
+            "claude-acp",
+            "claude-acp",
+            "0.39.0",
+            "claude-code-cli",
+        );
+        let builder = RuntimeBuilder::new("/tmp/mia-workspace")
+            .with_environment(managed_runtime_env(&resources, &bin));
         let codex_plan = builder.build_turn_plan(RuntimeTurnInput {
             conversation_id: "conv_1".into(),
             message_id: "msg_1".into(),
@@ -810,10 +964,11 @@ mod tests {
 
         assert_eq!(codex_plan.protocol, RuntimeProtocol::NativeAcp);
         let codex_command = codex_plan.command.as_ref().expect("codex ACP command");
-        assert_eq!(codex_command.program, "npx");
+        assert_eq!(codex_command.program, codex_acp.to_string_lossy());
+        assert_eq!(codex_command.args, vec!["--stdio"]);
         assert_eq!(
-            codex_command.args,
-            vec!["-y", "@agentclientprotocol/codex-acp@1.1.0"]
+            codex_plan.environment.get("CODEX_PATH").map(String::as_str),
+            Some(codex_cli.to_string_lossy().as_ref())
         );
         assert!(
             !codex_command
@@ -839,11 +994,8 @@ mod tests {
         });
         assert_eq!(claude_plan.protocol, RuntimeProtocol::NativeAcp);
         let claude_command = claude_plan.command.as_ref().expect("claude ACP command");
-        assert_eq!(claude_command.program, "npx");
-        assert_eq!(
-            claude_command.args,
-            vec!["-y", "@agentclientprotocol/claude-agent-acp@0.39.0"]
-        );
+        assert_eq!(claude_command.program, claude_acp.to_string_lossy());
+        assert_eq!(claude_command.args, vec!["--stdio"]);
         assert!(
             !claude_command
                 .args
@@ -874,6 +1026,37 @@ mod tests {
                 .iter()
                 .any(|arg| { arg == "-z" || arg == "--oneshot" })
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn runtime_builder_does_not_fallback_when_managed_acp_is_missing() {
+        let root = test_dir("missing-managed-acp-plan");
+        let bin = root.join("bin");
+        write_executable(&bin.join(if cfg!(windows) { "codex.exe" } else { "codex" }));
+        let resources = root.join("empty-managed-resources");
+        std::fs::create_dir_all(&resources).unwrap();
+        let builder = RuntimeBuilder::new("/tmp/mia-workspace")
+            .with_environment(managed_runtime_env(&resources, &bin));
+
+        let plan = builder.build_turn_plan(RuntimeTurnInput {
+            conversation_id: "conv_missing".into(),
+            message_id: "msg_missing".into(),
+            bot_id: None,
+            engine: Some("codex".into()),
+            previous_session_key: None,
+            workspace_dir: "".into(),
+            provider: json!({}),
+            mcp_servers: json!({}),
+            attachments: json!([]),
+            selected_skill_ids: vec![],
+            body: "hello".into(),
+        });
+
+        assert_eq!(plan.protocol, RuntimeProtocol::NativeAcp);
+        assert_eq!(plan.command, None);
+        assert_eq!(plan.mock_response, None);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[tokio::test]
@@ -1045,6 +1228,49 @@ mod tests {
         assert!(events.lock().unwrap().iter().any(|event| {
             event.name == EVENT_RUNTIME_STDOUT && event.data["text"] == "native delta"
         }));
+    }
+
+    #[tokio::test]
+    async fn runtime_session_manager_prepares_and_reads_native_acp_controls() {
+        struct ControlBackend;
+
+        #[async_trait::async_trait]
+        impl NativeAcpBackend for ControlBackend {
+            async fn send_message(
+                &self,
+                _plan: RuntimeTurnPlan,
+                _sink: RuntimeEventSink,
+                _cancellation: Option<RuntimeCancellation>,
+            ) -> anyhow::Result<RuntimeExecutionResult> {
+                unreachable!("prepare must not send a prompt")
+            }
+
+            async fn prepare_session(
+                &self,
+                plan: RuntimeTurnPlan,
+            ) -> anyhow::Result<mia_core_api_types::AcpRuntimeControlSnapshot> {
+                Ok(mia_core_api_types::AcpRuntimeControlSnapshot {
+                    conversation_id: plan.conversation_id,
+                    engine: plan.engine,
+                    session_id: Some("session-controls".into()),
+                    state: "ready".into(),
+                    controls: vec![],
+                    error: String::new(),
+                })
+            }
+        }
+
+        let mut plan = test_plan(shell_command("printf 'must not execute'"));
+        plan.protocol = RuntimeProtocol::NativeAcp;
+        plan.engine = "claude-code".into();
+        let manager = RuntimeSessionManager::new(NativeAcpSessionManager::with_backend_for_tests(
+            std::sync::Arc::new(ControlBackend),
+        ));
+
+        let snapshot = manager.prepare_session(plan).await.unwrap();
+
+        assert_eq!(snapshot.session_id.as_deref(), Some("session-controls"));
+        assert_eq!(snapshot.engine, "claude-code");
     }
 
     #[cfg(unix)]

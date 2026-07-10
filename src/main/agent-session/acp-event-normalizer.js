@@ -23,14 +23,14 @@ function textFromAcpContent(content) {
   return "";
 }
 
-function isCodexMiaAutoMetadataWarning(text = "") {
+function isCodexModelMetadataWarning(text = "") {
   const normalized = String(text || "").trim().replace(/\s+/g, " ");
-  return /^Warning: Model metadata for `?mia-auto`? not found\. Defaulting to fallback metadata; this can degrade performance and cause issues\.$/.test(normalized);
+  return /^Warning: Model metadata for `?[^`\s][^`]*`? not found\. Defaulting to fallback metadata; this can degrade performance and cause issues\.$/.test(normalized);
 }
 
-function stripCodexMiaAutoMetadataWarning(text = "") {
+function stripCodexModelMetadataWarning(text = "") {
   return String(text || "").replace(
-    /^\s*Warning: Model metadata for `?mia-auto`? not found\.\s+Defaulting to fallback metadata; this can degrade performance and cause issues\.\s*/i,
+    /^\s*Warning: Model metadata for `?[^`\s][^`]*`? not found\.\s+Defaulting to fallback metadata; this can degrade performance and cause issues\.\s*/i,
     ""
   );
 }
@@ -71,9 +71,9 @@ function normalizeAcpSessionUpdate(options = {}) {
   const events = [];
 
   if (update.sessionUpdate === "agent_message_chunk") {
-    const text = stripCodexMiaAutoMetadataWarning(textFromAcpContent(update.content));
+    const text = stripCodexModelMetadataWarning(textFromAcpContent(update.content));
     if (!text) return events;
-    if (isCodexMiaAutoMetadataWarning(text)) return events;
+    if (isCodexModelMetadataWarning(text)) return events;
     events.push({
       kind: "assistant-delta",
       payload: {

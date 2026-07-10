@@ -77,12 +77,12 @@ test("saveBot creates a cloud-claude-code bot through identity, runtime, and con
     }
   });
 
-	  assert.equal(result.key, "bot_core_cloud");
-	  assert.equal(result.conversation.id, `botc_${result.key}`);
-	  assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
-	  assert.equal(calls[0][1], "");
-	  assert.equal(calls[1][1], result.key);
-	  assert.equal(calls[2][1], result.key);
+  assert.notEqual(calls[0][1], "");
+  assert.equal(result.key, calls[0][1]);
+  assert.equal(result.conversation.id, `botc_${result.key}`);
+  assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
+  assert.equal(calls[1][1], result.key);
+  assert.equal(calls[2][1], result.key);
   assert.deepEqual(calls[0][2].capabilities.enabledSkills, [
     "mia-scheduler",
     "mia-official:document-editor",
@@ -236,9 +236,13 @@ test("saveBot creates desktop-runtime bots as cloud identities when cloud is ava
           }
         };
       },
-      async ensureBotSessionConversation(key, body) {
+      async ensureBotConversation(key, body) {
         calls.push(["conversation", key, body]);
         return { ok: true, data: { conversation: { id: `botc_${key}`, type: "bot" } } };
+      },
+      async ensureBotSessionConversation(key, body) {
+        calls.push(["core-session-conversation", key, body]);
+        throw new Error(`Mia Core HTTP POST /api/bots/${key}/session-conversation failed 404: Not Found`);
       }
     }
   };
@@ -257,9 +261,9 @@ test("saveBot creates desktop-runtime bots as cloud identities when cloud is ava
     }
   });
 
-	  assert.equal(result.key, "bot_core_desktop");
-	  assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
-	  assert.equal(calls[0][1], "");
+  assert.notEqual(calls[0][1], "");
+  assert.equal(result.key, calls[0][1]);
+  assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
   assert.deepEqual(calls[0][2].capabilities.enabledSkills, [
     "mia-scheduler",
     "mia-official:document-editor",
@@ -1030,6 +1034,31 @@ test("syncDesktopLocalBotRuntimeBinding preserves Codex as a desktop target", as
   assert.equal(Object.hasOwn(calls[0][2], "config"), false);
 });
 
+test("syncDesktopLocalBotRuntimeBinding does not guess Hermes for an invalid binding with no engine", async () => {
+  const calls = [];
+  const api = {
+    async saveBotRuntime(botId, body) {
+      calls.push([botId, body]);
+      return { ok: true, data: { binding: { botId, ...body } } };
+    }
+  };
+
+  const result = await commands.syncDesktopLocalBotRuntimeBinding({
+    api,
+    state: { runtime: { localDevice: { id: "mac-1", name: "Mac" } } },
+    bot: {
+      key: "broken-runtime",
+      name: "Broken Runtime",
+      runtimeKind: "desktop-local",
+      runtimeStatus: "invalid_config",
+      agentEngine: ""
+    }
+  });
+
+  assert.equal(result, null);
+  assert.deepEqual(calls, []);
+});
+
 test("ensureDesktopLocalBotConversation creates conversation and syncs external engine runtime intent", async () => {
   const calls = [];
   const api = {
@@ -1073,6 +1102,51 @@ test("ensureDesktopLocalBotConversation creates conversation and syncs external 
   assert.equal(Object.hasOwn(calls[1][2].syncIntent, "modelEntries"), false);
   assert.equal(result.conversation.upserted, true);
   assert.equal(upserted[0].id, "botc_codex");
+});
+
+test("ensureDesktopLocalBotConversation uses cloud bot conversation route when available", async () => {
+  const calls = [];
+  const api = {
+    async ensureBotConversation(botId, body) {
+      calls.push(["cloud-conversation", botId, body]);
+      return {
+        ok: true,
+        data: {
+          conversation: {
+            id: `botc_${botId}`,
+            type: "bot",
+            decorations: { botId, sessionId: botId, runtimeKind: "desktop-local" }
+          }
+        }
+      };
+    },
+    async ensureBotSessionConversation(sessionId) {
+      calls.push(["core-session-conversation", sessionId]);
+      throw new Error(`Mia Core HTTP POST /api/bots/${sessionId}/session-conversation failed 404: Not Found`);
+    },
+    async saveBotRuntime(botId, body) {
+      calls.push(["runtime", botId, body]);
+      return { ok: true, data: { binding: { botId, ...body } } };
+    }
+  };
+
+  const result = await commands.ensureDesktopLocalBotConversation({
+    api,
+    state: { runtime: { localDevice: { id: "mac-1", name: "Mac" } } },
+    bot: {
+      key: "hermes",
+      name: "Hermes",
+      agentEngine: "hermes"
+    }
+  });
+
+  assert.equal(result.conversation.id, "botc_hermes");
+  assert.deepEqual(calls.map((call) => call[0]), ["cloud-conversation", "runtime"]);
+  assert.deepEqual(calls[0], ["cloud-conversation", "hermes", {
+    botId: "hermes",
+    title: "Hermes",
+    runtimeKind: "desktop-local"
+  }]);
 });
 
 test("saveBotRuntimeControl saves cloud-claude-code controls through cloud runtime config", async () => {

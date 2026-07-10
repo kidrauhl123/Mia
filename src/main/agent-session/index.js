@@ -7,7 +7,7 @@ const {
 const contract = require("./agent-session-contract.js");
 const acpEngineSpecs = require("./acp-engine-specs.js");
 
-function mergedAcpEngineSpec(engineId) {
+function mergedAcpEngineSpec(engineId, options = {}) {
   let normalizedEngineId;
   try {
     normalizedEngineId = contract.assertKnownAgentEngine(engineId);
@@ -16,7 +16,8 @@ function mergedAcpEngineSpec(engineId) {
   }
 
   const contractSpec = contract.ENGINE_SPECS.find((spec) => spec.engineId === normalizedEngineId) || null;
-  const runtimeSpec = acpEngineSpecs.getAcpEngineSpec(normalizedEngineId) || null;
+  const runtimeSpec = acpEngineSpecs.getAcpEngineSpec(normalizedEngineId, options) || null;
+  if (normalizedEngineId !== "hermes" && !runtimeSpec) return null;
   if (!contractSpec && !runtimeSpec) return null;
   return Object.freeze({
     ...(contractSpec || {}),
@@ -24,25 +25,25 @@ function mergedAcpEngineSpec(engineId) {
   });
 }
 
-function listAcpEngineSpecs() {
+function listAcpEngineSpecs(options = {}) {
   return Object.freeze(
     contract.ENGINE_IDS
-      .map((engineId) => mergedAcpEngineSpec(engineId))
+      .map((engineId) => mergedAcpEngineSpec(engineId, options))
       .filter(Boolean)
   );
 }
 
-function getAcpEngineSpec(engineId) {
-  return mergedAcpEngineSpec(engineId);
+function getAcpEngineSpec(engineId, options = {}) {
+  return mergedAcpEngineSpec(engineId, options);
 }
 
 function createAgentSessionManager(options = {}) {
-  const engineSpecs = Array.isArray(options.engineSpecs) ? options.engineSpecs : listAcpEngineSpecs();
+  const engineSpecs = Array.isArray(options.engineSpecs) ? options.engineSpecs : listAcpEngineSpecs(options);
   const createSession = typeof options.createSession === "function"
     ? options.createSession
     : async (descriptor = {}) => createAcpAgentSession({
       ...descriptor,
-      engineSpec: descriptor.engineSpec || getAcpEngineSpec(descriptor.engineId),
+      engineSpec: descriptor.engineSpec || getAcpEngineSpec(descriptor.engineId, options),
       ...(typeof options.requestPermission === "function" ? { requestPermission: options.requestPermission } : {})
     });
 

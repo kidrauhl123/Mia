@@ -198,12 +198,10 @@
     return String(entry.id || entry.value || entry.model || "").trim();
   }
 
-  function options(entries, selectedValue, fallbackLabel = "加载中", allowEmpty = false) {
+  function options(entries, selectedValue) {
     const normalized = runtimeControlArray(entries);
-    if (!normalized.length) return `<option value="">${escapeHtml(fallbackLabel)}</option>`;
-    const rows = allowEmpty ? [{ id: "", value: "", label: fallbackLabel }] : [];
-    rows.push(...normalized);
-    return rows.map((entry) => {
+    if (!normalized.length) return "";
+    return normalized.map((entry) => {
       const value = runtimeOptionValue(entry);
       const aliases = Array.isArray(entry.aliases) ? entry.aliases.map(String) : [];
       const selected = value === selectedValue || aliases.includes(selectedValue) ? " selected" : "";
@@ -224,7 +222,6 @@
   }
 
   function runtimeControlsHtml(optionsPayload, runtimeKind, runtime = {}) {
-    const ready = Boolean(optionsPayload);
     const engine = String(optionsPayload?.agentEngine || "hermes").trim() || "hermes";
     const modelEntries = runtimeControlArray(optionsPayload?.modelOptions);
     const effortEntries = runtimeControlArray(optionsPayload?.effortOptions);
@@ -235,48 +232,63 @@
         || modelEntries.find((entry) => runtimeOptionValue(entry) === selectedModel)
         || {})
       : {};
-    const modelLabel = selectedModelEntry?.label || (ready ? "模型" : "加载中");
-    const selectedEffort = String(optionsPayload?.selectedEffort || "medium").trim();
-    const effortLabel = effortEntries.find((entry) => runtimeOptionValue(entry) === selectedEffort)?.label || (ready ? "Medium" : "加载中");
-    const selectedPermission = String(optionsPayload?.selectedPermission || (runtimeKind === "cloud-claude-code" ? "bypassPermissions" : "default")).trim();
-    const permissionLabel = permissionEntries.find((entry) => runtimeOptionValue(entry) === selectedPermission)?.label || (ready ? "Ask" : "加载中");
-    const hasModelEntries = modelEntries.length > 0;
+    const selectedModelOption = selectedModelEntry?.label
+      ? selectedModelEntry
+      : (modelEntries.find((entry) => runtimeOptionValue(entry) === selectedModel) || modelEntries[0] || {});
+    const modelLabel = selectedModelOption?.label || runtimeOptionValue(selectedModelOption) || selectedModel || "";
+    const selectedEffort = String(optionsPayload?.selectedEffort || "").trim();
+    const selectedEffortOption = effortEntries.find((entry) => runtimeOptionValue(entry) === selectedEffort) || effortEntries[0] || {};
+    const effortLabel = selectedEffortOption?.label || runtimeOptionValue(selectedEffortOption) || selectedEffort || "";
+    const selectedPermission = String(optionsPayload?.selectedPermission || "").trim();
+    const selectedPermissionOption = permissionEntries.find((entry) => runtimeOptionValue(entry) === selectedPermission) || permissionEntries[0] || {};
+    const permissionLabel = selectedPermissionOption?.label || runtimeOptionValue(selectedPermissionOption) || selectedPermission || "";
+    const hasModelEntries = modelEntries.length > 0 && Boolean(modelLabel);
     const hasSelectedModelEntry = Boolean(selectedModelEntry?.id || selectedModelEntry?.value || selectedModelEntry?.model || selectedModelEntry?.provider);
     const modelLogoSrc = hasSelectedModelEntry ? modelLogoSrcForOption(selectedModelEntry, engine, runtime) : "";
     const modelLogoStyle = modelLogoSrc
       ? `background-image:url('${escapeHtml(modelLogoSrc)}');background-color:transparent;`
       : "";
-    const modelDisabled = ready && hasModelEntries ? "" : " disabled";
-    const disabled = ready ? "" : " disabled";
-    return `
+    const modelOptions = options(modelEntries, selectedModel);
+    const effortOptions = options(effortEntries, selectedEffort);
+    const permissionOptions = options(permissionEntries, selectedPermission);
+    const modelRow = hasModelEntries ? `
         <div class="contact-card-row">
           <dt>模型</dt>
           <dd>
             <label class="model-switcher${hasSelectedModelEntry ? "" : " model-switcher--no-avatar"}" title="切换模型">
               <span class="model-avatar${hasSelectedModelEntry ? "" : " hidden"}" style="${modelLogoStyle}" aria-hidden="true">${modelLogoSrc ? "" : "◇"}</span>
               <span class="model-current-label">${escapeHtml(modelLabel)}</span>
-              <select data-bot-field="model" aria-label="切换模型"${modelDisabled}>${options(modelEntries, selectedModel, "模型", true)}</select>
+              <select data-bot-field="model" aria-label="切换模型">${modelOptions}</select>
             </label>
           </dd>
         </div>
+    ` : "";
+    const effortRow = effortEntries.length && effortLabel ? `
         <div class="contact-card-row">
           <dt>推理强度</dt>
           <dd>
             <label class="effort-switcher" title="切换推理强度">
               <span class="effort-label">${escapeHtml(effortLabel)}</span>
-              <select data-bot-field="effortLevel" aria-label="切换推理强度"${disabled}>${options(effortEntries, selectedEffort)}</select>
+              <select data-bot-field="effortLevel" aria-label="切换推理强度">${effortOptions}</select>
             </label>
           </dd>
         </div>
+    ` : "";
+    const permissionRow = permissionEntries.length && permissionLabel ? `
         <div class="contact-card-row">
           <dt>权限</dt>
           <dd>
             <label class="permission-switcher" title="权限模式">
               <span class="permission-label">${escapeHtml(permissionLabel)}</span>
-              <select data-bot-field="permissionMode" aria-label="权限模式"${disabled}>${options(permissionEntries, selectedPermission)}</select>
+              <select data-bot-field="permissionMode" aria-label="权限模式">${permissionOptions}</select>
             </label>
           </dd>
         </div>
+    ` : "";
+    return `
+        ${modelRow}
+        ${effortRow}
+        ${permissionRow}
     `;
   }
 
@@ -290,14 +302,30 @@
   function loadRuntimeControlOptions(card, bot, runtimeKind, options = {}) {
     const botKey = String(bot?.key || bot?.id || "").trim();
     const cacheKey = runtimeCacheKey(botKey, runtimeKind);
-    const api = global.mia?.social?.getBotRuntimeControlOptions;
+    const conversationId = String(options.conversationId || "").trim();
+    const nativeControls = runtimeKind === "desktop-local" && Boolean(conversationId);
+    const api = nativeControls
+      ? global.mia?.social?.prepareConversationRuntimeControls
+      : global.mia?.social?.getBotRuntimeControlOptions;
     if (!botKey || typeof api !== "function") return;
     if (botRuntimeControlOptionsInFlight.has(cacheKey) && !options.force) return;
     botRuntimeControlOptionsInFlight.add(cacheKey);
-    api(runtimeControlOptionsRequest(bot, runtimeKind))
+    const request = nativeControls
+      ? {
+          botId: botKey,
+          botName: bot?.name || bot?.displayName || botKey,
+          agentEngine: bot?.agentEngine || bot?.agent_engine || "",
+          runtimeKind: "desktop-local"
+        }
+      : runtimeControlOptionsRequest(bot, runtimeKind);
+    const pending = nativeControls ? api(conversationId, request) : api(request);
+    pending
       .then((result) => {
         if (result && result.ok === false) throw new Error(result.error || result.message || "Runtime control options failed");
-        const payload = runtimeControlPayload(result);
+        const raw = runtimeControlPayload(result);
+        const payload = nativeControls
+          ? global.miaRuntimeControlOptionsFromAcpSnapshot?.(raw, runtimeKind)
+          : raw;
         if (!payload || typeof payload !== "object") return;
         botRuntimeControlOptionsCache.set(cacheKey, { ...payload, runtimeKind });
         if (_popover === card) applyRuntimeControlOptionsToCard(card, { ...payload, runtimeKind });
@@ -422,6 +450,32 @@
     async function persistField(field, value) {
       const latestOptions = controlOptionsForBot(botKey, runtimeKind) || {};
       try {
+        if (runtimeKind === "desktop-local" && conversationId) {
+          const category = field === "model"
+            ? "model"
+            : (field === "effortLevel" ? "thought_level" : "permission");
+          const control = runtimeControlArray(latestOptions._acpControls)
+            .find((entry) => entry?.category === category);
+          if (!control?.id) throw new Error("当前 Agent 没有提供这个控制项");
+          const observed = await global.mia?.social?.setConversationRuntimeControl?.(conversationId, {
+            botId: botKey,
+            botName: local?.name || local?.displayName || botKey,
+            agentEngine: local?.agentEngine || local?.agent_engine || "",
+            runtimeKind: "desktop-local",
+            controlId: control.id,
+            value
+          });
+          if (observed && observed.ok === false) throw new Error(observed.error || "Agent 未确认设置");
+          const confirmed = global.miaRuntimeControlOptionsFromAcpSnapshot?.(
+            runtimeControlPayload(observed),
+            runtimeKind
+          );
+          const confirmedControl = runtimeControlArray(confirmed?._acpControls)
+            .find((entry) => entry?.category === category);
+          if (String(confirmedControl?.currentValue || "") !== String(value || "")) {
+            throw new Error("Agent 未确认设置");
+          }
+        }
         await global.miaBotCommands?.saveBotRuntimeControl?.({
           api: global.mia,
           bot: local,
@@ -431,7 +485,7 @@
           modelEntries: runtimeControlArray(latestOptions.modelOptions)
         });
         botRuntimeControlOptionsCache.delete(runtimeCacheKey(botKey, runtimeKind));
-        loadRuntimeControlOptions(card, local, runtimeKind, { force: true });
+        loadRuntimeControlOptions(card, local, runtimeKind, { force: true, conversationId });
       } catch (err) {
         alert("保存失败：" + (err?.message || err));
       }
@@ -439,13 +493,13 @@
 
     card.addEventListener("change", (event) => {
       const sel = event.target.closest("[data-bot-field]");
-      if (!sel) return;
+      if (!sel || !sel.value) return;
       const newLabel = sel.options[sel.selectedIndex]?.textContent || "";
       const labelSpan = sel.parentElement?.querySelector(".model-current-label, .effort-label, .permission-label");
       if (labelSpan) labelSpan.textContent = newLabel;
       persistField(sel.dataset.botField, sel.value);
     });
-    loadRuntimeControlOptions(card, local, runtimeKind);
+    loadRuntimeControlOptions(card, local, runtimeKind, { conversationId });
     if (isCloudRuntime) hydrateBotRuntimeBinding(card, local, runtimeKind);
     card.addEventListener("click", (event) => {
       const btn = event.target.closest("[data-card-action]");

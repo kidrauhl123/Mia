@@ -97,21 +97,16 @@ pub async fn list_agent_permissions(
 ) -> Json<AgentPermissionListResponse> {
     Json(
         states
-            .agent_permissions
-            .list_pending(params.get("sessionId").map(String::as_str)),
+            .runtime_sessions
+            .list_pending_permissions(params.get("sessionId").map(String::as_str)),
     )
 }
 
 pub async fn respond_agent_permission(
     State(states): State<ModuleStates>,
     Json(request): Json<AgentPermissionRespondRequest>,
-) -> Result<Json<AgentPermissionRespondResponse>, StatusCode> {
-    states
-        .agent_permissions
-        .respond(request)
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+) -> Json<AgentPermissionRespondResponse> {
+    Json(states.runtime_sessions.respond_permission(request))
 }
 
 pub async fn save_model_selection(

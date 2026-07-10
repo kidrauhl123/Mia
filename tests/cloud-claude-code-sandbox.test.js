@@ -208,6 +208,116 @@ test("cloud Claude Code client runs SDK query without Hermes gateway and streams
   assert.match(capture.params.options.systemPrompt.append, /\/data\/attachments\/a\.txt maps to \/tmp\/mia-worker\/attachments\/a\.txt/);
 });
 
+test("cloud Claude Code client passes cloud-safe MCP servers to the SDK", async () => {
+  const capture = {};
+  const client = createCloudClaudeCodeClient({
+    claudeAgentSdk: fakeSdk([
+      {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "ok" }] }
+      }
+    ], capture),
+    randomUUID: () => "uuid-1"
+  });
+
+  await client.runChat({
+    worker: {
+      hasApiKey: true,
+      model: "claude-sonnet-test",
+      permissionMode: "bypassPermissions",
+      env: { ANTHROPIC_API_KEY: "sk-test" },
+      paths: { workspace: "/tmp/mia-worker/workspace" },
+      sandboxSettings: { enabled: true, failIfUnavailable: true }
+    },
+    input: "hello",
+    mcpServers: {
+      docs: {
+        type: "http",
+        url: "https://cloud.example/mcp",
+        headers: { Authorization: "Bearer cloud-token" }
+      },
+      "mia-app": {
+        command: "/usr/local/bin/node",
+        args: ["/Applications/Mia/mia-app-mcp-server.js"],
+        env: { MIA_CORE_URL: "http://127.0.0.1:27861", MIA_CORE_TOKEN: "local-token" }
+      },
+      "mia-scheduler": {
+        command: "/usr/local/bin/node",
+        args: ["/Applications/Mia/scheduler-mcp-server.js"],
+        env: { MIA_SCHEDULER_CONTEXT_FILE: "/tmp/mia-scheduler-context.json" }
+      },
+      shell: {
+        command: "/bin/sh",
+        args: ["-lc", "echo unsafe"]
+      }
+    }
+  });
+
+  assert.deepEqual(capture.params.options.mcpServers, {
+    docs: {
+      type: "http",
+      url: "https://cloud.example/mcp",
+      headers: { Authorization: "Bearer cloud-token" }
+    }
+  });
+  assert.equal(capture.params.options.strictMcpConfig, true);
+});
+
+test("cloud Claude Code client allows trusted Mia cloud stdio MCP servers", async () => {
+  const capture = {};
+  const client = createCloudClaudeCodeClient({
+    claudeAgentSdk: fakeSdk([
+      {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "ok" }] }
+      }
+    ], capture),
+    randomUUID: () => "uuid-1"
+  });
+
+  await client.runChat({
+    worker: {
+      hasApiKey: true,
+      model: "claude-sonnet-test",
+      permissionMode: "bypassPermissions",
+      env: { ANTHROPIC_API_KEY: "sk-test" },
+      paths: { workspace: "/tmp/mia-worker/workspace" },
+      sandboxSettings: { enabled: true, failIfUnavailable: true }
+    },
+    input: "hello",
+    mcpServers: {
+      "mia-app": {
+        type: "stdio",
+        command: process.execPath,
+        args: ["/tmp/mia-cloud-mcp-server.js"],
+        env: {
+          MIA_CLOUD_URL: "https://cloud.example",
+          MIA_CLOUD_TOKEN: "cloud-token"
+        },
+        source: "mia-cloud",
+        trusted: true
+      },
+      shell: {
+        command: "/bin/sh",
+        args: ["-lc", "echo unsafe"]
+      }
+    }
+  });
+
+  assert.deepEqual(capture.params.options.mcpServers, {
+    "mia-app": {
+      type: "stdio",
+      command: process.execPath,
+      args: ["/tmp/mia-cloud-mcp-server.js"],
+      env: {
+        MIA_CLOUD_URL: "https://cloud.example",
+        MIA_CLOUD_TOKEN: "cloud-token"
+      }
+    }
+  });
+  assert.equal(capture.params.options.strictMcpConfig, true);
+});
+
 test("cloud Claude Code client dedupes progressive assistant snapshots in fallback mode", async () => {
   const events = [];
   const client = createCloudClaudeCodeClient({

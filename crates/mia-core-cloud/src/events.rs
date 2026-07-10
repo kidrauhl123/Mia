@@ -600,6 +600,7 @@ fn desktop_invocation_run_request(message: &Value) -> Result<CloudBridgeRunReque
         .or_else(|| value_string(triggering, "body"))
         .unwrap_or_default();
     let attachments = message_attachments(triggering);
+    let selected_skill_ids = selected_skill_ids_from_message(triggering);
     let runtime_config = message
         .get("runtimeConfig")
         .filter(|value| value.is_object())
@@ -611,6 +612,7 @@ fn desktop_invocation_run_request(message: &Value) -> Result<CloudBridgeRunReque
         conversation_id,
         text,
         attachments,
+        selected_skill_ids,
         bot_id,
         bot_name: bot_display_name(message).unwrap_or_default(),
         display_name: bot_display_name(message).unwrap_or_default(),
@@ -625,6 +627,55 @@ fn desktop_invocation_run_request(message: &Value) -> Result<CloudBridgeRunReque
         runtime_config,
         config: json!({}),
     })
+}
+
+fn selected_skill_ids_from_message(message: &Value) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut seen = HashSet::new();
+    if let Some(array) = message.get("selectedSkillIds").and_then(Value::as_array) {
+        collect_skill_ids(array, &mut ids, &mut seen);
+    }
+    if let Some(array) = message.get("selected_skill_ids").and_then(Value::as_array) {
+        collect_skill_ids(array, &mut ids, &mut seen);
+    }
+    if let Some(array) = message.get("skills").and_then(Value::as_array) {
+        collect_skill_ids(array, &mut ids, &mut seen);
+    }
+    let skills_json =
+        value_string(message, "skills_json").or_else(|| value_string(message, "skillsJson"));
+    if let Some(raw) = skills_json
+        && let Ok(Value::Array(array)) = serde_json::from_str::<Value>(&raw)
+    {
+        collect_skill_ids(&array, &mut ids, &mut seen);
+    }
+    ids
+}
+
+fn collect_skill_ids(array: &[Value], ids: &mut Vec<String>, seen: &mut HashSet<String>) {
+    for item in array {
+        if ids.len() >= 8 {
+            break;
+        }
+        let id = match item {
+            Value::String(value) => clean_skill_id(value),
+            Value::Object(object) => object
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(clean_skill_id),
+            _ => None,
+        };
+        let Some(id) = id else {
+            continue;
+        };
+        if seen.insert(id.clone()) {
+            ids.push(id);
+        }
+    }
+}
+
+fn clean_skill_id(value: &str) -> Option<String> {
+    let id = value.trim();
+    (!id.is_empty()).then(|| id.to_string())
 }
 
 fn invocation_run_id(

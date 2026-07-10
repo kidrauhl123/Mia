@@ -411,6 +411,62 @@ test("saveBotRuntime sends PUT with an idempotency key", async () => {
   } finally { await teardown(ctx); }
 });
 
+test("saveBotRuntime includes merged config so intent updates work with older Cloud servers", async () => {
+  const seen = [];
+  const ctx = await spawnFakeCloud(async (req, res) => {
+    if (req.method === "GET") {
+      seen.push({ method: req.method, url: req.url });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        binding: {
+          botId: "alice",
+          runtimeKind: "desktop-local",
+          enabled: true,
+          config: { model: "", effortLevel: "medium" }
+        }
+      }));
+      return;
+    }
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      seen.push({ method: req.method, url: req.url, body: JSON.parse(body) });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        binding: {
+          botId: "alice",
+          runtimeKind: "desktop-local",
+          enabled: true,
+          config: seen.at(-1).body.config
+        }
+      }));
+    });
+  });
+  try {
+    const api = createSocialApi({
+      getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
+      normalizeUrl: (url) => url
+    });
+    const result = await api.saveBotRuntime("alice", {
+      runtimeKind: "desktop-local",
+      enabled: true,
+      activate: true,
+      targetIntent: {
+        agentEngine: "codex",
+        deviceId: "device-1",
+        deviceName: "Test Mac"
+      }
+    });
+
+    assert.deepEqual(seen.map((entry) => entry.method), ["GET", "PUT"]);
+    assert.equal(seen[1].body.targetIntent.agentEngine, "codex");
+    assert.equal(seen[1].body.config.agentEngine, "codex");
+    assert.equal(seen[1].body.config.deviceId, "device-1");
+    assert.equal(seen[1].body.config.deviceName, "Test Mac");
+    assert.equal(result.binding.config.agentEngine, "codex");
+  } finally { await teardown(ctx); }
+});
+
 test("non-2xx responses throw with parsed error message", async () => {
   const ctx = await spawnFakeCloud((req, res) => {
     res.writeHead(404, { "content-type": "application/json" });

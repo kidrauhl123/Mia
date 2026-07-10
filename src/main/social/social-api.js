@@ -1,5 +1,9 @@
 const { fetch } = globalThis;
 const { randomUUID } = require("node:crypto");
+const {
+  hasRuntimeConfigIntent,
+  runtimeConfigInputForRequest
+} = require("../../shared/runtime-binding-intents.js");
 
 // Tag a write body with a clientOpId so the server can deduplicate
 // retries (Phase 1.D). Bodies that omit clientOpId are still accepted;
@@ -149,7 +153,28 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       return jsonFetch({ ...ctx(), method: "GET", path: `/api/me/bots/${encodeURIComponent(botId)}/runtime?kind=${encodeURIComponent(runtimeKind)}` });
     },
     async saveBotRuntime(botId, body = {}) {
-      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/bots/${encodeURIComponent(botId)}/runtime`, body: withOpId(body) });
+      const runtimeKind = String(body.runtimeKind || "cloud-claude-code").trim() || "cloud-claude-code";
+      let requestBody = body;
+      if (hasRuntimeConfigIntent(body)) {
+        const current = await jsonFetch({
+          ...ctx(),
+          method: "GET",
+          path: `/api/me/bots/${encodeURIComponent(botId)}/runtime?kind=${encodeURIComponent(runtimeKind)}`
+        });
+        requestBody = {
+          ...body,
+          config: runtimeConfigInputForRequest({
+            body,
+            existingConfig: current?.binding?.config || {}
+          })
+        };
+      }
+      return jsonFetch({
+        ...ctx(),
+        method: "PUT",
+        path: `/api/me/bots/${encodeURIComponent(botId)}/runtime`,
+        body: withOpId(requestBody)
+      });
     },
     async listBridgeDevices({ includeOffline = false } = {}) {
       const query = includeOffline ? "?include=all" : "";

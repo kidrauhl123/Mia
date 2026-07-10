@@ -345,6 +345,118 @@ test("saving a bot identity writes submitted status badge through to the local b
   }]);
 });
 
+test("saving a bot identity preserves cached runtime binding fields", async () => {
+  const ipcMain = fakeIpcMain();
+  const patches = [];
+  const runtimeConfig = {
+    agentEngine: "codex",
+    deviceId: "device-1",
+    deviceName: "Office Mac"
+  };
+  const cachedBot = {
+    id: "mia",
+    key: "mia",
+    name: "Mia",
+    runtimeKind: "desktop-local",
+    runtimeConfig,
+    agentEngine: "codex",
+    targetDeviceId: "device-1",
+    targetDeviceName: "Office Mac",
+    deviceId: "device-1",
+    deviceName: "Office Mac",
+    runtimeLabel: "Office Mac",
+    runtimeStatus: "remote_online"
+  };
+  const fakeCache = {
+    getSocialBootstrap: (userId) => userId === "u_me" ? { userId, bots: [cachedBot] } : null,
+    updateSocialBootstrap: (userId, patch) => patches.push({ userId, patch })
+  };
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      saveBotIdentity: async () => ({
+        bot: {
+          id: "mia",
+          key: "mia",
+          name: "Renamed Mia",
+          agentEngine: "hermes",
+          targetDeviceId: "",
+          targetDeviceName: ""
+        }
+      })
+    },
+    messageCache: fakeCache,
+    getCloudUserId: () => "u_me"
+  });
+
+  await ipcMain.handlers.get(IpcChannel.SocialSaveBotIdentity)(null, "mia", { name: "Renamed Mia" });
+
+  assert.equal(patches.length, 1);
+  const bot = patches[0].patch.bots[0];
+  assert.equal(bot.name, "Renamed Mia");
+  assert.equal(bot.agentEngine, "codex");
+  assert.equal(bot.targetDeviceId, "device-1");
+  assert.equal(bot.targetDeviceName, "Office Mac");
+  assert.deepEqual(bot.runtimeConfig, runtimeConfig);
+  assert.equal(bot.runtimeStatus, "remote_online");
+});
+
+test("saving a bot runtime writes the authoritative binding through to the local bootstrap cache", async () => {
+  const ipcMain = fakeIpcMain();
+  const patches = [];
+  const config = {
+    model: "",
+    effortLevel: "medium",
+    agentEngine: "codex",
+    deviceId: "device-1",
+    deviceName: "Office Mac"
+  };
+  const fakeCache = {
+    getSocialBootstrap: (userId) => userId === "u_me" ? {
+      userId,
+      bots: [{
+        id: "mia",
+        key: "mia",
+        name: "Mia",
+        runtimeKind: "desktop-local",
+        agentEngine: "hermes",
+        runtimeStatus: "invalid_config"
+      }]
+    } : null,
+    updateSocialBootstrap: (userId, patch) => patches.push({ userId, patch })
+  };
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      saveBotRuntime: async () => ({
+        binding: {
+          botId: "mia",
+          runtimeKind: "desktop-local",
+          enabled: true,
+          config
+        }
+      })
+    },
+    messageCache: fakeCache,
+    getCloudUserId: () => "u_me"
+  });
+
+  await ipcMain.handlers.get(IpcChannel.SocialSaveBotRuntime)(null, "mia", {
+    runtimeKind: "desktop-local",
+    activate: true,
+    targetIntent: { agentEngine: "codex", deviceId: "device-1", deviceName: "Office Mac" }
+  });
+
+  assert.equal(patches.length, 1);
+  const bot = patches[0].patch.bots[0];
+  assert.equal(bot.agentEngine, "codex");
+  assert.equal(bot.targetDeviceId, "device-1");
+  assert.equal(bot.targetDeviceName, "Office Mac");
+  assert.equal(bot.runtimeLabel, "Office Mac");
+  assert.deepEqual(bot.runtimeConfig, config);
+  assert.equal(Object.hasOwn(bot, "runtimeStatus"), false);
+});
+
 test("updating a conversation writes the returned title through to the social bootstrap cache", async () => {
   const ipcMain = fakeIpcMain();
   const patches = [];

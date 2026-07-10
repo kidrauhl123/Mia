@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use mia_core_api_types::{
     CloudBridgeCancelRequest, CloudBridgeCancelResponse, CloudBridgeRunRequest,
@@ -8,9 +12,11 @@ use mia_core_conversation::{ConversationService, EVENT_CONVERSATION_MESSAGE_CREA
 use mia_core_realtime::EventBus;
 use mia_core_runtime::{
     EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_STDERR, EVENT_RUNTIME_STDOUT, RuntimeEventSink,
-    RuntimeSessionManager, RuntimeTurnPlan,
+    RuntimeProtocol, RuntimeSessionManager, RuntimeTurnPlan,
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use tokio::sync::Mutex;
 
 use crate::claude_code_mia_proxy::{
     ClaudeCodeMiaProxyConfig, RunningClaudeCodeMiaProxy, start_claude_code_mia_proxy,
@@ -25,6 +31,7 @@ pub struct AppCloudBridgeRunner {
     realtime: EventBus,
     runtime: RuntimeRegistry,
     runtime_sessions: RuntimeSessionManager,
+    mia_runtime_proxies: MiaRuntimeProxyRegistry,
 }
 
 impl AppCloudBridgeRunner {
@@ -34,6 +41,7 @@ impl AppCloudBridgeRunner {
         realtime: EventBus,
         runtime: RuntimeRegistry,
         runtime_sessions: RuntimeSessionManager,
+        mia_runtime_proxies: MiaRuntimeProxyRegistry,
     ) -> Self {
         Self {
             cloud,
@@ -41,6 +49,7 @@ impl AppCloudBridgeRunner {
             realtime,
             runtime,
             runtime_sessions,
+            mia_runtime_proxies,
         }
     }
 }
@@ -57,6 +66,7 @@ impl CloudBridgeRunHandler for AppCloudBridgeRunner {
             &self.realtime,
             &self.runtime,
             &self.runtime_sessions,
+            &self.mia_runtime_proxies,
             request,
         )
         .await
@@ -76,6 +86,7 @@ pub async fn execute_cloud_bridge_run(
     realtime: &EventBus,
     runtime: &RuntimeRegistry,
     runtime_sessions: &RuntimeSessionManager,
+    mia_runtime_proxies: &MiaRuntimeProxyRegistry,
     request: CloudBridgeRunRequest,
 ) -> Result<CloudBridgeRunResponse, CloudError> {
     let prepared = cloud.prepare_bridge_run(request)?;
@@ -103,7 +114,7 @@ pub async fn execute_cloud_bridge_run(
             SendConversationMessageRequest {
                 body: prepared.text.clone(),
                 attachments: prepared.attachments.clone(),
-                selected_skill_ids: Vec::new(),
+                selected_skill_ids: prepared.selected_skill_ids.clone(),
             },
         )
         .await
@@ -128,10 +139,9 @@ pub async fn execute_cloud_bridge_run(
         }),
     );
     let mut runtime_plan = turn.runtime_plan.clone();
-    let _claude_proxy =
-        prepare_claude_code_mia_runtime(cloud, &prepared.runtime, &mut runtime_plan).await?;
-    let _codex_proxy =
-        prepare_codex_mia_runtime(cloud, &prepared.runtime, &mut runtime_plan).await?;
+    mia_runtime_proxies
+        .prepare_plan(cloud, &prepared.runtime, &mut runtime_plan)
+        .await?;
     emit_cloud_run_started(
         realtime,
         &prepared.cloud_conversation_id,
@@ -141,7 +151,7 @@ pub async fn execute_cloud_bridge_run(
     );
     let mut response_trace = json!({});
     let mut response_content_blocks = json!([]);
-    let text = if runtime_plan.command.is_some() {
+    let text = if runtime_plan_uses_session_manager(&runtime_plan) {
         let cancellation_key = cloud_bridge_runtime_key(&prepared.run_id);
         let cancellation = runtime.register(cancellation_key.clone());
         let event_realtime = realtime.clone();
@@ -204,7 +214,13 @@ pub async fn execute_cloud_bridge_run(
             .await
             .map_err(|error| CloudError::Runtime(error.to_string()));
         runtime.remove(&cancellation_key);
-        let result = execution?;
+        let result = match execution {
+            Ok(result) => result,
+            Err(error) => {
+                runtime_claim.release();
+                return Err(error);
+            }
+        };
         let output = normalize_runtime_output(&runtime_plan.engine, &result.stdout, &result.stderr);
         response_trace = output.trace.clone();
         response_content_blocks = output.content_blocks.clone();
@@ -325,101 +341,370 @@ fn cloud_bridge_runtime_key(run_id: &str) -> String {
     format!("cloud_bridge_run:{}", run_id.trim())
 }
 
-async fn prepare_claude_code_mia_runtime(
-    cloud: &CloudService,
-    runtime_config: &Value,
-    plan: &mut RuntimeTurnPlan,
-) -> Result<Option<RunningClaudeCodeMiaProxy>, CloudError> {
-    if plan.engine != "claude-code"
-        || plan.command.is_none()
-        || !is_mia_managed(plan, runtime_config)
-    {
-        return Ok(None);
-    }
-    let status = cloud.status(true).await?;
-    let cloud_token = status.token.unwrap_or_default();
-    if cloud_token.trim().is_empty() {
-        return Err(CloudError::InvalidInput("cloud is not connected".into()));
-    }
-    let model = first_string(&plan.provider, &["model"])
-        .or_else(|| first_string(runtime_config, &["model"]))
-        .unwrap_or_else(|| "mia-auto".to_string());
-    let base_url = first_string(&plan.provider, &["baseUrl", "base_url"]).unwrap_or_else(|| {
-        format!(
-            "{}/api/me/model-proxy/v1",
-            status.url.trim().trim_end_matches('/')
-        )
-    });
-    let api_key = first_string(&plan.provider, &["apiKey", "api_key"]).unwrap_or(cloud_token);
-    let proxy = start_claude_code_mia_proxy(ClaudeCodeMiaProxyConfig {
-        base_url,
-        api_key,
-        model: model.clone(),
-    })
-    .await
-    .map_err(|error| CloudError::Runtime(error.to_string()))?;
-    strip_claude_auth_environment(&mut plan.environment);
-    plan.environment
-        .insert("ANTHROPIC_BASE_URL".into(), proxy.base_url.clone());
-    plan.environment
-        .insert("ANTHROPIC_AUTH_TOKEN".into(), proxy.auth_token.clone());
-    plan.environment
-        .insert("ANTHROPIC_MODEL".into(), model.clone());
-    plan.environment
-        .insert("ANTHROPIC_DEFAULT_OPUS_MODEL".into(), model.clone());
-    plan.environment
-        .insert("ANTHROPIC_DEFAULT_SONNET_MODEL".into(), model.clone());
-    plan.environment
-        .insert("ANTHROPIC_DEFAULT_HAIKU_MODEL".into(), model.clone());
-    plan.environment
-        .insert("CLAUDE_CODE_SUBAGENT_MODEL".into(), model);
-    if let Some(effort) = first_string(runtime_config, &["effortLevel", "effort_level"])
-        .map(|value| normalize_claude_effort(&value))
-        .filter(|value| !value.is_empty())
-    {
-        plan.environment
-            .insert("CLAUDE_CODE_EFFORT_LEVEL".into(), effort.clone());
-    }
-    Ok(Some(proxy))
+fn runtime_plan_uses_session_manager(plan: &RuntimeTurnPlan) -> bool {
+    plan.command.is_some() || plan.protocol == RuntimeProtocol::NativeAcp
 }
 
-async fn prepare_codex_mia_runtime(
-    cloud: &CloudService,
-    runtime_config: &Value,
-    plan: &mut RuntimeTurnPlan,
-) -> Result<Option<RunningCodexMiaProxy>, CloudError> {
-    if plan.engine != "codex" || plan.command.is_none() || !is_mia_managed(plan, runtime_config) {
-        return Ok(None);
+#[derive(Debug, Clone)]
+pub struct MiaRuntimeProxyRegistry {
+    data_dir: Arc<PathBuf>,
+    entries: Arc<Mutex<HashMap<String, MiaRuntimeProxyEntry>>>,
+}
+
+impl MiaRuntimeProxyRegistry {
+    pub fn new(data_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            data_dir: Arc::new(data_dir.into()),
+            entries: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
-    let status = cloud.status(true).await?;
-    let cloud_token = status.token.unwrap_or_default();
-    if cloud_token.trim().is_empty() {
-        return Err(CloudError::InvalidInput("cloud is not connected".into()));
+
+    pub async fn prepare_plan(
+        &self,
+        cloud: &CloudService,
+        runtime_config: &Value,
+        plan: &mut RuntimeTurnPlan,
+    ) -> Result<(), CloudError> {
+        if plan.command.is_none() || !is_mia_managed(plan, runtime_config) {
+            return Ok(());
+        }
+        let status = cloud.status(true).await?;
+        let cloud_token = status.token.unwrap_or_default();
+        if cloud_token.trim().is_empty() {
+            return Err(CloudError::InvalidInput("cloud is not connected".into()));
+        }
+        let model = first_string(&plan.provider, &["model"])
+            .or_else(|| first_string(runtime_config, &["model"]))
+            .unwrap_or_else(|| "mia-auto".to_string());
+        let upstream_base_url = first_string(&plan.provider, &["baseUrl", "base_url"])
+            .unwrap_or_else(|| {
+                format!(
+                    "{}/api/me/model-proxy/v1",
+                    status.url.trim().trim_end_matches('/')
+                )
+            });
+        let upstream_api_key =
+            first_string(&plan.provider, &["apiKey", "api_key"]).unwrap_or(cloud_token);
+        let key = format!("{}:{}", plan.engine, plan.conversation_id);
+        let identity = proxy_identity(&plan.engine, &upstream_base_url, &upstream_api_key, &model);
+        let access = {
+            let mut entries = self.entries.lock().await;
+            let reusable = entries
+                .get(&key)
+                .filter(|entry| entry.identity == identity)
+                .map(MiaRuntimeProxyEntry::access);
+            if let Some(access) = reusable {
+                access
+            } else {
+                let handle = match plan.engine.as_str() {
+                    "claude-code" => MiaRuntimeProxyHandle::Claude(
+                        start_claude_code_mia_proxy(ClaudeCodeMiaProxyConfig {
+                            base_url: upstream_base_url.clone(),
+                            api_key: upstream_api_key.clone(),
+                            model: model.clone(),
+                        })
+                        .await
+                        .map_err(|error| CloudError::Runtime(error.to_string()))?,
+                    ),
+                    "codex" | "hermes" => MiaRuntimeProxyHandle::OpenAi(
+                        start_codex_mia_proxy(CodexMiaProxyConfig {
+                            base_url: upstream_base_url.clone(),
+                            api_key: upstream_api_key.clone(),
+                            model: model.clone(),
+                            auth_via_path: plan.engine == "hermes",
+                        })
+                        .await
+                        .map_err(|error| CloudError::Runtime(error.to_string()))?,
+                    ),
+                    _ => return Ok(()),
+                };
+                let entry = MiaRuntimeProxyEntry { identity, handle };
+                let access = entry.access();
+                entries.insert(key.clone(), entry);
+                access
+            }
+        };
+
+        plan.environment
+            .insert("MIA_PLATFORM_PROVIDER".into(), "mia".into());
+        plan.environment
+            .insert("MIA_PLATFORM_MODEL".into(), model.clone());
+        match plan.engine.as_str() {
+            "claude-code" => {
+                strip_claude_auth_environment(&mut plan.environment);
+                plan.environment
+                    .insert("ANTHROPIC_BASE_URL".into(), access.base_url);
+                plan.environment
+                    .insert("ANTHROPIC_AUTH_TOKEN".into(), access.api_key);
+                plan.environment
+                    .insert("ANTHROPIC_MODEL".into(), model.clone());
+                plan.environment
+                    .insert("ANTHROPIC_DEFAULT_OPUS_MODEL".into(), model.clone());
+                plan.environment
+                    .insert("ANTHROPIC_DEFAULT_SONNET_MODEL".into(), model.clone());
+                plan.environment
+                    .insert("ANTHROPIC_DEFAULT_HAIKU_MODEL".into(), model.clone());
+                plan.environment
+                    .insert("CLAUDE_CODE_SUBAGENT_MODEL".into(), model);
+                if let Some(effort) = first_string(runtime_config, &["effortLevel", "effort_level"])
+                    .map(|value| normalize_claude_effort(&value))
+                    .filter(|value| !value.is_empty())
+                {
+                    plan.environment
+                        .insert("CLAUDE_CODE_EFFORT_LEVEL".into(), effort);
+                }
+            }
+            "codex" => {
+                strip_codex_auth_environment(&mut plan.environment);
+                let catalog_path = self.write_codex_model_catalog(&key, &model).await?;
+                let real_codex_path = plan
+                    .environment
+                    .get("CODEX_PATH")
+                    .map(String::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        CloudError::Runtime("Codex executable path is missing".into())
+                    })?;
+                let codex_launcher = self.write_codex_launcher().await?;
+                let effort = first_string(runtime_config, &["effortLevel", "effort_level"])
+                    .filter(|effort| {
+                        matches!(
+                            effort.as_str(),
+                            "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+                        )
+                    })
+                    .unwrap_or_else(|| "high".into());
+                let config = codex_mia_session_config(
+                    &access.base_url,
+                    &model,
+                    &catalog_path,
+                    &effort,
+                    runtime_config,
+                );
+                plan.environment
+                    .insert("CODEX_API_KEY".into(), access.api_key);
+                plan.environment
+                    .insert("MIA_CODEX_REAL_PATH".into(), real_codex_path);
+                plan.environment.insert(
+                    "MIA_CODEX_MODEL_CATALOG_JSON".into(),
+                    catalog_path.to_string_lossy().into_owned(),
+                );
+                plan.environment.insert(
+                    "CODEX_PATH".into(),
+                    codex_launcher.to_string_lossy().into_owned(),
+                );
+                plan.environment
+                    .insert("MODEL_PROVIDER".into(), "custom".into());
+                plan.environment.insert(
+                    "MIA_PLATFORM_REASONING_EFFORTS".into(),
+                    "none,low,medium,high".into(),
+                );
+                plan.environment
+                    .insert("MIA_PLATFORM_REASONING_EFFORT".into(), effort);
+                plan.environment.insert(
+                    "CODEX_CONFIG".into(),
+                    serde_json::to_string(&config)
+                        .map_err(|error| CloudError::Runtime(error.to_string()))?,
+                );
+            }
+            "hermes" => {
+                strip_hermes_mia_environment(&mut plan.environment);
+                plan.environment
+                    .insert("CUSTOM_BASE_URL".into(), access.base_url);
+                plan.environment
+                    .insert("OPENAI_API_KEY".into(), access.api_key);
+            }
+            _ => {}
+        }
+        Ok(())
     }
-    let model = first_string(&plan.provider, &["model"])
-        .or_else(|| first_string(runtime_config, &["model"]))
-        .unwrap_or_else(|| "mia-auto".to_string());
-    let base_url = first_string(&plan.provider, &["baseUrl", "base_url"]).unwrap_or_else(|| {
-        format!(
-            "{}/api/me/model-proxy/v1",
-            status.url.trim().trim_end_matches('/')
-        )
-    });
-    let api_key = first_string(&plan.provider, &["apiKey", "api_key"]).unwrap_or(cloud_token);
-    let proxy = start_codex_mia_proxy(CodexMiaProxyConfig {
-        base_url,
-        api_key,
-        model: model.clone(),
+
+    async fn write_codex_model_catalog(
+        &self,
+        key: &str,
+        model: &str,
+    ) -> Result<PathBuf, CloudError> {
+        let directory = self.data_dir.join("runtime").join("mia-model-catalogs");
+        tokio::fs::create_dir_all(&directory)
+            .await
+            .map_err(|error| CloudError::Runtime(error.to_string()))?;
+        let path = directory.join(format!("{}.json", short_hash(&format!("{key}:{model}"))));
+        let bytes = serde_json::to_vec_pretty(&codex_mia_model_catalog(model))
+            .map_err(|error| CloudError::Runtime(error.to_string()))?;
+        tokio::fs::write(&path, bytes)
+            .await
+            .map_err(|error| CloudError::Runtime(error.to_string()))?;
+        Ok(path)
+    }
+
+    async fn write_codex_launcher(&self) -> Result<PathBuf, CloudError> {
+        let directory = self.data_dir.join("runtime").join("codex-launcher");
+        tokio::fs::create_dir_all(&directory)
+            .await
+            .map_err(|error| CloudError::Runtime(error.to_string()))?;
+        #[cfg(windows)]
+        let (path, contents) = (
+            directory.join("mia-codex-launcher.cmd"),
+            "@echo off\r\nif \"%MIA_CODEX_REAL_PATH%\"==\"\" exit /b 2\r\nif \"%MIA_CODEX_MODEL_CATALOG_JSON%\"==\"\" exit /b 2\r\n\"%MIA_CODEX_REAL_PATH%\" %* -c \"model_catalog_json=\\\"%MIA_CODEX_MODEL_CATALOG_JSON%\\\"\"\r\n",
+        );
+        #[cfg(not(windows))]
+        let (path, contents) = (
+            directory.join("mia-codex-launcher"),
+            "#!/bin/sh\nset -eu\n: \"${MIA_CODEX_REAL_PATH:?}\"\n: \"${MIA_CODEX_MODEL_CATALOG_JSON:?}\"\nexec \"$MIA_CODEX_REAL_PATH\" \"$@\" -c \"model_catalog_json=\\\"$MIA_CODEX_MODEL_CATALOG_JSON\\\"\"\n",
+        );
+        tokio::fs::write(&path, contents)
+            .await
+            .map_err(|error| CloudError::Runtime(error.to_string()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+                .await
+                .map_err(|error| CloudError::Runtime(error.to_string()))?;
+        }
+        Ok(path)
+    }
+}
+
+#[derive(Debug)]
+struct MiaRuntimeProxyEntry {
+    identity: String,
+    handle: MiaRuntimeProxyHandle,
+}
+
+impl MiaRuntimeProxyEntry {
+    fn access(&self) -> MiaRuntimeProxyAccess {
+        match &self.handle {
+            MiaRuntimeProxyHandle::Claude(proxy) => MiaRuntimeProxyAccess {
+                base_url: proxy.base_url.clone(),
+                api_key: proxy.auth_token.clone(),
+            },
+            MiaRuntimeProxyHandle::OpenAi(proxy) => MiaRuntimeProxyAccess {
+                base_url: proxy.base_url.clone(),
+                api_key: proxy.api_key.clone(),
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+enum MiaRuntimeProxyHandle {
+    Claude(RunningClaudeCodeMiaProxy),
+    OpenAi(RunningCodexMiaProxy),
+}
+
+#[derive(Debug)]
+struct MiaRuntimeProxyAccess {
+    base_url: String,
+    api_key: String,
+}
+
+fn proxy_identity(engine: &str, base_url: &str, api_key: &str, model: &str) -> String {
+    short_hash(&format!("{engine}\n{base_url}\n{api_key}\n{model}"))
+}
+
+fn short_hash(value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    digest[..12]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn codex_mia_model_catalog(model: &str) -> Value {
+    let model = model.trim();
+    let label = if matches!(model, "mia-auto" | "mia-default") {
+        "Auto"
+    } else {
+        model
+    };
+    json!({
+        "models": [{
+            "slug": model,
+            "display_name": label,
+            "description": label,
+            "base_instructions": "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals.",
+            "default_reasoning_level": "high",
+            "supported_reasoning_levels": [
+                { "effort": "none", "description": "Disable Thinking" },
+                { "effort": "low", "description": "Fast responses with lighter reasoning" },
+                { "effort": "medium", "description": "Balanced responses" },
+                { "effort": "high", "description": "Enabled Thinking" }
+            ],
+            "shell_type": "shell_command",
+            "visibility": "list",
+            "supported_in_api": true,
+            "priority": 1000,
+            "additional_speed_tiers": [],
+            "service_tiers": [],
+            "availability_nux": null,
+            "upgrade": null,
+            "supports_reasoning_summaries": true,
+            "default_reasoning_summary": "none",
+            "support_verbosity": false,
+            "truncation_policy": { "mode": "bytes", "limit": 10000 },
+            "supports_parallel_tool_calls": false,
+            "supports_image_detail_original": false,
+            "context_window": 262144,
+            "max_context_window": 262144,
+            "effective_context_window_percent": 95,
+            "experimental_supported_tools": [],
+            "input_modalities": ["text"],
+            "supports_search_tool": false
+        }]
     })
-    .await
-    .map_err(|error| CloudError::Runtime(error.to_string()))?;
-    strip_codex_auth_environment(&mut plan.environment);
-    plan.environment
-        .insert("CODEX_API_KEY".into(), proxy.api_key.clone());
-    plan.environment
-        .insert("OPENAI_BASE_URL".into(), proxy.base_url.clone());
-    plan.environment.insert("CODEX_MODEL".into(), model);
-    Ok(Some(proxy))
+}
+
+fn codex_mia_session_config(
+    base_url: &str,
+    model: &str,
+    model_catalog_path: &Path,
+    effort: &str,
+    runtime_config: &Value,
+) -> Value {
+    let mut config = serde_json::Map::from_iter([
+        ("model".into(), json!(model)),
+        ("model_provider".into(), json!("custom")),
+        (
+            "model_catalog_json".into(),
+            json!(model_catalog_path.to_string_lossy()),
+        ),
+        ("disable_response_storage".into(), json!(true)),
+        ("model_reasoning_effort".into(), json!(effort)),
+        (
+            "model_providers".into(),
+            json!({
+                "custom": {
+                    "name": "Mia",
+                    "base_url": base_url.trim_end_matches('/'),
+                    "wire_api": "responses",
+                    "env_key": "CODEX_API_KEY",
+                    "requires_openai_auth": false
+                }
+            }),
+        ),
+    ]);
+    if let Some(permission) = first_string(runtime_config, &["permissionMode", "permission_mode"]) {
+        let (approval_policy, sandbox_mode) = codex_permission_config(&permission);
+        config.insert("approval_policy".into(), json!(approval_policy));
+        config.insert("sandbox_mode".into(), json!(sandbox_mode));
+    }
+    Value::Object(config)
+}
+
+fn codex_permission_config(value: &str) -> (&'static str, &'static str) {
+    match value.trim() {
+        "read-only" | ":read-only" | "readOnly" => ("never", "read-only"),
+        "full-access" | ":danger-full-access" | "bypassPermissions" | "yolo" | "off" | "never" => {
+            ("never", "danger-full-access")
+        }
+        "auto" | ":workspace" => ("on-request", "workspace-write"),
+        "acceptEdits" => ("on-request", "workspace-write"),
+        _ => ("untrusted", "workspace-write"),
+    }
 }
 
 fn strip_claude_auth_environment(environment: &mut std::collections::BTreeMap<String, String>) {
@@ -449,6 +734,12 @@ fn strip_codex_auth_environment(environment: &mut std::collections::BTreeMap<Str
         "CODEX_CONFIG",
         "MIA_CODEX_MODEL_CATALOG_JSON",
     ] {
+        environment.remove(key);
+    }
+}
+
+fn strip_hermes_mia_environment(environment: &mut std::collections::BTreeMap<String, String>) {
+    for key in ["CUSTOM_BASE_URL", "OPENAI_API_KEY"] {
         environment.remove(key);
     }
 }
@@ -1155,7 +1446,72 @@ fn first_string(source: &Value, keys: &[&str]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use mia_core_runtime::{RuntimeBuilder, RuntimeProtocol, RuntimeTurnInput};
+
     use super::*;
+
+    fn runtime_plan_for_protocol(protocol: RuntimeProtocol) -> RuntimeTurnPlan {
+        let mut plan =
+            RuntimeBuilder::new("/tmp/mia-workspace").build_turn_plan(RuntimeTurnInput {
+                conversation_id: "conv_runtime_plan".into(),
+                message_id: "msg_runtime_plan".into(),
+                bot_id: Some("bot_runtime_plan".into()),
+                engine: Some("mock-agent".into()),
+                previous_session_key: None,
+                workspace_dir: String::new(),
+                provider: json!({}),
+                mcp_servers: json!({}),
+                attachments: json!([]),
+                selected_skill_ids: Vec::new(),
+                body: "hello".into(),
+            });
+        plan.protocol = protocol;
+        plan.command = None;
+        plan.mock_response = (protocol == RuntimeProtocol::Mock).then(|| "mock reply".into());
+        plan
+    }
+
+    #[test]
+    fn runtime_plan_uses_session_manager_for_native_acp_without_command() {
+        let native_acp = runtime_plan_for_protocol(RuntimeProtocol::NativeAcp);
+        let mock = runtime_plan_for_protocol(RuntimeProtocol::Mock);
+
+        assert!(runtime_plan_uses_session_manager(&native_acp));
+        assert!(!runtime_plan_uses_session_manager(&mock));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_launcher_injects_mia_catalog_before_app_server_startup() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().expect("temp dir");
+        let fake_codex = root.path().join("fake-codex");
+        std::fs::write(&fake_codex, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
+            .expect("write fake codex");
+        std::fs::set_permissions(&fake_codex, std::fs::Permissions::from_mode(0o700))
+            .expect("make fake codex executable");
+        let catalog = root.path().join("model catalog.json");
+        std::fs::write(&catalog, "{\"models\":[]}").expect("write catalog");
+        let registry = MiaRuntimeProxyRegistry::new(root.path());
+        let launcher = registry
+            .write_codex_launcher()
+            .await
+            .expect("write Codex launcher");
+
+        let output = std::process::Command::new(launcher)
+            .arg("app-server")
+            .env("MIA_CODEX_REAL_PATH", &fake_codex)
+            .env("MIA_CODEX_MODEL_CATALOG_JSON", &catalog)
+            .output()
+            .expect("run Codex launcher");
+        let args = String::from_utf8_lossy(&output.stdout);
+
+        assert!(output.status.success());
+        assert!(args.lines().any(|line| line == "app-server"));
+        assert!(args.lines().any(|line| line == "-c"));
+        assert!(args.contains(&format!("model_catalog_json=\"{}\"", catalog.display())));
+    }
 
     #[test]
     fn mia_managed_detection_accepts_builtin_mia_model_reference() {

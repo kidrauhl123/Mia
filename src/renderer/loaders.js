@@ -73,12 +73,11 @@
 
   async function loadEngineCapabilities() {
     if (!state) return;
-    let caps = { approvalModes: ["ask", "yolo", "deny"], effortLevels: ["low", "medium", "high"] };
+    let caps = { approvalModes: [], effortLevels: [], engines: {} };
     try {
       if (window.mia.loadEngineCapabilities) {
         const res = await window.mia.loadEngineCapabilities();
-        if (res && Array.isArray(res.approvalModes) && res.approvalModes.length
-            && Array.isArray(res.effortLevels) && res.effortLevels.length) {
+        if (res && typeof res === "object") {
           caps = res;
           const codexModels = res.engines?.codex?.models;
           if (Array.isArray(codexModels) && codexModels.length) state.codexModels = codexModels;

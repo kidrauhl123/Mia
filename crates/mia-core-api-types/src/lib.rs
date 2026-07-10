@@ -1,7 +1,7 @@
 //! Typed HTTP and realtime payloads exposed by Mia Rust Core.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -894,6 +894,47 @@ pub struct BotRuntimeControlOption {
     pub model_profile_id: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpRuntimeControlChoice {
+    pub value: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpRuntimeControl {
+    pub id: String,
+    pub category: String,
+    pub current_value: String,
+    pub source: String,
+    #[serde(default)]
+    pub options: Vec<AcpRuntimeControlChoice>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpRuntimeControlSnapshot {
+    pub conversation_id: String,
+    pub engine: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub state: String,
+    #[serde(default)]
+    pub controls: Vec<AcpRuntimeControl>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAcpRuntimeControlRequest {
+    pub control_id: String,
+    pub value: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct BotCapabilityOptionsRequest {
@@ -1472,6 +1513,8 @@ pub struct CloudBridgeRunRequest {
     #[serde(default)]
     pub attachments: Value,
     #[serde(default)]
+    pub selected_skill_ids: Vec<String>,
+    #[serde(default)]
     pub bot_id: String,
     #[serde(default)]
     pub bot_name: String,
@@ -1509,6 +1552,17 @@ pub struct CloudBridgeRunResponse {
     pub trace: Value,
     #[serde(default)]
     pub content_blocks: Value,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudBridgeRuntimeControlRequest {
+    #[serde(flatten)]
+    pub run: CloudBridgeRunRequest,
+    #[serde(default)]
+    pub control_id: String,
+    #[serde(default)]
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1588,4 +1642,44 @@ pub struct McpServerUpdatedEvent {
 #[serde(rename_all = "camelCase")]
 pub struct CloudStatusChangedEvent {
     pub connected: bool,
+}
+
+pub fn normalize_runtime_mcp_spec(spec: &Value) -> Option<Value> {
+    if !spec.is_object() {
+        return None;
+    }
+    let command = first_json_string(spec, &["command"]).unwrap_or_default();
+    let url = first_json_string(spec, &["url"]).unwrap_or_default();
+    if !command.is_empty() {
+        return Some(json!({
+            "command": command,
+            "args": spec.get("args").and_then(Value::as_array).cloned().unwrap_or_default(),
+            "env": spec.get("env").and_then(Value::as_object).cloned().map(Value::Object).unwrap_or_else(|| json!({}))
+        }));
+    }
+    if url.is_empty() {
+        return None;
+    }
+    let mut normalized = Map::new();
+    normalized.insert("url".into(), Value::String(url));
+    normalized.insert(
+        "headers".into(),
+        spec.get("headers")
+            .and_then(Value::as_object)
+            .cloned()
+            .map(Value::Object)
+            .unwrap_or_else(|| json!({})),
+    );
+    if let Some(bearer) = first_json_string(spec, &["bearer_token_env_var", "bearerTokenEnvVar"]) {
+        normalized.insert("bearer_token_env_var".into(), Value::String(bearer));
+    }
+    Some(Value::Object(normalized))
+}
+
+fn first_json_string(source: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| source.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }

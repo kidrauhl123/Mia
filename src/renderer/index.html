@@ -406,30 +406,22 @@
             <div class="composer-toolbar">
               <button id="composerAdd" class="composer-add-button" type="button" title="添加" aria-label="添加"><span class="composer-add-lottie" data-lottie="plusToX" data-lottie-trigger="toggle" aria-hidden="true"></span></button>
               <div class="composer-controls">
-                <label class="model-switcher" title="切换当前模型">
+                <label class="model-switcher hidden" title="切换当前模型">
                   <span class="model-avatar" aria-hidden="true">◇</span>
-                  <span id="quickModelLabel" class="model-current-label">模型</span>
+                  <span id="quickModelLabel" class="model-current-label"></span>
                   <select id="quickModelSelect" aria-label="切换当前模型">
-                    <option value="">模型</option>
-                    <option value="custom">Custom</option>
-                    <option value="xai">Grok 4.1 Fast</option>
-                    <option value="anthropic">Claude Sonnet 4.6</option>
-                    <option value="openrouter">Claude Sonnet 4.6</option>
-                    <option value="deepseek">DeepSeek Chat</option>
-                    <option value="gemini">Gemini 2.5 Pro</option>
-                    <option value="lmstudio">Local Model</option>
                   </select>
                 </label>
                 <span class="composer-dot" aria-hidden="true">·</span>
-                <label class="effort-switcher" title="切换推理强度">
-                  <span id="effortLabel" class="effort-label">Medium</span>
+                <label class="effort-switcher hidden" title="切换推理强度">
+                  <span id="effortLabel" class="effort-label"></span>
                   <select id="effortSelect" aria-label="切换推理强度">
                     <!-- options populated dynamically from hermes SETTINGS_SCHEMA at startup -->
                   </select>
                 </label>
                 <span class="composer-dot" aria-hidden="true">·</span>
-                <label class="permission-switcher" title="危险命令权限模式">
-                  <span id="permissionLabel" class="permission-label">Ask</span>
+                <label class="permission-switcher hidden" title="危险命令权限模式">
+                  <span id="permissionLabel" class="permission-label"></span>
                   <select id="permissionMode" aria-label="权限模式">
                     <!-- options populated dynamically from hermes SETTINGS_SCHEMA at startup -->
                   </select>

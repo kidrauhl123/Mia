@@ -2561,12 +2561,14 @@ test("active cloud bot conversations use session-history runtime resolution", ()
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const activeContext = extractFunctionSource(appSource, "activeConversationBotContext");
 
+  assert.match(activeContext, /const conversation = social\?\.getConversationById\?\.\(conversationId\);/);
+  assert.match(activeContext, /if \(!conversation\) return null;/);
   assert.match(activeContext, /const defaultRuntimeKind = runtimeKindForBotConversation\(conversation\);/);
   assert.match(activeContext, /const botRuntimeKind = sessionHistory\.runtimeKind\(bot,\s*""\);/);
   assert.doesNotMatch(activeContext, /const botRuntimeKind = String\(bot\?\.runtimeKind/);
 });
 
-test("composer model control shows neutral text when Core returns no model options", () => {
+test("composer runtime controls hide values Core did not observe", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
   const syncControls = extractFunctionSource(appSource, "syncConversationBotRuntimeControls");
@@ -2574,31 +2576,80 @@ test("composer model control shows neutral text when Core returns no model optio
   const openComposerSelectMenu = extractFunctionSource(appSource, "openComposerSelectMenu");
   const contactControls = extractFunctionSource(contactCardSource, "runtimeControlsHtml");
 
-  assert.match(syncControls, /setText\(els\.quickModelLabel,\s*modelLabel \|\| "模型"\)/);
-  assert.match(syncControls, /els\.quickModelSelect\.disabled = !options \|\| !modelEntries\.length/);
+  assert.doesNotMatch(syncControls, /使用 CLI 模型|CLI 默认/);
+  assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.quickModelSelect,\s*modelEntries\.length > 0\)/);
+  assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.effortSelect,\s*effortEntries\.length > 0\)/);
+  assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.permissionMode,\s*permissionEntries\.length > 0\)/);
+  assert.match(syncControls, /allowEmpty:\s*false,\s*selectFirst:\s*false/);
+  assert.match(syncControls, /const effortEntries = runtimeControlArray\(options\?\.effortOptions\)/);
+  assert.match(syncControls, /const permissionEntries = runtimeControlArray\(options\?\.permissionOptions\)/);
+  assert.match(syncControls, /els\.quickModelSelect\.disabled = !modelEntries\.length/);
   assert.match(syncControls, /const hasSelectedModelEntry = Boolean\(selectedModelEntry\?\.id \|\| selectedModelEntry\?\.value \|\| selectedModelEntry\?\.model \|\| selectedModelEntry\?\.provider\)/);
   assert.match(syncControls, /setComposerModelAvatar\(selectedModelEntry,\s*engine,\s*\{\s*hidden:\s*!hasSelectedModelEntry\s*\}\)/);
+  assert.match(setComposerSelectOptions, /value:\s*String\(entry\.id \|\| entry\.value \|\| entry\.model \|\| ""\)/);
   assert.match(setComposerSelectOptions, /placeholder:\s*true/);
   assert.match(setComposerSelectOptions, /option\.dataset\.placeholder = "true"/);
   assert.match(openComposerSelectMenu, /composerSelectOptions\(select\)\.filter\(\(entry\) => entry\.type !== "option" \|\| !entry\.placeholder\)/);
   assert.match(appSource, /function activeBotRuntimeSendBlock\(\)/);
-  assert.match(appSource, /options\.sendBlocked/);
+  assert.match(appSource, /options\?\.sendBlocked/);
   assert.match(appSource, /nudgeBotRuntimeSendBlock\(runtimeBlock\)/);
   assert.match(appSource, /els\.sendChat\.disabled = cancelling \|\| \(!generating && \(!canSend \|\| blockedByCoreStartup \|\| blockedByRuntime\)\)/);
-  assert.doesNotMatch(syncControls, /modelLabel \|\| "Default"/);
-  assert.match(contactControls, /const hasModelEntries = modelEntries\.length > 0;/);
+  assert.match(contactControls, /const hasModelEntries = modelEntries\.length > 0 && Boolean\(modelLabel\);/);
+  assert.doesNotMatch(contactControls, /使用 CLI 模型|CLI 默认/);
+  assert.match(contactControls, /const modelRow = hasModelEntries \?/);
+  assert.match(contactControls, /const effortRow = effortEntries\.length && effortLabel \?/);
+  assert.match(contactControls, /const permissionRow = permissionEntries\.length && permissionLabel \?/);
   assert.match(contactControls, /const hasSelectedModelEntry = Boolean\(selectedModelEntry\?\.id \|\| selectedModelEntry\?\.value \|\| selectedModelEntry\?\.model \|\| selectedModelEntry\?\.provider\)/);
   assert.match(contactControls, /class="model-switcher\$\{hasSelectedModelEntry \? "" : " model-switcher--no-avatar"\}"/);
   assert.match(contactControls, /class="model-avatar\$\{hasSelectedModelEntry \? "" : " hidden"\}"/);
 });
 
-test("bot runtime send block waits for explicit Core block instead of missing control options", () => {
+test("local bot composer controls use native ACP snapshots and hide unsupported controls", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
+  const syncControls = extractFunctionSource(appSource, "syncConversationBotRuntimeControls");
+
+  assert.match(preloadSource, /prepareConversationRuntimeControls/);
+  assert.match(preloadSource, /setConversationRuntimeControl/);
+  assert.match(appSource, /runtimeControlOptionsFromAcpSnapshot/);
+  assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.effortSelect,\s*effortEntries\.length > 0\)/);
+  assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.permissionMode,\s*permissionEntries\.length > 0\)/);
+  assert.doesNotMatch(appSource, /CLI 默认|使用 CLI 模型/);
+  assert.doesNotMatch(contactCardSource, /CLI 默认|使用 CLI 模型/);
+});
+
+test("Mia platform model snapshots reuse the existing Mia model identity and logo path", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const source = extractFunctionSource(appSource, "runtimeControlOptionsFromAcpSnapshot");
+  const context = vm.createContext({});
+  vm.runInContext(`${source}; this.convert = runtimeControlOptionsFromAcpSnapshot;`, context);
+
+  const options = context.convert({
+    engine: "codex",
+    state: "ready",
+    controls: [{
+      id: "model",
+      category: "model",
+      currentValue: "mia-auto",
+      source: "mia_provider",
+      options: [{ value: "mia-auto", label: "Auto" }]
+    }]
+  });
+
+  assert.equal(options.selectedModelEntry.provider, "mia");
+  assert.equal(options.selectedModelEntry.providerConnectionId, "mia");
+  assert.equal(options.selectedModelEntry.modelProfileId, "mia:mia-auto");
+});
+
+test("bot runtime send block only honors an explicit Core block", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const source = extractFunctionSource(appSource, "activeBotRuntimeSendBlock");
   const context = vm.createContext({
     activeConversationBotContext: () => ({ conversationId: "botc_1" }),
     activeBotRuntimeControlContext: () => ({ botKey: "mia", runtimeKind: "desktop-local" }),
-    runtimeControlOptionsForContext: () => null
+    runtimeControlOptionsForContext: () => null,
+    runtimeControlArray: (value) => Array.isArray(value) ? value : []
   });
 
   vm.runInContext(`${source}; this.activeBotRuntimeSendBlock = activeBotRuntimeSendBlock;`, context);
@@ -2606,10 +2657,23 @@ test("bot runtime send block waits for explicit Core block instead of missing co
   assert.equal(context.activeBotRuntimeSendBlock(), null);
 
   context.runtimeControlOptionsForContext = () => ({
+    agentEngine: "codex",
+    statusText: "Codex",
+    modelOptions: []
+  });
+  assert.equal(context.activeBotRuntimeSendBlock(), null);
+
+  context.runtimeControlOptionsForContext = () => ({
     sendBlocked: true,
-    sendBlockReason: "Codex ACP 自检失败"
+    sendBlockReason: "Codex ACP 自检失败",
+    modelOptions: []
   });
   assert.deepEqual(plain(context.activeBotRuntimeSendBlock()), { reason: "Codex ACP 自检失败" });
+
+  context.runtimeControlOptionsForContext = () => ({
+    modelOptions: [{ id: "gpt-5-codex", label: "GPT-5 Codex" }]
+  });
+  assert.equal(context.activeBotRuntimeSendBlock(), null);
 });
 
 test("desktop-local bot runtime controls read cloud runtime bindings", () => {
@@ -2656,6 +2720,7 @@ test("desktop bot runtime model selection delegates saved binding resolution to 
   const requestBody = extractFunctionSource(appSource, "runtimeControlOptionsRequest");
   const stateBody = extractFunctionSource(appSource, "runtimeControlStateSnapshot");
   const syncBody = extractFunctionSource(appSource, "syncConversationBotRuntimeControls");
+  const sendConfigBody = extractFunctionSource(appSource, "activeBotRuntimeSendConfig");
 
   assert.match(appSource, /getBotRuntimeControlOptions/);
   assert.match(requestBody, /runtimeControlStateSnapshot/);
@@ -2668,6 +2733,10 @@ test("desktop bot runtime model selection delegates saved binding resolution to 
   assert.doesNotMatch(appSource, /permissionOptionsByEngine/);
   assert.match(syncBody, /options\?\.selectedModel/);
   assert.match(syncBody, /options\?\.selectedModelEntry/);
+  assert.match(sendConfigBody, /runtimeControlOptionsForContext\(context\)/);
+  assert.match(sendConfigBody, /runtimeControlSelectedEntry\(modelEntries,\s*selectedModelValue\)/);
+  assert.match(sendConfigBody, /config\.model = model/);
+  assert.match(appSource, /botRuntimeControl:\s*activeBotRuntimeSendConfig\(\)/);
   assert.doesNotMatch(appSource, /function runtimeControlModelProfileId/);
   assert.doesNotMatch(appSource, /function modelValueForRuntimeControl/);
 });
@@ -2869,7 +2938,7 @@ test("contacts use cloud-stored owned bot identities", () => {
   assert.match(appSource, /const contactKeys = new Set/);
 });
 
-test("bot runtime display uses Core projection instead of raw backend config", () => {
+test("bot runtime display prefers Core projection and preserves raw binding fallback", () => {
   const botCommandsSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-commands.js"), "utf8");
   const botDirectorySource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-directory.js"), "utf8");
   const botDialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
@@ -2885,7 +2954,8 @@ test("bot runtime display uses Core projection instead of raw backend config", (
   assert.match(runtimeTargetFromBindingSource, /binding\.targetDeviceId/);
   assert.match(runtimeTargetFromBindingSource, /binding\.targetDeviceName/);
   assert.match(runtimeTargetFromBindingSource, /binding\.agentEngine/);
-  assert.doesNotMatch(runtimeTargetFromBindingSource, /runtimeConfig|runtime_config|\bbinding\.config\b/);
+  assert.match(runtimeTargetFromBindingSource, /const config = binding\.config/);
+  assert.match(runtimeTargetFromBindingSource, /binding\.agentEngine \|\| binding\.agent_engine \|\| config\.agentEngine/);
   assert.match(saveBotRuntimeTargetSource, /binding\.targetDeviceId/);
   assert.match(saveBotRuntimeTargetSource, /binding\.runtimeLabel/);
   assert.doesNotMatch(saveBotRuntimeTargetSource, /runtimeConfig|runtime_config|\bbinding\.config\b/);
@@ -3358,6 +3428,21 @@ test("bot creation branches cloud-claude-code without saving local manifest", ()
   assert.match(commandsSource, /runtimeKind:\s*CLOUD_RUNTIME_KIND/);
   assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBot/);
   assert.doesNotMatch(commandsSource, /api\.saveBot\(bot\)/);
+});
+
+test("bot dialog save reports failures instead of leaving the modal silent", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const start = appSource.indexOf('els.botForm?.addEventListener("submit"');
+  const end = appSource.indexOf('els.modelForm.addEventListener("submit"', start);
+  const submitBody = appSource.slice(start, end);
+
+  assert.ok(start >= 0, "bot form submit handler should exist");
+  assert.ok(end > start, "bot form submit handler should be extractable");
+  assert.match(submitBody, /try\s*\{/);
+  assert.match(submitBody, /await window\.miaBotCommands\.saveBot\(\{/);
+  assert.match(submitBody, /catch\s*\(error\)\s*\{/);
+  assert.match(submitBody, /保存伙伴失败/);
+  assert.match(submitBody, /window\.alert/);
 });
 
 test("editing a cloud-sourced desktop bot does not load local manifest details", async () => {

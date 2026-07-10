@@ -175,19 +175,7 @@
 
   function miaModelEntries(options = {}) {
     const platformModels = Array.isArray(options.platformModels) ? options.platformModels : [];
-    const entries = platformModels.map(normalizePlatformModelEntry).filter(Boolean);
-    return entries.length
-      ? entries
-      : [{
-        id: "mia-auto",
-        provider: MiaProviderId,
-        providerLabel: "Mia",
-        model: "mia-auto",
-        label: "Auto",
-        authType: "mia_account",
-        modelProfileId: "mia:mia-auto",
-        upstreamModel: ""
-      }];
+    return platformModels.map(normalizePlatformModelEntry).filter(Boolean);
   }
 
   function externalModelEntries(value, options = {}) {
@@ -236,7 +224,7 @@
         }))
         .filter((profile) => profile.id)
       : [];
-    if (!rows.length) return [{ value: "default", label: "Ask", title: "Codex 默认权限。" }];
+    if (!rows.length) return [];
 
     const rank = {
       ":workspace": 0,
@@ -284,19 +272,6 @@
         : options.codexPermissionProfiles;
       return codexPermissionOptionsFromProfiles(profiles);
     }
-    if (engine === EngineId.ClaudeCode) return [
-      { value: "default", label: "Ask Permissions", title: "Claude Code asks Mia before tool use.", aliases: [] },
-      { value: "acceptEdits", label: "Accept Edits", title: "Claude Code can apply edit tools without asking first.", aliases: [] },
-      { value: "auto", label: "Auto", title: "Claude Code uses its native automatic permission mode.", aliases: [] },
-      { value: "plan", label: "Plan Mode", title: "Claude Code plans without applying changes.", aliases: [] },
-      { value: "dontAsk", label: "Don't Ask", title: "Claude Code uses its native don't-ask mode.", aliases: [] },
-      {
-        value: "bypassPermissions",
-        label: "Bypass Permissions",
-        title: "Claude Code may use tools without Mia asking first.",
-        aliases: [":danger-full-access", "danger-full-access", "yolo", "off", "never"]
-      }
-    ];
     return [];
   }
 
@@ -341,12 +316,10 @@
       }
       if (dynamic.length) return dynamic;
     }
-    if (engine === EngineId.ClaudeCode || engine === EngineId.Codex) {
-      levels = ["medium"];
-    } else {
+    if (!isExternalEngine(engine)) {
       levels = (Array.isArray(options.effortLevels) && options.effortLevels.length)
         ? options.effortLevels
-        : ["low", "medium", "high"];
+        : [];
     }
     return levels.map((level) => ({ value: level, label: labels[level] || level }));
   }

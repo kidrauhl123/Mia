@@ -310,6 +310,7 @@ async fn conversation_service_uses_desktop_local_runtime_binding_for_bot_turns()
             "config": {
                 "agentEngine": "codex",
                 "model": "gpt-5-codex",
+                "effortLevel": "xhigh",
                 "permissionMode": ":workspace"
             }
         })
@@ -345,6 +346,117 @@ async fn conversation_service_uses_desktop_local_runtime_binding_for_bot_turns()
     assert_eq!(accepted.runtime_plan.engine, "codex");
     assert_eq!(accepted.runtime_plan.mock_response, None);
     assert_eq!(accepted.runtime_plan.provider["model"], "gpt-5-codex");
+    assert_eq!(accepted.runtime_plan.provider["effortLevel"], "xhigh");
+    assert_eq!(
+        accepted.runtime_plan.provider["permissionMode"],
+        ":workspace"
+    );
+}
+
+#[tokio::test]
+async fn conversation_service_prepares_runtime_plan_without_inserting_a_message() {
+    let db = init_database_memory().await.unwrap();
+    sqlx::query(
+        "INSERT INTO bots (id, display_name, avatar_json, capability_json, identity_json, created_at, updated_at)
+         VALUES ('bot_claude', 'Claude Code', '{}', '{}', '{}', 1, 1)",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO bot_runtime_bindings (bot_id, runtime_kind, binding_json, updated_at)
+         VALUES ('bot_claude', 'desktop-local', ?, 1)",
+    )
+    .bind(
+        json!({
+            "runtimeKind": "desktop-local",
+            "agentEngine": "claude-code",
+            "config": {
+                "agentEngine": "claude-code",
+                "model": "claude-sonnet-4-6",
+                "effortLevel": "high",
+                "permissionMode": "acceptEdits"
+            }
+        })
+        .to_string(),
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    let service = ConversationService::new(db.pool().clone());
+    let created = service
+        .create_conversation(CreateConversationRequest {
+            kind: "bot_session".into(),
+            title: "Claude Code".into(),
+            bot_id: Some("bot_claude".into()),
+            metadata: json!({}),
+        })
+        .await
+        .unwrap();
+
+    let plan = service
+        .plan_runtime_session(&created.conversation.id)
+        .await
+        .unwrap();
+    let message_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE conversation_id = ?")
+            .bind(&created.conversation.id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+
+    assert_eq!(message_count, 0);
+    assert_eq!(plan.engine, "claude-code");
+    assert_eq!(plan.provider["model"], "claude-sonnet-4-6");
+    assert_eq!(plan.provider["effortLevel"], "high");
+    assert_eq!(plan.provider["permissionMode"], "acceptEdits");
+}
+
+#[tokio::test]
+async fn conversation_service_defaults_an_unselected_local_engine_to_mia_auto() {
+    let db = init_database_memory().await.unwrap();
+    sqlx::query(
+        "INSERT INTO bots (id, display_name, avatar_json, capability_json, identity_json, created_at, updated_at)
+         VALUES ('bot_default_codex', 'Codex', '{}', '{}', '{}', 1, 1)",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO bot_runtime_bindings (bot_id, runtime_kind, binding_json, updated_at)
+         VALUES ('bot_default_codex', 'desktop-local', ?, 1)",
+    )
+    .bind(
+        json!({
+            "runtimeKind": "desktop-local",
+            "agentEngine": "codex",
+            "config": { "agentEngine": "codex" }
+        })
+        .to_string(),
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    let service = ConversationService::new(db.pool().clone());
+    let created = service
+        .create_conversation(CreateConversationRequest {
+            kind: "bot_session".into(),
+            title: "Codex".into(),
+            bot_id: Some("bot_default_codex".into()),
+            metadata: json!({}),
+        })
+        .await
+        .unwrap();
+
+    let plan = service
+        .plan_runtime_session(&created.conversation.id)
+        .await
+        .unwrap();
+
+    assert_eq!(plan.provider["providerConnectionId"], "mia");
+    assert_eq!(plan.provider["model"], "mia-auto");
+    assert_eq!(plan.provider["modelProfileId"], "mia:mia-auto");
+    assert_eq!(plan.provider["managedByMia"], true);
 }
 
 #[tokio::test]
@@ -427,22 +539,36 @@ async fn conversation_service_formal_turn_payload_contains_current_user_message_
         .await
         .unwrap();
 
-    assert_eq!(second.runtime_plan.protocol, mia_core_runtime::RuntimeProtocol::NativeAcp);
-    assert_eq!(second.runtime_plan.send_message.content, "current user question");
     assert_eq!(
-        second.runtime_plan.runtime_session.resume_session_key.as_deref(),
+        second.runtime_plan.protocol,
+        mia_core_runtime::RuntimeProtocol::NativeAcp
+    );
+    assert_eq!(
+        second.runtime_plan.send_message.content,
+        "current user question"
+    );
+    assert_eq!(
+        second
+            .runtime_plan
+            .runtime_session
+            .resume_session_key
+            .as_deref(),
         Some("native-session-1")
     );
-    assert!(!second
-        .runtime_plan
-        .send_message
-        .content
-        .contains("previous user question"));
-    assert!(!second
-        .runtime_plan
-        .send_message
-        .content
-        .contains("previous assistant answer"));
+    assert!(
+        !second
+            .runtime_plan
+            .send_message
+            .content
+            .contains("previous user question")
+    );
+    assert!(
+        !second
+            .runtime_plan
+            .send_message
+            .content
+            .contains("previous assistant answer")
+    );
 }
 
 #[tokio::test]
@@ -510,6 +636,33 @@ async fn conversation_service_plans_utility_turn_with_core_owned_runtime_resolut
 #[tokio::test]
 async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
     let db = init_database_memory().await.unwrap();
+    sqlx::query("INSERT INTO settings (key, value_json, updated_at) VALUES ('client', ?, 1)")
+        .bind(
+            json!({
+                "reservedMcpSpecs": {
+                    "miaApp": {
+                        "command": "/bin/node",
+                        "args": ["/opt/mia/mia-app-mcp-server.js"],
+                        "env": {
+                            "MIA_CORE_URL": "http://127.0.0.1:27861",
+                            "MIA_CORE_TOKEN": "core-token"
+                        },
+                        "alwaysLoad": true
+                    },
+                    "scheduler": {
+                        "command": "/bin/node",
+                        "args": ["/opt/mia/scheduler-mcp-server.js"],
+                        "env": {
+                            "MIA_SCHEDULER_CONTEXT_FILE": "/tmp/scheduler-context.json"
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .execute(db.pool())
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO mcp_servers (id, name, transport, config_json, enabled, last_test_json, deleted_at, created_at, updated_at)
          VALUES ('mcp_docs', 'docs', 'http', ?, 1, '{}', NULL, 1, 1)",
@@ -536,6 +689,14 @@ async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
     .execute(db.pool())
     .await
     .unwrap();
+    sqlx::query(
+        "INSERT INTO mcp_servers (id, name, transport, config_json, enabled, last_test_json, deleted_at, created_at, updated_at)
+         VALUES ('mcp_user_mia_app', 'mia-app', 'http', ?, 1, '{}', NULL, 1, 1)",
+    )
+    .bind(json!({"nativeName":"mia-app","transport":{"url":"https://bad.example/mcp"}}).to_string())
+    .execute(db.pool())
+    .await
+    .unwrap();
 
     let service = ConversationService::new(db.pool().clone());
     let created = service
@@ -547,8 +708,8 @@ async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
         })
         .await
         .unwrap();
-    let sent = service
-        .send_user_message(
+    let accepted = service
+        .start_user_turn(
             &created.conversation.id,
             SendConversationMessageRequest {
                 body: "hello mcp".to_string(),
@@ -558,9 +719,31 @@ async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
         )
         .await
         .unwrap();
+    assert_eq!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["env"]["MIA_CORE_TOKEN"],
+        "core-token"
+    );
+    assert_eq!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["args"][0],
+        "/opt/mia/mia-app-mcp-server.js"
+    );
+    assert!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]
+            .get("alwaysLoad")
+            .is_none()
+    );
+    assert!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]
+            .get("url")
+            .is_none()
+    );
+    assert_eq!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-scheduler"]["args"][0],
+        "/opt/mia/scheduler-mcp-server.js"
+    );
 
     let row = sqlx::query("SELECT content_json FROM messages WHERE id = ?")
-        .bind(sent.assistant_message_id.as_deref().unwrap())
+        .bind(accepted.response.assistant_message_id.as_deref().unwrap())
         .fetch_one(db.pool())
         .await
         .unwrap();
@@ -577,6 +760,10 @@ async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
     );
     assert_eq!(
         content["runtimePlan"]["mcpServers"]["mcpServers"]["docs"]["headers"]["Authorization"],
+        "••••"
+    );
+    assert_eq!(
+        content["runtimePlan"]["mcpServers"]["mcpServers"]["mia-app"]["env"]["MIA_CORE_TOKEN"],
         "••••"
     );
     assert!(

@@ -89,6 +89,67 @@ function botWithCanonicalStatusBadge(bot = {}, fallback = null) {
   return bot;
 }
 
+const BOT_RUNTIME_CACHE_FIELDS = [
+  "runtimeKind",
+  "runtimeConfig",
+  "runtime_config",
+  "agentEngine",
+  "agent_engine",
+  "targetDeviceId",
+  "target_device_id",
+  "targetDeviceName",
+  "target_device_name",
+  "deviceId",
+  "device_id",
+  "deviceName",
+  "device_name",
+  "runtimeLabel",
+  "runtime_label",
+  "runtimeStatus",
+  "runtime_status",
+  "deviceStatus",
+  "device_status"
+];
+
+function botIdentityWithCachedRuntime(bot = {}, cached = null) {
+  const merged = { ...bot };
+  for (const field of BOT_RUNTIME_CACHE_FIELDS) {
+    if (hasOwn(cached, field)) merged[field] = cached[field];
+  }
+  return merged;
+}
+
+function botWithRuntimeBinding(bot = {}, binding = {}) {
+  const config = binding.config && typeof binding.config === "object" ? binding.config : {};
+  const runtimeKind = String(binding.runtimeKind || binding.runtime_kind || "desktop-local").trim() || "desktop-local";
+  const isCloud = runtimeKind === "cloud-claude-code";
+  const agentEngine = String(config.agentEngine || config.agent_engine || binding.agentEngine || binding.agent_engine || "").trim();
+  const deviceId = isCloud
+    ? ""
+    : String(config.deviceId || config.device_id || config.targetDeviceId || binding.targetDeviceId || "").trim();
+  const deviceName = isCloud
+    ? "Mia Cloud"
+    : String(config.deviceName || config.device_name || binding.targetDeviceName || "").trim();
+  const {
+    runtimeStatus: _runtimeStatus,
+    runtime_status: _runtime_status,
+    deviceStatus: _deviceStatus,
+    device_status: _device_status,
+    ...identity
+  } = bot;
+  return {
+    ...identity,
+    runtimeKind,
+    runtimeConfig: config,
+    agentEngine,
+    targetDeviceId: deviceId,
+    targetDeviceName: deviceName,
+    deviceId,
+    deviceName,
+    runtimeLabel: isCloud ? "Mia Cloud" : (deviceName || "当前设备")
+  };
+}
+
 function cachedSocialBootstrap({ messageCache, getCloudUserId, requestedUserId }) {
   if (!messageCache || typeof messageCache.getSocialBootstrap !== "function") return null;
   const currentUserId = currentCacheUserId(getCloudUserId);
@@ -124,7 +185,7 @@ function writeCachedBotIdentity({ messageCache, getCloudUserId, bot, log }) {
     const current = typeof messageCache.getSocialBootstrap === "function" ? messageCache.getSocialBootstrap(userId) : null;
     const bots = Array.isArray(current?.bots) ? current.bots : [];
     const existing = bots.find((item) => botIdentityKey(item) === key) || null;
-    const merged = botWithCanonicalStatusBadge(bot, existing);
+    const merged = botIdentityWithCachedRuntime(botWithCanonicalStatusBadge(bot, existing), existing);
     const next = [
       merged,
       ...bots.filter((item) => botIdentityKey(item) !== key)
@@ -132,6 +193,24 @@ function writeCachedBotIdentity({ messageCache, getCloudUserId, bot, log }) {
     messageCache.updateSocialBootstrap(userId, { bots: next });
   } catch (error) {
     log(`[social-ipc] social bootstrap bot cache update failed: ${error?.message || error}`);
+  }
+}
+
+function writeCachedBotRuntimeBinding({ messageCache, getCloudUserId, botId, binding, log }) {
+  const userId = currentCacheUserId(getCloudUserId);
+  const key = String(botId || binding?.botId || binding?.bot_id || "").trim();
+  if (!userId || !key || !binding || binding.enabled === false || !messageCache || typeof messageCache.updateSocialBootstrap !== "function") return;
+  try {
+    const current = typeof messageCache.getSocialBootstrap === "function" ? messageCache.getSocialBootstrap(userId) : null;
+    const bots = Array.isArray(current?.bots) ? current.bots : [];
+    const existing = bots.find((item) => botIdentityKey(item) === key) || { id: key, key };
+    const next = [
+      botWithRuntimeBinding(existing, binding),
+      ...bots.filter((item) => botIdentityKey(item) !== key)
+    ];
+    messageCache.updateSocialBootstrap(userId, { bots: next });
+  } catch (error) {
+    log(`[social-ipc] social bootstrap bot runtime cache update failed: ${error?.message || error}`);
   }
 }
 
@@ -277,7 +356,17 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   ipcMain.handle(IpcChannel.SocialEnsureBotConversation, cloudCall((botId, body) => socialApi.ensureBotConversation(botId, body)));
   ipcMain.handle(IpcChannel.SocialEnsureBotSessionConversation, cloudCall((sessionId, body) => socialApi.ensureBotSessionConversation(sessionId, body)));
   ipcMain.handle(IpcChannel.SocialGetBotRuntime, cloudCall((botId, runtimeKind) => socialApi.getBotRuntime(botId, runtimeKind)));
-  ipcMain.handle(IpcChannel.SocialSaveBotRuntime, cloudCall((botId, body) => socialApi.saveBotRuntime(botId, body)));
+  ipcMain.handle(IpcChannel.SocialSaveBotRuntime, cloudCall(async (botId, body) => {
+    const result = await socialApi.saveBotRuntime(botId, body);
+    writeCachedBotRuntimeBinding({
+      messageCache,
+      getCloudUserId,
+      botId,
+      binding: resultObject(result, "binding"),
+      log
+    });
+    return result;
+  }));
   ipcMain.handle(IpcChannel.SocialListBridgeDevices, cloudCall((options) => socialApi.listBridgeDevices(options)));
   ipcMain.handle(IpcChannel.SocialUpdateConversation, cloudCall(async (conversationId, patch) => {
     const result = await socialApi.updateConversation(conversationId, patch);

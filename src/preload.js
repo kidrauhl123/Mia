@@ -131,13 +131,70 @@ function selectedSkillIdsFromCoreBody(input = {}) {
   return [];
 }
 
+let observedCoreStarterUserId = "";
+let observedCoreStarterUserIdRefresh = null;
+const observedCoreConversationIds = new Set();
+
+function starterOwnerFromBotId(botId) {
+  const match = /^starter_([^_]+)_.+$/.exec(String(botId || "").trim());
+  return match ? match[1] : "";
+}
+
+function starterOwnerFromConversationId(conversationId) {
+  const match = /^botc_starter_([^_]+)_.+$/.exec(String(conversationId || "").trim());
+  return match ? match[1] : "";
+}
+
+function rememberObservedCoreStarterUserId(value) {
+  const userId = String(value || "").trim();
+  if (userId) observedCoreStarterUserId = userId;
+}
+
+function rememberObservedCoreStarterUserIdFromBots(bots = []) {
+  for (const bot of Array.isArray(bots) ? bots : []) {
+    rememberObservedCoreStarterUserId(starterOwnerFromBotId(bot?.id || bot?.key || bot?.botId || bot?.bot_id || ""));
+    if (observedCoreStarterUserId) return;
+  }
+}
+
+function rememberObservedCoreConversationId(conversationId) {
+  const id = String(conversationId || "").trim();
+  if (id) observedCoreConversationIds.add(id);
+}
+
+function rememberObservedCoreConversationIdsFromConversations(conversations = []) {
+  for (const conversation of Array.isArray(conversations) ? conversations : []) {
+    rememberObservedCoreConversationId(conversation?.id || conversation?.conversationId || conversation?.conversation_id || "");
+  }
+}
+
+async function refreshObservedCoreStarterUserId() {
+  if (observedCoreStarterUserIdRefresh) return observedCoreStarterUserIdRefresh;
+  observedCoreStarterUserIdRefresh = Promise.all([
+    miaCoreGet("/api/bots").catch(() => null),
+    miaCoreGet("/api/conversations").catch(() => null)
+  ])
+    .then(([botsResponse, conversationsResponse]) => {
+      const bots = botsResponse?.bots || botsResponse?.data?.bots || [];
+      if (bots.length) {
+        observedCoreStarterUserId = "";
+        rememberObservedCoreStarterUserIdFromBots(bots);
+      }
+      const conversations = conversationsResponse?.conversations || conversationsResponse?.data?.conversations || [];
+      rememberObservedCoreConversationIdsFromConversations(conversations);
+    })
+    .catch(() => {})
+    .finally(() => {
+      observedCoreStarterUserIdRefresh = null;
+    });
+  return observedCoreStarterUserIdRefresh;
+}
+
 function isCoreConversationId(conversationId) {
   const id = String(conversationId || "").trim();
-  const coreUserId = String(miaCoreStartupState.userId || "").trim();
-  const coreStarterPrefix = coreUserId ? `botc_starter_${coreUserId}_` : "";
   return id.startsWith("conv_")
-    || id.startsWith("cloud_bridge_")
-    || Boolean(coreStarterPrefix && id.startsWith(coreStarterPrefix));
+    || (id.startsWith("cloud_bridge_") && observedCoreConversationIds.has(id))
+    || Boolean(observedCoreStarterUserId && starterOwnerFromConversationId(id) === observedCoreStarterUserId);
 }
 
 function isBotConversationId(conversationId) {
@@ -273,6 +330,40 @@ async function getCoreBotRuntimeControlOptions(input = {}) {
   return coreOk(miaCorePost("/api/bots/runtime-control-options", request));
 }
 
+async function localConversationRuntimeControlPayload(conversationId, input = {}) {
+  const request = input && typeof input === "object" ? input : {};
+  const runtimeConfig = await desktopLocalRuntimeConfig(request);
+  const botId = firstText(request.botId, request.bot_id, request.botKey, request.bot_key);
+  return {
+    runId: firstText(request.runId, request.run_id, `runtime_controls_${Date.now()}`),
+    conversationId: String(conversationId || "").trim(),
+    text: "",
+    attachments: [],
+    botId,
+    botName: firstText(request.botName, request.bot_name, request.name, botId),
+    agentEngine: firstText(runtimeConfig.agentEngine, request.agentEngine, request.agent_engine),
+    runtimeConfig,
+    model: firstText(runtimeConfig.model) || null,
+    effortLevel: firstText(runtimeConfig.effortLevel, runtimeConfig.effort_level) || null,
+    permissionMode: firstText(runtimeConfig.permissionMode, runtimeConfig.permission_mode) || null
+  };
+}
+
+async function prepareConversationRuntimeControls(conversationId, input = {}) {
+  const payload = await localConversationRuntimeControlPayload(conversationId, input);
+  return coreOk(miaCorePost("/api/cloud/bridge/runtime-controls/prepare", payload));
+}
+
+async function setConversationRuntimeControl(conversationId, input = {}) {
+  const request = input && typeof input === "object" ? input : {};
+  const payload = await localConversationRuntimeControlPayload(conversationId, request);
+  return coreOk(miaCorePatch("/api/cloud/bridge/runtime-controls", {
+    ...payload,
+    controlId: firstText(request.controlId, request.control_id),
+    value: firstText(request.value)
+  }));
+}
+
 async function getCoreSettingsRuntimeControlOptions(input = {}) {
   const request = input && typeof input === "object" ? input : {};
   return coreOk(miaCorePost("/api/settings/runtime-control-options", request));
@@ -384,15 +475,20 @@ async function createConversationCompat(payload = {}) {
 }
 
 async function getConversationCompat(conversationId) {
-  if (!isCoreConversationId(conversationId)) {
+  const id = String(conversationId || "").trim();
+  if (starterOwnerFromConversationId(id)) await refreshObservedCoreStarterUserId();
+  if (!isCoreConversationId(id)) {
     try {
-      const result = await ipcRenderer.invoke(IpcChannel.SocialGetConversation, conversationId);
+      const result = await ipcRenderer.invoke(IpcChannel.SocialGetConversation, id);
       if (result?.ok !== false) return result;
     } catch {
       // Fall back to Core for local-only/dev sessions.
     }
+    if (isBotConversationId(id) || id.startsWith("cloud_bridge_")) {
+      return { ok: false, status: 404, error: "conversation not found" };
+    }
   }
-  return coreConversationOk(miaCoreGet(`/api/conversations/${encodeURIComponent(conversationId)}`));
+  return coreConversationOk(miaCoreGet(`/api/conversations/${encodeURIComponent(id)}`));
 }
 
 async function listConversationsCompat() {
@@ -409,6 +505,7 @@ async function listConversationsCompat() {
 
 async function listBotsCompat() {
   try {
+    await refreshObservedCoreStarterUserId();
     const result = await ipcRenderer.invoke(IpcChannel.SocialListBots);
     const bots = result?.data?.bots || result?.bots || [];
     if (result?.ok === false) return result;
@@ -503,7 +600,7 @@ async function desktopLocalRuntimeConfig(input = {}) {
   let binding = null;
   if (botId) {
     try {
-      const response = await getCoreBotRuntime(botId, "desktop-local");
+      const response = await getBotRuntimeCompat(botId, "desktop-local");
       binding = response?.data?.binding || response?.binding || null;
     } catch {
       binding = null;
@@ -556,6 +653,7 @@ async function postLocalDesktopBotMessage(conversationId, body = {}) {
   });
   const responseRunId = firstText(response?.runId, response?.run_id, runId);
   const localCoreConversationId = firstText(response?.conversationId, response?.conversation_id);
+  rememberObservedCoreConversationId(localCoreConversationId);
   const botReplyText = firstText(response?.text, response?.bodyMd, response?.body_md, response?.body);
   const contentBlocks = Array.isArray(response?.contentBlocks)
     ? response.contentBlocks
@@ -627,6 +725,7 @@ async function listCoreConversationMessages(conversationId, sinceSeq, limit) {
   query.set("sinceSeq", String(Math.max(0, Number(sinceSeq) || 0)));
   query.set("limit", String(Math.max(1, Number(limit) || 200)));
   const response = await miaCoreGet(`/api/conversations/${encodeURIComponent(id)}/messages?${query.toString()}`);
+  rememberObservedCoreConversationId(id);
   const messages = Array.isArray(response?.messages)
     ? response.messages.map((message) => normalizeCoreMessage(message, { conversationId: id }))
     : [];
@@ -690,10 +789,12 @@ async function listLocalDesktopBotMessages(conversationId, sinceSeq, limit) {
   const socialMessages = socialPayload?.data?.messages || socialPayload?.messages || [];
   const localConversationId = localCoreConversationIdForBotConversation(conversationId);
   let localPayload = null;
-  try {
-    localPayload = await listCoreConversationMessages(localConversationId, 0, Math.max(1000, Number(limit) || 200));
-  } catch (error) {
-    if (!String(error?.message || "").includes("404")) throw error;
+  if (observedCoreConversationIds.has(localConversationId)) {
+    try {
+      localPayload = await listCoreConversationMessages(localConversationId, 0, Math.max(1000, Number(limit) || 200));
+    } catch (error) {
+      if (!String(error?.message || "").includes("404")) throw error;
+    }
   }
   const localMessages = (localPayload?.data?.messages || localPayload?.messages || [])
     .map((message) => rewriteLocalBotMessageConversation(message, conversationId, localConversationId));
@@ -711,6 +812,7 @@ async function listLocalDesktopBotMessages(conversationId, sinceSeq, limit) {
 }
 
 async function listConversationMessagesCompat(conversationId, sinceSeq, limit) {
+  if (String(conversationId || "").startsWith("cloud_bridge_")) await refreshObservedCoreStarterUserId();
   if (isCloudStarterBotConversationId(conversationId)) {
     return ipcRenderer.invoke(IpcChannel.SocialListConversationMessages, conversationId, sinceSeq, limit);
   }
@@ -1088,6 +1190,8 @@ contextBridge.exposeInMainWorld("mia", {
     saveBotRuntime: (botId, body) => saveBotRuntimeCompat(botId, body),
     getBotRuntimeTargetOptions: (input) => getCoreBotRuntimeTargetOptions(input),
     getBotRuntimeControlOptions: (input) => getCoreBotRuntimeControlOptions(input),
+    prepareConversationRuntimeControls: (conversationId, input) => prepareConversationRuntimeControls(conversationId, input),
+    setConversationRuntimeControl: (conversationId, input) => setConversationRuntimeControl(conversationId, input),
     getBotCapabilityOptions: (input) => getCoreBotCapabilityOptions(input),
     ensureStarterEngineBots: (input) => ensureCoreStarterEngineBots(input),
     listBridgeDevices: (options) => ipcRenderer.invoke(IpcChannel.SocialListBridgeDevices, options),

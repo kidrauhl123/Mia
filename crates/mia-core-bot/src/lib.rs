@@ -341,10 +341,25 @@ impl BotService {
         .fetch_optional(&self.pool)
         .await?;
         let Some(row) = row else {
+            let identity_row = sqlx::query("SELECT identity_json FROM bots WHERE id = ?")
+                .bind(bot_id)
+                .fetch_optional(&self.pool)
+                .await?;
+            let identity_engine = identity_row
+                .map(|row| parse_json(row.get::<String, _>("identity_json")))
+                .transpose()?
+                .as_ref()
+                .and_then(|identity| {
+                    first_value_string(identity, &["agentEngine", "agent_engine", "engine"])
+                })
+                .map(|engine| normalize_agent_engine(&engine));
             return Ok(BotRuntimeResponse {
                 bot_id: bot_id.to_string(),
                 runtime_kind: runtime_kind.clone(),
-                binding: default_runtime_binding(&runtime_kind),
+                binding: default_runtime_binding_for_engine(
+                    &runtime_kind,
+                    identity_engine.as_deref(),
+                ),
             });
         };
         Ok(BotRuntimeResponse {
@@ -1621,8 +1636,19 @@ fn runtime_binding_projection(runtime_kind: &str, config: &Value) -> RuntimeBind
     }
 }
 
-fn default_runtime_binding(runtime_kind: &str) -> Value {
-    let config = json!({});
+fn default_runtime_binding_for_engine(runtime_kind: &str, engine: Option<&str>) -> Value {
+    let config = engine
+        .map(normalize_agent_engine)
+        .filter(|engine| !engine.is_empty())
+        .map(|engine| {
+            json!({
+                "agentEngine": engine,
+                "providerConnectionId": "mia",
+                "modelProfileId": "mia:mia-auto",
+                "model": "mia-auto"
+            })
+        })
+        .unwrap_or_else(|| json!({}));
     let projection = runtime_binding_projection(runtime_kind, &config);
     json!({
         "runtimeKind": projection.runtime_kind,
@@ -1630,9 +1656,9 @@ fn default_runtime_binding(runtime_kind: &str) -> Value {
         "targetDeviceId": projection.target_device_id,
         "targetDeviceName": projection.target_device_name,
         "runtimeLabel": projection.runtime_label,
-        "providerConnectionId": null,
-        "modelProfileId": null,
-        "model": null,
+        "providerConnectionId": config.get("providerConnectionId").cloned().unwrap_or(Value::Null),
+        "modelProfileId": config.get("modelProfileId").cloned().unwrap_or(Value::Null),
+        "model": config.get("model").cloned().unwrap_or(Value::Null),
         "config": config,
     })
 }
@@ -1733,10 +1759,17 @@ fn runtime_control_options_from_request(
             &codex_models,
         )
     };
-    let effort_options =
-        runtime_control_effort_options(&agent_engine, &engine_capabilities, &codex_models);
-    let permission_options =
-        runtime_control_permission_options(&runtime_kind, &agent_engine, &engine_capabilities);
+    let runtime_controls_available = !model_options.is_empty();
+    let effort_options = if runtime_controls_available {
+        runtime_control_effort_options(&agent_engine, &engine_capabilities, &codex_models)
+    } else {
+        Vec::new()
+    };
+    let permission_options = if runtime_controls_available {
+        runtime_control_permission_options(&runtime_kind, &agent_engine, &engine_capabilities)
+    } else {
+        Vec::new()
+    };
     let selected_model =
         selected_runtime_control_model(&runtime_kind, &agent_engine, &model_options, &config);
     let selected_model_entry =
@@ -1917,7 +1950,7 @@ fn runtime_control_model_catalog(value: &Value) -> Vec<BotRuntimeControlOption> 
 }
 
 fn runtime_control_platform_model_entries(value: &Value) -> Vec<BotRuntimeControlOption> {
-    let entries = value_array_or_nested(value, &["models", "platformModels", "platform_models"])
+    value_array_or_nested(value, &["models", "platformModels", "platform_models"])
         .iter()
         .filter_map(|item| {
             let id = first_value_string(
@@ -1939,24 +1972,7 @@ fn runtime_control_platform_model_entries(value: &Value) -> Vec<BotRuntimeContro
                 model_profile_id: format!("mia:{id}"),
             })
         })
-        .collect::<Vec<_>>();
-    if entries.is_empty() {
-        vec![BotRuntimeControlOption {
-            id: "mia-auto".into(),
-            value: "mia-auto".into(),
-            label: "Auto".into(),
-            title: String::new(),
-            aliases: vec![],
-            model: "mia-auto".into(),
-            provider: "mia".into(),
-            provider_connection_id: "mia".into(),
-            provider_label: "Mia".into(),
-            auth_type: "mia_account".into(),
-            model_profile_id: "mia:mia-auto".into(),
-        }]
-    } else {
-        entries
-    }
+        .collect::<Vec<_>>()
 }
 
 fn platform_model_display_label(entry: &Value, fallback_id: &str) -> String {
@@ -2166,19 +2182,14 @@ fn runtime_control_effort_options(
             return options;
         }
     }
-    let fallback = if is_external_runtime_engine(engine) {
-        vec!["medium".to_string()]
+    let levels = if is_external_runtime_engine(engine) {
+        Vec::new()
     } else {
         value_array_or_nested(engine_capabilities, &["effortLevels", "effort_levels"])
             .iter()
             .filter_map(Value::as_str)
             .map(str::to_string)
             .collect::<Vec<_>>()
-    };
-    let levels = if fallback.is_empty() {
-        vec!["low".to_string(), "medium".to_string(), "high".to_string()]
-    } else {
-        fallback
     };
     levels
         .into_iter()
@@ -2280,61 +2291,14 @@ fn runtime_control_permission_options(
                 value_array_or_nested(&capability, &["permissionProfiles", "permission_profiles"]);
             return codex_permission_options_from_profiles(&profiles);
         }
-        if engine == "claude-code" {
-            return vec![
-                runtime_control_permission_option(
-                    "default",
-                    "Ask Permissions",
-                    "Claude Code asks Mia before tool use.",
-                ),
-                runtime_control_permission_option(
-                    "acceptEdits",
-                    "Accept Edits",
-                    "Claude Code can apply edit tools without asking first.",
-                ),
-                runtime_control_permission_option(
-                    "auto",
-                    "Auto",
-                    "Claude Code uses its native automatic permission mode.",
-                ),
-                runtime_control_permission_option(
-                    "plan",
-                    "Plan Mode",
-                    "Claude Code plans without applying changes.",
-                ),
-                runtime_control_permission_option(
-                    "dontAsk",
-                    "Don't Ask",
-                    "Claude Code uses its native don't-ask mode.",
-                ),
-                BotRuntimeControlOption {
-                    aliases: vec![
-                        ":danger-full-access".into(),
-                        "danger-full-access".into(),
-                        "yolo".into(),
-                        "off".into(),
-                        "never".into(),
-                    ],
-                    ..runtime_control_permission_option(
-                        "bypassPermissions",
-                        "Bypass Permissions",
-                        "Claude Code may use tools without Mia asking first.",
-                    )
-                },
-            ];
-        }
-        return vec![runtime_control_permission_option("default", "Ask", "")];
+        return Vec::new();
     }
     let modes = value_array_or_nested(engine_capabilities, &["approvalModes", "approval_modes"]);
-    let values = if modes.is_empty() {
-        vec!["ask".to_string(), "yolo".to_string(), "deny".to_string()]
-    } else {
-        modes
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect()
-    };
+    let values = modes
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
     values
         .iter()
         .map(|value| runtime_control_permission_option(value, approval_label(value), ""))
@@ -2343,11 +2307,7 @@ fn runtime_control_permission_options(
 
 fn codex_permission_options_from_profiles(profiles: &[Value]) -> Vec<BotRuntimeControlOption> {
     if profiles.is_empty() {
-        return vec![runtime_control_permission_option(
-            "default",
-            "Ask",
-            "Codex 默认权限。",
-        )];
+        return Vec::new();
     }
     let mut rows = profiles
         .iter()
@@ -2748,7 +2708,19 @@ fn selected_runtime_control_model(
         .unwrap_or_default()
 }
 
-fn runtime_inventory_engine_state(runtime: &Value, engine: &str) -> Option<bool> {
+struct RuntimeInventoryEngineState {
+    usable: bool,
+    health: String,
+    source: String,
+    readiness_status: String,
+    readiness_summary: String,
+    readiness_detail: String,
+}
+
+fn runtime_inventory_engine_state(
+    runtime: &Value,
+    engine: &str,
+) -> Option<RuntimeInventoryEngineState> {
     let agents = runtime
         .get("agentInventory")
         .and_then(Value::as_object)
@@ -2764,13 +2736,25 @@ fn runtime_inventory_engine_state(runtime: &Value, engine: &str) -> Option<bool>
             continue;
         };
         if agent_id == engine {
-            return Some(
-                agent
+            let readiness = agent.get("readiness").and_then(Value::as_object);
+            return Some(RuntimeInventoryEngineState {
+                usable: agent
                     .get("usableInMia")
                     .or_else(|| agent.get("usable_in_mia"))
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
-            );
+                health: first_map_string(agent, &["health"]).unwrap_or_default(),
+                source: first_map_string(agent, &["source"]).unwrap_or_default(),
+                readiness_status: readiness
+                    .and_then(|value| first_map_string(value, &["status"]))
+                    .unwrap_or_default(),
+                readiness_summary: readiness
+                    .and_then(|value| first_map_string(value, &["summary"]))
+                    .unwrap_or_default(),
+                readiness_detail: readiness
+                    .and_then(|value| first_map_string(value, &["detail"]))
+                    .unwrap_or_default(),
+            });
         }
     }
     None
@@ -2791,9 +2775,19 @@ fn runtime_control_send_block_reason(runtime_kind: &str, engine: &str, runtime: 
     }
     let label = engine_label(engine);
     match runtime_inventory_engine_state(runtime, engine) {
-        Some(true) => String::new(),
-        Some(false) => format!("{label} ACP 自检失败"),
-        None if runtime_agent_inventory_present(runtime) => format!("{label} ACP 自检失败"),
+        Some(state) if state.usable => String::new(),
+        Some(state)
+            if state.health == "checking"
+                || state.source == "checking"
+                || state.readiness_status == "checking" =>
+        {
+            format!("{label} ACP 自检未完成")
+        }
+        Some(state) => [state.readiness_summary, state.readiness_detail]
+            .into_iter()
+            .find(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| format!("{label} 不可用")),
+        None if runtime_agent_inventory_present(runtime) => format!("{label} 不可用"),
         None => format!("{label} ACP 自检未完成"),
     }
 }
@@ -2821,6 +2815,9 @@ fn selected_runtime_control_value(
     configured: Option<&str>,
     default_value: &str,
 ) -> String {
+    if entries.is_empty() {
+        return String::new();
+    }
     if let Some(value) = configured.map(str::trim).filter(|value| !value.is_empty()) {
         return value.to_string();
     }

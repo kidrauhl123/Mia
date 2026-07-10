@@ -162,6 +162,14 @@ test("bot preload bridge keeps bot identity cloud-owned while Core owns runtime 
   assert.doesNotMatch(preload, /saveCoreBotIdentity|buildCoreBotIdentityRequest/);
 });
 
+test("desktop-local Cloud bot sends prefer the Cloud runtime binding before Core fallback", () => {
+  const preload = read("src/preload.js");
+  const desktopRuntimeConfig = extractFunctionSource(preload, "desktopLocalRuntimeConfig");
+
+  assert.match(desktopRuntimeConfig, /getBotRuntimeCompat\(botId,\s*"desktop-local"\)/);
+  assert.doesNotMatch(desktopRuntimeConfig, /getCoreBotRuntime\(botId,\s*"desktop-local"\)/);
+});
+
 test("conversation preload bridge keeps the social conversation list cloud-owned", () => {
   const preload = read("src/preload.js");
   const channels = read("src/shared/ipc-channels.js");
@@ -172,6 +180,9 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
   assert.match(preload, /createConversation:\s*\(payload\)\s*=>\s*createConversationCompat\(payload\)/);
   assert.match(preload, /postConversationMessage:\s*\(conversationId,\s*body\)\s*=>\s*postConversationMessageCompat\(conversationId,\s*body\)/);
   assert.match(preload, /async function getConversationCompat\(conversationId\)/);
+  const getConversationSource = extractFunctionSource(preload, "getConversationCompat");
+  assert.match(getConversationSource, /starterOwnerFromConversationId\(id\)\) await refreshObservedCoreStarterUserId\(\)/);
+  assert.match(getConversationSource, /if \(isBotConversationId\(id\) \|\| id\.startsWith\("cloud_bridge_"\)\) \{\s*return \{ ok: false,\s*status: 404,\s*error: "conversation not found" \};\s*\}/);
   assert.match(preload, /function isDesktopLocalBotPost\(body = \{\}\)/);
   assert.match(preload, /function isCloudClaudeCodeBotPost\(body = \{\}\)/);
   assert.match(preload, /function isCloudStarterBotConversationId\(conversationId\)/);
@@ -179,6 +190,8 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
   assert.match(preload, /function localCoreConversationIdForBotConversation\(conversationId\)/);
   assert.match(preload, /async function listLocalDesktopBotMessages\(conversationId,\s*sinceSeq,\s*limit\)/);
   assert.match(preload, /async function postLocalDesktopBotMessage\(conversationId,\s*body = \{\}\)/);
+  const listLocalDesktopSource = extractFunctionSource(preload, "listLocalDesktopBotMessages");
+  assert.match(listLocalDesktopSource, /if \(observedCoreConversationIds\.has\(localConversationId\)\) \{/);
   assert.match(preload, /id:\s*firstText\(response\?\.messageId,\s*response\?\.message_id,\s*`msg_\$\{runId\}`\)/);
   const desktopBotPostSource = extractFunctionSource(preload, "isDesktopLocalBotConversationPost");
   assert.match(
@@ -222,12 +235,22 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
   assert.match(preload, /input\.bodyMd \|\| input\.body_md \|\| input\.body \|\| input\.text \|\| input\.message/);
   assert.match(preload, /function normalizeCoreConversation/);
   const coreConversationIdSource = extractFunctionSource(preload, "isCoreConversationId");
-  assert.match(coreConversationIdSource, /botc_starter_/);
-  assert.match(coreConversationIdSource, /miaCoreStartupState\.userId/);
+  assert.match(preload, /function starterOwnerFromConversationId\(conversationId\)/);
+  assert.match(preload, /\^botc_starter_/);
+  assert.match(preload, /let observedCoreStarterUserId = ""/);
+  assert.match(preload, /const observedCoreConversationIds = new Set\(\)/);
+  assert.match(preload, /async function refreshObservedCoreStarterUserId\(\)/);
+  assert.match(preload, /miaCoreGet\("\/api\/bots"\)/);
+  assert.match(preload, /miaCoreGet\("\/api\/conversations"\)/);
+  assert.match(preload, /await refreshObservedCoreStarterUserId\(\)/);
+  assert.match(coreConversationIdSource, /observedCoreStarterUserId/);
+  assert.match(coreConversationIdSource, /id\.startsWith\("cloud_bridge_"\) && observedCoreConversationIds\.has\(id\)/);
+  assert.doesNotMatch(coreConversationIdSource, /miaCoreStartupState\.userId/);
   assert.doesNotMatch(coreConversationIdSource, /id\.startsWith\("botc_starter_"\)/);
   assert.doesNotMatch(coreConversationIdSource, /id\.startsWith\("botc_"\)/);
   assert.match(preload, /listConversationMessages:\s*\(conversationId,\s*sinceSeq,\s*limit\)\s*=>\s*listConversationMessagesCompat\(conversationId,\s*sinceSeq,\s*limit\)/);
   const listMessagesSource = extractFunctionSource(preload, "listConversationMessagesCompat");
+  assert.match(listMessagesSource, /if \(String\(conversationId \|\| ""\)\.startsWith\("cloud_bridge_"\)\) await refreshObservedCoreStarterUserId\(\);/);
   assert.match(
     listMessagesSource,
     /if \(isCloudStarterBotConversationId\(conversationId\)\) \{\s*return ipcRenderer\.invoke\(IpcChannel\.SocialListConversationMessages,\s*conversationId,\s*sinceSeq,\s*limit\);\s*\}/,

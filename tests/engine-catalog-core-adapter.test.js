@@ -43,10 +43,10 @@ test("engine catalog Core adapter maps legacy IPC methods to typed Rust Core rou
   ]);
 });
 
-test("engine catalog Core adapter keeps capability defaults stable for malformed Core replies", () => {
+test("engine catalog Core adapter preserves empty capabilities for malformed Core replies", () => {
   assert.deepEqual(normalizeCapabilities({}), {
-    approvalModes: ["ask", "yolo", "deny"],
-    effortLevels: ["low", "medium", "high"],
+    approvalModes: [],
+    effortLevels: [],
     engines: {}
   });
 });

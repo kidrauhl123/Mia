@@ -43,6 +43,12 @@ try {
 } catch {
   ({ createBotsStore } = require("./src/cloud/bots-store.js"));
 }
+let runtimeBindingIntents = null;
+try {
+  runtimeBindingIntents = require("../src/shared/runtime-binding-intents.js");
+} catch {
+  runtimeBindingIntents = require("./src/shared/runtime-binding-intents.js");
+}
 let pushNotifications = null;
 try {
   pushNotifications = require("../src/cloud/push-notifications.js");
@@ -4149,7 +4155,12 @@ async function handleRequest(req, res, context) {
       if (runtimeKind === "cloud-claude-code" && !defaultAgentEngine) {
         return writeError(res, 503, "cloud agent runtime unavailable");
       }
-      const config = sanitizeRuntimeConfig(body.config, {
+      const existingBinding = context.runtimeBindingsStore.getBinding(auth.user.id, botId, runtimeKind);
+      const configInput = runtimeBindingIntents.runtimeConfigInputForRequest({
+        body,
+        existingConfig: existingBinding?.config || {}
+      });
+      const config = sanitizeRuntimeConfig(configInput, {
         runtimeKind,
         defaultModel: platformModelId(context),
         defaultAgentEngine,
@@ -4706,6 +4717,9 @@ function createMiaCloudServer(options = {}) {
       broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload),
       broadcastTransientEvent: (userId, payload) => broadcastTransientEvent(context.eventHub, userId, payload),
       getUserPublic: (userId) => context.cloudStore.getUserPublic(userId),
+      memoryStore: context.memoryStore,
+      createCloudSessionToken: (userId) => context.cloudStore.createSessionForUser(userId).token,
+      cloudBaseUrl: () => publicOriginFromContext(context),
       loadNativeSessionId: (descriptor = {}) => context.agentSessionStore?.getId(
         descriptor.engineId,
         descriptor.botId,

@@ -420,6 +420,7 @@ fn endpoint_dtos_cover_the_initial_core_contract() {
         conversation_id: "cloud_conv_1".into(),
         text: "hello from cloud".into(),
         attachments: json!([]),
+        selected_skill_ids: vec!["mia:flashcards".into()],
         bot_id: "mia".into(),
         bot_name: "Mia".into(),
         display_name: "Mia".into(),
@@ -436,6 +437,10 @@ fn endpoint_dtos_cover_the_initial_core_contract() {
     assert_eq!(
         serialized_bridge_run["runtimeConfig"]["agentEngine"],
         "codex"
+    );
+    assert_eq!(
+        serialized_bridge_run["selectedSkillIds"][0],
+        "mia:flashcards"
     );
     let _ = CloudBridgeRunResponse {
         ok: true,
@@ -696,6 +701,36 @@ fn runtime_control_options_serialize_as_camel_case_contract() {
         serialized_response["selectedModelEntry"]["id"],
         "gpt-5.3-codex"
     );
+}
+
+#[test]
+fn acp_runtime_control_snapshot_serializes_only_observed_controls() {
+    let snapshot = AcpRuntimeControlSnapshot {
+        conversation_id: "conv_1".into(),
+        engine: "claude-code".into(),
+        session_id: Some("session_1".into()),
+        state: "ready".into(),
+        controls: vec![AcpRuntimeControl {
+            id: "model".into(),
+            category: "model".into(),
+            current_value: "claude-sonnet-4-6".into(),
+            source: "config_option".into(),
+            options: vec![AcpRuntimeControlChoice {
+                value: "claude-sonnet-4-6".into(),
+                label: "Sonnet 4.6".into(),
+                description: String::new(),
+            }],
+        }],
+        error: String::new(),
+    };
+
+    let value = serde_json::to_value(snapshot).unwrap();
+
+    assert_eq!(value["conversationId"], "conv_1");
+    assert_eq!(value["sessionId"], "session_1");
+    assert_eq!(value["controls"][0]["currentValue"], "claude-sonnet-4-6");
+    assert_eq!(value["controls"][0]["source"], "config_option");
+    assert_eq!(value["controls"][0]["options"][0]["label"], "Sonnet 4.6");
 }
 
 #[test]

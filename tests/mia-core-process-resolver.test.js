@@ -283,6 +283,11 @@ test("core env overlay stamps rust-core target identity without daemon aliases",
   assert.equal(env.MIA_CORE_HOME, path.join(path.sep, "tmp", "mia-root", "runtime", "core-home"));
   assert.equal(env.MIA_CORE_APP_VERSION, "0.1.39");
   assert.equal(env.MIA_OFFICIAL_SKILLS_DIR, path.join(repoRoot, "skills", "_builtin"));
+  assert.equal(env.MIA_MANAGED_AGENT_RESOURCES, [
+    path.join(path.sep, "tmp", "mia-root", "runtime", "core-home", "managed-resources"),
+    path.join(repoRoot, "resources", "managed-resources")
+  ].join(path.delimiter));
+  assert.equal(env.MIA_CORE_RESOURCES_PATH, "");
   assert.equal(env.MIA_HERMES_ENGINE_DIR, path.join(path.sep, "tmp", "mia-root", "runtime", "hermes-engine"));
   assert.equal(env.MIA_PLUGINS_DIR, path.join(path.sep, "tmp", "mia-root", "runtime", "mia-plugins"));
   assert.equal(env.MIA_CORE_TARGET_KIND, "rust-core");
@@ -323,6 +328,13 @@ test("core env overlay points packaged Rust Core at extraResource official skill
   }).coreEnvOverlay();
 
   assert.equal(env.MIA_OFFICIAL_SKILLS_DIR, path.join(res, "skills", "_builtin"));
+  assert.equal(env.MIA_MANAGED_AGENT_RESOURCES, [
+    path.join(path.sep, "tmp", "mia-root", "runtime", "core-home", "managed-resources"),
+    path.join(res, "managed-resources"),
+    path.join(res, "bundled-aioncore", "darwin-arm64", "managed-resources"),
+    path.join(path.resolve("/repo"), "resources", "managed-resources")
+  ].join(path.delimiter));
+  assert.equal(env.MIA_CORE_RESOURCES_PATH, res);
 });
 
 test("assertLaunchable returns rust-core resolution for launchable targets", () => {

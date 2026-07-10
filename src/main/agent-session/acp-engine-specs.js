@@ -1,6 +1,22 @@
 const { spawnExecutable } = require("../agent-runtime/process-launcher.js");
 
 const ACP_ENGINE_IDS = Object.freeze(["claude", "codex", "hermes"]);
+const MANAGED_ENGINE_PROTOCOLS = Object.freeze({
+  claude: Object.freeze(["acp", "cli", "claude-code-cli"]),
+  codex: Object.freeze(["acp", "cli", "codex-cli", "codex-app-server"])
+});
+
+function normalizeAcpEngineId(value = "") {
+  const id = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  if (id === "claude-code" || id === "claude-code-agent") return "claude";
+  if (id === "openai-codex" || id === "codex-cli") return "codex";
+  if (id === "hermes-cli") return "hermes";
+  return id;
+}
+
+function managedServiceEngineId(engineId = "") {
+  return engineId === "claude" ? "claude-code" : engineId;
+}
 
 function childProcessOptions(options = {}, platform = process.platform) {
   const next = { ...(options || {}) };
@@ -17,25 +33,52 @@ function spawnAcpEngineProcess(spawn, engineSpec = {}, options = {}, runtimeOpti
   return spawnExecutable(spawn, command, args, childProcessOptions(options, platform), { platform });
 }
 
+function managedRuntimeForEngine(engineId, options = {}) {
+  const runtimeByEngine = options.managedRuntimeByEngine || options.managedRuntimes;
+  if (runtimeByEngine && typeof runtimeByEngine === "object") {
+    const direct = runtimeByEngine[engineId] || runtimeByEngine[managedServiceEngineId(engineId)];
+    if (direct?.path || direct?.command) return direct;
+  }
+  if (typeof options.resolveManagedAgentRuntime === "function") {
+    const runtime = options.resolveManagedAgentRuntime(managedServiceEngineId(engineId), {
+      protocols: MANAGED_ENGINE_PROTOCOLS[engineId] || []
+    });
+    if (runtime?.path || runtime?.command) return runtime;
+  }
+  const service = options.managedAgentRuntime;
+  if (service && typeof service.resolve === "function") {
+    const runtime = service.resolve(managedServiceEngineId(engineId), {
+      protocols: MANAGED_ENGINE_PROTOCOLS[engineId] || []
+    });
+    if (runtime?.path || runtime?.command) return runtime;
+  }
+  return null;
+}
+
+function specFromManagedRuntime(engineId, runtime = {}) {
+  if (!runtime || typeof runtime !== "object") return null;
+  const command = String(runtime.command || runtime.path || "").trim();
+  if (!command) return null;
+  return Object.freeze({
+    engineId,
+    transport: "acp",
+    command,
+    args: Array.isArray(runtime.args) ? runtime.args.map(String) : [],
+    source: String(runtime.source || "managed"),
+    managed: true,
+    runtimePath: String(runtime.path || command),
+    runtimeVersion: String(runtime.version || ""),
+    runtimeProtocol: String(runtime.protocol || ""),
+    supportsSteerInput: false,
+    supportsQueuedInput: true
+  });
+}
+
 function buildAcpEngineSpecs(options = {}) {
   const hermesCommand = String(options.hermesCommandPath || options.hermesCommand || "").trim() || "hermes";
   return Object.freeze([
-    Object.freeze({
-      engineId: "claude",
-      transport: "acp",
-      command: "npx",
-      args: ["-y", "@agentclientprotocol/claude-agent-acp@0.39.0"],
-      supportsSteerInput: false,
-      supportsQueuedInput: true
-    }),
-    Object.freeze({
-      engineId: "codex",
-      transport: "acp",
-      command: "npx",
-      args: ["-y", "@agentclientprotocol/codex-acp@1.1.0"],
-      supportsSteerInput: false,
-      supportsQueuedInput: true
-    }),
+    specFromManagedRuntime("claude", managedRuntimeForEngine("claude", options)),
+    specFromManagedRuntime("codex", managedRuntimeForEngine("codex", options)),
     Object.freeze({
       engineId: "hermes",
       transport: "acp",
@@ -44,11 +87,11 @@ function buildAcpEngineSpecs(options = {}) {
       supportsSteerInput: false,
       supportsQueuedInput: true
     })
-  ]);
+  ].filter(Boolean));
 }
 
 function getAcpEngineSpec(engineId, options = {}) {
-  const normalized = String(engineId || "").trim().toLowerCase().replace(/_/g, "-");
+  const normalized = normalizeAcpEngineId(engineId);
   if (!normalized) return null;
   return buildAcpEngineSpecs(options).find((spec) => spec.engineId === normalized) || null;
 }
@@ -67,5 +110,8 @@ module.exports = Object.freeze({
   buildAcpEngineSpecs,
   childProcessOptions,
   getAcpEngineSpec,
+  managedRuntimeForEngine,
+  normalizeAcpEngineId,
+  specFromManagedRuntime,
   spawnAcpEngineProcess
 });

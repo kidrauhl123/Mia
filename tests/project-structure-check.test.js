@@ -292,29 +292,30 @@ test("cloud bridge remote run delegates backend execution decisions to Rust Core
 test("Electron main no longer owns provider runtime resolution", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const engineRuntimeSource = fs.readFileSync(path.join(root, "src/main/engine-runtime-config-service.js"), "utf8");
-  const agentSessionRuntimeSource = fs.readFileSync(path.join(root, "src/main/agent-session-runtime-preparer.js"), "utf8");
 
   assert.equal(fs.existsSync(path.join(root, "src/main/mia-core/model-runtime-resolver.js")), false, "old JS model-runtime resolver should stay deleted");
   assert.equal(fs.existsSync(path.join(root, "tests/mia-core-model-runtime-resolver.test.js")), false, "old JS model-runtime resolver tests should stay deleted");
   assert.equal(fs.existsSync(path.join(root, "src/main/claude-code-mia-proxy.js")), false, "old JS Claude managed-model proxy should stay deleted");
   assert.equal(fs.existsSync(path.join(root, "tests/claude-code-mia-proxy.test.js")), false, "old JS Claude managed-model proxy tests should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "src/main/agent-session-runtime-preparer.js")), false, "old JS AgentSession runtime preparer should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "tests/agent-session-runtime-preparer.test.js")), false, "old JS AgentSession runtime preparer tests should stay deleted");
   assert.doesNotMatch(mainSource, /model-runtime-resolver|createMiaCoreModelRuntimeResolver|isMiaManagedRuntime/, "main must not import or instantiate the deleted JS model-runtime resolver");
   assert.doesNotMatch(mainSource, /createClaudeCodeMiaProxy|claudeCodeMiaProxy/, "main must not instantiate the deleted JS Claude managed-model proxy");
+  assert.doesNotMatch(mainSource, /agent-session-runtime-preparer|createAgentSessionRuntimePreparer|prepareAgentSessionRuntime/, "main must not instantiate the deleted JS AgentSession runtime preparer");
   assert.doesNotMatch(mainSource, /resolveModelRuntime:\s*\(/, "main must not inject a JS provider runtime resolver into Hermes config generation");
   assert.match(engineRuntimeSource, /\/api\/engines\/hermes\/runtime-config/, "engine runtime config adapter should delegate Hermes config preparation to Rust Core");
   assert.doesNotMatch(engineRuntimeSource, /apiKeyEnv|api_key_env|apiKey|api_key|baseUrl|base_url|apiMode|api_mode|resolveModelRuntime|writeRuntimeConfig|modelSettings/, "engine runtime config adapter must not assemble provider runtime transport");
-  assert.doesNotMatch(agentSessionRuntimeSource, /resolveManagedModelRuntime|claudeCodeMiaProxy|codexMiaProxy|apiKeyEnv|api_key_env|apiKey|api_key|baseUrl|base_url|apiMode|api_mode|CODEX_CONFIG|ANTHROPIC_BASE_URL|HERMES_HOME/, "AgentSession preparer must not assemble provider transport or managed-model proxy env");
 });
 
 test("old Node Core skill runtime owner path is retired", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const preparerSource = fs.readFileSync(path.join(root, "src/main/agent-session-runtime-preparer.js"), "utf8");
 
   assert.equal(fs.existsSync(path.join(root, "src/main/mia-core/skill-runtime-owner.js")), false, "old Node Core skill runtime owner should stay deleted");
   assert.equal(fs.existsSync(path.join(root, "tests/skill-runtime-owner.test.js")), false, "old Node Core skill runtime owner tests should stay deleted");
-  assert.match(mainSource, /createAgentSessionSkillRuntimeAdapter/, "main should use the AgentSession skill runtime adapter name");
-  assert.match(preparerSource, /createAgentSessionSkillRuntimeAdapter/, "runtime preparer should default to the AgentSession adapter");
-  assert.doesNotMatch(`${mainSource}\n${preparerSource}`, /createSkillRuntimeOwner|skillRuntimeOwner|mia-core\/skill-runtime-owner/, "old skill runtime owner naming/path must not return");
+  assert.equal(fs.existsSync(path.join(root, "src/main/agent-session-skill-runtime.js")), false, "old JS AgentSession skill runtime adapter should stay deleted");
+  assert.equal(fs.existsSync(path.join(root, "tests/agent-session-skill-runtime.test.js")), false, "old JS AgentSession skill runtime adapter tests should stay deleted");
+  assert.doesNotMatch(mainSource, /agent-session-skill-runtime|createAgentSessionSkillRuntimeAdapter/, "main must not instantiate the deleted JS AgentSession skill runtime adapter");
+  assert.doesNotMatch(mainSource, /createSkillRuntimeOwner|skillRuntimeOwner|mia-core\/skill-runtime-owner/, "old skill runtime owner naming/path must not return");
 });
 
 test("cloud Claude Code legacy runs client files are removed", () => {
@@ -335,6 +336,8 @@ test("cloud release builder ships only cloud Claude Code agent files and exclude
   assert.match(source, /api\/src\/cloud-agent\/cloud-claude-code-model\.js/);
   assert.match(source, /api\/src\/cloud-agent\/claude-code-sandbox-manager\.js/);
   assert.match(source, /api\/src\/cloud-agent\/claude-code-sandbox-client\.js/);
+  assert.match(source, /api\/src\/cloud-agent\/runtime-assembly\.js/);
+  assert.match(source, /api\/src\/cloud-agent\/mia-cloud-mcp-server\.js/);
   assert.doesNotMatch(source, /api\/src\/cloud-agent\/cloud-hermes-model\.js/);
   assert.doesNotMatch(source, /api\/src\/cloud-agent\/cloud-hermes-sessions-store\.js/);
   assert.doesNotMatch(source, /api\/src\/cloud-agent\/hermes-worker-manager\.js/);

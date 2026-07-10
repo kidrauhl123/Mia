@@ -17,7 +17,6 @@ const {
 } = require("./main/chat-engine-registry.js");
 const { createChatSendDelegator } = require("./main/chat-send-delegation.js");
 const { createChatAttachmentCoreAdapter } = require("./main/chat-attachment-core-adapter.js");
-const { createAgentSessionSkillRuntimeAdapter } = require("./main/agent-session-skill-runtime.js");
 const { createNativeTurnHelpers } = require("./main/native-turn-helpers.js");
 const { createMiaMemoryProvider } = require("./main/mia-memory-provider.js");
 const { createMiaMemoryService } = require("./main/mia-memory-service.js");
@@ -103,7 +102,6 @@ const {
   createAgentSessionStore
 } = require("./main/agent-session-store.js");
 const { createAgentPermissionProxy } = require("./main/agent-permission-proxy.js");
-const { createAgentSessionRuntimePreparer } = require("./main/agent-session-runtime-preparer.js");
 const { createSchedulerMcpBridge } = require("./main/scheduler-mcp-bridge.js");
 const { createSystemHermesService } = require("./main/system-hermes-service.js");
 const { createEngineRuntimeConfigService } = require("./main/engine-runtime-config-service.js");
@@ -2102,26 +2100,6 @@ function runConversationUtilityTurn(payload = {}) {
     body: payload && typeof payload === "object" ? payload : {}
   });
 }
-
-const skillRuntimeAdapter = createAgentSessionSkillRuntimeAdapter({
-  listSkillRecordsForBot: (bot) => skillsLoader.skillRecordsForBot(bot),
-  resolveSkillRecord: (skillId) => skillsLoader.resolveLocalSkillRecord(skillId),
-  resolveSkillRuntimeWithCore: async (request) => {
-    const client = createMiaCoreHttpClient({ baseUrl: currentMiaCoreBaseUrl(), fetch });
-    return client.post("/api/conversations/agent-session-skill-runtime", request);
-  }
-});
-const agentSessionRuntimePreparer = createAgentSessionRuntimePreparer({
-  skillRuntimeAdapter,
-  hermesCommandPath: () => systemHermesService.commandPath(),
-  getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
-  getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
-  getUserMcpServers: (engineId, options) => userMcpService.getEngineSpecs(engineId, options),
-  getMcpFingerprint: userMcpService.fingerprint,
-  writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
-  writeSchedulerMcpContext: schedulerMcpBridge.writeContext
-});
-const prepareAgentSessionRuntime = (input) => agentSessionRuntimePreparer.prepare(input);
 
 async function restartEngineIfRunning() {
   const shouldRestart = Boolean(engineProcess || engineState.running || engineState.starting);

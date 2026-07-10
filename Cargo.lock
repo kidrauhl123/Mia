@@ -1555,6 +1555,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "dashmap",
+ "mia-core-api-types",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

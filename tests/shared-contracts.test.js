@@ -49,6 +49,17 @@ test("engine contract normalizes aliases and exposes shared labels", () => {
   assert.equal(browserContract.normalizeAgentEngine("openai-codex"), "codex");
 });
 
+test("session history derives starter bot identity from canonical bot conversation ids", () => {
+  const nodeContract = require("../src/shared/session-history");
+  const browserContract = loadBrowserGlobal("packages/shared/session-history.js", "miaSessionHistory");
+  const conversation = { id: "botc_starter_6682409_codex", type: "bot", name: "Codex" };
+
+  assert.equal(nodeContract.conversationType(conversation, conversation.id), "bot");
+  assert.equal(nodeContract.botId(conversation), "starter_6682409_codex");
+  assert.equal(browserContract.botId({ id: "botc_starter_6682409_hermes", type: "bot" }), "starter_6682409_hermes");
+  assert.equal(nodeContract.botId({ id: "botc_session_probe", type: "bot" }), "");
+});
+
 test("engine contract owns external model and mode options for browser clients", () => {
   const contract = require("../src/shared/engine-contracts");
 
@@ -57,8 +68,13 @@ test("engine contract owns external model and mode options for browser clients",
   assert.equal(contract.isExternalEngine("openclaw"), false);
   assert.equal(contract.isExternalEngine("hermes"), false);
   assert.equal(contract.adapterForEngine("openclaw").id, "hermes");
-  assert.deepEqual(contract.externalModelEntries("claude-code").map((entry) => entry.id), ["mia-auto"]);
-  assert.equal(contract.externalModelEntries("claude-code").find((entry) => entry.provider === "mia").authType, "mia_account");
+  assert.deepEqual(contract.externalModelEntries("claude-code").map((entry) => entry.id), []);
+  assert.equal(
+    contract.externalModelEntries("claude-code", {
+      platformModels: [{ id: "mia-auto", label: "Auto" }]
+    }).find((entry) => entry.provider === "mia").authType,
+    "mia_account"
+  );
   assert.deepEqual(
     contract.externalModelEntries("claude-code", {
       engineCapabilities: {
@@ -70,8 +86,7 @@ test("engine contract owns external model and mode options for browser clients",
       }
     }).map((entry) => ({ id: entry.id, model: entry.model, label: entry.label, provider: entry.provider })),
     [
-      { id: "sonnet", model: "sonnet", label: "Sonnet alias", provider: "claude-code" },
-      { id: "mia-auto", model: "mia-auto", label: "Auto", provider: "mia" }
+      { id: "sonnet", model: "sonnet", label: "Sonnet alias", provider: "claude-code" }
     ]
   );
   assert.equal(contract.platformModelDisplayLabel({ id: "mia-auto", label: "Mia DeepSeek" }), "Auto");
@@ -103,11 +118,10 @@ test("engine contract owns external model and mode options for browser clients",
         description: "Test model",
         defaultReasoningLevel: "medium",
         supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "medium" }]
-      },
-      { id: "mia-auto", provider: "mia", providerLabel: "Mia", model: "mia-auto", label: "Auto", authType: "mia_account", modelProfileId: "mia:mia-auto", upstreamModel: "" }
+      }
     ]
   );
-  assert.deepEqual(contract.externalModelEntries("codex").map((entry) => entry.id), ["mia-auto"]);
+  assert.deepEqual(contract.externalModelEntries("codex").map((entry) => entry.id), []);
   assert.deepEqual(
     contract.externalPermissionOptions("claude-code", {
       engineCapabilities: { engines: { "claude-code": { permissionModes: ["default", "plan"] } } }
@@ -116,7 +130,7 @@ test("engine contract owns external model and mode options for browser clients",
   );
   assert.deepEqual(
     contract.externalPermissionOptions("claude-code").map((item) => item.value),
-    ["default", "acceptEdits", "auto", "plan", "dontAsk", "bypassPermissions"]
+    []
   );
   assert.deepEqual(
     contract.externalPermissionOptions("codex", {
@@ -141,8 +155,8 @@ test("engine contract owns external model and mode options for browser clients",
     { value: "low", label: "Low", title: "Fast" },
     { value: "high", label: "High", title: "" }
   ]);
-  assert.deepEqual(contract.effortOptions("codex").map((item) => item.value), ["medium"]);
-  assert.deepEqual(contract.effortOptions("openclaw").map((item) => item.value), ["low", "medium", "high"]);
+  assert.deepEqual(contract.effortOptions("codex").map((item) => item.value), []);
+  assert.deepEqual(contract.effortOptions("openclaw").map((item) => item.value), []);
   assert.deepEqual(
     contract.effortOptions("hermes", { effortLevels: ["low", "high"], effortLabels: { high: "High" } }),
     [{ value: "low", label: "low" }, { value: "high", label: "High" }]

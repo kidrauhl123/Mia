@@ -1186,3 +1186,57 @@ test("normalizeAcpSessionUpdate strips Codex Mia Auto metadata warnings from mix
     }]
   );
 });
+
+test("normalizeAcpSessionUpdate suppresses arbitrary Codex model metadata warnings", () => {
+  assert.deepEqual(
+    normalizeAcpSessionUpdate({
+      turnId: "turn-2",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "Model metadata for gpt-5.6-terra should stay out of chat"
+        }
+      }
+    }),
+    [{
+      kind: "assistant-delta",
+      payload: {
+        turnId: "turn-2",
+        text: "Model metadata for gpt-5.6-terra should stay out of chat"
+      }
+    }]
+  );
+  assert.deepEqual(
+    normalizeAcpSessionUpdate({
+      turnId: "turn-3",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "Warning: Model metadata for gpt-5.6-terra not found.\nDefaulting to fallback metadata; this can degrade performance and cause issues.\n\n"
+        }
+      }
+    }),
+    []
+  );
+  assert.deepEqual(
+    normalizeAcpSessionUpdate({
+      turnId: "turn-4",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "Warning: Model metadata for `gpt-5.6-terra` not found.\nDefaulting to fallback metadata; this can degrade performance and cause issues.\n\n你好"
+        }
+      }
+    }),
+    [{
+      kind: "assistant-delta",
+      payload: {
+        turnId: "turn-4",
+        text: "你好"
+      }
+    }]
+  );
+});

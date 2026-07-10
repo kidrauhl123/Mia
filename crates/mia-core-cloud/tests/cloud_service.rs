@@ -526,6 +526,11 @@ async fn cloud_service_prepares_bridge_run_without_leaking_runtime_secrets() {
             run_id: "run/one".into(),
             conversation_id: "cloud:conversation/one".into(),
             text: "use managed runtime".into(),
+            selected_skill_ids: vec![
+                "mia:flashcards".into(),
+                "mia:flashcards".into(),
+                "deep-research".into(),
+            ],
             bot_id: "helper".into(),
             bot_name: "Helper".into(),
             runtime_config: json!({
@@ -553,6 +558,10 @@ async fn cloud_service_prepares_bridge_run_without_leaking_runtime_secrets() {
     assert_eq!(
         prepared.local_conversation_id,
         "cloud_bridge_cloud_conversation_one"
+    );
+    assert_eq!(
+        prepared.selected_skill_ids,
+        vec!["mia:flashcards".to_string(), "deep-research".to_string()]
     );
     assert_eq!(prepared.runtime["agentEngine"], "hermes");
     assert_eq!(prepared.runtime["providerConnectionId"], "mia");
@@ -833,7 +842,8 @@ async fn cloud_events_manager_runs_desktop_bot_invocations_and_posts_reply() {
                     "triggeringMessage": {
                         "id": "m_user",
                         "body_md": "hi",
-                        "attachments_json": "[{\"id\":\"att_1\"}]"
+                        "attachments_json": "[{\"id\":\"att_1\"}]",
+                        "skills_json": "[{\"id\":\"mia:flashcards\",\"name\":\"Anki\"}]"
                     },
                     "members": [{
                         "member_kind": "bot",
@@ -873,6 +883,7 @@ async fn cloud_events_manager_runs_desktop_bot_invocations_and_posts_reply() {
     assert_eq!(runs[0].bot_name, "Codex");
     assert_eq!(runs[0].text, "hi");
     assert_eq!(runs[0].attachments, json!([{ "id": "att_1" }]));
+    assert_eq!(runs[0].selected_skill_ids, vec!["mia:flashcards"]);
     assert_eq!(runs[0].runtime_config["agentEngine"], "codex");
     assert_eq!(runs[0].model.as_deref(), Some("mia-auto"));
 

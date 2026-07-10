@@ -81,6 +81,16 @@ test("shellCommandPath falls back to executable files in user CLI directories", 
   assert.equal(service.shellCommandPath("codex"), executable);
 });
 
+test("shellCommandPath does not treat managed ACP runtimes as primary CLIs", (t) => {
+  const { service } = makeService(t, {
+    managedAgentRuntime: {
+      resolve: () => ({ path: "/managed/codex-acp", command: "/managed/codex-acp" })
+    }
+  });
+
+  assert.equal(service.shellCommandPath("codex"), "");
+});
+
 test("shellCommandPath finds npm CLIs installed under nvm versions", (t) => {
   const { home, service } = makeService(t);
   const bin = path.join(home, ".nvm", "versions", "node", "v24.15.0", "bin");
@@ -184,98 +194,6 @@ test("shellCommandPath scans official Windows agent install directories before P
   assert.deepEqual(calls, []);
 });
 
-test("agentInventory prefers managed runtime manifests before system PATH probes", (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-local-agent-home-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
-  const root = path.join(home, "managed-resources");
-  const service = createLocalAgentEngineService({
-    homeDir: () => home,
-    env: { PATH: "" },
-    platform: "win32",
-    arch: "x64",
-    managedResourceRoots: [root],
-    fs: {
-      accessSync: (p, mode) => {
-        if (!String(p).startsWith(home)) throw new Error("ENOENT");
-        return fs.accessSync(p, mode);
-      },
-      readdirSync: (...args) => fs.readdirSync(...args),
-      readFileSync: (...args) => fs.readFileSync(...args)
-    },
-    spawnSync: (command, args) => {
-      if (command === "where" && args[0] === "codex") {
-        return { status: 0, stdout: "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd\r\n", stderr: "" };
-      }
-      return { status: 1, stdout: "", stderr: "" };
-    }
-  });
-  const runtimeDir = path.join(root, "acp", "codex-acp", "0.14.0", "win32-x64");
-  const entrypoint = path.join(runtimeDir, "codex-acp.exe");
-  fs.mkdirSync(runtimeDir, { recursive: true });
-  fs.writeFileSync(entrypoint, "");
-  fs.writeFileSync(path.join(runtimeDir, "manifest.json"), JSON.stringify({
-    entrypoint: "codex-acp.exe",
-    protocol: "codex-app-server"
-  }));
-
-  const inventory = service.agentInventory();
-  const codex = inventory.agents.find((agent) => agent.id === "codex");
-
-  assert.equal(codex.source, "managed");
-  assert.equal(codex.usableInMia, true);
-  assert.equal(codex.path, entrypoint);
-  assert.equal(codex.version, "0.14.0");
-  assert.equal(codex.system.available, false);
-  assert.deepEqual(codex.runtime, {
-    source: "managed",
-    managed: true,
-    supported: true,
-    path: entrypoint,
-    version: "0.14.0",
-    protocol: "codex-app-server"
-  });
-});
-
-test("agentInventory detects unsupported managed ACP runtimes without exposing them as usable CLI adapters", (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-local-agent-home-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
-  const root = path.join(home, "managed-resources");
-  const runtimeDir = path.join(root, "acp", "codex-acp", "0.14.0", "win32-x64");
-  const entrypoint = path.join(runtimeDir, "codex-acp.exe");
-  fs.mkdirSync(runtimeDir, { recursive: true });
-  fs.writeFileSync(entrypoint, "");
-  fs.writeFileSync(path.join(runtimeDir, "manifest.json"), JSON.stringify({
-    entrypoint: "codex-acp.exe",
-    protocol: "acp"
-  }));
-  const service = createLocalAgentEngineService({
-    homeDir: () => home,
-    env: { PATH: "" },
-    platform: "win32",
-    arch: "x64",
-    managedResourceRoots: [root],
-    fs: {
-      accessSync: (p, mode) => {
-        if (!String(p).startsWith(home)) throw new Error("ENOENT");
-        return fs.accessSync(p, mode);
-      },
-      readdirSync: (...args) => fs.readdirSync(...args),
-      readFileSync: (...args) => fs.readFileSync(...args)
-    },
-    spawnSync: () => ({ status: 1, stdout: "", stderr: "" })
-  });
-
-  const codex = service.agentInventory().agents.find((agent) => agent.id === "codex");
-
-  assert.equal(codex.installed, true);
-  assert.equal(codex.usableInMia, false);
-  assert.equal(codex.health, "detected");
-  assert.equal(codex.source, "managed");
-  assert.equal(codex.runtime.protocol, "acp");
-  assert.equal(codex.runtime.supported, false);
-  assert.equal(service.shellCommandPath("codex"), "");
-});
-
 test("shellCommandPath returns empty on Windows when `where` finds nothing", (t) => {
   const calls = [];
   const { service } = makeService(t, {
@@ -305,20 +223,10 @@ test("commandVersion returns the first version line from stdout or stderr", (t) 
   assert.equal(service.commandVersion(""), "");
 });
 
-test("localAgentEngines reports the legacy engine view and caches CLI probes until reset", (t) => {
+test("localAgentEngines is Core-only and reports checking before Core inventory is cached", (t) => {
   let now = 1000;
   const { calls, service } = makeService(t, {
-    now: () => now,
-    spawnSync: (command, args) => {
-      calls.push([command, ...args]);
-      if (command === "zsh" && args[1] === "command -v npx") {
-        return { status: 0, stdout: "/bin/npx\n", stderr: "" };
-      }
-      if (command === "/bin/npx") {
-        return { status: 0, stdout: "10.9.0\n", stderr: "" };
-      }
-      return { status: 1, stdout: "", stderr: "" };
-    }
+    now: () => now
   });
 
   const first = service.localAgentEngines();
@@ -327,15 +235,14 @@ test("localAgentEngines reports the legacy engine view and caches CLI probes unt
   service.resetCache();
   const refreshed = service.localAgentEngines();
 
+  assert.equal(calls.length, 0);
   assert.equal(first.hermes.available, false);
-  assert.deepEqual(first.hermes.system, { available: false, path: "", version: "" });
-  assert.equal(first.claudeCode.path, "/bin/npx");
-  assert.equal(first.claudeCode.version, "10.9.0");
-  assert.equal(first.codex.path, "/bin/npx");
-  assert.equal(first.codex.version, "10.9.0");
-  assert.equal(cached, first);
+  assert.equal(first.hermes.source, "checking");
+  assert.equal(first.claudeCode.path, "");
+  assert.equal(first.codex.path, "");
+  assert.notEqual(cached, first);
   assert.notEqual(refreshed, first);
-  assert.equal(calls.filter((call) => call[0] === "zsh").length, 6);
+  assert.equal(refreshed.hermes.source, "checking");
 });
 
 test("pendingAgentInventory reports checking state without spawning CLI probes", (t) => {
@@ -355,201 +262,31 @@ test("pendingAgentInventory reports checking state without spawning CLI probes",
   assert.equal(legacy.claudeCode.available, false);
 });
 
-test("agentInventory does not treat legacy managed Hermes source as usable", (t) => {
-  let now = 1000;
-  const { service } = makeService(t, {
-    now: () => now,
-    isHermesInstalled: () => true,
-    hermesSource: () => "managed",
-    spawnSync: (command, args) => {
-      if (command === "zsh" && args[1] === "command -v hermes") {
-        return { status: 0, stdout: "/bin/hermes\n", stderr: "" };
-      }
-      if (command === "zsh" && args[1] === "command -v npx") {
-        return { status: 0, stdout: "/bin/npx\n", stderr: "" };
-      }
-      if (command === "/bin/hermes") return { status: 0, stdout: "hermes 0.4.0\n", stderr: "" };
-      if (command === "/bin/npx") return { status: 0, stdout: "10.9.0\n", stderr: "" };
-      return { status: 1, stdout: "", stderr: "" };
-    }
-  });
-
-  const inventory = service.agentInventory();
-  now += 1000;
-  const cached = service.agentInventory();
-  const agentsById = Object.fromEntries(inventory.agents.map((agent) => [agent.id, agent]));
-
-  assert.equal(cached, inventory);
-  assert.equal(inventory.summary.installedCount, 3);
-  assert.equal(inventory.summary.usableCount, 2);
-  assert.equal(inventory.summary.missingCount, 0);
-  assert.equal(inventory.summary.hasUsableAgent, true);
-  assert.equal(inventory.summary.recommendedAction, "continue");
-  assert.equal(agentsById.hermes.installed, true);
-  assert.equal(agentsById.hermes.usableInMia, false);
-  assert.equal(agentsById.hermes.source, "system");
-  assert.equal(agentsById.hermes.health, "detected");
-  assert.equal(agentsById.hermes.installAction, "repair-hermes");
-  assert.deepEqual(agentsById.hermes.system, {
-    available: true,
-    path: "/bin/hermes",
-    version: "hermes 0.4.0"
-  });
-  assert.equal(agentsById["claude-code"].usableInMia, true);
-  assert.equal(agentsById.codex.usableInMia, true);
-  assert.equal(agentsById.openclaw, undefined);
-});
-
-test("agentInventory treats system Hermes as usable when Mia can launch its Python runtime", (t) => {
-  const { service } = makeService(t, {
-    isHermesInstalled: () => true,
-    isHermesApiRuntimeReady: () => true,
-    hermesSource: () => "system",
-    fs: {
-      accessSync: () => {
-        throw new Error("missing");
-      }
-    },
-    spawnSync: (command, args) => {
-      if (command === "zsh" && args[1] === "command -v hermes") {
-        return { status: 0, stdout: "/bin/hermes\n", stderr: "" };
-      }
-      if (command === "/bin/hermes") return { status: 0, stdout: "Hermes Agent v0.11.0\n", stderr: "" };
-      return { status: 1, stdout: "", stderr: "" };
-    }
-  });
-
-  const inventory = service.agentInventory();
-  const hermes = inventory.agents.find((agent) => agent.id === "hermes");
-  const legacy = service.localAgentEngines();
-
-  assert.equal(hermes.installed, true);
-  assert.equal(hermes.usableInMia, true);
-  assert.equal(hermes.source, "system");
-  assert.equal(hermes.health, "ready");
-  assert.equal(hermes.installAction, "");
-  assert.equal(inventory.summary.usableCount, 1);
-  assert.equal(inventory.summary.recommendedAction, "continue");
-  assert.equal(legacy.hermes.available, true);
-  assert.equal(legacy.hermes.source, "system");
-});
-
-test("agentInventory ignores legacy Hermes API runtime readiness when ACP command path is available", (t) => {
-  const { service } = makeService(t, {
-    isHermesInstalled: () => true,
-    isHermesApiRuntimeReady: () => false,
-    hermesSource: () => "system",
-    fs: {
-      accessSync: () => {
-        throw new Error("missing");
-      }
-    },
-    spawnSync: (command, args) => {
-      if (command === "zsh" && args[1] === "command -v hermes") {
-        return { status: 0, stdout: "/bin/hermes\n", stderr: "" };
-      }
-      if (command === "/bin/hermes") return { status: 0, stdout: "Hermes Agent v0.16.0\n", stderr: "" };
-      return { status: 1, stdout: "", stderr: "" };
-    }
-  });
-
-  const inventory = service.agentInventory();
-  const hermes = inventory.agents.find((agent) => agent.id === "hermes");
-  const legacy = service.localAgentEngines();
-
-  assert.equal(hermes.installed, true);
-  assert.equal(hermes.usableInMia, true);
-  assert.equal(hermes.health, "ready");
-  assert.equal(hermes.installAction, "");
-  assert.equal(inventory.summary.usableCount, 1);
-  assert.equal(inventory.summary.recommendedAction, "continue");
-  assert.equal(legacy.hermes.available, true);
-});
-
-test("agentInventory recommends Hermes install when no usable agent is detected", (t) => {
-  const { service } = makeService(t, {
-    isHermesInstalled: () => false,
-    hermesSource: () => "",
-    fs: {
-      accessSync: () => {
-        throw new Error("missing");
-      }
-    },
-    spawnSync: () => ({ status: 1, stdout: "", stderr: "" })
-  });
-
-  const inventory = service.agentInventory();
-  const agentsById = Object.fromEntries(inventory.agents.map((agent) => [agent.id, agent]));
-  const legacy = service.localAgentEngines();
-
-  assert.equal(inventory.summary.installedCount, 0);
-  assert.equal(inventory.summary.usableCount, 0);
-  assert.equal(inventory.summary.missingCount, 3);
-  assert.equal(inventory.summary.hasUsableAgent, false);
-  assert.equal(inventory.summary.recommendedAction, "install-hermes");
-  assert.equal(agentsById.hermes.installable, true);
-  assert.equal(agentsById.hermes.installAction, "install-hermes");
-  assert.equal(agentsById.hermes.health, "missing");
-  assert.equal(agentsById.openclaw, undefined);
-  assert.equal(legacy.hermes.available, false);
-  assert.equal(legacy.claudeCode.available, false);
-  assert.equal(legacy.codex.available, false);
-  assert.equal(legacy.openClaw, undefined);
-});
-
-test("agentInventory ignores legacy local-source Hermes runtime", (t) => {
-  const { service } = makeService(t, {
-    isHermesInstalled: () => true,
-    hermesSource: () => "local-source",
-    fs: {
-      accessSync: () => {
-        throw new Error("missing");
-      }
-    },
-    spawnSync: () => ({ status: 1, stdout: "", stderr: "" })
-  });
-
-  const inventory = service.agentInventory();
-  const hermes = inventory.agents.find((agent) => agent.id === "hermes");
-  const legacy = service.localAgentEngines();
-
-  assert.equal(hermes.installed, false);
-  assert.equal(hermes.usableInMia, false);
-  assert.equal(hermes.source, "missing");
-  assert.equal(hermes.health, "missing");
-  assert.equal(hermes.installAction, "install-hermes");
-  assert.equal(inventory.summary.installedCount, 0);
-  assert.equal(inventory.summary.usableCount, 0);
-  assert.equal(inventory.summary.hasUsableAgent, false);
-  assert.equal(legacy.hermes.available, false);
-  assert.equal(legacy.hermes.source, "missing");
-});
-
-test("scanAgentsAsync probes agents asynchronously, reports progress, and warms the cache", async (t) => {
+test("scanAgentsAsync returns checking inventory when Rust Core is unavailable without fallback probes", async (t) => {
   const progress = [];
   const execCalls = [];
   const { service } = makeService(t, {
+    coreAgentInventory: async () => {
+      throw new Error("core unavailable");
+    },
     execFile: (file, args, _options, cb) => {
       execCalls.push([file, ...args]);
-      if (file === "zsh" && args[1] === "command -v npx") return cb(null, "/bin/npx\n", "");
-      if (file === "/bin/npx" && args[0] === "--version") return cb(null, "10.9.0\n", "");
-      if (file === "/bin/npx" && args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")) return cb(null, "claude acp help\n", "");
-      return cb(new Error("not found"), "", "");
+      return cb(new Error("fallback probe must not run"), "", "");
     }
   });
 
   const inventory = await service.scanAgentsAsync((agent) => progress.push(agent.id));
+  const agentsById = Object.fromEntries(inventory.agents.map((agent) => [agent.id, agent]));
 
   assert.equal(inventory.agents.length, 3);
-  assert.equal(progress.length, 3, "every agent reported once");
-  const claude = inventory.agents.find((a) => a.id === "claude-code");
-  assert.equal(claude.path, "/bin/npx");
-  assert.equal(claude.usableInMia, true);
-  assert.equal(claude.readiness.status, "ready");
-  assert.ok(execCalls.some((call) => call[0] === "/bin/npx" && call.includes("@agentclientprotocol/claude-agent-acp@0.39.0")));
-  // Cache warmed: the non-blocking read returns the same scanned inventory.
-  assert.equal(service.cachedAgentInventory(), inventory);
-  assert.equal(service.cachedLocalAgentEngines().claudeCode.available, true);
+  assert.deepEqual(progress, ["hermes", "claude-code", "codex"]);
+  assert.equal(execCalls.length, 0);
+  assert.equal(inventory.summary.scanning, true);
+  assert.equal(agentsById.hermes.health, "checking");
+  assert.equal(agentsById["claude-code"].source, "checking");
+  assert.equal(agentsById.codex.path, "");
+  assert.equal(service.cachedAgentInventory().summary.scanning, true);
+  assert.equal(service.cachedLocalAgentEngines().hermes.source, "checking");
 });
 
 test("scanAgentsAsync prefers Rust Core agent inventory when available", async (t) => {
@@ -595,18 +332,18 @@ test("scanAgentsAsync prefers Rust Core agent inventory when available", async (
           commands: ["codex"],
           command: "codex",
           installed: true,
-          usableInMia: false,
+          usableInMia: true,
           installable: true,
           installAction: "",
           path: "/usr/local/bin/codex",
           version: "codex 1.0.0",
           source: "system",
-          health: "blocked",
+          health: "ready",
           readiness: {
-            status: "blocked",
+            status: "warning",
             checked: true,
-            summary: "Codex ACP 自检失败",
-            detail: "npx -y @agentclientprotocol/codex-acp@1.1.0: boom",
+            summary: "Codex ACP 可用性待确认",
+            detail: "/managed/codex-acp --stdio: boom",
             action: "",
             errorCode: "acp_init_failed"
           }
@@ -614,10 +351,10 @@ test("scanAgentsAsync prefers Rust Core agent inventory when available", async (
       ],
       summary: {
         installedCount: 1,
-        usableCount: 0,
+        usableCount: 1,
         missingCount: 2,
-        hasUsableAgent: false,
-        recommendedAction: "install-hermes"
+        hasUsableAgent: true,
+        recommendedAction: "continue"
       }
     }),
     execFile: (...args) => {
@@ -632,161 +369,96 @@ test("scanAgentsAsync prefers Rust Core agent inventory when available", async (
   assert.deepEqual(progress, ["hermes", "claude-code", "codex"]);
   assert.equal(execCalls.length, 0);
   assert.equal(codex.installed, true);
-  assert.equal(codex.health, "blocked");
+  assert.equal(codex.usableInMia, true);
+  assert.equal(codex.health, "ready");
+  assert.equal(codex.readiness.status, "warning");
   assert.equal(codex.installAction, "");
   assert.equal(codex.readiness.errorCode, "acp_init_failed");
   assert.equal(service.cachedLocalAgentEngines().codex.installAction, "");
 });
 
-test("warm runtime scans do not rerun expensive ACP doctor probes on the UI polling cadence", async (t) => {
+test("warm runtime scans reuse cached Rust Core inventory without fallback probes", async (t) => {
   let currentTime = 1000;
+  let coreCalls = 0;
   const execCalls = [];
   const { service } = makeService(t, {
     now: () => currentTime,
+    coreAgentInventory: async () => {
+      coreCalls += 1;
+      return {
+        generatedAt: currentTime,
+        agents: [
+          {
+            id: "hermes",
+            label: "Hermes",
+            commands: ["hermes"],
+            command: "hermes",
+            installed: true,
+            usableInMia: true,
+            installable: true,
+            installAction: "",
+            path: "/Users/me/.local/bin/hermes",
+            version: "Hermes Agent",
+            source: "system",
+            health: "ready",
+            readiness: { status: "ready", checked: true, summary: "Hermes ready", detail: "", action: "" }
+          },
+          {
+            id: "claude-code",
+            label: "Claude Code",
+            commands: ["claude"],
+            command: "claude",
+            installed: false,
+            usableInMia: false,
+            installable: true,
+            installAction: "",
+            path: "",
+            version: "",
+            source: "missing",
+            health: "missing",
+            readiness: { status: "missing", checked: true, summary: "Claude missing", detail: "", action: "" }
+          },
+          {
+            id: "codex",
+            label: "Codex",
+            commands: ["codex"],
+            command: "codex",
+            installed: true,
+            usableInMia: true,
+            installable: true,
+            installAction: "",
+            path: "/opt/homebrew/bin/codex",
+            version: "codex-cli 0.143.0",
+            source: "system",
+            health: "ready",
+            readiness: { status: "ready", checked: true, summary: "Codex ready", detail: "", action: "" }
+          }
+        ],
+        summary: {
+          installedCount: 2,
+          usableCount: 2,
+          missingCount: 1,
+          hasUsableAgent: true,
+          recommendedAction: "continue"
+        }
+      };
+    },
     execFile: (file, args, _options, cb) => {
       execCalls.push([file, ...args]);
-      if (file === "zsh" && args[1] === "command -v npx") return cb(null, "/bin/npx\n", "");
-      if (file === "/bin/npx" && args[0] === "--version") return cb(null, "10.9.0\n", "");
-      if (file === "/bin/npx" && args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")) return cb(null, "claude acp help\n", "");
-      if (file === "/bin/npx" && args.includes("@agentclientprotocol/codex-acp@1.1.0")) return cb(null, "codex acp help\n", "");
-      return cb(new Error("not found"), "", "");
+      return cb(new Error("fallback probe must not run"), "", "");
     }
   });
 
   const first = await service.scanAgentsAsync();
-  const firstDoctorCalls = execCalls.filter((call) => call[0] === "/bin/npx" && call.some((part) => /@agentclientprotocol\//.test(String(part)))).length;
-
   currentTime += 16000;
   const second = await service.scanAgentsAsync();
-  const secondDoctorCalls = execCalls.filter((call) => call[0] === "/bin/npx" && call.some((part) => /@agentclientprotocol\//.test(String(part)))).length;
+  const legacy = service.localAgentEngines();
 
-  assert.equal(firstDoctorCalls, 2);
+  assert.equal(coreCalls, 1);
+  assert.equal(execCalls.length, 0);
   assert.equal(second, first);
-  assert.equal(secondDoctorCalls, firstDoctorCalls);
-});
-
-test("scanAgentsAsync hides Windows async CLI probes", async (t) => {
-  const execCalls = [];
-  const hermes = "C:\\Hermes\\hermes.exe";
-  const { service } = makeService(t, {
-    platform: "win32",
-    isHermesInstalled: () => true,
-    isHermesApiRuntimeReady: () => true,
-    hermesSource: () => "system",
-    execFile: (file, args, options, cb) => {
-      execCalls.push({ file, args, options });
-      if (file === "where" && args[0] === "hermes") return cb(null, `${hermes}\r\n`, "");
-      if (file === hermes && args[0] === "--version") return cb(null, "Hermes Agent v0.11.0\n", "");
-      if (file === hermes && args[0] === "acp") return cb(null, "Hermes help\n", "");
-      return cb(new Error("not found"), "", "");
-    }
-  });
-
-  const inventory = await service.scanAgentsAsync();
-  const hermesAgent = inventory.agents.find((agent) => agent.id === "hermes");
-
-  assert.equal(hermesAgent.usableInMia, true);
-  assert.ok(execCalls.some((call) => call.file === hermes && call.args[0] === "--version"));
-  assert.equal(execCalls.every((call) => call.options.windowsHide === true), true);
-});
-
-test("scanAgentsAsync closes CLI probe stdin so ACP wrappers can exit on EOF", async (t) => {
-  let codexProbeClosed = false;
-  const child = () => ({ stdin: { end() {} } });
-  const { service } = makeService(t, {
-    execFile: (file, args, _options, cb) => {
-      if (file === "zsh" && args[1] === "command -v npx") return cb(null, "/bin/npx\n", "") || child();
-      if (file === "/bin/npx" && args[0] === "--version") return cb(null, "10.9.0\n", "") || child();
-      if (file === "/bin/npx" && args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")) {
-        return cb(null, "Claude ACP help\n", "") || child();
-      }
-      if (file === "/bin/npx" && args.includes("@agentclientprotocol/codex-acp@1.1.0")) {
-        let settled = false;
-        const proc = {
-          stdin: {
-            end() {
-              if (settled) return;
-              codexProbeClosed = true;
-              settled = true;
-              cb(null, "Codex ACP help\n", "");
-            }
-          },
-          kill() {}
-        };
-        setImmediate(() => {
-          if (settled) return;
-          settled = true;
-          cb(new Error("stdin left open"), "", "stdin still open");
-        });
-        return proc;
-      }
-      setImmediate(() => cb(new Error("not found"), "", ""));
-      return child();
-    }
-  });
-
-  const inventory = await service.scanAgentsAsync();
-  const codex = inventory.agents.find((agent) => agent.id === "codex");
-
-  assert.equal(codexProbeClosed, true);
-  assert.equal(codex.usableInMia, true);
-  assert.equal(codex.health, "ready");
-  assert.equal(codex.readiness.status, "ready");
-});
-
-test("scanAgentsAsync marks installed agents blocked when CLI handshake fails", async (t) => {
-  const { service } = makeService(t, {
-    execFile: (file, args, _options, cb) => {
-      if (file === "zsh" && args[1] === "command -v npx") return cb(null, "/bin/npx\n", "");
-      if (file === "/bin/npx" && args[0] === "--version") return cb(null, "10.9.0\n", "");
-      if (file === "/bin/npx" && args.includes("@agentclientprotocol/claude-agent-acp@0.39.0")) {
-        return cb(null, "Claude ACP help\n", "");
-      }
-      if (file === "/bin/npx" && args.includes("@agentclientprotocol/codex-acp@1.1.0")) {
-        return cb(new Error("spawn failed"), "", "Cannot start Codex ACP");
-      }
-      return cb(new Error("not found"), "", "");
-    }
-  });
-
-  const inventory = await service.scanAgentsAsync();
-  const codex = inventory.agents.find((agent) => agent.id === "codex");
-
-  assert.equal(codex.installed, true);
-  assert.equal(codex.usableInMia, false);
-  assert.equal(codex.health, "blocked");
-  assert.equal(codex.installAction, "");
-  assert.equal(codex.readiness.status, "blocked");
-  assert.match(codex.readiness.detail, /@agentclientprotocol\/codex-acp/);
-  assert.equal(inventory.summary.recommendedAction, "continue");
-  assert.equal(service.cachedLocalAgentEngines().codex.available, false);
-  assert.equal(service.cachedLocalAgentEngines().codex.installAction, "");
-});
-
-test("scanAgentsAsync does not offer Hermes repair when ACP handshake fails", async (t) => {
-  const { service } = makeService(t, {
-    execFile: (file, args, _options, cb) => {
-      if (file === "zsh" && args[1] === "command -v hermes") return cb(null, "/bin/hermes\n", "");
-      if (file === "/bin/hermes" && args[0] === "--version") return cb(null, "Hermes Agent v0.16.0\n", "");
-      if (file === "/bin/hermes" && args[0] === "acp") {
-        return cb(new Error("spawn failed"), "", "Codex Responses request 'model' must be a non-empty string.");
-      }
-      return cb(new Error("not found"), "", "");
-    }
-  });
-
-  const inventory = await service.scanAgentsAsync();
-  const hermes = inventory.agents.find((agent) => agent.id === "hermes");
-
-  assert.equal(hermes.installed, true);
-  assert.equal(hermes.usableInMia, false);
-  assert.equal(hermes.health, "blocked");
-  assert.equal(hermes.installAction, "");
-  assert.equal(hermes.readiness.action, "");
-  assert.equal(hermes.readiness.status, "blocked");
-  assert.equal(hermes.readiness.summary, "Hermes ACP 自检失败");
-  assert.match(hermes.readiness.detail, /non-empty string/);
-  assert.notEqual(inventory.summary.recommendedAction, "repair-hermes");
+  assert.equal(legacy.hermes.path, "/Users/me/.local/bin/hermes");
+  assert.equal(legacy.codex.available, true);
 });
 
 test("cachedAgentInventory returns the scanning placeholder before any scan", (t) => {

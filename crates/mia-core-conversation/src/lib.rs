@@ -14,7 +14,7 @@ use mia_core_api_types::{
     MiaCurrentSkillResponse, MiaCurrentSkillSummary, MiaCurrentSkillsResponse,
     RunConversationUtilityTurnRequest, SendConversationMessageRequest,
     SendConversationMessageResponse, SkillMaterializationRecord, SkillMaterializationRequest,
-    SkillMaterializationResponse,
+    SkillMaterializationResponse, normalize_runtime_mcp_spec,
 };
 use mia_core_runtime::{RuntimeBuilder, RuntimeTurnInput, RuntimeTurnPlan};
 use serde_json::{Map, Value, json};
@@ -23,7 +23,9 @@ use uuid::Uuid;
 
 pub const EVENT_CONVERSATION_CREATED: &str = "conversation.created";
 pub const EVENT_CONVERSATION_MESSAGE_CREATED: &str = "conversation.messageCreated";
+const CLIENT_SETTINGS_KEY: &str = "client";
 const MANAGED_SKILL_MANIFEST_RELATIVE_PATH: &str = ".mia/skill-runtime.json";
+const RESERVED_MCP_SPECS_SETTINGS_KEY: &str = "reservedMcpSpecs";
 
 #[cfg(test)]
 mod agent_session_skill_link_test_overrides {
@@ -1397,8 +1399,10 @@ impl ConversationService {
         let engine = runtime_engine_from_config(&runtime_config)
             .or_else(|| runtime_engine_from_metadata(&conversation.metadata));
         let previous_session_key = runtime_session_key_from_metadata(&conversation.metadata);
-        let provider =
-            provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?;
+        let provider = runtime_provider_with_controls(
+            provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
+            &runtime_config,
+        );
         let mcp_servers = mcp_servers_for_turn(&self.pool).await?;
         let turn_plan = self.runtime.build_turn_plan(RuntimeTurnInput {
             conversation_id: conversation_id.to_string(),
@@ -1426,7 +1430,7 @@ impl ConversationService {
                     content: json!({
                         "turnId": turn_id,
                         "engine": turn_plan.engine,
-                        "runtimePlan": turn_plan.clone(),
+                        "runtimePlan": runtime_plan_for_storage(&turn_plan),
                     }),
                     status: "complete",
                     seq: next_seq + 1,
@@ -1471,8 +1475,10 @@ impl ConversationService {
             None => json!({}),
         };
         let engine = runtime_engine_from_config(&runtime_config);
-        let provider =
-            provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?;
+        let provider = runtime_provider_with_controls(
+            provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
+            &runtime_config,
+        );
         let mcp_servers = mcp_servers_for_turn(&self.pool).await?;
         Ok(self.runtime.build_turn_plan(RuntimeTurnInput {
             conversation_id: utility_conversation_id(request.conversation_id.as_deref()),
@@ -1486,6 +1492,34 @@ impl ConversationService {
             attachments: json!([]),
             selected_skill_ids: request.selected_skill_ids,
             body: utility_prompt_body(&request.system_prompt, &request.user_prompt),
+        }))
+    }
+
+    pub async fn plan_runtime_session(
+        &self,
+        conversation_id: &str,
+    ) -> Result<RuntimeTurnPlan, sqlx::Error> {
+        let conversation = self.get_conversation(conversation_id).await?.conversation;
+        let runtime_config = runtime_config_for_turn(&self.pool, &conversation).await?;
+        let engine = runtime_engine_from_config(&runtime_config)
+            .or_else(|| runtime_engine_from_metadata(&conversation.metadata));
+        let provider = runtime_provider_with_controls(
+            provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
+            &runtime_config,
+        );
+        let mcp_servers = mcp_servers_for_turn(&self.pool).await?;
+        Ok(self.runtime.build_turn_plan(RuntimeTurnInput {
+            conversation_id: conversation_id.to_string(),
+            message_id: format!("runtime_prepare_{}", Uuid::now_v7().simple()),
+            bot_id: conversation.bot_id,
+            engine,
+            previous_session_key: runtime_session_key_from_metadata(&conversation.metadata),
+            workspace_dir: workspace_from_metadata(&conversation.metadata),
+            provider,
+            mcp_servers,
+            attachments: json!([]),
+            selected_skill_ids: Vec::new(),
+            body: String::new(),
         }))
     }
 
@@ -1762,7 +1796,9 @@ async fn provider_for_runtime_config(
     if let Some(provider) = config.get("provider").filter(|value| value.is_object()) {
         return Ok(provider.clone());
     }
-    if is_mia_managed_reference(config) {
+    if is_mia_managed_reference(config)
+        || local_agent_defaults_to_mia(config, engine.unwrap_or_default())
+    {
         return Ok(mia_managed_provider_reference(config));
     }
     if native_cli_default(config, engine.unwrap_or_default()) {
@@ -1811,6 +1847,31 @@ async fn provider_for_runtime_config(
         "managedByMia": false,
         "source": "mia-core"
     }))
+}
+
+fn runtime_provider_with_controls(mut provider: Value, config: &Value) -> Value {
+    if !provider.is_object() {
+        provider = json!({});
+    }
+    let Value::Object(provider) = &mut provider else {
+        return provider;
+    };
+    for keys in [
+        &["model"][..],
+        &["effortLevel", "effort_level"][..],
+        &["permissionMode", "permission_mode"][..],
+    ] {
+        let Some(value) = first_string(config, keys) else {
+            continue;
+        };
+        let canonical = match keys[0] {
+            "effortLevel" => "effortLevel",
+            "permissionMode" => "permissionMode",
+            other => other,
+        };
+        provider.insert(canonical.to_string(), Value::String(value));
+    }
+    Value::Object(provider.clone())
 }
 
 fn merge_json(target: &mut Value, patch: Value) {
@@ -1871,6 +1932,18 @@ fn is_mia_managed_reference(config: &Value) -> bool {
         || first_string(config, &["provider", "modelProvider", "model_provider"]).as_deref()
             == Some("mia")
         || first_string(config, &["authType", "auth_type"]).as_deref() == Some("mia_account")
+        || first_string(config, &["model"])
+            .is_some_and(|model| matches!(model.as_str(), "mia-auto" | "mia-default"))
+}
+
+fn local_agent_defaults_to_mia(config: &Value, engine: &str) -> bool {
+    if !matches!(engine, "hermes" | "claude-code" | "codex") {
+        return false;
+    }
+    explicit_provider_connection_id(config).is_none()
+        && provider_from_profile_id(config).is_none()
+        && first_string(config, &["provider", "modelProvider", "model_provider"]).is_none()
+        && first_string(config, &["model"]).is_none()
 }
 
 fn mia_managed_provider_reference(config: &Value) -> Value {
@@ -1945,16 +2018,59 @@ async fn mcp_servers_for_turn(pool: &SqlitePool) -> Result<Value, sqlx::Error> {
             .and_then(Value::as_str)
             .map(str::to_string)
             .unwrap_or_else(|| stable_native_name(row.get::<String, _>("name").as_str()));
+        if matches!(name.as_str(), "mia-app" | "mia-scheduler") {
+            continue;
+        }
         let transport = config
             .get("transport")
             .cloned()
             .unwrap_or_else(|| json!({}));
-        servers.insert(name, redact_value("", &transport));
+        servers.insert(name, transport);
+    }
+    let reserved = reserved_mcp_specs_for_turn(pool).await?;
+    if let Some(spec) = reserved_runtime_mcp_spec(&reserved, &["miaApp", "mia-app"]) {
+        servers.insert("mia-app".into(), spec);
+    }
+    if let Some(spec) =
+        reserved_runtime_mcp_spec(&reserved, &["scheduler", "miaScheduler", "mia-scheduler"])
+    {
+        servers.insert("mia-scheduler".into(), spec);
     }
     Ok(json!({
         "mcpServers": Value::Object(servers.clone()),
         "mcp_servers": Value::Object(servers),
     }))
+}
+
+async fn reserved_mcp_specs_for_turn(pool: &SqlitePool) -> Result<Value, sqlx::Error> {
+    let row = sqlx::query("SELECT value_json FROM settings WHERE key = ?")
+        .bind(CLIENT_SETTINGS_KEY)
+        .fetch_optional(pool)
+        .await?;
+    let Some(row) = row else {
+        return Ok(json!({}));
+    };
+    let settings = parse_json(row.get::<String, _>("value_json"))?;
+    Ok(settings
+        .get(RESERVED_MCP_SPECS_SETTINGS_KEY)
+        .cloned()
+        .unwrap_or_else(|| json!({})))
+}
+
+fn reserved_runtime_mcp_spec(source: &Value, keys: &[&str]) -> Option<Value> {
+    keys.iter()
+        .find_map(|key| source.get(*key))
+        .and_then(normalize_runtime_mcp_spec)
+}
+
+fn runtime_plan_for_storage(plan: &RuntimeTurnPlan) -> Value {
+    let mut value = serde_json::to_value(plan).unwrap_or_else(|_| json!({}));
+    if let Some(object) = value.as_object_mut()
+        && let Some(mcp_servers) = object.get_mut("mcpServers")
+    {
+        *mcp_servers = redact_value("", mcp_servers);
+    }
+    value
 }
 
 fn stable_native_name(name: &str) -> String {

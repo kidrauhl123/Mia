@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::cloud_bridge::AppCloudBridgeRunner;
+use crate::cloud_bridge::{AppCloudBridgeRunner, MiaRuntimeProxyRegistry};
 use crate::config::AppConfig;
 use crate::runtime::RuntimeRegistry;
 use mia_core_bot::BotService;
@@ -39,6 +39,7 @@ pub struct AppServices {
     pub realtime: EventBus,
     pub runtime: RuntimeRegistry,
     pub runtime_sessions: RuntimeSessionManager,
+    pub mia_runtime_proxies: MiaRuntimeProxyRegistry,
 }
 
 impl AppServices {
@@ -68,12 +69,14 @@ impl AppServices {
         let realtime = EventBus::default();
         let runtime = RuntimeRegistry::default();
         let runtime_sessions = RuntimeSessionManager::native_acp();
+        let mia_runtime_proxies = MiaRuntimeProxyRegistry::new(config.data_dir.clone());
         let cloud_bridge_runner = Arc::new(AppCloudBridgeRunner::new(
             cloud.clone(),
             conversation.clone(),
             realtime.clone(),
             runtime.clone(),
             runtime_sessions.clone(),
+            mia_runtime_proxies.clone(),
         ));
         let cloud_bridge = CloudBridgeManager::new(cloud.clone(), cloud_bridge_runner.clone());
         let cloud_events_realtime = realtime.clone();
@@ -104,6 +107,7 @@ impl AppServices {
             realtime,
             runtime,
             runtime_sessions,
+            mia_runtime_proxies,
         }
     }
 }

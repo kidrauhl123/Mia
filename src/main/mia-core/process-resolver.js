@@ -21,9 +21,9 @@ function rustCoreBinaryName(platform = process.platform) {
   return platform === "win32" ? "mia-core.exe" : "mia-core";
 }
 
-function pathEntries(pathValue = "") {
+function pathEntries(pathValue = "", delimiter = path.delimiter) {
   return String(pathValue || "")
-    .split(path.delimiter)
+    .split(delimiter)
     .map((entry) => entry.trim())
     .filter(Boolean);
 }
@@ -62,6 +62,32 @@ function officialSkillsDir(resourcesPathValue, repoRootValue, defaultAppValue, c
   if (!defaultAppValue && resources) return path.join(resources, "skills", "_builtin");
   const root = path.resolve(String(repoRootValue || defaultRepoRoot()));
   return path.join(root, "skills", "_builtin");
+}
+
+function runtimeKey(platform = process.platform, arch = process.arch) {
+  return `${platform}-${arch}`;
+}
+
+function managedResourceRoots(resourcesPathValue, repoRootValue, platform = process.platform, arch = process.arch, configured = "", localRootValue = "", userHomeValue = "") {
+  const delimiter = platform === "win32" ? ";" : path.delimiter;
+  const roots = pathEntries(configured, delimiter);
+  const localRoot = String(localRootValue || "").trim();
+  if (localRoot) roots.push(path.join(localRoot, "managed-resources"));
+  const userHome = String(userHomeValue || "").trim();
+  if (userHome) roots.push(path.join(userHome, ".mia", "managed-resources"));
+  const resources = String(resourcesPathValue || "").trim();
+  if (resources) {
+    roots.push(path.join(resources, "managed-resources"));
+    roots.push(path.join(resources, "bundled-aioncore", runtimeKey(platform, arch), "managed-resources"));
+  }
+  const repo = String(repoRootValue || "").trim();
+  if (repo) roots.push(path.join(path.resolve(repo), "resources", "managed-resources"));
+  return [...new Set(roots.filter(Boolean))];
+}
+
+function managedResourceRootsEnv(resourcesPathValue, repoRootValue, platform = process.platform, arch = process.arch, configured = "", localRootValue = "", userHomeValue = "") {
+  const delimiter = platform === "win32" ? ";" : path.delimiter;
+  return managedResourceRoots(resourcesPathValue, repoRootValue, platform, arch, configured, localRootValue, userHomeValue).join(delimiter);
 }
 
 function defaultSourceFingerprint(repoRoot, fsImpl = fs) {
@@ -260,6 +286,8 @@ function createMiaCoreResolver(deps = {}) {
       MIA_CORE_WORKSPACE_DIR: workspaceDir(),
       MIA_HOME: p.home,
       MIA_OFFICIAL_SKILLS_DIR: officialSkillsDir(resources, repo, defaultAppValue, env.MIA_OFFICIAL_SKILLS_DIR),
+      MIA_MANAGED_AGENT_RESOURCES: managedResourceRootsEnv(resources, repo, platform, arch, env.MIA_MANAGED_AGENT_RESOURCES, p.home, env.HOME || env.USERPROFILE),
+      MIA_CORE_RESOURCES_PATH: String(resources || ""),
       MIA_HERMES_ENGINE_DIR: p.engine,
       MIA_PLUGINS_DIR: p.pluginsDir,
       HERMES_HOME: effectiveHermesHome(),
@@ -308,8 +336,11 @@ module.exports = {
   DEFAULT_PATH,
   devRustCorePath,
   findExecutableOnPath,
+  managedResourceRoots,
+  managedResourceRootsEnv,
   officialSkillsDir,
   packagedRustCorePath,
   repoBundledRustCorePath,
+  runtimeKey,
   rustCoreBinaryName
 };

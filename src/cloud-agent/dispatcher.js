@@ -21,6 +21,7 @@ const {
 } = require("../shared/skill-load-protocol.js");
 const { miaRuntimeSystemPrompt } = require("../main/mia-runtime-context.js");
 const { normalizeCloudClaudeCodeModel } = require("./cloud-claude-code-model.js");
+const { assembleCloudRuntimeTurn } = require("./runtime-assembly.js");
 
 const BOT_MEMBER_KIND = "bot";
 const BOT_SENDER_KIND = "bot";
@@ -348,6 +349,9 @@ function createCloudAgentDispatcher(deps = {}) {
   const loadPrompts = typeof deps.loadPrompts === "function" ? deps.loadPrompts : undefined;
   const getUserPublic = typeof deps.getUserPublic === "function" ? deps.getUserPublic : () => null;
   const skillsCatalog = Array.isArray(deps.skillsCatalog) ? deps.skillsCatalog : [];
+  const memoryStore = deps.memoryStore || null;
+  const createCloudSessionToken = typeof deps.createCloudSessionToken === "function" ? deps.createCloudSessionToken : null;
+  const cloudBaseUrl = deps.cloudBaseUrl || "";
   const listBridgeDevices = typeof deps.listBridgeDevices === "function" ? deps.listBridgeDevices : null;
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const loadNativeSessionId = typeof deps.loadNativeSessionId === "function" ? deps.loadNativeSessionId : () => "";
@@ -712,7 +716,21 @@ function createCloudAgentDispatcher(deps = {}) {
       const nativeDescriptor = nativeSessionDescriptor({ runtimeKind, botId, conversationId, worker });
       const nativeSessionId = await loadNativeSessionId(nativeDescriptor);
       let requestedSkillIds = [];
-      let skillMaterialization = cloudSkillMaterialization({ bot, message, skillsCatalog, requestedSkillIds });
+      let runtimeAssembly = assembleCloudRuntimeTurn({
+        ownerId,
+        botId,
+        bot,
+        conversationId,
+        message,
+        worker,
+        runtimeConfig,
+        skillsCatalog,
+        requestedSkillIds,
+        memoryStore,
+        createCloudSessionToken,
+        cloudBaseUrl
+      });
+      let skillMaterialization = runtimeAssembly.skillMaterialization;
       let result = null;
       let finalRunEvents = [];
       for (let round = 0; round <= MAX_SKILL_LOAD_ROUNDS; round += 1) {
@@ -735,8 +753,10 @@ function createCloudAgentDispatcher(deps = {}) {
           userId: ownerId,
           bot,
           conversationId,
+          runtimeConfig: runtimeAssembly.runtimeConfig,
+          mcpServers: runtimeAssembly.mcpServers,
           transient: true,
-          instructions: cloudRuntimeInstructions(bot, message),
+          instructions: runtimeAssembly.instructions,
           nativeSessionId,
           model: normalizeCloudRuntimeModel(runtimeConfig.model, { runtimeKind, worker, agentClient }),
           workerModel: worker.workerModel || worker.platformModel || worker.model || "mia-auto",
@@ -744,7 +764,7 @@ function createCloudAgentDispatcher(deps = {}) {
           effortLevel: runtimeConfig.effortLevel || "medium",
           permissionMode: runtimeConfig.permissionMode || worker.permissionMode || "ask",
           input: [
-            buildSkillMaterializationContext(skillMaterialization),
+            runtimeAssembly.promptPrefix,
             conversationInput
           ].filter(Boolean).join("\n\n"),
           attachments: materialized.attachments || [],
@@ -795,13 +815,27 @@ function createCloudAgentDispatcher(deps = {}) {
             ? skillMaterialization.loadedSkillIds.length
             : 0;
           requestedSkillIds = [...requestedSkillIds, ...nextRequests];
-          const nextMaterialization = cloudSkillMaterialization({ bot, message, skillsCatalog, requestedSkillIds });
-          const nextLoadedCount = Array.isArray(nextMaterialization?.loadedSkillIds)
-            ? nextMaterialization.loadedSkillIds.length
+          const nextAssembly = assembleCloudRuntimeTurn({
+            ownerId,
+            botId,
+            bot,
+            conversationId,
+            message,
+            worker,
+            runtimeConfig,
+            skillsCatalog,
+            requestedSkillIds,
+            memoryStore,
+            createCloudSessionToken,
+            cloudBaseUrl
+          });
+          const nextLoadedCount = Array.isArray(nextAssembly.skillMaterialization?.loadedSkillIds)
+            ? nextAssembly.skillMaterialization.loadedSkillIds.length
             : 0;
           if (nextLoadedCount > previousLoadedCount) {
             eventGate.discard();
-            skillMaterialization = nextMaterialization;
+            runtimeAssembly = nextAssembly;
+            skillMaterialization = runtimeAssembly.skillMaterialization;
             continue;
           }
         }

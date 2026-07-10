@@ -168,6 +168,155 @@ test("cloud-claude-code DM runs the bot and appends a reply", async () => {
   }
 });
 
+test("cloud-claude-code passes runtime binding MCP config to the cloud client", async () => {
+  const ctx = setup();
+  const calls = [];
+  try {
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "cloud-claude-code",
+      enabled: true,
+      config: {
+        model: "claude-sonnet-test",
+        mcpServers: {
+          docs: {
+            type: "http",
+            url: "https://cloud.example/mcp",
+            headers: { Authorization: "Bearer cloud-token" }
+          }
+        }
+      }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      hermesImClient: {
+        async runChat(args) {
+          calls.push(args);
+          return { runId: "hr_mcp", content: "mcp reply", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello mcp"
+    });
+
+    await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].runtimeConfig.mcpServers.docs, {
+      type: "http",
+      url: "https://cloud.example/mcp",
+      headers: { Authorization: "Bearer cloud-token" }
+    });
+    assert.equal(calls[0].runtimeConfig.mcpServers["mia-app"].source, "mia-cloud");
+    assert.equal(calls[0].runtimeConfig.mcpServers["mia-scheduler"].source, "mia-cloud");
+    assert.deepEqual(calls[0].mcpServers.docs, {
+      type: "http",
+      url: "https://cloud.example/mcp",
+      headers: { Authorization: "Bearer cloud-token" }
+    });
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud-claude-code assembles MCP, memory, and skills before invoking the cloud client", async () => {
+  const ctx = setup();
+  const calls = [];
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-dispatcher-runtime-"));
+  try {
+    ctx.botsStore.upsertBot(ctx.user.id, {
+      id: BOT_ID,
+      displayName: "Alice Bot",
+      personaText: "You are Alice Bot.",
+      capabilities: { enabledSkills: ["flashcards"] }
+    });
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "cloud-claude-code",
+      enabled: true,
+      config: {
+        model: "claude-sonnet-test",
+        mcpServers: {
+          docs: { type: "http", url: "https://docs.example/mcp" }
+        }
+      }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      skillsCatalog: [{
+        id: "flashcards",
+        name: "Anki 记忆卡",
+        description: "生成记忆卡。",
+        body: "# STEM Flashcard Generation"
+      }],
+      memoryStore: {
+        listMemories(userId, input) {
+          if (input.scope !== "user") return [];
+          assert.equal(userId, ctx.user.id);
+          return [{ id: "mem_1", scope: "user", text: "User likes concise Chinese answers." }];
+        }
+      },
+      createCloudSessionToken(userId) {
+        assert.equal(userId, ctx.user.id);
+        return "cloud-session-token";
+      },
+      cloudBaseUrl: "https://cloud.example",
+      workerManager: {
+        async ensureWorker(userId) {
+          return {
+            userId,
+            baseUrl: "http://worker",
+            apiKey: "k",
+            gatewayWsUrl: "ws://gateway",
+            paths: { agentHome: tmp, workspace: path.join(tmp, "workspace") }
+          };
+        }
+      },
+      hermesImClient: {
+        async runChat(args) {
+          calls.push(args);
+          return { runId: "hr_assembled", content: "assembled reply", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "做几张卡片",
+      skills: [{ id: "mia:flashcards", name: "Anki 记忆卡" }]
+    });
+
+    await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].input, /## Mia Memory/);
+    assert.match(calls[0].input, /User likes concise Chinese answers/);
+    assert.match(calls[0].input, /Loaded Mia Skill Guides/);
+    assert.match(calls[0].input, /STEM Flashcard Generation/);
+    assert.equal(calls[0].mcpServers.docs.url, "https://docs.example/mcp");
+    assert.equal(calls[0].mcpServers["mia-app"].env.MIA_CLOUD_TOKEN, "cloud-session-token");
+    assert.equal(calls[0].mcpServers["mia-app"].env.MIA_CORE_URL, undefined);
+    assert.equal(calls[0].mcpServers["mia-scheduler"].env.MIA_CLOUD_URL, "https://cloud.example");
+    assert.equal(calls[0].runtimeConfig.mcpServers["mia-app"].source, "mia-cloud");
+  } finally {
+    ctx.cleanup();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("cloud-claude-code DM resumes and persists native SDK sessions without history prompts", async () => {
   const ctx = setup();
   const hermesCalls = [];

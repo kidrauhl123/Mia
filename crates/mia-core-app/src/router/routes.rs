@@ -13,13 +13,15 @@ use super::bot::{
 };
 use super::cloud::{
     cancel_cloud_bridge_run, cloud_status, connect_cloud, disconnect_cloud, get_cloud_settings,
-    put_cloud_settings, run_cloud_bridge, start_cloud_bridge, start_cloud_events,
-    stop_cloud_bridge, stop_cloud_events, sync_cloud_memory,
+    prepare_cloud_bridge_runtime_controls, put_cloud_settings, run_cloud_bridge,
+    set_cloud_bridge_runtime_control, start_cloud_bridge, start_cloud_events, stop_cloud_bridge,
+    stop_cloud_events, sync_cloud_memory,
 };
 use super::conversation::{
     cancel_conversation_turn, create_conversation, delete_conversation, get_conversation,
     list_conversation_messages, list_conversations, materialize_conversation_skills,
-    plan_agent_session_skills, run_conversation_utility_turn, send_conversation_message,
+    plan_agent_session_skills, prepare_conversation_runtime_controls,
+    run_conversation_utility_turn, send_conversation_message, set_conversation_runtime_control,
 };
 use super::engine::{
     agent_engines, codex_models, engine_capabilities, engine_model_catalog, hermes_slash_commands,
@@ -153,6 +155,14 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
             get(get_conversation).delete(delete_conversation),
         )
         .route(
+            "/api/conversations/{conversation_id}/runtime-controls/prepare",
+            post(prepare_conversation_runtime_controls),
+        )
+        .route(
+            "/api/conversations/{conversation_id}/runtime-controls",
+            axum::routing::patch(set_conversation_runtime_control),
+        )
+        .route(
             "/api/conversations/{conversation_id}/messages",
             get(list_conversation_messages).post(send_conversation_message),
         )
@@ -209,6 +219,14 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
         .route("/api/cloud/disconnect", post(disconnect_cloud))
         .route("/api/cloud/memory/sync", post(sync_cloud_memory))
         .route("/api/cloud/bridge/run", post(run_cloud_bridge))
+        .route(
+            "/api/cloud/bridge/runtime-controls/prepare",
+            post(prepare_cloud_bridge_runtime_controls),
+        )
+        .route(
+            "/api/cloud/bridge/runtime-controls",
+            axum::routing::patch(set_cloud_bridge_runtime_control),
+        )
         .route("/api/cloud/bridge/cancel", post(cancel_cloud_bridge_run))
         .route("/api/cloud/bridge/start", post(start_cloud_bridge))
         .route("/api/cloud/bridge/stop", post(stop_cloud_bridge))
@@ -233,7 +251,9 @@ mod tests {
     use mia_core_realtime::RealtimeEvent;
     use mia_core_runtime::{
         EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STDOUT,
-        RuntimeBuilder, RuntimeCommand,
+        NativeAcpBackend, NativeAcpSessionManager, RuntimeBuilder, RuntimeCancellation,
+        RuntimeCommand, RuntimeEventSink, RuntimeExecutionResult, RuntimeSessionManager,
+        RuntimeTurnPlan,
     };
     use mia_core_tasks::{
         EVENT_TASK_CREATED, EVENT_TASK_RUN_FINISHED, EVENT_TASK_RUN_STARTED, EVENT_TASK_UPDATED,
@@ -279,6 +299,95 @@ mod tests {
         assert_eq!(json["daemonTarget"]["kind"], "rust-core");
         assert_eq!(json["daemonTarget"]["usesGuiAppIdentity"], false);
         assert_eq!(json["daemonTarget"]["parentPid"], 4321);
+    }
+
+    #[tokio::test]
+    async fn conversation_runtime_controls_prepare_returns_native_acp_snapshot() {
+        struct SnapshotBackend;
+
+        #[async_trait::async_trait]
+        impl NativeAcpBackend for SnapshotBackend {
+            async fn send_message(
+                &self,
+                _plan: RuntimeTurnPlan,
+                _sink: RuntimeEventSink,
+                _cancellation: Option<RuntimeCancellation>,
+            ) -> anyhow::Result<RuntimeExecutionResult> {
+                unreachable!("preparing controls must not send a prompt")
+            }
+
+            async fn prepare_session(
+                &self,
+                plan: RuntimeTurnPlan,
+            ) -> anyhow::Result<mia_core_api_types::AcpRuntimeControlSnapshot> {
+                Ok(mia_core_api_types::AcpRuntimeControlSnapshot {
+                    conversation_id: plan.conversation_id,
+                    engine: plan.engine,
+                    session_id: Some("session-route".into()),
+                    state: "ready".into(),
+                    controls: vec![],
+                    error: String::new(),
+                })
+            }
+        }
+
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let services = AppServices::from_config(&config).await.unwrap();
+        sqlx::query(
+            "INSERT INTO bots (id, display_name, avatar_json, capability_json, identity_json, created_at, updated_at)
+             VALUES ('bot_route_codex', 'Codex', '{}', '{}', '{}', 1, 1)",
+        )
+        .execute(services.database.pool())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO bot_runtime_bindings (bot_id, runtime_kind, binding_json, updated_at)
+             VALUES ('bot_route_codex', 'desktop-local', ?, 1)",
+        )
+        .bind(
+            json!({
+                "runtimeKind": "desktop-local",
+                "agentEngine": "codex",
+                "config": { "agentEngine": "codex" }
+            })
+            .to_string(),
+        )
+        .execute(services.database.pool())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO conversations (id, kind, title, bot_id, runtime_json, metadata_json, created_at, updated_at)
+             VALUES ('conv_route_controls', 'bot_session', 'Codex', 'bot_route_codex', '{}', '{}', 1, 1)",
+        )
+        .execute(services.database.pool())
+        .await
+        .unwrap();
+        let mut states = build_module_states(&services);
+        states.runtime_sessions = RuntimeSessionManager::new(
+            NativeAcpSessionManager::with_backend_for_tests(std::sync::Arc::new(SnapshotBackend)),
+        );
+
+        let response = create_router_with_states(states)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/conversations/conv_route_controls/runtime-controls/prepare")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(body["conversationId"], "conv_route_controls");
+        assert_eq!(body["engine"], "codex");
+        assert_eq!(body["sessionId"], "session-route");
     }
 
     #[tokio::test]
@@ -427,14 +536,8 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        assert_eq!(
-            capabilities["approvalModes"],
-            json!(["ask", "yolo", "deny"])
-        );
-        assert_eq!(
-            capabilities["effortLevels"],
-            json!(["low", "medium", "high"])
-        );
+        assert_eq!(capabilities["approvalModes"], json!([]));
+        assert_eq!(capabilities["effortLevels"], json!([]));
         assert!(capabilities["engines"]["hermes"].is_object());
         assert!(capabilities["engines"]["codex"]["models"].is_array());
 

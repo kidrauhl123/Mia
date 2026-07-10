@@ -37,6 +37,7 @@ pub struct PreparedCloudBridgeRun {
     pub title: String,
     pub text: String,
     pub attachments: Value,
+    pub selected_skill_ids: Vec<String>,
     pub runtime: Value,
     pub metadata: Value,
 }
@@ -423,6 +424,7 @@ impl CloudService {
         } else {
             json!([])
         };
+        let selected_skill_ids = normalize_selected_skill_ids(&request.selected_skill_ids);
         Ok(PreparedCloudBridgeRun {
             run_id: run_id.clone(),
             cloud_conversation_id: cloud_conversation_id.clone(),
@@ -430,6 +432,7 @@ impl CloudService {
             title: title.clone(),
             text,
             attachments,
+            selected_skill_ids,
             runtime: runtime.clone(),
             metadata: json!({
                 "runtime": runtime,
@@ -685,6 +688,23 @@ where
     F: FnOnce() -> String,
 {
     clean_text(value).unwrap_or_else(fallback)
+}
+
+fn normalize_selected_skill_ids(values: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for value in values {
+        let Some(id) = clean_text(value) else {
+            continue;
+        };
+        if out.iter().any(|existing| existing == &id) {
+            continue;
+        }
+        out.push(id);
+        if out.len() >= 8 {
+            break;
+        }
+    }
+    out
 }
 
 fn safe_identifier(value: &str, fallback: &str) -> String {

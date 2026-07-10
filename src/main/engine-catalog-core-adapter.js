@@ -12,12 +12,8 @@ function arrayField(value, field) {
 function normalizeCapabilities(value = {}) {
   const object = ensureObject(value);
   return {
-    approvalModes: Array.isArray(object.approvalModes) && object.approvalModes.length
-      ? object.approvalModes
-      : ["ask", "yolo", "deny"],
-    effortLevels: Array.isArray(object.effortLevels) && object.effortLevels.length
-      ? object.effortLevels
-      : ["low", "medium", "high"],
+    approvalModes: Array.isArray(object.approvalModes) ? object.approvalModes : [],
+    effortLevels: Array.isArray(object.effortLevels) ? object.effortLevels : [],
     engines: ensureObject(object.engines)
   };
 }

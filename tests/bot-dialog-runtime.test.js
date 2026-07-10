@@ -575,6 +575,46 @@ test("editing a bot hydrates the runtime target from the active binding", async 
   });
 });
 
+test("editing a bot hydrates a raw active binding whose runtime fields are inside config", async () => {
+  const { context } = createBotDialogContext({
+    engineCapabilities: {
+      engines: {
+        codex: { available: true }
+      }
+    },
+    activeBinding: {
+      botId: "bot_writer",
+      runtimeKind: "desktop-local",
+      enabled: true,
+      config: {
+        agentEngine: "codex",
+        deviceId: "mac-1",
+        deviceName: "Office Mac"
+      }
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog({
+    key: "bot_writer",
+    name: "写作助手",
+    sourceKinds: ["cloud"],
+    runtimeKind: "desktop-local",
+    agentEngine: "hermes",
+    targetDeviceId: "",
+    targetDeviceName: ""
+  }, "persona");
+
+  await flushDialogAsyncWork();
+
+  const selected = JSON.parse(JSON.stringify(context.window.miaBotDialog.readSelectedRuntimeTarget()));
+  assert.deepEqual(selected, {
+    runtimeKind: "desktop-local",
+    targetDeviceId: "mac-1",
+    targetDeviceName: "Office Mac",
+    agentEngine: "codex"
+  });
+});
+
 test("editing a bot keeps a stale device id instead of resolving bridge aliases", async () => {
   const { context } = createBotDialogContext({
     runtime: {

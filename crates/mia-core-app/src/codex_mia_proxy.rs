@@ -25,6 +25,7 @@ pub struct CodexMiaProxyConfig {
     pub base_url: String,
     pub api_key: String,
     pub model: String,
+    pub auth_via_path: bool,
 }
 
 #[derive(Debug)]
@@ -53,6 +54,7 @@ struct ProxySession {
     upstream_api_key: String,
     model: String,
     auth_token: String,
+    require_header_auth: bool,
     history: Mutex<ResponseHistory>,
 }
 
@@ -78,11 +80,12 @@ pub async fn start_codex_mia_proxy(
             upstream_api_key,
             model,
             auth_token: auth_token.clone(),
+            require_header_auth: !config.auth_via_path,
             history: Mutex::new(ResponseHistory::default()),
         }),
         client: reqwest::Client::new(),
     };
-    let app = Router::new()
+    let api = Router::new()
         .route("/health", get(health))
         .route("/v1/health", get(health))
         .route("/v1/models", get(models))
@@ -90,14 +93,28 @@ pub async fn start_codex_mia_proxy(
         .route("/v1/responses/compact", post(responses))
         .route("/v1/chat/completions", post(chat_completions))
         .with_state(Arc::new(state));
+    let app = if config.auth_via_path {
+        Router::new().nest(&format!("/{auth_token}"), api)
+    } else {
+        api
+    };
     let listener = TcpListener::bind((BIND_HOST, 0)).await?;
     let port = listener.local_addr()?.port();
     let task = tokio::spawn(async move {
         let _ = serve(listener, app).await;
     });
+    let base_url = if config.auth_via_path {
+        format!("http://{BIND_HOST}:{port}/{auth_token}/v1")
+    } else {
+        format!("http://{BIND_HOST}:{port}/v1")
+    };
     Ok(RunningCodexMiaProxy {
-        base_url: format!("http://{BIND_HOST}:{port}/v1"),
-        api_key: auth_token,
+        base_url,
+        api_key: if config.auth_via_path {
+            "no-key-required".into()
+        } else {
+            auth_token
+        },
         task,
     })
 }
@@ -107,7 +124,7 @@ async fn health() -> Response {
 }
 
 async fn models(State(state): State<Arc<ProxyState>>, headers: HeaderMap) -> Response {
-    if !authorized(&headers, &state.session.auth_token) {
+    if !request_authorized(&headers, &state.session) {
         return proxy_error(
             StatusCode::UNAUTHORIZED,
             "Mia Codex proxy token is missing or expired.",
@@ -131,7 +148,7 @@ async fn responses(
     headers: HeaderMap,
     Json(mut body): Json<Value>,
 ) -> Response {
-    if !authorized(&headers, &state.session.auth_token) {
+    if !request_authorized(&headers, &state.session) {
         return proxy_error(
             StatusCode::UNAUTHORIZED,
             "Mia Codex proxy token is missing or expired.",
@@ -196,7 +213,7 @@ async fn chat_completions(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
-    if !authorized(&headers, &state.session.auth_token) {
+    if !request_authorized(&headers, &state.session) {
         return proxy_error(
             StatusCode::UNAUTHORIZED,
             "Mia Codex proxy token is missing or expired.",
@@ -1490,6 +1507,10 @@ fn trim_trailing_slash(value: &str) -> String {
     value.trim().trim_end_matches('/').to_string()
 }
 
+fn request_authorized(headers: &HeaderMap, session: &ProxySession) -> bool {
+    !session.require_header_auth || authorized(headers, &session.auth_token)
+}
+
 fn authorized(headers: &HeaderMap, token: &str) -> bool {
     bearer_token(headers).is_some_and(|value| value == token)
 }
@@ -1623,5 +1644,25 @@ mod tests {
         assert_eq!(enrich_request_with_history(&mut body, &history), 1);
         assert_eq!(body["input"][0]["type"], "function_call");
         assert_eq!(body["input"][1]["type"], "function_call_output");
+    }
+
+    #[tokio::test]
+    async fn path_authenticated_proxy_supports_hermes_loopback_key_filtering() {
+        let proxy = start_codex_mia_proxy(CodexMiaProxyConfig {
+            base_url: "http://127.0.0.1:9/v1".into(),
+            api_key: "upstream-token".into(),
+            model: "mia-auto".into(),
+            auth_via_path: true,
+        })
+        .await
+        .expect("start proxy");
+
+        let response = reqwest::get(format!("{}/models", proxy.base_url))
+            .await
+            .expect("request proxy models");
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(proxy.api_key, "no-key-required");
+        assert!(proxy.base_url.contains("/mia_codex_"));
     }
 }

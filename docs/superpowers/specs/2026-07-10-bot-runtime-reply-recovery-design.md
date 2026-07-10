@@ -1,130 +1,109 @@
-# Bot Runtime Reply Recovery Design
+# 伙伴运行时回复恢复设计
 
-Status: ready for user review.
+状态：用户已批准实施。
 
-## Context
+## 背景
 
-Desktop-local bot conversations currently combine three regressions:
+桌面本地伙伴会话目前叠加了三处回归：
 
-- the renderer sends `targetIntent` and `controlIntent`, while the Cloud runtime
-  endpoint only reads `config` and replaces the stored config wholesale;
-- Electron resolves Cloud-owned desktop bindings through a local Core bot lookup,
-  even when the bot identity only exists in Cloud;
-- a non-mock runtime plan with no launch command can return an empty successful
-  response after the user message has already been persisted.
+- 渲染层发送 `targetIntent` 和 `controlIntent`，Cloud 运行时接口却只读取
+  `config`，并整体替换已经保存的配置；
+- Electron 为 Cloud 伙伴读取桌面运行时绑定时，直接查本地 Core 的 Bot，
+  即使这个伙伴身份只存在于 Cloud；
+- 非 Mock 的运行计划如果没有启动命令，会在用户消息已经入库之后返回一次
+  空的成功响应。
 
-The visible result is one failure chain: the binding loses engine/device/model
-metadata, runtime controls disappear, send becomes blocked by the empty model
-catalog, and an accepted turn can finish without an assistant message or a
-visible error.
+最终表现是一条连续故障链：绑定丢失 engine、设备、模型和权限信息，运行时
+控件全部消失，空模型列表又阻止发送，而已经受理的消息可能既没有助手回复，
+也没有可见错误。
 
-This repair is a focused compatibility slice. It does not attempt to complete
-the broader AION-style native ACP session migration.
+本次只做聚焦的兼容性修复，不扩展成完整的 AION 原生 ACP 会话迁移。
 
-## Considered Approaches
+## 方案比较
 
-### 1. Cloud-only hotfix
+### 方案一：只修 Cloud
 
-Teach the Cloud endpoint to retain existing config when receiving an intent.
-This prevents future corruption, but leaves the silent runtime response and the
-catalog-gated composer behavior intact.
+让 Cloud 接口收到 intent 时保留旧配置。它能阻止后续配置继续损坏，但不能
+解决静默无回复和编辑器被模型列表锁住的问题。
 
-### 2. Targeted end-to-end repair (selected)
+### 方案二：端到端小范围修复（采用）
 
-Fix the contract at the Cloud boundary, make Electron use the canonical Cloud
-binding for Cloud-owned bots, make a missing runtime command an explicit
-failure, and decouple send availability from selector catalogs. This is the
-smallest approach that addresses every observed symptom.
+修复 Cloud 契约、让 Electron 为 Cloud 伙伴读取 Cloud 绑定、让缺少运行命令
+成为明确错误，并把“能否发送”和“有没有选择列表”解耦。这是覆盖所有已观察
+症状的最小方案。
 
-### 3. Full AION runtime lifecycle port
+### 方案三：立即完整移植 AION 生命周期
 
-Port AION's task manager, native ACP session lifecycle, stream relay, recovery,
-and configuration handshake now. This is the long-term direction already
-covered by the Rust native ACP design, but is too broad for this regression.
+一次性移植 AION 的任务管理器、原生 ACP 生命周期、流转发、恢复和配置握手。
+这是长期方向，但对本次回归范围过大。
 
-## Design
+## 设计
 
-### Cloud runtime contract
+### Cloud 运行时契约
 
-Add a focused pure Cloud helper for runtime intent application. The Cloud `PUT
-/api/me/bots/:id/runtime` route will use the same semantics as Rust Core:
+新增一个纯函数 Cloud 模块处理运行时 intent。Cloud 的
+`PUT /api/me/bots/:id/runtime` 与 Rust Core 使用相同语义：
 
-- a legacy request with only `config` remains a full replacement;
-- a request containing `targetIntent`, `syncIntent`, or `controlIntent` starts
-  from the existing binding config;
-- `config` is merged as a patch before applying intents;
-- target intent updates engine/device fields without deleting unrelated model
-  or permission fields;
-- changing engine clears incompatible model-selection fields;
-- control intent updates only the requested model, effort, or permission field;
-- the resulting config is sanitized once before persistence.
+- 只有 `config` 的旧请求仍然表示整体替换；
+- 带有 `targetIntent`、`syncIntent` 或 `controlIntent` 的请求先读取现有绑定；
+- `config` 先作为补丁合并，再应用 intent；
+- target intent 只更新 engine 和设备字段，不删除无关配置；
+- engine 改变时清理不兼容的模型选择字段；
+- control intent 只更新指定的模型、推理强度或权限字段；
+- 最终配置只在持久化前清洗一次。
 
-This keeps Cloud and Core compatible without moving more business logic into
-the already-wide Cloud entry file.
+已经损坏的记录不能根据伙伴显示名猜 engine。它们会保留明确的可修复状态，
+用户下一次在现有运行目标选择器中确认目标时，会通过修复后的接口写回有效绑定。
 
-Existing corrupted rows will not infer an engine from a partner display name.
-Lost data cannot be reconstructed safely. They remain visibly repairable via
-the existing runtime-target selector, and the next explicit target save writes
-a valid binding through the repaired endpoint.
+### Electron 绑定归属
 
-### Binding ownership at the Electron boundary
+Cloud 伙伴组装桌面本地消息时，通过优先 Cloud、失败才回退 Core 的兼容查询
+读取绑定，不能把本地 Core 中无关的默认 Bot 绑定当作权威值。单次发送携带的
+显式运行时控制仍保持最高优先级。
 
-Desktop-local message assembly for a Cloud-owned bot will resolve the binding
-through the compatibility lookup that prefers Cloud and only falls back to
-Core. It will not treat an unrelated default Core bot binding as authoritative.
-Explicit per-send runtime controls remain the highest-precedence overrides.
+### 运行时失败契约
 
-### Runtime failure contract
+运行计划只有两种合法可执行状态：有命令，或它是带 Mock 回复的明确 Mock 计划。
+Native ACP 计划既没有命令又没有 Mock 回复时必须失败。
 
-A runtime plan is executable only when it has a command or is an intentional
-mock plan with a mock response. A Native ACP plan with neither is an error.
+Cloud Bridge 在这种情况下会：
 
-The Cloud Bridge route will:
+- 释放会话运行时占用；
+- 返回非成功响应；
+- 不再返回 `ok: true`、空文本且没有助手消息的结果。
 
-- release the conversation runtime claim;
-- return a non-success response;
-- never return `ok: true` with empty text and no assistant message for this
-  condition.
+渲染层现有发送管线在请求报错时已经会把乐观消息标记为“发送失败”。本次让
+Core 的缺命令状态进入这条可见失败路径。
 
-The existing renderer send pipeline already marks its optimistic outgoing
-message as failed when the post returns an error. This repair makes the Core
-condition reach that established visible failure path.
+### 编辑器控件
 
-### Composer controls
+选择列表是否存在只影响展示，不决定能否发送：
 
-Selector availability is presentation state, not send readiness:
+- 只有 Core 明确返回 `sendBlocked` 才禁用发送；
+- 正在读取或 `modelOptions` 为空都不禁用发送；
+- 没有模型列表时显示不可编辑的“使用 CLI 模型”；
+- 没有推理强度或权限选项时，优先显示当前值，否则显示不可编辑的“CLI 默认”；
+- Core 提供选择项后，对应控件才可交互。
 
-- only an explicit Core `sendBlocked` response disables send;
-- loading or an empty `modelOptions` list does not disable send;
-- a missing model list shows a disabled `使用 CLI 模型` control;
-- missing effort and permission choices show their selected value when known,
-  otherwise a disabled `CLI 默认` control;
-- a selector becomes interactive only when Core supplies choices.
+这与 AION 的只读兜底行为一致，同时保留 Mia 的 engine 策略和现有保存接口。
 
-This follows AION's read-only fallback behavior while preserving Mia's engine
-policy and existing control-save API.
+## 测试
 
-## Testing
+每个边界都使用红—绿循环：
 
-Use red-green cycles for each boundary:
+1. Cloud API：先保存完整 Codex 绑定，再只提交 effort control intent，证明
+   engine、设备、模型和权限不会丢失。
+2. Cloud API 兼容：证明旧式完整 `config` 请求仍能整体替换。
+3. Electron：证明 Cloud 伙伴优先读取 Cloud 桌面绑定，再回退本地 Core。
+4. Rust Core：证明没有命令和 Mock 回复的 Native ACP 计划返回错误并释放占用。
+5. Renderer：证明空选择列表显示只读兜底、不阻止发送，而明确的
+   `sendBlocked` 仍会阻止发送。
+6. 定向测试通过后运行 `npm run check`。
 
-1. Cloud API integration: seed a complete Codex binding, send only an effort
-   control intent, and prove engine/device/model/permission are retained.
-2. Cloud API compatibility: prove a legacy full `config` request still replaces
-   the old config.
-3. Electron adapter: prove a Cloud-owned desktop bot reads the Cloud binding
-   before the local Core fallback.
-4. Rust Core: prove a Native ACP plan with no command and no mock response
-   returns an error and releases its runtime claim.
-5. Renderer: prove empty control catalogs render read-only fallbacks and do not
-   block send, while explicit `sendBlocked` still blocks it.
-6. Run the focused Cloud, preload/renderer, and Rust Core suites, followed by
-   `npm run check` if the focused suites pass.
+## 不在本次范围
 
-## Non-Goals
-
-- No deployment, release, signing, or production-data mutation.
-- No inference of a lost engine from bot names.
-- No reintroduction of `npx`, `codex exec`, or other ACP fallbacks.
-- No broad port of AION task-manager or stream-relay modules in this repair.
-- No unrelated cleanup of the current Rust migration worktree.
+- 不部署、不发布、不签名，也不修改生产数据。
+- 不根据伙伴名字推断丢失的 engine。
+- 不恢复 `npx`、`codex exec` 或其他 ACP fallback。
+- 不在本次完整移植 AION 任务管理器或流转发模块。
+- 不清理当前 Rust 迁移工作区里的其他改动。

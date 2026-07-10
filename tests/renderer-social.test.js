@@ -682,6 +682,68 @@ test("bootstrapAfterLogin paints cached SQLite social data before slow cloud con
   await boot;
 });
 
+test("bootstrapAfterLogin remaps saved starter conversation to the current account", async () => {
+  const oldId = "botc_starter_9038338_mia";
+  const currentId = "botc_starter_6682409_mia";
+  const store = { "mia.lastActiveConversationId": oldId };
+  const s = loadSocial();
+  s.__mockWindow.localStorage = {
+    getItem: (key) => store[key] || "",
+    setItem: (key, value) => { store[key] = String(value); },
+    removeItem: (key) => { delete store[key]; }
+  };
+  s.initSocialModule({
+    getState: () => ({ runtime: { cloud: { user: { id: "9038338" } } } }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {},
+  });
+  s.__mockWindow.mia.social = {
+    getCachedSocialBootstrap: async (userId) => ({
+      ok: true,
+      data: {
+        userId,
+        conversations: [{
+          id: oldId,
+          type: "bot",
+          name: "Mia",
+          decorations: { botId: "starter_9038338_mia", sessionId: "starter_9038338_mia", runtimeKind: "cloud-claude-code" }
+        }],
+        friends: [],
+        bots: [{ id: "starter_9038338_mia", key: "starter_9038338_mia", name: "Mia" }],
+        members: {}
+      }
+    }),
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
+    myIdentity: async () => ({ ok: true, data: { id: "6682409", username: "jung" } }),
+    listFriends: async () => ({ ok: true, data: { friends: [] } }),
+    listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
+    listBots: async () => ({
+      ok: true,
+      data: { bots: [{ id: "starter_6682409_mia", key: "starter_6682409_mia", name: "Mia" }] }
+    }),
+    settingsGet: async () => ({}),
+    listConversations: async () => ({
+      ok: true,
+      data: {
+        conversations: [{
+          id: currentId,
+          type: "bot",
+          name: "Mia",
+          decorations: { botId: "starter_6682409_mia", sessionId: "starter_6682409_mia", runtimeKind: "cloud-claude-code" }
+        }]
+      }
+    }),
+    listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
+  };
+
+  await s.bootstrapAfterLogin();
+
+  assert.equal(s.moduleState.activeConversationId, currentId);
+  assert.equal(store["mia.lastActiveConversationId"], currentId);
+  assert.deepEqual(s.renderSidebarRows().map((row) => row.conversation.id), [currentId]);
+});
+
 test("bootstrapAfterLogin does not hide bot conversations when the bot identity list is temporarily unavailable", async () => {
   const s = loadSocial();
   s.__mockWindow.miaSessionHistory = sessionHistory;
@@ -1710,6 +1772,84 @@ test("handleCloudEvent bot.upserted preserves active runtime binding fields", ()
   assert.equal(s.moduleState.bots[0].avatarImage, "data:image/png;base64,avatar");
 });
 
+test("handleCloudEvent bot.upserted ignores stale runtime fields from the identity record", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.bots = [{
+    id: "nono",
+    key: "nono",
+    name: "nono",
+    runtimeKind: "desktop-local",
+    agentEngine: "claude-code",
+    targetDeviceId: "mac-1",
+    targetDeviceName: "Office Mac",
+    deviceId: "mac-1",
+    deviceName: "Office Mac",
+    runtimeLabel: "Office Mac",
+    sourceKinds: ["cloud"]
+  }];
+
+  s.handleCloudEvent({
+    type: "bot.upserted",
+    payload: {
+      bot: {
+        id: "nono",
+        key: "nono",
+        name: "Renamed nono",
+        agentEngine: "hermes",
+        targetDeviceId: "",
+        targetDeviceName: ""
+      }
+    }
+  });
+
+  assert.equal(s.moduleState.bots[0].name, "Renamed nono");
+  assert.equal(s.moduleState.bots[0].agentEngine, "claude-code");
+  assert.equal(s.moduleState.bots[0].targetDeviceId, "mac-1");
+  assert.equal(s.moduleState.bots[0].targetDeviceName, "Office Mac");
+});
+
+test("handleCloudEvent bot.runtime_updated applies the authoritative runtime binding", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.bots = [{
+    id: "nono",
+    key: "nono",
+    name: "nono",
+    runtimeKind: "desktop-local",
+    agentEngine: "hermes",
+    targetDeviceId: "mac-1",
+    targetDeviceName: "Office Mac",
+    deviceId: "mac-1",
+    deviceName: "Office Mac",
+    runtimeLabel: "Office Mac",
+    sourceKinds: ["cloud"]
+  }];
+
+  s.handleCloudEvent({
+    type: "bot.runtime_updated",
+    payload: {
+      binding: {
+        botId: "nono",
+        runtimeKind: "desktop-local",
+        enabled: true,
+        config: {
+          agentEngine: "claude-code",
+          deviceId: "mac-1",
+          deviceName: "Office Mac",
+          model: "claude-sonnet-4-5",
+          effortLevel: "high"
+        }
+      }
+    }
+  });
+
+  assert.equal(s.moduleState.bots[0].agentEngine, "claude-code");
+  assert.equal(s.moduleState.bots[0].targetDeviceId, "mac-1");
+  assert.equal(s.moduleState.bots[0].runtimeConfig.model, "claude-sonnet-4-5");
+  assert.equal(s.moduleState.bots[0].runtimeConfig.effortLevel, "high");
+});
+
 test("handleCloudEvent conversation.updated upserts unknown conversations", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
@@ -2407,6 +2547,130 @@ test("sendInActiveConversation preserves cloud starter ownership when cached dec
   assert.equal(calls[1].body.runtimeKind, "cloud-claude-code");
   assert.equal(calls[1].body.botId, "starter_9038338_mia");
   assert.equal(calls[1].body.sessionId, "starter_9038338_mia");
+});
+
+test("sendInActiveConversation preserves desktop Codex starter ownership when cached decorations are missing", async () => {
+  const s = loadSocial();
+  const calls = [];
+  s.moduleState.myUserId = "6682409";
+  s.moduleState.bots = [{
+    id: "starter_6682409_codex",
+    key: "starter_6682409_codex",
+    runtimeKind: "desktop-local",
+    agentEngine: "codex"
+  }];
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async (conversationId, body) => {
+      calls.push({ conversationId, body });
+      return {
+        ok: true,
+        data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "6682409", body_md: body.bodyMd } }
+      };
+    }
+  };
+  s.moduleState.activeConversationId = "botc_starter_6682409_codex";
+  s.moduleState.conversations = [{ id: "botc_starter_6682409_codex", type: "bot", name: "codex" }];
+  s.moduleState.messageCache.set("botc_starter_6682409_codex", { messages: [], maxSeq: 0 });
+
+  await s.sendInActiveConversation("hello codex", {
+    botRuntimeControl: {
+      model: "gpt-5-codex",
+      providerConnectionId: "codex",
+      effortLevel: "medium",
+      permissionMode: ":workspace"
+    }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].conversationId, "botc_starter_6682409_codex");
+  assert.equal(calls[0].body.runtimeKind, "desktop-local");
+  assert.equal(calls[0].body.botId, "starter_6682409_codex");
+  assert.equal(calls[0].body.sessionId, "starter_6682409_codex");
+  assert.equal(calls[0].body.agentEngine, "codex");
+  assert.equal(calls[0].body.model, "gpt-5-codex");
+  assert.equal(calls[0].body.providerConnectionId, "codex");
+  assert.equal(calls[0].body.effortLevel, "medium");
+  assert.equal(calls[0].body.permissionMode, ":workspace");
+});
+
+test("sendInActiveConversation remaps stale starter active id before desktop-local bot send", async () => {
+  const oldId = "botc_starter_9038338_hermes";
+  const currentId = "botc_starter_6682409_hermes";
+  const store = { "mia.lastActiveConversationId": oldId };
+  const s = loadSocial();
+  const calls = [];
+  s.__mockWindow.localStorage = {
+    getItem: (key) => store[key] || "",
+    setItem: (key, value) => { store[key] = String(value); },
+    removeItem: (key) => { delete store[key]; }
+  };
+  s.moduleState.myUserId = "6682409";
+  s.moduleState.activeConversationId = oldId;
+  s.moduleState.conversations = [{
+    id: currentId,
+    type: "bot",
+    name: "Hermes",
+    decorations: {
+      botId: "starter_6682409_hermes",
+      sessionId: "starter_6682409_hermes",
+      runtimeKind: "desktop-local",
+      agentEngine: "hermes"
+    }
+  }];
+  s.moduleState.messageCache.set(oldId, { messages: [], maxSeq: 0 });
+  s.moduleState.messageCache.set(currentId, { messages: [], maxSeq: 0 });
+  s.__mockWindow.mia.social = {
+    listConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
+    postConversationMessage: async (conversationId, body) => {
+      calls.push({ conversationId, body });
+      return {
+        ok: true,
+        data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "6682409", body_md: body.bodyMd } }
+      };
+    }
+  };
+
+  await s.sendInActiveConversation("hello local bot");
+
+  assert.equal(s.moduleState.activeConversationId, currentId);
+  assert.equal(store["mia.lastActiveConversationId"], currentId);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].conversationId, currentId);
+  assert.equal(calls[0].body.runtimeKind, "desktop-local");
+  assert.equal(calls[0].body.botId, "starter_6682409_hermes");
+  assert.deepEqual(s.moduleState.messageCache.get(oldId).messages, []);
+  assert.deepEqual(
+    s.moduleState.messageCache.get(currentId).messages.map((message) => message.id),
+    ["m_server"]
+  );
+});
+
+test("sendInActiveConversation drops missing active conversation before optimistic append", async () => {
+  const missingId = "botc_starter_9038338_mia";
+  const store = { "mia.lastActiveConversationId": missingId };
+  const s = loadSocial();
+  let posted = false;
+  s.__mockWindow.localStorage = {
+    getItem: (key) => store[key] || "",
+    setItem: (key, value) => { store[key] = String(value); },
+    removeItem: (key) => { delete store[key]; }
+  };
+  s.moduleState.myUserId = "6682409";
+  s.moduleState.activeConversationId = missingId;
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async () => {
+      posted = true;
+      return { ok: false, error: "should not post" };
+    }
+  };
+
+  const result = await s.sendInActiveConversation("hello missing bot");
+
+  assert.equal(result.ok, false);
+  assert.equal(posted, false);
+  assert.equal(s.moduleState.activeConversationId, null);
+  assert.equal(store["mia.lastActiveConversationId"], undefined);
+  assert.equal(s.moduleState.messageCache.has(missingId), false);
 });
 
 test("sendInActiveConversation keeps cloud bot sends on botc ids when ensure returns a Core mirror", async () => {

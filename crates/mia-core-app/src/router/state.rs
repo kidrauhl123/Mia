@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::cloud_bridge::MiaRuntimeProxyRegistry;
 use crate::runtime::RuntimeRegistry;
 use crate::services::AppServices;
 use mia_core_bot::BotService;
@@ -32,6 +33,7 @@ pub struct ModuleStates {
     pub realtime: EventBus,
     pub runtime: RuntimeRegistry,
     pub runtime_sessions: RuntimeSessionManager,
+    pub mia_runtime_proxies: MiaRuntimeProxyRegistry,
 }
 
 pub fn build_module_states(services: &AppServices) -> ModuleStates {
@@ -54,5 +56,6 @@ pub fn build_module_states(services: &AppServices) -> ModuleStates {
         realtime: services.realtime.clone(),
         runtime: services.runtime.clone(),
         runtime_sessions: services.runtime_sessions.clone(),
+        mia_runtime_proxies: services.mia_runtime_proxies.clone(),
     }
 }

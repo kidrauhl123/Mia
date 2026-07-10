@@ -517,6 +517,7 @@
   }
 
   function runtimeTargetFromBinding(binding = {}) {
+    const config = binding.config && typeof binding.config === "object" ? binding.config : {};
     const runtimeKind = window.miaBotDirectory?.normalizeRuntimeKind?.(
       binding.runtimeKind || binding.runtime_kind,
       "cloud-claude-code"
@@ -526,14 +527,18 @@
         runtimeKind: "cloud-claude-code",
         deviceId: "",
         deviceName: "Mia Cloud",
-        agentEngine: strictAgentEngine(binding.agentEngine || binding.agent_engine) || cloudAgentRuntime().agentEngine
+        agentEngine: strictAgentEngine(binding.agentEngine || binding.agent_engine || config.agentEngine || config.agent_engine)
+          || cloudAgentRuntime().agentEngine
       };
     }
     return {
       runtimeKind: "desktop-local",
-      deviceId: String(binding.targetDeviceId || binding.target_device_id || "").trim(),
-      deviceName: String(binding.targetDeviceName || binding.target_device_name || "").trim(),
-      agentEngine: window.miaBotDirectory?.normalizeAgentEngine?.(binding.agentEngine || binding.agent_engine || "hermes", "desktop-local")
+      deviceId: String(binding.targetDeviceId || binding.target_device_id || config.deviceId || config.device_id || config.targetDeviceId || "").trim(),
+      deviceName: String(binding.targetDeviceName || binding.target_device_name || config.deviceName || config.device_name || "").trim(),
+      agentEngine: window.miaBotDirectory?.normalizeAgentEngine?.(
+        binding.agentEngine || binding.agent_engine || config.agentEngine || config.agent_engine || "hermes",
+        "desktop-local"
+      )
         || "hermes"
     };
   }

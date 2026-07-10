@@ -57,6 +57,35 @@ async fn bot_service_owns_identity_defaults_and_runtime_binding() {
 }
 
 #[tokio::test]
+async fn missing_runtime_binding_inherits_the_bot_identity_engine() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+    let created = service
+        .create_bot(CreateBotRequest {
+            display_name: "Codex".into(),
+            identity: json!({
+                "runtimeKind": "desktop-local",
+                "agentEngine": "codex"
+            }),
+            capabilities: json!({}),
+        })
+        .await
+        .unwrap();
+
+    let runtime = service.get_runtime(&created.bot.id, "agent").await.unwrap();
+
+    assert_eq!(runtime.runtime_kind, "agent");
+    assert_eq!(runtime.binding["agentEngine"], "codex");
+    assert_eq!(runtime.binding["config"]["agentEngine"], "codex");
+    assert_eq!(runtime.binding["providerConnectionId"], "mia");
+    assert_eq!(runtime.binding["modelProfileId"], "mia:mia-auto");
+    assert_eq!(runtime.binding["model"], "mia-auto");
+    assert_eq!(runtime.binding["config"]["providerConnectionId"], "mia");
+    assert_eq!(runtime.binding["config"]["modelProfileId"], "mia:mia-auto");
+    assert_eq!(runtime.binding["config"]["model"], "mia-auto");
+}
+
+#[tokio::test]
 async fn bot_service_owns_runtime_target_intent_normalization() {
     let db = init_database_memory().await.unwrap();
     let service = BotService::new(db.pool().clone());
@@ -426,7 +455,14 @@ async fn bot_service_owns_runtime_control_options_selection() {
     assert_eq!(response.status_text, "Codex");
     assert!(!response.send_blocked);
     assert_eq!(response.send_block_reason, "");
-    assert_eq!(response.model_options.len(), 2);
+    assert_eq!(
+        response
+            .model_options
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["gpt-5.3-codex"]
+    );
     assert_eq!(response.selected_model, "gpt-5.3-codex");
     assert_eq!(
         response.selected_model_entry.as_ref().unwrap().label,
@@ -480,8 +516,53 @@ async fn bot_service_leaves_external_model_empty_when_saved_model_is_not_availab
         .iter()
         .map(|entry| entry.id.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(model_ids, vec!["gpt-5.5", "mia-auto"]);
+    assert_eq!(model_ids, vec!["gpt-5.5"]);
     assert!(!model_ids.contains(&"gpt-5.3-codex"));
+}
+
+#[tokio::test]
+async fn bot_service_does_not_synthesize_external_effort_or_permissions() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let response = service.runtime_control_options(BotRuntimeControlOptionsRequest {
+        runtime_kind: Some("desktop-local".to_string()),
+        bot: json!({ "key": "codex", "agentEngine": "codex" }),
+        runtime: json!({
+            "agentInventory": {
+                "agents": [
+                    { "id": "codex", "usableInMia": true, "health": "ready" }
+                ]
+            }
+        }),
+        binding: json!({
+            "config": {
+                "agentEngine": "codex",
+                "model": "gpt-5.5",
+                "effortLevel": "medium",
+                "permissionMode": "default"
+            }
+        }),
+        model_catalog: json!([]),
+        platform_models: json!([]),
+        engine_capabilities: json!({
+            "engines": {
+                "codex": {
+                    "models": [
+                        { "slug": "gpt-5.5", "displayName": "gpt-5.5" }
+                    ]
+                }
+            }
+        }),
+        codex_models: json!([]),
+    });
+
+    assert_eq!(response.selected_model, "gpt-5.5");
+    assert_eq!(response.model_options.len(), 1);
+    assert!(response.effort_options.is_empty());
+    assert_eq!(response.selected_effort, "");
+    assert!(response.permission_options.is_empty());
+    assert_eq!(response.selected_permission, "");
 }
 
 #[tokio::test]
@@ -510,6 +591,10 @@ async fn bot_service_blocks_desktop_runtime_controls_until_inventory_is_ready() 
     assert!(response.model_options.is_empty());
     assert_eq!(response.selected_model, "");
     assert!(response.selected_model_entry.is_none());
+    assert!(response.effort_options.is_empty());
+    assert_eq!(response.selected_effort, "");
+    assert!(response.permission_options.is_empty());
+    assert_eq!(response.selected_permission, "");
     assert!(response.send_blocked);
     assert_eq!(response.send_block_reason, "Hermes ACP 自检未完成");
 }
@@ -525,7 +610,17 @@ async fn bot_service_leaves_model_empty_when_codex_inventory_is_blocked() {
         runtime: json!({
             "agentInventory": {
                 "agents": [
-                    { "id": "codex", "usableInMia": false, "health": "blocked" }
+                    {
+                        "id": "codex",
+                        "usableInMia": false,
+                        "health": "blocked",
+                        "readiness": {
+                            "status": "blocked",
+                            "summary": "Codex ACP launcher 未检测到: npx",
+                            "detail": "npx",
+                            "action": ""
+                        }
+                    }
                 ]
             }
         }),
@@ -552,8 +647,15 @@ async fn bot_service_leaves_model_empty_when_codex_inventory_is_blocked() {
     assert!(response.model_options.is_empty());
     assert_eq!(response.selected_model, "");
     assert!(response.selected_model_entry.is_none());
+    assert!(response.effort_options.is_empty());
+    assert_eq!(response.selected_effort, "");
+    assert!(response.permission_options.is_empty());
+    assert_eq!(response.selected_permission, "");
     assert!(response.send_blocked);
-    assert_eq!(response.send_block_reason, "Codex ACP 自检失败");
+    assert_eq!(
+        response.send_block_reason,
+        "Codex ACP launcher 未检测到: npx"
+    );
 }
 
 #[tokio::test]
@@ -567,7 +669,17 @@ async fn bot_service_leaves_model_empty_when_hermes_inventory_is_blocked() {
         runtime: json!({
             "agentInventory": {
                 "agents": [
-                    { "id": "hermes", "usableInMia": false, "health": "blocked" }
+                    {
+                        "id": "hermes",
+                        "usableInMia": false,
+                        "health": "blocked",
+                        "readiness": {
+                            "status": "blocked",
+                            "summary": "Hermes runtime 协议暂不受 Mia 支持",
+                            "detail": "protocol=legacy",
+                            "action": ""
+                        }
+                    }
                 ]
             },
             "cloud": { "enabled": true },
@@ -592,8 +704,48 @@ async fn bot_service_leaves_model_empty_when_hermes_inventory_is_blocked() {
     assert!(response.model_options.is_empty());
     assert_eq!(response.selected_model, "");
     assert!(response.selected_model_entry.is_none());
+    assert!(response.effort_options.is_empty());
+    assert_eq!(response.selected_effort, "");
+    assert!(response.permission_options.is_empty());
+    assert_eq!(response.selected_permission, "");
     assert!(response.send_blocked);
-    assert_eq!(response.send_block_reason, "Hermes ACP 自检失败");
+    assert_eq!(
+        response.send_block_reason,
+        "Hermes runtime 协议暂不受 Mia 支持"
+    );
+}
+
+#[tokio::test]
+async fn bot_service_treats_checking_agent_inventory_as_not_ready() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let response = service.runtime_control_options(BotRuntimeControlOptionsRequest {
+        runtime_kind: Some("desktop-local".to_string()),
+        bot: json!({ "key": "hermes", "agentEngine": "hermes" }),
+        runtime: json!({
+            "agentInventory": {
+                "summary": { "scanning": true },
+                "agents": [
+                    {
+                        "id": "hermes",
+                        "usableInMia": false,
+                        "health": "checking",
+                        "source": "checking",
+                        "readiness": { "status": "checking", "summary": "正在检查" }
+                    }
+                ]
+            }
+        }),
+        binding: json!({}),
+        model_catalog: json!([]),
+        platform_models: json!([{ "id": "mia-auto", "label": "Auto" }]),
+        engine_capabilities: json!({}),
+        codex_models: json!([]),
+    });
+
+    assert!(response.send_blocked);
+    assert_eq!(response.send_block_reason, "Hermes ACP 自检未完成");
 }
 
 #[tokio::test]
@@ -607,7 +759,7 @@ async fn bot_service_owns_cloud_runtime_control_permission_options() {
         runtime: json!({}),
         binding: json!({}),
         model_catalog: json!([]),
-        platform_models: json!([]),
+        platform_models: json!([{ "id": "mia-auto", "label": "Auto" }]),
         engine_capabilities: json!({}),
         codex_models: json!([]),
     });
