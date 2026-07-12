@@ -101,6 +101,7 @@ pub async fn run_cloud_bridge(
     execute_cloud_bridge_run(
         &states.cloud,
         &states.conversation,
+        &states.tasks,
         &states.realtime,
         &states.runtime,
         &states.runtime_sessions,

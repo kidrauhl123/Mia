@@ -410,12 +410,8 @@ async fn hermes_runtime_config_is_prepared_inside_core_with_provider_runtime() {
         parsed["agent"]["disabled_toolsets"],
         json!(["browser", "cronjob"])
     );
-    assert_eq!(
-        parsed["mcp_servers"]["mia-app"]["command"],
-        "/usr/local/bin/node"
-    );
-    assert!(parsed["mcp_servers"]["mia-app"].get("alwaysLoad").is_none());
-    assert!(parsed["mcp_servers"]["mia-app"].get("url").is_none());
+    assert!(parsed["mcp_servers"].get("mia-app").is_none());
+    assert!(parsed["mcp_servers"].get("mia-scheduler").is_none());
     assert_eq!(
         parsed["mcp_servers"]["xhs"]["url"],
         "http://127.0.0.1:18060/mcp"
@@ -425,24 +421,12 @@ async fn hermes_runtime_config_is_prepared_inside_core_with_provider_runtime() {
         parsed["mia"]["bots_manifest"],
         bot_manifest.to_string_lossy().to_string()
     );
+    assert_eq!(
+        parsed["skills"]["external_dirs"],
+        json!(["${MIA_HERMES_SKILLS_DIR}"])
+    );
     let settings = service.client_settings().await.unwrap().settings;
-    assert_eq!(
-        settings["reservedMcpSpecs"]["miaApp"]["command"],
-        "/usr/local/bin/node"
-    );
-    assert_eq!(
-        settings["reservedMcpSpecs"]["miaApp"]["env"]["MIA_CORE_URL"],
-        "http://127.0.0.1:27861"
-    );
-    assert!(
-        settings["reservedMcpSpecs"]["miaApp"]
-            .get("alwaysLoad")
-            .is_none()
-    );
-    assert_eq!(
-        settings["reservedMcpSpecs"]["scheduler"]["args"][0],
-        "/opt/mia/scheduler-mcp-server.js"
-    );
+    assert!(settings.get("reservedMcpSpecs").is_none());
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

@@ -91,6 +91,15 @@ test("renderer bot runtime controls send state snapshots instead of UI-owned opt
   assert.doesNotMatch(combined, /window\.miaEngineOptions\?\.effortOptions/);
 });
 
+test("conversation model selector labels the real Core-selected model", () => {
+  const app = read("src/renderer/app.js");
+  assert.match(
+    app,
+    /els\.quickModelSelect\.title = modelEntries\.length[\s\S]*`当前模型：\$\{modelLabel/,
+    "the conversation selector must not retain the settings-page 未配置模型 placeholder"
+  );
+});
+
 test("renderer engine options facade exposes display helpers only", () => {
   const engineOptions = read("src/renderer/settings/engine-options.js");
 
@@ -190,6 +199,12 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
   assert.match(preload, /function localCoreConversationIdForBotConversation\(conversationId\)/);
   assert.match(preload, /async function listLocalDesktopBotMessages\(conversationId,\s*sinceSeq,\s*limit\)/);
   assert.match(preload, /async function postLocalDesktopBotMessage\(conversationId,\s*body = \{\}\)/);
+  const postLocalDesktopSource = extractFunctionSource(preload, "postLocalDesktopBotMessage");
+  assert.match(
+    postLocalDesktopSource,
+    /selectedSkillIds:\s*selectedSkillIdsFromCoreBody\(input\)/,
+    "desktop-local bot sends must preserve the real composer skill chips"
+  );
   const listLocalDesktopSource = extractFunctionSource(preload, "listLocalDesktopBotMessages");
   assert.match(listLocalDesktopSource, /if \(observedCoreConversationIds\.has\(localConversationId\)\) \{/);
   assert.match(preload, /id:\s*firstText\(response\?\.messageId,\s*response\?\.message_id,\s*`msg_\$\{runId\}`\)/);
@@ -300,13 +315,14 @@ test("conversation preload bridge normalizes Core millisecond timestamps for mes
 test("Rust Core runtime assistant message events carry persisted created_at", () => {
   const conversationCore = read("crates/mia-core-conversation/src/lib.rs");
   const conversationRoute = read("crates/mia-core-app/src/router/conversation.rs");
+  const turnExecution = read("crates/mia-core-app/src/turn_execution.rs");
   const cloudBridge = read("crates/mia-core-app/src/cloud_bridge.rs");
 
   assert.match(conversationCore, /pub struct CompletedRuntimeMessage \{[\s\S]*pub created_at: i64,/);
   assert.match(conversationCore, /CompletedRuntimeMessage \{[\s\S]*created_at: now,/);
-  assert.match(conversationRoute, /"created_at": completed\.created_at/);
+  assert.match(turnExecution, /"created_at": completed\.created_at/);
   assert.match(cloudBridge, /"created_at": completed\.created_at/);
-  assert.doesNotMatch(conversationRoute, /"created_at": "",/);
+  assert.doesNotMatch(turnExecution, /"created_at": "",/);
   assert.doesNotMatch(cloudBridge, /"created_at": "",/);
 });
 

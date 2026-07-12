@@ -54,7 +54,6 @@ const {
 const { installPathPasteShortcut } = require("./main/path-paste-shortcut.js");
 const { createAutoUpdateService } = require("./main/updater/auto-update-service.js");
 const { createSkillsLoader } = require("./main/skills-loader.js");
-const { createMiaAppMcpBridge } = require("./main/mia-app-mcp-bridge.js");
 const { createSocialApi } = require("./main/social/social-api.js");
 const { cacheLiveConversationMessageEvent, registerSocialIpc } = require("./main/social/social-ipc.js");
 const { openConversationMessageCache } = require("./main/social/conversation-message-cache.js");
@@ -102,7 +101,6 @@ const {
   createAgentSessionStore
 } = require("./main/agent-session-store.js");
 const { createAgentPermissionProxy } = require("./main/agent-permission-proxy.js");
-const { createSchedulerMcpBridge } = require("./main/scheduler-mcp-bridge.js");
 const { createSystemHermesService } = require("./main/system-hermes-service.js");
 const { createEngineRuntimeConfigService } = require("./main/engine-runtime-config-service.js");
 const { createEngineHealthService } = require("./main/engine-health-service.js");
@@ -435,10 +433,6 @@ const engineRuntimeConfigService = createEngineRuntimeConfigService({
   permissionSettings: () => settingsStore?.permissionSettings() || { mode: "ask" },
   effortSettings: () => settingsStore?.effortSettings() || { level: "medium" },
   prepareRuntimeConfigRequest: forwardMiaCoreHttpRequest,
-  // Lazy: schedulerMcpBridge is created later in this module; these thunks are
-  // only invoked when Core prepares Hermes runtime config.
-  getMiaAppMcpSpec: () => miaAppMcpBridge.getSpec(),
-  getSchedulerMcpSpec: () => schedulerMcpBridge.getSpec(),
   getUserMcpSpecs: () => userMcpService.getEngineSpecs("hermes", { hermesSupportsUrl: true })
 });
 const {
@@ -998,25 +992,6 @@ let daemonCloudEventsStatus = null;
 let daemonCloudRuntimeStatus = null;
 let cloudDesktopSyncRuntime = null;
 const pendingCloudLogs = [];
-const schedulerMcpBridge = createSchedulerMcpBridge({
-  runtimePaths,
-  coreStatus: currentMiaCoreMcpStatus,
-  coreSettings: () => ({}),
-  coreToken,
-  nodePath: () => localAgentEngineService.shellCommandPath("node"),
-  serverScriptPath: () => path.join(__dirname, "main", "scheduler-mcp-server.js"),
-  homeDir: () => os.homedir()
-});
-const miaAppMcpBridge = createMiaAppMcpBridge({
-  runtimePaths,
-  coreStatus: currentMiaCoreMcpStatus,
-  coreSettings: () => ({}),
-  coreToken,
-  nodePath: () => localAgentEngineService.shellCommandPath("node"),
-  ddgsPythonPath: () => systemHermesService.pythonPath() || engineInstallService.enginePython(),
-  serverScriptPath: () => path.join(__dirname, "main", "mia-app-mcp-server.js")
-});
-
 function readJson(filePath, fallback) {
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf8"));

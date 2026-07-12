@@ -14,6 +14,7 @@ use mia_core_runtime::{
     EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_STDERR, EVENT_RUNTIME_STDOUT, RuntimeEventSink,
     RuntimeProtocol, RuntimeSessionManager, RuntimeTurnPlan,
 };
+use mia_core_tasks::TaskService;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
@@ -22,12 +23,14 @@ use crate::claude_code_mia_proxy::{
     ClaudeCodeMiaProxyConfig, RunningClaudeCodeMiaProxy, start_claude_code_mia_proxy,
 };
 use crate::codex_mia_proxy::{CodexMiaProxyConfig, RunningCodexMiaProxy, start_codex_mia_proxy};
+use crate::cron_turn::execute_runtime_with_cron;
 use crate::runtime::RuntimeRegistry;
 
 #[derive(Debug, Clone)]
 pub struct AppCloudBridgeRunner {
     cloud: CloudService,
     conversation: ConversationService,
+    tasks: TaskService,
     realtime: EventBus,
     runtime: RuntimeRegistry,
     runtime_sessions: RuntimeSessionManager,
@@ -38,6 +41,7 @@ impl AppCloudBridgeRunner {
     pub fn new(
         cloud: CloudService,
         conversation: ConversationService,
+        tasks: TaskService,
         realtime: EventBus,
         runtime: RuntimeRegistry,
         runtime_sessions: RuntimeSessionManager,
@@ -46,6 +50,7 @@ impl AppCloudBridgeRunner {
         Self {
             cloud,
             conversation,
+            tasks,
             realtime,
             runtime,
             runtime_sessions,
@@ -63,6 +68,7 @@ impl CloudBridgeRunHandler for AppCloudBridgeRunner {
         execute_cloud_bridge_run(
             &self.cloud,
             &self.conversation,
+            &self.tasks,
             &self.realtime,
             &self.runtime,
             &self.runtime_sessions,
@@ -83,6 +89,7 @@ impl CloudBridgeRunHandler for AppCloudBridgeRunner {
 pub async fn execute_cloud_bridge_run(
     cloud: &CloudService,
     conversation: &ConversationService,
+    tasks: &TaskService,
     realtime: &EventBus,
     runtime: &RuntimeRegistry,
     runtime_sessions: &RuntimeSessionManager,
@@ -90,12 +97,13 @@ pub async fn execute_cloud_bridge_run(
     request: CloudBridgeRunRequest,
 ) -> Result<CloudBridgeRunResponse, CloudError> {
     let prepared = cloud.prepare_bridge_run(request)?;
+    let bot_id = bot_id_from_metadata(&prepared.metadata);
     let conversation_row = conversation
         .ensure_external_conversation(
             &prepared.local_conversation_id,
             "cloud-bridge",
             &prepared.title,
-            None,
+            bot_id.as_deref(),
             prepared.metadata.clone(),
         )
         .await?
@@ -166,71 +174,88 @@ pub async fn execute_cloud_bridge_run(
         let runtime_event_engine = runtime_plan.engine.clone();
         let trace_collector = Arc::new(StdMutex::new(CloudRunCollector::default()));
         let trace_collector_for_sink = trace_collector.clone();
-        let sink = RuntimeEventSink::new(move |event| {
-            let name = event.name.clone();
-            let data = event.data.clone();
-            if name == EVENT_RUNTIME_STDOUT {
-                let run_events = data
-                    .get("event")
-                    .filter(|event| event.is_object())
-                    .cloned()
-                    .map(|event| vec![event])
-                    .unwrap_or_else(|| {
-                        cloud_run_events_from_stdout(
-                            &runtime_event_engine,
-                            data.get("text").and_then(Value::as_str).unwrap_or(""),
-                        )
-                    });
-                for run_event in run_events {
-                    trace_collector_for_sink
-                        .lock()
-                        .unwrap()
-                        .apply_run_event(&run_event);
-                    event_realtime.emit(
-                        "cloud_agent_run_event",
-                        json!({
-                            "conversationId": cloud_conversation_id,
-                            "runId": cloud_run_id,
-                            "botId": cloud_bot_id,
-                            "event": run_event,
-                        }),
-                    );
-                }
-            } else if name == EVENT_RUNTIME_STDERR {
-                let text = data.get("text").and_then(Value::as_str).unwrap_or("");
-                if let Some(text) = clean_runtime_stderr_status(&runtime_event_engine, text) {
-                    event_realtime.emit(
-                        "cloud_agent_run_event",
-                        json!({
-                            "conversationId": cloud_conversation_id,
-                            "runId": cloud_run_id,
-                            "botId": cloud_bot_id,
-                            "event": {
-                                "type": "status",
-                                "text": text,
-                            },
-                        }),
-                    );
-                }
-            }
-            event_realtime.emit(name, data);
-        });
-        let execution = runtime_sessions
-            .send_message(runtime_plan.clone(), sink, Some(cancellation))
-            .await
-            .map_err(|error| CloudError::Runtime(error.to_string()));
+        let execution = execute_runtime_with_cron(
+            runtime_sessions,
+            tasks,
+            runtime_plan.clone(),
+            move |_| {
+                let event_realtime = event_realtime.clone();
+                let cloud_conversation_id = cloud_conversation_id.clone();
+                let cloud_run_id = cloud_run_id.clone();
+                let cloud_bot_id = cloud_bot_id.clone();
+                let runtime_event_engine = runtime_event_engine.clone();
+                let trace_collector_for_sink = trace_collector_for_sink.clone();
+                RuntimeEventSink::new(move |event| {
+                    let name = event.name.clone();
+                    let data = event.data.clone();
+                    if name == EVENT_RUNTIME_STDOUT {
+                        let run_events = data
+                            .get("event")
+                            .filter(|event| event.is_object())
+                            .cloned()
+                            .map(|event| vec![event])
+                            .unwrap_or_else(|| {
+                                cloud_run_events_from_stdout(
+                                    &runtime_event_engine,
+                                    data.get("text").and_then(Value::as_str).unwrap_or(""),
+                                )
+                            });
+                        for run_event in run_events {
+                            trace_collector_for_sink
+                                .lock()
+                                .unwrap()
+                                .apply_run_event(&run_event);
+                            event_realtime.emit(
+                                "cloud_agent_run_event",
+                                json!({
+                                    "conversationId": cloud_conversation_id,
+                                    "runId": cloud_run_id,
+                                    "botId": cloud_bot_id,
+                                    "event": run_event,
+                                }),
+                            );
+                        }
+                    } else if name == EVENT_RUNTIME_STDERR {
+                        let text = data.get("text").and_then(Value::as_str).unwrap_or("");
+                        if let Some(text) = clean_runtime_stderr_status(&runtime_event_engine, text)
+                        {
+                            event_realtime.emit(
+                                "cloud_agent_run_event",
+                                json!({
+                                    "conversationId": cloud_conversation_id,
+                                    "runId": cloud_run_id,
+                                    "botId": cloud_bot_id,
+                                    "event": {
+                                        "type": "status",
+                                        "text": text,
+                                    },
+                                }),
+                            );
+                        }
+                    }
+                    event_realtime.emit(name, data);
+                })
+            },
+            Some(cancellation),
+        )
+        .await
+        .map_err(|error| CloudError::Runtime(error.to_string()));
         runtime.remove(&cancellation_key);
-        let result = match execution {
+        let cron_result = match execution {
             Ok(result) => result,
             Err(error) => {
                 runtime_claim.release();
                 return Err(error);
             }
         };
-        let structured_output = trace_collector.lock().unwrap().display_output();
+        let result = cron_result.execution;
+        let mut structured_output = trace_collector.lock().unwrap().display_output();
+        if cron_result.continuation_count > 0 {
+            replace_collected_text(&mut structured_output, &cron_result.visible_text);
+        }
         let output = runtime_output_with_collected_events(
             &runtime_plan.engine,
-            &result.stdout,
+            &cron_result.visible_text,
             &result.stderr,
             structured_output,
         );
@@ -892,6 +917,22 @@ fn runtime_output_with_collected_events(
         output.content_blocks = structured.content_blocks;
     }
     output
+}
+
+fn replace_collected_text(output: &mut RuntimeDisplayOutput, text: &str) {
+    let text = text.trim();
+    output.text = text.to_string();
+    let Some(blocks) = output.content_blocks.as_array_mut() else {
+        return;
+    };
+    blocks.retain(|block| block.get("type").and_then(Value::as_str) != Some("text"));
+    if !text.is_empty() {
+        blocks.push(json!({
+            "type": "text",
+            "id": format!("text_{}", blocks.len()),
+            "text": text,
+        }));
+    }
 }
 
 fn cloud_run_events_from_stdout(engine: &str, text: &str) -> Vec<Value> {
@@ -1695,6 +1736,45 @@ mod tests {
         assert_eq!(output.trace["tools"][0]["name"], "读取内存");
         assert_eq!(output.content_blocks[0]["type"], "tool");
         assert_eq!(output.content_blocks[1]["type"], "text");
+    }
+
+    #[test]
+    fn cron_continuation_replaces_collected_protocol_text_but_keeps_trace() {
+        let mut collector = CloudRunCollector::default();
+        collector.apply_run_event(&json!({
+            "type": "tool.started",
+            "id": "tool_1",
+            "name": "读取上下文",
+            "status": "running"
+        }));
+        collector.apply_run_event(&json!({
+            "type": "tool.completed",
+            "id": "tool_1",
+            "name": "读取上下文",
+            "status": "completed"
+        }));
+        collector.apply_run_event(&json!({
+            "type": "message.delta",
+            "text": "准备创建。 [CRON_CREATE]...[/CRON_CREATE]"
+        }));
+        let mut structured = collector.display_output();
+
+        replace_collected_text(&mut structured, "已经设置好每天上午 9 点的日报提醒。");
+
+        assert_eq!(structured.text, "已经设置好每天上午 9 点的日报提醒。");
+        assert_eq!(structured.trace["tools"][0]["name"], "读取上下文");
+        assert_eq!(structured.content_blocks[0]["type"], "tool");
+        assert_eq!(structured.content_blocks[1]["type"], "text");
+        assert_eq!(
+            structured.content_blocks[1]["text"],
+            "已经设置好每天上午 9 点的日报提醒。"
+        );
+        assert!(
+            !structured
+                .content_blocks
+                .to_string()
+                .contains("CRON_CREATE")
+        );
     }
 
     #[test]

@@ -315,8 +315,8 @@ test("bundled library exposes a Mia scheduler skill for reminder requests", asyn
     assert.match(skill.description, /提醒|定时|schedule/i);
 
     const full = loader.readLocalSkill("mia-scheduler");
-    assert.match(full.body, /schedule_create/);
-    assert.match(full.body, /不要使用 shell/);
+    assert.match(full.body, /\[CRON_CREATE\]/);
+    assert.match(full.body, /Do not use shell/);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -333,7 +333,7 @@ test("resolveSkillMaterialization exposes index without full scheduler body by d
     });
 
     assert.match(materialized.indexBlock, /mia-scheduler|Mia Scheduler|scheduled tasks/i);
-    assert.doesNotMatch(materialized.indexBlock, /schedule_create|不要使用 shell/);
+    assert.doesNotMatch(materialized.indexBlock, /\[CRON_CREATE\]|Do not use shell/);
     assert.equal(materialized.loadedBlock, "");
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
@@ -355,8 +355,8 @@ test("resolveSkillMaterialization loads full skill only for active or intent ski
       intentSkillIds: ["mia-scheduler"]
     });
 
-    assert.match(byActive.loadedBlock, /schedule_create/);
-    assert.match(byIntent.loadedBlock, /schedule_create/);
+    assert.match(byActive.loadedBlock, /\[CRON_CREATE\]/);
+    assert.match(byIntent.loadedBlock, /\[CRON_CREATE\]/);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -377,8 +377,8 @@ test("resolveSkillMaterialization resolves turn-local active and intent skills w
       intentSkillIds: ["mia-scheduler"]
     });
 
-    assert.match(byActive.loadedBlock, /schedule_create/);
-    assert.match(byIntent.loadedBlock, /schedule_create/);
+    assert.match(byActive.loadedBlock, /\[CRON_CREATE\]/);
+    assert.match(byIntent.loadedBlock, /\[CRON_CREATE\]/);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -394,7 +394,7 @@ test("resolveSkillMaterialization loads requested installed skills even when not
     });
 
     assert.match(materialized.indexBlock, /LOAD_SKILL/);
-    assert.match(materialized.loadedBlock, /schedule_create/);
+    assert.match(materialized.loadedBlock, /\[CRON_CREATE\]/);
     assert.deepEqual(materialized.loadedSkillIds, ["mia-official:mia-scheduler"]);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

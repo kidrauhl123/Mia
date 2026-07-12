@@ -234,6 +234,45 @@ test("composer path paste uses short image tokens and expands them for send", ()
   assert.equal(composer.expandPathPasteRefsForSend("请看 IMG1"), "请看 IMG1");
 });
 
+test("leading slash skill becomes a composer chip and leaves only the user request", () => {
+  const { composer, window } = loadComposer();
+  window.miaSocial.getActiveConversationId = () => "conv-1";
+  const input = mockInput("/meeting-notes summarize this call");
+  const counters = initComposer(composer, input, undefined, {
+    skillLibrary: {
+      skills: [{ id: "mia-official:meeting-notes", name: "meeting-notes", title: "会议纪要" }]
+    },
+    composerActiveSkills: []
+  });
+
+  const result = composer.consumeLeadingSkillCommand(input.value);
+
+  assert.equal(result.matched, true);
+  assert.equal(result.text, "summarize this call");
+  assert.deepEqual(plain(counters.state.composerActiveSkills), [
+    { id: "mia-official:meeting-notes", name: "meeting-notes" }
+  ]);
+  assert.equal(counters.state.composerSkillsConversationId, "conv-1");
+});
+
+test("skill picker selection creates the existing chip instead of slash text", () => {
+  const { composer, window } = loadComposer();
+  window.miaSocial.getActiveConversationId = () => "conv-2";
+  const input = mockInput("keep this draft");
+  const counters = initComposer(composer, input, undefined, {
+    skillLibrary: {
+      skills: [{ id: "private:xlsx", name: "xlsx", title: "表格" }]
+    },
+    composerActiveSkills: []
+  });
+
+  assert.equal(composer.insertSkillIntoComposer("xlsx"), true);
+  assert.equal(input.value, "keep this draft");
+  assert.deepEqual(plain(counters.state.composerActiveSkills), [
+    { id: "private:xlsx", name: "xlsx" }
+  ]);
+});
+
 test("composer path paste uses a rich inline editor for image chips", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const composerSource = fs.readFileSync(path.join(root, "src/renderer/chat/composer.js"), "utf8");

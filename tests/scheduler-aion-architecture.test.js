@@ -9,7 +9,7 @@ function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), "utf8");
 }
 
-test("scheduler follows AION-style structured tool path without app-side reminder parsing", () => {
+test("scheduler follows AION cron skill and Rust response middleware without scheduler MCP", () => {
   const forbiddenFiles = [
     "src/main/app-scheduler-reminder.js",
     "src/main/reminder-intent.js",
@@ -31,7 +31,20 @@ test("scheduler follows AION-style structured tool path without app-side reminde
   }
 
   const schedulerSkill = read("skills/_builtin/mia-scheduler/SKILL.md");
-  assert.match(schedulerSkill, /schedule_create/, "structured scheduler tool guidance must remain");
-  assert.match(read("src/main/scheduler-mcp-server.js"), /name: "schedule_create"/, "desktop scheduler MCP tool must remain");
-  assert.match(read("src/main/engine-plugins-service.js"), /'name': 'schedule_create'/, "cloud Claude Code scheduler MCP tool must remain");
+  assert.match(schedulerSkill, /\[CRON_LIST\]/, "Aion query step must remain in the native skill");
+  assert.match(schedulerSkill, /\[CRON_CREATE\]/, "Aion create protocol must remain in the native skill");
+  assert.match(schedulerSkill, /ONE task per conversation/, "Aion conversation ownership rule must remain");
+  assert.doesNotMatch(schedulerSkill, /schedule_create|scheduler MCP/i, "scheduler skill must not depend on MCP");
+
+  for (const relativePath of [
+    "src/main/scheduler-mcp-server.js",
+    "src/main/scheduler-mcp-bridge.js"
+  ]) {
+    assert.equal(fs.existsSync(path.join(root, relativePath)), false, `${relativePath} must be deleted`);
+  }
+
+  const coreLib = read("crates/mia-core-conversation/src/cron_protocol.rs");
+  const coreTurn = read("crates/mia-core-app/src/cron_turn.rs");
+  assert.match(coreLib, /CronCommand/);
+  assert.match(coreTurn, /MAX_CRON_CONTINUATIONS/);
 });

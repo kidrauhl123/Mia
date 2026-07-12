@@ -12,12 +12,6 @@ function createEngineRuntimeConfigService(deps = {}) {
   const prepareRuntimeConfigRequest = deps.prepareRuntimeConfigRequest || (async () => {
     throw new Error("prepareRuntimeConfigRequest dependency is required.");
   });
-  const getMiaAppMcpSpec = typeof deps.getMiaAppMcpSpec === "function"
-    ? deps.getMiaAppMcpSpec
-    : () => null;
-  const getSchedulerMcpSpec = typeof deps.getSchedulerMcpSpec === "function"
-    ? deps.getSchedulerMcpSpec
-    : () => null;
   const getUserMcpSpecs = typeof deps.getUserMcpSpecs === "function"
     ? deps.getUserMcpSpecs
     : () => ({});
@@ -39,14 +33,6 @@ function createEngineRuntimeConfigService(deps = {}) {
     }
   }
 
-  function safeMcpSpec(readSpec) {
-    try {
-      return readSpec() || null;
-    } catch {
-      return null;
-    }
-  }
-
   async function prepareRuntimeConfig(port) {
     const p = runtimePaths();
     const response = await prepareRuntimeConfigRequest({
@@ -63,8 +49,6 @@ function createEngineRuntimeConfigService(deps = {}) {
         },
         permissionSettings: permissionSettings(),
         effortSettings: effortSettings(),
-        miaAppMcpSpec: safeMcpSpec(getMiaAppMcpSpec),
-        schedulerMcpSpec: safeMcpSpec(getSchedulerMcpSpec),
         userMcpSpecs: getUserMcpSpecs() || {}
       }
     });

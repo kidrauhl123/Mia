@@ -278,11 +278,43 @@
     if (!state) return [];
     const filter = state.slashFilter.replace(/^\//, "").trim().toLowerCase();
     const engine = window.miaEngineOptions.activeAgentEngine();
-    const commands = window.miaEngineOptions.isExternalAgentEngine(engine)
+    const engineCommands = window.miaEngineOptions.isExternalAgentEngine(engine)
       ? (state.agentSlashCommands[engine] || [])
       : (state.slashCommands || []);
+    const skillCommands = (state.skillLibrary?.skills || [])
+      .filter((skill) => skill?.id && skill?.name)
+      .map((skill) => ({
+        command: `/${skill.name}`,
+        description: skill.title || skill.name_zh || skill.description || "使用技能",
+        type: "skill",
+        skill
+      }));
+    const skillNames = new Set(skillCommands.map((item) => item.command.toLowerCase()));
+    const commands = [
+      ...skillCommands,
+      ...engineCommands.filter((item) => !skillNames.has(String(item.command || "").toLowerCase()))
+    ];
     if (!filter) return commands;
     return commands.filter((item) => `${item.command} ${item.description}`.toLowerCase().includes(filter));
+  }
+
+  function skillForSlashName(name) {
+    const wanted = String(name || "").replace(/^\//, "").trim().toLowerCase();
+    if (!wanted) return null;
+    return (state?.skillLibrary?.skills || []).find((skill) => {
+      const candidates = [skill?.name, skill?.id, String(skill?.id || "").split(":").pop()];
+      return candidates.some((candidate) => String(candidate || "").toLowerCase() === wanted);
+    }) || null;
+  }
+
+  function consumeLeadingSkillCommand(text) {
+    const source = String(text || "");
+    const match = source.match(/^\s*\/([A-Za-z0-9_./-]+)(?:\s+([\s\S]*))?$/);
+    if (!match) return { matched: false, text: source };
+    const skill = skillForSlashName(match[1]);
+    if (!skill) return { matched: false, text: source };
+    addComposerSkill(skill);
+    return { matched: true, text: String(match[2] || "").trimStart(), skill };
   }
 
   function externalSlashInvocation(text) {
@@ -713,15 +745,12 @@
   }
 
   function insertSkillIntoComposer(name) {
-    if (!els || !els.chatInput) return;
-    const trigger = `/${name} `;
-    const current = els.chatInput.value || "";
-    els.chatInput.value = current.trim().startsWith("/")
-      ? current.replace(/^\s*\/[A-Za-z0-9_:/.-]+(?:\s+)?/, trigger)
-      : `${trigger}${current}`;
-    els.chatInput.focus();
-    resizeChatInput();
-    renderSendButton();
+    if (!els || !els.chatInput) return false;
+    const skill = skillForSlashName(name);
+    if (!skill) return false;
+    addComposerSkill(skill);
+    closeSkillPicker();
+    return true;
   }
 
   function isMacPathPastePlatform(platform) {
@@ -1231,6 +1260,16 @@
 
   async function sendSlashCommand(command) {
     if (!state || !els) return;
+    if (command?.type === "skill" && command.skill) {
+      addComposerSkill(command.skill);
+      els.chatInput.value = "";
+      resizeChatInput();
+      state.slashMenuOpen = false;
+      state.slashFilter = "";
+      renderSlashCommandMenu();
+      renderSendButton();
+      return;
+    }
     const text = commandTextForSend(command);
     if (!text) return;
     els.chatInput.value = text;
@@ -1438,6 +1477,7 @@
   window.miaComposer = {
     initComposer,
     filteredSlashCommands,
+    consumeLeadingSkillCommand,
     externalSlashInvocation,
     outgoingMessageForSubmit,
     updateSlashCommandState,

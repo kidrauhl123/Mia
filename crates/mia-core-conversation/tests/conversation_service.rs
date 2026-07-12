@@ -66,6 +66,21 @@ fn current_skill_service_lists_and_reads_enabled_bot_skills_from_core_paths() {
         .read_current_bot_skill("bot_1", Some(&bot), "missing")
         .unwrap_err();
     assert!(missing.to_string().contains("not enabled"));
+
+    let plain_bot = BotSummary {
+        id: "bot_plain".into(),
+        display_name: "Plain Bot".into(),
+        identity: json!({}),
+        capabilities: json!({}),
+    };
+    let builtin = service.list_current_bot_skills("bot_plain", Some(&plain_bot));
+    assert_eq!(builtin.skills.len(), 1);
+    assert_eq!(builtin.skills[0].id, "mia-scheduler");
+    assert!(
+        service
+            .read_current_bot_skill("bot_plain", Some(&plain_bot), "mia-scheduler")
+            .is_ok()
+    );
 }
 
 #[tokio::test]
@@ -639,6 +654,7 @@ async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
     sqlx::query("INSERT INTO settings (key, value_json, updated_at) VALUES ('client', ?, 1)")
         .bind(
             json!({
+                "userId": "user_real",
                 "reservedMcpSpecs": {
                     "miaApp": {
                         "command": "/bin/node",
@@ -663,6 +679,13 @@ async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
         .execute(db.pool())
         .await
         .unwrap();
+    sqlx::query(
+        "INSERT INTO bots (id, display_name, identity_json, capability_json, avatar_json, created_at, updated_at)
+         VALUES ('bot_scope', 'Scoped Bot', '{}', '{}', '{}', 1, 1)",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
     sqlx::query(
         "INSERT INTO mcp_servers (id, name, transport, config_json, enabled, last_test_json, deleted_at, created_at, updated_at)
          VALUES ('mcp_docs', 'docs', 'http', ?, 1, '{}', NULL, 1, 1)",
@@ -698,12 +721,13 @@ async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
     .await
     .unwrap();
 
-    let service = ConversationService::new(db.pool().clone());
+    let service =
+        ConversationService::new(db.pool().clone()).with_core_base_url("http://127.0.0.1:27861");
     let created = service
         .create_conversation(CreateConversationRequest {
             kind: "direct".to_string(),
             title: "MCP Chat".to_string(),
-            bot_id: None,
+            bot_id: Some("bot_scope".into()),
             metadata: json!({ "runtime": { "engine": "mock-agent" } }),
         })
         .await
@@ -720,26 +744,33 @@ async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
         .await
         .unwrap();
     assert_eq!(
-        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["env"]["MIA_CORE_TOKEN"],
-        "core-token"
-    );
-    assert_eq!(
         accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["args"][0],
-        "/opt/mia/mia-app-mcp-server.js"
-    );
-    assert!(
-        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]
-            .get("alwaysLoad")
-            .is_none()
-    );
-    assert!(
-        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]
-            .get("url")
-            .is_none()
+        "mcp-mia-stdio"
     );
     assert_eq!(
-        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-scheduler"]["args"][0],
-        "/opt/mia/scheduler-mcp-server.js"
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["env"]["MIA_CORE_URL"],
+        "http://127.0.0.1:27861"
+    );
+    assert_eq!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["env"]["MIA_BOT_ID"],
+        "bot_scope"
+    );
+    assert_eq!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["env"]["MIA_CONVERSATION_ID"],
+        created.conversation.id
+    );
+    assert_eq!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["env"]["MIA_ORIGIN_MESSAGE_ID"],
+        accepted.response.message_id
+    );
+    assert_eq!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["env"]["MIA_USER_ID"],
+        "user_real"
+    );
+    assert!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]
+            .get("mia-scheduler")
+            .is_none()
     );
 
     let row = sqlx::query("SELECT content_json FROM messages WHERE id = ?")
@@ -763,13 +794,158 @@ async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
         "••••"
     );
     assert_eq!(
-        content["runtimePlan"]["mcpServers"]["mcpServers"]["mia-app"]["env"]["MIA_CORE_TOKEN"],
-        "••••"
+        content["runtimePlan"]["mcpServers"]["mcpServers"]["mia-app"]["env"]["MIA_BOT_ID"],
+        "bot_scope"
     );
     assert!(
         content["runtimePlan"]["mcpServers"]["mcpServers"]
             .get("disabled")
             .is_none()
+    );
+}
+
+#[tokio::test]
+async fn conversation_service_materializes_selected_skill_as_native_link_and_short_path_only() {
+    let db = init_database_memory().await.unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let official = temp.path().join("official");
+    let skill_dir = official.join("meeting-notes");
+    fs::create_dir_all(&skill_dir).unwrap();
+    fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: meeting-notes\ndescription: Meeting notes.\n---\nSECRET_SKILL_BODY",
+    )
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO bots (id, display_name, identity_json, capability_json, avatar_json, created_at, updated_at)
+         VALUES ('bot_skill', 'Skill Bot', '{}', ?, '{}', 1, 1)",
+    )
+    .bind(json!({"enabledSkills":["mia-official:meeting-notes"]}).to_string())
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    let current_skills =
+        CurrentSkillService::with_official_roots(temp.path().join("data"), vec![official]);
+    let service = ConversationService::new(db.pool().clone()).with_current_skills(current_skills);
+    let conversation = service
+        .create_conversation(CreateConversationRequest {
+            kind: "bot_session".into(),
+            title: "Skill Chat".into(),
+            bot_id: Some("bot_skill".into()),
+            metadata: json!({
+                "runtime":{"engine":"codex"},
+                "workspaceDir": workspace,
+            }),
+        })
+        .await
+        .unwrap();
+
+    let turn = service
+        .start_user_turn(
+            &conversation.conversation.id,
+            SendConversationMessageRequest {
+                body: "整理这次会议".into(),
+                attachments: json!([]),
+                selected_skill_ids: vec!["mia-official:meeting-notes".into()],
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        workspace
+            .join(".codex/skills/meeting-notes/SKILL.md")
+            .exists()
+    );
+    assert!(
+        turn.runtime_plan
+            .send_message
+            .content
+            .contains("<selected_skill_paths>")
+    );
+    assert!(
+        turn.runtime_plan
+            .send_message
+            .content
+            .contains("SKILL.md</path>")
+    );
+    assert!(
+        turn.runtime_plan
+            .send_message
+            .content
+            .ends_with("整理这次会议")
+    );
+    assert!(
+        !turn
+            .runtime_plan
+            .send_message
+            .content
+            .contains("SECRET_SKILL_BODY")
+    );
+    assert_eq!(
+        turn.runtime_plan
+            .environment
+            .get("MIA_SKILL_DELIVERY_MODE")
+            .map(String::as_str),
+        Some("native-link")
+    );
+}
+
+#[tokio::test]
+async fn conversation_service_uses_default_workspace_for_builtin_native_skills() {
+    let db = init_database_memory().await.unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let official = temp.path().join("official");
+    let scheduler = official.join("mia-scheduler");
+    fs::create_dir_all(&scheduler).unwrap();
+    fs::write(
+        scheduler.join("SKILL.md"),
+        "---\nname: mia-scheduler\ndescription: Mia scheduler protocol.\n---\n# Scheduler\nUse [CRON_CREATE].",
+    )
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO bots (id, display_name, identity_json, capability_json, avatar_json, created_at, updated_at)
+         VALUES ('bot_default_workspace', 'Scheduler Bot', '{}', '{}', '{}', 1, 1)",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    let current_skills =
+        CurrentSkillService::with_official_roots(temp.path().join("data"), vec![official]);
+    let service = ConversationService::new(db.pool().clone())
+        .with_current_skills(current_skills)
+        .with_default_workspace_dir(workspace.clone());
+    let conversation = service
+        .create_conversation(CreateConversationRequest {
+            kind: "bot_session".into(),
+            title: "Scheduler Chat".into(),
+            bot_id: Some("bot_default_workspace".into()),
+            metadata: json!({"runtime":{"engine":"claude-code"}}),
+        })
+        .await
+        .unwrap();
+
+    let turn = service
+        .start_user_turn(
+            &conversation.conversation.id,
+            SendConversationMessageRequest {
+                body: "每天九点提醒我写日报".into(),
+                attachments: json!([]),
+                selected_skill_ids: vec![],
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(turn.runtime_plan.workspace_dir, workspace.to_string_lossy());
+    assert!(
+        workspace
+            .join(".claude/skills/mia-scheduler/SKILL.md")
+            .exists()
     );
 }
 
@@ -939,11 +1115,20 @@ fn conversation_core_reconciles_agent_session_workspace_skill_links() {
 }
 
 #[test]
-fn conversation_core_plans_agent_session_prompt_fallback_materialization() {
+fn conversation_core_plans_hermes_native_external_skill_directory_without_prompt_fallback() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let source = temp.path().join("xlsx");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(
+        source.join("SKILL.md"),
+        "---\nname: xlsx\n---\nUse formulas.",
+    )
+    .unwrap();
     let result = plan_agent_session_skill_runtime(AgentSessionSkillRuntimeRequest {
         agent_engine: "hermes".into(),
         runtime_config: json!({ "nativeSkillsDirs": null }),
-        session_skill_ids: vec![],
+        session_skill_ids: vec!["xlsx".into()],
         available_skills: vec![AgentSessionSkillRecord {
             id: "xlsx".into(),
             name: "xlsx".into(),
@@ -951,22 +1136,21 @@ fn conversation_core_plans_agent_session_prompt_fallback_materialization() {
             description: "Excel deliverables".into(),
             summary: "Excel deliverables".into(),
             body: "# XLSX\nUse formulas.".into(),
-            source_path: "/skills/xlsx".into(),
+            source_path: source.to_string_lossy().to_string(),
             link_name: "xlsx".into(),
         }],
         active_skill_ids: vec![],
-        intent_skill_ids: vec!["xlsx".into()],
+        intent_skill_ids: vec![],
         requested_skill_ids: vec![],
-        workspace_path: None,
+        workspace_path: Some(workspace.to_string_lossy().to_string()),
     });
 
-    assert_eq!(result.delivery_mode, "prompt-fallback");
-    assert!(result.native_skills_dirs.is_empty());
-    let materialization = result.skill_materialization.as_ref().unwrap();
-    assert!(
-        materialization
-            .index_block
-            .contains("## Available Mia Skills")
+    assert_eq!(result.delivery_mode, "native-link");
+    assert_eq!(result.native_skills_dirs, vec![".mia/hermes-skills"]);
+    assert_eq!(
+        result.skill_external_dirs,
+        vec![workspace.join(".mia/hermes-skills").to_string_lossy()]
     );
-    assert!(materialization.loaded_block.contains("=== Skill: xlsx ==="));
+    assert!(result.skill_materialization.is_none());
+    assert!(workspace.join(".mia/hermes-skills/xlsx/SKILL.md").exists());
 }

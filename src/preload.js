@@ -643,6 +643,7 @@ async function postLocalDesktopBotMessage(conversationId, body = {}) {
     conversationId,
     text: bodyMd,
     attachments: Array.isArray(input.attachments) ? input.attachments : [],
+    selectedSkillIds: selectedSkillIdsFromCoreBody(input),
     botId,
     botName: firstText(input.botName, input.bot_name, input.title, input.name, botId),
     agentEngine: firstText(runtimeConfig.agentEngine, input.agentEngine, input.agent_engine, input.engine),

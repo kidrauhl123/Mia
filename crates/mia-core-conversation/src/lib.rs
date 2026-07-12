@@ -1,5 +1,7 @@
 //! Conversation and turn orchestration boundary for Mia Rust Core.
 
+pub mod cron_protocol;
+
 use std::collections::{HashSet, hash_map::DefaultHasher};
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -14,7 +16,7 @@ use mia_core_api_types::{
     MiaCurrentSkillResponse, MiaCurrentSkillSummary, MiaCurrentSkillsResponse,
     RunConversationUtilityTurnRequest, SendConversationMessageRequest,
     SendConversationMessageResponse, SkillMaterializationRecord, SkillMaterializationRequest,
-    SkillMaterializationResponse, normalize_runtime_mcp_spec,
+    SkillMaterializationResponse,
 };
 use mia_core_runtime::{RuntimeBuilder, RuntimeTurnInput, RuntimeTurnPlan};
 use serde_json::{Map, Value, json};
@@ -25,7 +27,6 @@ pub const EVENT_CONVERSATION_CREATED: &str = "conversation.created";
 pub const EVENT_CONVERSATION_MESSAGE_CREATED: &str = "conversation.messageCreated";
 const CLIENT_SETTINGS_KEY: &str = "client";
 const MANAGED_SKILL_MANIFEST_RELATIVE_PATH: &str = ".mia/skill-runtime.json";
-const RESERVED_MCP_SPECS_SETTINGS_KEY: &str = "reservedMcpSpecs";
 
 #[cfg(test)]
 mod agent_session_skill_link_test_overrides {
@@ -55,6 +56,9 @@ mod agent_session_skill_link_test_overrides {
 pub struct ConversationService {
     pool: SqlitePool,
     runtime: RuntimeBuilder,
+    core_base_url: String,
+    default_workspace_dir: PathBuf,
+    current_skills: Option<CurrentSkillService>,
 }
 
 #[derive(Clone, Debug)]
@@ -130,13 +134,15 @@ impl CurrentSkillService {
         bot_id: &str,
         bot: Option<&BotSummary>,
     ) -> MiaCurrentSkillsResponse {
+        let mut seen = HashSet::new();
         MiaCurrentSkillsResponse {
             bot_id: clean_or_default(bot_id, "mia"),
-            skills: enabled_skill_ids(bot)
+            skills: current_skill_ids(bot)
                 .into_iter()
                 .filter_map(|id| {
-                    self.resolve_enabled_skill(&id)
-                        .map(|skill| public_skill(&id, &skill))
+                    let skill = self.resolve_enabled_skill(&id)?;
+                    seen.insert(skill.canonical_id.clone())
+                        .then(|| public_skill(&id, &skill))
                 })
                 .collect(),
         }
@@ -153,7 +159,7 @@ impl CurrentSkillService {
             return Err(CurrentSkillError::MissingId);
         }
 
-        for enabled_id in enabled_skill_ids(bot) {
+        for enabled_id in current_skill_ids(bot) {
             let Some(skill) = self.resolve_enabled_skill(&enabled_id) else {
                 continue;
             };
@@ -166,6 +172,50 @@ impl CurrentSkillService {
         }
 
         Err(CurrentSkillError::NotEnabled(target))
+    }
+
+    pub fn runtime_skill_records(
+        &self,
+        bot: Option<&BotSummary>,
+        selected_skill_ids: &[String],
+    ) -> Vec<AgentSessionSkillRecord> {
+        let mut requested = enabled_skill_ids(bot);
+        requested.extend(selected_skill_ids.iter().cloned());
+        requested.push("mia-scheduler".to_string());
+        let requested = unique_strings(requested);
+        let mut records = Vec::new();
+        let mut seen = HashSet::new();
+        for requested_id in requested {
+            let Some(skill) = self.resolve_enabled_skill(&requested_id) else {
+                continue;
+            };
+            if !seen.insert(skill.canonical_id.clone()) {
+                continue;
+            }
+            let link_name = skill
+                .file_path
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|value| value.to_str())
+                .unwrap_or(&skill.name)
+                .to_string();
+            records.push(AgentSessionSkillRecord {
+                id: requested_id,
+                name: skill.name,
+                display_name: String::new(),
+                description: skill.description.clone(),
+                summary: skill.description,
+                body: skill.body,
+                source_path: skill
+                    .file_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new(""))
+                    .to_string_lossy()
+                    .to_string(),
+                link_name,
+            });
+        }
+        records
     }
 
     fn resolve_enabled_skill(&self, enabled_id: &str) -> Option<ParsedCurrentSkill> {
@@ -287,6 +337,12 @@ fn enabled_skill_ids(bot: Option<&BotSummary>) -> Vec<String> {
     if !disabled.is_empty() {
         ids.retain(|id| !disabled.iter().any(|disabled_id| disabled_id == id));
     }
+    unique_strings(ids)
+}
+
+fn current_skill_ids(bot: Option<&BotSummary>) -> Vec<String> {
+    let mut ids = enabled_skill_ids(bot);
+    ids.push("mia-scheduler".to_string());
     unique_strings(ids)
 }
 
@@ -541,17 +597,12 @@ pub fn plan_agent_session_skill_runtime(
         session_skill_ids,
         available_skills,
         active_skill_ids,
-        intent_skill_ids,
-        requested_skill_ids,
+        intent_skill_ids: _,
+        requested_skill_ids: _,
     } = request;
     let engine = normalize_agent_engine(&agent_engine);
     let native_skills_dirs = resolve_native_skills_dirs(&engine, &runtime_config);
-    let delivery_mode = if native_skills_dirs.is_some() {
-        "native-link"
-    } else {
-        "prompt-fallback"
-    };
-    let native_skills_dirs = native_skills_dirs.unwrap_or_default();
+    let delivery_mode = "native-link";
     let mut all_skills = available_skills
         .into_iter()
         .filter_map(normalize_agent_session_skill_record)
@@ -570,36 +621,21 @@ pub fn plan_agent_session_skill_runtime(
     let turn_selected_skills =
         resolve_agent_session_selected_skills(&active_skill_ids, &all_skills);
     let skill_external_dirs = if engine == "hermes" {
-        unique_strings(
-            resolved_skills
-                .iter()
-                .map(|skill| skill.source_path.clone()),
-        )
+        workspace_path
+            .as_deref()
+            .map(clean_text)
+            .filter(|value| !value.is_empty())
+            .and_then(|workspace| {
+                native_skills_dirs
+                    .first()
+                    .map(|relative| Path::new(&workspace).join(relative))
+            })
+            .map(|path| vec![path.to_string_lossy().to_string()])
+            .unwrap_or_default()
     } else {
         Vec::new()
     };
-    let skill_materialization = if delivery_mode == "prompt-fallback" {
-        Some(materialize_turn_skills(SkillMaterializationRequest {
-            available_skills: resolved_skills
-                .iter()
-                .map(|skill| SkillMaterializationRecord {
-                    id: skill.id.clone(),
-                    name: skill.name.clone(),
-                    description: first_non_empty([
-                        skill.description.as_str(),
-                        skill.summary.as_str(),
-                    ]),
-                    body: skill.body.clone(),
-                })
-                .collect(),
-            active_skill_ids: Vec::new(),
-            intent_skill_ids,
-            requested_skill_ids,
-            mode: Some("index".to_string()),
-        }))
-    } else {
-        None
-    };
+    let skill_materialization = None;
     let skill_fingerprint = agent_session_skill_fingerprint(
         delivery_mode,
         &native_skills_dirs,
@@ -714,14 +750,18 @@ fn normalize_agent_engine(value: &str) -> String {
     }
 }
 
-fn resolve_native_skills_dirs(engine: &str, runtime_config: &Value) -> Option<Vec<String>> {
+fn resolve_native_skills_dirs(engine: &str, runtime_config: &Value) -> Vec<String> {
     if let Some(value) = find_native_skills_dirs_override(runtime_config) {
-        return normalize_native_skills_dirs_value(value);
+        let overrides = normalize_native_skills_dirs_value(value);
+        if !overrides.is_empty() {
+            return overrides;
+        }
     }
     match engine {
-        "claude-code" => Some(vec![".claude/skills".to_string()]),
-        "codex" => Some(vec![".codex/skills".to_string()]),
-        _ => Some(Vec::new()),
+        "claude-code" => vec![".claude/skills".to_string()],
+        "codex" => vec![".codex/skills".to_string()],
+        "hermes" => vec![".mia/hermes-skills".to_string()],
+        _ => Vec::new(),
     }
 }
 
@@ -747,25 +787,25 @@ fn find_native_skills_dirs_override(value: &Value) -> Option<&Value> {
     None
 }
 
-fn normalize_native_skills_dirs_value(value: &Value) -> Option<Vec<String>> {
+fn normalize_native_skills_dirs_value(value: &Value) -> Vec<String> {
     if value.is_null() {
-        return None;
+        return Vec::new();
     }
     if let Some(text) = value.as_str() {
         let text = clean_text(text);
         if text.is_empty() {
-            return Some(Vec::new());
+            return Vec::new();
         }
-        return Some(vec![text]);
+        return vec![text];
     }
     let Some(items) = value.as_array() else {
-        return Some(Vec::new());
+        return Vec::new();
     };
-    Some(unique_strings(items.iter().map(|item| {
+    unique_strings(items.iter().map(|item| {
         item.as_str()
             .map(clean_text)
             .unwrap_or_else(|| clean_text(&item.to_string()))
-    })))
+    }))
 }
 
 fn unique_strings(values: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -1226,7 +1266,28 @@ impl ConversationService {
     }
 
     pub fn with_runtime(pool: SqlitePool, runtime: RuntimeBuilder) -> Self {
-        Self { pool, runtime }
+        Self {
+            pool,
+            runtime,
+            core_base_url: String::new(),
+            default_workspace_dir: PathBuf::new(),
+            current_skills: None,
+        }
+    }
+
+    pub fn with_core_base_url(mut self, core_base_url: impl Into<String>) -> Self {
+        self.core_base_url = core_base_url.into().trim_end_matches('/').to_string();
+        self
+    }
+
+    pub fn with_current_skills(mut self, current_skills: CurrentSkillService) -> Self {
+        self.current_skills = Some(current_skills);
+        self
+    }
+
+    pub fn with_default_workspace_dir(mut self, workspace_dir: impl Into<PathBuf>) -> Self {
+        self.default_workspace_dir = workspace_dir.into();
+        self
     }
 
     pub async fn list_conversations(&self) -> Result<ConversationListResponse, sqlx::Error> {
@@ -1398,25 +1459,70 @@ impl ConversationService {
         let runtime_config = runtime_config_for_turn(&self.pool, &conversation).await?;
         let engine = runtime_engine_from_config(&runtime_config)
             .or_else(|| runtime_engine_from_metadata(&conversation.metadata));
+        let workspace_dir =
+            workspace_from_metadata(&conversation.metadata, &self.default_workspace_dir);
+        let skill_runtime = match (&self.current_skills, conversation.bot_id.as_deref()) {
+            (Some(current_skills), bot_id) => {
+                let bot = match bot_id {
+                    Some(bot_id) => bot_summary_for_id(&self.pool, bot_id).await?,
+                    None => None,
+                };
+                let available_skills =
+                    current_skills.runtime_skill_records(bot.as_ref(), &request.selected_skill_ids);
+                let session_skill_ids = available_skills
+                    .iter()
+                    .map(|skill| skill.id.clone())
+                    .collect::<Vec<_>>();
+                Some(plan_agent_session_skill_runtime(
+                    AgentSessionSkillRuntimeRequest {
+                        agent_engine: engine.clone().unwrap_or_else(|| "hermes".to_string()),
+                        runtime_config: runtime_config.clone(),
+                        workspace_path: Some(workspace_dir.clone()),
+                        session_skill_ids,
+                        available_skills,
+                        active_skill_ids: request.selected_skill_ids.clone(),
+                        intent_skill_ids: Vec::new(),
+                        requested_skill_ids: Vec::new(),
+                    },
+                ))
+            }
+            _ => None,
+        };
         let previous_session_key = runtime_session_key_from_metadata(&conversation.metadata);
         let provider = runtime_provider_with_controls(
             provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
             &runtime_config,
         );
-        let mcp_servers = mcp_servers_for_turn(&self.pool).await?;
-        let turn_plan = self.runtime.build_turn_plan(RuntimeTurnInput {
+        let mcp_servers = mcp_servers_for_turn(
+            &self.pool,
+            &self.core_base_url,
+            conversation.bot_id.as_deref().unwrap_or_default(),
+            conversation_id,
+            &message_id,
+        )
+        .await?;
+        let body = prepend_selected_skill_paths(
+            skill_runtime
+                .as_ref()
+                .map(|runtime| runtime.selected_skill_prompt.as_str()),
+            &request.body,
+        );
+        let mut turn_plan = self.runtime.build_turn_plan(RuntimeTurnInput {
             conversation_id: conversation_id.to_string(),
             message_id: message_id.clone(),
             bot_id: conversation.bot_id.clone(),
             engine,
             previous_session_key,
-            workspace_dir: workspace_from_metadata(&conversation.metadata),
+            workspace_dir,
             provider,
             mcp_servers,
             attachments: request.attachments.clone(),
             selected_skill_ids: request.selected_skill_ids,
-            body: request.body,
+            body,
         });
+        if let Some(skill_runtime) = skill_runtime.as_ref() {
+            apply_skill_runtime_to_plan(&mut turn_plan, skill_runtime);
+        }
         let turn_id = turn_plan.turn_id.clone();
         let assistant_message_id = if let Some(mock_response) = turn_plan.mock_response.as_deref() {
             let assistant_message_id = format!("msg_{}", Uuid::now_v7().simple());
@@ -1479,10 +1585,19 @@ impl ConversationService {
             provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
             &runtime_config,
         );
-        let mcp_servers = mcp_servers_for_turn(&self.pool).await?;
+        let utility_conversation_id = utility_conversation_id(request.conversation_id.as_deref());
+        let message_id = format!("msg_{}", Uuid::now_v7().simple());
+        let mcp_servers = mcp_servers_for_turn(
+            &self.pool,
+            &self.core_base_url,
+            bot_id.as_deref().unwrap_or_default(),
+            &utility_conversation_id,
+            &message_id,
+        )
+        .await?;
         Ok(self.runtime.build_turn_plan(RuntimeTurnInput {
-            conversation_id: utility_conversation_id(request.conversation_id.as_deref()),
-            message_id: format!("msg_{}", Uuid::now_v7().simple()),
+            conversation_id: utility_conversation_id,
+            message_id,
             bot_id,
             engine,
             previous_session_key: None,
@@ -1507,14 +1622,24 @@ impl ConversationService {
             provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
             &runtime_config,
         );
-        let mcp_servers = mcp_servers_for_turn(&self.pool).await?;
+        let mcp_servers = mcp_servers_for_turn(
+            &self.pool,
+            &self.core_base_url,
+            conversation.bot_id.as_deref().unwrap_or_default(),
+            conversation_id,
+            "",
+        )
+        .await?;
         Ok(self.runtime.build_turn_plan(RuntimeTurnInput {
             conversation_id: conversation_id.to_string(),
             message_id: format!("runtime_prepare_{}", Uuid::now_v7().simple()),
             bot_id: conversation.bot_id,
             engine,
             previous_session_key: runtime_session_key_from_metadata(&conversation.metadata),
-            workspace_dir: workspace_from_metadata(&conversation.metadata),
+            workspace_dir: workspace_from_metadata(
+                &conversation.metadata,
+                &self.default_workspace_dir,
+            ),
             provider,
             mcp_servers,
             attachments: json!([]),
@@ -1654,13 +1779,66 @@ fn runtime_engine_from_config(config: &Value) -> Option<String> {
     )
 }
 
-fn workspace_from_metadata(metadata: &Value) -> String {
+async fn bot_summary_for_id(
+    pool: &SqlitePool,
+    bot_id: &str,
+) -> Result<Option<BotSummary>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT id, display_name, identity_json, capability_json FROM bots WHERE id = ?",
+    )
+    .bind(bot_id)
+    .fetch_optional(pool)
+    .await?;
+    row.map(|row| {
+        Ok(BotSummary {
+            id: row.get("id"),
+            display_name: row.get("display_name"),
+            identity: parse_json(row.get::<String, _>("identity_json"))?,
+            capabilities: parse_json(row.get::<String, _>("capability_json"))?,
+        })
+    })
+    .transpose()
+}
+
+fn prepend_selected_skill_paths(selected_skill_prompt: Option<&str>, body: &str) -> String {
+    let selected_skill_prompt = selected_skill_prompt.unwrap_or_default().trim();
+    if selected_skill_prompt.is_empty() {
+        body.to_string()
+    } else if body.trim().is_empty() {
+        selected_skill_prompt.to_string()
+    } else {
+        format!("{selected_skill_prompt}\n\n{body}")
+    }
+}
+
+fn apply_skill_runtime_to_plan(
+    plan: &mut RuntimeTurnPlan,
+    skill_runtime: &AgentSessionSkillRuntimeResponse,
+) {
+    plan.environment.insert(
+        "MIA_SKILL_DELIVERY_MODE".into(),
+        skill_runtime.delivery_mode.clone(),
+    );
+    plan.environment.insert(
+        "MIA_SKILL_FINGERPRINT".into(),
+        skill_runtime.skill_fingerprint.clone(),
+    );
+    if plan.engine == "hermes"
+        && let Some(directory) = skill_runtime.skill_external_dirs.first()
+    {
+        plan.environment
+            .insert("MIA_HERMES_SKILLS_DIR".into(), directory.clone());
+    }
+}
+
+fn workspace_from_metadata(metadata: &Value, default_workspace_dir: &Path) -> String {
     metadata
         .get("workspaceDir")
         .or_else(|| metadata.get("workspace_dir"))
         .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string()
+        .map(clean_text)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default_workspace_dir.to_string_lossy().to_string())
 }
 
 fn runtime_session_key_from_metadata(metadata: &Value) -> Option<String> {
@@ -2003,7 +2181,13 @@ fn native_cli_provider_reference(config: &Value, engine: &str) -> Value {
     })
 }
 
-async fn mcp_servers_for_turn(pool: &SqlitePool) -> Result<Value, sqlx::Error> {
+async fn mcp_servers_for_turn(
+    pool: &SqlitePool,
+    core_base_url: &str,
+    bot_id: &str,
+    conversation_id: &str,
+    origin_message_id: &str,
+) -> Result<Value, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT name, config_json FROM mcp_servers \
          WHERE enabled = 1 AND deleted_at IS NULL ORDER BY created_at ASC, id ASC",
@@ -2027,14 +2211,16 @@ async fn mcp_servers_for_turn(pool: &SqlitePool) -> Result<Value, sqlx::Error> {
             .unwrap_or_else(|| json!({}));
         servers.insert(name, transport);
     }
-    let reserved = reserved_mcp_specs_for_turn(pool).await?;
-    if let Some(spec) = reserved_runtime_mcp_spec(&reserved, &["miaApp", "mia-app"]) {
-        servers.insert("mia-app".into(), spec);
-    }
-    if let Some(spec) =
-        reserved_runtime_mcp_spec(&reserved, &["scheduler", "miaScheduler", "mia-scheduler"])
+    if let Some(spec) = builtin_mia_mcp_spec(
+        pool,
+        core_base_url,
+        bot_id,
+        conversation_id,
+        origin_message_id,
+    )
+    .await?
     {
-        servers.insert("mia-scheduler".into(), spec);
+        servers.insert("mia-app".into(), spec);
     }
     Ok(json!({
         "mcpServers": Value::Object(servers.clone()),
@@ -2042,25 +2228,54 @@ async fn mcp_servers_for_turn(pool: &SqlitePool) -> Result<Value, sqlx::Error> {
     }))
 }
 
-async fn reserved_mcp_specs_for_turn(pool: &SqlitePool) -> Result<Value, sqlx::Error> {
+async fn builtin_mia_mcp_spec(
+    pool: &SqlitePool,
+    core_base_url: &str,
+    bot_id: &str,
+    conversation_id: &str,
+    origin_message_id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
+    let core_base_url = clean_text(core_base_url);
+    if core_base_url.is_empty() {
+        return Ok(None);
+    }
+    let executable = std::env::var("MIA_CORE_EXECUTABLE")
+        .ok()
+        .map(|value| clean_text(&value))
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .map(|path| path.to_string_lossy().to_string())
+        })
+        .unwrap_or_else(|| "mia-core".to_string());
+    let user_id = client_user_id(pool).await?;
+    Ok(Some(json!({
+        "type": "stdio",
+        "command": executable,
+        "args": ["mcp-mia-stdio"],
+        "env": {
+            "MIA_CORE_URL": core_base_url,
+            "MIA_USER_ID": user_id,
+            "MIA_BOT_ID": clean_text(bot_id),
+            "MIA_CONVERSATION_ID": clean_text(conversation_id),
+            "MIA_ORIGIN_MESSAGE_ID": clean_text(origin_message_id),
+        }
+    })))
+}
+
+async fn client_user_id(pool: &SqlitePool) -> Result<String, sqlx::Error> {
     let row = sqlx::query("SELECT value_json FROM settings WHERE key = ?")
         .bind(CLIENT_SETTINGS_KEY)
         .fetch_optional(pool)
         .await?;
     let Some(row) = row else {
-        return Ok(json!({}));
+        return Ok("local".to_string());
     };
     let settings = parse_json(row.get::<String, _>("value_json"))?;
-    Ok(settings
-        .get(RESERVED_MCP_SPECS_SETTINGS_KEY)
-        .cloned()
-        .unwrap_or_else(|| json!({})))
-}
-
-fn reserved_runtime_mcp_spec(source: &Value, keys: &[&str]) -> Option<Value> {
-    keys.iter()
-        .find_map(|key| source.get(*key))
-        .and_then(normalize_runtime_mcp_spec)
+    Ok(first_string(&settings, &["userId", "user_id"])
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "local".to_string()))
 }
 
 fn runtime_plan_for_storage(plan: &RuntimeTurnPlan) -> Value {

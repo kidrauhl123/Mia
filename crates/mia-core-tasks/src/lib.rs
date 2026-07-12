@@ -83,6 +83,22 @@ impl TaskService {
         })
     }
 
+    pub async fn list_jobs_for_conversation(
+        &self,
+        bot_id: &str,
+        conversation_id: &str,
+    ) -> Result<TaskJobListResponse, TaskError> {
+        let bot_id = bot_id.trim();
+        let conversation_id = conversation_id.trim();
+        let mut response = self.list_jobs().await?;
+        response.jobs.retain(|job| {
+            target_string(&job.target, &["botId", "bot_id"]).as_deref() == Some(bot_id)
+                && target_string(&job.target, &["conversationId", "conversation_id"]).as_deref()
+                    == Some(conversation_id)
+        });
+        Ok(response)
+    }
+
     pub async fn get_job(&self, job_id: &str) -> Result<TaskJobResponse, TaskError> {
         let row = sqlx::query(
             "SELECT id, kind, schedule_json, target_json, instructions, status, next_run_at \
@@ -308,6 +324,14 @@ fn validate_target(target: &Value) -> Result<(), TaskError> {
         ));
     }
     Ok(())
+}
+
+fn target_string(target: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| target.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn validate_instructions(instructions: &str) -> Result<(), TaskError> {

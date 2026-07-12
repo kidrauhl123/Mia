@@ -6,7 +6,9 @@ use std::time::Duration;
 use axum::serve;
 use clap::{Parser, Subcommand};
 use mia_core_api_types::ListeningEvent;
-use mia_core_app::{AppConfig, AppServices, TaskScheduler, create_router};
+use mia_core_app::{
+    AppConfig, AppServices, TaskScheduler, builtin_mcp::run_builtin_mcp_stdio, create_router,
+};
 use mia_core_common::{DEFAULT_HOST, DEFAULT_PORT, LISTENING_EVENT_PREFIX};
 use tokio::net::TcpListener;
 
@@ -20,6 +22,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Command {
     Serve(ServeArgs),
+    McpMiaStdio,
 }
 
 #[derive(clap::Args, Debug)]
@@ -58,6 +61,7 @@ async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Serve(args) => run_serve(args).await,
+        Command::McpMiaStdio => run_builtin_mcp_stdio().await,
     }
 }
 

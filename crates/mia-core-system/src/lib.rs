@@ -29,7 +29,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
 const CLIENT_SETTINGS_KEY: &str = "client";
-const RESERVED_MCP_SPECS_SETTINGS_KEY: &str = "reservedMcpSpecs";
+const HERMES_SKILL_DIRECTORY_ENV: &str = "${MIA_HERMES_SKILLS_DIR}";
 
 #[derive(Debug, thiserror::Error)]
 pub enum SystemError {
@@ -358,41 +358,15 @@ impl SystemService {
             &request.permission_settings,
             &request.effort_settings,
         );
-        apply_hermes_mcp_config(
-            &mut config,
-            &request.mia_app_mcp_spec,
-            &request.scheduler_mcp_spec,
-            &request.user_mcp_specs,
-        );
+        apply_hermes_mcp_config(&mut config, &request.user_mcp_specs);
         apply_hermes_mia_metadata(&mut config, &home_path, &bot_manifest_path);
 
         atomic_write_yaml(&PathBuf::from(&config_path), &config)?;
-        self.persist_reserved_mcp_specs(&request.mia_app_mcp_spec, &request.scheduler_mcp_spec)
-            .await?;
         Ok(PrepareHermesRuntimeConfigResponse {
             ok: true,
             config_path,
             api_server_key,
         })
-    }
-
-    async fn persist_reserved_mcp_specs(
-        &self,
-        mia_app_spec: &Value,
-        scheduler_spec: &Value,
-    ) -> Result<(), sqlx::Error> {
-        let mut current = self.client_settings().await?.settings;
-        let root = object_mut(&mut current);
-        root.insert(
-            RESERVED_MCP_SPECS_SETTINGS_KEY.into(),
-            json!({
-                "miaApp": normalize_runtime_mcp_spec(mia_app_spec),
-                "scheduler": normalize_runtime_mcp_spec(scheduler_spec),
-            }),
-        );
-        self.settings
-            .set_json(CLIENT_SETTINGS_KEY, current, now_ms())
-            .await
     }
 
     async fn resolve_hermes_runtime_settings(
@@ -681,12 +655,7 @@ fn apply_hermes_agent_config(
     );
 }
 
-fn apply_hermes_mcp_config(
-    config: &mut Value,
-    mia_app_spec: &Value,
-    scheduler_spec: &Value,
-    user_specs: &BTreeMap<String, Value>,
-) {
+fn apply_hermes_mcp_config(config: &mut Value, user_specs: &BTreeMap<String, Value>) {
     let mut merged = Map::new();
     for (name, spec) in user_specs {
         if matches!(name.as_str(), "mia-app" | "mia-scheduler") {
@@ -696,17 +665,10 @@ fn apply_hermes_mcp_config(
             merged.insert(name.clone(), spec);
         }
     }
-    if let Some(spec) = normalize_runtime_mcp_spec(mia_app_spec) {
-        merged.insert("mia-app".into(), spec);
-    }
-    if let Some(spec) = normalize_runtime_mcp_spec(scheduler_spec) {
-        merged.insert("mia-scheduler".into(), spec);
-    }
-    if merged.is_empty() {
-        return;
-    }
     let root = object_mut(config);
     let mcp_servers = child_object_mut(root, "mcp_servers");
+    mcp_servers.remove("mia-app");
+    mcp_servers.remove("mia-scheduler");
     for (name, spec) in merged {
         mcp_servers.insert(name, spec);
     }
@@ -714,12 +676,19 @@ fn apply_hermes_mcp_config(
 
 fn apply_hermes_mia_metadata(config: &mut Value, _home_path: &str, bot_manifest_path: &str) {
     let root = object_mut(config);
-    if let Some(skills) = root.get_mut("skills").and_then(Value::as_object_mut) {
-        skills.remove("external_dirs");
-        if skills.is_empty() {
-            root.remove("skills");
-        }
+    let skills = child_object_mut(root, "skills");
+    let mut external_dirs = skills
+        .get("external_dirs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if !external_dirs
+        .iter()
+        .any(|value| value.as_str() == Some(HERMES_SKILL_DIRECTORY_ENV))
+    {
+        external_dirs.push(Value::String(HERMES_SKILL_DIRECTORY_ENV.into()));
     }
+    skills.insert("external_dirs".into(), Value::Array(external_dirs));
     let mia = child_object_mut(root, "mia");
     mia.insert("runtime_schema".into(), json!(1));
     mia.insert(

@@ -60,8 +60,11 @@ impl AppServices {
         let agent_permissions =
             AgentPermissionService::new(SqliteSettingsRepository::new(database.pool().clone()));
         let bot = BotService::new(database.pool().clone());
-        let conversation = ConversationService::new(database.pool().clone());
         let current_skills = CurrentSkillService::new(config.data_dir.clone());
+        let conversation = ConversationService::new(database.pool().clone())
+            .with_core_base_url(format!("http://{}:{}", config.host, config.port))
+            .with_default_workspace_dir(config.workspace_dir.clone())
+            .with_current_skills(current_skills.clone());
         let memory = MemoryService::new(database.pool().clone());
         let tasks = TaskService::new(database.pool().clone());
         let mcp = McpService::new(database.pool().clone());
@@ -73,6 +76,7 @@ impl AppServices {
         let cloud_bridge_runner = Arc::new(AppCloudBridgeRunner::new(
             cloud.clone(),
             conversation.clone(),
+            tasks.clone(),
             realtime.clone(),
             runtime.clone(),
             runtime_sessions.clone(),

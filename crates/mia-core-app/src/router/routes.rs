@@ -243,6 +243,10 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
 mod tests {
     use std::fs;
     use std::path::Path;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
     use std::time::Duration;
 
     use axum::body::{Body, to_bytes};
@@ -1143,7 +1147,8 @@ mod tests {
         assert_eq!(listed["skills"][0]["name"], "demo-skill");
         assert_eq!(listed["skills"][0]["description"], "Demo skill.");
         assert!(listed["skills"][0]["bodyChars"].as_u64().unwrap() > 0);
-        assert!(listed["skills"].as_array().unwrap().len() == 1);
+        assert_eq!(listed["skills"].as_array().unwrap().len(), 2);
+        assert_eq!(listed["skills"][1]["id"], "mia-scheduler");
 
         let read_response = app
             .clone()
@@ -2559,7 +2564,13 @@ mod tests {
         let started_event = next_event(&mut events).await;
         assert_eq!(started_event.name, EVENT_TASK_RUN_STARTED);
         assert_eq!(started_event.data["jobId"], job_id);
-        let finished_event = next_event(&mut events).await;
+        let finished_event = loop {
+            let event = next_event(&mut events).await;
+            if event.name == EVENT_TASK_RUN_FINISHED {
+                break event;
+            }
+            assert_eq!(event.name, EVENT_CONVERSATION_MESSAGE_CREATED);
+        };
         assert_eq!(finished_event.name, EVENT_TASK_RUN_FINISHED);
         assert_eq!(finished_event.data["jobId"], job_id);
         assert_eq!(finished_event.data["ok"], true);
@@ -2625,11 +2636,36 @@ mod tests {
 
     #[tokio::test]
     async fn scheduler_runs_due_task_jobs_through_conversation_and_realtime() {
+        struct ScheduledBackend(Arc<AtomicUsize>);
+
+        #[async_trait::async_trait]
+        impl NativeAcpBackend for ScheduledBackend {
+            async fn send_message(
+                &self,
+                _plan: RuntimeTurnPlan,
+                _sink: RuntimeEventSink,
+                _cancellation: Option<RuntimeCancellation>,
+            ) -> anyhow::Result<RuntimeExecutionResult> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(RuntimeExecutionResult {
+                    exit_code: Some(0),
+                    stdout: "定时任务已完成".into(),
+                    stderr: String::new(),
+                    cancelled: false,
+                })
+            }
+        }
+
         let mut config = AppConfig::default();
         let temp = tempfile::tempdir().unwrap();
         config.data_dir = temp.path().to_path_buf();
         config.workspace_dir = config.data_dir.join("workspace");
-        let services = AppServices::from_config(&config).await.unwrap();
+        let mut services = AppServices::from_config(&config).await.unwrap();
+        let runtime_calls = Arc::new(AtomicUsize::new(0));
+        services.runtime_sessions =
+            RuntimeSessionManager::new(NativeAcpSessionManager::with_backend_for_tests(Arc::new(
+                ScheduledBackend(runtime_calls.clone()),
+            )));
         let app = create_router(&services);
 
         let bot_response = app
@@ -2661,7 +2697,7 @@ mod tests {
                     .uri("/api/conversations")
                     .header("content-type", "application/json")
                     .body(Body::from(format!(
-                        r#"{{"kind":"direct","title":"Scheduled Conversation","botId":"{bot_id}","metadata":{{"runtime":{{"engine":"mock-agent"}}}}}}"#
+                        r#"{{"kind":"direct","title":"Scheduled Conversation","botId":"{bot_id}","metadata":{{"runtime":{{"engine":"codex"}}}}}}"#
                     )))
                     .unwrap(),
             )
@@ -2703,18 +2739,33 @@ mod tests {
         let mut events = services.realtime.subscribe();
         let ran = run_due_tasks_once(&services).await.unwrap();
         assert_eq!(ran, 1);
+        assert_eq!(runtime_calls.load(Ordering::SeqCst), 1);
 
         let started = next_event(&mut events).await;
         assert_eq!(started.name, EVENT_TASK_RUN_STARTED);
         assert_eq!(started.data["jobId"], task_id);
         assert_eq!(started.data["scheduled"], true);
 
-        let updated = next_event(&mut events).await;
-        assert_eq!(updated.name, EVENT_TASK_UPDATED);
-        assert_eq!(updated.data["job"]["id"], task_id);
-        assert_eq!(updated.data["job"]["status"], "done");
-
-        let finished = next_event(&mut events).await;
+        let mut observed = vec![];
+        let finished = loop {
+            let event = next_event(&mut events).await;
+            if event.name == EVENT_TASK_RUN_FINISHED {
+                break event;
+            }
+            observed.push(event);
+        };
+        assert!(observed.iter().any(|event| {
+            event.name == EVENT_TASK_UPDATED
+                && event.data["job"]["id"] == task_id
+                && event.data["job"]["status"] == "done"
+        }));
+        assert_eq!(
+            observed
+                .iter()
+                .filter(|event| event.name == EVENT_CONVERSATION_MESSAGE_CREATED)
+                .count(),
+            2
+        );
         assert_eq!(finished.name, EVENT_TASK_RUN_FINISHED);
         assert_eq!(finished.data["jobId"], task_id);
         assert_eq!(finished.data["ok"], true);
@@ -2726,6 +2777,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(status_row.get::<String, _>("status"), "done");
+        let assistant_body: String = sqlx::query_scalar(
+            "SELECT body FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY seq DESC LIMIT 1",
+        )
+        .bind(conversation_id)
+        .fetch_one(services.database.pool())
+        .await
+        .unwrap();
+        assert_eq!(assistant_body, "定时任务已完成");
     }
 
     async fn next_event(

@@ -21,8 +21,6 @@ function setup(t, overrides = {}) {
     runtimePaths: () => runtime,
     permissionSettings: () => ({ mode: "ask" }),
     effortSettings: () => ({ level: "high" }),
-    getMiaAppMcpSpec: () => ({ command: "/bin/node", args: ["mia-app.js"], env: { A: "1" } }),
-    getSchedulerMcpSpec: () => ({ command: "/bin/node", args: ["scheduler.js"], env: { B: "2" } }),
     getUserMcpSpecs: () => ({ xhs: { url: "http://127.0.0.1:18060/mcp", headers: {} } }),
     prepareRuntimeConfigRequest: async (request) => {
       calls.push(request);
@@ -59,8 +57,6 @@ test("prepareRuntimeConfig delegates Hermes config rendering to Rust Core", asyn
       },
       permissionSettings: { mode: "ask" },
       effortSettings: { level: "high" },
-      miaAppMcpSpec: { command: "/bin/node", args: ["mia-app.js"], env: { A: "1" } },
-      schedulerMcpSpec: { command: "/bin/node", args: ["scheduler.js"], env: { B: "2" } },
       userMcpSpecs: { xhs: { url: "http://127.0.0.1:18060/mcp", headers: {} } }
     }
   });

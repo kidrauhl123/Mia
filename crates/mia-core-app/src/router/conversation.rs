@@ -14,14 +14,14 @@ use mia_core_conversation::{
     plan_agent_session_skill_runtime,
 };
 use mia_core_runtime::{
-    EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_FINISHED, RuntimeEventSink, RuntimeTurnPlan,
+    EVENT_RUNTIME_CANCEL_REQUESTED, RuntimeEventSink, RuntimeProtocol, RuntimeTurnPlan,
 };
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::Error;
 
-use crate::cloud_bridge::normalize_runtime_output;
 use crate::runtime::ConversationRuntimeClaim;
+use crate::turn_execution::execute_and_complete_runtime_turn;
 
 use super::state::ModuleStates;
 
@@ -183,7 +183,9 @@ pub async fn send_conversation_message(
             "accepted": response.accepted,
         }),
     );
-    if turn.runtime_plan.command.is_some() {
+    if turn.runtime_plan.command.is_some()
+        || turn.runtime_plan.protocol == RuntimeProtocol::NativeAcp
+    {
         spawn_runtime_turn(states, turn.runtime_plan, runtime_claim);
     } else {
         runtime_claim.release();
@@ -262,97 +264,24 @@ fn spawn_runtime_turn(
     let runtime_registry = states.runtime.clone();
     let cancellation = runtime_registry.register(runtime_plan.turn_id.clone());
     tokio::spawn(async move {
-        let event_realtime = realtime.clone();
-        let sink = RuntimeEventSink::new(move |event| {
-            event_realtime.emit(event.name, event.data);
-        });
-        let execution = states
-            .runtime_sessions
-            .send_message(runtime_plan.clone(), sink, Some(cancellation))
-            .await;
+        let completion = execute_and_complete_runtime_turn(
+            &conversation,
+            &states.tasks,
+            &states.runtime_sessions,
+            &realtime,
+            runtime_plan.clone(),
+            Some(cancellation),
+        )
+        .await;
         runtime_registry.remove(&runtime_plan.turn_id);
-        let (body, runtime) = match execution {
-            Ok(result) => {
-                let output =
-                    normalize_runtime_output(&runtime_plan.engine, &result.stdout, &result.stderr);
-                let body = if output.text.trim().is_empty() && result.exit_code != Some(0) {
-                    result.stderr.trim().to_string()
-                } else {
-                    output.text.clone()
-                };
-                (
-                    body,
-                    json!({
-                        "engine": runtime_plan.engine,
-                        "exitCode": result.exit_code,
-                        "cancelled": result.cancelled,
-                        "stderr": result.stderr,
-                        "runtimeSession": runtime_plan.runtime_session.clone(),
-                        "trace": output.trace,
-                        "contentBlocks": output.content_blocks,
-                    }),
-                )
-            }
-            Err(error) => {
-                realtime.emit(
-                    EVENT_RUNTIME_FINISHED,
-                    json!({
-                        "turnId": runtime_plan.turn_id,
-                        "conversationId": runtime_plan.conversation_id,
-                        "engine": runtime_plan.engine,
-                        "exitCode": null,
-                        "cancelled": false,
-                        "ok": false,
-                        "error": error.to_string(),
-                    }),
-                );
-                (
-                    format!("Runtime execution failed: {error}"),
-                    json!({
-                        "engine": runtime_plan.engine,
-                        "exitCode": null,
-                        "cancelled": false,
-                        "error": error.to_string(),
-                        "runtimeSession": runtime_plan.runtime_session.clone(),
-                    }),
-                )
-            }
-        };
-        if let Ok(completed) = conversation
-            .complete_runtime_turn(
-                &runtime_plan.conversation_id,
-                &runtime_plan.turn_id,
-                &body,
-                runtime.clone(),
-            )
-            .await
-        {
-            runtime_claim.release();
-            realtime.emit(
-                EVENT_CONVERSATION_MESSAGE_CREATED,
-                json!({
-                    "conversationId": runtime_plan.conversation_id,
-                    "messageId": completed.message_id,
-                    "turnId": runtime_plan.turn_id,
-                    "role": "assistant",
-                    "accepted": true,
-                    "message": {
-                        "id": completed.message_id,
-                        "conversation_id": runtime_plan.conversation_id,
-                        "seq": completed.seq,
-                        "sender_kind": "bot",
-                        "sender_ref": runtime_plan.bot_id.clone().unwrap_or_else(|| "mia".to_string()),
-                        "body_md": completed.body,
-                        "turn_id": runtime_plan.turn_id,
-                        "trace": runtime.get("trace").cloned().unwrap_or_else(|| json!({})),
-                        "contentBlocks": runtime.get("contentBlocks").cloned().unwrap_or_else(|| json!([])),
-                        "created_at": completed.created_at,
-                    },
-                }),
+        if let Err(error) = completion {
+            tracing::warn!(
+                turn_id = runtime_plan.turn_id,
+                error = %error,
+                "failed to persist runtime turn completion"
             );
-        } else {
-            runtime_claim.release();
         }
+        runtime_claim.release();
     });
 }
 

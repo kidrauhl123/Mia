@@ -479,7 +479,7 @@ test("bot identity writes are cloud-only; retired local bot service stays remove
   const routerSource = fs.readFileSync(path.join(root, "src/main/remote/remote-control-router.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const ipcSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
-  const mcpSource = fs.readFileSync(path.join(root, "src/main/mia-app-mcp-server.js"), "utf8");
+  const mcpSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/builtin_mcp.rs"), "utf8");
 
   assert.equal(fs.existsSync(path.join(root, "src/main/bot-service.js")), false, "local bot write service should stay retired");
   assert.doesNotMatch(mainSource, /createBotService|pushBotToCloud|deleteBotFromCloud/, "main must not instantiate local bot identity services");
@@ -765,35 +765,32 @@ test("Mia memory foreground CRUD is Core-owned and adapters avoid native memory 
   assert.equal(fs.existsSync(path.join(root, "src/main/chat-engine-adapters.js")), false, "deleted prompt adapter graph must not regain memory prompt injection hooks");
 });
 
-test("Mia app MCP bridge and tool schema live behind main MCP services", () => {
+test("Mia app MCP is per-turn Rust stdio and old global-context bridges stay deleted", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const bridgeSource = fs.readFileSync(path.join(root, "src/main/mia-app-mcp-bridge.js"), "utf8");
-  const serverSource = fs.readFileSync(path.join(root, "src/main/mia-app-mcp-server.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/builtin_mcp.rs"), "utf8");
+  const conversationSource = fs.readFileSync(path.join(root, "crates/mia-core-conversation/src/lib.rs"), "utf8");
 
-  assert.match(bridgeSource, /function createMiaAppMcpBridge/, "Mia app MCP bridge should exist");
-  assert.match(serverSource, /function toolDefinitions/, "Mia app MCP server should own tool schemas");
-  assert.match(mainSource, /createMiaAppMcpBridge/, "main should instantiate Mia app MCP bridge");
-  assert.match(mainSource, /miaAppMcpBridge\.getSpec/, "main should inject Mia app MCP specs into adapters/config");
-  assert.match(mainSource, /function currentMiaCoreMcpStatus/, "main should expose Rust Core startup status for MCP bridge specs");
-  assert.match(mainSource, /createMiaAppMcpBridge\(\{[\s\S]*coreStatus:\s*currentMiaCoreMcpStatus/, "Mia app MCP bridge should point at Rust Core startup state");
-  assert.doesNotMatch(mainSource, /createMiaAppMcpBridge\(\{[\s\S]*coreStatus:\s*\(\) => miaCoreControlServer\?\.status/, "Mia app MCP bridge must not point at the compatibility control server");
+  assert.match(serverSource, /pub async fn run_builtin_mcp_stdio/, "Rust Core should own the built-in MCP stdio server");
+  assert.match(serverSource, /fn tool_definitions/, "Rust Core should own built-in tool schemas");
+  assert.match(conversationSource, /MIA_CONVERSATION_ID/, "each turn should carry exact MCP scope");
+  assert.equal(fs.existsSync(path.join(root, "src/main/mia-app-mcp-bridge.js")), false);
+  assert.equal(fs.existsSync(path.join(root, "src/main/mia-app-mcp-server.js")), false);
+  assert.doesNotMatch(mainSource, /createMiaAppMcpBridge|miaAppMcpBridge\.getSpec/);
   assert.doesNotMatch(mainSource, /function toolDefinitions/, "main must not own MCP tool schemas");
   assert.doesNotMatch(mainSource, /conversation_create_group/, "main must not inline Mia app MCP tool definitions");
 });
 
-test("scheduler MCP bridge context, spec, and Codex home setup stay behind the scheduler-mcp bridge", () => {
+test("scheduler uses the Aion text protocol and has no MCP bridge", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const bridgeSource = fs.readFileSync(path.join(root, "src/main/scheduler-mcp-bridge.js"), "utf8");
   const profileSource = fs.readFileSync(path.join(root, "src/main/agent-runtime-profile-service.js"), "utf8");
+  const cronSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/cron_turn.rs"), "utf8");
 
-  assert.match(bridgeSource, /function createSchedulerMcpBridge/, "scheduler MCP bridge should exist");
-  assert.match(mainSource, /createSchedulerMcpBridge\(\{[\s\S]*coreStatus:\s*currentMiaCoreMcpStatus/, "scheduler MCP bridge should point at Rust Core startup state");
-  assert.doesNotMatch(mainSource, /createSchedulerMcpBridge\(\{[\s\S]*coreStatus:\s*\(\) => miaCoreControlServer\?\.status/, "scheduler MCP bridge must not point at the compatibility control server");
   assert.match(profileSource, /function createAgentRuntimeProfileService/, "agent runtime profile service should exist");
-  assert.match(bridgeSource, /createAgentRuntimeProfileService/, "scheduler MCP bridge should delegate native Agent profile setup");
+  assert.match(cronSource, /MAX_CRON_CONTINUATIONS/, "Rust Core should own cron continuations");
+  assert.equal(fs.existsSync(path.join(root, "src/main/scheduler-mcp-bridge.js")), false);
+  assert.equal(fs.existsSync(path.join(root, "src/main/scheduler-mcp-server.js")), false);
   assert.doesNotMatch(profileSource, /CODEX_BLOCKED_STATE/, "Codex should use the user's native home without private state filtering");
-  assert.doesNotMatch(bridgeSource, /SESSION_STATE_ENTRIES/, "scheduler MCP bridge must not own native Codex session exclusions");
-  assert.match(mainSource, /createSchedulerMcpBridge/, "main should instantiate scheduler MCP bridge");
+  assert.doesNotMatch(mainSource, /createSchedulerMcpBridge/, "main must not instantiate scheduler MCP");
   assert.doesNotMatch(mainSource, /ensureCodexHome:\s*schedulerMcpBridge\.ensureCodexHome|ensureCodexHome:\s*\(options\)\s*=>\s*schedulerMcpBridge\.ensureCodexHome\(options\)/, "main should not forward Codex home setup into retired JS utility runtimes");
   assert.doesNotMatch(mainSource, /function resolveNodePath/, "main must not own node CLI discovery for scheduler MCP");
   assert.doesNotMatch(mainSource, /function schedulerMcpContextPath/, "main must not own scheduler MCP context path");

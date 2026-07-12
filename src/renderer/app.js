@@ -5245,6 +5245,11 @@ function syncConversationBotRuntimeControls() {
     { allowEmpty: false, selectFirst: false }
   );
   setText(els.quickModelLabel, modelLabel);
+  if (els.quickModelSelect) {
+    els.quickModelSelect.title = modelEntries.length
+      ? `当前模型：${modelLabel || selectedModelValue}`
+      : "";
+  }
   const selectedModelSelectValue = String(els.quickModelSelect?.value || selectedModelValue || "").trim();
   const selectedModelEntry = selectedModelSelectValue
     ? (modelEntries.find((entry) => String(entry.id || entry.value || "") === selectedModelSelectValue)
@@ -8089,6 +8094,13 @@ els.chatForm.addEventListener("submit", async (event) => {
     const pendingAttachments = [...state.pendingAttachments].slice(0, 20);
     const attachmentsForSend = window.miaComposer.attachmentsForSend(pendingAttachments);
     let conversationText = window.miaComposer.expandComposerPathRefsForSend(composerText, pendingAttachments);
+    const skillCommand = window.miaComposer.consumeLeadingSkillCommand(conversationText);
+    if (skillCommand.matched) {
+      conversationText = skillCommand.text;
+      els.chatInput.value = skillCommand.text;
+      window.miaMessageHelpers.resizeChatInput();
+      renderSendButton();
+    }
     if (!conversationText.trim() && !pendingAttachments.length) return;
     // Cloud conversations have no reply_to column, so a quote-reply is embedded as a
     // markdown blockquote at the head of the message — visible to every member.

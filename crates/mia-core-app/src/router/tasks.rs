@@ -3,14 +3,16 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use mia_core_api_types::{
-    CreateTaskJobRequest, EmptyResponse, RunTaskJobResponse, SendConversationMessageRequest,
-    TaskJobListResponse, TaskJobResponse, UpdateTaskJobRequest,
+    CreateTaskJobRequest, EmptyResponse, RunTaskJobResponse, TaskJobListResponse, TaskJobResponse,
+    UpdateTaskJobRequest,
 };
 use mia_core_tasks::{
     EVENT_TASK_CREATED, EVENT_TASK_RUN_FINISHED, EVENT_TASK_RUN_STARTED, EVENT_TASK_UPDATED,
     TaskError,
 };
-use serde_json::{Value, json};
+use serde_json::json;
+
+use crate::scheduler::execute_task_conversation_turn;
 
 use super::state::ModuleStates;
 
@@ -97,42 +99,30 @@ pub async fn run_task_job(
     states
         .realtime
         .emit(EVENT_TASK_RUN_STARTED, json!({ "jobId": job_id.clone() }));
-    let mut run = states.tasks.run_now(&job_id).await.map_err(|error| {
+    let run = states.tasks.run_now(&job_id).await.map_err(|error| {
         states.realtime.emit(
             EVENT_TASK_RUN_FINISHED,
             json!({ "jobId": job_id.clone(), "ok": false, "error": error.to_string() }),
         );
         ApiRouteError::from_task(error)
     })?;
-    let conversation_id = target_string(&job.target, &["conversationId", "conversation_id"])
-        .ok_or_else(|| ApiRouteError::bad_request("task target conversationId is required"))?;
-    let selected_skill_ids = selected_skill_ids_from_target(&job.target);
-    let message = states
-        .conversation
-        .send_user_message(
-            &conversation_id,
-            SendConversationMessageRequest {
-                body: job.instructions,
-                attachments: json!([]),
-                selected_skill_ids,
-            },
-        )
-        .await
-        .map_err(|error| {
-            states.realtime.emit(
-                EVENT_TASK_RUN_FINISHED,
-                json!({ "jobId": job_id.clone(), "ok": false, "error": error.to_string() }),
-            );
-            match error {
-                sqlx::Error::RowNotFound => ApiRouteError::not_found("conversation not found"),
-                _ => ApiRouteError::internal(error.to_string()),
-            }
-        })?;
-
-    run.conversation_id = Some(conversation_id);
-    run.message_id = Some(message.message_id);
-    run.turn_id = Some(message.turn_id);
-    run.assistant_message_id = message.assistant_message_id;
+    let run = execute_task_conversation_turn(
+        &states.conversation,
+        &states.tasks,
+        &states.runtime,
+        &states.runtime_sessions,
+        &states.realtime,
+        &job,
+        run,
+    )
+    .await
+    .map_err(|error| {
+        states.realtime.emit(
+            EVENT_TASK_RUN_FINISHED,
+            json!({ "jobId": job_id.clone(), "ok": false, "error": error.to_string() }),
+        );
+        ApiRouteError::internal(error.to_string())
+    })?;
     states.realtime.emit(
         EVENT_TASK_RUN_FINISHED,
         json!({
@@ -146,28 +136,6 @@ pub async fn run_task_job(
         }),
     );
     Ok(Json(run))
-}
-
-fn target_string(target: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| target.get(*key).and_then(Value::as_str))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
-fn selected_skill_ids_from_target(target: &Value) -> Vec<String> {
-    target
-        .get("selectedSkillIds")
-        .or_else(|| target.get("selected_skill_ids"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .collect()
 }
 
 #[derive(Debug)]
@@ -189,20 +157,6 @@ impl ApiRouteError {
         Self {
             status,
             message: error.to_string(),
-        }
-    }
-
-    fn bad_request(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            message: message.into(),
-        }
-    }
-
-    fn not_found(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::NOT_FOUND,
-            message: message.into(),
         }
     }
 

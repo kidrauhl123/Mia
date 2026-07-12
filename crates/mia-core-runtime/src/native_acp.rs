@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use agent_client_protocol::schema::{
     AgentCapabilities, CancelNotification, ContentBlock, EnvVariable, Implementation,
-    InitializeRequest, McpServer, NewSessionRequest, NewSessionResponse, PermissionOption,
+    InitializeRequest, McpServer, Meta, NewSessionRequest, NewSessionResponse, PermissionOption,
     PermissionOptionId, PermissionOptionKind, PromptRequest, ProtocolVersion,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     ResumeSessionRequest, SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption,
@@ -637,6 +637,21 @@ fn mcp_servers_from_plan(plan: &RuntimeTurnPlan) -> Vec<McpServer> {
         .collect()
 }
 
+fn session_meta_for_plan(plan: &RuntimeTurnPlan) -> Option<Meta> {
+    if plan.engine != "claude-code" {
+        return None;
+    }
+    json!({
+        "claudeCode": {
+            "options": {
+                "disallowedTools": ["CronCreate", "CronDelete", "CronList", "CronUpdate"]
+            }
+        }
+    })
+    .as_object()
+    .cloned()
+}
+
 fn normalize_mcp_server(name: &str, server: &Value) -> Option<McpServer> {
     let mut value = server.clone();
     let object = value.as_object_mut()?;
@@ -745,7 +760,7 @@ async fn probe_native_acp_command_inner(
         .await
         .map_err(|error| (NativeAcpProbeErrorKind::Initialize, error.to_string()))?;
         let session = protocol
-            .new_session(workspace_dir, Vec::new())
+            .new_session(workspace_dir, Vec::new(), None)
             .await
             .map_err(|error| (NativeAcpProbeErrorKind::NewSession, error.to_string()))?;
         let accumulated_text = Arc::new(StdMutex::new(String::new()));
@@ -1238,6 +1253,7 @@ impl NativeAcpTask {
             return Ok(session_id);
         }
         let mcp_servers = mcp_servers_from_plan(plan);
+        let session_meta = session_meta_for_plan(plan);
         if let Some(session_id) = resumable_session_id(plan)
             && self.protocol.supports_session_resume()
         {
@@ -1247,6 +1263,7 @@ impl NativeAcpTask {
                     session_id.clone(),
                     self.workspace_dir.clone(),
                     mcp_servers.clone(),
+                    session_meta.clone(),
                 )
                 .await
             {
@@ -1266,7 +1283,7 @@ impl NativeAcpTask {
         }
         let response = self
             .protocol
-            .new_session(self.workspace_dir.clone(), mcp_servers)
+            .new_session(self.workspace_dir.clone(), mcp_servers, session_meta)
             .await?;
         let session_id = response.session_id.clone();
         self.session_state
@@ -1882,9 +1899,14 @@ impl AcpProtocol {
         &self,
         cwd: PathBuf,
         mcp_servers: Vec<McpServer>,
+        meta: Option<Meta>,
     ) -> Result<agent_client_protocol::schema::NewSessionResponse> {
-        self.send_request(NewSessionRequest::new(cwd).mcp_servers(mcp_servers))
-            .await
+        self.send_request(
+            NewSessionRequest::new(cwd)
+                .mcp_servers(mcp_servers)
+                .meta(meta),
+        )
+        .await
     }
 
     async fn resume_session(
@@ -1892,9 +1914,14 @@ impl AcpProtocol {
         session_id: SessionId,
         cwd: PathBuf,
         mcp_servers: Vec<McpServer>,
+        meta: Option<Meta>,
     ) -> Result<agent_client_protocol::schema::ResumeSessionResponse> {
-        self.send_request(ResumeSessionRequest::new(session_id, cwd).mcp_servers(mcp_servers))
-            .await
+        self.send_request(
+            ResumeSessionRequest::new(session_id, cwd)
+                .mcp_servers(mcp_servers)
+                .meta(meta),
+        )
+        .await
     }
 
     async fn prompt(
@@ -2737,5 +2764,20 @@ mod tests {
         assert_eq!(desired_control_value(&plan, "model"), None);
         assert_eq!(desired_control_value(&plan, "thought_level"), None);
         assert_eq!(desired_control_value(&plan, "permission"), None);
+    }
+
+    #[test]
+    fn claude_session_metadata_disables_native_cron_tools_owned_by_mia() {
+        let mut plan = native_acp_test_plan();
+        plan.engine = "claude-code".into();
+
+        let metadata = session_meta_for_plan(&plan).unwrap();
+        assert_eq!(
+            metadata["claudeCode"]["options"]["disallowedTools"],
+            json!(["CronCreate", "CronDelete", "CronList", "CronUpdate"])
+        );
+
+        plan.engine = "codex".into();
+        assert!(session_meta_for_plan(&plan).is_none());
     }
 }
