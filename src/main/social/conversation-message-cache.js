@@ -96,6 +96,7 @@ function openConversationMessageCache(dbPath) {
     SELECT MAX(seq) AS maxSeq FROM messages WHERE conversation_id = ?
   `);
   const deleteMessageStmt = db.prepare("DELETE FROM messages WHERE conversation_id = ? AND id = ?");
+  const deleteMessageByIdStmt = db.prepare("DELETE FROM messages WHERE id = ?");
   const deleteConvStmt = db.prepare("DELETE FROM messages WHERE conversation_id = ?");
   const socialBootstrapStmt = db.prepare(`
     SELECT conversations_json, friends_json, bots_json, members_json, updated_at
@@ -207,6 +208,50 @@ function openConversationMessageCache(dbPath) {
     if (!convId || !id) return 0;
     const result = deleteMessageStmt.run(convId, id);
     return Number(result.changes) || 0;
+  }
+
+  function cleanupLegacyScheduledUserMessages(jobs) {
+    const refsByMessageId = new Map();
+    for (const job of Array.isArray(jobs) ? jobs : []) {
+      const target = job?.target && typeof job.target === "object" ? job.target : {};
+      const runs = Array.isArray(target.runs) ? target.runs : [];
+      for (const run of runs) {
+        const messageId = String(run?.messageId || run?.message_id || "").trim();
+        if (!messageId) continue;
+        if (!refsByMessageId.has(messageId)) {
+          refsByMessageId.set(messageId, { messageId, conversationIds: [] });
+        }
+        const ref = refsByMessageId.get(messageId);
+        for (const rawId of [
+          run?.conversationId,
+          run?.conversation_id,
+          target.conversationId,
+          target.conversation_id
+        ]) {
+          const conversationId = String(rawId || "").trim();
+          if (!conversationId) continue;
+          if (!ref.conversationIds.includes(conversationId)) ref.conversationIds.push(conversationId);
+          if (conversationId.startsWith("cloud_bridge_")) {
+            const visibleId = conversationId.slice("cloud_bridge_".length);
+            if (visibleId && !ref.conversationIds.includes(visibleId)) ref.conversationIds.push(visibleId);
+          }
+        }
+      }
+    }
+
+    const refs = [...refsByMessageId.values()];
+    let deleted = 0;
+    db.exec("BEGIN");
+    try {
+      for (const ref of refs) {
+        deleted += Number(deleteMessageByIdStmt.run(ref.messageId).changes) || 0;
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    return { deleted, refs };
   }
 
   // Reconcile a server-fetched window with the disk cache. A list response is a
@@ -329,6 +374,7 @@ function openConversationMessageCache(dbPath) {
     getRecentMessages,
     getMaxSeq,
     deleteMessage,
+    cleanupLegacyScheduledUserMessages,
     reconcileFetchedMessages,
     deleteConversation,
     pruneConversation,

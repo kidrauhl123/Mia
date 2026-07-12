@@ -134,6 +134,45 @@ test("deleteConversation removes only that conversation", () => {
   }
 });
 
+test("legacy scheduled wake cleanup removes referenced user messages from every cached alias", () => {
+  const { dir, dbPath } = tempCache();
+  const cache = openConversationMessageCache(dbPath);
+  try {
+    assert.equal(typeof cache.cleanupLegacyScheduledUserMessages, "function");
+    cache.upsertMessages("botc_1", [
+      msg(1, { id: "setup", body_md: "一分钟后提醒我喝水" }),
+      msg(2, { id: "legacy_wake", body_md: "提醒用户喝水" })
+    ]);
+    cache.upsertMessages("cloud_bridge_botc_1", [
+      msg(2, { id: "legacy_wake", body_md: "提醒用户喝水" }),
+      msg(3, { id: "reply", sender_kind: "bot", body_md: "该喝水啦" })
+    ]);
+
+    const result = cache.cleanupLegacyScheduledUserMessages([
+      {
+        target: {
+          conversationId: "cloud_bridge_botc_1",
+          runs: [{ messageId: "legacy_wake", assistantMessageId: "reply" }]
+        }
+      },
+      { target: { conversationId: "botc_1", runs: [{ messageId: null }] } }
+    ]);
+
+    assert.equal(result.deleted, 2);
+    assert.deepEqual(result.refs, [
+      {
+        messageId: "legacy_wake",
+        conversationIds: ["cloud_bridge_botc_1", "botc_1"]
+      }
+    ]);
+    assert.deepEqual(cache.getRecentMessages("botc_1", 50).map((m) => m.id), ["setup"]);
+    assert.deepEqual(cache.getRecentMessages("cloud_bridge_botc_1", 50).map((m) => m.id), ["reply"]);
+  } finally {
+    cache.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("deleteMessage removes one cached row and survives reopen", () => {
   const { dir, dbPath } = tempCache();
   let cache = openConversationMessageCache(dbPath);

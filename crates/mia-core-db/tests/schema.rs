@@ -133,3 +133,87 @@ async fn file_backed_database_reinit_preserves_rows() {
         .unwrap();
     assert_eq!(row.get::<String, _>("value_json"), "{\"theme\":\"dark\"}");
 }
+
+#[tokio::test]
+async fn database_reinit_removes_only_legacy_task_generated_user_messages() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mia-core.db");
+
+    let db = init_database(&path).await.unwrap();
+    sqlx::query(
+        "INSERT INTO conversations (id, kind, title, runtime_json, metadata_json, created_at, updated_at)
+         VALUES ('conv_task', 'direct', 'Task', '{}', '{}', 1, 1)",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    for (id, role, body, seq) in [
+        ("msg_setup", "user", "一分钟后提醒我喝水", 1_i64),
+        ("msg_legacy_wake", "user", "提醒用户喝水", 2_i64),
+        ("msg_reply", "assistant", "该喝水啦", 3_i64),
+    ] {
+        sqlx::query(
+            "INSERT INTO messages (id, conversation_id, role, body, content_json, status, seq, created_at, updated_at)
+             VALUES (?, 'conv_task', ?, ?, '{}', 'complete', ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(role)
+        .bind(body)
+        .bind(seq)
+        .bind(seq)
+        .bind(seq)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "INSERT INTO tasks (id, kind, schedule_json, target_json, instructions, status, next_run_at, created_at, updated_at)
+         VALUES ('task_legacy', 'agent', '{}', ?, '提醒用户喝水', 'done', NULL, 1, 1)",
+    )
+    .bind(
+        serde_json::json!({
+            "conversationId": "conv_task",
+            "runs": [{
+                "messageId": "msg_legacy_wake",
+                "assistantMessageId": "msg_reply"
+            }]
+        })
+        .to_string(),
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    db.close().await;
+
+    let db = init_database(&path).await.unwrap();
+    let rows = sqlx::query("SELECT id, role, body FROM messages ORDER BY seq")
+        .fetch_all(db.pool())
+        .await
+        .unwrap();
+    let messages = rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.get::<String, _>("id"),
+                row.get::<String, _>("role"),
+                row.get::<String, _>("body"),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        messages,
+        vec![
+            (
+                "msg_setup".to_string(),
+                "user".to_string(),
+                "一分钟后提醒我喝水".to_string()
+            ),
+            (
+                "msg_reply".to_string(),
+                "assistant".to_string(),
+                "该喝水啦".to_string()
+            )
+        ]
+    );
+}

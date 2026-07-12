@@ -74,6 +74,22 @@ pub async fn init_database_memory() -> Result<Database, sqlx::Error> {
 async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     MIGRATOR.run(pool).await?;
     repair_cloud_bot_reference_schema(pool).await?;
+    cleanup_legacy_task_generated_user_messages(pool).await?;
+    Ok(())
+}
+
+async fn cleanup_legacy_task_generated_user_messages(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "DELETE FROM messages
+         WHERE role = 'user'
+           AND id IN (
+             SELECT json_extract(run.value, '$.messageId')
+             FROM tasks, json_each(tasks.target_json, '$.runs') AS run
+             WHERE json_type(run.value, '$.messageId') = 'text'
+           )",
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

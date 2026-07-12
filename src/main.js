@@ -2610,6 +2610,32 @@ const conversationMessageCache = (() => {
     return null;
   }
 })();
+let legacyScheduledMessageCleanupPromise = null;
+function cleanupLegacyScheduledMessageCache() {
+  if (legacyScheduledMessageCleanupPromise || !conversationMessageCache?.cleanupLegacyScheduledUserMessages) {
+    return legacyScheduledMessageCleanupPromise;
+  }
+  legacyScheduledMessageCleanupPromise = forwardMiaCoreHttpRequest({
+    method: "GET",
+    route: "/api/tasks/jobs"
+  }).then((response) => {
+    const cleanup = conversationMessageCache.cleanupLegacyScheduledUserMessages(response?.jobs || []);
+    for (const ref of cleanup.refs) {
+      for (const conversationId of ref.conversationIds) {
+        broadcastRendererEvent(IpcChannel.CloudEvent, {
+          type: "conversation.message_deleted",
+          payload: { conversationId, messageId: ref.messageId }
+        });
+      }
+    }
+    return cleanup;
+  }).catch((error) => {
+    legacyScheduledMessageCleanupPromise = null;
+    appendCloudLog(`[social] legacy scheduled message cleanup failed: ${error?.message || error}`);
+    return null;
+  });
+  return legacyScheduledMessageCleanupPromise;
+}
 cloudEventSocketRuntime = createCloudEventsClient({
   getSettings: () => settingsStore.cloudSettings(),
   appendCloudLog,
@@ -2657,6 +2683,7 @@ if (!IS_CORE_PROCESS) {
       broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
     },
     onStateChange: (connected) => {
+      if (connected) cleanupLegacyScheduledMessageCache();
       const envelope = {
         type: "daemon.local_events_status",
         payload: { connected: Boolean(connected) }
