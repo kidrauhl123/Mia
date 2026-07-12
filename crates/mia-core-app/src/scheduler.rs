@@ -2,11 +2,11 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
-use mia_core_api_types::{RunTaskJobResponse, SendConversationMessageRequest, TaskJobSummary};
+use mia_core_api_types::{RunTaskJobResponse, TaskJobSummary};
 use mia_core_cloud::CloudService;
-use mia_core_conversation::{ConversationService, EVENT_CONVERSATION_MESSAGE_CREATED};
+use mia_core_conversation::ConversationService;
 use mia_core_realtime::EventBus;
-use mia_core_runtime::{RuntimeProtocol, RuntimeSessionManager};
+use mia_core_runtime::RuntimeSessionManager;
 use mia_core_tasks::{
     EVENT_TASK_RUN_FINISHED, EVENT_TASK_RUN_STARTED, EVENT_TASK_UPDATED, TaskService,
 };
@@ -116,31 +116,29 @@ pub async fn execute_task_conversation_turn(
     job: &TaskJobSummary,
     mut run: RunTaskJobResponse,
 ) -> anyhow::Result<ExecutedTaskRun> {
-    let conversation_id = target_string(&job.target, &["conversationId", "conversation_id"])
-        .context("task target conversationId is required")?;
+    let requested_conversation_id =
+        target_string(&job.target, &["conversationId", "conversation_id"])
+            .context("task target conversationId is required")?;
+    let conversation_id = conversation
+        .resolve_local_conversation_id(&requested_conversation_id)
+        .await
+        .with_context(|| {
+            format!("task target conversation {requested_conversation_id} is unavailable")
+        })?;
     let selected_skill_ids = selected_skill_ids_from_target(&job.target);
     let mut runtime_claim = runtime
         .try_claim_conversation(conversation_id.clone())
         .map_err(|_| anyhow::anyhow!("conversation already has an active runtime turn"))?;
-    let turn = match conversation
-        .start_user_turn(
-            &conversation_id,
-            SendConversationMessageRequest {
-                body: job.instructions.clone(),
-                attachments: json!([]),
-                selected_skill_ids,
-            },
-        )
+    let mut runtime_plan = match conversation
+        .plan_internal_turn(&conversation_id, &job.instructions, selected_skill_ids)
         .await
     {
-        Ok(turn) => turn,
+        Ok(runtime_plan) => runtime_plan,
         Err(error) => {
             runtime_claim.release();
             return Err(error.into());
         }
     };
-    let message = turn.response;
-    let mut runtime_plan = turn.runtime_plan;
     let runtime_config = runtime_plan.provider.clone();
     if let Err(error) = mia_runtime_proxies
         .prepare_plan(cloud, &runtime_config, &mut runtime_plan)
@@ -149,53 +147,35 @@ pub async fn execute_task_conversation_turn(
         runtime_claim.release();
         return Err(anyhow::anyhow!(error.to_string()));
     }
-    runtime_claim.set_turn_id(message.turn_id.clone());
-    realtime.emit(
-        EVENT_CONVERSATION_MESSAGE_CREATED,
-        json!({
-            "conversationId": conversation_id,
-            "messageId": message.message_id.clone(),
-            "turnId": message.turn_id.clone(),
-            "assistantMessageId": message.assistant_message_id.clone(),
-            "accepted": message.accepted,
-            "scheduled": true,
-        }),
-    );
+    let turn_id = runtime_plan.turn_id.clone();
+    runtime_claim.set_turn_id(turn_id.clone());
 
-    let mut output_text = String::new();
-    let assistant_message_id =
-        if runtime_plan.command.is_some() || runtime_plan.protocol == RuntimeProtocol::NativeAcp {
-            let cancellation = runtime.register(message.turn_id.clone());
-            let completion = execute_and_complete_runtime_turn(
-                conversation,
-                tasks,
-                runtime_sessions,
-                realtime,
-                runtime_plan,
-                Some(cancellation),
-            )
-            .await;
-            runtime.remove(&message.turn_id);
-            runtime_claim.release();
-            let completion = completion?;
-            if !completion.successful {
-                anyhow::bail!(
-                    "{}",
-                    completion
-                        .error
-                        .unwrap_or_else(|| "scheduled runtime failed".into())
-                );
-            }
-            output_text = completion.message.body;
-            Some(completion.message.message_id)
-        } else {
-            runtime_claim.release();
-            message.assistant_message_id.clone()
-        };
+    let cancellation = runtime.register(turn_id.clone());
+    let completion = execute_and_complete_runtime_turn(
+        conversation,
+        tasks,
+        runtime_sessions,
+        realtime,
+        runtime_plan,
+        Some(cancellation),
+    )
+    .await;
+    runtime.remove(&turn_id);
+    runtime_claim.release();
+    let completion = completion?;
+    if !completion.successful {
+        anyhow::bail!(
+            "{}",
+            completion
+                .error
+                .unwrap_or_else(|| "scheduled runtime failed".into())
+        );
+    }
+    let output_text = completion.message.body.clone();
     run.conversation_id = Some(conversation_id);
-    run.message_id = Some(message.message_id);
-    run.turn_id = Some(message.turn_id);
-    run.assistant_message_id = assistant_message_id;
+    run.message_id = None;
+    run.turn_id = Some(turn_id);
+    run.assistant_message_id = Some(completion.message.message_id);
     Ok(ExecutedTaskRun { run, output_text })
 }
 

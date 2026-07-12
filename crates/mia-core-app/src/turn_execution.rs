@@ -30,6 +30,21 @@ pub async fn execute_and_complete_runtime_turn(
     runtime_plan: RuntimeTurnPlan,
     cancellation: Option<RuntimeCancellation>,
 ) -> anyhow::Result<RuntimeTurnCompletion> {
+    let cloud_conversation_id = conversation
+        .get_conversation(&runtime_plan.conversation_id)
+        .await?
+        .conversation
+        .metadata
+        .get("cloudBridge")
+        .and_then(|value| {
+            value
+                .get("conversationId")
+                .or_else(|| value.get("conversation_id"))
+        })
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let event_realtime = realtime.clone();
     let actual_session_id = Arc::new(Mutex::new(None::<String>));
     let actual_session_id_for_sink = actual_session_id.clone();
@@ -145,6 +160,7 @@ pub async fn execute_and_complete_runtime_turn(
             "turnId": runtime_plan.turn_id,
             "role": "assistant",
             "accepted": true,
+            "cloudConversationId": cloud_conversation_id,
             "message": {
                 "id": completed.message_id,
                 "conversation_id": runtime_plan.conversation_id,

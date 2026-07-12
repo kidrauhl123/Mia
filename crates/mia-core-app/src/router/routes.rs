@@ -2553,7 +2553,7 @@ mod tests {
         let run: Value = serde_json::from_slice(&run_body).unwrap();
         assert!(run["runId"].as_str().unwrap().starts_with("run_"));
         assert_eq!(run["conversationId"], conversation_id);
-        assert!(run["messageId"].as_str().unwrap().starts_with("msg_"));
+        assert!(run["messageId"].is_null());
         assert!(run["turnId"].as_str().unwrap().starts_with("turn_"));
         assert!(
             run["assistantMessageId"]
@@ -2697,7 +2697,7 @@ mod tests {
                     .uri("/api/conversations")
                     .header("content-type", "application/json")
                     .body(Body::from(format!(
-                        r#"{{"kind":"direct","title":"Scheduled Conversation","botId":"{bot_id}","metadata":{{"runtime":{{"engine":"codex"}}}}}}"#
+                        r#"{{"kind":"direct","title":"Scheduled Conversation","botId":"{bot_id}","metadata":{{"runtime":{{"engine":"codex"}},"cloudBridge":{{"conversationId":"cloud:scheduled"}}}}}}"#
                     )))
                     .unwrap(),
             )
@@ -2718,7 +2718,7 @@ mod tests {
                     .uri("/api/tasks/jobs")
                     .header("content-type", "application/json")
                     .body(Body::from(format!(
-                        r#"{{"kind":"agent","schedule":{{"type":"oneshot","atMs":4102444800000}},"target":{{"botId":"{bot_id}","conversationId":"{conversation_id}"}},"instructions":"scheduled smoke"}}"#
+                        r#"{{"kind":"agent","schedule":{{"type":"oneshot","atMs":4102444800000}},"target":{{"botId":"{bot_id}","conversationId":"cloud:scheduled"}},"instructions":"scheduled smoke"}}"#
                     )))
                     .unwrap(),
             )
@@ -2764,7 +2764,15 @@ mod tests {
                 .iter()
                 .filter(|event| event.name == EVENT_CONVERSATION_MESSAGE_CREATED)
                 .count(),
-            2
+            1
+        );
+        let assistant_event = observed
+            .iter()
+            .find(|event| event.name == EVENT_CONVERSATION_MESSAGE_CREATED)
+            .unwrap();
+        assert_eq!(
+            assistant_event.data["cloudConversationId"],
+            "cloud:scheduled"
         );
         assert_eq!(finished.name, EVENT_TASK_RUN_FINISHED);
         assert_eq!(finished.data["jobId"], task_id);
@@ -2779,10 +2787,19 @@ mod tests {
         assert_eq!(status_row.get::<String, _>("status"), "done");
         let completed_job = services.tasks.get_job(task_id).await.unwrap().job;
         assert_eq!(completed_job.target["runs"][0]["status"], "ok");
+        assert!(completed_job.target["runs"][0]["messageId"].is_null());
         assert_eq!(
             completed_job.target["runs"][0]["outputText"],
             "定时任务已完成"
         );
+        let message_roles: Vec<String> = sqlx::query_scalar(
+            "SELECT role FROM messages WHERE conversation_id = ? ORDER BY seq ASC",
+        )
+        .bind(conversation_id)
+        .fetch_all(services.database.pool())
+        .await
+        .unwrap();
+        assert_eq!(message_roles, vec!["assistant"]);
         let assistant_body: String = sqlx::query_scalar(
             "SELECT body FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY seq DESC LIMIT 1",
         )

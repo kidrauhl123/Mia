@@ -1370,6 +1370,40 @@ impl ConversationService {
         })
     }
 
+    pub async fn resolve_local_conversation_id(
+        &self,
+        conversation_id: &str,
+    ) -> Result<String, sqlx::Error> {
+        if let Some(id) =
+            sqlx::query_scalar::<_, String>("SELECT id FROM conversations WHERE id = ? LIMIT 1")
+                .bind(conversation_id)
+                .fetch_optional(&self.pool)
+                .await?
+        {
+            return Ok(id);
+        }
+
+        let rows = sqlx::query("SELECT id, metadata_json FROM conversations")
+            .fetch_all(&self.pool)
+            .await?;
+        for row in rows {
+            let metadata = parse_json(row.get::<String, _>("metadata_json"))?;
+            let external_id = metadata
+                .get("cloudBridge")
+                .and_then(|value| {
+                    value
+                        .get("conversationId")
+                        .or_else(|| value.get("conversation_id"))
+                })
+                .and_then(Value::as_str)
+                .map(str::trim);
+            if external_id == Some(conversation_id.trim()) {
+                return Ok(row.get("id"));
+            }
+        }
+        Err(sqlx::Error::RowNotFound)
+    }
+
     pub async fn list_conversation_messages(
         &self,
         conversation_id: &str,
@@ -1456,73 +1490,15 @@ impl ConversationService {
         )
         .await?;
 
-        let runtime_config = runtime_config_for_turn(&self.pool, &conversation).await?;
-        let engine = runtime_engine_from_config(&runtime_config)
-            .or_else(|| runtime_engine_from_metadata(&conversation.metadata));
-        let workspace_dir =
-            workspace_from_metadata(&conversation.metadata, &self.default_workspace_dir);
-        let skill_runtime = match (&self.current_skills, conversation.bot_id.as_deref()) {
-            (Some(current_skills), bot_id) => {
-                let bot = match bot_id {
-                    Some(bot_id) => bot_summary_for_id(&self.pool, bot_id).await?,
-                    None => None,
-                };
-                let available_skills =
-                    current_skills.runtime_skill_records(bot.as_ref(), &request.selected_skill_ids);
-                let session_skill_ids = available_skills
-                    .iter()
-                    .map(|skill| skill.id.clone())
-                    .collect::<Vec<_>>();
-                Some(plan_agent_session_skill_runtime(
-                    AgentSessionSkillRuntimeRequest {
-                        agent_engine: engine.clone().unwrap_or_else(|| "hermes".to_string()),
-                        runtime_config: runtime_config.clone(),
-                        workspace_path: Some(workspace_dir.clone()),
-                        session_skill_ids,
-                        available_skills,
-                        active_skill_ids: request.selected_skill_ids.clone(),
-                        intent_skill_ids: Vec::new(),
-                        requested_skill_ids: Vec::new(),
-                    },
-                ))
-            }
-            _ => None,
-        };
-        let previous_session_key = runtime_session_key_from_metadata(&conversation.metadata);
-        let provider = runtime_provider_with_controls(
-            provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
-            &runtime_config,
-        );
-        let mcp_servers = mcp_servers_for_turn(
-            &self.pool,
-            &self.core_base_url,
-            conversation.bot_id.as_deref().unwrap_or_default(),
-            conversation_id,
-            &message_id,
-        )
-        .await?;
-        let body = prepend_selected_skill_paths(
-            skill_runtime
-                .as_ref()
-                .map(|runtime| runtime.selected_skill_prompt.as_str()),
-            &request.body,
-        );
-        let mut turn_plan = self.runtime.build_turn_plan(RuntimeTurnInput {
-            conversation_id: conversation_id.to_string(),
-            message_id: message_id.clone(),
-            bot_id: conversation.bot_id.clone(),
-            engine,
-            previous_session_key,
-            workspace_dir,
-            provider,
-            mcp_servers,
-            attachments: request.attachments.clone(),
-            selected_skill_ids: request.selected_skill_ids,
-            body,
-        });
-        if let Some(skill_runtime) = skill_runtime.as_ref() {
-            apply_skill_runtime_to_plan(&mut turn_plan, skill_runtime);
-        }
+        let turn_plan = self
+            .build_runtime_turn_plan(
+                &conversation,
+                &message_id,
+                &request.body,
+                &request.attachments,
+                &request.selected_skill_ids,
+            )
+            .await?;
         let turn_id = turn_plan.turn_id.clone();
         let assistant_message_id = if let Some(mock_response) = turn_plan.mock_response.as_deref() {
             let assistant_message_id = format!("msg_{}", Uuid::now_v7().simple());
@@ -1563,6 +1539,102 @@ impl ConversationService {
             response,
             runtime_plan: turn_plan,
         })
+    }
+
+    pub async fn plan_internal_turn(
+        &self,
+        conversation_id: &str,
+        body: &str,
+        selected_skill_ids: Vec<String>,
+    ) -> Result<RuntimeTurnPlan, sqlx::Error> {
+        let conversation = self.get_conversation(conversation_id).await?.conversation;
+        let origin_message_id = format!("internal_{}", Uuid::now_v7().simple());
+        let attachments = json!([]);
+        self.build_runtime_turn_plan(
+            &conversation,
+            &origin_message_id,
+            body,
+            &attachments,
+            &selected_skill_ids,
+        )
+        .await
+    }
+
+    async fn build_runtime_turn_plan(
+        &self,
+        conversation: &ConversationSummary,
+        origin_message_id: &str,
+        body: &str,
+        attachments: &Value,
+        selected_skill_ids: &[String],
+    ) -> Result<RuntimeTurnPlan, sqlx::Error> {
+        let runtime_config = runtime_config_for_turn(&self.pool, conversation).await?;
+        let engine = runtime_engine_from_config(&runtime_config)
+            .or_else(|| runtime_engine_from_metadata(&conversation.metadata));
+        let workspace_dir =
+            workspace_from_metadata(&conversation.metadata, &self.default_workspace_dir);
+        let skill_runtime = match (&self.current_skills, conversation.bot_id.as_deref()) {
+            (Some(current_skills), bot_id) => {
+                let bot = match bot_id {
+                    Some(bot_id) => bot_summary_for_id(&self.pool, bot_id).await?,
+                    None => None,
+                };
+                let available_skills =
+                    current_skills.runtime_skill_records(bot.as_ref(), selected_skill_ids);
+                let session_skill_ids = available_skills
+                    .iter()
+                    .map(|skill| skill.id.clone())
+                    .collect::<Vec<_>>();
+                Some(plan_agent_session_skill_runtime(
+                    AgentSessionSkillRuntimeRequest {
+                        agent_engine: engine.clone().unwrap_or_else(|| "hermes".to_string()),
+                        runtime_config: runtime_config.clone(),
+                        workspace_path: Some(workspace_dir.clone()),
+                        session_skill_ids,
+                        available_skills,
+                        active_skill_ids: selected_skill_ids.to_vec(),
+                        intent_skill_ids: Vec::new(),
+                        requested_skill_ids: Vec::new(),
+                    },
+                ))
+            }
+            _ => None,
+        };
+        let provider = runtime_provider_with_controls(
+            provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
+            &runtime_config,
+        );
+        let mcp_servers = mcp_servers_for_turn(
+            &self.pool,
+            &self.core_base_url,
+            conversation.bot_id.as_deref().unwrap_or_default(),
+            &conversation.id,
+            origin_message_id,
+        )
+        .await?;
+        let body = prepend_selected_skill_paths(
+            skill_runtime
+                .as_ref()
+                .map(|runtime| runtime.selected_skill_prompt.as_str()),
+            body,
+        );
+        let mut turn_plan = self.runtime.build_turn_plan(RuntimeTurnInput {
+            conversation_id: conversation.id.clone(),
+            message_id: origin_message_id.to_string(),
+            bot_id: conversation.bot_id.clone(),
+            engine,
+            previous_session_key: runtime_session_key_from_metadata(&conversation.metadata),
+            workspace_dir,
+            provider,
+            mcp_servers,
+            attachments: attachments.clone(),
+            selected_skill_ids: selected_skill_ids.to_vec(),
+            body,
+        });
+        if let Some(skill_runtime) = skill_runtime.as_ref() {
+            apply_skill_runtime_to_plan(&mut turn_plan, skill_runtime);
+        }
+        Ok(turn_plan)
     }
 
     pub async fn plan_utility_turn(
