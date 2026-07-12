@@ -98,10 +98,11 @@ try {
   ({ createSkillsStore } = require("./src/cloud/skills-store.js"));
 }
 let loadSkillsCatalog = () => [];
+let loadBuiltinSkillsCatalog = () => [];
 try {
-  ({ loadSkillsCatalog } = require("../src/cloud/skills-catalog.js"));
+  ({ loadBuiltinSkillsCatalog, loadSkillsCatalog } = require("../src/cloud/skills-catalog.js"));
 } catch {
-  ({ loadSkillsCatalog } = require("./src/cloud/skills-catalog.js"));
+  ({ loadBuiltinSkillsCatalog, loadSkillsCatalog } = require("./src/cloud/skills-catalog.js"));
 }
 let createHermesSkillsSource = null;
 try {
@@ -4649,9 +4650,10 @@ function createMiaCloudServer(options = {}) {
     uploadDir: context.cloudStore.uploadDir,
     dataDir: context.cloudStore.dataDir
   });
-  const skillsCatalog = loadSkillsCatalog();
+  const marketplaceSkillsCatalog = loadSkillsCatalog();
+  const skillsCatalog = [...marketplaceSkillsCatalog, ...loadBuiltinSkillsCatalog()];
   context.skillsStore.backfillBodyVersions();
-  context.skillsStore.seedFromCatalog(skillsCatalog);
+  context.skillsStore.seedFromCatalog(marketplaceSkillsCatalog);
   const hermesSkillsEnabled = options.hermesSkillsSource
     || options.hermesSkillsMarketEnabled === true
     || process.env.MIA_HERMES_SKILLS_MARKET === "1";
@@ -4743,7 +4745,10 @@ function createMiaCloudServer(options = {}) {
         includeOffline: options.includeOffline,
         cloudStore: context.cloudStore
       }),
+      listScheduledTasks: (userId) => context.cloudTasksService.list(userId),
       createScheduledTask: (userId, input) => context.cloudTasksService.create(userId, input),
+      updateScheduledTask: (userId, taskId, partial) => context.cloudTasksService.update(userId, taskId, partial),
+      deleteScheduledTask: (userId, taskId) => context.cloudTasksService.delete(userId, taskId),
       skillsCatalog
     });
   }

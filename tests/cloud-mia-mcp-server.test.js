@@ -61,14 +61,7 @@ test("cloud Mia MCP reads current context memories and skills without desktop Co
   }
 });
 
-test("cloud Mia scheduler MCP mode exposes only schedule tools", () => {
-  const names = toolDefinitionsForMode("scheduler").map((tool) => tool.name).sort();
-  assert.deepEqual(names, [
-    "schedule_create",
-    "schedule_delete",
-    "schedule_list",
-    "schedule_pause",
-    "schedule_resume",
-    "schedule_update"
-  ]);
+test("cloud Mia MCP does not expose scheduler tools", () => {
+  const names = toolDefinitionsForMode().map((tool) => tool.name);
+  assert.equal(names.some((name) => name.startsWith("schedule_")), false);
 });

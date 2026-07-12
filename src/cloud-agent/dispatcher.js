@@ -1,5 +1,3 @@
-const fs = require("node:fs");
-const path = require("node:path");
 const {
   parseAttachmentsFromMessage,
   redactGeneratedArtifactPaths,
@@ -11,22 +9,14 @@ const { MemberKind } = require("../shared/conversation-kinds.js");
 const { CloudEvent } = require("../shared/cloud-events.js");
 const { createAssistantContentBlockCollector } = require("../shared/assistant-content-blocks.js");
 const { decisionToHermesChoice } = require("../shared/agent-permissions.js");
-const {
-  buildSkillMaterializationContext,
-  materializeSkillsForTurn
-} = require("../shared/skill-materializer.js");
-const {
-  extractLoadSkillRequests,
-  stripLoadSkillRequests
-} = require("../shared/skill-load-protocol.js");
 const { miaRuntimeSystemPrompt } = require("../main/mia-runtime-context.js");
 const { normalizeCloudClaudeCodeModel } = require("./cloud-claude-code-model.js");
 const { assembleCloudRuntimeTurn } = require("./runtime-assembly.js");
+const { MAX_CRON_CONTINUATIONS, processCloudCronTurn } = require("./cron-control.js");
 
 const BOT_MEMBER_KIND = "bot";
 const BOT_SENDER_KIND = "bot";
 const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "Hermes"];
-const MAX_SKILL_LOAD_ROUNDS = 3;
 const CLOUD_CLAUDE_CODE_RUNTIME_KIND = "cloud-claude-code";
 
 function botForMember(member, bots) {
@@ -148,110 +138,6 @@ function cloudRuntimeInstructions(bot, message = {}) {
   ].filter(Boolean).join("\n\n");
 }
 
-function writeSchedulerContext(worker = {}, context = {}) {
-  const schedulerHome = String(
-    worker?.paths?.schedulerHome
-      || worker?.paths?.agentHome
-      || worker?.paths?.hermesHome
-      || ""
-  ).trim();
-  if (!schedulerHome) return false;
-  fs.mkdirSync(schedulerHome, { recursive: true });
-  fs.writeFileSync(
-    path.join(schedulerHome, "mia-scheduler-context.json"),
-    JSON.stringify({
-      botId: String(context.botId || ""),
-      conversationId: String(context.conversationId || ""),
-      sessionId: String(context.sessionId || ""),
-      originMessageId: String(context.originMessageId || "")
-    }, null, 2) + "\n",
-    { mode: 0o600 }
-  );
-  return true;
-}
-
-function selectedSkillIdsFromMessage(message) {
-  let parsed = null;
-  try {
-    parsed = JSON.parse(message?.skills_json || "[]");
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-  const ids = [];
-  const seen = new Set();
-  for (const skill of parsed) {
-    if (ids.length >= 8) break;
-    const raw = typeof skill === "string" ? skill : (skill && typeof skill.id === "string" ? skill.id : "");
-    const id = raw.trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    ids.push(id);
-  }
-  return ids;
-}
-
-function skillRecordsFromCatalog(skillsCatalog = []) {
-  return (Array.isArray(skillsCatalog) ? skillsCatalog : []).map((skill) => ({
-    id: String(skill?.id || "").trim(),
-    name: String(skill?.name || skill?.name_zh || skill?.id || "").trim(),
-    description: String(skill?.description || "").trim(),
-    body: String(skill?.body || "").trim()
-  }));
-}
-
-function skillCatalogLookup(records = []) {
-  const map = new Map();
-  for (const skill of Array.isArray(records) ? records : []) {
-    if (!skill?.id && !skill?.name) continue;
-    const id = String(skill.id || skill.name || "").trim();
-    const name = String(skill.name || id).trim();
-    for (const key of [id, name, id && `mia:${id}`, id && id.split(":").pop()]) {
-      const alias = String(key || "").trim();
-      if (alias && !map.has(alias)) map.set(alias, skill);
-    }
-  }
-  return map;
-}
-
-function cloudSkillMaterialization({ bot = {}, message = {}, skillsCatalog = [], requestedSkillIds = [] } = {}) {
-  const records = skillRecordsFromCatalog(skillsCatalog);
-  const lookup = skillCatalogLookup(records);
-  const activeSkillIds = selectedSkillIdsFromMessage(message);
-  const enabledSkillIds = Array.isArray(bot?.capabilities?.enabledSkills)
-    ? bot.capabilities.enabledSkills.map((id) => String(id || "").trim()).filter(Boolean)
-    : [];
-  const availableSkills = [];
-  const seen = new Set();
-  for (const id of [...enabledSkillIds, ...activeSkillIds, ...(Array.isArray(requestedSkillIds) ? requestedSkillIds : [])]) {
-    const skill = lookup.get(String(id || "").trim());
-    if (!skill || seen.has(skill.id)) continue;
-    seen.add(skill.id);
-    availableSkills.push(skill);
-  }
-  return materializeSkillsForTurn({
-    availableSkills,
-    activeSkillIds,
-    intentSkillIds: [],
-    requestedSkillIds,
-    mode: enabledSkillIds.length ? "index" : "none"
-  });
-}
-
-function selectedSkillContext(message, skillsCatalog = []) {
-  const activeSkillIds = selectedSkillIdsFromMessage(message);
-  if (!activeSkillIds.length) return "";
-  return buildSkillMaterializationContext(cloudSkillMaterialization({
-    message,
-    skillsCatalog
-  }));
-}
-
-function unresolvedSkillLoadText(ids = []) {
-  const label = ids.length ? ids.join("、") : "对应 Skill";
-  return `我没能加载到 ${label} 的完整指南。请确认这个 Skill 已安装或已添加到这个 Bot 的能力列表。`;
-}
-
 function fileDeliveryReplyText(attachments = []) {
   const names = (Array.isArray(attachments) ? attachments : [])
     .map((item) => String(item?.name || "").trim())
@@ -357,6 +243,12 @@ function createCloudAgentDispatcher(deps = {}) {
   const loadNativeSessionId = typeof deps.loadNativeSessionId === "function" ? deps.loadNativeSessionId : () => "";
   const saveNativeSessionId = typeof deps.saveNativeSessionId === "function" ? deps.saveNativeSessionId : () => {};
   const deleteNativeSessionId = typeof deps.deleteNativeSessionId === "function" ? deps.deleteNativeSessionId : () => {};
+  const scheduledTasks = {
+    list: typeof deps.listScheduledTasks === "function" ? deps.listScheduledTasks : () => [],
+    create: typeof deps.createScheduledTask === "function" ? deps.createScheduledTask : null,
+    update: typeof deps.updateScheduledTask === "function" ? deps.updateScheduledTask : null,
+    delete: typeof deps.deleteScheduledTask === "function" ? deps.deleteScheduledTask : null
+  };
   const pending = new Set();
   const groupOrchestrator = createGroupOrchestrator({
     socialStore,
@@ -436,35 +328,19 @@ function createCloudAgentDispatcher(deps = {}) {
     return data ? eventText(data) : "";
   }
 
-  function createSkillLoadEventGate(onEvent) {
+  function createInternalControlEventGate(onEvent) {
     const buffered = [];
-    let textPrefix = "";
-    let passthrough = false;
     let discarded = false;
-    const markerPrefix = "[LOAD_SKILL:";
 
     function replay() {
       if (discarded) return;
       for (const event of buffered.splice(0)) onEvent(event);
-      passthrough = true;
     }
 
     return {
       collect(event) {
         if (discarded) return;
-        if (passthrough) {
-          onEvent(event);
-          return;
-        }
         buffered.push(event);
-        const text = eventText(event);
-        if (!text) return;
-        textPrefix += text;
-        const probe = textPrefix.trimStart().toUpperCase();
-        if (!probe) return;
-        if (markerPrefix.startsWith(probe)) return;
-        if (probe.startsWith(markerPrefix)) return;
-        replay();
       },
       replay,
       discard() {
@@ -687,16 +563,6 @@ function createCloudAgentDispatcher(deps = {}) {
           errorType: "cloud_agent_gateway_unavailable"
         });
       }
-      try {
-        writeSchedulerContext(worker, {
-          botId,
-          conversationId,
-          sessionId: `conversation:${conversationId}`,
-          originMessageId: message.id
-        });
-      } catch (error) {
-        log(`[cloud-agent] failed to write scheduler context: ${error?.message || error}`);
-      }
       const inputText = messageInputText(message);
       const materialized = attachmentMaterializer
         ? attachmentMaterializer.materialize({
@@ -714,9 +580,8 @@ function createCloudAgentDispatcher(deps = {}) {
         bot
       });
       const nativeDescriptor = nativeSessionDescriptor({ runtimeKind, botId, conversationId, worker });
-      const nativeSessionId = await loadNativeSessionId(nativeDescriptor);
-      let requestedSkillIds = [];
-      let runtimeAssembly = assembleCloudRuntimeTurn({
+      let activeNativeSessionId = await loadNativeSessionId(nativeDescriptor);
+      const runtimeAssembly = assembleCloudRuntimeTurn({
         ownerId,
         botId,
         bot,
@@ -725,17 +590,17 @@ function createCloudAgentDispatcher(deps = {}) {
         worker,
         runtimeConfig,
         skillsCatalog,
-        requestedSkillIds,
         memoryStore,
         createCloudSessionToken,
         cloudBaseUrl
       });
-      let skillMaterialization = runtimeAssembly.skillMaterialization;
       let result = null;
       let finalRunEvents = [];
-      for (let round = 0; round <= MAX_SKILL_LOAD_ROUNDS; round += 1) {
+      let cronContinuationCount = 0;
+      let turnInput = [runtimeAssembly.promptPrefix, conversationInput].filter(Boolean).join("\n\n");
+      for (let round = 0; round <= MAX_CRON_CONTINUATIONS; round += 1) {
         const roundRunEvents = [];
-        const eventGate = createSkillLoadEventGate((event) => {
+        const eventGate = createInternalControlEventGate((event) => {
           trace.collect(event);
           contentBlocks.collect(event);
           broadcastTransientEvent(ownerId, {
@@ -755,18 +620,18 @@ function createCloudAgentDispatcher(deps = {}) {
           conversationId,
           runtimeConfig: runtimeAssembly.runtimeConfig,
           mcpServers: runtimeAssembly.mcpServers,
+          cwd: runtimeAssembly.runtimeCwd,
+          additionalDirectories: runtimeAssembly.additionalDirectories,
+          skills: runtimeAssembly.nativeSkillNames,
           transient: true,
           instructions: runtimeAssembly.instructions,
-          nativeSessionId,
+          nativeSessionId: activeNativeSessionId,
           model: normalizeCloudRuntimeModel(runtimeConfig.model, { runtimeKind, worker, agentClient }),
           workerModel: worker.workerModel || worker.platformModel || worker.model || "mia-auto",
           modelProvider: worker.modelProvider || "mia",
           effortLevel: runtimeConfig.effortLevel || "medium",
           permissionMode: runtimeConfig.permissionMode || worker.permissionMode || "ask",
-          input: [
-            runtimeAssembly.promptPrefix,
-            conversationInput
-          ].filter(Boolean).join("\n\n"),
+          input: turnInput,
           attachments: materialized.attachments || [],
           onRunCreated(runtimeSessionId) {
             const runtimeRunId = formatRuntimeRunId(runtimeSessionId, agentClient);
@@ -802,49 +667,37 @@ function createCloudAgentDispatcher(deps = {}) {
             eventGate.collect(event);
           }
         });
-        const loadRequests = extractLoadSkillRequests(result?.content || "");
-        if (!loadRequests.length) {
-          finalRunEvents = roundRunEvents;
-          eventGate.replay();
-          break;
-        }
-        const known = new Set(requestedSkillIds);
-        const nextRequests = loadRequests.filter((id) => !known.has(id));
-        if (nextRequests.length && round < MAX_SKILL_LOAD_ROUNDS) {
-          const previousLoadedCount = Array.isArray(skillMaterialization?.loadedSkillIds)
-            ? skillMaterialization.loadedSkillIds.length
-            : 0;
-          requestedSkillIds = [...requestedSkillIds, ...nextRequests];
-          const nextAssembly = assembleCloudRuntimeTurn({
-            ownerId,
-            botId,
-            bot,
+        const roundSessionId = String(result?.sessionId || result?.nativeSessionId || result?.runId || "").trim();
+        if (roundSessionId) activeNativeSessionId = roundSessionId;
+        const cronTurn = await processCloudCronTurn({
+          assistantText: result?.content || "",
+          continuationCount: cronContinuationCount,
+          userId: ownerId,
+          botId,
+          conversationId,
+          originMessageId: message.id,
+          taskApi: scheduledTasks
+        });
+        for (const event of cronTurn.traceEvents) {
+          trace.collect(event);
+          contentBlocks.collect(event);
+          broadcastTransientEvent(ownerId, {
+            type: "cloud_agent_run_event",
+            runId: run.id,
             conversationId,
-            message,
-            worker,
-            runtimeConfig,
-            skillsCatalog,
-            requestedSkillIds,
-            memoryStore,
-            createCloudSessionToken,
-            cloudBaseUrl
+            botId,
+            event
           });
-          const nextLoadedCount = Array.isArray(nextAssembly.skillMaterialization?.loadedSkillIds)
-            ? nextAssembly.skillMaterialization.loadedSkillIds.length
-            : 0;
-          if (nextLoadedCount > previousLoadedCount) {
-            eventGate.discard();
-            runtimeAssembly = nextAssembly;
-            skillMaterialization = runtimeAssembly.skillMaterialization;
-            continue;
-          }
         }
-        eventGate.discard();
+        result = { ...(result || {}), content: cronTurn.visibleText };
+        cronContinuationCount = cronTurn.nextCount;
+        if (cronTurn.continuation) {
+          eventGate.discard();
+          turnInput = cronTurn.continuation;
+          continue;
+        }
         finalRunEvents = roundRunEvents;
-        result = {
-          ...(result || {}),
-          content: stripLoadSkillRequests(result?.content || "") || unresolvedSkillLoadText(loadRequests)
-        };
+        eventGate.replay();
         break;
       }
       const currentRun = cloudAgentRunsStore.getRun(run.id);

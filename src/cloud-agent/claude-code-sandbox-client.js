@@ -158,7 +158,8 @@ function normalizeMcpServerSpec(spec = {}) {
 
 function isDesktopOnlyReservedMcp(name = "", spec = {}) {
   const id = String(name || "").trim();
-  if (id !== "mia-app" && id !== "mia-scheduler") return false;
+  if (id === "mia-scheduler") return true;
+  if (id !== "mia-app") return false;
   const env = spec && typeof spec.env === "object" && !Array.isArray(spec.env) ? spec.env : {};
   return Boolean(env.MIA_CORE_URL || env.MIA_CORE_TOKEN || env.MIA_SCHEDULER_CONTEXT_FILE);
 }
@@ -387,11 +388,11 @@ function createCloudClaudeCodeClient(deps = {}) {
       args.mcp_servers
     );
     const options = {
-      cwd: worker.paths?.workspace || process.cwd(),
+      cwd: String(args.cwd || worker.paths?.workspace || process.cwd()),
       env: worker.env || {},
       abortController,
       tools: { type: "preset", preset: "claude_code" },
-      settingSources: [],
+      settingSources: ["project"],
       includePartialMessages: true,
       model,
       permissionMode,
@@ -402,6 +403,12 @@ function createCloudClaudeCodeClient(deps = {}) {
       },
       sandbox: worker.sandboxSettings || { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true }
     };
+    if (Array.isArray(args.additionalDirectories) && args.additionalDirectories.length) {
+      options.additionalDirectories = args.additionalDirectories.map((dir) => String(dir || "")).filter(Boolean);
+    }
+    if (Array.isArray(args.skills) && args.skills.length) {
+      options.skills = args.skills.map((name) => String(name || "")).filter(Boolean);
+    }
     if (permissionMode === "bypassPermissions") options.allowDangerouslySkipPermissions = true;
     if (mcpServers) {
       options.mcpServers = mcpServers;

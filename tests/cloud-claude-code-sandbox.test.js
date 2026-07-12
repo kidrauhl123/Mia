@@ -263,6 +263,32 @@ test("cloud Claude Code client passes cloud-safe MCP servers to the SDK", async 
   assert.equal(capture.params.options.strictMcpConfig, true);
 });
 
+test("cloud Claude Code client enables only turn-scoped native project skills", async () => {
+  const capture = {};
+  const client = createCloudClaudeCodeClient({
+    claudeAgentSdk: fakeSdk([{ type: "assistant", message: { content: [{ type: "text", text: "ok" }] } }], capture),
+    randomUUID: () => "uuid-native-skill"
+  });
+
+  await client.runChat({
+    worker: {
+      hasApiKey: true,
+      model: "claude-sonnet-test",
+      env: { ANTHROPIC_API_KEY: "sk-test" },
+      paths: { workspace: "/tmp/mia-worker/workspace" }
+    },
+    cwd: "/tmp/mia-worker/workspace/.mia-agent-sessions/bot/conv",
+    additionalDirectories: ["/tmp/mia-worker/workspace"],
+    skills: ["mia-scheduler"],
+    input: "1分钟后提醒我喝水"
+  });
+
+  assert.equal(capture.params.options.cwd, "/tmp/mia-worker/workspace/.mia-agent-sessions/bot/conv");
+  assert.deepEqual(capture.params.options.settingSources, ["project"]);
+  assert.deepEqual(capture.params.options.additionalDirectories, ["/tmp/mia-worker/workspace"]);
+  assert.deepEqual(capture.params.options.skills, ["mia-scheduler"]);
+});
+
 test("cloud Claude Code client allows trusted Mia cloud stdio MCP servers", async () => {
   const capture = {};
   const client = createCloudClaudeCodeClient({

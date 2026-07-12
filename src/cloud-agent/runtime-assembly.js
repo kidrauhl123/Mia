@@ -7,10 +7,7 @@ const {
   miaRuntimeSystemPrompt,
   sanitizeMiaMemorySpoof
 } = require("../main/mia-runtime-context.js");
-const {
-  buildSkillMaterializationContext,
-  materializeSkillsForTurn
-} = require("../shared/skill-materializer.js");
+const { materializeSkillsForTurn } = require("../shared/skill-materializer.js");
 
 const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "Hermes"];
 const CLOUD_MIA_MCP_SCRIPT = path.join(__dirname, "mia-cloud-mcp-server.js");
@@ -26,6 +23,36 @@ function safePathSegment(value = "", fallback = "default") {
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
   return text || fallback;
+}
+
+function materializeNativeCloudSkills({ worker = {}, botId = "", conversationId = "", skills = [] } = {}) {
+  const workspace = cleanText(worker?.paths?.workspace || "");
+  if (!workspace) return { runtimeCwd: "", nativeSkillNames: [], additionalDirectories: [] };
+  const runtimeCwd = path.join(
+    workspace,
+    ".mia-agent-sessions",
+    safePathSegment(botId, "bot"),
+    safePathSegment(conversationId, "conversation")
+  );
+  const skillsRoot = path.join(runtimeCwd, ".claude", "skills");
+  fs.rmSync(skillsRoot, { recursive: true, force: true });
+  const nativeSkillNames = [];
+  for (const skill of Array.isArray(skills) ? skills : []) {
+    const body = cleanText(skill?.body || "");
+    if (!body) continue;
+    const name = safePathSegment(cleanText(skill?.id || skill?.name || ""), "");
+    if (!name || nativeSkillNames.includes(name)) continue;
+    const dir = path.join(skillsRoot, name);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(dir, "SKILL.md"), `${body}\n`, { mode: 0o600 });
+    nativeSkillNames.push(name);
+  }
+  fs.mkdirSync(runtimeCwd, { recursive: true, mode: 0o700 });
+  return {
+    runtimeCwd,
+    nativeSkillNames,
+    additionalDirectories: runtimeCwd === workspace ? [] : [workspace]
+  };
 }
 
 function botDisplayName(bot = {}) {
@@ -113,7 +140,7 @@ function skillCatalogLookup(records = []) {
     if (!skill?.id && !skill?.name) continue;
     const id = cleanText(skill.id || skill.name || "");
     const name = cleanText(skill.name || id);
-    for (const key of [id, name, id && `mia:${id}`, id && id.split(":").pop()]) {
+    for (const key of [id, name, id && `mia:${id}`, id && `mia-official:${id}`, id && id.split(":").pop()]) {
       const alias = cleanText(key);
       if (alias && !map.has(alias)) map.set(alias, skill);
     }
@@ -226,7 +253,7 @@ function userMcpServersFromRuntimeConfig(runtimeConfig = {}) {
   const out = {};
   for (const [name, spec] of Object.entries(mcpServersFromRuntimeConfig(runtimeConfig))) {
     const serverName = cleanText(name);
-    if (!serverName || isDesktopReservedMcpSpec(serverName, spec)) continue;
+    if (!serverName || serverName === "mia-scheduler" || isDesktopReservedMcpSpec(serverName, spec)) continue;
     out[serverName] = spec;
   }
   return out;
@@ -308,9 +335,14 @@ function assembleCloudRuntimeTurn(args = {}) {
     limit: args.memoryLimit
   });
   const memoryBlock = buildMemoryBlock(memories);
-  const skillBlock = buildSkillMaterializationContext(skills.materialization);
-  const promptPrefix = [memoryBlock, skillBlock].map(cleanText).filter(Boolean).join("\n\n");
-  const enabledIds = enabledSkillIds(args.bot);
+  const promptPrefix = "";
+  const nativeSkills = materializeNativeCloudSkills({
+    worker: args.worker,
+    botId,
+    conversationId,
+    skills: skills.availableSkills
+  });
+  const enabledIds = skills.availableSkills.map((skill) => cleanText(skill?.id || "")).filter(Boolean);
   const contextPath = writeCloudMcpContext({
     worker: args.worker,
     ownerId,
@@ -325,8 +357,7 @@ function assembleCloudRuntimeTurn(args = {}) {
   const cloudToken = resolveCloudSessionToken(args.createCloudSessionToken, ownerId);
   const mcpServers = {
     ...userMcpServersFromRuntimeConfig(args.runtimeConfig || {}),
-    "mia-app": cloudMiaMcpSpec({ contextPath, cloudBaseUrl, cloudToken, mode: "app" }),
-    "mia-scheduler": cloudMiaMcpSpec({ contextPath, cloudBaseUrl, cloudToken, mode: "scheduler" })
+    "mia-app": cloudMiaMcpSpec({ contextPath, cloudBaseUrl, cloudToken, mode: "app" })
   };
   const runtimeConfig = {
     ...(args.runtimeConfig && typeof args.runtimeConfig === "object" ? args.runtimeConfig : {}),
@@ -339,7 +370,8 @@ function assembleCloudRuntimeTurn(args = {}) {
     skillMaterialization: skills.materialization,
     mcpServers,
     runtimeConfig,
-    contextPath
+    contextPath,
+    ...nativeSkills
   };
 }
 
@@ -347,6 +379,7 @@ module.exports = {
   assembleCloudRuntimeTurn,
   buildMemoryBlock,
   cloudSkillMaterialization,
+  materializeNativeCloudSkills,
   selectedSkillIdsFromMessage,
   visibleMemoryEntries
 };

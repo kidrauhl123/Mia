@@ -21,6 +21,9 @@ test("scheduler follows AION cron skill and Rust response middleware without sch
 
   const mainSource = read("src/main.js");
   const cloudDispatcherSource = read("src/cloud-agent/dispatcher.js");
+  const cloudRuntimeSource = read("src/cloud-agent/runtime-assembly.js");
+  const cloudMcpSource = read("src/cloud-agent/mia-cloud-mcp-server.js");
+  const enginePluginsSource = read("src/main/engine-plugins-service.js");
   assert.equal(fs.existsSync(path.join(root, "src/main/social/local-bot-responder.js")), false, "retired local bot responder should not return as a scheduler side channel");
 
   for (const [label, source] of [
@@ -47,4 +50,7 @@ test("scheduler follows AION cron skill and Rust response middleware without sch
   const coreTurn = read("crates/mia-core-app/src/cron_turn.rs");
   assert.match(coreLib, /CronCommand/);
   assert.match(coreTurn, /MAX_CRON_CONTINUATIONS/);
+  assert.doesNotMatch(cloudRuntimeSource, /["']mia-scheduler["']\s*:/);
+  assert.doesNotMatch(cloudMcpSource, /schedule_create|schedule_list|schedule_update|schedule_delete|MIA_CLOUD_MCP_MODE/);
+  assert.doesNotMatch(enginePluginsSource, /["']scheduler_mcp\.py["']\s*:|MIA_CLOUD_TASKS_URL|schedule_create/);
 });

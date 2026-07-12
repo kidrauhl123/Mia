@@ -6,7 +6,7 @@ const path = require("node:path");
 
 const { assembleCloudRuntimeTurn } = require("../src/cloud-agent/runtime-assembly.js");
 
-test("cloud runtime assembly injects Mia MCP, memory, and skills as one capability envelope", () => {
+test("cloud runtime assembly exposes memory through Mia MCP and materializes skills as native Claude skills", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-runtime-assembly-"));
   const calls = [];
   try {
@@ -23,7 +23,7 @@ test("cloud runtime assembly injects Mia MCP, memory, and skills as one capabili
         id: "writer",
         displayName: "Writer",
         personaText: "You are Writer.",
-        capabilities: { enabledSkills: ["flashcards"] }
+        capabilities: { enabledSkills: ["mia-official:flashcards"] }
       },
       worker: {
         paths: {
@@ -70,11 +70,9 @@ test("cloud runtime assembly injects Mia MCP, memory, and skills as one capabili
     });
 
     assert.match(result.instructions, /Mia Runtime Context/);
-    assert.match(result.promptPrefix, /## Mia Memory/);
-    assert.match(result.promptPrefix, /User likes compact implementation notes/);
-    assert.match(result.promptPrefix, /Writer should answer in Chinese/);
-    assert.match(result.promptPrefix, /Loaded Mia Skill Guides/);
-    assert.match(result.promptPrefix, /STEM Flashcard Generation/);
+    assert.equal(result.promptPrefix, "");
+    assert.deepEqual(result.nativeSkillNames, ["flashcards"]);
+    assert.equal(fs.readFileSync(path.join(result.runtimeCwd, ".claude", "skills", "flashcards", "SKILL.md"), "utf8"), "# STEM Flashcard Generation\n");
     assert.equal(calls.length, 3);
 
     assert.deepEqual(result.mcpServers.docs, { type: "http", url: "https://docs.example/mcp" });
@@ -82,7 +80,7 @@ test("cloud runtime assembly injects Mia MCP, memory, and skills as one capabili
     assert.equal(result.mcpServers["mia-app"].env.MIA_CLOUD_URL, "https://cloud.example");
     assert.equal(result.mcpServers["mia-app"].env.MIA_CLOUD_TOKEN, "cloud-session-token");
     assert.equal(result.mcpServers["mia-app"].env.MIA_CORE_URL, undefined);
-    assert.equal(result.mcpServers["mia-scheduler"].command, process.execPath);
+    assert.equal(result.mcpServers["mia-scheduler"], undefined);
     assert.ok(fs.existsSync(result.contextPath));
 
     const context = JSON.parse(fs.readFileSync(result.contextPath, "utf8"));
@@ -91,6 +89,7 @@ test("cloud runtime assembly injects Mia MCP, memory, and skills as one capabili
     assert.equal(context.sessionId, "conv_1");
     assert.deepEqual(context.enabledSkillIds, ["flashcards"]);
     assert.equal(context.skills[0].id, "flashcards");
+    assert.equal(context.memories.some((memory) => memory.text === "User likes compact implementation notes."), true);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

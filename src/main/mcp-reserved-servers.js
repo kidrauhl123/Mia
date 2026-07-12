@@ -1,6 +1,5 @@
 const RESERVED_MCP_SERVER_NAMES = new Set([
-  "mia-app",
-  "mia-scheduler"
+  "mia-app"
 ]);
 
 function mergeMcpServersWithReservedBuiltIns({ userServers = {}, builtInServers = {} } = {}) {

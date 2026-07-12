@@ -29,11 +29,15 @@ function defaultCatalogDir() {
   return path.join(__dirname, "..", "..", "skills");
 }
 
+function defaultBuiltinSkillsDir() {
+  return path.join(defaultCatalogDir(), "_builtin");
+}
+
 // Returns [{ id, name, category, description, sourceLabel, body }] sorted by id.
 // `id` is the folder name; `body` is the full SKILL.md (frontmatter included,
 // because that is exactly what gets written to the user's local skills dir on
 // install). Folders without a SKILL.md are skipped.
-function loadSkillsCatalog(dir = defaultCatalogDir()) {
+function loadSkillDirectory(dir, { skipPrivate = false } = {}) {
   let entries = [];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -43,8 +47,7 @@ function loadSkillsCatalog(dir = defaultCatalogDir()) {
   const skills = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    // Skip pre-installed/bundled skills (_builtin) and any private dir.
-    if (entry.name.startsWith("_")) continue;
+    if (skipPrivate && entry.name.startsWith("_")) continue;
     let body;
     try {
       body = fs.readFileSync(path.join(dir, entry.name, "SKILL.md"), "utf8");
@@ -65,4 +68,18 @@ function loadSkillsCatalog(dir = defaultCatalogDir()) {
   return skills.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-module.exports = { loadSkillsCatalog, parseFrontmatter, defaultCatalogDir };
+function loadSkillsCatalog(dir = defaultCatalogDir()) {
+  return loadSkillDirectory(dir, { skipPrivate: true });
+}
+
+function loadBuiltinSkillsCatalog(dir = defaultBuiltinSkillsDir()) {
+  return loadSkillDirectory(dir);
+}
+
+module.exports = {
+  defaultBuiltinSkillsDir,
+  defaultCatalogDir,
+  loadBuiltinSkillsCatalog,
+  loadSkillsCatalog,
+  parseFrontmatter
+};

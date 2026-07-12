@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { loadSkillsCatalog, parseFrontmatter } = require("../src/cloud/skills-catalog.js");
+const { loadBuiltinSkillsCatalog, loadSkillsCatalog, parseFrontmatter } = require("../src/cloud/skills-catalog.js");
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 const { createSkillsStore } = require("../src/cloud/skills-store.js");
 
@@ -62,6 +62,12 @@ test("the real skills/ folder loads top-level catalog and excludes _builtin", ()
   assert.ok(!ids.includes("_builtin"), "_builtin dir is not a catalog entry");
   assert.ok(!ids.includes("pet-generator"), "bundled pet-generator is excluded from the market");
   assert.ok(skills.every((s) => s.body.length > 0), "every catalog entry has a body");
+});
+
+test("cloud runtime catalog loads bundled skills separately from the marketplace", () => {
+  const ids = loadBuiltinSkillsCatalog().map((skill) => skill.id);
+  assert.ok(ids.includes("mia-scheduler"));
+  assert.ok(ids.includes("meeting-notes"));
 });
 
 test("loadSkillsCatalog skips _-prefixed dirs", () => {

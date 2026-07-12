@@ -7,17 +7,7 @@ const http = require("node:http");
 const https = require("node:https");
 const readline = require("node:readline");
 
-const SCHEDULE_TOOLS = new Set([
-  "schedule_create",
-  "schedule_list",
-  "schedule_update",
-  "schedule_delete",
-  "schedule_pause",
-  "schedule_resume"
-]);
-
 const APP_TOOLS = new Set([
-  ...SCHEDULE_TOOLS,
   "context_snapshot",
   "memory_search",
   "memory_list",
@@ -33,7 +23,6 @@ const APP_TOOLS = new Set([
 
 const VALID_MEMORY_SCOPES = new Set(["user", "bot", "session"]);
 const READ_TOOLS = new Set([
-  "schedule_list",
   "context_snapshot",
   "memory_search",
   "memory_list",
@@ -43,17 +32,12 @@ const READ_TOOLS = new Set([
   "skill_show"
 ]);
 const WRITE_TOOLS = new Set([
-  "schedule_create",
-  "schedule_update",
-  "schedule_delete",
-  "schedule_pause",
-  "schedule_resume",
   "memory_remember",
   "memory_update",
   "memory_forget",
   "skill_install"
 ]);
-const DESTRUCTIVE_TOOLS = new Set(["schedule_delete", "memory_forget"]);
+const DESTRUCTIVE_TOOLS = new Set(["memory_forget"]);
 
 function envOf(options = {}) {
   return options.env || process.env;
@@ -99,12 +83,6 @@ function withToolAnnotations(tool) {
 
 function cloudToolDefinitions() {
   return [
-    { name: "schedule_create", description: "Create a Mia scheduled task.", inputSchema: { type: "object" } },
-    { name: "schedule_list", description: "List Mia scheduled tasks.", inputSchema: { type: "object" } },
-    { name: "schedule_update", description: "Update a Mia scheduled task.", inputSchema: { type: "object" } },
-    { name: "schedule_delete", description: "Delete a Mia scheduled task.", inputSchema: { type: "object" } },
-    { name: "schedule_pause", description: "Pause a Mia scheduled task.", inputSchema: { type: "object" } },
-    { name: "schedule_resume", description: "Resume a Mia scheduled task.", inputSchema: { type: "object" } },
     { name: "context_snapshot", description: "Read current Mia bot/session metadata.", inputSchema: { type: "object" } },
     {
       name: "memory_search",
@@ -432,34 +410,8 @@ function contextSkillSearch(ctx = {}, args = {}) {
   };
 }
 
-function taskPayload(args = {}, ctx = {}) {
-  const payload = {
-    title: args.title || "未命名任务",
-    botId: cleanText(ctx.botId || args.botId || ""),
-    conversationId: cleanText(ctx.conversationId || ctx.sessionId || args.conversationId || args.sessionId || ""),
-    sessionId: cleanText(ctx.sessionId || ctx.conversationId || args.sessionId || args.conversationId || ""),
-    originMessageId: cleanText(ctx.originMessageId || args.originMessageId || ""),
-    timezone: args.timezone || "Asia/Shanghai",
-    fireMode: args.fireMode,
-    deliveryText: args.deliveryText,
-    prompt: args.prompt
-  };
-  if (Object.prototype.hasOwnProperty.call(args, "schedule")) payload.schedule = args.schedule;
-  if (Object.prototype.hasOwnProperty.call(args, "trigger")) payload.trigger = args.trigger;
-  return payload;
-}
-
-function taskPatch(args = {}) {
-  const patch = {};
-  for (const key of ["title", "schedule", "trigger", "timezone", "fireMode", "deliveryText", "prompt"]) {
-    if (Object.prototype.hasOwnProperty.call(args, key)) patch[key] = args[key];
-  }
-  return patch;
-}
-
-function toolDefinitionsForMode(mode = "app") {
-  const wanted = cleanText(mode) === "scheduler" ? SCHEDULE_TOOLS : APP_TOOLS;
-  return cloudToolDefinitions().filter((tool) => wanted.has(tool.name));
+function toolDefinitionsForMode() {
+  return cloudToolDefinitions().filter((tool) => APP_TOOLS.has(tool.name));
 }
 
 async function callTool(name, args = {}, options = {}) {
@@ -536,39 +488,6 @@ async function callTool(name, args = {}, options = {}) {
       if (!args.id) throw new Error("id is required");
       return cloudJson("POST", `/api/skills/${encodeURIComponent(args.id)}/install`, {}, options);
 
-    case "schedule_create": {
-      const created = await cloudJson("POST", "/api/tasks", taskPayload(args, ctx), options);
-      const task = created.task || created;
-      return { taskId: task?.id || "", task };
-    }
-
-    case "schedule_list":
-      return cloudJson("GET", "/api/tasks", null, options);
-
-    case "schedule_update": {
-      const id = cleanText(args.id || args.taskId || "");
-      if (!id) throw new Error("id is required");
-      return cloudJson("PATCH", `/api/tasks/${encodeURIComponent(id)}`, taskPatch(args), options);
-    }
-
-    case "schedule_delete": {
-      const id = cleanText(args.id || args.taskId || "");
-      if (!id) throw new Error("id is required");
-      return cloudJson("DELETE", `/api/tasks/${encodeURIComponent(id)}`, null, options);
-    }
-
-    case "schedule_pause": {
-      const id = cleanText(args.id || args.taskId || "");
-      if (!id) throw new Error("id is required");
-      return cloudJson("POST", `/api/tasks/${encodeURIComponent(id)}/pause`, {}, options);
-    }
-
-    case "schedule_resume": {
-      const id = cleanText(args.id || args.taskId || "");
-      if (!id) throw new Error("id is required");
-      return cloudJson("POST", `/api/tasks/${encodeURIComponent(id)}/resume`, {}, options);
-    }
-
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -580,8 +499,6 @@ function sendResponse(obj) {
 
 async function handleRequest(req, options = {}) {
   const { id, method, params } = req;
-  const env = envOf(options);
-  const mode = cleanText(options.mode || env.MIA_CLOUD_MCP_MODE || "app");
   if (method === "initialize") {
     sendResponse({
       jsonrpc: "2.0",
@@ -589,14 +506,14 @@ async function handleRequest(req, options = {}) {
       result: {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        serverInfo: { name: mode === "scheduler" ? "mia-scheduler" : "mia-app", version: "0.1.0" }
+        serverInfo: { name: "mia-app", version: "0.1.0" }
       }
     });
     return;
   }
   if (method === "notifications/initialized") return;
   if (method === "tools/list") {
-    sendResponse({ jsonrpc: "2.0", id, result: { tools: toolDefinitionsForMode(mode) } });
+    sendResponse({ jsonrpc: "2.0", id, result: { tools: toolDefinitionsForMode() } });
     return;
   }
   if (method === "tools/call") {

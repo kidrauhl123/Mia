@@ -216,7 +216,7 @@ test("cloud-claude-code passes runtime binding MCP config to the cloud client", 
       headers: { Authorization: "Bearer cloud-token" }
     });
     assert.equal(calls[0].runtimeConfig.mcpServers["mia-app"].source, "mia-cloud");
-    assert.equal(calls[0].runtimeConfig.mcpServers["mia-scheduler"].source, "mia-cloud");
+    assert.equal(calls[0].runtimeConfig.mcpServers["mia-scheduler"], undefined);
     assert.deepEqual(calls[0].mcpServers.docs, {
       type: "http",
       url: "https://cloud.example/mcp",
@@ -302,14 +302,15 @@ test("cloud-claude-code assembles MCP, memory, and skills before invoking the cl
     });
 
     assert.equal(calls.length, 1);
-    assert.match(calls[0].input, /## Mia Memory/);
-    assert.match(calls[0].input, /User likes concise Chinese answers/);
-    assert.match(calls[0].input, /Loaded Mia Skill Guides/);
-    assert.match(calls[0].input, /STEM Flashcard Generation/);
+    assert.doesNotMatch(calls[0].input, /## Mia Memory|Loaded Mia Skill Guides|STEM Flashcard Generation/);
+    assert.deepEqual(calls[0].skills, ["flashcards"]);
+    assert.equal(fs.existsSync(path.join(calls[0].cwd, ".claude", "skills", "flashcards", "SKILL.md")), true);
+    const capabilityContext = JSON.parse(fs.readFileSync(calls[0].mcpServers["mia-app"].env.MIA_CLOUD_MCP_CONTEXT_FILE, "utf8"));
+    assert.equal(capabilityContext.memories[0].text, "User likes concise Chinese answers.");
     assert.equal(calls[0].mcpServers.docs.url, "https://docs.example/mcp");
     assert.equal(calls[0].mcpServers["mia-app"].env.MIA_CLOUD_TOKEN, "cloud-session-token");
     assert.equal(calls[0].mcpServers["mia-app"].env.MIA_CORE_URL, undefined);
-    assert.equal(calls[0].mcpServers["mia-scheduler"].env.MIA_CLOUD_URL, "https://cloud.example");
+    assert.equal(calls[0].mcpServers["mia-scheduler"], undefined);
     assert.equal(calls[0].runtimeConfig.mcpServers["mia-app"].source, "mia-cloud");
   } finally {
     ctx.cleanup();
@@ -997,48 +998,100 @@ test("desktop scheduled fires broadcast an internal task prompt instead of a vis
   }
 });
 
-test("cloud-claude-code writes scheduler MCP context before each bot run", async () => {
+test("cloud-claude-code runs CRON control turns internally and persists only the final reply", async () => {
   const ctx = setup();
-  const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-worker-"));
-  const hermesHome = path.join(workerRoot, "hermes-home");
-  fs.mkdirSync(hermesHome, { recursive: true });
+  const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-native-scheduler-"));
+  const calls = [];
+  const created = [];
   try {
+    ctx.botsStore.upsertBot(ctx.user.id, {
+      id: BOT_ID,
+      displayName: "Alice Bot",
+      personaText: "You are Alice Bot.",
+      capabilities: { enabledSkills: ["mia-scheduler"] }
+    });
     const dispatcher = makeDispatcher(ctx, {
+      agentClient: {
+        async runChat(args) {
+          calls.push(args);
+          if (calls.length === 1) return { runId: "session-1", content: "[CRON_LIST]", events: [] };
+          if (calls.length === 2) {
+            return {
+              runId: "session-1",
+              content: [
+                "[CRON_CREATE]",
+                "name: 吃饭提醒",
+                "schedule: in 1 minute",
+                "schedule_description: 1 分钟后",
+                "message: 用一句简短中文提醒用户吃饭。",
+                "[/CRON_CREATE]"
+              ].join("\n"),
+              events: []
+            };
+          }
+          return { runId: "session-1", content: "已经设置好，1 分钟后提醒你吃饭。", events: [] };
+        }
+      },
       workerManager: {
         async ensureWorker(userId) {
-          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", paths: { hermesHome } };
+          return {
+            userId,
+            baseUrl: "http://worker",
+            apiKey: "k",
+            gatewayWsUrl: "ws://gateway",
+            paths: { workspace: path.join(workerRoot, "workspace"), agentHome: path.join(workerRoot, "home") }
+          };
         }
+      },
+      skillsCatalog: [{
+        id: "mia-scheduler",
+        name: "mia-scheduler",
+        description: "Scheduled task management for Mia.",
+        body: "---\nname: mia-scheduler\n---\nUse [CRON_LIST] and [CRON_CREATE].\n"
+      }],
+      listScheduledTasks() { return created; },
+      createScheduledTask(userId, input) {
+        const task = { id: "t-cloud-1", userId, status: "active", ...input };
+        created.push(task);
+        return task;
       }
     });
     const message = ctx.messagesStore.appendMessage({
       conversationId: ctx.conversation.id,
       senderKind: "user",
       senderRef: ctx.user.id,
-      bodyMd: "2分钟后提醒我吃饭"
+      bodyMd: "1分钟后提醒我吃饭"
     });
 
-    await dispatcher.invokeBot({
+    const reply = await dispatcher.invokeBot({
       userId: ctx.user.id,
       botId: BOT_ID,
       conversationId: ctx.conversation.id,
       message
     });
 
-    const saved = JSON.parse(fs.readFileSync(path.join(hermesHome, "mia-scheduler-context.json"), "utf8"));
-    assert.deepEqual(saved, {
-      botId: BOT_ID,
-      conversationId: ctx.conversation.id,
-      sessionId: `conversation:${ctx.conversation.id}`,
-      originMessageId: message.id
-    });
+    assert.equal(calls.length, 3);
+    assert.deepEqual(calls[0].skills, ["mia-scheduler"]);
+    assert.equal(fs.existsSync(path.join(calls[0].cwd, ".claude", "skills", "mia-scheduler", "SKILL.md")), true);
+    assert.doesNotMatch(calls[0].input, /Use \[CRON_LIST\]|Loaded Mia Skill Guides/);
+    assert.match(calls[1].input, /No scheduled tasks/);
+    assert.match(calls[2].input, /Created cron job '吃饭提醒'/);
+    assert.equal(created.length, 1);
+    assert.equal(reply.body_md, "已经设置好，1 分钟后提醒你吃饭。");
+    assert.deepEqual(
+      ctx.messagesStore.listMessagesSince(ctx.conversation.id, 0, 20).map((item) => [item.sender_kind, item.body_md]),
+      [["user", "1分钟后提醒我吃饭"], ["bot", "已经设置好，1 分钟后提醒你吃饭。"]]
+    );
+    assert.equal(JSON.parse(reply.trace_json).tools.some((tool) => tool.name === "创建 Mia 定时任务"), true);
   } finally {
     ctx.cleanup();
     fs.rmSync(workerRoot, { recursive: true, force: true });
   }
 });
 
-test("cloud-claude-code DM injects selected message skill context into the run input", async () => {
+test("cloud-claude-code DM passes a selected message skill through the native SDK skill channel", async () => {
   const ctx = setup();
+  const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-selected-skill-"));
   const hermesCalls = [];
   try {
     const dispatcher = makeDispatcher(ctx, {
@@ -1047,6 +1100,11 @@ test("cloud-claude-code DM injects selected message skill context into the run i
         name: "Anki 记忆卡",
         body: "---\nname: generating-stem-flashcards\n---\n# STEM Flashcard Generation\nUse this for Anki cards."
       }],
+      workerManager: {
+        async ensureWorker(userId) {
+          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", paths: { workspace: path.join(workerRoot, "workspace") } };
+        }
+      },
       hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
@@ -1069,20 +1127,20 @@ test("cloud-claude-code DM injects selected message skill context into the run i
     });
 
     assert.equal(hermesCalls.length, 1);
-    assert.doesNotMatch(hermesCalls[0].input, /Available Mia Skills/);
-    assert.match(hermesCalls[0].input, /Loaded Mia Skill Guides/);
-    assert.match(hermesCalls[0].input, /=== Skill: Anki 记忆卡 ===/);
-    assert.match(hermesCalls[0].input, /STEM Flashcard Generation/);
+    assert.doesNotMatch(hermesCalls[0].input, /Available Mia Skills|Loaded Mia Skill Guides|STEM Flashcard Generation/);
+    assert.deepEqual(hermesCalls[0].skills, ["flashcards"]);
+    assert.match(fs.readFileSync(path.join(hermesCalls[0].cwd, ".claude", "skills", "flashcards", "SKILL.md"), "utf8"), /STEM Flashcard Generation/);
     assert.match(hermesCalls[0].input, /用户消息：\n咋用/);
   } finally {
     ctx.cleanup();
+    fs.rmSync(workerRoot, { recursive: true, force: true });
   }
 });
 
-test("cloud-claude-code handles LOAD_SKILL requests as an internal skill-loading retry", async () => {
+test("cloud-claude-code does not use the legacy LOAD_SKILL prompt fallback", async () => {
   const ctx = setup();
+  const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-no-skill-fallback-"));
   const hermesCalls = [];
-  const transientEvents = [];
   try {
     ctx.botsStore.upsertBot(ctx.user.id, {
       id: BOT_ID,
@@ -1097,19 +1155,17 @@ test("cloud-claude-code handles LOAD_SKILL requests as an internal skill-loading
         description: "生成记忆卡。",
         body: "---\nname: generating-stem-flashcards\n---\n# STEM Flashcard Generation\nUse this for Anki cards."
       }],
+      workerManager: {
+        async ensureWorker(userId) {
+          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", paths: { workspace: path.join(workerRoot, "workspace") } };
+        }
+      },
       hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
-          if (hermesCalls.length === 1) {
-            args.onEvent?.({ type: "text_delta", text: "[LOAD_SKILL: flashcards]" });
-            return { runId: "hr_skill_probe", content: "[LOAD_SKILL: flashcards]", events: [] };
-          }
           args.onEvent?.({ type: "text_delta", text: "skill reply" });
           return { runId: "hr_skill_final", content: "skill reply", events: [] };
         }
-      },
-      broadcastTransientEvent(userId, event) {
-        transientEvents.push({ userId, event });
       }
     });
     const message = ctx.messagesStore.appendMessage({
@@ -1126,19 +1182,12 @@ test("cloud-claude-code handles LOAD_SKILL requests as an internal skill-loading
     });
 
     assert.equal(reply.body_md, "skill reply");
-    assert.equal(hermesCalls.length, 2);
-    assert.match(hermesCalls[0].input, /Available Mia Skills/);
-    assert.doesNotMatch(hermesCalls[0].input, /STEM Flashcard Generation/);
-    assert.match(hermesCalls[1].input, /Loaded Mia Skill Guides/);
-    assert.match(hermesCalls[1].input, /STEM Flashcard Generation/);
-    const broadcastText = transientEvents
-      .filter((item) => item.event.type === "cloud_agent_run_event")
-      .map((item) => item.event.event?.text || "")
-      .join("\n");
-    assert.doesNotMatch(broadcastText, /LOAD_SKILL/);
-    assert.match(broadcastText, /skill reply/);
+    assert.equal(hermesCalls.length, 1);
+    assert.deepEqual(hermesCalls[0].skills, ["flashcards"]);
+    assert.doesNotMatch(hermesCalls[0].input, /LOAD_SKILL|Available Mia Skills|STEM Flashcard Generation/);
   } finally {
     ctx.cleanup();
+    fs.rmSync(workerRoot, { recursive: true, force: true });
   }
 });
 

@@ -426,20 +426,44 @@ test("cloud Claude Code workers use the saved DeepSeek gateway key", async () =>
   }
 });
 
-test("POST bot reminder message is handed to cloud Claude Code without app-side reminder parsing", async () => {
+test("POST bot reminder creates a real cloud task and scheduled fire appends only a bot reply", async () => {
   const dataDir = tempDir("mia-cloud-agent-reminder-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
     dataDir,
     cloudAgentWorkerManager: {
       async ensureWorker(userId) {
-        return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://worker/api/ws" };
+        return {
+          userId,
+          baseUrl: "http://worker",
+          apiKey: "k",
+          gatewayWsUrl: "ws://worker/api/ws",
+          paths: { workspace: path.join(dataDir, "agent-users", userId, "workspace") }
+        };
       }
     },
     cloudAgentClient: {
       async runChat(args) {
         hermesCalls.push(args);
-        return { runId: "hr_scheduler", content: "我会通过 schedule_create 设置这个提醒。", events: [] };
+        if (hermesCalls.length === 1) return { runId: "native-cloud-session", content: "[CRON_LIST]", events: [] };
+        if (hermesCalls.length === 2) {
+          return {
+            runId: "native-cloud-session",
+            content: [
+              "[CRON_CREATE]",
+              "name: 睡觉提醒",
+              "schedule: in 1 minute",
+              "schedule_description: 1 分钟后",
+              "message: 用一句简短中文提醒用户该睡觉了。",
+              "[/CRON_CREATE]"
+            ].join("\n"),
+            events: []
+          };
+        }
+        if (hermesCalls.length === 3) {
+          return { runId: "native-cloud-session", content: "已经设置好，1 分钟后提醒你睡觉。", events: [] };
+        }
+        return { runId: "native-cloud-session", content: "⏰ 该睡觉了。", events: [] };
       }
     }
   });
@@ -448,6 +472,12 @@ test("POST bot reminder message is handed to cloud Claude Code without app-side 
     const account = createAccount(server, "reminder_alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
     await upsertCloudClaudeCodeBot(baseUrl, authHeaders, "mia", "Mia");
+    const bot = server.mia.botsStore.getBot("mia");
+    server.mia.botsStore.upsertBot(account.user.id, {
+      ...bot,
+      id: "mia",
+      capabilities: { enabledSkills: ["mia-scheduler"] }
+    });
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
       method: "PUT",
       headers: authHeaders,
@@ -465,17 +495,37 @@ test("POST bot reminder message is handed to cloud Claude Code without app-side 
     });
     await server.mia.cloudAgentDispatcher.idle();
 
-    assert.equal(hermesCalls.length, 1);
+    assert.equal(hermesCalls.length, 3);
     assert.match(hermesCalls[0].input, /1分钟后提醒我睡觉/);
-    assert.doesNotMatch(hermesCalls[0].instructions, /schedule_create|cronjob/);
+    assert.deepEqual(hermesCalls[0].skills, ["mia-scheduler"]);
+    assert.doesNotMatch(hermesCalls[0].input, /CRON_CREATE|Loaded Mia Skill Guides/);
     const tasks = await jsonFetch(baseUrl, "/api/tasks", { headers: authHeaders });
-    assert.equal(tasks.tasks.length, 0);
+    assert.equal(tasks.tasks.length, 1);
+    assert.equal(tasks.tasks[0].title, "睡觉提醒");
+    assert.equal(tasks.tasks[0].conversationId, conversationId);
+    assert.equal(tasks.tasks[0].botId, "mia");
     const listed = await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
       headers: authHeaders
     });
     assert.deepEqual(listed.messages.map((m) => m.sender_kind), ["user", "bot"]);
-    assert.equal(listed.messages[1].body_md, "我会通过 schedule_create 设置这个提醒。");
-    assert.equal(listed.messages[1].trace_json, null);
+    assert.equal(listed.messages[1].body_md, "已经设置好，1 分钟后提醒你睡觉。");
+    assert.equal(JSON.parse(listed.messages[1].trace_json).tools.some((tool) => tool.name === "创建 Mia 定时任务"), true);
+
+    await jsonFetch(baseUrl, `/api/tasks/${tasks.tasks[0].id}/run-now`, {
+      method: "POST",
+      headers: authHeaders,
+      body: {}
+    });
+    const fired = await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
+      headers: authHeaders
+    });
+    assert.deepEqual(fired.messages.map((message) => [message.sender_kind, message.body_md]), [
+      ["user", "1分钟后提醒我睡觉"],
+      ["bot", "已经设置好，1 分钟后提醒你睡觉。"],
+      ["bot", "⏰ 该睡觉了。"]
+    ]);
+    assert.equal(hermesCalls.length, 4);
+    assert.match(hermesCalls[3].input, /用一句简短中文提醒用户该睡觉了/);
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });
