@@ -70,7 +70,11 @@ pub async fn process_cron_command_outcomes(
                 .list_jobs_for_conversation(bot_id, conversation_id)
                 .await
             {
-                Ok(listed) if listed.jobs.is_empty() => "[System: No scheduled tasks]".into(),
+                Ok(listed) if listed.jobs.is_empty() => concat!(
+                    "[System: No scheduled tasks. The user's scheduling request is not complete. ",
+                    "Output CRON_CREATE now and do not confirm success before creation succeeds.]"
+                )
+                .into(),
                 Ok(listed) => format_task_list(&listed.jobs),
                 Err(error) => format!("[System: Failed to list scheduled tasks: {error}]"),
             },
@@ -89,7 +93,7 @@ pub async fn process_cron_command_outcomes(
                                     schedule_intent: None,
                                     target: Some(target),
                                     instructions: Some(params.message.clone()),
-                                    status: None,
+                                    status: Some("active".to_string()),
                                 },
                             )
                             .await

@@ -1844,9 +1844,9 @@ fn workspace_from_metadata(metadata: &Value, default_workspace_dir: &Path) -> St
 fn runtime_session_key_from_metadata(metadata: &Value) -> Option<String> {
     metadata
         .get("runtimeSession")
-        .and_then(|session| session.get("sessionKey"))
+        .and_then(|session| session.get("resumeSessionKey"))
         .and_then(Value::as_str)
-        .or_else(|| metadata.get("sessionKey").and_then(Value::as_str))
+        .or_else(|| metadata.get("resumeSessionKey").and_then(Value::as_str))
         .map(clean_text)
         .filter(|value| !value.is_empty())
 }

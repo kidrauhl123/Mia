@@ -509,15 +509,40 @@ impl RealNativeAcpBackend {
         cancellation: Option<RuntimeCancellation>,
     ) -> Result<RuntimeExecutionResult> {
         let key = native_acp_task_key(&plan);
-        let task = self.task_for_plan(&key, &plan).await?;
-        let mut task = task.lock().await;
-        if !task.protocol.is_connected() {
-            drop(task);
+        let mut task = self.task_for_plan(&key, &plan).await?;
+        if !task.lock().await.protocol.is_connected() {
             self.tasks.remove(&key);
-            let task = self.task_for_plan(&key, &plan).await?;
-            task.lock().await.run_turn(plan, sink, cancellation).await
-        } else {
-            task.run_turn(plan, sink, cancellation).await
+            task = self.task_for_plan(&key, &plan).await?;
+        }
+
+        let first_attempt_events = RetryTerminalEventGate::new(sink.clone());
+        let result = task
+            .lock()
+            .await
+            .run_turn(
+                plan.clone(),
+                first_attempt_events.sink(),
+                cancellation.clone(),
+            )
+            .await;
+        match result {
+            Err(error) if is_restartable_session_error(&error) => {
+                first_attempt_events.finish(false);
+                self.tasks.remove(&key);
+                let mut fresh_plan = plan;
+                fresh_plan.runtime_session.resume_session_key = None;
+                fresh_plan.runtime_session.resumed = false;
+                let fresh_task = self.task_for_plan(&key, &fresh_plan).await?;
+                fresh_task
+                    .lock()
+                    .await
+                    .run_turn(fresh_plan, sink, cancellation)
+                    .await
+            }
+            result => {
+                first_attempt_events.finish(true);
+                result
+            }
         }
     }
 
@@ -620,6 +645,52 @@ fn capabilities_support_session_resume(capabilities: &AgentCapabilities) -> bool
 fn is_stale_session_error(error: &anyhow::Error) -> bool {
     let text = error.to_string().to_lowercase();
     text.contains("session") && (text.contains("not found") || text.contains("not_found"))
+}
+
+fn is_restartable_session_error(error: &anyhow::Error) -> bool {
+    if is_stale_session_error(error) {
+        return true;
+    }
+    let text = error.to_string().to_lowercase();
+    text.contains("process exited unexpectedly")
+        || text.contains("please start a new session")
+        || text.contains("connection closed")
+        || text.contains("invalid session id")
+}
+
+struct RetryTerminalEventGate {
+    destination: RuntimeEventSink,
+    terminal_events: Arc<StdMutex<Vec<RuntimeProcessEvent>>>,
+}
+
+impl RetryTerminalEventGate {
+    fn new(destination: RuntimeEventSink) -> Self {
+        Self {
+            destination,
+            terminal_events: Arc::new(StdMutex::new(Vec::new())),
+        }
+    }
+
+    fn sink(&self) -> RuntimeEventSink {
+        let destination = self.destination.clone();
+        let terminal_events = self.terminal_events.clone();
+        RuntimeEventSink::new(move |event| {
+            if event.name == EVENT_RUNTIME_FINISHED {
+                terminal_events.lock().unwrap().push(event);
+            } else {
+                destination.emit(event.name, event.data);
+            }
+        })
+    }
+
+    fn finish(&self, replay: bool) {
+        let events = std::mem::take(&mut *self.terminal_events.lock().unwrap());
+        if replay {
+            for event in events {
+                self.destination.emit(event.name, event.data);
+            }
+        }
+    }
 }
 
 fn mcp_servers_from_plan(plan: &RuntimeTurnPlan) -> Vec<McpServer> {
@@ -2503,6 +2574,20 @@ mod tests {
         assert!(is_stale_session_error(&anyhow!("session not found")));
         assert!(is_stale_session_error(&anyhow!("SESSION_NOT_FOUND")));
         assert!(!is_stale_session_error(&anyhow!("permission denied")));
+    }
+
+    #[test]
+    fn native_acp_restartable_session_detection_covers_dead_agent_process() {
+        assert!(is_restartable_session_error(&anyhow!(
+            "The Claude Agent process exited unexpectedly. Please start a new session."
+        )));
+        assert!(is_restartable_session_error(&anyhow!(
+            "ACP connection closed"
+        )));
+        assert!(is_restartable_session_error(&anyhow!(
+            "invalid session id: expected UUID"
+        )));
+        assert!(!is_restartable_session_error(&anyhow!("permission denied")));
     }
 
     #[test]

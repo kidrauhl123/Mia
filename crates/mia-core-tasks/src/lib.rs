@@ -247,22 +247,51 @@ impl TaskService {
     }
 
     pub async fn complete_scheduled_run(&self, job_id: &str) -> Result<TaskJobResponse, TaskError> {
-        self.finish_scheduled_run(job_id).await
+        self.finish_scheduled_run(job_id, true, None).await
     }
 
     pub async fn fail_scheduled_run(&self, job_id: &str) -> Result<TaskJobResponse, TaskError> {
-        self.finish_scheduled_run(job_id).await
+        self.finish_scheduled_run(job_id, false, None).await
     }
 
-    async fn finish_scheduled_run(&self, job_id: &str) -> Result<TaskJobResponse, TaskError> {
+    pub async fn complete_scheduled_run_with_record(
+        &self,
+        job_id: &str,
+        run_record: Value,
+    ) -> Result<TaskJobResponse, TaskError> {
+        self.finish_scheduled_run(job_id, true, Some(run_record))
+            .await
+    }
+
+    pub async fn fail_scheduled_run_with_record(
+        &self,
+        job_id: &str,
+        run_record: Value,
+    ) -> Result<TaskJobResponse, TaskError> {
+        self.finish_scheduled_run(job_id, false, Some(run_record))
+            .await
+    }
+
+    async fn finish_scheduled_run(
+        &self,
+        job_id: &str,
+        successful: bool,
+        run_record: Option<Value>,
+    ) -> Result<TaskJobResponse, TaskError> {
         let current = self.get_job(job_id).await?.job;
         let now = self.now();
-        let (status, next_run_at) = next_state_after_scheduled_attempt(&current.schedule, now)?;
+        let (status, next_run_at) =
+            next_state_after_scheduled_attempt(&current.schedule, now, successful)?;
+        let mut target = current.target;
+        if let Some(run_record) = run_record {
+            append_run_record(&mut target, run_record);
+        }
         sqlx::query(
-            "UPDATE tasks SET status = ?, next_run_at = ?, last_run_at = ?, updated_at = ? WHERE id = ?",
+            "UPDATE tasks SET status = ?, next_run_at = ?, target_json = ?, last_run_at = ?, updated_at = ? WHERE id = ?",
         )
         .bind(status)
         .bind(next_run_at)
+        .bind(target.to_string())
         .bind(now)
         .bind(now)
         .bind(job_id)
@@ -351,11 +380,28 @@ fn validate_status(status: &str) -> Result<(), TaskError> {
 fn next_state_after_scheduled_attempt(
     schedule: &Value,
     now: i64,
+    successful: bool,
 ) -> Result<(String, Option<i64>), TaskError> {
     if schedule.get("type").and_then(Value::as_str) == Some("oneshot") {
-        return Ok(("done".to_string(), None));
+        return Ok((if successful { "done" } else { "failed" }.to_string(), None));
     }
     Ok(("active".to_string(), compute_next_run(schedule, now)?))
+}
+
+fn append_run_record(target: &mut Value, run_record: Value) {
+    if !target.is_object() {
+        *target = json!({});
+    }
+    let object = target.as_object_mut().expect("target normalized to object");
+    let runs = object.entry("runs").or_insert_with(|| json!([]));
+    if !runs.is_array() {
+        *runs = json!([]);
+    }
+    let runs = runs.as_array_mut().expect("runs normalized to array");
+    runs.push(run_record);
+    if runs.len() > 50 {
+        runs.drain(..runs.len() - 50);
+    }
 }
 
 fn normalize_schedule(input: &Value, now: i64) -> Result<Value, TaskError> {

@@ -11,8 +11,9 @@ use mia_core_cloud::{CloudBridgeRunHandler, CloudError, CloudService};
 use mia_core_conversation::{ConversationService, EVENT_CONVERSATION_MESSAGE_CREATED};
 use mia_core_realtime::EventBus;
 use mia_core_runtime::{
-    EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_STDERR, EVENT_RUNTIME_STDOUT, RuntimeEventSink,
-    RuntimeProtocol, RuntimeSessionManager, RuntimeTurnPlan,
+    EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STDERR,
+    EVENT_RUNTIME_STDOUT, RuntimeEventSink, RuntimeProtocol, RuntimeSessionManager,
+    RuntimeTurnPlan,
 };
 use mia_core_tasks::TaskService;
 use serde_json::{Value, json};
@@ -25,6 +26,7 @@ use crate::claude_code_mia_proxy::{
 use crate::codex_mia_proxy::{CodexMiaProxyConfig, RunningCodexMiaProxy, start_codex_mia_proxy};
 use crate::cron_turn::execute_runtime_with_cron;
 use crate::runtime::RuntimeRegistry;
+use crate::turn_execution::runtime_session_with_actual_id;
 
 #[derive(Debug, Clone)]
 pub struct AppCloudBridgeRunner {
@@ -174,6 +176,8 @@ pub async fn execute_cloud_bridge_run(
         let runtime_event_engine = runtime_plan.engine.clone();
         let trace_collector = Arc::new(StdMutex::new(CloudRunCollector::default()));
         let trace_collector_for_sink = trace_collector.clone();
+        let actual_session_id = Arc::new(StdMutex::new(None::<String>));
+        let actual_session_id_for_sink = actual_session_id.clone();
         let execution = execute_runtime_with_cron(
             runtime_sessions,
             tasks,
@@ -185,9 +189,20 @@ pub async fn execute_cloud_bridge_run(
                 let cloud_bot_id = cloud_bot_id.clone();
                 let runtime_event_engine = runtime_event_engine.clone();
                 let trace_collector_for_sink = trace_collector_for_sink.clone();
+                let actual_session_id_for_sink = actual_session_id_for_sink.clone();
                 RuntimeEventSink::new(move |event| {
                     let name = event.name.clone();
                     let data = event.data.clone();
+                    if name == EVENT_RUNTIME_FINISHED
+                        && data.get("ok").and_then(Value::as_bool) == Some(true)
+                        && let Some(session_id) = data
+                            .get("sessionId")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                    {
+                        *actual_session_id_for_sink.lock().unwrap() = Some(session_id.to_string());
+                    }
                     if name == EVENT_RUNTIME_STDOUT {
                         let run_events = data
                             .get("event")
@@ -249,6 +264,10 @@ pub async fn execute_cloud_bridge_run(
             }
         };
         let result = cron_result.execution;
+        let runtime_session = runtime_session_with_actual_id(
+            &runtime_plan.runtime_session,
+            actual_session_id.lock().unwrap().as_deref(),
+        );
         let mut structured_output = trace_collector.lock().unwrap().display_output();
         if cron_result.continuation_count > 0 {
             replace_collected_text(&mut structured_output, &cron_result.visible_text);
@@ -282,7 +301,7 @@ pub async fn execute_cloud_bridge_run(
                     "cancelled": result.cancelled,
                     "stderr": result.stderr,
                     "cloudBridgeRunId": prepared.run_id,
-                    "runtimeSession": runtime_plan.runtime_session.clone(),
+                    "runtimeSession": runtime_session,
                     "trace": output.trace,
                     "contentBlocks": output.content_blocks,
                 }),

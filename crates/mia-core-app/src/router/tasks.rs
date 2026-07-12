@@ -106,9 +106,11 @@ pub async fn run_task_job(
         );
         ApiRouteError::from_task(error)
     })?;
-    let run = execute_task_conversation_turn(
+    let execution = execute_task_conversation_turn(
         &states.conversation,
         &states.tasks,
+        &states.cloud,
+        &states.mia_runtime_proxies,
         &states.runtime,
         &states.runtime_sessions,
         &states.realtime,
@@ -127,15 +129,15 @@ pub async fn run_task_job(
         EVENT_TASK_RUN_FINISHED,
         json!({
             "jobId": job_id,
-            "runId": run.run_id.clone(),
+            "runId": execution.run.run_id.clone(),
             "ok": true,
-            "conversationId": run.conversation_id.clone(),
-            "messageId": run.message_id.clone(),
-            "turnId": run.turn_id.clone(),
-            "assistantMessageId": run.assistant_message_id.clone(),
+            "conversationId": execution.run.conversation_id.clone(),
+            "messageId": execution.run.message_id.clone(),
+            "turnId": execution.run.turn_id.clone(),
+            "assistantMessageId": execution.run.assistant_message_id.clone(),
         }),
     );
-    Ok(Json(run))
+    Ok(Json(execution.run))
 }
 
 #[derive(Debug)]

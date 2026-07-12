@@ -269,6 +269,46 @@ async fn task_service_marks_due_oneshot_done_after_scheduled_attempt() {
     assert_eq!(completed.job.next_run_at, None);
 }
 
+#[tokio::test]
+async fn task_service_marks_failed_oneshot_and_persists_real_run_record() {
+    let db = init_database_memory().await.unwrap();
+    let now = Arc::new(AtomicI64::new(1_000));
+    let service = TaskService::with_now(db.pool().clone(), {
+        let now = now.clone();
+        move || now.load(Ordering::SeqCst)
+    });
+    let created = service
+        .create_job(CreateTaskJobRequest {
+            kind: "agent".to_string(),
+            schedule: Some(json!({"type":"oneshot","atMs":2_000})),
+            schedule_intent: None,
+            target: json!({"botId":"bot_1","conversationId":"conv_1"}),
+            instructions: "run once".to_string(),
+        })
+        .await
+        .unwrap();
+
+    now.store(2_000, Ordering::SeqCst);
+    service.claim_due_jobs(10).await.unwrap();
+    let failed = service
+        .fail_scheduled_run_with_record(
+            &created.job.id,
+            json!({
+                "id": "run_1",
+                "status": "failed",
+                "firedAt": 2_000,
+                "error": "agent process exited",
+            }),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(failed.job.status, "failed");
+    assert_eq!(failed.job.next_run_at, None);
+    assert_eq!(failed.job.target["runs"][0]["id"], "run_1");
+    assert_eq!(failed.job.target["runs"][0]["status"], "failed");
+}
+
 fn schedule_intent(kind: &str, time: Option<&str>) -> TaskScheduleIntent {
     TaskScheduleIntent {
         kind: kind.to_string(),

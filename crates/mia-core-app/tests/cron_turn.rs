@@ -25,7 +25,9 @@ async fn cron_turn_hides_protocol_and_returns_small_continuation() {
     assert_eq!(listed.visible_text, "");
     assert_eq!(
         listed.continuation.as_deref(),
-        Some("[System: No scheduled tasks]")
+        Some(
+            "[System: No scheduled tasks. The user's scheduling request is not complete. Output CRON_CREATE now and do not confirm success before creation succeeds.]"
+        )
     );
     assert_eq!(listed.next_count, 1);
 
@@ -182,7 +184,7 @@ async fn runtime_loop_reuses_native_session_until_agent_returns_visible_confirma
     let prompts = backend.prompts.lock().unwrap();
     assert_eq!(prompts.len(), 3);
     assert_eq!(prompts[0], "每天上午九点提醒我写日报");
-    assert_eq!(prompts[1], "[System: No scheduled tasks]");
+    assert!(prompts[1].contains("Output CRON_CREATE now"));
     assert!(prompts[2].contains("Created cron job '日报提醒'"));
     let events = visible_events.lock().unwrap();
     assert!(events.iter().any(|event| {

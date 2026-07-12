@@ -1,3 +1,4 @@
+use mia_core_api_types::UpdateTaskJobRequest;
 use mia_core_app::cron_middleware::process_cron_commands;
 use mia_core_conversation::cron_protocol::{CronCommand, CronCreateParams, CronUpdateParams};
 use mia_core_db::init_database_memory;
@@ -37,7 +38,7 @@ async fn cron_commands_create_list_update_and_delete_within_conversation_scope()
     let job_id = jobs.jobs[0].id.clone();
 
     let foreign_list = process_cron_commands(&tasks, "bot_b", "conv_b", &[CronCommand::List]).await;
-    assert_eq!(foreign_list, vec!["[System: No scheduled tasks]"]);
+    assert!(foreign_list[0].contains("Output CRON_CREATE now"));
 
     let foreign_update = process_cron_commands(
         &tasks,
@@ -53,6 +54,20 @@ async fn cron_commands_create_list_update_and_delete_within_conversation_scope()
     )
     .await;
     assert!(foreign_update[0].contains("not found"));
+
+    tasks
+        .update_job(
+            &job_id,
+            UpdateTaskJobRequest {
+                schedule: None,
+                schedule_intent: None,
+                target: None,
+                instructions: None,
+                status: Some("done".into()),
+            },
+        )
+        .await
+        .unwrap();
 
     let updated = process_cron_commands(
         &tasks,
@@ -70,6 +85,7 @@ async fn cron_commands_create_list_update_and_delete_within_conversation_scope()
     assert!(updated[0].contains("Updated cron job '工作日简报'"));
 
     let job = tasks.get_job(&job_id).await.unwrap().job;
+    assert_eq!(job.status, "active");
     assert_eq!(job.instructions, "输出工作日简报。");
     assert_eq!(job.target["title"], "工作日简报");
     assert_eq!(job.target["scheduleDescription"], "工作日上午 8:30");

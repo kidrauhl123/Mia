@@ -1,10 +1,12 @@
+use std::sync::{Arc, Mutex};
+
 use mia_core_conversation::{
     CompletedRuntimeMessage, ConversationService, EVENT_CONVERSATION_MESSAGE_CREATED,
 };
 use mia_core_realtime::EventBus;
 use mia_core_runtime::{
     EVENT_RUNTIME_FINISHED, RuntimeCancellation, RuntimeEventSink, RuntimeSessionManager,
-    RuntimeTurnPlan,
+    RuntimeSessionState, RuntimeTurnPlan,
 };
 use mia_core_tasks::TaskService;
 use serde_json::{Value, json};
@@ -29,13 +31,27 @@ pub async fn execute_and_complete_runtime_turn(
     cancellation: Option<RuntimeCancellation>,
 ) -> anyhow::Result<RuntimeTurnCompletion> {
     let event_realtime = realtime.clone();
+    let actual_session_id = Arc::new(Mutex::new(None::<String>));
+    let actual_session_id_for_sink = actual_session_id.clone();
     let execution = execute_runtime_with_cron(
         sessions,
         tasks,
         runtime_plan.clone(),
         move |_| {
             let event_realtime = event_realtime.clone();
+            let actual_session_id_for_sink = actual_session_id_for_sink.clone();
             RuntimeEventSink::new(move |event| {
+                if event.name == EVENT_RUNTIME_FINISHED
+                    && event.data.get("ok").and_then(Value::as_bool) == Some(true)
+                    && let Some(session_id) = event
+                        .data
+                        .get("sessionId")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                {
+                    *actual_session_id_for_sink.lock().unwrap() = Some(session_id.to_string());
+                }
                 event_realtime.emit(event.name, event.data);
             })
         },
@@ -46,6 +62,10 @@ pub async fn execute_and_complete_runtime_turn(
     let (body, runtime, successful, error) = match execution {
         Ok(cron_result) => {
             let result = cron_result.execution;
+            let runtime_session = runtime_session_with_actual_id(
+                &runtime_plan.runtime_session,
+                actual_session_id.lock().unwrap().as_deref(),
+            );
             let output = normalize_runtime_output(
                 &runtime_plan.engine,
                 &cron_result.visible_text,
@@ -73,7 +93,7 @@ pub async fn execute_and_complete_runtime_turn(
                     "exitCode": result.exit_code,
                     "cancelled": result.cancelled,
                     "stderr": result.stderr,
-                    "runtimeSession": runtime_plan.runtime_session.clone(),
+                    "runtimeSession": runtime_session,
                     "trace": output.trace,
                     "contentBlocks": output.content_blocks,
                 }),
@@ -145,4 +165,18 @@ pub async fn execute_and_complete_runtime_turn(
         successful,
         error,
     })
+}
+
+pub(crate) fn runtime_session_with_actual_id(
+    planned: &RuntimeSessionState,
+    actual_session_id: Option<&str>,
+) -> RuntimeSessionState {
+    let mut resolved = planned.clone();
+    if let Some(session_id) = actual_session_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        resolved.resume_session_key = Some(session_id.to_string());
+    }
+    resolved
 }

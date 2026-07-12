@@ -1,7 +1,9 @@
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use mia_core_api_types::{RunTaskJobResponse, SendConversationMessageRequest, TaskJobSummary};
+use mia_core_cloud::CloudService;
 use mia_core_conversation::{ConversationService, EVENT_CONVERSATION_MESSAGE_CREATED};
 use mia_core_realtime::EventBus;
 use mia_core_runtime::{RuntimeProtocol, RuntimeSessionManager};
@@ -12,6 +14,7 @@ use serde_json::{Value, json};
 use tokio::task::JoinHandle;
 use tracing::warn;
 
+use crate::cloud_bridge::MiaRuntimeProxyRegistry;
 use crate::runtime::RuntimeRegistry;
 use crate::services::AppServices;
 use crate::turn_execution::execute_and_complete_runtime_turn;
@@ -77,9 +80,12 @@ async fn run_claimed_job(services: &AppServices, job: TaskJobSummary) {
         }
     };
 
+    let run_id = run.run_id.clone();
     match execute_task_conversation_turn(
         &services.conversation,
         &services.tasks,
+        &services.cloud,
+        &services.mia_runtime_proxies,
         &services.runtime,
         &services.runtime_sessions,
         &services.realtime,
@@ -88,20 +94,28 @@ async fn run_claimed_job(services: &AppServices, job: TaskJobSummary) {
     )
     .await
     {
-        Ok(run) => finish_successful_job(services, &job.id, run).await,
-        Err(error) => finish_failed_job(services, &job.id, None, error.to_string()).await,
+        Ok(execution) => finish_successful_job(services, &job.id, execution).await,
+        Err(error) => finish_failed_job(services, &job.id, Some(run_id), error.to_string()).await,
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExecutedTaskRun {
+    pub run: RunTaskJobResponse,
+    pub output_text: String,
 }
 
 pub async fn execute_task_conversation_turn(
     conversation: &ConversationService,
     tasks: &TaskService,
+    cloud: &CloudService,
+    mia_runtime_proxies: &MiaRuntimeProxyRegistry,
     runtime: &RuntimeRegistry,
     runtime_sessions: &RuntimeSessionManager,
     realtime: &EventBus,
     job: &TaskJobSummary,
     mut run: RunTaskJobResponse,
-) -> anyhow::Result<RunTaskJobResponse> {
+) -> anyhow::Result<ExecutedTaskRun> {
     let conversation_id = target_string(&job.target, &["conversationId", "conversation_id"])
         .context("task target conversationId is required")?;
     let selected_skill_ids = selected_skill_ids_from_target(&job.target);
@@ -126,6 +140,15 @@ pub async fn execute_task_conversation_turn(
         }
     };
     let message = turn.response;
+    let mut runtime_plan = turn.runtime_plan;
+    let runtime_config = runtime_plan.provider.clone();
+    if let Err(error) = mia_runtime_proxies
+        .prepare_plan(cloud, &runtime_config, &mut runtime_plan)
+        .await
+    {
+        runtime_claim.release();
+        return Err(anyhow::anyhow!(error.to_string()));
+    }
     runtime_claim.set_turn_id(message.turn_id.clone());
     realtime.emit(
         EVENT_CONVERSATION_MESSAGE_CREATED,
@@ -139,44 +162,60 @@ pub async fn execute_task_conversation_turn(
         }),
     );
 
-    let assistant_message_id = if turn.runtime_plan.command.is_some()
-        || turn.runtime_plan.protocol == RuntimeProtocol::NativeAcp
-    {
-        let cancellation = runtime.register(message.turn_id.clone());
-        let completion = execute_and_complete_runtime_turn(
-            conversation,
-            tasks,
-            runtime_sessions,
-            realtime,
-            turn.runtime_plan,
-            Some(cancellation),
-        )
-        .await;
-        runtime.remove(&message.turn_id);
-        runtime_claim.release();
-        let completion = completion?;
-        if !completion.successful {
-            anyhow::bail!(
-                "{}",
-                completion
-                    .error
-                    .unwrap_or_else(|| "scheduled runtime failed".into())
-            );
-        }
-        Some(completion.message.message_id)
-    } else {
-        runtime_claim.release();
-        message.assistant_message_id.clone()
-    };
+    let mut output_text = String::new();
+    let assistant_message_id =
+        if runtime_plan.command.is_some() || runtime_plan.protocol == RuntimeProtocol::NativeAcp {
+            let cancellation = runtime.register(message.turn_id.clone());
+            let completion = execute_and_complete_runtime_turn(
+                conversation,
+                tasks,
+                runtime_sessions,
+                realtime,
+                runtime_plan,
+                Some(cancellation),
+            )
+            .await;
+            runtime.remove(&message.turn_id);
+            runtime_claim.release();
+            let completion = completion?;
+            if !completion.successful {
+                anyhow::bail!(
+                    "{}",
+                    completion
+                        .error
+                        .unwrap_or_else(|| "scheduled runtime failed".into())
+                );
+            }
+            output_text = completion.message.body;
+            Some(completion.message.message_id)
+        } else {
+            runtime_claim.release();
+            message.assistant_message_id.clone()
+        };
     run.conversation_id = Some(conversation_id);
     run.message_id = Some(message.message_id);
     run.turn_id = Some(message.turn_id);
     run.assistant_message_id = assistant_message_id;
-    Ok(run)
+    Ok(ExecutedTaskRun { run, output_text })
 }
 
-async fn finish_successful_job(services: &AppServices, job_id: &str, run: RunTaskJobResponse) {
-    match services.tasks.complete_scheduled_run(job_id).await {
+async fn finish_successful_job(services: &AppServices, job_id: &str, execution: ExecutedTaskRun) {
+    let run = execution.run;
+    let run_record = json!({
+        "id": run.run_id,
+        "status": "ok",
+        "firedAt": now_ms(),
+        "outputText": execution.output_text,
+        "conversationId": run.conversation_id,
+        "messageId": run.message_id,
+        "turnId": run.turn_id,
+        "assistantMessageId": run.assistant_message_id,
+    });
+    match services
+        .tasks
+        .complete_scheduled_run_with_record(job_id, run_record)
+        .await
+    {
         Ok(updated) => {
             services
                 .realtime
@@ -207,7 +246,17 @@ async fn finish_failed_job(
     run_id: Option<String>,
     error: String,
 ) {
-    match services.tasks.fail_scheduled_run(job_id).await {
+    let run_record = json!({
+        "id": run_id.clone().unwrap_or_else(|| format!("run_{}", uuid::Uuid::now_v7().simple())),
+        "status": "failed",
+        "firedAt": now_ms(),
+        "error": error,
+    });
+    match services
+        .tasks
+        .fail_scheduled_run_with_record(job_id, run_record)
+        .await
+    {
         Ok(updated) => {
             services
                 .realtime
@@ -227,6 +276,13 @@ async fn finish_failed_job(
             "error": error,
         }),
     );
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn target_string(target: &Value, keys: &[&str]) -> Option<String> {

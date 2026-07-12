@@ -533,8 +533,8 @@ async fn conversation_service_formal_turn_payload_contains_current_user_message_
                 "runtimeSession": {
                     "conversationId": created.conversation.id,
                     "engine": "codex",
-                    "sessionKey": "native-session-1",
-                    "resumeSessionKey": "native-session-1",
+                    "sessionKey": "codex:logical-conversation-key",
+                    "resumeSessionKey": "019f562e-49a5-7b42-a02a-5869f2719bb2",
                     "resumed": false
                 }
             }),
@@ -568,7 +568,7 @@ async fn conversation_service_formal_turn_payload_contains_current_user_message_
             .runtime_session
             .resume_session_key
             .as_deref(),
-        Some("native-session-1")
+        Some("019f562e-49a5-7b42-a02a-5869f2719bb2")
     );
     assert!(
         !second

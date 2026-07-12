@@ -2155,9 +2155,9 @@ mod tests {
         );
         assert_eq!(
             content["runtime"]["runtimeSession"]["resumeSessionKey"],
-            session_key
+            Value::Null
         );
-        assert_eq!(content["runtime"]["runtimeSession"]["resumed"], true);
+        assert_eq!(content["runtime"]["runtimeSession"]["resumed"], false);
     }
 
     #[test]
@@ -2777,6 +2777,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(status_row.get::<String, _>("status"), "done");
+        let completed_job = services.tasks.get_job(task_id).await.unwrap().job;
+        assert_eq!(completed_job.target["runs"][0]["status"], "ok");
+        assert_eq!(
+            completed_job.target["runs"][0]["outputText"],
+            "定时任务已完成"
+        );
         let assistant_body: String = sqlx::query_scalar(
             "SELECT body FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY seq DESC LIMIT 1",
         )
