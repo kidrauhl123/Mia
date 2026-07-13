@@ -1014,6 +1014,38 @@ test("renderSidebarRows collapses clean bot session history by bot id", () => {
   );
 });
 
+test("getUnreadForBot sums unread messages across every session for that bot", () => {
+  const s = loadSocial();
+  s.__mockWindow.miaSessionHistory = sessionHistory;
+  s.__mockWindow.miaUnread = require("../src/shared/unread");
+  s.moduleState.conversations = [
+    {
+      id: "botc_mia_first",
+      type: "bot",
+      decorations: { botId: "mia", sessionId: "first" }
+    },
+    {
+      id: "botc_mia_second",
+      type: "bot",
+      decorations: { botId: "mia", sessionId: "second" }
+    },
+    {
+      id: "botc_hermes_first",
+      type: "bot",
+      decorations: { botId: "hermes", sessionId: "first" }
+    },
+    { id: "dm:u_me:u_friend", type: "dm" }
+  ];
+  s.moduleState.unreadByConversation.set("botc_mia_first", 2);
+  s.moduleState.unreadByConversation.set("botc_mia_second", 3);
+  s.moduleState.unreadByConversation.set("botc_hermes_first", 7);
+  s.moduleState.unreadByConversation.set("dm:u_me:u_friend", 11);
+
+  assert.equal(s.getUnreadForBot("mia"), 5);
+  assert.equal(s.getUnreadForBot("hermes"), 7);
+  assert.equal(s.getUnreadForBot("missing"), 0);
+});
+
 test("renderSidebarRows hides bot conversations whose bot identity is gone", () => {
   const s = loadSocial();
   s.__mockWindow.miaSessionHistory = sessionHistory;

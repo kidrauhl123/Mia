@@ -3837,6 +3837,7 @@ body.topbar-click-capture .topbar {
 }
 
 .session-trigger {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(70px, 190px);
   align-items: center;
@@ -3845,6 +3846,34 @@ body.topbar-click-capture .topbar {
   border-radius: 10px;
   background: var(--field);
   color: var(--text);
+}
+
+.session-trigger-unread,
+.session-row-unread {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent, #0162db);
+  color: #fff;
+  font-size: 10px;
+  font-weight: var(--ui-text-max-weight, 500);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+}
+
+.session-trigger-unread {
+  position: absolute;
+  z-index: 2;
+  top: -5px;
+  right: -5px;
+  box-shadow: 0 0 0 2px var(--workspace-floor);
+}
+
+.session-trigger-unread.hidden {
+  display: none;
 }
 
 #chatView .session-trigger {
@@ -3950,7 +3979,7 @@ body.topbar-click-capture .topbar {
 
 .session-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   width: 100%;
@@ -4001,6 +4030,17 @@ body.topbar-click-capture .topbar {
   color: var(--muted);
   font-size: 11px;
   font-weight: 400;
+}
+
+.session-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.session-row-unread {
+  flex: 0 0 auto;
 }
 
 .session-row-edit {

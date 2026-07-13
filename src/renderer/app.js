@@ -245,6 +245,7 @@ const els = {
   petJobPanel: document.getElementById("petJobPanel"),
   sessionMenuButton: document.getElementById("sessionMenuButton"),
   currentSessionTitle: document.getElementById("currentSessionTitle"),
+  sessionUnreadBadge: document.getElementById("sessionUnreadBadge"),
   sessionMenu: document.getElementById("sessionMenu"),
   sessionList: document.getElementById("sessionList"),
   newSession: document.getElementById("newSession"),
@@ -2382,7 +2383,9 @@ function conversationCardSpecFromRow(row, personas) {
     }
     const pinned = Boolean(social?.isConversationPinned?.(conversation.id));
     const muted = Boolean(social?.isConversationMuted?.(conversation.id));
-    const unread = social?.getUnreadForConversation?.(conversation.id) || 0;
+    const unread = isBot
+      ? (social?.getUnreadForBot?.(sessionHistory.botId(conversation)) || 0)
+      : (social?.getUnreadForConversation?.(conversation.id) || 0);
     const typingRun = searchResult ? null : conversationRunForSidebarPreview(social, conversation);
     return {
       kind: "private",
@@ -4159,6 +4162,7 @@ function renderSessionMenu() {
   }
   // Cloud-only: with no active conversation the menu is empty.
   els.sessionList.innerHTML = "";
+  updateSessionUnreadBadge(0);
   updateCurrentSessionTitle("新对话");
 }
 
@@ -4286,6 +4290,8 @@ function shouldHoldCloudSessionRenameDom(conversations) {
 function renderCloudConversationSessionMenu(activeConversation) {
   const conversations = cloudSessionConversationsForConversation(activeConversation);
   const activeId = activeConversation.id;
+  const botUnread = window.miaSocial?.getUnreadForBot?.(sessionHistory.botId(activeConversation)) || 0;
+  updateSessionUnreadBadge(botUnread);
   updateCurrentSessionTitle(cloudSessionTitle(activeConversation));
   if (shouldHoldCloudSessionRenameDom(conversations)) return;
   els.sessionList.innerHTML = "";
@@ -4294,6 +4300,8 @@ function renderCloudConversationSessionMenu(activeConversation) {
     const isRenaming = rename.conversationId === conversation.id;
     const savingRename = Boolean(isRenaming && rename.saving);
     const escapedConversationId = window.miaMarkdown.escapeHtml(conversation.id);
+    const sessionUnread = window.miaSocial?.getUnreadForConversation?.(conversation.id) || 0;
+    const sessionUnreadText = window.miaUnread?.unreadBadgeText?.(sessionUnread) || "";
     const row = document.createElement("div");
     row.className = `session-row${conversation.id === activeId ? " active" : ""}${isRenaming ? " editing" : ""}`;
     row.setAttribute("role", "option");
@@ -4314,7 +4322,10 @@ function renderCloudConversationSessionMenu(activeConversation) {
           <strong>${window.miaMarkdown.escapeHtml(cloudSessionTitle(conversation))}</strong>
           <small>${window.miaMarkdown.escapeHtml(new Date(cloudConversationSortTime(conversation) || Date.now()).toLocaleString())}</small>
         </span>
-        <button class="session-row-edit" type="button" title="重命名" aria-label="重命名会话" data-cloud-session-edit="${escapedConversationId}">${window.miaMarkdown.iconParkIcon("edit", "session-row-edit-icon")}</button>
+        <span class="session-row-actions">
+          ${sessionUnreadText ? `<span class="session-row-unread" aria-label="${sessionUnread} 条未读消息">${window.miaMarkdown.escapeHtml(sessionUnreadText)}</span>` : ""}
+          <button class="session-row-edit" type="button" title="重命名" aria-label="重命名会话" data-cloud-session-edit="${escapedConversationId}">${window.miaMarkdown.iconParkIcon("edit", "session-row-edit-icon")}</button>
+        </span>
       `;
     }
     row.addEventListener("click", async (event) => {
@@ -4362,6 +4373,15 @@ function renderCloudConversationSessionMenu(activeConversation) {
     });
     els.sessionList.appendChild(row);
   }
+}
+
+function updateSessionUnreadBadge(count) {
+  if (!els.sessionUnreadBadge) return;
+  const unread = Math.max(0, Number(count) || 0);
+  const text = window.miaUnread?.unreadBadgeText?.(unread) || "";
+  els.sessionUnreadBadge.textContent = text;
+  els.sessionUnreadBadge.classList.toggle("hidden", !text);
+  els.sessionUnreadBadge.setAttribute("aria-label", text ? `${unread} 条未读消息` : "");
 }
 
 function updateCurrentSessionTitle(title) {

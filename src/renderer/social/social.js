@@ -6436,6 +6436,18 @@
     // Manual "标为未读" override surfaces as a single-pip badge.
     return isConversationManuallyUnread(conversationId) ? 1 : 0;
   }
+  function getUnreadForBot(botId) {
+    const key = String(botId || "").trim();
+    if (!key) return 0;
+    let total = 0;
+    for (const conversation of moduleState.conversations) {
+      if (!conversation?.id) continue;
+      if (sessionHistoryShared().conversationType(conversation, conversation.id) !== "bot") continue;
+      if (botKeyForConversation(conversation, conversation.id) !== key) continue;
+      total += getUnreadForConversation(conversation.id);
+    }
+    return total;
+  }
   // Aggregate unread badge total. Muted conversations ("免打扰") are excluded so they
   // don't drive the app/dock badge — the per-row grey pip still renders via
   // getUnreadForConversation in renderSidebarRows, but a muted conversation never "notifies"
@@ -6544,6 +6556,7 @@
     renameConversation,
     deleteCloudConversation,
     getUnreadForConversation,
+    getUnreadForBot,
     getTotalConversationUnread,
     getConversationMembers,
     otherUserForConversation,

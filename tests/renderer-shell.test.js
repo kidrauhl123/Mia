@@ -793,6 +793,21 @@ test("session history menu keeps long lists inside the rounded card", () => {
   assert.match(css, /\.session-row\s*\{[\s\S]*?min-height:\s*46px;[\s\S]*?padding:\s*5px 8px;/);
 });
 
+test("bot session history shows the shared aggregate unread and each session unread", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const renderSessionMenuSource = extractFunctionSource(appSource, "renderCloudConversationSessionMenu");
+
+  assert.match(html, /id="sessionUnreadBadge" class="session-trigger-unread hidden"/);
+  assert.match(renderSessionMenuSource, /getUnreadForBot\?\.\(sessionHistory\.botId\(activeConversation\)\)/);
+  assert.match(renderSessionMenuSource, /getUnreadForConversation\?\.\(conversation\.id\)/);
+  assert.match(renderSessionMenuSource, /class="session-row-unread"/);
+  assert.match(css, /\.session-trigger-unread\s*\{/);
+  assert.match(css, /\.session-row-unread\s*\{/);
+  assert.match(css, /\.session-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto;/);
+});
+
 test("session history rename action is a real button separate from row selection", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
@@ -2092,6 +2107,16 @@ test("sidebar card specs carry identity status badges when available", () => {
   assert.deepEqual(groupSpec.statusBadge, badge);
   assert.equal(groupSpec.typing, true);
   assert.equal(groupSpec.typingLabel, "Mia");
+});
+
+test("bot sidebar cards use the unread total across all of their sessions", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const cardSpecSource = extractFunctionSource(appSource, "conversationCardSpecFromRow");
+
+  assert.match(
+    cardSpecSource,
+    /const unread = isBot\s*\?\s*\(social\?\.getUnreadForBot\?\.\(sessionHistory\.botId\(conversation\)\) \|\| 0\)\s*:\s*\(social\?\.getUnreadForConversation\?\.\(conversation\.id\) \|\| 0\)/
+  );
 });
 
 test("conversation typing indicators wait for real cloud run activity", () => {
