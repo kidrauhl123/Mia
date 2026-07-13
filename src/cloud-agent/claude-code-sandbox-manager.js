@@ -9,6 +9,10 @@ const DEFAULT_AGENT_PYTHON_VENV = "/opt/mia-agent-runtime/python";
 const DEFAULT_OFFICECLI_HOME = "/opt/mia-agent-runtime/officecli";
 const DEFAULT_PIP_INDEX_URL = "https://mirrors.tencent.com/pypi/simple";
 
+function trimTrailingSlash(value = "") {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
 function envFlag(value, fallback = false) {
   const raw = String(value ?? "").trim().toLowerCase();
   if (!raw) return fallback;
@@ -30,13 +34,13 @@ function mkdirPrivate(dir) {
 }
 
 function deepSeekAnthropicBaseUrl(options = {}) {
-  return String(
+  return trimTrailingSlash(
     options.anthropicBaseUrl
       || options.baseUrl
       || process.env.MIA_CLOUD_CLAUDE_CODE_BASE_URL
       || process.env.MIA_DEEPSEEK_ANTHROPIC_BASE_URL
       || DEFAULT_DEEPSEEK_ANTHROPIC_BASE_URL
-  ).trim().replace(/\/+$/, "");
+  );
 }
 
 function deepSeekApiKey(options = {}) {
@@ -48,6 +52,23 @@ function deepSeekApiKey(options = {}) {
       || process.env.DEEPSEEK_API_KEY
       || ""
   ).trim();
+}
+
+function modelProxyBaseUrl(options = {}) {
+  const value = trimTrailingSlash(
+    options.modelProxyBaseUrl
+      || options.internalModelProxyBaseUrl
+      || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_BASE_URL
+      || ""
+  );
+  return value.replace(/\/v1$/, "");
+}
+
+function modelProxyTokenForUser(options = {}, userId = "") {
+  if (typeof options.modelProxyTokenForUser === "function") {
+    return String(options.modelProxyTokenForUser(userId) || "").trim();
+  }
+  return "";
 }
 
 function agentPythonVenv(options = {}) {
@@ -74,8 +95,9 @@ function prependPathEntry(basePath, entry) {
 }
 
 function baseClaudeCodeEnv(options = {}) {
-  const baseUrl = deepSeekAnthropicBaseUrl(options);
-  const apiKey = deepSeekApiKey(options);
+  const meteredBaseUrl = modelProxyBaseUrl(options);
+  const baseUrl = meteredBaseUrl || deepSeekAnthropicBaseUrl(options);
+  const apiKey = meteredBaseUrl ? "" : deepSeekApiKey(options);
   const pythonVenv = agentPythonVenv(options);
   const resolvedOfficeCliHome = officeCliHome(options);
   const officeCliBinDir = resolvedOfficeCliHome ? path.join(resolvedOfficeCliHome, ".local", "bin") : "";
@@ -121,11 +143,14 @@ function defaultSandboxSettings(options = {}) {
 
 function createCloudClaudeCodeSandboxManager(options = {}) {
   const root = path.resolve(String(options.root || process.env.MIA_CLOUD_AGENT_ROOT || DEFAULT_AGENT_ROOT));
-  const defaultModel = normalizeCloudClaudeCodeModel(
-    options.model || process.env.MIA_CLOUD_CLAUDE_CODE_MODEL || "",
-    { defaultModel: DEFAULT_CLOUD_CLAUDE_CODE_MODEL }
-  );
   const platformModel = String(options.platformModel || process.env.MIA_PLATFORM_MODEL_ID || "mia-auto").trim() || "mia-auto";
+  const meteredBaseUrl = modelProxyBaseUrl(options);
+  const defaultModel = meteredBaseUrl
+    ? platformModel
+    : normalizeCloudClaudeCodeModel(
+      options.model || process.env.MIA_CLOUD_CLAUDE_CODE_MODEL || "",
+      { defaultModel: DEFAULT_CLOUD_CLAUDE_CODE_MODEL }
+    );
   const modelProvider = String(options.modelProvider || "deepseek").trim() || "deepseek";
   const permissionMode = String(
     options.permissionMode
@@ -153,6 +178,7 @@ function createCloudClaudeCodeSandboxManager(options = {}) {
 
   async function ensureWorker(userId) {
     const paths = pathsForUser(userId);
+    const modelProxyToken = meteredBaseUrl ? modelProxyTokenForUser(options, userId) : "";
     for (const dir of [paths.root, paths.home, paths.workspace, paths.attachments, paths.logs, paths.tmp, paths.cache, paths.pythonUserBase, paths.agentHome, paths.schedulerHome]) {
       mkdirPrivate(dir);
     }
@@ -165,7 +191,8 @@ function createCloudClaudeCodeSandboxManager(options = {}) {
       workerModel: platformModel,
       modelProvider,
       baseUrl,
-      hasApiKey: Boolean(apiKey),
+      hasApiKey: Boolean(modelProxyToken || apiKey),
+      meteredModelProxy: Boolean(modelProxyToken),
       permissionMode,
       sandboxSettings,
       paths,
@@ -179,7 +206,11 @@ function createCloudClaudeCodeSandboxManager(options = {}) {
         XDG_CACHE_HOME: paths.cache,
         MPLCONFIGDIR: path.join(paths.cache, "matplotlib"),
         PIP_CACHE_DIR: path.join(paths.cache, "pip"),
-        PYTHONUSERBASE: paths.pythonUserBase
+        PYTHONUSERBASE: paths.pythonUserBase,
+        ...(modelProxyToken ? {
+          ANTHROPIC_AUTH_TOKEN: modelProxyToken,
+          ANTHROPIC_API_KEY: modelProxyToken
+        } : {})
       }
     };
   }

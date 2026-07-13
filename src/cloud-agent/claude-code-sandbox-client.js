@@ -370,7 +370,7 @@ function createCloudClaudeCodeClient(deps = {}) {
   async function runChat(args = {}) {
     const worker = args.worker || {};
     if (!worker.hasApiKey && !worker.env?.ANTHROPIC_API_KEY && !worker.env?.ANTHROPIC_AUTH_TOKEN) {
-      throw new Error("DeepSeek API Key is not configured. Set MIA_DEEPSEEK_API_KEY or MIA_CLOUD_CLAUDE_CODE_API_KEY.");
+      throw new Error("Mia model proxy token or DeepSeek API Key is not configured.");
     }
     const runId = randomRunId();
     const abortController = new AbortController();

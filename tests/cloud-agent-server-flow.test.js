@@ -388,7 +388,7 @@ test("cloud server workers use the active platform model alias", async () => {
   }
 });
 
-test("cloud Claude Code workers use the saved DeepSeek gateway key", async () => {
+test("cloud Claude Code workers use the metered internal model proxy", async () => {
   const dataDir = tempDir("mia-cloud-agent-db-key-");
   const previousAgentRoot = process.env.MIA_CLOUD_AGENT_ROOT;
   const previousDeepSeekKey = process.env.MIA_DEEPSEEK_API_KEY;
@@ -411,15 +411,21 @@ test("cloud Claude Code workers use the saved DeepSeek gateway key", async () =>
   }
   const server = createMiaCloudServer({
     dataDir,
-    cloudAgentMode: "claude-code"
+    cloudAgentMode: "claude-code",
+    internalModelProxyKey: "internal-model-secret",
+    internalModelProxyBaseUrl: "https://mia.example/custom/model-proxy",
+    publicUrl: "https://mia.example"
   });
   await listen(server);
   try {
     const worker = await server.mia.cloudAgentWorkerManager.ensureWorker("db-key-user");
     assert.equal(worker.runtimeKind, "cloud-claude-code");
     assert.equal(worker.hasApiKey, true);
-    assert.equal(worker.env.ANTHROPIC_API_KEY, "sk-from-db");
-    assert.equal(worker.env.ANTHROPIC_BASE_URL, "https://api.deepseek.com/anthropic");
+    assert.equal(worker.meteredModelProxy, true);
+    assert.equal(worker.model, "mia-auto");
+    assert.equal(worker.env.ANTHROPIC_BASE_URL, "https://mia.example/custom/model-proxy");
+    assert.match(worker.env.ANTHROPIC_API_KEY, /^mia-user\./);
+    assert.notEqual(worker.env.ANTHROPIC_API_KEY, "sk-from-db");
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });

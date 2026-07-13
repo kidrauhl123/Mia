@@ -190,17 +190,24 @@ try {
 } catch {
   ({ createModelBillingStore } = require("./src/cloud/model-billing-store.js"));
 }
+let modelProxyAnthropic = null;
+try {
+  modelProxyAnthropic = require("../src/cloud/model-proxy-anthropic.js");
+} catch {
+  modelProxyAnthropic = require("./src/cloud/model-proxy-anthropic.js");
+}
 let modelGatewayStoreModule = null;
 try {
   modelGatewayStoreModule = require("../src/cloud/model-gateway-store.js");
 } catch {
   modelGatewayStoreModule = require("./src/cloud/model-gateway-store.js");
 }
+let createUserModelProxyToken = null;
 let verifyUserModelProxyToken = null;
 try {
-  ({ verifyUserModelProxyToken } = require("../src/cloud/model-proxy-auth.js"));
+  ({ createUserModelProxyToken, verifyUserModelProxyToken } = require("../src/cloud/model-proxy-auth.js"));
 } catch {
-  ({ verifyUserModelProxyToken } = require("./src/cloud/model-proxy-auth.js"));
+  ({ createUserModelProxyToken, verifyUserModelProxyToken } = require("./src/cloud/model-proxy-auth.js"));
 }
 let createWechatAuthFlow = null;
 let isWechatMpLoginConfigured = null;
@@ -771,6 +778,27 @@ function publicOriginFromContext(context = {}) {
   if (explicit) return explicit;
   const firstAllowed = Array.isArray(context.allowedOrigins) ? context.allowedOrigins[0] : "";
   return normalizeOrigin(firstAllowed || "");
+}
+
+function normalizeHttpUrlWithPath(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function internalModelProxyBaseUrl(context = {}) {
+  const explicit = normalizeHttpUrlWithPath(context.internalModelProxyBaseUrl || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_BASE_URL || "");
+  if (explicit) return explicit.replace(/\/v1$/, "");
+  const origin = publicOriginFromContext(context);
+  return origin ? `${origin}/api/internal/model-proxy` : "";
 }
 
 function avatarAssetDir(context = {}) {
@@ -1750,6 +1778,59 @@ async function listPlatformModelCatalog(context) {
   }
 }
 
+function requestedPlatformModelId(context = {}, body = {}) {
+  const raw = String(body.model || platformModelId(context)).trim() || platformModelId(context);
+  if (raw === "mia-default") return platformModelId(context);
+  return raw;
+}
+
+function selectDirectDeepSeekModel(context = {}, body = {}) {
+  const requestedModel = requestedPlatformModelId(context, body);
+  return directDeepSeekModels(context).find((model) => model.id === requestedModel) || null;
+}
+
+function recordDeepSeekModelUsage(context, {
+  userId,
+  selected,
+  requestPath,
+  usage = {},
+  status = "succeeded",
+  error = ""
+} = {}) {
+  context.modelBillingStore.recordUsage({
+    userId,
+    modelId: selected.id,
+    upstreamModel: selected.upstreamModel,
+    provider: "deepseek",
+    requestPath,
+    usage,
+    pricing: modelPricing(context),
+    status,
+    error
+  });
+}
+
+async function fetchDeepSeekChatCompletion(context = {}, upstreamBody = {}) {
+  return fetch(`${deepSeekBaseUrl(context)}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${deepSeekApiKey(context)}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(upstreamBody)
+  });
+}
+
+function writeBufferedProxyResponse(res, status, payload, contentType = "application/json") {
+  const body = Buffer.isBuffer(payload) ? payload : Buffer.from(String(payload || ""));
+  res.writeHead(status, {
+    "content-type": contentType,
+    "cache-control": "no-store",
+    "content-length": body.length
+  });
+  res.end(body);
+}
+
 async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, prefix }) {
   if (!context.modelBillingStore) {
     writeError(res, 503, "Mia 模型账本未初始化。");
@@ -1773,22 +1854,16 @@ async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, pre
     writeError(res, 400, error.message || "Invalid JSON.");
     return true;
   }
-  const models = directDeepSeekModels(context);
-  const requestedModel = String(body.model || platformModelId(context)).trim() || platformModelId(context);
-  const selected = models.find((model) => model.id === requestedModel);
+  const selected = selectDirectDeepSeekModel(context, body);
   if (!selected) {
     writeError(res, 400, "模型不可用。");
     return true;
   }
   if (!context.modelBillingStore.hasPositiveBalance(userId)) {
-    context.modelBillingStore.recordUsage({
+    recordDeepSeekModelUsage(context, {
       userId,
-      modelId: selected.id,
-      upstreamModel: selected.upstreamModel,
-      provider: "deepseek",
       requestPath: proxyPath,
-      usage: {},
-      pricing: modelPricing(context),
+      selected,
       status: "failed",
       error: "模型余额不足，请先充值。"
     });
@@ -1803,47 +1878,106 @@ async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, pre
       ? { stream_options: { ...(body.stream_options || {}), include_usage: true } }
       : {})
   };
-  const upstream = await fetch(`${deepSeekBaseUrl(context)}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(upstreamBody)
-  });
+  const upstream = await fetchDeepSeekChatCompletion(context, upstreamBody);
   const payload = Buffer.from(await upstream.arrayBuffer());
   const parsed = parseJsonBuffer(payload);
   const contentType = upstream.headers.get("content-type") || "application/json";
   if (upstream.ok) {
-    context.modelBillingStore.recordUsage({
+    recordDeepSeekModelUsage(context, {
       userId,
-      modelId: selected.id,
-      upstreamModel: selected.upstreamModel,
-      provider: "deepseek",
       requestPath: proxyPath,
+      selected,
       usage: usageFromBufferedModelPayload(payload, contentType),
-      pricing: modelPricing(context),
       status: "succeeded"
     });
   } else {
-    context.modelBillingStore.recordUsage({
+    recordDeepSeekModelUsage(context, {
       userId,
-      modelId: selected.id,
-      upstreamModel: selected.upstreamModel,
-      provider: "deepseek",
       requestPath: proxyPath,
-      usage: {},
-      pricing: modelPricing(context),
+      selected,
       status: "failed",
       error: normalizeModelProxyError(parsed, `DeepSeek request failed (${upstream.status}).`)
     });
   }
-  res.writeHead(upstream.status, {
-    "content-type": contentType,
-    "cache-control": "no-store",
-    "content-length": payload.length
+  writeBufferedProxyResponse(res, upstream.status, payload, contentType);
+  return true;
+}
+
+async function proxyDeepSeekAnthropicMessages(req, res, context, url, { userId, prefix }) {
+  const proxyPath = url.pathname.slice(prefix.length);
+  if (req.method !== "POST" || (proxyPath !== "/messages" && proxyPath !== "/messages/count_tokens")) {
+    writeError(res, 404, "当前托管 DeepSeek 模型只支持 /chat/completions 和 /messages。");
+    return true;
+  }
+  let body = {};
+  try {
+    body = await readJson(req);
+  } catch (error) {
+    writeError(res, 400, error.message || "Invalid JSON.");
+    return true;
+  }
+  if (proxyPath === "/messages/count_tokens") {
+    writeJson(res, 200, { input_tokens: modelProxyAnthropic.roughTokenCount(body) });
+    return true;
+  }
+  if (!context.modelBillingStore) {
+    writeError(res, 503, "Mia 模型账本未初始化。");
+    return true;
+  }
+  const apiKey = deepSeekApiKey(context);
+  if (!apiKey) {
+    writeError(res, 503, "Mia DeepSeek 模型未配置。");
+    return true;
+  }
+  const selected = selectDirectDeepSeekModel(context, body);
+  if (!selected) {
+    writeError(res, 400, "模型不可用。");
+    return true;
+  }
+  if (!context.modelBillingStore.hasPositiveBalance(userId)) {
+    recordDeepSeekModelUsage(context, {
+      userId,
+      requestPath: proxyPath,
+      selected,
+      status: "failed",
+      error: "模型余额不足，请先充值。"
+    });
+    writeError(res, 402, "模型余额不足，请先充值。");
+    return true;
+  }
+
+  const upstream = await fetchDeepSeekChatCompletion(
+    context,
+    modelProxyAnthropic.anthropicToOpenAiChatBody(body, selected.upstreamModel)
+  );
+  const payload = Buffer.from(await upstream.arrayBuffer());
+  const parsed = parseJsonBuffer(payload);
+  const contentType = upstream.headers.get("content-type") || "application/json";
+  if (upstream.ok) {
+    recordDeepSeekModelUsage(context, {
+      userId,
+      requestPath: proxyPath,
+      selected,
+      usage: usageFromBufferedModelPayload(payload, contentType),
+      status: "succeeded"
+    });
+    if (body.stream === true) {
+      const sse = modelProxyAnthropic.openAiStreamPayloadToAnthropicSse(payload, body, selected.id);
+      writeBufferedProxyResponse(res, 200, sse, "text/event-stream; charset=utf-8");
+      return true;
+    }
+    writeJson(res, 200, modelProxyAnthropic.convertOpenAiMessageToAnthropic(parsed || {}, body, selected.id));
+    return true;
+  }
+
+  recordDeepSeekModelUsage(context, {
+    userId,
+    requestPath: proxyPath,
+    selected,
+    status: "failed",
+    error: normalizeModelProxyError(parsed, `DeepSeek request failed (${upstream.status}).`)
   });
-  res.end(payload);
+  writeError(res, upstream.status, normalizeModelProxyError(parsed, `DeepSeek request failed (${upstream.status}).`));
   return true;
 }
 
@@ -1863,6 +1997,10 @@ async function handleMiaModelProxy(req, res, context, url, { userId, prefix = "/
     return true;
   }
   if (modelGatewayMode(context) === "deepseek") {
+    const proxyPath = url.pathname.slice(prefix.length);
+    if (proxyPath === "/messages" || proxyPath === "/messages/count_tokens") {
+      return proxyDeepSeekAnthropicMessages(req, res, context, url, { userId, prefix });
+    }
     return proxyDeepSeekChatCompletion(req, res, context, url, { userId, prefix });
   }
 
@@ -4666,6 +4804,7 @@ function createMiaCloudServer(options = {}) {
     modelGatewayStore: null,
     platformModelId: options.platformModelId || process.env.MIA_PLATFORM_MODEL_ID || "",
     internalModelProxyKey: options.internalModelProxyKey || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY || "",
+    internalModelProxyBaseUrl: options.internalModelProxyBaseUrl || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_BASE_URL || "",
     hermesSkillsSource: null,
     wechatMpAppId: options.wechatMpAppId || process.env.MIA_WECHAT_MP_APP_ID || "",
     wechatMpAppSecret: options.wechatMpAppSecret || process.env.MIA_WECHAT_MP_APP_SECRET || "",
@@ -4713,6 +4852,11 @@ function createMiaCloudServer(options = {}) {
     if (createCloudClaudeCodeSandboxManager) {
       cloudAgentWorkerManager = createCloudClaudeCodeSandboxManager({
         apiKey: deepSeekApiKey(context),
+        internalModelProxyKey: context.internalModelProxyKey,
+        modelProxyBaseUrl: internalModelProxyBaseUrl(context),
+        modelProxyTokenForUser: (userId) => createUserModelProxyToken
+          ? createUserModelProxyToken(context.internalModelProxyKey, userId)
+          : "",
         platformModel: platformModelId(context),
         model: options.cloudClaudeCodeModel || process.env.MIA_CLOUD_CLAUDE_CODE_MODEL || ""
       });

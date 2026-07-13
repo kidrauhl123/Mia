@@ -574,3 +574,59 @@ test("internal model proxy token bills the owning Mia user", async () => {
     await new Promise((resolve) => deepseek.server.close(resolve));
   }
 });
+
+test("internal Anthropic model proxy token bills the owning Mia user", async () => {
+  const deepseek = await startDeepSeekFake();
+  const internalSecret = "internal-anthropic-secret";
+  const cloud = await startCloud(9, {
+    MIA_MODEL_GATEWAY: "deepseek",
+    MIA_DEEPSEEK_API_KEY: "deepseek-key",
+    MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
+    MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
+    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000",
+    MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY: internalSecret
+  });
+  const auth = { username: "admin", password: "secret" };
+  try {
+    const user = await register(cloud.port, "worker-anthropic-user");
+    const internalToken = createUserModelProxyToken(internalSecret, user.user.id);
+    const blocked = await request(cloud.port, "POST", "/api/internal/model-proxy/v1/messages", {
+      token: internalToken,
+      body: {
+        model: "mia-auto",
+        messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        max_tokens: 64
+      }
+    });
+    assert.equal(blocked.status, 402);
+    assert.equal(deepseek.calls.length, 0);
+
+    await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+      auth,
+      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+    });
+    const completion = await request(cloud.port, "POST", "/api/internal/model-proxy/v1/messages", {
+      token: internalToken,
+      body: {
+        model: "mia-auto",
+        system: "You are Mia.",
+        messages: [{ role: "user", content: [{ type: "text", text: "hello from claude" }] }],
+        max_tokens: 64
+      }
+    });
+    assert.equal(completion.status, 200);
+    assert.equal(completion.body.type, "message");
+    assert.equal(completion.body.content[0].text, "deepseek-ok");
+    assert.equal(deepseek.calls.at(-1).body.model, "deepseek-chat");
+    assert.equal(deepseek.calls.at(-1).body.messages[0].role, "system");
+
+    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-credits?userId=${encodeURIComponent(user.user.id)}`, { auth });
+    assert.equal(adminBalance.status, 200);
+    assert.equal(adminBalance.body.balance.balanceMicrousd, 998500);
+    assert.equal(adminBalance.body.recentUsage[0].provider, "deepseek");
+    assert.equal(adminBalance.body.recentUsage[0].requestPath, "/messages");
+  } finally {
+    await stopCloud(cloud);
+    await new Promise((resolve) => deepseek.server.close(resolve));
+  }
+});

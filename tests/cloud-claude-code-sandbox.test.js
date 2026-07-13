@@ -74,7 +74,7 @@ test("cloud Claude Code model normalizes Mia and Hermes aliases to a Claude mode
   assert.equal(normalizeCloudClaudeCodeModel("claude-opus-4-5"), "claude-opus-4-5");
 });
 
-test("cloud Claude Code sandbox manager creates per-user workspace and DeepSeek Anthropic env", async () => {
+test("cloud Claude Code sandbox manager creates per-user workspace and direct DeepSeek fallback env", async () => {
   const root = tempDir("mia-cloud-claude-manager-");
   try {
     const manager = createCloudClaudeCodeSandboxManager({
@@ -116,7 +116,32 @@ test("cloud Claude Code sandbox manager creates per-user workspace and DeepSeek 
   }
 });
 
-test("baseClaudeCodeEnv points Claude Code at DeepSeek Anthropic-compatible endpoint", () => {
+test("cloud Claude Code sandbox manager prefers the metered internal model proxy", async () => {
+  const root = tempDir("mia-cloud-claude-metered-manager-");
+  try {
+    const manager = createCloudClaudeCodeSandboxManager({
+      root,
+      apiKey: "sk-deepseek",
+      modelProxyBaseUrl: "https://mia.example/api/internal/model-proxy/",
+      modelProxyTokenForUser: (userId) => `mia-user-token:${userId}`,
+      model: "claude-sonnet-4-5",
+      platformModel: "mia-auto",
+      pythonVenv: false
+    });
+    const worker = await manager.ensureWorker("user:2");
+    assert.equal(worker.runtimeKind, "cloud-claude-code");
+    assert.equal(worker.model, "mia-auto");
+    assert.equal(worker.meteredModelProxy, true);
+    assert.equal(worker.env.ANTHROPIC_BASE_URL, "https://mia.example/api/internal/model-proxy");
+    assert.equal(worker.env.ANTHROPIC_API_KEY, "mia-user-token:user:2");
+    assert.equal(worker.env.ANTHROPIC_AUTH_TOKEN, "mia-user-token:user:2");
+    assert.notEqual(worker.env.ANTHROPIC_API_KEY, "sk-deepseek");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("baseClaudeCodeEnv points Claude Code at a direct DeepSeek Anthropic-compatible endpoint", () => {
   const env = baseClaudeCodeEnv({
     apiKey: "sk-test",
     baseUrl: "https://example.test/anthropic/",
@@ -563,10 +588,10 @@ test("cloud Claude Code client retries a stale native session without replaying 
   assert.doesNotMatch(capture.paramsList[1].prompt, /old answer/);
 });
 
-test("cloud Claude Code client fails fast when DeepSeek credentials are absent", async () => {
+test("cloud Claude Code client fails fast when model credentials are absent", async () => {
   const client = createCloudClaudeCodeClient({ claudeAgentSdk: fakeSdk([], {}) });
   await assert.rejects(
     () => client.runChat({ worker: { env: {}, paths: {} }, input: "hello" }),
-    /DeepSeek API Key is not configured/
+    /Mia model proxy token or DeepSeek API Key is not configured/
   );
 });
