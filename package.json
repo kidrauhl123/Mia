@@ -36,6 +36,8 @@
     "cloud:smoke": "node scripts/smoke-cloud.js",
     "cloud:site-verify": "node scripts/verify-site-verification.js",
     "cloud:skills:sync": "node scripts/sync-cloud-skills.js",
+    "officecli:skills:check": "node scripts/sync-officecli-skills.js --check",
+    "officecli:skills:sync": "node scripts/sync-officecli-skills.js --update",
     "cloud:smoke:account": "node scripts/prepare-cloud-smoke-account.js",
     "managed:verify": "node scripts/verify-managed-agent-runtime.js",
     "desktop:permission-smoke": "node scripts/smoke-desktop-permission.js",

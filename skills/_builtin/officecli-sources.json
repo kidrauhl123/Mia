@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "license": "Apache-2.0",
+  "projects": {
+    "OfficeCLI": {
+      "repository": "https://github.com/iOfficeAI/OfficeCLI",
+      "revision": "v1.0.135",
+      "commit": "d2d9c60f44537004c3e1f46680c24ea38d9659c2"
+    },
+    "AionCore": {
+      "repository": "https://github.com/iOfficeAI/AionCore",
+      "revision": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "commit": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2"
+    }
+  },
+  "skills": {
+    "mia-official:officecli": {
+      "path": "skills/_builtin/officecli/SKILL.md",
+      "url": "https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/v1.0.135/SKILL.md",
+      "revision": "v1.0.135",
+      "commit": "d2d9c60f44537004c3e1f46680c24ea38d9659c2",
+      "sha256": "b1886ce52f83b8d0f612f32edf5546a5fe5403900b0e67d3a26ca22e76c1915d"
+    },
+    "mia-official:officecli-docx": {
+      "path": "skills/_builtin/officecli-docx/SKILL.md",
+      "url": "https://raw.githubusercontent.com/iOfficeAI/AionCore/abbcd7823d4165781c2d9f6bacadc6bdbe17aef2/crates/aionui-app/assets/builtin-skills/officecli-docx/SKILL.md",
+      "revision": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "commit": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "sha256": "181f67f99874e70a18ce0a4cd589ebd6a8511ae607f7c6b05e1c8635b10cfbbd"
+    },
+    "mia-official:officecli-xlsx": {
+      "path": "skills/_builtin/officecli-xlsx/SKILL.md",
+      "url": "https://raw.githubusercontent.com/iOfficeAI/AionCore/abbcd7823d4165781c2d9f6bacadc6bdbe17aef2/crates/aionui-app/assets/builtin-skills/officecli-xlsx/SKILL.md",
+      "revision": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "commit": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "sha256": "e80ed015aaf24a025219134c451eb77c873e125dec057e8a48d3f9e89f92cfa3"
+    },
+    "mia-official:officecli-pptx": {
+      "path": "skills/_builtin/officecli-pptx/SKILL.md",
+      "url": "https://raw.githubusercontent.com/iOfficeAI/AionCore/abbcd7823d4165781c2d9f6bacadc6bdbe17aef2/crates/aionui-app/assets/builtin-skills/officecli-pptx/SKILL.md",
+      "revision": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "commit": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "sha256": "e23986762b5647f2b0e53321ee0768e04ff347cf65b6f517b25527049bbbf07f"
+    }
+  },
+  "artifacts": {
+    "officecli-license": {
+      "path": "skills/_builtin/officecli/LICENSE",
+      "url": "https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/v1.0.135/LICENSE",
+      "revision": "v1.0.135",
+      "commit": "d2d9c60f44537004c3e1f46680c24ea38d9659c2",
+      "sha256": "7e282402a5a6db33995fe638bb3fe79013f9884d8f7d15a42e481c1e86aadda1"
+    },
+    "officecli-notice": {
+      "path": "skills/_builtin/officecli/UPSTREAM_NOTICE",
+      "url": "https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/v1.0.135/NOTICE",
+      "revision": "v1.0.135",
+      "commit": "d2d9c60f44537004c3e1f46680c24ea38d9659c2",
+      "sha256": "3a4715b268e148a8e9566f5e835f766f5c95c3da4d6e5ddd908806a258a2f07b"
+    }
+  }
+}
