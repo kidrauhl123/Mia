@@ -1300,3 +1300,62 @@ fn conversation_core_plans_hermes_native_external_skill_directory_without_prompt
     assert!(result.skill_materialization.is_none());
     assert!(workspace.join(".mia/hermes-skills/xlsx/SKILL.md").exists());
 }
+
+#[test]
+fn conversation_core_reuses_matching_hermes_home_skill_without_external_name_collision() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let hermes_skills = temp.path().join("hermes-home").join("skills");
+    let native_officecli = hermes_skills.join("officecli");
+    let source_officecli = temp.path().join("mia-officecli");
+    fs::create_dir_all(&native_officecli).unwrap();
+    fs::create_dir_all(&source_officecli).unwrap();
+    fs::write(
+        native_officecli.join("SKILL.md"),
+        "---\nname: officecli\n---\nNative Hermes OfficeCLI.",
+    )
+    .unwrap();
+    fs::write(
+        source_officecli.join("SKILL.md"),
+        "---\nname: officecli\n---\nMia OfficeCLI.",
+    )
+    .unwrap();
+
+    let result = plan_agent_session_skill_runtime(AgentSessionSkillRuntimeRequest {
+        agent_engine: "hermes".into(),
+        runtime_config: json!({
+            "hermesNativeSkillsDir": hermes_skills.to_string_lossy(),
+        }),
+        session_skill_ids: vec!["mia-official:officecli".into()],
+        available_skills: vec![AgentSessionSkillRecord {
+            id: "mia-official:officecli".into(),
+            name: "officecli".into(),
+            display_name: "OfficeCLI".into(),
+            description: "Office files".into(),
+            summary: "Office files".into(),
+            body: "# OfficeCLI".into(),
+            source_path: source_officecli.to_string_lossy().to_string(),
+            link_name: "officecli".into(),
+        }],
+        active_skill_ids: vec!["mia-official:officecli".into()],
+        intent_skill_ids: vec![],
+        requested_skill_ids: vec![],
+        workspace_path: Some(workspace.to_string_lossy().to_string()),
+    });
+
+    assert!(result.managed_skill_targets.is_empty());
+    assert!(!workspace.join(".mia/hermes-skills/officecli").exists());
+    assert!(
+        result.selected_skill_prompt.contains(
+            &native_officecli
+                .join("SKILL.md")
+                .to_string_lossy()
+                .to_string()
+        )
+    );
+    assert!(
+        !result
+            .selected_skill_prompt
+            .contains(&source_officecli.to_string_lossy().to_string())
+    );
+}

@@ -7,8 +7,10 @@ use mia_core_api_types::{
     CloudBridgeCancelRequest, CloudBridgeCancelResponse, CloudBridgeRunRequest,
     CloudBridgeRunResponse, SendConversationMessageRequest,
 };
-use mia_core_cloud::{CloudBridgeRunHandler, CloudError, CloudService};
-use mia_core_conversation::{ConversationService, EVENT_CONVERSATION_MESSAGE_CREATED};
+use mia_core_cloud::{CloudBridgeRunHandler, CloudError, CloudService, PreparedCloudBridgeRun};
+use mia_core_conversation::{
+    AcceptedConversationTurn, ConversationService, EVENT_CONVERSATION_MESSAGE_CREATED,
+};
 use mia_core_realtime::EventBus;
 use mia_core_runtime::{
     EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STDERR,
@@ -25,7 +27,7 @@ use crate::claude_code_mia_proxy::{
 };
 use crate::codex_mia_proxy::{CodexMiaProxyConfig, RunningCodexMiaProxy, start_codex_mia_proxy};
 use crate::cron_turn::execute_runtime_with_cron;
-use crate::runtime::RuntimeRegistry;
+use crate::runtime::{ConversationRuntimeClaim, RuntimeRegistry};
 use crate::turn_execution::runtime_session_with_actual_id;
 
 #[derive(Debug, Clone)]
@@ -98,6 +100,64 @@ pub async fn execute_cloud_bridge_run(
     mia_runtime_proxies: &MiaRuntimeProxyRegistry,
     request: CloudBridgeRunRequest,
 ) -> Result<CloudBridgeRunResponse, CloudError> {
+    let started = start_cloud_bridge_run(
+        cloud,
+        conversation,
+        realtime,
+        runtime,
+        mia_runtime_proxies,
+        request,
+    )
+    .await?;
+    complete_started_cloud_bridge_run(
+        conversation,
+        tasks,
+        realtime,
+        runtime,
+        runtime_sessions,
+        started,
+    )
+    .await
+}
+
+pub struct StartedCloudBridgeRun {
+    prepared: PreparedCloudBridgeRun,
+    conversation_id: String,
+    turn: AcceptedConversationTurn,
+    runtime_plan: RuntimeTurnPlan,
+    runtime_claim: ConversationRuntimeClaim,
+}
+
+impl StartedCloudBridgeRun {
+    pub fn accepted_response(&self) -> CloudBridgeRunResponse {
+        CloudBridgeRunResponse {
+            ok: true,
+            run_id: self.prepared.run_id.clone(),
+            conversation_id: self.conversation_id.clone(),
+            cloud_conversation_id: self.prepared.cloud_conversation_id.clone(),
+            message_id: self.turn.response.message_id.clone(),
+            turn_id: self.turn.response.turn_id.clone(),
+            assistant_message_id: self.turn.response.assistant_message_id.clone(),
+            text: String::new(),
+            attachments: json!([]),
+            trace: json!({}),
+            content_blocks: json!([]),
+        }
+    }
+
+    pub fn requires_background_runtime(&self) -> bool {
+        runtime_plan_uses_session_manager(&self.runtime_plan)
+    }
+}
+
+pub async fn start_cloud_bridge_run(
+    cloud: &CloudService,
+    conversation: &ConversationService,
+    realtime: &EventBus,
+    runtime: &RuntimeRegistry,
+    mia_runtime_proxies: &MiaRuntimeProxyRegistry,
+    request: CloudBridgeRunRequest,
+) -> Result<StartedCloudBridgeRun, CloudError> {
     let prepared = cloud.prepare_bridge_run(request)?;
     let bot_id = bot_id_from_metadata(&prepared.metadata);
     let conversation_row = conversation
@@ -136,7 +196,7 @@ pub async fn execute_cloud_bridge_run(
         }
     };
     runtime_claim.set_turn_id(turn.response.turn_id.clone());
-    let mut assistant_message_id = turn.response.assistant_message_id.clone();
+    let assistant_message_id = turn.response.assistant_message_id.clone();
     realtime.emit(
         EVENT_CONVERSATION_MESSAGE_CREATED,
         json!({
@@ -159,6 +219,31 @@ pub async fn execute_cloud_bridge_run(
         &runtime_plan,
         &prepared.metadata,
     );
+    Ok(StartedCloudBridgeRun {
+        prepared,
+        conversation_id: conversation_row.id,
+        turn,
+        runtime_plan,
+        runtime_claim,
+    })
+}
+
+pub async fn complete_started_cloud_bridge_run(
+    conversation: &ConversationService,
+    tasks: &TaskService,
+    realtime: &EventBus,
+    runtime: &RuntimeRegistry,
+    runtime_sessions: &RuntimeSessionManager,
+    started: StartedCloudBridgeRun,
+) -> Result<CloudBridgeRunResponse, CloudError> {
+    let StartedCloudBridgeRun {
+        prepared,
+        conversation_id,
+        turn,
+        runtime_plan,
+        mut runtime_claim,
+    } = started;
+    let mut assistant_message_id = turn.response.assistant_message_id.clone();
     let mut response_trace = json!({});
     let mut response_content_blocks = json!([]);
     let text = if runtime_plan_uses_session_manager(&runtime_plan) {
@@ -354,7 +439,7 @@ pub async fn execute_cloud_bridge_run(
     Ok(CloudBridgeRunResponse {
         ok: true,
         run_id: prepared.run_id,
-        conversation_id: conversation_row.id,
+        conversation_id,
         cloud_conversation_id: prepared.cloud_conversation_id,
         message_id: turn.response.message_id,
         turn_id: turn.response.turn_id,

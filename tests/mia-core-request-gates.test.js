@@ -22,6 +22,10 @@ test("Core requests that start bridge streaming turns warm the local event bridg
   }), true);
   assert.equal(shouldWait({
     method: "POST",
+    route: "/api/cloud/bridge/run-async"
+  }), true);
+  assert.equal(shouldWait({
+    method: "POST",
     route: "/api/conversations/conv_123/messages"
   }), false);
   assert.equal(shouldWait({

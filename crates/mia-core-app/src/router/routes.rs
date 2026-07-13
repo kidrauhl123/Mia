@@ -14,8 +14,8 @@ use super::bot::{
 use super::cloud::{
     cancel_cloud_bridge_run, cloud_status, connect_cloud, disconnect_cloud, get_cloud_settings,
     prepare_cloud_bridge_runtime_controls, put_cloud_settings, run_cloud_bridge,
-    set_cloud_bridge_runtime_control, start_cloud_bridge, start_cloud_events, stop_cloud_bridge,
-    stop_cloud_events, sync_cloud_memory,
+    run_cloud_bridge_async, set_cloud_bridge_runtime_control, start_cloud_bridge,
+    start_cloud_events, stop_cloud_bridge, stop_cloud_events, sync_cloud_memory,
 };
 use super::conversation::{
     cancel_conversation_turn, create_conversation, delete_conversation, get_conversation,
@@ -219,6 +219,7 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
         .route("/api/cloud/disconnect", post(disconnect_cloud))
         .route("/api/cloud/memory/sync", post(sync_cloud_memory))
         .route("/api/cloud/bridge/run", post(run_cloud_bridge))
+        .route("/api/cloud/bridge/run-async", post(run_cloud_bridge_async))
         .route(
             "/api/cloud/bridge/runtime-controls/prepare",
             post(prepare_cloud_bridge_runtime_controls),
@@ -1143,12 +1144,21 @@ mod tests {
             .unwrap();
         let listed: Value = serde_json::from_slice(&list_body).unwrap();
         assert_eq!(listed["botId"], bot.id);
-        assert_eq!(listed["skills"][0]["id"], "demo-skill");
-        assert_eq!(listed["skills"][0]["name"], "demo-skill");
-        assert_eq!(listed["skills"][0]["description"], "Demo skill.");
-        assert!(listed["skills"][0]["bodyChars"].as_u64().unwrap() > 0);
-        assert_eq!(listed["skills"].as_array().unwrap().len(), 2);
-        assert_eq!(listed["skills"][1]["id"], "mia-scheduler");
+        let skills = listed["skills"].as_array().unwrap();
+        assert_eq!(skills.len(), 3);
+        let demo = skills
+            .iter()
+            .find(|skill| skill["id"] == "demo-skill")
+            .unwrap();
+        assert_eq!(demo["name"], "demo-skill");
+        assert_eq!(demo["description"], "Demo skill.");
+        assert!(demo["bodyChars"].as_u64().unwrap() > 0);
+        assert!(skills.iter().any(|skill| skill["id"] == "mia-scheduler"));
+        assert!(
+            skills
+                .iter()
+                .any(|skill| skill["id"] == "mia-official:officecli")
+        );
 
         let read_response = app
             .clone()
@@ -1487,7 +1497,7 @@ mod tests {
             capability_options["capabilities"]["enabledSkills"],
             json!([])
         );
-        assert_eq!(capability_options["summary"], "未设置默认技能");
+        assert_eq!(capability_options["summary"], "2 个默认技能");
 
         let runtime_response = app
             .clone()
@@ -3046,6 +3056,77 @@ mod tests {
         assert!(metadata["runtime"].get("apiKeyEnv").is_none());
         assert!(metadata["runtime"].get("apiMode").is_none());
         assert_eq!(metadata["cloudBridge"]["runId"], "run_1");
+    }
+
+    #[tokio::test]
+    async fn cloud_bridge_async_run_acknowledges_before_runtime_finishes() {
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let mut services = AppServices::from_config(&config).await.unwrap();
+        services.conversation = ConversationService::with_runtime(
+            services.database.pool().clone(),
+            RuntimeBuilder::new(config.workspace_dir.to_string_lossy()).with_engine_command(
+                "hermes",
+                shell_command("printf 'started\\n'; sleep 1; printf 'finished\\n'"),
+            ),
+        );
+        let app = create_router(&services);
+        let connect_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/cloud/connect")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"url":"https://mia.example","token":"test-token","user":{"id":"u1"}}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(connect_response.status(), StatusCode::OK);
+        let mut events = services.realtime.subscribe();
+
+        let response = timeout(
+            Duration::from_millis(500),
+            app.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/cloud/bridge/run-async")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{
+                          "runId":"run_async",
+                          "conversationId":"cloud:async",
+                          "text":"long task",
+                          "runtimeConfig":{
+                            "agentEngine":"hermes",
+                            "providerConnectionId":"mia",
+                            "model":"mia-auto"
+                          }
+                        }"#,
+                    ))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("async cloud bridge response should not wait for the runtime")
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let accepted: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(accepted["ok"], true);
+        assert_eq!(accepted["runId"], "run_async");
+        assert_eq!(accepted["conversationId"], "cloud_bridge_cloud_async");
+        assert_eq!(accepted["text"], "");
+        assert!(accepted["messageId"].as_str().unwrap().starts_with("msg_"));
+
+        let stdout = next_named_event(&mut events, EVENT_RUNTIME_STDOUT).await;
+        assert_eq!(stdout.data["text"], "started\n");
+        let _ = next_named_event(&mut events, EVENT_RUNTIME_FINISHED).await;
     }
 
     #[tokio::test]

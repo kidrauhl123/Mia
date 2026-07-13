@@ -651,6 +651,18 @@ pub fn plan_agent_session_skill_runtime(
         .collect::<Vec<_>>();
     let turn_selected_skills =
         resolve_agent_session_selected_skills(&active_skill_ids, &all_skills);
+    let hermes_native_skills_dir = if engine == "hermes" {
+        hermes_native_skills_dir_from_config(&runtime_config)
+    } else {
+        None
+    };
+    let workspace_link_skills = resolved_skills
+        .iter()
+        .filter(|skill| {
+            hermes_native_skill_markdown_path(hermes_native_skills_dir.as_deref(), skill).is_none()
+        })
+        .cloned()
+        .collect::<Vec<_>>();
     let skill_external_dirs = if engine == "hermes" {
         workspace_path
             .as_deref()
@@ -677,7 +689,7 @@ pub fn plan_agent_session_skill_runtime(
         workspace_path.as_deref().unwrap_or_default(),
         delivery_mode,
         &native_skills_dirs,
-        &resolved_skills,
+        &workspace_link_skills,
         &skill_fingerprint,
     );
 
@@ -689,7 +701,10 @@ pub fn plan_agent_session_skill_runtime(
         turn_selected_skills: turn_selected_skills.clone(),
         skill_external_dirs,
         skill_fingerprint,
-        selected_skill_prompt: build_selected_skill_prompt(&turn_selected_skills),
+        selected_skill_prompt: build_selected_skill_prompt(
+            &turn_selected_skills,
+            hermes_native_skills_dir.as_deref(),
+        ),
         initial_prompt_prefix: String::new(),
         skill_materialization,
         managed_skill_targets,
@@ -1157,10 +1172,36 @@ fn skill_markdown_path(skill: &AgentSessionSkillRecord) -> String {
     }
 }
 
-fn build_selected_skill_prompt(skills: &[AgentSessionSkillRecord]) -> String {
+fn hermes_native_skills_dir_from_config(runtime_config: &Value) -> Option<PathBuf> {
+    first_string(
+        runtime_config,
+        &["hermesNativeSkillsDir", "hermes_native_skills_dir"],
+    )
+    .map(PathBuf::from)
+}
+
+fn hermes_native_skill_markdown_path(
+    native_skills_dir: Option<&Path>,
+    skill: &AgentSessionSkillRecord,
+) -> Option<String> {
+    let native_skills_dir = native_skills_dir?;
+    let link_name = clean_text(&skill.link_name);
+    if link_name.is_empty() {
+        return None;
+    }
+    let path = native_skills_dir.join(link_name).join("SKILL.md");
+    path.is_file()
+        .then(|| path.to_string_lossy().replace('\\', "/"))
+}
+
+fn build_selected_skill_prompt(
+    skills: &[AgentSessionSkillRecord],
+    hermes_native_skills_dir: Option<&Path>,
+) -> String {
     let mut paths = Vec::new();
     for skill in skills {
-        let path = skill_markdown_path(skill);
+        let path = hermes_native_skill_markdown_path(hermes_native_skills_dir, skill)
+            .unwrap_or_else(|| skill_markdown_path(skill));
         if path.is_empty() || paths.contains(&path) {
             continue;
         }
@@ -1599,9 +1640,10 @@ impl ConversationService {
         attachments: &Value,
         selected_skill_ids: &[String],
     ) -> Result<RuntimeTurnPlan, sqlx::Error> {
-        let runtime_config = runtime_config_for_turn(&self.pool, conversation).await?;
+        let mut runtime_config = runtime_config_for_turn(&self.pool, conversation).await?;
         let engine = runtime_engine_from_config(&runtime_config)
             .or_else(|| runtime_engine_from_metadata(&conversation.metadata));
+        apply_native_skill_runtime_context(&mut runtime_config, engine.as_deref());
         let workspace_dir =
             workspace_from_metadata(&conversation.metadata, &self.default_workspace_dir);
         let skill_runtime = match (&self.current_skills, conversation.bot_id.as_deref()) {
@@ -1881,6 +1923,31 @@ fn runtime_engine_from_config(config: &Value) -> Option<String> {
             "runtime_engine",
         ],
     )
+}
+
+fn apply_native_skill_runtime_context(config: &mut Value, engine: Option<&str>) {
+    if normalize_agent_engine(engine.unwrap_or_default()) != "hermes"
+        || hermes_native_skills_dir_from_config(config).is_some()
+    {
+        return;
+    }
+    let hermes_home = std::env::var_os("HERMES_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(PathBuf::from)
+                .map(|home| home.join(".hermes"))
+        });
+    let Some(skills_dir) = hermes_home.map(|home| home.join("skills")) else {
+        return;
+    };
+    if let Value::Object(config) = config {
+        config.insert(
+            "hermesNativeSkillsDir".into(),
+            Value::String(skills_dir.to_string_lossy().to_string()),
+        );
+    }
 }
 
 async fn bot_summary_for_id(

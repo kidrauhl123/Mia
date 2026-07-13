@@ -165,7 +165,13 @@ test("bot preload bridge keeps bot identity cloud-owned while Core owns runtime 
   const ensureBotSessionSource = extractFunctionSource(preload, "ensureBotSessionConversationCompat");
   assert.match(ensureBotSessionSource, /IpcChannel\.SocialEnsureBotSessionConversation/);
   assert.match(ensureBotSessionSource, /runtimeKindFromPostBody\(body\) === "cloud-claude-code"/);
-  assert.match(ensureBotSessionSource, /return ensureCoreBotSessionConversation\(sessionId,\s*body\)/);
+  assert.match(
+    ensureBotSessionSource,
+    /Promise\.allSettled\(\[\s*ipcRenderer\.invoke\(IpcChannel\.SocialEnsureBotSessionConversation,\s*sessionId,\s*body\),\s*ensureCoreBotSessionConversation\(sessionId,\s*body\)\s*\]\)/,
+    "desktop-local sessions must persist the visible cloud conversation and the Core runtime conversation together"
+  );
+  assert.match(ensureBotSessionSource, /conversation:\s*socialConversation/);
+  assert.match(ensureBotSessionSource, /localConversation:\s*coreConversation/);
   assert.match(preload, /IpcChannel\.SocialSaveBotIdentity/);
   assert.match(preload, /IpcChannel\.SocialSaveBotRuntime/);
   assert.doesNotMatch(preload, /saveCoreBotIdentity|buildCoreBotIdentityRequest/);
@@ -183,6 +189,7 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
   const preload = read("src/preload.js");
   const channels = read("src/shared/ipc-channels.js");
   const main = read("src/main.js");
+  const renderer = read("src/renderer/app.js");
 
   assert.match(preload, /listConversations:\s*\(\)\s*=>\s*listConversationsCompat\(\)/);
   assert.match(preload, /getConversation:\s*\(conversationId\)\s*=>\s*getConversationCompat\(conversationId\)/);
@@ -200,6 +207,11 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
   assert.match(preload, /async function listLocalDesktopBotMessages\(conversationId,\s*sinceSeq,\s*limit\)/);
   assert.match(preload, /async function postLocalDesktopBotMessage\(conversationId,\s*body = \{\}\)/);
   const postLocalDesktopSource = extractFunctionSource(preload, "postLocalDesktopBotMessage");
+  assert.match(
+    postLocalDesktopSource,
+    /miaCorePost\("\/api\/cloud\/bridge\/run-async"/,
+    "desktop-local bot sends must receive an acknowledgement instead of waiting for the full agent turn"
+  );
   assert.match(
     postLocalDesktopSource,
     /selectedSkillIds:\s*selectedSkillIdsFromCoreBody\(input\)/,
@@ -241,6 +253,16 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
   assert.match(preload, /IpcChannel\.SocialGetConversation/);
   assert.match(preload, /IpcChannel\.SocialCreateConversation/);
   assert.match(preload, /IpcChannel\.SocialPostConversationMessage/);
+  assert.match(channels, /SocialCacheConversation:\s*"social:cache-conversation"/);
+  assert.match(
+    preload,
+    /cacheConversationMetadata:\s*\(conversation\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.SocialCacheConversation,\s*conversation\)/
+  );
+  assert.match(
+    renderer,
+    /await window\.mia\.social\.cacheConversationMetadata\(optimisticConversation\)/,
+    "a newly visible local bot session must reach the disk render cache before it can be lost to Cmd+R"
+  );
   const listConversationsSource = extractFunctionSource(preload, "listConversationsCompat");
   assert.doesNotMatch(
     listConversationsSource,

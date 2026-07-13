@@ -14,7 +14,8 @@ use serde::Deserialize;
 
 use super::state::ModuleStates;
 use crate::cloud_bridge::{
-    cancel_cloud_bridge_run as execute_cloud_bridge_cancel, execute_cloud_bridge_run,
+    cancel_cloud_bridge_run as execute_cloud_bridge_cancel, complete_started_cloud_bridge_run,
+    execute_cloud_bridge_run, start_cloud_bridge_run,
 };
 
 #[derive(Debug, Deserialize)]
@@ -111,6 +112,70 @@ pub async fn run_cloud_bridge(
     .await
     .map(Json)
     .map_err(map_cloud_status)
+}
+
+pub async fn run_cloud_bridge_async(
+    State(states): State<ModuleStates>,
+    Json(request): Json<CloudBridgeRunRequest>,
+) -> Result<Json<CloudBridgeRunResponse>, StatusCode> {
+    let started = start_cloud_bridge_run(
+        &states.cloud,
+        &states.conversation,
+        &states.realtime,
+        &states.runtime,
+        &states.mia_runtime_proxies,
+        request,
+    )
+    .await
+    .map_err(map_cloud_status)?;
+    if !started.requires_background_runtime() {
+        return complete_started_cloud_bridge_run(
+            &states.conversation,
+            &states.tasks,
+            &states.realtime,
+            &states.runtime,
+            &states.runtime_sessions,
+            started,
+        )
+        .await
+        .map(Json)
+        .map_err(map_cloud_status);
+    }
+
+    let accepted = started.accepted_response();
+    let cloud_conversation_id = accepted.cloud_conversation_id.clone();
+    let run_id = accepted.run_id.clone();
+    let conversation = states.conversation.clone();
+    let tasks = states.tasks.clone();
+    let realtime = states.realtime.clone();
+    let runtime = states.runtime.clone();
+    let runtime_sessions = states.runtime_sessions.clone();
+    tokio::spawn(async move {
+        if let Err(error) = complete_started_cloud_bridge_run(
+            &conversation,
+            &tasks,
+            &realtime,
+            &runtime,
+            &runtime_sessions,
+            started,
+        )
+        .await
+        {
+            realtime.emit(
+                "cloud_agent_run_event",
+                serde_json::json!({
+                    "conversationId": cloud_conversation_id,
+                    "runId": run_id,
+                    "event": {
+                        "type": "error",
+                        "message": error.to_string(),
+                    },
+                }),
+            );
+            tracing::warn!(error = %error, "background cloud bridge turn failed");
+        }
+    });
+    Ok(Json(accepted))
 }
 
 pub async fn prepare_cloud_bridge_runtime_controls(

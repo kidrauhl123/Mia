@@ -137,6 +137,7 @@
     SocialListConversationMessages: "social:list-conversation-messages",
     SocialSearchConversationMessages: "social:search-conversation-messages",
     SocialGetCachedMessages: "social:get-cached-messages",
+    SocialCacheConversation: "social:cache-conversation",
     SocialCacheConversationMessages: "social:cache-conversation-messages",
     SocialGetCachedBootstrap: "social:get-cached-bootstrap",
     SocialPostConversationMessage: "social:post-conversation-message",

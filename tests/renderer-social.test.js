@@ -2436,13 +2436,48 @@ test("sendInActiveConversation keeps desktop-local bot history on the visible co
 
   await s.sendInActiveConversation("hello bot");
 
-  assert.deepEqual(calls.map((call) => call.kind), ["post"]);
-  assert.equal(calls[0].conversationId, "botc_session_probe");
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
+  assert.equal(calls[0].sessionId, "session_probe");
   assert.equal(calls[0].body.runtimeKind, "desktop-local");
-  assert.equal(calls[0].body.botId, "codex");
-  assert.equal(calls[0].body.sessionId, "session_probe");
-  assert.equal(calls[0].body.agentEngine, "codex");
+  assert.equal(calls[1].conversationId, "botc_session_probe");
+  assert.equal(calls[1].body.runtimeKind, "desktop-local");
+  assert.equal(calls[1].body.botId, "codex");
+  assert.equal(calls[1].body.sessionId, "session_probe");
+  assert.equal(calls[1].body.agentEngine, "codex");
   assert.equal(s.moduleState.messageCache.get("botc_session_probe").messages[0].status, undefined);
+});
+
+test("sendInActiveConversation keeps desktop-local execution available when cloud session sync is offline", async () => {
+  const s = loadSocial();
+  const calls = [];
+  const conversationId = "botc_local_offline";
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{
+    id: conversationId,
+    type: "bot",
+    name: "新对话",
+    decorations: { botId: "codex", sessionId: "local_offline", runtimeKind: "desktop-local" }
+  }];
+  s.moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+  s.__mockWindow.mia.social = {
+    ensureBotSessionConversation: async () => {
+      calls.push("ensure");
+      return { ok: false, error: "offline" };
+    },
+    postConversationMessage: async (postedId, body) => {
+      calls.push("post");
+      return {
+        ok: true,
+        data: { message: { id: "m_offline", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: body.bodyMd } }
+      };
+    }
+  };
+
+  await s.sendInActiveConversation("still works");
+
+  assert.deepEqual(calls, ["ensure", "post"]);
+  assert.equal(s.moduleState.messageCache.get(conversationId).messages[0].body_md, "still works");
 });
 
 test("sendInActiveConversation tags cloud bot posts with cloud runtime ownership", async () => {
@@ -2777,11 +2812,11 @@ test("sendInActiveConversation does not move desktop-local bot history into Core
 
   await s.sendInActiveConversation("hello bot");
 
-  assert.deepEqual(calls.map((call) => call.kind), ["post"]);
-  assert.equal(calls[0].conversationId, "botc_legacy_probe");
-  assert.equal(calls[0].body.runtimeKind, "desktop-local");
-  assert.equal(calls[0].body.botId, "codex");
-  assert.equal(calls[0].body.sessionId, "session_probe");
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "post"]);
+  assert.equal(calls[1].conversationId, "botc_legacy_probe");
+  assert.equal(calls[1].body.runtimeKind, "desktop-local");
+  assert.equal(calls[1].body.botId, "codex");
+  assert.equal(calls[1].body.sessionId, "session_probe");
   assert.equal(s.moduleState.activeConversationId, "botc_legacy_probe");
   assert.deepEqual(
     JSON.parse(JSON.stringify(s.moduleState.messageCache.get("botc_legacy_probe").messages.map((message) => message.id))),

@@ -38,6 +38,7 @@
     "cloud:skills:sync": "node scripts/sync-cloud-skills.js",
     "officecli:skills:check": "node scripts/sync-officecli-skills.js --check",
     "officecli:skills:sync": "node scripts/sync-officecli-skills.js --update",
+    "officecli:native-smoke": "MIA_OFFICECLI_NATIVE_ENGINE_SMOKE=1 node --test tests/officecli-native-engine-smoke.test.js",
     "cloud:smoke:account": "node scripts/prepare-cloud-smoke-account.js",
     "managed:verify": "node scripts/verify-managed-agent-runtime.js",
     "desktop:permission-smoke": "node scripts/smoke-desktop-permission.js",

@@ -3045,7 +3045,7 @@
     const current = conversation || moduleState.conversations.find((item) => item.id === id) || { id };
     if (conversationTypeFor(current, id) !== "bot") return { conversationId: id, conversation: current };
     const runtimeKind = runtimeKindForBotConversation(current);
-    if (runtimeKind === "desktop-local") return { conversationId: id, conversation: current };
+    const isDesktopLocal = runtimeKind === "desktop-local";
     const botId = botKeyForConversation(current, id);
     const sessionId = botSessionIdForConversation(current, id);
     const api = window.mia?.social;
@@ -3058,6 +3058,10 @@
       runtimeKind: runtimeKindForBotConversation(current)
     });
     if (result && result.ok === false) {
+      if (isDesktopLocal) {
+        console.warn("[social] desktop-local conversation sync failed; continuing locally", result.error || result.message || result.data?.error || "unknown");
+        return { conversationId: id, conversation: current };
+      }
       throw new Error(result.error || result.message || result.data?.error || "创建 Bot 会话失败");
     }
     const ensured = ensuredConversationFromResult(result);
@@ -3068,6 +3072,9 @@
     const saved = upsertConversation(ensured);
     const members = ensuredMembersFromResult(result);
     if (members) _conversationMembersCache.set(ensured.id, members);
+    if (isDesktopLocal && ensured.id !== id) {
+      return { conversationId: id, conversation: current };
+    }
     return { conversationId: ensured.id, conversation: saved || ensured };
   }
 

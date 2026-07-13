@@ -14,7 +14,7 @@ function coreRequestRoute(payload = {}) {
 function coreRequestShouldWaitForStreamingEvents(payload = {}) {
   if (coreRequestMethod(payload) !== "POST") return false;
   const route = coreRequestRoute(payload);
-  return route === "/api/cloud/bridge/run";
+  return route === "/api/cloud/bridge/run" || route === "/api/cloud/bridge/run-async";
 }
 
 function coreRequestRequiresStreamingEvents(payload = {}) {

@@ -80,6 +80,7 @@ test("OfficeCLI runtime installer uses the China mirror first, verifies the inst
     const source = fs.readFileSync(INSTALLER, "utf8");
     assert.match(source, /https:\/\/d\.officecli\.ai\/install\.sh/);
     assert.match(source, /iOfficeAI\/OfficeCLI\/v1\.0\.135\/install\.sh/);
+    assert.match(source, /mia-officecli-runtime-install\.lock/);
     assert.doesNotMatch(source, /curl[^\n]*\|\s*(?:ba)?sh/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });

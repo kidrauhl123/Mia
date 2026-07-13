@@ -119,6 +119,8 @@ impl CronEventGate {
                 let mut gate = state.lock().unwrap();
                 if event.name != EVENT_RUNTIME_STDOUT {
                     direct.push(event);
+                } else if is_non_text_structured_runtime_event(&event) {
+                    direct.push(event);
                 } else if gate.protocol_candidate {
                     gate.buffered.push(event);
                 } else if let Some(text) = event.data.get("text").and_then(|value| value.as_str()) {
@@ -191,6 +193,18 @@ impl CronEventGate {
             );
         }
     }
+}
+
+fn is_non_text_structured_runtime_event(event: &RuntimeProcessEvent) -> bool {
+    let Some(event_type) = event
+        .data
+        .get("event")
+        .and_then(|event| event.get("type"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return false;
+    };
+    !matches!(event_type, "message.delta" | "text_delta")
 }
 
 fn longest_protocol_prefix_suffix(text: &str) -> usize {
@@ -285,4 +299,42 @@ fn continuation_plan(previous: &RuntimeTurnPlan, content: String) -> RuntimeTurn
     plan.selected_skill_ids.clear();
     plan.mock_response = None;
     plan
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn cron_event_gate_preserves_structured_runtime_events_with_empty_text() {
+        let captured = Arc::new(Mutex::new(Vec::<RuntimeProcessEvent>::new()));
+        let captured_for_sink = captured.clone();
+        let destination = RuntimeEventSink::new(move |event| {
+            captured_for_sink.lock().unwrap().push(event);
+        });
+        let gate = CronEventGate::new(destination);
+        let sink = gate.sink();
+
+        sink.emit(
+            EVENT_RUNTIME_STDOUT,
+            json!({
+                "turnId": "turn_1",
+                "conversationId": "conversation_1",
+                "engine": "claude-code",
+                "text": "",
+                "event": {
+                    "type": "tool.started",
+                    "id": "tool_1",
+                    "name": "Bash",
+                    "status": "running"
+                }
+            }),
+        );
+
+        let events = captured.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].data["event"]["type"], "tool.started");
+        assert_eq!(events[0].data["event"]["name"], "Bash");
+    }
 }

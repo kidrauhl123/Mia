@@ -439,7 +439,36 @@ async function ensureBotSessionConversationCompat(sessionId, body = {}) {
       return { ok: false, error: error?.message || "创建云端 Bot 会话失败" };
     }
   }
-  return ensureCoreBotSessionConversation(sessionId, body);
+  const [socialSync, coreSync] = await Promise.allSettled([
+    ipcRenderer.invoke(IpcChannel.SocialEnsureBotSessionConversation, sessionId, body),
+    ensureCoreBotSessionConversation(sessionId, body)
+  ]);
+  if (socialSync.status === "rejected") {
+    return {
+      ok: false,
+      error: socialSync.reason?.message || "保存本地 Bot 会话索引失败"
+    };
+  }
+  const socialResult = socialSync.value;
+  if (socialResult?.ok === false) return socialResult;
+  const socialData = socialResult?.data || socialResult || {};
+  const socialConversation = socialData.conversation || socialResult?.conversation || null;
+  if (!socialConversation?.id) {
+    return { ok: false, error: "保存本地 Bot 会话索引失败" };
+  }
+  const coreResult = coreSync.status === "fulfilled" ? coreSync.value : null;
+  const coreData = coreResult?.data || coreResult || {};
+  const coreConversation = coreData.conversation || coreResult?.conversation || null;
+  const data = {
+    ...socialData,
+    conversation: socialConversation,
+    localConversation: coreConversation,
+    localConversationId: coreConversation?.id || "",
+    ...(coreSync.status === "rejected"
+      ? { localConversationError: coreSync.reason?.message || "创建 Core 会话失败" }
+      : {})
+  };
+  return { ...socialResult, ok: true, data, ...data };
 }
 
 function buildCoreConversationRequest(payload = {}) {
@@ -638,7 +667,7 @@ async function postLocalDesktopBotMessage(conversationId, body = {}) {
     return { ok: false, error, data: { error, message }, message };
   }
   const runtimeConfig = await desktopLocalRuntimeConfig(input);
-  const response = await miaCorePost("/api/cloud/bridge/run", {
+  const response = await miaCorePost("/api/cloud/bridge/run-async", {
     runId,
     conversationId,
     text: bodyMd,
@@ -1198,6 +1227,7 @@ contextBridge.exposeInMainWorld("mia", {
     listConversationMessages: (conversationId, sinceSeq, limit) => listConversationMessagesCompat(conversationId, sinceSeq, limit),
     searchConversationMessages: (query, limit) => ipcRenderer.invoke(IpcChannel.SocialSearchConversationMessages, query, limit),
     getCachedConversationMessages: (conversationId, limit) => ipcRenderer.invoke(IpcChannel.SocialGetCachedMessages, conversationId, limit),
+    cacheConversationMetadata: (conversation) => ipcRenderer.invoke(IpcChannel.SocialCacheConversation, conversation),
     getCachedSocialBootstrap: (userId) => ipcRenderer.invoke(IpcChannel.SocialGetCachedBootstrap, userId),
     postConversationMessage: (conversationId, body) => postConversationMessageCompat(conversationId, body),
     respondRunApproval: (conversationId, runId, decision) => ipcRenderer.invoke(IpcChannel.SocialRespondRunApproval, conversationId, runId, decision),

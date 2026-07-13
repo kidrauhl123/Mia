@@ -148,6 +148,48 @@ test("Core conversation runtime events map to existing renderer streaming events
   );
 });
 
+test("Core native ACP runtime preserves structured tool and reasoning events", () => {
+  const toolEvent = {
+    type: "tool.started",
+    id: "tool_1",
+    name: "Terminal",
+    preview: "officecli create Mia周报.docx",
+    status: "in_progress"
+  };
+  assert.deepEqual(
+    coreConversationRuntimeEnvelope({
+      name: "conversation.runtimeStdout",
+      data: {
+        conversationId: "conv_1",
+        turnId: "turn_1",
+        engine: "claude-code",
+        text: "",
+        event: toolEvent
+      }
+    }).payload.event,
+    toolEvent
+  );
+
+  const reasoningEvent = {
+    type: "reasoning_delta",
+    id: "thinking_0",
+    text: "先检查 OfficeCLI。"
+  };
+  assert.deepEqual(
+    coreConversationRuntimeEnvelope({
+      name: "conversation.runtimeStdout",
+      data: {
+        conversationId: "conv_1",
+        turnId: "turn_1",
+        engine: "claude-code",
+        text: reasoningEvent.text,
+        event: reasoningEvent
+      }
+    }).payload.event,
+    reasoningEvent
+  );
+});
+
 test("Core Codex stdout mapper suppresses status noise and extracts JSONL text", () => {
   assert.equal(
     coreConversationRuntimeEnvelope({

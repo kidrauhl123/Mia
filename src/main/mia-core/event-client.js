@@ -279,8 +279,14 @@ function coreConversationRuntimeEnvelope(envelope = {}) {
   }
   if (type === "conversation.runtimeStdout" || type === "conversation.runtimeStderr") {
     const text = String(data.text || data.delta || data.message || "");
+    const structuredEvent = data.event
+      && typeof data.event === "object"
+      && !Array.isArray(data.event)
+      && String(data.event.type || "").trim()
+      ? { ...data.event }
+      : null;
     const event = type === "conversation.runtimeStdout"
-      ? coreRuntimeStdoutEvent(String(data.engine || ""), text)
+      ? (structuredEvent || coreRuntimeStdoutEvent(String(data.engine || ""), text))
       : { type: "status", text };
     if (!event) return null;
     return {

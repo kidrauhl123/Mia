@@ -5496,6 +5496,16 @@ async function createNewCloudSessionForActive(conversation) {
     created_at: now,
     updated_at: now
   };
+  if (typeof window.mia.social.cacheConversationMetadata === "function") {
+    try {
+      const cached = await window.mia.social.cacheConversationMetadata(optimisticConversation);
+      if (cached?.ok === false) {
+        console.warn("[renderer] cacheConversationMetadata failed:", cached.error || "unknown");
+      }
+    } catch (error) {
+      console.warn("[renderer] cacheConversationMetadata error:", error?.message || error);
+    }
+  }
   window.miaSocial?.upsertBotConversation?.(optimisticConversation);
   await selectCloudSessionConversation(optimisticConversation, { skipMessageLoad: true });
 

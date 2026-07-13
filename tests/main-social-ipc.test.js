@@ -181,6 +181,38 @@ test("caching a merged local Core history writes user and bot messages to the vi
   assert.deepEqual(upserts, [{ conversationId: "botc_u_1_local", messages }]);
 });
 
+test("caching optimistic conversation metadata makes a new local bot session reloadable offline", async () => {
+  const ipcMain = fakeIpcMain();
+  const patches = [];
+  const conversation = {
+    id: "botc_local_offline",
+    type: "bot",
+    name: "新对话",
+    decorations: {
+      botId: "codex",
+      sessionId: "local_offline",
+      runtimeKind: "desktop-local"
+    }
+  };
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {},
+    messageCache: {
+      getSocialBootstrap: () => ({ conversations: [] }),
+      updateSocialBootstrap: (userId, patch) => patches.push({ userId, patch })
+    },
+    getCloudUserId: () => "u_me"
+  });
+
+  const cached = await ipcMain.handlers.get(IpcChannel.SocialCacheConversation)(null, conversation);
+
+  assert.deepEqual(cached, { ok: true, data: { conversation } });
+  assert.deepEqual(patches, [{
+    userId: "u_me",
+    patch: { conversations: [{ ...conversation, localPendingSync: true }] }
+  }]);
+});
+
 test("searching conversation messages writes hit messages through to the local cache", async () => {
   const ipcMain = fakeIpcMain();
   const upserts = [];
@@ -277,6 +309,105 @@ test("social list IPC writes bootstrap data through to the local cache", async (
     { userId: "u_me", patch: { conversations: [{ id: "c_live" }] } }
   ]);
   assert.deepEqual(cached, { ok: true, data: { userId: "u_me", conversations: [{ id: "c_cached" }] } });
+});
+
+test("listing cloud conversations preserves locally pending bot sessions across reload", async () => {
+  const ipcMain = fakeIpcMain();
+  const patches = [];
+  const pending = {
+    id: "botc_local_pending",
+    type: "bot",
+    name: "新对话",
+    decorations: {
+      botId: "codex",
+      sessionId: "local_pending",
+      runtimeKind: "desktop-local"
+    },
+    localPendingSync: true
+  };
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      listConversations: async () => ({ conversations: [{ id: "c_live", type: "dm" }] })
+    },
+    messageCache: {
+      getSocialBootstrap: () => ({ conversations: [pending] }),
+      updateSocialBootstrap: (userId, patch) => patches.push({ userId, patch })
+    },
+    getCloudUserId: () => "u_me"
+  });
+
+  const listed = await ipcMain.handlers.get(IpcChannel.SocialListConversations)(null);
+
+  assert.deepEqual(listed.data.conversations, [
+    { id: "c_live", type: "dm" },
+    pending
+  ]);
+  assert.deepEqual(patches, [{
+    userId: "u_me",
+    patch: { conversations: [{ id: "c_live", type: "dm" }, pending] }
+  }]);
+});
+
+test("ensuring a bot session writes the visible conversation and members through to the bootstrap cache", async () => {
+  const ipcMain = fakeIpcMain();
+  const patches = [];
+  const conversation = {
+    id: "botc_session_new",
+    type: "bot",
+    name: "新对话",
+    decorations: {
+      botId: "codex",
+      sessionId: "session_new",
+      runtimeKind: "desktop-local"
+    }
+  };
+  const members = [
+    { member_kind: "user", member_ref: "u_me" },
+    { member_kind: "bot", member_ref: "codex" }
+  ];
+  const fakeCache = {
+    getSocialBootstrap: (userId) => userId === "u_me" ? {
+      userId,
+      conversations: [
+        { id: "botc_existing", type: "bot", name: "Existing" },
+        { ...conversation, localPendingSync: true }
+      ],
+      members: {}
+    } : null,
+    updateSocialBootstrap: (userId, patch) => patches.push({ userId, patch })
+  };
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      ensureBotSessionConversation: async () => ({ conversation, members })
+    },
+    messageCache: fakeCache,
+    getCloudUserId: () => "u_me"
+  });
+
+  const result = await ipcMain.handlers.get(IpcChannel.SocialEnsureBotSessionConversation)(
+    null,
+    "session_new",
+    { botId: "codex", runtimeKind: "desktop-local" }
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(patches, [
+    {
+      userId: "u_me",
+      patch: {
+        conversations: [
+          { id: "botc_existing", type: "bot", name: "Existing" },
+          conversation
+        ]
+      }
+    },
+    {
+      userId: "u_me",
+      patch: { members: { [conversation.id]: members } }
+    }
+  ]);
 });
 
 test("listing bots preserves cached status badges when older cloud lists omit them", async () => {

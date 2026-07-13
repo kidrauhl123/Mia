@@ -224,16 +224,41 @@ function writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch, log })
   }
 }
 
-function writeSocialConversationPatch({ messageCache, getCloudUserId, conversation, log }) {
+function mergeCloudConversationsWithPendingLocal({ messageCache, getCloudUserId, conversations, log }) {
+  const cloudConversations = Array.isArray(conversations) ? conversations : [];
+  const userId = currentCacheUserId(getCloudUserId);
+  if (!userId || !messageCache || typeof messageCache.getSocialBootstrap !== "function") {
+    return cloudConversations;
+  }
+  try {
+    const current = messageCache.getSocialBootstrap(userId);
+    const cloudIds = new Set(cloudConversations.map((conversation) => String(conversation?.id || "").trim()).filter(Boolean));
+    const pendingLocal = (Array.isArray(current?.conversations) ? current.conversations : [])
+      .filter((conversation) => conversation?.localPendingSync === true)
+      .filter((conversation) => {
+        const id = String(conversation?.id || "").trim();
+        return id && !cloudIds.has(id);
+      });
+    return [...cloudConversations, ...pendingLocal];
+  } catch (error) {
+    log(`[social-ipc] pending local conversation merge failed: ${error?.message || error}`);
+    return cloudConversations;
+  }
+}
+
+function writeSocialConversationPatch({ messageCache, getCloudUserId, conversation, pendingSync = null, log }) {
   const userId = currentCacheUserId(getCloudUserId);
   if (!userId || !conversation?.id || !messageCache || typeof messageCache.updateSocialBootstrap !== "function") return;
   try {
     const current = typeof messageCache.getSocialBootstrap === "function" ? messageCache.getSocialBootstrap(userId) : null;
     const conversations = Array.isArray(current?.conversations) ? current.conversations : [];
     const idx = conversations.findIndex((item) => item?.id === conversation.id);
+    const nextConversation = { ...(idx >= 0 ? conversations[idx] : {}), ...conversation };
+    if (pendingSync === true) nextConversation.localPendingSync = true;
+    if (pendingSync === false) delete nextConversation.localPendingSync;
     const next = idx >= 0
-      ? conversations.map((item, index) => (index === idx ? { ...item, ...conversation } : item))
-      : [...conversations, conversation];
+      ? conversations.map((item, index) => (index === idx ? nextConversation : item))
+      : [...conversations, nextConversation];
     messageCache.updateSocialBootstrap(userId, { conversations: next });
   } catch (error) {
     log(`[social-ipc] social conversation cache update failed: ${error?.message || error}`);
@@ -274,8 +299,14 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   ipcMain.handle(IpcChannel.SocialRemoveFriend, cloudCall((userId) => socialApi.removeFriend(userId)));
   ipcMain.handle(IpcChannel.SocialListConversations, cloudCall(async () => {
     const result = await socialApi.listConversations();
-    writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch: { conversations: resultArray(result, "conversations") }, log });
-    return result;
+    const conversations = mergeCloudConversationsWithPendingLocal({
+      messageCache,
+      getCloudUserId,
+      conversations: resultArray(result, "conversations"),
+      log
+    });
+    writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch: { conversations }, log });
+    return replaceResultArray(result, "conversations", conversations);
   }));
   ipcMain.handle(IpcChannel.SocialListBots, cloudCall(async () => {
     const result = await socialApi.listBots();
@@ -334,6 +365,10 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
     if (!messageCache) return { messages: [] };
     return { messages: messageCache.getRecentMessages(conversationId, limit) };
   }));
+  ipcMain.handle(IpcChannel.SocialCacheConversation, safeCall((conversation) => {
+    writeSocialConversationPatch({ messageCache, getCloudUserId, conversation, pendingSync: true, log });
+    return { conversation };
+  }));
   ipcMain.handle(IpcChannel.SocialCacheConversationMessages, safeCall((conversationId, messages) => {
     if (!messageCache || typeof messageCache.upsertMessages !== "function") return { written: 0 };
     return { written: messageCache.upsertMessages(conversationId, Array.isArray(messages) ? messages : []) };
@@ -358,7 +393,21 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   }));
   ipcMain.handle(IpcChannel.SocialCreateConversation, cloudCall((payload) => socialApi.createConversation(payload)));
   ipcMain.handle(IpcChannel.SocialEnsureBotConversation, cloudCall((botId, body) => socialApi.ensureBotConversation(botId, body)));
-  ipcMain.handle(IpcChannel.SocialEnsureBotSessionConversation, cloudCall((sessionId, body) => socialApi.ensureBotSessionConversation(sessionId, body)));
+  ipcMain.handle(IpcChannel.SocialEnsureBotSessionConversation, cloudCall(async (sessionId, body) => {
+    const result = await socialApi.ensureBotSessionConversation(sessionId, body);
+    const conversation = resultObject(result, "conversation");
+    const members = resultArray(result, "members");
+    writeSocialConversationPatch({ messageCache, getCloudUserId, conversation, pendingSync: false, log });
+    if (conversation?.id && members.length) {
+      writeSocialBootstrapPatch({
+        messageCache,
+        getCloudUserId,
+        patch: { members: { [conversation.id]: members } },
+        log
+      });
+    }
+    return result;
+  }));
   ipcMain.handle(IpcChannel.SocialGetBotRuntime, cloudCall((botId, runtimeKind) => socialApi.getBotRuntime(botId, runtimeKind)));
   ipcMain.handle(IpcChannel.SocialSaveBotRuntime, cloudCall(async (botId, body) => {
     const result = await socialApi.saveBotRuntime(botId, body);
@@ -375,7 +424,7 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   ipcMain.handle(IpcChannel.SocialUpdateConversation, cloudCall(async (conversationId, patch) => {
     const result = await socialApi.updateConversation(conversationId, patch);
     const conversation = resultObject(result, "conversation");
-    writeSocialConversationPatch({ messageCache, getCloudUserId, conversation, log });
+    writeSocialConversationPatch({ messageCache, getCloudUserId, conversation, pendingSync: false, log });
     return result;
   }));
   ipcMain.handle(IpcChannel.SocialDeleteConversation, cloudCall(async (conversationId) => {

@@ -110,14 +110,26 @@ pub async fn read_current_mia_skill(
         .read_current_bot_skill(&bot_id, bot.as_ref(), &skill_id)
     {
         Ok(response) => Json(response).into_response(),
-        Err(CurrentSkillError::MissingId) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "id is required" })),
-        )
-            .into_response(),
-        Err(CurrentSkillError::NotEnabled(message)) => {
-            (StatusCode::NOT_FOUND, Json(json!({ "error": message }))).into_response()
+        Err(error) => {
+            let (status, payload) = current_skill_error_payload(error);
+            (status, Json(payload)).into_response()
         }
+    }
+}
+
+fn current_skill_error_payload(error: CurrentSkillError) -> (StatusCode, Value) {
+    match error {
+        CurrentSkillError::MissingId => (
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "id is required" }),
+        ),
+        CurrentSkillError::NotEnabled(message) => {
+            (StatusCode::NOT_FOUND, json!({ "error": message }))
+        }
+        CurrentSkillError::MissingSource(id) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "error": format!("Required native skill source is missing: {id}") }),
+        ),
     }
 }
 
@@ -139,6 +151,23 @@ pub async fn search_mia_memory(
                 reason: None,
             }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_required_skill_source_maps_to_an_explicit_server_error() {
+        let (status, payload) = current_skill_error_payload(CurrentSkillError::MissingSource(
+            "mia-official:officecli".to_string(),
+        ));
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            payload["error"],
+            "Required native skill source is missing: mia-official:officecli"
+        );
+    }
 }
 
 pub async fn list_mia_memory(
