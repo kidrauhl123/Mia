@@ -1368,26 +1368,32 @@ test("floating capsule controls keep hover geometry stable", () => {
   }
 });
 
-test("task preview dialog uses a structured inspector layout", () => {
+test("task preview dialog uses a compact result-first chat layout", () => {
+  const rendererHtml = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
   const taskPanel = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");
 
-  assert.match(taskPanel, /task-detail-shell/);
-  assert.match(taskPanel, /task-detail-sidebar/);
-  assert.match(taskPanel, /task-detail-main/);
-  assert.match(taskPanel, /task-primary-actions/);
-  assert.match(taskPanel, /task-status-pill/);
-  assert.match(taskPanel, /task-section/);
-  assert.match(taskPanel, /task-prompt-details accordion-details/);
-  assert.match(taskPanel, /class="accordion-body"/);
-  assert.doesNotMatch(taskPanel, /run-detail-actions\" style=/);
+  assert.doesNotMatch(rendererHtml, /id="taskPreviewMeta"/);
+  assert.doesNotMatch(taskPanel, /taskPreviewMeta/);
+  assert.match(taskPanel, /task-detail-card/);
+  assert.match(taskPanel, /task-output-row message assistant/);
+  assert.match(taskPanel, /avatar task-output-avatar/);
+  assert.match(taskPanel, /bubble task-output-bubble/);
+  assert.match(taskPanel, /task-open-chat icon-button/);
+  assert.doesNotMatch(taskPanel, /task-instruction-disclosure|task-history-disclosure|historyRowHtml/);
+  assert.doesNotMatch(taskPanel, /task-detail-sidebar|renderRunDetail|data-action="run-now"|运行一次/);
 
-  assert.match(taskCss, /\.task-detail-shell\s*\{[^}]*grid-template-columns:\s*minmax\(220px,\s*260px\)\s+minmax\(0,\s*1fr\);/);
-  assert.match(taskCss, /\.task-detail-sidebar\s*\{[^}]*position:\s*sticky;/);
-  assert.match(taskCss, /\.task-primary-actions\s*\{[^}]*grid-template-columns:\s*1fr;/);
-  assert.match(taskCss, /\.task-section\s*\{[^}]*border:\s*1px solid var\(--line\);/);
-  assert.match(taskCss, /\.task-prompt-details > summary::after\s*\{[^}]*transform:\s*rotate\(45deg\);/);
-  assert.match(taskCss, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*\.task-detail-shell\s*\{[^}]*grid-template-columns:\s*1fr;/);
+  assert.match(taskCss, /\.task-preview-card\s*\{[^}]*width:\s*min\(560px,\s*calc\(100vw - 32px\)\);[^}]*height:\s*auto;/);
+  assert.match(taskCss, /\.task-output-row\.message\s*\{[^}]*align-items:\s*flex-end;/);
+  assert.match(taskCss, /\.task-output-avatar\s*\{[^}]*width:\s*42px;[^}]*height:\s*42px;/);
+  assert.match(
+    taskCss,
+    /:root\[data-show-assistant-avatar="false"\]\s+\.task-output-row\.message\.assistant:not\(\.group-message\)\s+\.task-output-avatar\.avatar\s*\{[^}]*display:\s*grid;/,
+    "task executor identity must remain visible when chat-only avatar display is disabled"
+  );
+  assert.match(taskCss, /\.task-open-chat\s*\{[^}]*width:\s*34px;[^}]*border-radius:\s*50%;/);
+  assert.doesNotMatch(taskCss, /\.task-disclosure|\.task-history-row/);
+  assert.match(taskCss, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*\.task-preview-card\s*\{[^}]*width:\s*calc\(100vw - 20px\);/);
 });
 
 test("chat history session menus constrain long history lists to an internal scroller", () => {

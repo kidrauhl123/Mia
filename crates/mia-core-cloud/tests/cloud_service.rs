@@ -65,6 +65,33 @@ impl CloudMemoryTransport for MockMemoryTransport {
             .push(("GET".into(), path.into(), json!(null)));
         Ok(self.responses.lock().unwrap().remove(0))
     }
+
+    async fn patch_json(
+        &self,
+        _base_url: &str,
+        _token: &str,
+        path: &str,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, CloudError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(("PATCH".into(), path.into(), body));
+        Ok(self.responses.lock().unwrap().remove(0))
+    }
+
+    async fn delete_json(
+        &self,
+        _base_url: &str,
+        _token: &str,
+        path: &str,
+    ) -> Result<serde_json::Value, CloudError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(("DELETE".into(), path.into(), json!(null)));
+        Ok(self.responses.lock().unwrap().remove(0))
+    }
 }
 
 #[derive(Clone, Default)]
@@ -465,6 +492,122 @@ async fn cloud_service_syncs_memory_through_core_memory_store_and_advances_curso
     let stored: serde_json::Value =
         serde_json::from_str(&row.get::<String, _>("value_json")).unwrap();
     assert_eq!(stored["lastMemorySyncAt"], "2026-01-05T00:00:00.000Z");
+}
+
+#[tokio::test]
+async fn cloud_service_proxies_account_task_list_through_the_connected_cloud_session() {
+    let database = init_database_memory().await.unwrap();
+    let transport = MockMemoryTransport::with_responses(vec![json!({
+        "tasks": [{
+            "id": "t-cloud-1",
+            "title": "吃饭提醒",
+            "status": "done",
+            "runs": [{ "id": "r-cloud-1", "status": "ok", "outputText": "该吃饭啦" }]
+        }]
+    })]);
+    let service =
+        CloudService::with_memory_transport(database.pool().clone(), || 123456, transport.clone());
+    service
+        .connect(CloudConnectRequest {
+            url: Some("https://mia.example/".into()),
+            token: Some("secret-token".into()),
+            account_hint: None,
+            user: Some(json!({ "id": "u1" })),
+            account: None,
+            agent_runtime: None,
+            last_event_seq: None,
+            last_memory_sync_at: None,
+        })
+        .await
+        .unwrap();
+
+    let response = service.list_tasks().await.unwrap();
+
+    assert_eq!(response["tasks"][0]["id"], "t-cloud-1");
+    assert_eq!(response["tasks"][0]["runs"][0]["outputText"], "该吃饭啦");
+    assert_eq!(
+        transport.calls(),
+        vec![("GET".into(), "/api/tasks".into(), json!(null))]
+    );
+}
+
+#[tokio::test]
+async fn cloud_service_returns_an_empty_task_projection_while_signed_out() {
+    let database = init_database_memory().await.unwrap();
+    let transport = MockMemoryTransport::with_responses(vec![]);
+    let service =
+        CloudService::with_memory_transport(database.pool().clone(), || 123456, transport.clone());
+
+    let response = service.list_tasks().await.unwrap();
+
+    assert_eq!(response, json!({ "tasks": [] }));
+    assert!(transport.calls().is_empty());
+}
+
+#[tokio::test]
+async fn cloud_service_routes_cloud_task_actions_back_to_the_cloud_owner() {
+    let database = init_database_memory().await.unwrap();
+    let transport = MockMemoryTransport::with_responses(vec![
+        json!({ "task": { "id": "t-cloud-1", "status": "active" } }),
+        json!({ "task": { "id": "t-cloud-1", "title": "新的标题" } }),
+        json!({ "task": { "id": "t-cloud-1", "status": "paused" } }),
+        json!({ "task": { "id": "t-cloud-1", "status": "active" } }),
+        json!({ "runId": "r-cloud-2" }),
+        json!({ "ok": true }),
+    ]);
+    let service =
+        CloudService::with_memory_transport(database.pool().clone(), || 123456, transport.clone());
+    service
+        .connect(CloudConnectRequest {
+            url: Some("https://mia.example/".into()),
+            token: Some("secret-token".into()),
+            account_hint: None,
+            user: Some(json!({ "id": "u1" })),
+            account: None,
+            agent_runtime: None,
+            last_event_seq: None,
+            last_memory_sync_at: None,
+        })
+        .await
+        .unwrap();
+
+    service.get_task("t-cloud-1").await.unwrap();
+    service
+        .update_task("t-cloud-1", json!({ "title": "新的标题" }))
+        .await
+        .unwrap();
+    service.pause_task("t-cloud-1").await.unwrap();
+    service.resume_task("t-cloud-1").await.unwrap();
+    service.run_task_now("t-cloud-1").await.unwrap();
+    service.delete_task("t-cloud-1").await.unwrap();
+
+    assert_eq!(
+        transport.calls(),
+        vec![
+            ("GET".into(), "/api/tasks/t-cloud-1".into(), json!(null)),
+            (
+                "PATCH".into(),
+                "/api/tasks/t-cloud-1".into(),
+                json!({ "title": "新的标题" })
+            ),
+            (
+                "POST".into(),
+                "/api/tasks/t-cloud-1/pause".into(),
+                json!({})
+            ),
+            (
+                "POST".into(),
+                "/api/tasks/t-cloud-1/resume".into(),
+                json!({})
+            ),
+            (
+                "POST".into(),
+                "/api/tasks/t-cloud-1/run-now".into(),
+                json!({})
+            ),
+            ("DELETE".into(), "/api/tasks/t-cloud-1".into(), json!(null)),
+        ]
+    );
 }
 
 #[tokio::test]

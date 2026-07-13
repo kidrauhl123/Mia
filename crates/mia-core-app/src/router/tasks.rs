@@ -6,11 +6,12 @@ use mia_core_api_types::{
     CreateTaskJobRequest, EmptyResponse, RunTaskJobResponse, TaskJobListResponse, TaskJobResponse,
     UpdateTaskJobRequest,
 };
+use mia_core_cloud::CloudError;
 use mia_core_tasks::{
     EVENT_TASK_CREATED, EVENT_TASK_RUN_FINISHED, EVENT_TASK_RUN_STARTED, EVENT_TASK_UPDATED,
     TaskError,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::scheduler::execute_task_conversation_turn;
 
@@ -25,6 +26,90 @@ pub async fn list_task_jobs(
         .await
         .map(Json)
         .map_err(ApiRouteError::from_task)
+}
+
+pub async fn list_cloud_tasks(
+    State(states): State<ModuleStates>,
+) -> Result<Json<Value>, ApiRouteError> {
+    states
+        .cloud
+        .list_tasks()
+        .await
+        .map(Json)
+        .map_err(ApiRouteError::from_cloud)
+}
+
+pub async fn get_cloud_task(
+    State(states): State<ModuleStates>,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiRouteError> {
+    states
+        .cloud
+        .get_task(&task_id)
+        .await
+        .map(Json)
+        .map_err(ApiRouteError::from_cloud)
+}
+
+pub async fn update_cloud_task(
+    State(states): State<ModuleStates>,
+    Path(task_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiRouteError> {
+    states
+        .cloud
+        .update_task(&task_id, body)
+        .await
+        .map(Json)
+        .map_err(ApiRouteError::from_cloud)
+}
+
+pub async fn delete_cloud_task(
+    State(states): State<ModuleStates>,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiRouteError> {
+    states
+        .cloud
+        .delete_task(&task_id)
+        .await
+        .map(Json)
+        .map_err(ApiRouteError::from_cloud)
+}
+
+pub async fn pause_cloud_task(
+    State(states): State<ModuleStates>,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiRouteError> {
+    states
+        .cloud
+        .pause_task(&task_id)
+        .await
+        .map(Json)
+        .map_err(ApiRouteError::from_cloud)
+}
+
+pub async fn resume_cloud_task(
+    State(states): State<ModuleStates>,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiRouteError> {
+    states
+        .cloud
+        .resume_task(&task_id)
+        .await
+        .map(Json)
+        .map_err(ApiRouteError::from_cloud)
+}
+
+pub async fn run_cloud_task_now(
+    State(states): State<ModuleStates>,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiRouteError> {
+    states
+        .cloud
+        .run_task_now(&task_id)
+        .await
+        .map(Json)
+        .map_err(ApiRouteError::from_cloud)
 }
 
 pub async fn create_task_job(
@@ -166,6 +251,21 @@ impl ApiRouteError {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: message.into(),
+        }
+    }
+
+    fn from_cloud(error: CloudError) -> Self {
+        let status = match &error {
+            CloudError::InvalidInput(_) => StatusCode::BAD_REQUEST,
+            CloudError::Transport(_) => StatusCode::BAD_GATEWAY,
+            CloudError::Busy(_) => StatusCode::CONFLICT,
+            CloudError::Runtime(_) | CloudError::Memory(_) | CloudError::Database(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        };
+        Self {
+            status,
+            message: error.to_string(),
         }
     }
 }

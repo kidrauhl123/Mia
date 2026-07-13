@@ -48,7 +48,9 @@ use super::system::{
     save_model_selection, settings_runtime_control_options, system_status, test_provider,
 };
 use super::tasks::{
-    create_task_job, delete_task_job, get_task_job, list_task_jobs, run_task_job, update_task_job,
+    create_task_job, delete_cloud_task, delete_task_job, get_cloud_task, get_task_job,
+    list_cloud_tasks, list_task_jobs, pause_cloud_task, resume_cloud_task, run_cloud_task_now,
+    run_task_job, update_cloud_task, update_task_job,
 };
 
 pub fn create_router(services: &AppServices) -> Router {
@@ -178,6 +180,19 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
                 .delete(delete_task_job),
         )
         .route("/api/tasks/jobs/{job_id}/run", post(run_task_job))
+        .route("/api/tasks/cloud", get(list_cloud_tasks))
+        .route(
+            "/api/tasks/cloud/{task_id}",
+            get(get_cloud_task)
+                .patch(update_cloud_task)
+                .delete(delete_cloud_task),
+        )
+        .route("/api/tasks/cloud/{task_id}/pause", post(pause_cloud_task))
+        .route("/api/tasks/cloud/{task_id}/resume", post(resume_cloud_task))
+        .route(
+            "/api/tasks/cloud/{task_id}/run-now",
+            post(run_cloud_task_now),
+        )
         .route(
             "/api/mcp/servers",
             get(list_mcp_servers).post(create_mcp_server),
@@ -2613,6 +2628,152 @@ mod tests {
         assert_eq!(deleted_event.name, EVENT_TASK_UPDATED);
         assert_eq!(deleted_event.data["jobId"], job_id);
         assert_eq!(deleted_event.data["deleted"], true);
+    }
+
+    #[tokio::test]
+    async fn cloud_task_routes_proxy_the_connected_account_owner() {
+        use std::sync::Mutex;
+
+        use mia_core_api_types::CloudConnectRequest;
+        use mia_core_cloud::{CloudError, CloudMemoryTransport, CloudService};
+
+        #[derive(Clone)]
+        struct TaskCloudTransport {
+            calls: Arc<Mutex<Vec<(String, String)>>>,
+            responses: Arc<Mutex<Vec<Value>>>,
+        }
+
+        #[async_trait::async_trait]
+        impl CloudMemoryTransport for TaskCloudTransport {
+            async fn post_json(
+                &self,
+                _base_url: &str,
+                _token: &str,
+                path: &str,
+                _body: Value,
+            ) -> Result<Value, CloudError> {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(("POST".into(), path.into()));
+                Ok(self.responses.lock().unwrap().remove(0))
+            }
+
+            async fn get_json(
+                &self,
+                _base_url: &str,
+                _token: &str,
+                path: &str,
+            ) -> Result<Value, CloudError> {
+                self.calls.lock().unwrap().push(("GET".into(), path.into()));
+                Ok(self.responses.lock().unwrap().remove(0))
+            }
+
+            async fn patch_json(
+                &self,
+                _base_url: &str,
+                _token: &str,
+                _path: &str,
+                _body: Value,
+            ) -> Result<Value, CloudError> {
+                unreachable!("this test does not patch cloud tasks")
+            }
+
+            async fn delete_json(
+                &self,
+                _base_url: &str,
+                _token: &str,
+                _path: &str,
+            ) -> Result<Value, CloudError> {
+                unreachable!("this test does not delete cloud tasks")
+            }
+        }
+
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let services = AppServices::from_config(&config).await.unwrap();
+        let transport = TaskCloudTransport {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            responses: Arc::new(Mutex::new(vec![
+                json!({
+                    "tasks": [{
+                        "id": "t-cloud-route",
+                        "title": "吃饭提醒",
+                        "runs": [{ "id": "r-cloud-route", "status": "ok" }]
+                    }]
+                }),
+                json!({ "runId": "r-cloud-route-2" }),
+            ])),
+        };
+        let cloud = CloudService::with_memory_transport(
+            services.database.pool().clone(),
+            || 1000,
+            transport.clone(),
+        );
+        cloud
+            .connect(CloudConnectRequest {
+                url: Some("https://mia.example".into()),
+                token: Some("secret-token".into()),
+                account_hint: None,
+                user: Some(json!({ "id": "u1" })),
+                account: None,
+                agent_runtime: None,
+                last_event_seq: None,
+                last_memory_sync_at: None,
+            })
+            .await
+            .unwrap();
+        let mut states = build_module_states(&services);
+        states.cloud = cloud;
+        let app = create_router_with_states(states);
+
+        let list_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/tasks/cloud")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(list_response.status(), StatusCode::OK);
+        let list_body: Value = serde_json::from_slice(
+            &to_bytes(list_response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(list_body["tasks"][0]["id"], "t-cloud-route");
+        assert_eq!(list_body["tasks"][0]["runs"][0]["id"], "r-cloud-route");
+
+        let run_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/tasks/cloud/t-cloud-route/run-now")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(run_response.status(), StatusCode::OK);
+        let run_body: Value = serde_json::from_slice(
+            &to_bytes(run_response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(run_body["runId"], "r-cloud-route-2");
+        assert_eq!(
+            transport.calls.lock().unwrap().as_slice(),
+            &[
+                ("GET".into(), "/api/tasks".into()),
+                ("POST".into(), "/api/tasks/t-cloud-route/run-now".into()),
+            ]
+        );
     }
 
     #[tokio::test]

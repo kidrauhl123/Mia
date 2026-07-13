@@ -1,5 +1,10 @@
 const { contextBridge, ipcRenderer, webUtils, clipboard } = require("electron");
 const { IpcChannel } = require("./shared/ipc-channels");
+const {
+  TASK_SOURCE_CLOUD,
+  mergeTaskProjections,
+  taskSourceFor
+} = require("./shared/task-projection");
 
 const miaCoreStartupState = ipcRenderer.sendSync(IpcChannel.MiaCoreStartupState) || {};
 const miaCoreRequest = (method, route, body) => ipcRenderer.invoke(IpcChannel.MiaCoreHttpRequest, { method, route, body });
@@ -959,6 +964,14 @@ function legacyTaskFromCoreJob(job = {}) {
   };
 }
 
+function cloudTaskFromCoreProxy(task = {}) {
+  return {
+    ...(task && typeof task === "object" ? task : {}),
+    runs: Array.isArray(task?.runs) ? task.runs : [],
+    taskSource: TASK_SOURCE_CLOUD
+  };
+}
+
 function buildCoreTaskTarget(input = {}) {
   const payload = input && typeof input === "object" ? input : {};
   return {
@@ -1021,6 +1034,58 @@ function buildCoreTaskJobUpdate(partial = {}) {
 async function listCoreTaskJobs() {
   const response = await miaCoreGet("/api/tasks/jobs");
   return (Array.isArray(response?.jobs) ? response.jobs : []).map(legacyTaskFromCoreJob);
+}
+
+async function listCloudTaskJobs() {
+  const response = await miaCoreGet("/api/tasks/cloud");
+  return (Array.isArray(response?.tasks) ? response.tasks : []).map(cloudTaskFromCoreProxy);
+}
+
+async function listTaskJobs() {
+  const localTasks = await listCoreTaskJobs();
+  const cloudTasks = await listCloudTaskJobs();
+  return mergeTaskProjections(localTasks, cloudTasks);
+}
+
+function taskActionUsesCloud(id, source) {
+  return taskSourceFor(source || String(id || "")) === TASK_SOURCE_CLOUD;
+}
+
+async function getTaskJob(id, source) {
+  if (!taskActionUsesCloud(id, source)) return getCoreTaskJob(id);
+  const response = await miaCoreGet(`/api/tasks/cloud/${encodeURIComponent(id)}`);
+  return cloudTaskFromCoreProxy(response?.task || {});
+}
+
+async function updateTaskJob(id, partial, source) {
+  if (!taskActionUsesCloud(id, source)) return updateCoreTaskJob(id, partial);
+  const response = await miaCorePatch(`/api/tasks/cloud/${encodeURIComponent(id)}`, partial || {});
+  return cloudTaskFromCoreProxy(response?.task || {});
+}
+
+async function deleteTaskJob(id, source) {
+  const route = taskActionUsesCloud(id, source)
+    ? `/api/tasks/cloud/${encodeURIComponent(id)}`
+    : `/api/tasks/jobs/${encodeURIComponent(id)}`;
+  return coreOk(miaCoreDelete(route));
+}
+
+async function changeTaskStatus(id, action, source) {
+  if (!taskActionUsesCloud(id, source)) {
+    return updateCoreTaskJob(id, { status: action === "pause" ? "paused" : "active" });
+  }
+  const response = await miaCorePost(
+    `/api/tasks/cloud/${encodeURIComponent(id)}/${encodeURIComponent(action)}`,
+    {}
+  );
+  return cloudTaskFromCoreProxy(response?.task || {});
+}
+
+function runTaskNow(id, source) {
+  const route = taskActionUsesCloud(id, source)
+    ? `/api/tasks/cloud/${encodeURIComponent(id)}/run-now`
+    : `/api/tasks/jobs/${encodeURIComponent(id)}/run`;
+  return miaCorePost(route, {});
 }
 
 async function getCoreTaskJob(id) {
@@ -1193,14 +1258,14 @@ contextBridge.exposeInMainWorld("mia", {
   placeBotPet: (key) => ipcRenderer.invoke(IpcChannel.PetPlace, key),
   recallBotPet: (key) => ipcRenderer.invoke(IpcChannel.PetRecall, key),
   tasks: {
-    list: () => listCoreTaskJobs(),
-    get: (id) => getCoreTaskJob(id),
+    list: () => listTaskJobs(),
+    get: (id, source) => getTaskJob(id, source),
     create: (input) => createCoreTaskJob(input),
-    update: (id, partial) => updateCoreTaskJob(id, partial),
-    delete: (id) => coreOk(miaCoreDelete(`/api/tasks/jobs/${encodeURIComponent(id)}`)),
-    pause: (id) => updateCoreTaskJob(id, { status: "paused" }),
-    resume: (id) => updateCoreTaskJob(id, { status: "active" }),
-    runNow: (id) => miaCorePost(`/api/tasks/jobs/${encodeURIComponent(id)}/run`, {}),
+    update: (id, partial, source) => updateTaskJob(id, partial, source),
+    delete: (id, source) => deleteTaskJob(id, source),
+    pause: (id, source) => changeTaskStatus(id, "pause", source),
+    resume: (id, source) => changeTaskStatus(id, "resume", source),
+    runNow: (id, source) => runTaskNow(id, source),
     subscribe: (cb) => {
       const wrapped = (_e, envelope) => cb(envelope);
       ipcRenderer.on(IpcChannel.TasksEvent, wrapped);

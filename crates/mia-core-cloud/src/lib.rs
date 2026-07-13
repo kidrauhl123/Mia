@@ -69,6 +69,21 @@ pub trait CloudMemoryTransport: Send + Sync {
     ) -> Result<Value, CloudError>;
 
     async fn get_json(&self, base_url: &str, token: &str, path: &str) -> Result<Value, CloudError>;
+
+    async fn patch_json(
+        &self,
+        base_url: &str,
+        token: &str,
+        path: &str,
+        body: Value,
+    ) -> Result<Value, CloudError>;
+
+    async fn delete_json(
+        &self,
+        base_url: &str,
+        token: &str,
+        path: &str,
+    ) -> Result<Value, CloudError>;
 }
 
 #[derive(Debug, Default)]
@@ -98,6 +113,40 @@ impl CloudMemoryTransport for ReqwestCloudMemoryTransport {
         let client = reqwest::Client::new();
         let response = client
             .get(format!("{base_url}{path}"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|error| CloudError::Transport(error.to_string()))?;
+        response_json(response).await
+    }
+
+    async fn patch_json(
+        &self,
+        base_url: &str,
+        token: &str,
+        path: &str,
+        body: Value,
+    ) -> Result<Value, CloudError> {
+        let client = reqwest::Client::new();
+        let response = client
+            .patch(format!("{base_url}{path}"))
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| CloudError::Transport(error.to_string()))?;
+        response_json(response).await
+    }
+
+    async fn delete_json(
+        &self,
+        base_url: &str,
+        token: &str,
+        path: &str,
+    ) -> Result<Value, CloudError> {
+        let client = reqwest::Client::new();
+        let response = client
+            .delete(format!("{base_url}{path}"))
             .bearer_auth(token)
             .send()
             .await
@@ -362,6 +411,76 @@ impl CloudService {
         );
         self.write_state(CLOUD_SETTINGS_KEY, settings).await?;
         Ok(summary)
+    }
+
+    pub async fn list_tasks(&self) -> Result<Value, CloudError> {
+        let (base_url, token) = match self.connected_cloud_api().await {
+            Ok(session) => session,
+            Err(CloudError::InvalidInput(_)) => return Ok(json!({ "tasks": [] })),
+            Err(error) => return Err(error),
+        };
+        self.memory_transport
+            .get_json(&base_url, &token, "/api/tasks")
+            .await
+    }
+
+    pub async fn get_task(&self, task_id: &str) -> Result<Value, CloudError> {
+        let (base_url, token) = self.connected_cloud_api().await?;
+        let path = cloud_task_path(task_id)?;
+        self.memory_transport
+            .get_json(&base_url, &token, &path)
+            .await
+    }
+
+    pub async fn update_task(&self, task_id: &str, body: Value) -> Result<Value, CloudError> {
+        let (base_url, token) = self.connected_cloud_api().await?;
+        let path = cloud_task_path(task_id)?;
+        self.memory_transport
+            .patch_json(&base_url, &token, &path, body)
+            .await
+    }
+
+    pub async fn delete_task(&self, task_id: &str) -> Result<Value, CloudError> {
+        let (base_url, token) = self.connected_cloud_api().await?;
+        let path = cloud_task_path(task_id)?;
+        self.memory_transport
+            .delete_json(&base_url, &token, &path)
+            .await
+    }
+
+    pub async fn pause_task(&self, task_id: &str) -> Result<Value, CloudError> {
+        self.post_task_action(task_id, "pause").await
+    }
+
+    pub async fn resume_task(&self, task_id: &str) -> Result<Value, CloudError> {
+        self.post_task_action(task_id, "resume").await
+    }
+
+    pub async fn run_task_now(&self, task_id: &str) -> Result<Value, CloudError> {
+        self.post_task_action(task_id, "run-now").await
+    }
+
+    async fn post_task_action(&self, task_id: &str, action: &str) -> Result<Value, CloudError> {
+        let (base_url, token) = self.connected_cloud_api().await?;
+        let path = format!("{}/{}", cloud_task_path(task_id)?, action);
+        self.memory_transport
+            .post_json(&base_url, &token, &path, json!({}))
+            .await
+    }
+
+    async fn connected_cloud_api(&self) -> Result<(String, String), CloudError> {
+        let settings = self.read_cloud_settings().await?;
+        let token = string_field(&settings, "token").unwrap_or_default();
+        if !bool_field(&settings, "enabled") || token.trim().is_empty() {
+            return Err(CloudError::InvalidInput("cloud is not connected".into()));
+        }
+        let base_url = normalize_cloud_url(
+            settings
+                .get("url")
+                .and_then(Value::as_str)
+                .or(Some(DEFAULT_CLOUD_URL)),
+        );
+        Ok((base_url, token))
     }
 
     pub async fn post_conversation_message_as_bot(
@@ -659,6 +778,14 @@ fn cloud_route_id(value: &str) -> Result<String, CloudError> {
     } else {
         Err(CloudError::InvalidInput("conversationId is invalid".into()))
     }
+}
+
+fn cloud_task_path(task_id: &str) -> Result<String, CloudError> {
+    let task_id = task_id.trim();
+    if task_id.is_empty() {
+        return Err(CloudError::InvalidInput("taskId is required".into()));
+    }
+    Ok(format!("/api/tasks/{}", encode_uri_component(task_id)))
 }
 
 pub(crate) fn encode_uri_component(value: &str) -> String {

@@ -1,7 +1,7 @@
 // Tasks panel module
 // Single full-width card-grid layout (mirrors skill-library): chip row +
-// card grid in main content; task detail / run detail open in an overlay
-// preview dialog (#taskPreviewDialog).
+// card grid in main content; task and run output share one compact overlay
+// card (#taskPreviewDialog).
 (function () {
   "use strict";
 
@@ -60,14 +60,12 @@
   }
 
   // Single source of truth for run-status presentation. Any new run.status
-  // value must extend this map so historyRow, run detail header, and card
-  // status all stay in sync.
+  // value must extend this map so task cards and compact output stay in sync.
   const RUN_STATUS_ICONS  = { ok: "✓", failed: "✗", missed: "⊘", skipped: "·" };
   const RUN_STATUS_LABELS = { ok: "完成", failed: "失败", missed: "错过", skipped: "跳过" };
   function runStatusIcon(status)  { return RUN_STATUS_ICONS[status]  || "·"; }
   function runStatusLabel(status) { return RUN_STATUS_LABELS[status] || status || "—"; }
   function runStatusSuffix(run) {
-    if (run.status === "failed") return " 失败";
     if (run.status === "missed") return ` 离线错过 ${run.missedCount || 1} 次`;
     return "";
   }
@@ -95,11 +93,28 @@
     }
   }
 
-  function botName(botId) {
+  function botContact(botId) {
     const { resolveContact, IdentityKind } = contact();
     const bots = ownedBots();
-    const resolved = resolveContact({ kind: IdentityKind?.Bot || "bot", ref: botId }, { bots });
-    return resolved.displayName || botId;
+    return resolveContact({ kind: IdentityKind?.Bot || "bot", ref: botId }, { bots });
+  }
+
+  function botName(botId) {
+    return botContact(botId).displayName || botId;
+  }
+
+  function taskExecutorAvatarHtml(task) {
+    const resolved = botContact(task?.botId || "");
+    const avatar = resolved.avatar || {};
+    const label = resolved.displayName || task?.botId || "";
+    return __global.miaAvatar.avatarHtml({
+      className: "avatar task-output-avatar",
+      image: avatar.image || "",
+      crop: avatar.crop || null,
+      color: avatar.color || "#5e5ce6",
+      text: avatar.image ? "" : avatar.text || label,
+      attrs: `role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"`
+    });
   }
 
   function ownedBots() {
@@ -142,17 +157,18 @@
       });
   }
 
-  // 历史 view: flatten all runs from all tasks into one timeline.
-  // Each run carries a back-pointer to its parent task for display + click-through.
-  function allRuns(tasks) {
-    const out = [];
-    for (const task of tasks) {
-      for (const run of (task.runs || [])) {
-        out.push({ run, task });
-      }
-    }
-    out.sort((a, b) => (b.run.firedAt || 0) - (a.run.firedAt || 0));
-    return out;
+  function latestRun(task) {
+    const runs = Array.isArray(task?.runs) ? task.runs : [];
+    return runs.reduce((latest, run) =>
+      !latest || (run.firedAt || 0) > (latest.firedAt || 0) ? run : latest, null);
+  }
+
+  // 历史 view: one card per task, ordered by that task's latest real run.
+  function historyTasks(tasks) {
+    return (Array.isArray(tasks) ? tasks : [])
+      .filter((task) => latestRun(task))
+      .slice()
+      .sort((a, b) => (latestRun(b)?.firedAt || 0) - (latestRun(a)?.firedAt || 0));
   }
 
   function filterTasks(tasks, needle) {
@@ -160,11 +176,13 @@
     if (!q) return tasks;
     return tasks.filter((t) => `${t.title} ${taskInstructionText(t)}`.toLowerCase().includes(q));
   }
-  function filterRuns(entries, needle) {
+  function filterHistoryTasks(tasks, needle) {
     const q = (needle || "").trim().toLowerCase();
-    if (!q) return entries;
-    return entries.filter(({ task, run }) =>
-      `${task.title} ${taskInstructionText(task)} ${run.outputText || ""}`.toLowerCase().includes(q));
+    if (!q) return tasks;
+    return tasks.filter((task) => {
+      const outputs = (task.runs || []).map((run) => run.outputText || run.error || "").join(" ");
+      return `${task.title} ${taskInstructionText(task)} ${outputs}`.toLowerCase().includes(q);
+    });
   }
 
   // ── Main render: chip row + card grid + preview dialog ────────────────────
@@ -182,10 +200,10 @@
     const host = document.getElementById("taskModeToggle");
     if (!host) return;
     const active = activeTasks(state.tasks);
-    const historyEntries = allRuns(state.tasks);
+    const history = historyTasks(state.tasks);
     const counts = {
       active: active.length,
-      history: historyEntries.length
+      history: history.length
     };
     const unreadCounts = {
       active: active.reduce((n, task) => n + taskUnreadCount(task), 0),
@@ -272,7 +290,6 @@
       els.tasksContent.querySelectorAll("[data-task-id]").forEach((btn) => {
         btn.addEventListener("click", () => {
           state.selectedTaskId = btn.dataset.taskId;
-          state.selectedRunId = "";
           state.tasksUnread.delete(state.selectedTaskId);
           updateTasksRailBadge();
           renderTaskView();
@@ -291,11 +308,11 @@
   function renderHistoryView() {
     const chipRow = document.getElementById("taskChipRow");
     const filterKey = state.taskHistoryFilter || "all";
-    const allEntries = filterRuns(allRuns(state.tasks), state.taskFilter);
+    const allHistoryTasks = filterHistoryTasks(historyTasks(state.tasks), state.taskFilter);
     if (chipRow) {
       chipRow.hidden = false;
       const counts = Object.fromEntries(
-        HISTORY_FILTERS.map((f) => [f.key, allEntries.filter((e) => f.match(e.run)).length])
+        HISTORY_FILTERS.map((f) => [f.key, allHistoryTasks.filter((task) => f.match(latestRun(task))).length])
       );
       const renderKey = JSON.stringify({
         kind: "task-history-chips",
@@ -325,18 +342,17 @@
       }
     }
     const match = (HISTORY_FILTERS.find((f) => f.key === filterKey) || HISTORY_FILTERS[0]).match;
-    const visible = allEntries.filter((e) => match(e.run));
+    const visible = allHistoryTasks.filter((task) => match(latestRun(task)));
     if (visible.length === 0) {
-      setTasksContentHtml("task-history-empty", `<div class="tasks-empty"><p>当前筛选下没有运行记录</p></div>`);
+      setTasksContentHtml("task-history-empty", `<div class="tasks-empty"><p>当前筛选下没有任务记录</p></div>`);
       layoutTaskCards();
       return;
     }
-    const html = visible.map(runCardHtml).join("");
+    const html = visible.map(historyCardHtml).join("");
     setTasksContentHtml("task-history-cards", html, () => {
-      els.tasksContent.querySelectorAll("[data-run-card]").forEach((btn) => {
+      els.tasksContent.querySelectorAll("[data-task-id]").forEach((btn) => {
         btn.addEventListener("click", () => {
           state.selectedTaskId = btn.dataset.taskId;
-          state.selectedRunId = btn.dataset.runId;
           state.tasksUnread.delete(state.selectedTaskId);
           updateTasksRailBadge();
           renderTaskView();
@@ -406,7 +422,9 @@
     `;
   }
 
-  function runCardHtml({ run, task }) {
+  function historyCardHtml(task) {
+    const run = latestRun(task);
+    const runCount = (task.runs || []).length;
     const icon = runStatusIcon(run.status);
     const label = runStatusLabel(run.status);
     const badge = cardUnreadBadgeHtml(task);
@@ -417,15 +435,14 @@
           .replace(/\s+/g, " ")
           .trim();
     return `
-      <button class="task-card task-run-card" type="button"
-              data-run-card data-task-id="${escapeHtml(task.id)}" data-run-id="${escapeHtml(run.id)}">
+      <button class="task-card task-history-card" type="button" data-task-id="${escapeHtml(task.id)}">
         <div class="task-card-title">
-          <span class="task-run-icon ${run.status}">${icon}</span>
+          <span class="task-history-icon ${run.status}">${icon}</span>
           <strong>${escapeHtml(task.title)}</strong>
         </div>
         <div class="task-card-meta">${escapeHtml(detail)}</div>
         <div class="task-card-foot">
-          <em class="task-card-status">${escapeHtml(label)} · ${escapeHtml(formatRunTime(run.firedAt))}</em>
+          <em class="task-card-status">${escapeHtml(label)} · ${escapeHtml(formatRunTime(run.firedAt))} · 执行 ${runCount} 次</em>
           ${badge}
           <em class="task-card-bot">${escapeHtml(botName(task.botId))}</em>
         </div>
@@ -444,12 +461,13 @@
       ? state.tasks.find((t) => t.id === state.selectedTaskId)
       : null;
     if (!task) {
+      const actions = document.getElementById("taskPreviewActions");
+      if (actions) actions.innerHTML = "";
       hidePreviewDialog();
       return;
     }
     showPreviewDialog();
-    if (state.selectedRunId) renderRunDetail(task);
-    else renderTaskDetail(task);
+    renderTaskDetail(task);
   }
 
   function showPreviewDialog() {
@@ -478,183 +496,120 @@
 
   function closePreviewDialog() {
     state.selectedTaskId = "";
-    state.selectedRunId = "";
+    const actions = document.getElementById("taskPreviewActions");
+    if (actions) actions.innerHTML = "";
     hidePreviewDialog();
     renderTaskView();
   }
 
   function renderTaskDetail(task) {
     const body = document.getElementById("taskPreviewBody");
+    const actions = document.getElementById("taskPreviewActions");
     if (!body) return;
-    setText(document.getElementById("taskPreviewTitle"), task.title);
-    setText(document.getElementById("taskPreviewMeta"),
-      `${botName(task.botId)} · ${scheduleText(task)}`);
 
-    const pauseLabel  = task.status === "paused" ? "启用" : "暂停";
-    const pauseAction = task.status === "paused" ? "resume" : "pause";
-    const closed = task.status === "done" || task.status === "failed";
-    const statusText = ({ active: "进行中", paused: "已暂停", done: "已完成", failed: "已失败" })[task.status] || task.status;
-    const nextText = task.status === "active" && task.nextFireAt
-      ? `下次 ${formatRunTime(task.nextFireAt)}` : "没有待执行时间";
+    const runs = Array.isArray(task.runs)
+      ? task.runs.slice().sort((a, b) => (a.firedAt || 0) - (b.firedAt || 0))
+      : [];
     const conversationId = taskConversationId(task);
-    const runCount = (task.runs || []).length;
-    const latestRun = (task.runs || [])[runCount - 1] || null;
-    const statusClass = ({ active: "active", paused: "paused", failed: "failed", done: "done" })[task.status] || "done";
+
+    setText(document.getElementById("taskPreviewTitle"), task.title);
+
+    if (actions) {
+      const pauseAction = task.status === "paused" ? "resume" : "pause";
+      const pauseLabel = task.status === "paused" ? "恢复任务" : "暂停任务";
+      const closed = task.status === "done" || task.status === "failed";
+      actions.innerHTML = `
+        <details class="task-more-menu">
+          <summary class="icon-button" aria-label="更多操作" title="更多操作">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.5" fill="currentColor"></circle>
+              <circle cx="12" cy="12" r="1.5" fill="currentColor"></circle>
+              <circle cx="19" cy="12" r="1.5" fill="currentColor"></circle>
+            </svg>
+          </summary>
+          <div class="task-more-popover">
+            ${closed ? "" : `<button type="button" data-action="${pauseAction}">${pauseLabel}</button>`}
+            <button class="danger" type="button" data-action="delete">删除任务</button>
+          </div>
+        </details>
+      `;
+    }
 
     body.innerHTML = `
-      <div class="task-detail-shell">
-        <aside class="task-detail-sidebar">
-          <div class="task-status-panel">
-            <span class="task-status-pill ${escapeHtml(statusClass)}">${escapeHtml(statusText)}</span>
-            <strong>${escapeHtml(scheduleText(task))}</strong>
-            <small>${escapeHtml(nextText)}</small>
-          </div>
-          <div class="task-side-meta">
-            <div><small>执行者</small><span>${escapeHtml(botName(task.botId))}</span></div>
-            <div><small>历史</small><span>${runCount} 次运行</span></div>
-            ${latestRun ? `<div><small>最近一次</small><span>${escapeHtml(formatRunTime(latestRun.firedAt))}</span></div>` : ""}
-          </div>
-          <div class="task-primary-actions">
-            <button class="task-action-primary" type="button" data-action="run-now">运行一次</button>
-            ${closed ? "" : `<button class="secondary" type="button" data-action="${pauseAction}">${pauseLabel}</button>`}
-            <button class="secondary" type="button" data-jump-conversation="${escapeHtml(conversationId)}">打开对话</button>
-          </div>
-          <button class="task-delete-action" type="button" data-action="delete">删除任务</button>
-        </aside>
-
-        <main class="task-detail-main">
-          <section class="task-section task-section-prompt">
-            <div class="task-section-head">
-              <h3>要求说明</h3>
-            </div>
-            <p>${escapeHtml(taskInstructionText(task))}</p>
-          </section>
-
-          <section class="task-section">
-            <div class="task-section-head">
-              <h3>历史记录</h3>
-              <span>${runCount}</span>
-            </div>
-            <div class="task-history-list">
-              ${(task.runs || []).slice(-50).reverse().map(historyRowHtml).join("")}
-              ${runCount === 0 ? `<div class="task-history-empty">还没有运行过</div>` : ""}
-            </div>
-          </section>
-        </main>
+      <div class="task-detail-card">
+        ${runs.length
+          ? runs.map((run) => taskOutputHtml(task, run, conversationId)).join("")
+          : taskOutputHtml(task, null, conversationId)}
       </div>
     `;
+    __global.miaAvatar.hydrateAvatarMedia?.(body);
     attachTaskDetailHandlers(task);
   }
 
-  function historyRowHtml(run) {
+  function taskOutputHtml(task, run, conversationId) {
+    if (!run) {
+      return `
+        <section class="task-output-pending">
+          等待首次执行
+        </section>
+      `;
+    }
+
+    const outputText = String(run.outputText || "").trim();
+    let output;
+    if (run.status === "missed") {
+      const range = run.firstMissedAt && run.lastMissedAt
+        ? `（${formatRunTime(run.firstMissedAt)} – ${formatRunTime(run.lastMissedAt)}）`
+        : "";
+      output = `<div class="task-output-state missed">设备离线期间错过 ${escapeHtml(run.missedCount || 1)} 次触发${escapeHtml(range)}，未补跑。</div>`;
+    } else if (!outputText) {
+      const message = run.error ? `运行失败：${run.error}` : "本次没有产生输出。";
+      output = `<div class="task-output-state ${run.error ? "failed" : "empty"}">${escapeHtml(message)}</div>`;
+    } else {
+      output = `<div class="bubble task-output-bubble">${window.miaMarkdown.renderMarkdown(outputText)}</div>`;
+    }
+
+    const jumpButton = conversationId
+      ? `<button class="task-open-chat icon-button" type="button" data-jump-conversation="${escapeHtml(conversationId)}" aria-label="打开对话" title="打开对话">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M20 15a3 3 0 0 1-3 3H9l-5 3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v8Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path d="m13.5 9 2.5 2.5-2.5 2.5M16 11.5h-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </button>`
+      : "";
+
     return `
-      <button class="task-history-row" type="button" data-run-id="${escapeHtml(run.id)}">
-        <span>${runStatusIcon(run.status)}</span>
-        <span>${escapeHtml(formatRunTime(run.firedAt))}</span>
-        <span>${escapeHtml(runStatusLabel(run.status))}${escapeHtml(runStatusSuffix(run))}</span>
-        <em>→ 查看输出</em>
-      </button>
+      <section class="task-output-section">
+        <div class="task-output-meta">
+          <span>${escapeHtml(formatRunTime(run.firedAt))}</span>
+          <span>${escapeHtml(runStatusLabel(run.status))}${escapeHtml(runStatusSuffix(run))}</span>
+        </div>
+        <div class="task-output-row message assistant">
+          ${taskExecutorAvatarHtml(task)}
+          ${output}
+          ${jumpButton}
+        </div>
+      </section>
     `;
-  }
-
-  function renderRunDetail(task) {
-    const body = document.getElementById("taskPreviewBody");
-    if (!body) return;
-    const run = (task.runs || []).find((r) => r.id === state.selectedRunId);
-    if (!run) { state.selectedRunId = ""; renderTaskDetail(task); return; }
-
-    setText(document.getElementById("taskPreviewTitle"),
-      `${task.title} · ${formatRunTime(run.firedAt)} ${runStatusLabel(run.status)}`);
-    setText(document.getElementById("taskPreviewMeta"),
-      `${botName(task.botId)} · ${scheduleText(task)}`);
-
-    const outputText = run.outputText || "";
-    const missedSummary = run.status === "missed"
-      ? `<div class="run-detail-empty">daemon 离线期间错过 ${run.missedCount} 次触发（${escapeHtml(formatRunTime(run.firstMissedAt))} ~ ${escapeHtml(formatRunTime(run.lastMissedAt))}），未补跑。</div>`
-      : null;
-    const outputHtml = missedSummary
-      || (outputText
-        ? `<div class="run-output-text">${window.miaMarkdown.renderMarkdown(outputText)}</div>`
-        : `<div class="run-detail-empty">${run.error ? `运行失败：${escapeHtml(run.error)}` : "本次没有产生输出。"}</div>`);
-
-    body.innerHTML = `
-      <div class="task-detail-shell">
-        <aside class="task-detail-sidebar">
-          <div class="task-status-panel">
-            <span class="task-status-pill ${escapeHtml(run.status || "done")}">${escapeHtml(runStatusLabel(run.status))}</span>
-            <strong>${escapeHtml(formatRunTime(run.firedAt))}</strong>
-            <small>${escapeHtml(runStatusSuffix(run).trim() || "运行记录")}</small>
-          </div>
-          <div class="task-side-meta">
-            <div><small>任务</small><span>${escapeHtml(task.title)}</span></div>
-            <div><small>执行者</small><span>${escapeHtml(botName(task.botId))}</span></div>
-            <div><small>执行时间</small><span>${escapeHtml(scheduleText(task))}</span></div>
-          </div>
-          <div class="task-primary-actions">
-            <button class="secondary" type="button" data-action="back-to-task">返回任务</button>
-            <button class="secondary" type="button" data-action="open-conversation">打开对话</button>
-            <button class="task-action-primary" type="button" data-action="run-now">运行一次</button>
-          </div>
-        </aside>
-
-        <main class="task-detail-main">
-          <section class="task-section run-detail-output">
-            <div class="task-section-head">
-              <h3>AI 输出</h3>
-              <span>${escapeHtml(runStatusLabel(run.status))}</span>
-            </div>
-            <div class="run-output-shell">${outputHtml}</div>
-          </section>
-          <section class="task-section run-detail-prompt">
-            <details class="task-prompt-details accordion-details">
-              <summary>原始指令</summary>
-              <div class="accordion-body">
-                <pre>${escapeHtml(taskInstructionText(task))}</pre>
-              </div>
-            </details>
-          </section>
-        </main>
-      </div>
-    `;
-
-    body.querySelector("[data-action='back-to-task']")?.addEventListener("click", () => {
-      state.selectedRunId = "";
-      renderTaskView();
-    });
-    body.querySelector("[data-action='open-conversation']")?.addEventListener("click", () => {
-      jumpToTaskConversation(task);
-    });
-    body.querySelector("[data-action='run-now']")?.addEventListener("click", async () => {
-      try { await window.mia.tasks.runNow(task.id); } catch (e) { console.warn("run-now failed", e); }
-      await loadTasksFromDaemon();
-      renderTaskView();
-    });
   }
 
   function attachTaskDetailHandlers(task) {
     const body = document.getElementById("taskPreviewBody");
+    const actions = document.getElementById("taskPreviewActions");
     if (!body) return;
-    body.querySelectorAll("[data-action]").forEach((btn) => {
+    for (const root of [body, actions].filter(Boolean)) root.querySelectorAll("[data-action]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const action = btn.dataset.action;
         try {
-          if (action === "run-now") await window.mia.tasks.runNow(task.id);
-          if (action === "pause")   await window.mia.tasks.pause(task.id);
-          if (action === "resume")  await window.mia.tasks.resume(task.id);
+          if (action === "pause")   await mia.tasks.pause(task.id, task.taskSource);
+          if (action === "resume")  await mia.tasks.resume(task.id, task.taskSource);
           if (action === "delete") {
-            if (!confirm(`删除任务「${task.title}」？已发生的历史记录会保留在对话里。`)) return;
-            await window.mia.tasks.delete(task.id);
+            if (!confirm(`删除任务「${task.title}」？已经发送的回复仍会保留在对话里。`)) return;
+            await mia.tasks.delete(task.id, task.taskSource);
             state.selectedTaskId = "";
-            state.selectedRunId = "";
           }
         } catch (e) { console.warn("[task action]", action, e); }
         await loadTasksFromDaemon();
-        renderTaskView();
-      });
-    });
-    body.querySelectorAll("[data-run-id]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        state.selectedRunId = btn.dataset.runId;
         renderTaskView();
       });
     });
@@ -671,7 +626,6 @@
     state.activeContactKey = botKey;
     state.activeView = "chat";
     state.selectedTaskId = "";
-    state.selectedRunId = "";
     hidePreviewDialog();
     __global.miaSocial?.setActiveConversationId?.(conversationId);
     if (typeof render === "function") render();
@@ -760,7 +714,6 @@
   function createTaskViaChat() {
     state.activeView = "chat";
     state.selectedTaskId = "";
-    state.selectedRunId = "";
     hidePreviewDialog();
     if (typeof render === "function") render();
     else { renderView(); if (typeof renderChat === "function") renderChat(); }
@@ -906,10 +859,9 @@
     if (!conversationId) return showError("该 Agent 还没有可用云端对话，请先完成登录后重试。");
 
     try {
-      const created = await window.mia.tasks.create({ title, botId, conversationId, instructions: prompt, scheduleIntent });
+      const created = await mia.tasks.create({ title, botId, conversationId, instructions: prompt, scheduleIntent });
       closeTaskCreate();
       state.selectedTaskId = created?.id || "";
-      state.selectedRunId = "";
       await loadTasksFromDaemon();
       renderTaskView();
     } catch (e) {
@@ -943,10 +895,14 @@
 
   async function loadTasksFromDaemon() {
     try {
-      state.tasks = await window.mia.tasks.list();
+      state.tasks = await mia.tasks.list();
+      const visibleTaskIds = new Set(state.tasks.map((task) => String(task?.id || "")).filter(Boolean));
+      for (const taskId of state.tasksUnread.keys()) {
+        if (!visibleTaskIds.has(String(taskId))) state.tasksUnread.delete(taskId);
+      }
+      updateTasksRailBadge();
     } catch (e) {
       console.warn("load tasks failed", e);
-      state.tasks = [];
     }
   }
 
@@ -959,7 +915,8 @@
     // weren't looking", regardless of outcome status.
     if (["finished", "failed", "missed"].includes(type)) {
       const taskId = envelope.payload?.taskId || envelope.taskId;
-      if (taskId && state.selectedTaskId !== taskId) {
+      const visible = taskId && state.tasks.some((task) => String(task?.id || "") === String(taskId));
+      if (visible && state.selectedTaskId !== taskId) {
         state.tasksUnread.set(taskId, (state.tasksUnread.get(taskId) || 0) + 1);
       }
     }
@@ -973,15 +930,18 @@
   }
 
   function updateTasksRailBadge() {
-    if (!els.tasksUnreadBadge) return;
     const total = [...state.tasksUnread.values()].reduce((a, b) => a + b, 0);
-    if (total > 0) {
-      els.tasksUnreadBadge.classList.remove("hidden");
-      const badge = unreadShared().unreadBadgeHtml(total);
-      const m = badge.match(/>([^<]*)</);
-      els.tasksUnreadBadge.textContent = m ? m[1] : String(total);
-    } else {
-      els.tasksUnreadBadge.classList.add("hidden");
+    for (const badge of [els.tasksUnreadBadge, els.sidebarTasksUnreadBadge]) {
+      if (!badge) continue;
+      if (total > 0) {
+        badge.classList.remove("hidden");
+        badge.textContent = unreadShared().unreadBadgeText(total);
+        badge.setAttribute?.("aria-hidden", "false");
+      } else {
+        badge.classList.add("hidden");
+        badge.textContent = "";
+        badge.setAttribute?.("aria-hidden", "true");
+      }
     }
   }
 

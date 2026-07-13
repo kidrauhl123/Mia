@@ -533,16 +533,16 @@
       <div class="skill-preview-card task-preview-card">
         <header class="skill-preview-toolbar task-preview-toolbar">
           <div class="skill-preview-title">
-            <div>
-              <h2 id="taskPreviewTitle">任务</h2>
-              <p id="taskPreviewMeta"></p>
-            </div>
+            <h2 id="taskPreviewTitle">任务</h2>
           </div>
-          <button id="closeTaskPreview" class="icon-button" type="button" title="关闭" aria-label="关闭">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-              <path d="M6 6l12 12M18 6L6 18"/>
-            </svg>
-          </button>
+          <div class="task-preview-toolbar-actions">
+            <div id="taskPreviewActions"></div>
+            <button id="closeTaskPreview" class="icon-button" type="button" title="关闭" aria-label="关闭">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+                <path d="M6 6l12 12M18 6L6 18"/>
+              </svg>
+            </button>
+          </div>
         </header>
         <article id="taskPreviewBody" class="task-preview-body"></article>
       </div>

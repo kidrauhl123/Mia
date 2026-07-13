@@ -348,17 +348,21 @@ test("Rust Core runtime assistant message events carry persisted created_at", ()
   assert.doesNotMatch(cloudBridge, /"created_at": "",/);
 });
 
-test("tasks preload bridge routes scheduling ownership to Rust Core REST paths", () => {
+test("tasks preload bridge merges local and cloud owners through Rust Core REST paths", () => {
   const preload = read("src/preload.js");
 
-  assert.match(preload, /list:\s*\(\)\s*=>\s*listCoreTaskJobs\(\)/);
-  assert.match(preload, /get:\s*\(id\)\s*=>\s*getCoreTaskJob\(id\)/);
+  assert.match(preload, /list:\s*\(\)\s*=>\s*listTaskJobs\(\)/);
+  assert.match(preload, /mergeTaskProjections\(localTasks, cloudTasks\)/);
+  assert.match(preload, /miaCoreGet\("\/api\/tasks\/cloud"\)/);
+  assert.match(preload, /get:\s*\(id,\s*source\)\s*=>\s*getTaskJob\(id,\s*source\)/);
   assert.match(preload, /create:\s*\(input\)\s*=>\s*createCoreTaskJob\(input\)/);
-  assert.match(preload, /update:\s*\(id,\s*partial\)\s*=>\s*updateCoreTaskJob\(id,\s*partial\)/);
-  assert.match(preload, /delete:\s*\(id\)\s*=>\s*coreOk\(miaCoreDelete\(`\/api\/tasks\/jobs\/\$\{encodeURIComponent\(id\)\}`\)\)/);
-  assert.match(preload, /pause:\s*\(id\)\s*=>\s*updateCoreTaskJob\(id,\s*\{\s*status:\s*"paused"\s*\}\)/);
-  assert.match(preload, /resume:\s*\(id\)\s*=>\s*updateCoreTaskJob\(id,\s*\{\s*status:\s*"active"\s*\}\)/);
-  assert.match(preload, /runNow:\s*\(id\)\s*=>\s*miaCorePost\(`\/api\/tasks\/jobs\/\$\{encodeURIComponent\(id\)\}\/run`,\s*\{\s*\}\)/);
+  assert.match(preload, /update:\s*\(id,\s*partial,\s*source\)\s*=>\s*updateTaskJob\(id,\s*partial,\s*source\)/);
+  assert.match(preload, /delete:\s*\(id,\s*source\)\s*=>\s*deleteTaskJob\(id,\s*source\)/);
+  assert.match(preload, /pause:\s*\(id,\s*source\)\s*=>\s*changeTaskStatus\(id,\s*"pause",\s*source\)/);
+  assert.match(preload, /resume:\s*\(id,\s*source\)\s*=>\s*changeTaskStatus\(id,\s*"resume",\s*source\)/);
+  assert.match(preload, /runNow:\s*\(id,\s*source\)\s*=>\s*runTaskNow\(id,\s*source\)/);
+  assert.match(preload, /`\/api\/tasks\/cloud\/\$\{encodeURIComponent\(id\)\}\/run-now`/);
+  assert.match(preload, /`\/api\/tasks\/jobs\/\$\{encodeURIComponent\(id\)\}\/run`/);
   assert.match(preload, /request\.scheduleIntent = payload\.scheduleIntent/);
   assert.doesNotMatch(preload, /function coreScheduleFromLegacyTask/);
   assert.doesNotMatch(preload, /tasks:\s*\{[\s\S]{0,900}IpcChannel\.TasksList/);
