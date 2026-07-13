@@ -113,7 +113,7 @@ test("packages/shared bot identity applies official preset skill defaults to unc
     capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
   }, presets);
 
-  assert.equal(caps.inheritEngineDefaults, false);
+  assert.equal(caps.inheritEngineDefaults, true);
   assert.deepEqual(caps.enabledSkills, ["mia-official:paper-research"]);
   assert.deepEqual(
     packageBotIdentity.botCapabilitiesWithPresetDefaults({
@@ -150,7 +150,10 @@ test("packages/shared bot identity exposes manual new-bot default skills", () =>
     "mia-official:document-editor",
     "mia-official:meeting-notes",
     "mia-official:spreadsheet-organizer",
-    "mia-official:xlsx"
+    "mia-official:xlsx",
+    "mia-official:officecli-docx",
+    "mia-official:officecli-xlsx",
+    "mia-official:officecli-pptx"
   ];
 
   assert.deepEqual(packageBotIdentity.MANUAL_BOT_DEFAULT_ENABLED_SKILLS, expected);
@@ -185,9 +188,9 @@ test("packages/shared bot identity preserves retired official assistant defaults
       capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
     }, []);
 
-    assert.equal(capsByKey.inheritEngineDefaults, false, `${key} should disable inheritance after defaults apply`);
+    assert.equal(capsByKey.inheritEngineDefaults, true, `${key} should retain system default inheritance`);
     assert.deepEqual(capsByKey.enabledSkills, enabledSkills, `${key} should preserve retired preset defaults by key`);
-    assert.equal(capsByName.inheritEngineDefaults, false, `${name} should disable inheritance after defaults apply`);
+    assert.equal(capsByName.inheritEngineDefaults, true, `${name} should retain system default inheritance`);
     assert.deepEqual(capsByName.enabledSkills, enabledSkills, `${name} should preserve retired preset defaults by name`);
   }
 });

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "systemAutoSkillIds": [
+    "mia-scheduler",
+    "mia-official:officecli"
+  ],
+  "genericAssistantSkillIds": [
+    "mia-official:officecli-docx",
+    "mia-official:officecli-xlsx",
+    "mia-official:officecli-pptx"
+  ]
+}

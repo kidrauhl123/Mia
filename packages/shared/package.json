@@ -50,6 +50,10 @@
       "types": "./bot-identity.d.ts",
       "default": "./bot-identity.js"
     },
+    "./skill-defaults": {
+      "types": "./skill-defaults.d.ts",
+      "default": "./skill-defaults.js"
+    },
     "./unread": {
       "types": "./unread.d.ts",
       "default": "./unread.js"

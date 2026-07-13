@@ -1,4 +1,5 @@
 const { normalizeStatusBadge } = require("./identity.js");
+const { GENERIC_ASSISTANT_SKILL_IDS } = require("./skill-defaults.js");
 
 const DEFAULT_BOT_CAPABILITIES = Object.freeze({
   inheritEngineDefaults: true,
@@ -15,7 +16,8 @@ const MANUAL_BOT_DEFAULT_ENABLED_SKILLS = Object.freeze([
   "mia-official:document-editor",
   "mia-official:meeting-notes",
   "mia-official:spreadsheet-organizer",
-  "mia-official:xlsx"
+  "mia-official:xlsx",
+  ...GENERIC_ASSISTANT_SKILL_IDS
 ]);
 
 const LEGACY_BOT_PRESET_DEFAULTS = Object.freeze([
@@ -228,7 +230,7 @@ function botCapabilitiesWithPresetDefaults(bot = {}, presets = []) {
   if (!preset) return capabilities;
   const presetCapabilities = normalizeBotCapabilities({
     ...(preset.capabilities || {}),
-    inheritEngineDefaults: false
+    inheritEngineDefaults: capabilities.inheritEngineDefaults
   });
   if (!presetCapabilities.enabledSkills.length && !presetCapabilities.disabledSkills.length) return capabilities;
   const disabledSkills = [
@@ -242,7 +244,6 @@ function botCapabilitiesWithPresetDefaults(bot = {}, presets = []) {
   ].filter((id, index, arr) => arr.indexOf(id) === index);
   return {
     ...capabilities,
-    inheritEngineDefaults: false,
     enabledSkills,
     disabledSkills
   };

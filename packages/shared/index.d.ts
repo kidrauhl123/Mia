@@ -8,5 +8,6 @@ export * as optimisticSend from "./optimistic-send";
 export * as sessionHistory from "./session-history";
 export * as cloudClient from "./cloud-client";
 export * as botIdentity from "./bot-identity";
+export * as skillDefaults from "./skill-defaults";
 export * as unread from "./unread";
 export * as statusBadgeAssets from "./status-badge-assets";
