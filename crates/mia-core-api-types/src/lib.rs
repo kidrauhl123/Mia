@@ -1020,6 +1020,10 @@ pub struct BotCapabilityOption {
     pub capability_id: String,
     pub label: String,
     pub source: String,
+    #[serde(default)]
+    pub origin: String,
+    #[serde(default)]
+    pub inherited: bool,
     pub checked: bool,
     pub missing: bool,
 }

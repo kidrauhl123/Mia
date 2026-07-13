@@ -1218,6 +1218,22 @@ async fn bot_service_owns_capability_options_and_toggle_intents() {
         }),
         available_skills: vec![
             BotCapabilitySkillInput {
+                id: "mia-scheduler".into(),
+                name: "mia-scheduler".into(),
+                title: "定时任务".into(),
+                source: "mia-official".into(),
+                engine: "mia".into(),
+                ..Default::default()
+            },
+            BotCapabilitySkillInput {
+                id: "mia-official:officecli".into(),
+                name: "officecli".into(),
+                title: "Office 文件".into(),
+                source: "mia-official".into(),
+                engine: "mia".into(),
+                ..Default::default()
+            },
+            BotCapabilitySkillInput {
                 id: "mia-official:paper-research".into(),
                 name: "paper-research".into(),
                 title: "Paper Research".into(),
@@ -1249,18 +1265,22 @@ async fn bot_service_owns_capability_options_and_toggle_intents() {
         intent: None,
     });
 
-    assert_eq!(response.capabilities["inheritEngineDefaults"], false);
+    assert_eq!(response.capabilities["inheritEngineDefaults"], true);
     assert_eq!(
         response.capabilities["enabledSkills"],
         json!(["mia-official:paper-research"])
     );
-    assert_eq!(response.summary, "1 个默认技能");
+    assert_eq!(response.summary, "3 个默认技能");
     assert_eq!(response.groups[0].id, "enabled-skills");
     assert_eq!(
-        response.groups[0].options[0].capability_id,
+        response.groups[0].options[2].capability_id,
         "mia-official:paper-research"
     );
-    assert!(response.groups[0].options[0].checked);
+    assert!(response.groups[0].options[2].checked);
+    assert_eq!(response.groups[0].options[0].origin, "system-default");
+    assert_eq!(response.groups[0].options[1].origin, "system-default");
+    assert_eq!(response.groups[0].options[2].origin, "assistant-preset");
+    assert!(response.groups[0].options[0].inherited);
     assert_eq!(
         response.groups[1]
             .options
@@ -1286,9 +1306,35 @@ async fn bot_service_owns_capability_options_and_toggle_intents() {
         }),
     });
 
-    assert_eq!(toggled.capabilities["inheritEngineDefaults"], false);
+    assert_eq!(toggled.capabilities["inheritEngineDefaults"], true);
     assert_eq!(toggled.capabilities["enabledSkills"], json!([]));
-    assert_eq!(toggled.summary, "未设置默认技能");
+    assert_eq!(
+        toggled.capabilities["disabledSkills"],
+        json!(["mia-official:paper-research"])
+    );
+    assert_eq!(toggled.summary, "2 个默认技能");
+
+    let office_disabled = service.capability_options(BotCapabilityOptionsRequest {
+        bot: json!({
+            "key": "paper-buddy",
+            "name": "论文搭子",
+            "agentEngine": "codex",
+            "capabilities": toggled.capabilities
+        }),
+        available_skills: vec![],
+        bot_presets: vec![],
+        intent: Some(BotCapabilityIntent {
+            capability_type: "skill".into(),
+            capability_id: "mia-official:officecli".into(),
+            checked: false,
+        }),
+    });
+    assert_eq!(office_disabled.capabilities["inheritEngineDefaults"], true);
+    assert_eq!(
+        office_disabled.capabilities["disabledSkills"],
+        json!(["mia-official:paper-research", "mia-official:officecli"])
+    );
+    assert_eq!(office_disabled.summary, "1 个默认技能");
 }
 
 #[tokio::test]
@@ -1394,6 +1440,15 @@ async fn bot_service_owns_starter_bot_materialization_and_marker() {
     assert_eq!(mia.display_name, "Mia");
     assert_eq!(mia.identity["avatarImage"], "./assets/mia-logo.png");
     assert_eq!(mia.identity["statusBadge"]["assetId"], "rainbow-fire");
+    assert_eq!(mia.capabilities["inheritEngineDefaults"], true);
+    assert_eq!(
+        mia.capabilities["enabledSkills"],
+        json!([
+            "mia-official:officecli-docx",
+            "mia-official:officecli-xlsx",
+            "mia-official:officecli-pptx"
+        ])
+    );
     let hermes = bots
         .iter()
         .find(|bot| bot.id == "starter_u_123_hermes")
@@ -1403,6 +1458,14 @@ async fn bot_service_owns_starter_bot_materialization_and_marker() {
         "./assets/engine-icons/hermesagent.svg"
     );
     assert_eq!(hermes.identity["statusBadge"]["assetId"], "blue-fire");
+    assert_eq!(
+        hermes.capabilities["enabledSkills"],
+        json!([
+            "mia-official:officecli-docx",
+            "mia-official:officecli-xlsx",
+            "mia-official:officecli-pptx"
+        ])
+    );
 
     let cloud_runtime = service
         .get_runtime("starter_u_123_mia", "cloud-claude-code")
@@ -1522,6 +1585,57 @@ async fn bot_service_repairs_existing_starter_identity_and_runtime_binding() {
     assert_eq!(runtime.binding["agentEngine"], "claude-code");
     assert_eq!(runtime.binding["config"]["agentEngine"], "claude-code");
     assert_eq!(runtime.binding["targetDeviceId"], "mac-1");
+}
+
+#[tokio::test]
+async fn bot_service_repairs_only_missing_starter_office_defaults() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+    let runtime = json!({
+        "cloud": {
+            "enabled": true,
+            "agentRuntime": {
+                "runtimeKind": "cloud-claude-code",
+                "agentEngine": "claude-code",
+                "label": "Claude Code",
+                "available": true
+            }
+        }
+    });
+    service
+        .ensure_starter_bots(StarterBotEnsureRequest {
+            runtime: runtime.clone(),
+            user_id: Some("u_123".to_string()),
+            now: Some("2026-06-26T08:00:00.000Z".to_string()),
+        })
+        .await
+        .unwrap();
+    sqlx::query("UPDATE bots SET capability_json = ? WHERE id = ?")
+        .bind(json!({ "inheritEngineDefaults": true }).to_string())
+        .bind("starter_u_123_mia")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let repaired = service
+        .ensure_starter_bots(StarterBotEnsureRequest {
+            runtime,
+            user_id: Some("u_123".to_string()),
+            now: Some("2026-06-27T08:00:00.000Z".to_string()),
+        })
+        .await
+        .unwrap();
+
+    assert!(!repaired.skipped);
+    assert_eq!(repaired.updated.len(), 1);
+    assert_eq!(
+        repaired.updated[0].bot.capabilities["enabledSkills"],
+        json!([
+            "mia-official:officecli-docx",
+            "mia-official:officecli-xlsx",
+            "mia-official:officecli-pptx"
+        ])
+    );
 }
 
 #[tokio::test]

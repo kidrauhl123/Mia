@@ -779,6 +779,8 @@ fn bot_capability_options_serialize_as_camel_case_contract() {
                 capability_id: "mia-official:paper-research".into(),
                 label: "Paper Research".into(),
                 source: "mia-official".into(),
+                origin: "assistant-preset".into(),
+                inherited: true,
                 checked: false,
                 missing: false,
             }],
@@ -792,6 +794,14 @@ fn bot_capability_options_serialize_as_camel_case_contract() {
     assert_eq!(
         serialized_response["groups"][0]["options"][0]["capabilityId"],
         "mia-official:paper-research"
+    );
+    assert_eq!(
+        serialized_response["groups"][0]["options"][0]["origin"],
+        "assistant-preset"
+    );
+    assert_eq!(
+        serialized_response["groups"][0]["options"][0]["inherited"],
+        true
     );
 }
 

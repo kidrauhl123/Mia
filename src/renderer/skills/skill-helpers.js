@@ -83,7 +83,11 @@
     "spreadsheet-organizer": "表格整理",
     "story-host": "剧情主持",
     "pet-generator": "桌宠生成",
-    "skill-creator": "技能创作"
+    "skill-creator": "技能创作",
+    officecli: "Office 文件",
+    "officecli-docx": "Word 文档",
+    "officecli-xlsx": "Excel 表格",
+    "officecli-pptx": "PowerPoint 演示文稿"
   };
 
   const officialCategoriesZh = {
@@ -107,7 +111,11 @@
     translation: "写作效率",
     "web-artifacts-builder": "开发工程",
     "webapp-testing": "开发工程",
-    xlsx: "文档处理"
+    xlsx: "文档处理",
+    officecli: "文档处理",
+    "officecli-docx": "文档处理",
+    "officecli-xlsx": "文档处理",
+    "officecli-pptx": "文档处理"
   };
 
   function skillDisplayName(skill = {}) {
@@ -152,7 +160,11 @@
       translation: "把英文、日文的文章和资料译成地道流畅的中文，保留专业术语和代码不走样。适合读外文文献、技术文档、资料速读。",
       "web-artifacts-builder": "用 HTML/React 搭建可交互的网页小工具、可视化和原型，一步到位出可运行的成品。适合做演示页、数据看板、互动小应用。",
       "webapp-testing": "为网页应用编写并运行端到端测试，模拟真实点击操作、验证页面行为、定位回归问题。适合上线前自动化验收。",
-      xlsx: "读写 Excel 表格，套公式、做透视和图表、批量整理数据。适合算账、统计、把杂乱数据整理成规整表。"
+      xlsx: "读写 Excel 表格，套公式、做透视和图表、批量整理数据。适合算账、统计、把杂乱数据整理成规整表。",
+      officecli: "使用 OfficeCLI 创建、读取、修改并校验 Word、Excel 和 PowerPoint 文件。",
+      "officecli-docx": "使用 OfficeCLI 创建、排版、修改并校验 Word 文档。",
+      "officecli-xlsx": "使用 OfficeCLI 处理 Excel 数据、公式、图表并校验工作簿。",
+      "officecli-pptx": "使用 OfficeCLI 创建、修改、渲染并校验 PowerPoint 演示文稿。"
     };
     if (exact[skill.name]) return exact[skill.name];
     const text = `${skillDisplayCategory(skill)} ${(skill.tags || []).join(" ")} ${skill.name || ""}`.toLowerCase();

@@ -16,6 +16,9 @@ use mia_core_api_types::{
     EnsureBotSessionConversationResponse, SaveBotRuntimeRequest, StarterBotEnsureRequest,
     StarterBotEnsureResponse, StarterBotMutation, UpdateBotRequest,
 };
+use mia_core_common::skill_defaults::{
+    generic_assistant_skill_ids, resolve_effective_skill_ids, system_auto_skill_ids,
+};
 use serde_json::{Map, Value, json};
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
@@ -491,7 +494,7 @@ impl BotService {
         bot_id: &str,
         spec: &StarterBotSpec,
     ) -> Result<bool, sqlx::Error> {
-        let row = sqlx::query("SELECT identity_json FROM bots WHERE id = ?")
+        let row = sqlx::query("SELECT identity_json, capability_json FROM bots WHERE id = ?")
             .bind(bot_id)
             .fetch_optional(&self.pool)
             .await?;
@@ -525,6 +528,19 @@ impl BotService {
             .trim();
         if identity_avatar.is_empty()
             || stale_starter_avatar_image(identity_avatar, spec.avatar_image.as_str())
+        {
+            return Ok(true);
+        }
+        let capabilities =
+            normalize_bot_capabilities(parse_json(row.get::<String, _>("capability_json"))?);
+        let configured_skills = capabilities
+            .enabled_skills
+            .iter()
+            .chain(&capabilities.disabled_skills)
+            .collect::<HashSet<_>>();
+        if generic_assistant_skill_ids()
+            .iter()
+            .any(|id| !configured_skills.contains(id))
         {
             return Ok(true);
         }
@@ -565,6 +581,19 @@ impl BotService {
         spec: &StarterBotSpec,
         now: i64,
     ) -> Result<BotSummary, sqlx::Error> {
+        let existing_capabilities = sqlx::query("SELECT capability_json FROM bots WHERE id = ?")
+            .bind(bot_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .map(|row| parse_json(row.get::<String, _>("capability_json")))
+            .transpose()?;
+        let mut capabilities =
+            normalize_bot_capabilities(existing_capabilities.unwrap_or(Value::Null));
+        for id in generic_assistant_skill_ids() {
+            if !capabilities.disabled_skills.contains(id) {
+                push_unique(&mut capabilities.enabled_skills, id.clone());
+            }
+        }
         sqlx::query(
             "INSERT INTO bots (id, display_name, identity_json, capability_json, avatar_json, created_at, updated_at) \
              VALUES (?, ?, ?, ?, '{}', ?, ?) \
@@ -573,7 +602,7 @@ impl BotService {
         .bind(bot_id)
         .bind(&spec.name)
         .bind(starter_identity_json(spec).to_string())
-        .bind(json!({ "inheritEngineDefaults": true }).to_string())
+        .bind(capabilities.into_value().to_string())
         .bind(now)
         .bind(now)
         .execute(&self.pool)
@@ -2960,10 +2989,12 @@ impl BotCapabilityState {
 fn capability_options_from_request(
     request: BotCapabilityOptionsRequest,
 ) -> BotCapabilityOptionsResponse {
+    let preset_skill_ids = preset_skill_ids_for_bot(&request.bot, &request.bot_presets);
     let mut capabilities =
         bot_capabilities_with_preset_defaults(&request.bot, &request.bot_presets);
+    let natural_skill_ids = natural_skill_ids(&capabilities, &preset_skill_ids);
     if let Some(intent) = request.intent.as_ref() {
-        capabilities = apply_capability_intent(capabilities, intent);
+        capabilities = apply_capability_intent(capabilities, intent, &natural_skill_ids);
     }
 
     let bot_object = request.bot.as_object().cloned().unwrap_or_default();
@@ -2975,27 +3006,32 @@ fn capability_options_from_request(
         .into_iter()
         .filter(|skill| capability_skill_for_engine(skill, &engine))
         .collect::<Vec<_>>();
-    let disabled = capabilities.disabled_skills.clone();
-    let enabled_ids = capabilities
-        .enabled_skills
-        .iter()
-        .filter(|id| !disabled.iter().any(|disabled_id| disabled_id == *id))
-        .cloned()
-        .collect::<Vec<_>>();
+    let enabled_ids = resolve_effective_skill_ids(
+        capabilities.inherit_engine_defaults,
+        &preset_skill_ids,
+        &capabilities.enabled_skills,
+        &capabilities.disabled_skills,
+        &[],
+    );
     let mut enabled_keys = Vec::new();
     let mut enabled_options = Vec::new();
 
     for id in enabled_ids {
+        let (origin, inherited) = capability_origin(&id, &capabilities, &preset_skill_ids);
         push_unique_many(&mut enabled_keys, skill_id_lookup_keys(&id));
         if let Some(skill) = skill_for_capability_id(&id, &available_skills) {
             push_unique_many(&mut enabled_keys, skill_input_lookup_keys(skill));
-            enabled_options.push(capability_option_from_skill(skill, &id, true));
+            enabled_options.push(capability_option_from_skill(
+                skill, &id, true, origin, inherited,
+            ));
         } else {
             enabled_options.push(BotCapabilityOption {
                 id: id.clone(),
                 capability_id: id.clone(),
                 label: id.trim_start_matches("mia-official:").to_string(),
                 source: String::new(),
+                origin: origin.to_string(),
+                inherited,
                 checked: true,
                 missing: true,
             });
@@ -3009,7 +3045,7 @@ fn capability_options_from_request(
                 .iter()
                 .any(|key| enabled_keys.iter().any(|enabled_key| enabled_key == key))
         })
-        .map(|skill| capability_option_from_skill(skill, &skill.id, false))
+        .map(|skill| capability_option_from_skill(skill, &skill.id, false, "manual", false))
         .collect::<Vec<_>>();
     let summary = if enabled_options.is_empty() {
         "未设置默认技能".to_string()
@@ -3040,6 +3076,7 @@ fn capability_options_from_request(
 fn apply_capability_intent(
     mut capabilities: BotCapabilityState,
     intent: &BotCapabilityIntent,
+    natural_skill_ids: &[String],
 ) -> BotCapabilityState {
     if intent.capability_type.trim() != "skill" {
         return capabilities;
@@ -3048,14 +3085,71 @@ fn apply_capability_intent(
     if id.is_empty() {
         return capabilities;
     }
-    capabilities.inherit_engine_defaults = false;
+    let natural = natural_skill_ids.iter().any(|item| item == id);
     if intent.checked {
-        push_unique(&mut capabilities.enabled_skills, id.to_string());
+        capabilities.disabled_skills.retain(|item| item != id);
+        if !natural {
+            push_unique(&mut capabilities.enabled_skills, id.to_string());
+        }
     } else {
         capabilities.enabled_skills.retain(|item| item != id);
+        if natural {
+            push_unique(&mut capabilities.disabled_skills, id.to_string());
+        } else {
+            capabilities.disabled_skills.retain(|item| item != id);
+        }
     }
-    capabilities.disabled_skills.retain(|item| item != id);
     capabilities
+}
+
+fn preset_skill_ids_for_bot(bot: &Value, presets: &[BotCapabilityPresetInput]) -> Vec<String> {
+    let bot_object = bot.as_object().cloned().unwrap_or_default();
+    let raw = bot_object
+        .get("capabilities")
+        .or_else(|| bot_object.get("capabilities_json"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    if !normalize_bot_capabilities(raw).inherit_engine_defaults {
+        return Vec::new();
+    }
+    presets
+        .iter()
+        .find(|preset| bot_identity_matches_preset(&bot_object, preset))
+        .map(|preset| preset.capabilities.clone())
+        .or_else(|| legacy_preset_capabilities(&bot_object))
+        .map(normalize_bot_capabilities)
+        .map(|capabilities| capabilities.enabled_skills)
+        .unwrap_or_default()
+}
+
+fn natural_skill_ids(
+    capabilities: &BotCapabilityState,
+    preset_skill_ids: &[String],
+) -> Vec<String> {
+    let mut ids = if capabilities.inherit_engine_defaults {
+        system_auto_skill_ids().to_vec()
+    } else {
+        Vec::new()
+    };
+    for id in preset_skill_ids {
+        push_unique(&mut ids, id.clone());
+    }
+    ids
+}
+
+fn capability_origin<'a>(
+    id: &str,
+    capabilities: &BotCapabilityState,
+    preset_skill_ids: &[String],
+) -> (&'a str, bool) {
+    if capabilities.inherit_engine_defaults && system_auto_skill_ids().iter().any(|item| item == id)
+    {
+        ("system-default", true)
+    } else if preset_skill_ids.iter().any(|item| item == id) {
+        ("assistant-preset", true)
+    } else {
+        ("manual", false)
+    }
 }
 
 fn bot_capabilities_with_preset_defaults(
@@ -3080,8 +3174,7 @@ fn bot_capabilities_with_preset_defaults(
     let Some(preset_value) = preset_capabilities else {
         return capabilities;
     };
-    let mut preset = normalize_bot_capabilities(preset_value);
-    preset.inherit_engine_defaults = false;
+    let preset = normalize_bot_capabilities(preset_value);
     if preset.enabled_skills.is_empty() && preset.disabled_skills.is_empty() {
         return capabilities;
     }
@@ -3097,7 +3190,6 @@ fn bot_capabilities_with_preset_defaults(
             push_unique(&mut capabilities.enabled_skills, id);
         }
     }
-    capabilities.inherit_engine_defaults = false;
     capabilities
 }
 
@@ -3366,6 +3458,8 @@ fn capability_option_from_skill(
     skill: &BotCapabilitySkillInput,
     capability_id: &str,
     checked: bool,
+    origin: &str,
+    inherited: bool,
 ) -> BotCapabilityOption {
     let id = if capability_id.trim().is_empty() {
         skill.id.trim()
@@ -3377,6 +3471,8 @@ fn capability_option_from_skill(
         capability_id: id.to_string(),
         label: capability_title(skill),
         source: skill.source.trim().to_string(),
+        origin: origin.to_string(),
+        inherited,
         checked,
         missing: false,
     }

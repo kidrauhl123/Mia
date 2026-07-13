@@ -1443,6 +1443,7 @@ name = "mia-core-bot"
 version = "0.1.0"
 dependencies = [
  "mia-core-api-types",
+ "mia-core-common",
  "mia-core-db",
  "serde",
  "serde_json",

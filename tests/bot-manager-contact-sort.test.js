@@ -350,8 +350,8 @@ test("contact detail renders preset defaults from Core capability options", asyn
           },
           summary: "2 个默认技能",
           enabled: [
-            { id: "mia-official:spreadsheet-organizer", capabilityId: "mia-official:spreadsheet-organizer", label: "表格整理", source: "mia-official" },
-            { id: "mia-official:xlsx", capabilityId: "mia-official:xlsx", label: "Excel 文件", source: "mia-official" }
+            { id: "mia-official:spreadsheet-organizer", capabilityId: "mia-official:spreadsheet-organizer", label: "表格整理", source: "mia-official", origin: "assistant-preset", inherited: true },
+            { id: "mia-official:xlsx", capabilityId: "mia-official:xlsx", label: "Excel 文件", source: "mia-official", origin: "system-default", inherited: true }
           ],
           addable: [{ id: "mia-official:lab-report", capabilityId: "mia-official:lab-report", label: "实验报告", source: "mia-official" }]
         })
@@ -416,6 +416,8 @@ test("contact detail renders preset defaults from Core capability options", asyn
   assert.match(contactDetail.innerHTML, />2 个默认技能</);
   assert.match(enabledListHtml, />表格整理</);
   assert.match(enabledListHtml, />Excel 文件</);
+  assert.match(enabledListHtml, />助手预设</);
+  assert.match(enabledListHtml, />系统默认</);
   assert.doesNotMatch(enabledListHtml, />实验报告</);
   assert.match(addListHtml, />实验报告</);
 });

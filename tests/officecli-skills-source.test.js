@@ -112,4 +112,6 @@ test("desktop checks and Cloud release requirements include OfficeCLI provenance
     assert.match(sourceCheck, new RegExp(relativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.match(releaseBuilder, new RegExp(`api/${relativePath}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
+  assert.match(releaseBuilder, /api\/packages\/shared\/skill-defaults\.js/);
+  assert.match(releaseBuilder, /api\/packages\/shared\/skill-defaults\.json/);
 });

@@ -91,6 +91,12 @@ try {
 } catch {
   statusBadgeAssets = require("./packages/shared/status-badge-assets.js");
 }
+let genericAssistantSkillIds = [];
+try {
+  ({ GENERIC_ASSISTANT_SKILL_IDS: genericAssistantSkillIds } = require("../packages/shared/skill-defaults.js"));
+} catch {
+  ({ GENERIC_ASSISTANT_SKILL_IDS: genericAssistantSkillIds } = require("./packages/shared/skill-defaults.js"));
+}
 let createSkillsStore = null;
 try {
   ({ createSkillsStore } = require("../src/cloud/skills-store.js"));
@@ -3047,6 +3053,28 @@ function cloudStarterStatusBadge() {
     || { kind: "lottie", assetId: "rainbow-fire", loop: "always" };
 }
 
+function cloudStarterCapabilities(existingBot = null) {
+  const current = existingBot?.capabilities && typeof existingBot.capabilities === "object"
+    ? existingBot.capabilities
+    : {};
+  const disabledSkills = Array.isArray(current.disabledSkills)
+    ? [...new Set(current.disabledSkills.map((id) => String(id || "").trim()).filter(Boolean))]
+    : [];
+  const disabled = new Set(disabledSkills);
+  const enabledSkills = Array.isArray(current.enabledSkills)
+    ? [...new Set(current.enabledSkills.map((id) => String(id || "").trim()).filter(Boolean))]
+    : [];
+  for (const id of genericAssistantSkillIds) {
+    if (!disabled.has(id) && !enabledSkills.includes(id)) enabledSkills.push(id);
+  }
+  return {
+    ...current,
+    inheritEngineDefaults: current.inheritEngineDefaults !== false,
+    enabledSkills,
+    disabledSkills
+  };
+}
+
 function ensureCloudAgentBootstrap(context, userId) {
   if (!context?.botsStore || !context?.runtimeBindingsStore || !context?.socialStore || !userId) return null;
   const runtime = cloudAgentRuntimeForContext(context);
@@ -3061,10 +3089,16 @@ function ensureCloudAgentBootstrap(context, userId) {
   const description = `Mia 云端助手，默认使用云端 ${cloudLabel} sandbox。`;
 
   const existingBot = context.botsStore.getBot(botId);
+  const capabilities = cloudStarterCapabilities(existingBot);
+  const configuredSkills = new Set([
+    ...capabilities.enabledSkills,
+    ...capabilities.disabledSkills
+  ]);
   const shouldUpsertBot = !existingBot
     || existingBot.ownerUserId !== ownerId
     || !existingBot.avatarImage
-    || !existingBot.statusBadge;
+    || !existingBot.statusBadge
+    || genericAssistantSkillIds.some((id) => !configuredSkills.has(id));
   if (shouldUpsertBot) {
     context.botsStore.upsertBot(ownerId, {
       id: botId,
@@ -3076,7 +3110,7 @@ function ensureCloudAgentBootstrap(context, userId) {
       bio,
       description,
       personaText,
-      capabilities: { inheritEngineDefaults: true }
+      capabilities
     });
   }
 

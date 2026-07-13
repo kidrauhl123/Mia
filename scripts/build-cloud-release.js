@@ -537,6 +537,7 @@ function verifyRelease() {
     "api/src/shared/engine-contracts.js",
     "api/src/shared/ids.js",
     "api/src/shared/member-color.js",
+    "api/src/shared/runtime-binding-intents.js",
     "api/src/shared/avatar-media.js",
     "api/src/shared/avatar-resolve.js",
     "api/packages/shared/avatar.js",
@@ -544,6 +545,8 @@ function verifyRelease() {
     "api/src/shared/identity.js",
     "api/packages/shared/bot-identity.js",
     "api/packages/shared/identity.js",
+    "api/packages/shared/skill-defaults.js",
+    "api/packages/shared/skill-defaults.json",
     "api/src/shared/session-history.js",
     "api/packages/shared/session-history.js",
     "api/src/shared/skill-load-protocol.js",
@@ -854,6 +857,7 @@ function main() {
   copyFile("src/shared/cloud-runtime.js", path.join(apiDir, "src", "shared", "cloud-runtime.js"));
   copyFile("src/shared/ids.js", path.join(apiDir, "src", "shared", "ids.js"));
   copyFile("src/shared/member-color.js", path.join(apiDir, "src", "shared", "member-color.js"));
+  copyFile("src/shared/runtime-binding-intents.js", path.join(apiDir, "src", "shared", "runtime-binding-intents.js"));
   copyFile("src/shared/avatar-media.js", path.join(apiDir, "src", "shared", "avatar-media.js"));
   copyFile("src/shared/avatar-resolve.js", path.join(apiDir, "src", "shared", "avatar-resolve.js"));
   copyFile("packages/shared/status-badge-assets.js", path.join(apiDir, "packages", "shared", "status-badge-assets.js"));
@@ -862,6 +866,8 @@ function main() {
   copyFile("src/shared/identity.js", path.join(apiDir, "src", "shared", "identity.js"));
   copyFile("packages/shared/bot-identity.js", path.join(apiDir, "packages", "shared", "bot-identity.js"));
   copyFile("packages/shared/identity.js", path.join(apiDir, "packages", "shared", "identity.js"));
+  copyFile("packages/shared/skill-defaults.js", path.join(apiDir, "packages", "shared", "skill-defaults.js"));
+  copyFile("packages/shared/skill-defaults.json", path.join(apiDir, "packages", "shared", "skill-defaults.json"));
   copyFile("src/shared/session-history.js", path.join(apiDir, "src", "shared", "session-history.js"));
   copyFile("packages/shared/session-history.js", path.join(apiDir, "packages", "shared", "session-history.js"));
   copyFile("src/shared/skill-load-protocol.js", path.join(apiDir, "src", "shared", "skill-load-protocol.js"));

@@ -100,12 +100,32 @@ test("local skill helpers prefer market and official Chinese display metadata", 
     "剧情主持"
   );
   assert.equal(
+    context.window.miaSkillHelpers.skillDisplayName({ source: "mia-official", name: "officecli" }),
+    "Office 文件"
+  );
+  assert.equal(
+    context.window.miaSkillHelpers.skillDisplayName({ source: "mia-official", name: "officecli-docx" }),
+    "Word 文档"
+  );
+  assert.equal(
+    context.window.miaSkillHelpers.skillDisplayName({ source: "mia-official", name: "officecli-xlsx" }),
+    "Excel 表格"
+  );
+  assert.equal(
+    context.window.miaSkillHelpers.skillDisplayName({ source: "mia-official", name: "officecli-pptx" }),
+    "PowerPoint 演示文稿"
+  );
+  assert.equal(
     context.window.miaSkillHelpers.skillDisplayCategory({ source: "mia-official", name: "xlsx", category: "uncategorized" }),
     "文档处理"
   );
   assert.match(
     context.window.miaSkillHelpers.skillSummaryZh({ source: "mia-official", name: "xlsx" }),
     /读写 Excel 表格/
+  );
+  assert.match(
+    context.window.miaSkillHelpers.skillSummaryZh({ source: "mia-official", name: "officecli" }),
+    /OfficeCLI/
   );
   assert.equal(
     context.window.miaSkillHelpers.skillDisplayName({ source: "mia", name: "my-custom-skill" }),

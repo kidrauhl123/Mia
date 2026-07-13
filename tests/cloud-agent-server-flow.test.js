@@ -170,6 +170,12 @@ test("authenticated cloud bootstrap seeds the default Mia starter bot immediatel
     assert.equal(mia.displayName || mia.name, "Mia");
     assert.equal(mia.avatarImage, "./assets/mia-logo.png");
     assert.deepEqual(mia.statusBadge, { kind: "lottie", assetId: "rainbow-fire", label: "七彩火焰", loop: "always" });
+    assert.equal(mia.capabilities.inheritEngineDefaults, true);
+    assert.deepEqual(mia.capabilities.enabledSkills, [
+      "mia-official:officecli-docx",
+      "mia-official:officecli-xlsx",
+      "mia-official:officecli-pptx"
+    ]);
 
     const conversations = await jsonFetch(baseUrl, "/api/conversations?include=members", { headers: authHeaders });
     const conversation = conversations.conversations.find((item) => item.id === expectedConversationId);

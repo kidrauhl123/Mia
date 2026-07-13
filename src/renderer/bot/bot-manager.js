@@ -458,9 +458,16 @@
   }
 
   function capabilityOptionsRequest(bot = {}, intent = null) {
+    const displayName = window.miaSkillHelpers?.skillDisplayName;
+    const availableSkills = Array.isArray(state?.skillLibrary?.skills)
+      ? state.skillLibrary.skills.map((skill) => ({
+          ...skill,
+          ...(typeof displayName === "function" ? { nameZh: displayName(skill) } : {})
+        }))
+      : [];
     return {
       bot,
-      availableSkills: Array.isArray(state?.skillLibrary?.skills) ? state.skillLibrary.skills : [],
+      availableSkills,
       botPresets: Array.isArray(state?.skillLibrary?.botPresets) ? state.skillLibrary.botPresets : [],
       ...(intent ? { intent } : {})
     };
@@ -473,6 +480,8 @@
       capabilityId,
       label: String(option.label || option.title || option.name || capabilityId || "").trim(),
       source: String(option.source || "").trim(),
+      origin: String(option.origin || "").trim(),
+      inherited: Boolean(option.inherited),
       checked: Boolean(option.checked),
       missing: Boolean(option.missing)
     };
@@ -553,11 +562,17 @@
     const title = option.label || option.capabilityId;
     const capabilityId = option.capabilityId || option.id;
     const rowClass = ["capability-row", className].filter(Boolean).join(" ");
+    const originLabel = {
+      "system-default": "系统默认",
+      "assistant-preset": "助手预设",
+      manual: "手动添加"
+    }[option.origin] || "";
     return `
       <label class="${window.miaMarkdown.escapeHtml(rowClass)}">
         <input type="checkbox" data-capability-type="${window.miaMarkdown.escapeHtml(type)}" data-capability-id="${window.miaMarkdown.escapeHtml(capabilityId)}" ${option.checked ? "checked" : ""}>
         <span class="capability-copy">
           <strong>${window.miaMarkdown.escapeHtml(title)}</strong>
+          ${originLabel ? `<small>${window.miaMarkdown.escapeHtml(originLabel)}</small>` : ""}
         </span>
         <span class="capability-check" aria-hidden="true"></span>
       </label>
