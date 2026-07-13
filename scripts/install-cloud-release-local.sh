@@ -28,6 +28,7 @@ AGENT_PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tencent.com/pypi/simple}"
 AGENT_PYTHON_BIN="${MIA_CLOUD_AGENT_PYTHON_BIN:-python3.12}"
 AGENT_PYTHON_VENV="${MIA_CLOUD_AGENT_PYTHON_VENV:-/opt/mia-agent-runtime/python}"
 AGENT_PYTHON_PACKAGES="${MIA_CLOUD_AGENT_PYTHON_PACKAGES:-python-pptx python-docx openpyxl xlsxwriter pandas numpy matplotlib pillow reportlab pypdf requests beautifulsoup4 lxml markdown}"
+AGENT_OFFICECLI_HOME="${MIA_CLOUD_AGENT_OFFICECLI_HOME:-/opt/mia-agent-runtime/officecli}"
 AGENT_MODEL_PROVIDER="${MIA_CLOUD_AGENT_MODEL_PROVIDER:-mia}"
 AGENT_MODEL_NAME="${MIA_CLOUD_AGENT_MODEL:-mia-auto}"
 AGENT_MODEL_BASE_URL="${MIA_CLOUD_AGENT_MODEL_BASE_URL:-http://litellm:4000/v1}"
@@ -173,6 +174,21 @@ ensure_agent_python_runtime() {
   fi
   run_as_root chmod -R a+rX "$AGENT_PYTHON_VENV"
   run_as_root "$AGENT_PYTHON_VENV/bin/python" -c 'import pptx, docx, openpyxl, pandas, matplotlib, PIL, reportlab, pypdf, requests, bs4, lxml, markdown; print("Agent Python runtime OK")'
+}
+
+officecli_runtime_enabled() {
+  case "$(printf "%s" "$AGENT_OFFICECLI_HOME" | tr '[:upper:]' '[:lower:]')" in
+    ""|0|false|no|off) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+ensure_officecli_runtime() {
+  if ! officecli_runtime_enabled; then
+    return
+  fi
+  run_as_root env MIA_CLOUD_AGENT_OFFICECLI_HOME="$AGENT_OFFICECLI_HOME" \
+    bash "$INSTALL_TMP/install-officecli-runtime.sh"
 }
 
 ensure_claude_code_sandbox_deps() {
@@ -488,6 +504,7 @@ for required_file in \
   "$INSTALL_TMP/nginx/mia-cloud-site.conf" \
   "$INSTALL_TMP/smoke-cloud.js" \
   "$INSTALL_TMP/doctor-cloud.js" \
+  "$INSTALL_TMP/install-officecli-runtime.sh" \
   "$INSTALL_TMP/manifest.json"; do
   if [ ! -f "$required_file" ]; then
     echo "Release archive is missing $required_file" >&2
@@ -543,6 +560,7 @@ require_command chown
 require_command nginx
 ensure_claude_code_sandbox_deps
 ensure_agent_python_runtime
+ensure_officecli_runtime
 
 install_done=0
 trap rollback_install ERR
@@ -621,6 +639,7 @@ Environment=MIA_CLOUD_VERSION=2026-05-20
 Environment=MIA_CLOUD_AGENT_MODE=$AGENT_MODE
 Environment=MIA_CLOUD_AGENT_ROOT=$AGENT_ROOT
 Environment=MIA_CLOUD_AGENT_PYTHON_VENV=$AGENT_PYTHON_VENV
+Environment=MIA_CLOUD_AGENT_OFFICECLI_HOME=$AGENT_OFFICECLI_HOME
 Environment=MIA_PIP_INDEX_URL=$AGENT_PIP_INDEX_URL
 Environment=MIA_PIP_EXTRA_INDEX_URL=$PIP_EXTRA_INDEX_URL
 Environment=MIA_CLOUD_CLAUDE_CODE_BASE_URL=$CLAUDE_CODE_BASE_URL
@@ -661,6 +680,7 @@ fi
 echo "Running doctor against $SMOKE_URL"
 if ! MIA_DOCTOR_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
   MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
+  MIA_DOCTOR_OFFICECLI_BIN="$AGENT_OFFICECLI_HOME/.local/bin/officecli" \
   node "$INSTALL_TMP/doctor-cloud.js" "$SMOKE_URL"; then
   rollback_after_public_verification_failure || echo "Rollback after doctor failure failed; inspect this host manually." >&2
   exit 1

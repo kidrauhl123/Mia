@@ -13,6 +13,7 @@ const requiredFeatures = [
   "bridge-run-progress",
   "desktop-sync"
 ];
+const DEFAULT_OFFICECLI_HOME = "/opt/mia-agent-runtime/officecli";
 
 function usage() {
   return [
@@ -27,6 +28,7 @@ function usage() {
     "  MIA_DOCTOR_REMOTE=<ssh>      Optional SSH target for server prerequisite checks.",
     "  MIA_DOCTOR_EXPECT_RELEASE_COMMIT=<sha>  Require /api/health.release.gitCommit to match.",
     "  MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT=<iso>  Require /api/health.release.builtAt to match.",
+    "  MIA_DOCTOR_OFFICECLI_BIN=<path>  Verify a host OfficeCLI binary and report its real version.",
     "  MIA_DEPLOY_SUDO=\"sudo -n\"    Optional privilege command for nginx -t.",
     "  MIA_DEPLOY_SERVICE_USER=mia-cloud  Service user expected by deployment scripts.",
     "  MIA_DOCTOR_TIMEOUT_MS=10000  Per network/SSH check timeout."
@@ -54,6 +56,8 @@ function parseArgs(argv = process.argv.slice(2), env = process.env) {
     serviceUser: String(env.MIA_DEPLOY_SERVICE_USER || "mia-cloud").trim() || "mia-cloud",
     expectedReleaseCommit: String(env.MIA_DOCTOR_EXPECT_RELEASE_COMMIT || "").trim(),
     expectedReleaseBuiltAt: String(env.MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT || "").trim(),
+    officeCliBin: String(env.MIA_DOCTOR_OFFICECLI_BIN || "").trim(),
+    officeCliHome: String(env.MIA_CLOUD_AGENT_OFFICECLI_HOME || DEFAULT_OFFICECLI_HOME).trim() || DEFAULT_OFFICECLI_HOME,
     timeoutMs: Number(env.MIA_DOCTOR_TIMEOUT_MS || 10000)
   };
 }
@@ -142,9 +146,10 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
-function buildRemoteProbeCommand({ sudo = "", serviceUser = "mia-cloud" } = {}) {
+function buildRemoteProbeCommand({ sudo = "", serviceUser = "mia-cloud", officeCliHome = DEFAULT_OFFICECLI_HOME } = {}) {
   const sudoPrefix = sudo ? `${sudo} ` : "";
   const quotedServiceUser = shellQuote(serviceUser || "mia-cloud");
+  const quotedOfficeCli = shellQuote(`${String(officeCliHome || DEFAULT_OFFICECLI_HOME).replace(/\/+$/, "")}/.local/bin/officecli`);
   return [
     "set -euo pipefail",
     "node -e 'require(\"node:sqlite\"); const major = Number(process.versions.node.split(\".\")[0]); if (major < 25) { console.error(\"Node.js 25+ is required, found \" + process.version); process.exit(1); }'",
@@ -157,8 +162,21 @@ function buildRemoteProbeCommand({ sudo = "", serviceUser = "mia-cloud" } = {}) 
     `(id -u ${quotedServiceUser} >/dev/null 2>&1 || command -v useradd >/dev/null || test -x /usr/sbin/useradd)`,
     "(command -v sha256sum >/dev/null || command -v shasum >/dev/null)",
     "command -v nginx >/dev/null",
+    `test -x ${quotedOfficeCli}`,
+    `${quotedOfficeCli} --version`,
     `${sudoPrefix}nginx -t`
   ].join(" && ");
+}
+
+async function checkOfficeCliRuntime(binary, { timeoutMs = 10000 } = {}) {
+  const file = String(binary || "").trim();
+  if (!file) return result("OfficeCLI runtime", false, "binary path not configured");
+  const probe = await runCommand(file, ["--version"], { timeoutMs });
+  return result(
+    "OfficeCLI runtime",
+    probe.ok && Boolean(probe.stdout),
+    probe.stdout || probe.stderr || `exit ${probe.code}`
+  );
 }
 
 async function checkPublic(baseUrl, {
@@ -195,7 +213,7 @@ async function checkPublic(baseUrl, {
   }
 }
 
-async function checkRemote(remote, { sudo = "", serviceUser = "mia-cloud", timeoutMs = 10000 } = {}) {
+async function checkRemote(remote, { sudo = "", serviceUser = "mia-cloud", officeCliHome = DEFAULT_OFFICECLI_HOME, timeoutMs = 10000 } = {}) {
   if (!remote) return [];
   const access = await runCommand("ssh", [
     "-o", "BatchMode=yes",
@@ -208,7 +226,7 @@ async function checkRemote(remote, { sudo = "", serviceUser = "mia-cloud", timeo
   }
   const probe = await runCommand("ssh", [
     remote,
-    buildRemoteProbeCommand({ sudo, serviceUser })
+    buildRemoteProbeCommand({ sudo, serviceUser, officeCliHome })
   ], { timeoutMs });
   return [
     result("ssh access", true, remote),
@@ -235,7 +253,13 @@ async function main() {
       expectedReleaseCommit: options.expectedReleaseCommit,
       expectedReleaseBuiltAt: options.expectedReleaseBuiltAt
     })),
-    ...(await checkRemote(options.remote, { sudo: options.sudo, serviceUser: options.serviceUser, timeoutMs: options.timeoutMs }))
+    ...(options.officeCliBin ? [await checkOfficeCliRuntime(options.officeCliBin, { timeoutMs: options.timeoutMs })] : []),
+    ...(await checkRemote(options.remote, {
+      sudo: options.sudo,
+      serviceUser: options.serviceUser,
+      officeCliHome: options.officeCliHome,
+      timeoutMs: options.timeoutMs
+    }))
   ];
   printChecks(checks);
   if (checks.some((check) => !check.ok)) process.exit(1);
@@ -250,6 +274,7 @@ if (require.main === module) {
 
 module.exports = {
   buildRemoteProbeCommand,
+  checkOfficeCliRuntime,
   evaluateHealth,
   normalizeBaseUrl,
   parseArgs

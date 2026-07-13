@@ -6,6 +6,7 @@ const { DEFAULT_CLOUD_CLAUDE_CODE_MODEL, normalizeCloudClaudeCodeModel } = requi
 const DEFAULT_AGENT_ROOT = path.join(os.tmpdir(), "mia-cloud-claude-code");
 const DEFAULT_DEEPSEEK_ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic";
 const DEFAULT_AGENT_PYTHON_VENV = "/opt/mia-agent-runtime/python";
+const DEFAULT_OFFICECLI_HOME = "/opt/mia-agent-runtime/officecli";
 const DEFAULT_PIP_INDEX_URL = "https://mirrors.tencent.com/pypi/simple";
 
 function envFlag(value, fallback = false) {
@@ -57,6 +58,14 @@ function agentPythonVenv(options = {}) {
   return String(value || "").trim();
 }
 
+function officeCliHome(options = {}) {
+  const value = options.officeCliHome !== undefined
+    ? options.officeCliHome
+    : (process.env.MIA_CLOUD_AGENT_OFFICECLI_HOME || DEFAULT_OFFICECLI_HOME);
+  if (value === false || envDisabled(value)) return "";
+  return String(value || "").trim();
+}
+
 function prependPathEntry(basePath, entry) {
   const cleanEntry = String(entry || "").trim();
   const parts = String(basePath || "").split(path.delimiter).filter(Boolean);
@@ -68,15 +77,21 @@ function baseClaudeCodeEnv(options = {}) {
   const baseUrl = deepSeekAnthropicBaseUrl(options);
   const apiKey = deepSeekApiKey(options);
   const pythonVenv = agentPythonVenv(options);
+  const resolvedOfficeCliHome = officeCliHome(options);
+  const officeCliBinDir = resolvedOfficeCliHome ? path.join(resolvedOfficeCliHome, ".local", "bin") : "";
   const pipIndexUrl = String(options.pipIndexUrl || process.env.MIA_PIP_INDEX_URL || DEFAULT_PIP_INDEX_URL).trim();
   const pipExtraIndexUrl = String(options.pipExtraIndexUrl || process.env.MIA_PIP_EXTRA_INDEX_URL || "").trim();
   const env = {
-    PATH: prependPathEntry(process.env.PATH || "", pythonVenv ? path.join(pythonVenv, "bin") : ""),
+    PATH: prependPathEntry(
+      prependPathEntry(process.env.PATH || "", officeCliBinDir),
+      pythonVenv ? path.join(pythonVenv, "bin") : ""
+    ),
     LANG: process.env.LANG || "C.UTF-8",
     LC_ALL: process.env.LC_ALL || process.env.LANG || "C.UTF-8",
     SHELL: process.env.SHELL || "/bin/sh",
     VIRTUAL_ENV: pythonVenv || undefined,
     MIA_CLOUD_AGENT_PYTHON_VENV: pythonVenv || undefined,
+    MIA_CLOUD_AGENT_OFFICECLI_HOME: resolvedOfficeCliHome || undefined,
     PIP_INDEX_URL: pipIndexUrl || undefined,
     PIP_EXTRA_INDEX_URL: pipExtraIndexUrl || undefined,
     PIP_DISABLE_PIP_VERSION_CHECK: "1",
@@ -187,6 +202,7 @@ module.exports = {
   DEFAULT_AGENT_ROOT,
   DEFAULT_DEEPSEEK_ANTHROPIC_BASE_URL,
   DEFAULT_AGENT_PYTHON_VENV,
+  DEFAULT_OFFICECLI_HOME,
   DEFAULT_PIP_INDEX_URL,
   baseClaudeCodeEnv,
   createCloudClaudeCodeSandboxManager

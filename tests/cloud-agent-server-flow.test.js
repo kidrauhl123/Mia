@@ -503,7 +503,7 @@ test("POST bot reminder creates a real cloud task and scheduled fire appends onl
 
     assert.equal(hermesCalls.length, 3);
     assert.match(hermesCalls[0].input, /1分钟后提醒我睡觉/);
-    assert.deepEqual(hermesCalls[0].skills, ["mia-scheduler"]);
+    assert.deepEqual(hermesCalls[0].skills, ["mia-scheduler", "officecli"]);
     assert.doesNotMatch(hermesCalls[0].input, /CRON_CREATE|Loaded Mia Skill Guides/);
     const tasks = await jsonFetch(baseUrl, "/api/tasks", { headers: authHeaders });
     assert.equal(tasks.tasks.length, 1);

@@ -29,6 +29,7 @@ AGENT_PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tencent.com/pypi/simple}"
 AGENT_PYTHON_BIN="${MIA_CLOUD_AGENT_PYTHON_BIN:-python3.12}"
 AGENT_PYTHON_VENV="${MIA_CLOUD_AGENT_PYTHON_VENV:-/opt/mia-agent-runtime/python}"
 AGENT_PYTHON_PACKAGES="${MIA_CLOUD_AGENT_PYTHON_PACKAGES:-python-pptx python-docx openpyxl xlsxwriter pandas numpy matplotlib pillow reportlab pypdf requests beautifulsoup4 lxml markdown}"
+AGENT_OFFICECLI_HOME="${MIA_CLOUD_AGENT_OFFICECLI_HOME:-/opt/mia-agent-runtime/officecli}"
 AGENT_MODEL_PROVIDER="${MIA_CLOUD_AGENT_MODEL_PROVIDER:-mia}"
 AGENT_MODEL_NAME="${MIA_CLOUD_AGENT_MODEL:-mia-auto}"
 AGENT_MODEL_BASE_URL="${MIA_CLOUD_AGENT_MODEL_BASE_URL:-http://litellm:4000/v1}"
@@ -91,6 +92,7 @@ AGENT_PIP_INDEX_URL_QUOTED="$(shell_quote "$AGENT_PIP_INDEX_URL")"
 AGENT_PYTHON_BIN_QUOTED="$(shell_quote "$AGENT_PYTHON_BIN")"
 AGENT_PYTHON_VENV_QUOTED="$(shell_quote "$AGENT_PYTHON_VENV")"
 AGENT_PYTHON_PACKAGES_QUOTED="$(shell_quote "$AGENT_PYTHON_PACKAGES")"
+AGENT_OFFICECLI_HOME_QUOTED="$(shell_quote "$AGENT_OFFICECLI_HOME")"
 AGENT_MODE_QUOTED="$(shell_quote "$AGENT_MODE")"
 CLAUDE_CODE_BASE_URL_QUOTED="$(shell_quote "$CLAUDE_CODE_BASE_URL")"
 CLAUDE_CODE_MODEL_QUOTED="$(shell_quote "$CLAUDE_CODE_MODEL")"
@@ -202,6 +204,7 @@ AGENT_PIP_INDEX_URL=$AGENT_PIP_INDEX_URL_QUOTED
 AGENT_PYTHON_BIN=$AGENT_PYTHON_BIN_QUOTED
 AGENT_PYTHON_VENV=$AGENT_PYTHON_VENV_QUOTED
 AGENT_PYTHON_PACKAGES=$AGENT_PYTHON_PACKAGES_QUOTED
+AGENT_OFFICECLI_HOME=$AGENT_OFFICECLI_HOME_QUOTED
 AGENT_MODE=$AGENT_MODE_QUOTED
 CLAUDE_CODE_BASE_URL=$CLAUDE_CODE_BASE_URL_QUOTED
 CLAUDE_CODE_MODEL=$CLAUDE_CODE_MODEL_QUOTED
@@ -316,6 +319,21 @@ ensure_agent_python_runtime() {
   fi
   run_as_root chmod -R a+rX "\$AGENT_PYTHON_VENV"
   run_as_root "\$AGENT_PYTHON_VENV/bin/python" -c 'import pptx, docx, openpyxl, pandas, matplotlib, PIL, reportlab, pypdf, requests, bs4, lxml, markdown; print("Agent Python runtime OK")'
+}
+
+officecli_runtime_enabled() {
+  case "\$(printf "%s" "\$AGENT_OFFICECLI_HOME" | tr '[:upper:]' '[:lower:]')" in
+    ""|0|false|no|off) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+ensure_officecli_runtime() {
+  if ! officecli_runtime_enabled; then
+    return
+  fi
+  run_as_root env MIA_CLOUD_AGENT_OFFICECLI_HOME="\$AGENT_OFFICECLI_HOME" \
+    bash "$REMOTE_RELEASE_DIR/install-officecli-runtime.sh"
 }
 
 ensure_claude_code_sandbox_deps() {
@@ -537,6 +555,7 @@ tar -xzf "$REMOTE_TMP" -C "$REMOTE_RELEASE_DIR" --strip-components=1
 
 ensure_claude_code_sandbox_deps
 ensure_agent_python_runtime
+ensure_officecli_runtime
 run_as_root mkdir -p "$BACKUP_DIR"
 ensure_service_user
 stop_legacy_service
@@ -611,6 +630,7 @@ Environment=MIA_CLOUD_VERSION=2026-05-20
 Environment=MIA_CLOUD_AGENT_MODE=$AGENT_MODE
 Environment=MIA_CLOUD_AGENT_ROOT=$AGENT_ROOT
 Environment=MIA_CLOUD_AGENT_PYTHON_VENV=$AGENT_PYTHON_VENV
+Environment=MIA_CLOUD_AGENT_OFFICECLI_HOME=$AGENT_OFFICECLI_HOME
 Environment=MIA_PIP_INDEX_URL=$AGENT_PIP_INDEX_URL
 Environment=MIA_PIP_EXTRA_INDEX_URL=$PIP_EXTRA_INDEX_URL
 Environment=MIA_CLOUD_CLAUDE_CODE_BASE_URL=$CLAUDE_CODE_BASE_URL

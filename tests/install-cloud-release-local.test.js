@@ -31,7 +31,8 @@ function createFixtureRelease({ badHash = false } = {}) {
     "nginx/mia-websocket-map.conf": "map $http_upgrade $connection_upgrade { default upgrade; '' close; }\n",
     "nginx/mia-cloud-site.conf": "server { listen 80; server_name _; }\n",
     "smoke-cloud.js": "console.log('smoke');\n",
-    "doctor-cloud.js": "console.log('doctor');\n"
+    "doctor-cloud.js": "console.log('doctor');\n",
+    "install-officecli-runtime.sh": "#!/usr/bin/env bash\nexit 0\n"
   };
   for (const [relativePath, contents] of Object.entries(files)) {
     writeFile(path.join(releaseRoot, relativePath), contents);

@@ -7,7 +7,7 @@ const {
   miaRuntimeSystemPrompt,
   sanitizeMiaMemorySpoof
 } = require("../main/mia-runtime-context.js");
-const { materializeSkillsForTurn } = require("../shared/skill-materializer.js");
+const { resolveEffectiveSkillIds } = require("../../packages/shared/skill-defaults.js");
 
 const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "Hermes"];
 const CLOUD_MIA_MCP_SCRIPT = path.join(__dirname, "mia-cloud-mcp-server.js");
@@ -149,9 +149,7 @@ function skillCatalogLookup(records = []) {
 }
 
 function enabledSkillIds(bot = {}) {
-  return Array.isArray(bot?.capabilities?.enabledSkills)
-    ? bot.capabilities.enabledSkills.map((id) => cleanText(id)).filter(Boolean)
-    : [];
+  return resolveEffectiveSkillIds(bot?.capabilities || {});
 }
 
 function cloudSkillMaterialization({ bot = {}, message = {}, skillsCatalog = [], requestedSkillIds = [] } = {}) {
@@ -169,14 +167,7 @@ function cloudSkillMaterialization({ bot = {}, message = {}, skillsCatalog = [],
   }
   return {
     availableSkills,
-    activeSkillIds,
-    materialization: materializeSkillsForTurn({
-      availableSkills,
-      activeSkillIds,
-      intentSkillIds: [],
-      requestedSkillIds,
-      mode: enabledIds.length ? "index" : "none"
-    })
+    activeSkillIds
   };
 }
 
@@ -367,7 +358,6 @@ function assembleCloudRuntimeTurn(args = {}) {
     instructions: cloudRuntimeInstructions(args.bot, args.message),
     promptPrefix,
     memoryBlock,
-    skillMaterialization: skills.materialization,
     mcpServers,
     runtimeConfig,
     contextPath,

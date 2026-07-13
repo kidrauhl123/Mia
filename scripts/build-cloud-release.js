@@ -608,6 +608,7 @@ function verifyRelease() {
     "doctor-cloud.js",
     "verify-site-verification.js",
     "diagnose-deploy-ssh.js",
+    "install-officecli-runtime.sh",
     "install-cloud-release-local.sh",
     "cloud-deployment.md",
     "nginx/mia-websocket-map.conf",
@@ -681,6 +682,9 @@ function verifyRelease() {
     });
   }
   childProcess.execFileSync("bash", ["-n", assertFile("install-cloud-release-local.sh")], {
+    stdio: "inherit"
+  });
+  childProcess.execFileSync("bash", ["-n", assertFile("install-officecli-runtime.sh")], {
     stdio: "inherit"
   });
 
@@ -922,6 +926,7 @@ function main() {
   copyFile("scripts/doctor-cloud.js", path.join(distDir, "doctor-cloud.js"));
   copyFile("scripts/verify-site-verification.js", path.join(distDir, "verify-site-verification.js"));
   copyFile("scripts/diagnose-deploy-ssh.js", path.join(distDir, "diagnose-deploy-ssh.js"));
+  copyFile("scripts/install-officecli-runtime.sh", path.join(distDir, "install-officecli-runtime.sh"));
   copyFile("scripts/install-cloud-release-local.sh", path.join(distDir, "install-cloud-release-local.sh"));
   copyFile("docs/cloud-deployment.md", path.join(distDir, "cloud-deployment.md"));
   writeReleaseReadme();

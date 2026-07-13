@@ -4,7 +4,45 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { assembleCloudRuntimeTurn } = require("../src/cloud-agent/runtime-assembly.js");
+const {
+  assembleCloudRuntimeTurn,
+  cloudSkillMaterialization
+} = require("../src/cloud-agent/runtime-assembly.js");
+
+test("cloud skill materialization resolves inherited OfficeCLI defaults and honors explicit disables", () => {
+  const skillsCatalog = [
+    { id: "officecli", name: "officecli", body: "# OfficeCLI system skill" },
+    { id: "officecli-docx", name: "officecli-docx", body: "# OfficeCLI DOCX skill" },
+    { id: "officecli-xlsx", name: "officecli-xlsx", body: "# OfficeCLI XLSX skill" },
+    { id: "officecli-pptx", name: "officecli-pptx", body: "# OfficeCLI PPTX skill" },
+    { id: "manual", name: "manual", body: "# Manual skill" }
+  ];
+
+  const result = cloudSkillMaterialization({
+    bot: {
+      capabilities: {
+        inheritEngineDefaults: true,
+        enabledSkills: [
+          "mia-official:officecli-docx",
+          "mia-official:officecli-xlsx",
+          "mia-official:officecli-pptx",
+          "manual"
+        ],
+        disabledSkills: ["mia-official:officecli-xlsx"]
+      }
+    },
+    message: { skills_json: "[]" },
+    skillsCatalog
+  });
+
+  assert.deepEqual(result.availableSkills.map((skill) => skill.id), [
+    "officecli",
+    "officecli-docx",
+    "officecli-pptx",
+    "manual"
+  ]);
+  assert.equal("materialization" in result, false);
+});
 
 test("cloud runtime assembly exposes memory through Mia MCP and materializes skills as native Claude skills", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-runtime-assembly-"));

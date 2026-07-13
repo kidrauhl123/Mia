@@ -1,8 +1,12 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { test } = require("node:test");
 
 const {
   buildRemoteProbeCommand,
+  checkOfficeCliRuntime,
   evaluateHealth,
   normalizeBaseUrl,
   parseArgs
@@ -139,6 +143,22 @@ test("cloud doctor remote probe checks deploy-critical commands", () => {
   assert.match(command, /id -u 'mia-cloud'/);
   assert.match(command, /command -v useradd/);
   assert.match(command, /sudo -n nginx -t/);
+  assert.match(command, /'\/opt\/mia-agent-runtime\/officecli\/\.local\/bin\/officecli' --version/);
+});
+
+test("cloud doctor reports the real OfficeCLI runtime version when requested", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mia-doctor-officecli-"));
+  try {
+    const binary = path.join(tmp, "officecli");
+    fs.writeFileSync(binary, "#!/usr/bin/env bash\nprintf 'OfficeCLI 1.0.135\\n'\n", { mode: 0o755 });
+    assert.deepEqual(await checkOfficeCliRuntime(binary), {
+      name: "OfficeCLI runtime",
+      ok: true,
+      detail: "OfficeCLI 1.0.135"
+    });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("cloud doctor remote probe quotes custom service user", () => {
@@ -154,6 +174,7 @@ test("cloud doctor parses defaults and remote settings", () => {
     MIA_DEPLOY_SERVICE_USER: "mia-prod",
     MIA_DOCTOR_EXPECT_RELEASE_COMMIT: "abc123",
     MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT: "2026-05-20T00:00:00.000Z",
+    MIA_DOCTOR_OFFICECLI_BIN: "/runtime/officecli",
     MIA_DOCTOR_TIMEOUT_MS: "5000"
   });
   assert.equal(parsed.baseUrl, "http://127.0.0.1:4175");
@@ -162,5 +183,6 @@ test("cloud doctor parses defaults and remote settings", () => {
   assert.equal(parsed.serviceUser, "mia-prod");
   assert.equal(parsed.expectedReleaseCommit, "abc123");
   assert.equal(parsed.expectedReleaseBuiltAt, "2026-05-20T00:00:00.000Z");
+  assert.equal(parsed.officeCliBin, "/runtime/officecli");
   assert.equal(parsed.timeoutMs, 5000);
 });
