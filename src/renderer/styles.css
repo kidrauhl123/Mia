@@ -10823,6 +10823,10 @@ pre {
     box-shadow: none;
   }
 
+  .app-shell:not([data-nav-layout="sidebar-bottom"])[data-layout="index-workspace"] .sidebar {
+    grid-column: 4 / -1;
+  }
+
   #chatView.workspace {
     grid-column: 4 / -1;
     margin: 0;

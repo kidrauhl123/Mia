@@ -630,6 +630,11 @@ test("narrow desktop shell collapses the expanded rail into one content column",
     "narrow layout must keep the desktop track count so the middle pane can animate closed"
   );
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.sidebar,\s*\.workspace\s*\{[\s\S]*?grid-column:\s*4 \/ -1;/);
+  assert.match(
+    css,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?grid-column:\s*4 \/ -1;/,
+    "the narrow index pane must override the desktop sidebar column so it cannot collapse into the zero-width transition track"
+  );
   assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.sidebar\s*\{[\s\S]*?display:\s*none !important;/);
   assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="index"\] \.workspace\s*\{[\s\S]*?display:\s*none !important;/);
   assert.match(css, /@keyframes\s+miaPanePushIn\s*\{[\s\S]*?translateX\(26px\)/);
