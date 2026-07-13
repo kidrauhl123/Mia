@@ -9,6 +9,7 @@ const {
   commandEnv,
   normalizeBaseUrl,
   readExpectedRelease,
+  shouldRunProductionSmoke,
   verifyProduction
 } = require("../scripts/verify-cloud-production.js");
 
@@ -57,7 +58,7 @@ test("production verifier runs doctor, smoke, then site verification with manife
       publicUrl: "https://mia.gifgif.cn/",
       manifestPath,
       spawnSync,
-      baseEnv: { EXISTING: "1" },
+      baseEnv: { EXISTING: "1", MIA_CLOUD_TOKEN: "smoke-token" },
       cwd: "/repo",
       stdio: "pipe"
     });
@@ -73,6 +74,34 @@ test("production verifier runs doctor, smoke, then site verification with manife
     assert.equal(calls[1].options.env.MIA_SMOKE_EXPECT_RELEASE_COMMIT, "abc123");
     assert.equal(calls[1].options.env.MIA_SMOKE_EXPECT_RELEASE_BUILT_AT, "2026-05-21T01:02:03.000Z");
     assert.equal(calls[2].options.env.EXISTING, "1");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("production verifier skips authenticated smoke when no cloud token is configured", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-prod-verify-"));
+  try {
+    const manifestPath = writeManifest(tempDir, {
+      source: { gitCommit: "abc123" },
+      builtAt: "2026-05-21T01:02:03.000Z"
+    });
+    const calls = [];
+    verifyProduction({
+      publicUrl: "https://mia.gifgif.cn/",
+      manifestPath,
+      spawnSync: (command, args, options) => {
+        calls.push({ command, args, options });
+        return { status: 0 };
+      },
+      baseEnv: { EXISTING: "1" },
+      cwd: "/repo",
+      stdio: "pipe"
+    });
+
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0].args, ["/repo/scripts/doctor-cloud.js", "https://mia.gifgif.cn"]);
+    assert.deepEqual(calls[1].args, ["/repo/scripts/verify-site-verification.js", "https://mia.gifgif.cn"]);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -94,6 +123,7 @@ test("production verifier stops before site verification when smoke fails", () =
         calls.push({ command, args, options });
         return { status: statuses.shift() };
       },
+      baseEnv: { MIA_CLOUD_TOKEN: "smoke-token" },
       cwd: "/repo",
       stdio: "pipe"
     }), /Running production smoke failed with exit status 1/);
@@ -157,6 +187,12 @@ test("bridge smoke environment accepts a cloud token", () => {
     MIA_SMOKE_REQUIRE_BRIDGE: "1",
     MIA_CLOUD_TOKEN: "smoke-token"
   }));
+});
+
+test("production smoke runs only when a cloud token is configured", () => {
+  assert.equal(shouldRunProductionSmoke({}), false);
+  assert.equal(shouldRunProductionSmoke({ MIA_CLOUD_TOKEN: "   " }), false);
+  assert.equal(shouldRunProductionSmoke({ MIA_CLOUD_TOKEN: "smoke-token" }), true);
 });
 
 test("commandEnv preserves existing environment and sets prefixed release expectations", () => {

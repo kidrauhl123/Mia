@@ -22,7 +22,7 @@ function usage() {
     "  MIA_CLOUD_PUBLIC_URL=<url>  Cloud URL when no positional URL is passed.",
     "  MIA_DOCTOR_REMOTE=<ssh>     Optional SSH target passed through to doctor-cloud.js.",
     "  MIA_DEPLOY_SUDO=\"sudo -n\"   Optional privilege command passed through to doctor-cloud.js.",
-    "  MIA_CLOUD_TOKEN=<token>      Required smoke account token from WeChat login.",
+    "  MIA_CLOUD_TOKEN=<token>      Optional smoke account token from WeChat login.",
     "  MIA_SMOKE_REQUIRE_BRIDGE=1   Require the smoke script to run through an online desktop bridge."
   ].join("\n");
 }
@@ -68,6 +68,10 @@ function assertBridgeSmokeEnv(env = process.env) {
   }
 }
 
+function shouldRunProductionSmoke(env = process.env) {
+  return Boolean(String(env.MIA_CLOUD_TOKEN || "").trim());
+}
+
 function runChecked(spawnSync, label, command, args, options) {
   console.log(`==> ${label}`);
   const result = spawnSync(command, args, options);
@@ -104,17 +108,21 @@ function verifyProduction({
     }
   );
 
-  runChecked(
-    spawnSync,
-    "Running production smoke",
-    process.execPath,
-    [path.join(cwd, "scripts", "smoke-cloud.js"), baseUrl],
-    {
-      cwd,
-      stdio,
-      env: commandEnv(baseEnv, "SMOKE", expectedRelease)
-    }
-  );
+  if (shouldRunProductionSmoke(baseEnv)) {
+    runChecked(
+      spawnSync,
+      "Running production smoke",
+      process.execPath,
+      [path.join(cwd, "scripts", "smoke-cloud.js"), baseUrl],
+      {
+        cwd,
+        stdio,
+        env: commandEnv(baseEnv, "SMOKE", expectedRelease)
+      }
+    );
+  } else {
+    console.log("==> Skipping production smoke because MIA_CLOUD_TOKEN is unset");
+  }
 
   runChecked(
     spawnSync,
@@ -155,5 +163,6 @@ module.exports = {
   commandEnv,
   normalizeBaseUrl,
   readExpectedRelease,
+  shouldRunProductionSmoke,
   verifyProduction
 };

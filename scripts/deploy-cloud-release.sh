@@ -863,6 +863,9 @@ fi
 
 if [ "$DEPLOY_SKIP_SMOKE" = "1" ]; then
   echo "==> Skipping public smoke because MIA_DEPLOY_SKIP_SMOKE=1"
+elif [ -z "${MIA_CLOUD_TOKEN:-}" ]; then
+  echo "==> Skipping public smoke because MIA_CLOUD_TOKEN is unset"
+  echo "==> Run cloud:prod:verify:e2e with MIA_CLOUD_TOKEN for authenticated bridge smoke"
 else
   echo "==> Running public smoke"
   if ! MIA_SMOKE_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \

@@ -338,10 +338,10 @@ MIA_DOCTOR_REMOTE=root@mia.gifgif.cn \
 npm run cloud:prod:verify -- https://mia.gifgif.cn
 ```
 
-`MIA_CLOUD_TOKEN` 是固定 smoke 账号通过微信登录后拿到的 Cloud bearer session token，只给部署验证脚本使用；它不是模型 API Key、服务器 admin token，也不是用户需要手动管理的产品概念。没有这个 token 的构建机仍然可以部署，但要显式跳过 token smoke，保留 doctor 和站点验证：
+`MIA_CLOUD_TOKEN` 是固定 smoke 账号通过微信登录后拿到的 Cloud bearer session token，只给部署验证脚本使用；它不是模型 API Key、服务器 admin token，也不是用户需要手动管理的产品概念。没有这个 token 的构建机也可以直接部署；部署脚本会自动跳过 authenticated smoke，保留 doctor 和站点验证：
 
 ```bash
-MIA_DEPLOY_SKIP_SMOKE=1 bash scripts/deploy-cloud-jms.sh
+bash scripts/deploy-cloud-jms.sh
 ```
 
 端到端 Bridge smoke 需要这个固定 smoke 账号，并且桌面端已经用同账号登录、Bridge 在线：
@@ -354,7 +354,7 @@ MIA_CLOUD_TOKEN=<smoke-account-token> \
 npm run cloud:prod:verify:e2e -- https://mia.gifgif.cn
 ```
 
-`cloud:prod:verify` 会读取 `dist/mia-cloud-release/manifest.json`，把当前包的 `gitCommit` 和 `builtAt` 注入 doctor/smoke，并验证官网根目录的 `5a371047c22c89872f93f00c7d8af123.txt` 内容。没有 `MIA_CLOUD_TOKEN` 时，`cloud:prod:verify` 的 doctor 会通过但 smoke 会失败；这种机器用 `cloud:doctor` + `cloud:site-verify` 验证部署落点，用有 smoke token 的机器再跑完整 e2e。
+`cloud:prod:verify` 会读取 `dist/mia-cloud-release/manifest.json`，把当前包的 `gitCommit` 和 `builtAt` 注入 public checks，并验证官网根目录的 `5a371047c22c89872f93f00c7d8af123.txt` 内容。没有 `MIA_CLOUD_TOKEN` 时，它会自动跳过 authenticated smoke；用有 smoke token 且同账号桌面 Bridge 在线的机器再跑完整 e2e。
 
 ## 回滚
 
