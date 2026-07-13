@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 global.miaCloudRuntime = require("../src/shared/cloud-runtime.js");
+const { MANUAL_BOT_DEFAULT_ENABLED_SKILLS } = require("../src/shared/bot-identity.js");
 const commands = require("../src/renderer/bot/bot-commands.js");
 
 const CLOUD_AGENT_RUNTIME = {
@@ -83,13 +84,7 @@ test("saveBot creates a cloud-claude-code bot through identity, runtime, and con
   assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
   assert.equal(calls[1][1], result.key);
   assert.equal(calls[2][1], result.key);
-  assert.deepEqual(calls[0][2].capabilities.enabledSkills, [
-    "mia-scheduler",
-    "mia-official:document-editor",
-    "mia-official:meeting-notes",
-    "mia-official:spreadsheet-organizer",
-    "mia-official:xlsx"
-  ]);
+  assert.deepEqual(calls[0][2].capabilities.enabledSkills, MANUAL_BOT_DEFAULT_ENABLED_SKILLS);
   assert.equal(calls[1][2].targetIntent.agentEngine, "claude-code");
   assert.equal(Object.hasOwn(calls[1][2], "config"), false);
   assert.equal(calls[2][2].runtimeKind, "cloud-claude-code");
@@ -264,13 +259,7 @@ test("saveBot creates desktop-runtime bots as cloud identities when cloud is ava
   assert.notEqual(calls[0][1], "");
   assert.equal(result.key, calls[0][1]);
   assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
-  assert.deepEqual(calls[0][2].capabilities.enabledSkills, [
-    "mia-scheduler",
-    "mia-official:document-editor",
-    "mia-official:meeting-notes",
-    "mia-official:spreadsheet-organizer",
-    "mia-official:xlsx"
-  ]);
+  assert.deepEqual(calls[0][2].capabilities.enabledSkills, MANUAL_BOT_DEFAULT_ENABLED_SKILLS);
   assert.equal(calls[1][2].runtimeKind, "desktop-local");
   assert.equal(calls[1][2].targetIntent.agentEngine, "codex");
   assert.equal(calls[1][2].targetIntent.deviceId, "mac-1");
