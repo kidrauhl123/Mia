@@ -18,6 +18,7 @@ use mia_core_api_types::{
     SendConversationMessageResponse, SkillMaterializationRecord, SkillMaterializationRequest,
     SkillMaterializationResponse,
 };
+use mia_core_common::skill_defaults::{resolve_effective_skill_ids, system_auto_skill_ids};
 use mia_core_runtime::{RuntimeBuilder, RuntimeTurnInput, RuntimeTurnPlan};
 use serde_json::{Map, Value, json};
 use sqlx::{Row, SqlitePool};
@@ -84,6 +85,7 @@ pub struct CompletedRuntimeMessage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CurrentSkillError {
     MissingId,
+    MissingSource(String),
     NotEnabled(String),
 }
 
@@ -91,6 +93,7 @@ impl std::fmt::Display for CurrentSkillError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingId => write!(f, "Skill id is required."),
+            Self::MissingSource(id) => write!(f, "Required native skill source is missing: {id}"),
             Self::NotEnabled(id) => write!(f, "Skill is not enabled for the current bot: {id}"),
         }
     }
@@ -178,15 +181,27 @@ impl CurrentSkillService {
         &self,
         bot: Option<&BotSummary>,
         selected_skill_ids: &[String],
-    ) -> Vec<AgentSessionSkillRecord> {
-        let mut requested = enabled_skill_ids(bot);
-        requested.extend(selected_skill_ids.iter().cloned());
-        requested.push("mia-scheduler".to_string());
-        let requested = unique_strings(requested);
+    ) -> Result<Vec<AgentSessionSkillRecord>, CurrentSkillError> {
+        let requested = resolved_bot_skill_ids(bot, selected_skill_ids);
+        let disabled = bot
+            .map(|bot| string_list_field(&bot.capabilities, &["disabledSkills", "disabled_skills"]))
+            .unwrap_or_default();
+        let required_system_ids = if bot_inherits_engine_defaults(bot) {
+            system_auto_skill_ids()
+                .iter()
+                .filter(|id| !disabled.contains(id))
+                .cloned()
+                .collect::<HashSet<_>>()
+        } else {
+            HashSet::new()
+        };
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         for requested_id in requested {
             let Some(skill) = self.resolve_enabled_skill(&requested_id) else {
+                if required_system_ids.contains(&requested_id) {
+                    return Err(CurrentSkillError::MissingSource(requested_id));
+                }
                 continue;
             };
             if !seen.insert(skill.canonical_id.clone()) {
@@ -215,7 +230,7 @@ impl CurrentSkillService {
                 link_name,
             });
         }
-        records
+        Ok(records)
     }
 
     fn resolve_enabled_skill(&self, enabled_id: &str) -> Option<ParsedCurrentSkill> {
@@ -328,22 +343,38 @@ fn push_discovered_root(roots: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, r
     }
 }
 
-fn enabled_skill_ids(bot: Option<&BotSummary>) -> Vec<String> {
-    let Some(bot) = bot else {
-        return Vec::new();
+fn bot_inherits_engine_defaults(bot: Option<&BotSummary>) -> bool {
+    let Some(capabilities) = bot.map(|bot| &bot.capabilities) else {
+        return true;
     };
-    let mut ids = string_list_field(&bot.capabilities, &["enabledSkills", "enabled_skills"]);
-    let disabled = string_list_field(&bot.capabilities, &["disabledSkills", "disabled_skills"]);
-    if !disabled.is_empty() {
-        ids.retain(|id| !disabled.iter().any(|disabled_id| disabled_id == id));
-    }
-    unique_strings(ids)
+    let Some(object) = capabilities.as_object() else {
+        return true;
+    };
+    object
+        .get("inheritEngineDefaults")
+        .or_else(|| object.get("inherit_engine_defaults"))
+        .and_then(Value::as_bool)
+        != Some(false)
+}
+
+fn resolved_bot_skill_ids(bot: Option<&BotSummary>, selected_skill_ids: &[String]) -> Vec<String> {
+    let enabled = bot
+        .map(|bot| string_list_field(&bot.capabilities, &["enabledSkills", "enabled_skills"]))
+        .unwrap_or_default();
+    let disabled = bot
+        .map(|bot| string_list_field(&bot.capabilities, &["disabledSkills", "disabled_skills"]))
+        .unwrap_or_default();
+    resolve_effective_skill_ids(
+        bot_inherits_engine_defaults(bot),
+        &[],
+        &enabled,
+        &disabled,
+        selected_skill_ids,
+    )
 }
 
 fn current_skill_ids(bot: Option<&BotSummary>) -> Vec<String> {
-    let mut ids = enabled_skill_ids(bot);
-    ids.push("mia-scheduler".to_string());
-    unique_strings(ids)
+    resolved_bot_skill_ids(bot, &[])
 }
 
 fn string_list_field(value: &Value, keys: &[&str]) -> Vec<String> {
@@ -1579,8 +1610,9 @@ impl ConversationService {
                     Some(bot_id) => bot_summary_for_id(&self.pool, bot_id).await?,
                     None => None,
                 };
-                let available_skills =
-                    current_skills.runtime_skill_records(bot.as_ref(), selected_skill_ids);
+                let available_skills = current_skills
+                    .runtime_skill_records(bot.as_ref(), selected_skill_ids)
+                    .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
                 let session_skill_ids = available_skills
                     .iter()
                     .map(|skill| skill.id.clone())

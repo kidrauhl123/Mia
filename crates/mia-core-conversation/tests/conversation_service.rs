@@ -17,11 +17,18 @@ fn current_skill_service_lists_and_reads_enabled_bot_skills_from_core_paths() {
     let temp = tempfile::tempdir().unwrap();
     let private_skill_dir = temp.path().join("data").join("skills").join("demo-skill");
     let official_skill_dir = temp.path().join("official").join("mia-scheduler");
+    let officecli_skill_dir = temp.path().join("official").join("officecli");
     fs::create_dir_all(&private_skill_dir).unwrap();
     fs::create_dir_all(&official_skill_dir).unwrap();
+    fs::create_dir_all(&officecli_skill_dir).unwrap();
     fs::write(
         private_skill_dir.join("SKILL.md"),
         "---\nname: demo-skill\ndescription: A demo.\n---\n# Demo Skill\nUse it.",
+    )
+    .unwrap();
+    fs::write(
+        officecli_skill_dir.join("SKILL.md"),
+        "---\nname: officecli\ndescription: Office files.\n---\n# OfficeCLI\nUse the real binary.",
     )
     .unwrap();
     fs::write(
@@ -46,16 +53,17 @@ fn current_skill_service_lists_and_reads_enabled_bot_skills_from_core_paths() {
 
     let listed = service.list_current_bot_skills("bot_1", Some(&bot));
     assert_eq!(listed.bot_id, "bot_1");
-    assert_eq!(listed.skills.len(), 2);
-    assert_eq!(listed.skills[0].id, "demo-skill");
-    assert_eq!(listed.skills[0].name, "demo-skill");
-    assert_eq!(listed.skills[0].description, "A demo.");
-    assert_eq!(listed.skills[1].id, "mia-official:mia-scheduler");
+    assert_eq!(listed.skills.len(), 3);
+    assert_eq!(listed.skills[0].id, "mia-scheduler");
+    assert_eq!(listed.skills[1].id, "mia-official:officecli");
+    assert_eq!(listed.skills[2].id, "demo-skill");
+    assert_eq!(listed.skills[2].name, "demo-skill");
+    assert_eq!(listed.skills[2].description, "A demo.");
 
     let read_by_alias = service
         .read_current_bot_skill("bot_1", Some(&bot), "mia-scheduler")
         .unwrap();
-    assert_eq!(read_by_alias.skill.id, "mia-official:mia-scheduler");
+    assert_eq!(read_by_alias.skill.id, "mia-scheduler");
     assert!(read_by_alias.skill.body.contains("schedule_create"));
     assert_eq!(
         read_by_alias.skill.body_chars,
@@ -74,13 +82,129 @@ fn current_skill_service_lists_and_reads_enabled_bot_skills_from_core_paths() {
         capabilities: json!({}),
     };
     let builtin = service.list_current_bot_skills("bot_plain", Some(&plain_bot));
-    assert_eq!(builtin.skills.len(), 1);
+    assert_eq!(builtin.skills.len(), 2);
     assert_eq!(builtin.skills[0].id, "mia-scheduler");
+    assert_eq!(builtin.skills[1].id, "mia-official:officecli");
     assert!(
         service
             .read_current_bot_skill("bot_plain", Some(&plain_bot), "mia-scheduler")
             .is_ok()
     );
+}
+
+#[test]
+fn current_skill_service_links_default_officecli_for_all_native_engines_without_prompt_body() {
+    let temp = tempfile::tempdir().unwrap();
+    let official = temp.path().join("official");
+    for (directory, name, body) in [
+        ("mia-scheduler", "mia-scheduler", "# Scheduler"),
+        ("officecli", "officecli", "SECRET_OFFICECLI_BODY"),
+    ] {
+        let skill_dir = official.join(directory);
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: Native skill.\n---\n{body}"),
+        )
+        .unwrap();
+    }
+    let service =
+        CurrentSkillService::with_official_roots(temp.path().join("data"), vec![official]);
+    let bot = BotSummary {
+        id: "bot_default".into(),
+        display_name: "Default Bot".into(),
+        identity: json!({}),
+        capabilities: json!({ "inheritEngineDefaults": true }),
+    };
+    let records = service.runtime_skill_records(Some(&bot), &[]).unwrap();
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["mia-scheduler", "mia-official:officecli"]
+    );
+
+    for (engine, relative_dir) in [
+        ("claude-code", ".claude/skills"),
+        ("codex", ".codex/skills"),
+        ("hermes", ".mia/hermes-skills"),
+    ] {
+        let workspace = temp.path().join(format!("workspace-{engine}"));
+        let result = plan_agent_session_skill_runtime(AgentSessionSkillRuntimeRequest {
+            agent_engine: engine.into(),
+            runtime_config: json!({}),
+            workspace_path: Some(workspace.to_string_lossy().to_string()),
+            session_skill_ids: records.iter().map(|record| record.id.clone()).collect(),
+            available_skills: records.clone(),
+            active_skill_ids: vec![],
+            intent_skill_ids: vec![],
+            requested_skill_ids: vec![],
+        });
+        assert!(
+            workspace
+                .join(relative_dir)
+                .join("officecli/SKILL.md")
+                .exists()
+        );
+        assert_eq!(result.selected_skill_prompt, "");
+        assert_eq!(result.initial_prompt_prefix, "");
+        assert!(
+            !result
+                .selected_skill_prompt
+                .contains("SECRET_OFFICECLI_BODY")
+        );
+        if engine == "hermes" {
+            assert_eq!(
+                result.skill_external_dirs,
+                vec![workspace.join(relative_dir).to_string_lossy()]
+            );
+        }
+    }
+}
+
+#[test]
+fn current_skill_service_honors_officecli_disable_and_rejects_a_missing_system_source() {
+    let temp = tempfile::tempdir().unwrap();
+    let official = temp.path().join("official");
+    let scheduler = official.join("mia-scheduler");
+    fs::create_dir_all(&scheduler).unwrap();
+    fs::write(
+        scheduler.join("SKILL.md"),
+        "---\nname: mia-scheduler\ndescription: Scheduler.\n---\n# Scheduler",
+    )
+    .unwrap();
+    let service =
+        CurrentSkillService::with_official_roots(temp.path().join("data"), vec![official]);
+    let disabled = BotSummary {
+        id: "bot_disabled".into(),
+        display_name: "Disabled".into(),
+        identity: json!({}),
+        capabilities: json!({
+            "inheritEngineDefaults": true,
+            "disabledSkills": ["mia-official:officecli"]
+        }),
+    };
+    assert_eq!(
+        service
+            .runtime_skill_records(Some(&disabled), &[])
+            .unwrap()
+            .iter()
+            .map(|record| record.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["mia-scheduler"]
+    );
+
+    let inherited = BotSummary {
+        id: "bot_inherited".into(),
+        display_name: "Inherited".into(),
+        identity: json!({}),
+        capabilities: json!({ "inheritEngineDefaults": true }),
+    };
+    let error = service
+        .runtime_skill_records(Some(&inherited), &[])
+        .unwrap_err();
+    assert!(error.to_string().contains("mia-official:officecli"));
 }
 
 #[tokio::test]
@@ -811,10 +935,24 @@ async fn conversation_service_materializes_selected_skill_as_native_link_and_sho
     let workspace = temp.path().join("workspace");
     let official = temp.path().join("official");
     let skill_dir = official.join("meeting-notes");
+    let scheduler_dir = official.join("mia-scheduler");
+    let officecli_dir = official.join("officecli");
     fs::create_dir_all(&skill_dir).unwrap();
+    fs::create_dir_all(&scheduler_dir).unwrap();
+    fs::create_dir_all(&officecli_dir).unwrap();
     fs::write(
         skill_dir.join("SKILL.md"),
         "---\nname: meeting-notes\ndescription: Meeting notes.\n---\nSECRET_SKILL_BODY",
+    )
+    .unwrap();
+    fs::write(
+        scheduler_dir.join("SKILL.md"),
+        "---\nname: mia-scheduler\ndescription: Scheduler.\n---\n# Scheduler",
+    )
+    .unwrap();
+    fs::write(
+        officecli_dir.join("SKILL.md"),
+        "---\nname: officecli\ndescription: Office files.\n---\n# OfficeCLI",
     )
     .unwrap();
     sqlx::query(
@@ -900,10 +1038,17 @@ async fn conversation_service_uses_default_workspace_for_builtin_native_skills()
     let workspace = temp.path().join("workspace");
     let official = temp.path().join("official");
     let scheduler = official.join("mia-scheduler");
+    let officecli = official.join("officecli");
     fs::create_dir_all(&scheduler).unwrap();
+    fs::create_dir_all(&officecli).unwrap();
     fs::write(
         scheduler.join("SKILL.md"),
         "---\nname: mia-scheduler\ndescription: Mia scheduler protocol.\n---\n# Scheduler\nUse [CRON_CREATE].",
+    )
+    .unwrap();
+    fs::write(
+        officecli.join("SKILL.md"),
+        "---\nname: officecli\ndescription: Office files.\n---\n# OfficeCLI",
     )
     .unwrap();
     sqlx::query(
@@ -947,6 +1092,7 @@ async fn conversation_service_uses_default_workspace_for_builtin_native_skills()
             .join(".claude/skills/mia-scheduler/SKILL.md")
             .exists()
     );
+    assert!(workspace.join(".claude/skills/officecli/SKILL.md").exists());
 }
 
 #[test]

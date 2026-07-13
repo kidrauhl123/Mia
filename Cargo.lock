@@ -1483,6 +1483,7 @@ name = "mia-core-conversation"
 version = "0.1.0"
 dependencies = [
  "mia-core-api-types",
+ "mia-core-common",
  "mia-core-db",
  "mia-core-runtime",
  "serde",
