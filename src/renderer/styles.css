@@ -11213,7 +11213,6 @@ pre {
   #chatView .group-title,
   #chatView .active-conversation-menu-button {
     min-width: 0;
-    overflow: hidden;
   }
 
   #chatView .active-conversation-menu-button {

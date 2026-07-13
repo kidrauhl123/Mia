@@ -38,7 +38,7 @@ function makeEl() {
   };
 }
 
-function loadAvatar() {
+function loadAvatar({ thumbnails = null } = {}) {
   const resolveSrc = fs.readFileSync(
     path.join(__dirname, "..", "packages", "shared", "avatar.js"),
     "utf8"
@@ -47,12 +47,21 @@ function loadAvatar() {
     path.join(__dirname, "..", "src", "renderer", "helpers", "avatar-helpers.js"),
     "utf8"
   );
-  const window = {};
+  const window = thumbnails ? { miaAvatarThumbnails: thumbnails } : {};
   const document = { createElement: (tag) => (tag === "img" ? makeImg() : makeEl()) };
   const ctx = vm.createContext({ window, globalThis: window, document, console });
   vm.runInContext(resolveSrc, ctx);
   vm.runInContext(src, ctx);
   return window.miaAvatar;
+}
+
+function thumbnailApi(result = "data:image/png;base64,thumbnail") {
+  return {
+    supportsThumbnail: () => true,
+    thumbnailKey: (src, crop) => `${src}:${crop?.x}:${crop?.y}:${crop?.zoom}`,
+    cachedThumbnail: () => "",
+    renderThumbnail: () => Promise.resolve(result)
+  };
 }
 
 test("former preset image path renders as a generated fallback, not the preset image", () => {
@@ -73,6 +82,41 @@ test("non-preset image with a neutral crop stays neutral", () => {
   avatar.applyAvatarMedia(el, "file:///uploaded.png", {});
   const img = el._children[0];
   assert.match(img.getAttribute("style"), /scale\(1\)/);
+});
+
+test("uploaded still avatars switch to the shared baked thumbnail", async () => {
+  const avatar = loadAvatar({ thumbnails: thumbnailApi() });
+  const el = makeEl();
+  avatar.applyAvatarMedia(el, "data:image/jpeg;base64,photo", { x: 60, y: 40, zoom: 1.4 });
+  const img = el._children[0];
+  assert.equal(img.getAttribute("src"), "data:image/jpeg;base64,photo");
+  assert.match(img.getAttribute("style"), /scale\(1\.4\)/);
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(img.getAttribute("src"), "data:image/png;base64,thumbnail");
+  assert.match(img.getAttribute("style"), /object-position:50% 50%;transform:scale\(1\)/);
+});
+
+test("avatar crop editor keeps the original image instead of the display thumbnail", async () => {
+  const avatar = loadAvatar({ thumbnails: thumbnailApi() });
+  const el = makeEl();
+  avatar.applyAvatarMedia(
+    el,
+    "data:image/jpeg;base64,photo",
+    { x: 60, y: 40, zoom: 1.4 },
+    "#eef0ff",
+    "",
+    { preserveChildren: true }
+  );
+  const img = el._children[0];
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(img.getAttribute("src"), "data:image/jpeg;base64,photo");
+  assert.match(img.getAttribute("style"), /scale\(1\.4\)/);
 });
 
 test("remote avatar image keeps a generated fallback while the media loads", () => {

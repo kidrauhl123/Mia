@@ -732,6 +732,22 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   assert.match(styleSource, /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?#chatView \.session-trigger\s*\{[\s\S]*?grid-template-columns:\s*16px;[\s\S]*?width:\s*38px;[\s\S]*?#chatView \.session-trigger \.current-session-title\s*\{[\s\S]*?display:\s*none;/);
 });
 
+test("compact chat header does not clip the active conversation capsule", () => {
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const compactRuleStart = styleSource.indexOf("@container chat-view (max-width: 560px)");
+  const compactRuleEnd = styleSource.indexOf("body.onboarding-window .setup-actions", compactRuleStart);
+  const compactRule = styleSource.slice(compactRuleStart, compactRuleEnd);
+
+  assert.ok(compactRuleStart >= 0, "compact chat-view container rule exists");
+  assert.ok(compactRuleEnd > compactRuleStart, "compact chat-view container rule has a stable boundary");
+  assert.match(compactRule, /#chatView \.group-title,[\s\S]*?#chatView \.active-conversation-menu-button\s*\{[\s\S]*?min-width:\s*0;/);
+  assert.doesNotMatch(
+    compactRule,
+    /#chatView \.group-title,[\s\S]*?#chatView \.active-conversation-menu-button\s*\{[^}]*overflow:\s*hidden;/,
+    "the compact breakpoint must not clip the capsule or the last name glyph"
+  );
+});
+
 test("session history trigger uses a compact icon pill", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const trigger = html.match(/<button id="sessionMenuButton"[\s\S]*?<\/button>/)?.[0] || "";

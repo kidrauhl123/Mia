@@ -20,6 +20,12 @@
     };
   }
 
+  function avatarThumbnails() {
+    return (typeof window !== "undefined" && window.miaAvatarThumbnails)
+      ? window.miaAvatarThumbnails
+      : null;
+  }
+
   function initAvatarHelpers(deps) {
     if (deps && typeof deps.escapeHtml === "function") {
       escapeHtml = deps.escapeHtml;
@@ -259,31 +265,51 @@
     return null;
   }
 
-  function updateAvatarImageElement(imageEl, image, crop = {}) {
+  function updateAvatarImageElement(imageEl, image, crop = {}, options = {}) {
     const src = avatarImageSrc(image);
+    const effectiveCrop = normalizeCrop(avatarCropForImage(image, crop));
+    const thumbnails = options.preserveChildren || options.useThumbnail === false
+      ? null
+      : avatarThumbnails();
+    let thumbnailKey = "";
+    let cachedThumbnail = "";
+    if (thumbnails?.supportsThumbnail?.(src)) {
+      thumbnailKey = thumbnails.thumbnailKey?.(src, effectiveCrop) || "";
+      cachedThumbnail = thumbnails.cachedThumbnail?.(src, effectiveCrop) || "";
+    }
+    imageEl.__miaAvatarThumbnailKey = thumbnailKey;
+    const displaySrc = cachedThumbnail || src;
+    const displayCrop = cachedThumbnail ? DEFAULT_AVATAR_CROP : effectiveCrop;
     bindAvatarImageLifecycle(imageEl);
-    if (imageEl.getAttribute("src") !== src) {
-      imageEl.setAttribute("src", src);
+    if (imageEl.getAttribute("src") !== displaySrc) {
+      imageEl.setAttribute("src", displaySrc);
       imageEl.__miaAvatarLoaded = false;
     }
     imageEl.setAttribute("alt", "");
     imageEl.setAttribute("aria-hidden", "true");
     imageEl.draggable = false;
-    // Resolve the crop the same way the CSS-background path does: a known preset
-    // image with a neutral crop gets the preset's tuned face crop. Without this
-    // an uncropped preset (e.g. the seeded Mia bot's fallback avatar) renders
-    // full-frame here while thumbnails render it face-cropped — the same image
-    // framed two ways. avatarCropForImage is a no-op for non-preset images.
-    imageEl.setAttribute("style", videoObjectStyle(normalizeCrop(avatarCropForImage(image, crop))));
+    // A generated thumbnail already has the crop baked into its pixels, so it
+    // renders with the neutral transform. Until that thumbnail is ready, keep
+    // the original image and its saved crop visible as the loading fallback.
+    imageEl.setAttribute("style", videoObjectStyle(displayCrop));
     if (imageEl.complete && Number(imageEl.naturalWidth) > 0) {
       imageEl.__miaAvatarLoaded = true;
     }
+    if (thumbnailKey && !cachedThumbnail) {
+      thumbnails.renderThumbnail(src, effectiveCrop).then((thumbnail) => {
+        if (!thumbnail || imageEl.__miaAvatarThumbnailKey !== thumbnailKey) return;
+        if (imageEl.getAttribute("src") !== thumbnail) {
+          imageEl.setAttribute("src", thumbnail);
+          imageEl.__miaAvatarLoaded = false;
+        }
+        imageEl.setAttribute("style", videoObjectStyle(DEFAULT_AVATAR_CROP));
+      }).catch(() => {});
+    }
   }
 
-  function createAvatarImageElement(image, crop = {}) {
+  function createAvatarImageElement() {
     const imageEl = document.createElement("img");
     imageEl.className = "avatar-image";
-    updateAvatarImageElement(imageEl, image, crop);
     return imageEl;
   }
 
@@ -393,10 +419,10 @@
       removeAvatarVideos(el);
       removeAvatarEmojis(el);
       const images = Array.from(el.querySelectorAll?.(":scope > .avatar-image") || []);
-      const imageEl = images[0] || createAvatarImageElement(src, crop);
+      const imageEl = images[0] || createAvatarImageElement();
       images.slice(1).forEach((node) => node.remove());
       if (!options.preserveChildren) removeAvatarChildrenExcept(el, imageEl);
-      updateAvatarImageElement(imageEl, src, crop);
+      updateAvatarImageElement(imageEl, src, crop, options);
       if (imageEl.parentElement !== el || imageEl !== el.firstElementChild) el.prepend(imageEl);
       if (imageEl.__miaAvatarLoaded) clearAvatarImageFallback(el);
       return;

@@ -500,12 +500,18 @@ test("desktop and web composer render Mia Auto as transparent model art", () => 
 test("src/renderer/index.html loads package avatar before helpers/avatar-helpers.js", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/renderer/index.html"), "utf8");
   const resolveIdx = html.indexOf("packages/shared/avatar.js");
+  const thumbnailIdx = html.indexOf("helpers/avatar-thumbnail.js");
   const helpersIdx = html.indexOf("helpers/avatar-helpers.js");
   assert.ok(resolveIdx >= 0, "renderer must reference packages/shared/avatar.js");
+  assert.ok(thumbnailIdx >= 0, "renderer must reference helpers/avatar-thumbnail.js");
   assert.ok(helpersIdx >= 0, "renderer must reference helpers/avatar-helpers.js");
   assert.ok(
     resolveIdx < helpersIdx,
     "packages/shared/avatar.js must load before helpers/avatar-helpers.js so the renderer's preset aliases resolve at module-eval time"
+  );
+  assert.ok(
+    thumbnailIdx < helpersIdx,
+    "avatar-thumbnail.js must load before avatar-helpers.js so every painted still avatar can use the shared thumbnail cache"
   );
 });
 
