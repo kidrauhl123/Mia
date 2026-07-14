@@ -37,6 +37,7 @@ test("packaged Mia Core is prepared from a prebuilt Rust Core release", () => {
 
   assert.equal(pkg.build.beforePack, "./scripts/prepare-mia-core-rs.js");
   assert.ok(extraResources.some((entry) => entry.from === "resources/bundled-mia-core" && entry.to === "bundled-mia-core"));
+  assert.ok(extraResources.some((entry) => entry.from === "resources/managed-resources" && entry.to === "managed-resources"));
   assert.ok(extraResources.some((entry) => entry.from === "skills" && entry.to === "skills"));
   assert.equal(JSON.stringify(extraResources).includes(LEGACY_NODE_RESOURCE), false);
   assert.doesNotMatch(source, /"build", "--release", "-p", "mia-core-app", "--bin", "mia-core"/);
@@ -44,6 +45,8 @@ test("packaged Mia Core is prepared from a prebuilt Rust Core release", () => {
   assert.match(source, /miaCoreDownloadUrl/);
   assert.match(source, /MIA_CORE_RS_BIN/);
   assert.match(source, /"resources",\s+"bundled-mia-core"/);
+  assert.match(source, /prepare-managed-resources/);
+  assert.match(source, /"resources",\s+"managed-resources"/);
 });
 
 test("desktop package keeps AgentSession ACP SDK as a production dependency", () => {

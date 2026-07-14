@@ -8,6 +8,7 @@ use mia_core_api_types::{
     CodexModelListResponse, EngineCapabilitiesResponse, EngineModelCatalogResponse,
     SlashCommandItem, SlashCommandListResponse,
 };
+use mia_core_common::process::configure_background_command;
 use mia_core_runtime::{AgentEngineInventory, AgentEngineScanOptions, AgentEngineScanner};
 use serde_json::{Value, json};
 use tokio::process::Command;
@@ -410,6 +411,7 @@ async fn run_hermes_python(
     }
 
     let mut command = Command::new(python_bin());
+    configure_background_command(command.as_std_mut());
     command.arg("-c").arg(script);
     command.current_dir(&engine_dir);
     command.env("HERMES_HOME", hermes_home(states));

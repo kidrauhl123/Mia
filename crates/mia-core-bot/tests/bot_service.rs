@@ -473,6 +473,51 @@ async fn bot_service_owns_runtime_control_options_selection() {
 }
 
 #[tokio::test]
+async fn bot_service_includes_platform_models_in_desktop_external_controls() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let response = service.runtime_control_options(BotRuntimeControlOptionsRequest {
+        runtime_kind: Some("desktop-local".to_string()),
+        bot: json!({ "key": "codex", "agentEngine": "codex" }),
+        runtime: json!({
+            "agentInventory": {
+                "agents": [
+                    { "id": "codex", "usableInMia": true, "health": "ready" }
+                ]
+            }
+        }),
+        binding: json!({ "config": { "agentEngine": "codex" } }),
+        model_catalog: json!([]),
+        platform_models: json!([{ "id": "mia-auto", "label": "Auto" }]),
+        engine_capabilities: json!({
+            "engines": {
+                "codex": {
+                    "models": [
+                        { "slug": "gpt-5.5", "displayName": "GPT-5.5" }
+                    ]
+                }
+            }
+        }),
+        codex_models: json!([]),
+    });
+
+    assert_eq!(
+        response
+            .model_options
+            .iter()
+            .map(|entry| (entry.provider.as_str(), entry.id.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("mia", "mia-auto"), ("codex", "gpt-5.5")]
+    );
+    assert_eq!(response.selected_model, "mia-auto");
+    assert_eq!(
+        response.selected_model_entry.as_ref().unwrap().provider,
+        "mia"
+    );
+}
+
+#[tokio::test]
 async fn bot_service_leaves_external_model_empty_when_saved_model_is_not_available() {
     let db = init_database_memory().await.unwrap();
     let service = BotService::new(db.pool().clone());

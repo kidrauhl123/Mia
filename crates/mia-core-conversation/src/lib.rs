@@ -1777,6 +1777,7 @@ impl ConversationService {
         let provider = runtime_provider_with_controls(
             provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
             &runtime_config,
+            engine.as_deref(),
         );
         let memory_mode = conversation_memory_mode(conversation);
         let mcp_servers = mcp_servers_for_turn(
@@ -1833,6 +1834,7 @@ impl ConversationService {
         let provider = runtime_provider_with_controls(
             provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
             &runtime_config,
+            engine.as_deref(),
         );
         let utility_conversation_id = utility_conversation_id(request.conversation_id.as_deref());
         let message_id = format!("msg_{}", Uuid::now_v7().simple());
@@ -1872,6 +1874,7 @@ impl ConversationService {
         let provider = runtime_provider_with_controls(
             provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
             &runtime_config,
+            engine.as_deref(),
         );
         let memory_mode = conversation_memory_mode(&conversation);
         let mcp_servers = mcp_servers_for_turn(
@@ -2250,19 +2253,23 @@ async fn provider_for_runtime_config(
     config: &Value,
     engine: Option<&str>,
 ) -> Result<Value, sqlx::Error> {
+    let engine = engine.unwrap_or_default();
     if let Some(provider) = config.get("provider").filter(|value| value.is_object()) {
+        if desktop_local_agent_runtime(config, engine) && provider_object_is_mia_managed(provider) {
+            return Ok(native_cli_provider_reference(config, engine));
+        }
         return Ok(provider.clone());
     }
-    if is_mia_managed_reference(config)
-        || local_agent_defaults_to_mia(config, engine.unwrap_or_default())
+    if desktop_local_agent_runtime(config, engine)
+        && (is_mia_managed_reference(config) || native_cli_default(config, engine))
     {
+        return Ok(native_cli_provider_reference(config, engine));
+    }
+    if is_mia_managed_reference(config) || local_agent_defaults_to_mia(config, engine) {
         return Ok(mia_managed_provider_reference(config));
     }
-    if native_cli_default(config, engine.unwrap_or_default()) {
-        return Ok(native_cli_provider_reference(
-            config,
-            engine.unwrap_or_default(),
-        ));
+    if native_cli_default(config, engine) {
+        return Ok(native_cli_provider_reference(config, engine));
     }
     let provider_id = explicit_provider_connection_id(config)
         .or_else(|| provider_from_profile_id(config))
@@ -2306,10 +2313,16 @@ async fn provider_for_runtime_config(
     }))
 }
 
-fn runtime_provider_with_controls(mut provider: Value, config: &Value) -> Value {
+fn runtime_provider_with_controls(
+    mut provider: Value,
+    config: &Value,
+    engine: Option<&str>,
+) -> Value {
     if !provider.is_object() {
         provider = json!({});
     }
+    let engine = engine.unwrap_or_default();
+    let desktop_local_agent = desktop_local_agent_runtime(config, engine);
     let Value::Object(provider) = &mut provider else {
         return provider;
     };
@@ -2326,6 +2339,9 @@ fn runtime_provider_with_controls(mut provider: Value, config: &Value) -> Value 
             "permissionMode" => "permissionMode",
             other => other,
         };
+        if canonical == "model" && desktop_local_agent && mia_placeholder_model(&value) {
+            continue;
+        }
         provider.insert(canonical.to_string(), Value::String(value));
     }
     Value::Object(provider.clone())
@@ -2393,8 +2409,50 @@ fn is_mia_managed_reference(config: &Value) -> bool {
             .is_some_and(|model| matches!(model.as_str(), "mia-auto" | "mia-default"))
 }
 
+fn provider_object_is_mia_managed(provider: &Value) -> bool {
+    explicit_provider_connection_id(provider).as_deref() == Some("mia")
+        || provider_from_profile_id(provider).as_deref() == Some("mia")
+        || first_string(provider, &["provider", "modelProvider", "model_provider"]).as_deref()
+            == Some("mia")
+        || first_string(provider, &["authType", "auth_type"]).as_deref() == Some("mia_account")
+}
+
+fn desktop_local_agent_runtime(config: &Value, engine: &str) -> bool {
+    if !matches!(engine, "hermes" | "claude-code" | "codex") {
+        return false;
+    }
+    let runtime_kind =
+        first_string(config, &["runtimeKind", "runtime_kind"]).map(|value| value.replace('_', "-"));
+    match runtime_kind.as_deref() {
+        Some("desktop-local") => return true,
+        Some("cloud-claude-code" | "cloud") => return false,
+        _ => {}
+    }
+    first_string(
+        config,
+        &[
+            "deviceId",
+            "device_id",
+            "deviceName",
+            "device_name",
+            "targetDeviceId",
+            "target_device_id",
+            "targetDeviceName",
+            "target_device_name",
+        ],
+    )
+    .is_some()
+}
+
+fn mia_placeholder_model(model: &str) -> bool {
+    matches!(model.trim(), "mia-auto" | "mia-default")
+}
+
 fn local_agent_defaults_to_mia(config: &Value, engine: &str) -> bool {
     if !matches!(engine, "hermes" | "claude-code" | "codex") {
+        return false;
+    }
+    if desktop_local_agent_runtime(config, engine) {
         return false;
     }
     explicit_provider_connection_id(config).is_none()
@@ -2419,7 +2477,7 @@ fn mia_managed_provider_reference(config: &Value) -> Value {
 }
 
 fn native_cli_default(config: &Value, engine: &str) -> bool {
-    if !matches!(engine, "codex" | "claude-code") {
+    if !matches!(engine, "hermes" | "codex" | "claude-code") {
         return false;
     }
     let provider = explicit_provider_connection_id(config)
@@ -2428,12 +2486,15 @@ fn native_cli_default(config: &Value, engine: &str) -> bool {
         .unwrap_or_default();
     provider.is_empty()
         || provider == engine
+        || (engine == "hermes" && provider == "hermes")
         || (engine == "codex" && provider == "openai-codex")
         || (engine == "claude-code" && provider == "anthropic")
 }
 
 fn native_cli_provider_reference(config: &Value, engine: &str) -> Value {
-    let model = first_string(config, &["model"]).unwrap_or_default();
+    let model = first_string(config, &["model"])
+        .filter(|model| !mia_placeholder_model(model))
+        .unwrap_or_default();
     let provider = if engine == "codex" {
         "codex"
     } else if engine == "claude-code" {
@@ -2442,6 +2503,11 @@ fn native_cli_provider_reference(config: &Value, engine: &str) -> Value {
         engine
     };
     let model_profile_id = first_string(config, &["modelProfileId", "model_profile_id"])
+        .filter(|profile| !profile.starts_with("mia:"))
+        .filter(|profile| match provider_from_profile_value(profile) {
+            Some(profile_provider) => profile_provider == provider,
+            None => true,
+        })
         .unwrap_or_else(|| {
             if model.is_empty() {
                 provider.to_string()
@@ -2458,6 +2524,11 @@ fn native_cli_provider_reference(config: &Value, engine: &str) -> Value {
         "nativeCli": true,
         "source": "mia-core"
     })
+}
+
+fn provider_from_profile_value(profile_id: &str) -> Option<&str> {
+    let index = profile_id.find(':')?;
+    (index > 0).then(|| &profile_id[..index])
 }
 
 async fn mcp_servers_for_turn(

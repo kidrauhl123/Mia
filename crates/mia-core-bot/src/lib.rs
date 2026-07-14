@@ -2145,7 +2145,7 @@ fn runtime_control_external_model_options(
     platform_models: &[BotRuntimeControlOption],
 ) -> Vec<BotRuntimeControlOption> {
     let capability = runtime_control_engine_capability(engine_capabilities, engine);
-    let mut entries = Vec::new();
+    let mut entries = platform_models.to_vec();
     if engine == "claude-code" {
         entries.extend(
             value_array_or_nested(&capability, &["models"])
@@ -2177,7 +2177,6 @@ fn runtime_control_external_model_options(
             }
         }
     }
-    entries.extend(platform_models.iter().cloned());
     dedupe_runtime_control_options(entries)
 }
 
@@ -2792,7 +2791,11 @@ fn selected_runtime_control_model(
     }
     if is_external_runtime_engine(agent_engine) {
         if model.is_empty() {
-            return String::new();
+            return entries
+                .iter()
+                .find(|entry| entry.provider_connection_id == "mia" || entry.provider == "mia")
+                .map(|entry| runtime_control_option_value(entry, "mia-auto"))
+                .unwrap_or_default();
         }
         return entries
             .iter()

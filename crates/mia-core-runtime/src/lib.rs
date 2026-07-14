@@ -13,8 +13,13 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub use agent_engines::{AgentEngineInventory, AgentEngineScanOptions, AgentEngineScanner};
+pub use agent_engines::{
+    AgentEngineInventory, AgentEngineScanOptions, AgentEngineScanner,
+    ManagedAgentResourcePrepareReport, ManagedAgentResourcePrepareStatus,
+    prepare_managed_agent_resources,
+};
 pub use memory_isolation::{apply_memory_isolation_to_plan, preflight_memory_isolation};
+use mia_core_common::process::configure_background_command;
 pub use native_acp::{NativeAcpBackend, NativeAcpSessionManager};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -249,6 +254,7 @@ impl RuntimeExecutor {
         }
 
         let mut child = Command::new(&command.program);
+        configure_background_command(child.as_std_mut());
         child
             .args(&command.args)
             .env_clear()
@@ -570,7 +576,7 @@ impl RuntimeBuilder {
             .get(&engine)
             .cloned()
             .or_else(|| managed_runtime.map(|runtime| runtime.command))
-            .or_else(|| command_for_engine(&engine));
+            .or_else(|| command_for_engine(&engine, &environment));
         let protocol = if has_command_override {
             RuntimeProtocol::Process
         } else {
@@ -723,12 +729,13 @@ fn protocol_for_engine(engine: &str) -> RuntimeProtocol {
     }
 }
 
-fn command_for_engine(engine: &str) -> Option<RuntimeCommand> {
+fn command_for_engine(engine: &str, env: &BTreeMap<String, String>) -> Option<RuntimeCommand> {
     match engine {
         "mock" | "mock-agent" | "mia-mock" => None,
         "codex" | "claude-code" => None,
         "hermes" => Some(RuntimeCommand {
-            program: "hermes".into(),
+            program: agent_engines::resolve_agent_command_path("hermes", env)
+                .unwrap_or_else(|| "hermes".into()),
             args: vec!["acp".into()],
         }),
         other => Some(RuntimeCommand {
@@ -951,12 +958,66 @@ mod tests {
             ],
         );
 
-        assert_eq!(
-            env.get("CODEX_PATH").map(String::as_str),
-            Some(codex_path.to_string_lossy().as_ref())
-        );
+        assert_path_env_eq(env.get("CODEX_PATH"), &codex_path);
 
         let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn runtime_builder_uses_official_windows_hermes_launcher_path() {
+        let root = test_dir("windows-hermes-path");
+        let scripts = root
+            .join("AppData")
+            .join("Local")
+            .join("hermes")
+            .join("hermes-agent")
+            .join("venv")
+            .join("Scripts");
+        let hermes = scripts.join("hermes.exe");
+        write_executable(&hermes);
+
+        let plan = RuntimeBuilder::new("/tmp/mia-workspace")
+            .with_environment([
+                ("USERPROFILE", root.to_string_lossy().to_string()),
+                (
+                    "LOCALAPPDATA",
+                    root.join("AppData")
+                        .join("Local")
+                        .to_string_lossy()
+                        .to_string(),
+                ),
+                (
+                    "APPDATA",
+                    root.join("AppData")
+                        .join("Roaming")
+                        .to_string_lossy()
+                        .to_string(),
+                ),
+                ("PATH", String::new()),
+            ])
+            .build_turn_plan(RuntimeTurnInput {
+                conversation_id: "conv_hermes".into(),
+                message_id: "msg_hermes".into(),
+                bot_id: None,
+                engine: Some("hermes".into()),
+                previous_session_key: None,
+                workspace_dir: "".into(),
+                provider: json!({}),
+                mcp_servers: json!({}),
+                attachments: json!([]),
+                selected_skill_ids: vec![],
+                body: "hello".into(),
+            });
+
+        let command = plan.command.expect("hermes command");
+        assert!(
+            command
+                .program
+                .eq_ignore_ascii_case(hermes.to_string_lossy().as_ref())
+        );
+        assert_eq!(command.args, vec!["acp"]);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -981,10 +1042,21 @@ mod tests {
         );
         let claude_acp = write_managed_acp(
             &resources,
-            "claude-acp",
-            "claude-acp",
+            "claude-agent-acp",
+            "claude-agent-acp",
             "0.39.0",
             "claude-code-cli",
+        );
+        write_executable(
+            &resources
+                .join("acp")
+                .join("claude-agent-acp")
+                .join("0.39.0")
+                .join("test-runtime")
+                .join("node_modules")
+                .join("@anthropic-ai")
+                .join("claude-agent-sdk-test-runtime")
+                .join("claude"),
         );
         let builder = RuntimeBuilder::new("/tmp/mia-workspace")
             .with_environment(managed_runtime_env(&resources, &bin));
@@ -1038,6 +1110,13 @@ mod tests {
         let claude_command = claude_plan.command.as_ref().expect("claude ACP command");
         assert_eq!(claude_command.program, claude_acp.to_string_lossy());
         assert_eq!(claude_command.args, vec!["--stdio"]);
+        assert_eq!(
+            claude_plan
+                .environment
+                .get("CLAUDE_CODE_EXECUTABLE")
+                .map(String::as_str),
+            None
+        );
         assert!(
             !claude_command
                 .args
@@ -1105,9 +1184,7 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_executor_streams_stdout_stderr_and_finish_events() {
-        let plan = test_plan(shell_command(
-            "printf 'hello stdout\\n'; printf 'hello stderr\\n' >&2",
-        ));
+        let plan = test_plan(stdout_stderr_command("hello stdout\n", "hello stderr\n"));
         let executor = RuntimeExecutor;
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = {
@@ -1144,7 +1221,7 @@ mod tests {
     async fn runtime_executor_sends_turn_body_to_command_stdin() {
         let builder = RuntimeBuilder::new(".");
         let plan = builder
-            .with_engine_command("stdin-agent", shell_command("cat"))
+            .with_engine_command("stdin-agent", stdin_echo_command())
             .build_turn_plan(RuntimeTurnInput {
                 conversation_id: "conv_stdin".into(),
                 message_id: "msg_stdin".into(),
@@ -1170,7 +1247,7 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_executor_uses_aion_send_message_content_as_process_input() {
-        let mut plan = test_plan(shell_command("cat"));
+        let mut plan = test_plan(stdin_echo_command());
         plan.send_message.content = "hello from send message\n".into();
 
         let result = RuntimeExecutor
@@ -1184,7 +1261,7 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_session_manager_sends_runtime_plan_via_send_message_boundary() {
-        let mut plan = test_plan(shell_command("cat"));
+        let mut plan = test_plan(stdin_echo_command());
         plan.send_message.content = "hello through session manager\n".into();
 
         let result = RuntimeSessionManager::default()
@@ -1394,8 +1471,10 @@ mod tests {
     async fn runtime_executor_cancels_running_process_and_emits_cancelled_finish() {
         let cancellation = RuntimeCancellation::new();
         let cancel_on_first_line = cancellation.clone();
-        let plan = test_plan(shell_command(
-            "printf 'started\\n'; sleep 5; printf 'should-not-finish\\n'",
+        let plan = test_plan(delayed_output_command(
+            "started\n",
+            "should-not-finish\n",
+            5,
         ));
         let executor = RuntimeExecutor;
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1468,5 +1547,95 @@ mod tests {
             program: "cmd".into(),
             args: vec!["/C".into(), script.into()],
         }
+    }
+
+    fn assert_path_env_eq(actual: Option<&String>, expected: &std::path::Path) {
+        let Some(actual) = actual else {
+            panic!("expected path env to be present");
+        };
+        let expected = expected.to_string_lossy();
+        if cfg!(windows) {
+            assert!(
+                actual.eq_ignore_ascii_case(expected.as_ref()),
+                "left: {actual:?}, right: {expected:?}"
+            );
+        } else {
+            assert_eq!(actual, expected.as_ref());
+        }
+    }
+
+    #[cfg(unix)]
+    fn stdin_echo_command() -> RuntimeCommand {
+        shell_command("cat")
+    }
+
+    #[cfg(windows)]
+    fn stdin_echo_command() -> RuntimeCommand {
+        powershell_command(r#"$text = [Console]::In.ReadToEnd(); [Console]::Out.Write($text)"#)
+    }
+
+    #[cfg(unix)]
+    fn stdout_stderr_command(stdout: &str, stderr: &str) -> RuntimeCommand {
+        shell_command(&format!(
+            "printf '%s' {}; printf '%s' {} >&2",
+            sh_quote(stdout),
+            sh_quote(stderr)
+        ))
+    }
+
+    #[cfg(windows)]
+    fn stdout_stderr_command(stdout: &str, stderr: &str) -> RuntimeCommand {
+        powershell_command(&format!(
+            "[Console]::Out.Write({}); [Console]::Error.Write({})",
+            ps_quote(stdout),
+            ps_quote(stderr)
+        ))
+    }
+
+    #[cfg(unix)]
+    fn delayed_output_command(first: &str, second: &str, seconds: u64) -> RuntimeCommand {
+        shell_command(&format!(
+            "printf '%s' {}; sleep {}; printf '%s' {}",
+            sh_quote(first),
+            seconds,
+            sh_quote(second)
+        ))
+    }
+
+    #[cfg(windows)]
+    fn delayed_output_command(first: &str, second: &str, seconds: u64) -> RuntimeCommand {
+        powershell_command(&format!(
+            "[Console]::Out.Write({}); [Console]::Out.Flush(); Start-Sleep -Seconds {}; [Console]::Out.Write({})",
+            ps_quote(first),
+            seconds,
+            ps_quote(second)
+        ))
+    }
+
+    #[cfg(unix)]
+    fn sh_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+
+    #[cfg(windows)]
+    fn powershell_command(script: &str) -> RuntimeCommand {
+        RuntimeCommand {
+            program: "powershell.exe".into(),
+            args: vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-ExecutionPolicy".into(),
+                "Bypass".into(),
+                "-Command".into(),
+                format!(
+                    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); {script}"
+                ),
+            ],
+        }
+    }
+
+    #[cfg(windows)]
+    fn ps_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "''"))
     }
 }

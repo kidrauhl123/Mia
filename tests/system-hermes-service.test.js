@@ -91,6 +91,20 @@ test("refresh records usable system Hermes command and Python while resetting Ag
   assert.deepEqual(calls, ["reset-cache"]);
 });
 
+test("status reads do not run live Hermes probes on a cold cache", (t) => {
+  const calls = [];
+  const { service } = setup(t, {
+    spawnSync: (command, args) => {
+      calls.push({ command, args });
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+
+  assert.equal(service.pythonPath(), "");
+  assert.equal(service.commandPath(), "");
+  assert.deepEqual(calls, []);
+});
+
 test("probe recognizes official Windows Hermes venv launcher", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mia-system-hermes-win-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

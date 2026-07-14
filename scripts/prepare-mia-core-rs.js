@@ -54,6 +54,16 @@ function rustCoreBinaryName(platform = process.platform) {
   return normalizePlatform(platform) === "win32" ? "mia-core.exe" : "mia-core";
 }
 
+function canPrepareManagedResourcesForTarget({
+  platform = process.platform,
+  arch = process.arch,
+  hostPlatform = process.platform,
+  hostArch = os.arch()
+} = {}) {
+  return (normalizePlatform(platform) || platform) === (normalizePlatform(hostPlatform) || hostPlatform)
+    && normalizeArch(arch) === normalizeArch(hostArch);
+}
+
 function rustTargetTriple(platform = process.platform, arch = process.arch) {
   const normalizedPlatform = normalizePlatform(platform) || platform;
   const normalizedArch = normalizeArch(arch);
@@ -206,6 +216,50 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+function prepareManagedAgentResources({
+  rootDir,
+  corePath,
+  platform,
+  arch,
+  env = process.env,
+  execFileSync = childProcess.execFileSync,
+  hostPlatform = process.platform,
+  hostArch = os.arch()
+}) {
+  const mode = String(env.MIA_MANAGED_RESOURCES_PREPARE || "").trim();
+  const forced = mode === "1" || mode.toLowerCase() === "true";
+  if ((mode === "0" || mode.toLowerCase() === "false") && !forced) {
+    return { skipped: true, reason: "disabled", resourceDir: "" };
+  }
+  if (!forced && !canPrepareManagedResourcesForTarget({ platform, arch, hostPlatform, hostArch })) {
+    return {
+      skipped: true,
+      reason: `target ${platform}-${arch} cannot be prepared on host ${hostPlatform}-${hostArch}`,
+      resourceDir: ""
+    };
+  }
+  const resourceDir = path.join(rootDir, "resources", "managed-resources");
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-managed-resources-"));
+  ensureDirectory(resourceDir);
+  try {
+    execFileSync(corePath, [
+      "prepare-managed-resources",
+      "--data-dir",
+      dataDir,
+      "--resource-dir",
+      resourceDir
+    ], {
+      cwd: rootDir,
+      env,
+      stdio: "inherit",
+      timeout: Number(env.MIA_MANAGED_RESOURCES_PREPARE_TIMEOUT_MS || 600000)
+    });
+    return { skipped: false, reason: "", resourceDir };
+  } finally {
+    removeDirectorySafe(dataDir);
+  }
+}
+
 function resolveLatestTag({ rootDir, env = process.env, execFileSync = childProcess.execFileSync } = {}) {
   const explicit = String(env.MIA_CORE_LATEST_MANIFEST_URL || "").trim();
   const url = explicit || `${releaseBaseUrl(rootDir, env)}/latest.json`;
@@ -326,12 +380,29 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
   }
 
   console.log(`[prepare-mia-core-rs] staged Rust Core (${result.bytes} bytes) for ${platform}-${arch} from ${result.source} -> ${result.dest}`);
+  const managedResources = prepareManagedAgentResources({
+    rootDir,
+    corePath: result.dest,
+    platform,
+    arch,
+    env,
+    execFileSync,
+    hostPlatform: options.hostPlatform || process.platform,
+    hostArch: options.hostArch || os.arch()
+  });
+  if (managedResources.skipped) {
+    console.log(`[prepare-mia-core-rs] skipped managed ACP resources: ${managedResources.reason}`);
+  } else {
+    console.log(`[prepare-mia-core-rs] prepared managed ACP resources -> ${managedResources.resourceDir}`);
+  }
+  result.managedResources = managedResources;
   return result;
 }
 
 module.exports = prepareMiaCoreRs;
 Object.assign(module.exports, {
   bundledRustCorePath,
+  canPrepareManagedResourcesForTarget,
   assertNotHtmlDownload,
   downloadFile,
   extractArchive,
@@ -341,6 +412,7 @@ Object.assign(module.exports, {
   normalizeArch,
   normalizePlatform,
   normalizeVersionTag,
+  prepareManagedAgentResources,
   prepareMiaCoreRs,
   releaseBaseUrl,
   resolveLatestTag,

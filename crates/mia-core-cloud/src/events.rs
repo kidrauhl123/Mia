@@ -619,6 +619,7 @@ fn desktop_invocation_run_request(message: &Value) -> Result<CloudBridgeRunReque
         agent_engine: value_string(&runtime_config, "agentEngine")
             .or_else(|| value_string(&runtime_config, "agent_engine")),
         engine: value_string(&runtime_config, "engine"),
+        runtime_kind: Some("desktop-local".to_string()),
         model: value_string(&runtime_config, "model"),
         effort_level: value_string(&runtime_config, "effortLevel")
             .or_else(|| value_string(&runtime_config, "effort_level")),

@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawnSync: defaultSpawnSync } = require("node:child_process");
+const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 
 const SYSTEM_CLI_PATH_SEGMENTS = [
   "/opt/homebrew/bin",
@@ -62,6 +62,7 @@ function createSystemHermesService(deps = {}) {
   const envSource = deps.env || process.env;
   const homeDir = typeof deps.homeDir === "function" ? deps.homeDir : () => os.homedir();
   const platform = deps.platform || process.platform;
+  const spawn = typeof deps.spawn === "function" ? deps.spawn : (typeof deps.spawnSync === "function" ? null : defaultSpawn);
   const spawnSync = deps.spawnSync || defaultSpawnSync;
   const readJson = deps.readJson || ((filePath, fallback) => {
     try {
@@ -150,6 +151,58 @@ function createSystemHermesService(deps = {}) {
     };
   }
 
+  function captureChunk(current, chunk) {
+    const next = current + String(chunk || "");
+    return next.length > 128 * 1024 ? next.slice(-128 * 1024) : next;
+  }
+
+  function runCommand(command, args = [], options = {}) {
+    if (!spawn) {
+      return Promise.resolve(spawnSync(command, args, spawnSyncOptions(options)));
+    }
+    const timeoutMs = Math.max(0, Number(options.timeout || 0));
+    const spawnOptions = spawnSyncOptions({
+      ...options,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    delete spawnOptions.timeout;
+    return new Promise((resolve) => {
+      let child;
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      let timer = null;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        resolve({
+          stdout,
+          stderr,
+          ...result
+        });
+      };
+      try {
+        child = spawn(command, args, spawnOptions);
+      } catch (error) {
+        finish({ error, status: null, signal: null });
+        return;
+      }
+      child.stdout?.on("data", (chunk) => { stdout = captureChunk(stdout, chunk); });
+      child.stderr?.on("data", (chunk) => { stderr = captureChunk(stderr, chunk); });
+      child.once("error", (error) => finish({ error, status: null, signal: null }));
+      child.once("close", (status, signal) => finish({ status, signal }));
+      if (timeoutMs > 0) {
+        timer = setTimeout(() => {
+          const error = new Error(`Command timed out after ${timeoutMs}ms: ${command}`);
+          error.code = "ETIMEDOUT";
+          try { child.kill(); } catch { /* best-effort timeout kill */ }
+          finish({ error, status: null, signal: "SIGTERM" });
+        }, timeoutMs);
+      }
+    });
+  }
+
   function executablePath(filePath) {
     try {
       fsImpl.accessSync(filePath, fs.constants.X_OK);
@@ -165,6 +218,18 @@ function createSystemHermesService(deps = {}) {
       timeout: 1500,
       env: processEnvWithCliPath()
     }));
+    if (!result.error && result.status === 0) {
+      return String(result.stdout || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+    }
+    return "";
+  }
+
+  async function windowsCommandPathAsync(name) {
+    const result = await runCommand("where", [name], {
+      encoding: "utf8",
+      timeout: 1500,
+      env: processEnvWithCliPath()
+    });
     if (!result.error && result.status === 0) {
       return String(result.stdout || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
     }
@@ -198,6 +263,30 @@ function createSystemHermesService(deps = {}) {
     return "";
   }
 
+  async function shellCommandPathAsync(command) {
+    const name = commandNameOnly(command);
+    if (!name) return "";
+    if (platform === "win32") return windowsCommandPathAsync(name);
+    const dirs = [
+      ...cliPathSegments(),
+      ...String(currentEnv().PATH || "").split(path.delimiter)
+    ].filter(Boolean);
+    for (const dir of dirs) {
+      const found = executablePath(path.join(dir, name));
+      if (found) return found;
+    }
+    const result = await runCommand("zsh", ["-lc", `command -v ${name}`], {
+      encoding: "utf8",
+      timeout: 1500,
+      env: processEnvWithCliPath()
+    });
+    if (!result.error && result.status === 0) {
+      const found = String(result.stdout || "").split(/\r?\n/)[0]?.trim() || "";
+      if (found) return found;
+    }
+    return "";
+  }
+
   function commandVersion(commandPath) {
     if (!commandPath) return "";
     const result = spawnSync(commandPath, ["--version"], spawnSyncOptions({
@@ -205,6 +294,17 @@ function createSystemHermesService(deps = {}) {
       timeout: 2000,
       env: processEnvWithCliPath()
     }));
+    if (result.error) return "";
+    return String(result.stdout || result.stderr || "").split(/\r?\n/)[0]?.trim() || "";
+  }
+
+  async function commandVersionAsync(commandPath) {
+    if (!commandPath) return "";
+    const result = await runCommand(commandPath, ["--version"], {
+      encoding: "utf8",
+      timeout: 2000,
+      env: processEnvWithCliPath()
+    });
     if (result.error) return "";
     return String(result.stdout || result.stderr || "").split(/\r?\n/)[0]?.trim() || "";
   }
@@ -234,6 +334,20 @@ function createSystemHermesService(deps = {}) {
     return String(result.stdout || "").split(/\r?\n/)[0]?.trim() || command;
   }
 
+  async function pythonSupportsHermesAsync(command) {
+    if (!command) return "";
+    const result = await runCommand(command, [
+      "-c",
+      "import sys; import hermes_cli.main, aiohttp, mcp; print(sys.executable)"
+    ], {
+      encoding: "utf8",
+      timeout: 2500,
+      env: processEnvWithCliPath()
+    });
+    if (result.error || result.status !== 0) return "";
+    return String(result.stdout || "").split(/\r?\n/)[0]?.trim() || command;
+  }
+
   function windowsSiblingPython(commandPath) {
     if (platform !== "win32" || !commandPath) return "";
     const scriptsDir = path.dirname(commandPath);
@@ -241,6 +355,18 @@ function createSystemHermesService(deps = {}) {
       const candidate = path.join(scriptsDir, name);
       if (!fileExists(candidate)) continue;
       const resolved = pythonSupportsHermes(candidate);
+      if (resolved) return resolved;
+    }
+    return "";
+  }
+
+  async function windowsSiblingPythonAsync(commandPath) {
+    if (platform !== "win32" || !commandPath) return "";
+    const scriptsDir = path.dirname(commandPath);
+    for (const name of ["python.exe", "python3.exe", "python"]) {
+      const candidate = path.join(scriptsDir, name);
+      if (!fileExists(candidate)) continue;
+      const resolved = await pythonSupportsHermesAsync(candidate);
       if (resolved) return resolved;
     }
     return "";
@@ -271,6 +397,18 @@ function createSystemHermesService(deps = {}) {
     return "";
   }
 
+  async function inferWindowsHermesPythonAsync(commandPath) {
+    if (platform !== "win32" || !commandPath) return "";
+    const siblingPython = await windowsSiblingPythonAsync(commandPath);
+    if (siblingPython) return siblingPython;
+    for (const command of windowsPythonCandidates()) {
+      const resolved = commandNameOnly(command) ? (await shellCommandPathAsync(command) || command) : command;
+      const pythonPath = await pythonSupportsHermesAsync(resolved);
+      if (pythonPath) return pythonPath;
+    }
+    return "";
+  }
+
   function probe() {
     const commandPath = shellCommandPath("hermes");
     const pythonPath = readShebangPython(commandPath, fsImpl) || inferWindowsHermesPython(commandPath);
@@ -285,15 +423,29 @@ function createSystemHermesService(deps = {}) {
     };
   }
 
+  async function probeAsync() {
+    const commandPath = await shellCommandPathAsync("hermes");
+    const pythonPath = readShebangPython(commandPath, fsImpl) || await inferWindowsHermesPythonAsync(commandPath);
+    return {
+      available: Boolean(commandPath && pythonPath),
+      pending: false,
+      source: "system",
+      commandPath,
+      pythonPath,
+      version: await commandVersionAsync(commandPath),
+      checkedAt: now().toISOString()
+    };
+  }
+
   async function refresh() {
-    persistCache(probe());
+    persistCache(await probeAsync());
     resetAgentEngineCache();
   }
 
   function currentStatus() {
     const cached = loadCache();
     if (cached.available && cached.pythonPath) return cached;
-    return probe();
+    return cached;
   }
 
   function commandPath() {

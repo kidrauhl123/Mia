@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use mia_core_common::process::configure_background_command;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -66,6 +67,7 @@ async fn test_stdio(
     }
 
     let mut child_command = Command::new(command);
+    configure_background_command(child_command.as_std_mut());
     child_command
         .args(string_array(transport.get("args")))
         .envs(string_map(transport.get("env")))
