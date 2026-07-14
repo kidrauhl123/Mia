@@ -12,7 +12,7 @@ use mia_core_api_types::{
     AgentPermissionDecisionResponse, AgentPermissionListResponse, AgentPermissionPendingRequest,
     AgentPermissionRequest, AgentPermissionRespondRequest, AgentPermissionRespondResponse,
     AgentPermissionRule, AgentWorkspaceResponse, BotRuntimeControlOption, ClientSettingsResponse,
-    CreateProviderRequest, MemorySettingsResponse, PrepareHermesRuntimeConfigRequest,
+    CreateProviderRequest, MemoryMode, MemorySettingsResponse, PrepareHermesRuntimeConfigRequest,
     PrepareHermesRuntimeConfigResponse, ProviderListResponse, ProviderResponse, ProviderSummary,
     ProviderTestResponse, ResolveModelRuntimeResponse, SaveAgentWorkspaceRequest,
     SaveMemorySettingsRequest, SaveModelSelectionRequest, SaveModelSelectionResponse,
@@ -148,14 +148,17 @@ impl SystemService {
         request: SaveMemorySettingsRequest,
     ) -> Result<MemorySettingsResponse, sqlx::Error> {
         let mut current = self.client_settings().await?.settings;
-        let enabled = request
-            .enabled
-            .unwrap_or_else(|| memory_settings_snapshot(&current).enabled);
+        let mode = request.mode.unwrap_or_else(|| match request.enabled {
+            Some(false) => MemoryMode::Native,
+            Some(true) => MemoryMode::Mia,
+            None => memory_settings_snapshot(&current).mode,
+        });
         merge_json(
             &mut current,
             json!({
                 "memory": {
-                    "enabled": enabled,
+                    "mode": mode,
+                    "enabled": mode == MemoryMode::Mia,
                 },
             }),
         );
@@ -2138,12 +2141,28 @@ fn provider_summary_from_record(record: ProviderRecord) -> ProviderSummary {
 }
 
 fn memory_settings_snapshot(settings: &Value) -> MemorySettingsResponse {
-    let enabled = settings
-        .get("memory")
-        .and_then(|memory| memory.get("enabled"))
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
-    MemorySettingsResponse { enabled }
+    let mode = settings
+        .pointer("/memory/mode")
+        .and_then(Value::as_str)
+        .and_then(parse_memory_mode)
+        .unwrap_or_else(
+            || match settings.pointer("/memory/enabled").and_then(Value::as_bool) {
+                Some(false) => MemoryMode::Native,
+                _ => MemoryMode::Mia,
+            },
+        );
+    MemorySettingsResponse {
+        mode,
+        enabled: mode == MemoryMode::Mia,
+    }
+}
+
+fn parse_memory_mode(value: &str) -> Option<MemoryMode> {
+    match value {
+        "mia" => Some(MemoryMode::Mia),
+        "native" => Some(MemoryMode::Native),
+        _ => None,
+    }
 }
 
 fn merge_json(target: &mut Value, patch: Value) {

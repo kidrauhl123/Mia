@@ -2,6 +2,79 @@ use mia_core_api_types::*;
 use serde_json::json;
 
 #[test]
+fn bounded_memory_contract_serializes_modes_and_tool_operations() {
+    assert_eq!(serde_json::to_value(MemoryMode::Mia).unwrap(), json!("mia"));
+    assert_eq!(
+        serde_json::from_value::<MemoryMode>(json!("native")).unwrap(),
+        MemoryMode::Native
+    );
+
+    let request: MiaMemoryToolRequest = serde_json::from_value(json!({
+        "context": { "conversationId": "conv_1" },
+        "action": "replace",
+        "target": "memory",
+        "oldText": "旧约定",
+        "content": "新约定"
+    }))
+    .unwrap();
+    assert_eq!(request.action, MiaMemoryAction::Replace);
+    assert_eq!(request.target, MiaMemoryTarget::Memory);
+    assert_eq!(request.old_text.as_deref(), Some("旧约定"));
+    assert_eq!(request.content.as_deref(), Some("新约定"));
+}
+
+#[test]
+fn memory_settings_contract_preserves_the_legacy_enabled_mirror() {
+    let legacy: SaveMemorySettingsRequest =
+        serde_json::from_value(json!({ "enabled": false })).unwrap();
+    assert_eq!(legacy.mode, None);
+    assert_eq!(legacy.enabled, Some(false));
+
+    let serialized = serde_json::to_value(MemorySettingsResponse {
+        mode: MemoryMode::Native,
+        enabled: false,
+    })
+    .unwrap();
+    assert_eq!(serialized["mode"], "native");
+    assert_eq!(serialized["enabled"], false);
+}
+
+#[test]
+fn bounded_memory_result_and_document_use_the_shared_transport_shape() {
+    let response = MiaMemoryToolResponse {
+        success: true,
+        action: MiaMemoryAction::Add,
+        target: MiaMemoryTarget::User,
+        current_entries: vec!["用户喜欢简洁中文".into()],
+        used_chars: 8,
+        limit_chars: 1_375,
+        usage_percent: 8.0 / 1_375.0 * 100.0,
+        no_op: false,
+        error: None,
+        suggestion: None,
+    };
+    let serialized = serde_json::to_value(response).unwrap();
+    assert_eq!(serialized["currentEntries"][0], "用户喜欢简洁中文");
+    assert_eq!(serialized["usedChars"], 8);
+    assert_eq!(serialized["limitChars"], 1_375);
+
+    let document = MiaMemoryDocument {
+        user_id: "user_1".into(),
+        bot_id: "".into(),
+        target: MiaMemoryTarget::User,
+        text: "用户喜欢简洁中文".into(),
+        revision: 3,
+        updated_at: "2026-07-14T00:00:00Z".into(),
+        deleted_at: "".into(),
+    };
+    let serialized = serde_json::to_value(document).unwrap();
+    assert_eq!(serialized["userId"], "user_1");
+    assert_eq!(serialized["target"], "user");
+    assert_eq!(serialized["revision"], 3);
+    assert_eq!(serialized["deletedAt"], "");
+}
+
+#[test]
 fn endpoint_dtos_cover_the_initial_core_contract() {
     let _ = SystemStatusResponse {
         ok: true,
@@ -77,8 +150,12 @@ fn endpoint_dtos_cover_the_initial_core_contract() {
     assert_eq!(serialized_utility_request["userPrompt"], "hello");
     let serialized_utility_response = serde_json::to_value(utility_response).unwrap();
     assert_eq!(serialized_utility_response["turnId"], "turn_1");
-    let _ = MemorySettingsResponse { enabled: true };
+    let _ = MemorySettingsResponse {
+        mode: MemoryMode::Mia,
+        enabled: true,
+    };
     let _ = SaveMemorySettingsRequest {
+        mode: None,
         enabled: Some(false),
     };
     let _ = MiaContextSnapshotResponse {

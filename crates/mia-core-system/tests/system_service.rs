@@ -1,5 +1,5 @@
 use mia_core_api_types::{
-    CreateProviderRequest, HermesRuntimeConfigPaths, PrepareHermesRuntimeConfigRequest,
+    CreateProviderRequest, HermesRuntimeConfigPaths, MemoryMode, PrepareHermesRuntimeConfigRequest,
     SaveAgentWorkspaceRequest, SaveMemorySettingsRequest, SaveModelSelectionRequest,
     SettingsRuntimeControlOptionsRequest,
 };
@@ -100,33 +100,83 @@ async fn memory_settings_are_persisted_inside_core_client_settings() {
     );
 
     let initial = service.memory_settings().await.unwrap();
+    assert_eq!(initial.mode, MemoryMode::Mia);
     assert!(initial.enabled);
 
     let disabled = service
         .save_memory_settings(SaveMemorySettingsRequest {
+            mode: None,
             enabled: Some(false),
         })
         .await
         .unwrap();
+    assert_eq!(disabled.mode, MemoryMode::Native);
     assert!(!disabled.enabled);
     assert_eq!(
         service.client_settings().await.unwrap().settings["memory"]["enabled"],
         false
     );
+    assert_eq!(
+        service.client_settings().await.unwrap().settings["memory"]["mode"],
+        "native"
+    );
 
     let unchanged = service
-        .save_memory_settings(SaveMemorySettingsRequest { enabled: None })
-        .await
-        .unwrap();
-    assert!(!unchanged.enabled);
-
-    let enabled = service
         .save_memory_settings(SaveMemorySettingsRequest {
-            enabled: Some(true),
+            mode: None,
+            enabled: None,
         })
         .await
         .unwrap();
-    assert!(enabled.enabled);
+    assert_eq!(unchanged.mode, MemoryMode::Native);
+    assert!(!unchanged.enabled);
+
+    let mode_wins = service
+        .save_memory_settings(SaveMemorySettingsRequest {
+            mode: Some(MemoryMode::Mia),
+            enabled: Some(false),
+        })
+        .await
+        .unwrap();
+    assert_eq!(mode_wins.mode, MemoryMode::Mia);
+    assert!(mode_wins.enabled);
+    let settings = service.client_settings().await.unwrap().settings;
+    assert_eq!(settings["memory"]["mode"], "mia");
+    assert_eq!(settings["memory"]["enabled"], true);
+}
+
+#[tokio::test]
+async fn memory_settings_prefer_a_valid_mode_and_fall_back_to_legacy_enabled() {
+    let db = init_database_memory().await.unwrap();
+    let service = SystemService::new(
+        "0.1.0".to_string(),
+        SqliteSettingsRepository::new(db.pool().clone()),
+        SqliteProviderRepository::new(db.pool().clone()),
+    );
+
+    service
+        .patch_client_settings(json!({ "memory": { "enabled": false } }))
+        .await
+        .unwrap();
+    let legacy = service.memory_settings().await.unwrap();
+    assert_eq!(legacy.mode, MemoryMode::Native);
+    assert!(!legacy.enabled);
+
+    service
+        .patch_client_settings(json!({ "memory": { "mode": "mia", "enabled": false } }))
+        .await
+        .unwrap();
+    let canonical = service.memory_settings().await.unwrap();
+    assert_eq!(canonical.mode, MemoryMode::Mia);
+    assert!(canonical.enabled);
+
+    service
+        .patch_client_settings(json!({ "memory": { "mode": "invalid", "enabled": false } }))
+        .await
+        .unwrap();
+    let invalid_mode = service.memory_settings().await.unwrap();
+    assert_eq!(invalid_mode.mode, MemoryMode::Native);
+    assert!(!invalid_mode.enabled);
 }
 
 #[tokio::test]

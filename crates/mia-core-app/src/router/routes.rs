@@ -1087,6 +1087,7 @@ mod tests {
         services
             .system
             .save_memory_settings(mia_core_api_types::SaveMemorySettingsRequest {
+                mode: None,
                 enabled: Some(false),
             })
             .await
@@ -1339,6 +1340,7 @@ mod tests {
         services
             .system
             .save_memory_settings(mia_core_api_types::SaveMemorySettingsRequest {
+                mode: None,
                 enabled: Some(false),
             })
             .await

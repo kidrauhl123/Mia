@@ -212,9 +212,18 @@ pub struct SaveAgentWorkspaceRequest {
     pub workspace_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryMode {
+    #[default]
+    Mia,
+    Native,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct MemorySettingsResponse {
+    pub mode: MemoryMode,
     pub enabled: bool,
 }
 
@@ -222,7 +231,64 @@ pub struct MemorySettingsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct SaveMemorySettingsRequest {
     #[serde(default)]
+    pub mode: Option<MemoryMode>,
+    #[serde(default)]
     pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MiaMemoryTarget {
+    User,
+    Memory,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MiaMemoryAction {
+    Add,
+    Replace,
+    Remove,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MiaMemoryToolRequest {
+    #[serde(default)]
+    pub context: Value,
+    pub action: MiaMemoryAction,
+    pub target: MiaMemoryTarget,
+    #[serde(default)]
+    pub old_text: Option<String>,
+    #[serde(default)]
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MiaMemoryToolResponse {
+    pub success: bool,
+    pub action: MiaMemoryAction,
+    pub target: MiaMemoryTarget,
+    pub current_entries: Vec<String>,
+    pub used_chars: usize,
+    pub limit_chars: usize,
+    pub usage_percent: f64,
+    pub no_op: bool,
+    pub error: Option<String>,
+    pub suggestion: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MiaMemoryDocument {
+    pub user_id: String,
+    pub bot_id: String,
+    pub target: MiaMemoryTarget,
+    pub text: String,
+    pub revision: i64,
+    pub updated_at: String,
+    pub deleted_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
