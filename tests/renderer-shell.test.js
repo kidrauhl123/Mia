@@ -3346,6 +3346,104 @@ test("settings exposes only the new-conversation memory owner switch", () => {
   assert.doesNotMatch(mainSource, /syncNativeMemoryFiles|miaMemoryService/);
 });
 
+test("settings memory switch sends mode, renders the response, and rolls back rejected saves", async () => {
+  const source = fs.readFileSync(path.join(root, "src/renderer/settings/settings-memory.js"), "utf8");
+  const listeners = new Map();
+  const attributes = new Map([["aria-checked", "true"]]);
+  const activeClasses = new Set();
+  const memorySwitch = {
+    disabled: false,
+    classList: {
+      toggle(name, enabled) {
+        if (enabled) activeClasses.add(name);
+        else activeClasses.delete(name);
+      }
+    },
+    setAttribute(name, value) {
+      attributes.set(name, String(value));
+    },
+    getAttribute(name) {
+      return attributes.get(name) || "";
+    },
+    addEventListener(name, listener) {
+      listeners.set(name, listener);
+    },
+    click() {
+      listeners.get("click")?.({ target: this });
+    }
+  };
+  const deferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+  };
+  const success = deferred();
+  const failure = deferred();
+  const responses = [success, failure];
+  const requests = [];
+  const errors = [];
+  const state = {
+    runtime: {
+      engine: "codex",
+      memory: { mode: "mia", enabled: true }
+    }
+  };
+  const window = {
+    mia: {
+      saveMemorySettings(payload) {
+        requests.push(plain(payload));
+        return responses.shift().promise;
+      }
+    }
+  };
+
+  vm.runInNewContext(source, { window, console }, { filename: "settings-memory.js" });
+  window.miaSettingsMemory.initMemorySettings({
+    state,
+    els: { settingsMemoryEnabled: memorySwitch },
+    reportError(message) {
+      errors.push(message);
+    }
+  });
+
+  assert.equal(memorySwitch.getAttribute("aria-checked"), "true");
+  assert.equal(activeClasses.has("active"), true);
+
+  memorySwitch.click();
+  assert.deepEqual(requests, [{ mode: "native" }]);
+  assert.equal(memorySwitch.disabled, true, "the switch should stay disabled while Core saves");
+  assert.equal(memorySwitch.getAttribute("aria-checked"), "false", "pending mode should render optimistically");
+
+  success.resolve({
+    engine: "codex",
+    memory: { mode: "mia", enabled: true }
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(memorySwitch.disabled, false);
+  assert.equal(state.runtime.memory.mode, "mia");
+  assert.equal(memorySwitch.getAttribute("aria-checked"), "true", "the Core response should own the final rendering");
+
+  memorySwitch.click();
+  assert.deepEqual(requests, [{ mode: "native" }, { mode: "native" }]);
+  assert.equal(memorySwitch.disabled, true);
+  assert.equal(memorySwitch.getAttribute("aria-checked"), "false");
+
+  failure.reject(new Error("Core unavailable"));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(memorySwitch.disabled, false);
+  assert.equal(state.runtime.engine, "codex", "rollback should preserve unrelated runtime state");
+  assert.deepEqual(plain(state.runtime.memory), { mode: "mia", enabled: true });
+  assert.equal(memorySwitch.getAttribute("aria-checked"), "true");
+  assert.equal(activeClasses.has("active"), true);
+  assert.deepEqual(errors, ["记忆设置保存失败：Core unavailable"]);
+});
+
 test("renderer no longer refreshes deleted memory management panels", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
