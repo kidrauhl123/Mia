@@ -1,6 +1,6 @@
 {
   "name": "mia",
-  "version": "0.1.44",
+  "version": "0.1.45",
   "private": true,
   "workspaces": [
     "apps/mobile-rn",
@@ -69,7 +69,7 @@
     "pythonVersion": "3.11.13",
     "pbsRelease": "20251007"
   },
-  "miaCoreVersion": "v0.1.0",
+  "miaCoreVersion": "v0.1.1",
   "miaCoreReleaseBaseUrl": "https://mia.gifgif.cn/downloads/mia-core",
   "devDependencies": {
     "electron": "^39.2.6",

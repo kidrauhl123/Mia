@@ -29,14 +29,14 @@
   const DOWNLOADS = {
     'mac-apple': {
       href: '/downloads/mia-macos-apple-silicon-latest.dmg',
-      download: 'Mia-0.1.44-Apple-Silicon.dmg',
+      download: 'Mia-0.1.45-Apple-Silicon.dmg',
       label: '下载 macOS 版',
       shortLabel: '下载',
       icon: 'apple'
     },
     'mac-intel': {
       href: '/downloads/mia-macos-intel-latest.dmg',
-      download: 'Mia-0.1.43-Intel.dmg',
+      download: 'Mia-0.1.45-Intel.dmg',
       label: '下载 Intel Mac 版',
       shortLabel: 'Intel Mac',
       icon: 'apple'
