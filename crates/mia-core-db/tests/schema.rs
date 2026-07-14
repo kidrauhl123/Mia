@@ -1,4 +1,5 @@
 use mia_core_db::{init_database, init_database_memory};
+use serde_json::json;
 use sqlx::Row;
 
 const REQUIRED_TABLES: &[&str] = &[
@@ -13,6 +14,10 @@ const REQUIRED_TABLES: &[&str] = &[
     "mcp_oauth_tokens",
     "cloud_state",
     "event_cursors",
+    "memory_entries",
+    "memory_documents",
+    "memory_legacy_migration",
+    "memory_migration_state",
 ];
 
 #[tokio::test]
@@ -87,6 +92,50 @@ async fn runtime_and_conversation_bot_ids_do_not_require_core_bot_identity_rows(
 }
 
 #[tokio::test]
+async fn bounded_memory_documents_enforce_target_identity_and_revision() {
+    let db = init_database_memory().await.unwrap();
+
+    sqlx::query(
+        "INSERT INTO memory_documents
+         (user_id, bot_id, target, text, revision, updated_at, deleted_at)
+         VALUES ('u1', '', 'user', 'profile', 1, '2026-07-14T00:00:00Z', '')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO memory_documents
+         (user_id, bot_id, target, text, revision, updated_at, deleted_at)
+         VALUES ('u1', 'bot_1', 'memory', 'relationship', 1, '2026-07-14T00:00:00Z', '')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    for (bot_id, target, revision) in [
+        ("bot_1", "user", 1_i64),
+        ("", "memory", 1_i64),
+        ("bot_1", "session", 1_i64),
+        ("bot_1", "memory", 0_i64),
+    ] {
+        let result = sqlx::query(
+            "INSERT INTO memory_documents
+             (user_id, bot_id, target, text, revision, updated_at, deleted_at)
+             VALUES ('u2', ?, ?, 'invalid', ?, '2026-07-14T00:00:00Z', '')",
+        )
+        .bind(bot_id)
+        .bind(target)
+        .bind(revision)
+        .execute(db.pool())
+        .await;
+        assert!(
+            result.is_err(),
+            "invalid identity {target}/{bot_id} should fail"
+        );
+    }
+}
+
+#[tokio::test]
 async fn file_backed_database_uses_foreign_keys_busy_timeout_and_wal() {
     let dir = tempfile::tempdir().unwrap();
     let db = init_database(&dir.path().join("mia-core.db"))
@@ -132,6 +181,96 @@ async fn file_backed_database_reinit_preserves_rows() {
         .await
         .unwrap();
     assert_eq!(row.get::<String, _>("value_json"), "{\"theme\":\"dark\"}");
+}
+
+#[tokio::test]
+async fn database_reinit_migrates_memory_mode_once_without_overwriting_existing_modes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mia-core.db");
+
+    let db = init_database(&path).await.unwrap();
+    sqlx::query(
+        "INSERT INTO settings (key, value_json, updated_at)
+         VALUES ('client', ?, 1000)",
+    )
+    .bind(json!({ "theme": "dark", "memory": { "enabled": false, "keep": "value" } }).to_string())
+    .execute(db.pool())
+    .await
+    .unwrap();
+    for (id, metadata) in [
+        ("conv_missing", json!({ "sessionId": "s1" })),
+        (
+            "conv_existing",
+            json!({ "memoryMode": "mia", "sessionId": "s2" }),
+        ),
+        (
+            "conv_invalid",
+            json!({ "memoryMode": "other", "sessionId": "s3" }),
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO conversations
+             (id, kind, title, runtime_json, metadata_json, created_at, updated_at)
+             VALUES (?, 'direct', 'Memory', '{}', ?, 1, 1)",
+        )
+        .bind(id)
+        .bind(metadata.to_string())
+        .execute(db.pool())
+        .await
+        .unwrap();
+    }
+    db.close().await;
+
+    let db = init_database(&path).await.unwrap();
+    let settings: String =
+        sqlx::query_scalar("SELECT value_json FROM settings WHERE key = 'client'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    let settings: serde_json::Value = serde_json::from_str(&settings).unwrap();
+    assert_eq!(settings["theme"], "dark");
+    assert_eq!(settings["memory"]["mode"], "native");
+    assert_eq!(settings["memory"]["enabled"], false);
+    assert_eq!(settings["memory"]["keep"], "value");
+
+    let rows = sqlx::query("SELECT id, metadata_json FROM conversations ORDER BY id")
+        .fetch_all(db.pool())
+        .await
+        .unwrap();
+    let modes = rows
+        .into_iter()
+        .map(|row| {
+            let metadata: serde_json::Value =
+                serde_json::from_str(&row.get::<String, _>("metadata_json")).unwrap();
+            (
+                row.get::<String, _>("id"),
+                metadata["memoryMode"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        modes,
+        vec![
+            ("conv_existing".to_string(), "mia".to_string()),
+            ("conv_invalid".to_string(), "native".to_string()),
+            ("conv_missing".to_string(), "native".to_string()),
+        ]
+    );
+    db.close().await;
+
+    let db = init_database(&path).await.unwrap();
+    let modes_after_second_reinit =
+        sqlx::query("SELECT metadata_json FROM conversations ORDER BY id")
+            .fetch_all(db.pool())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.get::<String, _>("metadata_json"))
+            .collect::<Vec<_>>();
+    assert_eq!(modes_after_second_reinit.len(), 3);
+    assert!(modes_after_second_reinit[0].contains("\"memoryMode\":\"mia\""));
+    assert!(modes_after_second_reinit[1].contains("\"memoryMode\":\"native\""));
+    assert!(modes_after_second_reinit[2].contains("\"memoryMode\":\"native\""));
 }
 
 #[tokio::test]

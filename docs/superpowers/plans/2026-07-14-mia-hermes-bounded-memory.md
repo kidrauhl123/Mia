@@ -40,7 +40,7 @@
 - `MiaMemoryToolRequest/Response`：唯一工具 contract；target、action 使用 enum。
 - `MiaMemoryDocument`：Cloud 与 Core 共用的 document 传输结构，正文是规范化 `text`，元数据只含 revision/timestamp/tombstone。
 
-- [ ] **Step 1: 先写 contract 失败测试**
+- [x] **Step 1: 先写 contract 失败测试**
 
 在 `contracts.rs` 覆盖：
 
@@ -65,7 +65,7 @@ Run: `cargo test -p mia-core-api-types`
 
 Expected: FAIL，当前没有 enum 与新工具/document contract。
 
-- [ ] **Step 2: 实现最小 API 类型**
+- [x] **Step 2: 实现最小 API 类型**
 
 在 `mia-core-api-types` 增加：
 
@@ -89,7 +89,7 @@ pub enum MiaMemoryAction { Add, Replace, Remove }
 
 请求的 `content`、`old_text` 使用 `Option<String>`；不要用空字符串掩盖缺失字段。响应必须包含 `success/action/target/current_entries/used_chars/limit_chars/usage_percent/no_op/error/suggestion`。Document 必须包含 `user_id/bot_id/target/text/revision/updated_at/deleted_at`。
 
-- [ ] **Step 3: 迁移 SystemService 设置读写语义**
+- [x] **Step 3: 迁移 SystemService 设置读写语义**
 
 `memory_settings_snapshot` 的优先级固定为：
 
@@ -106,7 +106,7 @@ MemorySettingsResponse { mode, enabled: mode == MemoryMode::Mia }
 
 保存时只把规范字段写到 `memory.mode`，同时保留兼容镜像 `memory.enabled`，避免旧 renderer 在滚动升级期间反转开关。
 
-- [ ] **Step 4: 跑绿并提交**
+- [x] **Step 4: 跑绿并提交**
 
 Run: `cargo test -p mia-core-api-types && cargo test -p mia-core-system memory_settings`
 
@@ -133,7 +133,7 @@ git commit -m "feat(memory): 固定双模式与有界工具契约"
 - `memory_migration_state`：保证跨 Core/旧 Node DB 的导入只完成一次。
 - `repair_memory_mode_contract(pool)`：幂等迁移旧设置并只为缺失 mode 的 conversation 回填一次。
 
-- [ ] **Step 1: 写 schema 与回填失败测试**
+- [x] **Step 1: 写 schema 与回填失败测试**
 
 在临时数据库先插入：
 
@@ -155,7 +155,7 @@ Run: `cargo test -p mia-core-db`
 
 Expected: FAIL，表与 repair 尚不存在。
 
-- [ ] **Step 2: 添加幂等 schema**
+- [x] **Step 2: 添加幂等 schema**
 
 `0003_bounded_memory.sql` 使用：
 
@@ -189,7 +189,7 @@ CREATE TABLE IF NOT EXISTS memory_migration_state (
 
 不要给 document 增加 tags、embedding、confidence、priority 或访问计数。
 
-- [ ] **Step 3: 在数据库启动 repair 中迁移 mode**
+- [x] **Step 3: 在数据库启动 repair 中迁移 mode**
 
 `run_migrations` 在 SQL migration 后调用 `repair_memory_mode_contract`：
 
@@ -200,7 +200,7 @@ CREATE TABLE IF NOT EXISTS memory_migration_state (
 
 使用 `serde_json` 修改 metadata 后逐行更新，不依赖部署环境恰好启用 SQLite JSON1。
 
-- [ ] **Step 4: 跑绿并提交**
+- [x] **Step 4: 跑绿并提交**
 
 Run: `cargo test -p mia-core-db`
 
@@ -690,7 +690,7 @@ git commit -m "feat(memory): 隔离 Mia 会话的原生引擎记忆"
 - preload 只保留 `saveMemorySettings({ mode })`；删除 list/remember/update/forget/delete memory APIs。
 - 设置 title/copy 使用设计中已确认的精确中文。
 
-- [ ] **Step 1: 先写结构与行为失败测试**
+- [x] **Step 1: 先写结构与行为失败测试**
 
 断言 `index.html` 包含：
 
@@ -705,7 +705,7 @@ Run: `node --test tests/renderer-shell.test.js tests/preload-sandbox.test.js tes
 
 Expected: FAIL，当前 UI 与 IPC 仍是手工 CRUD。
 
-- [ ] **Step 2: 简化 main/preload contract**
+- [x] **Step 2: 简化 main/preload contract**
 
 `memorySettingsSnapshot` 规范化 mode，旧 Core response 只有 enabled 时兼容映射；`writeMemorySettingsToCore` 发送 mode。删除：
 
@@ -716,13 +716,13 @@ Expected: FAIL，当前 UI 与 IPC 仍是手工 CRUD。
 
 保留 `MemorySettingsSave`。确认 `rg "miaMemoryService|syncNativeMemoryFiles|MemoryRemember|memory_search" src/main.js src/preload.js src/shared` 无结果。
 
-- [ ] **Step 3: 删除两处手工管理 UI**
+- [x] **Step 3: 删除两处手工管理 UI**
 
 设置页只保留 label、copy、switch；Bot 详情删除 memory state、load/delete handler 与 DOM。CSS 删除废弃 selector，不在大入口追加替代实现。
 
 `settings-memory.js` 保持聚焦：`initMemorySettings({ els, getRuntime, setRuntime })` 只负责 render + save + rollback；失败时恢复旧 checkbox 并显示现有设置错误提示。
 
-- [ ] **Step 4: 更新结构守卫并跑绿**
+- [x] **Step 4: 更新结构守卫并跑绿**
 
 把旧“临时 JS extraction service 必须存在”的测试反转成“不得重新接回”。
 

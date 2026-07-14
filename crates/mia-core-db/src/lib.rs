@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mia_core_common::DATABASE_FILE_NAME;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolOptions;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
@@ -74,8 +74,115 @@ pub async fn init_database_memory() -> Result<Database, sqlx::Error> {
 async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     MIGRATOR.run(pool).await?;
     repair_cloud_bot_reference_schema(pool).await?;
+    repair_memory_mode_contract(pool).await?;
     cleanup_legacy_task_generated_user_messages(pool).await?;
     Ok(())
+}
+
+async fn repair_memory_mode_contract(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    let settings_row =
+        sqlx::query("SELECT value_json, updated_at FROM settings WHERE key = 'client'")
+            .fetch_optional(&mut *transaction)
+            .await?;
+
+    let mut settings = settings_row
+        .as_ref()
+        .and_then(|row| {
+            let value_json = row.get::<String, _>("value_json");
+            match serde_json::from_str::<Value>(&value_json) {
+                Ok(value) => Some(value),
+                Err(error) => {
+                    tracing::warn!(
+                        error = %error,
+                        "[MemoryMigration] invalid client settings JSON; repairing from defaults"
+                    );
+                    None
+                }
+            }
+        })
+        .filter(Value::is_object)
+        .unwrap_or_else(|| Value::Object(Map::new()));
+    let memory_mode = memory_mode_from_settings(&settings);
+
+    if let Some(row) = settings_row {
+        let updated_at = row.get::<i64, _>("updated_at");
+        set_canonical_memory_settings(&mut settings, memory_mode);
+        sqlx::query("UPDATE settings SET value_json = ?, updated_at = ? WHERE key = 'client'")
+            .bind(settings.to_string())
+            .bind(updated_at)
+            .execute(&mut *transaction)
+            .await?;
+    }
+
+    let conversations = sqlx::query("SELECT id, metadata_json FROM conversations")
+        .fetch_all(&mut *transaction)
+        .await?;
+    for row in conversations {
+        let id = row.get::<String, _>("id");
+        let raw_metadata = row.get::<String, _>("metadata_json");
+        let mut metadata = serde_json::from_str::<Value>(&raw_metadata)
+            .ok()
+            .filter(Value::is_object)
+            .unwrap_or_else(|| Value::Object(Map::new()));
+        if metadata
+            .get("memoryMode")
+            .and_then(valid_memory_mode)
+            .is_some()
+        {
+            continue;
+        }
+        metadata
+            .as_object_mut()
+            .expect("metadata was normalized to an object")
+            .insert(
+                "memoryMode".to_string(),
+                Value::String(memory_mode.to_string()),
+            );
+        sqlx::query("UPDATE conversations SET metadata_json = ? WHERE id = ?")
+            .bind(metadata.to_string())
+            .bind(id)
+            .execute(&mut *transaction)
+            .await?;
+    }
+
+    transaction.commit().await?;
+    Ok(())
+}
+
+fn memory_mode_from_settings(settings: &Value) -> &'static str {
+    if let Some(mode) = settings.pointer("/memory/mode").and_then(valid_memory_mode) {
+        return mode;
+    }
+    match settings.pointer("/memory/enabled").and_then(Value::as_bool) {
+        Some(false) => "native",
+        _ => "mia",
+    }
+}
+
+fn valid_memory_mode(value: &Value) -> Option<&'static str> {
+    match value.as_str() {
+        Some("mia") => Some("mia"),
+        Some("native") => Some("native"),
+        _ => None,
+    }
+}
+
+fn set_canonical_memory_settings(settings: &mut Value, mode: &str) {
+    let root = settings
+        .as_object_mut()
+        .expect("settings was normalized to an object");
+    let memory = root
+        .entry("memory".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !memory.is_object() {
+        *memory = Value::Object(Map::new());
+    }
+    let memory = memory
+        .as_object_mut()
+        .expect("memory settings was normalized to an object");
+    memory.insert("mode".to_string(), Value::String(mode.to_string()));
+    memory.insert("enabled".to_string(), Value::Bool(mode == "mia"));
 }
 
 async fn cleanup_legacy_task_generated_user_messages(pool: &SqlitePool) -> Result<(), sqlx::Error> {
