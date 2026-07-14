@@ -3,7 +3,7 @@ use mia_core_api_types::{
     BotCapabilitySkillInput, BotRuntimeControlIntent, BotRuntimeControlOptionsRequest,
     BotRuntimeModelEntryIntent, BotRuntimeSyncIntent, BotRuntimeTargetIntent,
     BotRuntimeTargetOptionsRequest, CreateBotRequest, EnsureBotSessionConversationRequest,
-    SaveBotRuntimeRequest, StarterBotEnsureRequest,
+    MemoryMode, SaveBotRuntimeRequest, StarterBotEnsureRequest, UpdateBotRequest,
 };
 use mia_core_bot::BotService;
 use mia_core_db::init_database_memory;
@@ -1353,21 +1353,95 @@ async fn bot_service_owns_session_conversation_idempotency() {
         session_id: "sess_123".to_string(),
         title: Some("Runner Session".to_string()),
         runtime_kind: Some("agent".to_string()),
-        metadata: json!({"source":"test"}),
+        metadata: json!({
+            "source": "first",
+            "runtimeSession": { "sessionKey": "native_session_1" }
+        }),
     };
 
     let first = service
-        .ensure_session_conversation(&created.bot.id, request.clone())
+        .ensure_session_conversation_with_memory_mode(&created.bot.id, request, MemoryMode::Native)
         .await
         .unwrap();
+
+    service
+        .update_bot(
+            &created.bot.id,
+            UpdateBotRequest {
+                display_name: Some("Renamed Runner".into()),
+                identity: Some(json!({ "persona": "updated" })),
+                capabilities: None,
+            },
+        )
+        .await
+        .unwrap();
+    service
+        .save_runtime(
+            &created.bot.id,
+            SaveBotRuntimeRequest {
+                runtime_kind: "desktop-local".into(),
+                provider_connection_id: None,
+                model_profile_id: None,
+                model: None,
+                target_intent: None,
+                sync_intent: None,
+                control_intent: None,
+                config: json!({ "agentEngine": "codex" }),
+            },
+        )
+        .await
+        .unwrap();
+
     let second = service
-        .ensure_session_conversation(&created.bot.id, request)
+        .ensure_session_conversation_with_memory_mode(
+            &created.bot.id,
+            EnsureBotSessionConversationRequest {
+                session_id: "sess_123".into(),
+                title: Some("Changed Title".into()),
+                runtime_kind: Some("desktop-local".into()),
+                metadata: json!({ "source": "second", "memoryMode": "mia" }),
+            },
+            MemoryMode::Mia,
+        )
         .await
         .unwrap();
 
     assert!(first.created);
     assert!(!second.created);
     assert_eq!(first.conversation_id, second.conversation_id);
+
+    let metadata: String =
+        sqlx::query_scalar("SELECT metadata_json FROM conversations WHERE id = ?")
+            .bind(&first.conversation_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+    assert_eq!(metadata["memoryMode"], "native");
+    assert_eq!(metadata["source"], "first");
+    assert_eq!(metadata["runtimeSession"]["sessionKey"], "native_session_1");
+
+    let fresh = service
+        .ensure_session_conversation_with_memory_mode(
+            &created.bot.id,
+            EnsureBotSessionConversationRequest {
+                session_id: "sess_456".into(),
+                title: None,
+                runtime_kind: Some("desktop-local".into()),
+                metadata: json!({}),
+            },
+            MemoryMode::Mia,
+        )
+        .await
+        .unwrap();
+    let fresh_metadata: String =
+        sqlx::query_scalar("SELECT metadata_json FROM conversations WHERE id = ?")
+            .bind(fresh.conversation_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    let fresh_metadata: serde_json::Value = serde_json::from_str(&fresh_metadata).unwrap();
+    assert_eq!(fresh_metadata["memoryMode"], "mia");
 }
 
 #[tokio::test]
@@ -1501,6 +1575,101 @@ async fn bot_service_owns_starter_bot_materialization_and_marker() {
     assert!(again.skipped);
     assert!(again.created.is_empty());
     assert_eq!(service.list_bots().await.unwrap().bots.len(), 2);
+}
+
+#[tokio::test]
+async fn starter_conversation_memory_mode_survives_repairs_and_upgrades_legacy_metadata() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+    let runtime = json!({
+        "cloud": {
+            "enabled": true,
+            "agentRuntime": {
+                "runtimeKind": "cloud-claude-code",
+                "agentEngine": "claude-code",
+                "available": true
+            }
+        }
+    });
+    let request = |runtime| StarterBotEnsureRequest {
+        runtime,
+        user_id: Some("u_mode".into()),
+        now: Some("2026-07-14T00:00:00Z".into()),
+    };
+
+    service
+        .ensure_starter_bots_with_memory_mode(request(runtime.clone()), MemoryMode::Native)
+        .await
+        .unwrap();
+    let conversation_id = "botc_starter_u_mode_mia";
+    let first_metadata: String =
+        sqlx::query_scalar("SELECT metadata_json FROM conversations WHERE id = ?")
+            .bind(conversation_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    let mut first_metadata: serde_json::Value = serde_json::from_str(&first_metadata).unwrap();
+    assert_eq!(first_metadata["memoryMode"], "native");
+    first_metadata["runtimeSession"] = json!({ "sessionKey": "starter_session_1" });
+    sqlx::query("UPDATE conversations SET metadata_json = ? WHERE id = ?")
+        .bind(first_metadata.to_string())
+        .bind(conversation_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE bots SET identity_json = '{}' WHERE id = 'starter_u_mode_mia'")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    service
+        .ensure_starter_bots_with_memory_mode(request(runtime.clone()), MemoryMode::Mia)
+        .await
+        .unwrap();
+    let repaired_metadata: String =
+        sqlx::query_scalar("SELECT metadata_json FROM conversations WHERE id = ?")
+            .bind(conversation_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    let repaired_metadata: serde_json::Value = serde_json::from_str(&repaired_metadata).unwrap();
+    assert_eq!(repaired_metadata["memoryMode"], "native");
+    assert_eq!(repaired_metadata["sessionId"], "starter_u_mode_mia");
+    assert_eq!(repaired_metadata["starterEngineId"], "cloud-claude-code");
+    assert_eq!(
+        repaired_metadata["runtimeSession"]["sessionKey"],
+        "starter_session_1"
+    );
+
+    sqlx::query("UPDATE conversations SET metadata_json = ? WHERE id = ?")
+        .bind(
+            json!({
+                "sessionId": "starter_u_mode_mia",
+                "starterEngineId": "cloud-claude-code",
+                "runtimeSession": { "sessionKey": "legacy_session" }
+            })
+            .to_string(),
+        )
+        .bind(conversation_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    service
+        .ensure_starter_bots_with_memory_mode(request(runtime), MemoryMode::Native)
+        .await
+        .unwrap();
+    let upgraded_metadata: String =
+        sqlx::query_scalar("SELECT metadata_json FROM conversations WHERE id = ?")
+            .bind(conversation_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    let upgraded_metadata: serde_json::Value = serde_json::from_str(&upgraded_metadata).unwrap();
+    assert_eq!(upgraded_metadata["memoryMode"], "native");
+    assert_eq!(
+        upgraded_metadata["runtimeSession"]["sessionKey"],
+        "legacy_session"
+    );
 }
 
 #[tokio::test]

@@ -1642,28 +1642,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bot_starter_route_materializes_default_bots_in_core() {
+    async fn bot_starter_route_materializes_default_bots_and_pins_memory_mode() {
         let mut config = AppConfig::default();
         let temp = tempfile::tempdir().unwrap();
         config.data_dir = temp.path().to_path_buf();
         config.workspace_dir = config.data_dir.join("workspace");
         let services = AppServices::from_config(&config).await.unwrap();
-        let app = create_router(&services);
-
-        let starter_response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/bots/starter-ensure")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        r#"{"userId":"u_123","now":"2026-06-26T08:00:00.000Z","runtime":{"cloud":{"enabled":true,"agentRuntime":{"runtimeKind":"cloud-claude-code","agentEngine":"claude-code","label":"Claude Code","available":true}},"localDevice":{"id":"mac-1","name":"Jung Mac.local Mia Desktop"},"agentInventory":{"agents":[{"id":"hermes","usableInMia":true}]}}}"#,
-                    ))
-                    .unwrap(),
-            )
+        services
+            .system
+            .save_memory_settings(mia_core_api_types::SaveMemorySettingsRequest {
+                mode: Some(mia_core_api_types::MemoryMode::Native),
+                enabled: None,
+            })
             .await
             .unwrap();
+        let app = create_router(&services);
+        let starter_request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/api/bots/starter-ensure")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"userId":"u_123","now":"2026-06-26T08:00:00.000Z","runtime":{"cloud":{"enabled":true,"agentRuntime":{"runtimeKind":"cloud-claude-code","agentEngine":"claude-code","label":"Claude Code","available":true}},"localDevice":{"id":"mac-1","name":"Jung Mac.local Mia Desktop"},"agentInventory":{"agents":[{"id":"hermes","usableInMia":true}]}}}"#,
+                ))
+                .unwrap()
+        };
+
+        let starter_response = app.clone().oneshot(starter_request()).await.unwrap();
         assert_eq!(starter_response.status(), StatusCode::OK);
         let starter_body = to_bytes(starter_response.into_body(), usize::MAX)
             .await
@@ -1676,6 +1681,33 @@ mod tests {
             starter["settings"]["starterEngineBots"]["engineIds"],
             json!(["cloud-claude-code", "hermes"])
         );
+        for entry in starter["created"].as_array().unwrap() {
+            let conversation = services
+                .conversation
+                .get_conversation(entry["conversationId"].as_str().unwrap())
+                .await
+                .unwrap();
+            assert_eq!(conversation.conversation.metadata["memoryMode"], "native");
+        }
+
+        services
+            .system
+            .save_memory_settings(mia_core_api_types::SaveMemorySettingsRequest {
+                mode: Some(mia_core_api_types::MemoryMode::Mia),
+                enabled: None,
+            })
+            .await
+            .unwrap();
+        let again = app.clone().oneshot(starter_request()).await.unwrap();
+        assert_eq!(again.status(), StatusCode::OK);
+        for entry in starter["created"].as_array().unwrap() {
+            let conversation = services
+                .conversation
+                .get_conversation(entry["conversationId"].as_str().unwrap())
+                .await
+                .unwrap();
+            assert_eq!(conversation.conversation.metadata["memoryMode"], "native");
+        }
 
         let list_response = app
             .oneshot(
@@ -1692,6 +1724,223 @@ mod tests {
             .unwrap();
         let list: Value = serde_json::from_slice(&list_body).unwrap();
         assert_eq!(list["bots"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn conversation_routes_pin_memory_mode_at_creation_time() {
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let services = AppServices::from_config(&config).await.unwrap();
+        let app = create_router(&services);
+
+        let create = |title: &str| {
+            Request::builder()
+                .method("POST")
+                .uri("/api/conversations")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"kind":"direct","title":"{title}","botId":null,"metadata":{{"source":"route"}}}}"#
+                )))
+                .unwrap()
+        };
+
+        let mia_response = app.clone().oneshot(create("Mia Before")).await.unwrap();
+        assert_eq!(mia_response.status(), StatusCode::OK);
+        let mia: Value = serde_json::from_slice(
+            &to_bytes(mia_response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let mia_id = mia["conversation"]["id"].as_str().unwrap().to_string();
+        assert_eq!(mia["conversation"]["metadata"]["memoryMode"], "mia");
+
+        services
+            .system
+            .save_memory_settings(mia_core_api_types::SaveMemorySettingsRequest {
+                mode: Some(mia_core_api_types::MemoryMode::Native),
+                enabled: None,
+            })
+            .await
+            .unwrap();
+        let native_response = app.clone().oneshot(create("Native After")).await.unwrap();
+        let native: Value = serde_json::from_slice(
+            &to_bytes(native_response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let native_id = native["conversation"]["id"].as_str().unwrap().to_string();
+        assert_eq!(native["conversation"]["metadata"]["memoryMode"], "native");
+
+        let existing_mia = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/conversations/{mia_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let existing_mia: Value = serde_json::from_slice(
+            &to_bytes(existing_mia.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            existing_mia["conversation"]["metadata"]["memoryMode"],
+            "mia"
+        );
+
+        services
+            .system
+            .save_memory_settings(mia_core_api_types::SaveMemorySettingsRequest {
+                mode: Some(mia_core_api_types::MemoryMode::Mia),
+                enabled: None,
+            })
+            .await
+            .unwrap();
+        let mia_after_response = app.clone().oneshot(create("Mia After")).await.unwrap();
+        let mia_after: Value = serde_json::from_slice(
+            &to_bytes(mia_after_response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(mia_after["conversation"]["metadata"]["memoryMode"], "mia");
+
+        let existing_native = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/conversations/{native_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let existing_native: Value = serde_json::from_slice(
+            &to_bytes(existing_native.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            existing_native["conversation"]["metadata"]["memoryMode"],
+            "native"
+        );
+    }
+
+    #[tokio::test]
+    async fn bot_session_route_pins_memory_mode_without_overwriting_an_existing_session() {
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let services = AppServices::from_config(&config).await.unwrap();
+        let bot = services
+            .bot
+            .create_bot(mia_core_api_types::CreateBotRequest {
+                display_name: "Mode Bot".into(),
+                identity: json!({}),
+                capabilities: json!({}),
+            })
+            .await
+            .unwrap()
+            .bot;
+        services
+            .system
+            .save_memory_settings(mia_core_api_types::SaveMemorySettingsRequest {
+                mode: Some(mia_core_api_types::MemoryMode::Native),
+                enabled: None,
+            })
+            .await
+            .unwrap();
+        let app = create_router(&services);
+
+        let ensure = |session_id: &str, requested_mode: &str| {
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/bots/{}/session-conversation", bot.id))
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"sessionId":"{session_id}","title":"Mode Session","runtimeKind":"desktop-local","metadata":{{"source":"route","memoryMode":"{requested_mode}"}}}}"#
+                )))
+                .unwrap()
+        };
+
+        let first_response = app
+            .clone()
+            .oneshot(ensure("session_1", "invalid"))
+            .await
+            .unwrap();
+        let first: Value = serde_json::from_slice(
+            &to_bytes(first_response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let first_id = first["conversationId"].as_str().unwrap().to_string();
+        let first_conversation = services
+            .conversation
+            .get_conversation(&first_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            first_conversation.conversation.metadata["memoryMode"],
+            "native"
+        );
+
+        services
+            .system
+            .save_memory_settings(mia_core_api_types::SaveMemorySettingsRequest {
+                mode: Some(mia_core_api_types::MemoryMode::Mia),
+                enabled: None,
+            })
+            .await
+            .unwrap();
+        let existing_response = app
+            .clone()
+            .oneshot(ensure("session_1", "mia"))
+            .await
+            .unwrap();
+        let existing: Value = serde_json::from_slice(
+            &to_bytes(existing_response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(existing["created"], false);
+        assert_eq!(existing["conversationId"], first_id);
+        let existing_conversation = services
+            .conversation
+            .get_conversation(&first_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            existing_conversation.conversation.metadata["memoryMode"],
+            "native"
+        );
+
+        let fresh_response = app.oneshot(ensure("session_2", "invalid")).await.unwrap();
+        let fresh: Value = serde_json::from_slice(
+            &to_bytes(fresh_response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let fresh_conversation = services
+            .conversation
+            .get_conversation(fresh["conversationId"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            fresh_conversation.conversation.metadata["memoryMode"],
+            "mia"
+        );
     }
 
     #[tokio::test]

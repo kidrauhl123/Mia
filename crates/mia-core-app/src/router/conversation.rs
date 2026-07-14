@@ -11,7 +11,7 @@ use mia_core_api_types::{
 };
 use mia_core_conversation::{
     EVENT_CONVERSATION_CREATED, EVENT_CONVERSATION_MESSAGE_CREATED, materialize_turn_skills,
-    plan_agent_session_skill_runtime,
+    plan_agent_session_skill_runtime, with_memory_mode,
 };
 use mia_core_runtime::{
     EVENT_RUNTIME_CANCEL_REQUESTED, RuntimeEventSink, RuntimeProtocol, RuntimeTurnPlan,
@@ -38,8 +38,14 @@ pub async fn list_conversations(
 
 pub async fn create_conversation(
     State(states): State<ModuleStates>,
-    Json(request): Json<CreateConversationRequest>,
+    Json(mut request): Json<CreateConversationRequest>,
 ) -> Result<Json<ConversationResponse>, StatusCode> {
+    let settings = states
+        .system
+        .memory_settings()
+        .await
+        .map_err(map_sqlx_status)?;
+    request.metadata = with_memory_mode(request.metadata, settings.mode);
     let response = states
         .conversation
         .create_conversation(request)

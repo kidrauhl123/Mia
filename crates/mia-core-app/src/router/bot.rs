@@ -10,6 +10,7 @@ use mia_core_api_types::{
     EmptyResponse, EnsureBotSessionConversationRequest, EnsureBotSessionConversationResponse,
     SaveBotRuntimeRequest, StarterBotEnsureRequest, StarterBotEnsureResponse, UpdateBotRequest,
 };
+use mia_core_conversation::with_memory_mode;
 use sqlx::Error;
 
 use super::state::ModuleStates;
@@ -129,9 +130,14 @@ pub async fn ensure_starter_bots(
     State(states): State<ModuleStates>,
     Json(request): Json<StarterBotEnsureRequest>,
 ) -> Result<Json<StarterBotEnsureResponse>, StatusCode> {
+    let settings = states
+        .system
+        .memory_settings()
+        .await
+        .map_err(map_sqlx_status)?;
     states
         .bot
-        .ensure_starter_bots(request)
+        .ensure_starter_bots_with_memory_mode(request, settings.mode)
         .await
         .map(Json)
         .map_err(map_sqlx_status)
@@ -140,11 +146,17 @@ pub async fn ensure_starter_bots(
 pub async fn ensure_bot_session_conversation(
     State(states): State<ModuleStates>,
     Path(bot_id): Path<String>,
-    Json(request): Json<EnsureBotSessionConversationRequest>,
+    Json(mut request): Json<EnsureBotSessionConversationRequest>,
 ) -> Result<Json<EnsureBotSessionConversationResponse>, StatusCode> {
+    let settings = states
+        .system
+        .memory_settings()
+        .await
+        .map_err(map_sqlx_status)?;
+    request.metadata = with_memory_mode(request.metadata, settings.mode);
     states
         .bot
-        .ensure_session_conversation(&bot_id, request)
+        .ensure_session_conversation_with_memory_mode(&bot_id, request, settings.mode)
         .await
         .map(Json)
         .map_err(map_sqlx_status)

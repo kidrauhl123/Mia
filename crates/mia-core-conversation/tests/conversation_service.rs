@@ -1,16 +1,42 @@
 use mia_core_api_types::{
-    AgentSessionSkillRecord, AgentSessionSkillRuntimeRequest, BotSummary,
-    CreateConversationRequest, RunConversationUtilityTurnRequest, SendConversationMessageRequest,
-    SkillMaterializationRecord, SkillMaterializationRequest,
+    AgentSessionSkillRecord, AgentSessionSkillRuntimeRequest, BotSummary, ConversationSummary,
+    CreateConversationRequest, MemoryMode, RunConversationUtilityTurnRequest,
+    SendConversationMessageRequest, SkillMaterializationRecord, SkillMaterializationRequest,
 };
 use mia_core_conversation::{
-    ConversationService, CurrentSkillService, materialize_turn_skills,
-    plan_agent_session_skill_runtime,
+    ConversationService, CurrentSkillService, conversation_memory_mode, materialize_turn_skills,
+    plan_agent_session_skill_runtime, with_memory_mode,
 };
 use mia_core_db::init_database_memory;
 use serde_json::json;
 use sqlx::Row;
 use std::fs;
+
+#[test]
+fn memory_mode_metadata_normalizes_only_missing_or_invalid_values() {
+    let native = with_memory_mode(
+        json!({ "memoryMode": "native", "workspaceDir": "/tmp/workspace" }),
+        MemoryMode::Mia,
+    );
+    assert_eq!(native["memoryMode"], "native");
+    assert_eq!(native["workspaceDir"], "/tmp/workspace");
+
+    let repaired = with_memory_mode(
+        json!({ "memoryMode": "invalid", "runtimeSession": { "sessionKey": "session_1" } }),
+        MemoryMode::Native,
+    );
+    assert_eq!(repaired["memoryMode"], "native");
+    assert_eq!(repaired["runtimeSession"]["sessionKey"], "session_1");
+
+    let legacy = ConversationSummary {
+        id: "conv_legacy".into(),
+        kind: "direct".into(),
+        title: "Legacy".into(),
+        bot_id: None,
+        metadata: json!({}),
+    };
+    assert_eq!(conversation_memory_mode(&legacy), MemoryMode::Mia);
+}
 
 #[test]
 fn current_skill_service_lists_and_reads_enabled_bot_skills_from_core_paths() {
@@ -235,6 +261,120 @@ async fn conversation_service_owns_conversation_crud() {
     assert_eq!(fetched.conversation.id, created.conversation.id);
     assert_eq!(list.conversations.len(), 1);
     assert_eq!(list.conversations[0].id, created.conversation.id);
+}
+
+#[tokio::test]
+async fn conversation_service_pins_a_defensive_memory_mode_when_created() {
+    let db = init_database_memory().await.unwrap();
+    let service = ConversationService::new(db.pool().clone());
+
+    let defaulted = service
+        .create_conversation(CreateConversationRequest {
+            kind: "direct".into(),
+            title: "Default Mia".into(),
+            bot_id: None,
+            metadata: json!({ "source": "internal" }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        conversation_memory_mode(&defaulted.conversation),
+        MemoryMode::Mia
+    );
+    assert_eq!(defaulted.conversation.metadata["memoryMode"], "mia");
+    assert_eq!(defaulted.conversation.metadata["source"], "internal");
+
+    let explicit = service
+        .create_conversation(CreateConversationRequest {
+            kind: "direct".into(),
+            title: "Explicit Native".into(),
+            bot_id: None,
+            metadata: json!({ "memoryMode": "native", "workspaceDir": "/tmp/native" }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        conversation_memory_mode(&explicit.conversation),
+        MemoryMode::Native
+    );
+    assert_eq!(
+        explicit.conversation.metadata["workspaceDir"],
+        "/tmp/native"
+    );
+}
+
+#[tokio::test]
+async fn external_conversation_ensure_preserves_mode_and_session_metadata() {
+    let db = init_database_memory().await.unwrap();
+    let service = ConversationService::new(db.pool().clone());
+
+    let defaulted = service
+        .ensure_external_conversation(
+            "external_default",
+            "cloud-bridge",
+            "Default",
+            None,
+            json!({ "cloudBridge": { "conversationId": "cloud:default" } }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(defaulted.conversation.metadata["memoryMode"], "mia");
+
+    let first = service
+        .ensure_external_conversation(
+            "external_native",
+            "cloud-bridge",
+            "Native",
+            Some("bot_1"),
+            json!({
+                "memoryMode": "native",
+                "sessionId": "external_session_1",
+                "starterEngineId": "codex",
+                "workspaceDir": "/tmp/external",
+                "runtimeSession": { "sessionKey": "native_session_1" },
+                "cloudBridge": { "conversationId": "cloud:old" }
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.conversation.metadata["memoryMode"], "native");
+
+    let ensured = service
+        .ensure_external_conversation(
+            "external_native",
+            "cloud-bridge",
+            "Renamed",
+            Some("bot_1"),
+            json!({
+                "memoryMode": "mia",
+                "sessionId": "spoofed_session",
+                "starterEngineId": "spoofed_engine",
+                "workspaceDir": "/tmp/spoofed",
+                "runtimeSession": { "sessionKey": "spoofed_native_session" },
+                "cloudBridge": { "conversationId": "cloud:new" }
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ensured.conversation.title, "Renamed");
+    assert_eq!(ensured.conversation.metadata["memoryMode"], "native");
+    assert_eq!(
+        ensured.conversation.metadata["sessionId"],
+        "external_session_1"
+    );
+    assert_eq!(ensured.conversation.metadata["starterEngineId"], "codex");
+    assert_eq!(
+        ensured.conversation.metadata["runtimeSession"]["sessionKey"],
+        "native_session_1"
+    );
+    assert_eq!(
+        ensured.conversation.metadata["workspaceDir"],
+        "/tmp/external"
+    );
+    assert_eq!(
+        ensured.conversation.metadata["cloudBridge"]["conversationId"],
+        "cloud:new"
+    );
 }
 
 #[tokio::test]
@@ -775,7 +915,10 @@ async fn conversation_service_plans_utility_turn_with_core_owned_runtime_resolut
 #[tokio::test]
 async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
     let db = init_database_memory().await.unwrap();
-    sqlx::query("INSERT INTO settings (key, value_json, updated_at) VALUES ('client', ?, 1)")
+    sqlx::query(
+        "INSERT INTO settings (key, value_json, updated_at) VALUES ('client', ?, 1) \
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+    )
         .bind(
             json!({
                 "userId": "user_real",

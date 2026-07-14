@@ -330,7 +330,7 @@ git commit -m "feat(memory): 实现原子 Hermes 式有界文本服务"
 - 所有新建入口：普通 conversation、bot session ensure、starter ensure、external/cloud mirror。
 - `conversation_memory_mode(summary)`：运行时唯一读取边界，缺失只为旧数据兼容按 `Mia` 解释。
 
-- [ ] **Step 1: 写 mode 固化失败测试**
+- [x] **Step 1: 写 mode 固化失败测试**
 
 覆盖真值表：
 
@@ -345,7 +345,7 @@ Run: `cargo test -p mia-core-conversation memory_mode && cargo test -p mia-core-
 
 Expected: FAIL，当前 metadata 原样透传且路由不读取设置。
 
-- [ ] **Step 2: 在路由 owner 处注入默认 mode**
+- [x] **Step 2: 在路由 owner 处注入默认 mode**
 
 `create_conversation` 与 bot ensure 路由先读取 `states.system.memory_settings().await?.mode`，再调用 service：
 
@@ -355,11 +355,11 @@ request.metadata = with_memory_mode(request.metadata, settings.mode);
 
 Service 自身仍执行一次 `with_memory_mode(request.metadata, MemoryMode::Mia)` 防御性规范化，覆盖 Cloud bridge/内部调用；但绝不覆盖合法已有值。`ensure_external_conversation` 的 upsert 不能再整块覆盖已有 metadata 中的 `memoryMode`。
 
-- [ ] **Step 3: 保证 starter 与 existing upgrade 路径一致**
+- [x] **Step 3: 保证 starter 与 existing upgrade 路径一致**
 
 新 starter conversation 写当前默认 mode；旧 starter/external conversation 只在缺字段时补 mode。保留 sessionId、starterEngineId、workspace 与 runtime session metadata。
 
-- [ ] **Step 4: 跑绿并提交**
+- [x] **Step 4: 跑绿并提交**
 
 Run: `cargo test -p mia-core-conversation && cargo test -p mia-core-bot && cargo test -p mia-core-app memory_mode`
 

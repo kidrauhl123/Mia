@@ -12,7 +12,7 @@ use mia_core_api_types::{
     AgentSessionSkillRecord, AgentSessionSkillRuntimeRequest, AgentSessionSkillRuntimeResponse,
     BotSummary, ConversationListResponse, ConversationMessageListResponse,
     ConversationMessageSummary, ConversationResponse, ConversationSummary,
-    CreateConversationRequest, DeleteConversationResponse, MiaCurrentSkillDetail,
+    CreateConversationRequest, DeleteConversationResponse, MemoryMode, MiaCurrentSkillDetail,
     MiaCurrentSkillResponse, MiaCurrentSkillSummary, MiaCurrentSkillsResponse,
     RunConversationUtilityTurnRequest, SendConversationMessageRequest,
     SendConversationMessageResponse, SkillMaterializationRecord, SkillMaterializationRequest,
@@ -28,6 +28,75 @@ pub const EVENT_CONVERSATION_CREATED: &str = "conversation.created";
 pub const EVENT_CONVERSATION_MESSAGE_CREATED: &str = "conversation.messageCreated";
 const CLIENT_SETTINGS_KEY: &str = "client";
 const MANAGED_SKILL_MANIFEST_RELATIVE_PATH: &str = ".mia/skill-runtime.json";
+
+pub fn with_memory_mode(metadata: Value, default_mode: MemoryMode) -> Value {
+    let mut metadata = match metadata {
+        Value::Object(object) => Value::Object(object),
+        _ => json!({}),
+    };
+    if metadata
+        .get("memoryMode")
+        .and_then(memory_mode_from_value)
+        .is_none()
+    {
+        metadata["memoryMode"] = Value::String(memory_mode_name(default_mode).to_string());
+    }
+    metadata
+}
+
+pub fn conversation_memory_mode(conversation: &ConversationSummary) -> MemoryMode {
+    conversation
+        .metadata
+        .get("memoryMode")
+        .and_then(memory_mode_from_value)
+        .unwrap_or(MemoryMode::Mia)
+}
+
+fn memory_mode_from_value(value: &Value) -> Option<MemoryMode> {
+    match value.as_str() {
+        Some("mia") => Some(MemoryMode::Mia),
+        Some("native") => Some(MemoryMode::Native),
+        _ => None,
+    }
+}
+
+fn memory_mode_name(mode: MemoryMode) -> &'static str {
+    match mode {
+        MemoryMode::Mia => "mia",
+        MemoryMode::Native => "native",
+    }
+}
+
+fn merge_conversation_metadata(existing: Value, incoming: Value) -> Value {
+    let existing_mode = existing.get("memoryMode").and_then(memory_mode_from_value);
+    let preserved = [
+        "sessionId",
+        "starterEngineId",
+        "workspace",
+        "workspaceDir",
+        "workspace_dir",
+        "runtimeSession",
+        "resumeSessionKey",
+    ]
+    .into_iter()
+    .filter_map(|key| existing.get(key).cloned().map(|value| (key, value)))
+    .collect::<Vec<_>>();
+    let mut merged = match existing {
+        Value::Object(object) => object,
+        _ => Map::new(),
+    };
+    if let Value::Object(incoming) = incoming {
+        merged.extend(incoming);
+    }
+    for (key, value) in preserved {
+        merged.insert(key.to_string(), value);
+    }
+    let mut merged = with_memory_mode(Value::Object(merged), MemoryMode::Mia);
+    if let Some(existing_mode) = existing_mode {
+        merged["memoryMode"] = Value::String(memory_mode_name(existing_mode).to_string());
+    }
+    merged
+}
 
 #[cfg(test)]
 mod agent_session_skill_link_test_overrides {
@@ -1382,6 +1451,7 @@ impl ConversationService {
     ) -> Result<ConversationResponse, sqlx::Error> {
         let id = format!("conv_{}", Uuid::now_v7().simple());
         let now = now_ms();
+        let metadata = with_memory_mode(request.metadata, MemoryMode::Mia);
         sqlx::query(
             "INSERT INTO conversations (id, kind, title, bot_id, runtime_json, metadata_json, created_at, updated_at) \
              VALUES (?, ?, ?, ?, '{}', ?, ?, ?)",
@@ -1390,7 +1460,7 @@ impl ConversationService {
         .bind(&request.kind)
         .bind(&request.title)
         .bind(&request.bot_id)
-        .bind(request.metadata.to_string())
+        .bind(metadata.to_string())
         .bind(now)
         .bind(now)
         .execute(&self.pool)
@@ -1410,6 +1480,18 @@ impl ConversationService {
         let kind = clean_or_default(kind, "cloud-bridge");
         let title = clean_or_default(title, "Cloud Bridge");
         let now = now_ms();
+        let incoming_metadata = with_memory_mode(metadata, MemoryMode::Mia);
+        let mut transaction = self.pool.begin().await?;
+        let existing_metadata =
+            sqlx::query_scalar::<_, String>("SELECT metadata_json FROM conversations WHERE id = ?")
+                .bind(&id)
+                .fetch_optional(&mut *transaction)
+                .await?
+                .map(parse_json)
+                .transpose()?;
+        let metadata = existing_metadata
+            .map(|existing| merge_conversation_metadata(existing, incoming_metadata.clone()))
+            .unwrap_or(incoming_metadata);
         sqlx::query(
             "INSERT INTO conversations (id, kind, title, bot_id, runtime_json, metadata_json, created_at, updated_at) \
              VALUES (?, ?, ?, ?, '{}', ?, ?, ?) \
@@ -1422,8 +1504,9 @@ impl ConversationService {
         .bind(metadata.to_string())
         .bind(now)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await?;
+        transaction.commit().await?;
         self.get_conversation(&id).await
     }
 

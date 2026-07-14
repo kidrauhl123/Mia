@@ -13,8 +13,8 @@ use mia_core_api_types::{
     BotRuntimeResponse, BotRuntimeSyncIntent, BotRuntimeTargetGroup, BotRuntimeTargetIntent,
     BotRuntimeTargetOption, BotRuntimeTargetOptionsRequest, BotRuntimeTargetOptionsResponse,
     BotSummary, CreateBotRequest, EmptyResponse, EnsureBotSessionConversationRequest,
-    EnsureBotSessionConversationResponse, SaveBotRuntimeRequest, StarterBotEnsureRequest,
-    StarterBotEnsureResponse, StarterBotMutation, UpdateBotRequest,
+    EnsureBotSessionConversationResponse, MemoryMode, SaveBotRuntimeRequest,
+    StarterBotEnsureRequest, StarterBotEnsureResponse, StarterBotMutation, UpdateBotRequest,
 };
 use mia_core_common::skill_defaults::{
     generic_assistant_skill_ids, resolve_effective_skill_ids, system_auto_skill_ids,
@@ -114,6 +114,15 @@ impl BotService {
         &self,
         request: StarterBotEnsureRequest,
     ) -> Result<StarterBotEnsureResponse, sqlx::Error> {
+        self.ensure_starter_bots_with_memory_mode(request, MemoryMode::Mia)
+            .await
+    }
+
+    pub async fn ensure_starter_bots_with_memory_mode(
+        &self,
+        request: StarterBotEnsureRequest,
+        default_mode: MemoryMode,
+    ) -> Result<StarterBotEnsureResponse, sqlx::Error> {
         let runtime = object_from_value(request.runtime);
         if !nested_bool(&runtime, &["cloud"], "enabled") {
             return Ok(StarterBotEnsureResponse {
@@ -185,6 +194,8 @@ impl BotService {
             let key = starter_bot_key(&user_id, spec.key_suffix());
             if self.bot_exists(&key).await? {
                 if !self.starter_bot_needs_repair(&key, spec).await? {
+                    self.ensure_starter_conversation(&key, spec, default_mode)
+                        .await?;
                     continue;
                 }
                 let bot = self.upsert_starter_bot(&key, spec, now_ms()).await?;
@@ -193,7 +204,9 @@ impl BotService {
                     starter_runtime_request(spec, &device_id, &device_name),
                 )
                 .await?;
-                let conversation_id = self.ensure_starter_conversation(&key, spec).await?;
+                let conversation_id = self
+                    .ensure_starter_conversation(&key, spec, default_mode)
+                    .await?;
                 if !spec.tag_names.is_empty() {
                     cloud_tag_assignments.push((conversation_id.clone(), spec.tag_names.clone()));
                 }
@@ -214,7 +227,9 @@ impl BotService {
                 starter_runtime_request(spec, &device_id, &device_name),
             )
             .await?;
-            let conversation_id = self.ensure_starter_conversation(&key, spec).await?;
+            let conversation_id = self
+                .ensure_starter_conversation(&key, spec, default_mode)
+                .await?;
             if !spec.tag_names.is_empty() {
                 cloud_tag_assignments.push((conversation_id.clone(), spec.tag_names.clone()));
             }
@@ -398,22 +413,45 @@ impl BotService {
         bot_id: &str,
         request: EnsureBotSessionConversationRequest,
     ) -> Result<EnsureBotSessionConversationResponse, sqlx::Error> {
-        if let Some(existing) = self
+        self.ensure_session_conversation_with_memory_mode(bot_id, request, MemoryMode::Mia)
+            .await
+    }
+
+    pub async fn ensure_session_conversation_with_memory_mode(
+        &self,
+        bot_id: &str,
+        request: EnsureBotSessionConversationRequest,
+        default_mode: MemoryMode,
+    ) -> Result<EnsureBotSessionConversationResponse, sqlx::Error> {
+        let metadata = with_memory_mode(request.metadata, default_mode);
+        let requested_mode = metadata
+            .get("memoryMode")
+            .and_then(memory_mode_from_value)
+            .unwrap_or(MemoryMode::Mia);
+        if let Some((conversation_id, existing_metadata)) = self
             .find_session_conversation(bot_id, &request.session_id)
             .await?
         {
+            let repaired_metadata = with_memory_mode(existing_metadata.clone(), requested_mode);
+            if repaired_metadata != existing_metadata {
+                sqlx::query(
+                    "UPDATE conversations SET metadata_json = ?, updated_at = ? WHERE id = ?",
+                )
+                .bind(repaired_metadata.to_string())
+                .bind(now_ms())
+                .bind(&conversation_id)
+                .execute(&self.pool)
+                .await?;
+            }
             return Ok(EnsureBotSessionConversationResponse {
-                conversation_id: existing,
+                conversation_id,
                 created: false,
             });
         }
 
         let conversation_id = format!("conv_{}", Uuid::now_v7().simple());
         let now = now_ms();
-        let mut metadata = match request.metadata {
-            Value::Object(object) => Value::Object(object),
-            _ => json!({}),
-        };
+        let mut metadata = metadata;
         if let Value::Object(object) = &mut metadata {
             object.insert("sessionId".to_string(), Value::String(request.session_id));
         }
@@ -441,7 +479,7 @@ impl BotService {
         &self,
         bot_id: &str,
         session_id: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
+    ) -> Result<Option<(String, Value)>, sqlx::Error> {
         let rows = sqlx::query(
             "SELECT id, metadata_json FROM conversations WHERE bot_id = ? AND kind = 'bot_session' ORDER BY created_at ASC",
         )
@@ -451,7 +489,7 @@ impl BotService {
         for row in rows {
             let metadata = parse_json(row.get::<String, _>("metadata_json"))?;
             if metadata.get("sessionId").and_then(Value::as_str) == Some(session_id) {
-                return Ok(Some(row.get("id")));
+                return Ok(Some((row.get("id"), metadata)));
             }
         }
         Ok(None)
@@ -614,23 +652,61 @@ impl BotService {
         &self,
         bot_id: &str,
         spec: &StarterBotSpec,
+        default_mode: MemoryMode,
     ) -> Result<String, sqlx::Error> {
         let conversation_id = format!("botc_{bot_id}");
         let now = now_ms();
-        sqlx::query(
-            "INSERT INTO conversations (id, kind, title, bot_id, runtime_json, metadata_json, created_at, updated_at) \
-             VALUES (?, 'bot_session', ?, ?, ?, ?, ?, ?) \
-             ON CONFLICT(id) DO UPDATE SET title = excluded.title, bot_id = excluded.bot_id, runtime_json = excluded.runtime_json, metadata_json = excluded.metadata_json, updated_at = excluded.updated_at",
+        let runtime = json!({ "runtimeKind": spec.runtime_kind });
+        let existing = sqlx::query(
+            "SELECT title, bot_id, runtime_json, metadata_json FROM conversations WHERE id = ?",
         )
         .bind(&conversation_id)
-        .bind(&spec.name)
-        .bind(bot_id)
-        .bind(json!({ "runtimeKind": spec.runtime_kind }).to_string())
-        .bind(json!({ "sessionId": bot_id, "starterEngineId": spec.engine_id }).to_string())
-        .bind(now)
-        .bind(now)
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
+        if let Some(existing) = existing {
+            let existing_title = existing.get::<String, _>("title");
+            let existing_bot_id = existing.get::<Option<String>, _>("bot_id");
+            let existing_runtime = parse_json(existing.get::<String, _>("runtime_json"))?;
+            let existing_metadata = parse_json(existing.get::<String, _>("metadata_json"))?;
+            let mut metadata = with_memory_mode(existing_metadata.clone(), default_mode);
+            set_metadata_string_if_missing(&mut metadata, "sessionId", bot_id);
+            set_metadata_string_if_missing(&mut metadata, "starterEngineId", &spec.engine_id);
+            if existing_title != spec.name
+                || existing_bot_id.as_deref() != Some(bot_id)
+                || existing_runtime != runtime
+                || existing_metadata != metadata
+            {
+                sqlx::query(
+                    "UPDATE conversations SET title = ?, bot_id = ?, runtime_json = ?, metadata_json = ?, updated_at = ? WHERE id = ?",
+                )
+                .bind(&spec.name)
+                .bind(bot_id)
+                .bind(runtime.to_string())
+                .bind(metadata.to_string())
+                .bind(now)
+                .bind(&conversation_id)
+                .execute(&self.pool)
+                .await?;
+            }
+        } else {
+            let metadata = with_memory_mode(
+                json!({ "sessionId": bot_id, "starterEngineId": spec.engine_id }),
+                default_mode,
+            );
+            sqlx::query(
+                "INSERT INTO conversations (id, kind, title, bot_id, runtime_json, metadata_json, created_at, updated_at) \
+                 VALUES (?, 'bot_session', ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&conversation_id)
+            .bind(&spec.name)
+            .bind(bot_id)
+            .bind(runtime.to_string())
+            .bind(metadata.to_string())
+            .bind(now)
+            .bind(now)
+            .execute(&self.pool)
+            .await?;
+        }
         Ok(conversation_id)
     }
 
@@ -4238,6 +4314,49 @@ fn bot_summary_from_row(row: sqlx::sqlite::SqliteRow) -> Result<BotSummary, sqlx
         identity: parse_json(row.get::<String, _>("identity_json"))?,
         capabilities: parse_json(row.get::<String, _>("capability_json"))?,
     })
+}
+
+fn with_memory_mode(metadata: Value, default_mode: MemoryMode) -> Value {
+    let mut metadata = match metadata {
+        Value::Object(object) => Value::Object(object),
+        _ => json!({}),
+    };
+    if metadata
+        .get("memoryMode")
+        .and_then(memory_mode_from_value)
+        .is_none()
+    {
+        metadata["memoryMode"] = Value::String(memory_mode_name(default_mode).to_string());
+    }
+    metadata
+}
+
+fn memory_mode_from_value(value: &Value) -> Option<MemoryMode> {
+    match value.as_str() {
+        Some("mia") => Some(MemoryMode::Mia),
+        Some("native") => Some(MemoryMode::Native),
+        _ => None,
+    }
+}
+
+fn memory_mode_name(mode: MemoryMode) -> &'static str {
+    match mode {
+        MemoryMode::Mia => "mia",
+        MemoryMode::Native => "native",
+    }
+}
+
+fn set_metadata_string_if_missing(metadata: &mut Value, key: &str, value: &str) {
+    let Some(object) = metadata.as_object_mut() else {
+        return;
+    };
+    let missing = object
+        .get(key)
+        .and_then(Value::as_str)
+        .is_none_or(|value| value.trim().is_empty());
+    if missing {
+        object.insert(key.to_string(), Value::String(value.to_string()));
+    }
 }
 
 fn parse_json(raw: String) -> Result<Value, sqlx::Error> {
