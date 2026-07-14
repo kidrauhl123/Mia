@@ -82,6 +82,16 @@ test("main delegates memory settings to Core", () => {
     /forwardMiaCoreHttpRequest\([\s\S]*method:\s*"POST"[\s\S]*route:\s*"\/api\/memory\/settings"/,
     "foreground memory settings writes must use Rust Core HTTP"
   );
+  assert.match(
+    writeHelper,
+    /body:\s*\{ mode \}/,
+    "foreground memory settings writes must send the canonical mode"
+  );
+  assert.doesNotMatch(
+    writeHelper,
+    /body:\s*\{ enabled:/,
+    "foreground memory settings writes must not send the retired boolean contract"
+  );
   assert.doesNotMatch(
     writeHelper,
     /settingsStore\.writeMemorySettings/,
@@ -94,52 +104,11 @@ test("main delegates memory settings to Core", () => {
   );
 });
 
-test("main delegates foreground memory CRUD to Core", () => {
+test("main no longer exposes foreground memory CRUD", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
 
-  assert.match(
-    mainSource,
-    /IpcChannel\.MemoryList[\s\S]*listCoreMemory\(payload\)/,
-    "foreground memory list must go through Core"
-  );
-  assert.match(
-    mainSource,
-    /IpcChannel\.MemoryListAll[\s\S]*listAllCoreMemory\(payload\)/,
-    "foreground memory management list must go through Core"
-  );
-  assert.match(
-    mainSource,
-    /route:\s*"\/api\/mia\/memory\/list"/,
-    "foreground memory list helper must call Rust Core list route"
-  );
-  assert.match(
-    mainSource,
-    /route:\s*"\/api\/mia\/memory\/remember"/,
-    "foreground memory remember helper must call Rust Core remember route"
-  );
-  assert.match(
-    mainSource,
-    /route:\s*"\/api\/mia\/memory\/update"/,
-    "foreground memory update helper must call Rust Core update route"
-  );
-  assert.match(
-    mainSource,
-    /route:\s*"\/api\/mia\/memory\/forget"/,
-    "foreground memory forget helper must call Rust Core forget route"
-  );
-  assert.match(
-    mainSource,
-    /route:\s*"\/api\/mia\/memory\/delete"/,
-    "foreground memory delete helper must call Rust Core delete route"
-  );
-  assert.doesNotMatch(
-    mainSource,
-    /IpcChannel\.Memory(?:List|ListAll|Remember|Update|Forget|Delete)[\s\S]{0,180}miaMemoryService\.(?:listMemories|listAllMemories|rememberMemory|updateMemory|forgetMemory|deleteMemory)/,
-    "foreground memory CRUD IPC must not call the JS memory store"
-  );
-  assert.doesNotMatch(
-    mainSource,
-    /scheduleCloudMemorySync/,
-    "foreground memory writes must not schedule old JS-store cloud sync"
-  );
+  assert.doesNotMatch(mainSource, /IpcChannel\.Memory(?:List|ListAll|Remember|Update|Forget|Delete)/);
+  assert.doesNotMatch(mainSource, /route:\s*"\/api\/mia\/memory\/(?:list|remember|update|forget|delete)"/);
+  assert.doesNotMatch(mainSource, /function (?:list|listAll|remember|update|forget|delete)CoreMemory/);
+  assert.doesNotMatch(mainSource, /miaMemoryService|syncNativeMemoryFiles|scheduleCloudMemorySync/);
 });

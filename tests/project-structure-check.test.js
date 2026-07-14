@@ -739,26 +739,28 @@ test("external Agent session binding persistence lives behind a main agent-sessi
   assert.doesNotMatch(mainSource, /function setAgentSessionEntry/, "main must not own external Agent session entry writes");
 });
 
-test("Mia memory foreground CRUD is Core-owned and adapters avoid native memory files", () => {
+test("Mia memory desktop UI keeps only the mode setting bridge", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const channelSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
   const runtimePathsSource = fs.readFileSync(path.join(root, "src/main/runtime-paths.js"), "utf8");
-  const memorySource = fs.readFileSync(path.join(root, "src/main/mia-memory-service.js"), "utf8");
   const runtimeContextSource = fs.readFileSync(path.join(root, "src/main/mia-runtime-context.js"), "utf8");
 
-  assert.match(memorySource, /function createMiaMemoryService/, "temporary JS memory extraction service should exist until agent extraction moves to Core");
   assert.match(runtimePathsSource, /mia-memory\.json/, "runtime paths should retain the legacy Mia memory migration path");
   assert.match(runtimePathsSource, /mia-memory\.sqlite/, "runtime paths should own the scoped Mia memory database path");
-  assert.match(mainSource, /createMiaMemoryService/, "main should instantiate the temporary memory extraction compatibility service");
-  assert.match(mainSource, /IpcChannel\.MemoryList[\s\S]*listCoreMemory\(payload\)/, "foreground memory list should enter Rust Core");
-  assert.match(mainSource, /IpcChannel\.MemoryRemember[\s\S]*rememberCoreMemory\(payload\)/, "foreground memory writes should enter Rust Core");
-  assert.doesNotMatch(
-    mainSource,
-    /IpcChannel\.Memory(?:List|ListAll|Remember|Update|Forget|Delete)[\s\S]{0,180}miaMemoryService\./,
-    "foreground memory CRUD IPC must not call the JS memory service"
-  );
-  assert.doesNotMatch(mainSource, /scheduleCloudMemorySync/, "old JS-store cloud memory sync scheduling must not return");
-  assert.match(memorySource, /rememberMemory/, "Mia memory service should expose scoped write requests");
-  assert.match(memorySource, /searchMemories/, "Mia memory service should expose scoped search");
+  assert.match(mainSource, /IpcChannel\.MemorySettingsSave/);
+  assert.match(preloadSource, /saveMemorySettings/);
+  assert.match(channelSource, /MemorySettingsSave/);
+  assert.doesNotMatch(`${mainSource}\n${preloadSource}\n${channelSource}`, /Memory(?:List|ListAll|Remember|Update|Forget|Delete)/);
+  assert.doesNotMatch(mainSource, /miaMemoryService|syncNativeMemoryFiles|scheduleCloudMemorySync/);
+  for (const fileName of [
+    "mia-memory-service.js",
+    "mia-memory-store.js",
+    "mia-memory-provider.js",
+    "mia-native-memory-bridge.js"
+  ]) {
+    assert.equal(fs.existsSync(path.join(root, "src/main", fileName)), false, `${fileName} must stay deleted`);
+  }
   assert.match(runtimeContextSource, /sanitizeMiaMemorySpoof/, "Mia runtime context should expose user-spoofed memory header neutralization");
   assert.equal(fs.existsSync(path.join(root, "src/main/native-memory-context.js")), false, "old prompt-rendered native memory helper must stay deleted");
   assert.equal(fs.existsSync(path.join(root, "src/main/openclaw-chat-adapter.js")), false, "removed OpenClaw adapter must stay deleted");

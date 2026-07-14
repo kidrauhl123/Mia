@@ -4330,8 +4330,7 @@ body.topbar-click-capture .topbar {
 
 .contact-runtime-target,
 .contact-capabilities,
-.contact-persona-card,
-.contact-memory-card {
+.contact-persona-card {
   position: relative;
   display: grid;
   min-width: 0;
@@ -4354,8 +4353,7 @@ body.topbar-click-capture .topbar {
 
 .contact-runtime-target > summary,
 .contact-capabilities > summary,
-.contact-persona-card > summary,
-.contact-memory-card > summary {
+.contact-persona-card > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4367,16 +4365,14 @@ body.topbar-click-capture .topbar {
 
 .contact-runtime-target > summary,
 .contact-capabilities > summary,
-.contact-persona-card > summary,
-.contact-memory-card > summary {
+.contact-persona-card > summary {
   list-style: none;
   cursor: default;
 }
 
 .contact-runtime-target > summary::-webkit-details-marker,
 .contact-capabilities > summary::-webkit-details-marker,
-.contact-persona-card > summary::-webkit-details-marker,
-.contact-memory-card > summary::-webkit-details-marker {
+.contact-persona-card > summary::-webkit-details-marker {
   display: none;
 }
 
@@ -4390,15 +4386,13 @@ body.topbar-click-capture .topbar {
 
 .contact-runtime-target[open] .runtime-target-chevron,
 .contact-capabilities[open] .runtime-target-chevron,
-.contact-persona-card[open] .runtime-target-chevron,
-.contact-memory-card[open] .runtime-target-chevron {
+.contact-persona-card[open] .runtime-target-chevron {
   transform: rotate(180deg);
 }
 
 .contact-runtime-target > summary strong,
 .contact-capabilities > summary strong,
-.contact-persona-card > summary strong,
-.contact-memory-card > summary strong {
+.contact-persona-card > summary strong {
   color: var(--text);
   font-size: 13px;
   font-weight: 430;
@@ -4406,8 +4400,7 @@ body.topbar-click-capture .topbar {
 
 .contact-runtime-target > summary p,
 .contact-capabilities > summary p,
-.contact-persona-card > summary p,
-.contact-memory-card > summary p {
+.contact-persona-card > summary p {
   margin: 3px 0 0;
   color: var(--muted);
   font-size: 13px;
@@ -4419,132 +4412,12 @@ body.topbar-click-capture .topbar {
 
 .contact-runtime-target > summary div,
 .contact-capabilities > summary div,
-.contact-persona-card > summary div,
-.contact-memory-card > summary div {
+.contact-persona-card > summary div {
   min-width: 0;
 }
 
 .contact-info-card .accordion-body {
   padding: 0 28px 16px;
-}
-
-.contact-memory-body {
-  display: grid;
-  gap: 12px;
-}
-
-.contact-memory-list {
-  display: grid;
-  gap: 8px;
-}
-
-.contact-memory-empty,
-.contact-memory-error,
-.contact-memory-row {
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: var(--surface-muted);
-}
-
-.contact-memory-empty,
-.contact-memory-error {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.contact-memory-error {
-  color: var(--danger);
-}
-
-.contact-memory-error,
-.settings-memory-error {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.contact-memory-error .secondary,
-.settings-memory-error .secondary {
-  flex: 0 0 auto;
-  min-height: 28px;
-  padding: 4px 10px;
-  font-size: 12px;
-}
-
-.contact-memory-row {
-  display: grid;
-  gap: 8px;
-}
-
-.contact-memory-row p {
-  margin: 0;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.contact-memory-meta,
-.contact-memory-actions,
-.contact-memory-editor-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.contact-memory-meta {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.contact-memory-actions,
-.contact-memory-editor-actions {
-  justify-content: flex-end;
-}
-
-.contact-memory-icon-button {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--field);
-  color: var(--muted);
-  cursor: default;
-}
-
-.contact-memory-icon-button:hover {
-  color: var(--text);
-}
-
-.contact-memory-icon-button.danger:hover {
-  color: var(--danger);
-}
-
-.contact-memory-action-icon,
-.contact-memory-action-icon svg {
-  width: 16px;
-  height: 16px;
-}
-
-.contact-memory-editor {
-  display: grid;
-  gap: 8px;
-}
-
-.contact-memory-draft {
-  width: 100%;
-  min-width: 0;
-  resize: vertical;
-  padding: 10px 12px;
-  border-color: transparent;
-  border-radius: 8px;
-  background: var(--field);
-  color: var(--text);
-  line-height: 1.45;
 }
 
 .runtime-target-list {
@@ -8980,97 +8853,6 @@ select.select-open {
   box-shadow: none;
 }
 
-.settings-memory-editor {
-  align-items: start;
-}
-
-.settings-memory-editor-fields {
-  display: grid;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.settings-memory-editor-fields textarea {
-  width: 100%;
-  min-width: 0;
-  resize: vertical;
-  padding: 10px 12px;
-  color: var(--text);
-  line-height: 1.45;
-}
-
-.settings-memory-list {
-  display: grid;
-  gap: 10px;
-}
-
-.settings-memory-empty,
-.settings-memory-error,
-.settings-memory-row {
-  border-radius: 14px;
-  padding: 12px 14px;
-  background: var(--surface);
-  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.04), 0 10px 26px rgba(16, 20, 39, 0.04);
-}
-
-.settings-memory-empty,
-.settings-memory-error {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.settings-memory-error {
-  color: var(--danger);
-}
-
-.settings-memory-row {
-  display: grid;
-  gap: 8px;
-}
-
-.settings-memory-row p {
-  margin: 0;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.settings-memory-meta,
-.settings-memory-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.settings-memory-meta {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.settings-memory-actions {
-  justify-content: flex-end;
-}
-
-.settings-memory-actions .primary,
-.settings-memory-actions .secondary {
-  margin: 0;
-  justify-self: auto;
-}
-
-.settings-memory-actions .icon-only {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  min-height: 30px;
-  padding: 0;
-}
-
 .form-save-status {
   color: var(--muted);
   font-size: 12px;
@@ -11031,8 +10813,7 @@ pre {
 
   .app-shell[data-active-view="contacts"] .contact-runtime-target > summary,
   .app-shell[data-active-view="contacts"] .contact-capabilities > summary,
-  .app-shell[data-active-view="contacts"] .contact-persona-card > summary,
-  .app-shell[data-active-view="contacts"] .contact-memory-card > summary {
+  .app-shell[data-active-view="contacts"] .contact-persona-card > summary {
     min-height: 58px;
     padding: 12px 18px;
   }

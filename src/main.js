@@ -8,7 +8,6 @@ const zlib = require("node:zlib");
 const AdmZip = require("adm-zip");
 const WebSocket = require("ws");
 const { IpcChannel } = require("./shared/ipc-channels");
-const { memoryChangedEnvelope } = require("./shared/memory-events.js");
 const { MemberKind } = require("./shared/conversation-kinds");
 const { botConversationId } = require("./shared/bot-identity");
 const statusBadgeAssets = require("../packages/shared/status-badge-assets");
@@ -18,8 +17,6 @@ const {
 const { createChatSendDelegator } = require("./main/chat-send-delegation.js");
 const { createChatAttachmentCoreAdapter } = require("./main/chat-attachment-core-adapter.js");
 const { createNativeTurnHelpers } = require("./main/native-turn-helpers.js");
-const { createMiaMemoryProvider } = require("./main/mia-memory-provider.js");
-const { createMiaMemoryService } = require("./main/mia-memory-service.js");
 const { createRuntimeInitializerService } = require("./main/runtime-initializer-service.js");
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
 const { createStartupBackgroundService } = require("./main/startup-background-service.js");
@@ -398,12 +395,6 @@ function currentMiaUserId() {
     return "local";
   }
 }
-const miaMemoryProvider = createMiaMemoryProvider({ env: process.env, fetchImpl: fetch });
-const miaMemoryService = createMiaMemoryService({
-  runtimePaths,
-  currentUserId: currentMiaUserId,
-  memoryProvider: miaMemoryProvider
-});
 const enginePluginsService = createEnginePluginsService({ runtimePaths });
 let localAgentEngineService = null;
 const systemHermesService = createSystemHermesService({
@@ -589,220 +580,6 @@ const {
   loadBotManifest,
 } = botManifestModule;
 
-function miaMemoryEnabled() {
-  return memorySettingsSnapshot().enabled !== false;
-}
-
-function syncNativeMemoryFilesForAgent(input = {}) {
-  if (miaMemoryEnabled()) return miaMemoryService.syncNativeMemoryFiles(input);
-  return miaMemoryService.syncNativeMemoryFiles({ ...input, entries: [] });
-}
-
-function rendererMemoryBase(input = {}) {
-  const source = input && typeof input === "object" ? input : {};
-  const botId = String(source.botId || source.botKey || "mia").trim() || "mia";
-  const sessionId = String(source.sessionId || "default").trim() || "default";
-  return { botId, sessionId };
-}
-
-function rendererMemoryListInput(input = {}) {
-  const source = input && typeof input === "object" ? input : {};
-  const scopes = Array.isArray(source.scopes)
-    ? source.scopes
-    : (source.scope ? [source.scope] : []);
-  return {
-    ...rendererMemoryBase(source),
-    query: String(source.query || "").trim(),
-    scopes,
-    limit: Math.max(1, Math.min(100, Math.floor(Number(source.limit) || 80)))
-  };
-}
-
-function rendererMemoryManagementInput(input = {}) {
-  const source = input && typeof input === "object" ? input : {};
-  const scopes = Array.isArray(source.scopes)
-    ? source.scopes
-    : (source.scope ? [source.scope] : []);
-  return {
-    query: String(source.query || "").trim(),
-    scopes,
-    botId: String(source.botId || source.botKey || "").trim(),
-    sessionId: String(source.sessionId || "").trim(),
-    limit: Math.max(1, Math.min(5000, Math.floor(Number(source.limit) || 250)))
-  };
-}
-
-function rendererRememberMemoryInput(input = {}) {
-  const source = input && typeof input === "object" ? input : {};
-  return {
-    ...rendererMemoryBase(source),
-    scope: String(source.scope || "bot").trim() || "bot",
-    text: String(source.text || source.content || "").trim(),
-    confidence: 1,
-    source: "manual",
-    trusted: true,
-    metadata: { source: "mia-ui" }
-  };
-}
-
-function rendererUpdateMemoryInput(input = {}) {
-  const source = input && typeof input === "object" ? input : {};
-  return {
-    ...rendererMemoryBase(source),
-    memoryId: String(source.memoryId || source.id || "").trim(),
-    oldText: String(source.oldText || "").trim(),
-    text: String(source.text || source.content || source.newText || "").trim(),
-    confidence: 1,
-    source: "manual",
-    trusted: true,
-    metadata: { source: "mia-ui" }
-  };
-}
-
-function rendererForgetMemoryInput(input = {}) {
-  const source = input && typeof input === "object" ? input : {};
-  return {
-    ...rendererMemoryBase(source),
-    memoryId: String(source.memoryId || source.id || "").trim(),
-    oldText: String(source.oldText || source.query || "").trim(),
-    scope: String(source.scope || "").trim()
-  };
-}
-
-function rendererMemoryIdInput(input = {}) {
-  const source = input && typeof input === "object" ? input : {};
-  return {
-    memoryId: String(source.memoryId || source.id || "").trim(),
-    actor: "user"
-  };
-}
-
-function coreMemoryContext(input = {}) {
-  const source = input && typeof input === "object" ? input : {};
-  const context = { userId: currentMiaUserId() };
-  const botId = String(source.botId || source.botKey || "").trim();
-  const sessionId = String(source.sessionId || "").trim();
-  if (botId) context.botId = botId;
-  if (sessionId) context.sessionId = sessionId;
-  return context;
-}
-
-function coreMemorySearchBody(input = {}) {
-  const source = rendererMemoryListInput(input);
-  return {
-    context: coreMemoryContext(source),
-    query: source.query,
-    scopes: source.scopes,
-    limit: source.limit
-  };
-}
-
-function coreMemoryManagementListBody(input = {}) {
-  const source = rendererMemoryManagementInput(input);
-  return {
-    context: coreMemoryContext(source),
-    query: source.query,
-    scopes: source.scopes,
-    limit: source.limit
-  };
-}
-
-function coreMemoryRememberBody(input = {}) {
-  const source = rendererRememberMemoryInput(input);
-  return {
-    context: coreMemoryContext(source),
-    text: source.text,
-    scope: source.scope,
-    confidence: source.confidence,
-    metadata: source.metadata
-  };
-}
-
-function coreMemoryUpdateBody(input = {}) {
-  const source = rendererUpdateMemoryInput(input);
-  return {
-    context: coreMemoryContext(source),
-    memoryId: source.memoryId,
-    oldText: source.oldText,
-    text: source.text,
-    confidence: source.confidence,
-    metadata: source.metadata
-  };
-}
-
-function coreMemoryForgetBody(input = {}) {
-  const source = rendererForgetMemoryInput(input);
-  return {
-    context: coreMemoryContext(source),
-    memoryId: source.memoryId,
-    oldText: source.oldText,
-    scope: source.scope
-  };
-}
-
-function coreMemoryDeleteBody(input = {}) {
-  const source = rendererMemoryIdInput(input);
-  return {
-    context: { userId: currentMiaUserId() },
-    memoryId: source.memoryId
-  };
-}
-
-async function listCoreMemory(input = {}) {
-  const response = await forwardMiaCoreHttpRequest({
-    method: "POST",
-    route: "/api/mia/memory/list",
-    body: coreMemorySearchBody(input)
-  });
-  return Array.isArray(response?.memories) ? response.memories : [];
-}
-
-async function listAllCoreMemory(input = {}) {
-  const response = await forwardMiaCoreHttpRequest({
-    method: "POST",
-    route: "/api/mia/memory/list",
-    body: coreMemoryManagementListBody(input)
-  });
-  return Array.isArray(response?.memories) ? response.memories : [];
-}
-
-async function rememberCoreMemory(input = {}) {
-  return forwardMiaCoreHttpRequest({
-    method: "POST",
-    route: "/api/mia/memory/remember",
-    body: coreMemoryRememberBody(input)
-  });
-}
-
-async function updateCoreMemory(input = {}) {
-  return forwardMiaCoreHttpRequest({
-    method: "POST",
-    route: "/api/mia/memory/update",
-    body: coreMemoryUpdateBody(input)
-  });
-}
-
-async function forgetCoreMemory(input = {}) {
-  return forwardMiaCoreHttpRequest({
-    method: "POST",
-    route: "/api/mia/memory/forget",
-    body: coreMemoryForgetBody(input)
-  });
-}
-
-async function deleteCoreMemory(input = {}) {
-  return forwardMiaCoreHttpRequest({
-    method: "POST",
-    route: "/api/mia/memory/delete",
-    body: coreMemoryDeleteBody(input)
-  });
-}
-
-function publishRendererMemoryEvent(reason = "memory", result = {}, scope = {}) {
-  const envelope = memoryChangedEnvelope(reason, result, { eventSource: "ui", ...scope });
-  broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
-}
-
 const agentSessionStore = createAgentSessionStore({
   runtimePaths,
   readJson,
@@ -936,16 +713,23 @@ function rememberAgentWorkspaceSnapshot(snapshot = {}) {
   return agentWorkspaceSnapshot();
 }
 
+function normalizeMemoryMode(settings = {}) {
+  const mode = String(settings?.mode || "").trim().toLowerCase();
+  if (mode === "mia" || mode === "native") return mode;
+  return settings?.enabled === false ? "native" : "mia";
+}
+
 function memorySettingsSnapshot() {
+  const mode = normalizeMemoryMode(memorySettingsCoreSnapshot);
   return {
-    enabled: memorySettingsCoreSnapshot?.enabled !== false
+    mode,
+    enabled: mode === "mia"
   };
 }
 
 function rememberMemorySettingsSnapshot(snapshot = {}) {
-  memorySettingsCoreSnapshot = {
-    enabled: snapshot?.enabled !== false
-  };
+  const mode = normalizeMemoryMode(snapshot);
+  memorySettingsCoreSnapshot = { mode, enabled: mode === "mia" };
   return memorySettingsSnapshot();
 }
 
@@ -2121,10 +1905,11 @@ async function readMemorySettingsFromCore() {
 }
 
 async function writeMemorySettingsToCore(settings = {}) {
+  const mode = normalizeMemoryMode(settings);
   const snapshot = await forwardMiaCoreHttpRequest({
     method: "POST",
     route: "/api/memory/settings",
-    body: { enabled: settings.enabled !== false }
+    body: { mode }
   });
   rememberMemorySettingsSnapshot(snapshot);
   return getRuntimeStatus();
@@ -2816,32 +2601,6 @@ ipcMain.handle(IpcChannel.ChatFileFetch, (_event, payload) => chatAttachmentCore
 ipcMain.handle(IpcChannel.CommandsSlash, () => engineCatalogCoreAdapter.loadHermesSlashCommands());
 ipcMain.handle(IpcChannel.CommandsAgentList, async (_event, payload) => externalAgentCommandCoreAdapter.loadCommands(payload));
 ipcMain.handle(IpcChannel.CommandsAgentExecute, (_event, payload) => externalAgentCommandCoreAdapter.executeCommand(payload));
-ipcMain.handle(IpcChannel.MemoryList, (_event, payload) => listCoreMemory(payload));
-ipcMain.handle(IpcChannel.MemoryListAll, (_event, payload) => listAllCoreMemory(payload));
-ipcMain.handle(IpcChannel.MemoryRemember, async (_event, payload) => {
-  const input = coreMemoryRememberBody(payload);
-  const result = await rememberCoreMemory(payload);
-  publishRendererMemoryEvent("remember", result, input);
-  return result;
-});
-ipcMain.handle(IpcChannel.MemoryUpdate, async (_event, payload) => {
-  const input = coreMemoryUpdateBody(payload);
-  const result = await updateCoreMemory(payload);
-  publishRendererMemoryEvent("update", result, input);
-  return result;
-});
-ipcMain.handle(IpcChannel.MemoryForget, async (_event, payload) => {
-  const input = coreMemoryForgetBody(payload);
-  const result = await forgetCoreMemory(payload);
-  publishRendererMemoryEvent("forget", result, input);
-  return result;
-});
-ipcMain.handle(IpcChannel.MemoryDelete, async (_event, payload) => {
-  const input = coreMemoryDeleteBody(payload);
-  const result = await deleteCoreMemory(payload);
-  publishRendererMemoryEvent("delete", result, input);
-  return result;
-});
 ipcMain.handle(IpcChannel.MemorySettingsSave, (_event, settings) => writeMemorySettingsToCore(settings || {}));
 ipcMain.handle(IpcChannel.ConversationTitleGenerate, (_event, payload) => conversationTitleService.generateTitle(payload));
 ipcMain.handle(IpcChannel.ModelCatalog, () => engineCatalogCoreAdapter.loadHermesModelCatalog());

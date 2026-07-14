@@ -18,9 +18,7 @@
   let closeGroupContextMenu, openEditBotDialog, deleteBot;
   let runtimeDevicesLoading = false;
   let runtimeDevicesLoadedAt = 0;
-  let contactMemoryLoadToken = 0;
   const RUNTIME_DEVICE_REFRESH_INTERVAL_MS = 15000;
-  const MEMORY_LIST_TIMEOUT_MS = 3000;
   const OTHER_DEVICE_GROUP_KEY = "other-devices";
   const CONTACT_GROUP_COLLAPSED_KEY = "mia.contactGroupCollapsed.v1";
   const contactNameCollator = new Intl.Collator(["zh-Hans-CN-u-co-pinyin", "en"], {
@@ -85,32 +83,6 @@
     if (!state) return null;
     const bots = allOwnedBots();
     return bots.find((item) => item.key === key) || null;
-  }
-
-  function withMemoryListTimeout(promise) {
-    const setTimer = typeof window !== "undefined" && typeof window.setTimeout === "function"
-      ? window.setTimeout.bind(window)
-      : (typeof setTimeout === "function" ? setTimeout : null);
-    const clearTimer = typeof window !== "undefined" && typeof window.clearTimeout === "function"
-      ? window.clearTimeout.bind(window)
-      : (typeof clearTimeout === "function" ? clearTimeout : null);
-    if (!setTimer || !clearTimer) return Promise.resolve(promise);
-    let timer = 0;
-    return new Promise((resolve, reject) => {
-      timer = setTimer(() => {
-        reject(new Error("记忆加载超时，请稍后重试。"));
-      }, MEMORY_LIST_TIMEOUT_MS);
-      Promise.resolve(promise).then(
-        (value) => {
-          clearTimer(timer);
-          resolve(value);
-        },
-        (error) => {
-          clearTimer(timer);
-          reject(error);
-        }
-      );
-    });
   }
 
   function avatarForBot(bot = {}) {
@@ -409,10 +381,6 @@
     return firstNonEmpty(bot.uid, bot.publicId, bot.public_id, bot.id, bot.key, bot.globalId, bot.global_id);
   }
 
-  function contactMemoryBotId(bot = {}) {
-    return firstNonEmpty(bot.key, bot.id, bot.botKey, bot.bot_id, bot.accountId, bot.account_id, contactUid(bot));
-  }
-
   function botPresetForContact(bot = {}) {
     const presets = Array.isArray(state?.skillLibrary?.botPresets) ? state.skillLibrary.botPresets : [];
     const botKeys = [bot.key, bot.id, bot.account_id, bot.accountId]
@@ -641,205 +609,6 @@
         </div>
       </details>
     `;
-  }
-
-  function ensureContactMemoryPanel(bot = null) {
-    if (!state) return {};
-    const botId = contactMemoryBotId(bot || {});
-    const current = state.contactMemoryPanel && typeof state.contactMemoryPanel === "object"
-      ? state.contactMemoryPanel
-      : {};
-    if (current.botId !== botId) {
-      state.contactMemoryPanel = {
-        botId,
-        entries: [],
-        loaded: false,
-        loading: false,
-        error: ""
-      };
-    } else {
-      current.botId = botId;
-      if (!Array.isArray(current.entries)) current.entries = [];
-      current.loaded = Boolean(current.loaded);
-      current.loading = Boolean(current.loading);
-      current.error = current.error || "";
-      state.contactMemoryPanel = current;
-    }
-    return state.contactMemoryPanel;
-  }
-
-  function scheduleContactMemoryLoad(botId = "") {
-    if (!botId) return;
-    if (!window.mia?.memory?.list) {
-      const panel = ensureContactMemoryPanel(botByKey(botId) || { key: botId });
-      panel.entries = [];
-      panel.loaded = true;
-      panel.loading = false;
-      panel.error = "";
-      const timer = typeof window !== "undefined" && typeof window.setTimeout === "function"
-        ? window.setTimeout.bind(window)
-        : (typeof setTimeout === "function" ? setTimeout : null);
-      if (timer) timer(() => renderContacts(), 0);
-      else renderContacts();
-      return;
-    }
-    const timer = typeof window !== "undefined" && typeof window.setTimeout === "function"
-      ? window.setTimeout.bind(window)
-      : (typeof setTimeout === "function" ? setTimeout : null);
-    const panel = ensureContactMemoryPanel(botByKey(botId) || { key: botId });
-    panel.loading = true;
-    panel.error = "";
-    const run = () => loadContactMemoryEntries(botId, { allowWhileLoading: true });
-    if (timer) timer(run, 0);
-    else run();
-  }
-
-  function renderContactMemoryPanel(bot) {
-    const panel = ensureContactMemoryPanel(bot);
-    const botId = contactMemoryBotId(bot);
-    if (!botId && !panel.loaded) {
-      panel.loaded = true;
-      panel.loading = false;
-      panel.error = "";
-    }
-    if (botId && !panel.loaded && !panel.loading && !panel.error) scheduleContactMemoryLoad(botId);
-    const entries = Array.isArray(panel.entries) ? panel.entries : [];
-    const panelOpen = state?.openMemoryPanelKeys ? state.openMemoryPanelKeys.has(bot?.key) : true;
-    const summary = panel.loading
-      ? "正在加载记忆"
-      : entries.length
-        ? `${entries.length} 条长期记忆`
-        : "暂无长期记忆";
-    return `
-      <details class="contact-memory-card accordion-details" data-memory-panel-key="${window.miaMarkdown.escapeHtml(bot?.key || "")}"${panelOpen ? " open" : ""}>
-        <summary>
-          <div>
-            <strong>记忆</strong>
-            <p>${window.miaMarkdown.escapeHtml(summary)}</p>
-          </div>
-          <span class="runtime-target-chevron" aria-hidden="true">⌄</span>
-        </summary>
-        <div class="accordion-body contact-memory-body">
-          ${renderContactMemoryList(panel)}
-        </div>
-      </details>
-    `;
-  }
-
-  function renderContactMemoryList(panel = {}) {
-    if (panel.error) return `
-      <div class="contact-memory-error">
-        <span>${window.miaMarkdown.escapeHtml(panel.error)}</span>
-        <button class="secondary" type="button" data-memory-action="reload">重试</button>
-      </div>
-    `;
-    if (panel.loading) return `<div class="contact-memory-empty">正在加载记忆...</div>`;
-    const entries = Array.isArray(panel.entries) ? panel.entries : [];
-    if (!entries.length) return `<div class="contact-memory-empty">暂无记忆</div>`;
-    return `
-      <div class="contact-memory-list">
-        ${entries.map((entry) => {
-          const id = window.miaMarkdown.escapeHtml(entry.id || "");
-          const updated = String(entry.updatedAt || entry.createdAt || "").slice(0, 16).replace("T", " ");
-          return `
-            <article class="contact-memory-row" data-memory-id="${id}">
-              ${updated ? `<div class="contact-memory-meta">${window.miaMarkdown.escapeHtml(updated)}</div>` : ""}
-              <p>${window.miaMarkdown.escapeHtml(entry.text || "")}</p>
-              <div class="contact-memory-actions">
-                <button class="contact-memory-icon-button danger" type="button" data-memory-action="delete" data-memory-id="${id}" title="删除" aria-label="删除">
-                  ${window.miaMarkdown.iconParkIcon("delete", "contact-memory-action-icon")}
-                </button>
-              </div>
-            </article>
-          `;
-        }).join("")}
-      </div>
-    `;
-  }
-
-  async function loadContactMemoryEntries(botId = "", options = {}) {
-    if (!state) return;
-    const bot = botByKey(botId) || { key: botId };
-    const panel = ensureContactMemoryPanel(bot);
-    if (!panel.botId) return;
-    if (!window.mia?.memory?.list) {
-      panel.entries = [];
-      panel.loaded = true;
-      panel.loading = false;
-      panel.error = "";
-      renderContacts();
-      return;
-    }
-    if (panel.loading && !options.force && !options.allowWhileLoading) return;
-    const token = ++contactMemoryLoadToken;
-    panel.loading = true;
-    panel.error = "";
-    renderContacts();
-    try {
-      const result = await withMemoryListTimeout(window.mia.memory.list({
-        botId: panel.botId,
-        sessionId: "default",
-        scopes: ["bot"],
-        limit: 120
-      }));
-      if (token !== contactMemoryLoadToken || panel.botId !== botId) return;
-      const entries = Array.isArray(result) ? result : (result?.entries || result?.memories || []);
-      panel.entries = entries.filter((entry) => !entry.scope || entry.scope === "bot");
-      panel.loaded = true;
-    } catch (error) {
-      if (token !== contactMemoryLoadToken) return;
-      panel.entries = [];
-      panel.loaded = true;
-      panel.error = error?.message || "记忆加载失败";
-    } finally {
-      if (token === contactMemoryLoadToken) {
-        panel.loading = false;
-        renderContacts();
-      }
-    }
-  }
-
-  async function deleteContactMemory(bot, memoryId = "") {
-    if (!bot?.key || !memoryId || !window.mia?.memory?.delete) return;
-    if (!window.confirm?.("删除这条记忆？")) return;
-    const panel = ensureContactMemoryPanel(bot);
-    panel.loading = true;
-    panel.error = "";
-    renderContacts();
-    try {
-      await window.mia.memory.delete({ memoryId });
-      await loadContactMemoryEntries(contactMemoryBotId(bot), { force: true });
-    } catch (error) {
-      panel.error = error?.message || "记忆删除失败";
-      panel.loading = false;
-      renderContacts();
-    }
-  }
-
-  function wireContactMemoryPanel(bot) {
-    if (!els || !els.contactDetail || !bot) return;
-    const panelEl = els.contactDetail.querySelector(".contact-memory-card");
-    panelEl?.addEventListener("toggle", () => {
-      if (!state.openMemoryPanelKeys) state.openMemoryPanelKeys = new Set();
-      if (panelEl.open) state.openMemoryPanelKeys.add(bot.key);
-      else state.openMemoryPanelKeys.delete(bot.key);
-    });
-    panelEl?.querySelectorAll("[data-memory-action]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        const action = button.dataset.memoryAction || "";
-        const memoryId = button.dataset.memoryId || "";
-        if (action === "reload") await loadContactMemoryEntries(contactMemoryBotId(bot), { force: true });
-        if (action === "delete") await deleteContactMemory(bot, memoryId);
-      });
-    });
-  }
-
-  function refreshContactMemoryForBot(botId = "") {
-    if (!state || !botId) return;
-    const activeBot = botByKey(state.activeContactKey);
-    const activeIds = [activeBot?.key, activeBot?.id].map((value) => String(value || "")).filter(Boolean);
-    if (!activeBot || !activeIds.includes(String(botId || ""))) return;
-    loadContactMemoryEntries(activeBot.key, { force: true });
   }
 
   function botRunsOnOtherDevice(bot = {}) {
@@ -1159,7 +928,6 @@
           ${renderBotRuntimeTargetPanel(bot)}
           ${bot.canConfigureCapabilities !== false ? renderBotCapabilitiesPanel(bot) : ""}
           ${renderBotPersonaPanel(bot)}
-          ${renderContactMemoryPanel(bot)}
         </section>
       </article>
     `;
@@ -1177,7 +945,6 @@
       });
       if (bot.canConfigureCapabilities !== false) wireBotCapabilities(bot);
       wireBotPersonaPanel(bot);
-      wireContactMemoryPanel(bot);
       wireBotRuntimeTargets(bot);
     }
     if (htmlChanged || els.contactDetail.__miaContactDetailAvatarKey !== avatarKey) {
@@ -1400,9 +1167,6 @@
     renderBotCapabilitiesPanel,
     renderBotPersonaPanel,
     renderBotRuntimeTargetPanel,
-    renderContactMemoryPanel,
-    loadContactMemoryEntries,
-    refreshContactMemoryForBot,
     renderContacts,
     renderContactDetail,
     saveBotRuntimeTarget,
@@ -1411,7 +1175,6 @@
     saveBotCapabilityIntent,
     wireBotCapabilities,
     wireBotPersonaPanel,
-    wireContactMemoryPanel,
     petStatusForKey,
     openBotContextMenu,
     closeBotContextMenu,

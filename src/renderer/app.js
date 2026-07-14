@@ -178,12 +178,6 @@ const els = {
   botStoreSheet: document.getElementById("botStoreSheet"),
   settingsView: document.getElementById("settingsView"),
   settingsMemoryEnabled: document.getElementById("settingsMemoryEnabled"),
-  settingsMemoryList: document.getElementById("settingsMemoryList"),
-  settingsMemoryDraftText: document.getElementById("settingsMemoryDraftText"),
-  settingsMemoryEditorTitle: document.getElementById("settingsMemoryEditorTitle"),
-  settingsMemoryEditorMeta: document.getElementById("settingsMemoryEditorMeta"),
-  settingsMemorySave: document.getElementById("settingsMemorySave"),
-  settingsMemoryCancelEdit: document.getElementById("settingsMemoryCancelEdit"),
   engineStatus: document.getElementById("engineStatus"),
   hermesHome: document.getElementById("hermesHome"),
   manifestPath: document.getElementById("manifestPath"),
@@ -3747,12 +3741,6 @@ function renderView() {
     panel.classList.toggle("hidden", panel.dataset.settingsPanel !== state.activeSettingsTab);
   });
   window.miaSettingsMemory?.renderMemorySettings?.();
-  if (state.activeView === "settings" && state.activeSettingsTab === "memory") {
-    const memoryPanel = state.settingsMemory || {};
-    if (!memoryPanel.loaded && !memoryPanel.loading) {
-      window.miaSettingsMemory?.loadMemorySettings?.();
-    }
-  }
   if (state.activeView === "settings" && state.activeSettingsTab === "account" && state.runtime?.cloud?.enabled) {
     refreshCloudMobileScan().catch(() => {});
   }
@@ -5459,28 +5447,6 @@ function appendTransientChat(role, content) {
   setTimeout(() => toast.remove(), 3600);
 }
 
-let visibleMemoryRefreshTimer = 0;
-
-function refreshVisibleMemoryPanels(memory = {}) {
-  clearTimeout(visibleMemoryRefreshTimer);
-  visibleMemoryRefreshTimer = setTimeout(() => {
-    visibleMemoryRefreshTimer = 0;
-    if (state.activeView === "settings" && state.activeSettingsTab === "memory") {
-      window.miaSettingsMemory?.loadMemorySettings?.();
-    }
-    if (memory.botId) {
-      window.miaBotManager?.refreshContactMemoryForBot?.(memory.botId);
-    }
-  }, 120);
-}
-
-function handleMemoryEvent(envelope = {}) {
-  const payload = envelope.payload || {};
-  const memory = payload.memory || {};
-  refreshVisibleMemoryPanels(memory);
-}
-
-
 async function createNewSessionForActive() {
   const cloudConversation = activeCloudConversationForSessionMenu();
   if (cloudConversation && conversationTypeForComposer(cloudConversation, cloudConversation.id || "") === "bot") {
@@ -5890,7 +5856,7 @@ async function initializeRuntime(options = {}) {
     window.miaSettingsMemory.initSettingsMemory({
       state,
       els,
-      renderView,
+      reportError: (message) => appendTransientChat("assistant", message),
     });
   }
   if (window.miaModelHelpers && window.miaModelHelpers.initModelHelpers) {
@@ -6714,10 +6680,6 @@ if (window.mia.onCloudEvent) {
         botRuntimeCacheKey(runtimeBinding.botId, runtimeBinding.runtimeKind),
         runtimeBinding
       );
-    }
-    if (envelope.type === "memory.updated" || envelope.type === "memory.deleted") {
-      handleMemoryEvent(envelope);
-      return;
     }
     if (String(envelope.type || "").startsWith("task.")) {
       window.miaTasksPanel?.handleTaskEvent?.(envelope);

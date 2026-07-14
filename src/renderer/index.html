@@ -843,27 +843,11 @@
             <div class="settings-section-label">Mia 记忆</div>
             <section class="settings-row settings-group-start settings-group-end">
               <div>
-                <strong>启用 Mia 记忆工具</strong>
-                <p>关闭后，本机 Agent 不会通过 Mia 记忆工具读取或写入；已有记忆仍可在这里管理。各引擎自己的原生记忆不受此开关影响。</p>
+                <strong>新对话使用 Mia 记忆</strong>
+                <p>开启后，Mia 按 Bot 身份管理跨引擎记忆。关闭后，Mia 不读取、写入或注入记忆，由当前原生 Agent 按自身设置处理；不同 Bot 和引擎之间不保证共享。仅对新建对话生效，已有 Mia 记忆不会删除。</p>
               </div>
-              <button id="settingsMemoryEnabled" class="settings-switch" type="button" role="switch" aria-checked="true" aria-label="启用 Mia 记忆工具"><span></span></button>
+              <button id="settingsMemoryEnabled" class="settings-switch" type="button" role="switch" aria-checked="true" aria-label="新对话使用 Mia 记忆"><span></span></button>
             </section>
-            <section class="settings-row settings-memory-editor settings-group-start settings-group-end">
-              <div>
-                <strong id="settingsMemoryEditorTitle">新增全局记忆</strong>
-                <p id="settingsMemoryEditorMeta">这里管理当前 Mia 用户的全局记忆；单个 Bot 的记忆放在联系人详情里。</p>
-              </div>
-              <div class="settings-memory-editor-fields">
-                <textarea id="settingsMemoryDraftText" rows="3" placeholder="写入或编辑记忆"></textarea>
-                <div class="settings-memory-actions">
-                  <button id="settingsMemoryCancelEdit" class="secondary hidden" type="button">取消编辑</button>
-                  <button id="settingsMemorySave" class="primary" type="button">保存记忆</button>
-                </div>
-              </div>
-            </section>
-
-            <div class="settings-section-label">全局记忆</div>
-            <section id="settingsMemoryList" class="settings-memory-list" aria-live="polite"></section>
           </section>
 
           <section class="settings-panel" data-settings-panel="account">

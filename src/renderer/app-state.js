@@ -109,22 +109,6 @@
       profileDialogOpen: false,
       botDialogOpen: false,
       botDialogMode: "create",
-      contactMemoryPanel: {
-        botId: "",
-        entries: [],
-        loaded: false,
-        loading: false,
-        error: ""
-      },
-      settingsMemory: {
-        entries: [],
-        loaded: false,
-        loading: false,
-        error: "",
-        editingId: "",
-        draftText: "",
-        savingSettings: false
-      },
       petGenerateOpen: false,
       petGenerateBotKey: "",
       petReferences: [],

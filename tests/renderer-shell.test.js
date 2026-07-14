@@ -3274,7 +3274,7 @@ test("contact capability checkboxes use Rust Core capability options", () => {
   assert.doesNotMatch(botManagerSource, /botCapabilitiesWithPresetDefaults/);
 });
 
-test("bot-only contact detail renders capabilities, persona, and memory as compact accordions", () => {
+test("bot-only contact detail renders capabilities and persona without manual memory controls", () => {
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
@@ -3286,47 +3286,24 @@ test("bot-only contact detail renders capabilities, persona, and memory as compa
   assert.match(botManagerSource, /<details class="contact-persona-card accordion-details"/);
   assert.match(botManagerSource, /botPersonaText\(bot\)/);
   assert.match(botManagerSource, /renderBotPersonaPanel\(bot\)/);
-  assert.match(botManagerSource, /function renderContactMemoryPanel\(bot\)/);
-  assert.match(botManagerSource, /<details class="contact-memory-card accordion-details"/);
-  assert.match(botManagerSource, /function contactMemoryBotId\(bot = \{\}\)/);
-  assert.match(botManagerSource, /contactMemoryBotId\(bot\)/);
   assert.match(botManagerSource, /contactUid\(bot\)/);
-  assert.match(botManagerSource, /window\.mia\.memory\.delete/);
-  assert.match(botManagerSource, /refreshContactMemoryForBot/);
-  assert.doesNotMatch(botManagerSource, /contact-memory-draft/);
-  assert.doesNotMatch(botManagerSource, /data-memory-action="save"/);
-  assert.doesNotMatch(botManagerSource, /data-memory-action="edit"/);
-  assert.doesNotMatch(botManagerSource, /window\.mia\.memory\.remember/);
-  assert.doesNotMatch(botManagerSource, /window\.mia\.memory\.update/);
-  assert.doesNotMatch(botManagerSource, /panel\.loading \|\| !panel\.loaded/);
-  assert.match(botManagerSource, /const summary = panel\.loading\s*\?\s*"正在加载记忆"/);
-  assert.match(botManagerSource, /if \(panel\.loading\) return `<div class="contact-memory-empty">正在加载记忆\.\.\.<\/div>`;/);
-  assert.doesNotMatch(botManagerSource, /contact-memory-kind/);
-  assert.doesNotMatch(botManagerSource, /contact-memory-pill/);
-  assert.doesNotMatch(botManagerSource, /draftKind/);
+  assert.doesNotMatch(botManagerSource, /contact-memory|ContactMemory|contactMemory/);
+  assert.doesNotMatch(botManagerSource, /window\.mia\.memory/);
+  assert.doesNotMatch(botManagerSource, /data-memory-action/);
   assert.doesNotMatch(botManagerSource, /renderHumanPersonaPanel/);
   assert.match(styleSource, /\.contact-persona-card/);
-  assert.match(styleSource, /\.contact-memory-card/);
+  assert.doesNotMatch(styleSource, /\.contact-memory-/);
   assert.match(styleSource, /\.contact-persona-text/);
 });
 
-test("memory list panes recover from suspended IPC invokes", () => {
+test("manual memory list panes and renderer CRUD calls stay removed", () => {
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
   const settingsMemorySource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-memory.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
-  assert.match(botManagerSource, /MEMORY_LIST_TIMEOUT_MS = 3000/);
-  assert.match(botManagerSource, /withMemoryListTimeout\(\s*window\.mia\.memory\.list\(\{/);
-  assert.doesNotMatch(botManagerSource, /const result = await window\.mia\.memory\.list\(\{/);
-  assert.match(botManagerSource, /data-memory-action="reload"/);
-  assert.match(botManagerSource, /action === "reload"[\s\S]{0,160}loadContactMemoryEntries\(contactMemoryBotId\(bot\), \{ force: true \}\)/);
-  assert.match(botManagerSource, /if \(!window\.mia\?\.memory\?\.list\)[\s\S]{0,220}renderContacts\(\);/);
-  assert.match(settingsMemorySource, /MEMORY_LIST_TIMEOUT_MS = 3000/);
-  assert.match(settingsMemorySource, /withMemoryListTimeout\(\s*window\.mia\.memory\.listAll\(\{/);
-  assert.doesNotMatch(settingsMemorySource, /const result = await window\.mia\.memory\.listAll\(\{/);
-  assert.match(settingsMemorySource, /data-memory-action="reload"/);
-  assert.match(settingsMemorySource, /memoryAction === "reload"[\s\S]{0,120}loadMemorySettings\(\);/);
-  assert.match(styleSource, /\.contact-memory-error,\s*\n\.settings-memory-error/);
+  assert.doesNotMatch(botManagerSource, /window\.mia\.memory|data-memory-action|contact-memory/);
+  assert.doesNotMatch(settingsMemorySource, /window\.mia\.memory|data-memory-action|settingsMemoryList/);
+  assert.doesNotMatch(styleSource, /\.(?:contact|settings)-memory-(?:list|row|editor|actions|error|empty)/);
 });
 
 test("bot edit dialog keeps memory out of the create/edit modal", () => {
@@ -3342,63 +3319,38 @@ test("bot edit dialog keeps memory out of the create/edit modal", () => {
   assert.match(htmlSource, /这段人设保存在 Mia 的 Bot 身份里/);
 });
 
-test("settings exposes account-level memory governance", () => {
+test("settings exposes only the new-conversation memory owner switch", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const memorySource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-memory.js"), "utf8");
-  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
 
   assert.match(htmlSource, /data-settings-tab="memory"/);
   assert.match(htmlSource, /data-settings-panel="memory"/);
-  assert.match(htmlSource, /id="settingsMemoryList"/);
   assert.match(htmlSource, /id="settingsMemoryEnabled"/);
-  assert.doesNotMatch(htmlSource, /id="settingsMemoryDraftKind"/);
-  assert.doesNotMatch(htmlSource, /id="settingsMemoryExportText"/);
-  assert.doesNotMatch(htmlSource, /id="settingsMemoryDeleteAll"/);
-  assert.doesNotMatch(htmlSource, /id="settingsMemoryStatus"/);
-  assert.doesNotMatch(htmlSource, /id="settingsMemoryQuery"/);
+  assert.match(htmlSource, /新对话使用 Mia 记忆/);
+  assert.match(htmlSource, /开启后，Mia 按 Bot 身份管理跨引擎记忆。关闭后，Mia 不读取、写入或注入记忆，由当前原生 Agent 按自身设置处理；不同 Bot 和引擎之间不保证共享。仅对新建对话生效，已有 Mia 记忆不会删除。/);
+  assert.doesNotMatch(htmlSource, /settingsMemory(?:List|Draft|Editor|Save|Cancel|Delete|Query|Status)/);
   assert.match(htmlSource, /<script src="\.\/settings\/settings-memory\.js"><\/script>/);
   assert.match(appSource, /settingsMemoryEnabled: document\.getElementById\("settingsMemoryEnabled"\)/);
-  assert.match(appSource, /settingsMemoryList: document\.getElementById\("settingsMemoryList"\)/);
-  assert.doesNotMatch(appSource, /settingsMemoryDraftKind/);
-  assert.doesNotMatch(appSource, /settingsMemoryDeleteAll: document\.getElementById/);
-  assert.match(appSource, /window\.miaSettingsMemory\?\.loadMemorySettings/);
+  assert.doesNotMatch(appSource, /settingsMemory(?:List|Draft|Editor|Save|Cancel|Delete|Query|Status):/);
+  assert.doesNotMatch(appSource, /loadMemorySettings|refreshVisibleMemoryPanels|handleMemoryEvent/);
   assert.match(memorySource, /window\.mia\.saveMemorySettings/);
-  assert.match(memorySource, /function saveMemoryEnabled\(enabled\)/);
-  assert.match(memorySource, /window\.mia\.memory\.listAll/);
-  assert.doesNotMatch(memorySource, /draftKind|settingsMemoryDraftKind|memoryLabel|KIND_LABELS/);
-  assert.doesNotMatch(memorySource, /window\.mia\.memory\.activate/);
-  assert.doesNotMatch(memorySource, /window\.mia\.memory\.promote/);
-  assert.match(memorySource, /window\.mia\.memory\.delete/);
-  assert.doesNotMatch(memorySource, /window\.mia\.memory\.deleteAll/);
-  assert.doesNotMatch(memorySource, /function memoryProvenanceParts/);
-  assert.doesNotMatch(memorySource, /function promoteTargetForEntry/);
-  assert.doesNotMatch(memorySource, /data-memory-action="promote"/);
-  assert.doesNotMatch(memorySource, /function deleteAllMatchingMemories\(\)/);
-  assert.doesNotMatch(memorySource, /window\.mia\.memory\.exportAll/);
-  assert.match(styleSource, /\.settings-memory-list/);
-  assert.match(mainSource, /IpcChannel\.MemoryListAll/);
-  assert.doesNotMatch(mainSource, /IpcChannel\.MemoryPromote/);
-  assert.doesNotMatch(mainSource, /IpcChannel\.MemoryDeleteAll/);
-  assert.doesNotMatch(mainSource, /IpcChannel\.MemoryExport/);
+  assert.match(memorySource, /window\.mia\.saveMemorySettings\(\{ mode: nextMode \}\)/);
+  assert.match(memorySource, /return memory\?\.enabled === false \? "native" : "mia"/);
+  assert.match(memorySource, /memory: \{ mode: previousMode, enabled: previousMode === "mia" \}/);
+  assert.doesNotMatch(memorySource, /window\.mia\.memory|listAll|remember|update|forget|delete/);
   assert.match(mainSource, /IpcChannel\.MemorySettingsSave/);
-  assert.match(mainSource, /function syncNativeMemoryFilesForAgent\(input = \{\}\)/);
-  assert.doesNotMatch(mainSource, /miaMemoryBlock|memoryBlock:\s*/);
-  assert.doesNotMatch(mainSource, /syncNativeMemoryFiles:\s*miaMemoryService\.syncNativeMemoryFiles/);
+  assert.match(mainSource, /body: \{ mode \}/);
+  assert.doesNotMatch(mainSource, /IpcChannel\.Memory(?:List|ListAll|Remember|Update|Forget|Delete)/);
+  assert.doesNotMatch(mainSource, /syncNativeMemoryFiles|miaMemoryService/);
 });
 
-test("renderer handles memory events as lightweight UI refreshes, not chat messages", () => {
+test("renderer no longer refreshes deleted memory management panels", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const memoryStart = appSource.indexOf("let visibleMemoryRefreshTimer");
-  const memoryEnd = appSource.indexOf("\n\nasync function createNewSessionForActive", memoryStart);
-  const memoryHandlerBlock = appSource.slice(memoryStart, memoryEnd);
 
-  assert.match(appSource, /envelope\.type === "memory\.updated" \|\| envelope\.type === "memory\.deleted"/);
-  assert.match(appSource, /handleMemoryEvent\(envelope\);\s*return;/);
-  assert.match(memoryHandlerBlock, /window\.miaSettingsMemory\?\.loadMemorySettings\?\.\(\)/);
-  assert.match(memoryHandlerBlock, /window\.miaBotManager\?\.refreshContactMemoryForBot\?\./);
-  assert.doesNotMatch(memoryHandlerBlock, /appendTransientChat|chatStore|appendMessage|sendInActiveConversation/);
+  assert.doesNotMatch(appSource, /visibleMemoryRefreshTimer|refreshVisibleMemoryPanels|handleMemoryEvent/);
+  assert.doesNotMatch(appSource, /refreshContactMemoryForBot|loadMemorySettings/);
 });
 
 test("social keeps desktop-local bot runtime binding explicit", () => {
