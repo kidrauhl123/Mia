@@ -134,6 +134,7 @@ function setup(overrides = {}) {
     parentPid: () => 4321,
     repoRoot: () => "/repo",
     appVersion: () => "0.1.39",
+    pathLookup: () => "",
     ...overrides
   });
 }
@@ -274,7 +275,8 @@ test("core env overlay stamps rust-core target identity without daemon aliases",
   const debug = devRustCorePath(repoRoot, "debug", "darwin");
   const env = setup({
     env: { HERMES_LANGUAGE: "en" },
-    existsSync: (candidate) => candidate === debug
+    existsSync: (candidate) => candidate === debug,
+    pathLookup: (binary) => binary === "node" ? "/opt/node/bin/node" : ""
   }).coreEnvOverlay();
 
   assert.equal(env.MIA_CORE, "1");
@@ -287,6 +289,8 @@ test("core env overlay stamps rust-core target identity without daemon aliases",
     path.join(path.sep, "tmp", "mia-root", "runtime", "core-home", "managed-resources"),
     path.join(repoRoot, "resources", "managed-resources")
   ].join(path.delimiter));
+  assert.equal(env.MIA_MANAGED_AGENT_NODE, "/opt/node/bin/node");
+  assert.equal(env.MIA_MANAGED_AGENT_NODE_ELECTRON, "0");
   assert.equal(env.MIA_CORE_RESOURCES_PATH, "");
   assert.equal(env.MIA_HERMES_ENGINE_DIR, path.join(path.sep, "tmp", "mia-root", "runtime", "hermes-engine"));
   assert.equal(env.MIA_PLUGINS_DIR, path.join(path.sep, "tmp", "mia-root", "runtime", "mia-plugins"));
@@ -331,9 +335,11 @@ test("core env overlay points packaged Rust Core at extraResource official skill
   assert.equal(env.MIA_MANAGED_AGENT_RESOURCES, [
     path.join(path.sep, "tmp", "mia-root", "runtime", "core-home", "managed-resources"),
     path.join(res, "managed-resources"),
-    path.join(res, "bundled-aioncore", "darwin-arm64", "managed-resources"),
+    path.join(res, "bundled-mia-core", "darwin-arm64", "managed-resources"),
     path.join(path.resolve("/repo"), "resources", "managed-resources")
   ].join(path.delimiter));
+  assert.equal(env.MIA_MANAGED_AGENT_NODE, "/Applications/Mia.app/Contents/MacOS/Mia");
+  assert.equal(env.MIA_MANAGED_AGENT_NODE_ELECTRON, "1");
   assert.equal(env.MIA_CORE_RESOURCES_PATH, res);
 });
 

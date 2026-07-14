@@ -7,8 +7,10 @@ const { test } = require("node:test");
 const {
   assertNotHtmlDownload,
   bundledRustCorePath,
+  canPrepareManagedResourcesForTarget,
   miaCoreAssetName,
   miaCoreDownloadUrl,
+  prepareManagedAgentResources,
   prepareMiaCoreRs,
   targetArchFromContext,
   targetPlatformFromContext
@@ -26,7 +28,7 @@ test("prepareMiaCoreRs copies an explicit Rust Core binary into bundled resource
       { arch: 3, electronPlatformName: "darwin" },
       {
         rootDir,
-        env: { MIA_CORE_RS_BIN: source, MIA_CORE_VERSION: "v1.2.3" },
+        env: { MIA_CORE_RS_BIN: source, MIA_CORE_VERSION: "v1.2.3", MIA_MANAGED_RESOURCES_PREPARE: "0" },
         execFileSync: () => {
           built = true;
         }
@@ -38,7 +40,9 @@ test("prepareMiaCoreRs copies an explicit Rust Core binary into bundled resource
     assert.equal(result.arch, "arm64");
     assert.equal(result.dest, path.join(rootDir, "resources", "bundled-mia-core", "darwin-arm64", "mia-core"));
     assert.equal(fs.readFileSync(result.dest, "utf8"), "fake rust core\n");
-    assert.equal((fs.statSync(result.dest).mode & 0o111) !== 0, true);
+    if (process.platform !== "win32") {
+      assert.equal((fs.statSync(result.dest).mode & 0o111) !== 0, true);
+    }
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
@@ -55,7 +59,8 @@ test("prepareMiaCoreRs downloads a prebuilt Mia Core release when no override is
         rootDir,
         env: {
           MIA_CORE_VERSION: "v9.8.7",
-          MIA_CORE_RELEASE_BASE_URL: "https://cdn.example/mia-core"
+          MIA_CORE_RELEASE_BASE_URL: "https://cdn.example/mia-core",
+          MIA_MANAGED_RESOURCES_PREPARE: "0"
         },
         execFileSync: (command, args) => {
           calls.push({ command, args });
@@ -91,6 +96,40 @@ test("prepareMiaCoreRs downloads a prebuilt Mia Core release when no override is
   }
 });
 
+test("prepareMiaCoreRs prepares managed ACP resources for runnable target cores", async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-managed-"));
+  try {
+    const source = path.join(rootDir, "target", "release", process.platform === "win32" ? "mia-core.exe" : "mia-core");
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.writeFileSync(source, "fake rust core\n", { mode: 0o755 });
+    const calls = [];
+
+    const result = await prepareMiaCoreRs(
+      { arch: os.arch() === "arm64" ? 3 : 1, electronPlatformName: process.platform },
+      {
+        rootDir,
+        env: { MIA_CORE_RS_BIN: source, MIA_CORE_VERSION: "v1.2.3" },
+        hostPlatform: process.platform,
+        hostArch: os.arch(),
+        execFileSync: (command, args, options) => {
+          calls.push({ command, args, options });
+        }
+      }
+    );
+
+    const prepareCall = calls.find((call) => call.args?.[0] === "prepare-managed-resources");
+    assert.ok(prepareCall, "prepare-managed-resources should run for same-platform packaged Core");
+    assert.equal(prepareCall.command, result.dest);
+    assert.equal(
+      prepareCall.args[prepareCall.args.indexOf("--resource-dir") + 1],
+      path.join(rootDir, "resources", "managed-resources")
+    );
+    assert.equal(result.managedResources.skipped, false);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("prepareMiaCoreRs rejects website HTML fallback downloads before archive extraction", () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-html-"));
   try {
@@ -115,6 +154,22 @@ test("prepareMiaCoreRs derives electron-builder platform and arch names", () => 
     bundledRustCorePath("/tmp/mia", "win32", "x64"),
     path.join("/tmp/mia", "resources", "bundled-mia-core", "win32-x64", "mia-core.exe")
   );
+  assert.equal(canPrepareManagedResourcesForTarget({
+    platform: process.platform,
+    arch: os.arch(),
+    hostPlatform: process.platform,
+    hostArch: os.arch()
+  }), true);
+  assert.equal(prepareManagedAgentResources({
+    rootDir: "/tmp/mia",
+    corePath: "/tmp/mia-core",
+    platform: "win32",
+    arch: "x64",
+    env: { MIA_MANAGED_RESOURCES_PREPARE: "0" },
+    execFileSync: () => {
+      throw new Error("should not run");
+    }
+  }).skipped, true);
   assert.equal(miaCoreAssetName("darwin", "arm64", "0.1.0"), "mia-core-v0.1.0-aarch64-apple-darwin.tar.gz");
   assert.equal(
     miaCoreDownloadUrl({

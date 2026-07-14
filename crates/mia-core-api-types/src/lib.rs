@@ -1592,6 +1592,8 @@ pub struct CloudBridgeRunRequest {
     #[serde(default)]
     pub engine: Option<String>,
     #[serde(default)]
+    pub runtime_kind: Option<String>,
+    #[serde(default)]
     pub runtime_config: Value,
     #[serde(default)]
     pub config: Value,

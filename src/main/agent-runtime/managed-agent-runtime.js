@@ -43,7 +43,7 @@ function defaultResourceRoots(options = {}) {
   const resourcesPath = String(options.resourcesPath || process.resourcesPath || "").trim();
   if (resourcesPath) {
     roots.push(path.join(resourcesPath, "managed-resources"));
-    roots.push(path.join(resourcesPath, "bundled-aioncore", runtimeKey(platform, arch), "managed-resources"));
+    roots.push(path.join(resourcesPath, "bundled-mia-core", runtimeKey(platform, arch), "managed-resources"));
   }
   const projectRoot = String(options.projectRoot || path.join(__dirname, "..", "..", "..")).trim();
   if (projectRoot) roots.push(path.join(projectRoot, "resources", "managed-resources"));

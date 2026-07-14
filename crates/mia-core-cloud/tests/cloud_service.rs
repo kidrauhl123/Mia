@@ -724,6 +724,120 @@ async fn cloud_service_prepares_bridge_run_without_leaking_runtime_secrets() {
 }
 
 #[tokio::test]
+async fn cloud_service_does_not_force_mia_provider_for_desktop_local_model_entries() {
+    let database = init_database_memory().await.unwrap();
+    let service = CloudService::with_now(database.pool().clone(), || 123456);
+
+    let prepared = service
+        .prepare_bridge_run(CloudBridgeRunRequest {
+            run_id: "run/local".into(),
+            conversation_id: "botc/local".into(),
+            bot_id: "codex".into(),
+            bot_name: "Codex".into(),
+            runtime_kind: Some("desktop-local".into()),
+            runtime_config: json!({
+                "agentEngine": "codex",
+                "deviceId": "device_1",
+                "deviceName": "Windows",
+                "model": "gpt-5.5",
+                "providerConnectionId": "mia",
+                "modelProfileId": "mia:gpt-5.5",
+                "modelEntries": [
+                    { "value": "gpt-5.5", "model": "gpt-5.5", "provider": "codex" },
+                    {
+                        "value": "mia-auto",
+                        "model": "mia-auto",
+                        "provider": "mia",
+                        "authType": "mia_account",
+                        "modelProfileId": "mia:mia-auto"
+                    }
+                ]
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(prepared.runtime["runtimeKind"], "desktop-local");
+    assert_eq!(prepared.runtime["agentEngine"], "codex");
+    assert_eq!(prepared.runtime["model"], "gpt-5.5");
+    assert_eq!(prepared.runtime["platformProvider"], "mia");
+    assert_eq!(prepared.runtime["platformModel"], "gpt-5.5");
+    assert_eq!(prepared.runtime["platformModelProfileId"], "mia:gpt-5.5");
+    assert!(prepared.runtime.get("providerConnectionId").is_none());
+    assert!(prepared.runtime.get("modelProfileId").is_none());
+}
+
+#[tokio::test]
+async fn cloud_service_preserves_desktop_local_mia_platform_placeholder() {
+    let database = init_database_memory().await.unwrap();
+    let service = CloudService::with_now(database.pool().clone(), || 123456);
+
+    let prepared = service
+        .prepare_bridge_run(CloudBridgeRunRequest {
+            run_id: "run/local-mia".into(),
+            conversation_id: "botc/local-mia".into(),
+            bot_id: "hermes".into(),
+            bot_name: "Hermes".into(),
+            runtime_kind: Some("desktop-local".into()),
+            runtime_config: json!({
+                "agentEngine": "hermes",
+                "deviceId": "device_1",
+                "model": "mia-auto",
+                "providerConnectionId": "mia",
+                "modelProfileId": "mia:mia-auto"
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(prepared.runtime["runtimeKind"], "desktop-local");
+    assert_eq!(prepared.runtime["agentEngine"], "hermes");
+    assert_eq!(prepared.runtime["platformProvider"], "mia");
+    assert_eq!(prepared.runtime["platformModel"], "mia-auto");
+    assert_eq!(prepared.runtime["platformModelProfileId"], "mia:mia-auto");
+    assert!(prepared.runtime.get("model").is_none());
+    assert!(prepared.runtime.get("providerConnectionId").is_none());
+    assert!(prepared.runtime.get("modelProfileId").is_none());
+}
+
+#[tokio::test]
+async fn cloud_service_defaults_desktop_local_to_mia_platform_when_only_auto_entry_is_available() {
+    let database = init_database_memory().await.unwrap();
+    let service = CloudService::with_now(database.pool().clone(), || 123456);
+
+    let prepared = service
+        .prepare_bridge_run(CloudBridgeRunRequest {
+            run_id: "run/local-auto".into(),
+            conversation_id: "botc/local-auto".into(),
+            bot_id: "codex".into(),
+            bot_name: "Codex".into(),
+            runtime_kind: Some("desktop-local".into()),
+            runtime_config: json!({
+                "agentEngine": "codex",
+                "deviceId": "device_1",
+                "modelEntries": [{
+                    "value": "mia-auto",
+                    "model": "mia-auto",
+                    "provider": "mia",
+                    "authType": "mia_account",
+                    "modelProfileId": "mia:mia-auto"
+                }]
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(prepared.runtime["runtimeKind"], "desktop-local");
+    assert_eq!(prepared.runtime["agentEngine"], "codex");
+    assert_eq!(prepared.runtime["platformProvider"], "mia");
+    assert_eq!(prepared.runtime["platformModel"], "mia-auto");
+    assert_eq!(prepared.runtime["platformModelProfileId"], "mia:mia-auto");
+    assert!(prepared.runtime.get("model").is_none());
+    assert!(prepared.runtime.get("providerConnectionId").is_none());
+    assert!(prepared.runtime.get("modelProfileId").is_none());
+}
+
+#[tokio::test]
 async fn cloud_bridge_manager_owns_socket_envelope_lifecycle() {
     let database = init_database_memory().await.unwrap();
     let service = CloudService::with_now(database.pool().clone(), || 123456);

@@ -449,10 +449,9 @@ mod tests {
                     .method("POST")
                     .uri("/api/attachments/file")
                     .header("content-type", "application/json")
-                    .body(Body::from(format!(
-                        r#"{{"path":"{}"}}"#,
-                        xlsx_path.to_string_lossy()
-                    )))
+                    .body(Body::from(
+                        json!({ "path": xlsx_path.to_string_lossy().to_string() }).to_string(),
+                    ))
                     .unwrap(),
             )
             .await
@@ -787,10 +786,9 @@ mod tests {
                     .method("POST")
                     .uri("/api/agent-workspace")
                     .header("content-type", "application/json")
-                    .body(Body::from(format!(
-                        r#"{{"path":"{}"}}"#,
-                        picked_workspace_text.as_str()
-                    )))
+                    .body(Body::from(
+                        json!({ "path": picked_workspace_text }).to_string(),
+                    ))
                     .unwrap(),
             )
             .await
@@ -2296,10 +2294,8 @@ mod tests {
         let mut services = AppServices::from_config(&config).await.unwrap();
         services.conversation = ConversationService::with_runtime(
             services.database.pool().clone(),
-            RuntimeBuilder::new(config.workspace_dir.to_string_lossy()).with_engine_command(
-                "test-stream",
-                shell_command("printf 'streamed assistant\\n'"),
-            ),
+            RuntimeBuilder::new(config.workspace_dir.to_string_lossy())
+                .with_engine_command("test-stream", stdout_command("streamed assistant\n")),
         );
         let app = create_router(&services);
 
@@ -2397,10 +2393,8 @@ mod tests {
         let mut services = AppServices::from_config(&config).await.unwrap();
         services.conversation = ConversationService::with_runtime(
             services.database.pool().clone(),
-            RuntimeBuilder::new(config.workspace_dir.to_string_lossy()).with_engine_command(
-                "test-session",
-                shell_command("printf 'session assistant\\n'"),
-            ),
+            RuntimeBuilder::new(config.workspace_dir.to_string_lossy())
+                .with_engine_command("test-session", stdout_command("session assistant\n")),
         );
         let app = create_router(&services);
 
@@ -2535,10 +2529,8 @@ mod tests {
         let mut services = AppServices::from_config(&config).await.unwrap();
         services.conversation = ConversationService::with_runtime(
             services.database.pool().clone(),
-            RuntimeBuilder::new(config.workspace_dir.to_string_lossy()).with_engine_command(
-                "test-cancel",
-                shell_command("printf 'started\\n'; exec sleep 10"),
-            ),
+            RuntimeBuilder::new(config.workspace_dir.to_string_lossy())
+                .with_engine_command("test-cancel", long_running_start_command("started\n", 10)),
         );
         let app = create_router(&services);
 
@@ -2635,10 +2627,8 @@ mod tests {
         let mut services = AppServices::from_config(&config).await.unwrap();
         services.conversation = ConversationService::with_runtime(
             services.database.pool().clone(),
-            RuntimeBuilder::new(config.workspace_dir.to_string_lossy()).with_engine_command(
-                "test-busy",
-                shell_command("printf 'started\\n'; exec sleep 10"),
-            ),
+            RuntimeBuilder::new(config.workspace_dir.to_string_lossy())
+                .with_engine_command("test-busy", long_running_start_command("started\n", 10)),
         );
         let app = create_router(&services);
 
@@ -3328,12 +3318,119 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    fn stdout_command(stdout: &str) -> RuntimeCommand {
+        shell_command(&format!("printf '%s' {}", sh_quote(stdout)))
+    }
+
     #[cfg(windows)]
-    fn shell_command(script: &str) -> RuntimeCommand {
+    fn stdout_command(stdout: &str) -> RuntimeCommand {
+        powershell_command(&format!("[Console]::Out.Write({})", ps_quote(stdout)))
+    }
+
+    #[cfg(unix)]
+    fn long_running_start_command(started: &str, seconds: u64) -> RuntimeCommand {
+        shell_command(&format!(
+            "printf '%s' {}; exec sleep {}",
+            sh_quote(started),
+            seconds
+        ))
+    }
+
+    #[cfg(windows)]
+    fn long_running_start_command(started: &str, seconds: u64) -> RuntimeCommand {
+        powershell_command(&format!(
+            "[Console]::Out.Write({}); [Console]::Out.Flush(); Start-Sleep -Seconds {}",
+            ps_quote(started),
+            seconds
+        ))
+    }
+
+    #[cfg(unix)]
+    fn delayed_output_command(first: &str, second: &str, seconds: u64) -> RuntimeCommand {
+        shell_command(&format!(
+            "printf '%s' {}; sleep {}; printf '%s' {}",
+            sh_quote(first),
+            seconds,
+            sh_quote(second)
+        ))
+    }
+
+    #[cfg(windows)]
+    fn delayed_output_command(first: &str, second: &str, seconds: u64) -> RuntimeCommand {
+        powershell_command(&format!(
+            "[Console]::Out.Write({}); [Console]::Out.Flush(); Start-Sleep -Seconds {}; [Console]::Out.Write({})",
+            ps_quote(first),
+            seconds,
+            ps_quote(second)
+        ))
+    }
+
+    #[cfg(unix)]
+    fn sh_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+
+    #[cfg(windows)]
+    fn powershell_command(script: &str) -> RuntimeCommand {
         RuntimeCommand {
-            program: "cmd".into(),
-            args: vec!["/C".into(), script.into()],
+            program: "powershell.exe".into(),
+            args: vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-ExecutionPolicy".into(),
+                "Bypass".into(),
+                "-Command".into(),
+                format!(
+                    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); {script}"
+                ),
+            ],
         }
+    }
+
+    #[cfg(windows)]
+    fn ps_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "''"))
+    }
+
+    #[cfg(unix)]
+    fn mcp_test_transport(script: &str) -> Value {
+        json!({
+            "type": "stdio",
+            "command": "sh",
+            "args": ["-c", script],
+            "env": { "DOCS_API_TOKEN": "secret" }
+        })
+    }
+
+    #[cfg(windows)]
+    fn mcp_test_transport(_script: &str) -> Value {
+        let script = r#"
+while (($line = [Console]::In.ReadLine()) -ne $null) {
+  if ($line.Contains('"method":"initialize"')) {
+    [Console]::Out.WriteLine('{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"docs","version":"1.0.0"}}}')
+    [Console]::Out.Flush()
+  } elseif ($line.Contains('"method":"tools/list"')) {
+    [Console]::Out.WriteLine('{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"search","description":"Search docs","inputSchema":{"type":"object"}}]}}')
+    [Console]::Out.Flush()
+  }
+}
+"#;
+        json!({
+            "type": "stdio",
+            "command": "powershell.exe",
+            "args": [
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                format!(
+                    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); {script}"
+                )
+            ],
+            "env": { "DOCS_API_TOKEN": "secret" }
+        })
     }
 
     #[tokio::test]
@@ -3544,7 +3641,7 @@ mod tests {
             services.database.pool().clone(),
             RuntimeBuilder::new(config.workspace_dir.to_string_lossy()).with_engine_command(
                 "hermes",
-                shell_command("printf 'started\\n'; sleep 1; printf 'finished\\n'"),
+                delayed_output_command("started\n", "finished\n", 1),
             ),
         );
         let app = create_router(&services);
@@ -3615,7 +3712,7 @@ mod tests {
             services.database.pool().clone(),
             RuntimeBuilder::new(config.workspace_dir.to_string_lossy()).with_engine_command(
                 "test-cloud-busy",
-                shell_command("printf 'started\\n'; exec sleep 10"),
+                long_running_start_command("started\n", 10),
             ),
         );
         services
@@ -3722,12 +3819,7 @@ done
                             "name": "docs",
                             "description": "Docs MCP",
                             "enabled": false,
-                            "transport": {
-                                "type": "stdio",
-                                "command": "sh",
-                                "args": ["-c", mcp_script],
-                                "env": { "DOCS_API_TOKEN": "secret" }
-                            }
+                            "transport": mcp_test_transport(mcp_script)
                         })
                         .to_string(),
                     ))

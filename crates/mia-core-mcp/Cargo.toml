@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 mia-core-api-types.workspace = true
+mia-core-common.workspace = true
 mia-core-db.workspace = true
 oauth2.workspace = true
 reqwest.workspace = true

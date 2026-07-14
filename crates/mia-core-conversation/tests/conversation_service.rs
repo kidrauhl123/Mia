@@ -692,7 +692,7 @@ async fn conversation_service_prepares_runtime_plan_without_inserting_a_message(
 }
 
 #[tokio::test]
-async fn conversation_service_defaults_an_unselected_local_engine_to_mia_auto() {
+async fn conversation_service_defaults_an_unselected_desktop_local_engine_to_native_cli() {
     let db = init_database_memory().await.unwrap();
     sqlx::query(
         "INSERT INTO bots (id, display_name, avatar_json, capability_json, identity_json, created_at, updated_at)
@@ -732,10 +732,51 @@ async fn conversation_service_defaults_an_unselected_local_engine_to_mia_auto() 
         .await
         .unwrap();
 
-    assert_eq!(plan.provider["providerConnectionId"], "mia");
-    assert_eq!(plan.provider["model"], "mia-auto");
-    assert_eq!(plan.provider["modelProfileId"], "mia:mia-auto");
-    assert_eq!(plan.provider["managedByMia"], true);
+    assert_eq!(plan.provider["providerConnectionId"], "codex");
+    assert_eq!(plan.provider["model"], "");
+    assert_eq!(plan.provider["modelProfileId"], "codex");
+    assert_eq!(plan.provider["managedByMia"], false);
+    assert_eq!(plan.provider["nativeCli"], true);
+}
+
+#[tokio::test]
+async fn conversation_service_repairs_desktop_local_mia_provider_metadata() {
+    let db = init_database_memory().await.unwrap();
+    let service = ConversationService::new(db.pool().clone());
+    let created = service
+        .create_conversation(CreateConversationRequest {
+            kind: "cloud-bridge".into(),
+            title: "Codex".into(),
+            bot_id: None,
+            metadata: json!({
+                "runtime": {
+                    "agentEngine": "codex",
+                    "deviceId": "device_1",
+                    "deviceName": "Windows",
+                    "model": "gpt-5.5",
+                    "modelProfileId": "mia:gpt-5.5",
+                    "providerConnectionId": "mia",
+                    "effortLevel": "medium",
+                    "permissionMode": "default"
+                }
+            }),
+        })
+        .await
+        .unwrap();
+
+    let plan = service
+        .plan_runtime_session(&created.conversation.id)
+        .await
+        .unwrap();
+
+    assert_eq!(plan.engine, "codex");
+    assert_eq!(plan.provider["providerConnectionId"], "codex");
+    assert_eq!(plan.provider["model"], "gpt-5.5");
+    assert_eq!(plan.provider["modelProfileId"], "codex:gpt-5.5");
+    assert_eq!(plan.provider["effortLevel"], "medium");
+    assert_eq!(plan.provider["permissionMode"], "default");
+    assert_eq!(plan.provider["managedByMia"], false);
+    assert_eq!(plan.provider["nativeCli"], true);
 }
 
 #[tokio::test]
@@ -1504,6 +1545,7 @@ fn conversation_core_reuses_matching_hermes_home_skill_without_external_name_col
             &native_officecli
                 .join("SKILL.md")
                 .to_string_lossy()
+                .replace('\\', "/")
                 .to_string()
         )
     );

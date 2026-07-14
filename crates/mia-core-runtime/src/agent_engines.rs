@@ -3,12 +3,15 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::env;
 use std::path::{Component, Path, PathBuf};
+use std::process::Stdio;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use mia_core_common::process::configure_background_command;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 use crate::RuntimeCommand;
@@ -16,7 +19,7 @@ use crate::native_acp::{NativeAcpProbeErrorKind, probe_native_acp_command};
 
 const DEFAULT_AGENT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
-const MANAGED_ACP_PREPARE_TIMEOUT: Duration = Duration::from_secs(120);
+const MANAGED_ACP_PREPARE_TIMEOUT: Duration = Duration::from_secs(600);
 static MANAGED_ACP_PREPARE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -89,6 +92,26 @@ pub struct AgentEngineRuntimeStatus {
     pub protocol: String,
     pub command: String,
     pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedAgentResourcePrepareReport {
+    pub generated_at: u64,
+    pub resources: Vec<ManagedAgentResourcePrepareStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedAgentResourcePrepareStatus {
+    pub engine_id: String,
+    pub label: String,
+    pub tool_id: String,
+    pub package: String,
+    pub version: String,
+    pub ready: bool,
+    pub path: String,
+    pub diagnostics: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -287,6 +310,47 @@ impl AgentEngineScanner {
     }
 }
 
+pub async fn prepare_managed_agent_resources(
+    mut options: AgentEngineScanOptions,
+) -> ManagedAgentResourcePrepareReport {
+    options
+        .env
+        .insert("MIA_MANAGED_AGENT_PREPARE".into(), "1".into());
+    let generated_at = options.generated_at;
+    let mut resources = Vec::new();
+    for definition in agent_definitions()
+        .into_iter()
+        .filter(|definition| definition.require_managed_acp)
+    {
+        let mut diagnostics = prepare_managed_acp_runtime(definition, &options)
+            .await
+            .diagnostics;
+        let resolved = resolve_managed_acp_runtime(definition, &options);
+        diagnostics.extend(resolved.diagnostics);
+        let (ready, path) = match resolved.runtime {
+            Some(runtime) => (true, runtime.path),
+            None => (false, String::new()),
+        };
+        resources.push(ManagedAgentResourcePrepareStatus {
+            engine_id: definition.id.into(),
+            label: definition.label.into(),
+            tool_id: definition.managed_tool_id.unwrap_or_default().into(),
+            package: definition.managed_package.unwrap_or_default().into(),
+            version: definition
+                .managed_package_version
+                .unwrap_or_default()
+                .into(),
+            ready,
+            path,
+            diagnostics,
+        });
+    }
+    ManagedAgentResourcePrepareReport {
+        generated_at,
+        resources,
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct AgentEngineDefinition {
     id: &'static str,
@@ -458,6 +522,7 @@ impl AgentCommandResolver for RealAgentCommandResolver {
             return String::new();
         }
         let mut command = Command::new(path);
+        configure_background_command(command.as_std_mut());
         command
             .arg("--version")
             .env_clear()
@@ -771,10 +836,28 @@ fn acp_probe_environment(
     let mut env = options.env.clone();
     env.extend(runtime.env.clone());
     prepend_path_entries(&mut env, runtime_path_entries(runtime));
-    if definition.id == "codex" && !env.contains_key("CODEX_PATH") {
-        env.insert("CODEX_PATH".into(), primary.path.clone());
-    }
+    apply_primary_cli_environment(definition, &mut env, primary.path.clone());
     env
+}
+
+fn apply_primary_cli_environment(
+    definition: AgentEngineDefinition,
+    env: &mut BTreeMap<String, String>,
+    primary_path: String,
+) {
+    let Some(key) = primary_cli_environment_key(definition) else {
+        return;
+    };
+    if !env.contains_key(key) {
+        env.insert(key.into(), primary_path);
+    }
+}
+
+fn primary_cli_environment_key(definition: AgentEngineDefinition) -> Option<&'static str> {
+    match definition.id {
+        "codex" => Some("CODEX_PATH"),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Default)]
@@ -850,7 +933,7 @@ fn resolve_managed_acp_runtime(
                 {
                     continue;
                 }
-                match runtime_from_managed_manifest(&location) {
+                match runtime_from_managed_manifest(&location, options) {
                     Ok(Some(runtime))
                         if protocol_allowed(&runtime.protocol, definition.acp_protocols) =>
                     {
@@ -893,9 +976,9 @@ async fn prepare_managed_acp_runtime(
     definition: AgentEngineDefinition,
     options: &AgentEngineScanOptions,
 ) -> ManagedAcpPrepareResult {
-    if managed_prepare_disabled(options) {
+    if !managed_prepare_enabled(options) {
         return ManagedAcpPrepareResult {
-            diagnostics: vec!["托管 ACP 自动准备已关闭。".into()],
+            diagnostics: vec!["托管 ACP 自动准备未显式开启。".into()],
         };
     }
     let Some(tool_id) = definition.managed_tool_id else {
@@ -932,7 +1015,10 @@ async fn prepare_managed_acp_runtime(
         version: package_version.into(),
         manifest_path: target_dir.join("manifest.json"),
     };
-    if matches!(runtime_from_managed_manifest(&location), Ok(Some(_))) {
+    if matches!(
+        runtime_from_managed_manifest(&location, options),
+        Ok(Some(_))
+    ) {
         return ManagedAcpPrepareResult::default();
     }
 
@@ -994,45 +1080,20 @@ async fn prepare_managed_npm_package(
     let result = async {
         write_managed_dev_package_json(&project_dir)?;
         let package_spec = format!("{package_name}@{package_version}");
-        let optional_dependency_arg = if package_name == "@agentclientprotocol/codex-acp" {
-            "--omit=optional"
-        } else {
-            "--include=optional"
-        };
-        let lockfile_args = vec![
+        let optional_dependency_arg = managed_npm_optional_dependency_arg(package_name);
+        let install_args = vec![
             "install",
-            "--package-lock-only",
             "--ignore-scripts",
             optional_dependency_arg,
             "--fund=false",
             "--audit=false",
             "--save-exact",
+            "--omit=dev",
             "--os",
             platform_npm_os(),
             "--cpu",
             platform_npm_cpu(),
             package_spec.as_str(),
-        ];
-        run_managed_npm(
-            npm_path,
-            options,
-            &project_dir,
-            &npm_cache_dir,
-            &lockfile_args,
-            "生成托管 ACP lockfile",
-        )
-        .await?;
-        let install_args = vec![
-            "ci",
-            "--omit=dev",
-            "--ignore-scripts",
-            optional_dependency_arg,
-            "--fund=false",
-            "--audit=false",
-            "--os",
-            platform_npm_os(),
-            "--cpu",
-            platform_npm_cpu(),
         ];
         run_managed_npm(
             npm_path,
@@ -1077,7 +1138,7 @@ async fn prepare_managed_npm_package(
             version: package_version.into(),
             manifest_path: project_dir.join("manifest.json"),
         };
-        runtime_from_managed_manifest(&manifest_location)
+        runtime_from_managed_manifest(&manifest_location, options)
             .map_err(|message| format!("校验 prepared manifest 失败: {message}"))?
             .ok_or_else(|| "prepared manifest 未生成 runtime".to_string())?;
 
@@ -1101,7 +1162,7 @@ async fn prepare_managed_npm_package(
             version: package_version.into(),
             manifest_path: target_dir.join("manifest.json"),
         };
-        runtime_from_managed_manifest(&target_location)
+        runtime_from_managed_manifest(&target_location, options)
             .map_err(|message| format!("校验托管 ACP 目录失败: {message}"))?
             .ok_or_else(|| "托管 ACP manifest 未生成 runtime".to_string())?;
         Ok(())
@@ -1118,11 +1179,11 @@ async fn prepare_managed_npm_package(
     result
 }
 
-fn managed_prepare_disabled(options: &AgentEngineScanOptions) -> bool {
+fn managed_prepare_enabled(options: &AgentEngineScanOptions) -> bool {
     options
         .env
         .get("MIA_MANAGED_AGENT_PREPARE")
-        .map(|value| value == "0")
+        .map(|value| value == "1")
         .unwrap_or(false)
 }
 
@@ -1152,6 +1213,33 @@ fn managed_npm_path(options: &AgentEngineScanOptions) -> Option<String> {
         .or_else(|| resolve_command_path("npm", options))
 }
 
+fn managed_npm_optional_dependency_arg(package_name: &str) -> &'static str {
+    if package_name == "@agentclientprotocol/claude-agent-acp" {
+        "--include=optional"
+    } else {
+        "--omit=optional"
+    }
+}
+
+fn managed_npm_cache_dir(options: &AgentEngineScanOptions, fallback: &Path) -> Option<String> {
+    if let Some(value) = options
+        .env
+        .get("MIA_MANAGED_AGENT_NPM_CACHE")
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Some(value.trim().to_string());
+    }
+    if options
+        .env
+        .get("MIA_MANAGED_AGENT_ISOLATED_NPM_CACHE")
+        .map(|value| value == "1")
+        .unwrap_or(false)
+    {
+        return Some(path_to_string(fallback));
+    }
+    None
+}
+
 fn write_managed_dev_package_json(project_dir: &Path) -> Result<(), String> {
     let package_json = json!({
         "name": "mia-managed-acp-runtime",
@@ -1174,22 +1262,45 @@ async fn run_managed_npm(
     label: &str,
 ) -> Result<(), String> {
     let mut command = Command::new(npm_path);
+    configure_background_command(command.as_std_mut());
     command
         .args(args)
         .current_dir(project_dir)
         .env_clear()
         .envs(options.env.iter())
-        .env("npm_config_cache", npm_cache_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .kill_on_drop(true);
-    let output = tokio::time::timeout(MANAGED_ACP_PREPARE_TIMEOUT, command.output())
-        .await
-        .map_err(|_| format!("{label} 超时（{}s）", MANAGED_ACP_PREPARE_TIMEOUT.as_secs()))?
+    if let Some(cache_dir) = managed_npm_cache_dir(options, npm_cache_dir) {
+        command.env("npm_config_cache", cache_dir);
+    }
+    let mut child = command
+        .spawn()
         .map_err(|error| format!("{label} 启动失败: {error}"))?;
-    if output.status.success() {
+    let stdout_task = child
+        .stdout
+        .take()
+        .map(|stdout| tokio::spawn(read_child_output(stdout)));
+    let stderr_task = child
+        .stderr
+        .take()
+        .map(|stderr| tokio::spawn(read_child_output(stderr)));
+    let status = tokio::select! {
+        status = child.wait() => {
+            status.map_err(|error| format!("{label} 等待失败: {error}"))?
+        }
+        _ = tokio::time::sleep(MANAGED_ACP_PREPARE_TIMEOUT) => {
+            terminate_child_process_tree(&mut child).await;
+            return Err(format!("{label} 超时（{}s）", MANAGED_ACP_PREPARE_TIMEOUT.as_secs()));
+        }
+    };
+    let stdout = join_child_output(stdout_task).await;
+    let stderr = join_child_output(stderr_task).await;
+    if status.success() {
         return Ok(());
     }
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
     let detail = if stderr.is_empty() {
         stdout
     } else if stdout.is_empty() {
@@ -1199,9 +1310,48 @@ async fn run_managed_npm(
     };
     Err(compact_one_line(format!(
         "{label} 失败，退出码 {:?}: {detail}",
-        output.status.code()
+        status.code()
     )))
 }
+
+async fn read_child_output<R>(mut reader: R) -> Vec<u8>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut output = Vec::new();
+    let _ = reader.read_to_end(&mut output).await;
+    output
+}
+
+async fn join_child_output(task: Option<tokio::task::JoinHandle<Vec<u8>>>) -> Vec<u8> {
+    match task {
+        Some(task) => task.await.unwrap_or_default(),
+        None => Vec::new(),
+    }
+}
+
+async fn terminate_child_process_tree(child: &mut tokio::process::Child) {
+    if let Some(pid) = child.id() {
+        terminate_process_tree(pid).await;
+    }
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+}
+
+#[cfg(windows)]
+async fn terminate_process_tree(pid: u32) {
+    let mut command = Command::new("taskkill");
+    configure_background_command(command.as_std_mut());
+    command
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let _ = tokio::time::timeout(Duration::from_secs(5), command.status()).await;
+}
+
+#[cfg(not(windows))]
+async fn terminate_process_tree(_pid: u32) {}
 
 fn managed_package_entrypoint(project_dir: &Path, package_name: &str) -> Result<PathBuf, String> {
     let package_json_path = package_json_path(project_dir, package_name);
@@ -1348,6 +1498,7 @@ fn managed_manifest_locations(
 
 fn runtime_from_managed_manifest(
     location: &ManagedManifestLocation,
+    options: &AgentEngineScanOptions,
 ) -> Result<Option<ResolvedAcpRuntime>, String> {
     if !location.manifest_path.is_file() {
         return Ok(None);
@@ -1380,7 +1531,10 @@ fn runtime_from_managed_manifest(
             reason
         )
     })?;
-    if executable_path(&entrypoint_path).is_none() {
+    let entrypoint_is_node_script = managed_entrypoint_is_node_script(&entrypoint_path);
+    if (entrypoint_is_node_script && !entrypoint_path.is_file())
+        || (!entrypoint_is_node_script && executable_path(&entrypoint_path).is_none())
+    {
         return Err(format!(
             "{} entrypoint 不存在或不可执行: {}",
             location.manifest_path.display(),
@@ -1388,12 +1542,34 @@ fn runtime_from_managed_manifest(
         ));
     }
 
+    validate_managed_platform_binary(location, base_dir, options)?;
+
     let mut path_entry_values = manifest.path_entries;
     path_entry_values.extend(manifest.path_entries_camel);
+    let mut args = json_values_to_strings(&manifest.args.unwrap_or_default());
+    let mut env = json_object_to_string_map(manifest.env.unwrap_or_default());
+    let (command_path, runtime_args) = if entrypoint_is_node_script {
+        let Some(node) = managed_node_runner(options) else {
+            return Err(format!(
+                "{} JavaScript entrypoint requires a Node runtime: {}",
+                location.manifest_path.display(),
+                entrypoint_path.display()
+            ));
+        };
+        env.extend(managed_node_environment(options));
+        let mut node_args = vec![path_to_string(&entrypoint_path)];
+        node_args.append(&mut args);
+        (node, node_args)
+    } else {
+        (
+            executable_path(&entrypoint_path).unwrap_or_else(|| path_to_string(&entrypoint_path)),
+            args,
+        )
+    };
     Ok(Some(ResolvedAcpRuntime {
-        command: path_to_string(&entrypoint_path),
-        path: path_to_string(&entrypoint_path),
-        args: json_values_to_strings(&manifest.args.unwrap_or_default()),
+        command: command_path.clone(),
+        path: command_path,
+        args: runtime_args,
         source: "managed".into(),
         managed: true,
         version: manifest
@@ -1412,9 +1588,80 @@ fn runtime_from_managed_manifest(
             })
             .trim()
             .to_string(),
-        env: json_object_to_string_map(manifest.env.unwrap_or_default()),
+        env,
         path_entries: normalize_manifest_path_entries(base_dir, &path_entry_values),
     }))
+}
+
+fn validate_managed_platform_binary(
+    location: &ManagedManifestLocation,
+    base_dir: &Path,
+    options: &AgentEngineScanOptions,
+) -> Result<(), String> {
+    let Some(expected) = expected_managed_platform_binary(location, base_dir, options) else {
+        return Ok(());
+    };
+    if expected.is_file() {
+        return Ok(());
+    }
+    Err(format!(
+        "expected managed {} platform binary missing: {}",
+        location.tool_id,
+        expected.display()
+    ))
+}
+
+fn expected_managed_platform_binary(
+    location: &ManagedManifestLocation,
+    base_dir: &Path,
+    options: &AgentEngineScanOptions,
+) -> Option<PathBuf> {
+    if location.tool_id != "claude-agent-acp" {
+        return None;
+    }
+    let runtime_key = managed_runtime_key(options);
+    let mut path = base_dir
+        .join("node_modules")
+        .join(format!("@anthropic-ai/claude-agent-sdk-{runtime_key}"))
+        .join("claude");
+    if runtime_key.starts_with("win32-") {
+        path.set_extension("exe");
+    }
+    Some(path)
+}
+
+fn managed_entrypoint_is_node_script(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "js" | "mjs" | "cjs"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn managed_node_runner(options: &AgentEngineScanOptions) -> Option<String> {
+    options
+        .env
+        .get("MIA_MANAGED_AGENT_NODE")
+        .filter(|value| !value.trim().is_empty())
+        .and_then(|value| executable_path(value))
+        .or_else(|| resolve_command_path("node", options))
+}
+
+fn managed_node_environment(options: &AgentEngineScanOptions) -> BTreeMap<String, String> {
+    let mut env = BTreeMap::new();
+    if options
+        .env
+        .get("MIA_MANAGED_AGENT_NODE_ELECTRON")
+        .map(|value| value == "1")
+        .unwrap_or(false)
+    {
+        env.insert("ELECTRON_RUN_AS_NODE".into(), "1".into());
+    }
+    env
 }
 
 fn resolve_manifest_child_path(base_dir: &Path, value: &str) -> Result<PathBuf, String> {
@@ -1545,7 +1792,7 @@ fn managed_resource_roots(options: &AgentEngineScanOptions, runtime_key: &str) -
             roots.push(path_to_string(Path::new(value).join("managed-resources")));
             roots.push(path_to_string(
                 Path::new(value)
-                    .join("bundled-aioncore")
+                    .join("bundled-mia-core")
                     .join(runtime_key)
                     .join("managed-resources"),
             ));
@@ -1559,7 +1806,7 @@ fn managed_resource_roots(options: &AgentEngineScanOptions, runtime_key: &str) -
             ));
             roots.push(path_to_string(
                 ancestor
-                    .join("bundled-aioncore")
+                    .join("bundled-mia-core")
                     .join(runtime_key)
                     .join("managed-resources"),
             ));
@@ -1715,9 +1962,7 @@ pub(crate) fn resolve_managed_agent_runtime_plan(
     }
     let primary = resolve_agent_command_path(definition.primary_command, env)?;
     let mut base_env = env.clone();
-    if definition.id == "codex" && !base_env.contains_key("CODEX_PATH") {
-        base_env.insert("CODEX_PATH".into(), primary);
-    }
+    apply_primary_cli_environment(definition, &mut base_env, primary);
     let options = AgentEngineScanOptions {
         env: base_env.clone(),
         home_dir: current_home_dir(&base_env),
@@ -1786,6 +2031,72 @@ fn default_user_path_segments(home: &Path, env: &BTreeMap<String, String>) -> Ve
     }
     if let Some(value) = env.get("BUN_INSTALL") {
         dirs.push(path_to_string(Path::new(value).join("bin")));
+    }
+    if cfg!(windows) {
+        let app_data = env
+            .get("APPDATA")
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("AppData").join("Roaming"));
+        let local_app_data = env
+            .get("LOCALAPPDATA")
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("AppData").join("Local"));
+        let hermes_home = env
+            .get("HERMES_HOME")
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from);
+        let codex_home = env
+            .get("CODEX_HOME")
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".codex"));
+        if let Some(root) = hermes_home {
+            dirs.push(path_to_string(
+                root.join("hermes-agent").join("venv").join("Scripts"),
+            ));
+        }
+        dirs.extend(
+            [
+                local_app_data
+                    .join("hermes")
+                    .join("hermes-agent")
+                    .join("venv")
+                    .join("Scripts"),
+                app_data.join("npm"),
+                home.join(".claude").join("local"),
+                home.join(".claude").join("local").join("bin"),
+                home.join(".claude").join("bin"),
+                local_app_data.join("Programs").join("Claude").join("bin"),
+                local_app_data
+                    .join("Programs")
+                    .join("Claude Code")
+                    .join("bin"),
+                local_app_data
+                    .join("Programs")
+                    .join("OpenAI")
+                    .join("Codex")
+                    .join("bin"),
+                codex_home
+                    .join("packages")
+                    .join("standalone")
+                    .join("current")
+                    .join("bin"),
+                codex_home
+                    .join("packages")
+                    .join("standalone")
+                    .join("current"),
+                home.join("scoop").join("shims"),
+            ]
+            .into_iter()
+            .map(path_to_string),
+        );
+        for version in ["Python314", "Python313", "Python312", "Python311"] {
+            dirs.push(path_to_string(
+                app_data.join("Python").join(version).join("Scripts"),
+            ));
+        }
     }
     dirs.push(path_to_string(home.join(".volta/bin")));
     dirs.push(path_to_string(home.join(".asdf/shims")));
@@ -2012,6 +2323,106 @@ mod tests {
         options
     }
 
+    #[test]
+    fn managed_acp_prepare_requires_explicit_opt_in() {
+        let mut options = AgentEngineScanOptions::for_tests();
+        assert!(!managed_prepare_enabled(&options));
+
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_PREPARE".into(), "0".into());
+        assert!(!managed_prepare_enabled(&options));
+
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_PREPARE".into(), "1".into());
+        assert!(managed_prepare_enabled(&options));
+    }
+
+    #[test]
+    fn managed_acp_prepare_includes_claude_platform_package() {
+        assert_eq!(
+            managed_npm_optional_dependency_arg("@agentclientprotocol/codex-acp"),
+            "--omit=optional"
+        );
+        assert_eq!(
+            managed_npm_optional_dependency_arg("@agentclientprotocol/claude-agent-acp"),
+            "--include=optional"
+        );
+    }
+
+    #[test]
+    fn managed_acp_prepare_reuses_user_npm_cache_by_default() {
+        let mut options = AgentEngineScanOptions::for_tests();
+        let fallback = Path::new("/tmp/mia-npm-cache");
+        assert_eq!(managed_npm_cache_dir(&options, fallback), None);
+
+        options.env.insert(
+            "MIA_MANAGED_AGENT_NPM_CACHE".into(),
+            "/tmp/shared-cache".into(),
+        );
+        assert_eq!(
+            managed_npm_cache_dir(&options, fallback).as_deref(),
+            Some("/tmp/shared-cache")
+        );
+
+        options.env.remove("MIA_MANAGED_AGENT_NPM_CACHE");
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_ISOLATED_NPM_CACHE".into(), "1".into());
+        let expected = path_to_string(fallback);
+        assert_eq!(
+            managed_npm_cache_dir(&options, fallback).as_deref(),
+            Some(expected.as_str())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_default_user_path_segments_include_known_engine_install_dirs() {
+        let home = PathBuf::from(r"C:\Users\mia");
+        let mut env = BTreeMap::new();
+        env.insert("LOCALAPPDATA".into(), r"C:\Users\mia\AppData\Local".into());
+        env.insert("APPDATA".into(), r"C:\Users\mia\AppData\Roaming".into());
+        env.insert("CODEX_HOME".into(), r"C:\Users\mia\.codex".into());
+        env.insert(
+            "HERMES_HOME".into(),
+            r"C:\Users\mia\AppData\Local\hermes".into(),
+        );
+
+        let dirs = default_user_path_segments(&home, &env);
+
+        assert!(
+            dirs.iter()
+                .any(|item| item.ends_with(r"AppData\Local\hermes\hermes-agent\venv\Scripts"))
+        );
+        assert!(
+            dirs.iter()
+                .any(|item| item.ends_with(r"AppData\Roaming\npm"))
+        );
+        assert!(
+            dirs.iter()
+                .any(|item| item.ends_with(r"AppData\Local\Programs\Claude Code\bin"))
+        );
+        assert!(
+            dirs.iter()
+                .any(|item| item.ends_with(r".codex\packages\standalone\current\bin"))
+        );
+    }
+
+    #[test]
+    fn primary_cli_environment_does_not_override_managed_claude_binary() {
+        let claude = agent_definitions()
+            .into_iter()
+            .find(|definition| definition.id == "claude-code")
+            .unwrap();
+        let mut env = BTreeMap::new();
+
+        apply_primary_cli_environment(claude, &mut env, "/usr/local/bin/claude".into());
+
+        assert!(!env.contains_key("CLAUDE_CODE_EXECUTABLE"));
+    }
+
     fn write_codex_managed_acp(root: &Path) -> PathBuf {
         write_codex_managed_acp_version(root, "1.1.2")
     }
@@ -2045,6 +2456,142 @@ mod tests {
         )
         .unwrap();
         entrypoint
+    }
+
+    fn write_test_executable(path: &Path) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(path, permissions).unwrap();
+        }
+    }
+
+    fn write_claude_managed_acp(root: &Path, with_platform_binary: bool) -> PathBuf {
+        let runtime_dir = root
+            .join("acp")
+            .join("claude-agent-acp")
+            .join("0.39.0")
+            .join("test-runtime");
+        let entrypoint = runtime_dir
+            .join("node_modules")
+            .join("@agentclientprotocol")
+            .join("claude-agent-acp")
+            .join("dist")
+            .join("index.js");
+        std::fs::create_dir_all(entrypoint.parent().unwrap()).unwrap();
+        std::fs::write(&entrypoint, "process.exit(0)\n").unwrap();
+        if with_platform_binary {
+            let binary = runtime_dir
+                .join("node_modules")
+                .join("@anthropic-ai")
+                .join("claude-agent-sdk-test-runtime")
+                .join("claude");
+            write_test_executable(&binary);
+        }
+        let manifest = serde_json::json!({
+            "entrypoint": "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js",
+            "version": "0.39.0",
+            "protocol": "claude-code-cli",
+            "args": [],
+            "pathEntries": ["node_modules/.bin"]
+        });
+        std::fs::write(
+            runtime_dir.join("manifest.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        entrypoint
+    }
+
+    #[test]
+    fn managed_claude_acp_requires_packaged_platform_binary() {
+        let root = managed_fixture_root("claude-missing-platform-binary");
+        write_claude_managed_acp(&root, false);
+        let claude = agent_definitions()
+            .into_iter()
+            .find(|definition| definition.id == "claude-code")
+            .unwrap();
+
+        let result = resolve_managed_acp_runtime(claude, &managed_test_options(&root));
+
+        assert!(result.runtime.is_none());
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|item| item
+                    .contains("expected managed claude-agent-acp platform binary missing")),
+            "{:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn managed_js_entrypoint_runs_through_node_runner() {
+        let root = managed_fixture_root("codex-js-entrypoint");
+        let runtime_dir = root
+            .join("acp")
+            .join("codex-acp")
+            .join("1.1.2")
+            .join("test-runtime");
+        let entrypoint = runtime_dir
+            .join("node_modules")
+            .join("@agentclientprotocol")
+            .join("codex-acp")
+            .join("dist")
+            .join("index.js");
+        std::fs::create_dir_all(entrypoint.parent().unwrap()).unwrap();
+        std::fs::write(&entrypoint, "process.exit(0)\n").unwrap();
+        let manifest = serde_json::json!({
+            "entrypoint": "node_modules/@agentclientprotocol/codex-acp/dist/index.js",
+            "version": "1.1.2",
+            "protocol": "codex-app-server",
+            "args": ["--stdio"],
+            "env": { "MIA_MANAGED_FIXTURE": "1" },
+            "pathEntries": ["node_modules/.bin"]
+        });
+        std::fs::write(
+            runtime_dir.join("manifest.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let node = root
+            .join("bin")
+            .join(if cfg!(windows) { "node.exe" } else { "node" });
+        write_test_executable(&node);
+
+        let mut options = managed_test_options(&root);
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_NODE".into(), path_to_string(&node));
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_NODE_ELECTRON".into(), "1".into());
+        let codex = agent_definitions()
+            .into_iter()
+            .find(|definition| definition.id == "codex")
+            .unwrap();
+        let runtime = resolve_managed_acp_runtime(codex, &options)
+            .runtime
+            .expect("managed runtime");
+
+        assert_eq!(runtime.command, path_to_string(&node));
+        assert_eq!(runtime.path, path_to_string(&node));
+        assert_eq!(Path::new(&runtime.args[0]), entrypoint.as_path());
+        assert_eq!(runtime.args[1], "--stdio");
+        assert_eq!(
+            runtime.env.get("MIA_MANAGED_FIXTURE").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            runtime.env.get("ELECTRON_RUN_AS_NODE").map(String::as_str),
+            Some("1")
+        );
     }
 
     #[tokio::test]
@@ -2147,12 +2694,10 @@ mod tests {
             request.env.get("MIA_MANAGED_FIXTURE").map(String::as_str),
             Some("1")
         );
+        let path_env = request.env.get("PATH").cloned().unwrap_or_default();
         assert!(
-            request
-                .env
-                .get("PATH")
-                .unwrap_or(&String::new())
-                .contains("test-runtime/bin")
+            env::split_paths(&path_env)
+                .any(|entry| entry.ends_with(Path::new("test-runtime").join("bin")))
         );
     }
 
@@ -2274,6 +2819,8 @@ exit 0
         )
         .unwrap();
         std::fs::set_permissions(&npm, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let node = bin_dir.join("node");
+        write_test_executable(&node);
 
         let mut options = AgentEngineScanOptions::for_tests();
         options.env.insert(
@@ -2290,6 +2837,12 @@ exit 0
         options
             .env
             .insert("MIA_MANAGED_AGENT_NPM".into(), path_to_string(&npm));
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_NODE".into(), path_to_string(&node));
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_PREPARE".into(), "1".into());
         let scanner = AgentEngineScanner::fake_for_tests([("codex", "/usr/local/bin/codex")], []);
 
         let inventory = scanner.scan(options).await;
@@ -2305,10 +2858,13 @@ exit 0
         assert!(codex.runtime.managed);
         assert_eq!(codex.runtime.version, "1.1.2");
         assert_eq!(codex.runtime.protocol, "codex-app-server");
+        assert_eq!(codex.runtime.command, path_to_string(&node));
         assert!(
             codex
                 .runtime
-                .command
+                .args
+                .first()
+                .unwrap_or(&String::new())
                 .contains("node_modules/@agentclientprotocol/codex-acp/dist/index.js")
         );
         assert!(!codex.runtime.command.contains("npx"));
