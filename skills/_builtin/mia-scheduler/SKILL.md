@@ -1,6 +1,6 @@
 ---
 name: mia-scheduler
-description: Scheduled task management for Mia. Use when the user asks to create, query, update, or delete reminders and recurring tasks shown in Mia 活跃任务.
+description: Mia reminders/定时提醒：创建、查询、更新或删除提醒任务；禁止用 shell/cronjob/sleep。
 ---
 
 # Mia Scheduled Tasks
@@ -9,7 +9,7 @@ You can manage Mia scheduled tasks that execute in the current conversation with
 
 ## IMPORTANT RULES
 
-1. **ONE task per conversation** - Each conversation can only have ONE scheduled task.
+1. **Multiple tasks per conversation** - A conversation may have multiple scheduled tasks. Creating a new task must not replace an existing one.
 2. **Output commands directly** - Do not wrap commands in Markdown code blocks.
 3. **ALWAYS include closing tags** - `[CRON_CREATE]` must end with `[/CRON_CREATE]`; `[CRON_UPDATE]` must end with `[/CRON_UPDATE]`.
 4. Do not use shell commands, operating-system cron, `sleep`, `at`, `launchd`, or an MCP scheduler tool. Only the protocol below creates tasks in Mia 活跃任务.
@@ -24,10 +24,10 @@ Output exactly `[CRON_LIST]` and nothing else. Wait for the hidden system respon
 
 ### Step 2: Act
 
-- If the system reports no scheduled tasks, immediately output `[CRON_CREATE]`; do not ask for confirmation the user already gave.
-- If a task exists and the user wants to change it, output `[CRON_UPDATE: <job-id>]`.
-- If a task exists and the user requests an unrelated replacement, ask whether to replace the existing task.
-- If the user explicitly asks to remove the existing task, output `[CRON_DELETE: <job-id>]`.
+- If the user requests a new task, immediately output `[CRON_CREATE]` whether or not other tasks already exist; do not ask for confirmation the user already gave.
+- If the user wants to change a specific task, output `[CRON_UPDATE: <job-id>]` using its real id from the list.
+- If the user explicitly asks to remove a specific task, output `[CRON_DELETE: <job-id>]` using its real id from the list.
+- If multiple existing tasks could match an update or delete request, ask the user which task they mean.
 
 ## Create
 

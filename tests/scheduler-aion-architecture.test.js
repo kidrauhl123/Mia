@@ -36,7 +36,8 @@ test("scheduler follows AION cron skill and Rust response middleware without sch
   const schedulerSkill = read("skills/_builtin/mia-scheduler/SKILL.md");
   assert.match(schedulerSkill, /\[CRON_LIST\]/, "Aion query step must remain in the native skill");
   assert.match(schedulerSkill, /\[CRON_CREATE\]/, "Aion create protocol must remain in the native skill");
-  assert.match(schedulerSkill, /ONE task per conversation/, "Aion conversation ownership rule must remain");
+  assert.match(schedulerSkill, /multiple scheduled tasks|多个定时任务/i, "a conversation must support multiple scheduled tasks");
+  assert.doesNotMatch(schedulerSkill, /ONE task per conversation/, "the copied Aion single-task guidance must be retired");
   assert.doesNotMatch(schedulerSkill, /schedule_create|scheduler MCP/i, "scheduler skill must not depend on MCP");
 
   for (const relativePath of [

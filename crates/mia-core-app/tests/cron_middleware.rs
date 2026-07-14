@@ -113,20 +113,27 @@ async fn cron_commands_create_list_update_and_delete_within_conversation_scope()
 }
 
 #[tokio::test]
-async fn cron_create_is_idempotently_blocked_when_conversation_already_has_a_job() {
+async fn cron_create_appends_when_conversation_already_has_jobs() {
     let database = init_database_memory().await.unwrap();
     let tasks = TaskService::new(database.pool().clone());
-    let command = CronCommand::Create(CronCreateParams {
-        name: "提醒".into(),
+    let first = CronCommand::Create(CronCreateParams {
+        name: "喝水提醒".into(),
         schedule: "0 9 * * *".into(),
         schedule_description: "每天上午 9 点".into(),
-        message: "提醒我。".into(),
+        message: "提醒我喝水。".into(),
+    });
+    let second = CronCommand::Create(CronCreateParams {
+        name: "午饭提醒".into(),
+        schedule: "0 12 * * *".into(),
+        schedule_description: "每天中午 12 点".into(),
+        message: "提醒我吃午饭。".into(),
     });
 
-    process_cron_commands(&tasks, "bot_a", "conv_a", std::slice::from_ref(&command)).await;
-    let duplicate = process_cron_commands(&tasks, "bot_a", "conv_a", &[command]).await;
+    let created_first = process_cron_commands(&tasks, "bot_a", "conv_a", &[first]).await;
+    let created_second = process_cron_commands(&tasks, "bot_a", "conv_a", &[second]).await;
 
-    assert!(duplicate[0].contains("already has scheduled task"));
+    assert!(created_first[0].contains("Created cron job '喝水提醒'"));
+    assert!(created_second[0].contains("Created cron job '午饭提醒'"));
     assert_eq!(
         tasks
             .list_jobs_for_conversation("bot_a", "conv_a")
@@ -134,6 +141,6 @@ async fn cron_create_is_idempotently_blocked_when_conversation_already_has_a_job
             .unwrap()
             .jobs
             .len(),
-        1
+        2
     );
 }

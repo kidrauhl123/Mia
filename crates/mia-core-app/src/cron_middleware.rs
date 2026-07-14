@@ -34,36 +34,24 @@ pub async fn process_cron_command_outcomes(
     for command in commands {
         let response = match command {
             CronCommand::Create(params) => {
-                match tasks
-                    .list_jobs_for_conversation(bot_id, conversation_id)
-                    .await
-                {
-                    Ok(existing) if !existing.jobs.is_empty() => format!(
-                        "[System: This conversation already has scheduled task '{}'; use CRON_UPDATE or ask the user how to proceed]",
-                        task_name(&existing.jobs[0])
+                let request = CreateTaskJobRequest {
+                    kind: "agent".into(),
+                    schedule: Some(protocol_schedule(&params.schedule)),
+                    schedule_intent: None,
+                    target: json!({
+                        "botId": bot_id,
+                        "conversationId": conversation_id,
+                        "title": params.name,
+                        "scheduleDescription": params.schedule_description,
+                    }),
+                    instructions: params.message.clone(),
+                };
+                match tasks.create_job(request).await {
+                    Ok(created) => format!(
+                        "[System: Created cron job '{}' (id: {})]",
+                        params.name, created.job.id
                     ),
-                    Ok(_) => {
-                        let request = CreateTaskJobRequest {
-                            kind: "agent".into(),
-                            schedule: Some(protocol_schedule(&params.schedule)),
-                            schedule_intent: None,
-                            target: json!({
-                                "botId": bot_id,
-                                "conversationId": conversation_id,
-                                "title": params.name,
-                                "scheduleDescription": params.schedule_description,
-                            }),
-                            instructions: params.message.clone(),
-                        };
-                        match tasks.create_job(request).await {
-                            Ok(created) => format!(
-                                "[System: Created cron job '{}' (id: {})]",
-                                params.name, created.job.id
-                            ),
-                            Err(error) => format!("[System: Failed to create cron job: {error}]"),
-                        }
-                    }
-                    Err(error) => format!("[System: Failed to list scheduled tasks: {error}]"),
+                    Err(error) => format!("[System: Failed to create cron job: {error}]"),
                 }
             }
             CronCommand::List => match tasks
@@ -161,9 +149,7 @@ fn cron_trace_preview(command: &CronCommand, response: &str) -> String {
 }
 
 fn cron_response_successful(response: &str) -> bool {
-    !response.contains("Failed")
-        && !response.contains("not found")
-        && !response.contains("already has scheduled task")
+    !response.contains("Failed") && !response.contains("not found")
 }
 
 fn response_id(response: &str) -> Option<&str> {

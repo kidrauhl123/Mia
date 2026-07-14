@@ -182,12 +182,6 @@ async function executeCommand(command, context) {
   try {
     if (command.type === "list") return { response: taskListResponse(tasks), successful: true };
     if (command.type === "create") {
-      if (tasks.length) {
-        return {
-          response: `[System: This conversation already has scheduled task '${tasks[0].title || "未命名任务"}'; use CRON_UPDATE or ask the user how to proceed]`,
-          successful: false
-        };
-      }
       if (typeof taskApi?.create !== "function") throw new Error("cloud task create is unavailable");
       const created = await taskApi.create(userId, {
         title: command.name,

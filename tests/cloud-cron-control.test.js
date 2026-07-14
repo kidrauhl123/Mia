@@ -77,6 +77,43 @@ test("cloud cron control creates a real scoped task and returns a hidden continu
   assert.equal(result.traceEvents[1].name, "创建 Mia 定时任务");
 });
 
+test("cloud cron control appends a task when the conversation already has jobs", async () => {
+  const created = [];
+  const taskApi = {
+    list() {
+      return [{
+        id: "existing",
+        botId: "bot-1",
+        conversationId: "conv-1",
+        title: "喝水提醒",
+        status: "active"
+      }];
+    },
+    create(userId, input) {
+      created.push({ userId, input });
+      return { id: "t-cloud-2", status: "active", ...input };
+    }
+  };
+
+  const result = await processCloudCronTurn({
+    assistantText: [
+      "[CRON_CREATE]",
+      "name: 午饭提醒",
+      "schedule: 0 12 * * *",
+      "schedule_description: 每天中午 12 点",
+      "message: 提醒用户吃午饭。",
+      "[/CRON_CREATE]"
+    ].join("\n"),
+    userId: "user-1",
+    botId: "bot-1",
+    conversationId: "conv-1",
+    taskApi
+  });
+
+  assert.match(result.continuation, /Created cron job '午饭提醒' \(id: t-cloud-2\)/);
+  assert.equal(created.length, 1);
+});
+
 test("cloud cron update and delete cannot cross bot or conversation scope", async () => {
   const updates = [];
   const deletions = [];
