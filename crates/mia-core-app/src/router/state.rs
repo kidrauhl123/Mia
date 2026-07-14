@@ -7,7 +7,7 @@ use mia_core_bot::BotService;
 use mia_core_cloud::{CloudBridgeManager, CloudEventsManager, CloudService};
 use mia_core_conversation::{ConversationService, CurrentSkillService};
 use mia_core_mcp::McpService;
-use mia_core_memory::MemoryService;
+use mia_core_memory::{BoundedMemoryService, MemoryService};
 use mia_core_realtime::EventBus;
 use mia_core_runtime::RuntimeSessionManager;
 use mia_core_system::{AgentPermissionService, SystemService};
@@ -25,6 +25,7 @@ pub struct ModuleStates {
     pub conversation: ConversationService,
     pub current_skills: CurrentSkillService,
     pub memory: MemoryService,
+    pub bounded_memory: BoundedMemoryService,
     pub tasks: TaskService,
     pub mcp: McpService,
     pub cloud: CloudService,
@@ -48,6 +49,7 @@ pub fn build_module_states(services: &AppServices) -> ModuleStates {
         conversation: services.conversation.clone(),
         current_skills: services.current_skills.clone(),
         memory: services.memory.clone(),
+        bounded_memory: services.bounded_memory.clone(),
         tasks: services.tasks.clone(),
         mcp: services.mcp.clone(),
         cloud: services.cloud.clone(),

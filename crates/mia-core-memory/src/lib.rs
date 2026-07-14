@@ -1,5 +1,20 @@
 //! Scoped Mia memory ownership for Rust Core.
 
+mod document;
+mod legacy_import;
+mod write_policy;
+
+pub use document::{
+    BOT_MEMORY_LIMIT, BoundedMemoryError, BoundedMemoryService, BoundedMemorySnapshot,
+    ENTRY_SEPARATOR, USER_MEMORY_LIMIT, count_chars, deserialize_entries, render_runtime_snapshot,
+    serialize_entries, target_limit, target_str,
+};
+pub use legacy_import::{LegacyImportResult, import_legacy_sources};
+pub use write_policy::{
+    POLICY_CREDENTIAL_MATERIAL, POLICY_INVALID_SEPARATOR, POLICY_INVISIBLE_UNICODE,
+    POLICY_PERSISTENT_COMMAND, POLICY_PROMPT_OVERRIDE, POLICY_SSH_BACKDOOR, validate_memory_write,
+};
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use mia_core_api_types::{

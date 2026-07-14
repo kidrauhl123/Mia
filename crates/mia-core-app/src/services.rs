@@ -12,7 +12,7 @@ use mia_core_db::{
     init_database_memory,
 };
 use mia_core_mcp::McpService;
-use mia_core_memory::MemoryService;
+use mia_core_memory::{BoundedMemoryService, MemoryService, import_legacy_sources};
 use mia_core_realtime::EventBus;
 use mia_core_runtime::RuntimeSessionManager;
 use mia_core_system::{AgentPermissionService, SystemService};
@@ -31,6 +31,7 @@ pub struct AppServices {
     pub conversation: ConversationService,
     pub current_skills: CurrentSkillService,
     pub memory: MemoryService,
+    pub bounded_memory: BoundedMemoryService,
     pub tasks: TaskService,
     pub mcp: McpService,
     pub cloud: CloudService,
@@ -45,11 +46,14 @@ pub struct AppServices {
 impl AppServices {
     pub async fn from_config(config: &AppConfig) -> anyhow::Result<Self> {
         let database = init_database(&config.database_path()).await?;
+        let legacy_node_path = config.data_dir.join("mia-memory.sqlite");
+        import_legacy_sources(database.pool(), Some(&legacy_node_path)).await?;
         Ok(Self::from_database(config, database))
     }
 
     pub async fn from_config_memory(config: &AppConfig) -> anyhow::Result<Self> {
         let database = init_database_memory().await?;
+        import_legacy_sources(database.pool(), None).await?;
         Ok(Self::from_database(config, database))
     }
 
@@ -66,6 +70,7 @@ impl AppServices {
             .with_default_workspace_dir(config.workspace_dir.clone())
             .with_current_skills(current_skills.clone());
         let memory = MemoryService::new(database.pool().clone());
+        let bounded_memory = BoundedMemoryService::new(database.pool().clone());
         let tasks = TaskService::new(database.pool().clone());
         let mcp = McpService::new(database.pool().clone());
         let cloud = CloudService::new(database.pool().clone());
@@ -103,6 +108,7 @@ impl AppServices {
             conversation,
             current_skills,
             memory,
+            bounded_memory,
             tasks,
             mcp,
             cloud,
