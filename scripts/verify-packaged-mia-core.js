@@ -32,11 +32,19 @@ function rustCoreBinaryName(platform = process.platform) {
   return normalizePlatform(platform) === "win32" ? "mia-core.exe" : "mia-core";
 }
 
-function canRunTargetArch({ arch = "", hostArch = os.arch(), platform = process.platform } = {}) {
+function canRunTargetArch({
+  arch = "",
+  hostArch = os.arch(),
+  platform = process.platform,
+  hostPlatform = process.platform
+} = {}) {
   const targetArch = normalizeArch(arch);
   const currentArch = normalizeArch(hostArch);
+  const targetPlatform = normalizePlatform(platform) || platform;
+  const currentPlatform = normalizePlatform(hostPlatform) || hostPlatform;
+  if (targetPlatform !== currentPlatform) return false;
   if (!targetArch || targetArch === currentArch) return true;
-  if (normalizePlatform(platform) !== "darwin") return true;
+  if (targetPlatform !== "darwin") return true;
   return false;
 }
 
@@ -78,12 +86,22 @@ function macAppCandidates(rootDir, arch = "") {
   return candidates;
 }
 
-function resolvePackagedAppPath({ rootDir = root, appPath = "", arch = "" } = {}) {
+function resolvePackagedAppPath({ rootDir = root, appPath = "", arch = "", platform = process.platform } = {}) {
   if (appPath) return path.resolve(appPath);
+  const targetPlatform = normalizePlatform(platform) || platform;
+  const releaseDir = path.join(rootDir, "release");
+  if (targetPlatform === "win32") {
+    for (const candidate of [
+      path.join(releaseDir, "win-unpacked"),
+      path.join(releaseDir, "win-x64-unpacked")
+    ]) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    return "";
+  }
   for (const candidate of macAppCandidates(rootDir, normalizeArch(arch))) {
     if (fs.existsSync(candidate)) return candidate;
   }
-  const releaseDir = path.join(rootDir, "release");
   if (!fs.existsSync(releaseDir)) return "";
   const entries = fs.readdirSync(releaseDir, { withFileTypes: true });
   for (const entry of entries) {
@@ -94,14 +112,17 @@ function resolvePackagedAppPath({ rootDir = root, appPath = "", arch = "" } = {}
   return "";
 }
 
-function resourcesForApp(appPath) {
+function resourcesForApp(appPath, platform = process.platform) {
+  if ((normalizePlatform(platform) || platform) === "win32") {
+    return path.join(appPath, "resources");
+  }
   return path.join(appPath, "Contents", "Resources");
 }
 
 function collectRequiredPaths(appPath, { platform = process.platform, arch = "" } = {}) {
   const targetPlatform = normalizePlatform(platform) || platform;
   const targetArch = normalizeArch(arch) || defaultTargetArch();
-  const resourcesPath = resourcesForApp(appPath);
+  const resourcesPath = resourcesForApp(appPath, targetPlatform);
   const packageJsonPath = path.join(resourcesPath, "app.asar.unpacked", "package.json");
   const corePath = path.join(
     resourcesPath,
@@ -166,15 +187,16 @@ async function verifyPackagedMiaCore({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetchImpl = fetch,
   hostArch = os.arch(),
-  platform = process.platform
+  platform = process.platform,
+  hostPlatform = process.platform
 } = {}) {
   const targetPlatform = normalizePlatform(platform) || platform;
   const targetArch = normalizeArch(arch) || defaultTargetArch();
-  const resolvedAppPath = resolvePackagedAppPath({ rootDir, appPath, arch: targetArch });
+  const resolvedAppPath = resolvePackagedAppPath({ rootDir, appPath, arch: targetArch, platform: targetPlatform });
   if (!resolvedAppPath) {
     return {
       ok: false,
-      error: `Unable to find packaged Mia.app under ${path.join(rootDir, "release")}`
+      error: `Unable to find packaged Mia application under ${path.join(rootDir, "release")}`
     };
   }
 
@@ -193,13 +215,18 @@ async function verifyPackagedMiaCore({
     };
   }
 
-  if (!canRunTargetArch({ arch: targetArch, hostArch, platform: targetPlatform })) {
+  if (!canRunTargetArch({
+    arch: targetArch,
+    hostArch,
+    platform: targetPlatform,
+    hostPlatform
+  })) {
     return {
       ok: true,
       appPath: resolvedAppPath,
       corePath: paths.corePath,
       skippedRuntimeProbe: true,
-      reason: `skipped runtime probe because target arch ${targetArch} cannot run on ${hostArch} ${targetPlatform}`
+      reason: `skipped runtime probe because target ${targetPlatform}-${targetArch} cannot run on ${hostPlatform}-${hostArch}`
     };
   }
 
@@ -267,6 +294,7 @@ async function verifyPackagedMiaCore({
 async function main(argv = process.argv.slice(2)) {
   let appPath = "";
   let arch = "";
+  let platform = "";
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--app") {
@@ -277,10 +305,15 @@ async function main(argv = process.argv.slice(2)) {
     if (value === "--arch") {
       arch = argv[index + 1] || "";
       index += 1;
+      continue;
+    }
+    if (value === "--platform") {
+      platform = argv[index + 1] || "";
+      index += 1;
     }
   }
 
-  const result = await verifyPackagedMiaCore({ appPath, arch });
+  const result = await verifyPackagedMiaCore({ appPath, arch, platform: platform || process.platform });
   if (!result.ok) {
     const detail = [result.error, result.stderr, result.stdout].filter(Boolean).join("\n").trim();
     process.stderr.write(`packaged Mia Core verification failed: ${detail}\n`);

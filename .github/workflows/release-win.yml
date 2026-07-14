@@ -1,13 +1,7 @@
-# Build and publish the Windows in-app update feed when a v* tag is pushed.
-#
-# Why a Windows runner: the NSIS installer and the win-x64 Hermes runtime must
-# be produced on a native Windows x86_64 host — scripts/build-hermes-runtime.sh
-# refuses to cross-build (it pip-installs hermes-agent for the host arch only),
-# and the runner's git-bash satisfies its `bash` shebang.
-#
-# macOS is unchanged: you still build + sign + publish it locally with
-# `npm run release:mac:publish`. Both publish to the same `v<version>` GitHub
-# release — a mac client reads latest-mac.yml, a Windows client reads latest.yml.
+# Build Mia Core and the Windows installer on a native GitHub-hosted Windows
+# runner, then attach the Windows update feed to the matching GitHub release.
+# No developer-owned Windows machine or pre-published Windows Core archive is
+# required.
 #
 # Signing is intentionally not configured yet: NSIS auto-update works unsigned;
 # unsigned installs just show a first-run SmartScreen warning. Add cert secrets
@@ -19,10 +13,21 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing v* tag/release to publish (for example v0.1.45)"
+        required: true
+        type: string
+      source_ref:
+        description: "Source ref to build; its package version must match release_tag"
+        required: true
+        default: "main"
+        type: string
 
 # Never run two publishers against the same tag at once.
 concurrency:
-  group: release-win-${{ github.ref }}
+  group: release-win-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -31,20 +36,88 @@ permissions:
 jobs:
   build-publish:
     runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\.cargo\registry
+            ~\.cargo\git
+            target
+          key: windows-rust-${{ hashFiles('Cargo.lock') }}
+
+      - name: Validate release target
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ("v$version" -ne $env:RELEASE_TAG) {
+            throw "package.json version $version does not match release tag $env:RELEASE_TAG"
+          }
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Build Windows installer
-        run: npm run dist:win
+      - name: Build Mia Core for Windows
+        run: cargo build --release --locked -p mia-core-app --bin mia-core
 
-      - name: Publish update feed to GitHub release
+      - name: Build and verify Windows installer
+        run: npm run dist:win
+        env:
+          MIA_CORE_RS_BIN: ${{ github.workspace }}/target/release/mia-core.exe
+
+      - name: Stage Windows update feed
         run: node scripts/publish-win-update.js
+
+      - name: Preserve Windows checksum manifest
+        shell: pwsh
+        run: Copy-Item dist/mia-updates/SHA256SUMS dist/mia-updates/SHA256SUMS-WINDOWS -Force
+
+      - name: Save Windows build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mia-${{ env.RELEASE_TAG }}-Windows
+          path: dist/mia-updates/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Windows assets to GitHub release
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -ne 0) {
+            $version = node -p "require('./package.json').version"
+            gh release create $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --verify-tag --title "Mia $version" --generate-notes
+            if ($LASTEXITCODE -ne 0) { throw "failed to create release $env:RELEASE_TAG" }
+          }
+
+          $assets = @(
+            Get-ChildItem dist/mia-updates -File |
+              Where-Object { $_.Name -ne "SHA256SUMS" } |
+              ForEach-Object { $_.FullName }
+          )
+          if ($assets.Count -ne 4) {
+            throw "expected four Windows release assets, found $($assets.Count): $($assets -join ', ')"
+          }
+          gh release upload $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --clobber @assets
+          if ($LASTEXITCODE -ne 0) { throw "failed to upload Windows release assets" }

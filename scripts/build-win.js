@@ -21,4 +21,13 @@ function run(command, args) {
 
 run(process.execPath, [path.join(root, "scripts", "clean-release.js")]);
 run(process.execPath, [electronBuilderCli, "--win", "nsis", "--publish", "never"]);
+run(process.execPath, [
+  path.join(root, "scripts", "verify-packaged-mia-core.js"),
+  "--app",
+  path.join(root, "release", "win-unpacked"),
+  "--arch",
+  "x64",
+  "--platform",
+  "win32"
+]);
 run(process.execPath, [path.join(root, "scripts", "clean-release.js"), "--tidy"]);

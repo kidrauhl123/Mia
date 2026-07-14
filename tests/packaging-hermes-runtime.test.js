@@ -163,9 +163,27 @@ test("desktop packaging scripts clean stale release artifacts before building", 
   assert.match(winBuilder, /clean-release\.js/);
   assert.match(winBuilder, /electron-builder/);
   assert.match(winBuilder, /"--win", "nsis", "--publish", "never"/);
+  assert.match(winBuilder, /verify-packaged-mia-core\.js/);
+  assert.match(winBuilder, /"--platform",\s+"win32"/);
   assert.match(winBuilder, /"--tidy"/);
   assert.match(winBuilder, /ELECTRON_MIRROR/);
   assert.match(winBuilder, /ELECTRON_BUILDER_BINARIES_MIRROR/);
+});
+
+test("Windows release workflow builds Rust Core natively and publishes durable assets", () => {
+  const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "release-win.yml"), "utf8");
+
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /release_tag:/);
+  assert.match(workflow, /source_ref:/);
+  assert.match(workflow, /node-version:\s*"22"/);
+  assert.match(workflow, /rustup toolchain install stable --profile minimal/);
+  assert.match(workflow, /cargo build --release --locked -p mia-core-app --bin mia-core/);
+  assert.match(workflow, /MIA_CORE_RS_BIN:/);
+  assert.match(workflow, /target\/release\/mia-core\.exe/);
+  assert.match(workflow, /actions\/upload-artifact@v4/);
+  assert.match(workflow, /SHA256SUMS-WINDOWS/);
+  assert.match(workflow, /gh release upload/);
 });
 
 test("desktop package verification script exists as a standalone rerunnable gate", () => {
