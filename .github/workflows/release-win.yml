@@ -87,10 +87,6 @@ jobs:
       - name: Stage Windows update feed
         run: node scripts/publish-win-update.js
 
-      - name: Preserve Windows checksum manifest
-        shell: pwsh
-        run: Copy-Item dist/mia-updates/SHA256SUMS dist/mia-updates/SHA256SUMS-WINDOWS -Force
-
       - name: Save Windows build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -113,7 +109,6 @@ jobs:
 
           $assets = @(
             Get-ChildItem dist/mia-updates -File |
-              Where-Object { $_.Name -ne "SHA256SUMS" } |
               ForEach-Object { $_.FullName }
           )
           if ($assets.Count -ne 4) {

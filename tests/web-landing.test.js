@@ -77,9 +77,9 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(html, /href="\/downloads\/mia-macos-apple-silicon-latest\.dmg"/);
   assert.match(html, new RegExp(`download="Mia-${escapeRegExp(APP_VERSION)}-Apple-Silicon\\.dmg"`));
   assert.match(html, /href="\/downloads\/mia-macos-intel-latest\.dmg"/);
-  assert.match(html, /download="Mia-[0-9.]+-Intel\.dmg"/);
+  assert.match(html, new RegExp(`download="Mia-${escapeRegExp(APP_VERSION)}-Intel\\.dmg"`));
   assert.match(html, /href="\/downloads\/mia-windows-latest\.exe"/);
-  assert.match(html, /download="Mia-[0-9.]+-Setup\.exe"/);
+  assert.match(html, new RegExp(`download="Mia-${escapeRegExp(APP_VERSION)}-Setup\\.exe"`));
   assert.match(html, /href="\/downloads\/mia-android-latest\.apk"/);
   assert.match(html, /data-download-option="android"/);
   assert.match(html, /data-primary-download/);

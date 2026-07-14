@@ -116,6 +116,8 @@ test("desktop auto-update uses Mia generic update source instead of GitHub", () 
     assert.match(source, /\/var\/www\/mia-updates\//);
     assert.doesNotMatch(source, /gh\(["']release|github release/i);
   }
+  assert.match(winPublisher, /SHA256SUMS-WINDOWS/);
+  assert.doesNotMatch(winPublisher, /path\.join\(stageDir, "SHA256SUMS"\)/);
 });
 
 test("desktop packaging scripts clean stale release artifacts before building", () => {
@@ -182,7 +184,6 @@ test("Windows release workflow builds Rust Core natively and publishes durable a
   assert.match(workflow, /MIA_CORE_RS_BIN:/);
   assert.match(workflow, /target\/release\/mia-core\.exe/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
-  assert.match(workflow, /SHA256SUMS-WINDOWS/);
   assert.match(workflow, /gh release upload/);
 });
 

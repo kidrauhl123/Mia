@@ -69,7 +69,9 @@ const staged = feedPaths.map(copyArtifact);
 const checksumLines = staged
   .map((file) => `${sha256File(file)}  ${path.basename(file)}`)
   .join("\n") + "\n";
-fs.writeFileSync(path.join(stageDir, "SHA256SUMS"), checksumLines);
+// Keep this platform-specific: the macOS publisher writes SHA256SUMS in the
+// same shared update directory, so Windows must not overwrite that manifest.
+fs.writeFileSync(path.join(stageDir, "SHA256SUMS-WINDOWS"), checksumLines);
 
 console.log(`Mia Windows update feed staged: ${stageDir}`);
 console.log(`Update base URL: ${updateUrl}`);

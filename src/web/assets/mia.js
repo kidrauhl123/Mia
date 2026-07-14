@@ -43,7 +43,7 @@
     },
     windows: {
       href: '/downloads/mia-windows-latest.exe',
-      download: 'Mia-0.1.31-Setup.exe',
+      download: 'Mia-0.1.45-Setup.exe',
       label: '下载 Windows 版',
       shortLabel: 'Windows',
       icon: 'windows'
