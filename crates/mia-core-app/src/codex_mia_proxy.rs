@@ -357,6 +357,7 @@ struct StreamToolState {
     output_index: i64,
     item_id: String,
     call_id: String,
+    namespace: Option<String>,
     name: String,
     arguments: String,
 }
@@ -504,7 +505,9 @@ impl ResponseStreamState {
                 if let Some(name) = function.get("name").and_then(Value::as_str)
                     && !name.trim().is_empty()
                 {
-                    current.name = safe_tool_name(name);
+                    let tool = codex_tool_identity_from_chat_call(name);
+                    current.namespace = tool.namespace;
+                    current.name = tool.name;
                 }
                 if let Some(arguments) = function.get("arguments").and_then(Value::as_str)
                     && !arguments.is_empty()
@@ -526,19 +529,20 @@ impl ResponseStreamState {
             }
             current.output_index = output_index;
             current.item_id = format!("fc_{}", sanitize_id(&current.call_id));
+            let item = response_function_call_item(
+                &current.item_id,
+                "in_progress",
+                &current.call_id,
+                current.namespace.as_deref(),
+                &current.name,
+                "",
+            );
             frames.push(sse_frame(
                 "response.output_item.added",
                 json!({
                     "type": "response.output_item.added",
                     "output_index": current.output_index,
-                    "item": {
-                        "id": current.item_id,
-                        "type": "function_call",
-                        "status": "in_progress",
-                        "call_id": current.call_id,
-                        "name": current.name,
-                        "arguments": ""
-                    }
+                    "item": item
                 }),
             ));
         }
@@ -673,19 +677,20 @@ impl ResponseStreamState {
                 }
                 current.output_index = output_index;
                 current.item_id = format!("fc_{}", sanitize_id(&current.call_id));
+                let item = response_function_call_item(
+                    &current.item_id,
+                    "in_progress",
+                    &current.call_id,
+                    current.namespace.as_deref(),
+                    &current.name,
+                    "",
+                );
                 frames.push(sse_frame(
                     "response.output_item.added",
                     json!({
                         "type": "response.output_item.added",
                         "output_index": current.output_index,
-                        "item": {
-                            "id": current.item_id,
-                            "type": "function_call",
-                            "status": "in_progress",
-                            "call_id": current.call_id,
-                            "name": current.name,
-                            "arguments": ""
-                        }
+                        "item": item
                     }),
                 ));
             }
@@ -696,14 +701,14 @@ impl ResponseStreamState {
                 continue;
             }
             let arguments = canonical_json_string_from_str(&current.arguments);
-            let item = json!({
-                "id": current.item_id,
-                "type": "function_call",
-                "status": "completed",
-                "call_id": current.call_id,
-                "name": current.name,
-                "arguments": arguments
-            });
+            let item = response_function_call_item(
+                &current.item_id,
+                "completed",
+                &current.call_id,
+                current.namespace.as_deref(),
+                &current.name,
+                &arguments,
+            );
             self.output_items.push((current.output_index, item.clone()));
             current.done = true;
             frames.push(sse_frame(
@@ -990,12 +995,8 @@ fn response_function_call_to_chat_tool_call(item: &Value, index: usize) -> Value
     json!({
         "id": call_id,
         "type": "function",
-        "function": {
-            "name": safe_tool_name(
-                item.get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tool")
-            ),
+            "function": {
+            "name": chat_tool_name_from_response_call(item),
             "arguments": canonical_json_value(
                 item.get("arguments")
                     .or_else(|| item.get("input"))
@@ -1077,7 +1078,7 @@ fn response_tool_call_item_from_chat(tool_call: &Value, index: usize) -> Value {
         .map(str::to_string)
         .unwrap_or_else(|| format!("call_{index}"));
     let function = tool_call.get("function").unwrap_or(&Value::Null);
-    let name = safe_tool_name(
+    let tool = codex_tool_identity_from_chat_call(
         function
             .get("name")
             .or_else(|| tool_call.get("name"))
@@ -1090,14 +1091,14 @@ fn response_tool_call_item_from_chat(tool_call: &Value, index: usize) -> Value {
             .or_else(|| tool_call.get("arguments"))
             .unwrap_or(&Value::Object(Map::new())),
     );
-    json!({
-        "id": format!("fc_{}", sanitize_id(&call_id)),
-        "type": "function_call",
-        "status": "completed",
-        "call_id": call_id,
-        "name": name,
-        "arguments": arguments
-    })
+    response_function_call_item(
+        &format!("fc_{}", sanitize_id(&call_id)),
+        "completed",
+        &call_id,
+        tool.namespace.as_deref(),
+        &tool.name,
+        &arguments,
+    )
 }
 
 fn convert_response_tools(tools: Option<&Vec<Value>>) -> Option<Value> {
@@ -1160,7 +1161,7 @@ fn add_response_tool(out: &mut Vec<Value>, tool: &Value, namespace: &str) {
     let name = if namespace.trim().is_empty() {
         safe_tool_name(original_name)
     } else {
-        safe_tool_name(&format!("{namespace}_{original_name}"))
+        safe_tool_name(&namespaced_tool_name(namespace, original_name))
     };
     if name.is_empty() {
         return;
@@ -1464,6 +1465,99 @@ fn safe_tool_name(value: &str) -> String {
     out.chars().take(64).collect::<String>()
 }
 
+fn namespaced_tool_name(namespace: &str, name: &str) -> String {
+    let namespace = namespace.trim();
+    let name = name.trim();
+    format!("{namespace}__{name}")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CodexToolIdentity {
+    namespace: Option<String>,
+    name: String,
+}
+
+fn codex_tool_identity_from_chat_call(value: &str) -> CodexToolIdentity {
+    let name = safe_tool_name(value);
+    match name.as_str() {
+        "context_snapshot" | "memory" | "skill_list_current" | "skill_read_current" => {
+            CodexToolIdentity {
+                namespace: Some("mcp__mia_app".to_string()),
+                name,
+            }
+        }
+        _ if name.starts_with("mcp__mia_app_") && !name.starts_with("mcp__mia_app__") => {
+            let suffix = name.trim_start_matches("mcp__mia_app_");
+            CodexToolIdentity {
+                namespace: Some("mcp__mia_app".to_string()),
+                name: suffix.to_string(),
+            }
+        }
+        _ if name.starts_with("mcp__") => {
+            if let Some((namespace, tool_name)) = split_flat_mcp_tool_name(&name) {
+                CodexToolIdentity {
+                    namespace: Some(namespace),
+                    name: tool_name,
+                }
+            } else {
+                CodexToolIdentity {
+                    namespace: None,
+                    name,
+                }
+            }
+        }
+        _ => CodexToolIdentity {
+            namespace: None,
+            name,
+        },
+    }
+}
+
+fn split_flat_mcp_tool_name(name: &str) -> Option<(String, String)> {
+    let split_at = name.rfind("__")?;
+    if split_at <= "mcp".len() {
+        return None;
+    }
+    let namespace = name[..split_at].to_string();
+    let tool_name = name[split_at + 2..].to_string();
+    if namespace == "mcp" || tool_name.is_empty() {
+        return None;
+    }
+    Some((namespace, tool_name))
+}
+
+fn chat_tool_name_from_response_call(item: &Value) -> String {
+    let name = item.get("name").and_then(Value::as_str).unwrap_or("tool");
+    let Some(namespace) = item.get("namespace").and_then(Value::as_str) else {
+        return safe_tool_name(name);
+    };
+    safe_tool_name(&namespaced_tool_name(namespace, name))
+}
+
+fn response_function_call_item(
+    id: &str,
+    status: &str,
+    call_id: &str,
+    namespace: Option<&str>,
+    name: &str,
+    arguments: &str,
+) -> Value {
+    let mut item = json!({
+        "id": id,
+        "type": "function_call",
+        "status": status,
+        "call_id": call_id,
+        "name": name,
+        "arguments": arguments
+    });
+    if let Some(namespace) = namespace.filter(|value| !value.trim().is_empty())
+        && let Some(object) = item.as_object_mut()
+    {
+        object.insert("namespace".into(), json!(namespace));
+    }
+    item
+}
+
 fn sanitize_id(value: &str) -> String {
     value
         .chars()
@@ -1600,6 +1694,107 @@ mod tests {
         assert_eq!(converted["messages"][0]["role"], "system");
         assert_eq!(converted["messages"][1]["content"], "hello");
         assert_eq!(converted["tools"][0]["function"]["name"], "read_file");
+    }
+
+    #[test]
+    fn responses_request_flattens_mia_memory_tool_for_chat_completions() {
+        let body = json!({
+            "model": "ignored",
+            "input": "remember this",
+            "tools": [{
+                "type": "namespace",
+                "name": "mcp__mia_app",
+                "tools": [{
+                    "type": "function",
+                    "name": "memory",
+                    "parameters": { "type": "object" }
+                }]
+            }]
+        });
+
+        let converted = responses_to_chat_completions(&body, "mia-auto");
+
+        assert_eq!(
+            converted["tools"][0]["function"]["name"],
+            "mcp__mia_app__memory"
+        );
+    }
+
+    #[test]
+    fn chat_response_restores_namespaced_mia_memory_tool_for_codex() {
+        let response = chat_response_to_responses(
+            &json!({
+                "id": "chatcmpl_1",
+                "created": 123,
+                "model": "deepseek",
+                "choices": [{
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "memory",
+                                "arguments": "{\"action\":\"add\",\"target\":\"memory\",\"content\":\"code OAK271\"}"
+                            }
+                        }]
+                    }
+                }]
+            }),
+            "mia-auto",
+        );
+
+        assert_eq!(response["output"][0]["namespace"], "mcp__mia_app");
+        assert_eq!(response["output"][0]["name"], "memory");
+    }
+
+    #[test]
+    fn chat_response_restores_legacy_collapsed_mia_mcp_tool_name_for_codex() {
+        let response = chat_response_to_responses(
+            &json!({
+                "id": "chatcmpl_1",
+                "created": 123,
+                "model": "deepseek",
+                "choices": [{
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "mcp__mia_app_memory",
+                                "arguments": "{}"
+                            }
+                        }]
+                    }
+                }]
+            }),
+            "mia-auto",
+        );
+
+        assert_eq!(response["output"][0]["namespace"], "mcp__mia_app");
+        assert_eq!(response["output"][0]["name"], "memory");
+    }
+
+    #[test]
+    fn response_history_flattens_namespaced_tool_call_for_chat_completions() {
+        let body = json!({
+            "model": "ignored",
+            "input": [{
+                "type": "function_call",
+                "call_id": "call_1",
+                "namespace": "mcp__mia_app",
+                "name": "memory",
+                "arguments": "{\"action\":\"add\"}"
+            }]
+        });
+
+        let converted = responses_to_chat_completions(&body, "mia-auto");
+
+        assert_eq!(
+            converted["messages"][0]["tool_calls"][0]["function"]["name"],
+            "mcp__mia_app__memory"
+        );
     }
 
     #[test]

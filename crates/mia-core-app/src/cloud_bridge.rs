@@ -15,7 +15,7 @@ use mia_core_realtime::EventBus;
 use mia_core_runtime::{
     EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STDERR,
     EVENT_RUNTIME_STDOUT, RuntimeEventSink, RuntimeProtocol, RuntimeSessionManager,
-    RuntimeTurnPlan,
+    RuntimeTurnPlan, apply_memory_isolation_to_plan,
 };
 use mia_core_tasks::TaskService;
 use serde_json::{Value, json};
@@ -659,6 +659,7 @@ impl MiaRuntimeProxyRegistry {
             }
             _ => {}
         }
+        apply_memory_isolation_to_plan(plan);
         Ok(())
     }
 
@@ -1691,6 +1692,7 @@ mod tests {
                 conversation_id: "conv_runtime_plan".into(),
                 message_id: "msg_runtime_plan".into(),
                 bot_id: Some("bot_runtime_plan".into()),
+                memory_mode: mia_core_api_types::MemoryMode::Native,
                 engine: Some("mock-agent".into()),
                 previous_session_key: None,
                 workspace_dir: String::new(),

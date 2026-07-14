@@ -25,7 +25,7 @@ test("Mia context resource uses MCP tools without prompt-rendering memory", () =
   assert.equal(resource.skills.deliveryMode, "mcp");
   assert.deepEqual(resource.skills.toolNames, SKILL_TOOL_NAMES);
   assert.match(resource.mcp.snapshotInstruction, /context_snapshot/);
-  assert.match(resource.mcp.snapshotInstruction, /memory_search/);
+  assert.match(resource.mcp.snapshotInstruction, /memory_tools: memory/);
   assert.match(resource.mcp.snapshotInstruction, /bot: mei/);
   assert.doesNotMatch(resource.mcp.snapshotInstruction, /Mia runtime contract/);
 });

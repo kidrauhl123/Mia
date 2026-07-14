@@ -7,6 +7,7 @@ const {
   miaRuntimeSystemPrompt,
   sanitizeMiaMemorySpoof
 } = require("../main/mia-runtime-context.js");
+const { ENTRY_SEPARATOR } = require("../cloud/memory-document-store.js");
 const { resolveEffectiveSkillIds } = require("../../packages/shared/skill-defaults.js");
 
 const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "Hermes"];
@@ -171,40 +172,40 @@ function cloudSkillMaterialization({ bot = {}, message = {}, skillsCatalog = [],
   };
 }
 
-function listScopedMemories(memoryStore, ownerId, botId, sessionId, scope, limit) {
-  if (!memoryStore || typeof memoryStore.listMemories !== "function") return [];
+function splitMemoryDocumentText(text = "") {
+  return String(text || "")
+    .split(ENTRY_SEPARATOR)
+    .map((entry) => sanitizeMiaMemorySpoof(cleanText(entry)))
+    .filter(Boolean);
+}
+
+function visibleMemoryEntries({ memoryDocumentStore, ownerId = "", botId = "", limit = 36 } = {}) {
+  if (!memoryDocumentStore || typeof memoryDocumentStore.listDocuments !== "function") return [];
+  const perScopeLimit = Math.max(1, Math.min(120, Math.trunc(Number(limit) || 36)));
+  let documents = [];
   try {
-    return memoryStore.listMemories(ownerId, {
-      botId,
-      sessionId,
-      scope,
-      limit
-    });
+    const result = memoryDocumentStore.listDocuments(ownerId, { limit: 500 });
+    documents = Array.isArray(result?.documents) ? result.documents : [];
   } catch {
     return [];
   }
-}
-
-function visibleMemoryEntries({ memoryStore, ownerId = "", botId = "", sessionId = "", limit = 36 } = {}) {
-  const perScopeLimit = Math.max(1, Math.min(120, Math.trunc(Number(limit) || 36)));
-  const entries = [];
-  for (const scope of ["user", "bot", "session"]) {
-    entries.push(...listScopedMemories(memoryStore, ownerId, botId, sessionId, scope, perScopeLimit));
-  }
   const seen = new Set();
   const out = [];
-  for (const entry of entries) {
-    const text = sanitizeMiaMemorySpoof(cleanText(entry?.text || ""));
-    if (!text) continue;
-    const key = text.toLowerCase().replace(/\s+/g, " ");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
-      id: cleanText(entry?.id || ""),
-      scope: ["user", "bot", "session"].includes(entry?.scope) ? entry.scope : "bot",
-      text
-    });
-    if (out.length >= perScopeLimit) break;
+  for (const document of documents) {
+    if (document?.deletedAt) continue;
+    const target = cleanText(document?.target || "");
+    if (target === "memory" && cleanText(document?.botId || "") !== botId) continue;
+    if (target !== "user" && target !== "memory") continue;
+    for (const text of splitMemoryDocumentText(document?.text || "")) {
+      const key = text.toLowerCase().replace(/\s+/g, " ");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        scope: target === "user" ? "user" : "bot",
+        text
+      });
+      if (out.length >= perScopeLimit) return out;
+    }
   }
   return out;
 }
@@ -271,7 +272,11 @@ function cloudMcpRoot(worker = {}) {
     || path.join(os.tmpdir(), "mia-cloud-mcp");
 }
 
-function writeCloudMcpContext({ worker = {}, ownerId = "", botId = "", conversationId = "", message = {}, enabledIds = [], skills = [], memories = [] } = {}) {
+function normalizeMemoryMode(value = "") {
+  return cleanText(value || "").toLowerCase() === "native" ? "native" : "mia";
+}
+
+function writeCloudMcpContext({ worker = {}, ownerId = "", botId = "", conversationId = "", message = {}, enabledIds = [], skills = [], memoryMode = "mia" } = {}) {
   const dir = path.join(cloudMcpRoot(worker), "mia-cloud-mcp", safePathSegment(ownerId, "user"), safePathSegment(conversationId, "conversation"));
   fs.mkdirSync(dir, { recursive: true });
   const contextPath = path.join(dir, "context.json");
@@ -281,9 +286,9 @@ function writeCloudMcpContext({ worker = {}, ownerId = "", botId = "", conversat
     conversationId,
     sessionId: conversationId,
     originMessageId: cleanText(message?.id || ""),
+    memoryMode: normalizeMemoryMode(memoryMode),
     enabledSkillIds: enabledIds,
     skills,
-    memories,
     generatedAt: new Date().toISOString()
   };
   fs.writeFileSync(contextPath, JSON.stringify(payload, null, 2) + "\n", { mode: 0o600 });
@@ -311,6 +316,7 @@ function assembleCloudRuntimeTurn(args = {}) {
   const ownerId = cleanText(args.ownerId || args.userId || "");
   const botId = cleanText(args.botId || args.bot?.id || args.bot?.key || "");
   const conversationId = cleanText(args.conversationId || "");
+  const memoryMode = normalizeMemoryMode(args.memoryMode || args.memory_mode);
   const requestedSkillIds = Array.isArray(args.requestedSkillIds) ? args.requestedSkillIds : [];
   const skills = cloudSkillMaterialization({
     bot: args.bot,
@@ -319,14 +325,13 @@ function assembleCloudRuntimeTurn(args = {}) {
     requestedSkillIds
   });
   const memories = visibleMemoryEntries({
-    memoryStore: args.memoryStore,
+    memoryDocumentStore: args.memoryDocumentStore,
     ownerId,
     botId,
-    sessionId: conversationId,
     limit: args.memoryLimit
   });
-  const memoryBlock = buildMemoryBlock(memories);
-  const promptPrefix = "";
+  const memoryBlock = memoryMode === "mia" ? buildMemoryBlock(memories) : "";
+  const promptPrefix = memoryMode === "mia" && args.includeMemorySnapshot === true ? memoryBlock : "";
   const nativeSkills = materializeNativeCloudSkills({
     worker: args.worker,
     botId,
@@ -342,7 +347,7 @@ function assembleCloudRuntimeTurn(args = {}) {
     message: args.message,
     enabledIds,
     skills: skills.availableSkills,
-    memories
+    memoryMode
   });
   const cloudBaseUrl = resolveCloudBaseUrl(args.cloudBaseUrl, args);
   const cloudToken = resolveCloudSessionToken(args.createCloudSessionToken, ownerId);

@@ -27,7 +27,7 @@ use dashmap::DashMap;
 use mia_core_api_types::{
     AcpRuntimeControl, AcpRuntimeControlChoice, AcpRuntimeControlSnapshot,
     AgentPermissionListResponse, AgentPermissionPendingRequest, AgentPermissionRespondRequest,
-    AgentPermissionRespondResponse, AgentPermissionRule,
+    AgentPermissionRespondResponse, AgentPermissionRule, MemoryMode,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -39,7 +39,8 @@ use uuid::Uuid;
 
 use crate::{
     EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STARTED, RuntimeCancellation, RuntimeCommand,
-    RuntimeEventSink, RuntimeExecutionResult, RuntimeProcessEvent, RuntimeTurnPlan,
+    RuntimeEventSink, RuntimeExecutionResult, RuntimeInitialPromptProvider, RuntimeProcessEvent,
+    RuntimeTurnPlan,
 };
 
 const ACP_INIT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -370,6 +371,14 @@ impl NativeAcpSessionManager {
         }
     }
 
+    pub fn real_with_initial_prompt_provider(
+        provider: Arc<dyn RuntimeInitialPromptProvider>,
+    ) -> Self {
+        Self {
+            backend: Arc::new(RealNativeAcpBackend::with_initial_prompt_provider(provider)),
+        }
+    }
+
     pub fn unavailable() -> Self {
         Self {
             backend: Arc::new(UnavailableNativeAcpBackend),
@@ -420,10 +429,24 @@ impl NativeAcpSessionManager {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct RealNativeAcpBackend {
     tasks: DashMap<String, Arc<Mutex<NativeAcpTask>>>,
     permissions: NativeAcpPermissionBroker,
+    initial_prompt_provider: Option<Arc<dyn RuntimeInitialPromptProvider>>,
+}
+
+impl std::fmt::Debug for RealNativeAcpBackend {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RealNativeAcpBackend")
+            .field("tasks", &self.tasks.len())
+            .field(
+                "has_initial_prompt_provider",
+                &self.initial_prompt_provider.is_some(),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 #[async_trait]
@@ -502,6 +525,13 @@ impl NativeAcpBackend for RealNativeAcpBackend {
 }
 
 impl RealNativeAcpBackend {
+    fn with_initial_prompt_provider(provider: Arc<dyn RuntimeInitialPromptProvider>) -> Self {
+        Self {
+            initial_prompt_provider: Some(provider),
+            ..Self::default()
+        }
+    }
+
     async fn send_message_inner(
         &self,
         plan: RuntimeTurnPlan,
@@ -567,7 +597,12 @@ impl RealNativeAcpBackend {
         }
 
         let task = Arc::new(Mutex::new(
-            NativeAcpTask::spawn(plan, self.permissions.clone()).await?,
+            NativeAcpTask::spawn(
+                plan,
+                self.permissions.clone(),
+                self.initial_prompt_provider.clone(),
+            )
+            .await?,
         ));
         let entry = self.tasks.entry(key.to_string()).or_insert(task);
         Ok(entry.clone())
@@ -636,6 +671,30 @@ fn resumable_session_id(plan: &RuntimeTurnPlan) -> Option<SessionId> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| SessionId::new(value.to_string()))
+}
+
+fn join_initial_prompt(prefix: &str, user_content: &str) -> String {
+    if prefix.trim().is_empty() {
+        return user_content.to_string();
+    }
+    if user_content.is_empty() {
+        return prefix.to_string();
+    }
+    format!("{prefix}\n\n{user_content}")
+}
+
+async fn pending_initial_prompt_for_new_session(
+    plan: &RuntimeTurnPlan,
+    provider: Option<&Arc<dyn RuntimeInitialPromptProvider>>,
+) -> Result<Option<String>> {
+    if plan.memory_mode != MemoryMode::Mia {
+        return Ok(None);
+    }
+    let Some(provider) = provider else {
+        return Ok(None);
+    };
+    let prefix = provider.initial_prompt(plan).await?;
+    Ok((!prefix.trim().is_empty()).then_some(prefix))
 }
 
 fn capabilities_support_session_resume(capabilities: &AgentCapabilities) -> bool {
@@ -895,6 +954,7 @@ struct NativeAcpSessionState {
     models: Option<SessionModelState>,
     modes: Option<SessionModeState>,
     config_options: Option<Vec<SessionConfigOption>>,
+    pending_initial_prompt_prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -918,6 +978,17 @@ impl NativeAcpSessionState {
         self.models = response.models;
         self.modes = response.modes;
         self.config_options = response.config_options;
+    }
+
+    fn clear_pending_initial_prompt(&mut self) {
+        self.pending_initial_prompt_prefix = None;
+    }
+
+    fn take_initial_prompt_for(&mut self, user_content: &str) -> Option<String> {
+        if user_content.trim().is_empty() {
+            return None;
+        }
+        self.pending_initial_prompt_prefix.take()
     }
 
     fn apply_session_notification(&mut self, notification: &SessionNotification) {
@@ -1117,7 +1188,6 @@ fn control_from_legacy_modes(modes: &SessionModeState) -> AcpRuntimeControl {
     }
 }
 
-#[derive(Debug)]
 struct NativeAcpTask {
     protocol: AcpProtocol,
     _child: Child,
@@ -1126,6 +1196,21 @@ struct NativeAcpTask {
     session_state: SharedSessionState,
     workspace_dir: PathBuf,
     platform_model_applied: Option<String>,
+    initial_prompt_provider: Option<Arc<dyn RuntimeInitialPromptProvider>>,
+}
+
+impl std::fmt::Debug for NativeAcpTask {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("NativeAcpTask")
+            .field("workspace_dir", &self.workspace_dir)
+            .field("platform_model_applied", &self.platform_model_applied)
+            .field(
+                "has_initial_prompt_provider",
+                &self.initial_prompt_provider.is_some(),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 type SharedSessionState = Arc<StdMutex<NativeAcpSessionState>>;
@@ -1134,6 +1219,7 @@ impl NativeAcpTask {
     async fn spawn(
         plan: &RuntimeTurnPlan,
         permission_broker: NativeAcpPermissionBroker,
+        initial_prompt_provider: Option<Arc<dyn RuntimeInitialPromptProvider>>,
     ) -> Result<Self> {
         let command = plan
             .command
@@ -1183,6 +1269,7 @@ impl NativeAcpTask {
             session_state,
             workspace_dir,
             platform_model_applied: None,
+            initial_prompt_provider,
         })
     }
 
@@ -1208,9 +1295,15 @@ impl NativeAcpTask {
             accumulated_text: accumulated_text.clone(),
         }));
 
-        let prompt = self
-            .protocol
-            .prompt(session_id.clone(), plan.send_message.content.clone());
+        let initial_prompt_prefix = self
+            .session_state
+            .lock()
+            .unwrap()
+            .take_initial_prompt_for(&plan.send_message.content)
+            .unwrap_or_default();
+        let prompt_content =
+            join_initial_prompt(&initial_prompt_prefix, &plan.send_message.content);
+        let prompt = self.protocol.prompt(session_id.clone(), prompt_content);
         tokio::pin!(prompt);
 
         let mut cancelled = false;
@@ -1344,6 +1437,7 @@ impl NativeAcpTask {
                     state.models = response.models;
                     state.modes = response.modes;
                     state.config_options = response.config_options;
+                    state.clear_pending_initial_prompt();
                     return Ok(session_id);
                 }
                 Err(error) if is_stale_session_error(&error) => {
@@ -1361,7 +1455,19 @@ impl NativeAcpTask {
             .lock()
             .unwrap()
             .apply_new_session_response(response);
+        self.load_pending_initial_prompt(plan).await?;
         Ok(session_id)
+    }
+
+    async fn load_pending_initial_prompt(&self, plan: &RuntimeTurnPlan) -> Result<()> {
+        let prefix =
+            pending_initial_prompt_for_new_session(plan, self.initial_prompt_provider.as_ref())
+                .await?;
+        self.session_state
+            .lock()
+            .unwrap()
+            .pending_initial_prompt_prefix = prefix;
+        Ok(())
     }
 
     fn control_snapshot(&self, plan: &RuntimeTurnPlan) -> AcpRuntimeControlSnapshot {
@@ -2329,6 +2435,7 @@ mod tests {
             turn_id: "turn_test".into(),
             conversation_id: "conv_test".into(),
             bot_id: Some("bot_test".into()),
+            memory_mode: MemoryMode::Native,
             engine: "codex".into(),
             workspace_dir: ".".into(),
             protocol: RuntimeProtocol::NativeAcp,
@@ -2535,6 +2642,76 @@ mod tests {
             resumable_session_id(&plan).map(|session_id| session_id.to_string()),
             Some("acp-session-1".into())
         );
+    }
+
+    #[test]
+    fn initial_prompt_prefix_is_taken_once_by_the_first_non_empty_turn() {
+        let mut state = NativeAcpSessionState {
+            pending_initial_prompt_prefix: Some("frozen memory".into()),
+            ..NativeAcpSessionState::default()
+        };
+
+        assert_eq!(state.take_initial_prompt_for("   "), None);
+        assert_eq!(
+            state.take_initial_prompt_for("hello"),
+            Some("frozen memory".into())
+        );
+        assert_eq!(state.take_initial_prompt_for("again"), None);
+        assert_eq!(
+            join_initial_prompt("frozen memory", "hello"),
+            "frozen memory\n\nhello"
+        );
+        assert_eq!(join_initial_prompt("", "hello"), "hello");
+    }
+
+    #[test]
+    fn resumed_session_clears_any_pending_initial_prompt() {
+        let mut state = NativeAcpSessionState {
+            pending_initial_prompt_prefix: Some("stale memory".into()),
+            ..NativeAcpSessionState::default()
+        };
+
+        state.clear_pending_initial_prompt();
+
+        assert_eq!(state.take_initial_prompt_for("hello"), None);
+    }
+
+    #[tokio::test]
+    async fn fresh_session_loads_initial_prompt_only_for_mia_mode() {
+        #[derive(Default)]
+        struct CountingProvider {
+            calls: std::sync::atomic::AtomicUsize,
+        }
+
+        #[async_trait]
+        impl RuntimeInitialPromptProvider for CountingProvider {
+            async fn initial_prompt(&self, _plan: &RuntimeTurnPlan) -> Result<String> {
+                self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok("latest frozen memory".into())
+            }
+        }
+
+        let provider = Arc::new(CountingProvider::default());
+        let provider_trait: Arc<dyn RuntimeInitialPromptProvider> = provider.clone();
+        let mut mia_plan = native_acp_test_plan();
+        mia_plan.memory_mode = MemoryMode::Mia;
+
+        assert_eq!(
+            pending_initial_prompt_for_new_session(&mia_plan, Some(&provider_trait))
+                .await
+                .unwrap(),
+            Some("latest frozen memory".into())
+        );
+        assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        let native_plan = native_acp_test_plan();
+        assert_eq!(
+            pending_initial_prompt_for_new_session(&native_plan, Some(&provider_trait))
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]

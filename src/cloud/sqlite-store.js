@@ -1239,6 +1239,25 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_memory_entries_scope ON memory_entries(user_id, scope, bot_id, session_id);
     CREATE INDEX IF NOT EXISTS idx_memory_entries_deleted ON memory_entries(user_id, deleted_at);
 
+    -- Account-owned, whole-document memory sync. This intentionally remains
+    -- separate from the legacy memory_entries model and its API.
+    CREATE TABLE IF NOT EXISTS memory_documents (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      bot_id TEXT NOT NULL DEFAULT '',
+      target TEXT NOT NULL CHECK(target IN ('user', 'memory')),
+      text TEXT NOT NULL DEFAULT '',
+      revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY(user_id, bot_id, target),
+      CHECK(
+        (target = 'user' AND bot_id = '') OR
+        (target = 'memory' AND bot_id <> '')
+      )
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_documents_user_updated
+      ON memory_documents(user_id, updated_at, target, bot_id);
+
     CREATE TABLE IF NOT EXISTS memory_events (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

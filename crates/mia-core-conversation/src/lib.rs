@@ -1696,6 +1696,23 @@ impl ConversationService {
         })
     }
 
+    pub async fn plan_user_turn_preflight(
+        &self,
+        conversation_id: &str,
+        request: &SendConversationMessageRequest,
+    ) -> Result<RuntimeTurnPlan, sqlx::Error> {
+        let conversation = self.get_conversation(conversation_id).await?.conversation;
+        let origin_message_id = format!("preflight_{}", Uuid::now_v7().simple());
+        self.build_runtime_turn_plan(
+            &conversation,
+            &origin_message_id,
+            &request.body,
+            &request.attachments,
+            &request.selected_skill_ids,
+        )
+        .await
+    }
+
     pub async fn plan_internal_turn(
         &self,
         conversation_id: &str,
@@ -1761,12 +1778,14 @@ impl ConversationService {
             provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
             &runtime_config,
         );
+        let memory_mode = conversation_memory_mode(conversation);
         let mcp_servers = mcp_servers_for_turn(
             &self.pool,
             &self.core_base_url,
             conversation.bot_id.as_deref().unwrap_or_default(),
             &conversation.id,
             origin_message_id,
+            memory_mode,
         )
         .await?;
         let body = prepend_selected_skill_paths(
@@ -1779,6 +1798,7 @@ impl ConversationService {
             conversation_id: conversation.id.clone(),
             message_id: origin_message_id.to_string(),
             bot_id: conversation.bot_id.clone(),
+            memory_mode,
             engine,
             previous_session_key: runtime_session_key_from_metadata(&conversation.metadata),
             workspace_dir,
@@ -1822,12 +1842,14 @@ impl ConversationService {
             bot_id.as_deref().unwrap_or_default(),
             &utility_conversation_id,
             &message_id,
+            MemoryMode::Native,
         )
         .await?;
         Ok(self.runtime.build_turn_plan(RuntimeTurnInput {
             conversation_id: utility_conversation_id,
             message_id,
             bot_id,
+            memory_mode: MemoryMode::Native,
             engine,
             previous_session_key: None,
             workspace_dir: String::new(),
@@ -1851,18 +1873,21 @@ impl ConversationService {
             provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
             &runtime_config,
         );
+        let memory_mode = conversation_memory_mode(&conversation);
         let mcp_servers = mcp_servers_for_turn(
             &self.pool,
             &self.core_base_url,
             conversation.bot_id.as_deref().unwrap_or_default(),
             conversation_id,
             "",
+            memory_mode,
         )
         .await?;
         Ok(self.runtime.build_turn_plan(RuntimeTurnInput {
             conversation_id: conversation_id.to_string(),
             message_id: format!("runtime_prepare_{}", Uuid::now_v7().simple()),
             bot_id: conversation.bot_id,
+            memory_mode,
             engine,
             previous_session_key: runtime_session_key_from_metadata(&conversation.metadata),
             workspace_dir: workspace_from_metadata(
@@ -2441,6 +2466,7 @@ async fn mcp_servers_for_turn(
     bot_id: &str,
     conversation_id: &str,
     origin_message_id: &str,
+    memory_mode: MemoryMode,
 ) -> Result<Value, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT name, config_json FROM mcp_servers \
@@ -2471,6 +2497,7 @@ async fn mcp_servers_for_turn(
         bot_id,
         conversation_id,
         origin_message_id,
+        memory_mode,
     )
     .await?
     {
@@ -2488,6 +2515,7 @@ async fn builtin_mia_mcp_spec(
     bot_id: &str,
     conversation_id: &str,
     origin_message_id: &str,
+    memory_mode: MemoryMode,
 ) -> Result<Option<Value>, sqlx::Error> {
     let core_base_url = clean_text(core_base_url);
     if core_base_url.is_empty() {
@@ -2514,6 +2542,7 @@ async fn builtin_mia_mcp_spec(
             "MIA_BOT_ID": clean_text(bot_id),
             "MIA_CONVERSATION_ID": clean_text(conversation_id),
             "MIA_ORIGIN_MESSAGE_ID": clean_text(origin_message_id),
+            "MIA_MEMORY_MODE": memory_mode_name(memory_mode),
         }
     })))
 }

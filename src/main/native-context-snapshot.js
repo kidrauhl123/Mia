@@ -49,7 +49,7 @@ function contextSnapshotInstruction({ engine = "", botId = "", sessionId = "" } 
     "## Mia Scoped Context",
     "tool: mia-app.context_snapshot",
     "scope: current bot + current session only",
-    "memory_tools: memory_search, memory_list, memory_remember, memory_update, memory_forget",
+    "memory_tools: memory",
     "skill_tools: skill_list_current, skill_read_current"
   ];
   if (engine) lines.push(`engine: ${String(engine)}`);

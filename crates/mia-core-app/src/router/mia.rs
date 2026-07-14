@@ -5,11 +5,10 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use mia_core_api_types::{
-    BotSummary, MiaContextSnapshotResponse, MiaMemoryMutationRequest, MiaMemoryMutationResponse,
-    MiaMemorySearchRequest, MiaMemorySearchResponse, MiaMemoryToolNames, MiaSkillToolNames,
+    BotSummary, MemoryMode, MiaContextSnapshotResponse, MiaMemoryToolNames, MiaMemoryToolRequest,
+    MiaSkillToolNames,
 };
-use mia_core_conversation::CurrentSkillError;
-use mia_core_memory::{disabled_mutation_response, disabled_search_response};
+use mia_core_conversation::{CurrentSkillError, conversation_memory_mode};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -19,9 +18,7 @@ use super::state::ModuleStates;
 #[serde(rename_all = "camelCase")]
 pub struct MiaContextQuery {
     #[serde(default)]
-    bot_id: Option<String>,
-    #[serde(default)]
-    session_id: Option<String>,
+    conversation_id: Option<String>,
     #[serde(default)]
     origin_message_id: Option<String>,
 }
@@ -38,9 +35,35 @@ pub struct MiaCurrentSkillQuery {
 pub async fn mia_context_snapshot(
     State(states): State<ModuleStates>,
     Query(query): Query<MiaContextQuery>,
-) -> Json<MiaContextSnapshotResponse> {
-    let bot_id = clean_or_default(query.bot_id.as_deref(), "mia");
-    let session_id = clean_or_default(query.session_id.as_deref(), "default");
+) -> impl IntoResponse {
+    let conversation_id = clean_or_default(query.conversation_id.as_deref(), "");
+    if conversation_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "conversation_id_required" })),
+        )
+            .into_response();
+    }
+    let conversation = match states.conversation.get_conversation(&conversation_id).await {
+        Ok(response) => response.conversation,
+        Err(sqlx::Error::RowNotFound) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "conversation_not_found" })),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            tracing::error!(conversation_id, error = %error, "[MiaContext] failed to read conversation");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "context_snapshot_failed" })),
+            )
+                .into_response();
+        }
+    };
+    let memory_mode = conversation_memory_mode(&conversation);
+    let bot_id = conversation.bot_id.clone().unwrap_or_default();
     let origin_message_id = query.origin_message_id.unwrap_or_default();
     let bot = states
         .bot
@@ -55,33 +78,24 @@ pub async fn mia_context_snapshot(
         .ok()
         .and_then(|response| first_string(&response.settings, &["userId", "user_id"]))
         .unwrap_or_else(|| "local".to_string());
-    let memory_enabled = states
-        .system
-        .memory_settings()
-        .await
-        .map(|settings| settings.enabled)
-        .unwrap_or(true);
-
     Json(MiaContextSnapshotResponse {
         user_id,
         bot_id: bot_id.clone(),
-        session_id,
+        session_id: conversation_id,
         origin_message_id,
         generated_at: now_ms(),
         persona: persona_from_bot(bot, &bot_id),
-        memory: String::new(),
+        memory_mode,
         memory_tools: MiaMemoryToolNames {
-            enabled: memory_enabled,
-            search: "memory_search".to_string(),
-            remember: "memory_remember".to_string(),
-            update: "memory_update".to_string(),
-            forget: "memory_forget".to_string(),
+            enabled: memory_mode == MemoryMode::Mia,
+            memory: "memory".to_string(),
         },
         skill_tools: MiaSkillToolNames {
             list_current: "skill_list_current".to_string(),
             read_current: "skill_read_current".to_string(),
         },
     })
+    .into_response()
 }
 
 pub async fn list_current_mia_skills(
@@ -133,24 +147,104 @@ fn current_skill_error_payload(error: CurrentSkillError) -> (StatusCode, Value) 
     }
 }
 
-pub async fn search_mia_memory(
+pub async fn mutate_mia_memory(
     State(states): State<ModuleStates>,
-    Json(request): Json<MiaMemorySearchRequest>,
-) -> Json<MiaMemorySearchResponse> {
-    if memory_disabled(&states).await {
-        return Json(disabled_search_response());
+    Json(request): Json<MiaMemoryToolRequest>,
+) -> impl IntoResponse {
+    let conversation_id =
+        first_string(&request.context, &["conversationId", "conversation_id"]).unwrap_or_default();
+    if conversation_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "conversation_id_required" })),
+        )
+            .into_response();
     }
-    Json(
-        states
-            .memory
-            .search(request)
-            .await
-            .unwrap_or(MiaMemorySearchResponse {
-                memories: Vec::new(),
-                disabled: None,
-                reason: None,
-            }),
+    let conversation = match states.conversation.get_conversation(&conversation_id).await {
+        Ok(response) => response.conversation,
+        Err(sqlx::Error::RowNotFound) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "conversation_not_found" })),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            tracing::error!(
+                conversation_id,
+                action = ?request.action,
+                target = ?request.target,
+                error = %error,
+                "[MiaMemory] failed to read conversation owner"
+            );
+            return memory_server_error();
+        }
+    };
+    if conversation_memory_mode(&conversation) != MemoryMode::Mia {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "native_memory_owner" })),
+        )
+            .into_response();
+    }
+    let Some(bot_id) = conversation
+        .bot_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|bot_id| !bot_id.is_empty())
+    else {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "conversation_bot_required" })),
+        )
+            .into_response();
+    };
+    if first_string(&request.context, &["botId", "bot_id"])
+        .is_some_and(|request_bot_id| request_bot_id != bot_id)
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "conversation_bot_mismatch" })),
+        )
+            .into_response();
+    }
+    let user_id = match states.system.client_settings().await {
+        Ok(response) => first_string(&response.settings, &["userId", "user_id"])
+            .unwrap_or_else(|| "local".to_string()),
+        Err(error) => {
+            tracing::error!(
+                conversation_id,
+                action = ?request.action,
+                target = ?request.target,
+                error = %error,
+                "[MiaMemory] failed to read user owner"
+            );
+            return memory_server_error();
+        }
+    };
+    let action = request.action;
+    let target = request.target;
+    match states.memory.mutate(&user_id, bot_id, request).await {
+        Ok(response) => Json(response).into_response(),
+        Err(error) => {
+            tracing::error!(
+                conversation_id,
+                action = ?action,
+                target = ?target,
+                error = %error,
+                "[MiaMemory] mutation failed"
+            );
+            memory_server_error()
+        }
+    }
+}
+
+fn memory_server_error() -> axum::response::Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "error": "memory_service_failed" })),
     )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -170,93 +264,6 @@ mod tests {
     }
 }
 
-pub async fn list_mia_memory(
-    State(states): State<ModuleStates>,
-    Json(request): Json<MiaMemorySearchRequest>,
-) -> Json<MiaMemorySearchResponse> {
-    Json(
-        states
-            .memory
-            .list(request)
-            .await
-            .unwrap_or(MiaMemorySearchResponse {
-                memories: Vec::new(),
-                disabled: None,
-                reason: None,
-            }),
-    )
-}
-
-pub async fn remember_mia_memory(
-    State(states): State<ModuleStates>,
-    Json(request): Json<MiaMemoryMutationRequest>,
-) -> Json<MiaMemoryMutationResponse> {
-    if memory_disabled(&states).await {
-        return Json(disabled_mutation_response());
-    }
-    Json(
-        states
-            .memory
-            .remember(request)
-            .await
-            .unwrap_or_else(memory_error_response),
-    )
-}
-
-pub async fn update_mia_memory(
-    State(states): State<ModuleStates>,
-    Json(request): Json<MiaMemoryMutationRequest>,
-) -> Json<MiaMemoryMutationResponse> {
-    if memory_disabled(&states).await {
-        return Json(disabled_mutation_response());
-    }
-    Json(
-        states
-            .memory
-            .update(request)
-            .await
-            .unwrap_or_else(memory_error_response),
-    )
-}
-
-pub async fn forget_mia_memory(
-    State(states): State<ModuleStates>,
-    Json(request): Json<MiaMemoryMutationRequest>,
-) -> Json<MiaMemoryMutationResponse> {
-    if memory_disabled(&states).await {
-        return Json(disabled_mutation_response());
-    }
-    Json(
-        states
-            .memory
-            .forget(request)
-            .await
-            .unwrap_or_else(memory_error_response),
-    )
-}
-
-pub async fn delete_mia_memory(
-    State(states): State<ModuleStates>,
-    Json(request): Json<MiaMemoryMutationRequest>,
-) -> Json<MiaMemoryMutationResponse> {
-    Json(
-        states
-            .memory
-            .delete(request)
-            .await
-            .unwrap_or_else(memory_error_response),
-    )
-}
-
-async fn memory_disabled(states: &ModuleStates) -> bool {
-    states
-        .system
-        .memory_settings()
-        .await
-        .map(|settings| !settings.enabled)
-        .unwrap_or(false)
-}
-
 async fn bot_for_mia_scope(states: &ModuleStates, bot_id: &str) -> Option<BotSummary> {
     states
         .bot
@@ -264,20 +271,6 @@ async fn bot_for_mia_scope(states: &ModuleStates, bot_id: &str) -> Option<BotSum
         .await
         .ok()
         .map(|response| response.bot)
-}
-
-fn memory_error_response(error: mia_core_memory::MemoryError) -> MiaMemoryMutationResponse {
-    MiaMemoryMutationResponse {
-        status: "error".to_string(),
-        disabled: None,
-        reason: None,
-        error: Some(error.to_string()),
-        effective_scope: None,
-        policy_reason: None,
-        memory_id: None,
-        memory: None,
-        matches: Vec::new(),
-    }
 }
 
 fn clean_or_default(value: Option<&str>, default: &str) -> String {

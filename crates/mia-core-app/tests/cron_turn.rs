@@ -113,6 +113,7 @@ fn test_plan() -> RuntimeTurnPlan {
         turn_id: "turn_initial".into(),
         conversation_id: "conv_a".into(),
         bot_id: Some("bot_a".into()),
+        memory_mode: mia_core_api_types::MemoryMode::Native,
         engine: "hermes".into(),
         workspace_dir: "/tmp/mia-cron-turn".into(),
         protocol: RuntimeProtocol::NativeAcp,

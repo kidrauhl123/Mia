@@ -136,6 +136,18 @@ try {
 } catch {
   ({ createCloudMemoryStore } = require("./src/cloud/memory-store.js"));
 }
+let createMemoryDocumentStore = null;
+try {
+  ({ createMemoryDocumentStore } = require("../src/cloud/memory-document-store.js"));
+} catch {
+  ({ createMemoryDocumentStore } = require("./src/cloud/memory-document-store.js"));
+}
+let createMemoryDocumentsApi = null;
+try {
+  ({ createMemoryDocumentsApi } = require("../src/cloud/memory-documents-api.js"));
+} catch {
+  ({ createMemoryDocumentsApi } = require("./src/cloud/memory-documents-api.js"));
+}
 let createCloudTasksStore = null;
 try {
   ({ createCloudTasksStore } = require("../src/cloud/tasks-store.js"));
@@ -3425,6 +3437,18 @@ async function handleRequest(req, res, context) {
     if (!auth) return writeError(res, 401, "请先登录。");
     ensureCloudAgentBootstrap(context, auth.user.id);
 
+    if (url.pathname.startsWith("/api/me/memory-documents")) {
+      const body = req.method === "GET" ? {} : await readJson(req);
+      const result = await context.memoryDocumentsApi.handle({
+        method: req.method,
+        pathname: url.pathname,
+        query: url.searchParams,
+        body,
+        auth
+      });
+      if (result.handled) return writeJson(res, result.status, result.body);
+    }
+
     if (req.method === "POST" && url.pathname === "/api/auth/mobile-scan/start") {
       return writeJson(res, 200, context.mobileScanLogin.startGrant({
         userId: auth.user.id,
@@ -4793,6 +4817,8 @@ function createMiaCloudServer(options = {}) {
     cloudTasksStore: null,
     cloudTasksService: null,
     memoryStore: null,
+    memoryDocumentStore: null,
+    memoryDocumentsApi: null,
     runtimeBindingsStore: null,
     cloudAgentRunsStore: null,
     agentSessionStore: null,
@@ -4817,6 +4843,16 @@ function createMiaCloudServer(options = {}) {
   context.messagesStore = createMessagesStore(context.cloudStore.getDb());
   context.cloudTasksStore = createCloudTasksStore(context.cloudStore.getDb());
   context.memoryStore = createCloudMemoryStore(context.cloudStore.getDb());
+  context.memoryDocumentStore = createMemoryDocumentStore(context.cloudStore.getDb());
+  context.memoryDocumentsApi = createMemoryDocumentsApi({
+    store: context.memoryDocumentStore,
+    authenticate: (request) => request.auth || null,
+    getConversation: (conversationId) => context.socialStore.getConversation(conversationId),
+    isConversationMember: (conversationId, userId) => userIsMemberOfConversation(context.socialStore, String(conversationId || ""), String(userId || "")),
+    getCachedOp: (userId, clientOpId) => context.eventLog.getCachedOp(userId, clientOpId),
+    cacheOp: (userId, clientOpId, payload) => context.eventLog.cacheOp(userId, clientOpId, payload),
+    broadcast: (userId, payload) => broadcastPersistedEvent(context, userId, payload)
+  });
   context.eventLog = createEventLogStore(context.cloudStore.getDb());
   context.botsStore = createBotsStore(context.cloudStore.getDb());
   context.skillsStore = createSkillsStore(context.cloudStore.getDb(), {
@@ -4898,6 +4934,7 @@ function createMiaCloudServer(options = {}) {
       broadcastTransientEvent: (userId, payload) => broadcastTransientEvent(context.eventHub, userId, payload),
       getUserPublic: (userId) => context.cloudStore.getUserPublic(userId),
       memoryStore: context.memoryStore,
+      memoryDocumentStore: context.memoryDocumentStore,
       createCloudSessionToken: (userId) => context.cloudStore.createSessionForUser(userId).token,
       cloudBaseUrl: () => publicOriginFromContext(context),
       loadNativeSessionId: (descriptor = {}) => context.agentSessionStore?.getId(

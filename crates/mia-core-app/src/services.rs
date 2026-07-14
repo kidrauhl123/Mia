@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::cloud_bridge::{AppCloudBridgeRunner, MiaRuntimeProxyRegistry};
 use crate::config::AppConfig;
+use crate::memory_runtime::AppMemoryInitialPromptProvider;
 use crate::runtime::RuntimeRegistry;
 use mia_core_bot::BotService;
 use mia_core_cloud::{CloudBridgeManager, CloudEventsManager, CloudService};
@@ -12,7 +13,7 @@ use mia_core_db::{
     init_database_memory,
 };
 use mia_core_mcp::McpService;
-use mia_core_memory::{BoundedMemoryService, MemoryService, import_legacy_sources};
+use mia_core_memory::{BoundedMemoryService, import_legacy_sources};
 use mia_core_realtime::EventBus;
 use mia_core_runtime::RuntimeSessionManager;
 use mia_core_system::{AgentPermissionService, SystemService};
@@ -30,8 +31,7 @@ pub struct AppServices {
     pub bot: BotService,
     pub conversation: ConversationService,
     pub current_skills: CurrentSkillService,
-    pub memory: MemoryService,
-    pub bounded_memory: BoundedMemoryService,
+    pub memory: BoundedMemoryService,
     pub tasks: TaskService,
     pub mcp: McpService,
     pub cloud: CloudService,
@@ -69,14 +69,18 @@ impl AppServices {
             .with_core_base_url(format!("http://{}:{}", config.host, config.port))
             .with_default_workspace_dir(config.workspace_dir.clone())
             .with_current_skills(current_skills.clone());
-        let memory = MemoryService::new(database.pool().clone());
-        let bounded_memory = BoundedMemoryService::new(database.pool().clone());
+        let memory = BoundedMemoryService::new(database.pool().clone());
         let tasks = TaskService::new(database.pool().clone());
         let mcp = McpService::new(database.pool().clone());
         let cloud = CloudService::new(database.pool().clone());
         let realtime = EventBus::default();
         let runtime = RuntimeRegistry::default();
-        let runtime_sessions = RuntimeSessionManager::native_acp();
+        let initial_prompt_provider = Arc::new(AppMemoryInitialPromptProvider::new(
+            system.clone(),
+            memory.clone(),
+        ));
+        let runtime_sessions =
+            RuntimeSessionManager::native_acp_with_initial_prompt_provider(initial_prompt_provider);
         let mia_runtime_proxies = MiaRuntimeProxyRegistry::new(config.data_dir.clone());
         let cloud_bridge_runner = Arc::new(AppCloudBridgeRunner::new(
             cloud.clone(),
@@ -108,7 +112,6 @@ impl AppServices {
             conversation,
             current_skills,
             memory,
-            bounded_memory,
             tasks,
             mcp,
             cloud,

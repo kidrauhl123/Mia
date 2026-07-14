@@ -7,11 +7,7 @@ const {
 } = require("./native-context-snapshot.js");
 
 const MEMORY_TOOL_NAMES = Object.freeze([
-  "memory_search",
-  "memory_list",
-  "memory_remember",
-  "memory_update",
-  "memory_forget"
+  "memory"
 ]);
 
 const SKILL_TOOL_NAMES = Object.freeze([

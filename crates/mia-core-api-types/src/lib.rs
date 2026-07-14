@@ -385,10 +385,7 @@ pub struct AgentPermissionDecisionResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MiaMemoryToolNames {
     pub enabled: bool,
-    pub search: String,
-    pub remember: String,
-    pub update: String,
-    pub forget: String,
+    pub memory: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -407,7 +404,7 @@ pub struct MiaContextSnapshotResponse {
     pub origin_message_id: String,
     pub generated_at: u64,
     pub persona: String,
-    pub memory: String,
+    pub memory_mode: MemoryMode,
     pub memory_tools: MiaMemoryToolNames,
     pub skill_tools: MiaSkillToolNames,
 }

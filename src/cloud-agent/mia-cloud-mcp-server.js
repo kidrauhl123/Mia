@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 "use strict";
 
-const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
@@ -9,11 +8,7 @@ const readline = require("node:readline");
 
 const APP_TOOLS = new Set([
   "context_snapshot",
-  "memory_search",
-  "memory_list",
-  "memory_remember",
-  "memory_update",
-  "memory_forget",
+  "memory",
   "skill_list_current",
   "skill_read_current",
   "skill_search",
@@ -21,23 +16,18 @@ const APP_TOOLS = new Set([
   "skill_install"
 ]);
 
-const VALID_MEMORY_SCOPES = new Set(["user", "bot", "session"]);
 const READ_TOOLS = new Set([
   "context_snapshot",
-  "memory_search",
-  "memory_list",
   "skill_list_current",
   "skill_read_current",
   "skill_search",
   "skill_show"
 ]);
 const WRITE_TOOLS = new Set([
-  "memory_remember",
-  "memory_update",
-  "memory_forget",
+  "memory",
   "skill_install"
 ]);
-const DESTRUCTIVE_TOOLS = new Set(["memory_forget"]);
+const DESTRUCTIVE_TOOLS = new Set(["memory"]);
 
 function envOf(options = {}) {
   return options.env || process.env;
@@ -85,75 +75,32 @@ function cloudToolDefinitions() {
   return [
     { name: "context_snapshot", description: "Read current Mia bot/session metadata.", inputSchema: { type: "object" } },
     {
-      name: "memory_search",
-      description: "Search Mia-owned scoped memories visible to the current bot and conversation.",
+      name: "memory",
+      description: "Add, replace, or remove a concise Mia-owned memory entry for the current user or bot.",
       inputSchema: {
         type: "object",
         properties: {
-          query: { type: "string" },
-          limit: { type: "number" },
-          scopes: { type: "array", items: { type: "string", enum: ["user", "bot", "session"] } }
-        }
-      }
-    },
-    {
-      name: "memory_list",
-      description: "List recent Mia-owned memories visible to the current bot and conversation.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          limit: { type: "number" },
-          scopes: { type: "array", items: { type: "string", enum: ["user", "bot", "session"] } }
-        }
-      }
-    },
-    {
-      name: "memory_remember",
-      description: "Store a new durable scoped memory for the current bot/session.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          text: { type: "string" },
-          scope: { type: "string", enum: ["user", "bot", "session"] },
-          confidence: { type: "number" },
-          priority: { type: "number" },
-          reason: { type: "string" },
-          sourceMessageIds: { type: "array", items: { type: "string" } },
-          linkedMemoryIds: { type: "array", items: { type: "string" } },
-          metadata: { type: "object" }
+          action: { type: "string", enum: ["add", "replace", "remove"] },
+          target: { type: "string", enum: ["user", "memory"] },
+          oldText: { type: "string", minLength: 1 },
+          content: { type: "string", minLength: 1 }
         },
-        required: ["text"]
-      }
-    },
-    {
-      name: "memory_update",
-      description: "Replace an existing visible Mia memory by id or matching text.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          memoryId: { type: "string" },
-          oldText: { type: "string" },
-          text: { type: "string" },
-          scope: { type: "string", enum: ["user", "bot", "session"] },
-          confidence: { type: "number" },
-          priority: { type: "number" },
-          reason: { type: "string" },
-          metadata: { type: "object" }
-        },
-        required: ["text"]
-      }
-    },
-    {
-      name: "memory_forget",
-      description: "Delete an existing visible Mia memory by id or matching text.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          memoryId: { type: "string" },
-          oldText: { type: "string" },
-          scope: { type: "string", enum: ["user", "bot", "session"] },
-          reason: { type: "string" }
-        }
+        required: ["action", "target"],
+        allOf: [
+          {
+            if: { properties: { action: { const: "add" } }, required: ["action"] },
+            then: { required: ["content"] }
+          },
+          {
+            if: { properties: { action: { const: "replace" } }, required: ["action"] },
+            then: { required: ["oldText", "content"] }
+          },
+          {
+            if: { properties: { action: { const: "remove" } }, required: ["action"] },
+            then: { required: ["oldText"] }
+          }
+        ],
+        additionalProperties: false
       }
     },
     { name: "skill_list_current", description: "List skills enabled for the current Mia bot.", inputSchema: { type: "object" } },
@@ -247,119 +194,6 @@ async function cloudJson(method, urlPath, body, options = {}) {
   return response.body;
 }
 
-function randomMemoryId() {
-  return `mem_${crypto.randomBytes(12).toString("base64url")}`;
-}
-
-function normalizeScope(value = "", fallback = "bot") {
-  const scope = cleanText(value).toLowerCase();
-  return VALID_MEMORY_SCOPES.has(scope) ? scope : fallback;
-}
-
-function requestedScopes(args = {}) {
-  const raw = Array.isArray(args.scopes) ? args.scopes : (args.scope ? [args.scope] : []);
-  const out = [];
-  for (const item of raw) {
-    const scope = normalizeScope(item, "");
-    if (scope && !out.includes(scope)) out.push(scope);
-  }
-  return out.length ? out : ["user", "bot", "session"];
-}
-
-function contextMemoryVisible(ctx = {}, memory = {}, scopes = []) {
-  const scope = normalizeScope(memory.scope, "bot");
-  if (!scopes.includes(scope)) return false;
-  if (scope === "bot" && ctx.botId && memory.botId && memory.botId !== ctx.botId) return false;
-  if (scope === "session") {
-    const sessionId = cleanText(ctx.sessionId || ctx.conversationId || "");
-    if (sessionId && memory.sessionId && memory.sessionId !== sessionId) return false;
-  }
-  return true;
-}
-
-function contextMemorySearch(ctx = {}, args = {}) {
-  const limit = clampNumber(args.limit, 1, 100, 36);
-  const query = cleanText(args.query || args.q || "").toLowerCase();
-  const scopes = requestedScopes(args);
-  const memories = Array.isArray(ctx.memories) ? ctx.memories : [];
-  return {
-    memories: memories
-      .filter((memory) => contextMemoryVisible(ctx, memory, scopes))
-      .filter((memory) => !query || cleanText(memory.text).toLowerCase().includes(query))
-      .slice(0, limit)
-  };
-}
-
-function memoryQueryForScope(ctx = {}, scope = "bot", args = {}) {
-  const sessionId = cleanText(ctx.sessionId || ctx.conversationId || "");
-  const botId = cleanText(ctx.botId || "");
-  return {
-    scope,
-    q: args.query || args.q || "",
-    limit: clampNumber(args.limit, 1, 100, 36),
-    ...(scope === "bot" || scope === "session" ? { botId } : {}),
-    ...(scope === "session" ? { sessionId } : {})
-  };
-}
-
-async function cloudMemorySearch(ctx = {}, args = {}, options = {}) {
-  const seen = new Set();
-  const memories = [];
-  for (const scope of requestedScopes(args)) {
-    const params = memoryQueryForScope(ctx, scope, args);
-    const body = await cloudJson("GET", `/api/me/memory${queryString(params)}`, null, options);
-    for (const memory of Array.isArray(body.memories) ? body.memories : []) {
-      const id = cleanText(memory.id);
-      if (id && seen.has(id)) continue;
-      if (id) seen.add(id);
-      memories.push(memory);
-    }
-  }
-  return { memories };
-}
-
-function memorySearch(ctx = {}, args = {}, options = {}) {
-  return hasCloudApi(options)
-    ? cloudMemorySearch(ctx, args, options)
-    : Promise.resolve(contextMemorySearch(ctx, args));
-}
-
-function memoryPayload(args = {}, ctx = {}) {
-  const scope = normalizeScope(args.scope, "bot");
-  const botId = cleanText(ctx.botId || args.botId || "");
-  const sessionId = cleanText(ctx.sessionId || ctx.conversationId || args.sessionId || "");
-  return {
-    text: cleanText(args.text),
-    scope,
-    confidence: Number.isFinite(Number(args.confidence)) ? Number(args.confidence) : 1,
-    priority: Number.isFinite(Number(args.priority)) ? Math.trunc(Number(args.priority)) : 0,
-    source: "mia-cloud-mcp",
-    sourceMessageIds: Array.isArray(args.sourceMessageIds)
-      ? args.sourceMessageIds.map(cleanText).filter(Boolean)
-      : (ctx.originMessageId ? [ctx.originMessageId] : []),
-    linkedMemoryIds: Array.isArray(args.linkedMemoryIds)
-      ? args.linkedMemoryIds.map(cleanText).filter(Boolean)
-      : [],
-    metadata: args.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)
-      ? args.metadata
-      : {},
-    ...(scope === "bot" || scope === "session" ? { botId } : {}),
-    ...(scope === "session" ? { sessionId } : {})
-  };
-}
-
-async function resolveMemoryId(args = {}, ctx = {}, options = {}) {
-  const explicit = cleanText(args.memoryId || args.id || "");
-  if (explicit) return explicit;
-  const oldText = cleanText(args.oldText || args.old_text || "");
-  if (!oldText) throw new Error("memoryId or oldText is required");
-  const result = await memorySearch(ctx, { query: oldText, scope: args.scope, limit: 10 }, options);
-  const needle = oldText.toLowerCase();
-  const match = (result.memories || []).find((memory) => cleanText(memory.text).toLowerCase().includes(needle));
-  if (!match?.id) throw new Error("memory not found");
-  return match.id;
-}
-
 function skillAliases(skill = {}) {
   const id = cleanText(skill.id || "");
   const name = cleanText(skill.name || skill.name_zh || "");
@@ -410,8 +244,58 @@ function contextSkillSearch(ctx = {}, args = {}) {
   };
 }
 
-function toolDefinitionsForMode() {
-  return cloudToolDefinitions().filter((tool) => APP_TOOLS.has(tool.name));
+function contextMemoryMode(ctx = {}) {
+  const mode = cleanText(ctx.memoryMode || ctx.memory_mode || "").toLowerCase();
+  return mode === "native" ? "native" : "mia";
+}
+
+function memoryToolEnabled(ctx = {}) {
+  return contextMemoryMode(ctx) === "mia";
+}
+
+function toolDefinitionsForMode(options = {}) {
+  const ctx = readContext(options);
+  return cloudToolDefinitions()
+    .filter((tool) => APP_TOOLS.has(tool.name))
+    .filter((tool) => tool.name !== "memory" || memoryToolEnabled(ctx));
+}
+
+function normalizeMemoryTarget(args = {}) {
+  const target = cleanText(args.target || args.scope || "").toLowerCase();
+  if (target === "bot" || target === "session") return "memory";
+  if (target === "profile") return "user";
+  return target || "memory";
+}
+
+function memoryMutationPayload(ctx = {}, args = {}) {
+  const action = cleanText(args.action || "").toLowerCase();
+  const target = normalizeMemoryTarget(args);
+  const content = cleanText(args.content ?? args.text ?? args.newText ?? args.new_text ?? "");
+  const oldText = cleanText(args.oldText ?? args.old_text ?? "");
+  const conversationId = cleanText(ctx.conversationId || ctx.sessionId || args.conversationId || "");
+  const botId = cleanText(ctx.botId || args.botId || "");
+  const payload = {
+    conversationId,
+    botId,
+    action,
+    target
+  };
+  if (content) payload.content = content;
+  if (oldText) payload.oldText = oldText;
+  if (args.clientOpId) payload.clientOpId = cleanText(args.clientOpId);
+  return payload;
+}
+
+async function cloudMemoryMutation(ctx = {}, args = {}, options = {}) {
+  if (!memoryToolEnabled(ctx)) throw new Error("native_memory_owner");
+  const payload = memoryMutationPayload(ctx, args);
+  if (!payload.conversationId) throw new Error("conversationId is required");
+  if (!payload.botId) throw new Error("botId is required");
+  if (!new Set(["add", "replace", "remove"]).has(payload.action)) throw new Error("action must be add, replace, or remove");
+  if (!new Set(["user", "memory"]).has(payload.target)) throw new Error("target must be user or memory");
+  if ((payload.action === "add" || payload.action === "replace") && !payload.content) throw new Error("content is required");
+  if ((payload.action === "replace" || payload.action === "remove") && !payload.oldText) throw new Error("oldText is required");
+  return cloudJson("POST", "/api/me/memory-documents/mutate", payload, options);
 }
 
 async function callTool(name, args = {}, options = {}) {
@@ -425,42 +309,13 @@ async function callTool(name, args = {}, options = {}) {
         sessionId: cleanText(ctx.sessionId || ctx.conversationId || ""),
         originMessageId: cleanText(ctx.originMessageId || ""),
         enabledSkillIds: Array.isArray(ctx.enabledSkillIds) ? ctx.enabledSkillIds : [],
-        memoryCount: Array.isArray(ctx.memories) ? ctx.memories.length : 0,
+        memoryMode: contextMemoryMode(ctx),
+        memoryTools: memoryToolEnabled(ctx) ? { enabled: true, memory: "memory" } : { enabled: false },
         skillCount: Array.isArray(ctx.skills) ? ctx.skills.length : 0
       };
 
-    case "memory_search":
-      return memorySearch(ctx, args, options);
-
-    case "memory_list":
-      return memorySearch(ctx, { ...args, query: "" }, options);
-
-    case "memory_remember": {
-      if (!cleanText(args.text)) throw new Error("text is required");
-      const id = cleanText(args.id || args.memoryId || "") || randomMemoryId();
-      return cloudJson("PUT", `/api/me/memory/${encodeURIComponent(id)}`, {
-        ...memoryPayload(args, ctx),
-        id,
-        force: args.force === true
-      }, options);
-    }
-
-    case "memory_update": {
-      if (!cleanText(args.text)) throw new Error("text is required");
-      const id = await resolveMemoryId(args, ctx, options);
-      return cloudJson("PUT", `/api/me/memory/${encodeURIComponent(id)}`, {
-        ...memoryPayload(args, ctx),
-        id,
-        force: args.force === true
-      }, options);
-    }
-
-    case "memory_forget": {
-      const id = await resolveMemoryId(args, ctx, options);
-      return cloudJson("DELETE", `/api/me/memory/${encodeURIComponent(id)}`, {
-        reason: args.reason || ""
-      }, options);
-    }
+    case "memory":
+      return cloudMemoryMutation(ctx, args, options);
 
     case "skill_list_current":
       return contextSkillList(ctx);
@@ -513,7 +368,7 @@ async function handleRequest(req, options = {}) {
   }
   if (method === "notifications/initialized") return;
   if (method === "tools/list") {
-    sendResponse({ jsonrpc: "2.0", id, result: { tools: toolDefinitionsForMode() } });
+    sendResponse({ jsonrpc: "2.0", id, result: { tools: toolDefinitionsForMode(options) } });
     return;
   }
   if (method === "tools/call") {

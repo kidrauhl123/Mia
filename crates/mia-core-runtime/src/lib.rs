@@ -5,6 +5,7 @@
 //! but the plan owner remains Rust.
 
 mod agent_engines;
+mod memory_isolation;
 mod native_acp;
 
 use std::collections::BTreeMap;
@@ -13,6 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use agent_engines::{AgentEngineInventory, AgentEngineScanOptions, AgentEngineScanner};
+pub use memory_isolation::{apply_memory_isolation_to_plan, preflight_memory_isolation};
 pub use native_acp::{NativeAcpBackend, NativeAcpSessionManager};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -21,6 +23,8 @@ use tokio::process::ChildStdin;
 use tokio::process::Command;
 use tokio::sync::Notify;
 use uuid::Uuid;
+
+use mia_core_api_types::MemoryMode;
 
 const POLLUTED_ENV_KEYS: [&str; 4] = ["NODE_OPTIONS", "NODE_INSPECT", "NODE_DEBUG", "CLAUDECODE"];
 pub const EVENT_RUNTIME_STARTED: &str = "conversation.runtimeStarted";
@@ -56,6 +60,8 @@ pub struct RuntimeTurnInput {
     pub conversation_id: String,
     pub message_id: String,
     pub bot_id: Option<String>,
+    #[serde(default = "default_runtime_memory_mode")]
+    pub memory_mode: MemoryMode,
     pub engine: Option<String>,
     #[serde(default)]
     pub previous_session_key: Option<String>,
@@ -97,6 +103,8 @@ pub struct RuntimeTurnPlan {
     pub turn_id: String,
     pub conversation_id: String,
     pub bot_id: Option<String>,
+    #[serde(default = "default_runtime_memory_mode")]
+    pub memory_mode: MemoryMode,
     pub engine: String,
     pub workspace_dir: String,
     #[serde(default)]
@@ -109,6 +117,15 @@ pub struct RuntimeTurnPlan {
     pub runtime_session: RuntimeSessionState,
     pub send_message: RuntimeSendMessage,
     pub mock_response: Option<String>,
+}
+
+fn default_runtime_memory_mode() -> MemoryMode {
+    MemoryMode::Native
+}
+
+#[async_trait::async_trait]
+pub trait RuntimeInitialPromptProvider: Send + Sync {
+    async fn initial_prompt(&self, plan: &RuntimeTurnPlan) -> anyhow::Result<String>;
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -326,6 +343,14 @@ impl RuntimeSessionManager {
 
     pub fn native_acp() -> Self {
         Self::new(NativeAcpSessionManager::real())
+    }
+
+    pub fn native_acp_with_initial_prompt_provider(
+        provider: Arc<dyn RuntimeInitialPromptProvider>,
+    ) -> Self {
+        Self::new(NativeAcpSessionManager::real_with_initial_prompt_provider(
+            provider,
+        ))
     }
 
     pub fn new_without_native_acp_for_tests() -> Self {
@@ -585,10 +610,11 @@ impl RuntimeBuilder {
                 format!("Mia Rust Core mock response: {body}")
             }
         });
-        RuntimeTurnPlan {
+        let mut plan = RuntimeTurnPlan {
             turn_id,
             conversation_id: input.conversation_id,
             bot_id: input.bot_id,
+            memory_mode: input.memory_mode,
             engine,
             workspace_dir,
             protocol,
@@ -600,7 +626,9 @@ impl RuntimeBuilder {
             runtime_session,
             send_message,
             mock_response,
-        }
+        };
+        memory_isolation::apply_memory_isolation_to_plan(&mut plan);
+        plan
     }
 }
 
@@ -799,6 +827,7 @@ mod tests {
             conversation_id: "conv_1".into(),
             message_id: "msg_1".into(),
             bot_id: Some("bot_1".into()),
+            memory_mode: MemoryMode::Native,
             engine: None,
             previous_session_key: None,
             workspace_dir: "".into(),
@@ -824,12 +853,23 @@ mod tests {
     }
 
     #[test]
+    fn persisted_runtime_plan_without_memory_mode_defaults_to_native() {
+        let mut stored = serde_json::to_value(test_plan(shell_command("true"))).unwrap();
+        stored.as_object_mut().unwrap().remove("memoryMode");
+
+        let restored: RuntimeTurnPlan = serde_json::from_value(stored).unwrap();
+
+        assert_eq!(restored.memory_mode, MemoryMode::Native);
+    }
+
+    #[test]
     fn runtime_builder_creates_aion_style_send_message_payload() {
         let builder = RuntimeBuilder::new("/tmp/mia-workspace");
         let plan = builder.build_turn_plan(RuntimeTurnInput {
             conversation_id: "conv_1".into(),
             message_id: "msg_1".into(),
             bot_id: Some("bot_1".into()),
+            memory_mode: MemoryMode::Native,
             engine: None,
             previous_session_key: Some("session_existing".into()),
             workspace_dir: "".into(),
@@ -952,6 +992,7 @@ mod tests {
             conversation_id: "conv_1".into(),
             message_id: "msg_1".into(),
             bot_id: None,
+            memory_mode: MemoryMode::Native,
             engine: Some("codex".into()),
             previous_session_key: None,
             workspace_dir: "/tmp/custom".into(),
@@ -983,6 +1024,7 @@ mod tests {
             conversation_id: "conv_2".into(),
             message_id: "msg_2".into(),
             bot_id: None,
+            memory_mode: MemoryMode::Native,
             engine: Some("claude-code".into()),
             previous_session_key: None,
             workspace_dir: "".into(),
@@ -1007,6 +1049,7 @@ mod tests {
             conversation_id: "conv_3".into(),
             message_id: "msg_3".into(),
             bot_id: None,
+            memory_mode: MemoryMode::Native,
             engine: Some("hermes".into()),
             previous_session_key: None,
             workspace_dir: "".into(),
@@ -1043,6 +1086,7 @@ mod tests {
             conversation_id: "conv_missing".into(),
             message_id: "msg_missing".into(),
             bot_id: None,
+            memory_mode: MemoryMode::Native,
             engine: Some("codex".into()),
             previous_session_key: None,
             workspace_dir: "".into(),
@@ -1105,6 +1149,7 @@ mod tests {
                 conversation_id: "conv_stdin".into(),
                 message_id: "msg_stdin".into(),
                 bot_id: Some("bot_stdin".into()),
+                memory_mode: MemoryMode::Native,
                 engine: Some("stdin-agent".into()),
                 previous_session_key: None,
                 workspace_dir: ".".into(),
@@ -1382,6 +1427,7 @@ mod tests {
             turn_id: "turn_test".into(),
             conversation_id: "conv_test".into(),
             bot_id: Some("bot_test".into()),
+            memory_mode: MemoryMode::Native,
             engine: "test-stream".into(),
             workspace_dir: ".".into(),
             protocol: RuntimeProtocol::Process,

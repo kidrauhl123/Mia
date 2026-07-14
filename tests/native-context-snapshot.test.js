@@ -40,7 +40,7 @@ test("context snapshot instruction is scoped to one bot and session", () => {
   const text = contextSnapshotInstruction({ engine: "codex", botId: "mei", sessionId: "conversation:1" });
   assert.match(text, /context_snapshot/);
   assert.match(text, /scope: current bot \+ current session only/);
-  assert.match(text, /memory_tools: .*memory_search/);
+  assert.match(text, /memory_tools: memory/);
   assert.match(text, /skill_tools: .*skill_read_current/);
   assert.match(text, /engine: codex/);
   assert.match(text, /bot: mei/);

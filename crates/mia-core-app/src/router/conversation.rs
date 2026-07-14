@@ -15,11 +15,13 @@ use mia_core_conversation::{
 };
 use mia_core_runtime::{
     EVENT_RUNTIME_CANCEL_REQUESTED, RuntimeEventSink, RuntimeProtocol, RuntimeTurnPlan,
+    preflight_memory_isolation,
 };
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::Error;
 
+use crate::memory_autowrite::{apply_explicit_memory_autowrite, prepend_memory_autowrite_notice};
 use crate::runtime::ConversationRuntimeClaim;
 use crate::turn_execution::execute_and_complete_runtime_turn;
 
@@ -79,6 +81,15 @@ pub async fn prepare_conversation_runtime_controls(
         .plan_runtime_session(&conversation_id)
         .await
         .map_err(map_sqlx_status)?;
+    preflight_memory_isolation(&plan).await.map_err(|error| {
+        tracing::warn!(
+            conversation_id,
+            engine = %plan.engine,
+            error = %error,
+            "prepare native ACP runtime memory isolation preflight failed"
+        );
+        StatusCode::BAD_GATEWAY
+    })?;
     states
         .runtime_sessions
         .prepare_session(plan)
@@ -104,6 +115,15 @@ pub async fn set_conversation_runtime_control(
         .plan_runtime_session(&conversation_id)
         .await
         .map_err(map_sqlx_status)?;
+    preflight_memory_isolation(&plan).await.map_err(|error| {
+        tracing::warn!(
+            conversation_id,
+            engine = %plan.engine,
+            error = %error,
+            "set native ACP runtime memory isolation preflight failed"
+        );
+        StatusCode::BAD_GATEWAY
+    })?;
     states
         .runtime_sessions
         .set_control(plan, request.control_id, request.value)
@@ -162,11 +182,34 @@ pub async fn send_conversation_message(
     Path(conversation_id): Path<String>,
     Json(request): Json<SendConversationMessageRequest>,
 ) -> Result<Json<SendConversationMessageResponse>, StatusCode> {
+    let user_body = request.body.clone();
     let mut runtime_claim = states
         .runtime
         .try_claim_conversation(conversation_id.clone())
         .map_err(|_| StatusCode::CONFLICT)?;
-    let turn = match states
+    match states
+        .conversation
+        .plan_user_turn_preflight(&conversation_id, &request)
+        .await
+    {
+        Ok(plan) => {
+            if let Err(error) = preflight_memory_isolation(&plan).await {
+                runtime_claim.release();
+                tracing::warn!(
+                    conversation_id,
+                    engine = %plan.engine,
+                    error = %error,
+                    "conversation memory isolation preflight failed"
+                );
+                return Err(StatusCode::BAD_GATEWAY);
+            }
+        }
+        Err(error) => {
+            runtime_claim.release();
+            return Err(map_sqlx_status(error));
+        }
+    }
+    let mut turn = match states
         .conversation
         .start_user_turn(&conversation_id, request)
         .await
@@ -177,6 +220,27 @@ pub async fn send_conversation_message(
             return Err(map_sqlx_status(error));
         }
     };
+    match apply_explicit_memory_autowrite(
+        &states.system,
+        &states.memory,
+        &turn.runtime_plan,
+        &user_body,
+    )
+    .await
+    {
+        Ok(Some(applied)) => {
+            turn.runtime_plan.send_message.content =
+                prepend_memory_autowrite_notice(&turn.runtime_plan.send_message.content, &applied);
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                conversation_id,
+                error = %error,
+                "[MemoryAutoWrite] failed to apply explicit memory request"
+            );
+        }
+    }
     let response = turn.response.clone();
     runtime_claim.set_turn_id(response.turn_id.clone());
     states.realtime.emit(

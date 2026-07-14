@@ -884,7 +884,8 @@ async fn conversation_service_plans_utility_turn_with_core_owned_runtime_resolut
     .await
     .unwrap();
 
-    let service = ConversationService::new(db.pool().clone());
+    let service =
+        ConversationService::new(db.pool().clone()).with_core_base_url("http://127.0.0.1:27861");
     let plan = service
         .plan_utility_turn(RunConversationUtilityTurnRequest {
             bot_id: Some("bot_utility".to_string()),
@@ -899,6 +900,11 @@ async fn conversation_service_plans_utility_turn_with_core_owned_runtime_resolut
 
     assert_eq!(plan.conversation_id, "conv_transient");
     assert_eq!(plan.bot_id.as_deref(), Some("bot_utility"));
+    assert_eq!(plan.memory_mode, MemoryMode::Native);
+    assert_eq!(
+        plan.mcp_servers["mcpServers"]["mia-app"]["env"]["MIA_MEMORY_MODE"],
+        "native"
+    );
     assert_eq!(plan.engine, "mock-agent");
     assert_eq!(plan.selected_skill_ids, vec!["skill_translate"]);
     assert_eq!(
@@ -1033,6 +1039,11 @@ async fn conversation_service_injects_enabled_mcp_servers_into_turn_plan() {
     assert_eq!(
         accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["env"]["MIA_USER_ID"],
         "user_real"
+    );
+    assert_eq!(accepted.runtime_plan.memory_mode, MemoryMode::Mia);
+    assert_eq!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["env"]["MIA_MEMORY_MODE"],
+        "mia"
     );
     assert!(
         accepted.runtime_plan.mcp_servers["mcpServers"]

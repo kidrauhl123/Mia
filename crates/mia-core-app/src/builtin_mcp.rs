@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, bail};
+use mia_core_api_types::MemoryMode;
 use reqwest::{Client, Method};
 use serde_json::{Value, json};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -10,6 +11,7 @@ struct MiaMcpContext {
     core_url: String,
     bot_id: String,
     conversation_id: String,
+    memory_mode: MemoryMode,
     origin_message_id: String,
     user_id: String,
 }
@@ -24,6 +26,10 @@ impl MiaMcpContext {
             core_url: core_url.trim_end_matches('/').to_string(),
             bot_id: env_value("MIA_BOT_ID"),
             conversation_id: env_value("MIA_CONVERSATION_ID"),
+            memory_mode: match env_value("MIA_MEMORY_MODE").as_str() {
+                "mia" => MemoryMode::Mia,
+                _ => MemoryMode::Native,
+            },
             origin_message_id: env_value("MIA_ORIGIN_MESSAGE_ID"),
             user_id: env_value("MIA_USER_ID"),
         })
@@ -33,7 +39,7 @@ impl MiaMcpContext {
         json!({
             "userId": if self.user_id.is_empty() { "local" } else { &self.user_id },
             "botId": self.bot_id,
-            "sessionId": self.conversation_id,
+            "conversationId": self.conversation_id,
             "originMessageId": self.origin_message_id,
         })
     }
@@ -98,7 +104,7 @@ async fn handle_request(client: &Client, context: &MiaMcpContext, request: Value
         "tools/list" => Some(json!({
             "jsonrpc":"2.0",
             "id":id,
-            "result":{"tools":tool_definitions()}
+            "result":{"tools":tool_definitions(context.memory_mode)}
         })),
         "tools/call" => {
             let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -148,8 +154,7 @@ async fn call_tool(
     match name {
         "context_snapshot" => {
             let mut query = BTreeMap::new();
-            query.insert("botId", context.bot_id.as_str());
-            query.insert("sessionId", context.conversation_id.as_str());
+            query.insert("conversationId", context.conversation_id.as_str());
             query.insert("originMessageId", context.origin_message_id.as_str());
             core_json(
                 client,
@@ -161,39 +166,14 @@ async fn call_tool(
             )
             .await
         }
-        "memory_search" | "memory_list" => {
+        "memory" if context.memory_mode == MemoryMode::Mia => {
             let mut body = args.as_object().cloned().unwrap_or_default();
             body.insert("context".into(), context.memory_context());
-            if name == "memory_list" {
-                body.insert("query".into(), Value::String(String::new()));
-            }
             core_json(
                 client,
                 context,
                 Method::POST,
-                if name == "memory_list" {
-                    "/api/mia/memory/list"
-                } else {
-                    "/api/mia/memory/search"
-                },
-                None,
-                Some(Value::Object(body)),
-            )
-            .await
-        }
-        "memory_remember" | "memory_update" | "memory_forget" => {
-            let mut body = args.as_object().cloned().unwrap_or_default();
-            body.insert("context".into(), context.memory_context());
-            let route = match name {
-                "memory_remember" => "/api/mia/memory/remember",
-                "memory_update" => "/api/mia/memory/update",
-                _ => "/api/mia/memory/forget",
-            };
-            core_json(
-                client,
-                context,
-                Method::POST,
-                route,
+                "/api/mia/memory",
                 None,
                 Some(Value::Object(body)),
             )
@@ -252,8 +232,7 @@ async fn core_json(
     let response = request.send().await.context("request Mia Core")?;
     let status = response.status();
     let text = response.text().await.context("read Mia Core response")?;
-    let value = serde_json::from_str::<Value>(&text)
-        .with_context(|| format!("decode Mia Core response: {text}"))?;
+    let value = serde_json::from_str::<Value>(&text).context("decode Mia Core response")?;
     if !status.is_success() {
         bail!(
             "{}",
@@ -266,49 +245,14 @@ async fn core_json(
     Ok(value)
 }
 
-fn tool_definitions() -> Vec<Value> {
-    vec![
+fn tool_definitions(memory_mode: MemoryMode) -> Vec<Value> {
+    let mut tools = vec![
         tool(
             "context_snapshot",
             "Read the current Mia bot and conversation context.",
             json!({"type":"object","properties":{}}),
             true,
             false,
-        ),
-        tool(
-            "memory_search",
-            "Search Mia memories visible to the current bot and conversation.",
-            json!({"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"number"},"scopes":{"type":"array","items":{"type":"string","enum":["user","bot","session"]}}}}),
-            true,
-            false,
-        ),
-        tool(
-            "memory_list",
-            "List recent Mia memories visible to the current bot and conversation.",
-            json!({"type":"object","properties":{"limit":{"type":"number"},"scopes":{"type":"array","items":{"type":"string","enum":["user","bot","session"]}}}}),
-            true,
-            false,
-        ),
-        tool(
-            "memory_remember",
-            "Store a durable Mia memory in the current scope.",
-            json!({"type":"object","properties":{"text":{"type":"string"},"scope":{"type":"string","enum":["user","bot","session"]},"confidence":{"type":"number"},"priority":{"type":"number"},"reason":{"type":"string"}},"required":["text"]}),
-            false,
-            false,
-        ),
-        tool(
-            "memory_update",
-            "Replace an existing Mia memory in the current scope.",
-            json!({"type":"object","properties":{"memoryId":{"type":"string"},"oldText":{"type":"string"},"text":{"type":"string"},"scope":{"type":"string"},"reason":{"type":"string"}},"required":["text"]}),
-            false,
-            false,
-        ),
-        tool(
-            "memory_forget",
-            "Delete an existing Mia memory in the current scope.",
-            json!({"type":"object","properties":{"memoryId":{"type":"string"},"oldText":{"type":"string"},"scope":{"type":"string"},"reason":{"type":"string"}}}),
-            false,
-            true,
         ),
         tool(
             "skill_list_current",
@@ -324,7 +268,44 @@ fn tool_definitions() -> Vec<Value> {
             true,
             false,
         ),
-    ]
+    ];
+    if memory_mode == MemoryMode::Mia {
+        tools.insert(
+            1,
+            tool(
+                "memory",
+                "Add, replace, or remove an entry in Mia-owned bounded memory.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "action": {"type": "string", "enum": ["add", "replace", "remove"]},
+                        "target": {"type": "string", "enum": ["user", "memory"]},
+                        "oldText": {"type": "string", "minLength": 1},
+                        "content": {"type": "string", "minLength": 1}
+                    },
+                    "required": ["action", "target"],
+                    "allOf": [
+                        {
+                            "if": {"properties": {"action": {"const": "add"}}, "required": ["action"]},
+                            "then": {"required": ["content"]}
+                        },
+                        {
+                            "if": {"properties": {"action": {"const": "replace"}}, "required": ["action"]},
+                            "then": {"required": ["oldText", "content"]}
+                        },
+                        {
+                            "if": {"properties": {"action": {"const": "remove"}}, "required": ["action"]},
+                            "then": {"required": ["oldText"]}
+                        }
+                    ],
+                    "additionalProperties": false
+                }),
+                false,
+                true,
+            ),
+        );
+    }
+    tools
 }
 
 fn tool(
@@ -360,7 +341,7 @@ mod tests {
 
     #[test]
     fn tool_catalog_has_no_scheduler_tools() {
-        let names = tool_definitions()
+        let names = tool_definitions(MemoryMode::Mia)
             .into_iter()
             .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_string))
             .collect::<Vec<_>>();
@@ -373,6 +354,7 @@ mod tests {
             core_url: "http://127.0.0.1:1".into(),
             bot_id: "bot_a".into(),
             conversation_id: "conv_a".into(),
+            memory_mode: MemoryMode::Mia,
             origin_message_id: "msg_a".into(),
             user_id: "user_a".into(),
         };
@@ -381,7 +363,7 @@ mod tests {
             json!({
                 "userId":"user_a",
                 "botId":"bot_a",
-                "sessionId":"conv_a",
+                "conversationId":"conv_a",
                 "originMessageId":"msg_a"
             })
         );

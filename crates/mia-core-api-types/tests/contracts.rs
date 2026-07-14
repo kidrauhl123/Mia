@@ -165,13 +165,10 @@ fn endpoint_dtos_cover_the_initial_core_contract() {
         origin_message_id: "msg_1".into(),
         generated_at: 1,
         persona: "# Mia".into(),
-        memory: "".into(),
+        memory_mode: MemoryMode::Mia,
         memory_tools: MiaMemoryToolNames {
             enabled: true,
-            search: "memory_search".into(),
-            remember: "memory_remember".into(),
-            update: "memory_update".into(),
-            forget: "memory_forget".into(),
+            memory: "memory".into(),
         },
         skill_tools: MiaSkillToolNames {
             list_current: "skill_list_current".into(),
@@ -574,13 +571,10 @@ fn mia_context_contract_keeps_mcp_tool_names_stable() {
         origin_message_id: "msg_1".into(),
         generated_at: 1,
         persona: "# Mia".into(),
-        memory: "".into(),
+        memory_mode: MemoryMode::Mia,
         memory_tools: MiaMemoryToolNames {
             enabled: true,
-            search: "memory_search".into(),
-            remember: "memory_remember".into(),
-            update: "memory_update".into(),
-            forget: "memory_forget".into(),
+            memory: "memory".into(),
         },
         skill_tools: MiaSkillToolNames {
             list_current: "skill_list_current".into(),
@@ -589,8 +583,10 @@ fn mia_context_contract_keeps_mcp_tool_names_stable() {
     };
     let serialized = serde_json::to_value(response).unwrap();
     assert_eq!(serialized["botId"], "mia");
+    assert_eq!(serialized["memoryMode"], "mia");
+    assert!(serialized.get("memory").is_none());
     assert_eq!(serialized["memoryTools"]["enabled"], true);
-    assert_eq!(serialized["memoryTools"]["search"], "memory_search");
+    assert_eq!(serialized["memoryTools"]["memory"], "memory");
     assert_eq!(
         serialized["skillTools"]["listCurrent"],
         "skill_list_current"

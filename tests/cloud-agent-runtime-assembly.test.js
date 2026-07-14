@@ -52,6 +52,7 @@ test("cloud runtime assembly exposes memory through Mia MCP and materializes ski
       ownerId: "user_1",
       botId: "writer",
       conversationId: "conv_1",
+      memoryMode: "mia",
       message: {
         id: "msg_1",
         body_md: "use my preferences",
@@ -88,18 +89,19 @@ test("cloud runtime assembly exposes memory through Mia MCP and materializes ski
         description: "生成记忆卡。",
         body: "# STEM Flashcard Generation"
       }],
-      memoryStore: {
-        listMemories(userId, input) {
+      memoryDocumentStore: {
+        listDocuments(userId, input) {
           calls.push({ userId, input });
-          if (input.scope === "user") {
-            return [{ id: "mem_user", scope: "user", text: "User likes compact implementation notes." }];
-          }
-          if (input.scope === "bot") {
-            return [{ id: "mem_bot", scope: "bot", text: "Writer should answer in Chinese." }];
-          }
-          return [];
+          return {
+            documents: [
+              { target: "user", botId: "", text: "User likes compact implementation notes.", deletedAt: "" },
+              { target: "memory", botId: "writer", text: "Writer should answer in Chinese.", deletedAt: "" },
+              { target: "memory", botId: "other", text: "Other bot memory is hidden.", deletedAt: "" }
+            ]
+          };
         }
       },
+      includeMemorySnapshot: true,
       createCloudSessionToken(userId) {
         assert.equal(userId, "user_1");
         return "cloud-session-token";
@@ -108,10 +110,12 @@ test("cloud runtime assembly exposes memory through Mia MCP and materializes ski
     });
 
     assert.match(result.instructions, /Mia Runtime Context/);
-    assert.equal(result.promptPrefix, "");
+    assert.match(result.promptPrefix, /User likes compact implementation notes/);
+    assert.match(result.memoryBlock, /Writer should answer in Chinese/);
+    assert.doesNotMatch(result.memoryBlock, /Other bot memory/);
     assert.deepEqual(result.nativeSkillNames, ["flashcards"]);
     assert.equal(fs.readFileSync(path.join(result.runtimeCwd, ".claude", "skills", "flashcards", "SKILL.md"), "utf8"), "# STEM Flashcard Generation\n");
-    assert.equal(calls.length, 3);
+    assert.equal(calls.length, 1);
 
     assert.deepEqual(result.mcpServers.docs, { type: "http", url: "https://docs.example/mcp" });
     assert.equal(result.mcpServers["mia-app"].command, process.execPath);
@@ -125,9 +129,10 @@ test("cloud runtime assembly exposes memory through Mia MCP and materializes ski
     assert.equal(context.userId, "user_1");
     assert.equal(context.botId, "writer");
     assert.equal(context.sessionId, "conv_1");
+    assert.equal(context.memoryMode, "mia");
     assert.deepEqual(context.enabledSkillIds, ["flashcards"]);
     assert.equal(context.skills[0].id, "flashcards");
-    assert.equal(context.memories.some((memory) => memory.text === "User likes compact implementation notes."), true);
+    assert.equal(Object.hasOwn(context, "memories"), false);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

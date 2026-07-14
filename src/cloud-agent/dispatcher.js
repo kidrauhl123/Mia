@@ -236,6 +236,7 @@ function createCloudAgentDispatcher(deps = {}) {
   const getUserPublic = typeof deps.getUserPublic === "function" ? deps.getUserPublic : () => null;
   const skillsCatalog = Array.isArray(deps.skillsCatalog) ? deps.skillsCatalog : [];
   const memoryStore = deps.memoryStore || null;
+  const memoryDocumentStore = deps.memoryDocumentStore || null;
   const createCloudSessionToken = typeof deps.createCloudSessionToken === "function" ? deps.createCloudSessionToken : null;
   const cloudBaseUrl = deps.cloudBaseUrl || "";
   const listBridgeDevices = typeof deps.listBridgeDevices === "function" ? deps.listBridgeDevices : null;
@@ -581,16 +582,23 @@ function createCloudAgentDispatcher(deps = {}) {
       });
       const nativeDescriptor = nativeSessionDescriptor({ runtimeKind, botId, conversationId, worker });
       let activeNativeSessionId = await loadNativeSessionId(nativeDescriptor);
+      const conversation = socialStore.getConversation(conversationId);
+      const memoryMode = String(conversation?.decorations?.memoryMode || "").trim().toLowerCase() === "native"
+        ? "native"
+        : "mia";
       const runtimeAssembly = assembleCloudRuntimeTurn({
         ownerId,
         botId,
         bot,
         conversationId,
+        memoryMode,
         message,
         worker,
         runtimeConfig,
         skillsCatalog,
         memoryStore,
+        memoryDocumentStore,
+        includeMemorySnapshot: !activeNativeSessionId,
         createCloudSessionToken,
         cloudBaseUrl
       });

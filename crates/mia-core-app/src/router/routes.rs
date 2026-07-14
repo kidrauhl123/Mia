@@ -35,9 +35,7 @@ use super::mcp::{
     update_mcp_server,
 };
 use super::mia::{
-    delete_mia_memory, forget_mia_memory, list_current_mia_skills, list_mia_memory,
-    mia_context_snapshot, read_current_mia_skill, remember_mia_memory, search_mia_memory,
-    update_mia_memory,
+    list_current_mia_skills, mia_context_snapshot, mutate_mia_memory, read_current_mia_skill,
 };
 use super::realtime::websocket_events;
 use super::state::{ModuleStates, build_module_states};
@@ -95,12 +93,7 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
         .route("/api/mia/context", get(mia_context_snapshot))
         .route("/api/mia/skills/current", get(list_current_mia_skills))
         .route("/api/mia/skills/current/read", get(read_current_mia_skill))
-        .route("/api/mia/memory/search", post(search_mia_memory))
-        .route("/api/mia/memory/list", post(list_mia_memory))
-        .route("/api/mia/memory/remember", post(remember_mia_memory))
-        .route("/api/mia/memory/update", post(update_mia_memory))
-        .route("/api/mia/memory/forget", post(forget_mia_memory))
-        .route("/api/mia/memory/delete", post(delete_mia_memory))
+        .route("/api/mia/memory", post(mutate_mia_memory))
         .route("/api/engines/model-catalog", get(engine_model_catalog))
         .route("/api/engines/codex/models", get(codex_models))
         .route("/api/engines/capabilities", get(engine_capabilities))
@@ -1065,7 +1058,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mia_context_route_uses_core_bot_identity_and_memory_settings() {
+    async fn mia_context_route_uses_the_conversation_fixed_memory_mode() {
         let mut config = AppConfig::default();
         let temp = tempfile::tempdir().unwrap();
         config.data_dir = temp.path().to_path_buf();
@@ -1084,22 +1077,25 @@ mod tests {
             .await
             .unwrap()
             .bot;
-        services
-            .system
-            .save_memory_settings(mia_core_api_types::SaveMemorySettingsRequest {
-                mode: None,
-                enabled: Some(false),
+        let conversation = services
+            .conversation
+            .create_conversation(mia_core_api_types::CreateConversationRequest {
+                kind: "bot_session".into(),
+                title: "Native conversation".into(),
+                bot_id: Some(bot.id.clone()),
+                metadata: json!({ "memoryMode": "native" }),
             })
             .await
             .unwrap();
         let app = create_router(&services);
 
         let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri(format!(
-                        "/api/mia/context?botId={}&sessionId=s1&originMessageId=m1",
-                        bot.id
+                        "/api/mia/context?conversationId={}&botId=spoofed&originMessageId=m1",
+                        conversation.conversation.id
                     ))
                     .body(Body::empty())
                     .unwrap(),
@@ -1110,12 +1106,25 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let context: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(context["botId"], bot.id);
-        assert_eq!(context["sessionId"], "s1");
+        assert_eq!(context["sessionId"], conversation.conversation.id);
         assert_eq!(context["originMessageId"], "m1");
         assert_eq!(context["persona"], "你是负责文献梳理的研究助手。");
+        assert_eq!(context["memoryMode"], "native");
+        assert!(context.get("memory").is_none());
         assert_eq!(context["memoryTools"]["enabled"], false);
-        assert_eq!(context["memoryTools"]["search"], "memory_search");
+        assert_eq!(context["memoryTools"]["memory"], "memory");
         assert_eq!(context["skillTools"]["readCurrent"], "skill_read_current");
+
+        let missing = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/mia/context?conversationId=missing")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -1219,153 +1228,207 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mia_memory_routes_are_core_owned_and_respect_memory_settings() {
+    async fn mia_memory_route_uses_trusted_conversation_ownership() {
         let mut config = AppConfig::default();
         let temp = tempfile::tempdir().unwrap();
         config.data_dir = temp.path().to_path_buf();
         config.workspace_dir = config.data_dir.join("workspace");
         let services = AppServices::from_config(&config).await.unwrap();
-        let app = create_router(&services);
-
-        let remember_response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/mia/memory/remember")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        r#"{"context":{"userId":"u1","botId":"mei","sessionId":"s1","originMessageId":"msg_1"},"botId":"malicious","sessionId":"wrong","text":"User prefers Rust Core","scope":"bot","priority":10}"#,
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(remember_response.status(), StatusCode::OK);
-        let remember_body = to_bytes(remember_response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let remembered: Value = serde_json::from_slice(&remember_body).unwrap();
-        assert_eq!(remembered["status"], "ok");
-        let memory_id = remembered["memoryId"].as_str().unwrap().to_string();
-        assert_eq!(remembered["memory"]["botId"], "mei");
-
-        let search_response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/mia/memory/search")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        r#"{"context":{"userId":"u1","botId":"mei","sessionId":"s1"},"query":"Rust","scopes":["bot"],"limit":5}"#,
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(search_response.status(), StatusCode::OK);
-        let search_body = to_bytes(search_response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let searched: Value = serde_json::from_slice(&search_body).unwrap();
-        assert_eq!(searched["memories"][0]["id"], memory_id);
-
-        let update_response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/mia/memory/update")
-                    .header("content-type", "application/json")
-                    .body(Body::from(format!(
-                        r#"{{"context":{{"userId":"u1","botId":"mei","sessionId":"s1"}},"memoryId":"{}","text":"User prefers Rust Core backend"}}"#,
-                        memory_id
-                    )))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(update_response.status(), StatusCode::OK);
-        let update_body = to_bytes(update_response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let updated: Value = serde_json::from_slice(&update_body).unwrap();
-        assert_eq!(updated["memory"]["text"], "User prefers Rust Core backend");
-
-        let list_response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/mia/memory/list")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        r#"{"context":{"userId":"u1","botId":"mei","sessionId":"s1"},"query":"backend","scopes":["bot"],"limit":500}"#,
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(list_response.status(), StatusCode::OK);
-        let list_body = to_bytes(list_response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let listed: Value = serde_json::from_slice(&list_body).unwrap();
-        assert_eq!(listed["memories"][0]["id"], memory_id);
-
-        let delete_response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/mia/memory/delete")
-                    .header("content-type", "application/json")
-                    .body(Body::from(format!(
-                        r#"{{"context":{{"userId":"u1"}},"memoryId":"{}"}}"#,
-                        memory_id
-                    )))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(delete_response.status(), StatusCode::OK);
-        let delete_body = to_bytes(delete_response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let deleted: Value = serde_json::from_slice(&delete_body).unwrap();
-        assert_eq!(deleted["status"], "deleted");
-        assert_eq!(deleted["memoryId"], memory_id);
-
         services
             .system
-            .save_memory_settings(mia_core_api_types::SaveMemorySettingsRequest {
-                mode: None,
-                enabled: Some(false),
-            })
+            .patch_client_settings(json!({ "userId": "user_real" }))
             .await
             .unwrap();
-        let disabled_response = app
+        sqlx::query(
+            "INSERT INTO bots (id, display_name, avatar_json, capability_json, identity_json, created_at, updated_at)
+             VALUES ('bot_real', 'Real Bot', '{}', '{}', '{}', 1, 1)",
+        )
+        .execute(services.database.pool())
+        .await
+        .unwrap();
+        for (id, bot_id, mode) in [
+            ("conv_mia", Some("bot_real"), "mia"),
+            ("conv_native", Some("bot_real"), "native"),
+            ("conv_without_bot", None, "mia"),
+        ] {
+            sqlx::query(
+                "INSERT INTO conversations (id, kind, title, bot_id, runtime_json, metadata_json, created_at, updated_at)
+                 VALUES (?, 'bot_session', ?, ?, '{}', ?, 1, 1)",
+            )
+            .bind(id)
+            .bind(id)
+            .bind(bot_id)
+            .bind(json!({ "memoryMode": mode }).to_string())
+            .execute(services.database.pool())
+            .await
+            .unwrap();
+        }
+        let app = create_router(&services);
+
+        let add_response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/mia/memory/forget")
+                    .uri("/api/mia/memory")
                     .header("content-type", "application/json")
-                    .body(Body::from(format!(
-                        r#"{{"context":{{"userId":"u1","botId":"mei","sessionId":"s1"}},"memoryId":"{}"}}"#,
-                        memory_id
-                    )))
+                    .body(Body::from(
+                        r#"{"context":{"conversationId":"conv_mia","userId":"user_spoofed","botId":"bot_real"},"action":"add","target":"user","content":"用户偏好简洁回答"}"#,
+                    ))
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(disabled_response.status(), StatusCode::OK);
-        let disabled_body = to_bytes(disabled_response.into_body(), usize::MAX)
+        assert_eq!(add_response.status(), StatusCode::OK);
+        let add_body = to_bytes(add_response.into_body(), usize::MAX)
             .await
             .unwrap();
-        let disabled: Value = serde_json::from_slice(&disabled_body).unwrap();
-        assert_eq!(disabled["status"], "disabled");
-        assert_eq!(disabled["reason"], "mia_memory_disabled");
+        let added: Value = serde_json::from_slice(&add_body).unwrap();
+        assert_eq!(added["success"], true);
+        assert_eq!(added["currentEntries"], json!(["用户偏好简洁回答"]));
+        assert_eq!(
+            services
+                .memory
+                .document(
+                    "user_real",
+                    "bot_real",
+                    mia_core_api_types::MiaMemoryTarget::User
+                )
+                .await
+                .unwrap()
+                .text,
+            "用户偏好简洁回答"
+        );
+        assert!(
+            services
+                .memory
+                .document(
+                    "user_spoofed",
+                    "bot_real",
+                    mia_core_api_types::MiaMemoryTarget::User
+                )
+                .await
+                .unwrap()
+                .text
+                .is_empty()
+        );
+
+        let mismatch_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/mia/memory")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"context":{"conversationId":"conv_mia","botId":"bot_spoofed"},"action":"add","target":"memory","content":"不可写入"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(mismatch_response.status(), StatusCode::FORBIDDEN);
+        let mismatch_body = to_bytes(mismatch_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let mismatch: Value = serde_json::from_slice(&mismatch_body).unwrap();
+        assert_eq!(mismatch["error"], "conversation_bot_mismatch");
+
+        let native_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/mia/memory")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"context":{"conversationId":"conv_native","botId":"bot_real"},"action":"add","target":"memory","content":"不可写入"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(native_response.status(), StatusCode::CONFLICT);
+        let native_body = to_bytes(native_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let native_error: Value = serde_json::from_slice(&native_body).unwrap();
+        assert_eq!(native_error["error"], "native_memory_owner");
+
+        let no_bot_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/mia/memory")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"context":{"conversationId":"conv_without_bot"},"action":"add","target":"memory","content":"不可写入"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(no_bot_response.status(), StatusCode::FORBIDDEN);
+        let no_bot_body = to_bytes(no_bot_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let no_bot: Value = serde_json::from_slice(&no_bot_body).unwrap();
+        assert_eq!(no_bot["error"], "conversation_bot_required");
+
+        let business_failure = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/mia/memory")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"context":{"conversationId":"conv_mia","botId":"bot_real"},"action":"remove","target":"memory","oldText":"不存在"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(business_failure.status(), StatusCode::OK);
+        let failure_body = to_bytes(business_failure.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let failure: Value = serde_json::from_slice(&failure_body).unwrap();
+        assert_eq!(failure["success"], false);
+        assert_eq!(failure["error"], "old_text_not_found");
+
+        let missing_conversation = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/mia/memory")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"context":{"conversationId":"missing","botId":"bot_real"},"action":"add","target":"memory","content":"不可写入"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing_conversation.status(), StatusCode::NOT_FOUND);
+
+        for route in ["search", "list", "remember", "update", "forget", "delete"] {
+            let old_route = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/api/mia/memory/{route}"))
+                        .header("content-type", "application/json")
+                        .body(Body::from("{}"))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(old_route.status(), StatusCode::NOT_FOUND, "{route}");
+        }
     }
 
     #[tokio::test]
