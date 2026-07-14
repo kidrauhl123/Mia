@@ -104,16 +104,21 @@ async fn repair_memory_mode_contract(pool: &SqlitePool) -> Result<(), sqlx::Erro
         .filter(Value::is_object)
         .unwrap_or_else(|| Value::Object(Map::new()));
     let memory_mode = memory_mode_from_settings(&settings);
-
-    if let Some(row) = settings_row {
-        let updated_at = row.get::<i64, _>("updated_at");
-        set_canonical_memory_settings(&mut settings, memory_mode);
-        sqlx::query("UPDATE settings SET value_json = ?, updated_at = ? WHERE key = 'client'")
-            .bind(settings.to_string())
-            .bind(updated_at)
-            .execute(&mut *transaction)
-            .await?;
-    }
+    let updated_at = settings_row
+        .as_ref()
+        .map(|row| row.get::<i64, _>("updated_at"))
+        .unwrap_or_default();
+    set_canonical_memory_settings(&mut settings, memory_mode);
+    sqlx::query(
+        "INSERT INTO settings (key, value_json, updated_at) VALUES ('client', ?, ?)
+         ON CONFLICT(key) DO UPDATE SET
+             value_json = excluded.value_json,
+             updated_at = excluded.updated_at",
+    )
+    .bind(settings.to_string())
+    .bind(updated_at)
+    .execute(&mut *transaction)
+    .await?;
 
     let conversations = sqlx::query("SELECT id, metadata_json FROM conversations")
         .fetch_all(&mut *transaction)

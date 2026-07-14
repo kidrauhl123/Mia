@@ -136,6 +136,20 @@ async fn bounded_memory_documents_enforce_target_identity_and_revision() {
 }
 
 #[tokio::test]
+async fn fresh_database_persists_the_canonical_default_memory_mode() {
+    let db = init_database_memory().await.unwrap();
+    let row = sqlx::query("SELECT value_json, updated_at FROM settings WHERE key = 'client'")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    let settings: serde_json::Value =
+        serde_json::from_str(&row.get::<String, _>("value_json")).unwrap();
+    assert_eq!(settings["memory"]["mode"], "mia");
+    assert_eq!(settings["memory"]["enabled"], true);
+    assert_eq!(row.get::<i64, _>("updated_at"), 0);
+}
+
+#[tokio::test]
 async fn file_backed_database_uses_foreign_keys_busy_timeout_and_wal() {
     let dir = tempfile::tempdir().unwrap();
     let db = init_database(&dir.path().join("mia-core.db"))
@@ -189,14 +203,13 @@ async fn database_reinit_migrates_memory_mode_once_without_overwriting_existing_
     let path = dir.path().join("mia-core.db");
 
     let db = init_database(&path).await.unwrap();
-    sqlx::query(
-        "INSERT INTO settings (key, value_json, updated_at)
-         VALUES ('client', ?, 1000)",
-    )
-    .bind(json!({ "theme": "dark", "memory": { "enabled": false, "keep": "value" } }).to_string())
-    .execute(db.pool())
-    .await
-    .unwrap();
+    sqlx::query("UPDATE settings SET value_json = ?, updated_at = 1000 WHERE key = 'client'")
+        .bind(
+            json!({ "theme": "dark", "memory": { "enabled": false, "keep": "value" } }).to_string(),
+        )
+        .execute(db.pool())
+        .await
+        .unwrap();
     for (id, metadata) in [
         ("conv_missing", json!({ "sessionId": "s1" })),
         (
@@ -271,6 +284,77 @@ async fn database_reinit_migrates_memory_mode_once_without_overwriting_existing_
     assert!(modes_after_second_reinit[0].contains("\"memoryMode\":\"mia\""));
     assert!(modes_after_second_reinit[1].contains("\"memoryMode\":\"native\""));
     assert!(modes_after_second_reinit[2].contains("\"memoryMode\":\"native\""));
+}
+
+#[tokio::test]
+async fn database_reinit_prefers_canonical_mode_and_repairs_invalid_settings_without_runtime_changes()
+ {
+    let canonical_dir = tempfile::tempdir().unwrap();
+    let canonical_path = canonical_dir.path().join("mia-core.db");
+    let db = init_database(&canonical_path).await.unwrap();
+    sqlx::query("UPDATE settings SET value_json = ?, updated_at = 41 WHERE key = 'client'")
+        .bind(json!({ "memory": { "mode": "native", "enabled": true } }).to_string())
+        .execute(db.pool())
+        .await
+        .unwrap();
+    db.close().await;
+
+    let db = init_database(&canonical_path).await.unwrap();
+    let canonical: String =
+        sqlx::query_scalar("SELECT value_json FROM settings WHERE key = 'client'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    let canonical: serde_json::Value = serde_json::from_str(&canonical).unwrap();
+    assert_eq!(canonical["memory"]["mode"], "native");
+    assert_eq!(canonical["memory"]["enabled"], false);
+    db.close().await;
+
+    let invalid_dir = tempfile::tempdir().unwrap();
+    let invalid_path = invalid_dir.path().join("mia-core.db");
+    let db = init_database(&invalid_path).await.unwrap();
+    sqlx::query(
+        "UPDATE settings SET value_json = 'not-json', updated_at = 42 WHERE key = 'client'",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO conversations
+         (id, kind, title, runtime_json, metadata_json, created_at, updated_at)
+         VALUES ('conv_native', 'direct', 'Memory', ?, ?, 1, 1)",
+    )
+    .bind(json!({ "sessionId": "native-session", "nativeSessionKey": "keep" }).to_string())
+    .bind(json!({ "memoryMode": "native", "sessionId": "metadata-session" }).to_string())
+    .execute(db.pool())
+    .await
+    .unwrap();
+    db.close().await;
+
+    let db = init_database(&invalid_path).await.unwrap();
+    let repaired: String =
+        sqlx::query_scalar("SELECT value_json FROM settings WHERE key = 'client'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    let repaired: serde_json::Value = serde_json::from_str(&repaired).unwrap();
+    assert_eq!(repaired["memory"]["mode"], "mia");
+    assert_eq!(repaired["memory"]["enabled"], true);
+
+    let conversation = sqlx::query(
+        "SELECT runtime_json, metadata_json FROM conversations WHERE id = 'conv_native'",
+    )
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        conversation.get::<String, _>("runtime_json"),
+        json!({ "sessionId": "native-session", "nativeSessionKey": "keep" }).to_string()
+    );
+    let metadata: serde_json::Value =
+        serde_json::from_str(&conversation.get::<String, _>("metadata_json")).unwrap();
+    assert_eq!(metadata["memoryMode"], "native");
+    assert_eq!(metadata["sessionId"], "metadata-session");
 }
 
 #[tokio::test]
