@@ -183,6 +183,20 @@ server {
         proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
     }
 
+    location = /mobile-scan {
+        try_files /mobile-scan.html =404;
+        add_header Cache-Control "no-cache";
+    }
+
+    location = /mobile-scan/ {
+        return 308 /mobile-scan$is_args$args;
+    }
+
+    location = /mobile-scan.html {
+        try_files /mobile-scan.html =404;
+        add_header Cache-Control "no-cache";
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }

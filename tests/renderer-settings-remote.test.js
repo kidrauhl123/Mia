@@ -221,6 +221,7 @@ test("settings account card includes the mobile scan qr shell and shows it only 
 
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   assert.match(html, /id="cloudMobileScanCard"/);
+  assert.match(html, />在手机端继续</);
   assert.match(html, /id="cloudMobileScanRefresh"/);
   assert.match(html, /id="cloudMobileScanQr"/);
   assert.match(html, /id="cloudLoginApproveDialog"/);

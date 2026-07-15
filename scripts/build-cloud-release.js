@@ -391,6 +391,20 @@ server {
         add_header Cache-Control "no-cache";
     }
 
+    location = /mobile-scan {
+        try_files /mobile-scan.html =404;
+        add_header Cache-Control "no-cache";
+    }
+
+    location = /mobile-scan/ {
+        return 308 /mobile-scan$is_args$args;
+    }
+
+    location = /mobile-scan.html {
+        try_files /mobile-scan.html =404;
+        add_header Cache-Control "no-cache";
+    }
+
     location = /updates/latest-mac.yml {
         alias /var/www/mia-updates/latest-mac.yml;
         default_type application/x-yaml;
@@ -589,6 +603,9 @@ function verifyRelease() {
     "web/icon-192.png",
     "web/icon-512.png",
     "web/manifest.webmanifest",
+    "web/mobile-scan.html",
+    "web/mobile-scan.css",
+    "web/mobile-scan.js",
     "web/shared/avatar-resolve.js",
     "web/shared/avatar-media.js",
     "web/shared/contact.js",
@@ -727,6 +744,9 @@ function verifyRelease() {
   }
   if (!/location\s+=\s+\/app\/\s+\{[\s\S]*add_header\s+Cache-Control\s+"no-cache";/.test(nginxSite)) {
     throw new Error("Release nginx site must revalidate the /app/ HTML shell.");
+  }
+  if (!/location\s+=\s+\/mobile-scan\s+\{[\s\S]*try_files\s+\/mobile-scan\.html\s+=404;[\s\S]*add_header\s+Cache-Control\s+"no-cache";/.test(nginxSite)) {
+    throw new Error("Release nginx site must serve /mobile-scan as the phone authorization page.");
   }
   const webAppHtml = fs.readFileSync(assertFile("web/app/index.html"), "utf8");
   if (!webAppHtml.includes(`../app.js?v=${assetVersionForRelease()}`)) {

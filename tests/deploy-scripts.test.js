@@ -265,6 +265,11 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /proxy_set_header Sec-WebSocket-Protocol \$http_sec_websocket_protocol/);
   assert.match(source, /location = \/favicon\.ico/);
   assert.match(source, /location = \/manifest\.webmanifest/);
+  assert.match(source, /location = \/mobile-scan/);
+  assert.match(source, /try_files \/mobile-scan\.html =404/);
+  assert.match(source, /"web\/mobile-scan\.html"/);
+  assert.match(source, /"web\/mobile-scan\.css"/);
+  assert.match(source, /"web\/mobile-scan\.js"/);
   assert.match(source, /application\/manifest\+json webmanifest/);
   assert.match(source, /client_max_body_size 18m/);
   assert.match(source, /add_header Strict-Transport-Security/);
@@ -315,6 +320,7 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /Release nginx site must send HTTPS HSTS/);
   assert.match(source, /Release nginx site must serve \/favicon\.ico as a real static icon/);
   assert.match(source, /Release nginx site must serve \/manifest\.webmanifest with application\/manifest\+json/);
+  assert.match(source, /Release nginx site must serve \/mobile-scan as the phone authorization page/);
   assert.match(source, /Release nginx site must include TLS certificate paths/);
   assert.match(source, /Release nginx site must serve both mia\.gifgif\.cn and gifgif\.cn/);
   assert.match(source, /Release nginx site must redirect HTTP to HTTPS/);
