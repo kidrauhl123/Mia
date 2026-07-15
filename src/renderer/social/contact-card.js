@@ -177,6 +177,27 @@
     };
   }
 
+  function platformModelEntriesForNativeRuntimeControls(appState = {}) {
+    const rawEntries = Array.isArray(appState.platformModels) && appState.platformModels.length
+      ? appState.platformModels
+      : (appState.runtime?.cloud?.enabled ? [{ id: "mia-auto", label: "Auto" }] : []);
+    return rawEntries.map((entry = {}) => {
+      const model = String(entry.id || entry.value || entry.model || entry.model_name || "").trim();
+      if (!model) return null;
+      return {
+        id: model,
+        value: model,
+        label: String(entry.label || entry.name || entry.displayName || (model === "mia-auto" ? "Auto" : model)).trim(),
+        model,
+        provider: "mia",
+        providerConnectionId: "mia",
+        providerLabel: "Mia",
+        authType: "mia_account",
+        modelProfileId: `mia:${model}`
+      };
+    }).filter(Boolean);
+  }
+
   function runtimeControlOptionsRequest(bot, runtimeKind) {
     const appState = _ctx?.deps?.getState?.() || {};
     const runtime = appState.runtime || {};
@@ -315,7 +336,8 @@
           botId: botKey,
           botName: bot?.name || bot?.displayName || botKey,
           agentEngine: bot?.agentEngine || bot?.agent_engine || "",
-          runtimeKind: "desktop-local"
+          runtimeKind: "desktop-local",
+          modelEntries: platformModelEntriesForNativeRuntimeControls(_ctx?.deps?.getState?.() || {})
         }
       : runtimeControlOptionsRequest(bot, runtimeKind);
     const pending = nativeControls ? api(conversationId, request) : api(request);

@@ -5073,6 +5073,27 @@ function runtimeControlStateSnapshot() {
   };
 }
 
+function platformModelEntriesForNativeRuntimeControls() {
+  const rawEntries = Array.isArray(state.platformModels) && state.platformModels.length
+    ? state.platformModels
+    : (state.runtime?.cloud?.enabled ? [{ id: "mia-auto", label: "Auto" }] : []);
+  return rawEntries.map((entry = {}) => {
+    const model = String(entry.id || entry.value || entry.model || entry.model_name || "").trim();
+    if (!model) return null;
+    return {
+      id: model,
+      value: model,
+      label: String(entry.label || entry.name || entry.displayName || (model === "mia-auto" ? "Auto" : model)).trim(),
+      model,
+      provider: "mia",
+      providerConnectionId: "mia",
+      providerLabel: "Mia",
+      authType: "mia_account",
+      modelProfileId: `mia:${model}`
+    };
+  }).filter(Boolean);
+}
+
 function runtimeControlInventorySignature(runtime = state.runtime) {
   const agents = Array.isArray(runtime?.agentInventory?.agents) ? runtime.agentInventory.agents : [];
   if (!agents.length) return "";
@@ -5112,7 +5133,8 @@ function runtimeControlOptionsFromAcpSnapshot(snapshot = {}, runtimeKind = "desk
   const find = (category) => controls.find((control) => control?.category === category) || null;
   const normalizeOptions = (control) => (Array.isArray(control?.options) ? control.options : []).map((choice) => {
     const value = String(choice?.value || "");
-    const isMiaModel = control?.category === "model" && control?.source === "mia_provider";
+    const isMiaModel = control?.category === "model"
+      && (control?.source === "mia_provider" || value === "mia-auto" || value === "mia-default");
     return {
       id: value,
       value,
@@ -5160,7 +5182,8 @@ function nativeConversationRuntimeControlInput(context = {}) {
     botId: context?.botKey || bot.id || bot.key || "",
     botName: bot.name || bot.displayName || context?.botKey || "",
     agentEngine: bot.agentEngine || bot.agent_engine || "",
-    runtimeKind: "desktop-local"
+    runtimeKind: "desktop-local",
+    modelEntries: platformModelEntriesForNativeRuntimeControls()
   };
 }
 

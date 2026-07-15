@@ -885,6 +885,14 @@ fn normalize_bridge_runtime_config(request: &CloudBridgeRunRequest) -> Value {
         .unwrap_or_else(|| "codex".to_string());
     let engine = normalize_agent_engine(&engine);
     object.insert("agentEngine".into(), json!(engine.clone()));
+    let runtime_kind = clean_optional(&request.runtime_kind)
+        .or_else(|| map_string(&object, "runtimeKind"))
+        .or_else(|| map_string(&object, "runtime_kind"))
+        .map(|value| value.replace('_', "-"));
+    let is_desktop_local = runtime_kind.as_deref() == Some("desktop-local");
+    if let Some(runtime_kind) = runtime_kind.as_deref().filter(|value| !value.is_empty()) {
+        object.insert("runtimeKind".into(), json!(runtime_kind));
+    }
     promote_string_key(&mut object, "deviceId", &["device_id"]);
     promote_string_key(
         &mut object,
@@ -907,8 +915,9 @@ fn normalize_bridge_runtime_config(request: &CloudBridgeRunRequest) -> Value {
     if !entries.is_empty() {
         object.insert("modelEntries".into(), Value::Array(entries.clone()));
     }
-    apply_mia_managed_runtime_references(&mut object, &entries);
-    if engine == "hermes"
+    apply_mia_managed_runtime_references(&mut object, &entries, is_desktop_local);
+    if !is_desktop_local
+        && engine == "hermes"
         && !has_non_empty(&object, "providerConnectionId")
         && !has_non_empty(&object, "modelProfileId")
         && !has_non_empty(&object, "model")
@@ -924,6 +933,7 @@ fn normalize_bridge_runtime_config(request: &CloudBridgeRunRequest) -> Value {
             object.insert("modelProfileId".into(), json!(format!("mia:{model}")));
         }
     }
+    sanitize_desktop_local_runtime_references(&mut object, is_desktop_local);
     for key in [
         "provider",
         "modelProvider",
@@ -937,6 +947,7 @@ fn normalize_bridge_runtime_config(request: &CloudBridgeRunRequest) -> Value {
         "model_provider",
         "agent_engine",
         "model_profile_id",
+        "runtime_kind",
         "auth_type",
         "api_key_env",
         "api_key",
@@ -1007,7 +1018,11 @@ fn sanitize_model_entry(entry: &Value) -> Option<Value> {
     (!output.is_empty()).then_some(Value::Object(output))
 }
 
-fn apply_mia_managed_runtime_references(object: &mut Map<String, Value>, entries: &[Value]) {
+fn apply_mia_managed_runtime_references(
+    object: &mut Map<String, Value>,
+    entries: &[Value],
+    is_desktop_local: bool,
+) {
     let model = map_string(object, "model")
         .map(|value| canonical_mia_model_id(&value))
         .unwrap_or_default();
@@ -1019,11 +1034,26 @@ fn apply_mia_managed_runtime_references(object: &mut Map<String, Value>, entries
         .or_else(|| map_string(object, "provider"))
         .unwrap_or_default();
     let auth_type = map_string(object, "authType").unwrap_or_default();
-    if provider == "mia"
-        || auth_type == "mia_account"
-        || profile_id.starts_with("mia:")
+    let selected_mia_entry = selected_model_entry_is_mia_managed(entries, &model, &profile_id);
+    let has_platform_selection = has_non_empty(object, "platformProvider")
+        || has_non_empty(object, "platform_provider")
+        || has_non_empty(object, "platformModel")
+        || has_non_empty(object, "platform_model")
+        || has_non_empty(object, "platformModelProfileId")
+        || has_non_empty(object, "platform_model_profile_id");
+    let fallback_to_mia_entry = !has_platform_selection
+        && model.is_empty()
+        && profile_id.is_empty()
+        && provider.is_empty()
+        && auth_type.is_empty()
+        && entries.iter().any(is_mia_managed_entry);
+    let explicit_mia_reference = !is_desktop_local
+        && (provider == "mia" || auth_type == "mia_account" || profile_id.starts_with("mia:"));
+    if explicit_mia_reference
         || model == "mia-auto"
-        || entries.iter().any(is_mia_managed_entry)
+        || model == "mia-default"
+        || selected_mia_entry
+        || fallback_to_mia_entry
     {
         object.insert("providerConnectionId".into(), json!("mia"));
         if !model.is_empty() {
@@ -1046,6 +1076,71 @@ fn apply_mia_managed_runtime_references(object: &mut Map<String, Value>, entries
             object.insert("modelProfileId".into(), json!(format!("mia:{entry_model}")));
         }
     }
+}
+
+fn sanitize_desktop_local_runtime_references(
+    object: &mut Map<String, Value>,
+    is_desktop_local: bool,
+) {
+    if !is_desktop_local {
+        return;
+    }
+    let model = map_string(object, "model")
+        .map(|value| canonical_mia_model_id(&value))
+        .unwrap_or_default();
+    let profile_id = map_string(object, "modelProfileId").unwrap_or_default();
+    let is_mia_platform_reference = map_string(object, "providerConnectionId").as_deref()
+        == Some("mia")
+        || profile_id.starts_with("mia:")
+        || matches!(model.as_str(), "mia-auto" | "mia-default");
+    if is_mia_platform_reference {
+        object.insert("platformProvider".into(), json!("mia"));
+        let platform_model = if !model.is_empty() {
+            model.clone()
+        } else if let Some((provider, profile_model)) = profile_id.split_once(':') {
+            if provider == "mia" && !profile_model.trim().is_empty() {
+                canonical_mia_model_id(profile_model)
+            } else {
+                "mia-auto".into()
+            }
+        } else {
+            "mia-auto".into()
+        };
+        object.insert("platformModel".into(), json!(platform_model.clone()));
+        object.insert(
+            "platformModelProfileId".into(),
+            json!(format!("mia:{platform_model}")),
+        );
+    }
+    if map_string(object, "providerConnectionId").as_deref() == Some("mia") {
+        object.remove("providerConnectionId");
+    }
+    if profile_id.starts_with("mia:") {
+        object.remove("modelProfileId");
+    }
+    if matches!(model.as_str(), "mia-auto" | "mia-default") {
+        object.remove("model");
+    }
+}
+
+fn selected_model_entry_is_mia_managed(entries: &[Value], model: &str, profile_id: &str) -> bool {
+    if model.is_empty() && profile_id.is_empty() {
+        return false;
+    }
+    entries.iter().any(|entry| {
+        if !is_mia_managed_entry(entry) {
+            return false;
+        }
+        let entry_model = map_string_value(entry, "model")
+            .or_else(|| map_string_value(entry, "value"))
+            .map(|value| canonical_mia_model_id(&value))
+            .unwrap_or_default();
+        let entry_profile = map_string_value(entry, "modelProfileId")
+            .map(|value| canonical_mia_profile_id(&value))
+            .unwrap_or_default();
+        (!model.is_empty() && entry_model == model)
+            || (!profile_id.is_empty() && entry_profile == profile_id)
+    })
 }
 
 fn is_mia_managed_entry(entry: &Value) -> bool {

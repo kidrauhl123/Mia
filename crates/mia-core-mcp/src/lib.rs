@@ -12,6 +12,7 @@ use mia_core_api_types::{
     McpServerListResponse, McpServerResponse, McpServerSummary, McpServerTestResponse,
     UpdateMcpServerRequest,
 };
+use mia_core_common::process::configure_background_command;
 use oauth2::basic::BasicClient;
 use oauth2::{
     AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, PkceCodeVerifier,
@@ -882,6 +883,7 @@ impl McpService {
             }
         };
         let mut command = Command::new(&spec.command);
+        configure_background_command(command.as_std_mut());
         command
             .args(&spec.args)
             .stdin(Stdio::null())

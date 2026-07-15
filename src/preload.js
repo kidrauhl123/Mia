@@ -632,6 +632,9 @@ function runtimeConfigOverrideFromPostBody(input = {}) {
     ["agentEngine", ["agentEngine", "agent_engine", "engine"]],
     ["providerConnectionId", ["providerConnectionId", "provider_connection_id"]],
     ["modelProfileId", ["modelProfileId", "model_profile_id"]],
+    ["platformProvider", ["platformProvider", "platform_provider"]],
+    ["platformModel", ["platformModel", "platform_model"]],
+    ["platformModelProfileId", ["platformModelProfileId", "platform_model_profile_id"]],
     ["model", ["model"]],
     ["effortLevel", ["effortLevel", "effort_level"]],
     ["permissionMode", ["permissionMode", "permission_mode"]]
@@ -642,9 +645,91 @@ function runtimeConfigOverrideFromPostBody(input = {}) {
   return config;
 }
 
+function runtimeModelEntriesFromInput(input = {}) {
+  const entries = Array.isArray(input.modelEntries)
+    ? input.modelEntries
+    : (Array.isArray(input.model_entries) ? input.model_entries : []);
+  return entries.map((entry = {}) => {
+    const model = firstText(entry.model, entry.value, entry.id);
+    return {
+      ...(entry.id ? { id: String(entry.id).trim() } : {}),
+      ...(entry.value ? { value: String(entry.value).trim() } : {}),
+      ...(entry.label ? { label: String(entry.label).trim() } : {}),
+      ...(model ? { model } : {}),
+      ...(firstText(entry.provider, entry.providerConnectionId, entry.provider_connection_id) ? {
+        provider: firstText(entry.provider, entry.providerConnectionId, entry.provider_connection_id)
+      } : {}),
+      ...(firstText(entry.providerLabel, entry.provider_label) ? {
+        providerLabel: firstText(entry.providerLabel, entry.provider_label)
+      } : {}),
+      ...(firstText(entry.authType, entry.auth_type) ? {
+        authType: firstText(entry.authType, entry.auth_type)
+      } : {}),
+      ...(firstText(entry.modelProfileId, entry.model_profile_id, entry.profileId, entry.profile_id) ? {
+        modelProfileId: firstText(entry.modelProfileId, entry.model_profile_id, entry.profileId, entry.profile_id)
+      } : {})
+    };
+  }).filter((entry) => entry.model || entry.value || entry.id);
+}
+
+function mergeRuntimeModelEntries(left = [], right = []) {
+  const output = [];
+  const seen = new Set();
+  for (const entry of [...left, ...right]) {
+    const provider = firstText(entry.provider, entry.providerConnectionId, entry.provider_connection_id);
+    const model = firstText(entry.model, entry.value, entry.id);
+    const key = `${provider}:${model}`;
+    if (!model || seen.has(key)) continue;
+    seen.add(key);
+    output.push(entry);
+  }
+  return output;
+}
+
+function hasRuntimeModelSelection(config = {}) {
+  return Boolean(firstText(
+    config.model,
+    config.providerConnectionId,
+    config.provider_connection_id,
+    config.modelProfileId,
+    config.model_profile_id,
+    config.platformProvider,
+    config.platform_provider,
+    config.platformModel,
+    config.platform_model,
+    config.platformModelProfileId,
+    config.platform_model_profile_id
+  ));
+}
+
+function applyDesktopPlatformModelFallback(config = {}) {
+  if (hasRuntimeModelSelection(config)) return config;
+  const entries = runtimeModelEntriesFromInput(config);
+  const entry = entries.find((item = {}) => {
+    const provider = firstText(item.provider, item.providerConnectionId, item.provider_connection_id);
+    const model = firstText(item.model, item.value, item.id);
+    const profile = firstText(item.modelProfileId, item.model_profile_id, item.profileId, item.profile_id);
+    const authType = firstText(item.authType, item.auth_type);
+    return provider === "mia"
+      || authType === "mia_account"
+      || profile.startsWith("mia:")
+      || model === "mia-auto"
+      || model === "mia-default";
+  });
+  if (!entry) return config;
+  const model = firstText(entry.model, entry.value, entry.id) || "mia-auto";
+  const normalizedModel = model === "mia-default" ? "mia-auto" : model;
+  config.platformProvider = "mia";
+  config.platformModel = normalizedModel;
+  config.platformModelProfileId = firstText(entry.modelProfileId, entry.model_profile_id, entry.profileId, entry.profile_id)
+    || `mia:${normalizedModel}`;
+  return config;
+}
+
 async function desktopLocalRuntimeConfig(input = {}) {
   const botId = firstText(input.botId, input.bot_id, input.botKey, input.bot_key);
   const overrides = runtimeConfigOverrideFromPostBody(input);
+  const requestModelEntries = runtimeModelEntriesFromInput(input);
   let binding = null;
   if (botId) {
     try {
@@ -661,10 +746,17 @@ async function desktopLocalRuntimeConfig(input = {}) {
     ...bindingFields,
     ...overrides
   };
+  const mergedModelEntries = mergeRuntimeModelEntries(
+    runtimeModelEntriesFromInput(runtimeConfig),
+    requestModelEntries
+  );
+  if (mergedModelEntries.length) {
+    runtimeConfig.modelEntries = mergedModelEntries;
+  }
   if (!runtimeConfig.agentEngine) {
     runtimeConfig.agentEngine = firstText(input.agentEngine, input.agent_engine, input.engine, botId, "codex");
   }
-  return runtimeConfig;
+  return applyDesktopPlatformModelFallback(runtimeConfig);
 }
 
 async function postLocalDesktopBotMessage(conversationId, body = {}) {

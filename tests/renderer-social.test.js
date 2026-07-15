@@ -4154,6 +4154,51 @@ test("renderConversationChat uses cloud bot avatar when no local bot exists", ()
   assert.doesNotMatch(chat.children[0].innerHTML, /asset:mia/);
 });
 
+test("renderConversationChat uses bot conversation identity when a bot message sender_ref is missing", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAvatar = {
+    avatarThumbBackgroundStyle: (image, _crop, color) => image
+      ? `background-color:transparent;background-image:url('${image}');`
+      : `background-color:${color || "#5e5ce6"};`
+  };
+  s.initSocialModule({
+    getState: () => ({ runtime: { user: { avatarImage: "data:self-avatar" } } }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.myUsername = "boss";
+  s.moduleState.bots = [{ id: "7896965882", name: "codex", avatarImage: "data:codex-avatar", color: "#d12929" }];
+  s.moduleState.activeConversationId = "botc_local_session";
+  s.moduleState.conversations = [{
+    id: "botc_local_session",
+    type: "bot",
+    name: "codex",
+    decorations: { botId: "7896965882", sessionId: "local_session", runtimeKind: "desktop-local" }
+  }];
+  s.moduleState.messageCache.set("botc_local_session", {
+    maxSeq: 1,
+    messages: [{ id: "m_bot_missing_ref", seq: 1, sender_kind: "bot", sender_ref: "", body_md: "hello", created_at: "" }]
+  });
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /data:codex-avatar/);
+  assert.doesNotMatch(chat.children[0].innerHTML, />\?<\/div>/);
+});
+
 test("renderConversationChat preserves an owned bot's explicit avatar color", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);

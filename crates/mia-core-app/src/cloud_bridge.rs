@@ -514,7 +514,8 @@ impl MiaRuntimeProxyRegistry {
         if cloud_token.trim().is_empty() {
             return Err(CloudError::InvalidInput("cloud is not connected".into()));
         }
-        let model = first_string(&plan.provider, &["model"])
+        let model = first_string(runtime_config, &["platformModel", "platform_model"])
+            .or_else(|| first_string(&plan.provider, &["model"]))
             .or_else(|| first_string(runtime_config, &["model"]))
             .unwrap_or_else(|| "mia-auto".to_string());
         let upstream_base_url = first_string(&plan.provider, &["baseUrl", "base_url"])
@@ -570,6 +571,11 @@ impl MiaRuntimeProxyRegistry {
             .insert("MIA_PLATFORM_PROVIDER".into(), "mia".into());
         plan.environment
             .insert("MIA_PLATFORM_MODEL".into(), model.clone());
+        let platform_models = platform_model_options(runtime_config, &model);
+        if !platform_models.is_empty() {
+            plan.environment
+                .insert("MIA_PLATFORM_MODELS".into(), platform_models.join(","));
+        }
         match plan.engine.as_str() {
             "claude-code" => {
                 strip_claude_auth_environment(&mut plan.environment);
@@ -652,10 +658,26 @@ impl MiaRuntimeProxyRegistry {
             }
             "hermes" => {
                 strip_hermes_mia_environment(&mut plan.environment);
+                let effort = hermes_effort_level(runtime_config);
+                let hermes_home = self
+                    .write_hermes_mia_runtime_home(&key, &access, &model, runtime_config)
+                    .await?;
                 plan.environment
                     .insert("CUSTOM_BASE_URL".into(), access.base_url);
                 plan.environment
                     .insert("OPENAI_API_KEY".into(), access.api_key);
+                plan.environment.insert(
+                    "HERMES_HOME".into(),
+                    hermes_home.to_string_lossy().into_owned(),
+                );
+                plan.environment
+                    .insert("HERMES_NONINTERACTIVE".into(), "1".into());
+                plan.environment.insert(
+                    "MIA_PLATFORM_REASONING_EFFORTS".into(),
+                    "low,medium,high,max".into(),
+                );
+                plan.environment
+                    .insert("MIA_PLATFORM_REASONING_EFFORT".into(), effort);
             }
             _ => {}
         }
@@ -708,6 +730,63 @@ impl MiaRuntimeProxyRegistry {
                 .map_err(|error| CloudError::Runtime(error.to_string()))?;
         }
         Ok(path)
+    }
+
+    async fn write_hermes_mia_runtime_home(
+        &self,
+        key: &str,
+        access: &MiaRuntimeProxyAccess,
+        model: &str,
+        runtime_config: &Value,
+    ) -> Result<PathBuf, CloudError> {
+        let model = model.trim();
+        let model = if model.is_empty() { "mia-auto" } else { model };
+        let home = self
+            .data_dir
+            .join("runtime")
+            .join("hermes-cloud-bridge")
+            .join(short_hash(key));
+        tokio::fs::create_dir_all(home.join("skills"))
+            .await
+            .map_err(|error| CloudError::Runtime(error.to_string()))?;
+        let config = json!({
+            "mia": {
+                "runtime_schema": 1,
+                "managed_by": "mia-cloud-bridge",
+            },
+            "model": {
+                "provider": "custom",
+                "default": model,
+                "base_url": access.base_url,
+                "api_mode": "chat_completions",
+            },
+            "providers": {
+                "custom": {
+                    "name": "Mia",
+                    "base_url": access.base_url,
+                    "key_env": "OPENAI_API_KEY",
+                    "default_model": model,
+                    "api_mode": "chat_completions",
+                },
+            },
+            "approvals": {
+                "mode": hermes_permission_mode(runtime_config),
+                "timeout": 60,
+            },
+            "agent": {
+                "reasoning_effort": hermes_effort_level(runtime_config),
+                "disabled_toolsets": ["browser", "cronjob"],
+            },
+            "skills": {
+                "external_dirs": ["${MIA_HERMES_SKILLS_DIR}"],
+            },
+        });
+        let bytes = serde_json::to_vec_pretty(&config)
+            .map_err(|error| CloudError::Runtime(error.to_string()))?;
+        tokio::fs::write(home.join("config.yaml"), bytes)
+            .await
+            .map_err(|error| CloudError::Runtime(error.to_string()))?;
+        Ok(home)
     }
 }
 
@@ -881,8 +960,54 @@ fn strip_codex_auth_environment(environment: &mut std::collections::BTreeMap<Str
 }
 
 fn strip_hermes_mia_environment(environment: &mut std::collections::BTreeMap<String, String>) {
-    for key in ["CUSTOM_BASE_URL", "OPENAI_API_KEY"] {
+    for key in [
+        "CUSTOM_BASE_URL",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "CODEX_API_KEY",
+        "XAI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "DASHSCOPE_API_KEY",
+        "KIMI_API_KEY",
+        "MINIMAX_API_KEY",
+        "GROQ_API_KEY",
+        "MISTRAL_API_KEY",
+        "OLLAMA_API_KEY",
+        "MODEL_PROVIDER",
+        "HERMES_HOME",
+    ] {
         environment.remove(key);
+    }
+}
+
+fn hermes_permission_mode(runtime_config: &Value) -> String {
+    match first_string(runtime_config, &["permissionMode", "permission_mode"])
+        .unwrap_or_else(|| "ask".into())
+        .as_str()
+    {
+        "yolo" | "dontAsk" | "bypassPermissions" | "never" | "off" => "dontAsk".into(),
+        "acceptEdits" | "auto" => "acceptEdits".into(),
+        "read-only" | "readOnly" | "ask" | "default" => "ask".into(),
+        other if !other.trim().is_empty() => other.trim().into(),
+        _ => "ask".into(),
+    }
+}
+
+fn hermes_effort_level(runtime_config: &Value) -> String {
+    match first_string(runtime_config, &["effortLevel", "effort_level"])
+        .unwrap_or_else(|| "medium".into())
+        .as_str()
+    {
+        "low" | "medium" | "high" | "max" => {
+            first_string(runtime_config, &["effortLevel", "effort_level"])
+                .unwrap_or_else(|| "medium".into())
+        }
+        "xhigh" | "extra-high" | "extra_high" => "max".into(),
+        _ => "medium".into(),
     }
 }
 
@@ -907,6 +1032,8 @@ fn is_mia_managed(plan: &RuntimeTurnPlan, runtime_config: &Value) -> bool {
 fn source_is_mia_managed(source: &Value) -> bool {
     first_string(source, &["providerConnectionId", "provider_connection_id"]).as_deref()
         == Some("mia")
+        || first_string(source, &["platformProvider", "platform_provider"]).as_deref()
+            == Some("mia")
         || first_string(source, &["provider", "modelProvider", "model_provider"]).as_deref()
             == Some("mia")
         || first_string(source, &["authType", "auth_type"]).as_deref() == Some("mia_account")
@@ -920,11 +1047,86 @@ fn source_is_mia_managed(source: &Value) -> bool {
             ],
         )
         .is_some_and(|value| value.starts_with("mia:"))
+        || first_string(
+            source,
+            &[
+                "platformModelProfileId",
+                "platform_model_profile_id",
+                "platformProfileId",
+                "platform_profile_id",
+            ],
+        )
+        .is_some_and(|value| value.starts_with("mia:"))
         || first_string(source, &["model"]).is_some_and(|value| is_builtin_mia_model(&value))
+        || first_string(source, &["platformModel", "platform_model"])
+            .is_some_and(|value| is_builtin_mia_model(&value))
 }
 
 fn is_builtin_mia_model(model: &str) -> bool {
     matches!(model.trim(), "mia-auto" | "mia-default")
+}
+
+fn platform_model_options(runtime_config: &Value, current_model: &str) -> Vec<String> {
+    let mut models = Vec::new();
+    push_platform_model_option(&mut models, current_model);
+    push_platform_model_option(&mut models, "mia-auto");
+    if let Some(entries) = runtime_config
+        .get("modelEntries")
+        .or_else(|| runtime_config.get("model_entries"))
+        .and_then(Value::as_array)
+    {
+        for entry in entries {
+            if !model_entry_is_mia_managed(entry) {
+                continue;
+            }
+            if let Some(model) = first_string(entry, &["model", "value", "id"])
+                .as_deref()
+                .map(canonical_mia_model_id)
+            {
+                push_platform_model_option(&mut models, &model);
+            }
+        }
+    }
+    models
+}
+
+fn push_platform_model_option(models: &mut Vec<String>, model: &str) {
+    let model = canonical_mia_model_id(model);
+    if model.is_empty() || models.iter().any(|existing| existing == &model) {
+        return;
+    }
+    models.push(model);
+}
+
+fn model_entry_is_mia_managed(entry: &Value) -> bool {
+    first_string(
+        entry,
+        &["provider", "providerConnectionId", "provider_connection_id"],
+    )
+    .as_deref()
+        == Some("mia")
+        || first_string(entry, &["authType", "auth_type"]).as_deref() == Some("mia_account")
+        || first_string(
+            entry,
+            &[
+                "modelProfileId",
+                "model_profile_id",
+                "profileId",
+                "profile_id",
+            ],
+        )
+        .is_some_and(|value| value.starts_with("mia:"))
+        || first_string(entry, &["model", "value", "id"])
+            .is_some_and(|value| is_builtin_mia_model(&value))
+}
+
+fn canonical_mia_model_id(model: &str) -> String {
+    let model = model.trim();
+    if model == "mia-default" {
+        "mia-auto".into()
+    } else {
+        model.into()
+    }
 }
 
 fn emit_cloud_run_started(
@@ -1754,7 +1956,65 @@ mod tests {
     fn mia_managed_detection_accepts_builtin_mia_model_reference() {
         assert!(source_is_mia_managed(&json!({ "model": "mia-auto" })));
         assert!(source_is_mia_managed(&json!({ "model": "mia-default" })));
+        assert!(source_is_mia_managed(&json!({ "platformProvider": "mia" })));
+        assert!(source_is_mia_managed(
+            &json!({ "platformModelProfileId": "mia:gpt-5.5" })
+        ));
+        assert!(source_is_mia_managed(
+            &json!({ "platformModel": "mia-auto" })
+        ));
         assert!(!source_is_mia_managed(&json!({ "model": "gpt-5.3" })));
+    }
+
+    #[test]
+    fn platform_model_options_include_auto_fallback_and_mia_entries() {
+        let options = platform_model_options(
+            &json!({
+                "modelEntries": [
+                    { "provider": "codex", "model": "gpt-5.5" },
+                    { "provider": "mia", "model": "gpt-5.4" },
+                    { "authType": "mia_account", "value": "mia-default" }
+                ]
+            }),
+            "gpt-5.5",
+        );
+
+        assert_eq!(options, vec!["gpt-5.5", "mia-auto", "gpt-5.4"]);
+    }
+
+    #[tokio::test]
+    async fn hermes_mia_runtime_home_contains_provider_config() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let registry = MiaRuntimeProxyRegistry::new(root.path());
+        let access = MiaRuntimeProxyAccess {
+            base_url: "http://127.0.0.1:4567/v1".into(),
+            api_key: "proxy-key".into(),
+        };
+
+        let home = registry
+            .write_hermes_mia_runtime_home(
+                "hermes:conv",
+                &access,
+                "gpt-5.5",
+                &json!({
+                    "permissionMode": "yolo",
+                    "effortLevel": "high"
+                }),
+            )
+            .await
+            .expect("write Hermes runtime home");
+        let config_path = home.join("config.yaml");
+        let config: Value =
+            serde_json::from_str(&std::fs::read_to_string(config_path).unwrap()).unwrap();
+
+        assert_eq!(config["model"]["provider"], "custom");
+        assert_eq!(config["model"]["default"], "gpt-5.5");
+        assert_eq!(config["model"]["base_url"], "http://127.0.0.1:4567/v1");
+        assert_eq!(config["providers"]["custom"]["key_env"], "OPENAI_API_KEY");
+        assert_eq!(config["providers"]["custom"]["default_model"], "gpt-5.5");
+        assert_eq!(config["approvals"]["mode"], "dontAsk");
+        assert_eq!(config["agent"]["reasoning_effort"], "high");
+        assert!(home.join("skills").is_dir());
     }
 
     #[test]

@@ -529,6 +529,7 @@ fn endpoint_dtos_cover_the_initial_core_contract() {
         display_name: "Mia".into(),
         agent_engine: Some("codex".into()),
         engine: None,
+        runtime_kind: None,
         runtime_config: json!({ "agentEngine": "codex" }),
         config: json!({}),
         model: Some("mia-auto".into()),

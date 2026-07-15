@@ -1,5 +1,6 @@
 //! Shared constants, ids, path policy, and errors for Mia Rust Core.
 
+pub mod process;
 pub mod skill_defaults;
 
 pub const DEFAULT_HOST: &str = "127.0.0.1";

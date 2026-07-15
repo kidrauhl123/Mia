@@ -2,12 +2,12 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use mia_core_api_types::{
-    AcpRuntimeControlSnapshot, CloudBridgeCancelRequest, CloudBridgeCancelResponse,
-    CloudBridgeLifecycleResponse, CloudBridgeRunRequest, CloudBridgeRunResponse,
-    CloudBridgeRuntimeControlRequest, CloudBridgeStartRequest, CloudConnectRequest,
-    CloudConnectResponse, CloudEventsLifecycleResponse, CloudEventsStartRequest,
-    CloudMemorySyncRequest, CloudMemorySyncResponse, CloudSettingsResponse, CloudStatusResponse,
-    PutCloudSettingsRequest,
+    AcpRuntimeControlChoice, AcpRuntimeControlSnapshot, CloudBridgeCancelRequest,
+    CloudBridgeCancelResponse, CloudBridgeLifecycleResponse, CloudBridgeRunRequest,
+    CloudBridgeRunResponse, CloudBridgeRuntimeControlRequest, CloudBridgeStartRequest,
+    CloudConnectRequest, CloudConnectResponse, CloudEventsLifecycleResponse,
+    CloudEventsStartRequest, CloudMemorySyncRequest, CloudMemorySyncResponse,
+    CloudSettingsResponse, CloudStatusResponse, PutCloudSettingsRequest,
 };
 use mia_core_cloud::CloudError;
 use serde::Deserialize;
@@ -188,15 +188,16 @@ pub async fn prepare_cloud_bridge_runtime_controls(
         .prepare_plan(&states.cloud, &runtime_config, &mut plan)
         .await
         .map_err(map_cloud_status)?;
-    states
+    let mut snapshot = states
         .runtime_sessions
         .prepare_session(plan)
         .await
-        .map(Json)
         .map_err(|error| {
             tracing::warn!(error = %error, "prepare cloud bridge ACP controls failed");
             StatusCode::BAD_GATEWAY
-        })
+        })?;
+    augment_snapshot_with_mia_platform_models(&mut snapshot, &runtime_config, &states).await;
+    Ok(Json(snapshot))
 }
 
 pub async fn set_cloud_bridge_runtime_control(
@@ -206,8 +207,10 @@ pub async fn set_cloud_bridge_runtime_control(
     let control_id = request.control_id.trim().to_string();
     let value = request.value.trim().to_string();
     let mut run = request.run;
-    if control_id == "reasoning_effort" {
-        run.effort_level = Some(value.clone());
+    match control_id.as_str() {
+        "model" => run.model = Some(value.clone()),
+        "reasoning_effort" => run.effort_level = Some(value.clone()),
+        _ => {}
     }
     let (mut plan, runtime_config) = cloud_bridge_runtime_control_plan(&states, run).await?;
     states
@@ -215,13 +218,13 @@ pub async fn set_cloud_bridge_runtime_control(
         .prepare_plan(&states.cloud, &runtime_config, &mut plan)
         .await
         .map_err(map_cloud_status)?;
-    let restarts_platform_codex = control_id == "reasoning_effort"
-        && plan.engine == "codex"
+    let restarts_platform_session = matches!(control_id.as_str(), "model" | "reasoning_effort")
+        && (control_id == "model" || matches!(plan.engine.as_str(), "codex" | "hermes"))
         && plan
             .environment
             .get("MIA_PLATFORM_PROVIDER")
             .is_some_and(|provider| provider == "mia");
-    let result = if restarts_platform_codex {
+    let result = if restarts_platform_session {
         states.runtime_sessions.prepare_session(plan).await
     } else {
         states
@@ -229,10 +232,12 @@ pub async fn set_cloud_bridge_runtime_control(
             .set_control(plan, control_id, value)
             .await
     };
-    result.map(Json).map_err(|error| {
+    let mut snapshot = result.map_err(|error| {
         tracing::warn!(error = %error, "set cloud bridge ACP control failed");
         StatusCode::BAD_REQUEST
-    })
+    })?;
+    augment_snapshot_with_mia_platform_models(&mut snapshot, &runtime_config, &states).await;
+    Ok(Json(snapshot))
 }
 
 async fn cloud_bridge_runtime_control_plan(
@@ -261,6 +266,108 @@ async fn cloud_bridge_runtime_control_plan(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok((plan, prepared.runtime))
+}
+
+async fn augment_snapshot_with_mia_platform_models(
+    snapshot: &mut AcpRuntimeControlSnapshot,
+    runtime_config: &serde_json::Value,
+    states: &ModuleStates,
+) {
+    if snapshot
+        .controls
+        .iter()
+        .any(|control| control.category == "model" && control.source == "mia_provider")
+    {
+        return;
+    }
+    let connected = states
+        .cloud
+        .status(false)
+        .await
+        .map(|status| status.connected)
+        .unwrap_or(false);
+    if !connected {
+        return;
+    }
+    let Some(control) = snapshot
+        .controls
+        .iter_mut()
+        .find(|control| control.category == "model")
+    else {
+        return;
+    };
+    let mut models = Vec::new();
+    push_mia_platform_model_choice(&mut models, "mia-auto");
+    if let Some(entries) = runtime_config
+        .get("modelEntries")
+        .or_else(|| runtime_config.get("model_entries"))
+        .and_then(serde_json::Value::as_array)
+    {
+        for entry in entries {
+            if !runtime_model_entry_is_mia(entry) {
+                continue;
+            }
+            if let Some(model) = first_value_string(entry, &["model", "value", "id"]) {
+                push_mia_platform_model_choice(&mut models, &model);
+            }
+        }
+    }
+    for model in models {
+        if control.options.iter().any(|choice| choice.value == model) {
+            continue;
+        }
+        let label = if matches!(model.as_str(), "mia-auto" | "mia-default") {
+            "Auto".to_string()
+        } else {
+            model.clone()
+        };
+        control.options.push(AcpRuntimeControlChoice {
+            value: model,
+            label,
+            description: "Mia platform model".into(),
+        });
+    }
+}
+
+fn runtime_model_entry_is_mia(entry: &serde_json::Value) -> bool {
+    first_value_string(
+        entry,
+        &["provider", "providerConnectionId", "provider_connection_id"],
+    )
+    .as_deref()
+        == Some("mia")
+        || first_value_string(entry, &["authType", "auth_type"]).as_deref() == Some("mia_account")
+        || first_value_string(
+            entry,
+            &[
+                "modelProfileId",
+                "model_profile_id",
+                "profileId",
+                "profile_id",
+            ],
+        )
+        .is_some_and(|value| value.starts_with("mia:"))
+        || first_value_string(entry, &["model", "value", "id"])
+            .is_some_and(|value| matches!(value.as_str(), "mia-auto" | "mia-default"))
+}
+
+fn push_mia_platform_model_choice(models: &mut Vec<String>, model: &str) {
+    let model = match model.trim() {
+        "mia-default" => "mia-auto",
+        other => other,
+    };
+    if model.is_empty() || models.iter().any(|existing| existing == model) {
+        return;
+    }
+    models.push(model.to_string());
+}
+
+fn first_value_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 pub async fn cancel_cloud_bridge_run(

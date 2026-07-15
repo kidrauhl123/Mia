@@ -64,6 +64,22 @@
         .find((f) => f && (f.key === ref || f.id === ref)) || null;
     }
 
+    function conversationBotRef() {
+      const isBotConversation = conversation?.type === "bot"
+        || String(conversation?.id || "").startsWith("botc_");
+      if (!isBotConversation) return "";
+      return firstNonEmpty(
+        conversation?.decorations?.botId,
+        conversation?.decorations?.bot_id,
+        conversation?.botId,
+        conversation?.bot_id
+      );
+    }
+
+    function botSenderRefForMessage(m) {
+      return firstNonEmpty(m?.sender_ref, conversationBotRef());
+    }
+
     function botAvatarIdentityId(ref, bot = {}, member = {}) {
       const identity = member?.identity || {};
       const record = {
@@ -89,9 +105,10 @@
         return resolveContact({ kind: UserKind, ref: m.sender_ref }, ctx);
       }
       if (m.sender_kind === "bot") {
-        const member = memberArr.find((mem) => mem.member_kind === "bot" && mem.member_ref === m.sender_ref);
-        const rawBot = botRecord(m.sender_ref);
-        const localBot = resolveContact({ kind: BotKind, ref: m.sender_ref }, ctx);
+        const senderRef = botSenderRefForMessage(m);
+        const member = memberArr.find((mem) => mem.member_kind === "bot" && mem.member_ref === senderRef);
+        const rawBot = botRecord(senderRef);
+        const localBot = resolveContact({ kind: BotKind, ref: senderRef }, ctx);
         const ownedByMe = Boolean(rawBot);
         const ownAvatarIsHydrated = Boolean(rawBot && hasAvatarIdentityFields?.(rawBot));
         let displayName;
@@ -102,15 +119,15 @@
         } else if (member && member.bot_name) {
           displayName = member.bot_name;
         } else {
-          const conversationBotKey = conversation.decorations?.botId || conversation.botId || conversation.bot_id || "";
-          displayName = conversationBotKey === m.sender_ref && conversation.name
+          const conversationBotKey = conversationBotRef();
+          displayName = conversationBotKey === senderRef && conversation.name
             ? conversation.name
-            : m.sender_ref;
+            : senderRef;
         }
         const avatar = (!ownAvatarIsHydrated && member?.identity?.avatar)
           ? member.identity.avatar
           : resolveAvatarForContact({
-              id: botAvatarIdentityId(m.sender_ref, rawBot || {}, member || {}),
+              id: botAvatarIdentityId(senderRef, rawBot || {}, member || {}),
               displayName,
               avatarImage: ownAvatarIsHydrated ? (rawBot.avatarImage || rawBot.avatar_image) : member?.bot_avatar_image,
               avatarCrop: ownAvatarIsHydrated ? (rawBot.avatarCrop || rawBot.avatar_crop) : member?.bot_avatar_crop,
@@ -120,7 +137,7 @@
             });
         return attachStatusBadge({
           kind: BotKind,
-          id: firstNonEmpty(member?.identity?.id, rawBot?.id, rawBot?.botId, rawBot?.bot_id, m.sender_ref),
+          id: firstNonEmpty(member?.identity?.id, rawBot?.id, rawBot?.botId, rawBot?.bot_id, senderRef),
           ownerUserId: firstNonEmpty(member?.identity?.ownerUserId, member?.identity?.owner_user_id, rawBot?.ownerUserId, rawBot?.owner_user_id, member?.owner_user_id, member?.owner_id),
           displayName,
           avatar

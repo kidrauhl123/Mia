@@ -11,6 +11,7 @@ use mia_core_api_types::{
     AgentCommandExecuteRequest, AgentCommandExecuteResponse, AgentCommandListRequest,
     AgentCommandRegistryResponse,
 };
+use mia_core_common::process::configure_background_command;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use tokio::process::Command;
@@ -672,13 +673,13 @@ async fn local_engine_info(engine: &str) -> LocalEngineInfo {
 }
 
 async fn command_version(command_path: &str) -> Option<String> {
-    let output = timeout(
-        Duration::from_secs(3),
-        Command::new(command_path).arg("--version").output(),
-    )
-    .await
-    .ok()?
-    .ok()?;
+    let mut command = Command::new(command_path);
+    configure_background_command(command.as_std_mut());
+    command.arg("--version");
+    let output = timeout(Duration::from_secs(3), command.output())
+        .await
+        .ok()?
+        .ok()?;
     if !output.status.success() {
         return None;
     }

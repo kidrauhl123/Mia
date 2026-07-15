@@ -29,6 +29,7 @@ use mia_core_api_types::{
     AgentPermissionListResponse, AgentPermissionPendingRequest, AgentPermissionRespondRequest,
     AgentPermissionRespondResponse, AgentPermissionRule, MemoryMode,
 };
+use mia_core_common::process::configure_background_command;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -838,6 +839,7 @@ async fn probe_native_acp_command_inner(
         })?;
 
     let mut child_command = Command::new(&command.program);
+    configure_background_command(child_command.as_std_mut());
     child_command
         .args(&command.args)
         .env_clear()
@@ -1231,6 +1233,7 @@ impl NativeAcpTask {
             .with_context(|| format!("create ACP workspace {}", workspace_dir.display()))?;
 
         let mut child_command = Command::new(&command.program);
+        configure_background_command(child_command.as_std_mut());
         child_command
             .args(&command.args)
             .env_clear()
@@ -1477,6 +1480,7 @@ impl NativeAcpTask {
             .unwrap()
             .control_snapshot(&plan.conversation_id, &plan.engine);
         if let Some(model) = platform_model_from_plan(plan) {
+            let options = platform_model_options_from_plan(plan, model);
             snapshot
                 .controls
                 .retain(|control| control.category != "model");
@@ -1487,25 +1491,16 @@ impl NativeAcpTask {
                     category: "model".into(),
                     current_value: model.to_string(),
                     source: "mia_provider".into(),
-                    options: vec![AcpRuntimeControlChoice {
-                        value: model.to_string(),
-                        label: if matches!(model, "mia-auto" | "mia-default") {
-                            "Auto".into()
-                        } else {
-                            model.to_string()
-                        },
-                        description: "Mia platform model".into(),
-                    }],
+                    options,
                 },
             );
         }
-        if plan.engine == "codex"
-            && let Some(current_effort) = plan
-                .environment
-                .get("MIA_PLATFORM_REASONING_EFFORT")
-                .map(String::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
+        if let Some(current_effort) = plan
+            .environment
+            .get("MIA_PLATFORM_REASONING_EFFORT")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
             && let Some(raw_efforts) = plan.environment.get("MIA_PLATFORM_REASONING_EFFORTS")
         {
             let options = raw_efforts
@@ -1519,6 +1514,7 @@ impl NativeAcpTask {
                         "low" => "Low".into(),
                         "medium" => "Medium".into(),
                         "high" => "High".into(),
+                        "max" => "Max".into(),
                         other => other.to_string(),
                     },
                     description: String::new(),
@@ -1711,6 +1707,42 @@ fn platform_model_from_plan(plan: &RuntimeTurnPlan) -> Option<&str> {
     .map(String::as_str)
     .map(str::trim)
     .filter(|model| !model.is_empty())
+}
+
+fn platform_model_options_from_plan(
+    plan: &RuntimeTurnPlan,
+    current_model: &str,
+) -> Vec<AcpRuntimeControlChoice> {
+    let mut models = Vec::new();
+    push_platform_model_choice(&mut models, current_model);
+    if let Some(raw_models) = plan.environment.get("MIA_PLATFORM_MODELS") {
+        for model in raw_models.split(',') {
+            push_platform_model_choice(&mut models, model);
+        }
+    }
+    models
+        .into_iter()
+        .map(|model| AcpRuntimeControlChoice {
+            label: if matches!(model.as_str(), "mia-auto" | "mia-default") {
+                "Auto".into()
+            } else {
+                model.clone()
+            },
+            value: model,
+            description: "Mia platform model".into(),
+        })
+        .collect()
+}
+
+fn push_platform_model_choice(models: &mut Vec<String>, model: &str) {
+    let model = match model.trim() {
+        "mia-default" => "mia-auto",
+        other => other,
+    };
+    if model.is_empty() || models.iter().any(|existing| existing == model) {
+        return;
+    }
+    models.push(model.into());
 }
 
 #[derive(Debug)]

@@ -1,5 +1,6 @@
 use std::io::{self, Write};
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -9,7 +10,10 @@ use mia_core_api_types::ListeningEvent;
 use mia_core_app::{
     AppConfig, AppServices, TaskScheduler, builtin_mcp::run_builtin_mcp_stdio, create_router,
 };
-use mia_core_common::{DEFAULT_HOST, DEFAULT_PORT, LISTENING_EVENT_PREFIX};
+use mia_core_common::{
+    DEFAULT_HOST, DEFAULT_PORT, LISTENING_EVENT_PREFIX, process::configure_background_command,
+};
+use mia_core_runtime::{AgentEngineScanOptions, prepare_managed_agent_resources};
 use tokio::net::TcpListener;
 
 #[derive(Parser, Debug)]
@@ -22,6 +26,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Command {
     Serve(ServeArgs),
+    PrepareManagedResources(PrepareManagedResourcesArgs),
     McpMiaStdio,
 }
 
@@ -39,6 +44,16 @@ struct ServeArgs {
     parent_pid: Option<u32>,
     #[arg(long, default_value = "zh")]
     language: String,
+}
+
+#[derive(clap::Args, Debug)]
+struct PrepareManagedResourcesArgs {
+    #[arg(long, default_value = "data")]
+    data_dir: PathBuf,
+    #[arg(long)]
+    workspace_dir: Option<PathBuf>,
+    #[arg(long)]
+    resource_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -61,6 +76,7 @@ async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Serve(args) => run_serve(args).await,
+        Command::PrepareManagedResources(args) => run_prepare_managed_resources(args).await,
         Command::McpMiaStdio => run_builtin_mcp_stdio().await,
     }
 }
@@ -95,6 +111,57 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal(config.parent_pid))
         .await?;
     Ok(())
+}
+
+async fn run_prepare_managed_resources(args: PrepareManagedResourcesArgs) -> anyhow::Result<()> {
+    let data_dir = absolute_path(args.data_dir)?;
+    let workspace_dir = absolute_path(
+        args.workspace_dir
+            .unwrap_or_else(|| data_dir.join("workspace")),
+    )?;
+    std::fs::create_dir_all(&data_dir)?;
+    std::fs::create_dir_all(&workspace_dir)?;
+
+    let mut options = AgentEngineScanOptions::current(workspace_dir);
+    options.env.insert(
+        "MIA_CORE_HOME".into(),
+        path_to_env_string(data_dir.as_path()),
+    );
+    if let Some(resource_dir) = args.resource_dir {
+        let resource_dir = absolute_path(resource_dir)?;
+        std::fs::create_dir_all(&resource_dir)?;
+        options.env.insert(
+            "MIA_LOCAL_MANAGED_AGENT_RESOURCES".into(),
+            path_to_env_string(resource_dir.as_path()),
+        );
+    }
+
+    let report = prepare_managed_agent_resources(options).await;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    io::stdout().flush()?;
+
+    let blocked = report
+        .resources
+        .iter()
+        .filter(|resource| !resource.ready)
+        .map(|resource| resource.label.as_str())
+        .collect::<Vec<_>>();
+    if !blocked.is_empty() {
+        anyhow::bail!("managed ACP resources not ready for {}", blocked.join(", "));
+    }
+    Ok(())
+}
+
+fn absolute_path(path: PathBuf) -> anyhow::Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Ok(std::env::current_dir()?.join(path))
+    }
+}
+
+fn path_to_env_string(path: &Path) -> String {
+    path.to_string_lossy().to_string()
 }
 
 async fn shutdown_signal(parent_pid: Option<u32>) {
@@ -135,11 +202,14 @@ fn parent_process_is_alive(parent_pid: u32) -> bool {
 
 #[cfg(unix)]
 fn platform_parent_process_is_alive(parent_pid: u32) -> bool {
-    std::process::Command::new("kill")
+    let mut command = std::process::Command::new("kill");
+    command
         .arg("-0")
         .arg(parent_pid.to_string())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    configure_background_command(&mut command);
+    command
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
@@ -147,9 +217,12 @@ fn platform_parent_process_is_alive(parent_pid: u32) -> bool {
 
 #[cfg(windows)]
 fn platform_parent_process_is_alive(parent_pid: u32) -> bool {
-    std::process::Command::new("tasklist")
+    let mut command = std::process::Command::new("tasklist");
+    command
         .args(["/FI", &format!("PID eq {parent_pid}"), "/NH"])
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    configure_background_command(&mut command);
+    command
         .output()
         .map(|output| {
             output.status.success()

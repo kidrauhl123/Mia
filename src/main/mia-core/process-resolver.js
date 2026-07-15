@@ -21,6 +21,10 @@ function rustCoreBinaryName(platform = process.platform) {
   return platform === "win32" ? "mia-core.exe" : "mia-core";
 }
 
+function nodeBinaryName(platform = process.platform) {
+  return platform === "win32" ? "node.exe" : "node";
+}
+
 function pathEntries(pathValue = "", delimiter = path.delimiter) {
   return String(pathValue || "")
     .split(delimiter)
@@ -78,7 +82,7 @@ function managedResourceRoots(resourcesPathValue, repoRootValue, platform = proc
   const resources = String(resourcesPathValue || "").trim();
   if (resources) {
     roots.push(path.join(resources, "managed-resources"));
-    roots.push(path.join(resources, "bundled-aioncore", runtimeKey(platform, arch), "managed-resources"));
+    roots.push(path.join(resources, "bundled-mia-core", runtimeKey(platform, arch), "managed-resources"));
   }
   const repo = String(repoRootValue || "").trim();
   if (repo) roots.push(path.join(path.resolve(repo), "resources", "managed-resources"));
@@ -88,6 +92,25 @@ function managedResourceRoots(resourcesPathValue, repoRootValue, platform = proc
 function managedResourceRootsEnv(resourcesPathValue, repoRootValue, platform = process.platform, arch = process.arch, configured = "", localRootValue = "", userHomeValue = "") {
   const delimiter = platform === "win32" ? ";" : path.delimiter;
   return managedResourceRoots(resourcesPathValue, repoRootValue, platform, arch, configured, localRootValue, userHomeValue).join(delimiter);
+}
+
+function managedAgentNodeRuntime(pathLookup, execPath, platform, defaultAppValue, env = {}) {
+  const explicit = String(env.MIA_MANAGED_AGENT_NODE || "").trim();
+  if (explicit) {
+    return {
+      command: explicit,
+      electron: String(env.MIA_MANAGED_AGENT_NODE_ELECTRON || "") === "1"
+    };
+  }
+  for (const binary of [...new Set([nodeBinaryName(platform), "node"])]) {
+    const found = pathLookup(binary);
+    if (found) return { command: found, electron: false };
+  }
+  if (!defaultAppValue) {
+    const command = String(execPath() || "").trim();
+    if (command) return { command, electron: true };
+  }
+  return { command: "", electron: false };
 }
 
 function defaultSourceFingerprint(repoRoot, fsImpl = fs) {
@@ -277,6 +300,7 @@ function createMiaCoreResolver(deps = {}) {
     const defaultAppValue = defaultApp();
     const repo = repoRoot();
     const resources = resourcesPath();
+    const managedNode = managedAgentNodeRuntime(pathLookup, execPath, platform, defaultAppValue, env);
     const overlay = {
       MIA_CORE: "1",
       MIA_CORE_HOST: configuredHost(),
@@ -287,6 +311,8 @@ function createMiaCoreResolver(deps = {}) {
       MIA_HOME: p.home,
       MIA_OFFICIAL_SKILLS_DIR: officialSkillsDir(resources, repo, defaultAppValue, env.MIA_OFFICIAL_SKILLS_DIR),
       MIA_MANAGED_AGENT_RESOURCES: managedResourceRootsEnv(resources, repo, platform, arch, env.MIA_MANAGED_AGENT_RESOURCES, p.home, env.HOME || env.USERPROFILE),
+      ...(managedNode.command ? { MIA_MANAGED_AGENT_NODE: managedNode.command } : {}),
+      MIA_MANAGED_AGENT_NODE_ELECTRON: managedNode.electron ? "1" : "0",
       MIA_CORE_RESOURCES_PATH: String(resources || ""),
       MIA_HERMES_ENGINE_DIR: p.engine,
       MIA_PLUGINS_DIR: p.pluginsDir,
