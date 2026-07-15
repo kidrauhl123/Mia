@@ -375,9 +375,18 @@ function createCloudStore(options = {}) {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(openid) DO UPDATE SET
         user_id = excluded.user_id,
-        unionid = excluded.unionid,
-        nickname = excluded.nickname,
-        avatar_url = excluded.avatar_url,
+        unionid = CASE
+          WHEN excluded.unionid <> '' THEN excluded.unionid
+          ELSE wechat_accounts.unionid
+        END,
+        nickname = CASE
+          WHEN excluded.nickname <> '' AND excluded.nickname <> '微信用户' THEN excluded.nickname
+          ELSE wechat_accounts.nickname
+        END,
+        avatar_url = CASE
+          WHEN excluded.avatar_url <> '' THEN excluded.avatar_url
+          ELSE wechat_accounts.avatar_url
+        END,
         raw_json = excluded.raw_json,
         updated_at = excluded.updated_at
     `).run(

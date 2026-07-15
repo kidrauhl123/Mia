@@ -158,33 +158,35 @@ test("wechat mp event endpoint verifies server token without bearer auth", async
   }
 });
 
-test("wechat start uses service account OAuth QR and completes from OAuth callback", async () => {
+test("wechat start uses an Official Account scene QR and completes from subscribe event", async () => {
   const dataDir = tempDataDir();
   const mpToken = "MiaCloudMpLoginToken";
   const fetchCalls = [];
   const fetchImpl = async (url, options = {}) => {
     const href = String(url);
     fetchCalls.push({ url: href, options });
-    if (href.startsWith("https://api.weixin.qq.com/sns/oauth2/access_token")) {
-      const requestUrl = new URL(href);
-      assert.equal(requestUrl.searchParams.get("appid"), "wx_test_app");
-      assert.equal(requestUrl.searchParams.get("secret"), "mp_secret");
-      assert.equal(requestUrl.searchParams.get("code"), "oauth_code");
+    if (href.startsWith("https://api.weixin.qq.com/cgi-bin/token")) {
       return new Response(JSON.stringify({
-        access_token: "oauth_access_token",
-        expires_in: 7200,
-        refresh_token: "oauth_refresh_token",
-        openid: "openid_test",
-        scope: "snsapi_userinfo",
-        unionid: "union_test"
+        access_token: "mp_access_token",
+        expires_in: 7200
       }), {
         status: 200,
         headers: { "Content-Type": "application/json" }
       });
     }
-    if (href.startsWith("https://api.weixin.qq.com/sns/userinfo")) {
+    if (href.startsWith("https://api.weixin.qq.com/cgi-bin/qrcode/create")) {
+      const body = JSON.parse(String(options.body || "{}"));
+      return new Response(JSON.stringify({
+        ticket: `ticket_${body.action_info.scene.scene_str}`,
+        expire_seconds: body.expire_seconds
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    if (href.startsWith("https://api.weixin.qq.com/cgi-bin/user/info")) {
       const requestUrl = new URL(href);
-      assert.equal(requestUrl.searchParams.get("access_token"), "oauth_access_token");
+      assert.equal(requestUrl.searchParams.get("access_token"), "mp_access_token");
       assert.equal(requestUrl.searchParams.get("openid"), "openid_test");
       return new Response(JSON.stringify({
         openid: "openid_test",
@@ -216,29 +218,33 @@ test("wechat start uses service account OAuth QR and completes from OAuth callba
       method: "POST",
       body: { client: "web" }
     });
-    assert.equal(started.mode, "wechat_mp_oauth_userinfo");
+    assert.equal(started.mode, "wechat_mp_scene");
     assert.match(started.state, /^wx_/);
     assert.equal(started.authorizationUrl, `https://mia.test/api/auth/wechat/mp/qr?state=${encodeURIComponent(started.state)}`);
-    assert.match(started.qrCodeUrl, /^data:image\/png;base64,/);
-    assert.deepEqual(fetchCalls, []);
+    assert.equal(started.qrCodeUrl, `https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket_${encodeURIComponent(started.state)}`);
+
+    const tokenCall = fetchCalls.find((call) => call.url.startsWith("https://api.weixin.qq.com/cgi-bin/token"));
+    assert.ok(tokenCall);
+    assert.match(tokenCall.url, /appid=wx_test_app/);
+    assert.match(tokenCall.url, /secret=mp_secret/);
+    const qrCall = fetchCalls.find((call) => call.url.startsWith("https://api.weixin.qq.com/cgi-bin/qrcode/create"));
+    assert.ok(qrCall);
+    const qrBody = JSON.parse(String(qrCall.options.body || "{}"));
+    assert.equal(qrBody.action_name, "QR_STR_SCENE");
+    assert.equal(qrBody.action_info.scene.scene_str, started.state);
 
     const qrPage = await rawFetch(baseUrl, `/api/auth/wechat/mp/qr?state=${encodeURIComponent(started.state)}`);
     assert.equal(qrPage.status, 200);
     const qrPageHtml = await qrPage.text();
     assert.match(qrPageHtml, /微信扫码登录 Mia/);
-    assert.match(qrPageHtml, /data:image\/png;base64,/);
+    assert.match(qrPageHtml, /mp\.weixin\.qq\.com\/cgi-bin\/showqrcode/);
 
     const wechatPage = await rawFetch(baseUrl, `/api/auth/wechat/mp/qr?state=${encodeURIComponent(started.state)}`, {
       headers: { "User-Agent": "Mozilla/5.0 MicroMessenger/8.0.50" },
       redirect: "manual"
     });
-    assert.equal(wechatPage.status, 302);
-    const wechatLocation = wechatPage.headers.get("location") || "";
-    assert.match(wechatLocation, /^https:\/\/open\.weixin\.qq\.com\/connect\/oauth2\/authorize/);
-    assert.match(wechatLocation, /scope=snsapi_userinfo/);
-    assert.match(wechatLocation, /connect_redirect=1/);
-    assert.match(wechatLocation, /#wechat_redirect$/);
-    assert.doesNotMatch(await wechatPage.text(), /确认登录/);
+    assert.equal(wechatPage.status, 200);
+    assert.doesNotMatch(await wechatPage.text(), /connect\/oauth2\/authorize|snsapi_/);
 
     const pending = await jsonFetch(baseUrl, "/api/auth/wechat/complete", {
       method: "POST",
@@ -246,15 +252,25 @@ test("wechat start uses service account OAuth QR and completes from OAuth callba
     });
     assert.equal(pending.status, "pending");
 
-    const callback = await rawFetch(
+    const timestamp = "1780000001";
+    const nonce = "mp_scan_nonce";
+    const signature = wechatMpSignature(mpToken, timestamp, nonce);
+    const xml = `<xml>
+<ToUserName><![CDATA[gh_test]]></ToUserName>
+<FromUserName><![CDATA[openid_test]]></FromUserName>
+<CreateTime>${timestamp}</CreateTime>
+<MsgType><![CDATA[event]]></MsgType>
+<Event><![CDATA[subscribe]]></Event>
+<EventKey><![CDATA[qrscene_${started.state}]]></EventKey>
+<Ticket><![CDATA[ticket]]></Ticket>
+</xml>`;
+    const event = await rawFetch(
       baseUrl,
-      `/api/auth/wechat/mp/oauth-callback?state=${encodeURIComponent(started.state)}&code=oauth_code`
+      `/api/auth/wechat/mp/events?signature=${signature}&timestamp=${timestamp}&nonce=${nonce}`,
+      { method: "POST", headers: { "Content-Type": "text/xml" }, body: xml }
     );
-    assert.equal(callback.status, 200);
-    const callbackHtml = await callback.text();
-    assert.match(callbackHtml, /Mia 登录成功/);
-    assert.match(callbackHtml, /assets\/lottie\/lottie_light\.min\.js/);
-    assert.match(callbackHtml, /assets\/lottie\/wechat-success\.json/);
+    assert.equal(event.status, 200);
+    assert.match(await event.text(), /Mia 登录成功/);
 
     const completed = await jsonFetch(baseUrl, "/api/auth/wechat/complete", {
       method: "POST",
@@ -269,35 +285,103 @@ test("wechat start uses service account OAuth QR and completes from OAuth callba
     const auth = server.mia.cloudStore.authenticateToken(completed.token);
     assert.equal(auth.user.displayName, "Mia 微信用户");
     assert.equal(auth.user.avatarImage, "https://wx.qlogo.cn/mmopen/mia/0");
-    assert.equal(fetchCalls.some((call) => call.url.startsWith("https://api.weixin.qq.com/sns/oauth2/access_token")), true);
-    assert.equal(fetchCalls.some((call) => call.url.startsWith("https://api.weixin.qq.com/sns/userinfo")), true);
+    assert.equal(fetchCalls.some((call) => call.url.includes("/sns/")), false);
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
 
-test("wechat OAuth callback fails instead of creating a fallback profile for snapshot users", async () => {
+test("wechat scene login completes from SCAN using the event openid when profile lookup is unavailable", async () => {
   const dataDir = tempDataDir();
-  const fetchImpl = async (url) => {
+  const mpToken = "MiaCloudMpScanToken";
+  const fetchImpl = async (url, options = {}) => {
     const href = String(url);
-    if (href.startsWith("https://api.weixin.qq.com/sns/oauth2/access_token")) {
-      return new Response(JSON.stringify({
-        access_token: "oauth_access_token",
-        openid: "openid_empty",
-        scope: "snsapi_userinfo",
-        is_snapshotuser: 1
-      }), {
+    if (href.startsWith("https://api.weixin.qq.com/cgi-bin/token")) {
+      return new Response(JSON.stringify({ access_token: "mp_access_token", expires_in: 7200 }), {
         status: 200,
         headers: { "Content-Type": "application/json" }
       });
     }
-    if (href.startsWith("https://api.weixin.qq.com/sns/userinfo")) {
-      return new Response(JSON.stringify({
-        openid: "openid_empty",
-        nickname: "",
-        headimgurl: ""
-      }), {
+    if (href.startsWith("https://api.weixin.qq.com/cgi-bin/qrcode/create")) {
+      const body = JSON.parse(String(options.body || "{}"));
+      return new Response(JSON.stringify({ ticket: `ticket_${body.action_info.scene.scene_str}` }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    if (href.startsWith("https://api.weixin.qq.com/cgi-bin/user/info")) {
+      return new Response(JSON.stringify({ errcode: 48001, errmsg: "api unauthorized" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    throw new Error(`Unexpected fetch: ${href}`);
+  };
+  const server = createMiaCloudServer({
+    dataDir,
+    fetchImpl,
+    wechatMpAppId: "wx_test_app",
+    wechatMpAppSecret: "mp_secret",
+    wechatMpToken: mpToken,
+    publicUrl: "https://mia.test"
+  });
+  const baseUrl = await listen(server);
+  try {
+    const started = await jsonFetch(baseUrl, "/api/auth/wechat/start", {
+      method: "POST",
+      body: { client: "desktop" }
+    });
+    const timestamp = "1780000002";
+    const nonce = "mp_scan_existing_nonce";
+    const signature = wechatMpSignature(mpToken, timestamp, nonce);
+    const xml = `<xml>
+<ToUserName><![CDATA[gh_test]]></ToUserName>
+<FromUserName><![CDATA[openid_existing_follower]]></FromUserName>
+<CreateTime>${timestamp}</CreateTime>
+<MsgType><![CDATA[event]]></MsgType>
+<Event><![CDATA[SCAN]]></Event>
+<EventKey><![CDATA[${started.state}]]></EventKey>
+<Ticket><![CDATA[ticket]]></Ticket>
+</xml>`;
+    const event = await rawFetch(
+      baseUrl,
+      `/api/auth/wechat/mp/events?signature=${signature}&timestamp=${timestamp}&nonce=${nonce}`,
+      { method: "POST", headers: { "Content-Type": "text/xml" }, body: xml }
+    );
+    assert.equal(event.status, 200);
+    assert.match(await event.text(), /Mia 登录成功/);
+
+    const completed = await jsonFetch(baseUrl, "/api/auth/wechat/complete", {
+      method: "POST",
+      body: { state: started.state }
+    });
+    assert.equal(completed.status, "complete");
+    assert.equal(completed.user.displayName, "微信用户");
+    assert.equal(completed.user.avatarImage || "", "");
+    const linked = server.mia.cloudStore.getDb().prepare(
+      "SELECT openid FROM wechat_accounts WHERE user_id = ?"
+    ).get(completed.user.id);
+    assert.equal(linked.openid, "openid_existing_follower");
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("wechat start fails clearly when the scene QR API is unauthorized", async () => {
+  const dataDir = tempDataDir();
+  const fetchImpl = async (url, options = {}) => {
+    const href = String(url);
+    if (href.startsWith("https://api.weixin.qq.com/cgi-bin/token")) {
+      return new Response(JSON.stringify({ access_token: "mp_access_token", expires_in: 7200 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    if (href.startsWith("https://api.weixin.qq.com/cgi-bin/qrcode/create")) {
+      assert.equal(JSON.parse(String(options.body || "{}")).action_name, "QR_STR_SCENE");
+      return new Response(JSON.stringify({ errcode: 48001, errmsg: "api unauthorized" }), {
         status: 200,
         headers: { "Content-Type": "application/json" }
       });
@@ -317,24 +401,15 @@ test("wechat OAuth callback fails instead of creating a fallback profile for sna
   });
   const baseUrl = await listen(server);
   try {
-    const started = await jsonFetch(baseUrl, "/api/auth/wechat/start", {
+    const response = await rawFetch(baseUrl, "/api/auth/wechat/start", {
       method: "POST",
-      body: { client: "web" }
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client: "web" })
     });
-    const callback = await rawFetch(
-      baseUrl,
-      `/api/auth/wechat/mp/oauth-callback?state=${encodeURIComponent(started.state)}&code=oauth_code`
-    );
-    assert.equal(callback.status, 400);
-    assert.match(await callback.text(), /快照页匿名用户/);
-
-    const completed = await jsonFetch(baseUrl, "/api/auth/wechat/complete", {
-      method: "POST",
-      body: { state: started.state }
-    });
-    assert.equal(completed.ok, false);
-    assert.equal(completed.status, "failed");
-    assert.match(completed.error, /快照页匿名用户/);
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.match(body.error, /生成带参数二维码/);
+    assert.match(body.error, /48001|api unauthorized/);
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });

@@ -75,7 +75,7 @@ test("sqlite store persists synced profile display name and avatar", () => {
   }
 });
 
-test("sqlite store refreshes old fallback WeChat profile after OAuth returns real identity", () => {
+test("sqlite store refreshes an old fallback WeChat profile when account details become available", () => {
   const paths = tempStore();
   const store = createCloudStore(paths);
   try {
@@ -97,6 +97,35 @@ test("sqlite store refreshes old fallback WeChat profile after OAuth returns rea
     assert.equal(refreshed.user.id, registered.user.id);
     assert.equal(refreshed.user.displayName, "真实微信名");
     assert.equal(refreshed.user.avatarImage, "https://wx.qlogo.cn/mmopen/real/0");
+  } finally {
+    store.close();
+    cleanup(paths.dataDir);
+  }
+});
+
+test("sqlite store preserves existing WeChat profile when an event carries only openid", () => {
+  const paths = tempStore();
+  const store = createCloudStore(paths);
+  try {
+    const registered = store.loginWithWechat({
+      openid: "stable_openid",
+      unionid: "stable_unionid",
+      nickname: "已有微信名",
+      avatarUrl: "https://wx.qlogo.cn/mmopen/stable/0"
+    });
+    const loggedIn = store.loginWithWechat({ openid: "stable_openid" });
+
+    assert.equal(loggedIn.user.id, registered.user.id);
+    assert.equal(loggedIn.user.displayName, "已有微信名");
+    assert.equal(loggedIn.user.avatarImage, "https://wx.qlogo.cn/mmopen/stable/0");
+    const linked = store.getDb().prepare(`
+      SELECT unionid, nickname, avatar_url
+      FROM wechat_accounts
+      WHERE openid = ?
+    `).get("stable_openid");
+    assert.equal(linked.unionid, "stable_unionid");
+    assert.equal(linked.nickname, "已有微信名");
+    assert.equal(linked.avatar_url, "https://wx.qlogo.cn/mmopen/stable/0");
   } finally {
     store.close();
     cleanup(paths.dataDir);

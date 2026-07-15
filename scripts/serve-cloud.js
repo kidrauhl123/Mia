@@ -380,17 +380,13 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-function isWechatUserAgent(value = "") {
-  return /MicroMessenger/i.test(String(value || ""));
-}
-
 function wechatMpQrHtml(record = null) {
   const state = record?.state || "";
   const qrCodeUrl = record?.qrCodeUrl || "";
   if (!state || !qrCodeUrl) {
     return "<!doctype html><meta charset=\"utf-8\"><title>Mia 微信登录</title><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:32px;background:#f5f5f8;color:#15151a;\"><h1>微信登录已过期</h1><p>请返回 Mia 重新发起登录。</p></body>";
   }
-  return `<!doctype html><meta charset="utf-8"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f8;color:#15151a;"><main style="text-align:center;"><h1>微信扫码登录 Mia</h1><img alt="微信登录二维码" src="${escapeHtml(qrCodeUrl)}" style="width:260px;height:260px;background:#fff;padding:12px;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.12);"><p id="status" style="color:#666;">请使用微信扫码，并按微信里的提示完成授权。</p></main><script>
+  return `<!doctype html><meta charset="utf-8"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f8;color:#15151a;"><main style="text-align:center;"><h1>微信扫码登录 Mia</h1><img alt="微信登录二维码" src="${escapeHtml(qrCodeUrl)}" style="width:260px;height:260px;background:#fff;padding:12px;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.12);"><p id="status" style="color:#666;">请使用微信扫码关注公众号，Mia 会自动完成登录。</p></main><script>
 const state=${JSON.stringify(state)};
 const statusEl=document.getElementById("status");
 async function poll(){
@@ -408,30 +404,6 @@ async function poll(){
 }
 poll();
 </script></body>`;
-}
-
-function wechatOAuthResultHtml({ ok = false, message = "" } = {}) {
-  const title = ok ? "Mia 登录成功" : "Mia 登录失败";
-  const detail = message || (ok ? "请回到 Mia。" : "请回到 Mia 重新发起登录。");
-  const stateClass = ok ? "is-ok" : "is-error";
-  const mark = ok ? "✓" : "!";
-  const animationScript = ok ? `<script src="/assets/lottie/lottie_light.min.js"></script><script>
-(function(){
-  var container=document.querySelector("[data-lottie-box]");
-  if(!container||!window.lottie)return;
-  container.classList.add("has-lottie");
-  window.lottie.loadAnimation({
-    container:container,
-    renderer:"svg",
-    loop:false,
-    autoplay:true,
-    path:"/assets/lottie/wechat-success.json"
-  });
-})();
-</script>` : "";
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${escapeHtml(title)}</title><style>
-*{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100dvh;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f7f8fa;color:#16181d;display:grid;place-items:center}.result{width:min(360px,calc(100vw - 48px));text-align:center}.motion{width:112px;height:112px;margin:0 auto 18px;position:relative;display:grid;place-items:center}.motion svg{width:100%;height:100%;display:block}.fallback{width:72px;height:72px;border-radius:50%;display:grid;place-items:center;font-size:38px;font-weight:800;background:#07c160;color:white;box-shadow:0 12px 30px rgba(7,193,96,.2)}.has-lottie .fallback{display:none}.is-error .fallback{background:#ff4d4f;box-shadow:0 12px 30px rgba(255,77,79,.16)}.title{font-size:28px;line-height:1.18;margin:0 0 10px;font-weight:800;letter-spacing:0}.detail{font-size:16px;line-height:1.55;color:#6d727b;margin:0}
-</style></head><body><main class="result ${stateClass}"><div class="motion" data-lottie-box><span class="fallback">${mark}</span></div><h1 class="title">${escapeHtml(title)}</h1><p class="detail">${escapeHtml(detail)}</p></main>${animationScript}</body></html>`;
 }
 
 function cdata(value = "") {
@@ -484,33 +456,6 @@ async function handleWechatMpEvents(req, res, context, url) {
     return true;
   }
   writeError(res, 405, "Method not allowed.");
-  return true;
-}
-
-async function handleWechatMpOAuthCallback(req, res, context, url) {
-  if (req.method !== "GET" || url.pathname !== "/api/auth/wechat/mp/oauth-callback") return false;
-  const state = url.searchParams.get("state") || "";
-  const code = url.searchParams.get("code") || "";
-  const denied = url.searchParams.get("error") || url.searchParams.get("errmsg") || "";
-  if (denied) {
-    writeText(res, 400, wechatOAuthResultHtml({ ok: false, message: denied }), "text/html; charset=utf-8");
-    return true;
-  }
-  if (!state || !code) {
-    writeText(res, 400, wechatOAuthResultHtml({ ok: false, message: "微信回调缺少授权参数，请回到 Mia 重新扫码。" }), "text/html; charset=utf-8");
-    return true;
-  }
-  const result = await context.wechatAuth.completeMpOAuth({
-    state,
-    code,
-    config: wechatMpConfig(context)
-  });
-  if (result.status === "complete" && result.account?.user?.id) {
-    ensureCloudAgentBootstrap(context, result.account.user.id);
-    writeText(res, 200, wechatOAuthResultHtml({ ok: true, message: "登录已完成，请回到 Mia。" }), "text/html; charset=utf-8");
-    return true;
-  }
-  writeText(res, 400, wechatOAuthResultHtml({ ok: false, message: result.error || "微信登录失败，请回到 Mia 重新扫码。" }), "text/html; charset=utf-8");
   return true;
 }
 
@@ -3351,18 +3296,8 @@ async function handleRequest(req, res, context) {
     return;
   }
   if (await handleWechatMpEvents(req, res, context, url)) return;
-  if (await handleWechatMpOAuthCallback(req, res, context, url)) return;
   if (req.method === "GET" && url.pathname === "/api/auth/wechat/mp/qr") {
     const record = context.wechatAuth.peek(url.searchParams.get("state"));
-    const target = record?.authorizationTarget || "";
-    if (target && isWechatUserAgent(req.headers["user-agent"] || "")) {
-      res.writeHead(302, {
-        "Location": target,
-        "Cache-Control": "no-store"
-      });
-      res.end();
-      return;
-    }
     writeText(res, 200, wechatMpQrHtml(record), "text/html; charset=utf-8");
     return;
   }

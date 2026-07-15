@@ -94,7 +94,7 @@ test("login normalizes the cloud URL, starts WeChat auth, then starts sockets wi
   const { client, calls, getSettings } = setup({
     responses: [
       jsonResponse({
-        mode: "wechat_mp_oauth_userinfo",
+        mode: "wechat_mp_scene",
         authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",
         qrCodeUrl: `data:image/png;base64,${Buffer.from("qr-png").toString("base64")}`,
         state: "wx_state"
@@ -148,7 +148,7 @@ test("login without an explicit URL resets stale saved cloud URL to the default 
     },
     responses: [
       jsonResponse({
-        mode: "wechat_mp_oauth_userinfo",
+        mode: "wechat_mp_scene",
         authorizationUrl: "https://cloud.example/api/auth/wechat/mp/qr?state=wx_state",
         qrCodeUrl: `data:image/png;base64,${Buffer.from("qr-png").toString("base64")}`,
         state: "wx_state"
@@ -310,11 +310,11 @@ test("saveUserProfile writes the local profile and immediately syncs it to Mia C
   assert.deepEqual(status, { ok: true, includeToken: false, token: undefined });
 });
 
-test("login can return an inline WeChat OAuth QR and complete it without opening a browser", async () => {
+test("login can return an inline WeChat scene QR and complete it without opening a browser", async () => {
   const { client, calls, getSettings } = setup({
     responses: [
       jsonResponse({
-        mode: "wechat_mp_oauth_userinfo",
+        mode: "wechat_mp_scene",
         authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",
         qrCodeUrl: `data:image/png;base64,${Buffer.from("qr-png").toString("base64")}`,
         state: "wx_state",
@@ -328,7 +328,7 @@ test("login can return an inline WeChat OAuth QR and complete it without opening
   const started = await client.login({ action: "start", url: "https://new.example///" });
   assert.deepEqual(started, {
     kind: "wechat-login-start",
-    mode: "wechat_mp_oauth_userinfo",
+    mode: "wechat_mp_scene",
     state: "wx_state",
     qrCodeUrl: `data:image/png;base64,${Buffer.from("qr-png").toString("base64")}`,
     authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",

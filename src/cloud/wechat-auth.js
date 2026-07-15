@@ -1,11 +1,11 @@
 "use strict";
 
 const crypto = require("node:crypto");
-const QRCode = require("qrcode");
 
-const WECHAT_MP_OAUTH_AUTHORIZE_URL = "https://open.weixin.qq.com/connect/oauth2/authorize";
-const WECHAT_MP_OAUTH_TOKEN_URL = "https://api.weixin.qq.com/sns/oauth2/access_token";
-const WECHAT_MP_OAUTH_USER_INFO_URL = "https://api.weixin.qq.com/sns/userinfo";
+const WECHAT_MP_ACCESS_TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token";
+const WECHAT_MP_QRCODE_CREATE_URL = "https://api.weixin.qq.com/cgi-bin/qrcode/create";
+const WECHAT_MP_QRCODE_SHOW_URL = "https://mp.weixin.qq.com/cgi-bin/showqrcode";
+const WECHAT_MP_USER_INFO_URL = "https://api.weixin.qq.com/cgi-bin/user/info";
 const DEFAULT_TTL_MS = 1000 * 60 * 5;
 
 function base64url(buffer) {
@@ -29,7 +29,7 @@ function wechatMpConfig(context = {}) {
 }
 
 function isWechatMpLoginConfigured(config = {}) {
-  return Boolean(trim(config.appId) && trim(config.appSecret));
+  return Boolean(trim(config.appId) && trim(config.appSecret) && trim(config.token));
 }
 
 function wechatMpSignature({ token, timestamp, nonce } = {}) {
@@ -56,47 +56,38 @@ async function fetchJson(fetchImpl, url) {
   return data;
 }
 
-async function fetchWechatMpOAuthAccessToken({ fetchImpl = fetch, config = {}, code = "" } = {}) {
-  if (!isWechatMpLoginConfigured(config)) throw new Error("微信公众号登录未配置。");
-  const url = new URL(WECHAT_MP_OAUTH_TOKEN_URL);
-  url.searchParams.set("appid", trim(config.appId));
-  url.searchParams.set("secret", trim(config.appSecret));
-  url.searchParams.set("code", trim(code));
-  url.searchParams.set("grant_type", "authorization_code");
-  const data = await fetchJson(fetchImpl, url);
-  const accessToken = trim(data.access_token);
-  const openid = trim(data.openid);
-  if (!accessToken || !openid) throw new Error("微信网页授权未返回 access_token 或 openid。");
-  return { ...data, access_token: accessToken, openid };
+async function postJson(fetchImpl, url, body = {}) {
+  const response = await fetchImpl(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.errmsg || data.error || `WeChat HTTP ${response.status}`);
+  if (data && data.errcode) throw new Error(data.errmsg || `WeChat error ${data.errcode}`);
+  return data;
 }
 
-async function fetchWechatMpOAuthUserInfo({ fetchImpl = fetch, accessToken, openid } = {}) {
-  const url = new URL(WECHAT_MP_OAUTH_USER_INFO_URL);
+async function fetchWechatMpUserInfo({ fetchImpl = fetch, accessToken, openid } = {}) {
+  const url = new URL(WECHAT_MP_USER_INFO_URL);
   url.searchParams.set("access_token", trim(accessToken));
   url.searchParams.set("openid", trim(openid));
   url.searchParams.set("lang", "zh_CN");
   return fetchJson(fetchImpl, url);
 }
 
-function normalizeWechatOAuthProfile(userInfo = {}, tokenData = {}) {
-  const openid = trim(userInfo.openid || tokenData.openid);
-  if (!openid) throw new Error("微信网页授权结果缺少 openid。");
-  if (Number(tokenData.is_snapshotuser || 0) === 1) {
-    throw new Error("微信返回了快照页匿名用户，未提供真实昵称和头像。请从 Mia 二维码重新扫码授权。");
-  }
-  const nickname = trim(userInfo.nickname);
-  const avatarUrl = trim(userInfo.headimgurl);
-  if (!nickname || !avatarUrl) throw new Error("微信网页授权没有返回昵称和头像，请确认服务号已认证并启用网页授权获取用户基本信息。");
-  const { access_token: _accessToken, refresh_token: _refreshToken, ...safeTokenData } = tokenData || {};
+function normalizeWechatMpProfile(event = {}, userInfo = {}) {
+  const openid = trim(userInfo.openid || event.FromUserName || event.openid);
+  if (!openid) throw new Error("微信关注事件缺少 openid。");
   return {
     openid,
-    unionid: trim(userInfo.unionid || tokenData.unionid),
-    nickname,
-    avatarUrl,
+    unionid: trim(userInfo.unionid),
+    nickname: trim(userInfo.nickname) || "微信用户",
+    avatarUrl: trim(userInfo.headimgurl),
     city: trim(userInfo.city),
     province: trim(userInfo.province),
     country: trim(userInfo.country),
-    raw: { mpOAuthToken: safeTokenData, mpOAuthUser: userInfo || {} }
+    raw: { mpEvent: event, mpUser: userInfo || {} }
   };
 }
 
@@ -136,6 +127,19 @@ function sceneFromWechatMpEvent(event = {}) {
   return "";
 }
 
+function isWechatApiUnauthorized(error) {
+  return /\b48001\b|api unauthorized/i.test(String(error?.message || error || ""));
+}
+
+function wechatMpSceneQrUnavailableError(cause = "") {
+  const error = new Error(
+    `微信公众号没有生成带参数二维码接口权限，不能实现扫码关注即登录。请在微信公众平台「接口管理」启用「生成带参数二维码」后重试。${cause ? ` 微信返回：${cause}` : ""}`
+  );
+  error.code = "MIA_WECHAT_MP_SCENE_QR_UNAVAILABLE";
+  error.status = 503;
+  return error;
+}
+
 function createWechatAuthFlow({
   ttlMs = DEFAULT_TTL_MS,
   randomBytes = crypto.randomBytes,
@@ -145,6 +149,7 @@ function createWechatAuthFlow({
   onLogin = () => {}
 } = {}) {
   const states = new Map();
+  let mpAccessToken = null;
 
   function purge() {
     const time = now();
@@ -160,9 +165,27 @@ function createWechatAuthFlow({
       status: record.status,
       expiresAt: new Date(record.expiresAt).toISOString(),
       qrCodeUrl: record.qrCodeUrl || "",
-      authorizationTarget: record.authorizationTarget || "",
-      mode: record.mode || "mp_oauth_userinfo"
+      mode: record.mode || "mp_scene"
     };
+  }
+
+  async function mpApiAccessToken(config = {}) {
+    const nowMs = now();
+    const appId = trim(config.appId);
+    if (mpAccessToken?.token && mpAccessToken.appId === appId && mpAccessToken.expiresAt > nowMs + 60_000) {
+      return mpAccessToken.token;
+    }
+    if (!isWechatMpLoginConfigured(config)) throw new Error("微信公众号登录未配置。");
+    const url = new URL(WECHAT_MP_ACCESS_TOKEN_URL);
+    url.searchParams.set("grant_type", "client_credential");
+    url.searchParams.set("appid", appId);
+    url.searchParams.set("secret", trim(config.appSecret));
+    const data = await fetchJson(fetchImpl, url);
+    const token = trim(data.access_token);
+    if (!token) throw new Error("微信未返回公众号 access_token。");
+    const expiresIn = Math.max(60, Number(data.expires_in || 7200));
+    mpAccessToken = { appId, token, expiresAt: nowMs + (expiresIn * 1000) };
+    return token;
   }
 
   async function startMp(config = {}, options = {}) {
@@ -174,37 +197,39 @@ function createWechatAuthFlow({
     const client = trim(options.client);
     const qrPageUrl = publicUrl ? `${publicUrl}/api/auth/wechat/mp/qr?state=${encodeURIComponent(state)}` : "";
     if (!publicUrl) throw new Error("微信公众号登录需要配置 MIA_CLOUD_PUBLIC_URL。");
-    const callbackUrl = `${publicUrl}/api/auth/wechat/mp/oauth-callback`;
-    const oauthUrl = new URL(WECHAT_MP_OAUTH_AUTHORIZE_URL);
-    oauthUrl.searchParams.set("appid", trim(config.appId));
-    oauthUrl.searchParams.set("redirect_uri", callbackUrl);
-    oauthUrl.searchParams.set("response_type", "code");
-    oauthUrl.searchParams.set("scope", "snsapi_userinfo");
-    oauthUrl.searchParams.set("state", state);
-    oauthUrl.searchParams.set("connect_redirect", "1");
-    const authorizationTarget = `${oauthUrl.toString()}#wechat_redirect`;
-    const qrCodeUrl = await QRCode.toDataURL(qrPageUrl, {
-      errorCorrectionLevel: "M",
-      margin: 2,
-      width: 320
-    });
-    states.set(state, {
-      state,
-      status: "pending",
-      mode: "mp_oauth_userinfo",
-      expiresAt,
-      createdAt: now(),
-      authorizationTarget,
-      qrCodeUrl,
-      client
-    });
-    return {
-      mode: "wechat_mp_oauth_userinfo",
-      state,
-      expiresAt: new Date(expiresAt).toISOString(),
-      authorizationUrl: qrPageUrl,
-      qrCodeUrl
-    };
+
+    try {
+      const token = await mpApiAccessToken(config);
+      const qr = await postJson(fetchImpl, `${WECHAT_MP_QRCODE_CREATE_URL}?access_token=${encodeURIComponent(token)}`, {
+        expire_seconds: Math.max(60, Math.ceil(ttlMs / 1000)),
+        action_name: "QR_STR_SCENE",
+        action_info: { scene: { scene_str: state } }
+      });
+      const ticket = trim(qr.ticket);
+      if (!ticket) throw new Error("微信未返回公众号二维码 ticket。");
+      const qrCodeUrl = `${WECHAT_MP_QRCODE_SHOW_URL}?ticket=${encodeURIComponent(ticket)}`;
+      const authorizationUrl = qrPageUrl || qrCodeUrl;
+      states.set(state, {
+        state,
+        status: "pending",
+        mode: "mp_scene",
+        expiresAt,
+        createdAt: now(),
+        qrCodeUrl,
+        ticket,
+        client
+      });
+      return {
+        mode: "wechat_mp_scene",
+        state,
+        expiresAt: new Date(expiresAt).toISOString(),
+        authorizationUrl,
+        qrCodeUrl
+      };
+    } catch (error) {
+      if (isWechatApiUnauthorized(error)) throw wechatMpSceneQrUnavailableError(error.message || String(error));
+      throw error;
+    }
   }
 
   function recordFor(state) {
@@ -232,33 +257,39 @@ function createWechatAuthFlow({
     return { status: "pending", expiresAt: new Date(record.expiresAt).toISOString() };
   }
 
-  async function completeMpOAuth({ state = "", code = "", config = {} } = {}) {
-    const record = recordFor(state);
+  async function mpUserInfoForEvent(event = {}, config = {}) {
+    if (!isWechatMpLoginConfigured(config)) return {};
+    try {
+      const token = await mpApiAccessToken(config);
+      return await fetchWechatMpUserInfo({ fetchImpl, accessToken: token, openid: event.FromUserName });
+    } catch {
+      return {};
+    }
+  }
+
+  async function completeMpRecord(record, event = {}, config = {}) {
+    if (!record) return { status: "ignored", reason: "unknown_login" };
     if (record.status !== "pending") return { status: record.status };
     try {
-      const tokenData = await fetchWechatMpOAuthAccessToken({ fetchImpl, config, code });
-      const userInfo = await fetchWechatMpOAuthUserInfo({
-        fetchImpl,
-        accessToken: tokenData.access_token,
-        openid: tokenData.openid
-      });
-      const profile = normalizeWechatOAuthProfile(userInfo, tokenData);
+      const userInfo = await mpUserInfoForEvent(event, config);
+      const profile = normalizeWechatMpProfile(event, userInfo);
       const account = cloudStore.loginWithWechat(profile);
       record.status = "complete";
       record.account = account;
       record.profile = profile;
       onLogin(account);
-      return { status: "complete", account };
+      return { status: "complete", account, event };
     } catch (error) {
       record.status = "failed";
       record.error = error?.message || String(error);
-      return { status: "failed", error: record.error };
+      return { status: "failed", error: record.error, event };
     }
   }
 
-  async function handleMpEventXml(xml = "") {
+  async function handleMpEventXml(xml = "", options = {}) {
     purge();
     const event = parseWechatMpEventXml(xml);
+    const config = options.config || {};
     if (event.MsgType !== "event") return { status: "ignored", reason: "not_event", event };
     const scene = sceneFromWechatMpEvent(event);
     if (!scene) {
@@ -268,21 +299,21 @@ function createWechatAuthFlow({
     }
     const record = states.get(scene);
     if (!record) return { status: "unknown_scene", event };
-    return { status: "not_login_scene", event };
+    return completeMpRecord(record, event, config);
   }
 
-  return { startMp, complete, completeMpOAuth, handleMpEventXml, peek, purge };
+  return { startMp, complete, handleMpEventXml, peek, purge };
 }
 
 module.exports = {
-  WECHAT_MP_OAUTH_AUTHORIZE_URL,
-  WECHAT_MP_OAUTH_TOKEN_URL,
-  WECHAT_MP_OAUTH_USER_INFO_URL,
+  WECHAT_MP_ACCESS_TOKEN_URL,
+  WECHAT_MP_QRCODE_CREATE_URL,
+  WECHAT_MP_QRCODE_SHOW_URL,
+  WECHAT_MP_USER_INFO_URL,
   createWechatAuthFlow,
-  fetchWechatMpOAuthAccessToken,
-  fetchWechatMpOAuthUserInfo,
+  fetchWechatMpUserInfo,
   isWechatMpLoginConfigured,
-  normalizeWechatOAuthProfile,
+  normalizeWechatMpProfile,
   parseWechatMpEventXml,
   randomState,
   sceneFromWechatMpEvent,

@@ -53,17 +53,9 @@ Cloud runtime now supports `cloud-claude-code` only.
 
 ## WeChat Official Account Login
 
-Mia Cloud uses the Official Account identity as the only cloud account login. The login flow is the Official Account web authorization QR flow:
+Mia Cloud uses the Official Account identity as the only cloud account login. Configure `MIA_WECHAT_MP_APP_ID`, `MIA_WECHAT_MP_APP_SECRET`, and `MIA_WECHAT_MP_TOKEN`, then set the Official Account message push URL to `https://mia.gifgif.cn/api/auth/wechat/mp/events` with XML data and plaintext mode. The Official Account must have the `生成带参数二维码` / `qrcode/create` API enabled.
 
-- Required env: `MIA_WECHAT_MP_APP_ID`, `MIA_WECHAT_MP_APP_SECRET`.
-- Required Official Account setting: `网页授权域名` must be `mia.gifgif.cn`.
-- OAuth callback URL: `https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback`.
-- Optional message push URL: `https://mia.gifgif.cn/api/auth/wechat/mp/events`.
-- Optional message push token: `MIA_WECHAT_MP_TOKEN`.
-
-`JS接口安全域名` is not required for this login path. `生成带参数二维码` / `qrcode/create` is not used.
-
-Mia creates a QR code that points to `https://mia.gifgif.cn/api/auth/wechat/mp/qr`. After the user scans it in WeChat, Mia immediately redirects to WeChat Official Account OAuth with `scope=snsapi_userinfo`. WeChat then calls the OAuth callback; Mia exchanges the code for an OAuth token, reads `nickname` and `headimgurl` from `sns/userinfo`, and completes the desktop/web polling login. If WeChat returns a snapshot anonymous user or does not return both nickname and avatar, Mia fails the login instead of creating a fallback `微信用户` profile.
+Mia creates a temporary `QR_STR_SCENE` code and completes login from the pushed `subscribe` or `SCAN` event. `JS接口安全域名`, web authorization domain, OAuth callback, and “使用完整服务” are not used for this login path. Profile name and avatar come from the Official Account user info API when available; otherwise the account is still bound by the event's real `openid`.
 
 To grant first-version manual credits before a payment provider is wired:
 

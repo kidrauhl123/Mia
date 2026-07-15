@@ -488,10 +488,10 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "src/cloud/sqlite-store.js", /CREATE TABLE IF NOT EXISTS wechat_accounts[\s\S]*idx_wechat_accounts_unionid/, "wechat account bootstrap"),
       checkSource(rootDir, "tests/event-log-store.test.js", /event_seq cache stays in lock-step/, "event log monotonic seq persistence")
     ]),
-    item("cloud.security-baseline", "安全基线：微信 OAuth、会话哈希、所有权、Origin/CORS/security headers", [
-      checkSource(rootDir, "src/cloud/wechat-auth.js", /verifyWechatMpSignature[\s\S]*randomState[\s\S]*DEFAULT_TTL_MS|DEFAULT_TTL_MS[\s\S]*randomState[\s\S]*verifyWechatMpSignature/, "wechat oauth state and signature checks"),
+    item("cloud.security-baseline", "安全基线：微信场景码登录、会话哈希、所有权、Origin/CORS/security headers", [
+      checkSource(rootDir, "src/cloud/wechat-auth.js", /verifyWechatMpSignature[\s\S]*randomState[\s\S]*DEFAULT_TTL_MS|DEFAULT_TTL_MS[\s\S]*randomState[\s\S]*verifyWechatMpSignature/, "wechat scene state and signature checks"),
       checkSource(rootDir, "src/cloud/sqlite-store.js", /token_hash/, "hashed session tokens"),
-      checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /wechat start uses service account OAuth QR[\s\S]*wechat OAuth callback fails instead of creating a fallback profile/, "wechat login regression tests"),
+      checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /wechat start uses an Official Account scene QR[\s\S]*wechat start fails clearly when the scene QR API is unauthorized/, "wechat login regression tests"),
       checkSource(rootDir, "scripts/serve-cloud.js", /authenticated-files|applySecurityHeaders|MIA_CLOUD_ALLOWED_ORIGINS|isOriginAllowed/, "auth files and browser-origin controls"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /cloud files require owner authentication/, "file ownership API test"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /websocket auth rejects query token auth by default/, "query-token rejection test")
