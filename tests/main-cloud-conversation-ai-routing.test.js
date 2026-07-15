@@ -101,14 +101,16 @@ test("foreground shutdown cleanup does not dereference daemon-only AgentSession 
   );
 });
 
-test("daemon startup does not run foreground MCP initialization before serving control API", () => {
+test("foreground MCP initialization is deferred until after the first paint", () => {
   const main = read("src/main.js");
   assert.equal(fs.existsSync(path.join(ROOT, LEGACY_CORE_ENTRY)), false, "old Node Core entry should stay deleted");
   assert.match(
     main,
-    /startupMcpInitializer\.start\(\);\s*\n\s*const win = createWindow\(\);/,
-    "the foreground MCP warmup must run only on the window startup path"
+    /postPaintStartup = createPostPaintStartup\([\s\S]*startMcp:\s*\(\) => startupMcpInitializer\.start\(\)/,
+    "foreground MCP warmup should stay off the window creation path"
   );
+  const readyBody = main.slice(main.indexOf("app.whenReady().then(async () => {"), main.indexOf("app.on(\"window-all-closed\""));
+  assert.doesNotMatch(readyBody, /startupMcpInitializer\.start\(\)/);
   assert.doesNotMatch(
     main,
     /require\(["']\.\/core\/mia-core\.js["']\)|src\/core\/mia-core/,

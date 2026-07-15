@@ -3,8 +3,8 @@
 // Pattern: IIFE + window.miaSocial public API; deps are injected via initSocialModule().
 
 (function (global) {
-  // Decision: cap initial-message fetch to 30 conversations to keep bootstrap fast.
-  const INITIAL_CONVERSATIONS_CAP = 30;
+  // Identity hydration is best-effort decoration; keep it below the startup data path.
+  const INITIAL_IDENTITY_HYDRATION_CAP = 8;
   // Fetch a small recent overlap so older local SQLite rows can be upgraded when
   // the server adds fields like trace_json after the row was first cached.
   const MESSAGE_BACKFILL_OVERLAP = 50;
@@ -157,6 +157,7 @@
   // Cache of conversation members per conversation id (fetched on first open, updated via WS events).
   const _conversationMembersCache = new Map();
   const _hydratingBotIdentities = new Set();
+  let botIdentityRenderTimer = 0;
   let _tagEditOutsideHandler = null;
   let _tagEditOutsideGeneration = 0;
 
@@ -3278,23 +3279,6 @@
     return String(cloudUser.id || cloudUser.userId || moduleState.myUserId || "").trim();
   }
 
-  async function warmMessagesFromLocalCache(api, conversations) {
-    if (!api || typeof api.getCachedConversationMessages !== "function") return;
-    await Promise.all((conversations || []).slice(0, INITIAL_CONVERSATIONS_CAP).map(async (conversation) => {
-      if (!conversation?.id) return;
-      if (!moduleState.messageCache.has(conversation.id)) {
-        moduleState.messageCache.set(conversation.id, { messages: [], maxSeq: 0 });
-      }
-      try {
-        const cachedRes = await api.getCachedConversationMessages(conversation.id, 50);
-        const cached = cachedRes?.ok ? (cachedRes.data?.messages || []) : [];
-        if (cached.length) _mergeMessagesIntoCache(conversation.id, cached);
-      } catch (err) {
-        console.warn("[social] cached bootstrap messages failed for", conversation.id, err?.message || err);
-      }
-    }));
-  }
-
   async function hydrateCachedSocialBootstrap(api) {
     const userId = currentCloudUserId();
     if (!userId || !api || typeof api.getCachedSocialBootstrap !== "function") return false;
@@ -3316,7 +3300,6 @@
     for (const [conversationId, list] of Object.entries(snapshot.members || {})) {
       if (Array.isArray(list)) _conversationMembersCache.set(conversationId, list);
     }
-    await warmMessagesFromLocalCache(api, visibleSocialConversations(moduleState.conversations));
     restoreLastActiveConversation();
     moduleState.bootstrapped = true;
     if (deps && typeof deps.render === "function") deps.render();
@@ -3399,6 +3382,14 @@
     return true;
   }
 
+  function scheduleBotIdentityRender() {
+    if (botIdentityRenderTimer) return;
+    botIdentityRenderTimer = global.setTimeout(() => {
+      botIdentityRenderTimer = 0;
+      if (deps && typeof deps.render === "function") deps.render();
+    }, 60);
+  }
+
   function hydrateVisibleBotIdentities(api, conversations = []) {
     if (!api || typeof api.getBotIdentity !== "function") return;
     const ids = [...new Set((Array.isArray(conversations) ? conversations : [])
@@ -3413,7 +3404,7 @@
       Promise.resolve(api.getBotIdentity(botId))
         .then((res) => {
           const bot = res?.ok ? res.data?.bot : res?.bot;
-          if (bot && upsertBotIdentity(bot) && deps && typeof deps.render === "function") deps.render();
+          if (bot && upsertBotIdentity(bot)) scheduleBotIdentityRender();
         })
         .catch((err) => console.warn("[social] getBotIdentity failed for", botId, err?.message || err))
         .finally(() => _hydratingBotIdentities.delete(botId));
@@ -3473,61 +3464,8 @@
         reconcileActiveConversationAgainstAvailableConversations();
         bootstrapCompleted = true;
       }
-      hydrateVisibleBotIdentities(api, visibleSocialConversations(moduleState.conversations).slice(0, INITIAL_CONVERSATIONS_CAP));
-
       // Phase 3: cross-device user settings (pin / read marks / appearance).
       await bootstrapCloudSettings();
-
-      // Fetch initial messages for up to INITIAL_CONVERSATIONS_CAP conversations.
-      const conversationsToFetch = visibleSocialConversations(moduleState.conversations).slice(0, INITIAL_CONVERSATIONS_CAP);
-      // Prefetch members for group mosaics and bot private chats. Bot chats need
-      // the member public identity so sidebar/header/bubbles hash the same
-      // public bot identity and can show cross-device avatars.
-      const memberConversationsToFetch = visibleSocialConversations(moduleState.conversations).filter((r) => {
-        const t = r.type
-          || (r.id?.startsWith("dm:") ? "dm"
-            : r.id?.startsWith("botc_") ? "bot"
-            : (r.id?.startsWith("g_") || r.id?.startsWith("g-")) ? "group"
-            : null);
-        return t === "group" || t === "bot";
-      });
-      await Promise.all(memberConversationsToFetch.map((r) => _fetchAndCacheConversationMembers(r.id)));
-      await Promise.all(conversationsToFetch.map(async (conversation) => {
-        if (!moduleState.messageCache.has(conversation.id)) {
-          moduleState.messageCache.set(conversation.id, { messages: [], maxSeq: 0 });
-        }
-        // Warm from the SQLite cache first (instant, offline-ok), then fetch a
-        // bounded overlap from cloud so cached rows can pick up newer fields.
-        // The delta cursor comes from the persisted cache, not any stale renderer
-        // memory left from the current session.
-        let cachedMaxSeq = 0;
-        if (typeof api.getCachedConversationMessages === "function") {
-          try {
-            const cachedRes = await api.getCachedConversationMessages(conversation.id, 50);
-            const cached = cachedRes?.ok ? (cachedRes.data?.messages || []) : [];
-            if (cached.length) {
-              _mergeMessagesIntoCache(conversation.id, cached);
-              cachedMaxSeq = cached.reduce((m, x) => Math.max(m, Number(x.seq) || 0), 0);
-            }
-          } catch (err) {
-            console.warn("[social] getCachedConversationMessages failed for", conversation.id, err);
-          }
-        }
-        try {
-          const sinceSeq = Math.max(0, cachedMaxSeq - MESSAGE_BACKFILL_OVERLAP);
-          const msgRes = await api.listConversationMessages(conversation.id, sinceSeq, 100);
-          if (msgRes.ok) {
-            const fresh = (msgRes.data?.messages || []).map((m) => messageWithFallbackRunTrace(conversation.id, m));
-            _mergeMessagesIntoCache(conversation.id, fresh);
-          }
-        } catch (err) {
-          console.warn("[social] listConversationMessages failed for", conversation.id, err);
-        }
-        if (deps && typeof deps.maybeGenerateConversationTitle === "function") {
-          Promise.resolve(deps.maybeGenerateConversationTitle(conversation.id)).catch(() => {});
-        }
-      }));
-
     } catch (err) {
       console.error("[social] bootstrapAfterLogin failed:", err);
     }
@@ -3538,6 +3476,15 @@
     // "personas now, conversations later" (the visible "割裂" the user reported).
     if (bootstrapCompleted) moduleState.bootstrapped = true;
     if (deps && typeof deps.render === "function") deps.render();
+    if (bootstrapCompleted) {
+      const visible = visibleSocialConversations(moduleState.conversations).slice(0, INITIAL_IDENTITY_HYDRATION_CAP);
+      const hydrateIdentities = () => hydrateVisibleBotIdentities(api, visible);
+      if (typeof window.miaIdleScheduler?.schedule === "function") {
+        window.miaIdleScheduler.schedule(hydrateIdentities, { delayMs: 500, timeoutMs: 2_000 });
+      } else {
+        setTimeout(hydrateIdentities, 500);
+      }
+    }
   }
 
   function isBootstrapped() {
