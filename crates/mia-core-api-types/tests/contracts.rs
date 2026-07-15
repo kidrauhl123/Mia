@@ -811,6 +811,7 @@ fn acp_runtime_control_snapshot_serializes_only_observed_controls() {
     let snapshot = AcpRuntimeControlSnapshot {
         conversation_id: "conv_1".into(),
         engine: "claude-code".into(),
+        memory_mode: "native".into(),
         session_id: Some("session_1".into()),
         state: "ready".into(),
         controls: vec![AcpRuntimeControl {
@@ -830,6 +831,7 @@ fn acp_runtime_control_snapshot_serializes_only_observed_controls() {
     let value = serde_json::to_value(snapshot).unwrap();
 
     assert_eq!(value["conversationId"], "conv_1");
+    assert_eq!(value["memoryMode"], "native");
     assert_eq!(value["sessionId"], "session_1");
     assert_eq!(value["controls"][0]["currentValue"], "claude-sonnet-4-6");
     assert_eq!(value["controls"][0]["source"], "config_option");

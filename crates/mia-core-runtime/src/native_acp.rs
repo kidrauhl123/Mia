@@ -1049,6 +1049,7 @@ impl NativeAcpSessionState {
         AcpRuntimeControlSnapshot {
             conversation_id: conversation_id.to_string(),
             engine: engine.to_string(),
+            memory_mode: String::new(),
             session_id: self.session_id.as_ref().map(ToString::to_string),
             state: if self.session_id.is_some() {
                 "ready".to_string()
@@ -1479,6 +1480,11 @@ impl NativeAcpTask {
             .lock()
             .unwrap()
             .control_snapshot(&plan.conversation_id, &plan.engine);
+        snapshot.memory_mode = match plan.memory_mode {
+            mia_core_api_types::MemoryMode::Mia => "mia",
+            mia_core_api_types::MemoryMode::Native => "native",
+        }
+        .to_string();
         if let Some(model) = platform_model_from_plan(plan) {
             let options = platform_model_options_from_plan(plan, model);
             snapshot

@@ -5153,10 +5153,15 @@ function runtimeControlOptionsFromAcpSnapshot(snapshot = {}, runtimeKind = "desk
   const permission = find("permission");
   const modelOptions = normalizeOptions(model);
   const selectedModel = String(model?.currentValue || "");
+  const agentEngine = String(snapshot?.engine || "");
+  const memoryMode = String(snapshot?.memoryMode || "").trim();
+  const nativeHermesMemory = agentEngine.toLowerCase() === "hermes" && memoryMode === "native";
   return {
     runtimeKind,
-    agentEngine: String(snapshot?.engine || ""),
-    statusText: snapshot?.state === "ready" ? String(snapshot?.engine || "") : "Agent 连接中...",
+    agentEngine,
+    memoryMode,
+    nativeMemoryFallback: nativeHermesMemory,
+    statusText: snapshot?.state === "ready" ? agentEngine : "Agent 连接中...",
     sendBlocked: snapshot?.state !== "ready",
     sendBlockReason: snapshot?.state === "error" ? String(snapshot?.error || "Agent 连接失败") : "",
     modelOptions,
@@ -5178,12 +5183,17 @@ function usesNativeConversationRuntimeControls(context = {}) {
 
 function nativeConversationRuntimeControlInput(context = {}) {
   const bot = context?.bot || {};
+  const agentEngine = String(bot.agentEngine || bot.agent_engine || "").trim();
   return {
     botId: context?.botKey || bot.id || bot.key || "",
     botName: bot.name || bot.displayName || context?.botKey || "",
-    agentEngine: bot.agentEngine || bot.agent_engine || "",
+    agentEngine,
     runtimeKind: "desktop-local",
-    modelEntries: platformModelEntriesForNativeRuntimeControls()
+    // Hermes already advertises its active models through ACP. Supplying Mia's
+    // catalog here makes an unselected `mia-auto` look like a native Hermes model.
+    ...(agentEngine.toLowerCase() === "hermes"
+      ? {}
+      : { modelEntries: platformModelEntriesForNativeRuntimeControls() })
   };
 }
 

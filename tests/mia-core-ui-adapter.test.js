@@ -222,6 +222,9 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
     /selectedSkillIds:\s*selectedSkillIdsFromCoreBody\(input\)/,
     "desktop-local bot sends must preserve the real composer skill chips"
   );
+  assert.match(postLocalDesktopSource, /runtimeKind:\s*"desktop-local"/);
+  const localRuntimeControlPayload = extractFunctionSource(preload, "localConversationRuntimeControlPayload");
+  assert.match(localRuntimeControlPayload, /runtimeKind:\s*"desktop-local"/);
   const listLocalDesktopSource = extractFunctionSource(preload, "listLocalDesktopBotMessages");
   assert.match(listLocalDesktopSource, /if \(observedCoreConversationIds\.has\(localConversationId\)\) \{/);
   assert.match(preload, /id:\s*firstText\(response\?\.messageId,\s*response\?\.message_id,\s*`msg_\$\{runId\}`\)/);

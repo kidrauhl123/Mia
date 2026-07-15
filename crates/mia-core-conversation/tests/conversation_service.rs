@@ -38,6 +38,48 @@ fn memory_mode_metadata_normalizes_only_missing_or_invalid_values() {
     assert_eq!(conversation_memory_mode(&legacy), MemoryMode::Mia);
 }
 
+#[tokio::test]
+async fn hermes_turn_plan_falls_back_to_native_memory_without_changing_conversation_metadata() {
+    let db = init_database_memory().await.unwrap();
+    let service =
+        ConversationService::new(db.pool().clone()).with_core_base_url("http://127.0.0.1:27861");
+    let created = service
+        .create_conversation(CreateConversationRequest {
+            kind: "direct".to_string(),
+            title: "Hermes".to_string(),
+            bot_id: None,
+            metadata: json!({
+                "memoryMode": "mia",
+                "runtime": { "engine": "hermes" }
+            }),
+        })
+        .await
+        .unwrap();
+
+    let accepted = service
+        .start_user_turn(
+            &created.conversation.id,
+            SendConversationMessageRequest {
+                body: "hello".to_string(),
+                attachments: json!([]),
+                selected_skill_ids: vec![],
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        conversation_memory_mode(&created.conversation),
+        MemoryMode::Mia
+    );
+    assert_eq!(accepted.runtime_plan.engine, "hermes");
+    assert_eq!(accepted.runtime_plan.memory_mode, MemoryMode::Native);
+    assert_eq!(
+        accepted.runtime_plan.mcp_servers["mcpServers"]["mia-app"]["env"]["MIA_MEMORY_MODE"],
+        "native"
+    );
+}
+
 #[test]
 fn current_skill_service_lists_and_reads_enabled_bot_skills_from_core_paths() {
     let temp = tempfile::tempdir().unwrap();

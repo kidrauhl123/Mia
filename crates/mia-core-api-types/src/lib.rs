@@ -1002,6 +1002,8 @@ pub struct AcpRuntimeControl {
 pub struct AcpRuntimeControlSnapshot {
     pub conversation_id: String,
     pub engine: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub memory_mode: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     pub state: String,

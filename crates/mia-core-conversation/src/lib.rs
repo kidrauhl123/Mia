@@ -52,6 +52,21 @@ pub fn conversation_memory_mode(conversation: &ConversationSummary) -> MemoryMod
         .unwrap_or(MemoryMode::Mia)
 }
 
+fn effective_runtime_memory_mode(engine: Option<&str>, requested: MemoryMode) -> MemoryMode {
+    let is_hermes = engine
+        .map(str::trim)
+        .map(|engine| engine.eq_ignore_ascii_case("hermes"))
+        .unwrap_or(false);
+    if requested == MemoryMode::Mia && is_hermes {
+        // Hermes ACP has no supported flag to suppress its native memory. Passing an
+        // invented CLI switch makes the session fail before its first reply, so Hermes
+        // always owns memory until upstream exposes a stable ACP-compatible control.
+        MemoryMode::Native
+    } else {
+        requested
+    }
+}
+
 fn memory_mode_from_value(value: &Value) -> Option<MemoryMode> {
     match value.as_str() {
         Some("mia") => Some(MemoryMode::Mia),
@@ -1779,7 +1794,10 @@ impl ConversationService {
             &runtime_config,
             engine.as_deref(),
         );
-        let memory_mode = conversation_memory_mode(conversation);
+        let memory_mode = effective_runtime_memory_mode(
+            engine.as_deref(),
+            conversation_memory_mode(conversation),
+        );
         let mcp_servers = mcp_servers_for_turn(
             &self.pool,
             &self.core_base_url,
@@ -1876,7 +1894,10 @@ impl ConversationService {
             &runtime_config,
             engine.as_deref(),
         );
-        let memory_mode = conversation_memory_mode(&conversation);
+        let memory_mode = effective_runtime_memory_mode(
+            engine.as_deref(),
+            conversation_memory_mode(&conversation),
+        );
         let mcp_servers = mcp_servers_for_turn(
             &self.pool,
             &self.core_base_url,
@@ -2735,6 +2756,26 @@ fn now_ms() -> i64 {
 mod tests {
     use super::*;
     use mia_core_api_types::AgentSessionSkillRecord;
+
+    #[test]
+    fn hermes_uses_native_memory_when_mia_memory_was_requested() {
+        assert_eq!(
+            effective_runtime_memory_mode(Some("hermes"), MemoryMode::Mia),
+            MemoryMode::Native
+        );
+        assert_eq!(
+            effective_runtime_memory_mode(Some("Hermes"), MemoryMode::Mia),
+            MemoryMode::Native
+        );
+        assert_eq!(
+            effective_runtime_memory_mode(Some("codex"), MemoryMode::Mia),
+            MemoryMode::Mia
+        );
+        assert_eq!(
+            effective_runtime_memory_mode(Some("hermes"), MemoryMode::Native),
+            MemoryMode::Native
+        );
+    }
 
     #[test]
     fn agent_session_skill_link_falls_back_to_recursive_copy_when_symlink_fails() {

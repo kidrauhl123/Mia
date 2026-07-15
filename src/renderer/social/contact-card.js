@@ -247,6 +247,7 @@
     const modelEntries = runtimeControlArray(optionsPayload?.modelOptions);
     const effortEntries = runtimeControlArray(optionsPayload?.effortOptions);
     const permissionEntries = runtimeControlArray(optionsPayload?.permissionOptions);
+    const nativeHermesMemory = Boolean(optionsPayload?.nativeMemoryFallback);
     const selectedModel = String(optionsPayload?.selectedModel || "").trim();
     const selectedModelEntry = selectedModel
       ? (optionsPayload?.selectedModelEntry
@@ -283,7 +284,12 @@
             </label>
           </dd>
         </div>
-    ` : "";
+    ` : (nativeHermesMemory ? `
+        <div class="contact-card-row">
+          <dt>模型</dt>
+          <dd>由 Hermes 管理</dd>
+        </div>
+    ` : "");
     const effortRow = effortEntries.length && effortLabel ? `
         <div class="contact-card-row">
           <dt>推理强度</dt>
@@ -294,7 +300,12 @@
             </label>
           </dd>
         </div>
-    ` : "";
+    ` : (nativeHermesMemory ? `
+        <div class="contact-card-row">
+          <dt>推理强度</dt>
+          <dd>由 Hermes 管理</dd>
+        </div>
+    ` : "");
     const permissionRow = permissionEntries.length && permissionLabel ? `
         <div class="contact-card-row">
           <dt>权限</dt>
@@ -305,7 +316,12 @@
             </label>
           </dd>
         </div>
-    ` : "";
+    ` : (nativeHermesMemory ? `
+        <div class="contact-card-row">
+          <dt>权限</dt>
+          <dd>由 Hermes 管理</dd>
+        </div>
+    ` : "");
     return `
         ${modelRow}
         ${effortRow}
@@ -332,13 +348,18 @@
     if (botRuntimeControlOptionsInFlight.has(cacheKey) && !options.force) return;
     botRuntimeControlOptionsInFlight.add(cacheKey);
     const request = nativeControls
-      ? {
+      ? (() => {
+          const agentEngine = String(bot?.agentEngine || bot?.agent_engine || "").trim();
+          return {
           botId: botKey,
           botName: bot?.name || bot?.displayName || botKey,
-          agentEngine: bot?.agentEngine || bot?.agent_engine || "",
+          agentEngine,
           runtimeKind: "desktop-local",
-          modelEntries: platformModelEntriesForNativeRuntimeControls(_ctx?.deps?.getState?.() || {})
-        }
+          ...(agentEngine.toLowerCase() === "hermes"
+            ? {}
+            : { modelEntries: platformModelEntriesForNativeRuntimeControls(_ctx?.deps?.getState?.() || {}) })
+        };
+        })()
       : runtimeControlOptionsRequest(bot, runtimeKind);
     const pending = nativeControls ? api(conversationId, request) : api(request);
     pending

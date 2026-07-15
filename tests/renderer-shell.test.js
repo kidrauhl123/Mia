@@ -2665,6 +2665,41 @@ test("local bot composer controls use native ACP snapshots and hide unsupported 
   assert.doesNotMatch(contactCardSource, /CLI 默认|使用 CLI 模型/);
 });
 
+test("Hermes native-memory fallback is explicit without inventing local controls", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
+  const source = extractFunctionSource(appSource, "runtimeControlOptionsFromAcpSnapshot");
+  const context = vm.createContext({});
+  vm.runInContext(`${source}; this.convert = runtimeControlOptionsFromAcpSnapshot;`, context);
+
+  const options = context.convert({ engine: "hermes", state: "ready", memoryMode: "native" });
+
+  assert.equal(options.nativeMemoryFallback, true);
+  assert.equal(options.statusText, "hermes");
+  assert.match(contactCardSource, /const nativeHermesMemory = Boolean\(optionsPayload\?\.nativeMemoryFallback\);/);
+  assert.match(contactCardSource, /<dd>由 Hermes 管理<\/dd>/);
+});
+
+test("Hermes runtime controls keep ACP models instead of injecting Mia Auto", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
+  const stylesSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const nativeInputSource = extractFunctionSource(appSource, "nativeConversationRuntimeControlInput");
+  const context = vm.createContext({
+    platformModelEntriesForNativeRuntimeControls: () => [{ id: "mia-auto" }]
+  });
+  vm.runInContext(`${nativeInputSource}; this.input = nativeConversationRuntimeControlInput;`, context);
+
+  assert.equal("modelEntries" in context.input({ bot: { id: "hermes", agentEngine: "hermes" } }), false);
+  assert.deepEqual(
+    context.input({ bot: { id: "codex", agentEngine: "codex" } }).modelEntries,
+    [{ id: "mia-auto" }]
+  );
+  assert.match(contactCardSource, /agentEngine\.toLowerCase\(\) === "hermes"/);
+  assert.doesNotMatch(appSource, /native-memory/);
+  assert.doesNotMatch(stylesSource, /\.model-switch-status\.native-memory/);
+});
+
 test("Mia platform model snapshots reuse the existing Mia model identity and logo path", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const source = extractFunctionSource(appSource, "runtimeControlOptionsFromAcpSnapshot");

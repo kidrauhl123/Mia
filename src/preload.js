@@ -339,6 +339,7 @@ async function localConversationRuntimeControlPayload(conversationId, input = {}
   const request = input && typeof input === "object" ? input : {};
   const runtimeConfig = await desktopLocalRuntimeConfig(request);
   const botId = firstText(request.botId, request.bot_id, request.botKey, request.bot_key);
+  const agentEngine = firstText(runtimeConfig.agentEngine, request.agentEngine, request.agent_engine);
   return {
     runId: firstText(request.runId, request.run_id, `runtime_controls_${Date.now()}`),
     conversationId: String(conversationId || "").trim(),
@@ -346,7 +347,8 @@ async function localConversationRuntimeControlPayload(conversationId, input = {}
     attachments: [],
     botId,
     botName: firstText(request.botName, request.bot_name, request.name, botId),
-    agentEngine: firstText(runtimeConfig.agentEngine, request.agentEngine, request.agent_engine),
+    agentEngine,
+    runtimeKind: "desktop-local",
     runtimeConfig,
     model: firstText(runtimeConfig.model) || null,
     effortLevel: firstText(runtimeConfig.effortLevel, runtimeConfig.effort_level) || null,
@@ -787,6 +789,7 @@ async function postLocalDesktopBotMessage(conversationId, body = {}) {
     botId,
     botName: firstText(input.botName, input.bot_name, input.title, input.name, botId),
     agentEngine: firstText(runtimeConfig.agentEngine, input.agentEngine, input.agent_engine, input.engine),
+    runtimeKind: "desktop-local",
     runtimeConfig,
     model: firstText(runtimeConfig.model, input.model) || null,
     effortLevel: firstText(runtimeConfig.effortLevel, input.effortLevel, input.effort_level) || null,

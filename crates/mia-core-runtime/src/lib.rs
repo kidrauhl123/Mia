@@ -1374,6 +1374,7 @@ mod tests {
                 Ok(mia_core_api_types::AcpRuntimeControlSnapshot {
                     conversation_id: plan.conversation_id,
                     engine: plan.engine,
+                    memory_mode: String::new(),
                     session_id: Some("session-controls".into()),
                     state: "ready".into(),
                     controls: vec![],
