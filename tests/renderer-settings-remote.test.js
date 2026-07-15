@@ -224,7 +224,7 @@ test("settings account card includes the mobile scan qr shell and shows it only 
   assert.match(html, /id="cloudMobileScanRefresh"/);
   assert.match(html, /id="cloudMobileScanQr"/);
   assert.match(html, /id="cloudLoginApproveDialog"/);
-  assert.match(html, /允许这台手机登录当前账号/);
+  assert.match(html, /允许这台设备登录当前账号/);
 });
 
 test("mobile scan confirmation polling stays responsive without hard-coded long delay", () => {

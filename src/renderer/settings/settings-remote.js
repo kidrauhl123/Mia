@@ -56,7 +56,7 @@
   function renderMobileScanSignedOut() {
     els?.cloudMobileScanCard?.classList.toggle("hidden", true);
     if (els?.cloudMobileScanMeta) {
-      els.cloudMobileScanMeta.textContent = "登录后可用手机扫码登录。";
+      els.cloudMobileScanMeta.textContent = "登录后可扫码登录 Mia App 或 Mia Web。";
     }
     if (els?.cloudMobileScanQr) {
       els.cloudMobileScanQr.textContent = "";
@@ -84,7 +84,7 @@
     }
     if (els?.cloudMobileScanQr) {
       if (qrCodeUrl) {
-        els.cloudMobileScanQr.innerHTML = `<img src="${qrCodeUrl.replaceAll('"', "&quot;")}" alt="手机扫码登录 Mia">`;
+        els.cloudMobileScanQr.innerHTML = `<img src="${qrCodeUrl.replaceAll('"', "&quot;")}" alt="扫码登录 Mia">`;
       } else {
         els.cloudMobileScanQr.textContent = error ? "二维码生成失败" : qrUrl ? "二维码已就绪" : "二维码准备中…";
       }

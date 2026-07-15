@@ -241,10 +241,13 @@ try {
   } = require("./src/cloud/wechat-auth.js"));
 }
 let createMobileScanLoginFlow = null;
+let describeMobileScanClient = null;
 try {
   ({ createMobileScanLoginFlow } = require("../src/cloud/mobile-scan-login.js"));
+  ({ describeMobileScanClient } = require("../src/cloud/mobile-scan-client.js"));
 } catch {
   ({ createMobileScanLoginFlow } = require("./src/cloud/mobile-scan-login.js"));
+  ({ describeMobileScanClient } = require("./src/cloud/mobile-scan-client.js"));
 }
 let createAttachmentMaterializer = null;
 try {
@@ -1125,6 +1128,7 @@ function serveWebAsset(req, res, webRoot, pathname) {
     return true;
   }
   if (relative === "favicon.ico") relative = "favicon.svg";
+  if (relative === "mobile-scan" || relative === "mobile-scan/") relative = "mobile-scan.html";
   if (!relative || relative.endsWith("/")) relative = path.join(relative, "index.html");
   const root = path.resolve(webRoot);
   const sourceRoot = path.resolve(__dirname, "..", "src");
@@ -1173,7 +1177,7 @@ function serveWebAsset(req, res, webRoot, pathname) {
   res.writeHead(200, {
     "Content-Type": fileContentType(resolved),
     "Content-Length": body.length,
-    "Cache-Control": path.basename(resolved) === "index.html" ? "no-cache" : "public, max-age=31536000, immutable"
+    "Cache-Control": path.extname(resolved).toLowerCase() === ".html" ? "no-cache" : "public, max-age=31536000, immutable"
   });
   if (req.method === "HEAD") res.end();
   else res.end(body);
@@ -3424,7 +3428,16 @@ async function handleRequest(req, res, context) {
 
     if (req.method === "POST" && url.pathname === "/api/auth/mobile-scan/request") {
       const body = await readJson(req);
-      return writeJson(res, 200, context.mobileScanLogin.createRequest(body || {}));
+      const client = describeMobileScanClient({
+        userAgent: req.headers["user-agent"] || "",
+        declaredKind: body?.clientKind,
+        deviceLabel: body?.deviceLabel,
+        platform: body?.platform
+      });
+      return writeJson(res, 200, context.mobileScanLogin.createRequest({
+        grant: body?.grant,
+        ...client
+      }));
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/mobile-scan/complete") {

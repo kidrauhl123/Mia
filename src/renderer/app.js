@@ -5692,7 +5692,7 @@ function openCloudLoginApproveDialog(request = {}) {
     const deviceLabel = String(request.deviceLabel || "").trim();
     els.cloudLoginApproveCopy.textContent = deviceLabel
       ? `允许 ${deviceLabel} 登录当前账号？`
-      : "允许这台手机登录当前账号？";
+      : "允许这台设备登录当前账号？";
   }
   els.cloudLoginApproveDialog?.classList.remove("hidden");
 }

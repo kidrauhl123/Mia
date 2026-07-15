@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f4f6f7">
+    <title>扫码登录 Mia Web</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+    <link rel="stylesheet" href="./mobile-scan.css?v=20260715">
+  </head>
+  <body>
+    <main class="scan-login" aria-labelledby="scanTitle">
+      <header class="brand">
+        <img src="./icon-192.png" alt="" width="56" height="56">
+        <span>Mia</span>
+      </header>
+
+      <section class="status" aria-live="polite" aria-atomic="true">
+        <span id="scanSpinner" class="spinner" aria-hidden="true"></span>
+        <h1 id="scanTitle">正在验证二维码</h1>
+        <p id="scanDetail">请稍候</p>
+        <button id="scanRetry" type="button" hidden>重试</button>
+      </section>
+
+      <p class="security-note">登录需在生成二维码的电脑上确认</p>
+    </main>
+    <script src="./mobile-scan.js?v=20260715" defer></script>
+  </body>
+</html>

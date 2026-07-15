@@ -41,8 +41,9 @@ function createMobileScanLoginFlow({
 
   function cleanup() {
     const current = currentNow();
-    for (const request of requests.values()) {
+    for (const [requestId, request] of requests.entries()) {
       if (request.status === "pending" && request.expiresAtMs <= current) request.status = "expired";
+      if (request.expiresAtMs + requestTtlMs <= current) requests.delete(requestId);
     }
     for (const [grantId, grant] of grants.entries()) {
       if (grant.expiresAtMs <= current) {
@@ -88,7 +89,7 @@ function createMobileScanLoginFlow({
     };
   }
 
-  function createRequest({ grant = "", deviceLabel = "", platform = "" } = {}) {
+  function createRequest({ grant = "", deviceLabel = "", platform = "", clientKind = "" } = {}) {
     cleanup();
     const grantId = String(grant || "").trim();
     const record = grants.get(grantId);
@@ -112,10 +113,12 @@ function createMobileScanLoginFlow({
       userId: record.userId,
       deviceLabel: String(deviceLabel || "").trim().slice(0, 120),
       platform: String(platform || "").trim().slice(0, 40),
+      clientKind: String(clientKind || "").trim().slice(0, 40),
       createdAtMs,
       expiresAtMs,
       status: "pending",
-      sessionResult: null
+      sessionResult: null,
+      deliveredAtMs: 0
     };
     requests.set(requestId, pending);
     record.activeRequestId = requestId;
@@ -142,6 +145,7 @@ function createMobileScanLoginFlow({
       grant: latest.grant,
       deviceLabel: latest.deviceLabel,
       platform: latest.platform,
+      clientKind: latest.clientKind,
       status: latest.status,
       expiresAt: new Date(latest.expiresAtMs).toISOString()
     };
@@ -184,12 +188,18 @@ function createMobileScanLoginFlow({
       };
     }
     if (pending.status === "approved" && pending.sessionResult?.token) {
-      return {
+      const result = {
         ok: true,
         status: "approved",
         token: pending.sessionResult.token,
         user: pending.sessionResult.user || null
       };
+      pending.deliveredAtMs = currentNow();
+      pending.sessionResult = null;
+      return result;
+    }
+    if (pending.status === "approved" && pending.deliveredAtMs) {
+      return createTerminalResult("used", "登录凭证已经领取，请重新扫码");
     }
     if (pending.status === "denied") return createTerminalResult("denied", "电脑端已取消本次登录");
     return createTerminalResult("expired", "登录请求已过期。");

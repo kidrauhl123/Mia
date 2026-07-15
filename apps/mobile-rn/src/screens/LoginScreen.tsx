@@ -150,6 +150,7 @@ export default function LoginScreen() {
           grant: parsed.grant,
           deviceLabel: Device.modelName || "手机",
           platform: Platform.OS,
+          clientKind: "mia-app",
         },
       });
       if (requested?.ok === false || !requested?.requestId) {

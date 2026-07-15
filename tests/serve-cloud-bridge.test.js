@@ -401,12 +401,18 @@ test("mobile scan request stays pending until desktop approval then returns a no
     assert.match(started.grant, /^ms_/);
     assert.equal(started.qrUrl, `https://mia.test/mobile-scan?grant=${encodeURIComponent(started.grant)}`);
 
+    const scanPage = await rawFetch(baseUrl, `/mobile-scan?grant=${encodeURIComponent(started.grant)}`);
+    assert.equal(scanPage.status, 200);
+    assert.match(scanPage.headers.get("content-type") || "", /^text\/html/);
+    assert.match(await scanPage.text(), /mobile-scan\.js\?v=/);
+
     const requested = await jsonFetch(baseUrl, "/api/auth/mobile-scan/request", {
       method: "POST",
       body: {
         grant: started.grant,
         deviceLabel: "iPhone",
-        platform: "ios"
+        platform: "ios",
+        clientKind: "mia-app"
       }
     });
     assert.match(requested.requestId, /^msr_/);
@@ -423,7 +429,8 @@ test("mobile scan request stays pending until desktop approval then returns a no
       headers
     });
     assert.equal(queued.requestId, requested.requestId);
-    assert.equal(queued.deviceLabel, "iPhone");
+    assert.equal(queued.deviceLabel, "Mia App · iPhone");
+    assert.equal(queued.clientKind, "mia-app");
 
     const approved = await jsonFetch(baseUrl, "/api/auth/mobile-scan/decision", {
       method: "POST",
@@ -439,6 +446,14 @@ test("mobile scan request stays pending until desktop approval then returns a no
     assert.equal(completed.status, "approved");
     assert.equal(completed.user.id, account.user.id);
     assert.equal(server.mia.cloudStore.authenticateToken(completed.token).user.id, account.user.id);
+
+    const replayed = await jsonFetch(baseUrl, "/api/auth/mobile-scan/complete", {
+      method: "POST",
+      body: { requestId: requested.requestId }
+    });
+    assert.equal(replayed.ok, false);
+    assert.equal(replayed.status, "used");
+    assert.equal(replayed.token, undefined);
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });
@@ -460,8 +475,24 @@ test("mobile scan deny returns a denied status without issuing a session", async
     });
     const requested = await jsonFetch(baseUrl, "/api/auth/mobile-scan/request", {
       method: "POST",
-      body: { grant: started.grant, deviceLabel: "iPhone", platform: "ios" }
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.50"
+      },
+      body: {
+        grant: started.grant,
+        deviceLabel: "伪造设备",
+        platform: "windows",
+        clientKind: "browser-web"
+      }
     });
+
+    const queued = await jsonFetch(baseUrl, "/api/auth/mobile-scan/pending", {
+      method: "GET",
+      headers
+    });
+    assert.equal(queued.clientKind, "wechat-web");
+    assert.equal(queued.deviceLabel, "微信 · iPhone");
+    assert.equal(queued.platform, "ios");
 
     const denied = await jsonFetch(baseUrl, "/api/auth/mobile-scan/decision", {
       method: "POST",
