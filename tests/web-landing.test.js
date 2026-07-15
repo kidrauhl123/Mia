@@ -22,6 +22,7 @@ test("web root is a promo landing page with desktop download entry points", () =
   const scrollCss = read("src/web/assets/mia-scroll.css");
   const js = read("src/web/assets/mia.js");
   const scrollJs = read("src/web/assets/mia-scroll.js");
+  const skyJs = read("src/web/assets/ando-sky-local.js");
 
   assert.match(html, /<title>Mia — 每个人的 Agent 之家<\/title>/);
   assert.match(html, /每个人的 Agent 之家/);
@@ -35,7 +36,9 @@ test("web root is a promo landing page with desktop download entry points", () =
   assert.match(html, /src="assets\/vendor\/gsap\.min\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/vendor\/CustomEase\.min\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/vendor\/ScrollTrigger\.min\.js\?v=20260630-squad-stack-24"/);
-  assert.match(html, /src="assets\/ando-sky-local\.js\?v=study-ando-sora"/);
+  assert.match(html, /src="assets\/ando-sky-local\.js\?v=20260715-production-sky"/);
+  assert.doesNotMatch(skyJs, /Local-only|Do not ship|window\.location\.hostname/);
+  assert.match(skyJs, /frame\.classList\.add\('ando-sky-study'\)/);
   assert.match(html, /src="assets\/mia\.js\?v=20260715-desktop-downloads"/);
   assert.match(html, /src="assets\/mia-scroll\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/mia-logo\.png"/);

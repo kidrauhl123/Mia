@@ -1,8 +1,6 @@
-/* Local-only study port of Ando's Sora sky background. Do not ship. */
+/* Procedural Sora-style sky background for the Mia landing page. */
 (function () {
   'use strict';
-
-  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') return;
 
   var frame = document.querySelector('.hero-sky-frame.programmatic-sky');
   var canvas = frame ? frame.querySelector('.programmatic-sky__canvas') : null;
