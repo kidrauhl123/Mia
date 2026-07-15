@@ -121,14 +121,27 @@ test("remembered close-to-tray dialog choice is rejected when Core is not runnin
   });
 });
 
-test("dialog result maps first button and cancel to close-to-tray", () => {
+test("dialog result maps first button to close-to-tray", () => {
   assert.deepEqual(dialogResultToWindowCloseChoice({ response: 0, checkboxChecked: true }), {
     choice: WINDOW_CLOSE_CHOICES.CLOSE_TO_TRAY,
     remember: true
   });
+});
+
+test("dialog close maps to cancel and keeps the window visible", () => {
   assert.deepEqual(dialogResultToWindowCloseChoice({ response: -1, checkboxChecked: false }), {
-    choice: WINDOW_CLOSE_CHOICES.CLOSE_TO_TRAY,
+    choice: WINDOW_CLOSE_CHOICES.CANCEL,
     remember: false
+  });
+  assert.deepEqual(decideWindowClose({
+    storedBehavior: "ask",
+    coreRunning: true,
+    isExplicitQuit: false,
+    dialogChoice: { choice: WINDOW_CLOSE_CHOICES.CANCEL, remember: true }
+  }), {
+    action: WINDOW_CLOSE_ACTIONS.KEEP_OPEN,
+    preferenceToWrite: null,
+    reason: "dialog-cancel"
   });
 });
 
@@ -145,9 +158,9 @@ test("prompt copy and button order are localized for the Chinese desktop app", (
     title: "是否保留 Mia Core 后台运行？",
     message: "是否保留 Mia Core 后台运行？",
     detail: "空闲时资源占用很低。",
-    buttons: ["留在后台", "退出 Mia"],
+    buttons: ["最小化到托盘", "退出 Mia"],
     defaultId: 0,
-    cancelId: 0,
+    cancelId: -1,
     checkboxLabel: "记住我的选择",
     checkboxChecked: false,
     noLink: true

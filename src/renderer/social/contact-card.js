@@ -505,6 +505,7 @@
             botName: local?.name || local?.displayName || botKey,
             agentEngine: local?.agentEngine || local?.agent_engine || "",
             runtimeKind: "desktop-local",
+            ...(field === "model" ? { modelEntries: runtimeControlArray(latestOptions.modelOptions) } : {}),
             controlId: control.id,
             value
           });

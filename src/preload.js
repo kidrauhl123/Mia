@@ -688,46 +688,6 @@ function mergeRuntimeModelEntries(left = [], right = []) {
   return output;
 }
 
-function hasRuntimeModelSelection(config = {}) {
-  return Boolean(firstText(
-    config.model,
-    config.providerConnectionId,
-    config.provider_connection_id,
-    config.modelProfileId,
-    config.model_profile_id,
-    config.platformProvider,
-    config.platform_provider,
-    config.platformModel,
-    config.platform_model,
-    config.platformModelProfileId,
-    config.platform_model_profile_id
-  ));
-}
-
-function applyDesktopPlatformModelFallback(config = {}) {
-  if (hasRuntimeModelSelection(config)) return config;
-  const entries = runtimeModelEntriesFromInput(config);
-  const entry = entries.find((item = {}) => {
-    const provider = firstText(item.provider, item.providerConnectionId, item.provider_connection_id);
-    const model = firstText(item.model, item.value, item.id);
-    const profile = firstText(item.modelProfileId, item.model_profile_id, item.profileId, item.profile_id);
-    const authType = firstText(item.authType, item.auth_type);
-    return provider === "mia"
-      || authType === "mia_account"
-      || profile.startsWith("mia:")
-      || model === "mia-auto"
-      || model === "mia-default";
-  });
-  if (!entry) return config;
-  const model = firstText(entry.model, entry.value, entry.id) || "mia-auto";
-  const normalizedModel = model === "mia-default" ? "mia-auto" : model;
-  config.platformProvider = "mia";
-  config.platformModel = normalizedModel;
-  config.platformModelProfileId = firstText(entry.modelProfileId, entry.model_profile_id, entry.profileId, entry.profile_id)
-    || `mia:${normalizedModel}`;
-  return config;
-}
-
 async function desktopLocalRuntimeConfig(input = {}) {
   const botId = firstText(input.botId, input.bot_id, input.botKey, input.bot_key);
   const overrides = runtimeConfigOverrideFromPostBody(input);
@@ -749,8 +709,8 @@ async function desktopLocalRuntimeConfig(input = {}) {
     ...overrides
   };
   const mergedModelEntries = mergeRuntimeModelEntries(
-    runtimeModelEntriesFromInput(runtimeConfig),
-    requestModelEntries
+    requestModelEntries,
+    runtimeModelEntriesFromInput(runtimeConfig)
   );
   if (mergedModelEntries.length) {
     runtimeConfig.modelEntries = mergedModelEntries;
@@ -758,7 +718,7 @@ async function desktopLocalRuntimeConfig(input = {}) {
   if (!runtimeConfig.agentEngine) {
     runtimeConfig.agentEngine = firstText(input.agentEngine, input.agent_engine, input.engine, botId, "codex");
   }
-  return applyDesktopPlatformModelFallback(runtimeConfig);
+  return runtimeConfig;
 }
 
 async function postLocalDesktopBotMessage(conversationId, body = {}) {
