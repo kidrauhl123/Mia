@@ -188,7 +188,7 @@
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.ico",
+      "icon": "src/renderer/assets/mia-logo.png",
       "artifactName": "${productName}-${version}-Setup.${ext}"
     },
     "nsis": {
