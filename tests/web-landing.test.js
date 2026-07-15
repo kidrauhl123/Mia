@@ -15,7 +15,7 @@ function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
-test("web root is a promo landing page with download and app entry points", () => {
+test("web root is a promo landing page with desktop download entry points", () => {
   const html = read("src/web/index.html");
   const css = read("src/web/assets/mia.css");
   const gradientCss = read("src/web/assets/mia-gradient.css");
@@ -36,7 +36,7 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(html, /src="assets\/vendor\/CustomEase\.min\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/vendor\/ScrollTrigger\.min\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/ando-sky-local\.js\?v=study-ando-sora"/);
-  assert.match(html, /src="assets\/mia\.js\?v=20260709-download-0144"/);
+  assert.match(html, /src="assets\/mia\.js\?v=20260715-desktop-downloads"/);
   assert.match(html, /src="assets\/mia-scroll\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/mia-logo\.png"/);
   assert.match(html, /class="[^"]*\bmiawin\b[^"]*"/);
@@ -80,28 +80,22 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(html, new RegExp(`download="Mia-${escapeRegExp(APP_VERSION)}-Intel\\.dmg"`));
   assert.match(html, /href="\/downloads\/mia-windows-latest\.exe"/);
   assert.match(html, new RegExp(`download="Mia-${escapeRegExp(APP_VERSION)}-Setup\\.exe"`));
-  assert.match(html, /href="\/downloads\/mia-android-latest\.apk"/);
-  assert.match(html, /data-download-option="android"/);
   assert.match(html, /data-primary-download/);
   assert.match(html, /data-download-menu-button/);
-  assert.match(html, /data-download-option="ios"/);
+  assert.equal((html.match(/data-download-option=/g) || []).length, 3);
+  assert.doesNotMatch(html, /data-download-option="(?:android|ios)"/);
+  assert.doesNotMatch(html, /data-download-icon="(?:android|web)"/);
+  assert.match(html, /data-download-icon="windows" viewBox="0 0 16 16"[^>]*><path d="M6\.555 1\.375 0 2\.237/);
   assert.match(html, /<a class="nav-cta" data-primary-download [^>]*>下载<\/a>/);
   assert.doesNotMatch(html, /class="nav-cta"[^>]*data-download-label/);
-  assert.match(html, /iPhone \/ iPad/);
   assert.match(css, /\.download-menu/);
-  assert.match(html, /href="\/app\/"/);
-  assert.match(html, /使用网页版/);
-  assert.match(js, /打开网页版/);
+  assert.doesNotMatch(html, /Android|安卓手机|iPhone|iPad|使用网页版/);
   assert.match(html, /下载 macOS 版/);
   assert.match(js, /navigator\.userAgentData/);
   assert.match(js, /getHighEntropyValues\(\['architecture', 'platform'\]\)/);
   assert.match(js, /mac-intel/);
-  assert.match(js, /android/);
-  assert.match(js, /ios/);
-  // Android download link is patched at runtime from the in-app update manifest
-  // so the site never serves a stale/missing -latest.apk alias.
-  assert.match(js, /downloads\/mia-mobile-update\.json/);
-  assert.match(js, /DOWNLOADS\.android\.href = apkUrl/);
+  assert.match(js, /navigator\.userAgentData\?\.platform/);
+  assert.doesNotMatch(js, /android|iphone|ipad|ipod|mia-mobile-update/);
   assert.match(html, /@ 谁就谁来/);
   assert.match(html, /多端同步/);
   assert.match(html, /对话、资料和任务云端同步/);

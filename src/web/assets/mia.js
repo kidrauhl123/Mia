@@ -47,41 +47,14 @@
       label: '下载 Windows 版',
       shortLabel: 'Windows',
       icon: 'windows'
-    },
-    android: {
-      href: '/downloads/mia-android-latest.apk',
-      download: 'Mia-Android.apk',
-      label: '下载 Android 版',
-      shortLabel: 'Android',
-      icon: 'android'
-    },
-    ios: {
-      href: '/app/',
-      download: '',
-      label: '打开 iPhone / iPad 网页版',
-      shortLabel: 'iPhone / iPad',
-      icon: 'web'
-    },
-    web: {
-      href: '/app/',
-      download: '',
-      label: '打开网页版',
-      shortLabel: '网页版',
-      icon: 'web'
     }
   };
-
-  function isAppleMobile(ua, platform, touchPoints) {
-    return /iphone|ipad|ipod/.test(ua) || (platform === 'macintel' && touchPoints > 1);
-  }
 
   function initialDownloadKey() {
     const ua = String(navigator.userAgent || '').toLowerCase();
     const platform = String(navigator.platform || '').toLowerCase();
-    const touchPoints = Number(navigator.maxTouchPoints || 0);
-    if (/android/.test(ua)) return 'android';
-    if (isAppleMobile(ua, platform, touchPoints)) return 'ios';
-    if (/windows|win32|win64/.test(ua) || platform.startsWith('win')) return 'windows';
+    const clientPlatform = String(navigator.userAgentData?.platform || '').toLowerCase();
+    if (/windows|win32|win64/.test(ua) || platform.startsWith('win') || clientPlatform === 'windows') return 'windows';
     if (/macintosh|mac os x/.test(ua) || platform.startsWith('mac')) return 'mac-apple';
     return 'mac-apple';
   }
@@ -156,39 +129,6 @@
   }
 
   setupDownloadChooser();
-
-  // The Android APK is published under a versioned name (mia-android-<code>.apk)
-  // by scripts/publish-mobile-update.js; the same manifest the app reads for
-  // in-app updates is the single source of truth for the latest apkUrl. Patch
-  // the static fallback link at runtime so the website never points at a stale
-  // or missing -latest.apk alias.
-  async function patchAndroidDownloadFromManifest() {
-    try {
-      const res = await fetch('/downloads/mia-mobile-update.json', { headers: { Accept: 'application/json' } });
-      if (!res.ok) return;
-      const manifest = await res.json();
-      const android = manifest && manifest.android;
-      const apkUrl = android && typeof android.apkUrl === 'string' ? android.apkUrl : '';
-      if (!/^https:\/\/.+\.apk$/i.test(apkUrl)) return;
-      const versionName = android.versionName ? String(android.versionName) : '';
-      const fileName = versionName ? `Mia-Android-${versionName}.apk` : 'Mia-Android.apk';
-      DOWNLOADS.android.href = apkUrl;
-      DOWNLOADS.android.download = fileName;
-      const menuLink = document.querySelector('[data-download-option="android"]');
-      if (menuLink) {
-        menuLink.setAttribute('href', apkUrl);
-        menuLink.setAttribute('download', fileName);
-      }
-      // If Android is the currently recommended download, refresh the primary button.
-      if (document.querySelector('[data-download-option="android"][aria-current="true"]')) {
-        applyDownload('android');
-      }
-    } catch {
-      // Manifest unreachable — keep the static fallback link rather than break the page.
-    }
-  }
-
-  patchAndroidDownloadFromManifest();
 
   function setupGsapLargeButton() {
     const gsap = window.gsap;
