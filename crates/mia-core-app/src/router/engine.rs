@@ -249,7 +249,7 @@ print(json.dumps(rows))
         .collect()
 }
 
-async fn load_codex_models() -> Vec<Value> {
+pub(super) async fn load_codex_models() -> Vec<Value> {
     let Some(home) = home_dir() else {
         return Vec::new();
     };

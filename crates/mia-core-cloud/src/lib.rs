@@ -915,6 +915,7 @@ fn normalize_bridge_runtime_config(request: &CloudBridgeRunRequest) -> Value {
     if !entries.is_empty() {
         object.insert("modelEntries".into(), Value::Array(entries.clone()));
     }
+    apply_desktop_local_model_entry_selection(&mut object, &entries, is_desktop_local, &engine);
     apply_mia_managed_runtime_references(&mut object, &entries, is_desktop_local);
     if !is_desktop_local
         && engine == "hermes"
@@ -1041,7 +1042,8 @@ fn apply_mia_managed_runtime_references(
         || has_non_empty(object, "platform_model")
         || has_non_empty(object, "platformModelProfileId")
         || has_non_empty(object, "platform_model_profile_id");
-    let fallback_to_mia_entry = !has_platform_selection
+    let fallback_to_mia_entry = !is_desktop_local
+        && !has_platform_selection
         && model.is_empty()
         && profile_id.is_empty()
         && provider.is_empty()
@@ -1076,6 +1078,56 @@ fn apply_mia_managed_runtime_references(
             object.insert("modelProfileId".into(), json!(format!("mia:{entry_model}")));
         }
     }
+}
+
+fn apply_desktop_local_model_entry_selection(
+    object: &mut Map<String, Value>,
+    entries: &[Value],
+    is_desktop_local: bool,
+    engine: &str,
+) {
+    if !is_desktop_local {
+        return;
+    }
+    let Some(model) = map_string(object, "model") else {
+        return;
+    };
+    let Some(entry) = entries.iter().find(|entry| {
+        first_entry_value(entry, &["model", "value", "id"]).as_deref() == Some(model.as_str())
+    }) else {
+        return;
+    };
+    if is_mia_managed_entry(entry) {
+        return;
+    }
+
+    for key in [
+        "platformProvider",
+        "platform_provider",
+        "platformModel",
+        "platform_model",
+        "platformModelProfileId",
+        "platform_model_profile_id",
+    ] {
+        object.remove(key);
+    }
+    let provider = first_entry_value(
+        entry,
+        &["providerConnectionId", "provider_connection_id", "provider"],
+    )
+    .unwrap_or_else(|| engine.to_string());
+    let profile_id = first_entry_value(
+        entry,
+        &[
+            "modelProfileId",
+            "model_profile_id",
+            "profileId",
+            "profile_id",
+        ],
+    )
+    .unwrap_or_else(|| format!("{provider}:{model}"));
+    object.insert("providerConnectionId".into(), json!(provider));
+    object.insert("modelProfileId".into(), json!(profile_id));
 }
 
 fn sanitize_desktop_local_runtime_references(
@@ -1127,10 +1179,8 @@ fn selected_model_entry_is_mia_managed(entries: &[Value], model: &str, profile_i
     if model.is_empty() && profile_id.is_empty() {
         return false;
     }
-    entries.iter().any(|entry| {
-        if !is_mia_managed_entry(entry) {
-            return false;
-        }
+    let mut matched_mia_entry = false;
+    for entry in entries {
         let entry_model = map_string_value(entry, "model")
             .or_else(|| map_string_value(entry, "value"))
             .map(|value| canonical_mia_model_id(&value))
@@ -1138,9 +1188,17 @@ fn selected_model_entry_is_mia_managed(entries: &[Value], model: &str, profile_i
         let entry_profile = map_string_value(entry, "modelProfileId")
             .map(|value| canonical_mia_profile_id(&value))
             .unwrap_or_default();
-        (!model.is_empty() && entry_model == model)
-            || (!profile_id.is_empty() && entry_profile == profile_id)
-    })
+        let matches = (!model.is_empty() && entry_model == model)
+            || (!profile_id.is_empty() && entry_profile == profile_id);
+        if !matches {
+            continue;
+        }
+        if !is_mia_managed_entry(entry) {
+            return false;
+        }
+        matched_mia_entry = true;
+    }
+    matched_mia_entry
 }
 
 fn is_mia_managed_entry(entry: &Value) -> bool {
@@ -1187,6 +1245,10 @@ fn map_string_value(value: &Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn first_entry_value(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| map_string_value(value, key))
 }
 
 fn first_entry_string(object: &Map<String, Value>, keys: &[&str]) -> Option<String> {

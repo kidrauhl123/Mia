@@ -760,11 +760,11 @@ async fn cloud_service_does_not_force_mia_provider_for_desktop_local_model_entri
     assert_eq!(prepared.runtime["runtimeKind"], "desktop-local");
     assert_eq!(prepared.runtime["agentEngine"], "codex");
     assert_eq!(prepared.runtime["model"], "gpt-5.5");
-    assert_eq!(prepared.runtime["platformProvider"], "mia");
-    assert_eq!(prepared.runtime["platformModel"], "gpt-5.5");
-    assert_eq!(prepared.runtime["platformModelProfileId"], "mia:gpt-5.5");
-    assert!(prepared.runtime.get("providerConnectionId").is_none());
-    assert!(prepared.runtime.get("modelProfileId").is_none());
+    assert_eq!(prepared.runtime["providerConnectionId"], "codex");
+    assert_eq!(prepared.runtime["modelProfileId"], "codex:gpt-5.5");
+    assert!(prepared.runtime.get("platformProvider").is_none());
+    assert!(prepared.runtime.get("platformModel").is_none());
+    assert!(prepared.runtime.get("platformModelProfileId").is_none());
 }
 
 #[tokio::test]
@@ -801,7 +801,7 @@ async fn cloud_service_preserves_desktop_local_mia_platform_placeholder() {
 }
 
 #[tokio::test]
-async fn cloud_service_defaults_desktop_local_to_mia_platform_when_only_auto_entry_is_available() {
+async fn cloud_service_does_not_select_desktop_local_auto_from_catalog_availability() {
     let database = init_database_memory().await.unwrap();
     let service = CloudService::with_now(database.pool().clone(), || 123456);
 
@@ -829,9 +829,9 @@ async fn cloud_service_defaults_desktop_local_to_mia_platform_when_only_auto_ent
 
     assert_eq!(prepared.runtime["runtimeKind"], "desktop-local");
     assert_eq!(prepared.runtime["agentEngine"], "codex");
-    assert_eq!(prepared.runtime["platformProvider"], "mia");
-    assert_eq!(prepared.runtime["platformModel"], "mia-auto");
-    assert_eq!(prepared.runtime["platformModelProfileId"], "mia:mia-auto");
+    assert!(prepared.runtime.get("platformProvider").is_none());
+    assert!(prepared.runtime.get("platformModel").is_none());
+    assert!(prepared.runtime.get("platformModelProfileId").is_none());
     assert!(prepared.runtime.get("model").is_none());
     assert!(prepared.runtime.get("providerConnectionId").is_none());
     assert!(prepared.runtime.get("modelProfileId").is_none());

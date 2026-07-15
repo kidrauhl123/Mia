@@ -10,7 +10,8 @@ const WINDOW_CLOSE_ACTIONS = Object.freeze({
 
 const WINDOW_CLOSE_CHOICES = Object.freeze({
   CLOSE_TO_TRAY: "close-to-tray",
-  QUIT: "quit"
+  QUIT: "quit",
+  CANCEL: "cancel"
 });
 
 function normalizeWindowCloseBehavior(value) {
@@ -24,9 +25,9 @@ function windowClosePromptOptions() {
     title: "是否保留 Mia Core 后台运行？",
     message: "是否保留 Mia Core 后台运行？",
     detail: "空闲时资源占用很低。",
-    buttons: ["留在后台", "退出 Mia"],
+    buttons: ["最小化到托盘", "退出 Mia"],
     defaultId: 0,
-    cancelId: 0,
+    cancelId: -1,
     checkboxLabel: "记住我的选择",
     checkboxChecked: false,
     noLink: true
@@ -34,10 +35,13 @@ function windowClosePromptOptions() {
 }
 
 function dialogResultToWindowCloseChoice(result = {}) {
+  const response = Number(result.response);
   return {
-    choice: Number(result.response) === 1
-      ? WINDOW_CLOSE_CHOICES.QUIT
-      : WINDOW_CLOSE_CHOICES.CLOSE_TO_TRAY,
+    choice: response === 0
+      ? WINDOW_CLOSE_CHOICES.CLOSE_TO_TRAY
+      : response === 1
+        ? WINDOW_CLOSE_CHOICES.QUIT
+        : WINDOW_CLOSE_CHOICES.CANCEL,
     remember: result.checkboxChecked === true
   };
 }
@@ -47,9 +51,13 @@ function decision(action, preferenceToWrite, reason) {
 }
 
 function normalizeDialogChoice(choice) {
-  return choice === WINDOW_CLOSE_CHOICES.QUIT
-    ? WINDOW_CLOSE_CHOICES.QUIT
-    : WINDOW_CLOSE_CHOICES.CLOSE_TO_TRAY;
+  if (choice === WINDOW_CLOSE_CHOICES.CLOSE_TO_TRAY) {
+    return WINDOW_CLOSE_CHOICES.CLOSE_TO_TRAY;
+  }
+  if (choice === WINDOW_CLOSE_CHOICES.QUIT) {
+    return WINDOW_CLOSE_CHOICES.QUIT;
+  }
+  return WINDOW_CLOSE_CHOICES.CANCEL;
 }
 
 function decideWindowClose(input = {}) {
@@ -63,6 +71,9 @@ function decideWindowClose(input = {}) {
   if (dialogChoice) {
     const choice = normalizeDialogChoice(dialogChoice.choice);
     const remember = dialogChoice.remember === true;
+    if (choice === WINDOW_CLOSE_CHOICES.CANCEL) {
+      return decision(WINDOW_CLOSE_ACTIONS.KEEP_OPEN, null, "dialog-cancel");
+    }
     if (choice === WINDOW_CLOSE_CHOICES.QUIT) {
       return decision(
         WINDOW_CLOSE_ACTIONS.FULL_QUIT,

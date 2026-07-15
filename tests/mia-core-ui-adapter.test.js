@@ -188,6 +188,12 @@ test("desktop-local Cloud bot sends prefer the Cloud runtime binding before Core
 
   assert.match(desktopRuntimeConfig, /getBotRuntimeCompat\(botId,\s*"desktop-local"\)/);
   assert.doesNotMatch(desktopRuntimeConfig, /getCoreBotRuntime\(botId,\s*"desktop-local"\)/);
+  assert.match(
+    desktopRuntimeConfig,
+    /mergeRuntimeModelEntries\(\s*requestModelEntries,\s*runtimeModelEntriesFromInput\(runtimeConfig\)/,
+    "fresh native model metadata must override stale binding catalog entries"
+  );
+  assert.doesNotMatch(preload, /applyDesktopPlatformModelFallback|hasRuntimeModelSelection/);
 });
 
 test("conversation preload bridge keeps the social conversation list cloud-owned", () => {

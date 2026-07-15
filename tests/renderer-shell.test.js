@@ -2680,7 +2680,7 @@ test("Hermes native-memory fallback is explicit without inventing local controls
   assert.match(contactCardSource, /<dd>由 Hermes 管理<\/dd>/);
 });
 
-test("Hermes runtime controls keep ACP models instead of injecting Mia Auto", () => {
+test("native runtime controls keep Hermes ACP models and leave Codex discovery to Core", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
   const stylesSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
@@ -2696,11 +2696,14 @@ test("Hermes runtime controls keep ACP models instead of injecting Mia Auto", ()
     [{ id: "mia-auto" }]
   );
   assert.match(contactCardSource, /agentEngine\.toLowerCase\(\) === "hermes"/);
+  assert.doesNotMatch(appSource, /function codexModelEntriesForNativeRuntimeControls/);
+  assert.doesNotMatch(contactCardSource, /function codexModelEntriesForNativeRuntimeControls/);
+  assert.match(contactCardSource, /field === "model" \? \{ modelEntries:/);
   assert.doesNotMatch(appSource, /native-memory/);
   assert.doesNotMatch(stylesSource, /\.model-switch-status\.native-memory/);
 });
 
-test("Mia platform model snapshots reuse the existing Mia model identity and logo path", () => {
+test("mixed platform snapshots preserve Mia Auto and native engine model identities", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const source = extractFunctionSource(appSource, "runtimeControlOptionsFromAcpSnapshot");
   const context = vm.createContext({});
@@ -2714,13 +2717,36 @@ test("Mia platform model snapshots reuse the existing Mia model identity and log
       category: "model",
       currentValue: "mia-auto",
       source: "mia_provider",
-      options: [{ value: "mia-auto", label: "Auto" }]
+      options: [
+        { value: "mia-auto", label: "Auto", description: "Mia platform model" },
+        { value: "gpt-5.6-sol", label: "GPT-5.6-Sol", description: "Agent native model" }
+      ]
     }]
   });
 
   assert.equal(options.selectedModelEntry.provider, "mia");
   assert.equal(options.selectedModelEntry.providerConnectionId, "mia");
   assert.equal(options.selectedModelEntry.modelProfileId, "mia:mia-auto");
+  assert.equal(options.modelOptions[1].provider, "codex");
+  assert.equal(options.modelOptions[1].providerConnectionId, "codex");
+  assert.equal(options.modelOptions[1].modelProfileId, "codex:gpt-5.6-sol");
+
+  const claudeOptions = context.convert({
+    engine: "claude-code",
+    state: "ready",
+    controls: [{
+      id: "model",
+      category: "model",
+      currentValue: "claude-opus-future",
+      source: "mia_provider",
+      options: [
+        { value: "mia-auto", label: "Auto", description: "Mia platform model" },
+        { value: "claude-opus-future", label: "Claude Opus Future", description: "Agent native model" }
+      ]
+    }]
+  });
+  assert.equal(claudeOptions.selectedModelEntry.provider, "claude-code");
+  assert.equal(claudeOptions.selectedModelEntry.modelProfileId, "claude-code:claude-opus-future");
 });
 
 test("bot runtime send block only honors an explicit Core block", () => {

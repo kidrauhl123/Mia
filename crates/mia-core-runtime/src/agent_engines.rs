@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use mia_core_api_types::AcpRuntimeControl;
 use mia_core_common::process::configure_background_command;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -21,6 +22,32 @@ const DEFAULT_AGENT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
 const MANAGED_ACP_PREPARE_TIMEOUT: Duration = Duration::from_secs(600);
 static MANAGED_ACP_PREPARE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+static AGENT_RUNTIME_CONTROL_CACHE: OnceLock<RwLock<BTreeMap<String, Vec<AcpRuntimeControl>>>> =
+    OnceLock::new();
+
+pub fn cached_agent_runtime_controls(engine: &str) -> Vec<AcpRuntimeControl> {
+    let engine = normalize_agent_engine_id(engine);
+    agent_runtime_control_cache()
+        .read()
+        .unwrap()
+        .get(&engine)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn cache_agent_runtime_controls(engine: &str, controls: Vec<AcpRuntimeControl>) {
+    let engine = normalize_agent_engine_id(engine);
+    let mut cache = agent_runtime_control_cache().write().unwrap();
+    if controls.is_empty() {
+        cache.remove(&engine);
+    } else {
+        cache.insert(engine, controls);
+    }
+}
+
+fn agent_runtime_control_cache() -> &'static RwLock<BTreeMap<String, Vec<AcpRuntimeControl>>> {
+    AGENT_RUNTIME_CONTROL_CACHE.get_or_init(|| RwLock::new(BTreeMap::new()))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -264,26 +291,34 @@ impl AgentEngineScanner {
             .await;
 
         match outcome {
-            AcpProbeOutcome::Ready { detail, .. } => ready_status(
-                definition,
-                primary,
-                version,
-                acp_launcher,
-                detail
-                    .as_deref()
-                    .unwrap_or("ACP initialize + session/new + prompt ok"),
-            ),
+            AcpProbeOutcome::Ready {
+                detail, controls, ..
+            } => {
+                cache_agent_runtime_controls(definition.id, controls);
+                ready_status(
+                    definition,
+                    primary,
+                    version,
+                    acp_launcher,
+                    detail
+                        .as_deref()
+                        .unwrap_or("ACP initialize + session/new + prompt ok"),
+                )
+            }
             AcpProbeOutcome::Failed {
                 error_code, detail, ..
-            } => degraded_status(
-                definition,
-                primary,
-                version,
-                acp_launcher,
-                &error_code,
-                &format!("{} ACP 可用性待确认", definition.label),
-                &detail,
-            ),
+            } => {
+                cache_agent_runtime_controls(definition.id, Vec::new());
+                degraded_status(
+                    definition,
+                    primary,
+                    version,
+                    acp_launcher,
+                    &error_code,
+                    &format!("{} ACP 可用性待确认", definition.label),
+                    &detail,
+                )
+            }
         }
     }
 
@@ -550,6 +585,7 @@ enum AcpProbeOutcome {
     Ready {
         detail: Option<String>,
         latency_ms: u64,
+        controls: Vec<AcpRuntimeControl>,
     },
     Failed {
         error_code: String,
@@ -589,12 +625,13 @@ impl AcpCommandProber for RealAcpCommandProber {
         )
         .await
         {
-            Ok(()) => AcpProbeOutcome::Ready {
+            Ok(snapshot) => AcpProbeOutcome::Ready {
                 detail: Some(format!(
                     "{}: initialize + session/new + prompt ok",
                     request.display
                 )),
                 latency_ms: elapsed_ms(started),
+                controls: snapshot.controls,
             },
             Err(error) => {
                 let detail = compact_one_line(format!(
@@ -1986,7 +2023,7 @@ pub(crate) fn resolve_managed_agent_runtime_plan(
 fn normalize_agent_engine_id(value: &str) -> String {
     let id = value.trim().to_ascii_lowercase().replace('_', "-");
     match id.as_str() {
-        "claude" | "claude-code-agent" => "claude-code".into(),
+        "anthropic" | "claude" | "claude-code-agent" => "claude-code".into(),
         "openai-codex" | "codex-cli" => "codex".into(),
         "hermes-cli" => "hermes".into(),
         _ => id,
@@ -2269,6 +2306,7 @@ impl AcpCommandProber for FakeAcpCommandProber {
             .unwrap_or(AcpProbeOutcome::Ready {
                 detail: Some(format!("{} ok", request.display)),
                 latency_ms: 1,
+                controls: Vec::new(),
             })
     }
 }
@@ -2291,6 +2329,7 @@ mod tests {
             AcpProbeOutcome::Ready {
                 detail: Some("ok".into()),
                 latency_ms: 1,
+                controls: Vec::new(),
             }
         }
     }

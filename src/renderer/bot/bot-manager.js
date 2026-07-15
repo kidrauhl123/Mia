@@ -612,6 +612,30 @@
   }
 
   function botRunsOnOtherDevice(bot = {}) {
+    const runtimeKind = firstNonEmpty(bot.runtimeKind, bot.runtime_kind, "desktop-local");
+    if (runtimeKind === "cloud-claude-code") return false;
+    const runtimeConfig = bot.runtimeConfig && typeof bot.runtimeConfig === "object"
+      ? bot.runtimeConfig
+      : (bot.runtime_config && typeof bot.runtime_config === "object" ? bot.runtime_config : {});
+    const targetIntent = bot.targetIntent && typeof bot.targetIntent === "object"
+      ? bot.targetIntent
+      : (bot.target_intent && typeof bot.target_intent === "object" ? bot.target_intent : {});
+    const targetDeviceId = firstNonEmpty(
+      bot.targetDeviceId,
+      bot.target_device_id,
+      bot.deviceId,
+      bot.device_id,
+      runtimeConfig.deviceId,
+      runtimeConfig.device_id,
+      targetIntent.deviceId,
+      targetIntent.device_id
+    );
+    const currentDeviceId = firstNonEmpty(
+      state?.runtime?.localDevice?.id,
+      state?.runtime?.cloud?.deviceId,
+      state?.runtime?.cloud?.device_id
+    );
+    if (targetDeviceId && currentDeviceId) return targetDeviceId !== currentDeviceId;
     return runtimeTargetProjection(bot).runsOnOtherDevice;
   }
 
@@ -638,11 +662,11 @@
     return key ? runtimeTargetOptionsCache().get(key) : null;
   }
 
-  function loadRuntimeTargetOptions(bot = {}) {
+  function loadRuntimeTargetOptions(bot = {}, options = {}) {
     const key = runtimeTargetOptionsKey(bot);
     if (!key || typeof window.mia?.social?.getBotRuntimeTargetOptions !== "function") return;
     const cache = runtimeTargetOptionsCache();
-    if (cache.has(key)) return;
+    if (cache.has(key) && options.refresh !== true) return;
     const loading = runtimeTargetOptionsLoadingKeys();
     if (loading.has(key)) return;
     loading.add(key);
@@ -735,7 +759,7 @@
             devices
           }
         };
-        runtimeTargetOptionsCache().clear();
+        allOwnedBots().forEach((bot) => loadRuntimeTargetOptions(bot, { refresh: true }));
         renderContacts();
       })
       .catch((error) => console.warn("[bot-manager] bridge devices load failed:", error?.message || error))

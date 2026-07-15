@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub use agent_engines::{
     AgentEngineInventory, AgentEngineScanOptions, AgentEngineScanner,
     ManagedAgentResourcePrepareReport, ManagedAgentResourcePrepareStatus,
-    prepare_managed_agent_resources,
+    cached_agent_runtime_controls, prepare_managed_agent_resources,
 };
 pub use memory_isolation::{apply_memory_isolation_to_plan, preflight_memory_isolation};
 use mia_core_common::process::configure_background_command;
@@ -1000,6 +1000,7 @@ mod tests {
                 conversation_id: "conv_hermes".into(),
                 message_id: "msg_hermes".into(),
                 bot_id: None,
+                memory_mode: MemoryMode::Native,
                 engine: Some("hermes".into()),
                 previous_session_key: None,
                 workspace_dir: "".into(),

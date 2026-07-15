@@ -510,3 +510,99 @@ test("contact runtime target panel renders Core-owned target options", async () 
   assert.match(contactDetail.innerHTML, /data-agent-engine="codex"/);
   assert.match(contactDetail.innerHTML, /runtime-target-option selected/);
 });
+
+test("other-device grouping uses the persisted bot target before Core options load", () => {
+  const { manager } = loadBotManager();
+  const state = {
+    runtime: {
+      localDevice: { id: "win-local", name: "Windows PC" },
+      cloud: { deviceId: "win-local" }
+    }
+  };
+  manager.initBotManager({ state });
+
+  assert.equal(manager.botRunsOnOtherDevice({
+    key: "remote-codex",
+    runtimeKind: "desktop-local",
+    targetDeviceId: "mac-remote"
+  }), true);
+  assert.equal(manager.botRunsOnOtherDevice({
+    key: "local-codex",
+    runtimeKind: "desktop-local",
+    targetDeviceId: "win-local"
+  }), false);
+  assert.equal(manager.botRunsOnOtherDevice({
+    key: "cloud-mia",
+    runtimeKind: "cloud-claude-code",
+    targetDeviceId: "mac-remote"
+  }), false);
+});
+
+test("device refresh keeps cached bot placement until refreshed options arrive", async () => {
+  let targetOptionsCalls = 0;
+  let resolveRefreshedOptions;
+  const refreshedOptions = new Promise((resolve) => { resolveRefreshedOptions = resolve; });
+  const { manager, window } = loadBotManager({
+    mia: {
+      social: {
+        getBotRuntimeTargetOptions: async () => {
+          targetOptionsCalls += 1;
+          if (targetOptionsCalls === 1) {
+            return { data: { runtimeLabel: "Remote Mac · 在线", runsOnOtherDevice: true, groups: [] } };
+          }
+          return refreshedOptions;
+        },
+        listBridgeDevices: async () => ({ data: { devices: [{ id: "mac-remote", status: "online" }] } })
+      }
+    }
+  });
+  const contactDetail = mockEl();
+  const state = {
+    skillsLoading: true,
+    skillLibrary: { extensions: [], skills: [] },
+    runtime: {
+      localDevice: { id: "win-local", name: "Windows PC" },
+      cloud: { enabled: false, deviceId: "win-local", devices: [] }
+    },
+    contactFilter: "",
+    activeContactKey: "remote-codex",
+    savingBotCapabilities: new Set(),
+    savingBotRuntimeTargets: new Set()
+  };
+  const bot = {
+    key: "remote-codex",
+    id: "remote-codex",
+    name: "Remote Codex",
+    runtimeKind: "desktop-local",
+    targetDeviceId: "mac-remote",
+    targetDeviceName: "Remote Mac"
+  };
+  window.miaSocial.moduleState.bots = [bot];
+  manager.initBotManager({
+    state,
+    els: { contactList: mockEl(), contactDetail, contactPageTitle: mockEl(), contactPageMeta: mockEl() },
+    setText(el, value) { if (el) el.textContent = value; },
+    loadSkills: async () => {},
+    showNarrowContent() {},
+    render() {},
+    closeGroupContextMenu() {},
+    openEditBotDialog() {},
+    deleteBot() {},
+    setBotPinned() {}
+  });
+
+  manager.renderContactDetail(bot);
+  await flushAsyncWork();
+  assert.equal(state.botRuntimeTargetOptions.get(bot.key).runtimeLabel, "Remote Mac · 在线");
+
+  state.runtime.cloud.enabled = true;
+  manager.renderContactDetail(bot);
+  await flushAsyncWork();
+  assert.equal(targetOptionsCalls, 2);
+  assert.equal(state.botRuntimeTargetOptions.get(bot.key).runtimeLabel, "Remote Mac · 在线");
+  assert.equal(manager.botRunsOnOtherDevice(bot), true);
+
+  resolveRefreshedOptions({ data: { runtimeLabel: "Remote Mac · 离线", runsOnOtherDevice: true, groups: [] } });
+  await flushAsyncWork();
+  assert.equal(state.botRuntimeTargetOptions.get(bot.key).runtimeLabel, "Remote Mac · 离线");
+});

@@ -70,7 +70,7 @@ pub async fn probe_native_acp_command(
     environment: BTreeMap<String, String>,
     workspace_dir: PathBuf,
     timeout: Duration,
-) -> std::result::Result<(), NativeAcpProbeError> {
+) -> std::result::Result<AcpRuntimeControlSnapshot, NativeAcpProbeError> {
     match tokio::time::timeout(
         timeout,
         probe_native_acp_command_inner(command, environment, workspace_dir),
@@ -818,7 +818,7 @@ async fn probe_native_acp_command_inner(
     command: RuntimeCommand,
     environment: BTreeMap<String, String>,
     workspace_dir: PathBuf,
-) -> std::result::Result<(), NativeAcpProbeError> {
+) -> std::result::Result<AcpRuntimeControlSnapshot, NativeAcpProbeError> {
     let workspace_dir =
         absolute_workspace_dir(&workspace_dir.to_string_lossy()).map_err(|error| {
             NativeAcpProbeError {
@@ -882,43 +882,51 @@ async fn probe_native_acp_command_inner(
         }
     };
 
-    let result: std::result::Result<(), (NativeAcpProbeErrorKind, String)> = async {
-        let protocol = AcpProtocol::connect(
-            stdin,
-            stdout,
-            Arc::new(StdMutex::new(NativeAcpSessionState::default())),
-            NativeAcpPermissionBroker::default(),
-        )
-        .await
-        .map_err(|error| (NativeAcpProbeErrorKind::Initialize, error.to_string()))?;
-        let session = protocol
-            .new_session(workspace_dir, Vec::new(), None)
+    let result: std::result::Result<AcpRuntimeControlSnapshot, (NativeAcpProbeErrorKind, String)> =
+        async {
+            let session_state = Arc::new(StdMutex::new(NativeAcpSessionState::default()));
+            let protocol = AcpProtocol::connect(
+                stdin,
+                stdout,
+                session_state.clone(),
+                NativeAcpPermissionBroker::default(),
+            )
             .await
-            .map_err(|error| (NativeAcpProbeErrorKind::NewSession, error.to_string()))?;
-        let accumulated_text = Arc::new(StdMutex::new(String::new()));
-        protocol.set_active_turn(Some(ActiveTurnContext {
-            turn_id: "probe".into(),
-            conversation_id: "probe".into(),
-            engine: "probe".into(),
-            bot_id: "probe".into(),
-            permission_mode: "".into(),
-            sink: RuntimeEventSink::default(),
-            accumulated_text: accumulated_text.clone(),
-        }));
-        let prompt_result = protocol
-            .prompt(session.session_id, "Reply with OK.".into())
-            .await;
-        protocol.set_active_turn(None);
-        let prompt_response =
-            prompt_result.map_err(|error| (NativeAcpProbeErrorKind::Prompt, error.to_string()))?;
-        validate_probe_prompt_output(
-            &accumulated_text.lock().unwrap(),
-            prompt_response.stop_reason,
-        )
-        .map_err(|message| (NativeAcpProbeErrorKind::Prompt, message))?;
-        Ok(())
-    }
-    .await;
+            .map_err(|error| (NativeAcpProbeErrorKind::Initialize, error.to_string()))?;
+            let session = protocol
+                .new_session(workspace_dir, Vec::new(), None)
+                .await
+                .map_err(|error| (NativeAcpProbeErrorKind::NewSession, error.to_string()))?;
+            let session_id = session.session_id.clone();
+            session_state
+                .lock()
+                .unwrap()
+                .apply_new_session_response(session);
+            let accumulated_text = Arc::new(StdMutex::new(String::new()));
+            protocol.set_active_turn(Some(ActiveTurnContext {
+                turn_id: "probe".into(),
+                conversation_id: "probe".into(),
+                engine: "probe".into(),
+                bot_id: "probe".into(),
+                permission_mode: "".into(),
+                sink: RuntimeEventSink::default(),
+                accumulated_text: accumulated_text.clone(),
+            }));
+            let prompt_result = protocol.prompt(session_id, "Reply with OK.".into()).await;
+            protocol.set_active_turn(None);
+            let prompt_response = prompt_result
+                .map_err(|error| (NativeAcpProbeErrorKind::Prompt, error.to_string()))?;
+            validate_probe_prompt_output(
+                &accumulated_text.lock().unwrap(),
+                prompt_response.stop_reason,
+            )
+            .map_err(|message| (NativeAcpProbeErrorKind::Prompt, message))?;
+            Ok(session_state
+                .lock()
+                .unwrap()
+                .control_snapshot("probe", "probe"))
+        }
+        .await;
     let stderr = finish_probe_child(child, stderr_task).await;
     result.map_err(|(kind, message)| NativeAcpProbeError {
         kind,

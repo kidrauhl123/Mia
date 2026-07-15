@@ -5130,11 +5130,15 @@ function runtimeControlFieldCategory(field = "") {
 
 function runtimeControlOptionsFromAcpSnapshot(snapshot = {}, runtimeKind = "desktop-local") {
   const controls = Array.isArray(snapshot?.controls) ? snapshot.controls : [];
+  const snapshotEngine = String(snapshot?.engine || "").trim().toLowerCase();
   const find = (category) => controls.find((control) => control?.category === category) || null;
   const normalizeOptions = (control) => (Array.isArray(control?.options) ? control.options : []).map((choice) => {
     const value = String(choice?.value || "");
     const isMiaModel = control?.category === "model"
-      && (control?.source === "mia_provider" || value === "mia-auto" || value === "mia-default");
+      && (value === "mia-auto"
+        || value === "mia-default"
+        || String(choice?.description || "") === "Mia platform model");
+    const isNativeModel = control?.category === "model" && Boolean(snapshotEngine) && !isMiaModel;
     return {
       id: value,
       value,
@@ -5143,6 +5147,10 @@ function runtimeControlOptionsFromAcpSnapshot(snapshot = {}, runtimeKind = "desk
         provider: "mia",
         providerConnectionId: "mia",
         modelProfileId: `mia:${value}`
+      } : isNativeModel ? {
+        provider: snapshotEngine,
+        providerConnectionId: snapshotEngine,
+        modelProfileId: `${snapshotEngine}:${value}`
       } : {}),
       label: String(choice?.label || value),
       title: String(choice?.description || "")
