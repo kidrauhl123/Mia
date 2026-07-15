@@ -919,9 +919,15 @@ fn codex_mia_session_config(
 fn codex_permission_config(value: &str) -> (&'static str, &'static str) {
     match value.trim() {
         "read-only" | ":read-only" | "readOnly" => ("never", "read-only"),
-        "full-access" | ":danger-full-access" | "bypassPermissions" | "yolo" | "off" | "never" => {
-            ("never", "danger-full-access")
-        }
+        "agent-full-access"
+        | "full-access"
+        | "danger-full-access"
+        | ":danger-full-access"
+        | "bypassPermissions"
+        | "yolo"
+        | "yoloNoSandbox"
+        | "off"
+        | "never" => ("never", "danger-full-access"),
         "auto" | ":workspace" => ("on-request", "workspace-write"),
         "acceptEdits" => ("on-request", "workspace-write"),
         _ => ("untrusted", "workspace-write"),
@@ -1964,6 +1970,14 @@ mod tests {
             &json!({ "platformModel": "mia-auto" })
         ));
         assert!(!source_is_mia_managed(&json!({ "model": "gpt-5.3" })));
+    }
+
+    #[test]
+    fn codex_permission_config_maps_current_full_access_mode() {
+        assert_eq!(
+            codex_permission_config("agent-full-access"),
+            ("never", "danger-full-access")
+        );
     }
 
     #[test]

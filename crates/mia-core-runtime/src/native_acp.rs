@@ -1568,6 +1568,12 @@ impl NativeAcpTask {
             else {
                 continue;
             };
+            let desired = normalize_advertised_control_value(
+                &plan.engine,
+                category,
+                desired,
+                &control.options,
+            );
             if control.current_value == desired {
                 continue;
             }
@@ -1581,7 +1587,7 @@ impl NativeAcpTask {
                 );
                 continue;
             }
-            self.set_control(plan, &control.id, desired).await?;
+            self.set_control(plan, &control.id, &desired).await?;
         }
         Ok(())
     }
@@ -2044,6 +2050,42 @@ fn is_full_access_permission_mode(value: &str) -> bool {
         value.trim(),
         "agent-full-access" | "full-access" | "bypassPermissions" | ":danger-full-access"
     )
+}
+
+fn is_codex_full_access_permission_alias(value: &str) -> bool {
+    matches!(
+        value.trim(),
+        "agent-full-access"
+            | "full-access"
+            | "danger-full-access"
+            | "bypassPermissions"
+            | ":danger-full-access"
+            | "yolo"
+            | "yoloNoSandbox"
+            | "off"
+            | "never"
+    )
+}
+
+fn normalize_advertised_control_value(
+    engine: &str,
+    category: &str,
+    desired: &str,
+    options: &[AcpRuntimeControlChoice],
+) -> String {
+    let desired = desired.trim();
+    if engine != "codex"
+        || category != "permission"
+        || !is_codex_full_access_permission_alias(desired)
+    {
+        return desired.to_string();
+    }
+
+    ["agent-full-access", "full-access"]
+        .into_iter()
+        .find(|candidate| options.iter().any(|choice| choice.value == *candidate))
+        .unwrap_or(desired)
+        .to_string()
 }
 
 fn engine_label(engine: &str) -> &str {
@@ -3072,6 +3114,43 @@ mod tests {
         assert_eq!(desired_control_value(&plan, "model"), None);
         assert_eq!(desired_control_value(&plan, "thought_level"), None);
         assert_eq!(desired_control_value(&plan, "permission"), None);
+    }
+
+    #[test]
+    fn native_acp_normalizes_codex_full_access_aliases_to_advertised_mode() {
+        let current_options = vec![AcpRuntimeControlChoice {
+            value: "agent-full-access".into(),
+            label: "Agent (full access)".into(),
+            description: String::new(),
+        }];
+        for alias in [
+            "full-access",
+            "danger-full-access",
+            ":danger-full-access",
+            "bypassPermissions",
+            "yolo",
+            "yoloNoSandbox",
+        ] {
+            assert_eq!(
+                normalize_advertised_control_value("codex", "permission", alias, &current_options),
+                "agent-full-access"
+            );
+        }
+
+        let legacy_options = vec![AcpRuntimeControlChoice {
+            value: "full-access".into(),
+            label: "Full Access".into(),
+            description: String::new(),
+        }];
+        assert_eq!(
+            normalize_advertised_control_value(
+                "codex",
+                "permission",
+                "agent-full-access",
+                &legacy_options,
+            ),
+            "full-access"
+        );
     }
 
     #[test]
