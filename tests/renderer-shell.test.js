@@ -1224,10 +1224,12 @@ test("lottie icons support autoplaying loop animations for scanning state", () =
 test("status badge lotties render as visible canvas loops instead of blank ambient rests", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const lottieSource = fs.readFileSync(path.join(root, "src/renderer/lottie-icons.js"), "utf8");
   const nameWithBadgeSource = fs.readFileSync(path.join(root, "src/renderer/name-with-badge.js"), "utf8");
 
-  assert.match(html, /assets\/lottie\/lottie\.min\.js/);
+  assert.doesNotMatch(html, /assets\/lottie\/lottie\.min\.js/);
   assert.doesNotMatch(html, /assets\/lottie\/lottie_light\.min\.js/);
+  assert.match(lottieSource, /script\.src = "\.\/assets\/lottie\/lottie\.min\.js"/);
   assert.match(appSource, /span\.dataset\.lottieTrigger = "loop"/);
   assert.match(appSource, /span\.dataset\.lottieRenderer = "canvas"/);
   assert.doesNotMatch(appSource, /span\.dataset\.lottieTrigger = "ambient"/);
@@ -2376,18 +2378,11 @@ test("agent setup completion does not force first bot creation", () => {
 
 test("signed-out onboarding still schedules Core startup for cloud login", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const readyBody = mainSource.slice(
-    mainSource.indexOf("app.whenReady().then(async () => {"),
-    mainSource.indexOf("app.on(\"window-all-closed\"")
-  );
+  const windowIpcSource = fs.readFileSync(path.join(root, "src/main/ipc/window-ipc.js"), "utf8");
 
   assert.match(mainSource, /win\.miaSkipAutomaticBackgroundStartup = onboarding/);
-  assert.match(readyBody, /runtimeLifecycle\(\)\.scheduleBackgroundStartup\(\)/);
-  assert.doesNotMatch(
-    readyBody,
-    /!win\.miaSkipAutomaticBackgroundStartup[\s\S]{0,160}runtimeLifecycle\(\)\.scheduleBackgroundStartup\(\)/,
-    "the lightweight onboarding window still needs Core so cloud login IPC does not spin on 503"
-  );
+  assert.match(mainSource, /startRuntime:[\s\S]*runtimeLifecycle\(\)\.scheduleBackgroundStartup\(\{ delayMs: 0 \}\)/);
+  assert.match(windowIpcSource, /onFirstPaint\(w\)[\s\S]*if \(w\?\.miaSkipAutomaticBackgroundStartup\) return/);
 });
 
 test("first-run onboarding cannot enter Mia while an engine install is running", () => {

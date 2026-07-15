@@ -45,13 +45,17 @@ function restoreWindowForNotification(w) {
   w.focus();
 }
 
-function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
+function registerWindowIpc({ ipcMain, startupTimer, onFirstPaint, runtimeLifecycle }) {
   ipcMain.on(IpcChannel.UiFirstPaint, (event) => {
     startupTimer.mark("renderer:first-paint");
     const w = BrowserWindow.fromWebContents(event.sender);
     if (w && typeof w.miaShowWhenReady === "function") w.miaShowWhenReady();
+    if (typeof onFirstPaint === "function") {
+      onFirstPaint(w);
+      return;
+    }
     if (w?.miaSkipAutomaticBackgroundStartup) return;
-    runtimeLifecycle().scheduleBackgroundStartup();
+    runtimeLifecycle?.().scheduleBackgroundStartup();
   });
 
   ipcMain.handle(IpcChannel.WindowClose, (event) => {

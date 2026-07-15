@@ -215,9 +215,10 @@ test("adapterCtx uses Mia Core user id fallback for local Core conversations", (
   assert.equal(ctx.self.id, "local");
 });
 
-test("bootstrapAfterLogin asks untitled loaded conversations to generate titles", async () => {
+test("bootstrapAfterLogin defers title generation until conversation activity", async () => {
   const s = loadSocial();
   const titleCandidates = [];
+  let messageFetches = 0;
   s.initSocialModule({
     getState: () => ({ runtime: {} }),
     render: () => {},
@@ -234,15 +235,16 @@ test("bootstrapAfterLogin asks untitled loaded conversations to generate titles"
     listBots: async () => ({ ok: true, data: { bots: [] } }),
     settingsGet: async () => ({}),
     listConversations: async () => ({ ok: true, data: { conversations: [{ id: "botc_u_1_kongling", type: "bot", name: "空铃" }] } }),
-    listConversationMessages: async () => ({ ok: true, data: { messages: [
-      { id: "m1", seq: 1, sender_kind: "user", body_md: "你好" },
-      { id: "m2", seq: 2, sender_kind: "bot", body_md: "你好，有什么可以帮你的吗？" }
-    ] } })
+    listConversationMessages: async () => {
+      messageFetches += 1;
+      return { ok: true, data: { messages: [] } };
+    }
   };
 
   await s.bootstrapAfterLogin();
 
-  assert.deepEqual(titleCandidates, ["botc_u_1_kongling"]);
+  assert.equal(messageFetches, 0);
+  assert.deepEqual(titleCandidates, []);
 });
 
 test("focusConversationMessage backfills around the hit seq then scrolls to it", async () => {
@@ -589,7 +591,7 @@ test("focusConversationMessage does not re-center after the user scrolls away", 
   assert.equal(chat.scrollTop, 25, "manual scroll position should win after initial focus is consumed");
 });
 
-test("bootstrapAfterLogin prefetches group members beyond the initial message cap", async () => {
+test("bootstrapAfterLogin defers group member hydration until conversation demand", async () => {
   const s = loadSocial();
   const fetched = [];
   s.__mockWindow.miaSocialGroups = {
@@ -631,12 +633,13 @@ test("bootstrapAfterLogin prefetches group members beyond the initial message ca
 
   await s.bootstrapAfterLogin();
 
-  assert.ok(fetched.includes("g_late"), "group conversations beyond the initial message cap should still prefetch members");
+  assert.deepEqual(fetched, []);
 });
 
 test("bootstrapAfterLogin paints cached SQLite social data before slow cloud conversations return", async () => {
   const s = loadSocial();
   let renderCount = 0;
+  let cachedMessageFetches = 0;
   let releaseCloudConversations;
   s.initSocialModule({
     getState: () => ({ runtime: { cloud: { user: { id: "u_1" } } } }),
@@ -655,10 +658,10 @@ test("bootstrapAfterLogin paints cached SQLite social data before slow cloud con
         members: {}
       }
     }),
-    getCachedConversationMessages: async () => ({
-      ok: true,
-      data: { messages: [{ id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "cached hello" }] }
-    }),
+    getCachedConversationMessages: async () => {
+      cachedMessageFetches += 1;
+      return { ok: true, data: { messages: [] } };
+    },
     myIdentity: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
@@ -675,7 +678,8 @@ test("bootstrapAfterLogin paints cached SQLite social data before slow cloud con
 
   assert.equal(s.moduleState.bootstrapped, true);
   assert.deepEqual(s.moduleState.conversations.map((item) => item.id), ["botc_u_1_mia"]);
-  assert.equal(s.moduleState.messageCache.get("botc_u_1_mia").messages[0].body_md, "cached hello");
+  assert.equal(cachedMessageFetches, 0);
+  assert.equal(s.moduleState.messageCache.has("botc_u_1_mia"), false);
   assert.equal(renderCount, 1);
 
   releaseCloudConversations();

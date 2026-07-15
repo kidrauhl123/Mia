@@ -60,6 +60,7 @@ function loadSocialGroups(options = {}) {
   };
   documentMock.getElementById("groupCreateName").value = "";
   const mockWindow = {
+    setTimeout: options.setTimeout || ((fn) => fn()),
     mia: {
       social: {
         postConversationMessage: async () => {

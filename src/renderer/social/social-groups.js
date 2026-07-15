@@ -8,9 +8,14 @@
 
   let ctx = null; // set by attach()
   const pendingMemberFetches = new Set();
+  const memberFetchPromises = new Map();
+  const memberFetchQueue = [];
   const failedMemberFetches = new Map();
+  const MEMBER_FETCH_CONCURRENCY = 3;
   const MEMBER_FETCH_TRANSIENT_COOLDOWN_MS = 15_000;
   const MEMBER_FETCH_NOT_FOUND_COOLDOWN_MS = 120_000;
+  let activeMemberFetches = 0;
+  let memberRenderTimer = 0;
 
   function attach(internalCtx) {
     ctx = internalCtx;
@@ -332,28 +337,59 @@
     return article;
   }
 
-  async function fetchAndCacheConversationMembers(conversationId) {
-    if (!conversationId || !ctx) return;
-    if (ctx.conversationMembersCache?.has(conversationId)) return;
-    if (pendingMemberFetches.has(conversationId)) return;
-    if (isMemberFetchCoolingDown(conversationId)) return;
-    if (!global.mia || !global.mia.social || typeof global.mia.social.getConversation !== "function") return;
-    pendingMemberFetches.add(conversationId);
+  function scheduleMemberRender() {
+    if (memberRenderTimer) return;
+    memberRenderTimer = global.setTimeout(() => {
+      memberRenderTimer = 0;
+      if (ctx?.deps && typeof ctx.deps.render === "function") ctx.deps.render();
+    }, 60);
+  }
+
+  async function runMemberFetch(conversationId) {
     try {
       const res = await global.mia.social.getConversation(conversationId);
       if (res.ok && res.data && Array.isArray(res.data.members)) {
         failedMemberFetches.delete(conversationId);
         ctx.conversationMembersCache.set(conversationId, res.data.members);
-        if (ctx.deps && typeof ctx.deps.render === "function") ctx.deps.render();
+        scheduleMemberRender();
       } else if (!res?.ok) {
         rememberMemberFetchFailure(conversationId, res);
       }
     } catch (err) {
       rememberMemberFetchFailure(conversationId, err);
       console.warn("[social-groups] fetchAndCacheConversationMembers failed:", conversationId, err?.message || err);
-    } finally {
-      pendingMemberFetches.delete(conversationId);
     }
+  }
+
+  function pumpMemberFetchQueue() {
+    while (activeMemberFetches < MEMBER_FETCH_CONCURRENCY && memberFetchQueue.length) {
+      const job = memberFetchQueue.shift();
+      activeMemberFetches += 1;
+      runMemberFetch(job.conversationId).finally(() => {
+        activeMemberFetches -= 1;
+        pendingMemberFetches.delete(job.conversationId);
+        memberFetchPromises.delete(job.conversationId);
+        job.resolve();
+        pumpMemberFetchQueue();
+      });
+    }
+  }
+
+  function fetchAndCacheConversationMembers(conversationId) {
+    if (!conversationId || !ctx) return Promise.resolve();
+    if (ctx.conversationMembersCache?.has(conversationId)) return Promise.resolve();
+    if (memberFetchPromises.has(conversationId)) return memberFetchPromises.get(conversationId);
+    if (isMemberFetchCoolingDown(conversationId)) return Promise.resolve();
+    if (!global.mia || !global.mia.social || typeof global.mia.social.getConversation !== "function") {
+      return Promise.resolve();
+    }
+    let resolveJob;
+    const promise = new Promise((resolve) => { resolveJob = resolve; });
+    memberFetchPromises.set(conversationId, promise);
+    pendingMemberFetches.add(conversationId);
+    memberFetchQueue.push({ conversationId, resolve: resolveJob });
+    pumpMemberFetchQueue();
+    return promise;
   }
 
   // ── group send ────────────────────────────────────────────────────────────

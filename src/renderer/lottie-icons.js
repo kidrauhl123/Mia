@@ -31,6 +31,7 @@
   const reg = new Map(); // container element -> { anim, open }
   const animationDataCache = new Map();
   const animationDataPromises = new Map();
+  let playerPromise = null;
   let ambientMountCount = 0;
   const reducedMotion = window.matchMedia
     ? window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -402,6 +403,29 @@
     if (typeof defer === "function") defer(() => init(root), 0);
   }
 
+  function loadPlayer() {
+    if (window.lottie) return Promise.resolve(window.lottie);
+    if (playerPromise) return playerPromise;
+    playerPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "./assets/lottie/lottie.min.js";
+      script.async = true;
+      script.addEventListener("load", () => {
+        if (!window.lottie) {
+          reject(new Error("Lottie player loaded without exposing window.lottie."));
+          return;
+        }
+        resolve(window.lottie);
+      }, { once: true });
+      script.addEventListener("error", () => reject(new Error("Failed to load the Lottie player.")), { once: true });
+      document.head.appendChild(script);
+    }).catch((error) => {
+      playerPromise = null;
+      throw error;
+    });
+    return playerPromise;
+  }
+
   // Destroy instances inside `root` (or all). Use when a still-connected
   // container is being torn down — e.g. a looping icon in a dialog that hides
   // (not removes) on close, which sweepOrphans can't reclaim on its own.
@@ -424,5 +448,5 @@
     document.addEventListener("visibilitychange", syncAllLoopPlayback);
   }
 
-  window.miaLottieIcons = { init, setOpen, destroy };
+  window.miaLottieIcons = { init, setOpen, destroy, loadPlayer };
 })();

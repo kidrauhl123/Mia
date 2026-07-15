@@ -21,6 +21,7 @@ const { createRuntimeInitializerService } = require("./main/runtime-initializer-
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
 const { createStartupBackgroundService } = require("./main/startup-background-service.js");
 const { createStartupMcpInitializer } = require("./main/mcp-startup-initializer.js");
+const { createPostPaintStartup } = require("./main/post-paint-startup.js");
 const { createStartupTimer } = require("./main/startup-timing.js");
 const { onboardingWindowBounds } = require("./main/onboarding-window-bounds.js");
 const { setMacNativeControlsVisible } = require("./main/mac-window-controls.js");
@@ -402,6 +403,7 @@ const systemHermesService = createSystemHermesService({
   readJson,
   env: process.env,
   homeDir: () => os.homedir(),
+  spawn,
   spawnSync,
   resetAgentEngineCache: () => localAgentEngineService?.resetCache?.()
 });
@@ -2229,7 +2231,13 @@ agentPermissionProxy = createAgentPermissionProxy({
   }
 });
 
-registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle });
+let postPaintStartup = null;
+registerWindowIpc({
+  ipcMain,
+  startupTimer,
+  runtimeLifecycle,
+  onFirstPaint: () => postPaintStartup?.start()
+});
 registerUtilIpc({
   ipcMain,
   openLocalFile: localFileOpenService.openLocalFile,
@@ -2672,6 +2680,30 @@ const autoUpdateService = createAutoUpdateService({
 
 ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates());
 
+postPaintStartup = createPostPaintStartup({
+  timer: startupTimer,
+  startRuntime: () => {
+    if (process.env.MIA_DISABLE_BACKGROUND_STARTUP === "1") return;
+    runtimeLifecycle().scheduleBackgroundStartup({ delayMs: 0 });
+  },
+  startMcp: () => startupMcpInitializer.start(),
+  refreshCloud: async () => {
+    if (process.env.MIA_DISABLE_BACKGROUND_STARTUP === "1") return;
+    await startDaemonService();
+    startCloudRuntimeSockets();
+    await syncCloudSettingsToCore().catch((error) => {
+      appendCloudLog(`Mia Rust Core cloud bootstrap sync failed: ${error?.message || error}`);
+    });
+    await cloudDesktopSync().syncWorkspace().catch((error) => {
+      appendCloudLog(`云同步刷新失败：${error?.message || error}`);
+    });
+    await syncCloudSettingsToCore().catch((error) => {
+      appendCloudLog(`Mia Rust Core cloud refresh sync failed: ${error?.message || error}`);
+    });
+  },
+  startAutoUpdate: () => autoUpdateService.start()
+});
+
 app.on("before-quit", () => {
   if (agentSessionManager && typeof agentSessionManager.closeAllSessions === "function") {
     agentSessionManager.closeAllSessions().catch((error) => appendEngineLog(`AgentSession cleanup failed: ${error?.message || error}`));
@@ -2696,20 +2728,8 @@ app.whenReady().then(async () => {
   // still constructs miaCoreControlServer and pings/forwards to the node-Core
   // daemon over 127.0.0.1; startDaemonService launches Mia Rust Core.
   if (!shouldRunDesktopInstance) return;
-  startupMcpInitializer.start();
-  const win = createWindow();
+  createWindow();
   startupTimer.mark("window:created");
-  autoUpdateService.start();
-  startCloudRuntimeSockets(); // foreground clients self-gate; daemon owns runtime sockets
-  syncCloudSettingsToCore().catch((error) => appendCloudLog(`Mia Rust Core cloud bootstrap sync failed: ${error?.message || error}`));
-  cloudDesktopSync().syncWorkspace()
-    .then(() => syncCloudSettingsToCore().catch((error) => appendCloudLog(`Mia Rust Core cloud refresh sync failed: ${error?.message || error}`)))
-    .catch((error) => appendCloudLog(`云同步刷新失败：${error?.message || error}`));
-  if (process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
-    win.webContents.once("did-finish-load", () => {
-      setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
-    });
-  }
 });
 
 app.on("window-all-closed", () => {

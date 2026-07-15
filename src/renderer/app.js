@@ -3212,13 +3212,12 @@ async function trackStartupTask(label, task) {
 }
 
 function loadInitialRuntimeData() {
-  return Promise.allSettled([
-    trackStartupTask("加载 Hermes 模型列表", () => window.miaLoaders.loadModelCatalog()),
-    trackStartupTask("加载 Codex 模型列表", () => window.miaLoaders.loadCodexModels()),
-    trackStartupTask("加载引擎能力", () => window.miaLoaders.loadEngineCapabilities()),
-    trackStartupTask("加载命令列表", () => window.miaLoaders.loadSlashCommands()),
-    trackStartupTask("扫描本地 Skill", () => window.miaLoaders.loadSkills())
-  ]).then(() => render());
+  return trackStartupTask("加载运行配置", () => Promise.allSettled([
+    window.miaLoaders.loadModelCatalog(),
+    window.miaLoaders.loadCodexModels(),
+    window.miaLoaders.loadEngineCapabilities(),
+    window.miaLoaders.loadSlashCommands()
+  ])).then(() => render());
 }
 
 async function loadTasksFromDaemonForStartup() {
@@ -6103,10 +6102,22 @@ async function initializeRuntime(options = {}) {
     completeCoreStartupProgress(backgroundStartup?.ok !== false);
     return;
   }
-  setTimeout(() => {
-    loadInitialRuntimeData();
-  }, 800);
-  loadTasksFromDaemonForStartup();
+  const scheduleIdle = window.miaIdleScheduler?.schedule;
+  if (typeof scheduleIdle === "function") {
+    scheduleIdle(() => loadInitialRuntimeData(), {
+      delayMs: 1_200,
+      timeoutMs: 3_000,
+      onError: (error) => console.warn("[Mia startup] failed to load runtime data", error)
+    });
+    scheduleIdle(() => loadTasksFromDaemonForStartup(), {
+      delayMs: 2_800,
+      timeoutMs: 4_000,
+      onError: (error) => console.warn("[Mia startup] failed to load tasks", error)
+    });
+  } else {
+    setTimeout(() => loadInitialRuntimeData(), 1_200);
+    setTimeout(() => loadTasksFromDaemonForStartup(), 2_800);
+  }
 }
 
 document.getElementById("groupInfoButton")?.addEventListener("click", () => {
@@ -8324,6 +8335,16 @@ function startAfterFirstPaint() {
   const start = () => {
     try { window.mia?.notifyFirstPaint?.(); } catch { /* main may not expose this in older builds */ }
     const blockStartup = Boolean(window.miaStartupOverlay?.isBlocking?.());
+    const hydrateLottie = () => window.miaLottieIcons?.loadPlayer?.()
+      .then(() => window.miaLottieIcons?.init?.(document))
+      .catch((error) => console.warn("[Mia startup] deferred Lottie load failed", error));
+    if (blockStartup) {
+      hydrateLottie();
+    } else if (typeof window.miaIdleScheduler?.schedule === "function") {
+      window.miaIdleScheduler.schedule(hydrateLottie, { delayMs: 3_500, timeoutMs: 5_000 });
+    } else {
+      setTimeout(hydrateLottie, 3_500);
+    }
     if (blockStartup) window.miaStartupOverlay?.setStatus?.("正在准备 Mia");
     initializeRuntime({ blockStartup }).then(async () => {
       if (!blockStartup) return;
@@ -8354,7 +8375,7 @@ startAfterFirstPaint();
 renderSendButton();
 if (window.miaRuntimeRefreshScheduler?.createRuntimeRefreshScheduler) {
   runtimeRefreshScheduler = window.miaRuntimeRefreshScheduler.createRuntimeRefreshScheduler({
-    intervalMs: 2000,
+    intervalMs: 5000,
     refresh: performRefreshRuntime,
     setInterval: (fn, ms) => window.setInterval(fn, ms),
     clearInterval: (id) => window.clearInterval(id),
@@ -8362,7 +8383,7 @@ if (window.miaRuntimeRefreshScheduler?.createRuntimeRefreshScheduler) {
   });
   runtimeRefreshScheduler.start();
 } else {
-  setInterval(refreshRuntime, 2000);
+  setInterval(refreshRuntime, 5000);
 }
 
 (function wireTrafficLights() {
