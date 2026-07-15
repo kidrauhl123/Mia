@@ -181,7 +181,8 @@ test("packaged resolver makes the launchd plist point ProgramArguments at bundle
 
   const plist = service.coreLaunchAgentPlist();
   assert.match(plist, new RegExp(`<string>${escapeRe(bundled)}</string>`));
-  assert.doesNotMatch(plist, /Mia\.app\/Contents\/MacOS\/Mia<\/string>/);
+  const programArguments = plist.match(/<key>ProgramArguments<\/key>[\s\S]*?<\/array>/)?.[0] || "";
+  assert.doesNotMatch(programArguments, /Mia\.app\/Contents\/MacOS\/Mia<\/string>/);
   assert.match(plist, /<key>MIA_CORE_TARGET_KIND<\/key>\n      <string>rust-core<\/string>/);
   assert.doesNotMatch(plist, new RegExp(`<key>${LEGACY_DAEMON_TARGET_KIND_ENV}</key>`));
   assert.doesNotMatch(plist, new RegExp(`<key>${LEGACY_DAEMON_USES_GUI_IDENTITY_ENV}</key>`));

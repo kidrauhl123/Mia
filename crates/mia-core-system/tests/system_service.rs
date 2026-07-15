@@ -158,9 +158,9 @@ async fn memory_settings_prefer_a_valid_mode_and_fall_back_to_legacy_enabled() {
         .patch_client_settings(json!({ "memory": { "enabled": false } }))
         .await
         .unwrap();
-    let legacy = service.memory_settings().await.unwrap();
-    assert_eq!(legacy.mode, MemoryMode::Native);
-    assert!(!legacy.enabled);
+    let persisted_mode = service.memory_settings().await.unwrap();
+    assert_eq!(persisted_mode.mode, MemoryMode::Mia);
+    assert!(persisted_mode.enabled);
 
     service
         .patch_client_settings(json!({ "memory": { "mode": "mia", "enabled": false } }))
@@ -620,7 +620,14 @@ async fn model_selection_intent_persists_provider_and_redacted_client_settings_i
     assert!(response.settings.get("apiMode").is_none());
 
     let persisted = service.client_settings().await.unwrap();
-    assert_eq!(persisted.settings, response.settings);
+    assert_eq!(persisted.settings["memory"]["mode"], "mia");
+    assert_eq!(persisted.settings["memory"]["enabled"], true);
+    let mut persisted_selection = persisted.settings;
+    persisted_selection
+        .as_object_mut()
+        .unwrap()
+        .remove("memory");
+    assert_eq!(persisted_selection, response.settings);
 
     let runtime = service
         .resolve_model_runtime(

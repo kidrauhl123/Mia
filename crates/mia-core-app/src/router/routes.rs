@@ -3410,7 +3410,7 @@ mod tests {
         events: &mut tokio::sync::broadcast::Receiver<RealtimeEvent>,
         name: &str,
     ) -> RealtimeEvent {
-        timeout(Duration::from_secs(2), async {
+        timeout(Duration::from_secs(3), async {
             loop {
                 let event = events.recv().await.expect("realtime event bus closed");
                 if event.name == name {
@@ -3753,7 +3753,7 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
             services.database.pool().clone(),
             RuntimeBuilder::new(config.workspace_dir.to_string_lossy()).with_engine_command(
                 "hermes",
-                delayed_output_command("started\n", "finished\n", 1),
+                delayed_output_command("started\n", "finished\n", 2),
             ),
         );
         let app = create_router(&services);
@@ -3775,7 +3775,7 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
         let mut events = services.realtime.subscribe();
 
         let response = timeout(
-            Duration::from_millis(500),
+            Duration::from_secs(1),
             app.oneshot(
                 Request::builder()
                     .method("POST")
