@@ -2479,6 +2479,46 @@ test("sendInActiveConversation keeps desktop-local bot history on the visible co
   assert.equal(s.moduleState.messageCache.get("botc_session_probe").messages[0].status, undefined);
 });
 
+test("desktop-local accepted replies without a sequence keep the optimistic message in place", async () => {
+  const s = loadSocial();
+  const conversationId = "botc_local_accept_without_seq";
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{
+    id: conversationId,
+    type: "bot",
+    name: "Codex",
+    decorations: { botId: "codex", sessionId: "local_accept_without_seq", runtimeKind: "desktop-local" }
+  }];
+  s.moduleState.messageCache.set(conversationId, {
+    maxSeq: 8,
+    messages: [{
+      id: "m_previous",
+      seq: 8,
+      sender_kind: "user",
+      sender_ref: "u_me",
+      body_md: "上一条"
+    }]
+  });
+  s.__mockWindow.mia.social = {
+    postConversationMessage: async () => ({
+      ok: true,
+      data: {
+        // The Core async bridge acknowledges the accepted turn but does not
+        // include the eventual timeline sequence in this response.
+        message: { id: "m_accepted", seq: 0, sender_kind: "user", sender_ref: "u_me", body_md: "刚发出的消息" }
+      }
+    })
+  };
+
+  await s.sendInActiveConversation("刚发出的消息");
+
+  const messages = s.moduleState.messageCache.get(conversationId).messages;
+  assert.deepEqual(messages.map((message) => message.id), ["m_previous", "m_accepted"]);
+  assert.equal(messages[1].seq, 8.000001,
+    "a sequence-less accepted reply must not move the entering bubble to the top of the timeline");
+});
+
 test("sendInActiveConversation keeps desktop-local execution available when cloud session sync is offline", async () => {
   const s = loadSocial();
   const calls = [];
@@ -5405,6 +5445,49 @@ test("cloud agent run start waits for real activity before exposing typing state
   s.renderConversationChat(chat);
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /agent-run-status/);
+});
+
+test("an idle cloud run does not rebuild an already-rendered user message", () => {
+  let clears = 0;
+  const conversationId = "botc_idle_run";
+  const chat = {
+    children: [],
+    dataset: {},
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) {
+      clears += 1;
+      this.children = [];
+      this._html = value;
+    },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+    querySelector() { return null; },
+    querySelectorAll() { return []; }
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{ id: conversationId, type: "bot", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set(conversationId, {
+    messages: [{
+      id: "m_user",
+      seq: 1,
+      sender_kind: "user",
+      sender_ref: "u_me",
+      body_md: "刚发出的消息"
+    }],
+    maxSeq: 1
+  });
+
+  s.renderConversationChat(chat);
+  clears = 0;
+  s._internalCtx.cloudRunFor(conversationId, "run_waiting_for_first_event");
+  s.renderConversationChat(chat);
+
+  assert.equal(clears, 0, "a run without visible activity must not remount the pending bubble");
 });
 
 test("cloud agent run cancelling keeps the conversation busy until the terminal event", () => {

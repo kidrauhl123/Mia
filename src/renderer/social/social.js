@@ -247,7 +247,9 @@
   }
 
   function streamSignature(run) {
-    if (!run) return "";
+    // A run with no visible content must not make the chat remount. The user
+    // bubble can still be in its entrance animation when the run is created.
+    if (!streamingRunHasRenderableOutput(run)) return "";
     return jsonSignature({
       runId: run.runId || "",
       botId: run.botId || "",
@@ -4819,6 +4821,13 @@
     const localIdx = entry.messages.findIndex((m) => m.id === localId);
     const localMsg = localIdx >= 0 ? entry.messages[localIdx] : null;
     const existingServerMsg = serverIdx >= 0 ? entry.messages[serverIdx] : null;
+    // Desktop-local Core accepts a turn before its cloud-visible timeline
+    // sequence is known. Its acknowledgement therefore carries seq=0. Keep
+    // the optimistic sequence until a later authoritative backfill arrives;
+    // otherwise sorting moves the entering bubble to the top of the chat.
+    if (localMsg && safeMessageSeq(sentMsg.seq) <= 0) {
+      sentMsg.seq = localMsg.seq;
+    }
     if (
       localMsg
       && sentMsg.sender_kind === conversationKinds().SenderKind.User
